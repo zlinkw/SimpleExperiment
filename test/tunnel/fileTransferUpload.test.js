@@ -1,0 +1,38 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
+
+const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
+const { FileTransferClient } = require("../../dist/tunnel/FileTransferClient.js");
+
+test("file transfer uploads chunks over local HTTP API", async () => {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => raw += chunk);
+    req.on("end", () => {
+      seen.push({ url: req.url, body: raw ? JSON.parse(raw) : {} });
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+    });
+  });
+  await listen(server);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-ul-"));
+  const local = path.join(dir, "in.txt");
+  await fs.writeFile(local, "abcdef", "utf8");
+  const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port, chunkSizeBytes: 3 }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));
+  try {
+    const task = await client.uploadFile(local, "experiments/plans/in.txt");
+    assert.equal(task.status, "completed");
+    assert.equal(seen.filter((item) => item.url === "/api/files/upload-chunk").length, 2);
+    assert.equal(seen[0].url, "/api/files/upload-init");
+    assert.equal(seen.at(-1).url, "/api/files/upload-complete");
+  } finally {
+    server.close();
+  }
+});
+
+function listen(server) { return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); }

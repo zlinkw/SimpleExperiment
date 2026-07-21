@@ -1,0 +1,20 @@
+src/**
+tsconfig.json
+*.tsbuildinfo
+node_modules/**
+!node_modules/.vscode-test/**
+.git/**
+.gitignore
+.local-gpt/**
+.runtime/**
+.vscode/**
+scripts/**
+test/**
+scenarios/**
+*.vsix
+zlk_cluster/logs/**
+zlk_cluster/reports/**
+zlk_cluster/tmp/**
+NO .npmignore
+
+

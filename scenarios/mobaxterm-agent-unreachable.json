@@ -1,0 +1,8 @@
+{
+  "name": "mobaxterm agent unreachable",
+  "servers": [],
+  "steps": [],
+  "expect": {
+    "tunnelHealth": "agent_unreachable"
+  }
+}

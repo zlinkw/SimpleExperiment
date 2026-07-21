@@ -1,0 +1,8 @@
+{
+  "name": "mobaxterm local port closed",
+  "servers": [],
+  "steps": [],
+  "expect": {
+    "tunnelHealth": "local_port_closed"
+  }
+}

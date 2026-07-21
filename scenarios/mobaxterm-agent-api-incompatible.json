@@ -1,0 +1,10 @@
+{
+  "name": "mobaxterm agent api incompatible",
+  "servers": [],
+  "steps": [],
+  "expect": {
+    "probe": "agent_version_mismatch",
+    "action": "upgrade_hub_agent",
+    "fallback": "no_direct_ssh"
+  }
+}

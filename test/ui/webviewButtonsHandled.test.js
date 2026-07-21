@@ -1,0 +1,27 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+test("all visible panel commands have extension handlers", () => {
+  const root = path.join(__dirname, "..", "..");
+  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+
+  const commands = new Set();
+  for (const match of html.matchAll(/data-command="([A-Za-z][A-Za-z0-9]+)"/g)) commands.add(match[1]);
+  for (const match of html.matchAll(/actionButton\("[^"]+",\s*"([^"]+)"/g)) commands.add(match[1]);
+  for (const command of ["selectLogRunKey", "stopExperiment", "retryExperiment", "parseResults", "archiveArtifacts", "deleteArtifacts"]) {
+    commands.add(command);
+  }
+
+  const handled = new Set();
+  for (const match of extension.matchAll(/case "([^"]+)"/g)) handled.add(match[1]);
+  const uiActionBlock = extension.match(/const uiActionCommands = new Set<WebviewActionCommand>\(\[([\s\S]*?)\]\);/);
+  if (uiActionBlock) {
+    for (const match of uiActionBlock[1].matchAll(/"([A-Za-z][A-Za-z0-9]+)"/g)) handled.add(match[1]);
+  }
+
+  const missing = [...commands].filter((command) => !handled.has(command)).sort();
+  assert.deepEqual(missing, []);
+});

@@ -1,0 +1,567 @@
+{
+	"name": "simple-experiment",
+	"displayName": "SimpleExperiment",
+	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
+	"version": "0.2.0",
+	"publisher": "simple-local",
+	"extensionDependencies": [
+		"simple-local.simple-sftp"
+	],
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.100.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onStartupFinished",
+		"onView:zlkCluster.panel",
+		"onCommand:zlkCluster.openPanel",
+		"onCommand:zlkCluster.quickSetup",
+		"onCommand:zlkCluster.bootstrapProject",
+		"onCommand:zlkCluster.prepareAgents",
+		"onCommand:simpleExperiment.openSetupGuide",
+		"onCommand:zlkCluster.configureXshellSavedSessions",
+		"onCommand:zlkCluster.writeXshellAgentStartupCommands",
+		"onCommand:zlkCluster.configureWorkerTunnels",
+		"onCommand:zlkCluster.configureTunnelPorts",
+		"onCommand:zlkCluster.configureXshellRealtimeTunnel",
+		"onCommand:zlkCluster.startHubTunnel",
+		"onCommand:zlkCluster.startWorkerTunnel",
+		"onCommand:zlkCluster.startXshellRealtimeTunnel",
+		"onCommand:zlkCluster.startAllXshellRealtimeTunnels",
+		"onCommand:zlkCluster.startAllXshellConnections",
+		"onCommand:zlkCluster.testAllTunnels",
+		"onCommand:zlkCluster.showTunnelEndpointRegistry",
+		"onCommand:zlkCluster.testXshellTunnel",
+		"onCommand:zlkCluster.restartRealtimeStream",
+		"onCommand:zlkCluster.pauseRealtimeStream",
+		"onCommand:zlkCluster.resumeRealtimeStream",
+		"onCommand:zlkCluster.pauseAllNetworkActivity",
+		"onCommand:zlkCluster.generateXshellTunnelScript",
+		"onCommand:zlkCluster.openTunnelStatus",
+		"onCommand:zlkCluster.runXshellRealIntegrationCheck",
+		"onCommand:zlkCluster.manualRefresh",
+		"onCommand:zlkCluster.importOfflineBundle"
+	],
+	"main": "./dist/extension.js",
+	"bin": {
+		"simple-experiment": "./dist/cli.js",
+		"simple-experiment-run": "./dist/runCli.js",
+		"zlk-cluster": "./dist/cli.js",
+		"zlk-run": "./dist/runCli.js"
+	},
+	"contributes": {
+		"commands": [
+			{
+				"command": "zlkCluster.openPanel",
+				"title": "SimpleExperiment：打开面板",
+				"icon": "$(server-environment)"
+			},
+			{
+				"command": "zlkCluster.quickSetup",
+				"title": "SimpleExperiment：一键配置向导",
+				"icon": "$(wand)"
+			},
+			{
+				"command": "zlkCluster.bootstrapProject",
+				"title": "SimpleExperiment：接入当前项目",
+				"icon": "$(rocket)"
+			},
+			{
+				"command": "zlkCluster.prepareAgents",
+				"title": "SimpleExperiment：准备 Agent 并启动",
+				"icon": "$(server-process)"
+			},
+			{
+				"command": "simpleExperiment.openSetupGuide",
+				"title": "SimpleExperiment：打开配置说明",
+				"icon": "$(book)"
+			},
+			{
+				"command": "zlkCluster.configureXshellSavedSessions",
+				"title": "SimpleExperiment：配置 Xshell 会话文件",
+				"icon": "$(bookmark)"
+			},
+			{
+				"command": "zlkCluster.writeXshellAgentStartupCommands",
+				"title": "SimpleExperiment：写入 Agent 自启动 RemoteCommand",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "zlkCluster.configureWorkerTunnels",
+				"title": "SimpleExperiment：配置 Worker 隧道",
+				"icon": "$(server-process)"
+			},
+			{
+				"command": "zlkCluster.configureTunnelPorts",
+				"title": "SimpleExperiment：配置隧道端口",
+				"icon": "$(ports-view-icon)"
+			},
+			{
+				"command": "zlkCluster.configureXshellRealtimeTunnel",
+				"title": "SimpleExperiment：旧自动隧道配置（不推荐）",
+				"icon": "$(settings-gear)"
+			},
+			{
+				"command": "zlkCluster.startHubTunnel",
+				"title": "SimpleExperiment：启动 Hub 隧道",
+				"icon": "$(debug-start)"
+			},
+			{
+				"command": "zlkCluster.startWorkerTunnel",
+				"title": "SimpleExperiment：启动 Worker 隧道",
+				"icon": "$(debug-start)"
+			},
+			{
+				"command": "zlkCluster.startXshellRealtimeTunnel",
+				"title": "SimpleExperiment：启动 Hub Xshell 会话",
+				"icon": "$(debug-start)"
+			},
+			{
+				"command": "zlkCluster.startAllXshellRealtimeTunnels",
+				"title": "SimpleExperiment：启动全部 Xshell 会话",
+				"icon": "$(run-all)"
+			},
+			{
+				"command": "zlkCluster.startAllXshellConnections",
+				"title": "SimpleExperiment：启动全部 Xshell 连接",
+				"icon": "$(run-all)"
+			},
+			{
+				"command": "zlkCluster.testAllTunnels",
+				"title": "SimpleExperiment：检测全部隧道",
+				"icon": "$(pulse)"
+			},
+			{
+				"command": "zlkCluster.showTunnelEndpointRegistry",
+				"title": "SimpleExperiment：显示隧道端点清单",
+				"icon": "$(list-tree)"
+			},
+			{
+				"command": "zlkCluster.testXshellTunnel",
+				"title": "SimpleExperiment：检测 Xshell 隧道",
+				"icon": "$(pulse)"
+			},
+			{
+				"command": "zlkCluster.restartRealtimeStream",
+				"title": "SimpleExperiment：重启实时流",
+				"icon": "$(debug-restart)"
+			},
+			{
+				"command": "zlkCluster.pauseRealtimeStream",
+				"title": "SimpleExperiment：暂停实时流",
+				"icon": "$(debug-pause)"
+			},
+			{
+				"command": "zlkCluster.resumeRealtimeStream",
+				"title": "SimpleExperiment：恢复实时流",
+				"icon": "$(debug-continue)"
+			},
+			{
+				"command": "zlkCluster.pauseAllNetworkActivity",
+				"title": "SimpleExperiment：暂停全部网络活动",
+				"icon": "$(circle-slash)"
+			},
+			{
+				"command": "zlkCluster.generateXshellTunnelScript",
+				"title": "SimpleExperiment：生成 Xshell 会话启动脚本",
+				"icon": "$(file-code)"
+			},
+			{
+				"command": "zlkCluster.openTunnelStatus",
+				"title": "SimpleExperiment：打开隧道状态",
+				"icon": "$(json)"
+			},
+			{
+				"command": "zlkCluster.runXshellRealIntegrationCheck",
+				"title": "SimpleExperiment：运行 Xshell 真实对接检测",
+				"icon": "$(checklist)"
+			},
+			{
+				"command": "zlkCluster.manualRefresh",
+				"title": "SimpleExperiment：手动快照",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "zlkCluster.importOfflineBundle",
+				"title": "SimpleExperiment：导入离线包",
+				"icon": "$(archive)"
+			}
+		],
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "zlkCluster.writeXshellAgentStartupCommands",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.configureXshellRealtimeTunnel",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.startHubTunnel",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.startWorkerTunnel",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.startXshellRealtimeTunnel",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.startAllXshellRealtimeTunnels",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.showTunnelEndpointRegistry",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.testXshellTunnel",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.restartRealtimeStream",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.pauseRealtimeStream",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.resumeRealtimeStream",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.pauseAllNetworkActivity",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.generateXshellTunnelScript",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.openTunnelStatus",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.runXshellRealIntegrationCheck",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.manualRefresh",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				},
+				{
+					"command": "zlkCluster.importOfflineBundle",
+					"when": "config.zlkCluster.showAdvancedCommands"
+				}
+			]
+		},
+		"viewsContainers": {
+			"secondarySidebar": [
+				{
+					"id": "zlkCluster",
+					"title": "SimpleExperiment",
+					"icon": "$(server-environment)"
+				}
+			]
+		},
+		"views": {
+			"zlkCluster": [
+				{
+					"type": "webview",
+					"id": "zlkCluster.panel",
+					"name": "集群",
+					"icon": "$(server-environment)"
+				}
+			]
+		},
+		"configuration": {
+			"title": "SimpleExperiment",
+			"properties": {
+				"zlkCluster.showAdvancedCommands": {
+					"type": "boolean",
+					"default": false,
+					"scope": "application",
+					"description": "在命令面板中显示旧兼容、单端点、实时流和诊断恢复命令。关闭时不删除命令或面板入口。"
+				},
+				"zlkCluster.planDir": {
+					"type": "string",
+					"default": "experiments/plans",
+					"scope": "resource",
+					"description": "相对于工作区根目录的实验计划目录。"
+				},
+				"zlkCluster.connectionMode": {
+					"type": "string",
+					"default": "xshell_tunnel_realtime",
+					"enum": [
+						"xshell_tunnel_realtime",
+						"offline_import"
+					],
+					"scope": "application",
+					"description": "连接模式。Xshell 实时隧道模式只访问 127.0.0.1 本地端点。"
+				},
+				"zlkCluster.tunnel.localForwardPort": {
+					"type": "number",
+					"default": 18765,
+					"minimum": 1024,
+					"maximum": 65535,
+					"scope": "application",
+					"description": "Xshell 会话在 127.0.0.1 上监听的本地转发端口。"
+				},
+				"zlkCluster.tunnel.remoteAgentPort": {
+					"type": "number",
+					"default": 18765,
+					"minimum": 1024,
+					"maximum": 65535,
+					"scope": "application",
+					"description": "Hub 上 127.0.0.1 监听的 Hub Agent 端口。"
+				},
+				"zlkCluster.tunnel.agentToken": {
+					"type": "string",
+					"default": "",
+					"scope": "application",
+					"description": "可选 Hub Agent token。诊断信息会自动脱敏。"
+				},
+				"zlkCluster.tunnel.hubDisplayName": {
+					"type": "string",
+					"default": "",
+					"scope": "application",
+					"description": "Hub 在插件面板中的显示名称。为空时使用 Xshell 会话名、SSH 别名或主机名。"
+				},
+				"zlkCluster.tunnel.condaEnv": {
+					"type": "string",
+					"default": "",
+					"scope": "application",
+					"description": "远端 Agent 和计划任务使用的 Conda 环境名。留空时不激活 Conda，使用服务器系统 Python。"
+				},
+				"zlkCluster.tunnel.workerRealtimeMode": {
+					"type": "string",
+					"default": "hub_only",
+					"enum": [
+						"hub_only",
+						"hub_plus_workers"
+					],
+					"scope": "application",
+					"description": "实时数据来源模式。hub_plus_workers 会同时连接已配置的 Worker 本地隧道。"
+				},
+				"zlkCluster.tunnel.workerTunnels": {
+					"type": "array",
+					"default": [],
+					"scope": "application",
+					"items": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"displayName": {
+								"type": "string"
+							},
+							"hubHost": {
+								"type": "string"
+							},
+							"hubUser": {
+								"type": "string"
+							},
+							"hubSshPort": {
+								"type": "number"
+							},
+							"localForwardPort": {
+								"type": "number"
+							},
+							"remoteAgentPort": {
+								"type": "number"
+							},
+							"sshConfigAlias": {
+								"type": "string"
+							},
+							"maxConcurrentGpus": {
+								"type": "number",
+								"default": 1
+							},
+							"allowedGpuIds": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"default": []
+							},
+							"privateKeyPath": {
+								"type": "string"
+							},
+							"authMethod": {
+								"type": "string",
+								"enum": [
+									"password",
+									"key",
+									"auto"
+								]
+							},
+							"enabled": {
+								"type": "boolean"
+							}
+						}
+					},
+					"description": "用于本地实时聚合的 Worker Xshell 隧道端点。"
+				},
+				"zlkCluster.scheduler.pollSeconds": {
+					"type": "number",
+					"default": 60,
+					"minimum": 60,
+					"scope": "application",
+					"description": "Hub scheduler 基础调度轮询间隔秒数；只影响 queued 队列消费，实际间隔为 pollSeconds + random(0, jitterSeconds)。"
+				},
+				"zlkCluster.scheduler.jitterSeconds": {
+					"type": "number",
+					"default": 30,
+					"minimum": 0,
+					"scope": "application",
+					"description": "正向随机抖动秒数，用于 scheduler poll、Local/Worker availability 自动上报；默认 30 表示配置 60s 时实际为 60-90s。"
+				},
+				"zlkCluster.scheduler.workerStatusTtlSeconds": {
+					"type": "number",
+					"default": 180,
+					"minimum": 60,
+					"scope": "application",
+					"description": "Hub 本地 Worker availability cache 有效期秒数；TTL 是缓存过期阈值，不是轮询间隔。"
+				},
+				"zlkCluster.scheduler.localAvailabilityPushSeconds": {
+					"type": "number",
+					"default": 60,
+					"minimum": 60,
+					"scope": "application",
+					"description": "Local VS Code 作为状态汇总源时，向 Hub 批量上报 Worker GPU availability 的基础间隔秒数；实际间隔加正向 jitter。"
+				},
+				"zlkCluster.scheduler.workerAvailabilityPushSeconds": {
+					"type": "number",
+					"default": 60,
+					"minimum": 60,
+					"scope": "application",
+					"description": "Worker Agent 通过 Worker→Hub uplink 推送 GPU availability 的基础间隔秒数；实际间隔加正向 jitter。"
+				},
+				"zlkCluster.scheduler.operationEventMaxDelayMs": {
+					"type": "number",
+					"default": 1000,
+					"minimum": 100,
+					"scope": "application",
+					"description": "Worker→Hub 和 Worker→Local 实时操作事件最大合并延迟毫秒；影响删除、停止、归档、任务状态等事件，不受 GPU availability 低频参数影响。"
+				},
+				"zlkCluster.scheduler.workerActionMinIntervalMs": {
+					"type": "number",
+					"default": 1500,
+					"minimum": 500,
+					"scope": "application",
+					"description": "Hub 对单个 Worker 控制操作的最小间隔毫秒数。"
+				},
+				"zlkCluster.scheduler.workerActionMaxConcurrent": {
+					"type": "number",
+					"default": 1,
+					"minimum": 1,
+					"scope": "application",
+					"description": "Hub 对 Worker 控制操作的最大并发数。"
+				},
+				"zlkCluster.gpu.currentUser": {
+					"type": "string",
+					"default": "",
+					"scope": "application",
+					"description": "用于在 GPU 状态面板高亮自己进程的服务器用户名。为空时不会按本机用户名自动判定。"
+				},
+				"zlkCluster.gpu.currentUserAliases": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"scope": "application",
+					"description": "用于高亮自己 GPU 进程的服务器用户名别名。"
+				},
+				"zlkCluster.gpu.myCommandKeywords": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"scope": "application",
+					"description": "按命令行关键词辅助高亮自己的 GPU 进程，例如实验目录、项目名、conda 环境名或脚本名。"
+				},
+				"zlkCluster.gpu.myProcessMatchMode": {
+					"type": "string",
+					"default": "both",
+					"enum": [
+						"username",
+						"command_contains",
+						"both"
+					],
+					"scope": "application",
+					"description": "GPU 进程归属高亮方式。username 按用户名，command_contains 按命令关键词，both 任一匹配。"
+				},
+				"zlkCluster.ppt.chartType": {
+					"type": "string",
+					"default": "auto",
+					"scope": "application",
+					"description": "绘图类型。默认 auto，由 PPT 插件按结果契约自动选择。"
+				},
+				"zlkCluster.ppt.styleMode": {
+					"type": "string",
+					"default": "activePpt",
+					"scope": "application",
+					"description": "绘图样式模式。默认 activePpt，使用 PPT 插件当前正在使用的绘图方案。"
+				},
+				"zlkCluster.manualPanelLayout": {
+					"type": "boolean",
+					"default": false,
+					"scope": "application",
+					"description": "启用 SimpleExperiment 面板分区的手动排序。"
+				},
+				"zlkCluster.panelSectionOrder": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"scope": "application",
+					"description": "SimpleExperiment 面板分区的手动顺序。"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"build": "npm run compact:plan && npm run typecheck && node scripts/write-agent-runtime.js",
+		"watch": "..\\local-chatgpt-bridge\\node_modules\\.bin\\tsc.cmd -watch -p .",
+		"typecheck": "..\\local-chatgpt-bridge\\node_modules\\.bin\\tsc.cmd -p . --pretty false",
+		"lint": "node scripts/lint-smoke.js",
+		"cleanup": "node scripts/compact-target-mode-plan.js && node scripts/clean-generated-dirs.js",
+		"test": "npm run build && node --test test/*.test.js test/**/*.test.js",
+		"test:features": "npm run build && node --test test/features/*.test.js",
+		"test:scenarios": "npm run test:features",
+		"test:no-direct-ssh": "npm run build && node --test test/tunnel/noDirectSsh.test.js",
+		"test:xshell-realtime": "npm run build && node --test test/tunnel/xshellRealtimeSetup.test.js test/tunnel/realtime*.test.js test/tunnel/reconnectSinceSeq.test.js test/tunnel/journalGapSnapshot.test.js test/tunnel/fileChangedEvent.test.js test/agent/realtimeGatewayApi.test.js",
+		"test:file-transfer": "npm run build && node --test test/tunnel/fileTransfer*.test.js test/tunnel/fileApiSafePath.test.js test/fileTransfer/*.test.js",
+		"test:xshell-integration": "npm run build && node --test test/tunnel/xshellCommandBuilder.test.js test/tunnel/xshellExecutableDetection.test.js test/tunnel/xshellPortProbe.test.js test/tunnel/xshellIntegrationCheck.test.js test/tunnel/agentCapabilities.test.js test/tunnel/apiVersionCompatibility.test.js",
+		"test:multi-tunnel": "npm run build && node --test test/tunnel/tunnelPortAllocator.test.js test/tunnel/tunnelPortConflict.test.js test/tunnel/tunnelEndpointRegistry.test.js test/tunnel/multiXshellCommandBuilder.test.js test/tunnel/startAllTunnelsPortCheck.test.js test/tunnel/multiWorkerReconnectIsolation.test.js test/tunnel/multiTunnelConfigMigration.test.js test/ui/multiTunnelPortAssignmentsRender.test.js test/ui/hubWorkerTelemetryStatusRender.test.js",
+		"test:port-allocation": "npm run build && node --test test/tunnel/tunnelPortAllocator.test.js test/tunnel/tunnelPortConflict.test.js",
+		"test:hub-worker-boundary": "npm run build && node --test test/tunnel/workerTelemetryApiContract.test.js test/tunnel/hubControlApiContract.test.js test/tunnel/workerTelemetryNoFileActionRequired.test.js test/tunnel/authorityMergeWorkerGpuPreferred.test.js test/tunnel/authorityMergeHubSchedulerAuthoritative.test.js test/tunnel/workerTaskTelemetryEnrichment.test.js",
+		"test:tunnel-migration": "npm run build && node --test test/migration/remainingRemoteFeatureAudit.test.js test/tunnel/capabilityDrivenUi.test.js test/tunnel/tunnelOnlyOperationQueue.test.js test/tunnel/noDirectRemoteActions.test.js test/tunnel/replaceGpuSchedulerLiveOutput.test.js test/tunnel/replaceRunPlanStopRetry.test.js test/tunnel/replaceArchiveSyncDelete.test.js test/tunnel/replaceRuntimeDiagnostics.test.js test/tunnel/replaceResultsAnalysis.test.js test/tunnel/legacyConfigMigration.test.js test/tunnel/noForbiddenSourceTerms.test.js",
+		"package": "npm run build && npm run compact:plan && npm exec -- @vscode/vsce package --no-dependencies --allow-missing-repository",
+		"package:public": "powershell -ExecutionPolicy Bypass -File scripts/package-public.ps1",
+		"smoke": "npm run build && npm run lint && node -c dist/extension.js && node -c dist/panel.js && node dist/cli.js status && npm run package",
+		"acceptance": "node scripts/acceptance.js",
+		"compact:plan": "node scripts/compact-target-mode-plan.js"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"@types/vscode": "^1.100.0",
+		"typescript": "^5.8.3"
+	},
+	"__metadata": {
+		"installedTimestamp": 1784469677896,
+		"targetPlatform": "undefined",
+		"size": 3660360
+	}
+}

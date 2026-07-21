@@ -1,0 +1,20 @@
+# Local GPT workspace data
+.local-gpt/
+
+# VS Code workspace settings (machine-local)
+.vscode/
+
+# Runtime scratch / build artifacts
+.runtime/
+
+# Transient scratch scripts/logs (ad-hoc one-off files)
+_*.py
+_*.js
+_*.txt
+_*.md
+_*.html
+_run_test_full.txt
+
+# Old build vsix
+zlk-cluster-orchestrator-0.1.5*.vsix
+dist/runtime/__pycache__/

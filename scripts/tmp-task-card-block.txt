@@ -1,0 +1,39 @@
+len 2590
+hasMeta true
+hasPending true
+function renderTaskCard(state, row, selected) {
+      const key = taskTargetKey(row);
+      const checked = isTaskRowSelected(row, selected);
+      const pending = taskActionPending(row);
+      const pendingDelete = Boolean(taskActionPending(row, "deleteArtifacts"));
+      const actions = [
+        ["停止", "stopExperiment", ["running", "testing"].includes(row.status), true],
+        ["重试", "retryExperiment", ["failed", "stopped"].includes(row.status), true],
+        ["解析", "parseResults", true, false],
+        ["归档", "archiveArtifacts", ["completed", "failed"].includes(row.status), true],
+        ["删除", "deleteArtifacts", true, false, true],
+        ["打开日志", "selectLogRunKey", Boolean(key), false],
+        ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
+      ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
+      const pendingBadge = pending ? '<span class="taskActionPending">' + loadingPrefix(true) + esc(pendingLabel(pending)) + '</span>' : "";
+      return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '">' +
+        '<div class="taskCardHead">' +
+          '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '"' + (checked ? " checked" : "") + '>' +
+          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '">' + esc(row.status) + '</span>' + pendingBadge + '</div>' +
+          '<div class="taskActions">' + actions + '</div>' +
+        '</div>' +
+        '<div class="taskMetaGrid">' +
+          taskMetric("计划", row.plan) +
+          taskMetric("runKey", row.runKey) +
+          taskMetric("Worker", workerName(row.serverId)) +
+          taskMetric("GPU", arrayText(row.gpuIds)) +
+          taskMetric("耗时", row.duration) +
+          taskMetric("进度", row.progress) +
+        '</div>' +
+        renderTaskLogDetails(state, row) +
+      '</div>';
+    }
+
+    
+
+

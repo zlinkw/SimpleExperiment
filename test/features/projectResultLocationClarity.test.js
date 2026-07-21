@@ -1,0 +1,181 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const vm = require("node:vm");
+
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+
+function renderPanelHtmlFromSource(source) {
+  const cleaned = source
+    .replace(/^\/\/ @ts-nocheck\r?\n/, "")
+    .replace(/^"use strict";\r?\n/, "")
+    .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
+    .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
+    .replace(/export function renderPanelHtml/, "function renderPanelHtml");
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
+  return sandbox.result;
+}
+
+function extractScript(html) {
+  const start = html.indexOf("<script");
+  const gt = html.indexOf(">", start);
+  const end = html.indexOf("</script>", gt);
+  assert.ok(start >= 0 && gt >= 0 && end > gt, "script tag missing");
+  return html.slice(gt + 1, end);
+}
+
+const panelScript = extractScript(renderPanelHtmlFromSource(panel));
+
+function extractFunction(name) {
+  const start = panelScript.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `missing function ${name}`);
+  const body = panelScript.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < panelScript.length; index += 1) {
+    if (panelScript[index] === "{") depth += 1;
+    if (panelScript[index] === "}") depth -= 1;
+    if (depth === 0) return panelScript.slice(start, index + 1);
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+function extractSourceFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `missing function ${name}`);
+  const body = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+function resultLocation(project, meta, plan) {
+  const sandbox = {
+    asArray(value) {
+      return Array.isArray(value) ? value : (!value || typeof value !== "object" ? [] : Object.values(value));
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction("uniqueText"),
+    extractFunction("isParseableResultCandidate"),
+    extractFunction("planOutputCandidates"),
+    extractFunction("planOutputEvidenceCandidates"),
+    extractFunction("adapterRuleResultCandidates"),
+    extractFunction("projectResultLocation"),
+    "this.check = projectResultLocation;",
+  ].join("\n"), sandbox);
+  return JSON.parse(JSON.stringify(sandbox.check(project, meta, plan)));
+}
+
+function panelPreviewScope(previews, plan, rules) {
+  const sandbox = {
+    asArray(value) { return Array.isArray(value) ? value : []; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction("uniqueText"),
+    extractFunction("isParseableResultCandidate"),
+    extractFunction("planOutputCandidates"),
+    extractFunction("planOutputEvidenceCandidates"),
+    extractFunction("adapterRuleResultCandidates"),
+    extractFunction("resultPreviewRegexEscape"),
+    extractFunction("resultCandidatePatternMatchesFile"),
+    extractFunction("planScopedResultParsePreviews"),
+    "this.check = planScopedResultParsePreviews;",
+  ].join("\n"), sandbox);
+  return JSON.parse(JSON.stringify(sandbox.check(previews, plan, rules)));
+}
+
+function extensionPreviewScope(previews, plan, rules) {
+  const sandbox = {
+    path,
+    escapeRegExp(value) { return String(value || "").replace(/[.*+?^{}$()|[\]\\]/g, "\\$&"); },
+    uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
+    planOutputEvidenceCandidates(item) { return Array.isArray((item || {}).outputCandidates) ? item.outputCandidates : []; },
+    adapterRuleResultCandidates(item) { return [
+      ...((item || {}).candidateCsv || []),
+      ...((item || {}).candidateJson || []),
+      ...((item || {}).consoleLogs || []),
+      ...((item || {}).textLogs || []),
+    ]; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractSourceFunction(extension, "resultCandidatePatternMatchesFile"),
+    extractSourceFunction(extension, "planScopedResultParsePreviews"),
+    "this.check = planScopedResultParsePreviews;",
+  ].join("\n"), sandbox);
+  return JSON.parse(JSON.stringify(sandbox.check(previews, plan, rules)));
+}
+
+test("project result location prefers selected Plan and rejects metadata placeholders", () => {
+  const location = resultLocation({
+    resultFiles: ["work_dirs/old/results.csv"],
+    adapterRules: { candidateCsv: ["jobs.csv", "work_dirs/rules/scores.csv"] },
+  }, {}, {
+    outputCandidates: ["status.json", "work_dirs/current/metrics.json"],
+  });
+  assert.equal(location.path, "work_dirs/current/metrics.json");
+  assert.equal(location.source, "当前 Plan");
+  assert.match(location.summary, /work_dirs\/current\/metrics\.json/);
+  assert.doesNotMatch(location.summary, /status\.json|jobs\.csv/);
+});
+
+test("project result location falls back to adapter rules then actual results", () => {
+  const adapter = resultLocation({
+    adapterRules: { candidateJson: ["artifact_manifest.json", "outputs/metrics.json"] },
+    resultFiles: ["outputs/actual.csv"],
+  }, {}, {});
+  assert.equal(adapter.path, "outputs/metrics.json");
+  assert.equal(adapter.source, "接入规则");
+
+  const actual = resultLocation({ resultFiles: ["env_snapshot.json", "outputs/actual.csv"] }, {}, {});
+  assert.equal(actual.path, "outputs/actual.csv");
+  assert.equal(actual.source, "已发现结果");
+});
+
+test("project result location never invents metrics_summary.csv", () => {
+  assert.deepEqual(resultLocation({}, {}, {}), {
+    path: "",
+    count: 0,
+    source: "",
+    summary: "未声明可解析结果位置",
+  });
+  assert.match(panel, /projectQuickRow\("结果位置", resultLocation\.summary/);
+  assert.match(panel, /当前 Plan 已声明输出，无需额外模板/);
+  assert.match(panel, /已识别" \+ resultLocation\.source \+ "，可按需保存接入模板/);
+  assert.match(panel, /resultLocation\.path && outputGate\.ok \? "status-completed" : "status-warning"/);
+  assert.doesNotMatch(panel, /const resultPath = [^;]*\|\| "metrics_summary\.csv"/);
+});
+
+test("local result previews stay scoped to the selected Plan and explicit project rules", () => {
+  const previews = [
+    { file: "work_dirs/alpha/base/metrics.csv", parseable: true, records: 2 },
+    { file: "work_dirs/beta/base/metrics.csv", parseable: true, records: 3 },
+    { file: "work_dirs/alpha/base/stderr.log", parseable: true, records: 1 },
+    { file: "shared/reference.csv", parseable: true, records: 1 },
+  ];
+  const plan = {
+    planFile: "experiments/plans/alpha.yaml",
+    suite: "alpha",
+    outputCandidates: ["work_dirs/{suite}/{case}/metrics.csv", "{output_dir}/stderr.log"],
+  };
+  const rules = { candidateCsv: ["shared/*.csv"] };
+  const expectedFiles = ["work_dirs/alpha/base/metrics.csv", "work_dirs/alpha/base/stderr.log", "shared/reference.csv"];
+  for (const scope of [panelPreviewScope(previews, plan, rules), extensionPreviewScope(previews, plan, rules)]) {
+    assert.deepEqual(scope.items.map((item) => item.file), expectedFiles);
+    assert.equal(scope.hiddenCount, 1);
+    assert.equal(scope.scoped, true);
+  }
+  assert.match(panel, /当前 Plan ' \+ matched\.length/);
+  assert.match(panel, /隐藏其他 ' \+ normalized\.hiddenCount/);
+  assert.match(extension, /planScopedResultParsePreviews\(arrayFromRecord\(project \|\| \{\}, "resultParsePreviews"\), plan, rules\)/);
+});

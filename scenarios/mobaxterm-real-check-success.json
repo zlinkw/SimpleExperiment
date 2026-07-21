@@ -1,0 +1,10 @@
+{
+  "name": "mobaxterm real integration check success",
+  "servers": [],
+  "steps": [],
+  "expect": {
+    "connectionMode": "mobaxterm_tunnel_realtime",
+    "probe": "ok",
+    "capabilities": ["health", "sseEvents", "fileList", "fileDownload", "fileUploadChunk"]
+  }
+}

@@ -1,0 +1,27 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const { CLUSTER_AGENT_RUNTIME } = require("../../dist/clusterAgentRuntime.js");
+
+test("hub agent runtime exposes localhost HTTP API contract", () => {
+  for (const route of [
+    "/api/health",
+    "/api/snapshot",
+    "/api/gpu",
+    "/api/scheduler",
+    "/api/traces",
+    "/api/results/summary",
+    "/api/diagnostics",
+    "/api/audit/tail",
+    "/api/actions/run-plan",
+    "/api/actions/stop-experiment",
+    "/api/actions/parse-results",
+    "/api/actions/refresh-results",
+    "/api/actions/self-check",
+  ]) {
+    assert.match(CLUSTER_AGENT_RUNTIME, new RegExp(route.replace(/[/-]/g, (ch) => `\\${ch}`)));
+  }
+  assert.match(CLUSTER_AGENT_RUNTIME, /args\.host != "127\.0\.0\.1"/);
+  assert.match(CLUSTER_AGENT_RUNTIME, /X-ZLK-Agent-Token/);
+  assert.doesNotMatch(CLUSTER_AGENT_RUNTIME, /ControlMaster|ControlPath/);
+});

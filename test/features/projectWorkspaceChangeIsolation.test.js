@@ -1,0 +1,115 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
+const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
+
+function methodBody(name, nextName) {
+  const start = source.indexOf(`    ${name}(`);
+  const end = source.indexOf(`    ${nextName}(`, start + 1);
+  assert.ok(start >= 0 && end > start, `missing ${name}`);
+  return source.slice(start, end);
+}
+
+test("workspace folder changes reload isolated project context", () => {
+  assert.match(source, /onDidChangeWorkspaceFolders\(\(\) => void provider\?\.handleWorkspaceFoldersChanged\(\)\)/);
+  const handler = methodBody("handleWorkspaceFoldersChanged", "async reloadProjectContextAfterWorkspaceChange");
+  const flow = methodBody("async reloadProjectContextAfterWorkspaceChange", "resetProjectContextInMemory");
+  const reset = methodBody("resetProjectContextInMemory", "async migrateLegacyProjectUiStateFromVsCode");
+  assert.match(handler, /previous\.catch\(\(\) => undefined\)[\s\S]*\.then\(\(\) => this\.reloadProjectContextAfterWorkspaceChange\(\)\)/);
+  assert.match(handler, /recordActionError\(\{ command: "workspaceChanged"/);
+  assert.match(handler, /this\.workspaceChangePromise === current/);
+  assert.ok(flow.indexOf("resetProjectContextInMemory()") < flow.indexOf("resetClient()"));
+  assert.ok(flow.indexOf("resetClient()") < flow.indexOf("bootstrapProjectLocalUiState()"));
+  assert.ok(flow.indexOf("bootstrapProjectLocalUiState()") < flow.indexOf("refreshLocalPlanMetadata"));
+  assert.match(flow, /ensureSelectedPlanFileWatchers\("workspace folders changed"\)/);
+  assert.match(flow, /testTunnel\(false\)/);
+  assert.match(flow, /postState\(true\)/);
+
+  for (const pattern of [
+    /projectContextGeneration \+= 1/,
+    /selectedPlanId = undefined/,
+    /planFileInput = undefined/,
+    /selectedExperimentIds\.clear\(\)/,
+    /selectedRunKeys\.clear\(\)/,
+    /selectedArchiveKeys\.clear\(\)/,
+    /selectedTaskUiKeys\.clear\(\)/,
+    /offlineBundle = undefined/,
+    /resultsSummary = undefined/,
+    /projectPptPlotConfig = undefined/,
+    /projectUiLayout = undefined/,
+    /localOperations = \{\}/,
+    /lastCodeSyncState = \{\}/,
+    /confirmedRemotePaths = \[\]/,
+    /confirmedPptPaths = \[\]/,
+    /lastSnapshot = undefined/,
+    /lastRealtimeState = undefined/,
+    /lastProbe = undefined/,
+    /lastWorkerProbes = \{\}/,
+  ]) assert.match(reset, pattern);
+});
+
+test("workspace reset precedes project loaders and stale scans cannot win", () => {
+  const flow = methodBody("async reloadProjectContextAfterWorkspaceChange", "resetProjectContextInMemory");
+  assert.ok(flow.indexOf("resetProjectContextInMemory()") < flow.indexOf("bootstrapProjectLocalUiState()"));
+  assert.match(source, /generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/);
+  assert.match(source, /if \(this\.localPlanMetadataRefreshPromise === refresh\)/);
+  assert.ok([...source.matchAll(/generation !== this\.projectContextGeneration/g)].length >= 6);
+  assert.match(source, /const summary = await this\.client\.getResultsSummary\(planFile\);\s*if \(generation !== this\.projectContextGeneration\)\s*return;\s*this\.resultsSummary = summary/);
+  assert.match(source, /postAction\(action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration/);
+  assert.match(source, /postWorkerAction\(workerId, action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration/);
+  assert.match(readme, /切换工作区目录.*清空上一项目/);
+  assert.match(guide, /切换工作区目录.*重新加载/);
+});
+
+test("stale project-local state reads cannot overwrite the new workspace", () => {
+  const bootstrap = methodBody("async bootstrapProjectLocalUiState", "captureProjectContext");
+  const reader = methodBody("async readCurrentProjectState", "handleWorkspaceFoldersChanged");
+  assert.match(bootstrap, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.match(bootstrap, /projectContextIsCurrent\(projectContext\)[\s\S]*migrateLegacyProjectUiStateFromVsCode\(projectContext\)/);
+  assert.match(reader, /const context = this\.captureProjectContext\(\)/);
+  assert.match(reader, /current: this\.projectContextIsCurrent\(context\)/);
+
+  for (const stateReader of [
+    "readProjectPlanSelectionState",
+    "readProjectTaskSelectionState",
+    "readProjectOfflineBundleState",
+    "readProjectActionErrorsState",
+    "readProjectPptPlotConfigState",
+    "readProjectUiLayoutState",
+    "readProjectDebugBundleState",
+    "readProjectCodeSyncState",
+    "readProjectRemotePathConfirmationsState",
+    "readProjectPptPathConfirmationsState",
+    "readProjectLocalOperationsState",
+    "readProjectLocalPlanMetadataState",
+  ]) {
+    assert.match(source, new RegExp(`readCurrentProjectState\\(${stateReader}\\)`), stateReader);
+    assert.doesNotMatch(source, new RegExp(`${stateReader}\\(workspaceRoot\\(\\)\\)`), stateReader);
+  }
+
+  const migration = methodBody("async migrateLegacyProjectUiStateFromVsCode", "effectiveConnectionMode");
+  assert.match(migration, /projectContext = this\.captureProjectContext\(\)/);
+  assert.ok([...migration.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 6);
+});
+
+test("stale network probes and realtime callbacks cannot overwrite the new project", () => {
+  const tunnel = methodBody("async testTunnel", "async runXshellRealIntegrationCheck");
+  const integration = methodBody("async runXshellRealIntegrationCheck", "async restartRealtimeStream");
+  const snapshot = methodBody("async manualSnapshot", "async manualGpuSnapshot");
+  const connect = methodBody("async ensureRealtimeConnected", "async migrateLegacyConfigOnce");
+  const client = methodBody("createClient", "shouldPushLocalAvailabilityFromRealtime");
+  assert.match(tunnel, /const generation = this\.projectContextGeneration/);
+  assert.ok([...tunnel.matchAll(/generation !== this\.projectContextGeneration/g)].length >= 4);
+  assert.match(tunnel, /const nextWorkerProbes = \{\}/);
+  assert.ok(tunnel.indexOf("const nextWorkerProbes") < tunnel.indexOf("this.lastProbe = probe"));
+  assert.match(integration, /generation !== this\.projectContextGeneration/);
+  assert.match(snapshot, /generation !== this\.projectContextGeneration/);
+  assert.match(connect, /client !== this\.client/);
+  assert.match(client, /generation !== this\.projectContextGeneration \|\| client !== this\.client/);
+  assert.match(readme, /旧项目尚未完成的项目状态文件回读、检测或实时回调都会被丢弃/);
+  assert.match(guide, /旧项目尚未完成的项目状态文件回读、检测、快照或实时回调不会写入新项目/);
+});

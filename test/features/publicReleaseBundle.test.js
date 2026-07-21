@@ -1,0 +1,44 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const root = path.join(__dirname, "../..");
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const packageScript = fs.readFileSync(path.join(root, "scripts/package-public.ps1"), "utf8");
+const installScript = fs.readFileSync(path.join(root, "scripts/install-public-release.ps1"), "utf8");
+const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
+const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
+const vsixIgnore = fs.readFileSync(path.join(root, ".vscodeignore"), "utf8");
+
+test("public release declares paired SimpleSFTP dependency", () => {
+  assert.equal(packageJson.name, "simple-experiment");
+  assert.equal(packageJson.displayName, "SimpleExperiment");
+  assert.ok(packageJson.extensionDependencies.includes("simple-local.simple-sftp"));
+});
+
+test("public UI uses SimpleExperiment and SimpleSFTP names", () => {
+  assert.match(extension, /title: "SimpleExperiment 一键配置向导"/);
+  assert.match(extension, /# 由 SimpleExperiment 生成/);
+  assert.match(panel, /<title>SimpleExperiment<\/title>/);
+  assert.match(panel, />SimpleSFTP</);
+  assert.doesNotMatch(panel, /ZLK SFTP Manager/);
+});
+
+test("public release package creates an offline paired installer", () => {
+  assert.match(packageScript, /simple-sftp/);
+  assert.match(packageScript, /simple-experiment/);
+  assert.match(packageScript, /install-public-release\.ps1/);
+  assert.match(packageScript, /simple-experiment-setup\.md/);
+  assert.match(packageScript, /Get-ChildItem -LiteralPath \$bundle -File -Filter "\*\.vsix" \| Remove-Item -Force/);
+  assert.match(installScript, /simple-sftp-\*\.vsix/);
+  assert.match(installScript, /simple-experiment-\*\.vsix/);
+  assert.match(installScript, /\$sftp/);
+  assert.match(installScript, /\$experiment/);
+  assert.match(installScript, /--install-extension/);
+});
+
+test("public VSIX excludes local assistant state and rendered scratch files", () => {
+  assert.match(vsixIgnore, /^\.claude\/\*\*$/m);
+  assert.match(vsixIgnore, /^_\*\.html$/m);
+});

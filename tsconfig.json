@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "lib": ["ES2022", "DOM"],
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node", "vscode"],
+    "typeRoots": [
+      "../local-chatgpt-bridge/node_modules/@types"
+    ]
+  },
+  "include": ["src/**/*.ts"]
+}

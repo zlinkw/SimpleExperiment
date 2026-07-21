@@ -1,0 +1,12 @@
+{
+  "name": "xshell exe not found",
+  "servers": [],
+  "steps": [],
+  "expect": {
+    "integrationStatus": "failed",
+    "errorCode": "MOBAXTERM_NOT_FOUND",
+    "suggestion": "select_xshell_exe"
+  }
+}
+
+
