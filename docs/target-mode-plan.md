@@ -34,10 +34,10 @@
 - [已通过] 公开 CLI、发布包与 target mode 定向测试 6/6；VSIX 文件清单无 `.claude`/临时 HTML，5 个关键文件均保留。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，587 通过、36 失败；相较 39 项旧恢复边界减少 3 项。
-- [待同步] 修复提交与 `origin/master` 快进同步。
+- [已同步] 修复提交 `a9e80bdc9e86b5c9a44e759a01f1782a0e94acbd` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-041`，修复提交 `6d0d20e06a78e864ed9470300fd45aadc4fe39e6`，记录提交 `0af80e0e1a728e722f7cc496ec2eefbe9a6f62f7`。
-- 当前目标状态：`recovery-build-042` 已完成，待提交同步。
+- 当前目标状态：`recovery-build-042` 已完成并同步。
 - 本批涉及：公开 CLI/UI 测试、VSIX 排除配置与本计划；不修改产品运行时源码。
-- 真实 VSIX 内容对比、安装、SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`a9e80bdc9e86b5c9a44e759a01f1782a0e94acbd`；真实 VSIX 内容对比、安装、SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
