@@ -89,7 +89,7 @@ test("advanced leaderboard and paper template export use schema directions", () 
   assert.match(rendered, /Group | N | DSC/);
 });
 
-test("paper table template defaults to final archived or reviewed results", () => {
+test("paper table template defaults to final archived results", () => {
   const schema = builtInResultSchemas[0];
   const draft = sampleRecords().map((record) => applyResultSchema(record, schema, { row: { method: "draft" } }));
   const final = draft.map((record) => ({ ...record, resultId: `${record.resultId}:final`, dimensions: { ...record.dimensions, method: "final" }, eligibleForFinalAnalysis: true, finalEvidenceState: "archived" }));

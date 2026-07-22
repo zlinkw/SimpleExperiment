@@ -86,7 +86,7 @@ exports.defaultInclusionPolicy = {
 };
 exports.finalResultInclusionPolicy = {
     id: "final_results_only",
-    name: "Final archived or reviewed results only",
+    name: "Final archived results only",
     includeStatuses: ["parsed", "validated", "warning", "manual_verified"],
     excludeTags: ["deleted", "excluded"],
     excludeIfValidationSeverityAtLeast: "critical",
@@ -450,6 +450,8 @@ function explainInclusion(record, issues = [], policy = exports.defaultInclusion
         reasons.push("missing required metric");
     if (policy.requireDimensions?.some((dimension) => record.dimensions[dimension] === undefined))
         reasons.push("missing required dimension");
+    if (policy.requireFinalEvidence && (String(record.finalEvidenceState || "").toLowerCase() !== "archived" || record.eligibleForFinalAnalysis === false))
+        reasons.push("final evidence not archived");
     const minSeverity = policy.excludeIfValidationSeverityAtLeast;
     if (minSeverity) {
         const rank = { info: 0, warning: 1, critical: 2 };
@@ -516,7 +518,7 @@ function renderPaperTableTemplate(records, schema, template, format = "markdown"
         aggregate: template.formatting.valueFormat === "mean_ci" ? "mean_ci95" : template.formatting.valueFormat === "raw" ? "raw" : "mean_std",
         primarySortMetric: template.layout.metrics[0],
     };
-    const rows = buildAdvancedLeaderboard(records, leaderboard, [], exports.defaultInclusionPolicy);
+    const rows = buildAdvancedLeaderboard(records, leaderboard, [], exports.finalResultInclusionPolicy);
     if (format === "json")
         return JSON.stringify({ template, rows }, null, 2);
     if (format === "csv")

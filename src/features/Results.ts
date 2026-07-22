@@ -388,7 +388,7 @@ export const defaultInclusionPolicy: ResultInclusionPolicy = {
 
 export const finalResultInclusionPolicy: ResultInclusionPolicy = {
   id: "final_results_only",
-  name: "Final archived or reviewed results only",
+  name: "Final archived results only",
   includeStatuses: ["parsed", "validated", "warning", "manual_verified"],
   excludeTags: ["deleted", "excluded"],
   excludeIfValidationSeverityAtLeast: "critical",
@@ -748,6 +748,7 @@ export function explainInclusion(record: ExperimentResultRecord, issues: ResultV
   if (policy.includeTags?.length && !policy.includeTags.some((tag) => record.tags?.includes(tag))) reasons.push("missing required tag");
   if (policy.requireMetrics?.some((metric) => !record.metrics[metric])) reasons.push("missing required metric");
   if (policy.requireDimensions?.some((dimension) => record.dimensions[dimension] === undefined)) reasons.push("missing required dimension");
+  if (policy.requireFinalEvidence && (String(record.finalEvidenceState || "").toLowerCase() !== "archived" || record.eligibleForFinalAnalysis === false)) reasons.push("final evidence not archived");
   const minSeverity = policy.excludeIfValidationSeverityAtLeast;
   if (minSeverity) {
     const rank = { info: 0, warning: 1, critical: 2 };
@@ -809,7 +810,7 @@ export function renderPaperTableTemplate(records: ExperimentResultRecord[], sche
     aggregate: template.formatting.valueFormat === "mean_ci" ? "mean_ci95" : template.formatting.valueFormat === "raw" ? "raw" : "mean_std",
     primarySortMetric: template.layout.metrics[0],
   };
-  const rows = buildAdvancedLeaderboard(records, leaderboard, [], defaultInclusionPolicy);
+  const rows = buildAdvancedLeaderboard(records, leaderboard, [], finalResultInclusionPolicy);
   if (format === "json") return JSON.stringify({ template, rows }, null, 2);
   if (format === "csv") return leaderboardToCsv(rows, leaderboard);
   const table: PaperTableConfig = { id: template.id, title: template.name, leaderboardId: leaderboard.id, rowDimension: template.layout.rows[0] || "method", metrics: template.layout.metrics, boldBest: template.formatting.boldBest, underlineSecondBest: template.formatting.underlineSecondBest, showMeanStd: template.formatting.valueFormat !== "raw", decimals: template.formatting.decimals, metricDisplayNames: template.formatting.metricLabels, methodDisplayNames: template.formatting.dimensionLabels };

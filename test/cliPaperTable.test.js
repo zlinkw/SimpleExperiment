@@ -32,12 +32,13 @@ test("cli results paper-table uses final records only", () => {
   const draftPath = path.join(dir, "draft.json");
   const summaryPath = path.join(dir, "summary.json");
   fs.writeFileSync(draftPath, JSON.stringify([record("draft", false)], null, 2), "utf8");
-  fs.writeFileSync(summaryPath, JSON.stringify({ schemaVersion: 1, finalResults: [record("final", true)] }, null, 2), "utf8");
+  fs.writeFileSync(summaryPath, JSON.stringify({ schemaVersion: 1, finalResults: [record("final", true), record("draft", false)] }, null, 2), "utf8");
 
   const draft = spawnSync(process.execPath, [path.join(root, "dist", "cli.js"), "results", "paper-table", "--file", draftPath], { encoding: "utf8" });
   const final = spawnSync(process.execPath, [path.join(root, "dist", "cli.js"), "results", "paper-table", "--file", summaryPath], { encoding: "utf8" });
   assert.equal(draft.status, 0, draft.stderr);
   assert.equal(final.status, 0, final.stderr);
   assert.doesNotMatch(draft.stdout, /draft/);
+  assert.doesNotMatch(final.stdout, /draft/);
   assert.match(final.stdout, /classification \| VinDr/);
 });

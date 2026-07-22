@@ -20,16 +20,17 @@ const {
 } = require("../dist/features/Quality.js");
 
 function resultRecord(metric = 0.9) {
+  const id = metric > 1 ? "bad" : "good";
   return {
     schemaVersion: 1,
-    resultId: "r1",
-    experimentId: "e1",
+    resultId: id,
+    experimentId: id,
     runKey: "ours",
     suite: "s",
     experimentName: "ours",
     status: "parsed",
     sourceFiles: [{ path: "metrics_summary.csv", type: "csv", endpoint: "local" }],
-    metrics: { DSC: { value: metric, split: "test", seed: "1" } },
+    metrics: { AUC: { value: metric, split: "test", seed: "1" } },
     dimensions: { method: "ours", split: "test", seed: "1", dataset: "VinDr" },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -71,10 +72,10 @@ test("output guide and python snippets include required format", () => {
 
 test("quality gate fails bad result and filters leaderboard inclusion", () => {
   const contract = builtInOutputContracts[0];
-  const report = checkProjectOutputContract({ "metrics_summary.csv": "experiment_id,suite,method,dataset,split,seed,metric,value\ne,s,ours,d,test,1,DSC,1.2\n" }, contract);
+  const report = checkProjectOutputContract({ "metrics_summary.csv": "experiment_id,suite,method,dataset,split,seed,metric,value\ne,s,ours,d,test,1,AUC,1.2\n" }, contract);
   const gate = contract.qualityGates[0];
   const failed = runQualityGate(resultRecord(1.2), gate, report, []);
-  const passed = runQualityGate(resultRecord(0.9), gate, checkProjectOutputContract({ "metrics_summary.csv": "experiment_id,suite,method,dataset,split,seed,metric,value\ne,s,ours,d,test,1,DSC,0.9\n", "env_snapshot.json": "{}", "config_snapshot.yaml": "x: 1" }, contract), []);
+  const passed = runQualityGate(resultRecord(0.9), gate, checkProjectOutputContract({ "metrics_summary.csv": "experiment_id,suite,method,dataset,split,seed,metric,value\ne,s,ours,d,test,1,AUC,0.9\n", "env_snapshot.json": "{}", "config_snapshot.yaml": "x: 1" }, contract), []);
   assert.equal(failed.status, "failed");
   assert.equal(filterRecordsByQualityGate([resultRecord(1.2), resultRecord(0.9)], [failed, passed], "only_gate_passed").length, 1);
 });

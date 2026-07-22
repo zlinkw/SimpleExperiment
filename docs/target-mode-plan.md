@@ -18,25 +18,28 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-034
+## 当前批次：recovery-build-035
 ### 修复点
-- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 Hub/Worker 探针中的项目根目录与 Scheduler 依赖诊断透传。
-- 恢复 TunnelClient 对 `/api/live-output` 查询端点的明确 allowlist，保持查询参数编码和 localhost 边界。
-- 对齐 Worker 模式错误提示与公开品牌，不再要求用户寻找旧 `zlk-*` 命令。
-- 不修改 Xshell 会话、服务器配置、Agent runtime 或已安装扩展。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 CLI 的实验运行、结果解析和最终论文表格命令。
+- 论文表格命令只读取最终归档且未被明确判定无效的记录，不把待审核预览记录混入输出。
+- 补齐 `requireFinalEvidence` 的实际筛选逻辑，最终分析只接受归档状态且未被显式判定为无效的记录。
+- 论文模板渲染默认使用最终结果策略，不再回退到包含待审核记录的普通预览策略。
+- 修正质量门禁测试数据，使其使用分类契约要求的 AUC 指标和独立实验标识。
+- 不修改结果注册表、归档文件、实验数据或已安装扩展。
 
 ### 回归风险
-- 诊断风险：健康接口返回的依赖提示必须在 capabilities 失败和成功路径中保留。
-- Worker 风险：读取健康响应不得破坏 token、模式和 endpoint capability 判断。
-- API 边界风险：仅新增已定义的 `/api/live-output` 路径，不放宽任意 API 路径。
+- 证据风险：CLI 论文表格不得把 `pending_review` 记录当作最终证据。
+- 兼容风险：旧 CLI 状态、指标、Plan build 命令和公开别名必须继续可用。
+- 质量风险：门禁筛选必须按 experimentId 匹配，不得让同 ID 的测试数据相互覆盖。
 
 ### 验证清单
-- Scheduler 依赖、探针、TunnelClient 与 GPU/Scheduler/live-output 定向测试：通过 `13/13`；Hub/Worker 依赖对象透传另有运行断言覆盖。
+- CLI、结果管理、最终结果视图与质量门禁定向测试：通过 `17/17`。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`1733dbb59280470b764dd97096ab55846bb9dbc4`。
+- 全量恢复审计基线：本批修复前通过 `546/620`，剩余 `74` 项按后续边界分批处理；该结果不作为本批定向回归失败。
+- 普通快进推送 `origin/master` 并 fetch 对齐：待验证。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-033`，PanelHtml 源码测试与结果重解析契约已验证并同步，代码提交 `7e2b2872b3fe22c94113ba25be375eca763b238d`，记录提交 `7305aa555ced9c53105af7b3e6007271a2022e9f`。
-- 当前目标状态：`recovery-build-034` 已完成。
-- `recovery-build-034` 提交记录：`1733dbb59280470b764dd97096ab55846bb9dbc4`，已普通快进推送并确认与 `origin/master` 一致。
+- 最新完成批次：`recovery-build-034`，隧道诊断与 live-output 契约已验证并同步，代码提交 `1733dbb59280470b764dd97096ab55846bb9dbc4`，记录提交 `fdaca59b9a2bbf18b8214f5cdefcf058e4806a87`。
+- 当前目标状态：`recovery-build-035` 已验证，等待同步。
+- `recovery-build-035` 提交记录：待提交。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
