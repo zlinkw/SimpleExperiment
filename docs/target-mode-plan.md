@@ -242,5 +242,5 @@
 - 验证：GPU 紧凑布局、单列布局、字段规范化、发布同步紧凑布局与 Panel inline script `6/6` 通过；UI 分组由 `62/72` 提升到 `64/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
 - 说明：GPU 摘要移除配置教学文本，服务器元数据和 GPU 关键指标保留在悬停标题；进程明细不再逐项展开但进程计数和归属判断保留。发布同步移除嵌套卡片与重复标题，流程、状态和操作入口不变。
 - 延期项：剩余 `8` 个 UI 失败属于 Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
-- 提交记录：`ui: compact GPU and sync panels`，SHA 以推送后的 Git 记录为准。
-- 状态：验证完成，待提交并同步；下一批优先处理 Hub/Worker 状态与端口冲突契约。
+- 提交记录：`ui: compact GPU and sync panels`，提交 `e75bbf6b59a6f781dd3cd59e8e8923555f3e0bd0`，已普通快进推送至 `origin/master`；推送后该提交与 `origin/master` 一致。
+- 状态：已完成；下一批优先处理 Hub/Worker 状态与端口冲突契约。
