@@ -4,21 +4,29 @@ import * as path from "path";
 import { RequestBudget, RequestBudgetDeniedError } from "./tunnel/RequestBudget";
 import {
   defaultTunnelGatewayConfig,
+  isRealtimeConnectionMode,
   localBaseUrl,
   normalizeTunnelGatewayConfig,
   requestBudgetConfigFromTunnel,
   TunnelGatewayConfig,
+  xshellTunnelConnectionMode,
 } from "./tunnel/TunnelGateway";
-import { ClusterSnapshot } from "./tunnel/TunnelClient";
+import { ClusterSnapshot, TunnelAction } from "./tunnel/TunnelClient";
 import { RealtimeState } from "./tunnel/RealtimeEventReducer";
-import { RealtimeTunnelClient, defaultRealtimeRefreshPolicy } from "./tunnel/RealtimeTunnelClient";
+import { defaultRealtimeRefreshPolicy } from "./tunnel/RealtimeTunnelClient";
+import { MultiEndpointRealtimeClient, NamedTunnelEndpointConfig } from "./tunnel/MultiEndpointRealtimeClient";
+import { RemoteFileEntry } from "./tunnel/FileTransferTypes";
+import { LocalSshServerInfo, readLocalSshServers } from "./tunnel/LocalSshConfig";
+import { XshellSessionScanResult } from "./tunnel/XshellSessionScanner";
 import { classifyTunnelHealth, TunnelHealth } from "./tunnel/TunnelHealth";
 import {
   defaultMobaXtermTunnelSetupConfig,
   MobaXtermTunnelSetupConfig,
   normalizeMobaXtermSetupConfig,
+  normalizeWorkerTunnelConfig,
   publicSetupSummary,
   validateMobaXtermSetupConfig,
+  workerTunnelToSetupConfig,
 } from "./tunnel/MobaXtermSetup";
 import {
   isLocalPortAvailable,
@@ -263,7 +271,7 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
   private tunnelConfig: TunnelGatewayConfig;
   private setupConfig: MobaXtermTunnelSetupConfig;
   private budget: RequestBudget;
-  private client: RealtimeTunnelClient;
+  private client: MultiEndpointRealtimeClient;
   private lastHealth?: TunnelHealth;
   private lastSnapshot?: ClusterSnapshot;
   private lastRealtimeState?: RealtimeState;
@@ -288,6 +296,9 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
   private debugBundlePath?: string;
   private actionErrors: UiActionError[] = [];
   private localOperations: Record<string, unknown> = {};
+  private readonly operationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private availabilityPushTimer?: ReturnType<typeof setTimeout>;
+  private lastAvailabilityPushAt = 0;
   private xshellLibrary: XshellSessionScanResult = { searchedDirs: [], existingDirs: [], sessions: [] };
   private xshellLibraryError?: string;
 
@@ -308,7 +319,7 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
     });
     webviewView.webview.onDidReceiveMessage((message) => void this.handleMessage(message));
     this.postState();
-    if (this.tunnelConfig.connectionMode === "mobaxterm_tunnel_realtime") {
+    if (isRealtimeConnectionMode(this.tunnelConfig.connectionMode)) {
       void this.ensureRealtimeConnected("webview resolved");
     }
   }
@@ -316,8 +327,21 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
   async dispose(): Promise<void> {
     for (const timer of this.operationTimers.values()) clearTimeout(timer);
     this.operationTimers.clear();
+    if (this.availabilityPushTimer) clearTimeout(this.availabilityPushTimer);
+    this.availabilityPushTimer = undefined;
     await this.client.disconnect("deactivate").catch(() => undefined);
     this.view = undefined;
+  }
+
+  private async ensureRealtimeConnected(_reason: string): Promise<void> {
+    if (!isRealtimeConnectionMode(this.tunnelConfig.connectionMode) || this.budget.isPaused()) return;
+    try {
+      await this.client.connect();
+      this.lastError = undefined;
+    } catch (error) {
+      this.lastError = errorMessage(error);
+    }
+    this.postState();
   }
 
   async migrateLegacyConfigOnce(): Promise<void> {
@@ -430,7 +454,7 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
     this.setupConfig = next;
     this.tunnelConfig = normalizeTunnelGatewayConfig({
       ...this.tunnelConfig,
-      connectionMode: "mobaxterm_tunnel_realtime",
+      connectionMode: xshellTunnelConnectionMode,
       localPort: next.localForwardPort,
       remotePort: next.remoteAgentPort,
       mobaxtermExePath: next.mobaxtermExePath,
@@ -550,6 +574,7 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
     this.lastIntegrationReport = result.report;
     this.lastHealth = this.healthFromProbe(result.probe);
     this.lastError = result.report.overall === "failed" ? result.probe.message : undefined;
+    if (result.report.overall !== "failed") await this.ensureRealtimeConnected("tunnel test ok");
     this.postState();
     const doc = await vscode.workspace.openTextDocument({ language: "json", content: JSON.stringify(result.report, null, 2) });
     await vscode.window.showTextDocument(doc, { preview: true });
@@ -573,25 +598,19 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
 
   async resumeRealtimeStream(): Promise<void> {
     if (this.tunnelConfig.connectionMode === "offline_import") return;
-    try {
-      await this.client.connect(this.lastRealtimeState?.lastSeq || 0);
-      this.lastError = undefined;
-    } catch (error) {
-      this.lastError = errorMessage(error);
-    }
-    this.postState();
+    await this.ensureRealtimeConnected("resume stream");
   }
 
   async pauseAllNetworkActivity(): Promise<void> {
-    this.client.pauseAll();
+    this.budget.pauseAll();
     await this.client.disconnect("paused");
     this.lastHealth = { state: "paused", status: "paused", checkedAt: new Date().toISOString(), message: "All network activity paused." };
     this.postState();
   }
 
-  resumeNetwork(): void {
-    this.client.resume();
-    this.postState();
+  async resumeNetwork(): Promise<void> {
+    this.budget.resume();
+    await this.ensureRealtimeConnected("resume network");
   }
 
   async manualSnapshot(): Promise<void> {
@@ -662,7 +681,7 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
     else if (command === "pauseStream") await this.pauseRealtimeStream();
     else if (command === "resumeStream") await this.resumeRealtimeStream();
     else if (command === "pauseAll") await this.pauseAllNetworkActivity();
-    else if (command === "resumeNetwork") this.resumeNetwork();
+    else if (command === "resumeNetwork") await this.resumeNetwork();
     else if (command === "snapshot") await this.manualSnapshot();
     else if (command === "script") await this.generateTunnelScript();
     else if (command === "status") await this.openTunnelStatus();
@@ -677,7 +696,7 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
     return normalizeTunnelGatewayConfig({
       ...defaultTunnelGatewayConfig,
       ...saved,
-      connectionMode: config.get("connectionMode", saved.connectionMode || "mobaxterm_tunnel_realtime"),
+      connectionMode: config.get("connectionMode", saved.connectionMode || xshellTunnelConnectionMode),
       localPort: config.get("tunnel.localForwardPort", saved.localPort || defaultTunnelGatewayConfig.localPort),
       remotePort: config.get("tunnel.remoteAgentPort", saved.remotePort || defaultTunnelGatewayConfig.remotePort),
       token: config.get("tunnel.agentToken", saved.token),
@@ -708,7 +727,7 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
     this.setupConfig = next;
     this.tunnelConfig = normalizeTunnelGatewayConfig({
       ...this.tunnelConfig,
-      connectionMode: "mobaxterm_tunnel_realtime",
+      connectionMode: xshellTunnelConnectionMode,
       localPort: next.localForwardPort,
       remotePort: next.remoteAgentPort,
       mobaxtermExePath: next.mobaxtermExePath,
@@ -729,6 +748,44 @@ class RealtimeTunnelPanelProvider implements vscode.WebviewViewProvider {
     this.budget = new RequestBudget(requestBudgetConfigFromTunnel(this.tunnelConfig));
     this.client = this.createClient();
     this.startAvailabilityPushLoop();
+  }
+
+  private startAvailabilityPushLoop(): void {
+    if (this.availabilityPushTimer) clearTimeout(this.availabilityPushTimer);
+    this.availabilityPushTimer = undefined;
+    if (!isRealtimeConnectionMode(this.tunnelConfig.connectionMode)) return;
+    const schedule = (): void => {
+      this.availabilityPushTimer = setTimeout(() => {
+        void this.pushLocalWorkerAvailability(false).finally(schedule);
+      }, 60_000);
+      (this.availabilityPushTimer as NodeJS.Timeout).unref?.();
+    };
+    schedule();
+  }
+
+  private async pushLocalWorkerAvailability(force: boolean): Promise<void> {
+    if (!isRealtimeConnectionMode(this.tunnelConfig.connectionMode)) return;
+    const now = Date.now();
+    if (!force && now - this.lastAvailabilityPushAt < 60_000) return;
+    const workers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).map((worker) => {
+      const rows = Array.isArray(this.lastRealtimeState?.gpu?.[worker.id]) ? this.lastRealtimeState.gpu[worker.id] : [];
+      const availableGpuIds: string[] = [];
+      const busyGpuIds: string[] = [];
+      for (const row of rows) {
+        const item = row && typeof row === "object" ? row as Record<string, unknown> : {};
+        const gpuId = String(item.index ?? item.gpu_id ?? item.gpuId ?? item.id ?? "").trim();
+        if (!gpuId) continue;
+        const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : [];
+        if (Number(item.processCount ?? item.process_count ?? processes.length) > 0) busyGpuIds.push(gpuId);
+        else availableGpuIds.push(gpuId);
+      }
+      return { workerId: worker.id, available: availableGpuIds.length > 0, availableGpuIds, busyGpuIds, updatedAt: new Date(now).toISOString() };
+    });
+    if (!workers.length) return;
+    this.lastAvailabilityPushAt = now;
+    await this.client.postAvailabilityBatch({ schemaVersion: 1, source: "local_aggregator", generatedAt: new Date(now).toISOString(), ttlSeconds: 180, workers }).catch((error) => {
+      this.lastError = errorMessage(error);
+    });
   }
 
   private createClient(): MultiEndpointRealtimeClient {
@@ -915,8 +972,53 @@ If tunnel is unavailable, fix MobaXterm tunnel or use offline_import.</pre>
 </html>`;
 }
 
-async function pickLocalSshServer(current: MobaXtermTunnelSetupConfig): Promise<{ server?: LocalSshServerInfo; cancelled: boolean }> {
-  const servers = await readLocalSshServers();
+async function pickHubServer(servers: LocalSshServerInfo[], current: MobaXtermTunnelSetupConfig): Promise<LocalSshServerInfo | undefined> {
+  const picked = await pickLocalSshServer(current, servers);
+  return picked.server;
+}
+
+async function pickWorkerServers(servers: LocalSshServerInfo[], current: MobaXtermTunnelSetupConfig): Promise<LocalSshServerInfo[] | undefined> {
+  if (!servers.length) return [];
+  const items: Array<vscode.QuickPickItem & { server: LocalSshServerInfo }> = servers.map((server) => ({
+    label: server.name,
+    description: `${server.user || current.hubUser || "用户名未填"}@${server.hostName}:${server.port}`,
+    detail: server.sourcePath,
+    server,
+  }));
+  const picked = await vscode.window.showQuickPick(items, {
+    title: "选择 Worker 服务器",
+    placeHolder: "可多选；不选择则只配置 Hub。",
+    canPickMany: true,
+    ignoreFocusOut: true,
+  });
+  return picked?.map((item) => item.server);
+}
+
+async function buildWorkerTunnels(
+  servers: LocalSshServerInfo[],
+  hub: MobaXtermTunnelSetupConfig,
+): Promise<MobaXtermTunnelSetupConfig["workerTunnels"]> {
+  return servers.map((server, index) => normalizeWorkerTunnelConfig({
+    id: server.name,
+    displayName: server.name,
+    hubHost: server.hostName,
+    hubUser: server.user || hub.hubUser,
+    hubSshPort: server.port,
+    workerHost: server.hostName,
+    workerUser: server.user || hub.hubUser,
+    workerSshPort: server.port,
+    localForwardPort: hub.ports.workerLocalPortRange.start + index,
+    remoteAgentPort: hub.remoteAgentPort,
+    remoteTelemetryPort: hub.remoteAgentPort,
+    sshConfigAlias: server.name,
+    privateKeyPath: server.identityFile,
+    authMethod: server.identityFile ? "key" : "auto",
+    enabled: true,
+  }, index, hub.remoteAgentPort));
+}
+
+async function pickLocalSshServer(current: MobaXtermTunnelSetupConfig, available?: LocalSshServerInfo[]): Promise<{ server?: LocalSshServerInfo; cancelled: boolean }> {
+  const servers = available || await readLocalSshServers();
   if (!servers.length) return { cancelled: false };
   const items: Array<vscode.QuickPickItem & { server?: LocalSshServerInfo; manual?: boolean }> = servers.map((server) => ({
     label: server.hostName,

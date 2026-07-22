@@ -41,6 +41,8 @@ const path = __importStar(require("path"));
 const RequestBudget_1 = require("./tunnel/RequestBudget");
 const TunnelGateway_1 = require("./tunnel/TunnelGateway");
 const RealtimeTunnelClient_1 = require("./tunnel/RealtimeTunnelClient");
+const MultiEndpointRealtimeClient_1 = require("./tunnel/MultiEndpointRealtimeClient");
+const LocalSshConfig_1 = require("./tunnel/LocalSshConfig");
 const TunnelHealth_1 = require("./tunnel/TunnelHealth");
 const MobaXtermSetup_1 = require("./tunnel/MobaXtermSetup");
 const MobaXtermLauncher_1 = require("./tunnel/MobaXtermLauncher");
@@ -166,6 +168,9 @@ class RealtimeTunnelPanelProvider {
     debugBundlePath;
     actionErrors = [];
     localOperations = {};
+    operationTimers = new Map();
+    availabilityPushTimer;
+    lastAvailabilityPushAt = 0;
     xshellLibrary = { searchedDirs: [], existingDirs: [], sessions: [] };
     xshellLibraryError;
     constructor(context) {
@@ -185,7 +190,7 @@ class RealtimeTunnelPanelProvider {
         });
         webviewView.webview.onDidReceiveMessage((message) => void this.handleMessage(message));
         this.postState();
-        if (this.tunnelConfig.connectionMode === "mobaxterm_tunnel_realtime") {
+        if ((0, TunnelGateway_1.isRealtimeConnectionMode)(this.tunnelConfig.connectionMode)) {
             void this.ensureRealtimeConnected("webview resolved");
         }
     }
@@ -193,8 +198,23 @@ class RealtimeTunnelPanelProvider {
         for (const timer of this.operationTimers.values())
             clearTimeout(timer);
         this.operationTimers.clear();
+        if (this.availabilityPushTimer)
+            clearTimeout(this.availabilityPushTimer);
+        this.availabilityPushTimer = undefined;
         await this.client.disconnect("deactivate").catch(() => undefined);
         this.view = undefined;
+    }
+    async ensureRealtimeConnected(_reason) {
+        if (!(0, TunnelGateway_1.isRealtimeConnectionMode)(this.tunnelConfig.connectionMode) || this.budget.isPaused())
+            return;
+        try {
+            await this.client.connect();
+            this.lastError = undefined;
+        }
+        catch (error) {
+            this.lastError = errorMessage(error);
+        }
+        this.postState();
     }
     async migrateLegacyConfigOnce() {
         if (this.context.workspaceState.get(keys.migrationShown))
@@ -223,7 +243,7 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showErrorMessage("需要先选择 MobaXterm.exe。");
             return;
         }
-        const servers = await readLocalSshServers();
+        const servers = await (0, LocalSshConfig_1.readLocalSshServers)();
         if (!servers.length) {
             void vscode.window.showWarningMessage("未从 ~/.ssh/config 读取到服务器配置，请使用手动配置。");
             await this.applySetupDraft({ mobaxtermExePath: exePath });
@@ -307,7 +327,7 @@ class RealtimeTunnelPanelProvider {
         this.setupConfig = next;
         this.tunnelConfig = (0, TunnelGateway_1.normalizeTunnelGatewayConfig)({
             ...this.tunnelConfig,
-            connectionMode: "mobaxterm_tunnel_realtime",
+            connectionMode: TunnelGateway_1.xshellTunnelConnectionMode,
             localPort: next.localForwardPort,
             remotePort: next.remoteAgentPort,
             mobaxtermExePath: next.mobaxtermExePath,
@@ -415,6 +435,8 @@ class RealtimeTunnelPanelProvider {
         this.lastIntegrationReport = result.report;
         this.lastHealth = this.healthFromProbe(result.probe);
         this.lastError = result.report.overall === "failed" ? result.probe.message : undefined;
+        if (result.report.overall !== "failed")
+            await this.ensureRealtimeConnected("tunnel test ok");
         this.postState();
         const doc = await vscode.workspace.openTextDocument({ language: "json", content: JSON.stringify(result.report, null, 2) });
         await vscode.window.showTextDocument(doc, { preview: true });
@@ -438,24 +460,17 @@ class RealtimeTunnelPanelProvider {
     async resumeRealtimeStream() {
         if (this.tunnelConfig.connectionMode === "offline_import")
             return;
-        try {
-            await this.client.connect(this.lastRealtimeState?.lastSeq || 0);
-            this.lastError = undefined;
-        }
-        catch (error) {
-            this.lastError = errorMessage(error);
-        }
-        this.postState();
+        await this.ensureRealtimeConnected("resume stream");
     }
     async pauseAllNetworkActivity() {
-        this.client.pauseAll();
+        this.budget.pauseAll();
         await this.client.disconnect("paused");
         this.lastHealth = { state: "paused", status: "paused", checkedAt: new Date().toISOString(), message: "All network activity paused." };
         this.postState();
     }
-    resumeNetwork() {
-        this.client.resume();
-        this.postState();
+    async resumeNetwork() {
+        this.budget.resume();
+        await this.ensureRealtimeConnected("resume network");
     }
     async manualSnapshot() {
         if (this.tunnelConfig.connectionMode === "offline_import") {
@@ -532,7 +547,7 @@ class RealtimeTunnelPanelProvider {
         else if (command === "pauseAll")
             await this.pauseAllNetworkActivity();
         else if (command === "resumeNetwork")
-            this.resumeNetwork();
+            await this.resumeNetwork();
         else if (command === "snapshot")
             await this.manualSnapshot();
         else if (command === "script")
@@ -550,7 +565,7 @@ class RealtimeTunnelPanelProvider {
         return (0, TunnelGateway_1.normalizeTunnelGatewayConfig)({
             ...TunnelGateway_1.defaultTunnelGatewayConfig,
             ...saved,
-            connectionMode: config.get("connectionMode", saved.connectionMode || "mobaxterm_tunnel_realtime"),
+            connectionMode: config.get("connectionMode", saved.connectionMode || TunnelGateway_1.xshellTunnelConnectionMode),
             localPort: config.get("tunnel.localForwardPort", saved.localPort || TunnelGateway_1.defaultTunnelGatewayConfig.localPort),
             remotePort: config.get("tunnel.remoteAgentPort", saved.remotePort || TunnelGateway_1.defaultTunnelGatewayConfig.remotePort),
             token: config.get("tunnel.agentToken", saved.token),
@@ -579,7 +594,7 @@ class RealtimeTunnelPanelProvider {
         this.setupConfig = next;
         this.tunnelConfig = (0, TunnelGateway_1.normalizeTunnelGatewayConfig)({
             ...this.tunnelConfig,
-            connectionMode: "mobaxterm_tunnel_realtime",
+            connectionMode: TunnelGateway_1.xshellTunnelConnectionMode,
             localPort: next.localForwardPort,
             remotePort: next.remoteAgentPort,
             mobaxtermExePath: next.mobaxtermExePath,
@@ -599,8 +614,52 @@ class RealtimeTunnelPanelProvider {
         this.client = this.createClient();
         this.startAvailabilityPushLoop();
     }
+    startAvailabilityPushLoop() {
+        if (this.availabilityPushTimer)
+            clearTimeout(this.availabilityPushTimer);
+        this.availabilityPushTimer = undefined;
+        if (!(0, TunnelGateway_1.isRealtimeConnectionMode)(this.tunnelConfig.connectionMode))
+            return;
+        const schedule = () => {
+            this.availabilityPushTimer = setTimeout(() => {
+                void this.pushLocalWorkerAvailability(false).finally(schedule);
+            }, 60_000);
+            this.availabilityPushTimer.unref?.();
+        };
+        schedule();
+    }
+    async pushLocalWorkerAvailability(force) {
+        if (!(0, TunnelGateway_1.isRealtimeConnectionMode)(this.tunnelConfig.connectionMode))
+            return;
+        const now = Date.now();
+        if (!force && now - this.lastAvailabilityPushAt < 60_000)
+            return;
+        const workers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).map((worker) => {
+            const rows = Array.isArray(this.lastRealtimeState?.gpu?.[worker.id]) ? this.lastRealtimeState.gpu[worker.id] : [];
+            const availableGpuIds = [];
+            const busyGpuIds = [];
+            for (const row of rows) {
+                const item = row && typeof row === "object" ? row : {};
+                const gpuId = String(item.index ?? item.gpu_id ?? item.gpuId ?? item.id ?? "").trim();
+                if (!gpuId)
+                    continue;
+                const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : [];
+                if (Number(item.processCount ?? item.process_count ?? processes.length) > 0)
+                    busyGpuIds.push(gpuId);
+                else
+                    availableGpuIds.push(gpuId);
+            }
+            return { workerId: worker.id, available: availableGpuIds.length > 0, availableGpuIds, busyGpuIds, updatedAt: new Date(now).toISOString() };
+        });
+        if (!workers.length)
+            return;
+        this.lastAvailabilityPushAt = now;
+        await this.client.postAvailabilityBatch({ schemaVersion: 1, source: "local_aggregator", generatedAt: new Date(now).toISOString(), ttlSeconds: 180, workers }).catch((error) => {
+            this.lastError = errorMessage(error);
+        });
+    }
     createClient() {
-        return new MultiEndpointRealtimeClient(this.realtimeEndpoints(), (endpoint) => {
+        return new MultiEndpointRealtimeClient_1.MultiEndpointRealtimeClient(this.realtimeEndpoints(), (endpoint) => {
             if (endpoint.id === "hub")
                 return this.budget;
             return new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
@@ -629,7 +688,7 @@ class RealtimeTunnelPanelProvider {
         if (this.setupConfig.workerRealtimeMode !== "hub_plus_workers")
             return items;
         for (const worker of this.setupConfig.workerTunnels.filter((item) => item.enabled)) {
-            items.push({ id: worker.id, role: "worker", config: workerTunnelToSetupConfig(this.setupConfig, worker) });
+            items.push({ id: worker.id, role: "worker", config: (0, MobaXtermSetup_1.workerTunnelToSetupConfig)(this.setupConfig, worker) });
         }
         return items;
     }
@@ -778,8 +837,48 @@ If tunnel is unavailable, fix MobaXterm tunnel or use offline_import.</pre>
 </body>
 </html>`;
 }
-async function pickLocalSshServer(current) {
-    const servers = await readLocalSshServers();
+async function pickHubServer(servers, current) {
+    const picked = await pickLocalSshServer(current, servers);
+    return picked.server;
+}
+async function pickWorkerServers(servers, current) {
+    if (!servers.length)
+        return [];
+    const items = servers.map((server) => ({
+        label: server.name,
+        description: `${server.user || current.hubUser || "用户名未填"}@${server.hostName}:${server.port}`,
+        detail: server.sourcePath,
+        server,
+    }));
+    const picked = await vscode.window.showQuickPick(items, {
+        title: "选择 Worker 服务器",
+        placeHolder: "可多选；不选择则只配置 Hub。",
+        canPickMany: true,
+        ignoreFocusOut: true,
+    });
+    return picked?.map((item) => item.server);
+}
+async function buildWorkerTunnels(servers, hub) {
+    return servers.map((server, index) => (0, MobaXtermSetup_1.normalizeWorkerTunnelConfig)({
+        id: server.name,
+        displayName: server.name,
+        hubHost: server.hostName,
+        hubUser: server.user || hub.hubUser,
+        hubSshPort: server.port,
+        workerHost: server.hostName,
+        workerUser: server.user || hub.hubUser,
+        workerSshPort: server.port,
+        localForwardPort: hub.ports.workerLocalPortRange.start + index,
+        remoteAgentPort: hub.remoteAgentPort,
+        remoteTelemetryPort: hub.remoteAgentPort,
+        sshConfigAlias: server.name,
+        privateKeyPath: server.identityFile,
+        authMethod: server.identityFile ? "key" : "auto",
+        enabled: true,
+    }, index, hub.remoteAgentPort));
+}
+async function pickLocalSshServer(current, available) {
+    const servers = available || await (0, LocalSshConfig_1.readLocalSshServers)();
     if (!servers.length)
         return { cancelled: false };
     const items = servers.map((server) => ({

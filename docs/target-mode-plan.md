@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-004`。
+- 批次：`recovery-build-005`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -24,7 +24,8 @@
 - [已完成] `recovery-build-002`：修复文件浏览返回契约、文件状态规范字段、完整隧道动作集合和动作参数异步拒绝契约；不处理实时 reducer、隧道策略、端口冲突、Extension 或 UI。
 - [已完成] `recovery-build-003`：修复实时 worker task 状态类型、隧道模式策略和端口冲突类型；不处理 Extension、UI 或新功能。
 - [已完成] `recovery-build-003a`：补齐旧 MobaXterm 配置迁移提示兼容契约及批次记录；不修改其他行为。
-- [进行中] `recovery-build-004`：修复 `OperationQueue` coalesce key 类型收窄，不改变队列行为。
+- [已完成] `recovery-build-004`：修复 `OperationQueue` coalesce key 类型收窄，不改变队列行为。
+- [已完成] `recovery-build-005`：恢复 Extension 的隧道类型导入、连接启动、操作计时器、本地 SSH 配置选择和 Worker 隧道构造；不处理实验结果、runtime、scenario 或 UI 重构。
 - [待处理] 继续修复 Extension 缺失导入/成员、结果与计划导出、实时 authority 合并和剩余类型契约。
 
 ## 验证清单
@@ -69,4 +70,8 @@
 - `recovery-build-003a` 提交记录：`fix: clarify legacy tunnel migration warning`，普通快进推送至 `origin/master`；下一批只处理 Extension 缺失导入/成员。
 - `recovery-build-004` 影响区域：`OperationQueue` 及对应 `dist`、本计划；回归检查为全量 TypeScript 错误收敛、队列测试、lint 和 JavaScript 语法。
 - `recovery-build-004` 验证：全量 `typecheck` 已移除 `OperationQueue` 错误，但仍被 Extension、features、runtime 和 scenario 既有错误阻断；隧道操作队列测试 `1/1` 通过，lint 与对应 JavaScript 语法通过。
-- `recovery-build-004` 提交记录：待提交并同步；下一批只处理 Extension 缺失导入/成员。
+- `recovery-build-004` 提交记录：`fix: narrow operation queue coalesce key`，已普通快进推送至 `origin/master`；下一批只处理 Extension 缺失导入/成员。
+- `recovery-build-004` 推送核验：`a9c739cea214819c30ac2db51c4ceaae20851851`，本地 `HEAD` 与 `origin/master` 一致。
+- `recovery-build-005` 影响区域：`src/extension.ts`、`dist/extension.js` 及本计划；回归检查为全量 TypeScript 错误收敛、Extension 隧道相关测试和 JavaScript 语法检查。
+- `recovery-build-005` 验证：`src/extension.ts` 的 TypeScript 错误清零；全量 `typecheck` 仍被 `ExperimentConfigRecovery`、`ExperimentRunner`、`PlanBuilder`、`RuntimeManifest` 和 `ScenarioRunner` 的既有错误阻断。Extension 自动连接与 Xshell 隧道定向测试 `17/17` 通过，lint、`dist/extension.js` 语法和 `git diff --check` 通过。`multiWorkerReconnectIsolation.test.js` 的实时 reducer 失败不属于本批，延期到对应恢复批次。
+- `recovery-build-005` 提交记录：待提交并同步；后续批次处理剩余五个 TypeScript 模块，实时 reducer 与完整 UI 运行时恢复单独处理。
