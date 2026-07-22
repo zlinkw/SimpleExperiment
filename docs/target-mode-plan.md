@@ -19,23 +19,23 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：history-001
+## 当前批次：history-002
 ### 修复点
-- 复用 Agent 现有 GPU snapshot，按五分钟时间桶写入独立运行态历史。
-- 每个服务器和 GPU 只保留最近 72 小时、最多 864 点；同桶新快照替换旧点，缺失桶不补零。
-- 增加原子持久化、损坏恢复、范围查询和服务端降采样基础；不接入结果、归档、CSV、论文或 PPT 链路。
+- 增加只读 `/api/gpu/history` 端点及 capability，并接入 TunnelClient。
+- 增加 Extension 按需缓存与 Webview 状态预算；仅传输当前请求范围的降采样结果。
+- 覆盖断连、重连、多服务器、多 GPU、缺失桶、三天边界与 payload 上限。
 
 ### 回归风险
-- 相邻回归风险：历史写入失败不得阻断实时 GPU snapshot 和 Agent 心跳。
-- 留存风险：服务器或 GPU 长期离线后旧序列必须裁剪，不得无限增长或用零值填补空档。
-- 边界风险：历史只写 Agent 项目运行态目录，不得污染实验结果、Plan 归档或 SimpleSFTP 传输状态。
+- 相邻回归风险：历史查询不得进入实时 snapshot 高频推送或重复携带三天原始数据。
+- 断连风险：历史查询失败不得清空已显示的有界缓存，也不得伪造零值或成功状态。
+- 边界风险：API 与状态链路不得接入结果、归档、CSV、论文、PPT 或 SimpleSFTP。
 
 ### 验证清单
-- [已通过] GPU 历史定向测试、Agent runtime 同步、SHA256 校验与 Python AST 语法。
-- [已通过] build、typecheck、lint、`git diff --check` 与全量测试 625/625。
+- [待验证] Agent API/capability、TunnelClient、缓存、断连与 payload 预算定向测试。
+- [待验证] build、typecheck、lint、`git diff --check` 与全量测试。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-053`，修复提交 `a7a71e87849606cae09de12d71c4a313fee2a2fa`，记录提交 `fa239e25afd2ad88687cd64460bed1d207653f18`。
-- 当前目标状态：`history-001` 已完成，等待提交同步。
-- 本批涉及：Agent GPU 历史时间桶、留存、持久化和查询基础；不修改 UI、安装目录或 VSIX。
-- 修复提交：本提交；真实服务器连续三天采样仍为 `needs field verification`。
+- 当前目标状态：`history-001` 已完成并同步；`history-002` 执行中。
+- 本批涉及：GPU 历史只读 API、TunnelClient 与有界 Webview 状态；不实现图表 UI，不修改安装目录或 VSIX。
+- 上一修复提交：`29395a0f063a9406122ebcf43520142cf0b9c497`；真实服务器连续三天采样仍为 `needs field verification`。
