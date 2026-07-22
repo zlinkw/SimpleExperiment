@@ -7,10 +7,10 @@ const root = path.resolve(__dirname, "..", "..");
 
 test("postTunnelAction wrapper generates opId checks capabilities and posts fixed action", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
-  assert.match(source, /private async postTunnelAction/);
+  assert.match(source, /async postTunnelAction\(action, body, options = \{\}\)/);
   assert.match(source, /makeOpId\(action\)/);
-  assert.match(source, /missingCapabilities/);
-  assert.match(source, /client\.postAction<T>\(action, request\)/);
+  assert.match(source, /missingCapabilities\(options\.requiresCapability \|\| capabilityForAction\(action\)\)/);
+  assert.match(source, /await this\.client\.postAction\(action, request\)/);
   assert.match(source, /schemaVersion: 1/);
-  assert.match(source, /localOperations/);
+  assert.match(source, /this\.localOperations\[request\.opId\] = \{/);
 });

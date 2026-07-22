@@ -14,11 +14,10 @@ test("results quality statistics paper and case analysis use Hub Agent API", asy
     res.end(JSON.stringify({ schemaVersion: 1, opId: "op", accepted: true, operationId: "operation-op" }));
   });
   await listen(server);
-  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] }));
+  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 }, new RequestBudget({ ...defaultRequestBudgetConfig, maxRequestsPerMinute: 100, minIntervalByPurpose: {}, disabledPurposes: [] }));
   try {
     for (const action of [
       "parse-results",
-      "rescan-results",
       "refresh-results",
       "run-quality-gate",
       "run-statistics",

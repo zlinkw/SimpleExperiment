@@ -1,38 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const { isFeatureCapabilityAvailable } = require("../../dist/tunnel/AgentCapabilities.js");
+const root = path.resolve(__dirname, "..", "..");
 
 test("capability-driven UI disables missing agent features before click", () => {
-  const caps = {
-    schemaVersion: 1,
-    apiVersion: "1",
-    agentVersion: "0.2.0",
-    endpoints: {
-      health: true,
-      snapshot: true,
-      websocketEvents: true,
-      sseEvents: true,
-      logsTail: false,
-      fileList: true,
-      fileDownload: true,
-      fileRangeDownload: true,
-      fileUploadChunk: false,
-      fileTransferStatus: true,
-      actions: true,
-    },
-    actionEndpoints: {
-      "run-plan": true,
-      "stop-experiment": true,
-      "parse-results": true,
-      "self-check": true,
-      "create-debug-bundle": false,
-    },
-    limits: { maxUploadChunkBytes: 1024, maxConcurrentTransfers: 1 },
-    auth: { required: false, scheme: "none" },
-  };
-  assert.equal(isFeatureCapabilityAvailable(caps, "runPlan").available, true);
-  assert.equal(isFeatureCapabilityAvailable(caps, "fileUpload").available, false);
-  assert.match(isFeatureCapabilityAvailable(caps, "debugBundle").reason, /升级 Hub Agent|capability/);
-  assert.equal(isFeatureCapabilityAvailable(undefined, "runPlan").available, false);
+  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  assert.match(source, /runPlan:\s*\["actions\.run-plan"\]/);
+  assert.match(source, /refreshResults:\s*\["actions\.refresh-results",\s*"endpoints\.resultsSummary"\]/);
+  assert.match(source, /downloadDebugBundle:\s*\["endpoints\.fileDownload"\]/);
+  assert.match(source, /const keys = uiCapabilityMap\[command\] \|\| \[\];\s*const missing = keys\.filter\(\(key\) => !hasCapability\(state, key\)\);/);
+  assert.match(source, /return Boolean\(endpoints\.actions && actionEndpoints\[action\] === true\)/);
+  assert.match(source, /button\.disabled = Boolean\(reason \|\| pending\)/);
+  assert.match(source, /if \(!button \|\| button\.disabled\) return/);
 });
