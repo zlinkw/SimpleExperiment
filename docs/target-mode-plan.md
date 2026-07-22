@@ -34,10 +34,10 @@
 - [已通过] 项目布局状态与工作区切换隔离定向测试 6/6。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，590 通过、33 失败；相较 36 项旧恢复边界减少 3 项。
-- [待同步] 修复提交与 `origin/master` 快进同步。
+- [已同步] 修复提交 `3b9efcc66876a25a46d23fce57d60f6c19a2ab9f` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-042`，修复提交 `a9e80bdc9e86b5c9a44e759a01f1782a0e94acbd`，记录提交 `893a384023a036d9fd09427fe6cec2be027f13d3`。
-- 当前目标状态：`recovery-build-043` 已完成，待提交同步。
+- 当前目标状态：`recovery-build-043` 已完成并同步。
 - 本批涉及：项目布局/切换隔离测试、配置说明与本计划；不修改产品运行时源码。
-- 真实工作区切换、网络回调、SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`3b9efcc66876a25a46d23fce57d60f6c19a2ab9f`；真实工作区切换、网络回调、SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
