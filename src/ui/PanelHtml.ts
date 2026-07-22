@@ -1914,7 +1914,7 @@ export function renderPanelHtml(): string {
         }
         applyUiLayout(state);
         renderResourceTree(state);
-        renderWorkbenchInspector(state, { statusRefresh: true });
+        renderWorkbenchInspector(state);
         updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
         renderVisibleSections(state);
         applyLayoutColumns();
@@ -4605,7 +4605,7 @@ export function renderPanelHtml(): string {
     }
 
     function renderWorkbenchInspector(state, options) {
-      options = options || {};
+      options = options || { statusRefresh: true };
       const target = el("workbenchInspector");
       if (!target) return;
       const section = activeResourceSection || "overview";

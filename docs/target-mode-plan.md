@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-009`。
+- 批次：`recovery-build-010`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -100,4 +100,10 @@
 - `recovery-build-009a` 目标：建立人工待删除候选清单；不删除、不移动、不暂存删除任何文件。
 - `recovery-build-009a` 影响区域：`docs/manual-cleanup-candidates.md` 与本计划；验证为路径存在性复核和 `git diff --check`。
 - `recovery-build-009a` 验证：清单中的 11 个准确路径均存在，`git diff --check` 通过；未删除、移动或暂存删除任何文件。
-- `recovery-build-009a` 状态：已完成，待提交并同步；Extension UI 布局与实时状态契约延期至后续代码批次。
+- `recovery-build-009a` 提交记录：`docs: add manual cleanup candidate register`，已普通快进推送至 `origin/master`。
+- `recovery-build-009a` 推送核验：`b34ddf6081c5f056a70aa98f225fa78203739985`，本地 `HEAD` 与 `origin/master` 一致。
+- `recovery-build-010` 目标：以已安装 `SimpleExperiment 0.2.0` 的 `dist/extension.js` 为运行时对照，恢复 Extension 的 UI 布局持久化、Webview 状态合并、实时内容门禁和晚到终态观察；不修改安装目录。
+- `recovery-build-010` 影响区域：`src/extension.ts`、`dist/extension.js`、`src/ui/PanelHtml.ts`、`dist/ui/PanelHtml.js`、`test/ui/workbenchResourceTree.test.js` 和本计划；回归检查为布局状态、Webview state post、realtime gate、操作终态、资源树、全量 TypeScript、lint、JavaScript 语法和 `git diff --check`。
+- `recovery-build-010` 验证：`npm run typecheck`、`npm run lint`、两个变更后 JavaScript 文件语法和 `git diff --check` 通过；布局状态、Webview state post、realtime gate、晚到操作终态与资源树定向测试 `12/12` 通过。构建后的 `dist/extension.js` 与已安装版仅有 `6` 行新增、`5` 行删除，差异限于模块标记、PanelHtml 调用形式、恢复后的默认列宽与可见状态刷新语句。
+- `recovery-build-010` 剩余风险：`src/extension.ts` 是从已安装运行文件恢复的可构建 TypeScript 过渡基线，保留 `@ts-nocheck`，尚未恢复原始强类型源码。UI 分组测试 `38/72` 通过、features 分组测试 `221/298` 通过；失败主要来自其他未恢复源码契约及源码结构断言，不将全量测试标记为通过。
+- `recovery-build-010` 状态：已完成验证，待提交并同步；下一批从失败契约中选择最多 2 至 3 个强相关问题，不在本批扩大范围。

@@ -9,6 +9,13 @@ function panelSource() {
   return fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
 }
 
+function between(source, start, end) {
+  const startIndex = source.indexOf(start);
+  if (startIndex < 0) return "";
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  return endIndex < 0 ? source.slice(startIndex) : source.slice(startIndex, endIndex);
+}
+
 test("panel uses draggable three column workbench with searchable resource tree", () => {
   const source = panelSource();
 
