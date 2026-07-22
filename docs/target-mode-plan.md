@@ -138,4 +138,5 @@
 - Batch 75：experiment trace payload 预算。experimentTraces 长时间累积必须受限；实验记录 `experimentTraces` 长时间运行必须有 payload 预算，并优先保留当前选择与需关注记录。
 - 回归检查：scheduler state 与 experiment trace 预算测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
 - 验证：scheduler state 与 experiment trace 预算测试 `4/4`、`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过。
-- 状态：已完成验证，待提交并同步；其他 Webview 与 UI 失败不在本批修改。
+- 提交记录：`fix: restore long-running state budgets`，提交 `3209d143487ec69f8ce41408633d00364330de73`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；其他 Webview 与 UI 失败延期到后续批次。
