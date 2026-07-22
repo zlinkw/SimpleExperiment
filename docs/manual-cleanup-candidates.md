@@ -21,6 +21,11 @@
 | `scripts/tmp-inspect-task-card.js` | 文件 | 一次性 UI 检查脚本，只打印源码片段。 | 删除前确认正式测试已覆盖对应检查。 | 2026-07-22 | 待审核 |
 | `scripts/tmp-patch-task-ui.js` | 文件 | 一次性源码改写脚本，会直接修改 `src/ui/PanelHtml.ts`。 | 不应再次执行；删除前确认其预期修改已进入已验证提交。 | 2026-07-22 | 待审核 |
 | `scripts/tmp-task-card-block.txt` | 文件 | `tmp-dump-task-card.js` 生成的源码片段缓存。 | 删除前确认恢复审计不再需要该快照。 | 2026-07-22 | 待审核 |
+| `src/services/RemoteExecutionService.ts` | 文件 | 旧直连远端执行服务；当前活动扩展入口未导入，现行通信由 Xshell 本地隧道和 Agent 承担。 | 删除前确认无外部测试或历史恢复工具直接导入该类。 | 2026-07-22 | 待审核 |
+| `src/services/RuntimeService.ts` | 文件 | 旧 runtime 服务封装；当前活动扩展入口未导入，Agent runtime 已由现行部署流程管理。 | 与 `src/runtime/RuntimeManager.ts` 存在内部依赖，需两者一起审核。 | 2026-07-22 | 待审核 |
+| `src/runtime/RuntimeManager.ts` | 文件 | 旧 runtime 管理实现；仅由旧 `RuntimeService` 引用，当前活动扩展入口未导入。 | 删除前确认恢复审计和独立测试不再依赖旧 runtime 接口。 | 2026-07-22 | 待审核 |
+| `src/remote/RemoteFileStore.ts` | 文件 | 旧远端文件存储实现；当前文件传输边界已迁移到 SimpleSFTP。 | 删除前确认无外部脚本直接导入，且 SimpleSFTP 已覆盖所需文件操作。 | 2026-07-22 | 待审核 |
+| `src/test/fakes/FakeRemoteCommandRunner.ts` | 文件 | 旧直连远端命令测试替身；当前活动源码和现行测试未引用。 | 删除前确认不再用于恢复旧迁移测试。 | 2026-07-22 | 待审核 |
 
 ## 保留观察
 

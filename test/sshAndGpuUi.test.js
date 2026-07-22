@@ -6,11 +6,11 @@ const path = require("node:path");
 const extensionSource = fs.readFileSync(path.join(__dirname, "..", "src", "extension.ts"), "utf8");
 
 test("extension exposes tunnel-only connection UI", () => {
-  assert.match(extensionSource, /Configure/);
-  assert.match(extensionSource, /Start Tunnel/);
-  assert.match(extensionSource, /Manual Refresh/);
-  assert.match(extensionSource, /Pause All/);
-  assert.match(extensionSource, /Import Offline/);
+  assert.match(extensionSource, /一键配置向导/);
+  assert.match(extensionSource, /启动全部隧道/);
+  assert.match(extensionSource, /手动刷新/);
+  assert.match(extensionSource, /暂停全部网络/);
+  assert.match(extensionSource, /导入离线/);
   assert.match(extensionSource, /127\.0\.0\.1/);
 });
 

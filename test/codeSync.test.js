@@ -10,5 +10,7 @@ test("legacy direct sync commands are not contributed", () => {
   assert.equal(commands.includes("zlkCluster.syncToGitHub"), false);
   assert.equal(commands.includes("zlkCluster.deployRuntime"), false);
   assert.equal(commands.includes("zlkCluster.verifyRuntime"), false);
-  assert.equal(commands.includes("zlkCluster.configureMobaXtermRealtimeTunnel"), true);
+  assert.equal(commands.includes("zlkCluster.configureMobaXtermRealtimeTunnel"), false);
+  assert.equal(commands.includes("zlkCluster.configureXshellSavedSessions"), true);
+  assert.equal(commands.includes("zlkCluster.prepareAgents"), true);
 });
