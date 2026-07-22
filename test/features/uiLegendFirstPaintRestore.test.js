@@ -12,7 +12,7 @@ function renderPanelHtmlFromSource(source) {
     .replace(/^"use strict";\r?\n/, "")
     .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
     .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml/, "function renderPanelHtml");
+    .replace(/export function renderPanelHtml\(\): string/, "function renderPanelHtml()");
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
@@ -44,9 +44,8 @@ test("legend tree and first-paint placeholders are restored", () => {
 });
 
 test("gpu task plan chrome stays with explanatory guidance", () => {
-  // 7c23e89 基线保留 GPU/任务/计划区的说明文案。
   assert.match(panel, /本服务器还有 /);
-  assert.match(panel, /个进程未显示/);
+  assert.match(panel, /张 GPU 未展开显示/);
   assert.match(panel, /gpuStats/);
   assert.match(panel, /YAML/);
 });
