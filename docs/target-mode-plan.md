@@ -34,10 +34,10 @@
 - [已通过] 快速项目接入定向测试：`projectQuickStartWorkflow.test.js` 5/5，`projectRunPreflightWorkflow.test.js` 10/10。
 - [已通过] `npm run build`、`npm run typecheck`、`npm run lint` 与 `git diff --check`。
 - [新基线] 全量测试 623 项，584 通过、39 失败；相较 49 项旧恢复边界减少 10 项。剩余失败属于既有恢复边界，未扩展本批范围。
-- [待同步] 修复提交与 `origin/master` 快进同步。
+- [已同步] 修复提交 `6d0d20e06a78e864ed9470300fd45aadc4fe39e6` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-plan-001`，计划提交 `5f72761e143850df7ee28cd89ae17a897ddb3022`，记录提交 `82d62cb1e4b347186da8abec8ace494e31fa4698`。
-- 当前目标状态：`recovery-build-041` 已完成，待提交同步。
+- 当前目标状态：`recovery-build-041` 已完成并同步。
 - 本批涉及：快速项目接入测试与本计划；不修改产品源码，生成的 `dist` 不计入文件上限。
-- 真实 SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`6d0d20e06a78e864ed9470300fd45aadc4fe39e6`；真实 SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
