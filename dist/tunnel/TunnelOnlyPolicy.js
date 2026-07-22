@@ -3,9 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertTunnelOnlyMode = assertTunnelOnlyMode;
 exports.removeLegacyRemoteFields = removeLegacyRemoteFields;
 exports.migrateLegacyRemoteConfig = migrateLegacyRemoteConfig;
+const TunnelGateway_1 = require("./TunnelGateway");
 function assertTunnelOnlyMode(mode) {
-    if (mode !== "mobaxterm_tunnel_realtime" && mode !== "offline_import") {
-        throw new Error("Direct remote connection modes have been removed. Configure MobaXterm realtime tunnel or use offline import.");
+    if (!(0, TunnelGateway_1.isRealtimeConnectionMode)(mode) && mode !== "offline_import") {
+        throw new Error("直接远程连接模式已移除。请配置实时隧道或使用离线导入。");
     }
 }
 function removeLegacyRemoteFields(input) {
@@ -25,6 +26,6 @@ function migrateLegacyRemoteConfig(input) {
     return {
         removedFields: removed.removedFields,
         migratedToTunnel: true,
-        warning: "Legacy direct remote connection mode was removed. Configure MobaXterm realtime tunnel.",
+        warning: "旧版直接远程连接模式已移除。请配置实时隧道。",
     };
 }

@@ -4,7 +4,9 @@ export type TunnelPortConflictType =
   | "duplicate_in_config"
   | "occupied_by_existing_tunnel"
   | "occupied_by_unknown_process"
-  | "invalid_port";
+  | "invalid_port"
+  | "reserved_for_hub"
+  | "outside_allowed_range";
 
 export interface TunnelPortRange {
   start: number;

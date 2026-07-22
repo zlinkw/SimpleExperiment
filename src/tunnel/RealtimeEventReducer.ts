@@ -70,7 +70,7 @@ export interface RealtimeState {
   resultSummaryDirtySeq?: number;
   resultSummaryDirtyAt?: string;
   resultSummaryDirtyType?: string;
-  workerTasks?: unknown[];
+  workerTasks?: Record<string, unknown[]>;
   workerHealth?: Record<string, unknown>;
 }
 

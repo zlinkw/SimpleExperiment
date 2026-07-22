@@ -1,4 +1,4 @@
-import { ClusterConnectionMode } from "./TunnelGateway";
+import { ClusterConnectionMode, isRealtimeConnectionMode } from "./TunnelGateway";
 
 export interface LegacyRemoteConfigMigrationResult {
   removedFields: string[];
@@ -7,8 +7,8 @@ export interface LegacyRemoteConfigMigrationResult {
 }
 
 export function assertTunnelOnlyMode(mode: ClusterConnectionMode): void {
-  if (mode !== "mobaxterm_tunnel_realtime" && mode !== "offline_import") {
-    throw new Error("Direct remote connection modes have been removed. Configure MobaXterm realtime tunnel or use offline import.");
+  if (!isRealtimeConnectionMode(mode) && mode !== "offline_import") {
+    throw new Error("直接远程连接模式已移除。请配置实时隧道或使用离线导入。");
   }
 }
 
@@ -30,6 +30,6 @@ export function migrateLegacyRemoteConfig(input: Record<string, unknown>): Legac
   return {
     removedFields: removed.removedFields,
     migratedToTunnel: true,
-    warning: "Legacy direct remote connection mode was removed. Configure MobaXterm realtime tunnel.",
+    warning: "旧版直接远程连接模式已移除。请配置实时隧道。",
   };
 }
