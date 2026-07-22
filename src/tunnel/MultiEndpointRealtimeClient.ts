@@ -3,6 +3,7 @@ import { ClusterSnapshot, TunnelAction, TunnelEndpointConfig } from "./TunnelCli
 import { FileListResponse, FileTransferTask } from "./FileTransferTypes";
 import { defaultRealtimeRefreshPolicy, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
 import { compactRealtimeLogs, createRealtimeState, RealtimeState } from "./RealtimeEventReducer";
+import { mergeAuthorityRealtimeStates } from "./AuthorityMergePolicy";
 
 export interface NamedTunnelEndpointConfig extends TunnelEndpointConfig {
   id: string;
@@ -268,29 +269,10 @@ export function mergeRealtimeStates(
   endpoints: NamedTunnelEndpointConfig[] = entries.map((entry) => entry.endpoint),
 ): RealtimeState {
   const endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
-  const merged: RealtimeState = createRealtimeState();
-  for (const { endpoint, state } of entries) {
-    const knownEndpoint = endpointById.get(endpoint.id) || endpoint;
-    merged.lastSeq = Math.max(merged.lastSeq, state.lastSeq);
-    merged.lastHeartbeatAt = latest([merged.lastHeartbeatAt, state.lastHeartbeatAt]);
-    merged.gpu = { ...merged.gpu, ...remapGpu(state.gpu, knownEndpoint) };
-    merged.schedulerStates = mergeRows(merged.schedulerStates, state.schedulerStates);
-    merged.experimentTraces = mergeRows(merged.experimentTraces, state.experimentTraces);
-    merged.logs = { ...merged.logs, ...state.logs };
-    merged.operations = { ...merged.operations, ...state.operations };
-    merged.fileTransfers = { ...merged.fileTransfers, ...state.fileTransfers };
-    merged.warnings = [...merged.warnings, ...state.warnings].slice(-50);
-    if (state.diagnostics) {
-      merged.diagnostics = { ...(merged.diagnostics as object || {}), [knownEndpoint.id]: state.diagnostics };
-    }
-  }
-  merged.lastKnownGood = {
-    gpu: merged.gpu,
-    schedulerStates: merged.schedulerStates,
-    experimentTraces: merged.experimentTraces,
-    diagnostics: merged.diagnostics as Record<string, unknown>,
-  };
-  return merged;
+  return mergeAuthorityRealtimeStates(entries.map(({ endpoint, state }) => ({
+    endpoint: endpointById.get(endpoint.id) || endpoint,
+    state,
+  })));
 }
 
 export function mergeClusterSnapshots(entries: Array<{ endpoint: NamedTunnelEndpointConfig; snapshot: ClusterSnapshot }>): ClusterSnapshot {

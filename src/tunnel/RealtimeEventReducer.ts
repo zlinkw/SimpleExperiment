@@ -15,6 +15,7 @@ export type RealtimeEventType =
   | "file_changed"
   | "diagnostics_updated"
   | "worker_health"
+  | "worker_task_snapshot"
   | "agent_warning"
   | "operation_started"
   | "operation_progress"
@@ -94,6 +95,7 @@ const knownTypes = new Set<RealtimeEventType>([
   "file_changed",
   "diagnostics_updated",
   "worker_health",
+  "worker_task_snapshot",
   "agent_warning",
   "operation_started",
   "operation_progress",
@@ -154,6 +156,17 @@ export function applyRealtimeEvent(state: RealtimeState, input: unknown): Realti
     next.operations = { ...state.operations, [event.operationId]: { ...(event.payload as object), type: event.type, seq: event.seq } };
   }
   if (event.type === "diagnostics_updated") next.diagnostics = event.payload;
+  if (event.type === "worker_health") {
+    const payload = event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : {};
+    const workerId = event.workerId || event.serverId || String(payload.workerId || payload.worker_id || "worker");
+    next.workerHealth = { ...(state.workerHealth || {}), [workerId]: { ...payload, updatedAt: event.generatedAt } };
+  }
+  if (event.type === "worker_task_snapshot") {
+    const payload = event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : {};
+    const workerId = event.workerId || event.serverId || String(payload.workerId || payload.worker_id || "worker");
+    const rows = Array.isArray(event.payload) ? event.payload : Array.isArray(payload.tasks) ? payload.tasks : Array.isArray(payload.workerTasks) ? payload.workerTasks : Array.isArray(payload.worker_tasks) ? payload.worker_tasks : Array.isArray(payload.rows) ? payload.rows : [];
+    next.workerTasks = { ...(state.workerTasks || {}), [workerId]: rows };
+  }
   if (event.type === "file_transfer_progress" && event.transferId) {
     next.fileTransfers = { ...state.fileTransfers, [event.transferId]: { ...(event.payload as object), seq: event.seq } };
   }

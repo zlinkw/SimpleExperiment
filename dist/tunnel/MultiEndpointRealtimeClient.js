@@ -7,6 +7,7 @@ exports.mergeClusterSnapshots = mergeClusterSnapshots;
 const RequestBudget_1 = require("./RequestBudget");
 const RealtimeTunnelClient_1 = require("./RealtimeTunnelClient");
 const RealtimeEventReducer_1 = require("./RealtimeEventReducer");
+const AuthorityMergePolicy_1 = require("./AuthorityMergePolicy");
 class MultiEndpointRealtimeClient {
     endpoints;
     policy;
@@ -218,29 +219,10 @@ function createBudget(config) {
 }
 function mergeRealtimeStates(entries, endpoints = entries.map((entry) => entry.endpoint)) {
     const endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
-    const merged = (0, RealtimeEventReducer_1.createRealtimeState)();
-    for (const { endpoint, state } of entries) {
-        const knownEndpoint = endpointById.get(endpoint.id) || endpoint;
-        merged.lastSeq = Math.max(merged.lastSeq, state.lastSeq);
-        merged.lastHeartbeatAt = latest([merged.lastHeartbeatAt, state.lastHeartbeatAt]);
-        merged.gpu = { ...merged.gpu, ...remapGpu(state.gpu, knownEndpoint) };
-        merged.schedulerStates = mergeRows(merged.schedulerStates, state.schedulerStates);
-        merged.experimentTraces = mergeRows(merged.experimentTraces, state.experimentTraces);
-        merged.logs = { ...merged.logs, ...state.logs };
-        merged.operations = { ...merged.operations, ...state.operations };
-        merged.fileTransfers = { ...merged.fileTransfers, ...state.fileTransfers };
-        merged.warnings = [...merged.warnings, ...state.warnings].slice(-50);
-        if (state.diagnostics) {
-            merged.diagnostics = { ...(merged.diagnostics || {}), [knownEndpoint.id]: state.diagnostics };
-        }
-    }
-    merged.lastKnownGood = {
-        gpu: merged.gpu,
-        schedulerStates: merged.schedulerStates,
-        experimentTraces: merged.experimentTraces,
-        diagnostics: merged.diagnostics,
-    };
-    return merged;
+    return (0, AuthorityMergePolicy_1.mergeAuthorityRealtimeStates)(entries.map(({ endpoint, state }) => ({
+        endpoint: endpointById.get(endpoint.id) || endpoint,
+        state,
+    })));
 }
 function mergeClusterSnapshots(entries) {
     const generatedAt = latest(entries.map((entry) => entry.snapshot.generatedAt));

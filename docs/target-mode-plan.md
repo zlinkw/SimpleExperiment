@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-007`。
+- 批次：`recovery-build-008`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -28,6 +28,7 @@
 - [已完成] `recovery-build-005`：恢复 Extension 的隧道类型导入、连接启动、操作计时器、本地 SSH 配置选择和 Worker 隧道构造；不处理实验结果、runtime、scenario 或 UI 重构。
 - [已完成] `recovery-build-006`：恢复计划摘要、控制台指标解析、实验记录 manifest 和测试场景运行类型契约；不处理 runtime manifest 或实时 reducer。
 - [已完成] `recovery-build-007`：收敛 runtime manifest 哈希校验类型并补充回归测试；不处理实时 reducer 或 UI。
+- [已完成] `recovery-build-008`：让多端点实时状态合并使用已恢复的 authority 策略，隔离过期 Worker telemetry，并恢复 Worker task/health 事件；不处理 Extension/UI 大范围恢复。
 - [待处理] 继续修复 Extension 缺失导入/成员、结果与计划导出、实时 authority 合并和剩余类型契约。
 
 ## 验证清单
@@ -85,3 +86,8 @@
 - `recovery-build-007` 影响区域：`RuntimeManifest`、对应 `dist`、回归测试和本计划；回归检查为全量 TypeScript、runtime manifest 测试、lint 和 JavaScript 语法。
 - `recovery-build-007` 验证：`npm run typecheck` 全部通过；runtime manifest 测试 `1/1`、lint、对应 JavaScript 语法和 `git diff --check` 通过。279 个测试文件的全量 Node 测试运行超过 180 秒未结束，未将其标记为通过，需后续定位长驻测试或测试资源泄漏。
 - `recovery-build-007` 提交记录：待提交并同步；下一批处理全量测试阻塞及实时 reducer 失败。
+- `recovery-build-007` 提交记录：`fix: narrow runtime verification statuses`，已普通快进推送至 `origin/master`。
+- `recovery-build-007` 推送核验：`cd37dec01ff163a696a496838e82a1d94bffbe7d`，本地 `HEAD` 与 `origin/master` 一致。
+- `recovery-build-008` 影响区域：`MultiEndpointRealtimeClient`、`RealtimeEventReducer`、对应 `dist` 和本计划；回归检查为实时 authority、Worker telemetry 与端点合并测试。
+- `recovery-build-008` 验证：全量 `typecheck`、lint 和对应 JavaScript 语法通过；实时 authority、Worker telemetry、端点配置测试 `5/5` 通过。全量测试分组显示 Extension/UI 大范围恢复仍存在大量契约失败，继续作为后续边界，不在本批扩大范围。
+- `recovery-build-008` 提交记录：待提交并同步；下一批处理 Extension/UI 恢复边界或全量测试长驻问题。
