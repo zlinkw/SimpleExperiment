@@ -271,4 +271,4 @@
 
 ## 已登记后续目标
 
-- `server-gpu-history`：服务器状态页三天 GPU 历史曲线与动态高区分度配色。独立计划见 `docs/target-plans/server-gpu-history.md`；当前状态为待执行，不并入恢复批次。
+- `server-gpu-history`：服务器状态页三天 GPU 历史曲线与动态高区分度配色。独立计划见 `docs/target-plans/server-gpu-history.md`；当前状态为待执行，不并入恢复批次。登记提交 `7826118d1269630256d87e9c90f010a2820e174c`，已推送至 `origin/master`。
