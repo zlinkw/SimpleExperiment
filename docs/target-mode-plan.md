@@ -31,10 +31,10 @@
 ### 验证清单
 - NotificationThrottle 与 experiment platform 相邻回归：通过 `15/15`；生成 runtime 与安装版除恢复注释外一致。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`39ec5a2f070fecdb5eb5bf20913d4ba3ea24f25f`。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-031`，ProjectAdapterTemplates 已验证并同步，提交 `28fd95325852cda4bc6d3d6aba7c406b304b4e34`。
-- 当前目标状态：`recovery-build-032` 验证通过，待提交同步。
-- `recovery-build-032` 提交记录：待验证后填写。
+- 当前目标状态：`recovery-build-032` 已完成。
+- `recovery-build-032` 提交记录：`39ec5a2f070fecdb5eb5bf20913d4ba3ea24f25f`，已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
