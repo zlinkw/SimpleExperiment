@@ -32,10 +32,10 @@
 - Plan mode、YAML case、结果候选、matrix、registry 和 coverage 定向测试：通过 `33/33`。
 - Plan 广域相邻审计通过 `49/53`；4 个失败属于未恢复的 Notifications、PlanArchive entry scanner 和 ProjectAdapterTemplates，登记为后续批次，不属于本批回归。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`b89495cee236ea915f70d50b071188205f1134e6`。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-028`，scheduler failure contract 已验证并同步，提交 `128ee2fe625e880e5853b9ccb6f7e89d183e28ea`。
-- 当前目标状态：`recovery-build-029` 验证通过，待提交同步。
-- `recovery-build-029` 提交记录：待验证后填写。
+- 当前目标状态：`recovery-build-029` 已完成。
+- `recovery-build-029` 提交记录：`b89495cee236ea915f70d50b071188205f1134e6`，已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
