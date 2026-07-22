@@ -18,25 +18,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-038
+## 当前批次：recovery-build-039
 ### 修复点
-- 以 Git、README、当前实现和本机已安装 `SimpleExperiment 0.2.0` 为只读证据，对齐归档 Plan 恢复与嵌套 Plan 归档测试契约。
-- 保留当前实现的独立恢复版本、`experiments/restored_assets/<restored-plan>/` 资产目录、独立结果范围和 nested `_archived` 目录行为。
-- 不回退已验证的归档安全边界，不修改归档数据、安装目录或用户文件。
+- 以 Git、当前实现和本机已安装 `SimpleExperiment 0.2.0` 为只读证据，对齐 operation 终态结果刷新、Plan scoped PPT 路径和 realtime snapshot 终态测试契约。
+- 测试覆盖结果刷新使用 operation 的 `planFile`、PPT 仅使用当前 Plan 的最终 artifact 路径，以及重连后终态不被旧进度或快照覆盖。
+- 不修改产品源码、安装目录、归档数据或用户文件；Node 测试通过已编译 `dist` 加载 TypeScript 模块行为。
 
 ### 回归风险
-- 相邻回归风险：恢复测试不得要求已被当前实现和安装版淘汰的旧资产路径或强制打开 YAML。
-- 归档风险：恢复版本必须与原 Plan、配置、环境、参数、结果范围和输出命名空间隔离。
-- 路径风险：nested Plan 归档必须保留相对目录，不能把不同子目录同名 Plan 汇聚覆盖。
+- 结果刷新风险：异步 operation 终态必须保留 Plan 上下文，并在需要时排队重新解析后刷新摘要。
+- 路径风险：PPT 入口不得退回全局 `zlk_cluster/results/*`，避免跨 Plan 读取旧统计或契约。
+- 运行时风险：测试不得让 Node 24 直接解释带类型导入的 `.ts`，但仍需验证构建产物与源码一致。
 
 ### 验证清单
-- [已通过] 归档恢复、nested Plan、归档 bundle/UI 与目标计划定向测试，`21/21`。
+- [已通过] operation 结果刷新、Plan scoped anomaly/PPT 和 realtime operation snapshot 定向测试，`7/7`。
 - [已通过] `npm run build`、`npm run typecheck`、`npm run lint`、`git diff --check`。
-- [基线] 全量恢复审计 `566/620` 通过，剩余 `54` 项为后续恢复边界；本批目标测试均通过。
-- [已同步] 修复提交 `394badbffec36eac85c570e8d3a8fba4b8336970` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [基线] 全量恢复审计 `571/623` 通过，剩余 `52` 项为后续恢复边界；本批目标测试均通过。
+- [已同步] 修复提交 `ddbfb3d21e03dabaac01a39e535b3a07f6a3f0d0` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-037`，修复提交 `ad30d7b12d5935c33a8aaf4a9b5789012abfc4a1`，记录提交 `fe713345b66b135d82e55e2c636a1c76745101e2`。
-- 当前目标状态：`recovery-build-038` 已完成。
-- 本批涉及：两个归档相关定向测试和本计划；不修改产品源码，生成的 `dist` 不计入文件上限。
-- `recovery-build-038` 修复提交：`394badbffec36eac85c570e8d3a8fba4b8336970`；真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
+- 最新完成批次：`recovery-build-038`，修复提交 `394badbffec36eac85c570e8d3a8fba4b8336970`，记录提交 `155a5304211cb76a8250c7885bd0269e15ac1f6e`。
+- 当前目标状态：`recovery-build-039` 已完成。
+- 本批涉及：三个相邻 operation/result UI 测试和本计划；不修改产品源码，生成的 `dist` 不计入文件上限。
+- `recovery-build-039` 修复提交：`ddbfb3d21e03dabaac01a39e535b3a07f6a3f0d0`；真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
