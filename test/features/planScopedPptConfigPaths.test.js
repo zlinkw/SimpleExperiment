@@ -18,10 +18,12 @@ function pyString(value) {
 
 test("ppt plot config buttons bind a statistics source path", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-  // 7c23e89 基线：renderPptPlotConfig 用固定默认统计路径的 plotResultsToPpt 按钮。
+  // 统计源必须来自当前 Plan 的最终结果摘要，不能固定绑定旧的全局路径。
   assert.match(source, /function renderPptPlotConfig\(state\) \{[\s\S]*data-command="plotResultsToPpt"/);
   assert.match(source, /function pptPlotButton\(label, sourcePath, sourceLabel, extra\)/);
-  assert.match(source, /data-source-path="zlk_cluster\/results\/statistics\.json"/);
+  assert.match(source, /const statisticsSourcePath = finalStatisticsSourcePath\(resultSummary\)/);
+  assert.match(source, /data-source-path="' \+ escAttr\(statisticsSourcePath\)/);
+  assert.doesNotMatch(source, /data-source-path="zlk_cluster\/results\/statistics\.json"/);
 });
 
 test("export plotting contract stamps summary plottingContractPath", () => {

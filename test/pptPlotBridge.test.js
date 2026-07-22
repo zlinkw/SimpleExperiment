@@ -32,7 +32,7 @@ test("PptPlotBridge builds stable request schema and resolves md to sibling json
   assert.equal(req.target.createIfMissing, true);
   assert.equal(req.target.slideMode, "append");
   assert.equal(req.styleMode, "activePpt");
-  assert.equal(req.markdownSummary, undefined);
+  assert.equal(req.markdownSummary, null);
 });
 
 test("PptPlotBridge redirects raw single-seed result source to final statistics", async () => {
@@ -42,7 +42,7 @@ test("PptPlotBridge redirects raw single-seed result source to final statistics"
   fs.mkdirSync(path.join(project, "zlk_cluster", "results"), { recursive: true });
   fs.writeFileSync(path.join(project, "experiments", "results", "seed1.csv"), "metric,value\nAUC,0.9\n", "utf8");
   fs.writeFileSync(path.join(project, "zlk_cluster", "results", "plotting_contract.json"), "{}", "utf8");
-  fs.writeFileSync(path.join(project, "zlk_cluster", "results", "statistics.json"), JSON.stringify({ rows: [{ group: "ours", metrics: { AUC: { mean: 0.91, std: 0.01 } } }] }), "utf8");
+  fs.writeFileSync(path.join(project, "zlk_cluster", "results", "statistics.json"), JSON.stringify({ resultCount: 1, aggregationPolicy: { source: "archived_only" }, rows: [{ group: "ours", metrics: { AUC: { mean: 0.91, std: 0.01 } } }] }), "utf8");
   const req = await buildPptPlotRequest({
     projectRoot: project,
     sourcePaths: ["experiments/results/seed1.csv"],
@@ -96,7 +96,7 @@ test("PptPlotBridge reports Chinese error when automation server is offline", as
   });
   await assert.rejects(
     () => bridge.plot({ projectRoot: project, sourcePaths: ["zlk_cluster/results/plotting_contract.json"] }),
-    /PPT automation server 未就绪/,
+    /PPT automation 未就绪/,
   );
   assert.equal(launched, true);
   assert.equal(fs.existsSync(path.join(project, "zlk_cluster", "results", "ppt_plot_requests", "offline-1.json")), true);
@@ -109,12 +109,12 @@ test("PptPlotBridge posts to online automation server and writes audit files", a
   const localAppData = fs.mkdtempSync(path.join(os.tmpdir(), "rough-ppt-online-"));
   fs.mkdirSync(path.join(project, "zlk_cluster", "results"), { recursive: true });
   fs.writeFileSync(path.join(project, "zlk_cluster", "results", "plotting_contract.json"), "{}", "utf8");
-  fs.writeFileSync(path.join(project, "zlk_cluster", "results", "statistics.json"), "{\"rows\":[]}\n", "utf8");
+  fs.writeFileSync(path.join(project, "zlk_cluster", "results", "statistics.json"), JSON.stringify({ resultCount: 1, aggregationPolicy: { source: "archived_only" }, rows: [] }) + "\n", "utf8");
   const seen = {};
   const server = await startMockPptServer(seen);
   const autoDir = path.join(localAppData, "RoughPptAddin");
   fs.mkdirSync(autoDir, { recursive: true });
-  fs.writeFileSync(path.join(autoDir, "automation.json"), JSON.stringify({ baseUrl: `http://127.0.0.1:${server.port}` }), "utf8");
+  fs.writeFileSync(path.join(autoDir, "automation.json"), JSON.stringify({ baseUrl: `http://127.0.0.1:${server.port}`, schemaVersion: 1 }), "utf8");
   fs.writeFileSync(path.join(autoDir, "automation.token"), "token-1\n", "utf8");
   try {
     const bridge = new PptPlotBridge({
@@ -156,7 +156,7 @@ function startMockPptServer(seen) {
       if (request.url === "/health") {
         seen.healthAuth = request.headers.authorization;
         response.writeHead(200, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ ok: true }));
+        response.end(JSON.stringify({ ok: true, schemaVersion: 1 }));
         return;
       }
       if (request.url === "/api/zlk-cluster/plot" && request.method === "POST") {

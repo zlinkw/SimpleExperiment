@@ -107,11 +107,11 @@ test("PPT automation HTTP failures map to actionable states", async () => {
 test("result UI exposes PPT readiness without entering experiment gates", () => {
   const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
   const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-  assert.match(extension, /void this\\.refreshPptAutomationReadiness\\(false\\)/);
-  assert.match(extension, /pptAutomation: this\\.pptAutomationReadiness/);
-  assert.match(panel, /function pptAutomationReadinessForState\\(state\\)/);
+  assert.match(extension, /void this\.refreshPptAutomationReadiness\(false\)/);
+  assert.match(extension, /pptAutomation: this\.pptAutomationReadiness/);
+  assert.match(panel, /function pptAutomationReadinessForState\(state\)/);
   assert.match(panel, /PPT 版本不兼容/);
-  assert.match(panel, /const plotDisabled = !statisticsSourcePath \\|\\| !automation\\.ready/);
-  assert.match(panel, /stage\\.command === "plotResultsToPpt"/);
-  assert.doesNotMatch(extension, /projectBootstrapCompletion[\\s\\S]{0,300}pptAutomation/);
+  assert.match(panel, /const plotDisabled = !statisticsSourcePath \|\| !automation\.ready/);
+  assert.match(panel, /stage\.command === "plotResultsToPpt"/);
+  assert.doesNotMatch(extension, /projectBootstrapCompletion[\s\S]{0,300}pptAutomation/);
 });

@@ -102,7 +102,7 @@ test("plotting contract exposes stable fields for PPT plugin", () => {
     assert.equal(contract.requiredFields.includes(field), true);
   }
   assert.equal(contract.files.resultRegistry.path, "zlk_cluster/results/result_registry.json");
-  assert.match(plottingContractMarkdown(contract), /Dataset Profile/);
+  assert.match(plottingContractMarkdown(contract), /datasetProfile/);
 });
 
 test("experiment config recovery produces editable recovered plan and low-confidence warnings", () => {
