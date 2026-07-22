@@ -95,4 +95,9 @@
 - `recovery-build-009` 影响区域：`src/ui/PanelHtml.ts`、对应 `dist/ui/PanelHtml.js` 和本计划；回归检查为资源树、布局、置顶操作和面板内联脚本测试，以及全量 `typecheck`、lint、JavaScript 语法和 `git diff --check`。
 - `recovery-build-009` 验证：以已安装 `SimpleExperiment 0.2.0` 的 `dist/ui/PanelHtml.js` 为运行时对照恢复面板源码；`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。UI 相关定向回归 `18/18` 通过，资源树、Inspector、工作台和发布同步契约定向回归 `3/3` 通过。
 - `recovery-build-009` 未完成项：全量 UI 测试仍受 Extension/UI 其他恢复缺口阻断；全量测试未标记通过。`workbenchResourceTree.test.js` 的两个上下文测试引用未定义的 `between` 辅助函数，属于测试自身阻断，延期修复测试契约；不扩大本批源码范围。
-- `recovery-build-009` 状态：已完成，待提交并同步；下一批处理 `src/extension.ts` 的 UI 布局与实时状态契约。
+- `recovery-build-009` 提交记录：`fix: restore workbench panel UI baseline`，已普通快进推送至 `origin/master`。
+- `recovery-build-009` 推送核验：`1888f776badd78f6d2c4bf38feaf05aef65df6bc`，本地 `HEAD` 与 `origin/master` 一致。
+- `recovery-build-009a` 目标：建立人工待删除候选清单；不删除、不移动、不暂存删除任何文件。
+- `recovery-build-009a` 影响区域：`docs/manual-cleanup-candidates.md` 与本计划；验证为路径存在性复核和 `git diff --check`。
+- `recovery-build-009a` 验证：清单中的 11 个准确路径均存在，`git diff --check` 通过；未删除、移动或暂存删除任何文件。
+- `recovery-build-009a` 状态：已完成，待提交并同步；Extension UI 布局与实时状态契约延期至后续代码批次。
