@@ -31,9 +31,10 @@
 ### 验证清单
 - PPT bridge、automation readiness、归档结果源和绘图确认定向测试：通过 `20/20`。
 - UI 全量测试：通过 `72/72`；`npm run build`、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 当前恢复批次提交后普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：待提交。
+- 当前恢复批次提交后普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`03d9b70292bb29898f3e3c867e76cc94d66623fd`，已对齐。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-025`，活动计划压缩契约已验证并同步，提交 `fdec89314976664da1771238f2e51eff3280ad26`。
-- 当前目标状态：`recovery-build-026` 验证通过，待提交同步。
+- 当前目标状态：`recovery-build-026` 已完成。
+- `recovery-build-026` 提交记录：`fix: restore PPT automation bridge`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
