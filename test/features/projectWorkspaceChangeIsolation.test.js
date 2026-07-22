@@ -101,7 +101,7 @@ test("stale network probes and realtime callbacks cannot overwrite the new proje
   const integration = methodBody("async runXshellRealIntegrationCheck", "async restartRealtimeStream");
   const snapshot = methodBody("async manualSnapshot", "async manualGpuSnapshot");
   const connect = methodBody("async ensureRealtimeConnected", "async migrateLegacyConfigOnce");
-  const client = methodBody("createClient", "shouldPushLocalAvailabilityFromRealtime");
+  const client = methodBody("private createClient", "private shouldPushLocalAvailabilityFromRealtime");
   assert.match(tunnel, /const generation = this\.projectContextGeneration/);
   assert.ok([...tunnel.matchAll(/generation !== this\.projectContextGeneration/g)].length >= 4);
   assert.match(tunnel, /const nextWorkerProbes = \{\}/);

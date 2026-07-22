@@ -27,7 +27,7 @@ function loadHelpers() {
     source.slice(defaultStart, defaultEnd),
     source.slice(uiActionStart, uiActionEnd),
     source.slice(normalizeStart, clampEnd),
-  ].join("\n");
+  ].join("\n").replace(/new Set<WebviewActionCommand>/g, "new Set");
   const helpers = source.slice(start, end);
   const sandbox = {
     fs: {
@@ -75,5 +75,4 @@ test("extension wires project ui layout helpers", () => {
   assert.match(source, /this\.projectUiLayout = projectUiLayoutState\(layout\)/);
   assert.doesNotMatch(source, /workspaceState\.update\(keys\.uiProjectLayout, projectUiLayoutState\(layout\)\)/);
 });
-
 
