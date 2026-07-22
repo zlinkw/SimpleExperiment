@@ -31,10 +31,10 @@
 ### 验证清单
 - Agent tmux policy 与公开运行环境默认值定向测试：通过 `6/6`。
 - Agent capability 与 Xshell 相邻回归：通过 `18/18`；build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`1230e3ef3f764d7642dd396fdf39984541428b1c`。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-026`，PPT automation bridge 已验证并同步，提交 `03d9b70292bb29898f3e3c867e76cc94d66623fd`。
-- 当前目标状态：`recovery-build-027` 验证通过，待提交同步。
-- `recovery-build-027` 提交记录：待验证后填写。
+- 当前目标状态：`recovery-build-027` 已完成。
+- `recovery-build-027` 提交记录：`1230e3ef3f764d7642dd396fdf39984541428b1c`，已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
