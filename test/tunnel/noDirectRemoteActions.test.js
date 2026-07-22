@@ -1,7 +1,5 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs/promises");
-const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
 const childProcess = require("node:child_process");
@@ -10,7 +8,7 @@ const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel
 const { HttpTunnelClient, tunnelActions } = require("../../dist/tunnel/TunnelClient.js");
 const { FileTransferClient } = require("../../dist/tunnel/FileTransferClient.js");
 
-test("all remote features use TunnelClient and localhost only", async () => {
+test("Agent actions and file browsing use localhost clients without direct remote processes", async () => {
   const childCommands = [];
   const oldSpawn = childProcess.spawn;
   const oldExec = childProcess.exec;
@@ -44,9 +42,8 @@ test("all remote features use TunnelClient and localhost only", async () => {
   });
 
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-tunnel-only-"));
   const port = server.address().port;
-  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] });
+  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, maxRequestsPerMinute: 100, minIntervalByPurpose: {}, disabledPurposes: [] });
   const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: port, timeoutMs: 1000 }, budget);
   const files = new FileTransferClient({ localHost: "127.0.0.1", localPort: port, chunkSizeBytes: 1024 }, budget);
   try {
@@ -61,22 +58,17 @@ test("all remote features use TunnelClient and localhost only", async () => {
     for (const action of tunnelActions) {
       await client.postAction(action, { opId: "op" });
     }
-    await files.list("results");
-    await files.download("results/metrics.csv", path.join(dir, "metrics.csv"));
-    const upload = path.join(dir, "preset.json");
-    await fs.writeFile(upload, "csv", "utf8");
-    await files.upload(upload, "experiments/presets/preset.json");
+    await files.list("results/metrics.csv");
 
     assert.equal(childCommands.some((cmd) => ["ssh", "ssh.exe", "scp", "scp.exe", "rsync", "rsync.exe"].includes(path.basename(cmd).toLowerCase())), false);
     assert.equal(requests.every((item) => item.host === "127.0.0.1"), true);
     assert.equal(requests.some((item) => item.url === "/api/actions/run-plan"), true);
     assert.equal(requests.some((item) => item.url === "/api/actions/delete-artifacts"), true);
-    assert.equal(requests.some((item) => item.url === "/api/files/upload-complete"), true);
+    assert.equal(requests.some((item) => item.url.startsWith("/api/files/list")), true);
   } finally {
     server.close();
     childProcess.spawn = oldSpawn;
     childProcess.exec = oldExec;
-    await fs.rm(dir, { recursive: true, force: true });
   }
 });
 

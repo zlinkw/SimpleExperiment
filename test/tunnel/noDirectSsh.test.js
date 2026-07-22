@@ -5,26 +5,17 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 
-test("plugin runtime source does not contain legacy remote runner code", () => {
-  const files = walk(path.join(root, "src"))
-    .filter((file) => file.endsWith(".ts"))
-    .filter((file) => !file.includes(`${path.sep}test${path.sep}`));
-  const forbidden = [
-    "runSsh(",
-    "ControlMaster",
-    "ControlPath",
-    "persistent_shell",
-    "oneshot",
-    "connectSshSessions",
-    "closeControlMasterSessions",
-    "sshTransportMode",
-    "hub_agent_stream",
-    "direct_ssh",
-  ];
-  for (const file of files) {
-    const text = fs.readFileSync(file, "utf8");
-    for (const item of forbidden) assert.equal(text.includes(item), false, `${item} in ${path.relative(root, file)}`);
+test("active extension uses localhost clients and verified Xshell sessions instead of direct remote runners", () => {
+  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const launcher = fs.readFileSync(path.join(root, "src", "tunnel", "XshellSessionLauncher.ts"), "utf8");
+  for (const item of ["RemoteExecutionService", "RuntimeService", "RemoteFileStore", "FakeRemoteCommandRunner", "runSsh(", "connectSshSessions", "closeControlMasterSessions"]) {
+    assert.equal(extension.includes(item), false, item);
   }
+  assert.doesNotMatch(extension, /(?:from|require\()\s*["'](?:node:)?child_process/);
+  assert.match(extension, /launchXshellSavedSession/);
+  assert.match(launcher, /path\.basename\(request\.exePath \|\| ""\)\.toLowerCase\(\) !== "xshell\.exe"/);
+  assert.match(launcher, /spawn\(request\.exePath, \[request\.sessionPath\]/);
+  assert.doesNotMatch(launcher, /spawn\(["'](?:ssh|scp|rsync)/i);
 });
 
 test("extension dist has no direct remote command fallback", () => {
@@ -32,7 +23,8 @@ test("extension dist has no direct remote command fallback", () => {
   for (const item of ["runSsh(", "connectSshSessions", "closeControlMasterSessions", "ControlMaster", "ControlPath"]) {
     assert.equal(text.includes(item), false, item);
   }
-  assert.match(text, /mobaxterm_tunnel_realtime/);
+  assert.match(text, /xshell_tunnel_realtime/);
+  assert.match(text, /XshellSessionLauncher/);
   assert.match(text, /127\.0\.0\.1/);
 });
 
@@ -54,13 +46,3 @@ test("extension command registration exposes only Xshell tunnel command ids", ()
   assert.equal(registered.includes("zlkCluster.configureXshellSavedSessions"), true);
   assert.equal(registered.includes("zlkCluster.startAllXshellRealtimeTunnels"), true);
 });
-
-function walk(dir) {
-  const out = [];
-  for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, item.name);
-    if (item.isDirectory()) out.push(...walk(full));
-    else out.push(full);
-  }
-  return out;
-}

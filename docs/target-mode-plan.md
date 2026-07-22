@@ -19,25 +19,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-051
+## 当前批次：recovery-build-052
 ### 修复点
-- 统一 Worker Telemetry capability 与 Agent runtime 已公开的五项 Worker 专用控制动作。
-- 在多端点客户端阻断 Hub action 越界直发 Worker，同时保持文件操作只走 Hub。
-- 对齐 Worker GPU 直接遥测测试与当前新鲜心跳优先、过期回退 Hub 的 authority merge 契约；不修改安装目录或 VSIX。
+- 将旧直连远端静态扫描收敛到活动 Extension、localhost client 与 Xshell 会话启动边界，避免迁移 denylist 和未接入候选源码制造伪失败。
+- 对齐 dist 回归断言与当前 `xshell_tunnel_realtime`，继续确认旧直连服务未接入活动入口。
+- 提高 localhost API 集成测试的独立请求预算，并移除其临时下载、上传及永久清理；不修改产品运行时源码、安装目录或 VSIX。
 
 ### 回归风险
-- 相邻回归风险：`run-plan`、结果、归档和文件 API 必须保持 Hub-only，只有 Worker 专用 action 可直发 Worker。
-- capability 风险：Worker Agent 返回 `start/retry/stop/delete/archive-worker-*` 时必须通过兼容校验，其他已启用 action 继续告警。
-- 状态风险：Worker GPU 只有新鲜心跳时覆盖 Hub 副本；缺失或过期心跳必须保留 Hub fallback 和告警。
+- 相邻回归风险：活动 Extension 不得重新导入旧 `RemoteExecutionService`、`RuntimeService`、`RemoteFileStore` 或直接远端命令 runner。
+- 启动风险：插件只可启动已验证的 `Xshell.exe` 与 `.xsh` 会话；不得直接 spawn `ssh/scp/rsync`。
+- 测试风险：迁移 denylist 必须保留对旧 SSH/SCP/rsync 配置的移除能力，不能被误判成运行时直连实现。
 
 ### 验证清单
-- [已通过] Hub/Worker boundary 套件 8/8；额外多端点 GPU 定向测试通过。
+- [已通过] localhost client、Xshell 启动与旧配置 denylist 定向测试 6/6。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
-- [新基线] 全量测试 624 项，616 通过、8 项既有恢复边界失败；相较上一批减少本批覆盖的 3 项失败并新增 1 项边界测试。
-- [已同步] 修复提交 `855eb4919730503557551a09ef5110d178c8d509` 已普通快进推送 `origin/master`。
+- [新基线] 全量测试 624 项，620 通过、4 项既有恢复边界失败；相较上一批减少本批覆盖的 4 项失败。
+- [待同步] 本批验证通过后独立提交并普通快进推送 `origin/master`。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-050`，修复提交 `610b8164a756c39d9de25cb6d25cc51247ec6a21`，记录提交 `cc1639cc9f400ac9eee9fcf4377115fa6fa15ecb`。
-- 当前目标状态：`recovery-build-051` 已完成并同步。
-- 本批涉及：Worker capability、Worker action 路由边界与多端点 GPU authority；不修改安装目录或 VSIX。
-- 修复提交：`855eb4919730503557551a09ef5110d178c8d509`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-051`，修复提交 `855eb4919730503557551a09ef5110d178c8d509`，记录提交 `2d3ee3a7d6fd5bb1e455cecdea67cf52fc7b637a`。
+- 当前目标状态：`recovery-build-052` 运行中。
+- 本批涉及：活动远端边界、Xshell 会话启动与 localhost client 测试；不修改产品运行时源码。
+- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。

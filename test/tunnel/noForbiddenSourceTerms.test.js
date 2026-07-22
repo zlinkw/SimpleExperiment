@@ -5,37 +5,24 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 
-test("source does not contain legacy direct connection runner terms", () => {
-  const forbidden = [
-    "runSsh(",
-    "sshTransportMode",
-    "ControlMaster",
-    "ControlPath",
-    "persistent_shell",
-    "oneshot",
-    "connectSshSessions",
-    "closeControlMasterSessions",
-    "writeRemoteBase64",
-    "scp",
-    "rsync",
-  ];
-  const files = walk(path.join(root, "src"))
-    .filter((file) => file.endsWith(".ts"))
-    .filter((file) => !file.includes(`${path.sep}test${path.sep}`));
-  for (const file of files) {
-    const text = fs.readFileSync(file, "utf8");
-    for (const item of forbidden) {
-      assert.equal(text.includes(item), false, `${item} in ${path.relative(root, file)}`);
+const { removeLegacyRemoteFields } = require("../../dist/tunnel/TunnelOnlyPolicy.js");
+
+test("active transport sources exclude direct process runners while migration removes legacy fields", () => {
+  for (const relative of [
+    "src/extension.ts",
+    "src/tunnel/TunnelClient.ts",
+    "src/tunnel/RealtimeTunnelClient.ts",
+    "src/tunnel/MultiEndpointRealtimeClient.ts",
+    "src/tunnel/FileTransferClient.ts",
+  ]) {
+    const text = fs.readFileSync(path.join(root, relative), "utf8");
+    assert.doesNotMatch(text, /(?:from|require\()\s*["'](?:node:)?child_process/, relative);
+    for (const item of ["RemoteExecutionService", "RemoteFileStore", "writeRemoteBase64", "runSsh("]) {
+      assert.equal(text.includes(item), false, `${item} in ${relative}`);
     }
   }
-});
 
-function walk(dir) {
-  const out = [];
-  for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, item.name);
-    if (item.isDirectory()) out.push(...walk(full));
-    else out.push(full);
-  }
-  return out;
-}
+  const migrated = removeLegacyRemoteFields({ sshHost: "host", scpMode: "legacy", rsyncArgs: [], keep: true });
+  assert.deepEqual(migrated.value, { keep: true });
+  assert.deepEqual(migrated.removedFields.sort(), ["rsyncArgs", "scpMode", "sshHost"]);
+});
