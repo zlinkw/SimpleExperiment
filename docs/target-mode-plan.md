@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-015`。
+- 批次：`recovery-build-016`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -160,4 +160,14 @@
 - 回归检查：相关 UI 与 feature 定向测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
 - 验证：远端文件职责、选择状态、Webview action allowlist、可见按钮处理与命令白名单一致性定向测试 `6/6` 通过；`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过。类型声明编译后不改变 `dist/extension.js` runtime。
 - 说明：面板上传继续由 SimpleSFTP 命令承担；SimpleExperiment 只保留当前 Plan 不可解析轻量结果的受限只读下载。任务卡日志选择保留，远端浏览器选择态不恢复。
-- 状态：已完成验证，待提交并同步；其他 UI 失败不在本批修改。
+- 提交记录：`fix: align webview file ownership contracts`，提交 `b67c65bb853ef9a901919c1306911b58e776eada`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；UI 分组测试提升到 `56/72`，其他失败延期到后续批次。
+
+### recovery-build-016
+
+- 目标：校正 capability 与调试包测试中残留的旧远端文件浏览器断言；保持调试包专用下载和 SimpleSFTP 上传职责。
+- 影响区域：`test/ui/actionButtonsCapability.test.js`、`test/ui/debugBundleWorkflow.test.js` 和本计划。
+- 保护区域：不修改 Panel 或 Extension runtime，不恢复通用远端列表、上传、下载或选择入口。
+- 回归检查：capability、调试包、远端结果查看定向测试，UI 分组测试，`git diff --check`。
+- 验证：capability 与调试包定向测试 `2/2` 通过，UI 分组提升到 `58/72`；`git diff --check` 通过。远端结果查看 feature 测试仍有既有契约失败，延期至后续结果查看安全批次。
+- 状态：已完成验证，待提交并同步。
