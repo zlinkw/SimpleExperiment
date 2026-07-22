@@ -48,6 +48,8 @@ flowchart LR
 
 SimpleExperiment 命令面板默认只显示新项目主流程和常用连接入口。旧自动隧道、单端点启动、实时流控制、诊断与离线恢复命令仍然存在，面板内原按钮和直接命令 ID 不变；需要从命令面板调用时，打开插件面板“设置 -> 高级命令 -> 打开命令设置”，再启用 `zlkCluster.showAdvancedCommands`。
 
+运行门禁、同步状态和发布流程会把 fingerprint 显示为“代码指纹”；未选择 Plan 时显示“需要选择计划”，悬停仍可查看原始 fingerprint。运行确认窗口同样显示“核验代码指纹”，不改变内部 fingerprint 字段。
+
 ## 2. 配置 Xshell
 
 为 Hub 和每个 Worker 创建已保存的 Xshell 会话。每个会话应能连接对应服务器，并已保存本地端口转发。不要把 SFTP 用于日志、GPU 或任务状态。

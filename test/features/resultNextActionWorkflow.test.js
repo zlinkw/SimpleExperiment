@@ -142,7 +142,8 @@ test("only a current selected-Plan contract check drives zero-result guidance", 
   assert.match(panel, /resultEvidenceWorkbenchCacheKeyFor\(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness\)/);
   assert.match(panel, /outputContractCheck: compactOutputContractCheckForSignature/);
   assert.ok([...panel.matchAll(/outputContractCheck: compactOutputContractCheckForSignature\(currentResultOutputContractCheck\(data\)\)/g)].length >= 2);
-  assert.match(panel, /projectMeta\.outputContractStage = resultSummaryNeedsOutputContractRecovery\(state\.resultsSummary\)[\s\S]{0,140}outputContractStageForCheck/);
+  assert.match(panel, /projectMeta\.outputContractStage = currentPlanRuntimeContractStage\(state, selectedPlanFile\)/);
+  assert.match(panel, /function currentPlanRuntimeContractStage\(state, planFile\)[\s\S]{0,500}resultSummaryNeedsOutputContractRecovery\(summary\)[\s\S]{0,120}outputContractStageForCheck/);
   assert.match(panel, /renderProjectRuntimeContractRow\(meta\.outputContractStage, project, selectedPlanFile\)/);
   assert.match(panel, /contractStage\.section === "plans"[\s\S]{0,280}project\.adapterConfig[\s\S]{0,280}"打开接入配置", "openPlan"/);
   assert.match(panel, /contractStage\.section === "plans"[\s\S]{0,520}"生成接入模板", "generateOutputAdapter"/);
