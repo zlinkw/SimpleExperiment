@@ -48,8 +48,7 @@ test("agent discover_plan_files walks nested plan subfolders", () => {
 
 test("extension archive keeps nested plan subfolder under _archived", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  assert.match(source, /path\.posix\.join\("_archived", relativeFromPlanDir/);
-  assert.match(source, /archiveTargetDir/);
+  assert.match(source, /bundleParent = path\.join\(planRoot, "_archived", path\.dirname\(relativeFromPlanDir\)\)/);
   assert.match(source, /walkYaml\(dir\)/);
   assert.match(source, /isArchivedPlanFile\(root, planDir, fullPath\)/);
   // 7c23e89 基线面板不内联 nestedFolder 文案；嵌套发现与归档由 extension/agent 承担。

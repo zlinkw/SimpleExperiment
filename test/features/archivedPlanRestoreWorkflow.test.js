@@ -13,11 +13,11 @@ test("archived plan restore creates an isolated version with isolated configs an
   assert.match(extension, /readPlanArchiveBundle\(source\)/);
   assert.match(extension, /nextAvailableVersionedPlanFile\(path\.join\(planRoot, "_restored", path\.dirname\(originalRelative\)\), parsed\.name, parsed\.ext\)/);
   assert.match(extension, /safeArchiveBundleChildPath\(path\.join\(bundleDir, "configs"\), relative\)/);
-  assert.match(extension, /"zlk_cluster", "restored_configs", safePlanToken\(restoredFile\), relative/);
+  assert.match(extension, /path\.posix\.join\("experiments", "restored_assets", safePlanToken\(restoredFile\), "configs", relative\)/);
   assert.match(extension, /resultScopeFile: restoredFile/);
-  assert.match(extension, /restorePlanText\(planText, \{ originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap \}\)/);
+  assert.match(extension, /restorePlanText\(planText, \{ originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir \}\)/);
   assert.match(extension, /await this\.persistProjectPlanSelectionState\(\)/);
-  assert.match(extension, /await openWorkspaceFile\(restoredFile\)/);
+  assert.match(extension, /自动切换到 Plan 工作台/);
 });
 
 test("archived plan card exposes restore through the local command allowlist", () => {
