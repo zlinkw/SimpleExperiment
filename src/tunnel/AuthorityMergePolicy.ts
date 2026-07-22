@@ -1,5 +1,5 @@
 import { NamedTunnelEndpointConfig } from "./MultiEndpointRealtimeClient";
-import { RealtimeState, createRealtimeState } from "./RealtimeEventReducer";
+import { compactRealtimeLogs, compactRealtimeState, RealtimeState, createRealtimeState } from "./RealtimeEventReducer";
 import { WorkerTaskTelemetry } from "./WorkerTelemetryApi";
 
 export interface AuthorityMergePolicy {
@@ -32,6 +32,7 @@ export interface AuthorityMergeOptions {
   staleWorkerTelemetrySeconds?: number;
   now?: string;
   selectedLogRunKey?: string;
+  protectedLogKeys?: string[];
 }
 
 export interface AuthorityStateEntry {
@@ -55,10 +56,12 @@ export function mergeAuthorityRealtimeStates(
   for (const entry of entries) {
     merged.lastSeq = Math.max(merged.lastSeq, entry.state.lastSeq);
     merged.lastHeartbeatAt = latest([merged.lastHeartbeatAt, entry.state.lastHeartbeatAt]);
-    if ((entry.state.resultSummaryDirtySeq || 0) > (merged.resultSummaryDirtySeq || 0)) {
+    if (newerResultSummaryDirty(entry.state, merged)) {
       merged.resultSummaryDirtySeq = entry.state.resultSummaryDirtySeq;
       merged.resultSummaryDirtyAt = entry.state.resultSummaryDirtyAt;
       merged.resultSummaryDirtyType = entry.state.resultSummaryDirtyType;
+      merged.resultSummaryDirtyKey = entry.state.resultSummaryDirtyKey;
+      merged.resultSummaryDirtyPlanFile = entry.state.resultSummaryDirtyPlanFile;
     }
   }
 
@@ -82,7 +85,7 @@ export function mergeAuthorityRealtimeStates(
       workerTasks.push(normalizeWorkerTask(row, entry.endpoint.id));
     }
     merged.workerHealth = { ...merged.workerHealth, ...entry.state.workerHealth };
-    merged.logs = mergeLogs(merged.logs, entry.state.logs, options.selectedLogRunKey);
+    merged.logs = mergeLogs(merged.logs, entry.state.logs, protectedLogKeys(options));
     if (entry.state.diagnostics) merged.diagnostics = { ...(merged.diagnostics as object || {}), [entry.endpoint.id]: entry.state.diagnostics };
     if (entry.state.schedulerStates.length) warnings.push(`Worker ${entry.endpoint.id} sent scheduler state; ignored because Hub is authoritative.`);
     if (Object.keys(entry.state.operations).length) warnings.push(`Worker ${entry.endpoint.id} sent operation state; ignored because operations are Hub-only.`);
@@ -100,7 +103,7 @@ export function mergeAuthorityRealtimeStates(
     experimentTraces: merged.experimentTraces,
     diagnostics: merged.diagnostics as Record<string, unknown>,
   };
-  return merged;
+  return compactRealtimeState(merged, { protectedLogKeys: protectedLogKeys(options) });
 }
 
 export function enrichSchedulerRows(rows: unknown[], workerTasks: WorkerTaskTelemetry[], warnings: string[] = []): unknown[] {
@@ -206,10 +209,14 @@ function mergeRows(previous: unknown[], incoming: unknown[]): unknown[] {
   return [...map.values()];
 }
 
-function mergeLogs(base: RealtimeState["logs"], incoming: RealtimeState["logs"], selectedRunKey?: string): RealtimeState["logs"] {
-  if (!selectedRunKey) return { ...base, ...incoming };
-  const selected = incoming[selectedRunKey];
-  return selected ? { ...base, [selectedRunKey]: selected } : base;
+function mergeLogs(base: RealtimeState["logs"], incoming: RealtimeState["logs"], protectedKeys: string[] = []): RealtimeState["logs"] {
+  if (!protectedKeys.length) return compactRealtimeLogs({ ...base, ...incoming });
+  const selectedIncoming = Object.fromEntries(protectedKeys.filter((key) => incoming[key]).map((key) => [key, incoming[key]]));
+  return compactRealtimeLogs({ ...base, ...selectedIncoming }, undefined, undefined, protectedKeys);
+}
+
+function protectedLogKeys(options: AuthorityMergeOptions): string[] {
+  return [...new Set([options.selectedLogRunKey, ...(options.protectedLogKeys || [])].map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 function rowKey(row: unknown): string {
@@ -225,6 +232,16 @@ function isFresh(timestamp: string | undefined, nowMs: number, staleSeconds: num
   if (!timestamp) return false;
   const then = Date.parse(timestamp);
   return Number.isFinite(then) && nowMs >= then && nowMs - then <= staleSeconds * 1000;
+}
+
+function newerResultSummaryDirty(incoming: RealtimeState, current: RealtimeState): boolean {
+  if (!incoming.resultSummaryDirtyKey && !incoming.resultSummaryDirtySeq) return false;
+  if (incoming.resultSummaryDirtyKey && incoming.resultSummaryDirtyKey === current.resultSummaryDirtyKey) return false;
+  const incomingAt = Date.parse(incoming.resultSummaryDirtyAt || "");
+  const currentAt = Date.parse(current.resultSummaryDirtyAt || "");
+  if (Number.isFinite(incomingAt) && Number.isFinite(currentAt)) return incomingAt >= currentAt;
+  if (Number.isFinite(incomingAt)) return true;
+  return (incoming.resultSummaryDirtySeq || 0) > (current.resultSummaryDirtySeq || 0);
 }
 
 function stringValue(value: unknown): string | undefined {

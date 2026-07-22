@@ -30,7 +30,7 @@ test("extension and multi endpoint clients compact logs before webview state", (
   const root = path.resolve(__dirname, "..", "..");
   const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   const multi = fs.readFileSync(path.join(root, "src", "tunnel", "MultiEndpointRealtimeClient.ts"), "utf8");
-  assert.match(extension, /compactRealtimeLogs\(firstRecord\(realtimeState\?\.logs\)\)/);
+  assert.match(extension, /(?:compactRealtimeLogs|\(0,\s*RealtimeEventReducer_1\.compactRealtimeLogs\))\(firstRecord\(realtimeState\?\.logs\)/);
   assert.match(multi, /compactRealtimeLogs\(\{/);
 });
 

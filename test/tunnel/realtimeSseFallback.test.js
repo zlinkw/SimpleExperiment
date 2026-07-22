@@ -38,6 +38,7 @@ test("SSE fallback receives realtime event", async () => {
 test("capability false skips websocket and connects directly to SSE", async () => {
   const previous = global.WebSocket;
   let websocketAttempts = 0;
+  let sseResponse;
   global.WebSocket = class {
     constructor() { websocketAttempts += 1; }
     close() {}
@@ -45,7 +46,8 @@ test("capability false skips websocket and connects directly to SSE", async () =
   const server = http.createServer((req, res) => {
     if (req.url.startsWith("/api/events/sse")) {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.end(`data: ${JSON.stringify({ schemaVersion: 1, seq: 3, type: "scheduler_snapshot", generatedAt: new Date().toISOString(), source: "hub_agent", payload: { schedulerStates: [{ runKey: "cap-sse" }] } })}\n\n`);
+      sseResponse = res;
+      res.write(`data: ${JSON.stringify({ schemaVersion: 1, seq: 3, type: "scheduler_snapshot", generatedAt: new Date().toISOString(), source: "hub_agent", payload: { schedulerStates: [{ runKey: "cap-sse" }] } })}\n\n`);
       return;
     }
     res.writeHead(404).end();
@@ -70,6 +72,7 @@ test("capability false skips websocket and connects directly to SSE", async () =
     assert.equal(states.at(-1).schedulerStates[0].runKey, "cap-sse");
   } finally {
     await client.disconnect();
+    sseResponse?.end();
     server.close();
     global.WebSocket = previous;
   }
@@ -77,3 +80,11 @@ test("capability false skips websocket and connects directly to SSE", async () =
 
 function listen(server) { return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); }
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+async function waitFor(predicate, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await delay(10);
+  }
+  assert.fail("timed out waiting for SSE state");
+}

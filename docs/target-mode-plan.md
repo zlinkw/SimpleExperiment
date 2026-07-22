@@ -18,28 +18,28 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-035
+## 当前批次：recovery-build-036
 ### 修复点
-- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 CLI 的实验运行、结果解析和最终论文表格命令。
-- 论文表格命令只读取最终归档且未被明确判定无效的记录，不把待审核预览记录混入输出。
-- 补齐 `requireFinalEvidence` 的实际筛选逻辑，最终分析只接受归档状态且未被显式判定为无效的记录。
-- 论文模板渲染默认使用最终结果策略，不再回退到包含待审核记录的普通预览策略。
-- 修正质量门禁测试数据，使其使用分类契约要求的 AUC 指标和独立实验标识。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 realtime 状态、日志、操作、传输和 Worker 任务的有界压缩。
+- 恢复结果摘要 dirty event、操作终态保护、快照 operation merge 和 authority merge 后的统一预算。
+- 恢复重连正向 jitter、最短一分钟快照回退、capability 驱动的 WebSocket/SSE 选择和 journal gap 快照恢复。
+- 修复 SSE capability 回归测试缺失的有超时轮询 helper。
 - 不修改结果注册表、归档文件、实验数据或已安装扩展。
 
 ### 回归风险
-- 证据风险：CLI 论文表格不得把 `pending_review` 记录当作最终证据。
-- 兼容风险：旧 CLI 状态、指标、Plan build 命令和公开别名必须继续可用。
-- 质量风险：门禁筛选必须按 experimentId 匹配，不得让同 ID 的测试数据相互覆盖。
+- 内存风险：长时间 realtime 流不得让日志、任务、操作、传输和快照无限增长。
+- 状态风险：旧序号结果 dirty event、操作终态和 journal gap 不得被普通事件覆盖或跳过恢复。
+- 网络风险：capability 明确禁用 WebSocket 时不得尝试连接；重连 jitter 不得缩短基础退避。
 
 ### 验证清单
-- CLI、结果管理、最终结果视图与质量门禁定向测试：通过 `17/17`。
+- `test:xshell-realtime`、状态预算、日志预算、重连、SSE、journal gap 与 authority merge 定向测试：通过 `25/25`；扩展 authority 定向集通过 `17/17`。
+- 操作终态、快照 merge 和旧序号结果 dirty event 独立契约检查：通过。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 全量恢复审计基线：本批修复前通过 `546/620`，剩余 `74` 项按后续边界分批处理；该结果不作为本批定向回归失败。
-- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`9bb82639783af5f7da788d72f2f7dff348ccb27c`。
+- 全量恢复审计基线：本批开始前通过 `546/620`，剩余项按后续边界分批处理；该结果不作为本批定向回归失败。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：待完成。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-034`，隧道诊断与 live-output 契约已验证并同步，代码提交 `1733dbb59280470b764dd97096ab55846bb9dbc4`，记录提交 `fdaca59b9a2bbf18b8214f5cdefcf058e4806a87`。
-- 当前目标状态：`recovery-build-035` 已完成。
-- `recovery-build-035` 提交记录：`9bb82639783af5f7da788d72f2f7dff348ccb27c`，已普通快进推送并确认与 `origin/master` 一致。
+- 当前目标状态：`recovery-build-036` 已验证，待提交同步。
+- `recovery-build-035` 提交记录：`9bb82639783af5f7da788d72f2f7dff348ccb27c`，记录提交 `df5297e1edc71a49b7e312da75e15bdc14e8a161`，均已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。

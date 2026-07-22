@@ -13,7 +13,7 @@ exports.defaultRealtimeRefreshPolicy = {
     fallbackToSse: true,
     fallbackToPolling: true,
     heartbeatIntervalSeconds: 5,
-    snapshotFallbackIntervalSeconds: 30,
+    snapshotFallbackIntervalSeconds: 60,
     gpuEventCoalesceMs: 500,
     uiBatchMs: 100,
     logTailEnabledByDefault: false,
@@ -62,7 +62,7 @@ class RealtimeTunnelClient {
             return;
         }
         this.status = "connecting";
-        if (this.policy.preferWebSocket && typeof WebSocket !== "undefined") {
+        if (this.shouldUseWebSocket()) {
             try {
                 await this.budget.run("events", async () => {
                     this.connectWebSocket(sinceSeq);
@@ -77,7 +77,7 @@ class RealtimeTunnelClient {
                 this.lastError = message(error);
             }
         }
-        if (this.policy.fallbackToSse) {
+        if (this.shouldUseSse()) {
             try {
                 await this.connectSse(sinceSeq);
                 return;
@@ -210,7 +210,7 @@ class RealtimeTunnelClient {
             this.websocket = undefined;
             if (this.status === "paused")
                 return;
-            if (this.policy.fallbackToSse) {
+            if (this.shouldUseSse()) {
                 void this.connectSse(this.state.lastSeq).catch(() => this.reconnect("websocket closed"));
             }
             else if (this.policy.fallbackToPolling) {
@@ -254,6 +254,10 @@ class RealtimeTunnelClient {
                         this.acceptEvent(data);
                 }
             }
+            buffer += decoder.decode();
+            const data = buffer.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+            if (data)
+                this.acceptEvent(data);
         }
         catch (error) {
             this.lastError = message(error);
@@ -290,13 +294,23 @@ class RealtimeTunnelClient {
         this.onState(this.state);
     }
     acceptEvent(raw) {
-        const before = this.state.lastSeq;
-        this.state = (0, RealtimeEventReducer_1.applyRealtimeEvent)(this.state, raw);
-        if (this.state.lastSeq > before)
-            this.onState(this.state);
         const event = typeof raw === "string" ? safeJson(raw) : raw;
-        if (event?.type === "agent_warning" && event.payload?.code === "journal_gap") {
-            void this.getSnapshot().catch((error) => { this.lastError = message(error); });
+        const journalGap = isJournalGapEvent(event);
+        const beforeState = this.state;
+        const before = this.state.lastSeq;
+        const beforeDirtyKey = this.state.resultSummaryDirtyKey;
+        this.state = (0, RealtimeEventReducer_1.applyRealtimeEvent)(this.state, raw);
+        if (journalGap)
+            this.state = (0, RealtimeEventReducer_1.compactRealtimeState)({ ...this.state, lastSeq: 0 });
+        if (this.state !== beforeState || this.state.lastSeq !== before || this.state.resultSummaryDirtyKey !== beforeDirtyKey)
+            this.onState(this.state);
+        if (journalGap) {
+            void this.getSnapshot()
+                .catch((error) => { this.lastError = message(error); })
+                .finally(() => {
+                if (this.status !== "paused" && this.status !== "disconnected")
+                    void this.reconnect("journal gap");
+            });
         }
     }
     headers() {
@@ -305,8 +319,27 @@ class RealtimeTunnelClient {
             headers["X-ZLK-Agent-Token"] = this.endpoint.token;
         return headers;
     }
+    shouldUseWebSocket() {
+        if (!this.policy.preferWebSocket || typeof WebSocket === "undefined")
+            return false;
+        const endpoints = capabilityEndpoints(this.endpoint.capabilities);
+        return endpoints ? endpoints.websocketEvents !== false : true;
+    }
+    shouldUseSse() {
+        if (!this.policy.fallbackToSse)
+            return false;
+        const endpoints = capabilityEndpoints(this.endpoint.capabilities);
+        return endpoints ? endpoints.sseEvents !== false : true;
+    }
 }
 exports.RealtimeTunnelClient = RealtimeTunnelClient;
+function capabilityEndpoints(capabilities) {
+    const caps = objectRecord(capabilities);
+    return objectRecord(caps?.endpoints);
+}
+function objectRecord(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
 function safeJson(text) {
     if (typeof text !== "string")
         return text;
@@ -319,4 +352,7 @@ function safeJson(text) {
 }
 function message(error) {
     return error instanceof Error ? error.message : String(error);
+}
+function isJournalGapEvent(event) {
+    return Boolean(event && typeof event === "object" && event.payload?.code === "journal_gap");
 }

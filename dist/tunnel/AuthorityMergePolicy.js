@@ -28,10 +28,12 @@ function mergeAuthorityRealtimeStates(entries, options = {}) {
     for (const entry of entries) {
         merged.lastSeq = Math.max(merged.lastSeq, entry.state.lastSeq);
         merged.lastHeartbeatAt = latest([merged.lastHeartbeatAt, entry.state.lastHeartbeatAt]);
-        if ((entry.state.resultSummaryDirtySeq || 0) > (merged.resultSummaryDirtySeq || 0)) {
+        if (newerResultSummaryDirty(entry.state, merged)) {
             merged.resultSummaryDirtySeq = entry.state.resultSummaryDirtySeq;
             merged.resultSummaryDirtyAt = entry.state.resultSummaryDirtyAt;
             merged.resultSummaryDirtyType = entry.state.resultSummaryDirtyType;
+            merged.resultSummaryDirtyKey = entry.state.resultSummaryDirtyKey;
+            merged.resultSummaryDirtyPlanFile = entry.state.resultSummaryDirtyPlanFile;
         }
     }
     for (const entry of hubEntries) {
@@ -56,7 +58,7 @@ function mergeAuthorityRealtimeStates(entries, options = {}) {
             workerTasks.push(normalizeWorkerTask(row, entry.endpoint.id));
         }
         merged.workerHealth = { ...merged.workerHealth, ...entry.state.workerHealth };
-        merged.logs = mergeLogs(merged.logs, entry.state.logs, options.selectedLogRunKey);
+        merged.logs = mergeLogs(merged.logs, entry.state.logs, protectedLogKeys(options));
         if (entry.state.diagnostics)
             merged.diagnostics = { ...(merged.diagnostics || {}), [entry.endpoint.id]: entry.state.diagnostics };
         if (entry.state.schedulerStates.length)
@@ -77,7 +79,7 @@ function mergeAuthorityRealtimeStates(entries, options = {}) {
         experimentTraces: merged.experimentTraces,
         diagnostics: merged.diagnostics,
     };
-    return merged;
+    return (0, RealtimeEventReducer_1.compactRealtimeState)(merged, { protectedLogKeys: protectedLogKeys(options) });
 }
 function enrichSchedulerRows(rows, workerTasks, warnings = []) {
     const byRunKey = new Map(workerTasks.filter((task) => task.runKey).map((task) => [task.runKey, task]));
@@ -180,11 +182,14 @@ function mergeRows(previous, incoming) {
     }
     return [...map.values()];
 }
-function mergeLogs(base, incoming, selectedRunKey) {
-    if (!selectedRunKey)
-        return { ...base, ...incoming };
-    const selected = incoming[selectedRunKey];
-    return selected ? { ...base, [selectedRunKey]: selected } : base;
+function mergeLogs(base, incoming, protectedKeys = []) {
+    if (!protectedKeys.length)
+        return (0, RealtimeEventReducer_1.compactRealtimeLogs)({ ...base, ...incoming });
+    const selectedIncoming = Object.fromEntries(protectedKeys.filter((key) => incoming[key]).map((key) => [key, incoming[key]]));
+    return (0, RealtimeEventReducer_1.compactRealtimeLogs)({ ...base, ...selectedIncoming }, undefined, undefined, protectedKeys);
+}
+function protectedLogKeys(options) {
+    return [...new Set([options.selectedLogRunKey, ...(options.protectedLogKeys || [])].map((value) => String(value || "").trim()).filter(Boolean))];
 }
 function rowKey(row) {
     const item = row;
@@ -198,6 +203,19 @@ function isFresh(timestamp, nowMs, staleSeconds) {
         return false;
     const then = Date.parse(timestamp);
     return Number.isFinite(then) && nowMs >= then && nowMs - then <= staleSeconds * 1000;
+}
+function newerResultSummaryDirty(incoming, current) {
+    if (!incoming.resultSummaryDirtyKey && !incoming.resultSummaryDirtySeq)
+        return false;
+    if (incoming.resultSummaryDirtyKey && incoming.resultSummaryDirtyKey === current.resultSummaryDirtyKey)
+        return false;
+    const incomingAt = Date.parse(incoming.resultSummaryDirtyAt || "");
+    const currentAt = Date.parse(current.resultSummaryDirtyAt || "");
+    if (Number.isFinite(incomingAt) && Number.isFinite(currentAt))
+        return incomingAt >= currentAt;
+    if (Number.isFinite(incomingAt))
+        return true;
+    return (incoming.resultSummaryDirtySeq || 0) > (current.resultSummaryDirtySeq || 0);
 }
 function stringValue(value) {
     return typeof value === "string" && value.trim() ? value.trim() : undefined;

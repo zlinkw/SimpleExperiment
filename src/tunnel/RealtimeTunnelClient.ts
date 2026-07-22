@@ -2,7 +2,7 @@ import { RequestBudget, RequestBudgetDeniedError } from "./RequestBudget";
 import { FileTransferClient } from "./FileTransferClient";
 import { DownloadOptions, FileTransferTask } from "./FileTransferTypes";
 import { RealtimeReconnect } from "./RealtimeReconnect";
-import { applyRealtimeEvent, applySnapshot, createRealtimeState, RealtimeEvent, RealtimeState } from "./RealtimeEventReducer";
+import { applyRealtimeEvent, applySnapshot, compactRealtimeState, createRealtimeState, RealtimeEvent, RealtimeState } from "./RealtimeEventReducer";
 import { ClusterSnapshot, HttpTunnelClient, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
 import { localBaseUrl } from "./TunnelGateway";
 import { TunnelHealth } from "./TunnelHealth";
@@ -34,7 +34,7 @@ export const defaultRealtimeRefreshPolicy: RealtimeRefreshPolicy = {
   fallbackToSse: true,
   fallbackToPolling: true,
   heartbeatIntervalSeconds: 5,
-  snapshotFallbackIntervalSeconds: 30,
+  snapshotFallbackIntervalSeconds: 60,
   gpuEventCoalesceMs: 500,
   uiBatchMs: 100,
   logTailEnabledByDefault: false,
@@ -84,7 +84,7 @@ export class RealtimeTunnelClient {
       return;
     }
     this.status = "connecting";
-    if (this.policy.preferWebSocket && typeof WebSocket !== "undefined") {
+    if (this.shouldUseWebSocket()) {
       try {
         await this.budget.run("events", async () => {
           this.connectWebSocket(sinceSeq);
@@ -98,7 +98,7 @@ export class RealtimeTunnelClient {
         this.lastError = message(error);
       }
     }
-    if (this.policy.fallbackToSse) {
+    if (this.shouldUseSse()) {
       try {
         await this.connectSse(sinceSeq);
         return;
@@ -244,7 +244,7 @@ export class RealtimeTunnelClient {
       if (this.websocket !== ws) return;
       this.websocket = undefined;
       if (this.status === "paused") return;
-      if (this.policy.fallbackToSse) {
+      if (this.shouldUseSse()) {
         void this.connectSse(this.state.lastSeq).catch(() => this.reconnect("websocket closed"));
       } else if (this.policy.fallbackToPolling) {
         void this.startPolling().catch((error) => {
@@ -285,6 +285,9 @@ export class RealtimeTunnelClient {
           if (data) this.acceptEvent(data);
         }
       }
+      buffer += decoder.decode();
+      const data = buffer.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+      if (data) this.acceptEvent(data);
     } catch (error) {
       this.lastError = message(error);
     }
@@ -322,12 +325,20 @@ export class RealtimeTunnelClient {
   }
 
   private acceptEvent(raw: unknown): void {
-    const before = this.state.lastSeq;
-    this.state = applyRealtimeEvent(this.state, raw);
-    if (this.state.lastSeq > before) this.onState(this.state);
     const event = typeof raw === "string" ? safeJson(raw) : raw;
-    if ((event as { type?: string; payload?: { code?: string } } | undefined)?.type === "agent_warning" && (event as { payload?: { code?: string } }).payload?.code === "journal_gap") {
-      void this.getSnapshot().catch((error) => { this.lastError = message(error); });
+    const journalGap = isJournalGapEvent(event);
+    const beforeState = this.state;
+    const before = this.state.lastSeq;
+    const beforeDirtyKey = this.state.resultSummaryDirtyKey;
+    this.state = applyRealtimeEvent(this.state, raw);
+    if (journalGap) this.state = compactRealtimeState({ ...this.state, lastSeq: 0 });
+    if (this.state !== beforeState || this.state.lastSeq !== before || this.state.resultSummaryDirtyKey !== beforeDirtyKey) this.onState(this.state);
+    if (journalGap) {
+      void this.getSnapshot()
+        .catch((error) => { this.lastError = message(error); })
+        .finally(() => {
+          if (this.status !== "paused" && this.status !== "disconnected") void this.reconnect("journal gap");
+        });
     }
   }
 
@@ -336,6 +347,27 @@ export class RealtimeTunnelClient {
     if (this.endpoint.token) headers["X-ZLK-Agent-Token"] = this.endpoint.token;
     return headers;
   }
+
+  private shouldUseWebSocket(): boolean {
+    if (!this.policy.preferWebSocket || typeof WebSocket === "undefined") return false;
+    const endpoints = capabilityEndpoints(this.endpoint.capabilities);
+    return endpoints ? endpoints.websocketEvents !== false : true;
+  }
+
+  private shouldUseSse(): boolean {
+    if (!this.policy.fallbackToSse) return false;
+    const endpoints = capabilityEndpoints(this.endpoint.capabilities);
+    return endpoints ? endpoints.sseEvents !== false : true;
+  }
+}
+
+function capabilityEndpoints(capabilities: unknown): Record<string, unknown> | undefined {
+  const caps = objectRecord(capabilities);
+  return objectRecord(caps?.endpoints);
+}
+
+function objectRecord(value: unknown): Record<string, any> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : undefined;
 }
 
 function safeJson(text: unknown): unknown {
@@ -349,4 +381,8 @@ function safeJson(text: unknown): unknown {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isJournalGapEvent(event: unknown): boolean {
+  return Boolean(event && typeof event === "object" && (event as { payload?: { code?: string } }).payload?.code === "journal_gap");
 }
