@@ -19,25 +19,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-048
+## 当前批次：recovery-build-049
 ### 修复点
-- 对齐三个 MobaXterm 兼容包装测试与当前 Xshell-only 实现。
-- 验证旧包装只保留 API 兼容，不再接受 MobaXterm 可执行文件或旧连接模式。
-- 保留 Xshell 启动预览、端口推荐与实时文件传输默认值；本批不修改产品运行时源码、安装目录或 VSIX。
+- 对齐面板打开时实时连接测试与当前局部 `client` 引用。
+- 对齐全局 Xshell 配置读写契约，保留跨工作区配置行为。
+- 对齐手动 GPU、调度、实验记录快照和日志选择消息分支；本批不修改产品运行时源码、安装目录或 VSIX。
 
 ### 回归风险
-- 相邻回归风险：兼容包装不得重新启用 MobaXterm，必须转发到 Xshell 实现。
-- 可执行文件风险：只接受 `Xshell.exe`，错误 basename 继续拒绝。
-- 配置风险：旧连接模式必须规范化为 `xshell_tunnel_realtime`，并保持本地端口约束。
+- 相邻回归风险：面板打开和恢复网络必须继续经过暂停预算与 realtime client 连接门禁。
+- 配置风险：Hub/Worker Xshell 参数必须写入 `globalState`，不能回退到工作区状态。
+- UI 消息风险：手动快照命令必须使用当前消息分支，日志选择只能更新选择并通过现有 live output 入口刷新。
 
 ### 验证清单
-- [已通过] MobaXterm 兼容包装与 Xshell 主实现定向测试 18/18。
+- [已通过] 面板连接、全局 Xshell 配置与手动快照定向测试 5/5。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
-- [新基线] 全量测试 623 项，605 通过、18 失败；相较 21 项旧恢复边界减少 3 项。
-- [已同步] 修复提交 `6274ed9d329fe3f97c7ff4ee1f6aa2349d4af729` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [新基线] 全量测试 623 项，609 通过、14 失败；相较 18 项旧恢复边界减少 4 项。
+- [待同步] 本批修复提交尚未创建或推送。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-047`，修复提交 `2a8a8dca19c31de28515d3c1c25ac43eb0b2a188`，记录提交 `39ca610370436284d129cf9f565d5574b8e06cb1`。
-- 当前目标状态：`recovery-build-048` 已完成并同步。
-- 本批涉及：MobaXterm 兼容包装测试与本计划；不修改产品运行时源码。
-- 修复提交：`6274ed9d329fe3f97c7ff4ee1f6aa2349d4af729`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-048`，修复提交 `6274ed9d329fe3f97c7ff4ee1f6aa2349d4af729`，记录提交 `5c8333fbbb0504cc6ce9975b1719cc26c9841468`。
+- 当前目标状态：`recovery-build-049` 执行中。
+- 本批涉及：连接生命周期、全局配置与手动快照契约测试；不修改产品运行时源码。
+- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
