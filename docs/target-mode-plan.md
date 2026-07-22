@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-003a`。
+- 批次：`recovery-build-004`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -24,6 +24,7 @@
 - [已完成] `recovery-build-002`：修复文件浏览返回契约、文件状态规范字段、完整隧道动作集合和动作参数异步拒绝契约；不处理实时 reducer、隧道策略、端口冲突、Extension 或 UI。
 - [已完成] `recovery-build-003`：修复实时 worker task 状态类型、隧道模式策略和端口冲突类型；不处理 Extension、UI 或新功能。
 - [已完成] `recovery-build-003a`：补齐旧 MobaXterm 配置迁移提示兼容契约及批次记录；不修改其他行为。
+- [进行中] `recovery-build-004`：修复 `OperationQueue` coalesce key 类型收窄，不改变队列行为。
 - [待处理] 继续修复 Extension 缺失导入/成员、结果与计划导出、实时 authority 合并和剩余类型契约。
 
 ## 验证清单
@@ -66,3 +67,6 @@
 - `recovery-build-003a` 影响区域：`TunnelOnlyPolicy` 及对应 `dist`、本计划；回归检查为定向 TypeScript 编译、隧道策略与旧配置迁移测试。
 - `recovery-build-003a` 验证：定向 TypeScript 编译通过；4 个测试共 `4/4` 通过；对应 JavaScript 语法通过。
 - `recovery-build-003a` 提交记录：`fix: clarify legacy tunnel migration warning`，普通快进推送至 `origin/master`；下一批只处理 Extension 缺失导入/成员。
+- `recovery-build-004` 影响区域：`OperationQueue` 及对应 `dist`、本计划；回归检查为全量 TypeScript 错误收敛、队列测试、lint 和 JavaScript 语法。
+- `recovery-build-004` 验证：全量 `typecheck` 已移除 `OperationQueue` 错误，但仍被 Extension、features、runtime 和 scenario 既有错误阻断；隧道操作队列测试 `1/1` 通过，lint 与对应 JavaScript 语法通过。
+- `recovery-build-004` 提交记录：待提交并同步；下一批只处理 Extension 缺失导入/成员。

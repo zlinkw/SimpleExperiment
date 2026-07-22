@@ -26,8 +26,9 @@ class OperationQueue {
             this.record(spec, "queued");
             this.pump();
         });
-        if (spec.coalesceKey) {
-            this.coalesced.set(spec.coalesceKey, promise.finally(() => this.coalesced.delete(spec.coalesceKey)));
+        const coalesceKey = spec.coalesceKey;
+        if (coalesceKey) {
+            this.coalesced.set(coalesceKey, promise.finally(() => this.coalesced.delete(coalesceKey)));
         }
         return promise;
     }
