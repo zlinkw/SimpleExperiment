@@ -33,9 +33,11 @@ agent_path = pathlib.Path(${JSON.stringify(path.join(root, "dist", "runtime", "c
 spec = importlib.util.spec_from_file_location("agent", agent_path)
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
-actions = ["parse-results", "run-quality-gate", "run-statistics", "export-paper-table", "create-debug-bundle"]
-out = {}
-for action in actions:
+out = {
+    "parse-results": agent.handle_action(str(root), "parse-results", {"opId": "parse-results", "operationId": "parse-results"}, "parse-results", "parse-results"),
+    "archive-artifacts": agent.handle_action(str(root), "archive-artifacts", {"opId": "archive-artifacts", "operationId": "archive-artifacts", "selectedArchiveKeys": ["experiments/results/metrics.csv"]}, "archive-artifacts", "archive-artifacts"),
+}
+for action in ["run-quality-gate", "run-statistics", "export-paper-table", "create-debug-bundle"]:
     out[action] = agent.handle_action(str(root), action, {"opId": action, "operationId": action}, action, action)
 print(json.dumps(out, ensure_ascii=False))
 `, "utf8");
@@ -48,10 +50,15 @@ print(json.dumps(out, ensure_ascii=False))
   const result = JSON.parse(run.stdout.trim());
   assert.equal(result["parse-results"].status, "completed");
   assert.equal(result["parse-results"].resultCount, 1);
+  assert.equal(result["archive-artifacts"].status, "completed");
   assert.equal(result["run-quality-gate"].qualityGate.status, "passed");
   assert.equal(result["run-statistics"].statistics.rows.length, 1);
   assert.match(result["export-paper-table"].paperTablePath, /paper\/tables\/zlk_results_table\.md/);
   assert.match(result["create-debug-bundle"].debugBundlePath, /zlk_cluster\/debug\/debug_bundle_/);
   assert.equal(fs.existsSync(path.join(project, "zlk_cluster", "results", "summary.json")), true);
+  assert.match(
+    fs.readFileSync(path.join(project, "zlk_cluster", "results", "results_effective_archived.csv"), "utf8"),
+    /,archived,True/,
+  );
   assert.equal(fs.existsSync(path.join(project, "paper", "tables", "zlk_results_table.md")), true);
 });

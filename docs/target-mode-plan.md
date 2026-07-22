@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-016a`。
+- 批次：`recovery-build-017`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -180,4 +180,19 @@
 - 保护区域：不删除、移动、清空或暂存删除任何文件；局部修改不得把文件截断为空。
 - 回归检查：清单现有候选类型复核和 `git diff --check`。
 - 验证：现有 `11` 条候选全部是完整文件路径，没有局部内容候选；`git diff --check` 通过。
-- 状态：已完成验证，待提交并同步。
+- 提交记录：`docs: clarify manual cleanup scope`，提交 `cec7fef4872edf927840c80e01f78fb0c8d2af4d`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成。
+
+### recovery-build-017
+
+- 目标：从本机已安装 `SimpleExperiment 0.2.0` 与当前完整 `dist/runtime/cluster_agent.py` 恢复被截断的 `src/clusterAgentRuntime.ts`，使源码可重新生成完整 Hub Agent runtime。
+- 影响区域：`src/clusterAgentRuntime.ts`、对应生成的 `dist/clusterAgentRuntime.js`、两个 Hub Agent 结果动作回归测试和本计划。
+- 保护区域：不修改已安装扩展，不覆盖 `dist/runtime/cluster_agent.py`，不处理 FileTransferClient 或 UI 失败。
+- 回归检查：编译后导出的 `CLUSTER_AGENT_RUNTIME` 与当前 Python runtime 逐字节一致，Agent/runtime 定向测试、`npm run typecheck`、lint、JavaScript 与 Python 语法、`git diff --check`。
+- 验证：`npm run typecheck`、`npm run lint`、`node -c dist/clusterAgentRuntime.js`、Python AST 解析和 `git diff --check` 通过；全部 `test/agent/*.test.js` 回归 `7/7` 通过。
+- Runtime 一致性：编译导出的 `CLUSTER_AGENT_RUNTIME` 与 `dist/runtime/cluster_agent.py` 逐字节一致，字符数 `382096`、UTF-8 字节数 `386901`、SHA256 `a4c067a5d5009f19e58afdfa51a105e1802e3d81ddd8463528717fe6a49329ba`。
+- 安装版对照：当前 `dist/clusterAgentRuntime.js` 与本机已安装 `SimpleExperiment 0.2.0` 仅相差 TypeScript CommonJS 导出的 `2` 行包装声明，内嵌 Python runtime 内容一致；未修改安装目录。
+- 测试契约修复：异常诊断产物按稳定 `resultId` 命名，测试改为校验动作返回路径；统计、论文表和最终 CSV 测试先归档结果，再验证 `archived_only` 数据链，不放宽正式结果门禁。
+- 延期项：`test/clusterRuntime.test.js` 仍期待 scheduler 旧错误文本；`test/tunnel/agentTmuxPolicy.test.js` 仍期待旧 `pgrep -f` 实现，而当前命令使用 `ps`、`awk` 与监听端口联合定位进程。两项不属于 Hub Agent runtime 源码恢复，后续分别核对 scheduler 与隧道契约。
+- 提交记录：`fix: restore hub agent runtime source`，SHA 以推送后的 Git 记录为准。
+- 状态：已完成；下一批处理远端结果只读下载的路径白名单、大小上限和 HTTP 413 契约。

@@ -73,8 +73,6 @@ exists = {rel: os.path.exists(root / rel) for rel in [
   "zlk_cluster/datasets/leakage_report.csv",
   "zlk_cluster/results/plotting_contract.json",
   "zlk_cluster/plans/recovered/current.yaml",
-  "zlk_cluster/results/anomaly/current.json",
-  "zlk_cluster/results/anomaly/current.config_diff.json",
 ]}
 print(json.dumps({"outputs": outputs, "exists": exists}, ensure_ascii=False))
 `, "utf8");
@@ -92,4 +90,9 @@ print(json.dumps({"outputs": outputs, "exists": exists}, ensure_ascii=False))
   assert.equal(result.outputs["diagnose-result-anomaly"].status, "failed");
   assert.equal(result.outputs["compare-with-best-config"].status, "failed");
   for (const [file, ok] of Object.entries(result.exists)) assert.equal(ok, true, file);
+  for (const key of ["anomalyPath", "configDiffPath"]) {
+    const relativePath = result.outputs["diagnose-result-anomaly"][key];
+    assert.match(relativePath, /^zlk_cluster\/results\/anomaly\/[a-f0-9]{16}(?:\.config_diff)?\.json$/);
+    assert.equal(fs.existsSync(path.join(project, relativePath)), true, relativePath);
+  }
 });
