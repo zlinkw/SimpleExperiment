@@ -254,5 +254,5 @@
 - 验证：Hub/Worker 状态、端口分配与冲突、可见命令 handler 和 Panel inline script 定向测试 `4/4` 通过；UI 分组由 `64/72` 提升到 `66/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js`、`node -c dist/extension.js` 和 `git diff --check` 通过。
 - 说明：高级诊断恢复 Hub、Worker、端口配置和端口冲突处理入口。冲突处理先同步只读 Xshell 配置信息并显示端点及预期本地端口，用户确认后仅进入 Worker 端口范围配置；插件不自动改写 `.xsh` 会话文件。
 - 延期项：剩余 `6` 个 UI 失败属于操作时间线、Plan action、服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
-- 提交记录：待本批验证提交并推送后补记真实 SHA。
+- 提交记录：`ui: restore tunnel diagnostic actions`，提交 `45260211d6e82dd7281af9c0bfb51b1271f080e2`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；下一批优先处理操作时间线与 Plan action 契约。
