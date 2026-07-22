@@ -15,7 +15,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(extension, /state\.resultSummaryDirtySeq/);
   assert.match(extension, /refreshResultsSummaryFromRealtime/);
   assert.match(extension, /结果事件 \$\{String\(reason \|\| "realtime"\)\} 后自动刷新摘要失败/);
-  assert.match(extension, /error instanceof RequestBudgetDeniedError/);
+  assert.match(extension, /error instanceof RequestBudget_1\.RequestBudgetDeniedError/);
   assert.match(extension, /scheduleResultsSummaryBudgetRetryFromRealtime/);
   assert.match(extension, /lastResultsSummaryRefreshedDirtyKey/);
   assert.match(extension, /pendingResultsSummaryDirtyKey/);
@@ -24,7 +24,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(extension, /resultsSummaryRefreshInFlight/);
   assert.match(extension, /if \(this\.resultsSummaryRefreshInFlight\) \{\s*this\.pendingResultsSummaryDirtyKey = this\.pendingResultsSummaryDirtyKey \|\| `manual:\$\{Date\.now\(\)\}`/);
   assert.match(extension, /this\.resultsSummaryRefreshInFlight = true/);
-  assert.match(extension, /finally \{\s*this\.resultsSummaryRefreshInFlight = false;\s*\}/);
+  assert.match(extension, /finally \{\s*if \(generation === this\.projectContextGeneration\)\s*this\.resultsSummaryRefreshInFlight = false;\s*\}/);
   assert.match(extension, /if \(this\.resultsSummaryRefreshInFlight\) \{\s*this\.scheduleResultsSummaryTimer\("inflight", dirtyKey, 500 \+ Math\.floor\(Math\.random\(\) \* 500\)\);\s*return;\s*\}/);
   assert.match(extension, /scheduleResultsSummaryFailureRetryFromRealtime/);
   assert.match(extension, /markResultsSummaryDirtyKeyRefreshed\(dirtyKey\)/);
@@ -52,7 +52,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(html, /function pairedComparisonTitle/);
   assert.match(html, /return "缺配对结果"/);
   assert.match(html, /candidate \+ " vs " \+ baseline/);
-  assert.match(html, /mean\/std\/ci95/);
+  assert.match(html, /statisticsResultCount/);
   assert.match(html, /unsupported/);
   assert.match(html, /needs experiment/);
   assert.match(html, /function claimEvidenceStatusLabel/);

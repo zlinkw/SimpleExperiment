@@ -206,5 +206,17 @@
 - 验证：远端结果查看与大小上限测试、文件 API 安全路径、下载、上传、范围下载、校验和无 SSH/SCP/rsync 定向测试共 `24/24` 通过；`npm run typecheck`、`npm run lint`、4 个变更后 JavaScript 语法和 `git diff --check` 通过。
 - 安全行为：`DownloadOptions.maxBytes` 已从 realtime client 透传至 Hub file API；客户端先检查 `content-length`，Hub 超限继续返回并保留 `HTTP 413`；远端路径恢复根结果文件白名单、扩展结果目录白名单和私钥文件拒绝规则。
 - 测试契约修复：结果查看测试按当前 TypeScript 下载参数签名校验；无 SSH/SCP/rsync 测试改用允许的结果子路径；上传测试按当前 binary chunk 协议校验，不把二进制 chunk 当 JSON 解析。
-- 提交记录：`fix: enforce remote result download limits`，SHA 以推送后的 Git 记录为准。
-- 状态：验证完成，待提交并同步；下一批处理 UI 与 Extension 中剩余的远端结果查看契约失败，保持只读结果职责边界。
+- 提交记录：`fix: enforce remote result download limits`，提交 `27fb235d85d09166f7f4220b349d82d5a9152100`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；下一批处理结果 UI 契约，保持只读结果职责边界。
+
+### recovery-build-019
+
+- 目标：校正结果摘要恢复后的源码测试契约，并把占空间的结果契约卡片收敛为紧凑行内入口。
+- 影响区域：`src/ui/PanelHtml.ts`、两个结果 UI 回归测试、对应生成的 `dist/ui/PanelHtml.js` 和本计划。
+- 保护区域：不改变结果归档、统计、论文表、PPT 或 realtime 刷新行为；不修改 Extension runtime。
+- 回归检查：结果 action workflow、结果契约紧凑布局、Panel inline script、UI 分组、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：结果 action workflow、结果契约紧凑布局与 Panel inline script `3/3` 通过；UI 分组由 `58/72` 提升到 `60/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
+- 说明：输出契约、数据集画像、检查点清理预案和 PPT 绘图契约由四个占高卡片改为紧凑行内入口；结果刷新测试按已安装版一致的恢复源码校验命名空间异常类型和 generation guard，不改变 runtime。
+- 延期项：剩余 `12` 个 UI 失败属于任务行、GPU、Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器 tooltip、同步发布、target mode 计划压缩与任务紧凑布局，后续按强相关小批处理。
+- 提交记录：`ui: compact result contract links`，SHA 以推送后的 Git 记录为准。
+- 状态：验证完成，待提交并同步；下一批优先处理任务行与任务紧凑布局契约。

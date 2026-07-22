@@ -50,10 +50,9 @@ export function renderPanelHtml(): string {
     .value, .pathCell { overflow-wrap: anywhere; }
     .toolbar, .actionGrid, .summaryLine, .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; align-items: center; min-width: 0; }
     .toolbar > *, .actionGrid > *, .summaryLine > *, .actions > * { min-width: 0; }
-    .summaryGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin: 8px 0 12px; }
-    .summaryCard { display: grid; gap: 4px; min-height: 62px; padding: 10px; border: 1px solid var(--border); border-left: 3px solid #CBD5E1; border-radius: var(--radius-sm); background: var(--subtle-bg); }
-    .summaryCard b { font-size: var(--zlk-font-body); }
-    .summaryCard span { color: var(--muted); font-size: var(--zlk-font-small); line-height: 1.35; }
+    .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+    .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
+    .summaryLink:hover, .summaryLink:focus-visible { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground, var(--text)); outline: none; }
     button { max-width: 100%; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 1px solid var(--vscode-button-background); padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; line-height: 1.25; text-align: center; white-space: normal; overflow-wrap: anywhere; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: transparent; border-color: var(--border); }
     button:disabled { opacity: .45; cursor: not-allowed; }
@@ -1206,11 +1205,11 @@ export function renderPanelHtml(): string {
           <div class="resultMainPane">
             <h3>结果摘要</h3>
             <div id="resultSummary" data-anchor="results-summary"></div>
-            <div class="summaryGrid" data-anchor="results-contract">
-              <div class="summaryCard" title="metrics/case/env/artifact"><b>输出契约</b><span>指标 / 样本 / 环境 / 产物</span></div>
-              <div class="summaryCard" data-anchor="results-dataset" title="CSV/split/leakage"><b>数据集画像</b><span>CSV / 数据划分 / 泄漏</span></div>
-              <div class="summaryCard" data-anchor="results-checkpoints" title="dry-run/retention"><b>检查点清理预案</b><span>预演 / 保留策略</span></div>
-              <div class="summaryCard" data-anchor="results-plotting" title="registry/statistics/table"><b>PPT 绘图契约</b><span>结果索引 / 统计 / 论文表格</span></div>
+            <div class="contractQuickLinks" data-anchor="results-contract">
+              <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
+              <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
+              <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
+              <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
             </div>
             <h3>实验记录</h3>
             <div id="traceTable" data-anchor="results-traces"></div>
