@@ -51,7 +51,7 @@ test("extension compacts operation payload without dropping active operations", 
   assert.match(source, /const TERMINAL_OPERATION_RECORD_LIMIT = 80/);
   assert.match(buildState, /this\.localOperations = compactOperationRecords\(this\.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT\)/);
   assert.match(buildState, /const operations = compactOperationRecords\(/);
-  assert.match(compact, /if \(!operationTerminal\(entry\[1\]\)\) active\.push\(entry\)/);
+  assert.match(compact, /if \(!operationTerminal\(entry\[1\]\)\)\s*active\.push\(entry\)/);
   assert.match(compact, /operationFailureTerminalStatus\(operationStatusOf\(entry\[1\]\)\)/);
   assert.match(compact, /sortOperationEntries\(active\)\.forEach\(add\)/);
   assert.match(compact, /sortOperationEntries\(terminal\)\.slice\(0, terminalLimit\)/);

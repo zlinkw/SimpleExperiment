@@ -106,4 +106,16 @@
 - `recovery-build-010` 影响区域：`src/extension.ts`、`dist/extension.js`、`src/ui/PanelHtml.ts`、`dist/ui/PanelHtml.js`、`test/ui/workbenchResourceTree.test.js` 和本计划；回归检查为布局状态、Webview state post、realtime gate、操作终态、资源树、全量 TypeScript、lint、JavaScript 语法和 `git diff --check`。
 - `recovery-build-010` 验证：`npm run typecheck`、`npm run lint`、两个变更后 JavaScript 文件语法和 `git diff --check` 通过；布局状态、Webview state post、realtime gate、晚到操作终态与资源树定向测试 `12/12` 通过。构建后的 `dist/extension.js` 与已安装版仅有 `6` 行新增、`5` 行删除，差异限于模块标记、PanelHtml 调用形式、恢复后的默认列宽与可见状态刷新语句。
 - `recovery-build-010` 剩余风险：`src/extension.ts` 是从已安装运行文件恢复的可构建 TypeScript 过渡基线，保留 `@ts-nocheck`，尚未恢复原始强类型源码。UI 分组测试 `38/72` 通过、features 分组测试 `221/298` 通过；失败主要来自其他未恢复源码契约及源码结构断言，不将全量测试标记为通过。
-- `recovery-build-010` 状态：已完成验证，待提交并同步；下一批从失败契约中选择最多 2 至 3 个强相关问题，不在本批扩大范围。
+- `recovery-build-010` 提交记录：`fix: restore extension runtime baseline`，提交 `abe6d73f06726d2a0a10ffb244f608ec2122ed0c`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- `recovery-build-010` 状态：已完成；下一批从失败契约中选择最多 2 至 3 个强相关问题，不在本批扩大范围。
+
+## 当前恢复批次
+
+- 批次：`recovery-build-011`。
+- 目标：补齐操作记录容量与终态契约的源码声明，并修正不再存在的 `PanelHtmlBuilder` 测试接口；不改变远端操作协议，不处理其他 UI 结构失败。
+- 影响区域：`src/extension.ts`、`dist/extension.js`、`test/ui/actionLifecycle.test.js`、`test/ui/actionErrorRows.test.js` 和本计划。
+- 保护区域：已安装扩展、SimpleSFTP、其他项目、归档数据和删除候选清单。
+- 回归检查：操作生命周期与错误测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过；操作生命周期、错误类型与错误行定向测试 `8/8` 通过。
+- 说明：操作状态上限恢复为 `120`，其中保留最多 `80` 条普通终态，并始终优先保留活动与异常记录；`actionErrorRows` 改为校验当前 `renderPanelHtml` 接口，不再依赖仓库和安装版均不存在的 `PanelHtmlBuilder`。
+- 状态：已完成验证，待提交并同步；其他 UI 与 features 分组失败延期到后续批次。

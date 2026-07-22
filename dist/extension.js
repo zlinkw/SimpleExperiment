@@ -130,8 +130,8 @@ const defaultUiLayout = {
     pinnedActions: [],
 };
 const LOCAL_OPERATION_RECORD_LIMIT = 120;
-const STATE_OPERATION_RECORD_LIMIT = 80;
-const TERMINAL_OPERATION_RECORD_LIMIT = 48;
+const STATE_OPERATION_RECORD_LIMIT = 120;
+const TERMINAL_OPERATION_RECORD_LIMIT = 80;
 const ABNORMAL_OPERATION_RECORD_LIMIT = 80;
 const WEBVIEW_FILE_TRANSFER_ACTIVE_LIMIT = 16;
 const WEBVIEW_FILE_TRANSFER_TERMINAL_LIMIT = 8;
@@ -2329,7 +2329,10 @@ class RealtimeTunnelPanelProvider {
         let timer;
         const watchdogMs = this.uiCommandWatchdogMs(command);
         const guardedWork = work()
-            .then(() => ({ status: "completed", message: "completed" }))
+            .then(() => ({
+            status: "completed",
+            message: localCommandReleasesAfterTrigger(command) ? "已触发本地 VS Code 操作" : "completed",
+        }))
             .catch((error) => {
             if (isUiCommandRemotePending(error))
                 return { status: "submitted", message: errorMessage(error), remotePending: true };
@@ -9673,6 +9676,9 @@ function getSafeCommand(message) {
 }
 function commandNeedsUiStatus(command) {
     return Boolean(command) && !["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"].includes(command);
+}
+function localCommandReleasesAfterTrigger(command) {
+    return ["startAllConnections", "testAll", "snapshot"].includes(String(command || ""));
 }
 function normalizeUiLayout(input) {
     const orderInput = Array.isArray(input.order) ? input.order.map((item) => String(item)) : [];
