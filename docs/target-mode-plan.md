@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-013`。
+- 批次：`recovery-build-014`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -140,3 +140,13 @@
 - 验证：scheduler state 与 experiment trace 预算测试 `4/4`、`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过。
 - 提交记录：`fix: restore long-running state budgets`，提交 `3209d143487ec69f8ce41408633d00364330de73`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；其他 Webview 与 UI 失败延期到后续批次。
+
+### recovery-build-014
+
+- 目标：恢复 Webview state 的源码类型边界与 compact helper 声明，并依据已安装版和现行文件传输测试移除过时的面板传输队列断言。
+- 影响区域：`src/extension.ts`、`test/ui/webviewStateShape.test.js` 和本计划；类型恢复不改变生成后的 `dist/extension.js` runtime。
+- 保护区域：不重新引入已由 SimpleSFTP 承担的面板传输队列，不修改实时数据内容与远端协议。
+- 回归检查：Webview state shape、文件传输渲染边界、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：Webview state shape 与文件传输渲染边界测试 `5/5`、`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过。
+- 说明：已安装版和现行测试均证明独立传输队列、日志选择器与日志面板已从主面板移除；实时日志继续在任务卡内显示，文件传输由 SimpleSFTP 承担。
+- 状态：已完成验证，待提交并同步；其他 UI 失败不在本批修改。

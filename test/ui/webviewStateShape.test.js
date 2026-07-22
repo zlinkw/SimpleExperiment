@@ -36,10 +36,10 @@ test("webview state sends compact lastKnownGood instead of duplicating bulk real
 test("panel html has primary realtime sections", () => {
   const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
   const html = renderPanelHtml();
-  for (const text of ["GPU 状态", "任务运行状态", "实验记录", "操作进度", "文件传输队列", "实时日志", "能力状态", "诊断"]) {
+  for (const text of ["GPU 状态", "任务运行状态", "实验记录", "操作进度", "实时日志", "能力状态", "诊断"]) {
     assert.match(html, new RegExp(text));
   }
-  for (const id of ["gpuSummary", "gpuGrid", "taskSummary", "taskTable", "traceTable", "operationList", "transferTable", "logRunKeySelect", "liveLog"]) {
+  for (const id of ["gpuSummary", "gpuGrid", "taskSummary", "taskTable", "traceTable", "operationList"]) {
     assert.match(html, new RegExp(`id="${id}"`), id);
   }
 });

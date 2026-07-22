@@ -95,6 +95,7 @@ type StandardActionRequest = {
     operationId?: string;
 };
 type WebviewClusterState = Record<string, unknown>;
+type RealtimeState = Record<string, unknown>;
 const viewId = "zlkCluster.panel";
 const keys = {
     tunnelConfig: "zlkCluster.tunnelGatewayConfig",
@@ -6650,7 +6651,7 @@ class RealtimeTunnelPanelProvider {
         const schedulerConfig = this.schedulerSettings();
         const realtime = this.client.diagnostics();
         const connectionMode = this.effectiveConnectionMode();
-        const realtimeState = connectionMode === "offline_import"
+        const realtimeState: RealtimeState | undefined = connectionMode === "offline_import"
             ? undefined
             : this.lastRealtimeState || this.client.currentState();
         const snapshot = this.lastSnapshot || realtimeState?.lastKnownGood;
@@ -6825,7 +6826,7 @@ class RealtimeTunnelPanelProvider {
         }
         return globalLayout;
     }
-    compactLastKnownGood(snapshot) {
+    private compactLastKnownGood(snapshot) {
         if (!snapshot)
             return undefined;
         return {
@@ -6837,7 +6838,7 @@ class RealtimeTunnelPanelProvider {
             diagnosticsAvailable: Boolean(snapshot.diagnostics),
         };
     }
-    compactDiagnostics(input, bulkCounts) {
+    private compactDiagnostics(input, bulkCounts) {
         return (0, TunnelDiagnostics_1.redactTunnelDiagnostics)({
             ...input,
             bulkOmitted: {
