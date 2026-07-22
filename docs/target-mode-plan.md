@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-001`。
+- 批次：`recovery-build-002`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -21,6 +21,7 @@
 - [已完成] SimpleSFTP 运行文件与安装版一致；`package.json` 仅多末尾换行，测试 `2/2` 通过。
 - [已完成] `recovery-build-001`：恢复 Xshell 配置主实现、隧道动作类型、实时事件基础契约和文件传输类型；定向检查通过。
 - [已完成] 修复 VSIX 排除规则；新包文件集合与安装版对齐，无恢复副产物、源码测试或运行时临时文件。
+- [已完成] `recovery-build-002`：修复文件浏览返回契约、文件状态规范字段、完整隧道动作集合和动作参数异步拒绝契约；不处理实时 reducer、隧道策略、端口冲突、Extension 或 UI。
 - [待处理] 继续修复 Extension 缺失导入/成员、结果与计划导出、实时 authority 合并和剩余类型契约。
 
 ## 验证清单
@@ -51,4 +52,7 @@
 - `recovery-build-001`：依据已安装 `dist` 和会话历史恢复 Xshell 配置实现，解除 Xshell/MobaXterm 配置循环引用；补齐隧道动作、operation 查询、隐藏状态、worker 事件和文件传输类型契约。
 - 定向 TypeScript 编译通过；Xshell、端点、命令与文件传输相关测试 `16/16` 通过。
 - 全量 `npm run typecheck` 仍失败，剩余错误已收敛到 Extension、实验配置/结果、runtime、scenario、authority merge、RemoteFileBrowser、HubControlApi、TunnelOnlyPolicy 和端口冲突类型；后续批次继续处理。
-- 下一批边界：只处理 Extension 缺失导入/成员和隧道 authority/文件浏览契约，不扩展到 UI 或新功能。
+- 下一批边界：只处理实时 reducer、隧道策略和端口冲突类型，不扩展到 Extension、UI 或新功能。
+- `recovery-build-002` 影响区域：`FileTransferClient`、`RemoteFileBrowser`、`TunnelClient` 及对应 `dist`；回归检查为定向 TypeScript 编译、文件列表/状态契约测试和 TunnelClient 测试。
+- `recovery-build-002` 验证：定向 TypeScript 编译通过；3 个测试文件共 `4/4` 通过；3 个对应 `dist` 文件 JavaScript 语法通过。
+- `recovery-build-002` 提交记录：`fix: restore tunnel client contracts`，普通快进推送至 `origin/master`，以推送后 SHA 对齐检查为完成门槛。

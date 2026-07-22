@@ -7,7 +7,7 @@ class RemoteFileBrowser {
         this.client = client;
     }
     listProjectPath(remotePath) {
-        return this.client.list(remotePath);
+        return this.client.list(remotePath).then((result) => result.entries);
     }
     statProjectPath(remotePath) {
         return this.client.stat(remotePath);

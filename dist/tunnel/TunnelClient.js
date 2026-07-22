@@ -1,8 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.HttpTunnelClient = void 0;
+exports.HttpTunnelClient = exports.tunnelActions = void 0;
 const RequestBudget_1 = require("./RequestBudget");
 const TunnelGateway_1 = require("./TunnelGateway");
+exports.tunnelActions = [
+    "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
+    "archive-artifacts", "exclude-results", "sync-artifacts", "complete-three-way", "delete-artifacts", "reconcile-deletions",
+    "parse-results", "refresh-results", "self-check", "rescan-results", "run-quality-gate", "run-statistics", "export-paper-table",
+    "check-claim-evidence", "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
+    "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",
+    "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config",
+    "start-worker-task", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
+];
 const getPurposeByPath = new Map([
     ["/api/health", "health"],
     ["/api/snapshot", "snapshot"],
@@ -95,11 +104,11 @@ class HttpTunnelClient {
             userInitiated: true,
         });
     }
-    postAction(action, body) {
+    async postAction(action, body) {
         if (!body || typeof body !== "object" || !("opId" in body) || !String(body.opId || "").trim()) {
             throw new Error("Tunnel action requires opId.");
         }
-        return this.requestJson(`/api/actions/${action}`, actionPurpose[action], body, {
+        return this.requestJson(`/api/actions/${action}`, actionPurpose[action] || "manual_refresh", body, {
             method: "POST",
             userInitiated: true,
         });

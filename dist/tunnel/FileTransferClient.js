@@ -57,7 +57,7 @@ class FileTransferClient {
     async stat(remotePath) {
         this.assertSafe(remotePath);
         const result = await this.requestJson(`/api/files/stat?path=${encodeURIComponent(remotePath)}`, "GET");
-        return { schemaVersion: 1, path: result.path || remotePath, exists: Boolean(result.exists), ...result };
+        return { ...result, schemaVersion: 1, path: result.path || remotePath, exists: Boolean(result.exists) };
     }
     async download(remotePath, localPath, options = {}) {
         this.assertSafe(remotePath);

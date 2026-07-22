@@ -2,26 +2,17 @@ import { RequestBudget, RequestBudgetDeniedError, TunnelRequestPurpose } from ".
 import { assertLocalhost, localBaseUrl } from "./TunnelGateway";
 import { TunnelHealth } from "./TunnelHealth";
 
-export type TunnelAction =
-  | "validate-plan"
-  | "dry-run-plan"
-  | "run-plan"
-  | "stop-experiment"
-  | "retry-experiment"
-  | "reproduce-plan"
-  | "parse-results"
-  | "refresh-results"
-  | "run-quality-gate"
-  | "run-statistics"
-  | "export-paper-table"
-  | "archive-artifacts"
-  | "sync-artifacts"
-  | "complete-three-way"
-  | "delete-artifacts"
-  | "reconcile-deletions"
-  | "self-check"
-  | "create-debug-bundle"
-  | "rescan-results";
+export const tunnelActions = [
+  "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
+  "archive-artifacts", "exclude-results", "sync-artifacts", "complete-three-way", "delete-artifacts", "reconcile-deletions",
+  "parse-results", "refresh-results", "self-check", "rescan-results", "run-quality-gate", "run-statistics", "export-paper-table",
+  "check-claim-evidence", "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
+  "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",
+  "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config",
+  "start-worker-task", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
+] as const;
+
+export type TunnelAction = typeof tunnelActions[number];
 
 export interface ClusterSnapshot {
   gpu?: Record<string, unknown[]>;
@@ -69,7 +60,7 @@ const getPurposeByPath = new Map<string, TunnelRequestPurpose>([
   ["/api/audit/tail", "diagnostics"],
 ]);
 
-const actionPurpose: Record<TunnelAction, TunnelRequestPurpose> = {
+const actionPurpose: Partial<Record<TunnelAction, TunnelRequestPurpose>> = {
   "validate-plan": "run_plan",
   "dry-run-plan": "run_plan",
   "run-plan": "run_plan",
@@ -162,11 +153,11 @@ export class HttpTunnelClient implements TunnelClient {
     });
   }
 
-  postAction<T>(action: TunnelAction, body: unknown): Promise<T> {
+  async postAction<T>(action: TunnelAction, body: unknown): Promise<T> {
     if (!body || typeof body !== "object" || !("opId" in body) || !String((body as { opId?: unknown }).opId || "").trim()) {
       throw new Error("Tunnel action requires opId.");
     }
-    return this.requestJson<T>(`/api/actions/${action}`, actionPurpose[action], body, {
+    return this.requestJson<T>(`/api/actions/${action}`, actionPurpose[action] || "manual_refresh", body, {
       method: "POST",
       userInitiated: true,
     });
