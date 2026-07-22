@@ -118,4 +118,13 @@
 - 回归检查：操作生命周期与错误测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
 - 验证：`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过；操作生命周期、错误类型与错误行定向测试 `8/8` 通过。
 - 说明：操作状态上限恢复为 `120`，其中保留最多 `80` 条普通终态，并始终优先保留活动与异常记录；`actionErrorRows` 改为校验当前 `renderPanelHtml` 接口，不再依赖仓库和安装版均不存在的 `PanelHtmlBuilder`。
-- 状态：已完成验证，待提交并同步；其他 UI 与 features 分组失败延期到后续批次。
+- 提交记录：`fix: restore operation status contracts`，提交 `f092728c17cf7bce40210120372905d497e0f92c`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；其他 UI 与 features 分组失败延期到后续批次。
+
+### recovery-build-012
+
+- 目标：恢复 Webview 字段级数据源选择，实时字段为空时按最近快照、离线快照顺序回退；不修改 Extension 实时合并策略。
+- 影响区域：`src/ui/WebviewRenderState.ts`、`dist/ui/WebviewRenderState.js` 和本计划。
+- 回归检查：离线快照回退测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：离线快照与最近快照优先级测试 `2/2`、`npm run typecheck`、`npm run lint`、`node -c dist/ui/WebviewRenderState.js` 和 `git diff --check` 通过。
+- 状态：已完成验证，待提交并同步；Extension 内部合并与 payload 预算不在本批修改。

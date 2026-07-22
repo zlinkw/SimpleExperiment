@@ -8,6 +8,21 @@ export function pick<T = unknown>(obj: unknown, keys: string[], fallback: T): T 
   return fallback;
 }
 
+export function selectWebviewStateFields(sources: unknown): Record<string, unknown> {
+  const input = objectRecord(sources);
+  const realtime = objectRecord(input.realtimeState);
+  const snapshot = objectRecord(input.lastSnapshot);
+  const offline = objectRecord(input.offlineSnapshot);
+  return {
+    gpu: firstNonEmptyRecord(realtime.gpu, snapshot.gpu, offline.gpu),
+    schedulerStates: firstNonEmptyArray(realtime.schedulerStates, snapshot.schedulerStates, offline.schedulerStates),
+    experimentTraces: firstNonEmptyArray(realtime.experimentTraces, snapshot.experimentTraces, offline.experimentTraces),
+    logs: firstNonEmptyRecord(realtime.logs, snapshot.logs, offline.logs),
+    operations: firstNonEmptyRecord(realtime.operations, snapshot.operations, offline.operations),
+    fileTransfers: firstNonEmptyRecord(realtime.fileTransfers, snapshot.fileTransfers, offline.fileTransfers),
+  };
+}
+
 export function normalizeGpuRow(row: unknown): Record<string, unknown> {
   const memoryUsedMb = numberOrUndefined(pick(row, ["memoryUsedMb", "memory_used_mb", "memoryUsed", "used"], undefined));
   const memoryTotalMb = numberOrUndefined(pick(row, ["memoryTotalMb", "memory_total_mb", "memoryTotal", "total"], undefined));
@@ -202,4 +217,25 @@ function normalizeArray(value: unknown): unknown[] {
 function numberOrUndefined(value: unknown): number | undefined {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function firstNonEmptyRecord(...values: unknown[]): Record<string, unknown> {
+  for (const value of values) {
+    const record = objectRecord(value);
+    if (Object.keys(record).length) return record;
+  }
+  return {};
+}
+
+function firstNonEmptyArray(...values: unknown[]): unknown[] {
+  for (const value of values) {
+    if (Array.isArray(value) && value.length) return value;
+  }
+  return [];
 }

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pick = pick;
+exports.selectWebviewStateFields = selectWebviewStateFields;
 exports.normalizeGpuRow = normalizeGpuRow;
 exports.normalizeServerGpu = normalizeServerGpu;
 exports.normalizeSchedulerRows = normalizeSchedulerRows;
@@ -21,6 +22,20 @@ function pick(obj, keys, fallback) {
             return value;
     }
     return fallback;
+}
+function selectWebviewStateFields(sources) {
+    const input = objectRecord(sources);
+    const realtime = objectRecord(input.realtimeState);
+    const snapshot = objectRecord(input.lastSnapshot);
+    const offline = objectRecord(input.offlineSnapshot);
+    return {
+        gpu: firstNonEmptyRecord(realtime.gpu, snapshot.gpu, offline.gpu),
+        schedulerStates: firstNonEmptyArray(realtime.schedulerStates, snapshot.schedulerStates, offline.schedulerStates),
+        experimentTraces: firstNonEmptyArray(realtime.experimentTraces, snapshot.experimentTraces, offline.experimentTraces),
+        logs: firstNonEmptyRecord(realtime.logs, snapshot.logs, offline.logs),
+        operations: firstNonEmptyRecord(realtime.operations, snapshot.operations, offline.operations),
+        fileTransfers: firstNonEmptyRecord(realtime.fileTransfers, snapshot.fileTransfers, offline.fileTransfers),
+    };
 }
 function normalizeGpuRow(row) {
     const memoryUsedMb = numberOrUndefined(pick(row, ["memoryUsedMb", "memory_used_mb", "memoryUsed", "used"], undefined));
@@ -213,4 +228,24 @@ function normalizeArray(value) {
 function numberOrUndefined(value) {
     const number = Number(value);
     return Number.isFinite(number) ? number : undefined;
+}
+function objectRecord(value) {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+}
+function firstNonEmptyRecord(...values) {
+    for (const value of values) {
+        const record = objectRecord(value);
+        if (Object.keys(record).length)
+            return record;
+    }
+    return {};
+}
+function firstNonEmptyArray(...values) {
+    for (const value of values) {
+        if (Array.isArray(value) && value.length)
+            return value;
+    }
+    return [];
 }
