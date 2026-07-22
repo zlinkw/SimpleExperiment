@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-023`。
+- 批次：`recovery-build-024`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -268,6 +268,18 @@
 - 延期项：剩余 `4` 个 UI 失败属于服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
 - 提交记录：`test: align timeline and plan workflows`，提交 `2ed9750460d143471f2cf9ee88d52719c10b19b6`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；下一批优先处理服务器命令/tooltip 契约。
+
+### recovery-build-024
+
+- 目标：恢复服务器设置命令审计和中文悬停说明契约，修正测试对不同按钮 helper 参数顺序的误判，并补强关键服务器路径/端口说明。
+- 影响区域：`src/ui/PanelHtml.ts`、`test/ui/serverManagementSchedulerInputs.test.js`、对应生成的 `dist/ui/PanelHtml.js` 和本计划。
+- 保护区域：不改变服务器配置值、命令 handler、实时协议、Xshell 会话、SimpleSFTP 或已安装扩展。
+- 回归检查：可见命令 handler、中文 tooltip、服务器配置说明、Panel inline script、UI 分组、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：可见命令 handler、中文 tooltip、服务器配置说明、Panel inline script 定向测试 `5/5` 通过；UI 分组由 `68/72` 提升到 `71/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
+- 说明：命令扫描同时识别 `actionButton(command, label)` 与 `rowActionButton(label, command)`；补充高级设置、PPT 路径、Hub/Worker 隧道和本地/远端端口说明。
+- 延期项：剩余 `1` 个 UI 失败属于 target mode 计划压缩契约，后续单独处理。
+- 提交记录：待本批验证提交并推送后补记真实 SHA。
+- 状态：已完成；下一批处理 target mode 计划压缩。
 
 ## 已登记后续目标
 

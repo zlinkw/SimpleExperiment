@@ -10,7 +10,10 @@ test("all visible panel commands have extension handlers", () => {
 
   const commands = new Set();
   for (const match of html.matchAll(/data-command="([A-Za-z][A-Za-z0-9]+)"/g)) commands.add(match[1]);
-  for (const match of html.matchAll(/actionButton\("[^"]+",\s*"([^"]+)"/g)) commands.add(match[1]);
+  for (const match of html.matchAll(/actionButton\("([^"]+)",\s*"([^"]+)"/g)) {
+    const command = /^[A-Za-z][A-Za-z0-9]+$/.test(match[2]) ? match[2] : match[1];
+    if (/^[A-Za-z][A-Za-z0-9]+$/.test(command)) commands.add(command);
+  }
   for (const command of ["selectLogRunKey", "stopExperiment", "retryExperiment", "parseResults", "archiveArtifacts", "deleteArtifacts"]) {
     commands.add(command);
   }
@@ -31,18 +34,22 @@ test("visible command buttons receive Chinese hover explanations", () => {
   const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
 
   assert.match(html, /function decorateCommandTooltips/);
-  assert.match(html, /document\.querySelectorAll\("button"\)/);
+  assert.match(html, /document\.querySelectorAll\("button:not\(\[data-tooltip-ready='1'\]\)"\)/);
   assert.match(html, /function genericButtonHelp/);
   assert.match(html, /button\.setAttribute\("title", help\)/);
   assert.match(html, /button\.setAttribute\("aria-label"/);
   const commands = new Set();
   for (const match of html.matchAll(/data-command="([A-Za-z][A-Za-z0-9]+)"/g)) commands.add(match[1]);
-  for (const match of html.matchAll(/actionButton\("[^"]+",\s*"([^"]+)"/g)) commands.add(match[1]);
-  for (const match of html.matchAll(/rowActionButton\("[^"]+",\s*"([^"]+)"/g)) commands.add(match[1]);
+  for (const pattern of [/actionButton\("([^"]+)",\s*"([^"]+)"/g, /rowActionButton\("([^"]+)",\s*"([^"]+)"/g]) {
+    for (const match of html.matchAll(pattern)) {
+      const command = /^[A-Za-z][A-Za-z0-9]+$/.test(match[2]) ? match[2] : match[1];
+      if (/^[A-Za-z][A-Za-z0-9]+$/.test(command)) commands.add(command);
+    }
+  }
   for (const command of commands) {
     assert.match(html, new RegExp(`${command}: "`), `missing Chinese tooltip for ${command}`);
   }
-  assert.match(html, /鎵ц涓紝绛夊緟缁堟€佸洖浼犲悗浼氳嚜鍔ㄦ仮澶嶃€/);
+  assert.match(html, /pending \? "执行中" : commandHelp\(command\)/);
 });
 
 test("server management config fields receive Chinese hover explanations", () => {
@@ -50,13 +57,12 @@ test("server management config fields receive Chinese hover explanations", () =>
   const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
 
   assert.match(html, /function configHelp/);
-  assert.match(html, /hubDisplayName: "闈㈡澘涓樉绀虹殑 Hub 鍚嶇О/);
-  assert.match(html, /agentProjectDir: "杩滅瀹為檯宸ヤ綔鏍圭洰褰/);
-  assert.match(html, /savedSessionPath: "璐熻矗淇濇寔 127\.0\.0\.1 鏈湴绔彛杞彂/);
+  assert.match(html, /hubDisplayName: "面板中显示的 Hub 名称/);
+  assert.match(html, /agentProjectDir: "服务器上存放项目的父目录/);
+  assert.match(html, /savedSessionPath: "负责保持 127\.0\.0\.1 本地端口转发的 Xshell 隧道会话文件"/);
   assert.match(html, /configSessionSelect\(scope, key, label, value\)[\s\S]*helpBadge\(help\)/);
   assert.match(html, /configPortPair\(scope, label, localKey, remoteKey[\s\S]*helpBadge\(pairHelp\)/);
   assert.match(html, /configSelect\(scope, key, label, value[\s\S]*helpBadge\(help\)/);
 });
-
 
 

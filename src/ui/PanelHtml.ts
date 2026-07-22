@@ -3752,6 +3752,9 @@ export function renderPanelHtml(): string {
         status: "状态详情",
         openAuditTail: "审计日志",
         quickSetup: "一键配置",
+        openSetupGuide: "打开配置说明",
+        openAdvancedCommandsSetting: "打开高级命令显示设置",
+        resetPptPathConfirmations: "恢复当前项目的 PPT 路径确认提醒",
         configureWorkers: "配置 Worker",
         configurePorts: "配置端口",
         repairPorts: "检查端口冲突并选择新的 Worker 端口范围；不会自动改写 Xshell 会话",
@@ -6343,26 +6346,26 @@ export function renderPanelHtml(): string {
         condaEnv: "留空使用系统 Python，不执行 Conda 激活",
         sshConfigAlias: "登录别名",
         agentProjectDir: "服务器上存放项目的父目录；插件自动追加当前项目名",
-        savedSessionPath: "Xshell 隧道会话",
+        savedSessionPath: "负责保持 127.0.0.1 本地端口转发的 Xshell 隧道会话文件",
         agentSessionPath: "Agent 会话",
-        localForwardPort: "本机端口",
-        remoteTelemetryPort: "Worker Agent 端口",
+        localForwardPort: "插件访问的 127.0.0.1 本地转发端口",
+        remoteTelemetryPort: "Worker 上由 Agent 监听的远端端口",
         enabled: "启用",
         maxConcurrentGpus: "GPU 并发上限",
         allowedGpuIds: "允许 GPU ID"
       };
       const hubHelp = {
-        hubDisplayName: "Hub 显示名",
+        hubDisplayName: "面板中显示的 Hub 名称；为空时使用 Xshell 会话名、SSH 别名或主机名",
         hubHost: "Hub 地址",
         transferHost: "SFTP 地址",
         hubUser: "Hub 用户",
         condaEnv: "留空使用系统 Python，不执行 Conda 激活",
         sshConfigAlias: "登录别名",
         agentProjectDir: "服务器上存放项目的父目录；插件自动追加当前项目名",
-        savedSessionPath: "Xshell 隧道会话",
+        savedSessionPath: "负责保持 127.0.0.1 本地端口转发的 Xshell 隧道会话文件",
         agentSessionPath: "Agent 会话",
-        localForwardPort: "本机端口",
-        remoteAgentPort: "Hub Agent 端口"
+        localForwardPort: "插件访问的 127.0.0.1 本地转发端口",
+        remoteAgentPort: "Hub 上由 Agent 监听的远端端口"
       };
       if (scope === "scheduler") return schedulerHelp[key] || "";
       if (scope === "hub") return hubHelp[key] || "";
