@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-003`。
+- 批次：`recovery-build-003a`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -23,6 +23,7 @@
 - [已完成] 修复 VSIX 排除规则；新包文件集合与安装版对齐，无恢复副产物、源码测试或运行时临时文件。
 - [已完成] `recovery-build-002`：修复文件浏览返回契约、文件状态规范字段、完整隧道动作集合和动作参数异步拒绝契约；不处理实时 reducer、隧道策略、端口冲突、Extension 或 UI。
 - [已完成] `recovery-build-003`：修复实时 worker task 状态类型、隧道模式策略和端口冲突类型；不处理 Extension、UI 或新功能。
+- [已完成] `recovery-build-003a`：补齐旧 MobaXterm 配置迁移提示兼容契约及批次记录；不修改其他行为。
 - [待处理] 继续修复 Extension 缺失导入/成员、结果与计划导出、实时 authority 合并和剩余类型契约。
 
 ## 验证清单
@@ -59,5 +60,9 @@
 - `recovery-build-002` 提交记录：`fix: restore tunnel client contracts`，普通快进推送至 `origin/master`，以推送后 SHA 对齐检查为完成门槛。
 - `recovery-build-002` 推送核验：`833cd7278a416a76e1a424d0695df3897c6e73bf`，本地 `HEAD` 与 `origin/master` 一致。
 - `recovery-build-003` 影响区域：`RealtimeEventReducer`、`TunnelOnlyPolicy`、`TunnelPortConflict` 及必要对应 `dist`；回归检查为定向 TypeScript 编译、隧道策略、端口冲突和实时事件测试。
-- `recovery-build-003` 验证：定向 TypeScript 编译通过；隧道策略与端口冲突测试 `3/3` 通过；对应 JavaScript 语法通过。`realtimeStateBudget.test.js` 依赖当前 `dist` 尚未提供的运行时导出，延期到实时 reducer 运行时恢复批次。
+- `recovery-build-003` 验证：定向 TypeScript 编译通过；隧道策略与端口冲突测试 `4/4` 通过；对应 JavaScript 语法通过。`realtimeStateBudget.test.js` 依赖当前 `dist` 尚未提供的运行时导出，延期到实时 reducer 运行时恢复批次。
 - `recovery-build-003` 提交记录：`fix: restore remaining tunnel type contracts`，普通快进推送至 `origin/master`；下一批只处理 Extension 缺失导入/成员，不扩展到 UI 或新功能。
+- `recovery-build-003` 推送核验：`3dd537f99087567840a02a7db7f1c44617668551`，本地 `HEAD` 与 `origin/master` 一致。
+- `recovery-build-003a` 影响区域：`TunnelOnlyPolicy` 及对应 `dist`、本计划；回归检查为定向 TypeScript 编译、隧道策略与旧配置迁移测试。
+- `recovery-build-003a` 验证：定向 TypeScript 编译通过；4 个测试共 `4/4` 通过；对应 JavaScript 语法通过。
+- `recovery-build-003a` 提交记录：`fix: clarify legacy tunnel migration warning`，普通快进推送至 `origin/master`；下一批只处理 Extension 缺失导入/成员。
