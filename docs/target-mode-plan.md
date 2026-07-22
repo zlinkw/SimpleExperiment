@@ -18,23 +18,24 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-030
+## 当前批次：recovery-build-031
 ### 修复点
-- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，校正 PlanArchive 入口脚本扫描测试的陈旧源码格式假设。
-- 允许恢复源码采用单换行函数边界，同时继续验证 scalar、block、flow map、torchrun 和 `python -m` 入口。
-- 保留 argparse 跨本地 import 静态快照，不执行项目 Python，不修改 Plan、配置或归档文件。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 ProjectAdapterTemplates 多格式结果接入实现。
+- 恢复 JSON、TXT、LOG 候选、分类指标别名、项目配置候选和自动归一化模板。
+- 恢复 SimpleExperiment 公共名称，不生成或执行项目 Adapter，不修改现有项目输出和实验结果。
 
 ### 回归风险
-- 扫描风险：测试提取边界不得吞入后续异步迁移函数，也不得依赖格式化空行数量。
-- 归档风险：入口脚本和本地 import 漏扫会导致 argparse 默认参数未进入归档快照。
+- 结果风险：metadata JSON 不得被模板宣传为有效结果，真实 `metrics.json` 必须可被发现。
+- 兼容风险：生成的 Python 模板必须保持语法有效，并兼容现有 CSV 结果接入入口。
 
 ### 验证清单
-- PlanArchive bundle、CLI 默认值、入口脚本、本地 import 与 Plan mode 相邻回归：通过 `18/18`。
+- Adapter template、多格式输出、metadata 排除和任务标签相邻回归：通过 `6/6`；恢复 runtime 与安装版一致。
+- 结果位置广域测试仍受未恢复的 PanelHtml 源码提取格式阻塞，登记为后续批次，不属于本批回归。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`ca706e36db3116eac3ea968636cec264ad0e0fbb`。
+- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-029`，PlanBuilder contracts 已验证并同步，提交 `b89495cee236ea915f70d50b071188205f1134e6`。
-- 当前目标状态：`recovery-build-030` 已完成。
-- `recovery-build-030` 提交记录：`ca706e36db3116eac3ea968636cec264ad0e0fbb`，已普通快进推送并确认与 `origin/master` 一致。
+- 最新完成批次：`recovery-build-030`，PlanArchive source extraction 已验证并同步，提交 `ca706e36db3116eac3ea968636cec264ad0e0fbb`。
+- 当前目标状态：`recovery-build-031` 验证通过，待提交同步。
+- `recovery-build-031` 提交记录：待验证后填写。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
