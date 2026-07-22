@@ -34,10 +34,10 @@
 - [已通过] 资源树、首屏图例与 GPU 说明定向测试 3/3。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，599 通过、24 失败；相较 27 项旧恢复边界减少 3 项。
-- [待同步] 本批修复提交尚未创建或推送。
+- [已同步] 修复提交 `12918e224e2158f33483ca4cd25c73f312c2b097` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-045`，修复提交 `5e328da24c06f648d4d29399ffd1109145b3cf42`，记录提交 `26de49354cffcf6c1c2d11160f27df80325a623e`。
-- 当前目标状态：`recovery-build-046` 执行中。
+- 当前目标状态：`recovery-build-046` 已完成并同步。
 - 本批涉及：面板 UI 契约测试与本计划；不修改产品运行时源码。
-- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`12918e224e2158f33483ca4cd25c73f312c2b097`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
