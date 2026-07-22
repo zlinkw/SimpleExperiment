@@ -416,7 +416,7 @@ test("plan archive keeps implicit defaults, destinations, duplicate declarations
 test("plan archive discovers entry scripts from scalar, block, flow-map, and torchrun commands", () => {
   const sandbox = { path, uniqueStrings: (values) => [...new Set(values)] };
   const entryStart = source.indexOf("function pythonCommandEntryReferences(");
-  const entryEnd = source.indexOf("\n\nasync function planArchiveConfigMigration", entryStart);
+  const entryEnd = source.indexOf("\nasync function planArchiveConfigMigration", entryStart);
   assert.ok(entryStart >= 0 && entryEnd > entryStart);
   vm.createContext(sandbox);
   vm.runInContext([
@@ -481,7 +481,7 @@ test("plan archive snapshot includes argparse declared in an imported module", a
     const snapshotStart = source.indexOf("async function planArchiveParameterSnapshot(");
     const snapshotEnd = source.indexOf("\nfunction planCommandValues(", snapshotStart);
     const entryStart = source.indexOf("function pythonCommandEntryReferences(");
-    const entryEnd = source.indexOf("\n\nasync function planArchiveConfigMigration", entryStart);
+    const entryEnd = source.indexOf("\nasync function planArchiveConfigMigration", entryStart);
     assert.ok(snapshotStart >= 0 && snapshotEnd > snapshotStart);
     assert.ok(entryStart >= 0 && entryEnd > entryStart);
     vm.createContext(sandbox);

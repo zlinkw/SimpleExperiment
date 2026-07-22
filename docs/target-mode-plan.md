@@ -18,24 +18,23 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-029
+## 当前批次：recovery-build-030
 ### 修复点
-- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复缺失的 PlanBuilder 完整实现。
-- 恢复 mode-aware Plan 校验、复杂 YAML 解析、结果候选门禁、矩阵表达式错误收敛和 Plan registry 覆盖计算。
-- 保留 TypeScript 公共类型出口，不修改 Plan 文件、配置文件、已安装扩展或实验结果。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，校正 PlanArchive 入口脚本扫描测试的陈旧源码格式假设。
+- 允许恢复源码采用单换行函数边界，同时继续验证 scalar、block、flow map、torchrun 和 `python -m` 入口。
+- 保留 argparse 跨本地 import 静态快照，不执行项目 Python，不修改 Plan、配置或归档文件。
 
 ### 回归风险
-- 解析风险：注释、flow map、anchor、alias、嵌套对象和命令参数不得产生伪结果或伪 case。
-- 结果风险：metadata、内部 registry 和未被当前 mode 使用的命令输出不得通过正式结果门禁。
+- 扫描风险：测试提取边界不得吞入后续异步迁移函数，也不得依赖格式化空行数量。
+- 归档风险：入口脚本和本地 import 漏扫会导致 argparse 默认参数未进入归档快照。
 
 ### 验证清单
-- Plan mode、YAML case、结果候选、matrix、registry 和 coverage 定向测试：通过 `33/33`。
-- Plan 广域相邻审计通过 `49/53`；4 个失败属于未恢复的 Notifications、PlanArchive entry scanner 和 ProjectAdapterTemplates，登记为后续批次，不属于本批回归。
+- PlanArchive bundle、CLI 默认值、入口脚本、本地 import 与 Plan mode 相邻回归：通过 `18/18`。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`b89495cee236ea915f70d50b071188205f1134e6`。
+- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-028`，scheduler failure contract 已验证并同步，提交 `128ee2fe625e880e5853b9ccb6f7e89d183e28ea`。
-- 当前目标状态：`recovery-build-029` 已完成。
-- `recovery-build-029` 提交记录：`b89495cee236ea915f70d50b071188205f1134e6`，已普通快进推送并确认与 `origin/master` 一致。
+- 最新完成批次：`recovery-build-029`，PlanBuilder contracts 已验证并同步，提交 `b89495cee236ea915f70d50b071188205f1134e6`。
+- 当前目标状态：`recovery-build-030` 验证通过，待提交同步。
+- `recovery-build-030` 提交记录：待验证后填写。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
