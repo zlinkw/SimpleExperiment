@@ -9,6 +9,7 @@ node_modules/**
 AGENTS.md
 CONTEXT.md
 .codex/**
+.claude/**
 .runtime/**
 .vscode/**
 scripts/**
@@ -17,13 +18,7 @@ scenarios/**
 *.vsix
 zlk_cluster/**
 _*.md
--First
--Path
--Raw
-package.json)
-src/**/*.ts)*
-*.ts)[*]
-*}else*
+_*.html
 dist/remote/RemoteFileStore.js
 dist/runtime/RuntimeManager.js
 dist/services/RemoteExecutionService.js

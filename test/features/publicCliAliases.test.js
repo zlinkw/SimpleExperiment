@@ -14,7 +14,7 @@ test("public CLI names use SimpleExperiment while legacy aliases remain", () => 
   assert.equal(packageJson.bin["simple-experiment-run"], "./dist/runCli.js");
   assert.equal(packageJson.bin["zlk-cluster"], "./dist/cli.js");
   assert.equal(packageJson.bin["zlk-run"], "./dist/runCli.js");
-  assert.match(cli, /export function runRecordedCli\(argv\)/);
+  assert.match(cli, /export function runRecordedCli\(argv: string\[\]\): number/);
   assert.match(cli, /if \(require\.main === module\)/);
   assert.match(runCli, /import \{ runRecordedCli \} from "\.\/cli"/);
   assert.match(runCli, /runRecordedCli\(process\.argv\.slice\(2\)\)/);

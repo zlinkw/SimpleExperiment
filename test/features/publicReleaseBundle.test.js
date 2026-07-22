@@ -21,7 +21,7 @@ test("public UI uses SimpleExperiment and SimpleSFTP names", () => {
   assert.match(extension, /title: "SimpleExperiment 一键配置向导"/);
   assert.match(extension, /# 由 SimpleExperiment 生成/);
   assert.match(panel, /<title>SimpleExperiment<\/title>/);
-  assert.match(panel, />SimpleSFTP</);
+  assert.match(panel, /topologyNode\("sftp", "SimpleSFTP", "文件"\)/);
   assert.doesNotMatch(panel, /ZLK SFTP Manager/);
 });
 

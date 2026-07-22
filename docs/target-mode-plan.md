@@ -19,25 +19,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-041
+## 当前批次：recovery-build-042
 ### 修复点
-- 以 Git、当前源码和本机已安装 `SimpleExperiment 0.2.0` 为只读证据，对齐快速项目接入测试契约。
-- 测试夹具补入当前接入完成态依赖，覆盖 Agent 检测、配置按钮文案、入口选择签名和带任务范围的面板导航。
-- 本批只修改一个接入流程测试与本计划；不修改产品源码、安装目录或 VSIX。
+- 以 Git、当前源码和本机已安装 `SimpleExperiment 0.2.0` 为证据，对齐公开 CLI 与 SimpleSFTP UI 命名契约。
+- 修复 `.vscodeignore` 恢复提交混入的 PowerShell 片段，并补齐 `.claude/**` 与 `_*.html` 排除规则。
+- 本批只修改两个公开发布测试、VSIX 排除配置与本计划；不修改产品运行时源码、安装目录或 VSIX。
 
 ### 回归风险
-- 相邻回归风险：快速接入测试必须继续验证完整门禁顺序，不能只放宽正则以隐藏行为缺失。
-- 夹具风险：`projectBootstrapCompletion` 新增依赖后必须与源码一起加载，避免把测试环境缺失误判为产品故障。
-- 兼容风险：三参数面板导航和项目根参数已由已安装版本印证，旧入口与命令 ID 不得改变。
+- 相邻回归风险：CLI 测试必须保留公开命令和旧别名四项映射，不能因 TypeScript 签名变化放弃入口验证。
+- UI 风险：SimpleSFTP 品牌必须来自真实拓扑节点，旧 `ZLK SFTP Manager` 文案不得回归。
+- 打包风险：排除规则只能移除已确认的恢复噪声，不能排除运行时、模板、README、LICENSE 或清单。
 
 ### 验证清单
-- [已通过] 快速项目接入定向测试：`projectQuickStartWorkflow.test.js` 5/5，`projectRunPreflightWorkflow.test.js` 10/10。
-- [已通过] `npm run build`、`npm run typecheck`、`npm run lint` 与 `git diff --check`。
-- [新基线] 全量测试 623 项，584 通过、39 失败；相较 49 项旧恢复边界减少 10 项。剩余失败属于既有恢复边界，未扩展本批范围。
-- [已同步] 修复提交 `6d0d20e06a78e864ed9470300fd45aadc4fe39e6` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [已通过] 公开 CLI、发布包与 target mode 定向测试 6/6；VSIX 文件清单无 `.claude`/临时 HTML，5 个关键文件均保留。
+- [已通过] build、typecheck、lint 与 `git diff --check`。
+- [新基线] 全量测试 623 项，587 通过、36 失败；相较 39 项旧恢复边界减少 3 项。
+- [待同步] 修复提交与 `origin/master` 快进同步。
 
 ## 本批记录
-- 上一完成批次：`docker-plugin-plan-001`，计划提交 `5f72761e143850df7ee28cd89ae17a897ddb3022`，记录提交 `82d62cb1e4b347186da8abec8ace494e31fa4698`。
-- 当前目标状态：`recovery-build-041` 已完成并同步。
-- 本批涉及：快速项目接入测试与本计划；不修改产品源码，生成的 `dist` 不计入文件上限。
-- 修复提交：`6d0d20e06a78e864ed9470300fd45aadc4fe39e6`；真实 SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-041`，修复提交 `6d0d20e06a78e864ed9470300fd45aadc4fe39e6`，记录提交 `0af80e0e1a728e722f7cc496ec2eefbe9a6f62f7`。
+- 当前目标状态：`recovery-build-042` 已完成，待提交同步。
+- 本批涉及：公开 CLI/UI 测试、VSIX 排除配置与本计划；不修改产品运行时源码。
+- 真实 VSIX 内容对比、安装、SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
