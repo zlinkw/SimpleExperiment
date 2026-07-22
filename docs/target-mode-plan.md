@@ -31,9 +31,10 @@
 ### 验证清单
 - target mode 计划测试和压缩脚本测试：通过。
 - SimpleExperiment UI 全量测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`：通过。
-- 当前恢复批次提交后普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：待提交。
+- 当前恢复批次提交后普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`fdec89314976664da1771238f2e51eff3280ad26`，已对齐。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-024`，服务器命令审计和中文设置 tooltip 已验证，提交 `8449bf026a2933052157f3e088053749aa2e2e0d`。
-- 当前目标状态：`recovery-build-025` 验证通过，待提交同步。
+- 当前目标状态：`recovery-build-025` 已完成。
+- `recovery-build-025` 提交记录：`docs: compact active target plan`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
