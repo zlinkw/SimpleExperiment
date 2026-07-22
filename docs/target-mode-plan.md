@@ -34,10 +34,10 @@
 - [已通过] 命令清单、旧远端源码隔离与连接 UI 定向测试 5/5。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，602 通过、21 失败；相较 24 项旧恢复边界减少 3 项。
-- [待同步] 本批修复提交尚未创建或推送。
+- [已同步] 修复提交 `2a8a8dca19c31de28515d3c1c25ac43eb0b2a188` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-046`，修复提交 `12918e224e2158f33483ca4cd25c73f312c2b097`，记录提交 `d01919a901deef42226f3330219d2750aa0e84e7`。
-- 当前目标状态：`recovery-build-047` 执行中。
+- 当前目标状态：`recovery-build-047` 已完成并同步。
 - 本批涉及：迁移/连接契约测试、人工删除候选清单与本计划；不修改产品运行时源码。
-- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`2a8a8dca19c31de28515d3c1c25ac43eb0b2a188`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
