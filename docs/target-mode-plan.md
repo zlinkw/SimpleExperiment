@@ -34,10 +34,10 @@
 - [已通过] 面板连接、全局 Xshell 配置与手动快照定向测试 5/5。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，609 通过、14 失败；相较 18 项旧恢复边界减少 4 项。
-- [待同步] 本批修复提交尚未创建或推送。
+- [已同步] 修复提交 `31605a15098f88635f1bd7b425fdcfa56ce29e60` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-048`，修复提交 `6274ed9d329fe3f97c7ff4ee1f6aa2349d4af729`，记录提交 `5c8333fbbb0504cc6ce9975b1719cc26c9841468`。
-- 当前目标状态：`recovery-build-049` 执行中。
+- 当前目标状态：`recovery-build-049` 已完成并同步。
 - 本批涉及：连接生命周期、全局配置与手动快照契约测试；不修改产品运行时源码。
-- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`31605a15098f88635f1bd7b425fdcfa56ce29e60`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
