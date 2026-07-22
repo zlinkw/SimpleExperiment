@@ -44,7 +44,10 @@ test("result schema normalizes metric aliases and extracts dimensions", () => {
   assert.equal(normalizeMetricKey("mean_dice", schema), "DSC");
   assert.equal(record.metrics.DSC.sourceColumn, "value");
   assert.equal(record.dimensions.dataset, "VinDr");
-  assert.deepEqual(detectMetricAliasConflicts({ ...schema, metrics: [...schema.metrics, { ...schema.metrics[0], key: "Dice2" }] }), [{ alias: "dice", targets: ["DSC", "Dice2"] }]);
+  assert.deepEqual(detectMetricAliasConflicts({ ...schema, metrics: [...schema.metrics, { ...schema.metrics[0], key: "Dice2" }] }), [
+    { alias: "dice", targets: ["DSC", "Dice2"] },
+    { alias: "mean_dice", targets: ["DSC", "Dice2"] },
+  ]);
 });
 
 test("dimension extraction supports source priority, regex group, alias, and expression", () => {
@@ -106,7 +109,7 @@ test("dashboard, search DSL, import/export, and consistency checker work", () =>
   const issues = validateResultRecords(records);
   const dashboard = buildResultDashboard(records, issues, schema);
   assert.equal(dashboard.parsedResults, records.length);
-  assert.equal(filterResultsByDsl(records, "suite:suite metric.DSC>0.85").length, 1);
+  assert.equal(filterResultsByDsl(records, "suite:suite metric.DSC>0.85").length, 2);
   const bundle = JSON.parse(exportResultBundle({ schemas: [schema], records }, { includeValues: false }));
   assert.deepEqual(bundle.records[0].metrics, {});
   assert.equal(importResultBundle([{ id: "a", value: 1 }], [{ id: "a", value: 2 }, { id: "b", value: 3 }], "merge").length, 2);

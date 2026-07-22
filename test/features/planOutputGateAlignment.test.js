@@ -10,7 +10,7 @@ function renderPanelHtmlFromSource(source) {
     .replace(/^"use strict";\r?\n/, "")
     .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
     .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml/, "function renderPanelHtml");
+    .replace(/export function renderPanelHtml\(\): string/, "function renderPanelHtml()");
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
@@ -41,13 +41,13 @@ test("panel and extension output gates share nextStep and parseable candidate re
   }
   assert.doesNotThrow(() => new vm.Script(script, { filename: "panel-webview.js" }));
   assert.match(script, /isParseableResultCandidate/);
-  assert.match(script, /jobs\\.csv/);
+  assert.match(script, /jobs\.csv/);
   assert.match(script, /csv\|json\|txt\|log\|out/);
-  // 7c23e89 基线面板 projectQuickRow 行不含"下一步"；下一步提示在门禁原因里。
-  assert.match(panel, /projectQuickRow\("结果"/);
+  // 当前面板将结果位置与门禁下一步分开展示。
+  assert.match(panel, /projectQuickRow\("结果位置"/);
   assert.match(extension, /nextLabel: next \? next\.label : ""/);
   assert.match(extension, /nextStep: next \? \(next\.fix \|\| ""\) : ""/);
-  assert.match(extension, /下一步：在 experiments\/plans 下创建或放入 YAML 计划文件/);
+  assert.match(extension, /在 experiments\/plans 下创建或放入 YAML Plan/);
 });
 
 test("isParseableResultCandidate accepts nested plan result paths", () => {

@@ -158,21 +158,23 @@ exports.builtInPaperTableTemplates = [
 function selectResultPreset(fileName, presets = exports.builtInResultPresets) {
     return presets.find((item) => item.filePatterns.some((pattern) => globMatch(fileName, pattern))) || presets[0];
 }
-function previewResultParse(text, sourceFile, preset) {
-    const rows = csvRows(text);
-    const headers = rows[0] || [];
-    const missingRequiredColumns = (preset.requiredColumns || []).filter((column) => !headers.includes(column));
-    const records = parseResultFile(text, { path: sourceFile, type: sourceFile.endsWith(".json") ? "json" : "csv", endpoint: "local" }, preset);
+function previewResultParse(text, sourceFile, preset, parserConfig = {}) {
+    const isJson = /\.json$/i.test(sourceFile) || preset.format === "json";
+    const rows = isJson ? [] : csvRows(text);
+    const headers = isJson ? jsonPreviewColumns(text) : rows[0] || [];
+    const missingRequiredColumns = isJson ? [] : (preset.requiredColumns || []).filter((column) => !headers.includes(column));
+    const records = parseResultFile(text, { path: sourceFile, type: isJson ? "json" : "csv", endpoint: "local" }, preset, parserConfig);
     return {
         presetId: preset.id,
-        format: preset.format,
-        rows: Math.max(0, rows.length - 1),
+        format: isJson ? "json" : preset.format,
+        rows: isJson ? records.length : Math.max(0, rows.length - 1),
         records: records.length,
         columns: headers,
         missingRequiredColumns,
         warnings: [
+            ...(isCaseLevelMetricsFile(sourceFile) ? ["metrics_case.csv 是 case-level 明细，只用于错误样本、子组和泄漏检查；论文级汇总请写 metrics_summary.csv。"] : []),
             ...(missingRequiredColumns.length ? [`missing required columns: ${missingRequiredColumns.join(", ")}`] : []),
-            ...records.filter((record) => record.notes?.includes("inferred")).map((record) => `${record.resultId}: ${record.notes}`),
+            ...records.filter((record) => record.notes).map((record) => `${record.resultId}: ${record.notes}`),
         ],
         sampleMetrics: records[0]?.metrics || {},
     };
@@ -214,6 +216,8 @@ function previewTextMetricParse(text, sourceFile, options = {}) {
     };
 }
 function parseResultFile(text, sourceFile, preset, parserConfig = {}) {
+    if (isCaseLevelMetricsFile(sourceFile.path))
+        return [];
     if (preset.format === "json" || sourceFile.type === "json")
         return parseJsonResult(text, sourceFile, preset, parserConfig);
     const rows = csvRows(text);
@@ -350,6 +354,29 @@ function normalizeMetricKey(metric, schema, extraRules = []) {
         { from: "mean_dice", to: "DSC", caseInsensitive: true, trim: true },
         { from: "hd95", to: "HD95", caseInsensitive: true, trim: true },
         { from: "hausdorff95", to: "HD95", caseInsensitive: true, trim: true },
+        { from: "top1", to: "top1_accuracy", caseInsensitive: true, trim: true },
+        { from: "top_1", to: "top1_accuracy", caseInsensitive: true, trim: true },
+        { from: "top1_acc", to: "top1_accuracy", caseInsensitive: true, trim: true },
+        { from: "top5", to: "top5_accuracy", caseInsensitive: true, trim: true },
+        { from: "top_5", to: "top5_accuracy", caseInsensitive: true, trim: true },
+        { from: "top5_acc", to: "top5_accuracy", caseInsensitive: true, trim: true },
+        { from: "auroc", to: "AUC", caseInsensitive: true, trim: true },
+        { from: "roc_auc", to: "AUC", caseInsensitive: true, trim: true },
+        { from: "average_precision", to: "AUPRC", caseInsensitive: true, trim: true },
+        { from: "ap", to: "AUPRC", caseInsensitive: true, trim: true },
+        { from: "pr_auc", to: "AUPRC", caseInsensitive: true, trim: true },
+        { from: "weighted_f1", to: "F1", caseInsensitive: true, trim: true },
+        { from: "f1_macro", to: "F1", caseInsensitive: true, trim: true },
+        { from: "f1_micro", to: "F1", caseInsensitive: true, trim: true },
+        { from: "f1_weighted", to: "F1", caseInsensitive: true, trim: true },
+        { from: "macro_precision", to: "precision", caseInsensitive: true, trim: true },
+        { from: "macro_recall", to: "recall", caseInsensitive: true, trim: true },
+        { from: "mcc", to: "MCC", caseInsensitive: true, trim: true },
+        { from: "matthews_corrcoef", to: "MCC", caseInsensitive: true, trim: true },
+        { from: "cohen_kappa", to: "kappa", caseInsensitive: true, trim: true },
+        { from: "log_loss", to: "loss", caseInsensitive: true, trim: true },
+        { from: "cross_entropy", to: "loss", caseInsensitive: true, trim: true },
+        { from: "ce_loss", to: "loss", caseInsensitive: true, trim: true },
         ...extraRules,
     ];
     for (const rule of rules) {
@@ -623,7 +650,15 @@ function preset(id, name, format, metricDirections, metricColumns) {
             timestamp: "timestamp",
         },
         metricColumns,
-        metricAliases: { Dice: "DSC", dice: "DSC" },
+        metricAliases: {
+            Dice: "DSC", dice: "DSC", acc: "accuracy", top1: "top1_accuracy", top_1: "top1_accuracy", top1_acc: "top1_accuracy",
+            top5: "top5_accuracy", top_5: "top5_accuracy", top5_acc: "top5_accuracy", auc: "AUC", auroc: "AUC", roc_auc: "AUC",
+            average_precision: "AUPRC", ap: "AUPRC", pr_auc: "AUPRC", auprc: "AUPRC", macro_f1: "F1", micro_f1: "F1",
+            weighted_f1: "F1", f1_macro: "F1", f1_micro: "F1", f1_weighted: "F1", macro_precision: "precision", micro_precision: "precision",
+            weighted_precision: "precision", macro_recall: "recall", micro_recall: "recall", weighted_recall: "recall", bal_acc: "balanced_accuracy",
+            balanced_acc: "balanced_accuracy", sensitivity: "recall", tpr: "recall", ppv: "precision", tnr: "specificity", mcc: "MCC",
+            matthews_corrcoef: "MCC", cohen_kappa: "kappa", brier_score: "brier", log_loss: "loss", cross_entropy: "loss", ce_loss: "loss",
+        },
         metricDirections,
         requiredColumns: format === "long_csv" ? ["metric", "value"] : [],
         finalRowSelector: { type: "step_equals", column: "step", value: "final" },
@@ -631,16 +666,34 @@ function preset(id, name, format, metricDirections, metricColumns) {
         primaryMetric: metricColumns[0],
     };
 }
+function inferWideMetricColumns(headers, rows, dimensionColumns, preset, parserConfig) {
+    if (parserConfig.metricColumns?.length)
+        return parserConfig.metricColumns;
+    const configured = new Set((preset.metricColumns || []).map((item) => item.toLowerCase()));
+    return headers.filter((header) => {
+        if (dimensionColumns.has(header))
+            return false;
+        const sample = rows.find((row) => row[header] !== undefined && row[header] !== "")?.[header];
+        if (!Number.isFinite(Number(sample)))
+            return false;
+        if (!configured.size)
+            return true;
+        const info = metricFromName(header, preset);
+        return configured.has(header.toLowerCase()) || info.metric !== header || configured.has(info.metric.toLowerCase());
+    });
+}
 function parseLongRows(rows, sourceFile, preset, parserConfig) {
     const map = new Map();
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
         const m = { ...preset.columnMapping, ...parserConfig.columnMapping };
-        const metric = alias(row[m.metric || "metric"] || "", preset);
+        const metricInfo = metricFromName(row[m.metric || "metric"] || "", preset);
         const value = parseValue(row[m.value || "value"]);
-        const ids = idsFromRow(row, m, sourceFile.path);
+        const ids = idsFromRow(row, m, sourceFile.path, index);
         const record = map.get(ids.resultId) || baseRecord(ids, sourceFile, preset, parserConfig, row, m);
-        record.metrics[metric] = metricValue(value, metric, row, m, sourceFile.path, preset);
+        const metric = metricStorageKey(record.metrics, metricInfo.metric, metricInfo.split, row[m.metric || "metric"] || "");
+        record.metrics[metric] = metricValue(value, metric, row, m, sourceFile.path, preset, metricInfo.split);
         record.dimensions = { ...record.dimensions, ...dimensionsFromRow(row, parserConfig.dimensions || [], sourceFile.path), ...standardDimensions(row, m) };
+        finalizeRecordSemantics(record);
         map.set(ids.resultId, record);
     }
     return Array.from(map.values());
@@ -648,32 +701,157 @@ function parseLongRows(rows, sourceFile, preset, parserConfig) {
 function parseWideRows(rows, headers, sourceFile, preset, parserConfig) {
     const m = { ...preset.columnMapping, ...parserConfig.columnMapping };
     const dimensionColumns = new Set(Object.values(m).filter(Boolean));
-    const metricColumns = parserConfig.metricColumns?.length ? parserConfig.metricColumns : preset.metricColumns?.length ? preset.metricColumns : headers.filter((h) => !dimensionColumns.has(h) && Number.isFinite(Number(rows.find((row) => row[h])?.[h])));
-    return rows.map((row) => {
-        const ids = idsFromRow(row, m, sourceFile.path);
+    const metricColumns = inferWideMetricColumns(headers, rows, dimensionColumns, preset, parserConfig);
+    return rows.map((row, index) => {
+        const ids = idsFromRow(row, m, sourceFile.path, index);
         const record = baseRecord(ids, sourceFile, preset, parserConfig, row, m);
         for (const column of metricColumns) {
-            const metric = alias(column, preset);
-            record.metrics[metric] = metricValue(parseValue(row[column]), metric, row, { ...m, value: column }, sourceFile.path, preset);
+            const metricInfo = metricFromName(column, preset);
+            const value = parseValue(row[column]);
+            if (value === null || value === undefined || value === "")
+                continue;
+            const metric = metricStorageKey(record.metrics, metricInfo.metric, metricInfo.split, column);
+            record.metrics[metric] = metricValue(value, metric, row, { ...m, value: column }, sourceFile.path, preset, metricInfo.split);
         }
         record.dimensions = { ...record.dimensions, ...dimensionsFromRow(row, parserConfig.dimensions || [], sourceFile.path), ...standardDimensions(row, m) };
+        finalizeRecordSemantics(record);
         return record;
     });
 }
 function parseJsonResult(text, sourceFile, preset, parserConfig) {
     const parsed = JSON.parse(text);
-    const rows = Array.isArray(parsed) ? parsed : [parsed];
-    return rows.map((row) => {
+    const rows = normalizeJsonResultRows(parsed).map(normalizeJsonResultRow);
+    return rows.map((row, index) => {
         const m = { ...preset.columnMapping, ...parserConfig.columnMapping };
-        const ids = idsFromRow(row, m, sourceFile.path);
+        const ids = idsFromRow(row, m, sourceFile.path, index);
         const record = baseRecord(ids, sourceFile, preset, parserConfig, row, m);
-        for (const [metric, raw] of Object.entries(row.metrics || row)) {
+        for (const [metric, raw] of Object.entries(jsonMetricObject(row, m))) {
             const value = parseValue(raw);
-            if (typeof value === "number")
-                record.metrics[alias(metric, preset)] = metricValue(value, alias(metric, preset), row, m, sourceFile.path, preset);
+            if (typeof value === "number") {
+                const metricInfo = metricFromName(metric, preset);
+                const key = metricStorageKey(record.metrics, metricInfo.metric, metricInfo.split, metric);
+                record.metrics[key] = metricValue(value, key, row, m, sourceFile.path, preset, metricInfo.split);
+            }
         }
+        finalizeRecordSemantics(record);
         return record;
-    });
+    }).filter((record) => Object.keys(record.metrics || {}).length > 0);
+}
+function normalizeJsonResultRows(parsed) {
+    if (Array.isArray(parsed))
+        return parsed.filter((item) => item && typeof item === "object");
+    const root = parsed;
+    for (const key of ["results", "records", "runs", "items"]) {
+        if (Array.isArray(root?.[key]))
+            return root[key].filter((item) => item && typeof item === "object");
+    }
+    return root && typeof root === "object" ? [root] : [];
+}
+function normalizeJsonResultRow(row) {
+    const out = { ...row };
+    const aliases = {
+        experiment_id: ["experiment_id", "experimentId", "id"], run_key: ["run_key", "runKey", "run_id", "runId", "id"],
+        experiment_name: ["experiment_name", "experimentName"], suite: ["suite", "study"], method: ["method", "approach", "algorithm"],
+        dataset: ["dataset", "data_name", "dataName"], split: ["split", "partition"], fold: ["fold", "cv_fold", "cvFold"],
+        seed: ["seed", "random_seed", "randomSeed"], case: ["case", "case_name", "caseName", "case_id", "caseId"],
+        model: ["model", "model_name", "modelName"], tag: ["tag", "variant", "label"],
+    };
+    for (const containerName of ["dimensions", "metadata", "config", "params", "run", "context"]) {
+        const container = row[containerName];
+        if (!container || typeof container !== "object" || Array.isArray(container))
+            continue;
+        for (const [target, candidates] of Object.entries(aliases)) {
+            if (out[target] !== undefined && out[target] !== "")
+                continue;
+            const value = candidates.map((key) => container[key]).find(jsonScalarPresent);
+            if (value !== undefined)
+                out[target] = value;
+        }
+    }
+    const model = row.model;
+    if (model && typeof model === "object" && !Array.isArray(model)) {
+        const modelName = [model.name, model.type, model.model_name, model.modelName].find(jsonScalarPresent);
+        if (modelName !== undefined) {
+            if (out.model === undefined || typeof out.model === "object")
+                out.model = modelName;
+            if (out.method === undefined || out.method === "")
+                out.method = modelName;
+        }
+    }
+    return out;
+}
+function jsonMetricObject(row, m) {
+    for (const key of ["metrics", "metric_values", "scores", "summary", "results"]) {
+        if (row[key] && typeof row[key] === "object") {
+            const entries = jsonMetricEntries(row[key], [key]).filter((entry) => jsonMetricNameAllowed(entry.name));
+            if (entries.length)
+                return Object.fromEntries(entries.map((entry) => [entry.name, entry.value]));
+        }
+    }
+    const dimensionKeys = new Set(["experiment_id", "experimentId", "attempt_id", "attemptId", "suite", "run_key", "runKey", "dataset", "split", "fold", "seed", "epoch", "step", "timestamp", "status", "command", ...Object.values(m).filter(Boolean)]);
+    return Object.fromEntries(Object.entries(row).filter(([key, value]) => !dimensionKeys.has(key) && Number.isFinite(Number(value))));
+}
+function jsonMetricNameAllowed(name) {
+    const normalized = String(name || "").toLowerCase().replace(/^(?:train|val|valid|validation|test|external|ext)[_.-]+/, "");
+    return !new Set(["experiment_id", "experimentid", "attempt_id", "attemptid", "run_key", "runkey", "run_id", "runid", "suite", "method", "dataset", "split", "fold", "seed", "case", "model", "tag", "index", "experiment_index", "job_index", "job_count", "gpu_id", "gpu", "pid", "exit_code", "status", "state", "epoch", "step", "timestamp", "output_dir", "log_path"]).has(normalized);
+}
+function jsonMetricEntries(value, path = [], out = [], depth = 0) {
+    if (depth > 8 || out.length >= 200 || value === null || value === undefined)
+        return out;
+    if (Array.isArray(value)) {
+        for (const item of value.slice(0, 200)) {
+            if (!item || typeof item !== "object" || Array.isArray(item))
+                continue;
+            const name = item.metric ?? item.metric_name ?? item.metricName ?? item.name ?? item.key ?? item.label;
+            const raw = item.value ?? item.score ?? item.result ?? item.val;
+            if (jsonScalarPresent(name) && jsonScalarPresent(raw))
+                out.push({ name: jsonMetricNameWithContext(name, item), value: raw });
+            else
+                jsonMetricEntries(item, path, out, depth + 1);
+        }
+        return out;
+    }
+    if (typeof value === "object") {
+        const name = value.metric ?? value.metric_name ?? value.metricName ?? value.name ?? value.key ?? value.label;
+        const raw = value.value ?? value.score ?? value.result ?? value.val;
+        if (jsonScalarPresent(name) && jsonScalarPresent(raw)) {
+            out.push({ name: jsonMetricNameWithContext(name, value), value: raw });
+            return out;
+        }
+        for (const [key, child] of Object.entries(value))
+            jsonMetricEntries(child, [...path, key], out, depth + 1);
+        return out;
+    }
+    if (!Number.isFinite(Number(value)) || !path.length)
+        return out;
+    const leaf = path[path.length - 1];
+    const split = [...path.slice(0, -1)].reverse().find((item) => /^(train|val|valid|validation|test|external|ext)$/i.test(item));
+    out.push({ name: split ? `${split}_${leaf}` : leaf, value });
+    return out;
+}
+function jsonMetricNameWithContext(name, item) {
+    const value = String(name || "");
+    const split = item.split ?? item.partition ?? item.phase ?? item.stage;
+    return !jsonScalarPresent(split) || /^(?:train|val|valid|validation|test|external|ext)[_.-]/i.test(value) ? value : `${split}_${value}`;
+}
+function jsonScalarPresent(value) {
+    return value !== undefined && value !== null && value !== "" && (typeof value !== "object" || value instanceof Date);
+}
+function jsonPreviewColumns(text) {
+    try {
+        const rows = normalizeJsonResultRows(JSON.parse(text)).map(normalizeJsonResultRow);
+        const keys = new Set();
+        for (const row of rows.slice(0, 5)) {
+            for (const key of Object.keys(row))
+                keys.add(key);
+            for (const key of Object.keys(jsonMetricObject(row, {})))
+                keys.add(`metrics.${key}`);
+        }
+        return Array.from(keys);
+    }
+    catch {
+        return [];
+    }
 }
 function baseRecord(ids, sourceFile, preset, parserConfig, row, m) {
     const now = new Date().toISOString();
@@ -700,22 +878,66 @@ function baseRecord(ids, sourceFile, preset, parserConfig, row, m) {
         notes: ids.inferred ? "experiment_id inferred from path/runKey" : undefined,
     };
 }
-function idsFromRow(row, m, sourcePath) {
-    const runKey = String(row[m.runKey || "run_key"] || row.runKey || inferRunKey(sourcePath));
-    const experimentId = String(row[m.experimentId || "experiment_id"] || row.experimentId || runKey);
+function idsFromRow(row, m, sourcePath, index = 0) {
+    const explicitRunKey = String(row[m.runKey || "run_key"] || row.runKey || "").trim();
+    const explicitExperimentId = String(row[m.experimentId || "experiment_id"] || row.experimentId || "").trim();
+    const inferredIdentity = inferredResultIdentity(row, m, sourcePath, index);
+    const runKey = explicitRunKey || explicitExperimentId || inferredIdentity;
+    const experimentId = explicitExperimentId || runKey;
     const attemptId = String(row[m.attemptId || "attempt_id"] || row.attemptId || "attempt-1");
     const suite = String(row[m.suite || "suite"] || inferSuite(sourcePath));
     const experimentName = String(row.experiment_name || row.experimentName || runKey);
-    return { resultId: `${experimentId}:${attemptId}:${runKey}`, experimentId, attemptId, runKey, suite, experimentName, inferred: !row[m.experimentId || "experiment_id"] };
+    const variant = explicitExperimentId || explicitRunKey ? explicitResultVariantSuffix(row, m) : "";
+    return { resultId: [experimentId, attemptId, runKey, variant].filter(Boolean).join(":"), experimentId, attemptId, runKey, suite, experimentName, inferred: !explicitExperimentId };
 }
-function metricValue(value, metric, row, m, sourceFile, preset) {
+function explicitResultVariantSuffix(row, m) {
+    const parts = [];
+    for (const key of ["method", "dataset", "split", "fold", "seed"]) {
+        const mapped = m[key];
+        const value = row[mapped || key] ?? row[key] ?? row[key.replace(/_([a-z])/g, (_, char) => String(char).toUpperCase())];
+        if (value !== undefined && value !== "")
+            parts.push(`${key}=${String(value)}`);
+    }
+    return parts.join("|");
+}
+function inferredResultIdentity(row, m, sourcePath, index) {
+    const parts = [];
+    for (const key of ["suite", "method", "dataset", "split", "fold", "seed", "case", "case_name", "model", "tag", "config", "variant"]) {
+        const mapped = m[key];
+        const value = row[mapped || key] ?? row[key] ?? row[key.replace(/_([a-z])/g, (_, char) => String(char).toUpperCase())];
+        if (value !== undefined && value !== "")
+            parts.push(`${key}=${String(value)}`);
+    }
+    const base = inferRunKey(sourcePath) || sourcePath.replace(/\.[^.]+$/, "");
+    return parts.length ? `${base}:${parts.join("|")}` : `${base}:row${index + 1}`;
+}
+function finalizeRecordSemantics(record) {
+    const metrics = Object.keys(record.metrics || {});
+    const classification = metrics.filter(isClassificationMetric);
+    const segmentation = metrics.filter(isSegmentationMetric);
+    if (classification.length) {
+        record.schemaId = "classification";
+        record.primaryMetric = firstExistingMetric(record.metrics, ["AUC", "accuracy", "F1", "AUPRC", ...classification]) || record.primaryMetric;
+    }
+    else if (segmentation.length) {
+        record.schemaId = "medical_segmentation";
+        record.primaryMetric = firstExistingMetric(record.metrics, ["DSC", "IoU", "HD95", "ASD", ...segmentation]) || record.primaryMetric;
+        if (record.parserPresetId?.startsWith("classification"))
+            record.notes = appendNote(record.notes, "检测到分割指标，已按 medical_segmentation 语义处理；若这是分类实验，请在 zlk_project.yaml 配置 metricAliases。");
+    }
+    if (record.primaryMetric)
+        record.higherIsBetter = directionFor(record.primaryMetric, exports.builtInResultPresets.find((item) => item.id === record.parserPresetId) || exports.builtInResultPresets[0]) !== "lower";
+    if (record.notes?.includes("experiment_id inferred"))
+        record.notes = record.notes.replace("experiment_id inferred from path/runKey", "缺少 experiment_id (inferred)，已按路径、维度或行号生成临时记录；建议在 metrics_summary.csv 中补充 experiment_id，避免共享 CSV 合并。");
+}
+function metricValue(value, metric, row, m, sourceFile, preset, split) {
     return {
         value,
         unit: row.unit || undefined,
         higherIsBetter: directionFor(metric, preset) !== "lower",
         sourceColumn: m.value,
         sourceFile,
-        split: row[m.split || "split"] || undefined,
+        split: split || row[m.split || "split"] || undefined,
         dataset: row[m.dataset || "dataset"] || undefined,
         fold: row[m.fold || "fold"] || undefined,
         seed: row[m.seed || "seed"] || undefined,
@@ -723,8 +945,10 @@ function metricValue(value, metric, row, m, sourceFile, preset) {
 }
 function standardDimensions(row, m) {
     const out = {};
-    for (const key of ["suite", "dataset", "split", "fold", "seed"]) {
-        const value = row[m[key] || key];
+    for (const key of ["suite", "method", "dataset", "split", "fold", "seed", "case", "model", "tag"]) {
+        const mapped = m[key];
+        const camel = key.replace(/_([a-z])/g, (_, char) => String(char).toUpperCase());
+        const value = row[mapped || key] ?? row[key] ?? row[camel];
         if (value !== undefined && value !== "")
             out[key] = parseDimensionValue(value);
     }
@@ -926,29 +1150,143 @@ function coerceDimension(value, type) {
         return value === true || String(value).toLowerCase() === "true";
     return String(value);
 }
-function alias(metric, preset) {
-    const direct = preset.metricAliases?.[metric];
-    if (direct)
-        return direct;
-    const lower = metric.toLowerCase();
-    const ci = Object.entries(preset.metricAliases || {}).find(([key]) => key.toLowerCase() === lower);
-    if (ci)
-        return ci[1];
-    if (lower === "dsc" || lower === "dice")
+const splitNameMap = {
+    train: "train", val: "val", valid: "val", validation: "val", test: "test", external: "external", ext: "external",
+};
+const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric", "macro", "micro", "weighted"]);
+function normalizeMetricToken(metric, aliases = {}) {
+    const value = metric.trim();
+    if (!value)
+        return { metric: "" };
+    const direct = aliases[value] || Object.entries(aliases).find(([key]) => key.toLowerCase() === value.toLowerCase())?.[1];
+    if (direct && direct !== value) {
+        const sourceSplit = splitFromMetricName(value);
+        const normalized = normalizeMetricToken(direct);
+        return { metric: normalized.metric, split: sourceSplit || normalized.split };
+    }
+    const parts = value.toLowerCase().replace(/[.\s-]+/g, "_").replace(/__+/g, "_").split("_").filter(Boolean);
+    const split = extractSplit(parts);
+    const candidates = [parts.join("_"), parts.filter((part) => !metricDecorators.has(part)).join("_")].filter(Boolean);
+    for (const candidate of candidates) {
+        const normalized = canonicalMetricName(candidate);
+        if (normalized)
+            return { metric: normalized, split };
+    }
+    return { metric: value, split };
+}
+function metricFromName(metric, preset) {
+    return normalizeMetricToken(metric, preset.metricAliases || {});
+}
+function extractSplit(parts) {
+    const first = parts[0];
+    if (first && splitNameMap[first])
+        return splitNameMap[parts.shift()];
+    const last = parts[parts.length - 1];
+    if (last && splitNameMap[last])
+        return splitNameMap[parts.pop()];
+    return undefined;
+}
+function splitFromMetricName(metric) {
+    const parts = metric.toLowerCase().replace(/[.\s-]+/g, "_").replace(/__+/g, "_").split("_").filter(Boolean);
+    return splitNameMap[parts[0]] || splitNameMap[parts[parts.length - 1]];
+}
+function canonicalMetricName(lower) {
+    if (lower === "accuracy" || lower === "acc")
+        return "accuracy";
+    if (["top1", "top_1", "top1_acc", "top1_accuracy"].includes(lower))
+        return "top1_accuracy";
+    if (["top5", "top_5", "top5_acc", "top5_accuracy"].includes(lower))
+        return "top5_accuracy";
+    if (["auc", "auroc", "roc_auc"].includes(lower))
+        return "AUC";
+    if (["auprc", "pr_auc", "average_precision", "ap"].includes(lower))
+        return "AUPRC";
+    if (["f1", "macro_f1", "micro_f1", "weighted_f1", "f1_macro", "f1_micro", "f1_weighted"].includes(lower))
+        return "F1";
+    if (["precision", "macro_precision", "micro_precision", "weighted_precision", "ppv"].includes(lower))
+        return "precision";
+    if (["recall", "macro_recall", "micro_recall", "weighted_recall", "sensitivity", "tpr"].includes(lower))
+        return "recall";
+    if (["specificity", "tnr"].includes(lower))
+        return "specificity";
+    if (["balanced_accuracy", "balanced_acc", "bal_acc"].includes(lower))
+        return "balanced_accuracy";
+    if (["mcc", "matthews_corrcoef"].includes(lower))
+        return "MCC";
+    if (lower === "cohen_kappa")
+        return "kappa";
+    if (["npv", "ppv", "fpr", "fnr", "ece"].includes(lower))
+        return lower.toUpperCase();
+    if (["brier", "brier_score"].includes(lower))
+        return "brier";
+    if (["loss", "log_loss", "cross_entropy", "ce_loss"].includes(lower))
+        return "loss";
+    if (["dice", "dsc", "mean_dice"].includes(lower))
         return "DSC";
-    if (lower === "hd95")
+    if (lower === "iou")
+        return "IoU";
+    if (lower === "hd95" || lower === "hausdorff95")
         return "HD95";
     if (lower === "asd")
         return "ASD";
-    if (lower === "auroc" || lower === "roc_auc")
-        return "AUC";
-    return metric;
+    if (["mae", "mse", "rmse"].includes(lower))
+        return lower.toUpperCase();
+    if (lower === "r2")
+        return "R2";
+    return undefined;
+}
+function metricStorageKey(metrics, metric, split, sourceName) {
+    if (!split) {
+        if (metrics[metric] && sourceName && /[_-]/.test(sourceName)) {
+            const prefix = sourceName.toLowerCase().replace(/[.\s-]+/g, "_").split("_").find((part) => part && !splitNameMap[part] && metricDecorators.has(part));
+            if (prefix)
+                return splitMetricKey(prefix, metric);
+        }
+        return metric;
+    }
+    const existing = metrics[metric];
+    if (!existing)
+        return metric;
+    const existingSplit = String(existing.split || "").toLowerCase();
+    if (!existingSplit || existingSplit === split)
+        return metric;
+    if (split === "test" || (split === "val" && existingSplit === "train")) {
+        const backupKey = splitMetricKey(existingSplit, metric);
+        if (!metrics[backupKey])
+            metrics[backupKey] = existing;
+        delete metrics[metric];
+        return metric;
+    }
+    return splitMetricKey(split, metric);
+}
+function alias(metric, preset) {
+    return metricFromName(metric, preset).metric;
 }
 function metricAlias(metric) {
-    return metric.toLowerCase() === "dice" ? "dsc" : metric.toLowerCase();
+    const normalized = normalizeMetricToken(metric).metric.toLowerCase();
+    return normalized === "dice" ? "dsc" : normalized;
 }
 function directionFor(metric, preset) {
-    return preset.metricDirections?.[metric] || (exports.classificationMetricDirections[metric] || exports.segmentationMetricDirections[metric] || "higher");
+    const normalized = normalizeMetricToken(metric, preset.metricAliases || {}).metric;
+    return preset.metricDirections?.[metric] || preset.metricDirections?.[normalized] || exports.classificationMetricDirections[metric] || exports.classificationMetricDirections[normalized] || exports.segmentationMetricDirections[metric] || exports.segmentationMetricDirections[normalized] || "higher";
+}
+function isCaseLevelMetricsFile(sourcePath) {
+    return sourcePath.replace(/\\/g, "/").split("/").pop()?.toLowerCase() === "metrics_case.csv";
+}
+function isSegmentationMetric(metric) {
+    return new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]).has(metric);
+}
+function isClassificationMetric(metric) {
+    return Object.prototype.hasOwnProperty.call(exports.classificationMetricDirections, metric);
+}
+function firstExistingMetric(metrics, candidates) {
+    return candidates.find((item) => metrics[item]);
+}
+function appendNote(existing, note) {
+    return existing ? existing.includes(note) ? existing : `${existing}；${note}` : note;
+}
+function splitMetricKey(split, metric) {
+    return `${split}_${metric}`;
 }
 function inferRunKey(sourcePath) {
     return sourcePath.replace(/\\/g, "/").split("/").slice(-3).join("/").replace(/\.[^.]+$/, "");

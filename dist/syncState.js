@@ -37,6 +37,8 @@ function comparablePathVariants(value) {
     const markerIndex = normalized.indexOf("/zlk_cluster/");
     if (markerIndex >= 0)
         variants.add(normalized.slice(markerIndex + 1));
+    if (/(?:^|\/)zlk_cluster\/archive\//.test(normalized))
+        return Array.from(variants).filter(Boolean);
     for (const prefix of ["/work_dirs/", "/cluster_runs/", "/experiments/"]) {
         const index = normalized.indexOf(prefix);
         if (index >= 0)
@@ -69,6 +71,10 @@ function normalizedPathSet(paths) {
 function pathMatchesAny(value, candidates) {
     for (const variant of comparablePathVariants(value)) {
         for (const candidate of candidates) {
+            const variantArchived = /(?:^|\/)zlk_cluster\/archive\//.test(variant);
+            const candidateArchived = /(?:^|\/)zlk_cluster\/archive\//.test(candidate);
+            if (variantArchived !== candidateArchived)
+                continue;
             if (variant === candidate)
                 return true;
             if (variant.startsWith(candidate + "/"))
