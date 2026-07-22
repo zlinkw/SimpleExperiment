@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`server-gpu-history`。
-- 状态：执行中，当前批次 `history-002`。
+- 状态：执行中，当前批次 `history-002b`。
 - 启动条件：当前恢复基线和 UI 契约修复完成后，由目标模式切换到本计划。
 - 证据状态：设计目标；真实服务器采样、性能和连续三天留存均为 `needs field verification`。
 
@@ -60,7 +60,7 @@
 
 ### history-002 API 与状态链路
 
-- 状态：执行中。
+- 状态：执行中；`history-002a` API/capability/OpenAPI 与 TunnelClient 已由提交 `566332b4b0dd0f71499ce8c7eff6a18654fc580d` 同步，当前执行 Extension 缓存和 Webview 状态。
 - 增加只读历史查询端点及 capability。
 - 接入 tunnel client、Extension 缓存、Webview 状态预算和断连行为。
 - 验证多服务器、多 GPU、缺失桶、重连和三天边界。

@@ -19,7 +19,7 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：history-002
+## 当前批次：history-002b
 ### 修复点
 - 增加只读 `/api/gpu/history` 端点及 capability，并接入 TunnelClient。
 - 增加 Extension 按需缓存与 Webview 状态预算；仅传输当前请求范围的降采样结果。
@@ -31,11 +31,12 @@
 - 边界风险：API 与状态链路不得接入结果、归档、CSV、论文、PPT 或 SimpleSFTP。
 
 ### 验证清单
-- [待验证] Agent API/capability、TunnelClient、缓存、断连与 payload 预算定向测试。
-- [待验证] build、typecheck、lint、`git diff --check` 与全量测试。
+- [已通过] `history-002a` Agent API/capability/OpenAPI、时间参数和 TunnelClient 定向测试。
+- [已通过] `history-002a` build、typecheck、lint、runtime/SHA256、`git diff --check` 与全量测试 625/625。
+- [待验证] Extension 按需缓存、断连保留与 Webview payload 预算。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-053`，修复提交 `a7a71e87849606cae09de12d71c4a313fee2a2fa`，记录提交 `fa239e25afd2ad88687cd64460bed1d207653f18`。
-- 当前目标状态：`history-001` 已完成并同步；`history-002` 执行中。
-- 本批涉及：GPU 历史只读 API、TunnelClient 与有界 Webview 状态；不实现图表 UI，不修改安装目录或 VSIX。
-- 上一修复提交：`29395a0f063a9406122ebcf43520142cf0b9c497`；真实服务器连续三天采样仍为 `needs field verification`。
+- 当前目标状态：`history-002a` 已完成并同步；`history-002b` 执行中。
+- 本批涉及：Extension GPU 历史按需缓存、断连保留和有界 Webview 状态；不实现图表 UI，不修改安装目录或 VSIX。
+- 上一修复提交：`566332b4b0dd0f71499ce8c7eff6a18654fc580d`；真实服务器连续三天采样仍为 `needs field verification`。
