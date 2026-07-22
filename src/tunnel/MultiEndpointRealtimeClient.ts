@@ -1,6 +1,6 @@
 import { RequestBudget, RequestBudgetConfig, RequestBudgetSnapshot } from "./RequestBudget";
 import { ClusterSnapshot, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
-import { FileListResponse, FileTransferTask } from "./FileTransferTypes";
+import { DownloadOptions, FileListResponse, FileTransferTask } from "./FileTransferTypes";
 import { defaultRealtimeRefreshPolicy, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
 import { compactRealtimeLogs, createRealtimeState, RealtimeState } from "./RealtimeEventReducer";
 import { mergeAuthorityRealtimeStates } from "./AuthorityMergePolicy";
@@ -191,8 +191,8 @@ export class MultiEndpointRealtimeClient {
     return this.hubClient().listRemoteFiles(remotePath);
   }
 
-  async downloadFile(remotePath: string, localPath: string): Promise<FileTransferTask> {
-    const task = await this.hubClient().downloadFile(remotePath, localPath);
+  async downloadFile(remotePath: string, localPath: string, options: DownloadOptions = {}): Promise<FileTransferTask> {
+    const task = await this.hubClient().downloadFile(remotePath, localPath, options);
     this.updateMergedState();
     return task;
   }

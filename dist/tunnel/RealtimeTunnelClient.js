@@ -155,8 +155,8 @@ class RealtimeTunnelClient {
     postAvailabilityBatch(body) {
         return this.http.postAvailabilityBatch(body);
     }
-    downloadFile(remotePath, localPath) {
-        return this.files.downloadFile(remotePath, localPath);
+    downloadFile(remotePath, localPath, options = {}) {
+        return this.files.downloadFile(remotePath, localPath, options);
     }
     uploadFile(localPath, remotePath) {
         return this.files.uploadFile(localPath, remotePath);

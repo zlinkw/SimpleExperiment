@@ -12,10 +12,13 @@ test("file transfer uploads chunks over local HTTP API", async () => {
   const seen = [];
   const server = http.createServer((req, res) => {
     let raw = "";
+    const binary = req.headers["content-type"] === "application/octet-stream";
     req.on("data", (chunk) => raw += chunk);
     req.on("end", () => {
-      seen.push({ url: req.url, body: raw ? JSON.parse(raw) : {} });
+      seen.push({ url: req.url, body: binary ? raw : raw ? JSON.parse(raw) : {} });
       res.setHeader("Content-Type", "application/json");
+      if (req.url === "/api/files/upload-init") return res.end(JSON.stringify({ transferId: "u", chunkSize: 3, accepted: true, resumeFromByte: 0 }));
+      if (req.url.startsWith("/api/files/upload-chunk")) return res.end(JSON.stringify({ nextOffset: seen.filter((item) => item.url.startsWith("/api/files/upload-chunk")).length * 3 }));
       res.end(JSON.stringify({ ok: true }));
     });
   });
@@ -27,7 +30,8 @@ test("file transfer uploads chunks over local HTTP API", async () => {
   try {
     const task = await client.uploadFile(local, "experiments/plans/in.txt");
     assert.equal(task.status, "completed");
-    assert.equal(seen.filter((item) => item.url === "/api/files/upload-chunk").length, 2);
+    assert.equal(seen.filter((item) => item.url.startsWith("/api/files/upload-chunk")).length, 2);
+    assert.deepEqual(seen.filter((item) => item.url.startsWith("/api/files/upload-chunk")).map((item) => item.body.length), [3, 3]);
     assert.equal(seen[0].url, "/api/files/upload-init");
     assert.equal(seen.at(-1).url, "/api/files/upload-complete");
   } finally {

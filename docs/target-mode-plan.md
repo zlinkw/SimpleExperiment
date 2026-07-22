@@ -194,5 +194,17 @@
 - 安装版对照：当前 `dist/clusterAgentRuntime.js` 与本机已安装 `SimpleExperiment 0.2.0` 仅相差 TypeScript CommonJS 导出的 `2` 行包装声明，内嵌 Python runtime 内容一致；未修改安装目录。
 - 测试契约修复：异常诊断产物按稳定 `resultId` 命名，测试改为校验动作返回路径；统计、论文表和最终 CSV 测试先归档结果，再验证 `archived_only` 数据链，不放宽正式结果门禁。
 - 延期项：`test/clusterRuntime.test.js` 仍期待 scheduler 旧错误文本；`test/tunnel/agentTmuxPolicy.test.js` 仍期待旧 `pgrep -f` 实现，而当前命令使用 `ps`、`awk` 与监听端口联合定位进程。两项不属于 Hub Agent runtime 源码恢复，后续分别核对 scheduler 与隧道契约。
-- 提交记录：`fix: restore hub agent runtime source`，SHA 以推送后的 Git 记录为准。
+- 提交记录：`fix: restore hub agent runtime source`，提交 `ab76781fe1d56cd410e94b988cd36f817bd071a7`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；下一批处理远端结果只读下载的路径白名单、大小上限和 HTTP 413 契约。
+
+### recovery-build-018
+
+- 目标：恢复远端结果只读下载的路径白名单与客户端大小上限，使 Extension 的 `5 MB` 检查同时由客户端和 Hub Agent 强制执行。
+- 影响区域：`src/tunnel/FileTransferTypes.ts`、`src/tunnel/FileTransferClient.ts`、两个 realtime client 的下载参数透传、对应生成的 `dist` 和本计划。
+- 保护区域：不恢复主面板通用远端浏览、上传或任意文件下载；不修改 SimpleSFTP、已安装扩展和 Hub Agent runtime。
+- 回归检查：远端结果查看 workflow、文件 API 安全路径、文件传输定向测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：远端结果查看与大小上限测试、文件 API 安全路径、下载、上传、范围下载、校验和无 SSH/SCP/rsync 定向测试共 `24/24` 通过；`npm run typecheck`、`npm run lint`、4 个变更后 JavaScript 语法和 `git diff --check` 通过。
+- 安全行为：`DownloadOptions.maxBytes` 已从 realtime client 透传至 Hub file API；客户端先检查 `content-length`，Hub 超限继续返回并保留 `HTTP 413`；远端路径恢复根结果文件白名单、扩展结果目录白名单和私钥文件拒绝规则。
+- 测试契约修复：结果查看测试按当前 TypeScript 下载参数签名校验；无 SSH/SCP/rsync 测试改用允许的结果子路径；上传测试按当前 binary chunk 协议校验，不把二进制 chunk 当 JSON 解析。
+- 提交记录：`fix: enforce remote result download limits`，SHA 以推送后的 Git 记录为准。
+- 状态：验证完成，待提交并同步；下一批处理 UI 与 Extension 中剩余的远端结果查看契约失败，保持只读结果职责边界。

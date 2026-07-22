@@ -37,7 +37,7 @@ test("file transfer never invokes scp or rsync or ssh", async () => {
   await fs.writeFile(local, "abc");
   const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));
   try {
-    await client.list("results");
+    await client.list("results/run");
     await client.download("results/a.csv", path.join(dir, "a.csv"));
     await client.upload(local, "experiments/presets/preset.json");
     await client.cancel("missing");

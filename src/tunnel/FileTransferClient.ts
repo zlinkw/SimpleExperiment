@@ -121,6 +121,8 @@ export class FileTransferClient {
       start = await existingSize(tmpPath);
     }
     const query = new URLSearchParams({ path: task.remotePath });
+    const maxBytes = Number(options.maxBytes || 0);
+    if (Number.isFinite(maxBytes) && maxBytes > 0) query.set("maxBytes", String(Math.trunc(maxBytes)));
     let apiPath = "/api/files/download";
     if (start > 0 || rangeEnd !== undefined) {
       apiPath = "/api/files/download-range";
@@ -133,8 +135,11 @@ export class FileTransferClient {
         headers: this.headers(),
         signal: record.abort.signal,
       }), { userInitiated: true });
-      if (!response.ok) throw new Error(`download failed: ${response.status} ${await response.text()}`);
+      if (!response.ok) throw new Error(`download failed: HTTP ${response.status} ${await response.text()}`);
       const contentLength = Number(response.headers.get("content-length") || 0) || undefined;
+      if (contentLength && Number.isFinite(maxBytes) && maxBytes > 0 && contentLength > maxBytes) {
+        throw new Error(`remote file exceeds download limit: ${contentLength} > ${Math.trunc(maxBytes)} bytes`);
+      }
       const expected = options.expectedSha256 || response.headers.get("x-zlk-file-sha256") || undefined;
       record.expectedSha256 = expected;
       if (contentLength && options.confirmLargeFile && !(await options.confirmLargeFile(contentLength))) {

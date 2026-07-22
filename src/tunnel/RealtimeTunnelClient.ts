@@ -1,6 +1,6 @@
 import { RequestBudget, RequestBudgetDeniedError } from "./RequestBudget";
 import { FileTransferClient } from "./FileTransferClient";
-import { FileTransferTask } from "./FileTransferTypes";
+import { DownloadOptions, FileTransferTask } from "./FileTransferTypes";
 import { RealtimeReconnect } from "./RealtimeReconnect";
 import { applyRealtimeEvent, applySnapshot, createRealtimeState, RealtimeEvent, RealtimeState } from "./RealtimeEventReducer";
 import { ClusterSnapshot, HttpTunnelClient, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
@@ -189,8 +189,8 @@ export class RealtimeTunnelClient {
     return this.http.postAvailabilityBatch<T>(body);
   }
 
-  downloadFile(remotePath: string, localPath: string): Promise<FileTransferTask> {
-    return this.files.downloadFile(remotePath, localPath);
+  downloadFile(remotePath: string, localPath: string, options: DownloadOptions = {}): Promise<FileTransferTask> {
+    return this.files.downloadFile(remotePath, localPath, options);
   }
 
   uploadFile(localPath: string, remotePath: string): Promise<FileTransferTask> {

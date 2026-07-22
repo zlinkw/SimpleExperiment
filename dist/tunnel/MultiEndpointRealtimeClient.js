@@ -151,8 +151,8 @@ class MultiEndpointRealtimeClient {
     async listRemoteFiles(remotePath) {
         return this.hubClient().listRemoteFiles(remotePath);
     }
-    async downloadFile(remotePath, localPath) {
-        const task = await this.hubClient().downloadFile(remotePath, localPath);
+    async downloadFile(remotePath, localPath, options = {}) {
+        const task = await this.hubClient().downloadFile(remotePath, localPath, options);
         this.updateMergedState();
         return task;
     }
