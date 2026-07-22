@@ -10,7 +10,10 @@ test("all visible panel commands have extension handlers", () => {
 
   const commands = new Set();
   for (const match of html.matchAll(/data-command="([A-Za-z][A-Za-z0-9]+)"/g)) commands.add(match[1]);
-  for (const match of html.matchAll(/actionButton\("[^"]+",\s*"([^"]+)"/g)) commands.add(match[1]);
+  for (const match of html.matchAll(/actionButton\("([^"]+)",\s*"([^"]+)"/g)) {
+    const command = /^[A-Za-z][A-Za-z0-9]+$/.test(match[2]) ? match[2] : match[1];
+    if (/^[A-Za-z][A-Za-z0-9]+$/.test(command)) commands.add(command);
+  }
   for (const command of ["selectLogRunKey", "stopExperiment", "retryExperiment", "parseResults", "archiveArtifacts", "deleteArtifacts"]) {
     commands.add(command);
   }

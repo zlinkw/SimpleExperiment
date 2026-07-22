@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-014`。
+- 批次：`recovery-build-015`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -149,4 +149,15 @@
 - 回归检查：Webview state shape、文件传输渲染边界、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
 - 验证：Webview state shape 与文件传输渲染边界测试 `5/5`、`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过。
 - 说明：已安装版和现行测试均证明独立传输队列、日志选择器与日志面板已从主面板移除；实时日志继续在任务卡内显示，文件传输由 SimpleSFTP 承担。
+- 提交记录：`fix: restore webview state source contracts`，提交 `5a084b9929ff04fbde66819484eda7396ee4dcd6`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；其他 UI 失败延期到后续批次。
+
+### recovery-build-015
+
+- 目标：依据 Git、已安装版与现行 SimpleSFTP 职责边界，校正已移除的面板远端文件浏览和远端文件选择测试，并恢复 Webview action allowlist 的源码类型声明；不重新引入面板上传或远端目录浏览。
+- 影响区域：`src/extension.ts`、远端文件浏览/选择状态/Webview 命令白名单相关测试和本计划。
+- 保护区域：不修改运行时远端协议，不修改 SimpleSFTP，不恢复 `selectedRemoteFile`、`selectRemoteFileFromUi`、`listRemoteFiles` 或 `uploadFileToCurrentRemoteDir` 面板入口。
+- 回归检查：相关 UI 与 feature 定向测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：远端文件职责、选择状态、Webview action allowlist、可见按钮处理与命令白名单一致性定向测试 `6/6` 通过；`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过。类型声明编译后不改变 `dist/extension.js` runtime。
+- 说明：面板上传继续由 SimpleSFTP 命令承担；SimpleExperiment 只保留当前 Plan 不可解析轻量结果的受限只读下载。任务卡日志选择保留，远端浏览器选择态不恢复。
 - 状态：已完成验证，待提交并同步；其他 UI 失败不在本批修改。

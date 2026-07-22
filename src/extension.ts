@@ -96,6 +96,53 @@ type StandardActionRequest = {
 };
 type WebviewClusterState = Record<string, unknown>;
 type RealtimeState = Record<string, unknown>;
+type WebviewActionCommand =
+    | "validatePlan"
+    | "dryRunPlan"
+    | "runPlan"
+    | "stopExperiment"
+    | "retryExperiment"
+    | "reproducePlan"
+    | "parseResults"
+    | "refreshResults"
+    | "runQualityGate"
+    | "runStatistics"
+    | "exportPaperTable"
+    | "checkClaimEvidence"
+    | "checkOutputContract"
+    | "parseCaseLevel"
+    | "runLeakageCheck"
+    | "runSubgroupAnalysis"
+    | "exportCaseAnalysis"
+    | "planCheckpointRetention"
+    | "inspectDataset"
+    | "exportPlottingContract"
+    | "plotResultsToPpt"
+    | "inferConfigFromRun"
+    | "recoverPlanFromRun"
+    | "diagnoseResultAnomaly"
+    | "compareWithBestConfig"
+    | "archiveArtifacts"
+    | "excludeResults"
+    | "syncArtifacts"
+    | "completeThreeWay"
+    | "deleteArtifacts"
+    | "reconcileDeletions"
+    | "selfCheck"
+    | "createDebugBundle"
+    | "downloadDebugBundle"
+    | "openAuditTail"
+    | "publishGithub"
+    | "syncGithub"
+    | "overwriteGithub"
+    | "uploadProjectToHub"
+    | "uploadProjectToWorkers"
+    | "distributeCodeToWorkers"
+    | "deployLatestAgent"
+    | "configureSftpIgnores"
+    | "clearLegacyTasks"
+    | "selectExperiment"
+    | "selectPlan";
 const viewId = "zlkCluster.panel";
 const keys = {
     tunnelConfig: "zlkCluster.tunnelGatewayConfig",
@@ -185,7 +232,7 @@ class UiCommandRemotePending extends Error {
         this.name = "UiCommandRemotePending";
     }
 }
-const uiActionCommands = new Set([
+const uiActionCommands = new Set<WebviewActionCommand>([
     "validatePlan",
     "dryRunPlan",
     "runPlan",

@@ -29,7 +29,7 @@ test("all declared webview commands pass the extension safety whitelist", () => 
     ...objectKeys(block(panel, "const uiCapabilityMap = {", "};")),
   ]);
   const safeCommands = new Set([
-    ...quotedValues(block(extension, "const uiActionCommands = new Set([", "]);")),
+    ...quotedValues(block(extension, "const uiActionCommands = new Set<WebviewActionCommand>([", "]);")),
     ...quotedValues(block(extension, "const basic = new Set([", "]);")),
   ]);
 
