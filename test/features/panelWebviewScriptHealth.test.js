@@ -10,7 +10,8 @@ function renderPanelHtmlFromSource(source) {
     .replace(/^"use strict";\r?\n/, "")
     .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
     .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml/, "function renderPanelHtml");
+    .replace(/export function renderPanelHtml/, "function renderPanelHtml")
+    .replace(/function renderPanelHtml\(\): string/, "function renderPanelHtml()");
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
@@ -44,5 +45,5 @@ test("panel webview script parses and keeps config commands", () => {
     assert.match(html, new RegExp(command));
   }
   assert.match(script, /isParseableResultCandidate/);
-  assert.match(script, /jobs\\.csv/);
+  assert.match(script, /jobs\.csv/);
 });

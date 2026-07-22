@@ -2583,6 +2583,8 @@ class RealtimeTunnelPanelProvider {
         this.throwIfRemoteActionPending(command, action, finalResult);
         if (["parseResults", "refreshResults", "runQualityGate", "runStatistics", "exportPaperTable", "checkClaimEvidence", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults"].includes(command)) {
             const planHint = operationResultPlanFile(finalResult) || body?.options?.planFile || body?.planFile || "";
+            if (command !== "parseResults" && command !== "refreshResults")
+                this.queueSelectedPlanResultParse(command, planHint);
             await this.refreshResultsSummary(planHint);
         }
     }
