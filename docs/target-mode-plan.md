@@ -268,3 +268,7 @@
 - 延期项：剩余 `4` 个 UI 失败属于服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
 - 提交记录：`test: align timeline and plan workflows`，提交 `2ed9750460d143471f2cf9ee88d52719c10b19b6`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；下一批优先处理服务器命令/tooltip 契约。
+
+## 已登记后续目标
+
+- `server-gpu-history`：服务器状态页三天 GPU 历史曲线与动态高区分度配色。独立计划见 `docs/target-plans/server-gpu-history.md`；当前状态为待执行，不并入恢复批次。
