@@ -23,8 +23,6 @@ test("extension compacts scheduler state payload for all-day webview runs", () =
 
 test("target mode plan records all-day scheduler payload budget", () => {
   const plan = fs.readFileSync(path.join(root, "docs", "target-mode-plan.md"), "utf8");
-  assert.match(plan, /一整天性能与自动化持续优化/);
-  assert.match(plan, /schedulerStates 长时间累积/);
-  assert.match(plan, /Batch 74：scheduler state payload 预算/);
-  assert.match(plan, /调度状态.*payload 预算/);
+  assert.match(plan, /长时间 Webview payload 预算/);
+  assert.match(plan, /`schedulerStates`/);
 });

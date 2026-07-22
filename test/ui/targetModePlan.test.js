@@ -13,18 +13,18 @@ test("target mode plan keeps only the latest active target and current guardrail
   assert.match(readme, /只保留最新活动目标/);
   for (const text of [
     "目标模式当前计划",
-    "只保留最新目标计划",
+    "只保留最新活动目标",
     "角色分工",
     "全局约束",
     "当前批次",
     "相邻回归风险",
     "验证清单",
-    "近期待办池",
+    "后续优先级",
     "本批记录",
     "Agent runtime cache",
     "项目计划、结果、归档、删除墓碑和文件传输状态属于项目态",
     "metrics_summary.csv",
-    "Xshell 本地隧道 + Hub/Worker Agent + ZLK SFTP Manager",
+    "Xshell 本地隧道 + Hub/Worker Agent + SimpleSFTP",
     "新增补充任务不得破坏当前主目标",
     "计划更新必须防止修复循环",
     "PPT 绘图链路与 realtime post gate 稳定化",
@@ -32,6 +32,7 @@ test("target mode plan keeps only the latest active target and current guardrail
     "pending key",
     "lastSeq/lastHeartbeatAt",
     "禁止“父级 evidence key 被子文件 archive 反向命中”",
+    "docs/target-plans/server-gpu-history.md",
   ]) {
     assert.match(plan + readme, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -46,4 +47,6 @@ test("target mode plan keeps only the latest active target and current guardrail
   for (const status of ["待做", "已完成"]) {
     assert.match(plan, new RegExp(status));
   }
+  assert.equal((plan.match(/^## 当前批次/gm) || []).length, 1);
+  assert.ok(plan.split(/\r?\n/).length <= 80);
 });
