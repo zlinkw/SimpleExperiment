@@ -33,10 +33,10 @@
 - [已通过] 归档恢复、nested Plan、归档 bundle/UI 与目标计划定向测试，`21/21`。
 - [已通过] `npm run build`、`npm run typecheck`、`npm run lint`、`git diff --check`。
 - [基线] 全量恢复审计 `566/620` 通过，剩余 `54` 项为后续恢复边界；本批目标测试均通过。
-- [待同步] 检查批次 diff，提交并普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [已同步] 修复提交 `394badbffec36eac85c570e8d3a8fba4b8336970` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-037`，修复提交 `ad30d7b12d5935c33a8aaf4a9b5789012abfc4a1`，记录提交 `fe713345b66b135d82e55e2c636a1c76745101e2`。
-- 当前目标状态：`recovery-build-038` 已验证，待同步。
+- 当前目标状态：`recovery-build-038` 已完成。
 - 本批涉及：两个归档相关定向测试和本计划；不修改产品源码，生成的 `dist` 不计入文件上限。
-- 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
+- `recovery-build-038` 修复提交：`394badbffec36eac85c570e8d3a8fba4b8336970`；真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
