@@ -11,6 +11,12 @@ test("scheduler runtime records dispatch probes and wait reasons", () => {
 });
 
 test("scheduler runtime does not silently finish with all experiments pending", () => {
-  assert.match(CLUSTER_SCHEDULER_RUNTIME, /Hub scheduler exited with pending experiments and no dispatch/);
+  assert.match(CLUSTER_SCHEDULER_RUNTIME, /no_dispatch_error_cycles = 0/);
+  assert.match(CLUSTER_SCHEDULER_RUNTIME, /if no_dispatch_error_cycles >= 3:/);
+  assert.match(CLUSTER_SCHEDULER_RUNTIME, /while queue:[\s\S]*failed\.append\(\{"experiment_index": queue\.pop\(0\)/);
+  assert.match(CLUSTER_SCHEDULER_RUNTIME, /write_current_state\(reason\)/);
+  assert.match(CLUSTER_SCHEDULER_RUNTIME, /Hub 调度器仍有排队实验但没有任何派发/);
   assert.match(CLUSTER_SCHEDULER_RUNTIME, /write_current_state\(final_error\)/);
+  assert.match(CLUSTER_SCHEDULER_RUNTIME, /terminal_status = "failed" if final_error or failed_count else "completed"/);
+  assert.doesNotMatch(CLUSTER_SCHEDULER_RUNTIME, /Hub scheduler exited with pending experiments and no dispatch/);
 });
