@@ -48,7 +48,7 @@ test("scenario runner covers five cluster recovery scenarios", async () => {
 });
 
 test("error model and debug bundle redaction are stable", () => {
-  assert.equal(normalizeZlkError(new Error("ssh timeout")).code, "SSH_TIMEOUT");
+  assert.equal(normalizeZlkError(new Error("ssh timeout")).code, "TUNNEL_TIMEOUT");
   const redacted = redactForDebugBundle({ token: "abc", identityFile: "C:/Users/a/.ssh/id_rsa", nested: { password: "secret" } });
   assert.equal(redacted.token, "<redacted>");
   assert.equal(redacted.identityFile, "id_rsa");

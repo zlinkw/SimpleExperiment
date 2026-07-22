@@ -19,11 +19,11 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-052
+## 当前批次：recovery-build-053
 ### 修复点
-- 将旧直连远端静态扫描收敛到活动 Extension、localhost client 与 Xshell 会话启动边界，避免迁移 denylist 和未接入候选源码制造伪失败。
-- 对齐 dist 回归断言与当前 `xshell_tunnel_realtime`，继续确认旧直连服务未接入活动入口。
-- 提高 localhost API 集成测试的独立请求预算，并移除其临时下载、上传及永久清理；不修改产品运行时源码、安装目录或 VSIX。
+- 对齐场景错误码测试与当前 `TUNNEL_TIMEOUT` 语义。
+- 对齐 UI 传输边界测试：集群操作走 `postTunnelAction`，文件传输走 SimpleSFTP，实时快照走 localhost client；保留合法 Xshell/SSH 配置说明文本。
+- 对齐隧道网关当前实时刷新配置与请求预算测试；不修改产品运行时源码、安装目录或 VSIX。
 
 ### 回归风险
 - 相邻回归风险：活动 Extension 不得重新导入旧 `RemoteExecutionService`、`RuntimeService`、`RemoteFileStore` 或直接远端命令 runner。
@@ -31,13 +31,12 @@
 - 测试风险：迁移 denylist 必须保留对旧 SSH/SCP/rsync 配置的移除能力，不能被误判成运行时直连实现。
 
 ### 验证清单
-- [已通过] localhost client、Xshell 启动与旧配置 denylist 定向测试 6/6。
+- [已通过] 四个修复测试文件定向执行 9/9。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
-- [新基线] 全量测试 624 项，620 通过、4 项既有恢复边界失败；相较上一批减少本批覆盖的 4 项失败。
-- [已同步] 修复提交 `81439fd8a290c602786fd8ab47ff998171174cf6` 已普通快进推送 `origin/master`。
+- [已通过] 全量测试 624/624；恢复基线当前无失败项。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-051`，修复提交 `855eb4919730503557551a09ef5110d178c8d509`，记录提交 `2d3ee3a7d6fd5bb1e455cecdea67cf52fc7b637a`。
-- 当前目标状态：`recovery-build-052` 已完成并同步。
-- 本批涉及：活动远端边界、Xshell 会话启动与 localhost client 测试；不修改产品运行时源码。
-- 修复提交：`81439fd8a290c602786fd8ab47ff998171174cf6`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-052`，修复提交 `81439fd8a290c602786fd8ab47ff998171174cf6`，记录提交 `45cdbc4b17e590c1e115b0e7833dfd17c0b46eb8`。
+- 当前目标状态：`recovery-build-053` 验证通过，待提交同步。
+- 本批涉及：错误模型契约、UI 传输边界测试和隧道请求预算测试；不修改产品运行时源码。
+- 修复提交：待提交；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。

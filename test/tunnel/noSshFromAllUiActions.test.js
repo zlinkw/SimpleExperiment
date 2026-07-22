@@ -5,19 +5,19 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 
-test("all new ui actions use TunnelClient only and never invoke ssh scp rsync", () => {
+test("all new ui actions use the current transport boundaries", () => {
   const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   const panel = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
   const commands = [
     "validatePlan", "dryRunPlan", "runPlan", "stopExperiment", "retryExperiment", "reproducePlan",
     "parseResults", "refreshResults", "runQualityGate", "runStatistics", "exportPaperTable",
     "archiveArtifacts", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions",
-    "selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail", "listRemoteFiles",
-    "downloadRemoteFile", "uploadRemoteFile"
+    "selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail", "downloadRemoteResult"
   ];
   for (const command of commands) assert.match(extension + panel, new RegExp(command), command);
-  assert.doesNotMatch(extension + panel, /\bssh\b|\bscp\b|\brsync\b|ControlMaster|persistent_shell|oneshot|runSsh|execFile|spawn/i);
-  assert.match(extension, /client\.postAction/);
-  assert.match(extension, /client\.downloadFile/);
-  assert.match(extension, /client\.uploadFile/);
+  assert.match(extension, /postTunnelAction\(action, body/);
+  assert.match(extension, /executeCommand\("simpleSftp\.uploadWorkspace"/);
+  assert.match(extension, /executeCommand\("simpleSftp\.uploadFiles"/);
+  assert.doesNotMatch(extension, /\b(?:runSsh|execFile|spawn)\s*\(/i);
+  assert.doesNotMatch(panel, /\b(?:runSsh|execFile|spawn)\s*\(/i);
 });

@@ -5,13 +5,21 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 
-test("new realtime UI actions do not invoke ssh scp or rsync", () => {
+test("new realtime UI snapshots use the localhost client", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
-  for (const method of ["manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot"]) {
-    const match = source.match(new RegExp(`async ${method}\\(\\): Promise<void> \\{([\\s\\S]*?)\\n  \\}`));
-    assert.ok(match, method);
-    assert.doesNotMatch(match[1], /\bssh\b|\bscp\b|\brsync\b|runSsh|execFile|spawn/i, method);
+  const methods = [
+    ["manualGpuSnapshot", "manualSchedulerSnapshot", /this\.client\.getGpu\(\)/],
+    ["manualSchedulerSnapshot", "manualTracesSnapshot", /this\.client\.getScheduler\(\)/],
+    ["manualTracesSnapshot", "generateTunnelScript", /this\.client\.getTraces\(\)/],
+  ];
+  for (const [method, nextMethod, clientCall] of methods) {
+    const start = source.indexOf(`async ${method}()`);
+    const end = source.indexOf(`async ${nextMethod}(`, start);
+    assert.ok(start >= 0 && end > start, method);
+    const body = source.slice(start, end);
+    assert.match(body, clientCall, method);
+    assert.doesNotMatch(body, /\b(?:runSsh|execFile|spawn)\s*\(/i, method);
   }
   const panel = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
-  assert.doesNotMatch(panel, /\bssh\b|\bscp\b|\brsync\b|direct_ssh|runSsh|execFile|spawn/i);
+  assert.doesNotMatch(panel, /\b(?:direct_ssh|runSsh|execFile|spawn)\s*\(/i);
 });

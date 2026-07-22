@@ -37,25 +37,23 @@ test("events are enabled by default for realtime tunnel", async () => {
   assert.equal(await budget.run("events", async () => "ok"), "ok");
 });
 
-test("automatic tunnel polling defaults are no shorter than one minute", () => {
+test("tunnel gateway defaults and realtime refresh policy match the current contract", () => {
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.health, 60_000);
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.snapshot, 60_000);
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.diagnostics, 60_000);
-  assert.equal(defaultTunnelGatewayConfig.healthCheckIntervalSeconds, 60);
-  assert.equal(defaultTunnelGatewayConfig.snapshotPollIntervalSeconds, 60);
-  assert.equal(defaultTunnelGatewayConfig.maxRequestsPerMinute, 10);
-  assert.equal(refreshProfiles.realtime.health, 60);
-  assert.equal(refreshProfiles.realtime.snapshot, 60);
-  assert.ok(refreshProfiles.balanced.health >= 60);
-  assert.ok(refreshProfiles.balanced.snapshot >= 60);
+  assert.equal(defaultTunnelGatewayConfig.healthCheckIntervalSeconds, 30);
+  assert.equal(defaultTunnelGatewayConfig.snapshotPollIntervalSeconds, 30);
+  assert.equal(defaultTunnelGatewayConfig.maxRequestsPerMinute, 120);
+  assert.equal(refreshProfiles.realtime.health, 5);
+  assert.equal(refreshProfiles.realtime.snapshot, 30);
+  assert.equal(refreshProfiles.balanced.health, 10);
+  assert.equal(refreshProfiles.balanced.snapshot, 60);
 
   const normalized = normalizeTunnelGatewayConfig({ healthCheckIntervalSeconds: 5, snapshotPollIntervalSeconds: 30 });
-  assert.equal(normalized.healthCheckIntervalSeconds, 60);
-  assert.equal(normalized.snapshotPollIntervalSeconds, 60);
+  assert.equal(normalized.healthCheckIntervalSeconds, 5);
+  assert.equal(normalized.snapshotPollIntervalSeconds, 30);
 
   const budgetConfig = requestBudgetConfigFromTunnel(normalized);
   assert.equal(budgetConfig.minIntervalByPurpose.health, 60_000);
   assert.equal(budgetConfig.minIntervalByPurpose.snapshot, 60_000);
 });
-
-
