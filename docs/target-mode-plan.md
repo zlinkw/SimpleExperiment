@@ -32,10 +32,10 @@
 - 调度器 probe、等待原因、连续错误收敛和最终失败状态定向测试：通过 `2/2`；生成 runtime 与安装版除恢复注释外一致。
 - 调度器广域相邻审计通过 `23/27`；4 个失败属于未恢复的 PlanBuilder、依赖 probe 和 live-output allowlist，登记为后续批次，不属于本批回归。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`128ee2fe625e880e5853b9ccb6f7e89d183e28ea`。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-027`，Agent runtime startup policy 已验证并同步，提交 `1230e3ef3f764d7642dd396fdf39984541428b1c`。
-- 当前目标状态：`recovery-build-028` 验证通过，待提交同步。
-- `recovery-build-028` 提交记录：待验证后填写。
+- 当前目标状态：`recovery-build-028` 已完成。
+- `recovery-build-028` 提交记录：`128ee2fe625e880e5853b9ccb6f7e89d183e28ea`，已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
