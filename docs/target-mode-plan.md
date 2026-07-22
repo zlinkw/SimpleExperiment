@@ -34,10 +34,10 @@
 - [已通过] capability UI、action wrapper 与结果分析 API 定向测试 3/3。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，612 通过、11 项既有恢复边界失败；相较上一批减少本批覆盖的 3 项旧契约失败。
-- [待同步] 本批验证通过后独立提交并普通快进推送 `origin/master`。
+- [已同步] 修复提交 `610b8164a756c39d9de25cb6d25cc51247ec6a21` 已普通快进推送 `origin/master`。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-049`，修复提交 `31605a15098f88635f1bd7b425fdcfa56ce29e60`，记录提交 `e2c1ef1f371bba5017909bf1c5829842576b2d79`。
-- 当前目标状态：`recovery-build-050` 运行中。
+- 当前目标状态：`recovery-build-050` 已完成并同步。
 - 本批涉及：capability UI、统一 action wrapper 与结果分析 API 测试契约；不修改产品运行时源码。
-- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`610b8164a756c39d9de25cb6d25cc51247ec6a21`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
