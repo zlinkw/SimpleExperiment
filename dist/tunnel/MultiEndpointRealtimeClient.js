@@ -69,6 +69,9 @@ class MultiEndpointRealtimeClient {
         this.onState(this.mergedState);
         return gpu;
     }
+    getGpuHistory(query = {}) {
+        return this.hubClient().getGpuHistory(query);
+    }
     async getScheduler() {
         const entries = await Promise.allSettled([...this.clients.values()].map((client) => client.getScheduler()));
         const fulfilled = entries.filter((entry) => entry.status === "fulfilled");

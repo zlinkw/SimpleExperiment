@@ -33,10 +33,46 @@ export interface TunnelEndpointConfig {
   capabilities?: unknown;
 }
 
+export interface GpuHistoryQuery {
+  serverId?: string;
+  gpuId?: string;
+  start?: string | number;
+  end?: string | number;
+  maxPoints?: number;
+}
+
+export interface GpuHistoryPoint {
+  serverId: string;
+  gpuId: string;
+  timestamp: string;
+  bucketEpoch: number;
+  gpuUtilPercent: number | null;
+  memoryUsedMb: number | null;
+  memoryTotalMb: number | null;
+  memoryUtilPercent: number | null;
+}
+
+export interface GpuHistorySeries {
+  serverId: string;
+  gpuId: string;
+  points: GpuHistoryPoint[];
+  rawPointCount: number;
+}
+
+export interface GpuHistoryResponse {
+  schemaVersion: 1;
+  bucketSeconds: number;
+  retentionHours: number;
+  maxPointsPerSeries: number;
+  updatedAt: string;
+  series: GpuHistorySeries[];
+}
+
 export interface TunnelClient {
   getHealth(options?: { userInitiated?: boolean }): Promise<TunnelHealth>;
   getSnapshot(options?: { manual?: boolean }): Promise<ClusterSnapshot>;
   getGpu(): Promise<unknown>;
+  getGpuHistory(query?: GpuHistoryQuery): Promise<GpuHistoryResponse>;
   getScheduler(): Promise<unknown>;
   getTraces(): Promise<unknown>;
   getLiveOutput(runKey: string, since?: number): Promise<unknown>;
@@ -118,6 +154,20 @@ export class HttpTunnelClient implements TunnelClient {
 
   getGpu(): Promise<unknown> {
     return this.getPath("/api/gpu");
+  }
+
+  getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {
+    const params = new URLSearchParams();
+    if (query.serverId) params.set("serverId", query.serverId);
+    if (query.gpuId) params.set("gpuId", query.gpuId);
+    if (query.start !== undefined) params.set("start", String(query.start));
+    if (query.end !== undefined) params.set("end", String(query.end));
+    if (query.maxPoints !== undefined) params.set("maxPoints", String(Math.max(1, Math.min(864, Math.trunc(query.maxPoints) || 1))));
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return this.requestJson<GpuHistoryResponse>(`/api/gpu/history${suffix}`, "manual_refresh", undefined, {
+      method: "GET",
+      userInitiated: true,
+    });
   }
 
   getScheduler(): Promise<unknown> {

@@ -77,6 +77,24 @@ class HttpTunnelClient {
     getGpu() {
         return this.getPath("/api/gpu");
     }
+    getGpuHistory(query = {}) {
+        const params = new URLSearchParams();
+        if (query.serverId)
+            params.set("serverId", query.serverId);
+        if (query.gpuId)
+            params.set("gpuId", query.gpuId);
+        if (query.start !== undefined)
+            params.set("start", String(query.start));
+        if (query.end !== undefined)
+            params.set("end", String(query.end));
+        if (query.maxPoints !== undefined)
+            params.set("maxPoints", String(Math.max(1, Math.min(864, Math.trunc(query.maxPoints) || 1))));
+        const suffix = params.size ? `?${params.toString()}` : "";
+        return this.requestJson(`/api/gpu/history${suffix}`, "manual_refresh", undefined, {
+            method: "GET",
+            userInitiated: true,
+        });
+    }
     getScheduler() {
         return this.getPath("/api/scheduler");
     }

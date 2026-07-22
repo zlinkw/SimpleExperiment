@@ -8,6 +8,7 @@ test("hub agent runtime exposes localhost HTTP API contract", () => {
     "/api/health",
     "/api/snapshot",
     "/api/gpu",
+    "/api/gpu/history",
     "/api/scheduler",
     "/api/traces",
     "/api/results/summary",
@@ -23,5 +24,7 @@ test("hub agent runtime exposes localhost HTTP API contract", () => {
   }
   assert.match(CLUSTER_AGENT_RUNTIME, /args\.host != "127\.0\.0\.1"/);
   assert.match(CLUSTER_AGENT_RUNTIME, /X-ZLK-Agent-Token/);
+  assert.match(CLUSTER_AGENT_RUNTIME, /"gpuHistory": True/);
+  assert.match(CLUSTER_AGENT_RUNTIME, /query_gpu_history\(root, server_id, gpu_id, start, end, max_points\)/);
   assert.doesNotMatch(CLUSTER_AGENT_RUNTIME, /ControlMaster|ControlPath/);
 });

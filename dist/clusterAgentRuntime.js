@@ -1101,7 +1101,15 @@ def gpu_history_epoch(value):
         return float(value)
     text = str(value or "").strip().replace(".000Z", "Z")
     try:
-        return float(calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ")))
+        numeric = float(text)
+        if math.isfinite(numeric):
+            return numeric
+    except Exception:
+        pass
+    try:
+        whole = text[:-1] if text.endswith("Z") else text
+        whole = whole.split(".", 1)[0]
+        return float(calendar.timegm(time.strptime(whole, "%Y-%m-%dT%H:%M:%S")))
     except Exception:
         return None
 
@@ -2030,6 +2038,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "health": True,
                 "capabilities": True,
                 "gpu": True,
+                "gpuHistory": True,
                 "workerAvailability": True,
                 "workerHubUplink": True,
                 "workerTasks": True,
@@ -2061,6 +2070,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "health": True,
             "snapshot": True,
             "gpu": True,
+            "gpuHistory": True,
             "workerAvailability": True,
             "workerHubUplink": True,
             "scheduler": True,
@@ -6515,6 +6525,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/health",
             "/api/capabilities",
             "/api/gpu",
+            "/api/gpu/history",
             "/api/worker/availability",
             "/api/worker/tasks",
             "/api/worker/commands",
@@ -6546,6 +6557,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/openapi.json",
             "/api/snapshot",
             "/api/gpu",
+            "/api/gpu/history",
             "/api/scheduler",
             "/api/traces",
             "/api/live-output",
@@ -7094,7 +7106,7 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/gpu", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/diagnostics", "/api/events", "/api/events/sse") and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/gpu", "/api/gpu/history", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/diagnostics", "/api/events", "/api/events/sse") and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
@@ -7108,6 +7120,14 @@ def serve_http(args):
                 if mode == "worker_telemetry":
                     return self.send_json(api_worker_gpu(root))
                 return self.send_json(read_json(path_for(root, "gpu_snapshot.json"), {}))
+            if route == "/api/gpu/history":
+                params = parse_qs(parsed.query)
+                server_id = (params.get("serverId") or params.get("server_id") or [""])[0]
+                gpu_id = (params.get("gpuId") or params.get("gpu_id") or [""])[0]
+                start = (params.get("start") or [None])[0]
+                end = (params.get("end") or [None])[0]
+                max_points = (params.get("maxPoints") or params.get("max_points") or [GPU_HISTORY_MAX_POINTS_PER_SERIES])[0]
+                return self.send_json(query_gpu_history(root, server_id, gpu_id, start, end, max_points))
             if route in ("/api/worker/availability", "/api/availability"):
                 if mode == "worker_telemetry":
                     return self.send_json(api_worker_availability(root))

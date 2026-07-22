@@ -125,6 +125,9 @@ class RealtimeTunnelClient {
     getGpu() {
         return this.http.getGpu();
     }
+    getGpuHistory(query = {}) {
+        return this.http.getGpuHistory(query);
+    }
     getScheduler() {
         return this.http.getScheduler();
     }

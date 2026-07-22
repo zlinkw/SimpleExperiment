@@ -1,5 +1,5 @@
 import { RequestBudget, RequestBudgetConfig, RequestBudgetSnapshot } from "./RequestBudget";
-import { ClusterSnapshot, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
+import { ClusterSnapshot, GpuHistoryQuery, GpuHistoryResponse, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
 import { DownloadOptions, FileListResponse, FileTransferTask } from "./FileTransferTypes";
 import { defaultRealtimeRefreshPolicy, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
 import { compactRealtimeLogs, createRealtimeState, RealtimeState } from "./RealtimeEventReducer";
@@ -95,6 +95,10 @@ export class MultiEndpointRealtimeClient {
     this.mergedState = { ...this.mergedState, gpu, lastKnownGood: { ...(this.mergedState.lastKnownGood || {}), gpu } };
     this.onState(this.mergedState);
     return gpu;
+  }
+
+  getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {
+    return this.hubClient().getGpuHistory(query);
   }
 
   async getScheduler(): Promise<unknown[]> {

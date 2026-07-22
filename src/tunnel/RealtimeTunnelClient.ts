@@ -3,7 +3,7 @@ import { FileTransferClient } from "./FileTransferClient";
 import { DownloadOptions, FileTransferTask } from "./FileTransferTypes";
 import { RealtimeReconnect } from "./RealtimeReconnect";
 import { applyRealtimeEvent, applySnapshot, compactRealtimeState, createRealtimeState, RealtimeEvent, RealtimeState } from "./RealtimeEventReducer";
-import { ClusterSnapshot, HttpTunnelClient, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
+import { ClusterSnapshot, GpuHistoryQuery, GpuHistoryResponse, HttpTunnelClient, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
 import { localBaseUrl } from "./TunnelGateway";
 import { TunnelHealth } from "./TunnelHealth";
 
@@ -147,6 +147,10 @@ export class RealtimeTunnelClient {
 
   getGpu(): Promise<unknown> {
     return this.http.getGpu();
+  }
+
+  getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {
+    return this.http.getGpuHistory(query);
   }
 
   getScheduler(): Promise<unknown> {

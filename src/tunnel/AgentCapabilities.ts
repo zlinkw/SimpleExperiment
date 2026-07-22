@@ -22,6 +22,7 @@ export interface AgentCapabilitiesResponse {
     snapshot: boolean;
     websocketEvents: boolean;
     sseEvents: boolean;
+    gpuHistory?: boolean;
     logsTail: boolean;
     fileList: boolean;
     fileDownload: boolean;
