@@ -28,6 +28,8 @@ Xshell 会话 -> SimpleExperiment 服务器目录 -> SimpleSFTP 目标 -> 准备
 
 服务器配置不完整时，SimpleExperiment 首次启动会显示一次引导，可直接打开本说明或开始一键配置；服务器仅配置 Hub 时会明确提示正式运行缺少执行 Worker，并提供“添加 Worker”入口；配套 SimpleSFTP 缺失或 ABI 过旧时，也会直接提示安装依赖并提供说明与扩展管理入口。依赖、服务器和至少一个启用 Worker 均就绪的用户不会收到该提示；用户中途取消后下次启动仍会继续引导。直接从命令面板运行“一键配置向导”或“准备 Agent 并启动”也使用相同门禁。部署 Agent、代码同步、忽略规则和运行前自动同步会在同步 Xshell 配置或写共享目标前再次执行该门禁；依赖未就绪时不会修改 `.xsh`、启动会话、显示上传开始或写入远端。独立的“启动连接”和“写入 Agent 自启动命令”仍可用于不涉及文件上传的故障恢复。面板顶部长期保留“配置说明”入口。
 
+一键配置遇到缺失会话、缺少 Worker、SimpleSFTP 目标不完整或 Agent 准备冲突时，“打开服务器设置”会直接定位到对应区域。向导连续推进时不会额外叠加 Worker 保存成功通知；从服务器设置手动保存 Hub 或 Worker 时会显示最终代码与 runtime 位置，配置完整后可直接继续“准备 Agent 并启动”。只有 Hub 时引导添加 Worker；未打开项目时引导查看配置说明。
+
 ```mermaid
 flowchart LR
   A[本地 VS Code 项目] -->|SimpleSFTP| B[Hub 实际工作目录/项目名]
@@ -56,25 +58,25 @@ SimpleExperiment 命令面板默认只显示新项目主流程和常用连接入
 
 ## 3. 配置服务器目录
 
-打开 SimpleExperiment 面板，先运行“一键配置向导”，选择 Xshell 会话。向导会要求填写 Hub 和每台 Worker 的“实际工作目录”；之后仍可在“设置 -> 服务器”修改。
+打开 SimpleExperiment 面板，先运行“一键配置向导”，选择 Xshell 会话。向导会要求填写 Hub 和每台 Worker 的“项目父目录”；之后仍可在“设置 -> 服务器”修改。
 
-向导完成后会把当前项目的 Hub/Worker 上传目标写入 SimpleSFTP。共享目标路径是 `<实际工作目录>/<当前项目名>`，不是实验根目录；切换到另一个本地项目后重新运行向导或首次上传，会更新为该项目对应的路径。切换项目后还必须点击“准备 Agent 并启动”，使 Xshell 自启动命令和 Agent `projectRoot` 同步切换到新项目。
+向导完成后会把当前项目的 Hub/Worker 上传目标写入 SimpleSFTP。共享目标路径是 `<项目父目录>/<当前项目名>`；项目父目录本身不是代码目录，插件会自动追加当前项目名。切换到另一个本地项目后重新运行向导或首次上传，会更新为该项目对应的路径。切换项目后还必须点击“准备 Agent 并启动”，使 Xshell 自启动命令和 Agent `projectRoot` 同步切换到新项目。
 
 | 项目 | 必填内容 |
 | --- | --- |
 | Xshell 会话 | 已保存 `.xsh` 会话，包含插件使用的本地端口转发 |
-| 实际工作目录 | 服务器上可写的项目根目录，不要填写项目名或 `zlk_agent` 子目录 |
+| 项目父目录 | 服务器上用于存放多个项目的可写父目录，不要填写当前项目名或 `zlk_agent` |
 | 用户名和 SSH 端口 | 从 Xshell 会话读取；与服务器实际登录一致 |
 | 本地端口 | 不与其他 Xshell 隧道冲突 |
 
 ```text
 本地项目名：my_project
 
-Hub 实际工作目录：/remote/experiments
+Hub 项目父目录：/remote/experiments
   - 代码上传到 /remote/experiments/my_project
   - Agent runtime 位于 /remote/experiments/zlk_agent
 
-Worker 实际工作目录：/remote/experiments
+Worker 项目父目录：/remote/experiments
   - 代码上传到 /remote/experiments/my_project
 ```
 

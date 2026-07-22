@@ -28,6 +28,7 @@ function loadReadiness() {
   vm.createContext(sandbox);
   vm.runInContext(
     source.slice(constantsStart, constantsEnd) +
+      extractFunction("legacySftpInstallationState") +
       extractFunction("simpleSftpIntegrationReadiness") +
       "\nthis.readiness = simpleSftpIntegrationReadiness;",
     sandbox

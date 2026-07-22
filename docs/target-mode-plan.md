@@ -19,25 +19,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-044
+## 当前批次：recovery-build-045
 ### 修复点
-- 对齐当前 Plan 的零结果契约诊断 helper，继续验证 revision 作用域与修复后重新运行入口。
-- 对齐结果工作台当前紧凑链接结构，保留中文标签、稳定锚点和原始字段提示。
-- 从已安装版恢复运行确认中的代码指纹说明；本批不修改产品运行时源码、安装目录或 VSIX。
+- 从已安装版恢复 Hub/Worker 手动保存后的连续操作说明。
+- 统一配置说明中的“项目父目录”语义，明确插件自动追加当前项目名。
+- 补齐 SimpleSFTP ABI 测试夹具依赖；本批不修改产品运行时源码、安装目录或 VSIX。
 
 ### 回归风险
-- 相邻回归风险：零结果诊断只能读取当前选中 Plan 的当前 revision，其他 Plan 或旧 revision 不得触发修复提示。
-- UI 风险：紧凑链接不能丢失数据集、检查点与 PPT 绘图三个真实入口，中文标签和锚点必须同时验证。
-- 文档风险：fingerprint 内部字段继续保持兼容，只修改用户可见说明。
+- 相邻回归风险：项目父目录不得误写成当前项目代码目录，否则上传路径会重复追加项目名。
+- 连续操作风险：只有 Hub/Worker 状态持久化成功后才能提供 Agent 准备入口。
+- 测试风险：ABI 测试必须加载 readiness 的全部直接依赖，不能通过修改产品逻辑规避夹具错误。
 
 ### 验证清单
-- [已通过] 当前 Plan 结果契约、结果工作台标签与代码指纹定向测试 6/6。
+- [已通过] Hub/Worker 保存、项目父目录说明与 SimpleSFTP ABI 定向测试 5/5。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
-- [新基线] 全量测试 623 项，593 通过、30 失败；相较 33 项旧恢复边界减少 3 项。
-- [已同步] 修复提交 `9694fe4856af3937cb4a0d712f79b603125db3b6` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [新基线] 全量测试 623 项，596 通过、27 失败；相较 30 项旧恢复边界减少 3 项。
+- [待同步] 本批修复提交尚未创建或推送。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-043`，修复提交 `3b9efcc66876a25a46d23fce57d60f6c19a2ab9f`，记录提交 `bfe639bf7ace1f2288ffe05e2c76dfda0b489f55`。
-- 当前目标状态：`recovery-build-044` 已完成并同步。
-- 本批涉及：结果工作流/UI 测试、配置说明与本计划；不修改产品运行时源码。
-- 修复提交：`9694fe4856af3937cb4a0d712f79b603125db3b6`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-044`，修复提交 `9694fe4856af3937cb4a0d712f79b603125db3b6`，记录提交 `f62b9885e82705e6d103133921569315aacbea11`。
+- 当前目标状态：`recovery-build-045` 执行中。
+- 本批涉及：配置说明、SimpleSFTP readiness 测试与本计划；不修改产品运行时源码。
+- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
