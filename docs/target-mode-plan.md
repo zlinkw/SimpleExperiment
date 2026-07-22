@@ -34,10 +34,10 @@
 - [已通过] Hub/Worker boundary 套件 8/8；额外多端点 GPU 定向测试通过。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 624 项，616 通过、8 项既有恢复边界失败；相较上一批减少本批覆盖的 3 项失败并新增 1 项边界测试。
-- [待同步] 本批验证通过后独立提交并普通快进推送 `origin/master`。
+- [已同步] 修复提交 `855eb4919730503557551a09ef5110d178c8d509` 已普通快进推送 `origin/master`。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-050`，修复提交 `610b8164a756c39d9de25cb6d25cc51247ec6a21`，记录提交 `cc1639cc9f400ac9eee9fcf4377115fa6fa15ecb`。
-- 当前目标状态：`recovery-build-051` 运行中。
+- 当前目标状态：`recovery-build-051` 已完成并同步。
 - 本批涉及：Worker capability、Worker action 路由边界与多端点 GPU authority；不修改安装目录或 VSIX。
-- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`855eb4919730503557551a09ef5110d178c8d509`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
