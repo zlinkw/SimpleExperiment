@@ -36,10 +36,10 @@
 - CLI、结果管理、最终结果视图与质量门禁定向测试：通过 `17/17`。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
 - 全量恢复审计基线：本批修复前通过 `546/620`，剩余 `74` 项按后续边界分批处理；该结果不作为本批定向回归失败。
-- 普通快进推送 `origin/master` 并 fetch 对齐：待验证。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`9bb82639783af5f7da788d72f2f7dff348ccb27c`。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-034`，隧道诊断与 live-output 契约已验证并同步，代码提交 `1733dbb59280470b764dd97096ab55846bb9dbc4`，记录提交 `fdaca59b9a2bbf18b8214f5cdefcf058e4806a87`。
-- 当前目标状态：`recovery-build-035` 已验证，等待同步。
-- `recovery-build-035` 提交记录：待提交。
+- 当前目标状态：`recovery-build-035` 已完成。
+- `recovery-build-035` 提交记录：`9bb82639783af5f7da788d72f2f7dff348ccb27c`，已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
