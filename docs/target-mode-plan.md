@@ -278,7 +278,7 @@
 - 验证：可见命令 handler、中文 tooltip、服务器配置说明、Panel inline script 定向测试 `5/5` 通过；UI 分组由 `68/72` 提升到 `71/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
 - 说明：命令扫描同时识别 `actionButton(command, label)` 与 `rowActionButton(label, command)`；补充高级设置、PPT 路径、Hub/Worker 隧道和本地/远端端口说明。
 - 延期项：剩余 `1` 个 UI 失败属于 target mode 计划压缩契约，后续单独处理。
-- 提交记录：待本批验证提交并推送后补记真实 SHA。
+- 提交记录：`ui: restore server configuration help`，提交 `8449bf026a2933052157f3e088053749aa2e2e0d`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；下一批处理 target mode 计划压缩。
 
 ## 已登记后续目标
