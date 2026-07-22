@@ -31,10 +31,10 @@
 ### 验证清单
 - PlanArchive bundle、CLI 默认值、入口脚本、本地 import 与 Plan mode 相邻回归：通过 `18/18`。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`ca706e36db3116eac3ea968636cec264ad0e0fbb`。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-029`，PlanBuilder contracts 已验证并同步，提交 `b89495cee236ea915f70d50b071188205f1134e6`。
-- 当前目标状态：`recovery-build-030` 验证通过，待提交同步。
-- `recovery-build-030` 提交记录：待验证后填写。
+- 当前目标状态：`recovery-build-030` 已完成。
+- `recovery-build-030` 提交记录：`ca706e36db3116eac3ea968636cec264ad0e0fbb`，已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
