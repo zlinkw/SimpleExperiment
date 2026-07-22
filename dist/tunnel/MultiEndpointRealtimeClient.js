@@ -8,6 +8,7 @@ const RequestBudget_1 = require("./RequestBudget");
 const RealtimeTunnelClient_1 = require("./RealtimeTunnelClient");
 const RealtimeEventReducer_1 = require("./RealtimeEventReducer");
 const AuthorityMergePolicy_1 = require("./AuthorityMergePolicy");
+const WorkerTelemetryApi_1 = require("./WorkerTelemetryApi");
 class MultiEndpointRealtimeClient {
     endpoints;
     policy;
@@ -138,6 +139,9 @@ class MultiEndpointRealtimeClient {
         return this.hubClient().postAction(action, body);
     }
     async postWorkerAction(workerId, action, body) {
+        if (!(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action)) {
+            throw new Error(`Worker Agent action not allowed: ${action}`);
+        }
         const client = this.clients.get(workerId);
         const endpoint = this.endpoints.find((item) => item.id === workerId);
         if (!client || endpoint?.role !== "worker") {

@@ -19,25 +19,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-050
+## 当前批次：recovery-build-051
 ### 修复点
-- 对齐 capability-driven UI 测试与当前 `uiCapabilityMap`、`disableReason` 和按钮点击前禁用契约。
-- 对齐 `postTunnelAction` 测试与当前 capability 检查、`opId`、本地 operation 及固定 action 提交包装。
-- 移除结果分析 API 测试中不再由正式 UI 使用且与 `refresh-results` 共享手动刷新预算的旧 `rescan-results` 调用；本批不修改产品运行时源码、安装目录或 VSIX。
+- 统一 Worker Telemetry capability 与 Agent runtime 已公开的五项 Worker 专用控制动作。
+- 在多端点客户端阻断 Hub action 越界直发 Worker，同时保持文件操作只走 Hub。
+- 对齐 Worker GPU 直接遥测测试与当前新鲜心跳优先、过期回退 Hub 的 authority merge 契约；不修改安装目录或 VSIX。
 
 ### 回归风险
-- 相邻回归风险：缺失 Hub action 或文件下载能力时，按钮必须在消息派发前禁用并显示升级原因。
-- 提交风险：所有远端 action 必须继续经过统一 wrapper，生成 `opId`、登记本地 operation 并提交固定 action。
-- 预算风险：正式 `refresh-results` 仍使用手动刷新预算；测试不得通过连续调用同预算旧别名制造伪回归。
+- 相邻回归风险：`run-plan`、结果、归档和文件 API 必须保持 Hub-only，只有 Worker 专用 action 可直发 Worker。
+- capability 风险：Worker Agent 返回 `start/retry/stop/delete/archive-worker-*` 时必须通过兼容校验，其他已启用 action 继续告警。
+- 状态风险：Worker GPU 只有新鲜心跳时覆盖 Hub 副本；缺失或过期心跳必须保留 Hub fallback 和告警。
 
 ### 验证清单
-- [已通过] capability UI、action wrapper 与结果分析 API 定向测试 3/3。
+- [已通过] Hub/Worker boundary 套件 8/8；额外多端点 GPU 定向测试通过。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
-- [新基线] 全量测试 623 项，612 通过、11 项既有恢复边界失败；相较上一批减少本批覆盖的 3 项旧契约失败。
-- [已同步] 修复提交 `610b8164a756c39d9de25cb6d25cc51247ec6a21` 已普通快进推送 `origin/master`。
+- [新基线] 全量测试 624 项，616 通过、8 项既有恢复边界失败；相较上一批减少本批覆盖的 3 项失败并新增 1 项边界测试。
+- [待同步] 本批验证通过后独立提交并普通快进推送 `origin/master`。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-049`，修复提交 `31605a15098f88635f1bd7b425fdcfa56ce29e60`，记录提交 `e2c1ef1f371bba5017909bf1c5829842576b2d79`。
-- 当前目标状态：`recovery-build-050` 已完成并同步。
-- 本批涉及：capability UI、统一 action wrapper 与结果分析 API 测试契约；不修改产品运行时源码。
-- 修复提交：`610b8164a756c39d9de25cb6d25cc51247ec6a21`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-050`，修复提交 `610b8164a756c39d9de25cb6d25cc51247ec6a21`，记录提交 `cc1639cc9f400ac9eee9fcf4377115fa6fa15ecb`。
+- 当前目标状态：`recovery-build-051` 运行中。
+- 本批涉及：Worker capability、Worker action 路由边界与多端点 GPU authority；不修改安装目录或 VSIX。
+- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。

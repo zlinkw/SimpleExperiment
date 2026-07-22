@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
+exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
+exports.isWorkerTelemetryAction = isWorkerTelemetryAction;
 exports.isWorkerTelemetryEventType = isWorkerTelemetryEventType;
 exports.validateWorkerTelemetryCapabilities = validateWorkerTelemetryCapabilities;
 exports.workerTelemetryAllowedEvents = [
@@ -21,11 +22,14 @@ exports.workerTelemetryRequiredEndpoints = [
     "WS /api/events?since=<seq>",
     "GET /api/events/sse?since=<seq>",
 ];
-exports.workerTelemetryAllowedActions = [
-    "POST /api/actions/stop-worker-task",
-    "POST /api/actions/delete-worker-artifacts",
-    "POST /api/actions/archive-worker-artifacts",
+exports.workerTelemetryActionNames = [
+    "start-worker-task",
+    "retry-worker-task",
+    "stop-worker-task",
+    "delete-worker-artifacts",
+    "archive-worker-artifacts",
 ];
+exports.workerTelemetryAllowedActions = exports.workerTelemetryActionNames.map((action) => `POST /api/actions/${action}`);
 exports.workerTelemetryForbiddenEndpoints = [
     "GET /api/files/*",
     "POST /api/files/*",
@@ -34,6 +38,9 @@ exports.workerTelemetryForbiddenEndpoints = [
     "POST /api/actions/parse-results",
     "POST /api/actions/run-plan",
 ];
+function isWorkerTelemetryAction(action) {
+    return exports.workerTelemetryActionNames.includes(action);
+}
 exports.defaultMultiWorkerRealtimePolicy = {
     connectHubOnStartup: true,
     connectWorkersOnStartup: true,
@@ -64,7 +71,7 @@ function validateWorkerTelemetryCapabilities(value) {
     if (caps.endpoints.actions) {
         const actions = caps.actionEndpoints || {};
         for (const action of Object.keys(actions)) {
-            if (!["stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts"].includes(action) && actions[action]) {
+            if (!isWorkerTelemetryAction(action) && actions[action]) {
                 warnings.push(`Worker Telemetry 暴露了不允许的控制动作：${action}`);
             }
         }

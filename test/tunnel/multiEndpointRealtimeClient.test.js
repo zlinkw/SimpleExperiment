@@ -35,15 +35,17 @@ test("multi endpoint realtime state remaps worker default gpu key", () => {
     schemaVersion: 1,
     seq: 1,
     type: "gpu_snapshot",
-    generatedAt: "2026-01-01T00:00:01Z",
-    source: "hub_agent",
+    generatedAt: new Date().toISOString(),
+    source: "worker_telemetry",
     payload: { gpus: [{ index: 1 }] },
   });
+  workerState.lastHeartbeatAt = new Date().toISOString();
   const state = mergeRealtimeStates([
     { endpoint: { id: "hub", role: "hub", localHost: "127.0.0.1", localPort: 18765 }, state: hubState },
     { endpoint: { id: "w1", role: "worker", localHost: "127.0.0.1", localPort: 18766 }, state: workerState },
   ]);
   assert.equal(state.gpu.hub[0].index, 0);
   assert.equal(state.gpu.w1[0].index, 1);
+  assert.equal(state.gpu.w1[0].workerDirect, true);
   assert.equal(state.lastSeq, 1);
 });

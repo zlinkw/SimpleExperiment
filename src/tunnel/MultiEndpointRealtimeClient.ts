@@ -4,6 +4,7 @@ import { DownloadOptions, FileListResponse, FileTransferTask } from "./FileTrans
 import { defaultRealtimeRefreshPolicy, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
 import { compactRealtimeLogs, createRealtimeState, RealtimeState } from "./RealtimeEventReducer";
 import { mergeAuthorityRealtimeStates } from "./AuthorityMergePolicy";
+import { isWorkerTelemetryAction } from "./WorkerTelemetryApi";
 
 export interface NamedTunnelEndpointConfig extends TunnelEndpointConfig {
   id: string;
@@ -175,6 +176,9 @@ export class MultiEndpointRealtimeClient {
   }
 
   async postWorkerAction<T>(workerId: string, action: TunnelAction, body: unknown): Promise<T> {
+    if (!isWorkerTelemetryAction(action)) {
+      throw new Error(`Worker Agent action not allowed: ${action}`);
+    }
     const client = this.clients.get(workerId);
     const endpoint = this.endpoints.find((item) => item.id === workerId);
     if (!client || endpoint?.role !== "worker") {

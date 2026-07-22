@@ -5,7 +5,7 @@ const http = require("node:http");
 const { MultiEndpointRealtimeClient } = require("../../dist/tunnel/MultiEndpointRealtimeClient.js");
 const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
 
-test("worker telemetry endpoints never receive control actions or file operations", async () => {
+test("worker telemetry endpoints receive only bounded worker actions and no file operations", async () => {
   const hubCalls = [];
   const workerCalls = [];
   const hub = http.createServer((req, res) => {
@@ -28,11 +28,15 @@ test("worker telemetry endpoints never receive control actions or file operation
   try {
     await client.postAction("run-plan", { opId: "op-run" });
     await client.postAction("delete-artifacts", { opId: "op-delete" });
-    await client.listRemoteFiles("zlk_cluster");
+    await client.postWorkerAction("w1", "stop-worker-task", { opId: "op-stop" });
+    await assert.rejects(client.postWorkerAction("w1", "run-plan", { opId: "op-invalid" }), /action not allowed/);
+    await client.listRemoteFiles("zlk_cluster/state.json");
     assert.ok(hubCalls.some((url) => url === "/api/actions/run-plan"));
     assert.ok(hubCalls.some((url) => url === "/api/actions/delete-artifacts"));
     assert.ok(hubCalls.some((url) => url.startsWith("/api/files/list")));
-    assert.equal(workerCalls.some((url) => url.startsWith("/api/actions/") || url.startsWith("/api/files/")), false);
+    assert.ok(workerCalls.some((url) => url === "/api/actions/stop-worker-task"));
+    assert.equal(workerCalls.some((url) => url === "/api/actions/run-plan" || url.startsWith("/api/files/")), false);
+    assert.equal(hubCalls.some((url) => url === "/api/actions/stop-worker-task"), false);
   } finally {
     hub.close();
     worker.close();

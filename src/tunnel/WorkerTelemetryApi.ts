@@ -26,11 +26,19 @@ export const workerTelemetryRequiredEndpoints = [
   "GET /api/events/sse?since=<seq>",
 ] as const;
 
-export const workerTelemetryAllowedActions = [
-  "POST /api/actions/stop-worker-task",
-  "POST /api/actions/delete-worker-artifacts",
-  "POST /api/actions/archive-worker-artifacts",
+export const workerTelemetryActionNames = [
+  "start-worker-task",
+  "retry-worker-task",
+  "stop-worker-task",
+  "delete-worker-artifacts",
+  "archive-worker-artifacts",
 ] as const;
+
+export type WorkerTelemetryAction = typeof workerTelemetryActionNames[number];
+
+export const workerTelemetryAllowedActions = workerTelemetryActionNames.map((action) =>
+  `POST /api/actions/${action}`,
+);
 
 export const workerTelemetryForbiddenEndpoints = [
   "GET /api/files/*",
@@ -40,6 +48,10 @@ export const workerTelemetryForbiddenEndpoints = [
   "POST /api/actions/parse-results",
   "POST /api/actions/run-plan",
 ] as const;
+
+export function isWorkerTelemetryAction(action: unknown): action is WorkerTelemetryAction {
+  return workerTelemetryActionNames.includes(action as WorkerTelemetryAction);
+}
 
 export interface WorkerTaskTelemetry {
   schemaVersion: 1;
@@ -128,7 +140,7 @@ export function validateWorkerTelemetryCapabilities(value: unknown): { ok: boole
   if (caps.endpoints.actions) {
     const actions = caps.actionEndpoints || {};
     for (const action of Object.keys(actions)) {
-      if (!["stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts"].includes(action) && actions[action]) {
+      if (!isWorkerTelemetryAction(action) && actions[action]) {
         warnings.push(`Worker Telemetry 暴露了不允许的控制动作：${action}`);
       }
     }
