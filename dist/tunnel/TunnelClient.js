@@ -14,11 +14,24 @@ const getPurposeByPath = new Map([
     ["/api/audit/tail", "diagnostics"],
 ]);
 const actionPurpose = {
+    "validate-plan": "run_plan",
+    "dry-run-plan": "run_plan",
     "run-plan": "run_plan",
     "stop-experiment": "stop",
+    "retry-experiment": "run_plan",
+    "reproduce-plan": "run_plan",
     "parse-results": "parse_results",
     "refresh-results": "manual_refresh",
+    "run-quality-gate": "parse_results",
+    "run-statistics": "parse_results",
+    "export-paper-table": "parse_results",
+    "archive-artifacts": "manual_refresh",
+    "sync-artifacts": "manual_refresh",
+    "complete-three-way": "manual_refresh",
+    "delete-artifacts": "manual_refresh",
+    "reconcile-deletions": "manual_refresh",
     "self-check": "diagnostics",
+    "create-debug-bundle": "diagnostics",
     "rescan-results": "manual_refresh",
 };
 class HttpTunnelClient {
@@ -72,6 +85,15 @@ class HttpTunnelClient {
     }
     getAuditTail() {
         return this.getPath("/api/audit/tail");
+    }
+    getOperation(operationId) {
+        const id = String(operationId || "").trim();
+        if (!id)
+            throw new Error("operationId is required.");
+        return this.requestJson(`/api/operations/${encodeURIComponent(id)}`, "diagnostics", undefined, {
+            method: "GET",
+            userInitiated: true,
+        });
     }
     postAction(action, body) {
         if (!body || typeof body !== "object" || !("opId" in body) || !String(body.opId || "").trim()) {

@@ -3,11 +3,24 @@ import { assertLocalhost, localBaseUrl } from "./TunnelGateway";
 import { TunnelHealth } from "./TunnelHealth";
 
 export type TunnelAction =
+  | "validate-plan"
+  | "dry-run-plan"
   | "run-plan"
   | "stop-experiment"
+  | "retry-experiment"
+  | "reproduce-plan"
   | "parse-results"
   | "refresh-results"
+  | "run-quality-gate"
+  | "run-statistics"
+  | "export-paper-table"
+  | "archive-artifacts"
+  | "sync-artifacts"
+  | "complete-three-way"
+  | "delete-artifacts"
+  | "reconcile-deletions"
   | "self-check"
+  | "create-debug-bundle"
   | "rescan-results";
 
 export interface ClusterSnapshot {
@@ -39,6 +52,7 @@ export interface TunnelClient {
   getResultsSummary(): Promise<unknown>;
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
+  getOperation(operationId: string): Promise<unknown>;
   postAction<T>(action: TunnelAction, body: unknown): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
   openEventStream?(sinceSeq: number): Promise<void>;
@@ -56,11 +70,24 @@ const getPurposeByPath = new Map<string, TunnelRequestPurpose>([
 ]);
 
 const actionPurpose: Record<TunnelAction, TunnelRequestPurpose> = {
+  "validate-plan": "run_plan",
+  "dry-run-plan": "run_plan",
   "run-plan": "run_plan",
   "stop-experiment": "stop",
+  "retry-experiment": "run_plan",
+  "reproduce-plan": "run_plan",
   "parse-results": "parse_results",
   "refresh-results": "manual_refresh",
+  "run-quality-gate": "parse_results",
+  "run-statistics": "parse_results",
+  "export-paper-table": "parse_results",
+  "archive-artifacts": "manual_refresh",
+  "sync-artifacts": "manual_refresh",
+  "complete-three-way": "manual_refresh",
+  "delete-artifacts": "manual_refresh",
+  "reconcile-deletions": "manual_refresh",
   "self-check": "diagnostics",
+  "create-debug-bundle": "diagnostics",
   "rescan-results": "manual_refresh",
 };
 
@@ -124,6 +151,15 @@ export class HttpTunnelClient implements TunnelClient {
 
   getAuditTail(): Promise<unknown> {
     return this.getPath("/api/audit/tail");
+  }
+
+  getOperation(operationId: string): Promise<unknown> {
+    const id = String(operationId || "").trim();
+    if (!id) throw new Error("operationId is required.");
+    return this.requestJson(`/api/operations/${encodeURIComponent(id)}`, "diagnostics", undefined, {
+      method: "GET",
+      userInitiated: true,
+    });
   }
 
   postAction<T>(action: TunnelAction, body: unknown): Promise<T> {

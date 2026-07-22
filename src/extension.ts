@@ -27,6 +27,7 @@ import {
 import { MobaXtermIntegration, MobaXtermRealIntegrationReport } from "./tunnel/MobaXtermIntegration";
 import { generateMobaXtermBatScript, generateMobaXtermPs1Script } from "./tunnel/MobaXtermCommandBuilder";
 import { TunnelProbeResult } from "./tunnel/MobaXtermPortProbe";
+import { buildTunnelEndpointRegistry } from "./tunnel/TunnelEndpointRegistry";
 import { importOfflineBundle, OfflineBundle } from "./tunnel/OfflineImport";
 import { redactTunnelDiagnostics } from "./tunnel/TunnelDiagnostics";
 import { assertTunnelOnlyMode, migrateLegacyRemoteConfig } from "./tunnel/TunnelOnlyPolicy";

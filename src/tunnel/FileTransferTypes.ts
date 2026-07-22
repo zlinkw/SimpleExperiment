@@ -30,6 +30,39 @@ export interface RemoteFileEntry {
   mtime?: string;
 }
 
+export interface FileListResponse {
+  schemaVersion: number;
+  path: string;
+  entries: RemoteFileEntry[];
+}
+
+export interface FileStatResponse extends RemoteFileEntry {
+  schemaVersion: number;
+  path: string;
+  exists: boolean;
+}
+
+export interface DownloadOptions {
+  expectedSha256?: string;
+  maxRetries?: number;
+  resume?: boolean;
+  confirmLargeFile?: (size: number) => Promise<boolean> | boolean;
+}
+
+export interface UploadOptions {
+  sha256?: string;
+  maxRetries?: number;
+  overwrite?: "never" | "if_same_size" | "always";
+}
+
+export interface FileTransferVerifyResult {
+  transferId: string;
+  ok: boolean;
+  expectedSha256?: string;
+  actualSha256?: string;
+  message: string;
+}
+
 export function isSafeRemotePath(remotePath: string): boolean {
   const normalized = remotePath.replace(/\\/g, "/").trim();
   if (!normalized || normalized.includes("\0")) return false;

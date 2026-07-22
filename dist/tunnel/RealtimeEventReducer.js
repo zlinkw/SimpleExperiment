@@ -1,9 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.compactRealtimeLogs = compactRealtimeLogs;
 exports.createRealtimeState = createRealtimeState;
 exports.validateRealtimeEvent = validateRealtimeEvent;
 exports.applyRealtimeEvent = applyRealtimeEvent;
 exports.applySnapshot = applySnapshot;
+function compactRealtimeLogs(logs) {
+    const entries = Object.entries(logs).slice(-20);
+    return Object.fromEntries(entries.map(([key, item]) => [key, { ...item, text: item.text.slice(-20000) }]));
+}
 const knownTypes = new Set([
     "agent_heartbeat",
     "gpu_snapshot",
@@ -19,6 +24,7 @@ const knownTypes = new Set([
     "file_changed",
     "diagnostics_updated",
     "worker_health",
+    "agent_warning",
     "operation_started",
     "operation_progress",
     "operation_completed",
@@ -42,7 +48,7 @@ function validateRealtimeEvent(input) {
     if (!item || typeof item !== "object")
         return { ok: false, warning: "malformed event" };
     const event = item;
-    if (Number(event.schemaVersion) !== 1 || !Number.isFinite(Number(event.seq)) || !event.generatedAt || event.source !== "hub_agent") {
+    if (Number(event.schemaVersion) !== 1 || !Number.isFinite(Number(event.seq)) || !event.generatedAt || (event.source !== "hub_agent" && event.source !== "worker_telemetry")) {
         return { ok: false, warning: "bad event schema", event: item };
     }
     if (!knownTypes.has(event.type)) {
@@ -52,7 +58,7 @@ function validateRealtimeEvent(input) {
 }
 function applyRealtimeEvent(state, input) {
     const valid = validateRealtimeEvent(input);
-    if (!valid.ok)
+    if (valid.ok === false)
         return { ...state, warnings: [...state.warnings.slice(-20), valid.warning] };
     const event = valid.event;
     if (event.seq <= state.lastSeq)

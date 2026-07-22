@@ -62,6 +62,7 @@ export class RealtimeTunnelClient {
   private reconnectTimer?: NodeJS.Timeout;
   private reconnectCount = 0;
   private lastError?: string;
+  private hidden = false;
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -176,6 +177,10 @@ export class RealtimeTunnelClient {
     return this.http.getOperation(operationId);
   }
 
+  listRemoteFiles(remotePath: string) {
+    return this.files.list(remotePath);
+  }
+
   postAction<T>(action: TunnelAction, body: unknown): Promise<T> {
     return this.http.postAction<T>(action, body);
   }
@@ -190,6 +195,18 @@ export class RealtimeTunnelClient {
 
   uploadFile(localPath: string, remotePath: string): Promise<FileTransferTask> {
     return this.files.uploadFile(localPath, remotePath);
+  }
+
+  setHidden(hidden: boolean): void {
+    this.hidden = hidden;
+    this.budget.setHidden(hidden);
+    if (hidden && this.policy.pauseWhenWebviewHidden && !this.policy.keepAgentStreamWhenHidden && this.status !== "paused" && this.status !== "disconnected") {
+      void this.disconnect("paused");
+      return;
+    }
+    if (!hidden && this.status === "paused" && this.policy.pauseWhenWebviewHidden && !this.budget.isPaused()) {
+      void this.connect(this.state.lastSeq).catch((error) => { this.lastError = message(error); });
+    }
   }
 
   diagnostics() {
@@ -309,7 +326,7 @@ export class RealtimeTunnelClient {
     this.state = applyRealtimeEvent(this.state, raw);
     if (this.state.lastSeq > before) this.onState(this.state);
     const event = typeof raw === "string" ? safeJson(raw) : raw;
-    if ((event as RealtimeEvent | undefined)?.type === "agent_warning" && (event as any).payload?.code === "journal_gap") {
+    if ((event as { type?: string; payload?: { code?: string } } | undefined)?.type === "agent_warning" && (event as { payload?: { code?: string } }).payload?.code === "journal_gap") {
       void this.getSnapshot().catch((error) => { this.lastError = message(error); });
     }
   }

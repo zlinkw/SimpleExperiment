@@ -42,6 +42,7 @@ class RealtimeTunnelClient {
     reconnectTimer;
     reconnectCount = 0;
     lastError;
+    hidden = false;
     constructor(endpoint, budget, policy = exports.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.endpoint = endpoint;
         this.budget = budget;
@@ -145,6 +146,9 @@ class RealtimeTunnelClient {
     getOperation(operationId) {
         return this.http.getOperation(operationId);
     }
+    listRemoteFiles(remotePath) {
+        return this.files.list(remotePath);
+    }
     postAction(action, body) {
         return this.http.postAction(action, body);
     }
@@ -156,6 +160,17 @@ class RealtimeTunnelClient {
     }
     uploadFile(localPath, remotePath) {
         return this.files.uploadFile(localPath, remotePath);
+    }
+    setHidden(hidden) {
+        this.hidden = hidden;
+        this.budget.setHidden(hidden);
+        if (hidden && this.policy.pauseWhenWebviewHidden && !this.policy.keepAgentStreamWhenHidden && this.status !== "paused" && this.status !== "disconnected") {
+            void this.disconnect("paused");
+            return;
+        }
+        if (!hidden && this.status === "paused" && this.policy.pauseWhenWebviewHidden && !this.budget.isPaused()) {
+            void this.connect(this.state.lastSeq).catch((error) => { this.lastError = message(error); });
+        }
     }
     diagnostics() {
         return {

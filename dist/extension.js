@@ -46,6 +46,7 @@ const MobaXtermSetup_1 = require("./tunnel/MobaXtermSetup");
 const MobaXtermLauncher_1 = require("./tunnel/MobaXtermLauncher");
 const MobaXtermIntegration_1 = require("./tunnel/MobaXtermIntegration");
 const MobaXtermCommandBuilder_1 = require("./tunnel/MobaXtermCommandBuilder");
+const TunnelEndpointRegistry_1 = require("./tunnel/TunnelEndpointRegistry");
 const OfflineImport_1 = require("./tunnel/OfflineImport");
 const TunnelDiagnostics_1 = require("./tunnel/TunnelDiagnostics");
 const TunnelOnlyPolicy_1 = require("./tunnel/TunnelOnlyPolicy");
@@ -610,7 +611,7 @@ class RealtimeTunnelPanelProvider {
         });
     }
     realtimeEndpoints() {
-        const registry = buildTunnelEndpointRegistry(this.setupConfig);
+        const registry = (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(this.setupConfig);
         return registry.endpoints.filter((endpoint) => endpoint.enabled).map((endpoint) => ({
             id: endpoint.id,
             role: endpoint.role === "hub_control" ? "hub" : "worker",

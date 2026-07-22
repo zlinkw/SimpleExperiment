@@ -15,6 +15,7 @@ export type RealtimeEventType =
   | "file_changed"
   | "diagnostics_updated"
   | "worker_health"
+  | "agent_warning"
   | "operation_started"
   | "operation_progress"
   | "operation_completed"
@@ -32,7 +33,7 @@ export interface RealtimeEvent {
   seq: number;
   type: RealtimeEventType;
   generatedAt: string;
-  source: "hub_agent";
+  source: "hub_agent" | "worker_telemetry";
   serverId?: string;
   workerId?: string;
   runKey?: string;
@@ -66,6 +67,16 @@ export interface RealtimeState {
   fileTransfers: Record<string, unknown>;
   warnings: string[];
   lastKnownGood?: ClusterSnapshot;
+  resultSummaryDirtySeq?: number;
+  resultSummaryDirtyAt?: string;
+  resultSummaryDirtyType?: string;
+  workerTasks?: unknown[];
+  workerHealth?: Record<string, unknown>;
+}
+
+export function compactRealtimeLogs(logs: RealtimeState["logs"]): RealtimeState["logs"] {
+  const entries = Object.entries(logs).slice(-20);
+  return Object.fromEntries(entries.map(([key, item]) => [key, { ...item, text: item.text.slice(-20000) }]));
 }
 
 const knownTypes = new Set<RealtimeEventType>([
@@ -83,6 +94,7 @@ const knownTypes = new Set<RealtimeEventType>([
   "file_changed",
   "diagnostics_updated",
   "worker_health",
+  "agent_warning",
   "operation_started",
   "operation_progress",
   "operation_completed",
@@ -107,7 +119,7 @@ export function validateRealtimeEvent(input: unknown): { ok: true; event: Realti
   const item = typeof input === "string" ? safeJson(input) : input;
   if (!item || typeof item !== "object") return { ok: false, warning: "malformed event" };
   const event = item as Partial<RealtimeEvent>;
-  if (Number(event.schemaVersion) !== 1 || !Number.isFinite(Number(event.seq)) || !event.generatedAt || event.source !== "hub_agent") {
+  if (Number(event.schemaVersion) !== 1 || !Number.isFinite(Number(event.seq)) || !event.generatedAt || (event.source !== "hub_agent" && event.source !== "worker_telemetry")) {
     return { ok: false, warning: "bad event schema", event: item };
   }
   if (!knownTypes.has(event.type as RealtimeEventType)) {
@@ -118,7 +130,7 @@ export function validateRealtimeEvent(input: unknown): { ok: true; event: Realti
 
 export function applyRealtimeEvent(state: RealtimeState, input: unknown): RealtimeState {
   const valid = validateRealtimeEvent(input);
-  if (!valid.ok) return { ...state, warnings: [...state.warnings.slice(-20), valid.warning] };
+  if (valid.ok === false) return { ...state, warnings: [...state.warnings.slice(-20), valid.warning] };
   const event = valid.event;
   if (event.seq <= state.lastSeq) return state;
   const next: RealtimeState = { ...state, lastSeq: event.seq };

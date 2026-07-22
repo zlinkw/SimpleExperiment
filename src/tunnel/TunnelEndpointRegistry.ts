@@ -11,6 +11,10 @@ export interface ClusterTunnelEndpoint {
     port: number;
     sshConfigAlias?: string;
     privateKeyPath?: string;
+    mobaxtermSessionName?: string;
+    savedSessionRunner?: "xshell";
+    savedSessionPath?: string;
+    authMethod?: "password" | "key" | "auto";
   };
   tunnel: {
     localHost: "127.0.0.1";
@@ -82,7 +86,7 @@ export function buildTunnelEndpointRegistry(
 
 export function endpointAssignmentsFromConfig(config: MobaXtermRealtimeTunnelConfig): TunnelEndpointPortAssignment[] {
   const assignedAt = new Date(0).toISOString();
-  const fallback = [
+  const fallback: TunnelEndpointPortAssignment[] = [
     {
       endpointId: "hub",
       role: "hub_control",
