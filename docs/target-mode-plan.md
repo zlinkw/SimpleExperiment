@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-016`。
+- 批次：`recovery-build-016a`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -170,4 +170,14 @@
 - 保护区域：不修改 Panel 或 Extension runtime，不恢复通用远端列表、上传、下载或选择入口。
 - 回归检查：capability、调试包、远端结果查看定向测试，UI 分组测试，`git diff --check`。
 - 验证：capability 与调试包定向测试 `2/2` 通过，UI 分组提升到 `58/72`；`git diff --check` 通过。远端结果查看 feature 测试仍有既有契约失败，延期至后续结果查看安全批次。
+- 提交记录：`test: align file capability workflows`，提交 `fbad7dfa63328dc8b95ae4d8d58ede2d40a3e183`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；远端结果查看 feature 测试延期至后续结果查看安全批次。
+
+### recovery-build-016a
+
+- 目标：收窄人工待删除清单范围，仅登记需要用户整体删除的完整文件或目录；局部代码、配置和文档内容由正常编辑流程处理。
+- 影响区域：`docs/manual-cleanup-candidates.md` 和本计划。
+- 保护区域：不删除、移动、清空或暂存删除任何文件；局部修改不得把文件截断为空。
+- 回归检查：清单现有候选类型复核和 `git diff --check`。
+- 验证：现有 `11` 条候选全部是完整文件路径，没有局部内容候选；`git diff --check` 通过。
 - 状态：已完成验证，待提交并同步。
