@@ -230,5 +230,5 @@
 - 验证：任务行操作、任务紧凑布局与 Panel inline script `3/3` 通过；UI 分组由 `60/72` 提升到 `62/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
 - 说明：任务操作保持中文标签和原命令映射；移除重复活动任务进度卡、旧任务长说明和无选择批量提示；任务卡元数据改由悬停标题保留，Plan 元数据改为紧凑 flex 布局。
 - 延期项：剩余 `10` 个 UI 失败属于 GPU、Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器命令/tooltip、同步发布与 target mode 计划压缩，后续按强相关小批处理。
-- 提交记录：`ui: compact task status section`，SHA 以推送后的 Git 记录为准。
-- 状态：验证完成，待提交并同步；下一批优先处理 GPU 紧凑布局契约。
+- 提交记录：`ui: compact task status section`，提交 `52b36cddef9853acc51ddc7addf29c2885fa547c`，已普通快进推送至 `origin/master`；推送后该提交与 `origin/master` 一致。
+- 状态：已完成；下一批优先处理 GPU 紧凑布局契约。
