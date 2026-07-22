@@ -5,7 +5,7 @@ const {
   applyRealtimeEvent,
   applySnapshot,
   createRealtimeState,
-} = require("../../src/tunnel/RealtimeEventReducer.ts");
+} = require("../../dist/tunnel/RealtimeEventReducer.js");
 
 function operation(status, extra = {}) {
   return {

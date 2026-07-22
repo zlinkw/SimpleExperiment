@@ -80,9 +80,11 @@ test("anomaly diagnosis writes under plan-scoped anomaly dir", () => {
 
 test("result evidence workbench keeps ppt plot buttons with artifact paths", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-  // 7c23e89 基线：pptPlotButton 用默认 artifact 路径渲染 PPT 绘图入口。
+  // Plot actions must use the selected Plan's final artifacts, never global fallback paths.
   assert.match(source, /function pptPlotButton\(label, sourcePath, sourceLabel, extra\)/);
-  assert.match(source, /pptPlotButton\("均值绘图", "zlk_cluster\/results\/statistics\.json"/);
-  assert.match(source, /pptPlotButton\("契约页", "zlk_cluster\/results\/plotting_contract\.json"/);
+  assert.match(source, /const statisticsSourcePath = statisticsReady \? meaningfulValue\(statisticsPath\) : "";/);
+  assert.match(source, /pptPlotButton\("均值绘图", statisticsSourcePath, "SCI 聚合统计"\)/);
+  assert.match(source, /pptPlotButton\("契约页", analysisArtifacts\.plottingContractPath, "PPT 绘图契约"/);
+  assert.doesNotMatch(source, /pptPlotButton\("(?:均值绘图|契约页)", "zlk_cluster\/results\//);
   assert.match(source, /function renderResultEvidenceWorkbench\(state, summary\)/);
 });
