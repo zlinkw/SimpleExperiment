@@ -1,5 +1,5 @@
 export const CLUSTER_AGENT_RUNTIME = String.raw`#!/usr/bin/env python3
-import argparse, base64, csv, fnmatch, glob, hashlib, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, subprocess, sys, threading, time, traceback, urllib.request, zipfile
+import argparse, base64, calendar, csv, fnmatch, glob, hashlib, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, subprocess, sys, threading, time, traceback, urllib.request, zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -12,6 +12,9 @@ MAX_AGENT_STATE_BYTES = 128 * 1024 * 1024
 MAX_UPLOAD_RECORDS = 120
 MAX_WORKER_COMMAND_RESULT_RECORDS = 240
 MAX_WORKER_ACTION_KEY_RECORDS = 240
+GPU_HISTORY_BUCKET_SECONDS = 5 * 60
+GPU_HISTORY_RETENTION_SECONDS = 72 * 60 * 60
+GPU_HISTORY_MAX_POINTS_PER_SERIES = 864
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
@@ -1078,6 +1081,204 @@ def collect_local_gpu():
             pass
     return gpus, ""
 
+def gpu_history_path(root):
+    return path_for(root, "gpu_history.json")
+
+def gpu_history_empty():
+    return {
+        "schemaVersion": 1,
+        "bucketSeconds": GPU_HISTORY_BUCKET_SECONDS,
+        "retentionHours": 72,
+        "maxPointsPerSeries": GPU_HISTORY_MAX_POINTS_PER_SERIES,
+        "servers": {},
+    }
+
+def gpu_history_epoch(value):
+    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+        return float(value)
+    text = str(value or "").strip().replace(".000Z", "Z")
+    try:
+        return float(calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ")))
+    except Exception:
+        return None
+
+def gpu_history_iso(epoch):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(epoch)))
+
+def gpu_history_number(row, *keys):
+    for key in keys:
+        value = row.get(key)
+        try:
+            number = float(value)
+            if math.isfinite(number):
+                return number
+        except Exception:
+            continue
+    return None
+
+def gpu_history_percent(value):
+    if value is None:
+        return None
+    return round(max(0.0, min(100.0, float(value))), 3)
+
+def gpu_history_rows(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        for key in ("gpus", "gpu", "rows"):
+            if isinstance(value.get(key), list):
+                return value.get(key)
+    return []
+
+def normalize_gpu_history(value):
+    out = gpu_history_empty()
+    source = value if isinstance(value, dict) else {}
+    raw_servers = source.get("servers") if isinstance(source.get("servers"), dict) else {}
+    for raw_server_id, raw_gpus in raw_servers.items():
+        if not isinstance(raw_gpus, dict):
+            continue
+        server_id = str(raw_server_id or "").strip()
+        if not server_id:
+            continue
+        normalized_gpus = {}
+        for raw_gpu_id, raw_points in raw_gpus.items():
+            gpu_id = str(raw_gpu_id or "").strip()
+            if not gpu_id or not isinstance(raw_points, list):
+                continue
+            points_by_bucket = {}
+            for raw_point in raw_points:
+                if not isinstance(raw_point, dict):
+                    continue
+                epoch = gpu_history_epoch(raw_point.get("bucketEpoch") if raw_point.get("bucketEpoch") is not None else raw_point.get("timestamp"))
+                if epoch is None:
+                    continue
+                bucket = int(epoch // GPU_HISTORY_BUCKET_SECONDS) * GPU_HISTORY_BUCKET_SECONDS
+                point = dict(raw_point)
+                point.update({
+                    "serverId": server_id,
+                    "gpuId": gpu_id,
+                    "bucketEpoch": bucket,
+                    "timestamp": gpu_history_iso(bucket),
+                })
+                points_by_bucket[bucket] = point
+            points = [points_by_bucket[key] for key in sorted(points_by_bucket)][-GPU_HISTORY_MAX_POINTS_PER_SERIES:]
+            if points:
+                normalized_gpus[gpu_id] = points
+        if normalized_gpus:
+            out["servers"][server_id] = normalized_gpus
+    if source.get("recoveredFromCorruption"):
+        out["recoveredFromCorruption"] = True
+        out["recoveredAt"] = source.get("recoveredAt") or ""
+    out["updatedAt"] = source.get("updatedAt") or ""
+    return out
+
+def update_gpu_history(value, gpu_by_server, timestamp=None):
+    out = normalize_gpu_history(value)
+    epoch = gpu_history_epoch(timestamp)
+    if epoch is None:
+        epoch = time.time()
+    bucket = int(epoch // GPU_HISTORY_BUCKET_SECONDS) * GPU_HISTORY_BUCKET_SECONDS
+    cutoff = bucket - GPU_HISTORY_RETENTION_SECONDS + GPU_HISTORY_BUCKET_SECONDS
+    servers = out["servers"]
+    for server_id in list(servers.keys()):
+        for gpu_id in list(servers[server_id].keys()):
+            points = [point for point in servers[server_id][gpu_id] if cutoff <= int(point.get("bucketEpoch") or 0) <= bucket]
+            if points:
+                servers[server_id][gpu_id] = points[-GPU_HISTORY_MAX_POINTS_PER_SERIES:]
+            else:
+                servers[server_id].pop(gpu_id, None)
+        if not servers[server_id]:
+            servers.pop(server_id, None)
+    for raw_server_id, raw_rows in (gpu_by_server.items() if isinstance(gpu_by_server, dict) else []):
+        server_id = str(raw_server_id or "").strip()
+        if not server_id:
+            continue
+        for row in gpu_history_rows(raw_rows):
+            if not isinstance(row, dict):
+                continue
+            gpu_id = str(row.get("index") if row.get("index") is not None else row.get("gpu_index") if row.get("gpu_index") is not None else row.get("gpuId") if row.get("gpuId") is not None else row.get("gpu_id") if row.get("gpu_id") is not None else row.get("id") or row.get("uuid") or "").strip()
+            if not gpu_id:
+                continue
+            used = gpu_history_number(row, "memoryUsedMb", "memory_used_mb", "memoryUsed", "used")
+            total = gpu_history_number(row, "memoryTotalMb", "memory_total_mb", "memoryTotal", "total")
+            utilization = gpu_history_percent(gpu_history_number(row, "utilizationPercent", "utilization", "gpu_util", "utilization_gpu"))
+            memory_utilization = gpu_history_percent((used / total * 100.0) if used is not None and total and total > 0 else None)
+            point = {
+                "serverId": server_id,
+                "gpuId": gpu_id,
+                "bucketEpoch": bucket,
+                "timestamp": gpu_history_iso(bucket),
+                "gpuUtilPercent": utilization,
+                "memoryUsedMb": used,
+                "memoryTotalMb": total,
+                "memoryUtilPercent": memory_utilization,
+            }
+            points = servers.setdefault(server_id, {}).setdefault(gpu_id, [])
+            points = [existing for existing in points if int(existing.get("bucketEpoch") or 0) != bucket]
+            points.append(point)
+            servers[server_id][gpu_id] = sorted(points, key=lambda item: int(item.get("bucketEpoch") or 0))[-GPU_HISTORY_MAX_POINTS_PER_SERIES:]
+    out["updatedAt"] = gpu_history_iso(bucket)
+    return out
+
+def record_gpu_history(root, gpu_by_server, timestamp=None):
+    path = gpu_history_path(root)
+    existed = os.path.exists(path)
+    raw = read_json(path, None)
+    valid = isinstance(raw, dict) and isinstance(raw.get("servers"), dict)
+    out = update_gpu_history(raw, gpu_by_server, timestamp)
+    if existed and not valid:
+        out["recoveredFromCorruption"] = True
+        out["recoveredAt"] = now_iso()
+    atomic_write(path, out)
+    return out
+
+def downsample_gpu_history_points(points, max_points):
+    rows = list(points or [])
+    try:
+        requested = int(max_points or GPU_HISTORY_MAX_POINTS_PER_SERIES)
+    except Exception:
+        requested = GPU_HISTORY_MAX_POINTS_PER_SERIES
+    limit = max(1, min(GPU_HISTORY_MAX_POINTS_PER_SERIES, requested))
+    if len(rows) <= limit:
+        return rows
+    if limit == 1:
+        return [rows[-1]]
+    indexes = []
+    for index in range(limit):
+        sampled = int(round(index * (len(rows) - 1) / (limit - 1)))
+        if not indexes or sampled != indexes[-1]:
+            indexes.append(sampled)
+    return [rows[index] for index in indexes]
+
+def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_points=GPU_HISTORY_MAX_POINTS_PER_SERIES):
+    history = normalize_gpu_history(read_json(gpu_history_path(root), {}))
+    start_epoch = gpu_history_epoch(start)
+    end_epoch = gpu_history_epoch(end)
+    effective_end = end_epoch if end_epoch is not None else time.time()
+    effective_start = start_epoch if start_epoch is not None else effective_end - GPU_HISTORY_RETENTION_SECONDS + GPU_HISTORY_BUCKET_SECONDS
+    series = []
+    for current_server_id, gpus in history.get("servers", {}).items():
+        if server_id and current_server_id != str(server_id):
+            continue
+        for current_gpu_id, points in gpus.items():
+            if gpu_id and current_gpu_id != str(gpu_id):
+                continue
+            selected = [point for point in points if int(point.get("bucketEpoch") or 0) >= effective_start and int(point.get("bucketEpoch") or 0) <= effective_end]
+            series.append({
+                "serverId": current_server_id,
+                "gpuId": current_gpu_id,
+                "points": downsample_gpu_history_points(selected, max_points),
+                "rawPointCount": len(selected),
+            })
+    return {
+        "schemaVersion": 1,
+        "bucketSeconds": GPU_HISTORY_BUCKET_SECONDS,
+        "retentionHours": 72,
+        "maxPointsPerSeries": GPU_HISTORY_MAX_POINTS_PER_SERIES,
+        "updatedAt": history.get("updatedAt") or "",
+        "series": series,
+    }
+
 def api_worker_gpu(root):
     cached = read_json(path_for(root, "gpu_snapshot.json"), {})
     if cached:
@@ -1564,6 +1765,11 @@ def write_worker_gpu_snapshot(root):
         "status": "ok" if not err else "degraded",
         "error": err,
     }
+    worker_id = str(os.environ.get("ZLK_WORKER_ID") or "worker").strip() or "worker"
+    try:
+        record_gpu_history(root, {worker_id: gpus}, payload["generatedAt"])
+    except Exception as exc:
+        payload["historyError"] = str(exc)
     atomic_write(path_for(root, "gpu_snapshot.json"), payload)
     return payload
 
@@ -1666,8 +1872,13 @@ def write_snapshots(root, hub_id, workers, scheduler, traces, gpu, health, error
         "source": "hub_agent_snapshot",
         "agentVersion": AGENT_VERSION,
     }
+    gpu_payload = {**base, "gpu": gpu, "health": health}
+    try:
+        record_gpu_history(root, gpu, generated)
+    except Exception as exc:
+        gpu_payload["historyError"] = str(exc)
     atomic_write(path_for(root, "cluster_snapshot.json"), {**base, "schedulerStates": scheduler})
-    atomic_write(path_for(root, "gpu_snapshot.json"), {**base, "gpu": gpu, "health": health})
+    atomic_write(path_for(root, "gpu_snapshot.json"), gpu_payload)
     atomic_write(path_for(root, "experiment_traces_snapshot.json"), {**base, "experimentTraces": traces})
     atomic_write(path_for(root, "health_snapshot.json"), {**base, "health": health})
 

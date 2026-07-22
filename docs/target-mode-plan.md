@@ -1,4 +1,4 @@
-# 目标模式当前计划：恢复 SimpleExperiment 可构建基线
+# 目标模式当前计划：服务器 GPU 三天历史曲线
 本文档只保留最新活动目标。历史批次、验证和部署记录以 git 提交为准。
 打包/清理时会自动压缩本文件，禁止堆积流水账。
 
@@ -13,31 +13,29 @@
 - 长时间 Webview payload 预算：`schedulerStates` 与 `experimentTraces` 必须限量、压缩并保留受保护记录；`per-request timeout`、`pending key`、`lastSeq/lastHeartbeatAt` 由代码和测试覆盖。
 
 ## 后续优先级
-- [待做] 完成 target mode 计划压缩契约和剩余 UI 恢复。
-- [待做] 服务器状态页三天 GPU 历史曲线，详见 `docs/target-plans/server-gpu-history.md`。
+- [进行中] 服务器状态页三天 GPU 历史曲线，详见 `docs/target-plans/server-gpu-history.md`。
+- [已完成] SimpleExperiment 恢复基线、target mode 压缩契约和 UI 契约修复；全量测试基线 624/624。
 - [待做] Docker Codex 的 SimpleExperiment/SimpleSFTP UI Host 与宿主路径兼容，详见 `docs/target-plans/docker-codex-plugin-compat.md`。
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-053
+## 当前批次：history-001
 ### 修复点
-- 对齐场景错误码测试与当前 `TUNNEL_TIMEOUT` 语义。
-- 对齐 UI 传输边界测试：集群操作走 `postTunnelAction`，文件传输走 SimpleSFTP，实时快照走 localhost client；保留合法 Xshell/SSH 配置说明文本。
-- 对齐隧道网关当前实时刷新配置与请求预算测试；不修改产品运行时源码、安装目录或 VSIX。
+- 复用 Agent 现有 GPU snapshot，按五分钟时间桶写入独立运行态历史。
+- 每个服务器和 GPU 只保留最近 72 小时、最多 864 点；同桶新快照替换旧点，缺失桶不补零。
+- 增加原子持久化、损坏恢复、范围查询和服务端降采样基础；不接入结果、归档、CSV、论文或 PPT 链路。
 
 ### 回归风险
-- 相邻回归风险：活动 Extension 不得重新导入旧 `RemoteExecutionService`、`RuntimeService`、`RemoteFileStore` 或直接远端命令 runner。
-- 启动风险：插件只可启动已验证的 `Xshell.exe` 与 `.xsh` 会话；不得直接 spawn `ssh/scp/rsync`。
-- 测试风险：迁移 denylist 必须保留对旧 SSH/SCP/rsync 配置的移除能力，不能被误判成运行时直连实现。
+- 相邻回归风险：历史写入失败不得阻断实时 GPU snapshot 和 Agent 心跳。
+- 留存风险：服务器或 GPU 长期离线后旧序列必须裁剪，不得无限增长或用零值填补空档。
+- 边界风险：历史只写 Agent 项目运行态目录，不得污染实验结果、Plan 归档或 SimpleSFTP 传输状态。
 
 ### 验证清单
-- [已通过] 四个修复测试文件定向执行 9/9。
-- [已通过] build、typecheck、lint 与 `git diff --check`。
-- [已通过] 全量测试 624/624；恢复基线当前无失败项。
-- [已同步] 修复提交 `a7a71e87849606cae09de12d71c4a313fee2a2fa` 已普通快进推送 `origin/master`。
+- [已通过] GPU 历史定向测试、Agent runtime 同步、SHA256 校验与 Python AST 语法。
+- [已通过] build、typecheck、lint、`git diff --check` 与全量测试 625/625。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-052`，修复提交 `81439fd8a290c602786fd8ab47ff998171174cf6`，记录提交 `45cdbc4b17e590c1e115b0e7833dfd17c0b46eb8`。
-- 当前目标状态：`recovery-build-053` 已完成并同步。
-- 本批涉及：错误模型契约、UI 传输边界测试和隧道请求预算测试；不修改产品运行时源码。
-- 修复提交：`a7a71e87849606cae09de12d71c4a313fee2a2fa`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-053`，修复提交 `a7a71e87849606cae09de12d71c4a313fee2a2fa`，记录提交 `fa239e25afd2ad88687cd64460bed1d207653f18`。
+- 当前目标状态：`history-001` 已完成，等待提交同步。
+- 本批涉及：Agent GPU 历史时间桶、留存、持久化和查询基础；不修改 UI、安装目录或 VSIX。
+- 修复提交：本提交；真实服务器连续三天采样仍为 `needs field verification`。

@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`server-gpu-history`。
-- 状态：待执行。
+- 状态：执行中，`history-001` 已完成，下一批 `history-002`。
 - 启动条件：当前恢复基线和 UI 契约修复完成后，由目标模式切换到本计划。
 - 证据状态：设计目标；真实服务器采样、性能和连续三天留存均为 `needs field verification`。
 
@@ -53,6 +53,7 @@
 
 ### history-001 数据留存
 
+- 状态：已完成；自动化验证通过，真实服务器连续三天采样仍为 `needs field verification`。
 - 增加历史点、时间桶和查询类型。
 - 在 Agent runtime 中复用 GPU snapshot 生成有界三天历史。
 - 增加原子持久化、损坏恢复、留存裁剪和降采样测试。
