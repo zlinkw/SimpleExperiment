@@ -6,10 +6,10 @@ const { normalizeTunnelGatewayConfig } = require("../../dist/tunnel/TunnelGatewa
 const { normalizeMobaXtermSetupConfig } = require("../../dist/tunnel/MobaXtermSetup.js");
 const { recommendAvailableLocalPort } = require("../../dist/tunnel/MobaXtermLauncher.js");
 
-test("mobaxterm realtime setup defaults to realtime and file transfer", () => {
+test("legacy setup wrapper defaults to Xshell realtime and file transfer", () => {
   const tunnel = normalizeTunnelGatewayConfig({});
   const setup = normalizeMobaXtermSetupConfig({});
-  assert.equal(tunnel.connectionMode, "mobaxterm_tunnel_realtime");
+  assert.equal(tunnel.connectionMode, "xshell_tunnel_realtime");
   assert.equal(tunnel.allowStreaming, true);
   assert.equal(setup.realtimeEnabled, true);
   assert.equal(setup.fileTransferEnabled, true);

@@ -16,7 +16,7 @@ const { normalizeMobaXtermSetupConfig } = require("../../dist/tunnel/MobaXtermSe
 
 test("mobaxterm launcher builds visible local forwarding command with custom ports", () => {
   const config = normalizeMobaXtermSetupConfig({
-    mobaxtermExePath: "C:\\Program Files\\Mobatek\\MobaXterm\\MobaXterm.exe",
+    mobaxtermExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "hub.example.edu",
     hubUser: "zlk",
     hubSshPort: 2222,
@@ -28,14 +28,14 @@ test("mobaxterm launcher builds visible local forwarding command with custom por
   assert.match(command, /-p 2222/);
   assert.doesNotMatch(command, /password|StrictHostKeyChecking=no/i);
   assert.deepEqual(buildMobaXtermArgs(config)[0], "-newtab");
-  assert.match(buildMobaXtermPreview(config), /MobaXterm\.exe/);
+  assert.match(buildMobaXtermPreview(config), /Xshell\.exe/);
   assert.match(generateBatScript(config), /LOCAL_PORT=20001/);
   assert.match(generatePs1Script(config), /20002/);
 });
 
-test("mobaxterm executable validation only accepts MobaXterm.exe files", async () => {
+test("legacy launcher validation only accepts Xshell.exe files", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-moba-"));
-  const exe = path.join(dir, "MobaXterm.exe");
+  const exe = path.join(dir, "Xshell.exe");
   const other = path.join(dir, "other.exe");
   await fs.writeFile(exe, "");
   await fs.writeFile(other, "");

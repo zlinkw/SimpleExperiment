@@ -6,9 +6,9 @@ const path = require("node:path");
 
 const { MobaXtermIntegration } = require("../../dist/tunnel/MobaXtermIntegration.js");
 
-test("mobaxterm executable detection accepts configured MobaXterm.exe", async () => {
+test("legacy integration wrapper accepts configured Xshell.exe", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-moba-"));
-  const exe = path.join(dir, "MobaXterm.exe");
+  const exe = path.join(dir, "Xshell.exe");
   await fs.writeFile(exe, "");
   const integration = new MobaXtermIntegration({ configuredPath: exe });
   const found = await integration.findExecutable();
@@ -18,7 +18,7 @@ test("mobaxterm executable detection accepts configured MobaXterm.exe", async ()
   assert.equal(validation.ok, true);
 });
 
-test("mobaxterm executable detection rejects wrong basename", async () => {
+test("legacy integration wrapper rejects non-Xshell basename", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-moba-"));
   const exe = path.join(dir, "ssh.exe");
   await fs.writeFile(exe, "");
