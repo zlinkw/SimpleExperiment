@@ -33,10 +33,10 @@
 ### 验证清单
 - Scheduler 依赖、探针、TunnelClient 与 GPU/Scheduler/live-output 定向测试：通过 `13/13`；Hub/Worker 依赖对象透传另有运行断言覆盖。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 普通快进推送 `origin/master` 并 fetch 对齐：待验证。
+- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`1733dbb59280470b764dd97096ab55846bb9dbc4`。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-033`，PanelHtml 源码测试与结果重解析契约已验证并同步，代码提交 `7e2b2872b3fe22c94113ba25be375eca763b238d`，记录提交 `7305aa555ced9c53105af7b3e6007271a2022e9f`。
-- 当前目标状态：`recovery-build-034` 已验证，等待同步。
-- `recovery-build-034` 提交记录：待提交。
+- 当前目标状态：`recovery-build-034` 已完成。
+- `recovery-build-034` 提交记录：`1733dbb59280470b764dd97096ab55846bb9dbc4`，已普通快进推送并确认与 `origin/master` 一致。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
