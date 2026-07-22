@@ -15,28 +15,29 @@
 ## 后续优先级
 - [待做] 完成 target mode 计划压缩契约和剩余 UI 恢复。
 - [待做] 服务器状态页三天 GPU 历史曲线，详见 `docs/target-plans/server-gpu-history.md`。
+- [待做] Docker Codex 的 SimpleExperiment/SimpleSFTP UI Host 与宿主路径兼容，详见 `docs/target-plans/docker-codex-plugin-compat.md`。
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-040
+## 当前批次：docker-plugin-plan-001
 ### 修复点
-- 以 Git、当前实现和本机已安装 `SimpleExperiment 0.2.0` 为只读证据，对齐项目父目录说明、引导 Plan 命令提示和默认布局测试契约。
-- 配置说明明确重复目录警告可改为上一级父目录；测试夹具补齐被测函数依赖，并在提取 TypeScript 源码片段时去除编译前泛型语法。
-- 不修改产品源码、安装目录、归档数据或用户文件。
+- 新增独立计划 B，固定 Docker Codex 输入接口、Windows UI Extension Host 边界、双路径模型、单窗口操作租约和分仓实施批次。
+- 固定 `plugin-drop` 的双 VSIX 与 `plugin-compat-result.json` 输出接口，并将该计划加入后续优先级。
+- 本批只修改目标计划与文档契约测试；不执行插件源码改造、构建、安装或 VSIX 替换。
 
 ### 回归风险
-- 配置说明风险：路径修正文案必须与实际强确认选项一致，不能暗示自动修改已保存配置。
-- 引导测试风险：命令提示依赖的告警函数和默认布局提取必须与源码保持同步。
-- 兼容风险：测试夹具只修正源码加载方式，不改变 SimpleExperiment 运行时入口或布局默认值。
+- 相邻回归风险：计划 A 的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md` 尚未在本仓库验收，实施启动条件仍未满足。
+- SimpleSFTP 位于独立仓库，后续必须分别提交、验证和交付，不能跨仓库混合提交。
+- Windows 回归、远程工作区、双插件联调和 VSIX 交付均为 `needs experiment`，不得提前标记通过。
 
 ### 验证清单
-- [已通过] 接入门禁、引导 Plan 和默认布局定向测试，`6/6`。
-- [已通过] `npm run build`、`npm run typecheck`、`npm run lint`、`git diff --check`。
-- [基线] 全量恢复审计 `574/623` 通过，剩余 `49` 项为后续恢复边界；本批目标测试均通过。
-- [已同步] 修复提交 `68617e201748fbd97fde6d5443ed03bda442b81c` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [已通过] target mode 计划压缩 dry run，结果为 `already-compact`。
+- [已通过] target mode 文档契约定向测试，`3/3`。
+- [已通过] `git diff --check`。
+- [待同步] 文档批次提交与 `origin/master` 快进同步。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-039`，修复提交 `ddbfb3d21e03dabaac01a39e535b3a07f6a3f0d0`，记录提交 `2c366d44e35378477ca20e4e29b1bc10647fc1d0`。
-- 当前目标状态：`recovery-build-040` 已完成。
-- 本批涉及：三个接入/布局定向测试、配置说明和本计划；不修改产品源码，生成的 `dist` 不计入文件上限。
-- `recovery-build-040` 修复提交：`68617e201748fbd97fde6d5443ed03bda442b81c`；真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
+- 上一完成批次：`recovery-build-040`，修复提交 `68617e201748fbd97fde6d5443ed03bda442b81c`，记录提交 `8c94dd01c45ba1f1e07a3f935e16dc194af5e743`。
+- 当前目标状态：`docker-plugin-plan-001` 待同步。
+- 本批涉及：Docker Codex 插件兼容计划、当前计划索引和文档契约测试；不修改产品源码或产物。
+- 真实 Windows、Dev Container、SFTP、Xshell 和多窗口联调均为 `needs experiment`。

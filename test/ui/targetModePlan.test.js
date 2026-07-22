@@ -33,6 +33,7 @@ test("target mode plan keeps only the latest active target and current guardrail
     "lastSeq/lastHeartbeatAt",
     "禁止“父级 evidence key 被子文件 archive 反向命中”",
     "docs/target-plans/server-gpu-history.md",
+    "docs/target-plans/docker-codex-plugin-compat.md",
   ]) {
     assert.match(plan + readme, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
