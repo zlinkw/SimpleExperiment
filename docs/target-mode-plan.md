@@ -34,10 +34,10 @@
 - [已通过] `npm run build`、`npm run typecheck`、`npm run lint`、`git diff --check`。
 - [已通过] nested JSON、输出 gate、result management、advanced result 与 archive path 定向测试，`30/30`。
 - [基线] 全量恢复审计 `563/620` 通过，剩余 `57` 项为后续恢复边界；本批目标测试均通过。
-- [待同步] 检查批次 diff，提交并普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [已同步] 修复提交 `ad30d7b12d5935c33a8aaf4a9b5789012abfc4a1` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 最新完成批次：`recovery-build-036`，提交 `70b58c8bbaaa36d6aee8ccd235e9c1b38ccb497f`，记录提交 `df1c1eba9f43565325180751d9c29c4b21a996f5`。
-- 当前目标状态：`recovery-build-037` 已验证，待同步。
+- 当前目标状态：`recovery-build-037` 已完成。
 - 本批涉及：`src/features/Results.ts`、`src/syncState.ts`、两个定向测试和本计划；对应生成的 `dist` 不计入文件上限。
-- 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
+- `recovery-build-037` 修复提交：`ad30d7b12d5935c33a8aaf4a9b5789012abfc4a1`；真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
