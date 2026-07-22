@@ -102,7 +102,7 @@ export function runtimeNeedsDeploy(actual: RuntimeManifest | undefined, expected
 export function verifyRuntimeHashes(actualHashes: Record<string, string>, expected: RuntimeManifest, checkedAt = new Date().toISOString()): RuntimeVerifyResult {
   const components = Object.entries(expected.components).map(([component, info]) => {
     const actualSha256 = actualHashes[info.remotePath] || "";
-    const status = !actualSha256 ? "missing" : actualSha256 === info.sha256 ? "ok" : "hash_mismatch";
+    const status: RuntimeVerifyResult["components"][number]["status"] = !actualSha256 ? "missing" : actualSha256 === info.sha256 ? "ok" : "hash_mismatch";
     return {
       component: component as RemoteRuntimeComponent,
       remotePath: info.remotePath,
@@ -121,4 +121,3 @@ export function verifyRuntimeHashes(actualHashes: Record<string, string>, expect
     components,
   };
 }
-
