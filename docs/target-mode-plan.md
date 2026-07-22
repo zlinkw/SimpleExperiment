@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-017`。
+- 批次：`recovery-build-020`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -218,5 +218,17 @@
 - 验证：结果 action workflow、结果契约紧凑布局与 Panel inline script `3/3` 通过；UI 分组由 `58/72` 提升到 `60/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
 - 说明：输出契约、数据集画像、检查点清理预案和 PPT 绘图契约由四个占高卡片改为紧凑行内入口；结果刷新测试按已安装版一致的恢复源码校验命名空间异常类型和 generation guard，不改变 runtime。
 - 延期项：剩余 `12` 个 UI 失败属于任务行、GPU、Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器 tooltip、同步发布、target mode 计划压缩与任务紧凑布局，后续按强相关小批处理。
-- 提交记录：`ui: compact result contract links`，SHA 以推送后的 Git 记录为准。
-- 状态：验证完成，待提交并同步；下一批优先处理任务行与任务紧凑布局契约。
+- 提交记录：`ui: compact result contract links`，提交 `7cc4d32919406ffc4121b0d7c396f20013c0ba7d`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；下一批优先处理任务行与任务紧凑布局契约。
+
+### recovery-build-020
+
+- 目标：修复任务行中文操作契约，并压缩任务区重复进度卡、密集元数据网格和无选择状态说明。
+- 影响区域：`src/ui/PanelHtml.ts`、`test/ui/experimentRowActions.test.js`、`test/ui/taskCompact.test.js`、对应生成的 `dist/ui/PanelHtml.js` 和本计划。
+- 保护区域：不改变任务操作命令、远端协议、Plan/任务元数据内容或日志行为；不修改 Extension runtime、SimpleSFTP 和已安装扩展。
+- 回归检查：任务行操作、任务紧凑布局、Panel inline script、UI 分组、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：任务行操作、任务紧凑布局与 Panel inline script `3/3` 通过；UI 分组由 `60/72` 提升到 `62/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
+- 说明：任务操作保持中文标签和原命令映射；移除重复活动任务进度卡、旧任务长说明和无选择批量提示；任务卡元数据改由悬停标题保留，Plan 元数据改为紧凑 flex 布局。
+- 延期项：剩余 `10` 个 UI 失败属于 GPU、Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器命令/tooltip、同步发布与 target mode 计划压缩，后续按强相关小批处理。
+- 提交记录：`ui: compact task status section`，SHA 以推送后的 Git 记录为准。
+- 状态：验证完成，待提交并同步；下一批优先处理 GPU 紧凑布局契约。

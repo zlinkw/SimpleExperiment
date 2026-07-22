@@ -752,7 +752,8 @@ export function renderPanelHtml(): string {
       .planCardHead { grid-template-columns: auto minmax(0, 1fr) minmax(300px, max-content); }
       .planCardActions { grid-column: auto; justify-content: flex-end; }
     }
-    .taskMetaGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+    .taskFacts { display: flex; flex-wrap: wrap; gap: 5px 14px; align-items: center; }
+    .taskFacts .taskMetric { flex: 1 1 150px; }
     .taskMetric { display: grid; gap: 2px; min-width: 0; }
     .taskMetric .metric-label { text-align: left; }
     .taskMetric .metric-value { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -7707,15 +7708,11 @@ export function renderPanelHtml(): string {
       let taskSummaryHtml = scopeBar + renderTaskPlanCompletionNext(state, scope) + (rows.length
         ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
         : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>');
-      if (hiddenLegacyTaskUiKeys.size) {
-        taskSummaryHtml += '<div class="muted">已隐藏 ' + hiddenLegacyTaskUiKeys.size + ' 条旧任务残留；不会删除远端文件。</div>';
-      }
       setHtmlIfChanged("taskSummary", taskSummaryHtml);
       bindTaskPlanScopeControls();
       const selectedRows = rows.filter((row) => isTaskRowSelected(row, selected));
       renderTaskBatchActions(state, rows, selectedRows);
-      const active = rows.filter((row) => ["running", "testing"].includes(row.status)).slice(0, 8);
-      setHtmlIfChanged("taskProgressCards", active.length ? '<div class="progressCards">' + active.map(renderTaskProgressCard).join("") + '</div>' : "");
+      setHtmlIfChanged("taskProgressCards", "");
       const visibleRows = taskVisibleRows(rows, selected);
       const taskTableChanged = setHtmlIfChanged("taskTable", rows.length
         ? renderTaskCards(state, visibleRows, selected, rows.length)
@@ -9159,7 +9156,7 @@ export function renderPanelHtml(): string {
               '<button class="taskActionButton secondary" data-command="archivePlan" data-plan-file="' + escAttr(file) + '" data-file="' + escAttr(file) + '" data-confirm="true" title="' + escAttr(archiveReadiness.reason) + '"' + (archiveReadiness.ready ? "" : " disabled") + '>归档计划</button>' +
             '</div>' +
           '</div>' +
-          '<div class="taskMetaGrid">' +
+          '<div class="taskFacts">' +
             taskMetric("套件", plan.suite || "-") +
             taskMetric("基础配置", plan.baseConfig || plan.configSource || "-") +
             taskMetric("seeds", arrayText(plan.seeds || [])) +
@@ -9467,19 +9464,21 @@ export function renderPanelHtml(): string {
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
       const pendingBadge = pending ? '<span class="taskActionPending">' + loadingPrefix(true) + esc(pendingLabel(pending)) + '</span>' : "";
-      return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '">' +
+      const titleBits = [
+        row.experimentName || "",
+        row.status || "",
+        row.plan ? "计划 " + compactPath(row.plan) : "",
+        row.runKey ? "runKey " + compactIdentifier(row.runKey) : "",
+        row.serverId ? "Worker " + workerName(row.serverId) : "",
+        arrayText(row.gpuIds) !== "-" ? "GPU " + arrayText(row.gpuIds) : "",
+        row.duration && row.duration !== "-" ? "耗时 " + row.duration : "",
+        row.progress && row.progress !== "-" ? "进度 " + row.progress : ""
+      ].filter(Boolean).join(" · ");
+      return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
         '<div class="taskCardHead">' +
           '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (checked ? " checked" : "") + '>' +
           '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span>' + (row.debugMode ? '<span class="pill status-warning">Debug</span>' : '') + pendingBadge + '</div>' +
           '<div class="taskActions">' + actions + '</div>' +
-        '</div>' +
-        '<div class="taskMetaGrid">' +
-          taskMetric("计划", row.plan) +
-          taskMetric("runKey", row.runKey) +
-          taskMetric("Worker", workerName(row.serverId)) +
-          taskMetric("GPU", arrayText(row.gpuIds)) +
-          taskMetric("耗时", row.duration) +
-          taskMetric("进度", row.progress) +
         '</div>' +
         renderTaskLogDetails(state, row) +
       '</div>';
@@ -9523,9 +9522,7 @@ export function renderPanelHtml(): string {
       const count = selectedRows.length;
       const allLegacyRows = rows.filter((row) => !usableTaskKey(taskActionKey(row)));
       if (!count) {
-        setHtmlIfChanged("taskBatchActions",
-          '<div class="muted">勾选任务后可批量停止、重试、解析、归档或删除。</div>' +
-          (allLegacyRows.length ? clearVisibleLegacyButton(allLegacyRows) : ""));
+        setHtmlIfChanged("taskBatchActions", allLegacyRows.length ? clearVisibleLegacyButton(allLegacyRows) : "");
         return;
       }
       const legacyCount = selectedRows.filter((row) => !usableTaskKey(taskActionKey(row))).length;
