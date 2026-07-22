@@ -18,24 +18,23 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-031
+## 当前批次：recovery-build-032
 ### 修复点
-- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 ProjectAdapterTemplates 多格式结果接入实现。
-- 恢复 JSON、TXT、LOG 候选、分类指标别名、项目配置候选和自动归一化模板。
-- 恢复 SimpleExperiment 公共名称，不生成或执行项目 Adapter，不修改现有项目输出和实验结果。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 NotificationThrottle 首次通知契约。
+- 没有历史时间戳时立即允许通知；后续同规则同 key 才按 `throttleSeconds` 节流。
+- 不修改通知规则、事件、实验状态或已安装扩展。
 
 ### 回归风险
-- 结果风险：metadata JSON 不得被模板宣传为有效结果，真实 `metrics.json` 必须可被发现。
-- 兼容风险：生成的 Python 模板必须保持语法有效，并兼容现有 CSV 结果接入入口。
+- 时间风险：小于节流窗口的测试时间戳不得被误当成已有通知记录。
+- 隔离风险：不同 rule 或 event key 必须维持独立节流状态。
 
 ### 验证清单
-- Adapter template、多格式输出、metadata 排除和任务标签相邻回归：通过 `6/6`；恢复 runtime 与安装版一致。
-- 结果位置广域测试仍受未恢复的 PanelHtml 源码提取格式阻塞，登记为后续批次，不属于本批回归。
+- NotificationThrottle 与 experiment platform 相邻回归：通过 `15/15`；生成 runtime 与安装版除恢复注释外一致。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`28fd95325852cda4bc6d3d6aba7c406b304b4e34`。
+- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-030`，PlanArchive source extraction 已验证并同步，提交 `ca706e36db3116eac3ea968636cec264ad0e0fbb`。
-- 当前目标状态：`recovery-build-031` 已完成。
-- `recovery-build-031` 提交记录：`28fd95325852cda4bc6d3d6aba7c406b304b4e34`，已普通快进推送并确认与 `origin/master` 一致。
+- 最新完成批次：`recovery-build-031`，ProjectAdapterTemplates 已验证并同步，提交 `28fd95325852cda4bc6d3d6aba7c406b304b4e34`。
+- 当前目标状态：`recovery-build-032` 验证通过，待提交同步。
+- `recovery-build-032` 提交记录：待验证后填写。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。

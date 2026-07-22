@@ -214,6 +214,9 @@ test("notification throttle, search tags, recycle view", () => {
   const rule = { id: "r", enabled: true, eventType: "experiment_failed", severity: "warning", channels: ["vscode"], throttleSeconds: 60 };
   assert.equal(throttle.shouldNotify(rule, { type: "experiment_failed", severity: "warning", message: "failed", key: "e", at: 1000 }), true);
   assert.equal(throttle.shouldNotify(rule, { type: "experiment_failed", severity: "warning", message: "failed", key: "e", at: 2000 }), false);
+  assert.equal(throttle.shouldNotify(rule, { type: "experiment_failed", severity: "warning", message: "failed", key: "other", at: 2000 }), true);
+  assert.equal(throttle.shouldNotify(rule, { type: "experiment_failed", severity: "warning", message: "failed", key: "e", at: 61000 }), true);
+  assert.equal(throttle.shouldNotify({ ...rule, enabled: false }, { type: "experiment_failed", severity: "warning", message: "failed", key: "disabled", at: 1000 }), false);
   const tags = upsertTag([], { experimentId: "e", tag: "paper-candidate", createdAt: "now" });
   assert.equal(searchExperiments([{ experimentId: "e", status: "completed", metrics: { DSC: 0.9 } }], { tag: "paper-candidate", metricRange: { metric: "DSC", min: 0.8 } }, tags).length, 1);
   const recycle = recycleView([{ archiveKey: "k", state: "delete_failed", targetPaths: ["/x"], residue: [{ endpoint: "hub", path: "/x" }] }]);
