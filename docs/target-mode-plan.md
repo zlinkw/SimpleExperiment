@@ -266,5 +266,5 @@
 - 验证：操作时间线、Plan action 和 Panel inline script 定向测试 `3/3` 通过；UI 分组由 `66/72` 提升到 `68/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js`、`node -c dist/extension.js` 和 `git diff --check` 通过。
 - 说明：测试改为验证当前紧凑中文时间线布局、可见 Plan 操作标签及真实的 validate -> dry-run 预检链路，不改变运行行为。
 - 延期项：剩余 `4` 个 UI 失败属于服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
-- 提交记录：待本批验证提交并推送后补记真实 SHA。
+- 提交记录：`test: align timeline and plan workflows`，提交 `2ed9750460d143471f2cf9ee88d52719c10b19b6`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；下一批优先处理服务器命令/tooltip 契约。
