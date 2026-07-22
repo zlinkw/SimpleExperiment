@@ -51,6 +51,7 @@ export function renderPanelHtml(): string {
     .toolbar, .actionGrid, .summaryLine, .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; align-items: center; min-width: 0; }
     .toolbar > *, .actionGrid > *, .summaryLine > *, .actions > * { min-width: 0; }
     .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+    .syncPublishPanel { display: grid; gap: 8px; min-width: 0; }
     .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
     .summaryLink:hover, .summaryLink:focus-visible { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground, var(--text)); outline: none; }
     button { max-width: 100%; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 1px solid var(--vscode-button-background); padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; line-height: 1.25; text-align: center; white-space: normal; overflow-wrap: anywhere; }
@@ -442,8 +443,8 @@ export function renderPanelHtml(): string {
     .dragHandle { display: none; cursor: grab; user-select: none; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px 7px; background: var(--subtle-bg); }
     body.layout-edit .dragHandle { display: inline-flex; }
     .collapseBtn { color: var(--vscode-button-secondaryForeground); background: transparent; border-color: var(--border); min-width: 28px; padding: 3px 7px; }
-    .progressCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
-    .progressCard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--subtle-bg); display: grid; gap: 6px; }
+    .taskProgressCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
+    .taskProgressCard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--subtle-bg); display: grid; gap: 6px; }
     .operationTimeline { display: grid; gap: 6px; }
     .operationItem {
       position: relative;
@@ -794,8 +795,6 @@ export function renderPanelHtml(): string {
     .gpuServerStatus.online { color: #16A34A; }
     .gpuServerStatus.stale { color: #D97706; }
     .gpuServerStatus.offline, .gpuServerStatus.failed { color: #DC2626; }
-    .gpuMetaLine { color: #64748B; font-size: 12px; font-weight: 500; }
-    .gpuOwnerHint { color: #64748B; font-size: 12px; }
     .gpuList { display: grid; gap: 12px; }
     .gpu-row {
       --gpu-status-color: #16A34A;
@@ -831,11 +830,8 @@ export function renderPanelHtml(): string {
     .gpu-title b { color: #0F172A; font-size: 14px; font-weight: 800; }
     .gpu-model { border: 1px solid #D9E2EC; border-radius: 999px; padding: 2px 8px; color: #334155; background: #FFFFFF; font-size: 12px; font-weight: 700; }
     .gpu-id { color: #64748B; font-size: 12px; font-weight: 600; }
-    .myTaskBadge, .gpuServerMineBadge, .processMineBadge { display: inline-flex; align-items: center; border: 1px solid #C4B5FD; border-radius: 999px; background: #EDE9FE; color: #6D28D9; font-size: 11px; font-weight: 700; padding: 2px 8px; }
+    .myTaskBadge, .gpuServerMineBadge { display: inline-flex; align-items: center; border: 1px solid #C4B5FD; border-radius: 999px; background: #EDE9FE; color: #6D28D9; font-size: 11px; font-weight: 700; padding: 2px 8px; }
     .gpuServerMineBadge { margin-left: 2px; }
-    .process-list { display: grid; gap: 6px; font-family: Consolas, monospace; font-size: 12px; color: #4B5563; overflow-wrap: anywhere; }
-    .process-row { border-left: 3px solid #CBD5E1; border-radius: 6px; background: #F8FAFC; color: #475569; padding: 6px 8px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .process-row.mine { border-left-color: #7C3AED; background: #EDE9FE; color: #4C1D95; }
     .gpu-metrics { display: grid; grid-template-columns: repeat(2, max-content); gap: 10px 20px; align-items: start; justify-content: end; white-space: nowrap; }
     .metric { display: grid; gap: 3px; min-width: 66px; text-align: right; font-variant-numeric: tabular-nums; }
     .metric-label { color: #64748B; font-size: 12px; font-weight: 500; }
@@ -1010,7 +1006,7 @@ export function renderPanelHtml(): string {
     .tree-item.mine .tree-icon { color: #7C3AED; background: #F5F3FF; }
     .tree-child-list { margin-left: 25px; padding-left: 10px; border-left-color: rgba(148, 163, 184, .34); }
     .tree-empty { padding: 10px 8px; color: #64748B; font-size: 12px; line-height: 1.45; }
-    .section-card, .card, .progressCard, .overviewStatusCard, .workflowStage, .objectTile, .planRunRow, .resultEvidenceRow, .endpointStatusCard, .serverObjectCard, .operationItem, .task-card, .traceCard { min-width: 0; background: rgba(255,255,255,.88); border-color: rgba(148, 163, 184, .30); box-shadow: 0 8px 22px rgba(15, 23, 42, .045); }
+    .section-card, .card, .taskProgressCard, .overviewStatusCard, .workflowStage, .objectTile, .planRunRow, .resultEvidenceRow, .endpointStatusCard, .serverObjectCard, .operationItem, .task-card, .traceCard { min-width: 0; background: rgba(255,255,255,.88); border-color: rgba(148, 163, 184, .30); box-shadow: 0 8px 22px rgba(15, 23, 42, .045); }
     .workflowStage.good, .workflowStage.info, .workflowStage.warn, .workflowStage.error, .workflowStage.mine,
     .objectTile.good, .objectTile.info, .objectTile.warn, .objectTile.error, .objectTile.mine,
     .overviewStatusCard.good, .overviewStatusCard.info, .overviewStatusCard.warn, .overviewStatusCard.error, .overviewStatusCard.mine,
@@ -1226,8 +1222,7 @@ export function renderPanelHtml(): string {
             <div class="section-desc">GitHub、SFTP、Agent</div>
           </div>
         </div>
-        <div class="progressCard" data-anchor="sync-publish">
-          <div class="gpuServerHead"><b>发布与代码同步</b><span class="muted">SimpleSFTP</span></div>
+        <div class="syncPublishPanel" data-anchor="sync-publish">
           <div id="publishFlow"></div>
           <div id="publishActions" class="actionGrid"></div>
           <div id="codeSyncState" class="muted"></div>
@@ -1444,7 +1439,6 @@ export function renderPanelHtml(): string {
     const SECTION_SIGNATURE_ROW_LIMIT = 80;
     const GPU_SERVER_RENDER_LIMIT = 24;
     const GPU_ROW_PER_SERVER_RENDER_LIMIT = 16;
-    const GPU_PROCESS_RENDER_LIMIT = 8;
     const GPU_PROCESS_SIGNATURE_LIMIT = 4;
     const GPU_CACHE_SERVER_LIMIT = 80;
     const TASK_LOG_EXPANSION_LIMIT = 160;
@@ -4161,7 +4155,7 @@ export function renderPanelHtml(): string {
     }
 
     function statusCardSelector() {
-      return "#mainColumn .overviewStatusCard, #mainColumn .planRunRow, #mainColumn .task-card, #mainColumn .traceCard, #mainColumn .operationItem, #mainColumn .endpointStatusCard, #mainColumn .serverObjectCard, #mainColumn .resultEvidenceRow, #mainColumn .objectTile, #mainColumn .progressCard, #mainColumn .gpuServer, #mainColumn .targetMatrixRow, #mainColumn .featureAuditPill, #mainColumn .capabilityItem";
+      return "#mainColumn .overviewStatusCard, #mainColumn .planRunRow, #mainColumn .task-card, #mainColumn .traceCard, #mainColumn .operationItem, #mainColumn .endpointStatusCard, #mainColumn .serverObjectCard, #mainColumn .resultEvidenceRow, #mainColumn .objectTile, #mainColumn .taskProgressCard, #mainColumn .gpuServer, #mainColumn .targetMatrixRow, #mainColumn .featureAuditPill, #mainColumn .capabilityItem";
     }
 
     function statusCardKey(card) {
@@ -7066,11 +7060,8 @@ export function renderPanelHtml(): string {
       const omittedHint = budget.omittedServerCount || budget.omittedGpuRowCount
         ? '<span class="pill status-warning" title="GPU 已省略">已省略 ' + esc(String(budget.omittedServerCount)) + ' 台服务器 / ' + esc(String(budget.omittedGpuRowCount)) + ' 张 GPU</span>'
         : "";
-      const ownerHint = ownerConfig.hasUserRule || ownerConfig.hasKeywordRule
-        ? ""
-        : '<span class="gpuOwnerHint">可在设置中填写 zlkCluster.gpu.currentUser 来高亮自己的 GPU' + (ownerConfig.localUserHint ? '，本机用户提示：' + esc(ownerConfig.localUserHint) : '') + '。</span>';
       const summaryHtml = servers.length
-        ? '<div class="summaryLine"><span class="pill">服务器 ' + servers.length + '</span><span class="pill">GPU ' + gpuCount + '</span><span class="pill status-completed">空闲 ' + freeCount + '</span><span class="pill status-warning">占用 ' + busyCount + '</span><span class="gpuServerMineBadge">我的任务 ' + mineCount + '</span>' + omittedHint + ownerHint + '</div>'
+        ? '<div class="summaryLine"><span class="pill">服务器 ' + servers.length + '</span><span class="pill">GPU ' + gpuCount + '</span><span class="pill status-completed">空闲 ' + freeCount + '</span><span class="pill status-warning">占用 ' + busyCount + '</span><span class="gpuServerMineBadge">我的任务 ' + mineCount + '</span>' + omittedHint + '</div>'
         : '<div class="muted">暂无 GPU 数据。请确认 Xshell 隧道和 Hub Agent /api/events 或 /api/gpu 可用。</div>';
       setHtmlIfChanged("gpuSummary", summaryHtml);
       const gridHtml = budget.visibleServers.map((server) => {
@@ -7084,9 +7075,9 @@ export function renderPanelHtml(): string {
         const rawId = server.serverId && server.serverId !== displayName ? '<span class="gpuServerAlias">(' + esc(server.serverId) + ')</span>' : "";
         const mineBadge = myGpuCount ? '<span class="gpuServerMineBadge">我的任务 ' + myGpuCount + '</span>' : "";
         const statusText = labelStatus(server.status || "未知");
-        return '<div class="card gpuServer" data-anchor="' + escAttr(treeAnchorId("gpu-server", server.serverId || server.workerId)) + '">' +
+        const serverTitle = gpuMetaLine(server);
+        return '<div class="card gpuServer" data-anchor="' + escAttr(treeAnchorId("gpu-server", server.serverId || server.workerId)) + '" title="' + escAttr(serverTitle) + '">' +
           '<div class="gpuServerHead"><span class="gpuServerTitle">' + esc(displayName) + ' ' + rawId + mineBadge + '</span><span class="gpuServerStatus ' + escAttr(gpuServerStatusClass(server.status)) + '" title="原始服务器状态：' + escAttr(server.status) + '">' + esc(statusText) + '</span></div>' +
-          '<div class="gpuMetaLine">' + esc(gpuMetaLine(server, displayName)) + '</div>' +
           '<div class="gpuList">' + rows + '</div>' +
           '</div>';
       }).join("");
@@ -7106,9 +7097,6 @@ export function renderPanelHtml(): string {
       else klass.push("is-free");
       if (highMemory) klass.push("mem-danger");
       if (highLoad) klass.push("load-warning");
-      const processText = gpu.processes.length
-        ? visibleGpuProcesses(gpu).map((proc) => renderGpuProcess(proc, ownerConfig)).join("") + gpuProcessOmittedNotice(gpu)
-        : "无非系统进程";
       const fillClass = highMemory ? "danger" : "";
       const percentClass = highMemory ? " danger" : "";
       const experiment = gpu.runKey && gpu.runKey !== "-" ? ' · 实验 ' + esc(gpu.runKey) : "";
@@ -7116,12 +7104,21 @@ export function renderPanelHtml(): string {
       const mineBadge = owner.isMine ? '<span class="myTaskBadge">我的任务</span>' : "";
       const status = gpuStatusText(gpu, owner, { highMemory, highLoad });
       const anchor = treeAnchorId("gpu", ((server && (server.serverId || server.workerId)) || "server") + "-" + gpu.index);
-      return '<div class="' + klass.join(" ") + '" data-anchor="' + escAttr(anchor) + '">' +
+      const gpuTitleBits = [
+        "GPU " + gpu.index,
+        gpu.name,
+        memoryText(gpu),
+        "利用率 " + valuePercent(gpu.utilizationPercent),
+        gpu.temperature === "-" ? "" : "温度 " + gpu.temperature + " C",
+        "进程 " + gpu.processCount,
+        status,
+        gpu.runKey && gpu.runKey !== "-" ? "实验 " + gpu.runKey : ""
+      ].filter(Boolean).join(" · ");
+      return '<div class="' + klass.join(" ") + '" data-anchor="' + escAttr(anchor) + '" title="' + escAttr(gpuTitleBits) + '">' +
         '<div class="gpu-main">' +
           '<div class="gpu-title"><b>GPU ' + esc(gpu.index) + '</b><span class="gpu-model">' + esc(gpu.name) + '</span><span class="gpu-id">' + esc(gpu.id) + '</span>' + mineBadge + cached + '</div>' +
           '<div class="progress-line"><div class="progress-bar"><div class="progress-fill ' + fillClass + '" style="width:' + progressWidth(gpu.memoryPercent) + '%"></div></div><span class="progressPercent' + percentClass + '">' + valuePercent(gpu.memoryPercent) + '</span></div>' +
           '<div class="line">显存 ' + esc(memoryText(gpu)) + experiment + '</div>' +
-          '<div class="process-list">' + processText + '</div>' +
         '</div>' +
         '<div class="gpu-metrics">' +
           metric("利用率", valuePercent(gpu.utilizationPercent), highUtilization ? "warn" : "") +
@@ -7130,31 +7127,6 @@ export function renderPanelHtml(): string {
           metric("状态", status, "statusValue" + (owner.isMine ? " mine" : "")) +
         '</div>' +
       '</div>';
-    }
-
-    function gpuProcessOmittedNotice(gpu) {
-      const omitted = Number(gpu.processOmittedCount || 0) + Math.max(0, asArray(gpu.processes).length - GPU_PROCESS_RENDER_LIMIT);
-      return omitted > 0 ? '<div class="muted" title="进程未显示">还有 ' + esc(String(omitted)) + ' 个进程未显示。</div>' : "";
-    }
-
-    function renderGpuProcess(proc, ownerConfig) {
-      const mine = isMyGpuProcess(proc, ownerConfig);
-      const fullText = gpuProcessFullText(proc);
-      const command = proc.command && proc.command !== "-" ? compactText(proc.command, 90) : "";
-      const name = proc.name && proc.name !== "-" ? proc.name : "-";
-      const user = proc.user && proc.user !== "-" ? proc.user : "-";
-      const memory = proc.memoryMb && proc.memoryMb !== "-" ? proc.memoryMb + " MB" : "-";
-      const commandPart = command && command !== name ? ' · ' + esc(command) : "";
-      const badge = mine ? ' <span class="processMineBadge">我的任务</span>' : "";
-      return '<div class="process-row' + (mine ? " mine" : "") + '" title="' + escAttr(fullText) + '">PID ' + esc(proc.pid) + ' · ' + esc(user) + ' · ' + esc(memory) + ' · ' + esc(name) + commandPart + badge + '</div>';
-    }
-
-    function gpuProcessFullText(proc) {
-      const name = proc.name && proc.name !== "-" ? proc.name : "-";
-      const user = proc.user && proc.user !== "-" ? proc.user : "-";
-      const memory = proc.memoryMb && proc.memoryMb !== "-" ? proc.memoryMb + " MB" : "-";
-      const command = proc.command && proc.command !== "-" ? proc.command : name;
-      return "PID " + String(proc.pid || "-") + " · " + user + " · " + memory + " · " + name + " · " + command;
     }
 
     function gpuStatusText(gpu, owner, flags) {
@@ -7217,10 +7189,6 @@ export function renderPanelHtml(): string {
       if (config.myProcessMatchMode === "username") return userMatched;
       if (config.myProcessMatchMode === "command_contains") return keywordMatched;
       return userMatched || keywordMatched;
-    }
-
-    function visibleGpuProcesses(gpu) {
-      return asArray(gpu.processes).slice(0, GPU_PROCESS_RENDER_LIMIT);
     }
 
     function normalizeGpuOwnerConfig(value) {
@@ -9652,7 +9620,7 @@ export function renderPanelHtml(): string {
       const pct = progressWidth(progressPercent(row.progress));
       const warning = row.workerTelemetryWarning ? '<div class="status-warning">' + esc(row.workerTelemetryWarning) + '</div>' : "";
       const live = row.workerLiveStatus && row.workerLiveStatus !== "-" ? '<span class="pill" title="原始 Worker 状态：' + escAttr(row.workerLiveStatus) + '">Worker ' + esc(labelStatus(row.workerLiveStatus)) + '</span>' : "";
-      return '<div class="progressCard">' +
+      return '<div class="taskProgressCard">' +
         '<div class="gpuServerHead"><b>' + esc(row.experimentName) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span></div>' +
         '<div class="muted">' + clippedCell(row.plan, "wide", compactPath(row.plan)) + ' · ' + esc(workerName(row.serverId)) + ' · GPU ' + esc(arrayText(row.gpuIds)) + '</div>' +
         '<div class="progress-line"><div class="progress-bar"><div class="progress-fill busy" style="width:' + pct + '%"></div></div><span>' + esc(row.progress) + '</span></div>' +
@@ -10741,7 +10709,7 @@ export function renderPanelHtml(): string {
 
     function renderFeatureReadiness(state) {
       const groups = [
-        ["发布与代码同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
+        ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
         ["计划运行链路", ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]],
         ["Worker 手动控制", ["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts"]],
         ["结果证据闭环", ["parseResults", "refreshResults", "excludeResults", "checkOutputContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "exportPlottingContract", "plotResultsToPpt"]],

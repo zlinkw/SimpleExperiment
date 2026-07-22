@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-020`。
+- 批次：`recovery-build-021`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -232,3 +232,15 @@
 - 延期项：剩余 `10` 个 UI 失败属于 GPU、Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器命令/tooltip、同步发布与 target mode 计划压缩，后续按强相关小批处理。
 - 提交记录：`ui: compact task status section`，提交 `52b36cddef9853acc51ddc7addf29c2885fa547c`，已普通快进推送至 `origin/master`；推送后该提交与 `origin/master` 一致。
 - 状态：已完成；下一批优先处理 GPU 紧凑布局契约。
+
+### recovery-build-021
+
+- 目标：压缩 GPU 与发布同步区域，移除重复说明、进程明细和嵌套卡片，同时保留 GPU 状态指标、归属判断、同步流程和全部操作入口。
+- 影响区域：`src/ui/PanelHtml.ts`、`test/ui/gpuCompact.test.js`、`test/ui/syncPublishCompact.test.js`、对应生成的 `dist/ui/PanelHtml.js` 和本计划。
+- 保护区域：不改变 GPU 数据规范化、归属判断、告警阈值、同步命令或 Extension handler；不修改 SimpleSFTP 和已安装扩展。
+- 回归检查：GPU 紧凑布局、单列 GPU、发布同步紧凑布局、Panel inline script、UI 分组、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：GPU 紧凑布局、单列布局、字段规范化、发布同步紧凑布局与 Panel inline script `6/6` 通过；UI 分组由 `62/72` 提升到 `64/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js` 和 `git diff --check` 通过。
+- 说明：GPU 摘要移除配置教学文本，服务器元数据和 GPU 关键指标保留在悬停标题；进程明细不再逐项展开但进程计数和归属判断保留。发布同步移除嵌套卡片与重复标题，流程、状态和操作入口不变。
+- 延期项：剩余 `8` 个 UI 失败属于 Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
+- 提交记录：`ui: compact GPU and sync panels`，SHA 以推送后的 Git 记录为准。
+- 状态：验证完成，待提交并同步；下一批优先处理 Hub/Worker 状态与端口冲突契约。
