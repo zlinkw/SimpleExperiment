@@ -34,10 +34,10 @@
 - [已通过] target mode 计划压缩 dry run，结果为 `already-compact`。
 - [已通过] target mode 文档契约定向测试，`3/3`。
 - [已通过] `git diff --check`。
-- [待同步] 文档批次提交与 `origin/master` 快进同步。
+- [已同步] 文档提交 `5f72761e143850df7ee28cd89ae17a897ddb3022` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-040`，修复提交 `68617e201748fbd97fde6d5443ed03bda442b81c`，记录提交 `8c94dd01c45ba1f1e07a3f935e16dc194af5e743`。
-- 当前目标状态：`docker-plugin-plan-001` 待同步。
+- 当前目标状态：`docker-plugin-plan-001` 已完成。
 - 本批涉及：Docker Codex 插件兼容计划、当前计划索引和文档契约测试；不修改产品源码或产物。
-- 真实 Windows、Dev Container、SFTP、Xshell 和多窗口联调均为 `needs experiment`。
+- 计划提交：`5f72761e143850df7ee28cd89ae17a897ddb3022`；真实 Windows、Dev Container、SFTP、Xshell 和多窗口联调均为 `needs experiment`。
