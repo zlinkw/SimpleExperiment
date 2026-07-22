@@ -1,11 +1,39 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildExperimentMatrix = buildExperimentMatrix;
+exports.renderPlanYaml = renderPlanYaml;
+exports.parsePlanCases = parsePlanCases;
+exports.parsePlanOutputEvidence = parsePlanOutputEvidence;
+exports.parsePlanSummary = parsePlanSummary;
+exports.normalizePlanMode = normalizePlanMode;
+exports.validateDeepLearningPlanContract = validateDeepLearningPlanContract;
+exports.expandPlanMatrix = expandPlanMatrix;
+exports.renderPlanTemplate = renderPlanTemplate;
+exports.validateTemplateVariables = validateTemplateVariables;
+exports.importLegacyPlanYamlToRegistry = importLegacyPlanYamlToRegistry;
+exports.upsertPlanRecords = upsertPlanRecords;
+exports.deprecatePlan = deprecatePlan;
+exports.validatePlanRecord = validatePlanRecord;
+exports.estimatePlanResources = estimatePlanResources;
+exports.createPlanRevision = createPlanRevision;
+exports.diffPlans = diffPlans;
+exports.cloneOrReproducePlan = cloneOrReproducePlan;
+exports.searchPlans = searchPlans;
+exports.tagPlan = tagPlan;
+exports.computePlanResultCoverage = computePlanResultCoverage;
+exports.dependencyBlockedReasons = dependencyBlockedReasons;
+exports.readPlanConfigJson = readPlanConfigJson;
+// @ts-nocheck
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 exports.builtInPlanTemplates = exports.builtInPlanSchemas = exports.PLAN_EXPORT_DIR = exports.PLAN_REGISTRY_LOCAL_PATH = exports.PLAN_REGISTRY_PATH = void 0;
 exports.buildExperimentMatrix = buildExperimentMatrix;
 exports.renderPlanYaml = renderPlanYaml;
-exports.parsePlanSummary = parsePlanSummary;
 exports.parsePlanCases = parsePlanCases;
 exports.parsePlanOutputEvidence = parsePlanOutputEvidence;
+exports.parsePlanSummary = parsePlanSummary;
+exports.normalizePlanMode = normalizePlanMode;
+exports.validateDeepLearningPlanContract = validateDeepLearningPlanContract;
 exports.expandPlanMatrix = expandPlanMatrix;
 exports.renderPlanTemplate = renderPlanTemplate;
 exports.validateTemplateVariables = validateTemplateVariables;
@@ -111,7 +139,7 @@ function renderPlanYaml(matrix, experiments) {
         "mode: train_test",
         `base_config: ${quoteYaml(matrix.baseConfig)}`,
         "paper:",
-        `  result_csv: ${quoteYaml("experiments/results/{suite}.csv")}`,
+        `  result_csv: ${quoteYaml("{output_dir}/metrics_summary.csv")}`,
         "runner:",
         `  train_command: ${quoteYaml("python train.py --config {config} --seed {seed} --output-dir {output_dir}")}`,
         `  test_command: ${quoteYaml("python test.py --config {config} --seed {seed} --output-dir {output_dir} --result-csv {result_csv}")}`,
@@ -141,41 +169,18 @@ function caseEntriesForPlanYaml(matrix, experiments) {
         const key = JSON.stringify(overrides);
         if (cases.has(key))
             continue;
-        const baseName = renderNamingRule(matrix.namingRule?.pattern, matrix.suite, overrides).trim() || (Object.keys(overrides).length ? experimentName(matrix.suite, overrides) : `${matrix.suite}__baseline`);
+        const baseName = planYamlCaseName(matrix, overrides);
         const seen = usedNames.get(baseName) || 0;
         usedNames.set(baseName, seen + 1);
         cases.set(key, { caseName: seen ? `${baseName}_${seen + 1}` : baseName, overrides });
     }
     return Array.from(cases.values());
 }
-function parsePlanSummary(yaml) {
-    const clean = stripYamlComments(yaml);
-    const suite = firstYamlStringValue(clean, ["suite"]);
-    const modeRaw = firstYamlStringValue(clean, ["mode"]);
-    const mode = modeRaw || "train_test";
-    const baseConfig = firstYamlStringValue(clean, ["base_config", "config"]);
-    const trainCommand = firstYamlStringValue(clean, ["train_command", "trainCommand", "command"]);
-    const testCommand = firstYamlStringValue(clean, ["test_command", "testCommand"]);
-    const inlineConfig = /^\s*(?:base_config|config)\s*:\s*(?:\{|$)/m.test(clean);
-    const caseConfig = /^\s+-[\s\S]*?^\s+(?:base_config|config)\s*:/m.test(clean);
-    const evidence = parsePlanOutputEvidence(clean, { trainCommand, testCommand });
-    return {
-        suite,
-        mode,
-        modeRaw,
-        modeValid: !modeRaw || ["train", "test", "train_test", "eval", "evaluate"].includes(modeRaw),
-        baseConfig,
-        inlineConfig,
-        caseConfig,
-        hasConfigSource: Boolean(baseConfig || inlineConfig || caseConfig),
-        configSource: baseConfig || (inlineConfig ? "Plan 内联配置" : caseConfig ? "case 级配置" : ""),
-        seeds: parsePlanStringList(clean, "seeds"),
-        cases: parsePlanCases(clean),
-        trainCommand,
-        testCommand,
-        outputCandidates: evidence.outputCandidates,
-        outputSignals: evidence.outputSignals,
-    };
+function planYamlCaseName(matrix, overrides) {
+    const fromRule = renderNamingRule(matrix.namingRule?.pattern, matrix.suite, overrides).trim();
+    if (fromRule)
+        return fromRule;
+    return Object.keys(overrides).length ? experimentName(matrix.suite, overrides) : `${matrix.suite}__baseline`;
 }
 function parsePlanCases(yaml) {
     const cases = [];
@@ -294,6 +299,7 @@ const resultListKeys = [
     "outputFiles",
     "output_files",
 ];
+const outputRuleListKeys = ["candidateCsv", "candidateJson", "consoleLogs", "textLogs"];
 const objectResultPathKeys = new Set([
     "path",
     "file",
@@ -305,9 +311,19 @@ const objectResultPathKeys = new Set([
     "output_file",
     "log",
     "log_file",
+    "csv",
+    "metrics_summary",
+    "metricsSummary",
+    "metrics_case",
+    "metricsCase",
+    "artifact",
+    "artifact_manifest",
+    "artifactManifest",
+    "summary",
+    "metrics",
     ...directResultKeys,
 ]);
-const resultDirKeys = ["output_dir", "outputDir", "result_dir", "resultDir", "results_dir", "resultsDir", "work_dir", "workDir", "workdir", "save_dir", "saveDir", "log_dir", "logDir"];
+const resultDirKeys = ["output_dir", "outputDir", "output-dir", "result_dir", "resultDir", "results_dir", "resultsDir", "work_dir", "workDir", "workdir", "save_dir", "saveDir", "log_dir", "logDir", "sweep_dir", "sweepDir", "default_root_dir", "defaultRootDir", "run_dir", "runDir"];
 const commandResultFlags = new Map([
     ["result-csv", "result_csv"],
     ["result_csv", "result_csv"],
@@ -330,54 +346,498 @@ const commandResultFlags = new Map([
     ["stdout", "stdout"],
     ["stderr", "stderr"],
 ]);
+const commandResultDirFlags = new Set([
+    "output",
+    "out",
+    "output-dir",
+    "output_dir",
+    "out-dir",
+    "out_dir",
+    "result-dir",
+    "result_dir",
+    "results-dir",
+    "results_dir",
+    "work-dir",
+    "work_dir",
+    "workdir",
+    "save-dir",
+    "save_dir",
+    "log-dir",
+    "log_dir",
+    "logging-dir",
+    "logging_dir",
+    "loggingdir",
+    "tensorboard-log-dir",
+    "tensorboard_log_dir",
+    "tensorboardlogdir",
+    "tb-log-dir",
+    "tb_log_dir",
+    "tblogdir",
+    "run-dir",
+    "run_dir",
+    "rundir",
+    "default-root-dir",
+    "default_root_dir",
+    "defaultrootdir",
+    "dirpath",
+    "hydra.run.dir",
+    "hydra.sweep.dir",
+    "logger.save_dir",
+    "logger.save-dir",
+    "trainer.default_root_dir",
+    "trainer.default-root-dir",
+]);
+const planResultRootFiles = new Set([
+    "metrics_summary.csv",
+    "metrics_case.csv",
+    "results.csv",
+    "result.csv",
+    "metrics.csv",
+    "summary.csv",
+    "scores.csv",
+    "score.csv",
+    "detailed_metrics.csv",
+    "test_metrics.csv",
+    "classification_report.csv",
+    "metrics.json",
+    "summary.json",
+    "result.json",
+    "results.json",
+    "classification_report.json",
+    "summary.txt",
+    "result.txt",
+    "results.txt",
+    "classification_report.txt",
+    "stdout.log",
+    "stderr.log",
+    "train.log",
+    "test.log",
+    "console.log",
+    "output.out",
+]);
+const planResultTopDirs = new Set([
+    "work_dirs",
+    "exports",
+    "results",
+    "outputs",
+    "runs",
+    "logs",
+    "test_results",
+    "lightning_logs",
+    "custom_results",
+    "reports",
+    "artifacts",
+    "evals",
+    "eval",
+    "evaluation",
+    "predictions",
+    "submissions",
+]);
+const planResultPrefixPairs = new Set([
+    "experiments/results",
+    "experiments/runs",
+    "zlk_cluster/results",
+    "zlk_cluster/logs",
+    "zlk_cluster/tmux_logs",
+    "zlk_cluster/archive",
+]);
+const planResultExactPairs = new Set(["experiments/results.csv"]);
 function parsePlanOutputEvidence(yaml, commands = {}) {
     const clean = stripYamlComments(yaml);
-    const direct = directResultKeys.flatMap((key) => extractYamlStringValues(clean, key).map((value) => ({ key, value: normalizePlanCandidatePath(value) }))).filter((item) => item.value);
-    const listed = resultListKeys.flatMap((key) => extractYamlResultListValues(clean, key).map((value) => ({ key, value: normalizePlanCandidatePath(value) }))).filter((item) => item.value);
-    const dirs = resultDirKeys.flatMap((key) => extractYamlStringValues(clean, key)).map(normalizePlanCandidateDir).filter(Boolean);
+    const declaredMode = commands.mode || firstTopLevelPlanScalar(clean, collectYamlScalarAnchors(clean), "mode");
+    const mode = normalizePlanMode(declaredMode);
+    const commandKeys = mode === "train" ? ["command", "train_command", "trainCommand"] : mode === "test" ? ["test_command", "testCommand"] : ["command", "train_command", "trainCommand", "test_command", "testCommand"];
+    const direct = directResultKeys.flatMap((key) => [
+        ...extractYamlStringValues(clean, key),
+        ...extractYamlFlowMapValues(clean, key),
+    ].map((value) => ({ key, value: normalizePlanCandidatePath(value) }))).filter((item) => isPlanParseableResultCandidate(item.value));
+    const listed = resultListKeys.flatMap((key) => [
+        ...extractYamlResultListValues(clean, key),
+        ...extractYamlFlowResultListValues(clean, key),
+    ].map((value) => ({ key, value: normalizePlanCandidatePath(value) }))).filter((item) => isPlanParseableResultCandidate(item.value));
+    const outputRules = outputRuleListKeys.flatMap((key) => [
+        ...extractYamlResultListValues(clean, key),
+        ...extractYamlFlowResultListValues(clean, key),
+    ].map((value) => ({ key, value: normalizePlanCandidatePath(value) }))).filter((item) => isPlanParseableResultCandidate(item.value));
+    const dirs = resultDirKeys.flatMap((key) => [
+        ...extractYamlStringValues(clean, key),
+        ...extractYamlFlowMapValues(clean, key),
+    ]).map(normalizePlanCandidateDir).filter(Boolean);
     const outputCandidates = uniquePlanStrings([
         ...direct.map((item) => item.value),
         ...listed.map((item) => item.value),
-        ...dirs.flatMap((dir) => [
-            `${dir}/metrics_summary.csv`,
-            `${dir}/results.csv`,
-            `${dir}/metrics.csv`,
-            `${dir}/summary.txt`,
-            `${dir}/stdout.log`,
-        ]),
+        ...outputRules.map((item) => item.value),
+        ...dirs.flatMap((dir) => defaultResultCandidatesForDir(dir)),
     ]);
     const signals = new Set();
     for (const item of [...direct, ...listed]) {
         if (isPlanParseableResultCandidate(item.value))
             signals.add(`结果文件: ${item.key}=${item.value}`);
     }
-    const trainCommand = commands.trainCommand || firstYamlStringValue(clean, ["train_command", "trainCommand"]) || "";
-    const testCommand = commands.testCommand || firstYamlStringValue(clean, ["test_command", "testCommand"]) || "";
-    const combinedCommand = `${trainCommand}\n${testCommand}`;
-    if (/\{?result_csv\}?|--result-csv|--results-csv/i.test(combinedCommand))
+    for (const item of outputRules) {
+        if (isPlanParseableResultCandidate(item.value))
+            signals.add(`结果文件: ${item.key}=${item.value}`);
+    }
+    for (const dir of dirs) {
+        if (dir)
+            signals.add(`结果目录: ${dir}`);
+    }
+    const commandValues = uniquePlanStrings([
+        ...(mode !== "test" ? [commands.trainCommand || ""] : []),
+        ...(mode !== "train" ? [commands.testCommand || ""] : []),
+        ...extractYamlCommandValues(clean, commandKeys),
+        ...extractYamlFlowMapValues(clean, ...commandKeys),
+    ]);
+    const commandCandidates = extractCommandResultCandidates(commandValues);
+    outputCandidates.push(...uniquePlanStrings(commandCandidates.map((item) => item.value)).filter((item) => !outputCandidates.includes(item)));
+    for (const item of commandCandidates) {
+        signals.add(`结果文件: runner_command=${item.value}`);
+    }
+    const combinedCommand = commandValues.join("\n");
+    if (/(?:\{(?:result_csv|resultCsv|results_csv|resultsCsv|metrics_csv|metricsCsv|summary_csv|summaryCsv|output_csv|outputCsv|result_json|resultJson|metrics_json|metricsJson|summary_txt|summaryTxt|log_file|logFile)\}|--(?:result|results|metrics|summary)[-_](?:csv|json)|metrics_summary\.csv|classification_report|scores\.csv|summary\.txt|stdout\.log|stderr\.log)/i.test(combinedCommand) || commandCandidates.length)
         signals.add("命令参数: result_csv");
-    if (/\b(stdout|stderr|console|tee)\b/i.test(clean))
+    if (commandCandidates.some((item) => /\.(txt|log|out)$/i.test(item.value)) || hasCommandTextOutputTarget(combinedCommand) || /\b(tee)\b/i.test(clean))
         signals.add("文本日志: stdout/stderr");
-    if (/^\s*metricRegex\s*:/im.test(clean))
+    const metricRegexValues = [
+        ...extractYamlStringValues(clean, "metricRegex"),
+        ...extractYamlFlowMapValues(clean, "metricRegex"),
+    ].map((value) => stripYamlScalar(value)).filter(isMeaningfulYamlValue);
+    const evidenceCandidates = uniquePlanStrings([...listed, ...direct, ...outputRules, ...commandCandidates].map((item) => item.value).filter(isPlanParseableResultCandidate));
+    if (metricRegexValues.length && evidenceCandidates.length)
         signals.add("metricRegex: 自定义指标正则");
-    const evidenceCandidates = uniquePlanStrings([...direct, ...listed].map((item) => item.value).filter(isPlanParseableResultCandidate));
     return { outputCandidates, outputSignals: [...signals].sort(), evidenceCandidates };
+}
+function parsePlanSummary(yaml) {
+    const clean = stripYamlComments(yaml);
+    const anchors = collectYamlScalarAnchors(clean);
+    const modeRaw = firstTopLevelPlanScalar(clean, anchors, "mode");
+    const mode = normalizePlanMode(modeRaw);
+    const trainCommand = firstPlanCommand(clean, ["train_command", "trainCommand", "command"]);
+    const testCommand = firstPlanCommand(clean, ["test_command", "testCommand"]);
+    const evidence = parsePlanOutputEvidence(clean, { mode, trainCommand, testCommand });
+    const baseConfig = firstTopLevelPlanScalar(clean, anchors, "base_config", "config");
+    const configSources = planConfigSources(clean);
+    const existingCandidates = new Set(evidence.outputCandidates.map((item) => String(item || "").trim()).filter(Boolean));
+    const outputSignals = evidence.outputSignals.filter((signal) => {
+        const candidate = signal.match(/^结果文件:\s*[^=]+=([^=]+)$/)?.[1]?.trim();
+        return !candidate || existingCandidates.size === 0 || existingCandidates.has(candidate);
+    });
+    return {
+        suite: firstTopLevelPlanScalar(clean, anchors, "suite"),
+        mode,
+        modeRaw,
+        modeValid: !modeRaw || Boolean(normalizePlanMode(modeRaw, "")),
+        baseConfig,
+        inlineConfig: configSources.topLevelInline,
+        caseConfig: configSources.caseLevel,
+        hasConfigSource: Boolean(baseConfig || configSources.topLevelInline || configSources.caseLevel),
+        configSource: baseConfig ? baseConfig : configSources.topLevelInline ? "Plan 内联配置" : configSources.caseLevel ? "case 级配置" : "",
+        seeds: planStringList(clean, anchors, "seeds"),
+        cases: parsePlanCases(clean),
+        trainCommand,
+        testCommand,
+        outputCandidates: evidence.outputCandidates,
+        outputSignals,
+    };
+}
+function planConfigSources(text) {
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    let topLevelInline = false;
+    let caseLevel = false;
+    let caseSectionIndent = -1;
+    let currentItemIndent = -1;
+    let mapItemIndent = -1;
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+        if (!line.trim() || /^\s*#/.test(line))
+            continue;
+        const indent = line.match(/^\s*/)?.[0].length || 0;
+        const topConfig = line.match(/^(base_config|config)\s*:\s*(.*)$/);
+        if (topConfig) {
+            const rest = stripYamlLineComment(topConfig[2]).trim();
+            if ((!rest || /^[&*]/.test(rest) || rest.startsWith("{")) && yamlConfigValueHasContent(lines, index, 0, rest))
+                topLevelInline = true;
+        }
+        const inlineCases = line.match(/^(\s*)(cases|experiments)\s*:\s*(\[[\s\S]*\])\s*$/);
+        if (inlineCases) {
+            caseLevel ||= flowCaseHasConfigSource(inlineCases[3]);
+            caseSectionIndent = -1;
+            continue;
+        }
+        const section = line.match(/^(\s*)(cases|experiments)\s*:\s*$/);
+        if (section) {
+            caseSectionIndent = section[1].length;
+            currentItemIndent = -1;
+            mapItemIndent = -1;
+            continue;
+        }
+        if (caseSectionIndent < 0)
+            continue;
+        if (indent <= caseSectionIndent) {
+            caseSectionIndent = -1;
+            currentItemIndent = -1;
+            mapItemIndent = -1;
+            continue;
+        }
+        const listItem = line.match(/^(\s*)-\s*(.*)$/);
+        if (listItem) {
+            currentItemIndent = listItem[1].length;
+            mapItemIndent = -1;
+            caseLevel ||= flowCaseHasConfigSource(listItem[2]);
+            continue;
+        }
+        if (currentItemIndent >= 0 && indent === currentItemIndent + 2) {
+            const config = line.trim().match(/^(base_config|config)\s*:\s*(.*)$/);
+            if (config && yamlConfigValueHasContent(lines, index, indent, stripYamlLineComment(config[2]).trim()))
+                caseLevel = true;
+            continue;
+        }
+        if (currentItemIndent < 0) {
+            if (mapItemIndent < 0)
+                mapItemIndent = indent;
+            if (indent === mapItemIndent + 2) {
+                const config = line.trim().match(/^(base_config|config)\s*:\s*(.*)$/);
+                if (config && yamlConfigValueHasContent(lines, index, indent, stripYamlLineComment(config[2]).trim()))
+                    caseLevel = true;
+            }
+        }
+    }
+    return { topLevelInline, caseLevel };
+}
+function flowCaseHasConfigSource(value) {
+    const text = String(value || "");
+    const pattern = /(?:^|[{,]\s*)(?:base_config|config)\s*:\s*/gi;
+    let match;
+    while ((match = pattern.exec(text))) {
+        const start = pattern.lastIndex;
+        const first = text[start] || "";
+        if (first === "{") {
+            let depth = 0;
+            let quoted = "";
+            for (let cursor = start; cursor < text.length; cursor++) {
+                const char = text[cursor];
+                if (quoted) {
+                    if (char === quoted && text[cursor - 1] !== "\\")
+                        quoted = "";
+                    continue;
+                }
+                if (char === '"' || char === "'") {
+                    quoted = char;
+                    continue;
+                }
+                if (char === "{")
+                    depth += 1;
+                else if (char === "}") {
+                    depth -= 1;
+                    if (depth === 0) {
+                        if (text.slice(start + 1, cursor).trim())
+                            return true;
+                        pattern.lastIndex = cursor + 1;
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        const scalar = text.slice(start).split(/[,}\]]/, 1)[0].trim().replace(/^['"]|['"]$/g, "");
+        if (scalar && !/^(?:null|none)$/i.test(scalar))
+            return true;
+    }
+    return false;
+}
+function yamlConfigValueHasContent(lines, index, baseIndent, rest) {
+    const value = String(rest || "").trim();
+    if (value) {
+        if (value === "{}" || /^(?:null|none)$/i.test(value))
+            return false;
+        if (!/^&[A-Za-z0-9_.-]+$/.test(value))
+            return true;
+    }
+    for (let cursor = index + 1; cursor < lines.length; cursor++) {
+        const nested = lines[cursor];
+        if (!nested.trim() || /^\s*#/.test(nested))
+            continue;
+        const indent = nested.match(/^\s*/)?.[0].length || 0;
+        if (indent <= baseIndent)
+            return false;
+        return true;
+    }
+    return false;
+}
+function normalizePlanMode(value, fallback = "train_test") {
+    const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (!normalized)
+        return fallback;
+    if (["train", "training", "train_only"].includes(normalized))
+        return "train";
+    if (["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"].includes(normalized))
+        return "test";
+    if (["train_test", "train_and_test", "both", "all"].includes(normalized))
+        return "train_test";
+    return fallback;
+}
+function validateDeepLearningPlanContract(yaml) {
+    const clean = stripYamlComments(yaml);
+    const summary = parsePlanSummary(clean);
+    const evidence = parsePlanOutputEvidence(clean, { mode: summary.mode, trainCommand: summary.trainCommand, testCommand: summary.testCommand });
+    const issues = [];
+    const addIssue = (field, label, message, fix) => {
+        issues.push({ field, label, message, fix });
+    };
+    if (!summary.suite) {
+        addIssue("suite", "suite", "缺少实验套件名。", "在 plan 顶层补充 suite，例如 suite: cls_smoke。");
+    }
+    if (!summary.hasConfigSource) {
+        addIssue("base_config", "base_config/config", "缺少基础配置文件。", "在 plan 顶层补充 base_config 或 config，指向本次运行使用的配置文件。");
+    }
+    if (!summary.modeValid) {
+        addIssue("mode", "mode", `不支持运行模式 ${summary.modeRaw}。`, "mode 只能使用 train、test 或 train_test。");
+    }
+    if (!summary.seeds.length) {
+        addIssue("seeds", "seeds", "缺少随机种子列表。", "补充 seeds: [0, 1, 2]；即使只跑一次也写 seeds: [0]。");
+    }
+    if (!summary.cases.length) {
+        addIssue("cases", "cases/experiments", "缺少实验 case。", "补充 cases 或 experiments；单实验 plan 也应保留可命名 case。");
+    }
+    if (summary.mode !== "test" && !summary.trainCommand) {
+        addIssue("train_command", "训练命令", "缺少训练入口命令。", "在 runner.train_command、trainCommand 或 command 中写明训练命令。");
+    }
+    if (summary.mode !== "train" && !summary.testCommand) {
+        addIssue("test_command", "测试命令", "缺少测试或评估入口命令。", "在 runner.test_command 或 testCommand 中写明测试命令，并输出 metrics_summary.csv、result_csv 或 --output-dir。");
+    }
+    if (!evidence.evidenceCandidates.length && !summary.outputSignals.length) {
+        addIssue("result_output", "结果输出", "未声明可解析结果输出。", "写 expectedResults、paper.result_csv、metrics_summary.csv、metrics_case.csv、JSON/TXT/LOG 输出，或在测试命令中显式传 --result-csv/--metrics-json/--output-dir。");
+    }
+    return {
+        ok: issues.length === 0,
+        missing: issues.map((item) => item.label),
+        issues,
+        summary,
+        outputCandidates: summary.outputCandidates,
+        outputSignals: summary.outputSignals,
+    };
+}
+function firstTopLevelPlanScalar(text, anchors, ...keys) {
+    for (const key of keys) {
+        const value = extractYamlTopLevelStringValue(text, key, anchors);
+        if (value)
+            return value;
+    }
+    return "";
+}
+function firstPlanCommand(text, keys) {
+    return uniquePlanStrings([
+        ...extractYamlCommandValues(text, keys),
+        ...extractYamlFlowMapValues(text, ...keys),
+    ]).find(Boolean) || "";
+}
+function extractYamlTopLevelStringValue(text, key, anchors) {
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    const pattern = new RegExp(`^${escapeRegExp(key)}\\s*:\\s*(.*)$`);
+    for (const line of lines) {
+        const match = line.match(pattern);
+        if (!match)
+            continue;
+        const rest = stripYamlLineComment(match[1]).trim();
+        if (!rest || /^[|>\[{]/.test(rest))
+            return "";
+        return normalizePlanScalar(rest, anchors);
+    }
+    return "";
+}
+function planStringList(text, anchors, key) {
+    const values = [];
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    for (let index = 0; index < lines.length; index++) {
+        const match = lines[index].match(new RegExp(`^${escapeRegExp(key)}\\s*:\\s*(.*)$`));
+        if (!match)
+            continue;
+        const rest = stripYamlLineComment(match[1]).trim();
+        if (rest.startsWith("[") && rest.endsWith("]")) {
+            values.push(...splitTopLevelYamlList(rest.slice(1, -1)).map((item) => normalizePlanScalar(item, anchors)));
+            continue;
+        }
+        if (rest && rest !== "[]" && rest !== "{}") {
+            const scalarValue = normalizePlanScalar(rest, anchors);
+            if (scalarValue)
+                values.push(scalarValue);
+            continue;
+        }
+        for (let cursor = index + 1; cursor < lines.length; cursor++) {
+            const nested = lines[cursor];
+            if (!nested.trim())
+                continue;
+            const indent = nested.match(/^\s*/)?.[0].length || 0;
+            if (indent === 0)
+                break;
+            const item = nested.match(/^\s*-\s*(.+)$/);
+            if (item)
+                values.push(normalizePlanScalar(item[1], anchors));
+        }
+    }
+    return uniquePlanStrings(values);
+}
+function collectYamlScalarAnchors(text) {
+    const anchors = new Map();
+    for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
+        const match = line.match(/^\s*[A-Za-z0-9_.-]+\s*:\s*&([A-Za-z0-9_.-]+)\s+(.+)$/);
+        if (!match)
+            continue;
+        const value = stripYamlScalar(stripYamlLineComment(match[2])).trim();
+        if (value)
+            anchors.set(match[1], value);
+    }
+    return anchors;
+}
+function isMeaningfulYamlValue(value) {
+    const text = stripYamlScalar(value).trim();
+    return Boolean(text && !["[]", "{}", "null", "none", "false"].includes(text.toLowerCase()));
 }
 function extractYamlStringValues(text, key) {
     const values = [];
-    const pattern = new RegExp(`^\\s*${escapeRegExp(key)}:\\s*["']?([^"'#\\r\\n]+)`, "gim");
+    const pattern = new RegExp(`^\\s*${escapeRegExp(key)}:[ \\t]*["']?([^"'#\\r\\n]+)`, "gim");
     let match;
     while ((match = pattern.exec(text)))
         values.push(stripYamlScalar(match[1]));
     return values;
 }
-function firstYamlStringValue(text, keys) {
-    for (const key of keys) {
-        const value = extractYamlStringValues(text, key)[0];
-        if (value)
-            return value;
+function extractYamlCommandValues(text, keys) {
+    const keySet = new Set(keys);
+    const values = [];
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+        const match = line.match(/^(\s*)([A-Za-z0-9_.-]+)\s*:\s*(.*)$/);
+        if (!match || !keySet.has(match[2]))
+            continue;
+        const baseIndent = match[1].length;
+        const rest = match[3].trim();
+        if (/^[|>][+-]?\d*$/.test(rest)) {
+            const blockLines = [];
+            let blockIndent = -1;
+            for (let cursor = index + 1; cursor < lines.length; cursor++) {
+                const raw = lines[cursor];
+                if (!raw.trim()) {
+                    if (blockIndent >= 0)
+                        blockLines.push("");
+                    continue;
+                }
+                const indent = raw.match(/^\s*/)?.[0].length || 0;
+                if (indent <= baseIndent)
+                    break;
+                if (blockIndent < 0)
+                    blockIndent = indent;
+                blockLines.push(raw.slice(Math.min(indent, blockIndent)));
+            }
+            const value = rest.startsWith(">") ? blockLines.map((item) => item.trim()).filter(Boolean).join(" ") : blockLines.join("\n");
+            if (value.trim())
+                values.push(value.trim());
+            continue;
+        }
+        if (rest)
+            values.push(stripYamlScalar(rest));
     }
-    return "";
+    return uniquePlanStrings(values);
 }
 function extractYamlResultListValues(text, key) {
     const values = [];
@@ -430,6 +890,77 @@ function resultValuesFromYamlItem(item) {
 function resultPathKey(key) {
     return objectResultPathKeys.has(key);
 }
+function extractYamlFlowMapValues(text, ...keys) {
+    const keySet = new Set(keys);
+    return yamlFlowMapPairs(text)
+        .filter((item) => keySet.has(item.key))
+        .map((item) => stripYamlScalar(item.value))
+        .filter(Boolean);
+}
+function extractYamlFlowResultListValues(text, key) {
+    return yamlFlowMapPairs(text)
+        .filter((item) => item.key === key)
+        .flatMap((item) => {
+        const value = item.value.trim();
+        if (value.startsWith("[") && value.endsWith("]"))
+            return splitTopLevelYamlList(value.slice(1, -1)).flatMap(resultValuesFromYamlItem);
+        return resultValuesFromYamlItem(value);
+    });
+}
+function yamlFlowMapPairs(text) {
+    const pairs = [];
+    const bodies = yamlFlowMapBodies(text);
+    for (const body of bodies) {
+        for (const part of splitTopLevelYamlList(body)) {
+            const match = part.match(/^([A-Za-z0-9_.-]+)\s*:\s*([\s\S]+)$/);
+            if (match)
+                pairs.push({ key: match[1], value: match[2].trim() });
+        }
+    }
+    return pairs;
+}
+function yamlFlowMapBodies(text) {
+    const bodies = [];
+    let quote = "";
+    let escape = false;
+    let depth = 0;
+    let start = -1;
+    for (let index = 0; index < text.length; index++) {
+        const ch = text[index];
+        if (quote) {
+            if (escape) {
+                escape = false;
+            }
+            else if (ch === "\\") {
+                escape = true;
+            }
+            else if (ch === quote) {
+                quote = "";
+            }
+            continue;
+        }
+        if (ch === "\"" || ch === "'") {
+            quote = ch;
+            continue;
+        }
+        if (ch === "{") {
+            if (depth === 0)
+                start = index + 1;
+            depth++;
+            continue;
+        }
+        if (ch === "}" && depth > 0) {
+            depth--;
+            if (depth === 0 && start >= 0) {
+                const body = text.slice(start, index);
+                bodies.push(body);
+                bodies.push(...yamlFlowMapBodies(body));
+                start = -1;
+            }
+        }
+    }
+    return bodies;
+}
 function splitTopLevelYamlList(text) {
     const out = [];
     let quote = "";
@@ -465,6 +996,83 @@ function stripYamlLineComment(value) {
     }
     return value;
 }
+function extractCommandResultCandidates(commands) {
+    const out = [];
+    for (const command of commands) {
+        const text = String(command || "").replace(/\\[ \t]*\r?\n[ \t]*/g, " ").replace(/\r?\n/g, " ");
+        const flagPattern = /(?:^|[\s;&|])--([A-Za-z][A-Za-z0-9_-]*)(?:=(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))|[ \t]+(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+)))?/g;
+        for (const match of text.matchAll(flagPattern)) {
+            const flag = String(match[1] || "").trim();
+            const normalizedFlag = flag.replace(/_/g, "-").toLowerCase();
+            const key = commandResultFlags.get(flag) || commandResultFlags.get(normalizedFlag);
+            const raw = match[2] || match[3] || match[4] || match[5] || match[6] || match[7] || "";
+            if (key) {
+                const value = normalizePlanCandidatePath(raw);
+                if (isPlanParseableResultCandidate(value))
+                    out.push({ key, value });
+                continue;
+            }
+            if (commandResultDirFlags.has(flag) || commandResultDirFlags.has(normalizedFlag)) {
+                for (const value of defaultResultCandidatesForDir(raw))
+                    out.push({ key: flag, value });
+            }
+        }
+        for (const match of text.matchAll(commandDirAssignmentPattern())) {
+            const key = String(match[1] || "").trim();
+            const raw = match[2] || match[3] || match[4] || "";
+            for (const value of defaultResultCandidatesForDir(raw))
+                out.push({ key, value });
+        }
+        const redirectPattern = /(?:^|[\s;&|])(?:1?>|2>)[ \t]*(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))/g;
+        for (const match of text.matchAll(redirectPattern)) {
+            const value = normalizePlanCandidatePath(match[1] || match[2] || match[3] || "");
+            if (isPlanCommandResultLikePath(value))
+                out.push({ key: "redirect", value });
+        }
+    }
+    const seen = new Set();
+    return out.filter((item) => {
+        const id = `${item.key}:${item.value}`;
+        if (seen.has(id))
+            return false;
+        seen.add(id);
+        return true;
+    });
+}
+function commandDirAssignmentPattern() {
+    return /(?:^|[\s;&|])([A-Za-z0-9_.-]*(?:output_dir|output-dir|outputDir|out_dir|out-dir|work_dir|work-dir|workDir|workdir|save_dir|save-dir|saveDir|log_dir|log-dir|logDir|logging_dir|logging-dir|loggingDir|tensorboard_log_dir|tensorboard-log-dir|tensorboardLogDir|tb_log_dir|tb-log-dir|tbLogDir|run_dir|run-dir|runDir|rundir|result_dir|result-dir|resultDir|results_dir|results-dir|resultsDir|default_root_dir|default-root-dir|defaultRootDir|dirpath|hydra\.run\.dir|hydra\.sweep\.dir|logger\.save_dir|logger\.save-dir|trainer\.default_root_dir|trainer\.default-root-dir))=(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))/gi;
+}
+function defaultResultCandidatesForDir(value) {
+    const raw = normalizePlanCandidatePath(value);
+    if (!raw || /\/?[^/]+\.[A-Za-z0-9]{1,8}$/.test(raw))
+        return [];
+    const dir = normalizePlanCandidateDir(value);
+    if (!dir || isPlanParseableResultCandidate(raw))
+        return [];
+    const prefix = dir === "." ? "" : `${dir}/`;
+    return [
+        `${prefix}metrics_summary.csv`,
+        `${prefix}results.csv`,
+        `${prefix}metrics.csv`,
+        `${prefix}test_metrics.csv`,
+        `${prefix}classification_report.csv`,
+        `${prefix}summary.txt`,
+        `${prefix}stdout.log`,
+        `${prefix}stderr.log`,
+    ].filter(isPlanParseableResultCandidate);
+}
+function isPlanCommandResultLikePath(value) {
+    if (!isPlanParseableResultCandidate(value))
+        return false;
+    const name = value.split("/").pop() || value;
+    return value.includes("/") || /(metric|result|summary|score|classification|stdout|stderr|output|log)/i.test(name);
+}
+function hasCommandTextOutputTarget(command) {
+    const text = String(command || "").replace(/\\[ \t]*\r?\n[ \t]*/g, " ").replace(/\r?\n/g, " ");
+    return /--(?:stdout|stderr)(?:=(?:"[^"]+"|'[^']+'|[^\s;&|<>]+)|[ \t]+(?:"[^"]+"|'[^']+'|[^\s;&|<>]+))/i.test(text) ||
+        /\{(?:log_file|logFile|summary_txt|summaryTxt)\}/.test(text) ||
+        /\b(?:stdout|stderr)\.log\b/i.test(text);
+}
 function normalizePlanCandidateDir(value) {
     const text = normalizePlanCandidatePath(value).replace(/\/+$/, "");
     if (!text)
@@ -483,13 +1091,45 @@ function normalizePlanCandidatePath(value) {
         return "";
     if (text.startsWith("$") || text.includes("://"))
         return "";
-    return text.replace(/^\.\//, "");
+    return expandPlanPathPlaceholders(text.replace(/^\.\//, ""));
+}
+function expandPlanPathPlaceholders(value) {
+    return String(value || "")
+        .replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, "*")
+        .replace(/\{([A-Za-z0-9_.-]+)\}/g, "*")
+        .replace(/\*+/g, "*")
+        .replace(/\/+/g, "/")
+        .replace(/^\.\//, "")
+        .replace(/^\/+/, "");
 }
 function isPlanParseableResultCandidate(value) {
     const text = String(value || "").trim().replace(/\\/g, "/");
-    if (!text || /(^|\/)jobs\.csv$/i.test(text))
+    if (!text || isNonResultMetadataPath(text))
         return false;
-    return /\.(csv|json|txt|log|out)$/i.test(text);
+    return /\.(csv|json|txt|log|out)$/i.test(text) && isPlanAllowedResultCandidate(text);
+}
+function isNonResultMetadataPath(value) {
+    const text = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+    const base = text.split("/").pop() || "";
+    return /^zlk_cluster\/results\//i.test(text)
+        || /^(?:jobs\.csv|artifact_manifest\.json|checkpoint_manifest\.json|manifest\.json|metadata\.json|status\.json|state\.json|progress\.json|job\.json|jobs\.json|env_snapshot\.json|config_snapshot\.(?:json|ya?ml))$/i.test(base)
+        || /(?:_snapshot|_manifest|_status|_state|_progress)\.json$/i.test(base);
+}
+function isPlanAllowedResultCandidate(value) {
+    const text = expandPlanPathPlaceholders(String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, ""));
+    const parts = text.split("/").filter((part) => part && part !== ".");
+    if (!parts.length || parts.includes(".."))
+        return false;
+    const lowerParts = parts.map((part) => part.toLowerCase());
+    const lower = lowerParts.join("/");
+    const rootName = lowerParts[0].replace(/^\*+/, "").replace(/\*+$/, "");
+    if (parts.length === 1 && (planResultRootFiles.has(lowerParts[0]) || planResultRootFiles.has(rootName)))
+        return true;
+    if (planResultExactPairs.has(lower))
+        return true;
+    if (planResultTopDirs.has(lowerParts[0]) || planResultTopDirs.has(rootName))
+        return true;
+    return planResultPrefixPairs.has(lowerParts.slice(0, 2).join("/"));
 }
 function uniquePlanStrings(values) {
     return [...new Set(values.map((item) => String(item || "").trim()).filter(Boolean))];
@@ -519,7 +1159,14 @@ function expandPlanMatrix(matrix, existingRunKeys = [], suite = "suite") {
             for (const item of conditional)
                 if (!item.when || evaluateCondition(item.when, row))
                     row[item.key] = item.expression ? evaluateValueExpression(item.expression, row) : item.values?.[0];
-            const failed = (matrix.constraints || []).find((constraint) => !evaluateConstraint(constraint.expression, row));
+            let failed;
+            try {
+                failed = (matrix.constraints || []).find((constraint) => !evaluateConstraint(constraint.expression, row));
+            }
+            catch (error) {
+                errors.push(error instanceof Error ? error.message : String(error));
+                failed = { id: "expression_error", expression: "", message: "Expression error" };
+            }
             if (failed) {
                 filteredCount++;
                 continue;
@@ -543,12 +1190,14 @@ function validateTemplateVariables(template, variables) {
     return template.variables.filter((item) => item.required && variables[item.key] === undefined && item.defaultValue === undefined).map((item) => ({ id: `missing_variable_${item.key}`, severity: "critical", path: `variables.${item.key}`, message: `Missing template variable: ${item.key}`, suggestion: "Set variable before generating plan." }));
 }
 function importLegacyPlanYamlToRegistry(planFile, text, existing = []) {
-    const suite = scalar(text, "suite") || stripExt(planFile);
-    const cases = parsePlanCases(text);
+    const summary = parsePlanSummary(text);
+    const suite = summary.suite || stripExt(planFile);
+    const cases = summary.cases;
+    const seeds = summary.seeds.map((seed) => String(seed).trim()).filter(Boolean);
     const planId = stablePlanId(planFile, suite);
     const previous = existing.find((item) => item.planId === planId);
     const now = new Date().toISOString();
-    const plannedExperiments = cases.map((name) => ({ experimentKey: sha256(`${suite}:${name}`).slice(0, 16), name, runKey: `${suite}:${name}`, status: "planned" }));
+    const plannedExperiments = expandPlannedExperiments(suite, cases, seeds);
     return {
         schemaVersion: 1,
         planId,
@@ -558,15 +1207,30 @@ function importLegacyPlanYamlToRegistry(planFile, text, existing = []) {
         source: { type: "manual_yaml", path: planFile },
         planFile,
         planSha256: sha256(text),
-        variables: {},
+        variables: seeds.length ? { seeds } : {},
         dimensions: { suite },
         experimentCount: plannedExperiments.length || Number(scalar(text, "job_count") || 0) || 1,
         plannedExperiments,
         createdAt: previous?.createdAt || now,
         updatedAt: now,
-        provenance: { baseConfig: scalar(text, "base_config") },
+        provenance: { baseConfig: summary.baseConfig },
         revisions: previous?.revisions || [createPlanRevision(planId, text, "initial import", "import")],
     };
+}
+function expandPlannedExperiments(suite, cases, seeds) {
+    const normalizedCases = cases.length ? cases : ["baseline"];
+    const normalizedSeeds = seeds.length ? seeds : [""];
+    return normalizedCases.flatMap((name) => normalizedSeeds.map((seed) => {
+        const seedSuffix = seed ? `:seed${seed}` : "";
+        const displaySeed = seed ? `/seed_${seed}` : "";
+        const runKey = `${suite}:${name}${seedSuffix}`;
+        return {
+            experimentKey: sha256(runKey).slice(0, 16),
+            name: `${name}${displaySeed}`,
+            runKey,
+            status: "planned",
+        };
+    }));
 }
 function upsertPlanRecords(existing, incoming) {
     const map = new Map(existing.map((item) => [item.planId, item]));
@@ -711,6 +1375,10 @@ function computePlanResultCoverage(plan, lifecycles = [], results = [], primaryM
         const aliases = aliasesByExperiment[index] || planExperimentAliases(item);
         return !parsed.some((result) => planRecordMatchesAliases(result, aliases) && result.metrics[primaryMetric]);
     }).map((item) => item.experimentKey);
+    const missingExperimentCount = plan.plannedExperiments.filter((item, index) => {
+        const aliases = aliasesByExperiment[index] || planExperimentAliases(item);
+        return !parsed.some((result) => planRecordMatchesAliases(result, aliases));
+    }).length;
     const bestByMetric = {};
     for (const result of parsed)
         for (const [metric, value] of Object.entries(result.metrics)) {
@@ -718,7 +1386,7 @@ function computePlanResultCoverage(plan, lifecycles = [], results = [], primaryM
             if (Number.isFinite(n) && (!bestByMetric[metric] || n > bestByMetric[metric].value))
                 bestByMetric[metric] = { experimentId: result.experimentId, value: n };
         }
-    return { planId: plan.planId, experimentCount: plan.experimentCount, completedCount: completed, parsedResultCount: parsed.length, missingResultCount: Math.max(0, plan.experimentCount - parsed.length), missingPrimaryMetric, bestByMetric };
+    return { planId: plan.planId, experimentCount: plan.experimentCount, completedCount: completed, parsedResultCount: parsed.length, missingResultCount: missingExperimentCount, missingPrimaryMetric, bestByMetric };
 }
 function planExperimentAliases(item) {
     return new Set([item.experimentKey, item.runKey, item.name].map((value) => String(value || "").trim()).filter(Boolean));
@@ -770,7 +1438,7 @@ function pairedCombinations(variables) {
     for (let i = 0; i < length; i++) {
         const row = {};
         for (const variable of variables)
-            row[variable.name] = String(variable.values?.[Math.min(i, (variable.values?.length || 1) - 1)] || "");
+            row[variable.name] = String(variable.values?.[Math.min(i, (variable.values?.length || 1) - 1)] ?? "");
         rows.push(row);
     }
     return rows;
@@ -803,7 +1471,7 @@ function template(id, name, schemaId, relativePath) {
                     "base_config: {{base_config}}",
                     "dataset: {{dataset}}",
                     "paper:",
-                    "  result_csv: experiments/results/{{suite}}.csv",
+                    "  result_csv: {output_dir}/metrics_summary.csv",
                     "runner:",
                     "  train_command: \"python train.py --config {config} --seed {seed} --output-dir {output_dir}\"",
                     "  test_command: \"python test.py --config {config} --seed {seed} --output-dir {output_dir} --result-csv {result_csv}\"",
@@ -858,9 +1526,50 @@ function planCaseInlineListValues(text) {
     const trimmed = text.trim();
     if (!trimmed.startsWith("[") || !trimmed.endsWith("]"))
         return [];
-    return splitTopLevelYamlList(trimmed.slice(1, -1))
+    return splitYamlFlowItems(trimmed.slice(1, -1))
         .map((item) => planCaseLabelValue(item) || planCaseScalarListValue(item))
         .filter(Boolean);
+}
+function splitYamlFlowItems(text) {
+    const items = [];
+    let current = "";
+    let quote = "";
+    let escape = false;
+    let depth = 0;
+    for (const ch of text) {
+        if (quote) {
+            current += ch;
+            if (escape) {
+                escape = false;
+            }
+            else if (ch === "\\") {
+                escape = true;
+            }
+            else if (ch === quote) {
+                quote = "";
+            }
+            continue;
+        }
+        if (ch === "\"" || ch === "'") {
+            quote = ch;
+            current += ch;
+            continue;
+        }
+        if (ch === "{" || ch === "[")
+            depth++;
+        if (ch === "}" || ch === "]")
+            depth = Math.max(0, depth - 1);
+        if (ch === "," && depth === 0) {
+            if (current.trim())
+                items.push(current.trim());
+            current = "";
+            continue;
+        }
+        current += ch;
+    }
+    if (current.trim())
+        items.push(current.trim());
+    return items;
 }
 function stripYamlScalar(value) {
     const trimmed = value.replace(/\s+#.*$/, "").trim();
@@ -868,6 +1577,20 @@ function stripYamlScalar(value) {
         return trimmed.slice(1, -1).trim();
     }
     return trimmed;
+}
+function normalizePlanScalar(value, anchors) {
+    const stripped = stripYamlScalar(stripYamlLineComment(value)).trim();
+    const anchor = stripped.match(/^&([A-Za-z0-9_.-]+)\s+(.+)$/);
+    if (anchor) {
+        const resolved = stripYamlScalar(anchor[2]).trim();
+        if (resolved)
+            anchors.set(anchor[1], resolved);
+        return resolved;
+    }
+    const alias = stripped.match(/^\*([A-Za-z0-9_.-]+)$/);
+    if (alias)
+        return anchors.get(alias[1]) || "";
+    return stripped;
 }
 function renderNamingRule(pattern, suite, row) {
     return pattern ? renderTemplate(pattern, { suite, ...row }) : "";
@@ -878,7 +1601,7 @@ function evaluateValueExpression(expression, row) {
         return undefined;
     const ref = trimmed.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
     if (ref)
-        return row[trimmed];
+        return Object.prototype.hasOwnProperty.call(row, trimmed) ? row[trimmed] : trimmed;
     const arithmetic = trimmed.match(/^([a-zA-Z0-9_.-]+)\s*([*+\-/])\s*([a-zA-Z0-9_.-]+)$/);
     if (arithmetic) {
         const a = Number(resolveToken(arithmetic[1], row));
@@ -939,33 +1662,6 @@ function matrixPreviewCsv(experiments) {
 function scalar(text, key) {
     const match = text.match(new RegExp(`^${key}:\\s*["']?([^"'#\\n]+)["']?`, "m"));
     return match?.[1]?.trim();
-}
-function parsePlanStringList(text, key) {
-    const lines = text.replace(/\r\n/g, "\n").split("\n");
-    for (let index = 0; index < lines.length; index++) {
-        const match = lines[index].match(new RegExp(`^(\\s*)${escapeRegExp(key)}\\s*:\\s*(.*)$`));
-        if (!match)
-            continue;
-        const inline = match[2].trim();
-        if (inline.startsWith("[") && inline.endsWith("]")) {
-            return splitTopLevelYamlList(inline.slice(1, -1)).map(stripYamlScalar).filter(Boolean);
-        }
-        const indent = match[1].length;
-        const values = [];
-        for (let cursor = index + 1; cursor < lines.length; cursor++) {
-            const nested = lines[cursor];
-            if (!nested.trim())
-                continue;
-            const nestedIndent = nested.match(/^\s*/)?.[0].length || 0;
-            if (nestedIndent <= indent)
-                break;
-            const item = nested.match(/^\s*-\s*(.+)$/);
-            if (item)
-                values.push(stripYamlScalar(item[1]));
-        }
-        return values.filter(Boolean);
-    }
-    return [];
 }
 function stablePlanId(planFile, suite) {
     return `plan_${sha256(`${suite}:${planFile}`).slice(0, 12)}`;

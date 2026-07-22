@@ -100,7 +100,7 @@ test("plan search, tags, dependencies, coverage, and config fallback work", () =
   plan = tagPlan({ ...plan, status: "failed", favorite: true }, "rerun-needed");
   assert.equal(searchPlans([plan], { status: "failed", tag: "rerun-needed", favorite: true }).length, 1);
   plan.dependencies = [{ id: "d", from: "stage1", to: "stage2", type: "stage", condition: { type: "completed" } }];
-  assert.deepEqual(dependencyBlockedReasons(plan, {}).stage2, ["blocked by stage1:completed"]);
+  assert.deepEqual(dependencyBlockedReasons(plan, []).stage2, ["blocked by stage1:completed"]);
   const coverage = computePlanResultCoverage(plan, [{ experimentKey: plan.plannedExperiments[0].experimentKey, state: "completed" }], [{ experimentId: plan.plannedExperiments[0].experimentKey, status: "parsed", metrics: { DSC: { value: 0.9 } } }], "DSC");
   assert.equal(coverage.completedCount, 1);
   assert.equal(coverage.bestByMetric.DSC.value, 0.9);

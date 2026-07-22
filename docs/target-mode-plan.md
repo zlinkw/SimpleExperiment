@@ -18,24 +18,24 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-028
+## 当前批次：recovery-build-029
 ### 修复点
-- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，校正调度器无派发失败契约的陈旧测试。
-- 保留连续三轮全部 Worker probe 失败后将排队实验转为失败并写回状态的恢复逻辑。
-- 保留最终中文错误、失败 terminal status 和状态持久化，不修改已安装扩展或实验结果。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复缺失的 PlanBuilder 完整实现。
+- 恢复 mode-aware Plan 校验、复杂 YAML 解析、结果候选门禁、矩阵表达式错误收敛和 Plan registry 覆盖计算。
+- 保留 TypeScript 公共类型出口，不修改 Plan 文件、配置文件、已安装扩展或实验结果。
 
 ### 回归风险
-- 调度风险：暂时无空闲 GPU 不得被误判为全部 probe 错误；只有连续全部错误才触发失败收敛。
-- 状态风险：退出前必须保留失败原因、pending 转换结果和 terminal status，禁止静默完成。
+- 解析风险：注释、flow map、anchor、alias、嵌套对象和命令参数不得产生伪结果或伪 case。
+- 结果风险：metadata、内部 registry 和未被当前 mode 使用的命令输出不得通过正式结果门禁。
 
 ### 验证清单
-- 调度器 probe、等待原因、连续错误收敛和最终失败状态定向测试：通过 `2/2`；生成 runtime 与安装版除恢复注释外一致。
-- 调度器广域相邻审计通过 `23/27`；4 个失败属于未恢复的 PlanBuilder、依赖 probe 和 live-output allowlist，登记为后续批次，不属于本批回归。
+- Plan mode、YAML case、结果候选、matrix、registry 和 coverage 定向测试：通过 `33/33`。
+- Plan 广域相邻审计通过 `49/53`；4 个失败属于未恢复的 Notifications、PlanArchive entry scanner 和 ProjectAdapterTemplates，登记为后续批次，不属于本批回归。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`128ee2fe625e880e5853b9ccb6f7e89d183e28ea`。
+- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-027`，Agent runtime startup policy 已验证并同步，提交 `1230e3ef3f764d7642dd396fdf39984541428b1c`。
-- 当前目标状态：`recovery-build-028` 已完成。
-- `recovery-build-028` 提交记录：`128ee2fe625e880e5853b9ccb6f7e89d183e28ea`，已普通快进推送并确认与 `origin/master` 一致。
+- 最新完成批次：`recovery-build-028`，scheduler failure contract 已验证并同步，提交 `128ee2fe625e880e5853b9ccb6f7e89d183e28ea`。
+- 当前目标状态：`recovery-build-029` 验证通过，待提交同步。
+- `recovery-build-029` 提交记录：待验证后填写。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。

@@ -24,7 +24,7 @@ test("plan builder generates grid plan and detects duplicate runKey", () => {
   assert.equal(result.experiments.length, 4);
   assert.equal(result.duplicateRunKeys.length, 1);
   assert.equal(parsePlanCases(result.yaml).length, 2);
-  assert.match(result.yaml, /paper:\n  result_csv: "experiments\/results\/\{suite\}\.csv"/);
+  assert.match(result.yaml, /paper:\n  result_csv: "\{output_dir\}\/metrics_summary\.csv"/);
   assert.match(result.yaml, /runner:\n  train_command: "python train\.py --config \{config\}/);
   assert.match(result.yaml, /naming:\n  sweep_dir: "work_dirs\/multirun\/\{suite\}"/);
   assert.match(result.yaml, /cases:\n  - case: "abl__loss-dice__model-a"/);
@@ -41,7 +41,7 @@ test("built-in plan template uses the shared scheduler plan contract", () => {
   })[0].content;
   assert.match(rendered, /suite: cls_smoke/);
   assert.match(rendered, /base_config: configs\/base.yaml/);
-  assert.match(rendered, /paper:\n  result_csv: experiments\/results\/cls_smoke\.csv/);
+  assert.match(rendered, /paper:\n  result_csv: \{output_dir\}\/metrics_summary\.csv/);
   assert.match(rendered, /runner:\n  train_command: "python train\.py --config \{config\}/);
   assert.match(rendered, /naming:\n  sweep_dir: work_dirs\/multirun\/\{suite\}/);
   assert.match(rendered, /cases:\n  - case: cls_smoke_demo/);
@@ -133,7 +133,7 @@ test("plan output evidence ignores comments and object ids", () => {
     "        note: metrics_summary.csv only in note",
   ].join("\n"));
   assert.deepEqual(evidence.evidenceCandidates, []);
-  assert.deepEqual(evidence.outputSignals, []);
+  assert.deepEqual(evidence.outputSignals, ["结果目录: work_dirs/no_output"]);
   assert.equal(evidence.outputCandidates.includes("work_dirs/no_output/metrics_summary.csv"), true);
 });
 
