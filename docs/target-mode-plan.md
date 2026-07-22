@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-010`。
+- 批次：`recovery-build-013`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -127,4 +127,15 @@
 - 影响区域：`src/ui/WebviewRenderState.ts`、`dist/ui/WebviewRenderState.js` 和本计划。
 - 回归检查：离线快照回退测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
 - 验证：离线快照与最近快照优先级测试 `2/2`、`npm run typecheck`、`npm run lint`、`node -c dist/ui/WebviewRenderState.js` 和 `git diff --check` 通过。
-- 状态：已完成验证，待提交并同步；Extension 内部合并与 payload 预算不在本批修改。
+- 提交记录：`fix: restore webview snapshot fallback`，提交 `15da3e95cd59a1cec2266fd3943b4fb49a751b89`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 状态：已完成；Extension 内部合并与 payload 预算不在本批修改。
+
+### recovery-build-013
+
+- 目标：恢复一整天性能与自动化持续优化所需的长时间状态预算；只处理 `schedulerStates` 与 `experimentTraces`。
+- 影响区域：`src/extension.ts`、`dist/extension.js` 和本计划。
+- Batch 74：scheduler state payload 预算。schedulerStates 长时间累积必须受调度状态 payload 预算约束，并优先保留活动、异常和当前选择记录。
+- Batch 75：experiment trace payload 预算。experimentTraces 长时间累积必须受限；实验记录 `experimentTraces` 长时间运行必须有 payload 预算，并优先保留当前选择与需关注记录。
+- 回归检查：scheduler state 与 experiment trace 预算测试、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：scheduler state 与 experiment trace 预算测试 `4/4`、`npm run typecheck`、`npm run lint`、`node -c dist/extension.js` 和 `git diff --check` 通过。
+- 状态：已完成验证，待提交并同步；其他 Webview 与 UI 失败不在本批修改。
