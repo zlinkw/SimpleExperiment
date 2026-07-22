@@ -1735,6 +1735,18 @@ class RealtimeTunnelPanelProvider {
             },
         });
     }
+    async repairTunnelPorts() {
+        await this.syncXshellConfigBeforeNetwork("repair tunnel ports");
+        const conflicts = this.currentPortConflicts();
+        if (!conflicts.length) {
+            void vscode.window.showInformationMessage("未检测到隧道端口冲突。");
+            return;
+        }
+        const conflictSummary = conflicts.slice(0, 12).map((item) => `${item.endpointId}: 127.0.0.1:${item.requestedPort} - ${item.message}`).join("\n");
+        const answer = await vscode.window.showWarningMessage(`检测到 ${conflicts.length} 个隧道端口冲突：\n\n${conflictSummary}\n\n插件不会自动改写 Xshell 会话。调整端口范围后，请在 Xshell 中核对并保存对应的本地转发端口。`, { modal: true }, "配置端口范围");
+        if (answer === "配置端口范围")
+            await this.configureTunnelPorts();
+    }
     async startHubTunnel() {
         await this.startXshellRealtimeTunnel();
     }
@@ -2193,6 +2205,9 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "configurePorts":
                 await this.configureTunnelPorts();
+                break;
+            case "repairPorts":
+                await this.repairTunnelPorts();
                 break;
             case "configure":
                 await this.configureXshellRealtimeTunnel();
@@ -9717,7 +9732,7 @@ function buildWorkerTelemetryStatus(registryState, probes, realtime) {
 function getSafeCommand(message) {
     const command = stringField(message, "command");
     const basic = new Set([
-        "webviewReady", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+        "webviewReady", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
         "resumeNetwork", "snapshot", "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
         "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
         "selectPlan", "selectExperiment",
@@ -9861,7 +9876,7 @@ function normalizeUiButtonActions(input, limit) {
         ...Array.from(uiActionCommands),
         "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
         "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
-        "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "configure",
+        "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
         "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll",
         "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
         "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",

@@ -1282,6 +1282,12 @@ function renderPanelHtml() {
       <div id="actionErrors" data-anchor="diagnostics-errors"></div>
       <details class="advanced">
         <summary>高级诊断</summary>
+        <div class="toolbar" title="插件不内置 SSH；Hub 和 Worker 连接由 Xshell 本地端口转发提供">
+          <button data-command="startHub" type="button">启动 Hub</button>
+          <button data-command="startWorker" type="button">启动 Worker</button>
+          <button data-command="configurePorts" class="secondary" type="button">配置端口</button>
+          <button data-command="repairPorts" class="secondary" type="button">处理端口冲突</button>
+        </div>
         <h3>配置来源</h3>
         <div id="configurationSources" data-anchor="diagnostics-config-sources"></div>
         <h3>Hub 控制面</h3>
@@ -1511,7 +1517,7 @@ function renderPanelHtml() {
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "prepareAgents",
-      "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
+      "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
@@ -3751,6 +3757,7 @@ function renderPanelHtml() {
         quickSetup: "一键配置",
         configureWorkers: "配置 Worker",
         configurePorts: "配置端口",
+        repairPorts: "检查端口冲突并选择新的 Worker 端口范围；不会自动改写 Xshell 会话",
         configure: "配置 Hub 隧道",
         startHub: "启动 Hub",
         startWorker: "启动 Worker",
@@ -10872,7 +10879,11 @@ function renderPanelHtml() {
         saveWorkerConfig: "保存服务器",
         addWorkerConfig: "新增服务器",
         deleteWorkerConfig: "删除服务器",
+        configurePorts: "配置端口",
+        repairPorts: "处理端口冲突",
         startTunnelEndpoint: "启动隧道",
+        startHub: "启动 Hub",
+        startWorker: "启动 Worker",
         startAll: "启动全部隧道",
         startAgents: "启动全部隧道",
         writeAgentCommands: "写入自启动",

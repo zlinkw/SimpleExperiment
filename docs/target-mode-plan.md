@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-021`。
+- 批次：`recovery-build-022`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -244,3 +244,15 @@
 - 延期项：剩余 `8` 个 UI 失败属于 Hub/Worker 状态、端口冲突、操作时间线、Plan action、服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
 - 提交记录：`ui: compact GPU and sync panels`，提交 `e75bbf6b59a6f781dd3cd59e8e8923555f3e0bd0`，已普通快进推送至 `origin/master`；推送后该提交与 `origin/master` 一致。
 - 状态：已完成；下一批优先处理 Hub/Worker 状态与端口冲突契约。
+
+### recovery-build-022
+
+- 目标：恢复 Hub/Worker 与隧道端口诊断操作入口，并为端口冲突提供不自动改写 Xshell 会话的安全处理流程。
+- 影响区域：`src/ui/PanelHtml.ts`、`src/extension.ts`、两个对应生成的 `dist`、Hub/Worker 与端口 UI 回归测试和本计划。
+- 保护区域：不自动修改 Xshell 会话文件，不启动内置 SSH，不改变端口分配模型、实时协议、服务器配置或 SimpleSFTP。
+- 回归检查：Hub/Worker 状态、端口分配与冲突、可见命令 handler、Panel inline script、UI 分组、`npm run typecheck`、lint、JavaScript 语法和 `git diff --check`。
+- 验证：Hub/Worker 状态、端口分配与冲突、可见命令 handler 和 Panel inline script 定向测试 `4/4` 通过；UI 分组由 `64/72` 提升到 `66/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js`、`node -c dist/extension.js` 和 `git diff --check` 通过。
+- 说明：高级诊断恢复 Hub、Worker、端口配置和端口冲突处理入口。冲突处理先同步只读 Xshell 配置信息并显示端点及预期本地端口，用户确认后仅进入 Worker 端口范围配置；插件不自动改写 `.xsh` 会话文件。
+- 延期项：剩余 `6` 个 UI 失败属于操作时间线、Plan action、服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
+- 提交记录：待本批验证提交并推送后补记真实 SHA。
+- 状态：已完成；下一批优先处理操作时间线与 Plan action 契约。
