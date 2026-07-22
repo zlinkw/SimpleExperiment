@@ -32,7 +32,9 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
     extractFunction("planPlaceholderForCliArgument"),
     extractFunction("guidedPlanCommandInfo"),
     extractFunction("guidedPlanCommand"),
+    extractFunction("guidedPlanCommandWarnings"),
     extractFunction("guidedPlanCommandPrompt"),
+    extractFunction("guidedPlanResultPathReview"),
     extractFunction("guidedPlanResultPath"),
     extractFunction("planResultPathValidationMessage"),
     extractFunction("guidedPlanCommandUsesConfig"),
@@ -82,7 +84,7 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
   assert.equal(testInfo.command, 'python "tools/test.py" --config-file {config} --metrics-json {result_csv}');
   assert.equal(testInfo.resultExtension, ".json");
   assert.deepEqual([...testInfo.ignoredPositionals], ["checkpoint"]);
-  assert.match(sandbox.api.guidedPlanCommandPrompt(testInfo, "test"), /未自动填写的位置参数：checkpoint/);
+  assert.match(sandbox.api.guidedPlanCommandPrompt(testInfo, "test"), /未自动填写位置参数：checkpoint/);
   const trainOnlyInfo = sandbox.api.guidedPlanCommandInfo("tools/train.py", "train_result", 'parser.add_argument("--result-csv")\nparser.add_argument("--worker-id")');
   assert.equal(trainOnlyInfo.command, 'python "tools/train.py" --result-csv {result_csv} --worker-id {worker_id}');
 
@@ -154,14 +156,14 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
 
   assert.match(source, /\["scripts", "src", "tools", "experiments"\]\.map/);
   assert.match(source, /walkProjectFiles\(dir, root, experimentEntryFileName, 20, 3/);
-  assert.match(source, /guidedPlanCommandSuggestion\(root, entries\.trainEntries\[0\], "train"\)/);
-  assert.match(source, /guidedPlanCommandSuggestion\(root, entries\.testEntries\[0\], "test"\)/);
-  assert.match(source, /guidedPlanResultPath\(resultCommand, suite, resultSuggestion\.resultExtension\)/);
+  assert.match(source, /guidedPlanCommandSuggestion\(root, trainEntry, trainCommandStage\)/);
+  assert.match(source, /guidedPlanCommandSuggestion\(root, testEntry, "test"\)/);
+  assert.match(source, /guidedPlanResultPathReview\(resultCommand, suite, resultSuggestion\.resultExtension\)/);
   assert.match(source, /title: "选择 Plan 运行模式"/);
   assert.match(source, /inputPlanResultPath\("确认最终结果文件"/);
   assert.match(source, /result_csv: \$\{JSON\.stringify\(resultPath\)\}/);
   assert.match(source, /首次接入固定为单 case、单 seed/);
-  assert.match(source, /await confirmGuidedPlanCreation\(\{ relative, mode, baseConfig, trainEntry, testEntry, trainCommand, testCommand, resultPath, configReview \}\)/);
+  assert.match(source, /await confirmGuidedPlanCreation\(\{ relative, mode, baseConfig, trainEntry, testEntry, trainCommand, testCommand, resultPath, resultReview, configReview \}\)/);
   assert.match(source, /"任务规模：1 个实验项 × 1 个随机种子 = 1 个任务"/);
   assert.match(source, /showWarningMessage\(detail, \{ modal: true \}, label\)/);
   assert.match(source, /const recommended = guidedPlanRecommendedConfig\(list\)/);

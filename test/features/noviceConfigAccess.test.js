@@ -17,7 +17,7 @@ function loadLayoutHelpers() {
   const prelude = [
     source.slice(defaultUiSectionOrderStart, defaultUiSectionOrderEnd),
     source.slice(defaultStart, defaultEnd),
-    source.slice(uiActionStart, uiActionEnd),
+    source.slice(uiActionStart, uiActionEnd).replace(/new Set<WebviewActionCommand>/g, "new Set"),
     source.slice(normalizeStart, clampEnd),
   ].join("\n");
   const sandbox = { console };
