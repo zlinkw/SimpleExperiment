@@ -34,10 +34,10 @@
 - [已通过] Hub/Worker 保存、项目父目录说明与 SimpleSFTP ABI 定向测试 5/5。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，596 通过、27 失败；相较 30 项旧恢复边界减少 3 项。
-- [待同步] 本批修复提交尚未创建或推送。
+- [已同步] 修复提交 `5e328da24c06f648d4d29399ffd1109145b3cf42` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-044`，修复提交 `9694fe4856af3937cb4a0d712f79b603125db3b6`，记录提交 `f62b9885e82705e6d103133921569315aacbea11`。
-- 当前目标状态：`recovery-build-045` 执行中。
+- 当前目标状态：`recovery-build-045` 已完成并同步。
 - 本批涉及：配置说明、SimpleSFTP readiness 测试与本计划；不修改产品运行时源码。
-- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`5e328da24c06f648d4d29399ffd1109145b3cf42`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
