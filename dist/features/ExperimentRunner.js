@@ -71,7 +71,7 @@ function runRecordedExperiment(options) {
     const commandLine = shellLine(options.command);
     fs.writeFileSync(path.join(runDir, "command.txt"), commandLine + "\n", "utf8");
     const startedAt = new Date().toISOString();
-    const result = (0, child_process_1.spawnSync)(options.command[0], options.command.slice(1), { cwd, encoding: "utf8", shell: process.platform === "win32" });
+    const result = (0, child_process_1.spawnSync)(options.command[0], options.command.slice(1), { cwd, encoding: "utf8", shell: false });
     fs.writeFileSync(path.join(runDir, "stdout.log"), result.stdout || "", "utf8");
     fs.writeFileSync(path.join(runDir, "stderr.log"), result.stderr || "", "utf8");
     fs.writeFileSync(path.join(runDir, "env_snapshot.json"), JSON.stringify(envSnapshot(options, commandLine, startedAt), null, 2), "utf8");

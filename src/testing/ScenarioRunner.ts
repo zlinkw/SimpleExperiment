@@ -3,9 +3,11 @@ import { ClusterStore } from "../state/ClusterStore";
 import { FakeClusterRuntime } from "./FakeClusterRuntime";
 
 export interface ScenarioStep {
-  action: "agentEvent" | "remoteCommand" | "serverOffline" | "serverOnline";
+  action: "agentEvent" | "remoteCommand" | "tunnelAction" | "serverOffline" | "serverOnline";
   serverId?: string;
   command?: string;
+  tunnelAction?: string;
+  opId?: string;
   event?: unknown;
 }
 
@@ -26,6 +28,7 @@ export async function runScenario(scenario: Scenario): Promise<{ store: ClusterS
     if (step.action === "serverOffline" && step.serverId) runtime.addServer(step.serverId, false);
     if (step.action === "serverOnline" && step.serverId) runtime.addServer(step.serverId, true);
     if (step.action === "remoteCommand" && step.serverId && step.command) await runtime.run(step.serverId, step.command);
+    if (step.action === "tunnelAction" && step.tunnelAction) runtime.acceptAction(step.tunnelAction, step.opId || `op-${runtime.state.actions.length + 1}`);
   }
   return { store, runtime };
 }

@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.builtInPaperTableTemplates = exports.builtInResultSchemas = exports.finalResultInclusionPolicy = exports.defaultInclusionPolicy = exports.defaultValidationRules = exports.builtInResultPresets = exports.classificationMetricDirections = exports.segmentationMetricDirections = exports.RESULT_EXPORT_DIR = exports.RESULT_REGISTRY_LOCAL_PATH = exports.RESULT_REGISTRY_PATH = void 0;
+exports.builtInPaperTableTemplates = exports.builtInResultSchemas = exports.finalResultInclusionPolicy = exports.defaultInclusionPolicy = exports.defaultValidationRules = exports.builtInResultPresets = exports.classificationMetricDirections = exports.segmentationMetricDirections = exports.defaultTextMetricPattern = exports.RESULT_EXPORT_DIR = exports.RESULT_REGISTRY_LOCAL_PATH = exports.RESULT_REGISTRY_PATH = void 0;
 exports.selectResultPreset = selectResultPreset;
 exports.previewResultParse = previewResultParse;
+exports.previewTextMetricParse = previewTextMetricParse;
 exports.parseResultFile = parseResultFile;
 exports.upsertExperimentResults = upsertExperimentResults;
 exports.validateResultRecords = validateResultRecords;
@@ -32,6 +33,7 @@ const crypto_1 = require("crypto");
 exports.RESULT_REGISTRY_PATH = "zlk_cluster/results/result_registry.json";
 exports.RESULT_REGISTRY_LOCAL_PATH = "zlk_cluster/results/result_registry.local.json";
 exports.RESULT_EXPORT_DIR = "zlk_cluster/results/exports";
+exports.defaultTextMetricPattern = /\b(?<metric>(?:accuracy|acc|auc|auroc|roc_auc|auprc|f1|precision|recall|sensitivity|specificity|balanced_accuracy|loss|dice|dsc|iou|hd95|asd|mae|mse|rmse|r2))\b\s*[:=]\s*(?<value>-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)(?:\s*%)?/gi;
 exports.segmentationMetricDirections = {
     DSC: "higher",
     Dice: "higher",
@@ -173,6 +175,42 @@ function previewResultParse(text, sourceFile, preset) {
             ...records.filter((record) => record.notes?.includes("inferred")).map((record) => `${record.resultId}: ${record.notes}`),
         ],
         sampleMetrics: records[0]?.metrics || {},
+    };
+}
+function previewTextMetricParse(text, sourceFile, options = {}) {
+    const customPattern = compileTextMetricPattern(options.metricRegex);
+    const ruleId = customPattern ? "custom_regex" : /summary\.txt$/i.test(sourceFile) ? "summary_text_regex" : "console_regex";
+    const samples = [];
+    const lines = text.split(/\r?\n/);
+    lines.forEach((line, index) => {
+        const pattern = new RegExp((customPattern || exports.defaultTextMetricPattern).source, "gi");
+        for (const match of line.matchAll(pattern)) {
+            const metric = normalizeTextMetricName(match.groups?.metric || "", options.metricAliases);
+            const raw = Number(match.groups?.value);
+            if (!metric || !Number.isFinite(raw))
+                continue;
+            const matchedText = line.slice(match.index || 0, (match.index || 0) + match[0].length);
+            samples.push({
+                metric,
+                value: /%\s*$/.test(matchedText) ? raw / 100 : raw,
+                line: index + 1,
+                snippet: compactSnippet(line),
+                higherIsBetter: !["loss", "log_loss", "cross_entropy", "ce_loss", "asd", "hd95", "mae", "mse", "rmse"].includes(metric.toLowerCase()),
+            });
+        }
+    });
+    return {
+        ruleId,
+        sourceFile,
+        lines: lines.length,
+        records: samples.length,
+        metrics: unique(samples.map((item) => item.metric)),
+        samples: samples.slice(0, 8),
+        warnings: [
+            ...(options.metricRegex && !customPattern ? ["自定义指标正则无效，已回退到默认正则。"] : []),
+            ...(samples.length ? [] : ["未从文本中捕获指标；可配置自定义正则。"]),
+        ],
+        parsedAt: new Date().toISOString(),
     };
 }
 function parseResultFile(text, sourceFile, preset, parserConfig = {}) {
@@ -841,9 +879,24 @@ function parseValue(value) {
     const n = Number(value);
     return Number.isFinite(n) ? n : String(value);
 }
-function normalizeTextMetricName(metric) {
+function compileTextMetricPattern(pattern) {
+    if (!pattern?.trim())
+        return undefined;
+    try {
+        const compiled = new RegExp(pattern, "gi");
+        const groupNames = new Set(Array.from(pattern.matchAll(/\?<([A-Za-z0-9_]+)>/g)).map((match) => match[1]));
+        return groupNames.has("metric") && groupNames.has("value") ? compiled : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+function normalizeTextMetricName(metric, aliases = {}) {
     const value = metric.trim();
     const lower = value.toLowerCase();
+    const custom = aliases[value] || Object.entries(aliases).find(([key]) => key.toLowerCase() === lower)?.[1];
+    if (custom)
+        return custom;
     if (lower === "acc")
         return "accuracy";
     if (lower === "dice")

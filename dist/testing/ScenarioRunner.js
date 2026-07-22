@@ -19,6 +19,8 @@ async function runScenario(scenario) {
             runtime.addServer(step.serverId, true);
         if (step.action === "remoteCommand" && step.serverId && step.command)
             await runtime.run(step.serverId, step.command);
+        if (step.action === "tunnelAction" && step.tunnelAction)
+            runtime.acceptAction(step.tunnelAction, step.opId || `op-${runtime.state.actions.length + 1}`);
     }
     return { store, runtime };
 }

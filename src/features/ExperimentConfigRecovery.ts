@@ -140,7 +140,7 @@ export function compareRecoveredConfigToPlan(recovered: RecoveredExperimentConfi
     ["trainCommand", recovered.plan.trainCommand, plan.trainCommand],
     ["testCommand", recovered.plan.testCommand, plan.testCommand],
   ];
-  const differences = checks.filter(([, a, b]) => normalize(a) && normalize(b) && normalize(a) !== normalize(b)).map(([fieldName, recoveredValue, planValue]) => ({
+  const differences: RecoveredPlanComparison["differences"] = checks.filter(([, a, b]) => normalize(a) && normalize(b) && normalize(a) !== normalize(b)).map(([fieldName, recoveredValue, planValue]) => ({
     field: fieldName,
     recovered: recoveredValue,
     plan: planValue,

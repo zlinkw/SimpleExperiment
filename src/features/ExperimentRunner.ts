@@ -25,6 +25,24 @@ export interface ZlkRunResult {
   metricsRows: number;
 }
 
+interface ArtifactManifestFile {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+interface ArtifactManifest {
+  schemaVersion: 1;
+  runId: string;
+  name: string;
+  seed: string;
+  config: string;
+  exitCode: number;
+  metricsRows: number;
+  files: ArtifactManifestFile[];
+  generatedAt: string;
+}
+
 export function parseZlkRunArgs(argv: string[]): ZlkRunOptions {
   const sep = argv.indexOf("--");
   const head = sep >= 0 ? argv.slice(0, sep) : argv;
@@ -55,7 +73,7 @@ export function runRecordedExperiment(options: ZlkRunOptions): ZlkRunResult {
   const commandLine = shellLine(options.command);
   fs.writeFileSync(path.join(runDir, "command.txt"), commandLine + "\n", "utf8");
   const startedAt = new Date().toISOString();
-  const result = spawnSync(options.command[0], options.command.slice(1), { cwd, encoding: "utf8", shell: process.platform === "win32" });
+  const result = spawnSync(options.command[0], options.command.slice(1), { cwd, encoding: "utf8", shell: false });
   fs.writeFileSync(path.join(runDir, "stdout.log"), result.stdout || "", "utf8");
   fs.writeFileSync(path.join(runDir, "stderr.log"), result.stderr || "", "utf8");
   fs.writeFileSync(path.join(runDir, "env_snapshot.json"), JSON.stringify(envSnapshot(options, commandLine, startedAt), null, 2), "utf8");
@@ -63,7 +81,7 @@ export function runRecordedExperiment(options: ZlkRunOptions): ZlkRunResult {
   const metricsRows = writeMetricsSummary(runDir, options, result.stdout || "", result.stderr || "");
   const manifest = buildArtifactManifest(runDir, options, result.status ?? 1, metricsRows);
   fs.writeFileSync(path.join(runDir, "artifact_manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
-  return { runId, runDir, exitCode: result.status ?? 1, files: manifest.files.map((item: { path: string }) => item.path), metricsRows };
+  return { runId, runDir, exitCode: result.status ?? 1, files: manifest.files.map((item) => item.path), metricsRows };
 }
 
 function buildRunId(options: ZlkRunOptions): string {
@@ -76,7 +94,7 @@ function writeMetricsSummary(runDir: string, options: ZlkRunOptions, stdout: str
   const parsed = previewTextMetricParse([stdout, stderr].join("\n"), "stdout.log");
   if (!parsed.records) return 0;
   const headers = ["experiment_id", "attempt_id", "suite", "method", "dataset", "split", "fold", "seed", "metric", "value", "unit", "higher_is_better", "epoch", "step", "timestamp"];
-  const rows = parsed.samples.map((sample) => ({
+  const rows: Array<Record<string, string>> = parsed.samples.map((sample) => ({
     experiment_id: path.basename(runDir),
     attempt_id: "manual-1",
     suite: options.suite || "manual",
@@ -123,7 +141,7 @@ function configSnapshot(cwd: string, options: ZlkRunOptions): string {
   return [`name: ${JSON.stringify(options.name)}`, `seed: ${JSON.stringify(options.seed || "")}`, `config: ${JSON.stringify(options.config || "")}`].join("\n") + "\n";
 }
 
-function buildArtifactManifest(runDir: string, options: ZlkRunOptions, exitCode: number, metricsRows: number): Record<string, unknown> {
+function buildArtifactManifest(runDir: string, options: ZlkRunOptions, exitCode: number, metricsRows: number): ArtifactManifest {
   const files = fs.readdirSync(runDir).filter((name) => fs.statSync(path.join(runDir, name)).isFile()).map((name) => {
     const full = path.join(runDir, name);
     return { path: name, size: fs.statSync(full).size, sha256: createHash("sha256").update(fs.readFileSync(full)).digest("hex") };

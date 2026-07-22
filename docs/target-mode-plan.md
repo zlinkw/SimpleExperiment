@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-005`。
+- 批次：`recovery-build-006`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -26,6 +26,7 @@
 - [已完成] `recovery-build-003a`：补齐旧 MobaXterm 配置迁移提示兼容契约及批次记录；不修改其他行为。
 - [已完成] `recovery-build-004`：修复 `OperationQueue` coalesce key 类型收窄，不改变队列行为。
 - [已完成] `recovery-build-005`：恢复 Extension 的隧道类型导入、连接启动、操作计时器、本地 SSH 配置选择和 Worker 隧道构造；不处理实验结果、runtime、scenario 或 UI 重构。
+- [已完成] `recovery-build-006`：恢复计划摘要、控制台指标解析、实验记录 manifest 和测试场景运行类型契约；不处理 runtime manifest 或实时 reducer。
 - [待处理] 继续修复 Extension 缺失导入/成员、结果与计划导出、实时 authority 合并和剩余类型契约。
 
 ## 验证清单
@@ -74,4 +75,8 @@
 - `recovery-build-004` 推送核验：`a9c739cea214819c30ac2db51c4ceaae20851851`，本地 `HEAD` 与 `origin/master` 一致。
 - `recovery-build-005` 影响区域：`src/extension.ts`、`dist/extension.js` 及本计划；回归检查为全量 TypeScript 错误收敛、Extension 隧道相关测试和 JavaScript 语法检查。
 - `recovery-build-005` 验证：`src/extension.ts` 的 TypeScript 错误清零；全量 `typecheck` 仍被 `ExperimentConfigRecovery`、`ExperimentRunner`、`PlanBuilder`、`RuntimeManifest` 和 `ScenarioRunner` 的既有错误阻断。Extension 自动连接与 Xshell 隧道定向测试 `17/17` 通过，lint、`dist/extension.js` 语法和 `git diff --check` 通过。`multiWorkerReconnectIsolation.test.js` 的实时 reducer 失败不属于本批，延期到对应恢复批次。
-- `recovery-build-005` 提交记录：待提交并同步；后续批次处理剩余五个 TypeScript 模块，实时 reducer 与完整 UI 运行时恢复单独处理。
+- `recovery-build-005` 提交记录：`fix: restore extension tunnel baseline`，已普通快进推送至 `origin/master`。
+- `recovery-build-005` 推送核验：`fcb2434c98a4e264f293eec8c7e4f75c32f78621`，本地 `HEAD` 与 `origin/master` 一致。
+- `recovery-build-006` 影响区域：`PlanBuilder`、`Results`、`ExperimentConfigRecovery`、`ExperimentRunner`、`FakeClusterRuntime`、`ScenarioRunner` 及必要对应 `dist`；回归检查为全量 TypeScript 错误收敛、evidence tooling、实验平台和场景测试。
+- `recovery-build-006` 验证：上述模块 TypeScript 错误清零，全量 `typecheck` 仅剩 `RuntimeManifest` 一个类型错误；计划、结果证据和场景定向测试 `11/11` 通过，lint、对应 JavaScript 语法和 `git diff --check` 通过。
+- `recovery-build-006` 提交记录：待提交并同步；下一批只处理 `RuntimeManifest` 类型收敛与对应测试。

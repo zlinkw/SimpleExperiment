@@ -188,6 +188,27 @@ export interface ResultParsePreview {
   sampleMetrics: Record<string, ResultMetricValue>;
 }
 
+export interface TextMetricSample {
+  metric: string;
+  value: number;
+  line: number;
+  snippet: string;
+  higherIsBetter: boolean;
+}
+
+export interface TextMetricParsePreview {
+  ruleId: "custom_regex" | "summary_text_regex" | "console_regex";
+  sourceFile: string;
+  lines: number;
+  records: number;
+  metrics: string[];
+  samples: TextMetricSample[];
+  warnings: string[];
+  parsedAt: string;
+}
+
+export const defaultTextMetricPattern = /\b(?<metric>(?:accuracy|acc|auc|auroc|roc_auc|auprc|f1|precision|recall|sensitivity|specificity|balanced_accuracy|loss|dice|dsc|iou|hd95|asd|mae|mse|rmse|r2))\b\s*[:=]\s*(?<value>-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)(?:\s*%)?/gi;
+
 export interface ResultValidationRule {
   id: string;
   enabled: boolean;
@@ -460,6 +481,46 @@ export function previewResultParse(text: string, sourceFile: string, preset: Res
       ...records.filter((record) => record.notes?.includes("inferred")).map((record) => `${record.resultId}: ${record.notes}`),
     ],
     sampleMetrics: records[0]?.metrics || {},
+  };
+}
+
+export function previewTextMetricParse(
+  text: string,
+  sourceFile: string,
+  options: { metricRegex?: string; metricAliases?: Record<string, string> } = {},
+): TextMetricParsePreview {
+  const customPattern = compileTextMetricPattern(options.metricRegex);
+  const ruleId = customPattern ? "custom_regex" : /summary\.txt$/i.test(sourceFile) ? "summary_text_regex" : "console_regex";
+  const samples: TextMetricSample[] = [];
+  const lines = text.split(/\r?\n/);
+  lines.forEach((line, index) => {
+    const pattern = new RegExp((customPattern || defaultTextMetricPattern).source, "gi");
+    for (const match of line.matchAll(pattern)) {
+      const metric = normalizeTextMetricName(match.groups?.metric || "", options.metricAliases);
+      const raw = Number(match.groups?.value);
+      if (!metric || !Number.isFinite(raw)) continue;
+      const matchedText = line.slice(match.index || 0, (match.index || 0) + match[0].length);
+      samples.push({
+        metric,
+        value: /%\s*$/.test(matchedText) ? raw / 100 : raw,
+        line: index + 1,
+        snippet: compactSnippet(line),
+        higherIsBetter: !["loss", "log_loss", "cross_entropy", "ce_loss", "asd", "hd95", "mae", "mse", "rmse"].includes(metric.toLowerCase()),
+      });
+    }
+  });
+  return {
+    ruleId,
+    sourceFile,
+    lines: lines.length,
+    records: samples.length,
+    metrics: unique(samples.map((item) => item.metric)),
+    samples: samples.slice(0, 8),
+    warnings: [
+      ...(options.metricRegex && !customPattern ? ["自定义指标正则无效，已回退到默认正则。"] : []),
+      ...(samples.length ? [] : ["未从文本中捕获指标；可配置自定义正则。"]),
+    ],
+    parsedAt: new Date().toISOString(),
   };
 }
 
@@ -1084,9 +1145,22 @@ function parseValue(value: unknown): ResultMetricValue["value"] {
   return Number.isFinite(n) ? n : String(value);
 }
 
-function normalizeTextMetricName(metric: string): string {
+function compileTextMetricPattern(pattern?: string): RegExp | undefined {
+  if (!pattern?.trim()) return undefined;
+  try {
+    const compiled = new RegExp(pattern, "gi");
+    const groupNames = new Set(Array.from(pattern.matchAll(/\?<([A-Za-z0-9_]+)>/g)).map((match) => match[1]));
+    return groupNames.has("metric") && groupNames.has("value") ? compiled : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeTextMetricName(metric: string, aliases: Record<string, string> = {}): string {
   const value = metric.trim();
   const lower = value.toLowerCase();
+  const custom = aliases[value] || Object.entries(aliases).find(([key]) => key.toLowerCase() === lower)?.[1];
+  if (custom) return custom;
   if (lower === "acc") return "accuracy";
   if (lower === "dice") return "DSC";
   if (lower === "dsc") return "DSC";

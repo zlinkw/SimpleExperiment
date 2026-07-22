@@ -32,6 +32,24 @@ export interface PlanBuildResult {
   previewCsv?: string;
 }
 
+export interface PlanSummary {
+  suite: string;
+  mode: string;
+  modeRaw: string;
+  modeValid: boolean;
+  baseConfig: string;
+  inlineConfig: boolean;
+  caseConfig: boolean;
+  hasConfigSource: boolean;
+  configSource: string;
+  seeds: string[];
+  cases: string[];
+  trainCommand: string;
+  testCommand: string;
+  outputCandidates: string[];
+  outputSignals: string[];
+}
+
 export interface PlannedExperimentSummary {
   experimentKey: string;
   name: string;
@@ -297,20 +315,78 @@ export function buildExperimentMatrix(matrix: ExperimentMatrix, existingRunKeys:
 }
 
 export function renderPlanYaml(matrix: ExperimentMatrix, experiments: GeneratedExperiment[]): string {
+  const cases = caseEntriesForPlanYaml(matrix, experiments);
   const lines = [
     `suite: ${quoteYaml(matrix.suite)}`,
     "mode: train_test",
     `base_config: ${quoteYaml(matrix.baseConfig)}`,
+    "paper:",
+    `  result_csv: ${quoteYaml("experiments/results/{suite}.csv")}`,
+    "runner:",
+    `  train_command: ${quoteYaml("python train.py --config {config} --seed {seed} --output-dir {output_dir}")}`,
+    `  test_command: ${quoteYaml("python test.py --config {config} --seed {seed} --output-dir {output_dir} --result-csv {result_csv}")}`,
+    "naming:",
+    `  sweep_dir: ${quoteYaml("work_dirs/multirun/{suite}")}`,
+    `  job_name: ${quoteYaml("{index}_{case}_seed{seed}")}`,
+    `  experiment_name: ${quoteYaml("{suite}/{case}/seed_{seed}")}`,
     "seeds:",
     ...Array.from(new Set(experiments.map((item) => String(item.configOverrides.seed || "0")))).map((seed) => `  - ${quoteYaml(seed)}`),
     "cases:",
-    ...experiments.map((item) => [
-      `  - name: ${quoteYaml(item.name)}`,
+    ...cases.map((item) => [
+      `  - case: ${quoteYaml(item.caseName)}`,
+      `    outputDir: ${quoteYaml("work_dirs/multirun/{suite}/{case}_seed{seed}")}`,
+      "    expectedResults:",
+      `      - ${quoteYaml("work_dirs/multirun/{suite}/{case}_seed{seed}/metrics_summary.csv")}`,
       "    overrides:",
-      ...Object.entries(item.configOverrides).map(([key, value]) => `      ${key}: ${quoteYaml(String(value))}`),
+      ...Object.entries(item.overrides).map(([key, value]) => `      ${key}: ${quoteYaml(String(value))}`),
     ].join("\n")),
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function caseEntriesForPlanYaml(matrix: ExperimentMatrix, experiments: GeneratedExperiment[]): Array<{ caseName: string; overrides: Record<string, unknown> }> {
+  const cases = new Map<string, { caseName: string; overrides: Record<string, unknown> }>();
+  const usedNames = new Map<string, number>();
+  for (const item of experiments) {
+    const overrides = sortObject(Object.fromEntries(Object.entries(item.configOverrides).filter(([key]) => key !== "seed")));
+    const key = JSON.stringify(overrides);
+    if (cases.has(key)) continue;
+    const baseName = renderNamingRule(matrix.namingRule?.pattern, matrix.suite, overrides).trim() || (Object.keys(overrides).length ? experimentName(matrix.suite, overrides) : `${matrix.suite}__baseline`);
+    const seen = usedNames.get(baseName) || 0;
+    usedNames.set(baseName, seen + 1);
+    cases.set(key, { caseName: seen ? `${baseName}_${seen + 1}` : baseName, overrides });
+  }
+  return Array.from(cases.values());
+}
+
+export function parsePlanSummary(yaml: string): PlanSummary {
+  const clean = stripYamlComments(yaml);
+  const suite = firstYamlStringValue(clean, ["suite"]);
+  const modeRaw = firstYamlStringValue(clean, ["mode"]);
+  const mode = modeRaw || "train_test";
+  const baseConfig = firstYamlStringValue(clean, ["base_config", "config"]);
+  const trainCommand = firstYamlStringValue(clean, ["train_command", "trainCommand", "command"]);
+  const testCommand = firstYamlStringValue(clean, ["test_command", "testCommand"]);
+  const inlineConfig = /^\s*(?:base_config|config)\s*:\s*(?:\{|$)/m.test(clean);
+  const caseConfig = /^\s+-[\s\S]*?^\s+(?:base_config|config)\s*:/m.test(clean);
+  const evidence = parsePlanOutputEvidence(clean, { trainCommand, testCommand });
+  return {
+    suite,
+    mode,
+    modeRaw,
+    modeValid: !modeRaw || ["train", "test", "train_test", "eval", "evaluate"].includes(modeRaw),
+    baseConfig,
+    inlineConfig,
+    caseConfig,
+    hasConfigSource: Boolean(baseConfig || inlineConfig || caseConfig),
+    configSource: baseConfig || (inlineConfig ? "Plan 内联配置" : caseConfig ? "case 级配置" : ""),
+    seeds: parsePlanStringList(clean, "seeds"),
+    cases: parsePlanCases(clean),
+    trainCommand,
+    testCommand,
+    outputCandidates: evidence.outputCandidates,
+    outputSignals: evidence.outputSignals,
+  };
 }
 
 export function parsePlanCases(yaml: string): string[] {
@@ -319,16 +395,30 @@ export function parsePlanCases(yaml: string): string[] {
   let inPlanList = false;
   let currentItemIndent = -1;
   let currentItemHasLabel = false;
+  let mapItemIndent = -1;
+  let sawCaseSection = false;
   for (const rawLine of yaml.split(/\r?\n/)) {
     const line = rawLine.replace(/\t/g, "  ");
     if (!line.trim() || /^\s*#/.test(line)) continue;
     const indent = line.match(/^\s*/)?.[0].length || 0;
+    const inlineSection = line.match(/^(\s*)(cases|experiments)\s*:\s*(\[[^\r\n]*\])\s*(?:#.*)?$/);
+    if (inlineSection) {
+      sawCaseSection = true;
+      cases.push(...planCaseInlineListValues(inlineSection[3]));
+      inPlanList = false;
+      currentItemIndent = -1;
+      currentItemHasLabel = false;
+      mapItemIndent = -1;
+      continue;
+    }
     const section = line.match(/^(\s*)(cases|experiments)\s*:\s*(?:#.*)?$/);
     if (section) {
+      sawCaseSection = true;
       sectionIndent = section[1].length;
       inPlanList = true;
       currentItemIndent = -1;
       currentItemHasLabel = false;
+      mapItemIndent = -1;
       continue;
     }
     if (!inPlanList) continue;
@@ -336,16 +426,25 @@ export function parsePlanCases(yaml: string): string[] {
       inPlanList = false;
       currentItemIndent = -1;
       currentItemHasLabel = false;
+      mapItemIndent = -1;
       continue;
     }
     const listItem = line.match(/^(\s*)-\s*(.*)$/);
     if (listItem) {
+      if (currentItemIndent >= 0 && indent > currentItemIndent) continue;
       currentItemIndent = listItem[1].length;
       currentItemHasLabel = false;
+      mapItemIndent = -1;
       const inlineLabel = planCaseLabelValue(listItem[2]);
       if (inlineLabel) {
         cases.push(inlineLabel);
         currentItemHasLabel = true;
+      } else {
+        const scalarLabel = planCaseScalarListValue(listItem[2]);
+        if (scalarLabel) {
+          cases.push(scalarLabel);
+          currentItemHasLabel = true;
+        }
       }
       continue;
     }
@@ -358,11 +457,20 @@ export function parsePlanCases(yaml: string): string[] {
       continue;
     }
     if (currentItemIndent < 0) {
-      const mapItem = line.match(/^\s*([A-Za-z0-9_.:-]+)\s*:\s*(?:#.*)?$/);
-      if (mapItem) cases.push(stripYamlScalar(mapItem[1]));
+      const mapItem = line.match(/^\s*([A-Za-z0-9_.:-]+)\s*:\s*(?:.*)?$/);
+      if (mapItem) {
+        if (mapItemIndent < 0) mapItemIndent = indent;
+        if (indent === mapItemIndent) cases.push(stripYamlScalar(mapItem[1]));
+      }
     }
   }
-  return cases;
+  if (cases.length || sawCaseSection || !planHasImplicitSingleCase(yaml)) return cases;
+  return [scalar(yaml, "case") || scalar(yaml, "name") || scalar(yaml, "id") || "baseline"];
+}
+
+function planHasImplicitSingleCase(yaml: string): boolean {
+  const clean = stripYamlComments(yaml);
+  return /^(?:base_config|config|command|train_command|trainCommand|test_command|testCommand|runner)\s*:/im.test(clean);
 }
 
 export interface PlanOutputEvidence {
@@ -798,7 +906,7 @@ export function computePlanResultCoverage(plan: ExperimentPlanRecord, lifecycles
   return { planId: plan.planId, experimentCount: plan.experimentCount, completedCount: completed, parsedResultCount: parsed.length, missingResultCount: Math.max(0, plan.experimentCount - parsed.length), missingPrimaryMetric, bestByMetric };
 }
 
-function planExperimentAliases(item: PlannedExperiment): Set<string> {
+function planExperimentAliases(item: PlannedExperimentSummary): Set<string> {
   return new Set([item.experimentKey, item.runKey, item.name].map((value) => String(value || "").trim()).filter(Boolean));
 }
 
@@ -881,9 +989,23 @@ function template(id: string, name: string, schemaId: string, relativePath: stri
         "mode: train_test",
         "base_config: {{base_config}}",
         "dataset: {{dataset}}",
+        "paper:",
+        "  result_csv: experiments/results/{{suite}}.csv",
+        "runner:",
+        "  train_command: \"python train.py --config {config} --seed {seed} --output-dir {output_dir}\"",
+        "  test_command: \"python test.py --config {config} --seed {seed} --output-dir {output_dir} --result-csv {result_csv}\"",
+        "naming:",
+        "  sweep_dir: work_dirs/multirun/{suite}",
+        "  job_name: \"{index}_{case}_seed{seed}\"",
+        "  experiment_name: \"{suite}/{case}/seed_{seed}\"",
         "seeds: [{{seed}}]",
         "cases:",
-        "  - name: {{suite}}_{{dataset}}_seed{{seed}}",
+        "  - case: {{suite}}_{{dataset}}",
+        "    outputDir: work_dirs/multirun/{suite}/{case}_seed{seed}",
+        "    expectedResults:",
+        "      - work_dirs/multirun/{suite}/{case}_seed{seed}/metrics_summary.csv",
+        "    overrides:",
+        "      dataset: {{dataset}}",
       ].join("\n"),
       overwritePolicy: "prompt",
     }],
@@ -910,6 +1032,22 @@ function planCaseLabelValue(text: string): string {
     if (inline) return stripYamlScalar(inline[1]);
   }
   return "";
+}
+
+function planCaseScalarListValue(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.startsWith("{") || trimmed.startsWith("[")) return "";
+  if (!/^["']/.test(trimmed) && /:\s*/.test(trimmed)) return "";
+  const value = stripYamlScalar(trimmed);
+  return value && !/^\s*(expectedResults|expected_results|resultFiles|result_files|outputFiles|output_files)\s*$/i.test(value) ? value : "";
+}
+
+function planCaseInlineListValues(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return [];
+  return splitTopLevelYamlList(trimmed.slice(1, -1))
+    .map((item) => planCaseLabelValue(item) || planCaseScalarListValue(item))
+    .filter(Boolean);
 }
 
 function stripYamlScalar(value: string): string {
@@ -986,6 +1124,30 @@ function scalar(text: string, key: string): string | undefined {
   return match?.[1]?.trim();
 }
 
+function parsePlanStringList(text: string, key: string): string[] {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const match = lines[index].match(new RegExp(`^(\\s*)${escapeRegExp(key)}\\s*:\\s*(.*)$`));
+    if (!match) continue;
+    const inline = match[2].trim();
+    if (inline.startsWith("[") && inline.endsWith("]")) {
+      return splitTopLevelYamlList(inline.slice(1, -1)).map(stripYamlScalar).filter(Boolean);
+    }
+    const indent = match[1].length;
+    const values: string[] = [];
+    for (let cursor = index + 1; cursor < lines.length; cursor++) {
+      const nested = lines[cursor];
+      if (!nested.trim()) continue;
+      const nestedIndent = nested.match(/^\s*/)?.[0].length || 0;
+      if (nestedIndent <= indent) break;
+      const item = nested.match(/^\s*-\s*(.+)$/);
+      if (item) values.push(stripYamlScalar(item[1]));
+    }
+    return values.filter(Boolean);
+  }
+  return [];
+}
+
 function stablePlanId(planFile: string, suite: string): string {
   return `plan_${sha256(`${suite}:${planFile}`).slice(0, 12)}`;
 }
@@ -1027,4 +1189,3 @@ function csvEscape(value: unknown): string {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
-

@@ -19,5 +19,10 @@ export class FakeClusterRuntime {
     this.state.actions.push({ action, opId, accepted: true });
     return { schemaVersion: 1, action, opId, accepted: true, operationId: `${action}-${opId}` };
   }
-}
 
+  async run(serverId: string, command: string): Promise<{ serverId: string; command: string; accepted: boolean }> {
+    const accepted = this.state.servers[serverId]?.online === true;
+    this.state.actions.push({ action: "remoteCommand", opId: command, accepted });
+    return { serverId, command, accepted };
+  }
+}
