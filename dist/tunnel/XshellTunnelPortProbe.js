@@ -85,6 +85,8 @@ async function probeLocalTunnel(config, options = {}) {
                 suggestion: "请确认本地端口目标正确，并升级 Hub Agent runtime。",
             };
         }
+        const projectRoot = String(health.projectRoot || "").trim();
+        const schedulerDependencies = health.schedulerDependencies;
         const capsResponse = await timedFetch(`${base}/api/capabilities`, { headers }, timeoutMs);
         if (capsResponse.status === 401 || capsResponse.status === 403)
             return tokenInvalid(baseResult, config);
@@ -97,6 +99,8 @@ async function probeLocalTunnel(config, options = {}) {
                 latencyMs: Date.now() - started,
                 agentVersion: health.agentVersion,
                 apiVersion: health.apiVersion,
+                projectRoot,
+                schedulerDependencies,
                 message: "/api/capabilities 不可用。",
                 suggestion: "请在发布与代码同步卡片点击“部署最新版 Agent 到全部服务器”，然后重启 Hub/Worker Agent 会话。",
             };
@@ -111,6 +115,7 @@ async function probeLocalTunnel(config, options = {}) {
                 latencyMs: Date.now() - started,
                 agentVersion: health.agentVersion,
                 apiVersion: health.apiVersion,
+                projectRoot,
                 message: "/api/capabilities 返回格式无效。",
                 suggestion: "请在发布与代码同步卡片点击“部署最新版 Agent 到全部服务器”，然后重启 Hub/Worker Agent 会话。",
             };
@@ -126,6 +131,8 @@ async function probeLocalTunnel(config, options = {}) {
                 latencyMs: Date.now() - started,
                 agentVersion: health.agentVersion,
                 apiVersion: capabilities.apiVersion,
+                projectRoot,
+                schedulerDependencies,
                 capabilities,
                 missingCapabilities: compatibility.missingEndpoints,
                 message: `Hub Agent API ${capabilities.apiVersion} 与插件不兼容。`,
@@ -148,6 +155,8 @@ async function probeLocalTunnel(config, options = {}) {
                     latencyMs: Date.now() - started,
                     agentVersion: health.agentVersion,
                     apiVersion: capabilities.apiVersion,
+                    projectRoot,
+                    schedulerDependencies,
                     capabilities,
                     message: "/api/files/capabilities 不可用。",
                     suggestion: "请启动较新的 Hub Agent，并确认文件网关已启用。",
@@ -164,6 +173,8 @@ async function probeLocalTunnel(config, options = {}) {
                     latencyMs: Date.now() - started,
                     agentVersion: health.agentVersion,
                     apiVersion: capabilities.apiVersion,
+                    projectRoot,
+                    schedulerDependencies,
                     capabilities,
                     message: "文件 API 能力不完整。",
                     suggestion: "请升级 Hub Agent，或改用 offline_import 导入文件。",
@@ -184,6 +195,8 @@ async function probeLocalTunnel(config, options = {}) {
                 latencyMs: Date.now() - started,
                 agentVersion: health.agentVersion,
                 apiVersion: capabilities.apiVersion,
+                projectRoot,
+                schedulerDependencies,
                 capabilities,
                 fileCapabilities,
                 message: "实时流 API 不可用。",
@@ -201,6 +214,8 @@ async function probeLocalTunnel(config, options = {}) {
             latencyMs: Date.now() - started,
             agentVersion: health.agentVersion,
             apiVersion: capabilities.apiVersion,
+            projectRoot,
+            schedulerDependencies: health.schedulerDependencies,
             capabilities,
             fileCapabilities,
             message: "Xshell 隧道和 Hub Agent API 可用。",
@@ -250,12 +265,14 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
         if (!healthResponse.ok) {
             return { ...baseResult, tcpOpen: true, status: "agent_unreachable", message: `/api/health 返回 HTTP ${healthResponse.status}。` };
         }
+        const health = await healthResponse.json().catch(() => ({}));
+        const projectRoot = String(health.projectRoot || "").trim();
         const capsResponse = await timedFetch(`${base}/api/capabilities`, { headers }, timeoutMs);
         if (capsResponse.status === 401 || capsResponse.status === 403) {
-            return { ...baseResult, tcpOpen: true, healthOk: true, status: "agent_token_invalid", message: "Worker Telemetry token 被拒绝。" };
+            return { ...baseResult, tcpOpen: true, healthOk: true, projectRoot, status: "agent_token_invalid", message: "Worker Telemetry token 被拒绝。" };
         }
         if (!capsResponse.ok) {
-            return { ...baseResult, tcpOpen: true, healthOk: true, status: "worker_api_invalid", message: "/api/capabilities 不可用。" };
+            return { ...baseResult, tcpOpen: true, healthOk: true, projectRoot, status: "worker_api_invalid", message: "/api/capabilities 不可用。" };
         }
         const capabilities = await capsResponse.json();
         const validation = (0, WorkerTelemetryApi_1.validateWorkerTelemetryCapabilities)(capabilities);
@@ -266,7 +283,7 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
         const workerTasksApiOk = Boolean(endpoints.workerTasks);
         const ok = validation.ok && streamApiOk && gpuApiOk && workerTasksApiOk;
         const modeSuggestion = mode && mode !== "worker_telemetry"
-            ? `127.0.0.1:${config.localForwardPort} 返回的是 ${mode} Agent，不是 Worker Telemetry。请重新写入 zlk-* 自动启动命令并重启该 Worker tmux。`
+            ? `127.0.0.1:${config.localForwardPort} 返回的是 ${mode} Agent，不是 Worker Telemetry。请重新写入 Agent 自动启动命令并重启该 Worker tmux。`
             : "请在 Worker 上启动 cluster_agent.py serve --mode worker_telemetry。";
         return {
             ...baseResult,
@@ -278,6 +295,8 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
             workerTasksApiOk,
             status: ok ? "ok" : "worker_api_invalid",
             latencyMs: Date.now() - started,
+            projectRoot,
+            schedulerDependencies: health.schedulerDependencies,
             capabilities,
             warnings: validation.warnings,
             message: ok ? "Worker Telemetry API 可用。" : "Worker Telemetry API 不完整。",

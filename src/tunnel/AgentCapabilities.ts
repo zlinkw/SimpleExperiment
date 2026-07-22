@@ -9,6 +9,7 @@ export interface AgentHealthResponse {
   serverTime: string;
   uptimeSeconds: number;
   projectRoot: string;
+  schedulerDependencies?: unknown;
   status: "ok" | "degraded";
 }
 

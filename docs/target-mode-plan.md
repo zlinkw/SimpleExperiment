@@ -18,25 +18,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-033
+## 当前批次：recovery-build-034
 ### 修复点
-- 修复五个 PanelHtml 源码测试提取器，使其兼容恢复后源码保留的 TypeScript 返回类型。
-- 修正 Webview 脚本健康测试的 `jobs.csv` 元数据文件名正则，使断言检查真实字面量。
-- 恢复结果相关直接操作在摘要刷新前对当前选中 Plan 排队重解析的契约；手动解析和刷新命令不重复排队。
-- 不修改 PanelHtml 运行时界面、Plan 选择范围、归档数据或已安装扩展。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 Hub/Worker 探针中的项目根目录与 Scheduler 依赖诊断透传。
+- 恢复 TunnelClient 对 `/api/live-output` 查询端点的明确 allowlist，保持查询参数编码和 localhost 边界。
+- 对齐 Worker 模式错误提示与公开品牌，不再要求用户寻找旧 `zlk-*` 命令。
+- 不修改 Xshell 会话、服务器配置、Agent runtime 或已安装扩展。
 
 ### 回归风险
-- 提取风险：测试清理器只移除 `renderPanelHtml(): string` 的源码类型，不得改写模板内容。
-- 结果范围风险：自动重解析必须继续受当前选中 Plan gate 限制，不得解析其他 Plan。
-- 重复风险：`parseResults` 与 `refreshResults` 不得再次进入自动重解析队列。
+- 诊断风险：健康接口返回的依赖提示必须在 capabilities 失败和成功路径中保留。
+- Worker 风险：读取健康响应不得破坏 token、模式和 endpoint capability 判断。
+- API 边界风险：仅新增已定义的 `/api/live-output` 路径，不放宽任意 API 路径。
 
 ### 验证清单
-- 五个 PanelHtml/UI 定向测试：通过 `14/14`。
+- Scheduler 依赖、探针、TunnelClient 与 GPU/Scheduler/live-output 定向测试：通过 `13/13`；Hub/Worker 依赖对象透传另有运行断言覆盖。
 - build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`7e2b2872b3fe22c94113ba25be375eca763b238d`。
+- 普通快进推送 `origin/master` 并 fetch 对齐：待验证。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-032`，NotificationThrottle 已验证并同步，代码提交 `39ec5a2f070fecdb5eb5bf20913d4ba3ea24f25f`，记录提交 `adbe2ff87f75488e9b54b5a7e238dcd03c1e1694`。
-- 当前目标状态：`recovery-build-033` 已完成。
-- `recovery-build-033` 提交记录：`7e2b2872b3fe22c94113ba25be375eca763b238d`，已普通快进推送并确认与 `origin/master` 一致。
+- 最新完成批次：`recovery-build-033`，PanelHtml 源码测试与结果重解析契约已验证并同步，代码提交 `7e2b2872b3fe22c94113ba25be375eca763b238d`，记录提交 `7305aa555ced9c53105af7b3e6007271a2022e9f`。
+- 当前目标状态：`recovery-build-034` 已验证，等待同步。
+- `recovery-build-034` 提交记录：待提交。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。

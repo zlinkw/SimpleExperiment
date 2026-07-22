@@ -55,6 +55,7 @@ const getPurposeByPath = new Map<string, TunnelRequestPurpose>([
   ["/api/gpu", "snapshot"],
   ["/api/scheduler", "snapshot"],
   ["/api/traces", "snapshot"],
+  ["/api/live-output", "snapshot"],
   ["/api/results/summary", "snapshot"],
   ["/api/diagnostics", "diagnostics"],
   ["/api/audit/tail", "diagnostics"],
