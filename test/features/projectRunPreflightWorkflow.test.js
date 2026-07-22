@@ -42,7 +42,7 @@ test("project next action follows the real preflight order", () => {
   assert.match(panel, /return renderPlanExecutionNextAction\(state, planFile\)/);
   assert.match(panel, /projectQuickRow\("连接"/);
   assert.match(panel, /projectQuickRow\("代码同步"/);
-  assert.match(panel, /可开始校验；正式运行会自动同步全部代码/);
+  assert.match(panel, /projectQuickRow\("代码同步", codeSyncReadiness\.ready \? codeSyncReadiness\.summary : "校验时自动同步 Hub；提交运行时自动同步 Hub\/Worker"/);
   const preflightStart = extension.indexOf("async runPlanPreflight(body, label)");
   const preflightEnd = extension.indexOf("async openSetupGuide()", preflightStart);
   assert.ok(preflightStart >= 0 && preflightEnd > preflightStart);
@@ -52,7 +52,7 @@ test("project next action follows the real preflight order", () => {
   assert.match(preflight, /waitForOperationTerminalResult\("dry-run-plan"/);
   assert.match(extension, /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/);
   assert.match(extension, /if \(!await this\.runPlanPreflight\(body, `计划 \$\{planFile\}`\)\)\s*throw new Error\(`计划 \$\{planFile\} 的校验或预演未返回有效结果，已停止整批提交。`\);/);
-  assert.match(extension, /已完成逐计划校验与预演，并提交/);
+  assert.match(extension, /个计划已通过校验与预演，并提交/);
 });
 
 test("Hub-only projects do not require a Worker sync status", () => {
@@ -76,13 +76,13 @@ test("Plan next action starts with one-click run and preserves manual recovery s
   assert.match(panel, /function planExecutionStage\(state, planFile\)/);
   assert.match(panel, /function planPreflightSummary\(state, planFile\)/);
   assert.match(panel, /dispatchableCount: pick\(row/);
-  assert.match(panel, /\["校验预演", Boolean\(\(preflight \|\| \{\}\)\.ready\)/);
+  assert.match(panel, /\["校验预演", \(preflight \|\| \{\}\)\.tone \|\| \(\(preflight \|\| \{\}\)\.ready \? "good" : "info"\),/);
   assert.doesNotMatch(panel, /\["操作终态", true/);
   assert.match(panel, /准备就绪；确认后自动同步、校验、预演并提交/);
   assert.match(panel, /label: "校验并提交运行"/);
   assert.match(panel, /校验已通过，预演调度与任务展开结果/);
   assert.match(panel, /预演已通过，可以提交正式运行/);
-  assert.match(panel, /计划已提交，查看排队、运行与失败任务/);
+  assert.match(panel, /计划已提交，调度器正在排队或运行任务/);
   assert.match(panel, /command: "validatePlan"/);
   assert.match(panel, /command: "dryRunPlan"/);
   assert.match(panel, /command: "runPlan"/);
@@ -130,7 +130,7 @@ test("Plan execution stage uses scoped terminal operations", () => {
     op("run-plan", "completed", "2026-07-16T02:03:00.000Z"),
     op("dry-run-plan", "completed", "2026-07-16T02:02:00.000Z"),
     op("validate-plan", "completed", "2026-07-16T02:01:00.000Z"),
-  ] }, planFile).phase, "monitor");
+  ] }, planFile).phase, "results");
   assert.equal(stage({ plan, operations: [op("validate-plan", "completed", "2026-07-16T02:01:00.000Z", "old-revision")] }, planFile).phase, "ready");
   assert.equal(stage({ plan, operations: [{ ...op("validate-plan", "completed", "2026-07-16T02:01:00.000Z"), planFile: "other.yaml" }] }, planFile).phase, "ready");
 });
@@ -149,10 +149,10 @@ test("Plan execution stage recovers from terminal scheduler tasks when operation
 
 test("Plan next action advances from validation to dry-run, run, and monitoring", () => {
   assert.match(panel, /function planExecutionStage\(state, planFile\)/);
-  assert.match(panel, /运行门禁已通过，先校验当前计划/);
+  assert.match(panel, /准备就绪；确认后自动同步、校验、预演并提交/);
   assert.match(panel, /校验已通过，预演调度与任务展开结果/);
   assert.match(panel, /预演已通过，可以提交正式运行/);
-  assert.match(panel, /计划已提交，查看排队、运行与失败任务/);
+  assert.match(panel, /计划已提交，调度器正在排队或运行任务/);
   assert.match(panel, /command: "validatePlan"/);
   assert.match(panel, /command: "dryRunPlan"/);
   assert.match(panel, /command: "runPlan"/);
@@ -162,7 +162,7 @@ test("Plan next action advances from validation to dry-run, run, and monitoring"
 
 test("editing a Plan invalidates older validation and dry-run operations", () => {
   const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  assert.match(panel, /function operationNotOlderThanPlan\(row, planUpdatedAt\)/);
+  assert.match(panel, /function operationMatchesPlanVersion\(row, planRevision, planUpdatedAt\)/);
   assert.match(panel, /operationAt >= planUpdatedAt/);
   assert.match(extension, /updatedAt: stat\?\.mtime\?\.toISOString\?\.\(\)/);
   assert.match(extension, /updatedAt: stat\.mtime\?\.toISOString\?\.\(\)/);

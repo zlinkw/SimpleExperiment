@@ -23,7 +23,11 @@ function extractFunction(source, name) {
 function bootstrapCompletion(options) {
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(extractFunction(extension, "projectBootstrapCompletion") + "\nthis.check = projectBootstrapCompletion;", sandbox);
+  vm.runInContext([
+    extractFunction(extension, "projectBootstrapEndpointReadiness"),
+    extractFunction(extension, "projectBootstrapCompletion"),
+    "this.check = projectBootstrapCompletion;",
+  ].join("\n"), sandbox);
   return JSON.parse(JSON.stringify(sandbox.check(options)));
 }
 
@@ -52,13 +56,13 @@ test("quick project onboarding preserves granular actions and follows gate order
   assert.match(panel, /\(plan \|\| \{\}\)\.baseConfig/);
   assert.match(panel, /function projectConfigAvailable\(file, project, meta\)/);
   assert.match(panel, /firstConfig \+ "（缺失）"/);
-  assert.match(panel, /projectPathButton\(configAvailable \? "打开 config" : "", firstConfig\)/);
+  assert.match(panel, /projectPathButton\(configAvailable \? "打开配置" : "", firstConfig\)/);
   assert.match(panel, /renderPlanRunActions\(state, selectedPlan, outputReady, project\.adapterConfig, runtimeContractStage\)/);
   assert.match(panel, /function renderPlanRunActions\(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage\)/);
-  assert.match(panel, /planActiveRunEvidence\(state \|\| \{\}, selectedPlan\)/);
+  assert.match(panel, /planActiveRunEvidence\(state \|\| \{\}, selectedPlan, plan\)/);
   assert.match(panel, /已阻止重复提交/);
-  assert.ok(panel.indexOf("const activeRun = planFile ? planActiveRunEvidence(state, planFile)") < panel.indexOf("if (!(serverReadiness || {}).ready)"));
-  assert.match(panel, /if \(activeRun\.active\) \{\s*return renderPlanExecutionNextAction\(state, planFile\)/);
+  assert.ok(panel.indexOf("const activeRun = planFile ? planActiveRunEvidence(state, planFile, selectedPlan)") < panel.indexOf("if (!(serverReadiness || {}).ready)"));
+  assert.match(panel, /if \(activeRun\.active\) \{[\s\S]{0,800}return renderPlanExecutionNextAction\(state, planFile\)/);
   assert.match(panel, /adapterConfig[\s\S]{0,180}projectPathButton\("打开接入配置", adapterConfig\)[\s\S]{0,180}"generateOutputAdapter"/);
   assert.match(panel, />校验并提交运行<\/button><button class="mini secondary" data-command="validatePlan"/);
   assert.match(panel, />单独校验<\/button><button class="mini secondary" data-command="dryRunPlan"/);
@@ -69,11 +73,11 @@ test("quick project onboarding preserves granular actions and follows gate order
   assert.doesNotMatch(extension, /确认一键运行|一键运行将启动/);
   assert.match(extension, /启动连接将打开.*不会提交实验/);
   assert.match(panel, /校验时自动同步 Hub；提交运行时自动同步 Hub\/Worker/);
-  assert.match(panel, /可校验并提交运行；确认后自动同步全部代码/);
-  assert.match(panel, /readyToStart \? "可提交" : "待补齐"/);
+  assert.match(panel, /const lifecycle = projectQuickLifecyclePresentation\(executionStage, readyToStart, firstRunRecommended\)/);
+  assert.match(panel, /const statusSummary = lifecycle\.preferStage && lifecycle\.summary \? lifecycle\.summary : readinessSummary/);
   assert.match(panel, /至少配置并启用一个执行 Worker[\s\S]{0,160}"添加 Worker"/);
   assert.match(panel, /选择本次要接入并运行的 Plan/);
-  assert.match(panel, /const readyToStart = Boolean\(selectedPlanFile\)/);
+  assert.match(panel, /const readyToStart = Boolean\(simpleSftp\.ready\) && Boolean\(selectedPlanFile\) && outputGate\.ok && serverReadiness\.ready && workerReadiness\.ready && endpointReadiness\.ready && !meta\.outputContractStage/);
   assert.match(panel, /selectedPlanFile \? firstProjectConfig/);
   assert.match(panel, /选择 Plan 后显示/);
   const quickAccessStart = panel.indexOf("function renderProjectQuickAccess(");
@@ -94,7 +98,7 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /插件不会默认使用列表第一项/);
   assert.match(extension, /selectionChanged[\s\S]{0,900}queueSelectedPlanResultParse\("接入当前项目切换计划", planFile\)/);
   assert.match(extension, /async pickPlanBaseConfig\(configs, options = \{\}\)/);
-  assert.match(extension, /async pickGuidedPlanEntry\(entries, stage\)/);
+  assert.match(extension, /async pickGuidedPlanEntry\(root, entries, stage\)/);
   assert.match(extension, /title: stage === "test" \? "选择评估入口" : "选择训练入口"/);
   assert.match(extension, /guidedPlanCommandUsesConfig\(trainCommand\).*guidedPlanCommandUsesConfig\(testCommand\)/);
   assert.match(extension, /await ensureGuidedFallbackConfig\(root, baseConfig\)/);
@@ -110,7 +114,7 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /adapterConfig: project\.adapterConfig/);
   assert.match(extension, /offlineBundleActive: Boolean\(this\.offlineBundle\)/);
   assert.match(extension, /outputGateNextLabel: gateDiagnostics\.nextLabel/);
-  assert.match(extension, /const activeRun = activePlanRunEvidence\(this\.buildState\(\), planFile\)/);
+  assert.match(extension, /activeRun: activePlanRunEvidence\(state, planFile, selected\)/);
   assert.match(extension, /activeRun,/);
   assert.match(extension, /await this\.testTunnel\(false\)/);
   assert.match(extension, /handleProjectBootstrapAction\(next, \{/);
@@ -125,6 +129,8 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /next === "查看提交进度"[\s\S]{0,120}openPanelAt\("operations", "operations-list"\)/);
   assert.match(extension, /next === "校验并提交运行"[\s\S]{0,180}this\.runActionCommand\("runPlan"/);
   assert.match(extension, /const currentCompletion = \(\) => \{/);
+  assert.match(extension, /const NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS = 3/);
+  assert.match(extension, /for \(let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step \+= 1\)/);
   assert.match(extension, /const PROJECT_BOOTSTRAP_MAX_STEPS = 8/);
   assert.match(extension, /for \(let step = 0; step < PROJECT_BOOTSTRAP_MAX_STEPS; step \+= 1\)/);
   assert.match(extension, /const seenCompletions = new Set\(\)/);
@@ -140,7 +146,7 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   const bootstrapStart = extension.indexOf("async bootstrapProjectFromUi()");
   const bootstrapEnd = extension.indexOf("async generateOutputAdapterFromUi()", bootstrapStart);
   const bootstrap = extension.slice(bootstrapStart, bootstrapEnd);
-  assert.equal([...bootstrap.matchAll(/await this\.handleProjectBootstrapAction\(/g)].length, 1);
+  assert.equal([...bootstrap.matchAll(/await this\.handleProjectBootstrapAction\(/g)].length, 2);
   assert.ok(bootstrap.indexOf("const next = completion.action") < bootstrap.indexOf("handleProjectBootstrapAction(next"));
   assert.doesNotMatch(bootstrap, /gateDiagnostics = projectOutputGateDiagnostics\(project, selected\);\s*}\s*if \(planFile\)\s*await openWorkspaceFile\(planFile\)/);
   const planGuideStart = extension.indexOf("async generatePlanGuideFromUi(");
@@ -218,7 +224,7 @@ test("quick project onboarding reports only the next action proven by current re
 test("quick project onboarding opens the exact panel destination", () => {
   assert.match(extension, /webviewReady = false/);
   assert.match(extension, /case "webviewReady":[\s\S]{0,160}flushPendingPanelNavigation\(\)/);
-  assert.match(extension, /async openPanelAt\(section, anchor = section\)/);
+  assert.match(extension, /async openPanelAt\(section, anchor = section, options = \{\}\)/);
   assert.match(extension, /postMessage\(\{ type: "navigate", \.\.\.target \}\)/);
   assert.match(panel, /vscode\.postMessage\(\{ command: "webviewReady" \}\)/);
   assert.match(panel, /item\.type === "navigate"/);

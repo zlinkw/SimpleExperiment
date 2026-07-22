@@ -19,25 +19,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-plan-001
+## 当前批次：recovery-build-041
 ### 修复点
-- 新增独立计划 B，固定 Docker Codex 输入接口、Windows UI Extension Host 边界、双路径模型、单窗口操作租约和分仓实施批次。
-- 固定 `plugin-drop` 的双 VSIX 与 `plugin-compat-result.json` 输出接口，并将该计划加入后续优先级。
-- 本批只修改目标计划与文档契约测试；不执行插件源码改造、构建、安装或 VSIX 替换。
+- 以 Git、当前源码和本机已安装 `SimpleExperiment 0.2.0` 为只读证据，对齐快速项目接入测试契约。
+- 测试夹具补入当前接入完成态依赖，覆盖 Agent 检测、配置按钮文案、入口选择签名和带任务范围的面板导航。
+- 本批只修改一个接入流程测试与本计划；不修改产品源码、安装目录或 VSIX。
 
 ### 回归风险
-- 相邻回归风险：计划 A 的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md` 尚未在本仓库验收，实施启动条件仍未满足。
-- SimpleSFTP 位于独立仓库，后续必须分别提交、验证和交付，不能跨仓库混合提交。
-- Windows 回归、远程工作区、双插件联调和 VSIX 交付均为 `needs experiment`，不得提前标记通过。
+- 相邻回归风险：快速接入测试必须继续验证完整门禁顺序，不能只放宽正则以隐藏行为缺失。
+- 夹具风险：`projectBootstrapCompletion` 新增依赖后必须与源码一起加载，避免把测试环境缺失误判为产品故障。
+- 兼容风险：三参数面板导航和项目根参数已由已安装版本印证，旧入口与命令 ID 不得改变。
 
 ### 验证清单
-- [已通过] target mode 计划压缩 dry run，结果为 `already-compact`。
-- [已通过] target mode 文档契约定向测试，`3/3`。
-- [已通过] `git diff --check`。
-- [已同步] 文档提交 `5f72761e143850df7ee28cd89ae17a897ddb3022` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
+- [已通过] 快速项目接入定向测试：`projectQuickStartWorkflow.test.js` 5/5，`projectRunPreflightWorkflow.test.js` 10/10。
+- [已通过] `npm run build`、`npm run typecheck`、`npm run lint` 与 `git diff --check`。
+- [新基线] 全量测试 623 项，584 通过、39 失败；相较 49 项旧恢复边界减少 10 项。剩余失败属于既有恢复边界，未扩展本批范围。
+- [待同步] 修复提交与 `origin/master` 快进同步。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-040`，修复提交 `68617e201748fbd97fde6d5443ed03bda442b81c`，记录提交 `8c94dd01c45ba1f1e07a3f935e16dc194af5e743`。
-- 当前目标状态：`docker-plugin-plan-001` 已完成。
-- 本批涉及：Docker Codex 插件兼容计划、当前计划索引和文档契约测试；不修改产品源码或产物。
-- 计划提交：`5f72761e143850df7ee28cd89ae17a897ddb3022`；真实 Windows、Dev Container、SFTP、Xshell 和多窗口联调均为 `needs experiment`。
+- 上一完成批次：`docker-plugin-plan-001`，计划提交 `5f72761e143850df7ee28cd89ae17a897ddb3022`，记录提交 `82d62cb1e4b347186da8abec8ace494e31fa4698`。
+- 当前目标状态：`recovery-build-041` 已完成，待提交同步。
+- 本批涉及：快速项目接入测试与本计划；不修改产品源码，生成的 `dist` 不计入文件上限。
+- 真实 SFTP、服务器、PPT、Docker 和三天历史留存均为 `needs field verification`。
