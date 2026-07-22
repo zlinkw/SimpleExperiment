@@ -34,10 +34,10 @@
 - [已通过] MobaXterm 兼容包装与 Xshell 主实现定向测试 18/18。
 - [已通过] build、typecheck、lint 与 `git diff --check`。
 - [新基线] 全量测试 623 项，605 通过、18 失败；相较 21 项旧恢复边界减少 3 项。
-- [待同步] 本批修复提交尚未创建或推送。
+- [已同步] 修复提交 `6274ed9d329fe3f97c7ff4ee1f6aa2349d4af729` 已普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-047`，修复提交 `2a8a8dca19c31de28515d3c1c25ac43eb0b2a188`，记录提交 `39ca610370436284d129cf9f565d5574b8e06cb1`。
-- 当前目标状态：`recovery-build-048` 执行中。
+- 当前目标状态：`recovery-build-048` 已完成并同步。
 - 本批涉及：MobaXterm 兼容包装测试与本计划；不修改产品运行时源码。
-- 真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
+- 修复提交：`6274ed9d329fe3f97c7ff4ee1f6aa2349d4af729`；真实结果文件、PPT 绘图、SFTP、服务器、Docker 和三天历史留存均为 `needs field verification`。
