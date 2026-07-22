@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-- 批次：`recovery-build-022`。
+- 批次：`recovery-build-023`。
 - 只审计 `zlk-cluster-orchestrator` 与 `simple-sftp`。
 - 以本机已安装的 `SimpleExperiment 0.2.0` 和删除前会话记录为运行时证据，逐批恢复可构建源码基线。
 - 在 `npm run typecheck`、全量测试、lint 和 acceptance 恢复通过前暂停新功能开发。
@@ -256,3 +256,15 @@
 - 延期项：剩余 `6` 个 UI 失败属于操作时间线、Plan action、服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
 - 提交记录：`ui: restore tunnel diagnostic actions`，提交 `45260211d6e82dd7281af9c0bfb51b1271f080e2`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
 - 状态：已完成；下一批优先处理操作时间线与 Plan action 契约。
+
+### recovery-build-023
+
+- 目标：校准操作时间线与 Plan 校验、预演、运行链路的 UI 回归契约，使测试覆盖当前中文紧凑界面和真实预检流程。
+- 影响区域：`test/ui/operationTimeline.test.js`、`test/ui/planActionWorkflow.test.js` 和本计划。
+- 保护区域：不改变操作数据、Plan 提交协议、远端动作、主面板行为、SimpleSFTP 或已安装扩展。
+- 回归检查：操作时间线、Plan action、Panel inline script、UI 分组、`npm run typecheck`、lint 和 `git diff --check`。
+- 验证：操作时间线、Plan action 和 Panel inline script 定向测试 `3/3` 通过；UI 分组由 `66/72` 提升到 `68/72`。`npm run typecheck`、`npm run lint`、`node -c dist/ui/PanelHtml.js`、`node -c dist/extension.js` 和 `git diff --check` 通过。
+- 说明：测试改为验证当前紧凑中文时间线布局、可见 Plan 操作标签及真实的 validate -> dry-run 预检链路，不改变运行行为。
+- 延期项：剩余 `4` 个 UI 失败属于服务器命令/tooltip 与 target mode 计划压缩，后续按强相关小批处理。
+- 提交记录：待本批验证提交并推送后补记真实 SHA。
+- 状态：已完成；下一批优先处理服务器命令/tooltip 契约。

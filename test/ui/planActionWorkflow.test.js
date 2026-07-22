@@ -10,10 +10,11 @@ test("plan workflow exposes validate dry-run and run through tunnel actions", ()
   assert.match(source, /validatePlan: "validate-plan"/);
   assert.match(source, /dryRunPlan: "dry-run-plan"/);
   assert.match(source, /runPlan: "run-plan"/);
-  assert.match(source, /if \(command === "runPlan"\)[\s\S]*"validate-plan"/);
+  assert.match(source, /if \(command === "runPlan" \|\| command === "reproducePlan"\)[\s\S]*runPlanPreflight\(body/);
+  assert.match(source, /async runPlanPreflight\(body, label\)[\s\S]*postTunnelAction\("validate-plan"[\s\S]*postTunnelAction\("dry-run-plan"/);
   const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
   assert.match(html, /planFileInput/);
-  assert.match(html, /Validate Plan/);
-  assert.match(html, /Dry-run Plan/);
-  assert.match(html, /Run Plan/);
+  assert.match(html, /data-command="validatePlan">校验<\/button>/);
+  assert.match(html, /data-command="dryRunPlan" class="secondary">预演<\/button>/);
+  assert.match(html, /data-command="runPlan" data-confirm="true">校验并提交运行<\/button>/);
 });
