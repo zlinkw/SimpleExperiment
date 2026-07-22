@@ -1,7 +1,7 @@
 export const zlkTmuxSessionPrefix = "zlk-";
-export const zlkAgentTmuxCommandVersion = "ZLK_AGENT_TMUX_V18=1";
+export const zlkAgentTmuxCommandVersion = "ZLK_AGENT_TMUX_V19=1";
 export const zlkAgentRuntimeRelativePath = "zlk_cluster/runtime/cluster_agent.py";
-export const zlkDefaultCondaEnv = "zlk";
+export const zlkDefaultCondaEnv = "";
 
 export type AgentTmuxRole = "hub" | "worker";
 
@@ -30,6 +30,7 @@ export function agentTmuxStartupCommand(options: AgentTmuxStartupOptions): strin
   const port = options.port || 18765;
   const session = defaultAgentTmuxSessionName(role, options.endpointId);
   const condaEnv = normalizeCondaEnvName(options.condaEnv);
+  const requireCondaEnv = condaEnv ? "1" : "0";
   const command = agentRuntimeCommand({ session, mode, port, installDir: options.installDir, workDir: options.workDir, pythonCommand: options.pythonCommand, endpointId: options.endpointId, condaEnv });
   const agentPids = `AGENT_PIDS=$(ps -eo pid=,comm=,args= | awk -v port="$PORT" -v mode="$MODE" '$2 ~ /python/ && index($0,"cluster_agent.py") && (index($0,"--port " port) || index($0,"--port=" port)) && (index($0,"--mode " mode) || index($0,"--mode=" mode)) { print $1 }')`;
   const portPids = `PORT_PIDS=$({ ss -ltnp "sport = :$PORT" 2>/dev/null | awk -F'pid=' '/pid=/ { split($2,a,","); print a[1] }'; if command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null; fi; } | sort -u)`;
@@ -53,7 +54,7 @@ export function agentTmuxStartupCommand(options: AgentTmuxStartupOptions): strin
     `PORT=${shellQuote(String(port))}`,
     `MODE=${shellQuote(mode)}`,
     `ZLK_CONDA_ENV=${shellQuote(condaEnv)}`,
-    `ZLK_REQUIRE_CONDA_ENV=${shellQuote("1")}`,
+    `ZLK_REQUIRE_CONDA_ENV=${shellQuote(requireCondaEnv)}`,
     `INSTALL_DIR=${shellQuote(options.installDir || "")}`,
     `WORK_DIR=${shellQuote((options.workDir || options.installDir || "").trim())}`,
     `CMD=${shellQuote(command)}`,
@@ -76,6 +77,7 @@ function agentRuntimeCommand(options: {
   const installDir = options.installDir?.trim() || "";
   const workDir = options.workDir?.trim() || installDir;
   const condaEnv = normalizeCondaEnvName(options.condaEnv);
+  const requireCondaEnv = condaEnv ? "1" : "0";
   return [
     `INSTALL_DIR=${shellQuote(installDir)}`,
     `WORK_DIR=${shellQuote(workDir)}`,
@@ -95,7 +97,7 @@ function agentRuntimeCommand(options: {
     `chmod +x "$AGENT_SCRIPT" 2>/dev/null || true`,
     `cd "$WORK_DIR" || exit 127`,
     `export ZLK_CONDA_ENV="\${ZLK_CONDA_ENV:-${condaEnv}}"`,
-    `export ZLK_REQUIRE_CONDA_ENV="\${ZLK_REQUIRE_CONDA_ENV:-1}"`,
+    `export ZLK_REQUIRE_CONDA_ENV="\${ZLK_REQUIRE_CONDA_ENV:-${requireCondaEnv}}"`,
     zlkCondaActivationShell(false),
     `export ZLK_AGENT_INSTALL_DIR="$INSTALL_DIR"`,
     `export PYTHONPATH="$INSTALL_DIR\${PYTHONPATH:+:$PYTHONPATH}"`,
@@ -147,19 +149,19 @@ function zlkCondaActivationShell(required: boolean, options: ZlkCondaActivationO
   const activateRedirect = options.quietActivate === false ? "" : " >/dev/null 2>&1";
   const hookShell = options.hookShell || "posix";
   return [
+    `if [ -n "$ZLK_CONDA_ENV" ]; then :`,
     `for __ZLK_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__ZLK_CONDA_SH" ]; then . "$__ZLK_CONDA_SH"; fi; done`,
     `if command -v conda >/dev/null 2>&1; then __ZLK_CONDA_SETUP="$(conda shell.${hookShell} hook 2>/dev/null)" && eval "$__ZLK_CONDA_SETUP" || true; fi`,
     `if command -v conda >/dev/null 2>&1; then conda activate "$ZLK_CONDA_ENV"${activateRedirect} || ${failed}; elif [ ${missingGuard} ]; then ${missing}; fi`,
+    `fi`,
   ].join("; ");
 }
 
 function normalizeCondaEnvName(value: string | undefined): string {
-  const text = String(value || zlkDefaultCondaEnv).trim();
-  return text || zlkDefaultCondaEnv;
+  return String(value || zlkDefaultCondaEnv).trim();
 }
 
 function slug(value: string): string {
   return String(value || "worker").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
 }
-
 

@@ -18,23 +18,23 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-build-026
+## 当前批次：recovery-build-027
 ### 修复点
-- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复缺失的 PPT automation readiness、schemaVersion、超时、并发和错误映射契约。
-- 恢复 Plan 级绘图契约路径、已归档统计源门禁、preview CSV 拒绝和轻量文件预算。
-- 不修改 PPT 插件、已安装扩展、实验结果或归档文件。
+- 以本机已安装 `SimpleExperiment 0.2.0` 为只读证据，恢复 Agent tmux 启动与公开运行环境契约。
+- 默认空 Conda 环境使用系统 Python；显式配置 Conda 时保持 fail closed。
+- 精确识别并停止同端口 Agent 和旧 tmux session 后重建，不修改 Xshell 会话文件或已安装扩展。
 
 ### 回归风险
-- 相邻回归风险：源码恢复必须与当前 Extension 的 `inspectAutomation`、`prepareAutomation` 和 readiness 状态接口一致。
-- 结果风险：原始单次结果、临时 preview CSV 和非 `archived_only` 统计不得进入 PPT 绘图请求。
+- 相邻回归风险：空 Conda 环境不得触发激活，显式环境不得静默回退系统 Python。
+- 进程风险：仅匹配相同 Agent mode/port 或监听端口 PID，禁止宽泛杀死其他 Python 进程。
 
 ### 验证清单
-- PPT bridge、automation readiness、归档结果源和绘图确认定向测试：通过 `20/20`。
-- UI 全量测试：通过 `72/72`；`npm run build`、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
-- 当前恢复批次提交后普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐：`03d9b70292bb29898f3e3c867e76cc94d66623fd`，已对齐。
+- Agent tmux policy 与公开运行环境默认值定向测试：通过 `6/6`。
+- Agent capability 与 Xshell 相邻回归：通过 `18/18`；build、typecheck、lint、JavaScript 语法和 `git diff --check`：通过。
+- [待做] 普通快进推送 `origin/master`，fetch 后确认本地 `HEAD` 对齐。
 
 ## 本批记录
-- 最新完成批次：`recovery-build-025`，活动计划压缩契约已验证并同步，提交 `fdec89314976664da1771238f2e51eff3280ad26`。
-- 当前目标状态：`recovery-build-026` 已完成。
-- `recovery-build-026` 提交记录：`fix: restore PPT automation bridge`，已普通快进推送至 `origin/master`；推送后本地 `HEAD` 与 `origin/master` 一致。
+- 最新完成批次：`recovery-build-026`，PPT automation bridge 已验证并同步，提交 `03d9b70292bb29898f3e3c867e76cc94d66623fd`。
+- 当前目标状态：`recovery-build-027` 验证通过，待提交同步。
+- `recovery-build-027` 提交记录：待验证后填写。
 - 真实 SFTP、服务器、PPT 和三天历史留存均为 `needs field verification`。
