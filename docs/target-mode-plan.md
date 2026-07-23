@@ -1,10 +1,10 @@
-# 目标模式当前计划：恢复源码完整性
+# 目标模式当前计划：双插件备份、打包与安装
 本文档只保留最新活动目标。历史批次、验证和部署记录以 git 提交为准。
 打包/清理时会自动压缩本文件，禁止堆积流水账。
 
 ## 固定边界
 - 角色分工：SimpleExperiment 负责计划、Agent、状态和任务；SimpleSFTP 负责真实文件传输；PPT 插件负责绘图。
-- 全局约束：不修改安装目录，不覆盖 VSIX，不删除完整文件，不把未验证实验声明当作事实。
+- 全局约束：不手工修改安装目录；仅在完成独立备份后，按用户本批明确授权通过 VS Code CLI 安装新版 VSIX；不覆盖已有 VSIX，不删除完整文件，不把未验证实验声明当作事实。
 - `Agent runtime cache` 只服务运行态；项目计划、结果、归档、删除墓碑和文件传输状态属于项目态。
 - 结果证据使用最终归档结果；`metrics_summary.csv`、PPT 和论文证据不得混入临时结果；PPT 绘图目标确认必须先于 automation 调用，且不迁移、删除或重写旧任务和结果。
 - 连接边界：Xshell 本地隧道 + Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
@@ -20,30 +20,24 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-guard-006
+## 当前批次：release-install-001
 ### 修复点
-- 将恢复源码形态检查扩展到整个 `src` TypeScript 源码树。
-- 拒绝 `__createBinding`、`Object.defineProperty(exports)`、`exports.*` 和静态 CommonJS `require` 编译产物。
-- 保留已恢复模块的关键 TypeScript import/export 标记检查。
+- 对照已安装的 SimpleExperiment `0.2.0` 与 SimpleSFTP `0.1.2`，确认待交付源码版本和包身份。
+- 在仓库外创建不可覆盖的时间戳备份，保留两个已安装扩展目录、哈希清单和版本信息。
+- 全量验证后分别生成唯一命名的新 VSIX，比较归档内容，再通过 VS Code CLI 安装并核验已安装版本。
 
 ### 回归风险
-- 相邻回归风险：门禁不得误判正常 TypeScript `import = require` 或生成到 `dist` 的 CommonJS 文件。
-- 行为风险：扫描范围只包含 `src/**/*.ts`，不得读取或修改构建产物、安装目录和依赖。
-- 外部边界：不运行真实实验，不写项目归档，不修改安装目录或已安装插件。
+- 安装风险：新版安装会替换 VS Code 当前启用版本；原版必须先完成仓库外备份且通过哈希复核。
+- 相邻回归风险：版本号变化以外的文件增删和关键运行文件差异必须记录，不以窄化测试替代全量测试。
+- 外部边界：不运行真实实验，不写项目归档，不修改用户项目配置或服务器文件。
 
 ### 验证清单
-- [已完成] SimpleExperiment `npm test` 通过 659/659；SimpleSFTP `npm test` 通过 18/18；两插件租约压力测试均通过 10/10，中文 UTF-8 租约标签回归通过。
-- [已完成] 临时对照包未覆盖现有安装；SimpleExperiment VSIX 不含恢复异常文件或 Python bytecode。
-- [已完成] SimpleSFTP VSIX 包含共享租约与工作区映射模块；两个独立插件模块互操作通过。
-- [已完成] SimpleExperiment `0.2.1` 与 SimpleSFTP `0.1.3` 对照包的 manifest、package 版本和扩展 ID 一致。
-- [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
-- [已完成] 两个源码 manifest 已清除安装态 `__metadata`；临时对照包分别为 138、8 个归档项，包内扩展 ID、版本和显示名不变，均不含该字段。
-- [失败] 当前计划 A 输入缺少 `vscode-remote` 与 `127.0.0.1` 明示声明，且 `containerUser=root`；校验结果为 `failed`，不得生成兼容通过结果。
-- [已完成] 全 TypeScript 源码树编译产物污染门禁与全量回归；全量测试 664/664、lint、构建和 diff 检查通过。
+- [已完成] 已安装的 SimpleExperiment `0.2.0` 与 SimpleSFTP `0.1.2` 已备份到仓库外时间戳目录；源与副本 SHA-256 清单一致，并生成独立 ZIP。
+- [已完成] SimpleExperiment 全量测试 664/664、SimpleSFTP 全量测试 18/18 通过；除本计划外无意外 Git 改动。
+- [已完成] 候选 VSIX 分别包含 139 和 6 个扩展文件；包内 ID、版本和关键运行文件通过核验，SHA-256 已写入备份清单。
+- [已完成] 新包与旧安装目录差异报告已写入备份目录；SimpleExperiment `0.2.1` 与 SimpleSFTP `0.1.3` 已通过 VS Code CLI 安装并核验。
 
 ## 本批记录
-- 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
-- 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；跨平台 Git 工作区已稳定；Docker 兼容等待现场联调与正式交付。
-- `docker-plugin-008`：源码 manifest 安装态残留已清理；全量测试、lint、临时打包和包内 manifest 检查通过，未安装或覆盖插件。
-- `history-006`：独立视觉夹具与自动化检查已完成；本地页面自动截图不可用，桌面、高 DPI 和窄侧栏视觉检查保持 `needs field verification`。
-- `recovery-guard-006`：源码形态门禁已扩展到完整 TypeScript 源码树；定向测试 2/2、全量测试 664/664、lint、构建和 diff 检查通过。
+- 上一完成批次：`recovery-guard-006`，验证记录与提交以 git 为准。
+- `release-install-001`：备份、全量验证、包差异审计和新版安装完成；等待用户重载 VS Code 后进行手动功能测试。
+- 当前目标状态：自动化交付完成；现场功能表现仍需用户手动验证。
