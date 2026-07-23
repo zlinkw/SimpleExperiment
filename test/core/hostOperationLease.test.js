@@ -90,6 +90,23 @@ test("heartbeat renewal never exposes partial lease JSON", async () => {
   }
 });
 
+test("heartbeat renewal uses UTF-8 byte offsets for localized action labels", async () => {
+  const fixture = leaseFixture();
+  try {
+    const holder = await fixture.manager("window-a", { ttlMs: 120, heartbeatMs: 5 }).acquire({ ...fixture.input(), actionLabel: "上传工作区" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const record = parseHostOperationLeaseRecord(fs.readFileSync(fixture.leasePath, "utf8"));
+    assert.ok(record);
+    assert.equal(record.actionLabel, "上传工作区");
+    assert.ok(Date.parse(record.heartbeatAt));
+    assert.ok(Date.parse(record.expiresAt) > Date.now());
+    await holder.release();
+  }
+  finally {
+    fixture.cleanup();
+  }
+});
+
 test("expired lease supports crash recovery without force-removing an active lease", async () => {
   const fixture = leaseFixture();
   try {
