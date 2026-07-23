@@ -47,6 +47,7 @@ test("workspace folder changes reload isolated project context", () => {
     /confirmedPptPaths = \[\]/,
     /lastSnapshot = undefined/,
     /lastRealtimeState = undefined/,
+    /gpuHistoryState\.reset\(\)/,
     /lastProbe = undefined/,
     /lastWorkerProbes = \{\}/,
   ]) assert.match(reset, pattern);

@@ -81,6 +81,7 @@ const PlanBuilder_1 = require("./features/PlanBuilder");
 const { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } = require("./features/PlanArchive");
 const ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates");
 const PptPlotBridge_1 = require("./PptPlotBridge");
+const GpuHistoryState_1 = require("./features/GpuHistoryState");
 type TunnelAction = string;
 type UiActionError = {
     command: string;
@@ -421,6 +422,7 @@ class RealtimeTunnelPanelProvider {
     private lastRealtimeHeartbeatPostAt = 0;
     private readonly realtimeHeartbeatPostMinMs = 60_000;
     private lastAvailabilityGpuSignature = "";
+    private readonly gpuHistoryState = new GpuHistoryState_1.GpuHistoryStateCache();
     auditTail;
     debugBundlePath;
     actionErrors = [];
@@ -662,6 +664,7 @@ class RealtimeTunnelPanelProvider {
         this.lastResultsSummaryCapabilitySkippedDirtyKey = "";
         this.lastSnapshot = undefined;
         this.lastRealtimeState = undefined;
+        this.gpuHistoryState.reset();
         this.lastHealth = undefined;
         this.lastProbe = undefined;
         this.lastWorkerProbes = {};
@@ -2049,6 +2052,38 @@ class RealtimeTunnelPanelProvider {
         if (generation === this.projectContextGeneration)
             this.postState();
     }
+    async loadGpuHistoryFromUi(message) {
+        const generation = this.projectContextGeneration;
+        const client = this.client;
+        const query = (0, GpuHistoryState_1.normalizeGpuHistoryQuery)({
+            serverId: stringField(message, "serverId") || undefined,
+            gpuId: stringField(message, "gpuId") || undefined,
+            start: message && typeof message === "object" ? message.start : undefined,
+            end: message && typeof message === "object" ? message.end : undefined,
+            maxPoints: numberField(message, "maxPoints"),
+        });
+        const request = this.gpuHistoryState.load(query, async (normalized) => {
+            if (this.effectiveConnectionMode() === "offline_import")
+                throw new Error("离线模式不能查询 GPU 历史；已保留上次成功数据。");
+            const capabilities = objectRecord(this.lastProbe?.capabilities);
+            const endpoints = objectRecord(capabilities?.endpoints);
+            if (endpoints && endpoints.gpuHistory !== true)
+                throw new Error("当前 Hub Agent 未声明 GPU 历史 capability，请部署最新版 Agent 后重试。");
+            return client.getGpuHistory(normalized);
+        }, { force: Boolean(message && typeof message === "object" && message.force === true) });
+        this.postState(true);
+        let failure;
+        try {
+            await request;
+        }
+        catch (error) {
+            failure = error;
+        }
+        if (generation === this.projectContextGeneration && client === this.client)
+            this.postState(true);
+        if (failure && stringField(message, "clientActionId"))
+            throw failure;
+    }
     async manualSchedulerSnapshot() {
         const generation = this.projectContextGeneration;
         if (this.effectiveConnectionMode() === "offline_import")
@@ -2262,6 +2297,9 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "manualGpuSnapshot":
                 await this.manualGpuSnapshot();
+                break;
+            case "loadGpuHistory":
+                await this.loadGpuHistoryFromUi(message);
                 break;
             case "manualSchedulerSnapshot":
                 await this.manualSchedulerSnapshot();
@@ -6352,6 +6390,7 @@ class RealtimeTunnelPanelProvider {
     }
     private resetClient() {
         const previous = this.client;
+        this.gpuHistoryState.reset();
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
         this.realtimeUiStateRefs = undefined;
@@ -6785,6 +6824,7 @@ class RealtimeTunnelPanelProvider {
             planArchive: { plans: webviewArchivedPlans.plans, totalCount: webviewArchivedPlans.totalCount, omittedCount: webviewArchivedPlans.omittedCount },
             planScanError: webviewPlanScanError,
             gpu,
+            gpuHistory: this.gpuHistoryState.snapshot(),
             schedulerStates,
             experimentTraces,
             logs,
@@ -9735,7 +9775,7 @@ function getSafeCommand(message) {
     const command = stringField(message, "command");
     const basic = new Set([
         "webviewReady", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
-        "resumeNetwork", "snapshot", "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
+        "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
         "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
         "selectPlan", "selectExperiment",
         "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
