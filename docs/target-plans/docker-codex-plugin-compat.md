@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：执行中，当前批次 `docker-plugin-006`。
+- 状态：执行中，当前批次 `docker-plugin-007`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -143,12 +143,19 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 
 验收记录：已把 SimpleExperiment 升级为 `0.2.1`、SimpleSFTP 升级为 `0.1.3`，版本提交 `98850e0`、`1445856` 已同步各自 `origin/master`，避免与本机已安装的 `0.2.0`、`0.1.2` 内容分叉但版本相同。已修复租约时间戳写入的 UTF-8 字节偏移问题，提交 `779b5f3`、`458c2b6` 已同步各自 `origin/master`；中文 `actionLabel` 回归覆盖通过。已在 `%TEMP%` 生成不覆盖现有安装的对照包；SimpleExperiment 包含 138 个归档项，SimpleSFTP 包含 8 个归档项，包内 manifest、package 版本与扩展 ID 均通过检查。SimpleExperiment 已排除恢复快照异常文件和 `dist/runtime/__pycache__`；相关修复提交 `3a3cdaf`、`f27bd4e` 已同步 `origin/master`。公开离线打包脚本已改为直接向全新版本目录生成两个 VSIX；目录已存在时立即失败，不再删除旧 VSIX、强制复制或覆盖 README；提交 `06e5730` 已同步 `origin/master`。`npm test` 通过 655/655，静态打包测试、lint、临时目录实际打包和重复路径拒绝检查均通过；产物仍只位于 `%TEMP%`，未安装。与本机已安装目录相比，新包新增宿主租约、工作区映射、GPU 历史和恢复计划文档；SimpleSFTP 新包包含 `host-operation-lease.js` 与 `workspace-path.js`。只读现场检查未发现 Xshell 进程或 `127.0.0.1` 监听端口，未执行上传、远端写入或隧道启动；未安装任何对照包，未写入 `plugin-drop`，真实 SFTP 上传、Xshell `127.0.0.1`、非 root 容器和最终兼容结果仍为 `needs experiment`。
 
-### docker-plugin-006 跨平台共享工作区（当前）
+### docker-plugin-006 跨平台共享工作区
 
 - 两个仓库使用同一份 `* text=auto` Git 属性，避免 Windows 工作区换行导致 Docker Linux Git 误报源码修改。
 - Windows 与容器分别检查状态、分支和关键文件；不改变源码语义，不安装或覆盖插件。
 
 验收记录：当前宿主仓库状态干净；加入属性后，Docker 容器内原先 12 个仅换行差异的集群插件文件不再显示修改，SimpleSFTP 容器工作区状态保持干净。SimpleExperiment 提交 `2fb064e`、SimpleSFTP 提交 `57137db` 均已同步各自 `origin/master`。容器仍以 `root` 运行，属于计划 A 非 root 约束不满足的 `needs experiment`，不据此生成兼容通过结果。
+
+### docker-plugin-007 交接契约校验（当前）
+
+- 用本地校验器检查 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md` 的固定字段、宿主路径、远程根、扩展 Host、回环边界和 Xshell 边界。
+- 结构错误返回 `failed`；root 或缺少运行用户信息返回 `needs_experiment`；只有无警告的非 root 输入才允许返回 `passed`。
+
+验收记录：校验器单元测试通过，SimpleExperiment 全量测试通过 `659/659`，lint 通过。对当前计划 A 文件的只读执行返回 `failed`：`PLUGIN-HANDOFF.md` 未明确包含 `vscode-remote` 与 `127.0.0.1`，且配置声明 `containerUser=root`。因此不得生成 `plugin-compat-result.json` 的通过状态；未修改计划 A 文件。
 
 ## 输出接口
 

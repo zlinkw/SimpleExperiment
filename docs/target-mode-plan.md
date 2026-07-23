@@ -20,16 +20,16 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-006
+## 当前批次：docker-plugin-007
 ### 修复点
-- 生成不覆盖现有安装的临时 VSIX，并与本机已安装的同版本插件逐文件比较。
-- 排除恢复快照异常文件和 Python bytecode，确认 SimpleSFTP 租约与工作区映射模块进入新包。
-- 仅在真实上传、Xshell、非 root 容器和远程工作区验收全部通过后写入 `plugin-drop` 与兼容结果。
+- 校验计划 A 的 JSON 固定字段与 Markdown 运行边界，未知扩展字段保持兼容。
+- 错误路径、扩展 Host、远程 URI 和 Windows 回环声明必须阻断验收。
+- `root` 或未声明容器用户时只能返回 `needs_experiment`，不得生成通过结果。
 
 ### 回归风险
-- 相邻回归风险：打包规则不得遗漏运行必需模块，不得把恢复残片、缓存或本机状态装入公开 VSIX。
-- 版本风险：新包必须使用高于已安装版的 patch 版本，对照包不得覆盖现有安装。
-- 交付边界：输入接口未完全通过前不生成正式兼容结果；Dev Container 与 Xshell 联调仍需现场验证。
+- 相邻回归风险：不能用结构测试替代真实远程工作区、SFTP 或 Xshell 现场证据。
+- 兼容风险：schemaVersion 1 的未知扩展字段不得导致失败。
+- 外部边界：校验器只读计划 A 文件，不修改 Docker 配置、VSIX 或安装目录。
 
 ### 验证清单
 - [已完成] SimpleExperiment `npm test` 通过 655/655；SimpleSFTP `npm test` 通过 18/18；两插件租约压力测试均通过 10/10，中文 UTF-8 租约标签回归通过。
@@ -37,12 +37,12 @@
 - [已完成] SimpleSFTP VSIX 包含共享租约与工作区映射模块；两个独立插件模块互操作通过。
 - [已完成] SimpleExperiment `0.2.1` 与 SimpleSFTP `0.1.3` 对照包的 manifest、package 版本和扩展 ID 一致。
 - [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
-- [待验证] 计划 A 输入接口；当前 `PLUGIN-HANDOFF.md` 声明容器用户为 `root`，与原计划的非 root 约束不一致。
+- [失败] 当前计划 A 输入缺少 `vscode-remote` 与 `127.0.0.1` 明示声明，且 `containerUser=root`；校验结果为 `failed`，不得生成兼容通过结果。
 - [待现场验证] Dev Container 文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`；当前只读检查未发现 Xshell 进程或本地监听端口。
 - [已完成] 两个插件仓库加入 `* text=auto` 换行规范；Docker Linux 工作区不再把 Windows 混合换行误报为源码修改，Windows 工作区状态保持干净。SimpleExperiment `2fb064e`、SimpleSFTP `57137db` 已同步。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
 - 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；跨平台 Git 工作区已稳定；Docker 兼容等待现场联调与正式交付。
+- `docker-plugin-007`：校验器单元测试通过；实际计划 A 输入按预期返回 `failed`，待提交同步。
 - `docker-plugin-004c`：SimpleExperiment `21b375a`、`779b5f3`，SimpleSFTP `95399bf`、`458c2b6` 已同步各自 `origin/master`。
-- `docker-plugin-005`：打包清理 `3a3cdaf`、`f27bd4e`，版本提交 `98850e0`、`1445856`，非覆盖公开打包提交 `06e5730` 已同步；临时包未安装。
