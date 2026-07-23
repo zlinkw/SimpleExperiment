@@ -20,6 +20,9 @@ test("GPU history chart keeps missing buckets as gaps and exposes accessible leg
   assert.match(html, /class="gpuLegendItem"/);
   assert.match(html, /data-gpu-history-focus/);
   assert.match(html, /tabindex="0" role="img"/);
+  assert.match(html, /class="gpuHistoryTooltip" role="status"/);
+  assert.match(html, /updateGpuHistoryTooltip/);
+  assert.match(html, /historyMemoryText/);
   assert.match(html, /GPU_HISTORY_LINE_STYLES/);
   assert.match(html, /GPU_HISTORY_MARKERS/);
 });

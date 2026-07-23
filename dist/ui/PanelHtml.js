@@ -805,8 +805,10 @@ function renderPanelHtml() {
     .gpuHistoryChartHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
     .gpuHistoryChartTitle { color: var(--vscode-foreground); font-size: 12px; font-weight: 800; }
     .gpuHistoryChartMeta { color: var(--vscode-descriptionForeground); font-size: 11px; }
+    .gpuHistoryCanvasWrap { position: relative; min-width: 0; }
     .gpuHistoryCanvas { display: block; width: 100%; height: 190px; min-height: 150px; border: 1px solid var(--border); border-radius: 4px; background: var(--vscode-editor-background); outline: none; }
     .gpuHistoryCanvas:focus { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder); }
+    .gpuHistoryTooltip { position: absolute; top: 6px; left: 6px; z-index: 2; max-width: min(320px, calc(100% - 12px)); padding: 5px 7px; border: 1px solid var(--vscode-focusBorder); border-radius: 4px; background: var(--vscode-editorHoverWidget-background); color: var(--vscode-editorHoverWidget-foreground); font-size: 11px; line-height: 1.4; box-shadow: 0 4px 12px rgba(0, 0, 0, .18); pointer-events: none; }
     .gpuHistoryLegend { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; }
     .gpuLegendItem { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 2px 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--vscode-foreground); font: inherit; font-size: 11px; cursor: pointer; }
     .gpuLegendItem:hover, .gpuLegendItem:focus-visible { border-color: var(--vscode-focusBorder); background: var(--vscode-list-hoverBackground); outline: none; }
@@ -1707,6 +1709,10 @@ function renderPanelHtml() {
     window.addEventListener("blur", () => hidePinContextMenu());
     window.addEventListener("resize", () => scheduleGpuHistoryDraw());
     window.addEventListener("scroll", () => hidePinContextMenu(), true);
+    document.addEventListener("pointermove", (event) => {
+      const canvas = event.target && event.target.closest ? event.target.closest("canvas.gpuHistoryCanvas") : null;
+      updateGpuHistoryTooltip(canvas, event);
+    });
     el("planFileInput").addEventListener("input", (event) => {
       const value = event.target.value || "";
       if (lastState) lastState.planFileInput = value;
@@ -7308,7 +7314,7 @@ function renderPanelHtml() {
       const summary = gpuHistoryTextSummary(chartSeries, kind);
       return '<div class="gpuHistoryChart" id="' + escAttr(chartId) + '" data-history-kind="' + escAttr(kind) + '">' +
         '<div class="gpuHistoryChartHead"><span class="gpuHistoryChartTitle">' + esc(title) + '</span><span class="gpuHistoryChartMeta">' + esc(description) + '</span></div>' +
-        '<canvas class="gpuHistoryCanvas" tabindex="0" role="img" aria-label="' + escAttr(title + "。" + description) + '" data-chart-kind="' + escAttr(kind) + '"></canvas>' +
+        '<div class="gpuHistoryCanvasWrap"><canvas class="gpuHistoryCanvas" tabindex="0" role="img" aria-label="' + escAttr(title + "。" + description) + '" data-chart-kind="' + escAttr(kind) + '"></canvas><div class="gpuHistoryTooltip" role="status" aria-live="polite" hidden></div></div>' +
         '<div class="gpuHistoryLegend" aria-label="图例">' + legend + '</div>' +
         '<div class="gpuHistorySummary">' + esc(summary) + '</div>' +
       '</div>';
@@ -7366,14 +7372,70 @@ function renderPanelHtml() {
       else gpuHistoryDrawFrame = setTimeout(draw, 0);
     }
 
+    function gpuHistoryCanvasSeries(canvas) {
+      const kind = canvas && canvas.dataset.chartKind || "overview";
+      if (kind === "overview") return gpuHistoryOverviewSeries(lastState || {}, gpuViewModelForState(lastState || {}).servers);
+      const details = canvas && canvas.closest('details[data-gpu-history-scope="gpu"]');
+      return details ? [gpuHistorySeriesFor(details.dataset.serverId || "", details.dataset.gpuId || "")].filter(Boolean) : [];
+    }
+
+    function updateGpuHistoryTooltip(canvas, event) {
+      document.querySelectorAll(".gpuHistoryTooltip:not([hidden])").forEach((tooltip) => { tooltip.hidden = true; });
+      if (!canvas || !event) return;
+      const tooltip = canvas.parentElement && canvas.parentElement.querySelector(".gpuHistoryTooltip");
+      const series = gpuHistoryCanvasSeries(canvas);
+      if (!tooltip || !series.length) return;
+      const points = series.flatMap((item) => asArray(item.points));
+      const times = points.map((point) => Number(point.bucketEpoch)).filter(Number.isFinite);
+      if (!times.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(rect.width, Number(event.clientX || 0) - rect.left));
+      const ratio = rect.width > 0 ? x / rect.width : 0;
+      const minTime = Math.min.apply(Math, times);
+      const maxTime = Math.max.apply(Math, times);
+      const target = minTime + (maxTime - minTime) * ratio;
+      const nearestTime = times.reduce((best, value) => Math.abs(value - target) < Math.abs(best - target) ? value : best, times[0]);
+      const kind = canvas.dataset.chartKind || "overview";
+      const rows = series.flatMap((item) => {
+        const point = nearestHistoryPoint(item.points || [], nearestTime);
+        if (!point) return [];
+        const label = esc(item.label || item.serverId || "GPU");
+        if (kind === "overview") {
+          return ['<span><b>' + label + '</b> ' + esc(historyPercentText(point.gpuUtilPercent)) + ' · 峰值 GPU ' + esc(point.gpuId || "-") + ' · ' + esc(String(item.gpuCount || 0)) + ' 张卡</span>'];
+        }
+        return ['<span><b>' + label + ' / GPU ' + esc(item.gpuId || "-") + '</b> 利用率 ' + esc(historyPercentText(point.gpuUtilPercent)) + ' · 显存 ' + esc(historyPercentText(point.memoryUtilPercent)) + '（' + esc(historyMemoryText(point)) + '）</span>'];
+      });
+      if (!rows.length) return;
+      tooltip.innerHTML = '<b>' + esc(new Date(nearestTime * 1000).toLocaleString()) + '</b><br>' + rows.join("<br>");
+      tooltip.hidden = false;
+      tooltip.style.left = x > rect.width / 2 ? "6px" : "auto";
+      tooltip.style.right = x > rect.width / 2 ? "auto" : "6px";
+    }
+
+    function nearestHistoryPoint(points, target) {
+      const rows = asArray(points).filter((point) => Number.isFinite(Number(point.bucketEpoch)));
+      if (!rows.length) return null;
+      const nearest = rows.reduce((best, point) => Math.abs(Number(point.bucketEpoch) - target) < Math.abs(Number(best.bucketEpoch) - target) ? point : best, rows[0]);
+      const threshold = Math.max(Number(gpuHistoryMeta.bucketSeconds || 300), historyExpectedStep(rows)) * GPU_HISTORY_GAP_FACTOR;
+      return Math.abs(Number(nearest.bucketEpoch) - target) <= threshold ? nearest : null;
+    }
+
+    function historyPercentText(value) {
+      const number = finiteHistoryPercent(value);
+      return number === null ? "-" : String(Math.round(number * 10) / 10) + "%";
+    }
+
+    function historyMemoryText(point) {
+      const used = Number(point && point.memoryUsedMb);
+      const total = Number(point && point.memoryTotalMb);
+      return Number.isFinite(used) && Number.isFinite(total) ? Math.round(used) + " / " + Math.round(total) + " MB" : "-";
+    }
+
     function drawGpuHistoryCanvas(canvas) {
       if (!canvas) return;
       const kind = canvas.dataset.chartKind || "overview";
       const chart = canvas.closest(".gpuHistoryChart");
-      const series = kind === "overview" ? gpuHistoryOverviewSeries(lastState || {}, gpuViewModelForState(lastState || {}).servers) : (() => {
-        const details = canvas.closest('details[data-gpu-history-scope="gpu"]');
-        return details ? [gpuHistorySeriesFor(details.dataset.serverId || "", details.dataset.gpuId || "")].filter(Boolean) : [];
-      })();
+      const series = gpuHistoryCanvasSeries(canvas);
       const rect = canvas.getBoundingClientRect();
       const width = Math.max(320, Math.round(rect.width || (chart && chart.clientWidth) || 640));
       const height = Math.max(150, Math.round(rect.height || 190));

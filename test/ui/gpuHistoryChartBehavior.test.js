@@ -90,3 +90,9 @@ test("GPU overview curve uses per-time-bucket server GPU peak without zero filli
   assert.equal(JSON.stringify(result[0].points.map((point) => [point.bucketEpoch, point.gpuUtilPercent])), JSON.stringify([[100, 70], [200, 80]]));
   assert.equal(result[0].points.some((point) => point.gpuUtilPercent === 0), false);
 });
+
+test("GPU card hover text reports percentage and memory MB", () => {
+  const context = chartContext(["finiteHistoryPercent", "historyPercentText", "historyMemoryText"]);
+  assert.equal(context.historyPercentText(42.34), "42.3%");
+  assert.equal(context.historyMemoryText({ memoryUsedMb: 1024.4, memoryTotalMb: 8192 }), "1024 / 8192 MB");
+});
