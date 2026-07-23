@@ -42,5 +42,6 @@
 ## 本批记录
 - 上一完成批次：`recovery-guard-006`，验证记录与提交以 git 为准。
 - 上一交付批次：`release-install-001`；旧版备份位于仓库外时间戳目录且保持不变。
-- 当前目标状态：代码和候选包自动化验收完成；等待本批提交推送、用户审核人工清理清单和现场安装验证。
+- 当前目标状态：代码与候选包自动化验收完成，提交 `7279aec` 已推送 `origin/master`；等待用户审核人工清理清单和现场安装验证。
 - 本批候选包：`simple-experiment-0.2.2-xshell-only-r2.vsix`；旧版对照：`D:\GitRepo\MCP\installed-plugin-backups\20260723-205724\SimpleExperiment-0.2.1-d9a71be.vsix`。
+- 本批提交：`7279aec fix: restore SimpleExperiment activation and Xshell onboarding`。
