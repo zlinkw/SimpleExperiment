@@ -125,7 +125,7 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 - SimpleExperiment 覆盖 Xshell 隧道启动、配置、Agent 准备与部署、Plan 调度、结果归档与删除、SFTP 编排、GitHub 操作和下载入口。
 - SimpleSFTP 覆盖工作区创建、上传、下载、交接、忽略扫描和保存时自动上传；共享租约模块已加入 VSIX 文件清单。
 
-验收记录：SimpleExperiment `npm test` 通过 652/652；SimpleSFTP `npm test` 通过 16/16，提交 `a62c321` 已同步 `origin/master`。两个插件均保留旧命令 ID，静态测试确认只读状态命令不申请租约；SimpleExperiment 接入随本批提交。真实双窗口 UI 阻断仍为 `needs field verification`。
+验收记录：SimpleExperiment `npm test` 通过 652/652，提交 `308d293` 已同步 `origin/master`；SimpleSFTP `npm test` 通过 16/16，提交 `a62c321` 已同步 `origin/master`。两个插件均保留旧命令 ID，静态测试确认只读状态命令不申请租约。真实双窗口 UI 阻断仍为 `needs field verification`。
 
 ### docker-plugin-004c 多窗口与双插件联调（当前）
 
