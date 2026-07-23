@@ -33,12 +33,9 @@
 - 边界风险：API 与状态链路不得接入结果、归档、CSV、论文、PPT 或 SimpleSFTP。
 
 ### 验证清单
-- [已通过] `history-002a` Agent API/capability/OpenAPI、时间参数和 TunnelClient 定向测试。
-- [已通过] `history-002a` build、typecheck、lint、runtime/SHA256、`git diff --check` 与全量测试 625/625。
-- [已通过] `history-002b` Extension 按需缓存、断连保留、请求合并与 Webview payload 预算。
-- [已通过] `history-002b` build、typecheck、lint、runtime/SHA256、`git diff --check` 与全量测试 628/628。
-- [已通过] `history-003` 总体/单卡图表、服务端缺口标记、稳定配色、可访问图例、响应式绘制定向测试。
-- [已通过] `history-003` build、typecheck、lint、`node -c`、`git diff --check` 与全量测试 631/631。
+- [已通过] `history-002a` Agent API/capability/OpenAPI、TunnelClient、build/lint/runtime/SHA256 与全量测试 625/625。
+- [已通过] `history-002b` 按需缓存、断连保留、请求合并、Webview payload 预算与全量测试 628/628。
+- [已通过] `history-003` 总体/单卡图表、缺口标记、稳定配色、可访问性、build/lint 与全量测试 631/631。
 - [已通过] `history-004` 模拟服务器数量、颜色稳定性、缺口/峰值/显存悬停逻辑与全量测试 635/635。
 - [已通过] `history-004` build、typecheck、lint、`node -c`、`git diff --check` 与 `vsce ls --no-dependencies`；未生成或安装 VSIX。
 - [待验证] `history-004` 实际浏览器视觉布局、高 DPI/窄侧栏截图、三天资源现场观测和连续采样。
