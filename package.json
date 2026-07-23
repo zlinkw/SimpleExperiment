@@ -565,6 +565,7 @@
 		"test:tunnel-migration": "npm run build && node --test test/migration/remainingRemoteFeatureAudit.test.js test/tunnel/capabilityDrivenUi.test.js test/tunnel/tunnelOnlyOperationQueue.test.js test/tunnel/noDirectRemoteActions.test.js test/tunnel/replaceGpuSchedulerLiveOutput.test.js test/tunnel/replaceRunPlanStopRetry.test.js test/tunnel/replaceArchiveSyncDelete.test.js test/tunnel/replaceRuntimeDiagnostics.test.js test/tunnel/replaceResultsAnalysis.test.js test/tunnel/legacyConfigMigration.test.js test/tunnel/noForbiddenSourceTerms.test.js",
 		"package": "npm run build && npm run compact:plan && npm exec -- @vscode/vsce package --no-dependencies --allow-missing-repository",
 		"package:public": "powershell -ExecutionPolicy Bypass -File scripts/package-public.ps1",
+		"preview:gpu-history": "npm run build && node scripts/render-gpu-history-preview.js",
 		"smoke": "npm run build && npm run lint && node -c dist/extension.js && node -c dist/panel.js && node dist/cli.js status && npm run package",
 		"acceptance": "node scripts/acceptance.js",
 		"compact:plan": "node scripts/compact-target-mode-plan.js"
