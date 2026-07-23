@@ -16,6 +16,7 @@ scripts/**
 test/**
 scenarios/**
 *.vsix
+dist/runtime/__pycache__/**
 -First
 -Path
 -Raw
