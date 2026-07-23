@@ -573,6 +573,7 @@ class RealtimeTunnelPanelProvider {
         const previous = this.workspaceChangePromise || Promise.resolve();
         const current = previous.catch(() => undefined)
             .then(() => this.reloadProjectContextAfterWorkspaceChange())
+            .then(() => this.showFirstRunSetupPromptOnce())
             .catch((error) => {
             const message = errorMessage(error);
             this.lastError = message;
@@ -1167,13 +1168,13 @@ class RealtimeTunnelPanelProvider {
         const enabledWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
             const root = workspaceRoot();
-            if (root) {
-                const choice = await vscode.window.showInformationMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}。接入项目后，首次上传前会再次确认本地与远端预期位置。`, "接入当前项目", "打开面板", "不再提示");
-                if (choice === "接入当前项目")
-                    await this.bootstrapProjectFromUi();
-                else if (choice === "打开面板")
-                    await vscode.commands.executeCommand(`${viewId}.focus`);
-            }
+            if (!root)
+                return;
+            const choice = await vscode.window.showInformationMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}。接入项目后，首次上传前会再次确认本地与远端预期位置。`, "接入当前项目", "打开面板", "不再提示");
+            if (choice === "接入当前项目")
+                await this.bootstrapProjectFromUi();
+            else if (choice === "打开面板")
+                await vscode.commands.executeCommand(`${viewId}.focus`);
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
             return;
         }
@@ -1203,7 +1204,7 @@ class RealtimeTunnelPanelProvider {
             await this.quickSetup();
         const afterSftp = simpleSftpIntegrationReadiness();
         const afterWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
-        if (initialServerSetupComplete(this.setupConfig) && afterSftp.ready && afterWorkerCount > 0)
+        if (workspaceRoot() && initialServerSetupComplete(this.setupConfig) && afterSftp.ready && afterWorkerCount > 0)
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
     }
     async ensureSimpleSftpReadyForSetup(operation) {

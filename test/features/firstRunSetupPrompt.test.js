@@ -37,6 +37,11 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   const promptFlow = source.slice(source.indexOf("async showFirstRunSetupPromptOnce()"), source.indexOf("async ensureSimpleSftpReadyForSetup"));
   assert.ok(promptFlow.indexOf("legacySftpInstallationState()") < promptFlow.indexOf("shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION"));
   assert.match(source, /serverSetupComplete && simpleSftp\.ready && enabledWorkerCount > 0/);
+  const readyFlow = promptFlow.slice(promptFlow.indexOf("if (serverSetupComplete"), promptFlow.indexOf("const needsSftp"));
+  assert.match(readyFlow, /if \(!root\)\s*return;/);
+  assert.ok(readyFlow.indexOf("if (!root)") < readyFlow.indexOf("globalState.update(keys.firstRunSetupPrompt"));
+  const workspaceChange = source.slice(source.indexOf("handleWorkspaceFoldersChanged()"), source.indexOf("resetProjectContextInMemory()"));
+  assert.match(workspaceChange, /reloadProjectContextAfterWorkspaceChange\(\)\)[\s\S]{0,120}showFirstRunSetupPromptOnce\(\)/);
   assert.match(source, /SimpleExperiment 已就绪，当前项目为/);
   assert.match(source, /choice === "接入当前项目"\)\s*await this\.bootstrapProjectFromUi\(\)/);
   assert.match(source, /首次上传前会再次确认本地与远端预期位置/);
@@ -48,7 +53,7 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /needsWorker\s*\? await vscode\.window\.showInformationMessage\(message, "添加 Worker", "打开配置说明", "不再提示"\)/);
   assert.match(source, /choice === "添加 Worker"\)\s*await this\.addWorkerConfigFromUi\(false\)/);
   assert.match(source, /const afterWorkerCount = this\.setupConfig\.workerTunnels\.filter\(\(worker\) => worker\.enabled !== false\)\.length/);
-  assert.match(source, /afterSftp\.ready && afterWorkerCount > 0/);
+  assert.match(source, /workspaceRoot\(\) && initialServerSetupComplete\(this\.setupConfig\) && afterSftp\.ready && afterWorkerCount > 0/);
   assert.match(source, /choice === "不再提示"[\s\S]{0,140}globalState\.update/);
   assert.match(source, /afterSftp = simpleSftpIntegrationReadiness\(\)/);
   assert.doesNotMatch(source, /needsSftpOnly/);

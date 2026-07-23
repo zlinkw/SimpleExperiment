@@ -20,28 +20,20 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：release-activation-002
+## 当前批次：project-onboarding-001
 ### 修复点
-- 修复 SimpleExperiment VSIX 错误排除运行时依赖，导致扩展激活失败和面板永久加载的问题。
-- 增加 VSIX 静态 `require` 闭包门禁，打包前拒绝缺失入口依赖的安装包。
-- 恢复新版本首次打开已配置项目时的“接入当前项目”引导；真实上传仍由 SimpleExperiment 调用 SimpleSFTP，并保留路径强确认。
-- 活动隧道实现、配置字段、测试场景和用户提示统一为 Xshell；废弃完整旧文件只登记到人工清理清单。
+- 修复扩展先启动、后打开本地项目时不再触发项目接入提示的问题。
+- 无工作区时不提前写入首次引导完成版本；工作区切换完成后重新检查并触发引导。
 
 ### 回归风险
-- 激活风险：修复首个缺失模块后，其他被 `.vscodeignore` 排除的传递依赖也必须由闭包门禁覆盖。
-- 相邻回归风险：项目接入提示不得绕过服务器、Worker、SimpleSFTP 和上传位置确认门禁，也不得自动上传。
-- 外部边界：不运行真实实验，不写项目归档，不修改用户项目配置或服务器文件；安装新版前保留既有备份。
+- 相邻回归风险：工作区切换不得重复写入首次引导状态，也不得绕过 SimpleSFTP 和服务器配置门禁。
 
 ### 验证清单
-- [已复现] VS Code 扩展宿主日志明确记录 Xshell 集成入口缺少已被打包规则排除的启动依赖，来源为已安装 `0.2.1` 的 `XshellTunnelIntegration.js`。
-- [已通过] VSIX 闭包门禁覆盖 5 个入口，检查 47 个本地 CommonJS 模块；损坏规则复现与修复后通过均有本地测试证据。
-- [已通过] `npm test` 665/665、`npm run lint`、`npm run typecheck`、构建和 VSIX 内容检查通过。
-- [已通过] `simple-experiment-0.2.2-xshell-only-r2.vsix` 为 139 文件；相对已安装候选包移除旧迁移编译产物和人工清理文档，无旧客户端名称或内容，新增/删除/变更分别为 0/2/11。
-- [按用户要求未执行] 未覆盖安装或修改现有安装目录；现场扩展宿主激活、面板加载和项目接入仍需用户手动安装候选包后验证。
+- [已通过] 工作区切换引导回归测试、类型检查和全量测试：`npm test`，665/665。
+- [已通过] lint：`npm run lint`。
+- [已通过] VSIX 闭包：`npm run verify:package-runtime`，47 个本地模块、5 个入口。
+- [待执行] 生成候选包、提交并推送 `origin/master`。
 
 ## 本批记录
-- 上一完成批次：`recovery-guard-006`，验证记录与提交以 git 为准。
-- 上一交付批次：`release-install-001`；旧版备份位于仓库外时间戳目录且保持不变。
-- 当前目标状态：代码与候选包自动化验收完成，提交 `7279aec` 已推送 `origin/master`；等待用户审核人工清理清单和现场安装验证。
-- 本批候选包：`simple-experiment-0.2.2-xshell-only-r2.vsix`；旧版对照：`D:\GitRepo\MCP\installed-plugin-backups\20260723-205724\SimpleExperiment-0.2.1-d9a71be.vsix`。
-- 本批提交：`7279aec fix: restore SimpleExperiment activation and Xshell onboarding`。
+- 上一完成批次：`release-activation-002`，提交 `7279aec`；计划记录提交 `4bfcfea`。
+- 当前目标状态：已修复无工作区提前记账和工作区变更未重新触发；本批验证完成，等待候选包、提交和推送。
