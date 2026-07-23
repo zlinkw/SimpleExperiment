@@ -32,7 +32,7 @@
 - 外部边界：校验器只读计划 A 文件，不修改 Docker 配置、VSIX 或安装目录。
 
 ### 验证清单
-- [已完成] SimpleExperiment `npm test` 通过 655/655；SimpleSFTP `npm test` 通过 18/18；两插件租约压力测试均通过 10/10，中文 UTF-8 租约标签回归通过。
+- [已完成] SimpleExperiment `npm test` 通过 659/659；SimpleSFTP `npm test` 通过 18/18；两插件租约压力测试均通过 10/10，中文 UTF-8 租约标签回归通过。
 - [已完成] 临时对照包未覆盖现有安装；SimpleExperiment VSIX 不含恢复异常文件或 Python bytecode。
 - [已完成] SimpleSFTP VSIX 包含共享租约与工作区映射模块；两个独立插件模块互操作通过。
 - [已完成] SimpleExperiment `0.2.1` 与 SimpleSFTP `0.1.3` 对照包的 manifest、package 版本和扩展 ID 一致。
@@ -44,5 +44,5 @@
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
 - 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；跨平台 Git 工作区已稳定；Docker 兼容等待现场联调与正式交付。
-- `docker-plugin-007`：校验器单元测试通过；实际计划 A 输入按预期返回 `failed`，待提交同步。
+- `docker-plugin-007`：校验器提交 `0a34572` 已同步；实际计划 A 输入按预期返回 `failed`。
 - `docker-plugin-004c`：SimpleExperiment `21b375a`、`779b5f3`，SimpleSFTP `95399bf`、`458c2b6` 已同步各自 `origin/master`。
