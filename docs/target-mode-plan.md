@@ -44,4 +44,4 @@
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
 - 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；Docker 兼容等待现场联调与正式交付。
 - `docker-plugin-004c`：SimpleExperiment `21b375a`、`779b5f3`，SimpleSFTP `95399bf`、`458c2b6` 已同步各自 `origin/master`。
-- `docker-plugin-005`：打包清理 `3a3cdaf`、`f27bd4e`，版本提交 `98850e0`、`1445856` 已同步；临时包未安装。
+- `docker-plugin-005`：打包清理 `3a3cdaf`、`f27bd4e`，版本提交 `98850e0`、`1445856`，非覆盖公开打包提交 `06e5730` 已同步；临时包未安装。
