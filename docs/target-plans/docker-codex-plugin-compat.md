@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：执行中，当前批次 `docker-plugin-007`。
+- 状态：执行中，`docker-plugin-008` 已完成；现场兼容验收仍为 `needs experiment`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -150,12 +150,19 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 
 验收记录：当前宿主仓库状态干净；加入属性后，Docker 容器内原先 12 个仅换行差异的集群插件文件不再显示修改，SimpleSFTP 容器工作区状态保持干净。SimpleExperiment 提交 `2fb064e`、SimpleSFTP 提交 `57137db` 均已同步各自 `origin/master`。容器仍以 `root` 运行，属于计划 A 非 root 约束不满足的 `needs experiment`，不据此生成兼容通过结果。
 
-### docker-plugin-007 交接契约校验（当前）
+### docker-plugin-007 交接契约校验
 
 - 用本地校验器检查 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md` 的固定字段、宿主路径、远程根、扩展 Host、回环边界和 Xshell 边界。
 - 结构错误返回 `failed`；root 或缺少运行用户信息返回 `needs_experiment`；只有无警告的非 root 输入才允许返回 `passed`。
 
 验收记录：校验器单元测试通过，SimpleExperiment 全量测试通过 `659/659`，lint 通过，提交 `0a34572` 已同步 `origin/master`。对当前计划 A 文件的只读执行返回 `failed`：`PLUGIN-HANDOFF.md` 未明确包含 `vscode-remote` 与 `127.0.0.1`，且配置声明 `containerUser=root`。Plan A 结构检查通过，但 Live Codex 只读请求因外部接口返回 `401 Unauthorized` 失败，标记为 `needs_experiment`，不归因于插件。不得生成 `plugin-compat-result.json` 的通过状态；未修改计划 A 文件。
+
+### docker-plugin-008 源码 manifest 清理
+
+- 从两个源码 `package.json` 移除 VS Code 安装目录生成的 `__metadata`，避免恢复快照把本机安装时间和目录大小带入公开源码及 VSIX。
+- 两个仓库增加回归断言，并重新验证 manifest、扩展 ID、版本、依赖和打包文件清单。
+
+验收记录：Git 历史确认这些字段来自恢复快照首个提交，且与本机已安装扩展的 `__metadata` 完全一致。两个源码 manifest 已清除该字段并增加回归断言；SimpleExperiment `npm test` 通过 `659/659` 且 lint 通过，SimpleSFTP `npm test` 通过 `18/18`。临时目录重新打包后，SimpleExperiment VSIX 含 138 个归档项，SimpleSFTP VSIX 含 8 个归档项；包内扩展 ID、版本和显示名保持不变，均不含 `__metadata`。SimpleSFTP 提交 `91d9157` 已同步 `origin/master`；未安装或覆盖插件，未写入 `plugin-drop`。
 
 ## 输出接口
 

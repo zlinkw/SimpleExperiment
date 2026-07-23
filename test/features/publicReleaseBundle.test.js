@@ -14,6 +14,7 @@ const vsixIgnore = fs.readFileSync(path.join(root, ".vscodeignore"), "utf8");
 test("public release declares paired SimpleSFTP dependency", () => {
   assert.equal(packageJson.name, "simple-experiment");
   assert.equal(packageJson.displayName, "SimpleExperiment");
+  assert.equal(packageJson.__metadata, undefined);
   assert.ok(packageJson.extensionDependencies.includes("simple-local.simple-sftp"));
 });
 
