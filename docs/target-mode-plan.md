@@ -39,10 +39,11 @@
 - [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
 - [已完成] 两个源码 manifest 已清除安装态 `__metadata`；临时对照包分别为 138、8 个归档项，包内扩展 ID、版本和显示名不变，均不含该字段。
 - [失败] 当前计划 A 输入缺少 `vscode-remote` 与 `127.0.0.1` 明示声明，且 `containerUser=root`；校验结果为 `failed`，不得生成兼容通过结果。
-- [进行中] `PptPlotBridge.ts` 源码恢复、编译产物对照与全量回归。
+- [已完成] `PptPlotBridge.ts` 源码恢复、编译产物对照与全量回归；提交 `f54416a` 已推送并与 `origin/master` 对齐。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
 - 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；跨平台 Git 工作区已稳定；Docker 兼容等待现场联调与正式交付。
 - `docker-plugin-008`：源码 manifest 安装态残留已清理；全量测试、lint、临时打包和包内 manifest 检查通过，未安装或覆盖插件。
 - `history-006`：独立视觉夹具与自动化检查已完成；本地页面自动截图不可用，桌面、高 DPI 和窄侧栏视觉检查保持 `needs field verification`。
+- `recovery-ppt-001`：`PptPlotBridge.ts` 已恢复为 TypeScript 模块源码；全量测试 662/662、lint、构建、PPT 定向测试 14/14、编译产物语法和 diff 检查通过；提交 `f54416a` 已推送。
