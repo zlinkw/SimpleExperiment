@@ -32,7 +32,7 @@
 - 交付边界：输入接口未完全通过前不生成正式兼容结果；Dev Container 与 Xshell 联调仍需现场验证。
 
 ### 验证清单
-- [已完成] SimpleExperiment `npm test` 通过 654/654；SimpleSFTP `npm test` 通过 17/17；两插件租约压力测试均通过 10/10。
+- [已完成] SimpleExperiment `npm test` 通过 655/655；SimpleSFTP `npm test` 通过 18/18；两插件租约压力测试均通过 10/10，中文 UTF-8 租约标签回归通过。
 - [已完成] 临时对照包未覆盖现有安装；SimpleExperiment VSIX 不含恢复异常文件或 Python bytecode。
 - [已完成] SimpleSFTP VSIX 包含共享租约与工作区映射模块；两个独立插件模块互操作通过。
 - [已完成] SimpleExperiment `0.2.1` 与 SimpleSFTP `0.1.3` 对照包的 manifest、package 版本和扩展 ID 一致。
@@ -42,5 +42,5 @@
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
 - 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；Docker 兼容等待现场联调与正式交付。
-- `docker-plugin-004c`：SimpleExperiment `21b375a`、SimpleSFTP `95399bf` 已同步各自 `origin/master`。
+- `docker-plugin-004c`：SimpleExperiment `21b375a`、`779b5f3`，SimpleSFTP `95399bf`、`458c2b6` 已同步各自 `origin/master`。
 - `docker-plugin-005`：打包清理 `3a3cdaf`、`f27bd4e`，版本提交 `98850e0`、`1445856` 已同步；临时包未安装。

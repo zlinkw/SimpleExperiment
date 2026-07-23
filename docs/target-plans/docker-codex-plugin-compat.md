@@ -141,7 +141,7 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 - 每个验证批次在对应仓库独立提交并普通快进推送 `origin/master`；禁止跨仓库混合提交或历史改写。
 - 只把通过验收的两个 VSIX 与兼容结果写入 `plugin-drop`，不安装、不覆盖当前 Profile 插件。
 
-验收记录：已把 SimpleExperiment 升级为 `0.2.1`、SimpleSFTP 升级为 `0.1.3`，版本提交 `98850e0`、`1445856` 已同步各自 `origin/master`，避免与本机已安装的 `0.2.0`、`0.1.2` 内容分叉但版本相同。已在 `%TEMP%` 生成不覆盖现有安装的对照包；SimpleExperiment 包含 138 个归档项，SimpleSFTP 包含 8 个归档项，包内 manifest、package 版本与扩展 ID 均通过检查。SimpleExperiment 已排除恢复快照异常文件和 `dist/runtime/__pycache__`；相关修复提交 `3a3cdaf`、`f27bd4e` 已同步 `origin/master`。与本机已安装目录相比，新包新增宿主租约、工作区映射、GPU 历史和恢复计划文档；SimpleSFTP 新包包含 `host-operation-lease.js` 与 `workspace-path.js`。只读现场检查未发现 Xshell 进程或 `127.0.0.1` 监听端口，未执行上传、远端写入或隧道启动；未安装任何对照包，未写入 `plugin-drop`，真实 SFTP 上传、Xshell `127.0.0.1`、非 root 容器和最终兼容结果仍为 `needs experiment`。
+验收记录：已把 SimpleExperiment 升级为 `0.2.1`、SimpleSFTP 升级为 `0.1.3`，版本提交 `98850e0`、`1445856` 已同步各自 `origin/master`，避免与本机已安装的 `0.2.0`、`0.1.2` 内容分叉但版本相同。已修复租约时间戳写入的 UTF-8 字节偏移问题，提交 `779b5f3`、`458c2b6` 已同步各自 `origin/master`；中文 `actionLabel` 回归覆盖通过。已在 `%TEMP%` 生成不覆盖现有安装的对照包；SimpleExperiment 包含 138 个归档项，SimpleSFTP 包含 8 个归档项，包内 manifest、package 版本与扩展 ID 均通过检查。SimpleExperiment 已排除恢复快照异常文件和 `dist/runtime/__pycache__`；相关修复提交 `3a3cdaf`、`f27bd4e` 已同步 `origin/master`。与本机已安装目录相比，新包新增宿主租约、工作区映射、GPU 历史和恢复计划文档；SimpleSFTP 新包包含 `host-operation-lease.js` 与 `workspace-path.js`。只读现场检查未发现 Xshell 进程或 `127.0.0.1` 监听端口，未执行上传、远端写入或隧道启动；未安装任何对照包，未写入 `plugin-drop`，真实 SFTP 上传、Xshell `127.0.0.1`、非 root 容器和最终兼容结果仍为 `needs experiment`。
 
 ## 输出接口
 
