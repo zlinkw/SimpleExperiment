@@ -30,6 +30,43 @@
 | `src/runtime/RuntimeManager.ts` | 文件 | 旧 runtime 管理实现；仅由旧 `RuntimeService` 引用，当前活动扩展入口未导入。 | 删除前确认恢复审计和独立测试不再依赖旧 runtime 接口。 | 2026-07-22 | 待审核 |
 | `src/remote/RemoteFileStore.ts` | 文件 | 旧远端文件存储实现；当前文件传输边界已迁移到 SimpleSFTP。 | 删除前确认无外部脚本直接导入，且 SimpleSFTP 已覆盖所需文件操作。 | 2026-07-22 | 待审核 |
 | `src/test/fakes/FakeRemoteCommandRunner.ts` | 文件 | 旧直连远端命令测试替身；当前活动源码和现行测试未引用。 | 删除前确认不再用于恢复旧迁移测试。 | 2026-07-22 | 待审核 |
+| `src/tunnel/MobaXtermCommandBuilder.ts` | 文件 | 已废弃客户端的 Xshell 别名包装；活动实现已直接使用 `XshellTunnelCommandBuilder.ts`。 | 用户删除前确认活动源码与测试均不再导入该包装。 | 2026-07-23 | 待审核 |
+| `src/tunnel/MobaXtermIntegration.ts` | 文件 | 已废弃客户端的 Xshell 集成别名；活动实现已直接使用 `XshellTunnelIntegration.ts`。 | 用户删除前确认 VSIX 闭包门禁通过且活动入口不再导入。 | 2026-07-23 | 待审核 |
+| `src/tunnel/MobaXtermLauncher.ts` | 文件 | 已废弃客户端的 Xshell 启动别名；活动实现已直接使用 `XshellTunnelLauncher.ts`。 | 用户删除前确认 Xshell 启动测试通过。 | 2026-07-23 | 待审核 |
+| `src/tunnel/MobaXtermPortProbe.ts` | 文件 | 已废弃客户端的端口探测别名；活动实现已直接使用 `XshellTunnelPortProbe.ts`。 | 用户删除前确认隧道探测测试通过。 | 2026-07-23 | 待审核 |
+| `src/tunnel/MobaXtermProcessLauncher.ts` | 文件 | 安装包激活失败涉及的废弃启动别名；活动入口已改用 `XshellProcessLauncher.ts`。 | 用户删除前确认新 VSIX 主入口闭包完整。 | 2026-07-23 | 待审核 |
+| `src/tunnel/MobaXtermSetup.ts` | 文件 | 已废弃客户端的配置别名；活动类型与归一化只使用 `XshellTunnelSetup.ts`。 | 用户删除前确认服务器配置读写测试通过。 | 2026-07-23 | 待审核 |
+| `src/tunnel/LegacyTunnelCompat.ts` | 文件 | 仅用于已明确停止支持的旧客户端配置迁移；活动配置不再读取或写入。 | 用户删除前确认现有 Xshell 配置已保存为当前字段。 | 2026-07-23 | 待审核 |
+| `dist/tunnel/MobaXtermCommandBuilder.js` | 文件 | 上述废弃源码的编译产物，不属于活动 VSIX 闭包。 | 用户应与对应源码一起删除；构建前确认源码已删除，防止重新生成。 | 2026-07-23 | 待审核 |
+| `dist/tunnel/MobaXtermIntegration.js` | 文件 | 上述废弃源码的编译产物，不属于活动 VSIX 闭包。 | 用户应与对应源码一起删除；新包已排除。 | 2026-07-23 | 待审核 |
+| `dist/tunnel/MobaXtermLauncher.js` | 文件 | 上述废弃源码的编译产物，不属于活动 VSIX 闭包。 | 用户应与对应源码一起删除；新包已排除。 | 2026-07-23 | 待审核 |
+| `dist/tunnel/MobaXtermPortProbe.js` | 文件 | 上述废弃源码的编译产物，不属于活动 VSIX 闭包。 | 用户应与对应源码一起删除；新包已排除。 | 2026-07-23 | 待审核 |
+| `dist/tunnel/MobaXtermProcessLauncher.js` | 文件 | 上述废弃源码的编译产物，曾被错误排除并导致活动入口崩溃；活动入口现已解除依赖。 | 用户应与对应源码一起删除；新包闭包不得引用。 | 2026-07-23 | 待审核 |
+| `dist/tunnel/MobaXtermSetup.js` | 文件 | 上述废弃源码的编译产物，不属于活动 VSIX 闭包。 | 用户应与对应源码一起删除；新包已排除。 | 2026-07-23 | 待审核 |
+| `dist/tunnel/LegacyTunnelCompat.js` | 文件 | 已停止支持的旧客户端配置迁移编译产物，不属于活动 VSIX 闭包。 | 用户应与对应源码一起删除；新包已排除。 | 2026-07-23 | 待审核 |
+| `test/tunnel/mobaxtermCommandBuilder.test.js` | 文件 | 仅测试废弃别名，Xshell 命令构建已有独立测试。 | 用户删除前确认 `xshellCommandBuilder.test.js` 通过。 | 2026-07-23 | 待审核 |
+| `test/tunnel/mobaxtermExecutableDetection.test.js` | 文件 | 仅测试废弃别名，Xshell 可执行文件检测已有独立测试。 | 用户删除前确认 `xshellExecutableDetection.test.js` 通过。 | 2026-07-23 | 待审核 |
+| `test/tunnel/mobaxtermIntegrationCheck.test.js` | 文件 | 仅测试废弃别名，Xshell 集成检查已有独立测试。 | 用户删除前确认 `xshellIntegrationCheck.test.js` 通过。 | 2026-07-23 | 待审核 |
+| `test/tunnel/mobaxtermLauncher.test.js` | 文件 | 仅测试废弃别名，Xshell 启动已有独立测试。 | 用户删除前确认 `xshellLauncher.test.js` 通过。 | 2026-07-23 | 待审核 |
+| `test/tunnel/mobaxtermPortProbe.test.js` | 文件 | 仅测试废弃别名，Xshell 端口探测已有独立测试。 | 用户删除前确认 `xshellPortProbe.test.js` 通过。 | 2026-07-23 | 待审核 |
+| `test/tunnel/mobaxtermRealtimeSetup.test.js` | 文件 | 仅测试废弃别名，Xshell 实时配置已有独立测试。 | 用户删除前确认 `xshellRealtimeSetup.test.js` 通过。 | 2026-07-23 | 待审核 |
+| `test/tunnel/multiMobaXtermCommandBuilder.test.js` | 文件 | 仅测试废弃别名，多端点 Xshell 命令已有独立测试。 | 用户删除前确认 `multiXshellCommandBuilder.test.js` 通过。 | 2026-07-23 | 待审核 |
+| `docs/mobaxterm-real-integration-checklist.md` | 文件 | 已废弃客户端的真实联调说明，与仅允许 Xshell 的现行边界冲突。 | 用户删除前确认 Xshell 联调说明已覆盖所需验收项。 | 2026-07-23 | 待审核 |
+| `docs/mobaxterm-tunnel-full-feature-acceptance.md` | 文件 | 已废弃客户端的全功能验收说明，与仅允许 Xshell 的现行边界冲突。 | 用户删除前确认 Xshell 全功能验收说明已覆盖所需条目。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-agent-api-incompatible.json` | 文件 | 已废弃客户端场景；现行 Agent API 兼容测试不依赖该场景。 | 用户删除前确认对应 Xshell/通用能力测试覆盖。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-agent-unreachable.json` | 文件 | 已废弃客户端场景；通用 Agent 不可达场景已由隧道测试覆盖。 | 用户删除前确认通用不可达测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-custom-port.json` | 文件 | 已废弃客户端场景；Xshell 自定义端口由现行端口测试覆盖。 | 用户删除前确认 Xshell 端口测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-custom-port-realtime.json` | 文件 | 已废弃客户端场景；Xshell 实时端口由现行测试覆盖。 | 用户删除前确认多隧道测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-exe-not-found.json` | 文件 | 已废弃客户端场景；已有 `xshell-exe-not-found.json`。 | 用户删除前确认 Xshell 对应场景可用。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-file-api-missing.json` | 文件 | 已废弃客户端场景；通用文件能力门禁已有测试。 | 用户删除前确认文件 API 能力测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-local-port-closed.json` | 文件 | 已废弃客户端场景；Xshell/通用本地端口关闭已有测试。 | 用户删除前确认端口探测测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-local-port-occupied.json` | 文件 | 已废弃客户端场景；现行端口冲突修复已有测试。 | 用户删除前确认端口冲突测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-one-click-config.json` | 文件 | 已废弃客户端场景；现行一键配置只允许 Xshell。 | 用户删除前确认 Xshell 配置向导测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-real-check-success.json` | 文件 | 已废弃客户端场景；Xshell 真实联调由现行验收说明覆盖。 | 用户删除前确认 Xshell 集成检查测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-realtime-connect.json` | 文件 | 已废弃客户端场景；现行实时连接只使用 Xshell。 | 用户删除前确认实时重连测试通过。 | 2026-07-23 | 待审核 |
+| `scenarios/mobaxterm-tunnel-health-ok.json` | 文件 | 已废弃客户端场景；通用隧道健康检查已有测试。 | 用户删除前确认 Xshell 健康检查测试通过。 | 2026-07-23 | 待审核 |
+| `simple-experiment-0.2.2.vsix` | 文件 | 首轮恢复候选包仍包含内部人工清理文档，不作为交付包。 | 用户删除前确认后续 `r2` 包存在且哈希已记录。 | 2026-07-23 | 待审核 |
+| `simple-experiment-0.2.2-xshell-only.vsix` | 文件 | 第二轮候选包意外包含 5 个已废弃直连模块，不作为交付包。 | 用户删除前确认后续 `r2` 包不包含这些模块且运行时闭包通过。 | 2026-07-23 | 待审核 |
 
 ## 保留观察
 

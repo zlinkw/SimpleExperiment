@@ -22,7 +22,7 @@ function extractFunction(name) {
 test("first activation offers the exact missing setup or SimpleSFTP action", () => {
   assert.match(source, /firstRunSetupPrompt: "simpleExperiment\.firstRunSetupPromptVersion"/);
   assert.match(source, /legacySftpNoticeShown: "simpleExperiment\.legacySftpNoticeShown"/);
-  assert.match(source, /const FIRST_RUN_SETUP_PROMPT_VERSION = 3/);
+  assert.match(source, /const FIRST_RUN_SETUP_PROMPT_VERSION = 4/);
   assert.match(source, /migrateLegacyConfigOnce\(\)[\s\S]{0,240}resumePendingWorkspaceContinuation\(\)[\s\S]{0,120}showFirstRunSetupPromptOnce\(\)/);
   assert.match(source, /shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION/);
   assert.match(source, /globalState\.update\(keys\.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION\)/);
@@ -37,6 +37,9 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   const promptFlow = source.slice(source.indexOf("async showFirstRunSetupPromptOnce()"), source.indexOf("async ensureSimpleSftpReadyForSetup"));
   assert.ok(promptFlow.indexOf("legacySftpInstallationState()") < promptFlow.indexOf("shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION"));
   assert.match(source, /serverSetupComplete && simpleSftp\.ready && enabledWorkerCount > 0/);
+  assert.match(source, /SimpleExperiment 已就绪，当前项目为/);
+  assert.match(source, /choice === "接入当前项目"\)\s*await this\.bootstrapProjectFromUi\(\)/);
+  assert.match(source, /首次上传前会再次确认本地与远端预期位置/);
   assert.match(source, /配套 SimpleSFTP 未就绪/);
   assert.match(source, /const needsSftp = !simpleSftp\.ready/);
   assert.match(source, /const enabledWorkerCount = this\.setupConfig\.workerTunnels\.filter\(\(worker\) => worker\.enabled !== false\)\.length/);

@@ -7,7 +7,7 @@ async function launchXshellTunnelProcess(config) {
     const preview = (0, XshellTunnelCommandBuilder_1.buildXshellTunnelCommand)(config);
     return new Promise((resolve) => {
         let settled = false;
-        const child = (0, child_process_1.spawn)(config.mobaxtermExePath, preview.args, {
+        const child = (0, child_process_1.spawn)(config.xshellExePath, preview.args, {
             detached: false,
             windowsHide: false,
             stdio: "ignore",

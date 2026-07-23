@@ -15,5 +15,5 @@
       }
     }
   ],
-  "expect": { "transport": "mobaxterm_tunnel_realtime" }
+  "expect": { "transport": "xshell_tunnel_realtime" }
 }

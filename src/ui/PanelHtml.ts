@@ -12617,7 +12617,6 @@ export function renderPanelHtml(): string {
     function arrayText(value) { return Array.isArray(value) ? value.join(", ") : value; }
     function numberOrDash(value) { const number = Number(value); return Number.isFinite(number) ? number : "-"; }
     function labelStatus(value) {
-      const legacyTunnelMode = String.fromCharCode(109, 111, 98, 97, 120, 116, 101, 114, 109) + "_tunnel_realtime";
       const raw = String(value === undefined || value === null ? "" : value).trim();
       const key = raw.toLowerCase();
       const map = {
@@ -12628,7 +12627,6 @@ export function renderPanelHtml(): string {
         ready: "已就绪", online: "在线", offline: "离线", stale: "已过期", degraded: "降级", configured: "已配置", not_configured: "未配置", synced: "已同步", syncing: "同步中", uploaded: "已上传", uploading: "上传中",
         archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
       };
-      map[legacyTunnelMode] = "Xshell 实时隧道（旧配置兼容）";
       if (map[key]) return map[key];
       const detailMatch = raw.match(/^(failed|error|warning)\s*[:：-]\s*(.+)$/i);
       if (detailMatch) return map[detailMatch[1].toLowerCase()] + "：" + detailMatch[2];

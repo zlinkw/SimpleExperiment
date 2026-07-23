@@ -34,12 +34,12 @@ export function buildXshellTunnelCommand(config: XshellRealtimeTunnelConfig): Xs
   const args = buildXshellArgs(config, sshCommand);
   const redactedArgs = buildXshellArgs(config, redactedSshCommand);
   return {
-    exePath: config.mobaxtermExePath,
+    exePath: config.xshellExePath,
     args,
     sshCommand,
     redactedSshCommand,
-    shellCommand: [windowsQuote(config.mobaxtermExePath), ...args.map(windowsQuote)].join(" "),
-    redactedShellCommand: [windowsQuote(config.mobaxtermExePath), ...redactedArgs.map(windowsQuote)].join(" "),
+    shellCommand: [windowsQuote(config.xshellExePath), ...args.map(windowsQuote)].join(" "),
+    redactedShellCommand: [windowsQuote(config.xshellExePath), ...redactedArgs.map(windowsQuote)].join(" "),
     manualGuide: buildManualGuide(config, redactedSshCommand),
   };
 }
@@ -115,7 +115,7 @@ export function generateXshellBatScript(config: XshellRealtimeTunnelConfig): str
   const preview = buildXshellTunnelCommand(config);
   return [
     "@echo off",
-    `set "SESSION_EXE=${config.mobaxtermExePath}"`,
+    `set "SESSION_EXE=${config.xshellExePath}"`,
     `set "LOCAL_PORT=${config.localForwardPort}"`,
     `set "REMOTE_PORT=${config.remoteAgentPort}"`,
     `set "HUB_SSH_PORT=${config.hubSshPort}"`,
@@ -132,7 +132,7 @@ export function generateXshellBatScript(config: XshellRealtimeTunnelConfig): str
 export function generateXshellPs1Script(config: XshellRealtimeTunnelConfig): string {
   const preview = buildXshellTunnelCommand(config);
   return [
-    `$SessionExe = '${config.mobaxtermExePath.replace(/'/g, "''")}'`,
+    `$SessionExe = '${config.xshellExePath.replace(/'/g, "''")}'`,
     `$Args = @(${preview.args.map((arg) => `'${arg.replace(/'/g, "''")}'`).join(", ")})`,
     "& $SessionExe @Args",
     "",
@@ -140,7 +140,7 @@ export function generateXshellPs1Script(config: XshellRealtimeTunnelConfig): str
 }
 
 export function validateXshellCommandConfig(config: XshellRealtimeTunnelConfig): void {
-  if (!config.mobaxtermExePath.trim()) throw new Error("需要配置 Xshell.exe 路径。");
+  if (!config.xshellExePath.trim()) throw new Error("需要配置 Xshell.exe 路径。");
   if (config.launchMode === "open_saved_session") {
     if (!config.savedSessionPath?.trim()) throw new Error("Xshell 已保存会话模式需要选择 .xsh 会话文件。");
     return;
@@ -176,9 +176,9 @@ function buildSavedSessionCommand(config: XshellRealtimeTunnelConfig): XshellCom
   const sessionName = config.savedSessionPath || "";
   const args = [sessionName];
   const sessionCommand = `Xshell saved session: ${sessionName}`;
-  const shellCommand = [windowsQuote(config.mobaxtermExePath), ...args.map(windowsQuote)].join(" ");
+  const shellCommand = [windowsQuote(config.xshellExePath), ...args.map(windowsQuote)].join(" ");
   return {
-    exePath: config.mobaxtermExePath,
+    exePath: config.xshellExePath,
     args,
     sshCommand: sessionCommand,
     redactedSshCommand: sessionCommand,
@@ -221,7 +221,7 @@ function endpointToXshellConfig(base: XshellRealtimeTunnelConfig, endpoint: Clus
     remoteAgentPort: endpoint.tunnel.remotePort,
     sshConfigAlias: endpoint.ssh.sshConfigAlias,
     privateKeyPath: endpoint.ssh.privateKeyPath,
-    mobaxtermSessionName: endpoint.ssh.mobaxtermSessionName,
+    xshellSessionName: endpoint.ssh.xshellSessionName,
     savedSessionRunner: endpoint.ssh.savedSessionRunner || base.savedSessionRunner,
     savedSessionPath: endpoint.ssh.savedSessionPath,
     authMethod: endpoint.ssh.authMethod || base.authMethod,

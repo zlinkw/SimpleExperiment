@@ -5,5 +5,5 @@
     { "action": "tunnelAction", "tunnelAction": "self-check", "opId": "self-check-no-ssh" },
     { "action": "tunnelAction", "tunnelAction": "create-debug-bundle", "opId": "debug-no-ssh" }
   ],
-  "expect": { "transport": "mobaxterm_tunnel_realtime" }
+  "expect": { "transport": "xshell_tunnel_realtime" }
 }

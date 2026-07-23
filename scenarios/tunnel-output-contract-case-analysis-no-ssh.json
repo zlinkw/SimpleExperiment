@@ -7,5 +7,5 @@
     { "action": "tunnelAction", "tunnelAction": "run-leakage-check", "opId": "leakage-no-ssh" },
     { "action": "tunnelAction", "tunnelAction": "run-subgroup-analysis", "opId": "subgroup-no-ssh" }
   ],
-  "expect": { "transport": "mobaxterm_tunnel_realtime" }
+  "expect": { "transport": "xshell_tunnel_realtime" }
 }

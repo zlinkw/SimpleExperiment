@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultTunnelGatewayConfig = exports.refreshProfiles = exports.legacyMobaXtermTunnelConnectionMode = exports.xshellTunnelConnectionMode = void 0;
+exports.defaultTunnelGatewayConfig = exports.refreshProfiles = exports.xshellTunnelConnectionMode = void 0;
 exports.normalizeTunnelGatewayConfig = normalizeTunnelGatewayConfig;
 exports.isRealtimeConnectionMode = isRealtimeConnectionMode;
 exports.normalizeConnectionMode = normalizeConnectionMode;
@@ -10,7 +10,6 @@ exports.assertLocalhost = assertLocalhost;
 exports.normalizePort = normalizePort;
 const RequestBudget_1 = require("./RequestBudget");
 exports.xshellTunnelConnectionMode = "xshell_tunnel_realtime";
-exports.legacyMobaXtermTunnelConnectionMode = "mobaxterm_tunnel_realtime";
 exports.refreshProfiles = {
     realtime: { health: 5, snapshot: 30, stream: true },
     balanced: { health: 10, snapshot: 60, stream: true },
@@ -52,13 +51,13 @@ function normalizeTunnelGatewayConfig(input = {}) {
     };
 }
 function isRealtimeConnectionMode(mode) {
-    return mode === exports.xshellTunnelConnectionMode || mode === exports.legacyMobaXtermTunnelConnectionMode;
+    return mode === exports.xshellTunnelConnectionMode;
 }
 function normalizeConnectionMode(mode) {
     return mode === "offline_import" ? "offline_import" : exports.xshellTunnelConnectionMode;
 }
 function normalizeProvider(provider) {
-    return provider === "mobaxterm" ? "xshell" : provider || "xshell";
+    return "xshell";
 }
 function requestBudgetConfigFromTunnel(config) {
     return {

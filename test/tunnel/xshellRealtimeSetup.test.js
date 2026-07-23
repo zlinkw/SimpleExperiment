@@ -25,8 +25,8 @@ test("xshell realtime setup defaults to realtime and file transfer", () => {
   assert.deepEqual(setup.workerTunnels, []);
 });
 
-test("legacy mobaxterm connection mode normalizes to xshell mode", () => {
-  const tunnel = normalizeTunnelGatewayConfig({ connectionMode: "mobaxterm_tunnel_realtime" });
+test("unsupported connection mode normalizes to xshell mode", () => {
+  const tunnel = normalizeTunnelGatewayConfig({ connectionMode: "unsupported_transport" });
   assert.equal(tunnel.connectionMode, "xshell_tunnel_realtime");
 });
 
@@ -105,7 +105,7 @@ test("duplicate worker aliases and stale assignments are removed", () => {
 
 test("single endpoint launch configs clear worker telemetry mode", () => {
   const base = normalizeXshellSetupConfig({
-    mobaxtermExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
+    xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "10.0.0.1",
     hubUser: "zlk",
     workerRealtimeMode: "hub_plus_workers",

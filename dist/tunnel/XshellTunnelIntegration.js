@@ -37,7 +37,7 @@ exports.recommendAvailableLocalPort = exports.isLocalPortAvailable = exports.Xsh
 exports.buildIntegrationReport = buildIntegrationReport;
 const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
-const MobaXtermProcessLauncher_1 = require("./MobaXtermProcessLauncher");
+const XshellProcessLauncher_1 = require("./XshellProcessLauncher");
 const XshellTunnelCommandBuilder_1 = require("./XshellTunnelCommandBuilder");
 const XshellTunnelLauncher_1 = require("./XshellTunnelLauncher");
 Object.defineProperty(exports, "isLocalPortAvailable", { enumerable: true, get: function () { return XshellTunnelLauncher_1.isLocalPortAvailable; } });
@@ -84,7 +84,7 @@ class XshellIntegration {
         return (0, XshellTunnelCommandBuilder_1.buildXshellTunnelCommand)(config);
     }
     async launchTunnel(config) {
-        return (0, MobaXtermProcessLauncher_1.launchMobaXtermTunnel)(config);
+        return (0, XshellProcessLauncher_1.launchXshellTunnelProcess)(config);
     }
     async probeLocalTunnel(config) {
         return (0, XshellTunnelPortProbe_1.probeLocalTunnel)({ ...config, token: this.options.token });
@@ -92,7 +92,7 @@ class XshellIntegration {
     async runIntegrationCheck(config) {
         const executable = await this.findExecutable();
         const validation = executable.path ? await this.validateExecutable(executable.path) : undefined;
-        const command = validation?.ok ? this.buildTunnelCommand({ ...config, mobaxtermExePath: executable.path || config.mobaxtermExePath }) : undefined;
+        const command = validation?.ok ? this.buildTunnelCommand({ ...config, xshellExePath: executable.path || config.xshellExePath }) : undefined;
         const probe = await this.probeLocalTunnel(config);
         const report = buildIntegrationReport(config, executable, probe);
         return { executable, validation, command, probe, report };
@@ -108,8 +108,8 @@ function buildIntegrationReport(config, executable, probe, launch) {
     return {
         schemaVersion: 1,
         generatedAt: new Date().toISOString(),
-        mobaxterm: {
-            exePath: executable.path || config.mobaxtermExePath,
+        xshell: {
+            exePath: executable.path || config.xshellExePath,
             found: executable.found,
             launchAttempted: Boolean(launch?.attempted),
             launchSucceeded: launch?.launched,

@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { MobaXtermLaunchResult, launchMobaXtermTunnel } from "./MobaXtermProcessLauncher";
+import { XshellLaunchResult, launchXshellTunnelProcess } from "./XshellProcessLauncher";
 import { buildXshellTunnelCommand, XshellCommandPreview } from "./XshellTunnelCommandBuilder";
 import { isLocalPortAvailable, recommendAvailableLocalPort } from "./XshellTunnelLauncher";
 import { probeLocalTunnel, TunnelProbeResult } from "./XshellTunnelPortProbe";
@@ -27,7 +27,7 @@ export interface XshellExecutableValidation {
 export interface XshellRealIntegrationReport {
   schemaVersion: 1;
   generatedAt: string;
-  mobaxterm: {
+  xshell: {
     exePath: string;
     found: boolean;
     launchAttempted: boolean;
@@ -67,7 +67,7 @@ export interface XshellIntegrationCheckResult {
   executable: XshellExecutableResult;
   validation?: XshellExecutableValidation;
   command?: XshellCommandPreview;
-  launch?: MobaXtermLaunchResult;
+  launch?: XshellLaunchResult;
   probe: TunnelProbeResult;
   report: XshellRealIntegrationReport;
 }
@@ -111,8 +111,8 @@ export class XshellIntegration {
     return buildXshellTunnelCommand(config);
   }
 
-  async launchTunnel(config: XshellRealtimeTunnelConfig): Promise<MobaXtermLaunchResult> {
-    return launchMobaXtermTunnel(config);
+  async launchTunnel(config: XshellRealtimeTunnelConfig): Promise<XshellLaunchResult> {
+    return launchXshellTunnelProcess(config);
   }
 
   async probeLocalTunnel(config: XshellRealtimeTunnelConfig): Promise<TunnelProbeResult> {
@@ -122,7 +122,7 @@ export class XshellIntegration {
   async runIntegrationCheck(config: XshellRealtimeTunnelConfig): Promise<XshellIntegrationCheckResult> {
     const executable = await this.findExecutable();
     const validation = executable.path ? await this.validateExecutable(executable.path) : undefined;
-    const command = validation?.ok ? this.buildTunnelCommand({ ...config, mobaxtermExePath: executable.path || config.mobaxtermExePath }) : undefined;
+    const command = validation?.ok ? this.buildTunnelCommand({ ...config, xshellExePath: executable.path || config.xshellExePath }) : undefined;
     const probe = await this.probeLocalTunnel(config);
     const report = buildIntegrationReport(config, executable, probe);
     return { executable, validation, command, probe, report };
@@ -133,7 +133,7 @@ export function buildIntegrationReport(
   config: XshellRealtimeTunnelConfig,
   executable: XshellExecutableResult,
   probe: TunnelProbeResult,
-  launch?: MobaXtermLaunchResult,
+  launch?: XshellLaunchResult,
 ): XshellRealIntegrationReport {
   const missing = probe.missingCapabilities || [];
   const suggestions = [probe.suggestion, executable.message].filter(Boolean) as string[];
@@ -143,8 +143,8 @@ export function buildIntegrationReport(
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    mobaxterm: {
-      exePath: executable.path || config.mobaxtermExePath,
+    xshell: {
+      exePath: executable.path || config.xshellExePath,
       found: executable.found,
       launchAttempted: Boolean(launch?.attempted),
       launchSucceeded: launch?.launched,

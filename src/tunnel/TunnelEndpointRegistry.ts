@@ -1,4 +1,4 @@
-import { MobaXtermRealtimeTunnelConfig, MobaXtermWorkerTunnelConfig } from "./MobaXtermSetup";
+import { XshellRealtimeTunnelConfig, XshellWorkerTunnelConfig } from "./XshellTunnelSetup";
 import { defaultTunnelPorts, TunnelEndpointPortAssignment, TunnelEndpointRole } from "./TunnelPortConflict";
 
 export interface ClusterTunnelEndpoint {
@@ -11,7 +11,7 @@ export interface ClusterTunnelEndpoint {
     port: number;
     sshConfigAlias?: string;
     privateKeyPath?: string;
-    mobaxtermSessionName?: string;
+    xshellSessionName?: string;
     savedSessionRunner?: "xshell";
     savedSessionPath?: string;
     authMethod?: "password" | "key" | "auto";
@@ -39,7 +39,7 @@ export interface TunnelEndpointRegistry {
 }
 
 export function buildTunnelEndpointRegistry(
-  config: MobaXtermRealtimeTunnelConfig,
+  config: XshellRealtimeTunnelConfig,
   probes: Record<string, unknown> = {},
 ): TunnelEndpointRegistry {
   const assignments = new Map((config.ports?.assignments || []).map((assignment) => [assignment.endpointId, assignment]));
@@ -84,7 +84,7 @@ export function buildTunnelEndpointRegistry(
   };
 }
 
-export function endpointAssignmentsFromConfig(config: MobaXtermRealtimeTunnelConfig): TunnelEndpointPortAssignment[] {
+export function endpointAssignmentsFromConfig(config: XshellRealtimeTunnelConfig): TunnelEndpointPortAssignment[] {
   const assignedAt = new Date(0).toISOString();
   const fallback: TunnelEndpointPortAssignment[] = [
     {
@@ -127,7 +127,7 @@ export function releaseEndpointAssignment(assignments: TunnelEndpointPortAssignm
   return assignments.filter((assignment) => assignment.endpointId !== endpointId);
 }
 
-function workerEndpoint(worker: MobaXtermWorkerTunnelConfig, assignment: TunnelEndpointPortAssignment | undefined, probe: unknown): ClusterTunnelEndpoint {
+function workerEndpoint(worker: XshellWorkerTunnelConfig, assignment: TunnelEndpointPortAssignment | undefined, probe: unknown): ClusterTunnelEndpoint {
   return {
     id: worker.id,
     role: "worker_telemetry",

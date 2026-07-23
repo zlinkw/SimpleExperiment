@@ -1,25 +1,22 @@
 import { RequestBudgetConfig, defaultRequestBudgetConfig } from "./RequestBudget";
 
 export const xshellTunnelConnectionMode = "xshell_tunnel_realtime" as const;
-export const legacyMobaXtermTunnelConnectionMode = "mobaxterm_tunnel_realtime" as const;
 
 export type ClusterConnectionMode = typeof xshellTunnelConnectionMode | "offline_import";
-export type LegacyClusterConnectionMode = typeof legacyMobaXtermTunnelConnectionMode;
 
 export type RefreshProfile = "realtime" | "balanced" | "manual_only";
 
 export interface TunnelGatewayConfig {
   enabled: boolean;
   connectionMode: ClusterConnectionMode;
-  provider: "xshell" | "mobaxterm" | "openssh" | "putty" | "manual";
+  provider: "xshell";
   localHost: "127.0.0.1";
   localPort: number;
   remoteHost: "127.0.0.1";
   remotePort: number;
   hubServerId: string;
   tunnelStartMode: "manual" | "launch_external_app" | "generate_script";
-  mobaxtermExePath?: string;
-  mobaxtermCommandTemplate?: string;
+  xshellExePath?: string;
   healthCheckIntervalSeconds: number;
   snapshotPollIntervalSeconds: number;
   maxRequestsPerMinute: number;
@@ -81,7 +78,7 @@ export function normalizeTunnelGatewayConfig(input: Partial<TunnelGatewayConfig>
 }
 
 export function isRealtimeConnectionMode(mode: unknown): boolean {
-  return mode === xshellTunnelConnectionMode || mode === legacyMobaXtermTunnelConnectionMode;
+  return mode === xshellTunnelConnectionMode;
 }
 
 export function normalizeConnectionMode(mode: unknown): ClusterConnectionMode {
@@ -89,7 +86,7 @@ export function normalizeConnectionMode(mode: unknown): ClusterConnectionMode {
 }
 
 function normalizeProvider(provider: unknown): TunnelGatewayConfig["provider"] {
-  return provider === "mobaxterm" ? "xshell" : (provider as TunnelGatewayConfig["provider"]) || "xshell";
+  return "xshell";
 }
 
 export function requestBudgetConfigFromTunnel(config: TunnelGatewayConfig): RequestBudgetConfig {

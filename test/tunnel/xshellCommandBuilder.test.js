@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { buildXshellTunnelCommand } = require("../../dist/tunnel/XshellTunnelCommandBuilder.js");
 
 const base = {
-  mobaxtermExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
+  xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
   hubHost: "hub.example.edu",
   hubUser: "zlk user",
   hubSshPort: 2222,
@@ -12,7 +12,7 @@ const base = {
   localForwardPort: 18766,
   remoteAgentHost: "127.0.0.1",
   remoteAgentPort: 18767,
-  launchMode: "open_mobaxterm_exec",
+  launchMode: "open_xshell_exec",
   realtimeEnabled: true,
   fileTransferEnabled: true,
   keepWindowVisible: true,

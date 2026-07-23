@@ -5,6 +5,6 @@
   "expect": {
     "cancel": true,
     "retry": true,
-    "transport": "http_over_mobaxterm_tunnel"
+    "transport": "http_over_xshell_tunnel"
   }
 }

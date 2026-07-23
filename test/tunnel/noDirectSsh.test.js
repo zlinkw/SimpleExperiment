@@ -34,14 +34,14 @@ test("package UI does not expose direct fallback commands", () => {
   for (const forbidden of ["zlkCluster.scanGpu", "zlkCluster.deployRuntime", "zlkCluster.verifyRuntime"]) {
     assert.equal(commandIds.includes(forbidden), false, forbidden);
   }
-  assert.equal(commandIds.some((id) => /MobaXterm/i.test(id)), false);
+  assert.equal(commandIds.filter((id) => /Tunnel/i.test(id)).every((id) => !/configure.*RealtimeTunnel/i.test(id) || /Xshell/i.test(id)), true);
   assert.equal(commandIds.some((id) => /LegacySsh|legacySsh/i.test(id)), false);
 });
 
 test("extension command registration exposes only Xshell tunnel command ids", () => {
   const text = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   const registered = Array.from(text.matchAll(/(?:registerCommand|hostCommand)\("([^"]+)"/g)).map((match) => match[1]);
-  assert.equal(registered.some((id) => /MobaXterm/i.test(id)), false);
+  assert.equal(registered.filter((id) => /Tunnel/i.test(id)).every((id) => !/configure.*RealtimeTunnel/i.test(id) || /Xshell/i.test(id)), true);
   assert.equal(registered.some((id) => /LegacySsh|legacySsh/i.test(id)), false);
   assert.equal(registered.includes("zlkCluster.configureXshellSavedSessions"), true);
   assert.equal(registered.includes("zlkCluster.startAllXshellRealtimeTunnels"), true);

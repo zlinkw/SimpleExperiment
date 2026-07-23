@@ -16,7 +16,7 @@ const { normalizeMobaXtermSetupConfig } = require("../../dist/tunnel/MobaXtermSe
 
 test("mobaxterm launcher builds visible local forwarding command with custom ports", () => {
   const config = normalizeMobaXtermSetupConfig({
-    mobaxtermExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
+    xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "hub.example.edu",
     hubUser: "zlk",
     hubSshPort: 2222,

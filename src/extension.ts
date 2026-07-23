@@ -21,7 +21,6 @@ import XshellSessionScanner_1 = require("./tunnel/XshellSessionScanner");
 import XshellSessionPatcher_1 = require("./tunnel/XshellSessionPatcher");
 import OfflineImport_1 = require("./tunnel/OfflineImport");
 import TunnelDiagnostics_1 = require("./tunnel/TunnelDiagnostics");
-import LegacyTunnelCompat_1 = require("./tunnel/LegacyTunnelCompat");
 import TunnelOnlyPolicy_1 = require("./tunnel/TunnelOnlyPolicy");
 import MultiEndpointRealtimeClient_1 = require("./tunnel/MultiEndpointRealtimeClient");
 import PanelHtml_1 = require("./ui/PanelHtml");
@@ -104,7 +103,6 @@ const viewId = "zlkCluster.panel";
 const keys = {
     tunnelConfig: "zlkCluster.tunnelGatewayConfig",
     setupConfig: "zlkCluster.xshellRealtimeTunnelConfig",
-    legacySetupConfig: `zlkCluster.${(0, LegacyTunnelCompat_1.legacyTunnelKey)("RealtimeTunnelConfig")}`,
     migrationShown: "zlkCluster.legacyRemoteMigrationShown",
     offlineBundle: "zlkCluster.offlineBundle",
     uiLayout: "zlkCluster.uiLayout",
@@ -116,7 +114,7 @@ const keys = {
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
 };
-const FIRST_RUN_SETUP_PROMPT_VERSION = 3;
+const FIRST_RUN_SETUP_PROMPT_VERSION = 4;
 const WORKSPACE_CONTINUATION_MAX_AGE_MS = 10 * 60_000;
 const SIMPLE_SFTP_EXTENSION_ID = "simple-local.simple-sftp";
 const LEGACY_SFTP_EXTENSION_ID = "zlk-local.zlk-sftp-manager";
@@ -1168,6 +1166,14 @@ class RealtimeTunnelPanelProvider {
         const serverSetupComplete = initialServerSetupComplete(this.setupConfig);
         const enabledWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
+            const root = workspaceRoot();
+            if (root) {
+                const choice = await vscode.window.showInformationMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}。接入项目后，首次上传前会再次确认本地与远端预期位置。`, "接入当前项目", "打开面板", "不再提示");
+                if (choice === "接入当前项目")
+                    await this.bootstrapProjectFromUi();
+                else if (choice === "打开面板")
+                    await vscode.commands.executeCommand(`${viewId}.focus`);
+            }
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
             return;
         }
@@ -6070,16 +6076,14 @@ class RealtimeTunnelPanelProvider {
         });
     }
     loadSetupConfig() {
-        const saved = this.context.globalState.get(keys.setupConfig)
-            || this.context.globalState.get(keys.legacySetupConfig)
-            || {};
+        const saved = this.context.globalState.get(keys.setupConfig) || {};
         const config = vscode.workspace.getConfiguration("zlkCluster");
         return (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig,
             ...saved,
             localForwardPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.localForwardPort", saved.localForwardPort || this.tunnelConfig.localPort),
             remoteAgentPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remoteAgentPort || this.tunnelConfig.remotePort),
-            xshellExePath: saved.xshellExePath || (0, LegacyTunnelCompat_1.legacyTunnelString)(saved, "ExePath") || this.tunnelConfig.xshellExePath || (0, LegacyTunnelCompat_1.legacyTunnelString)(this.tunnelConfig, "ExePath") || "",
+            xshellExePath: saved.xshellExePath || this.tunnelConfig.xshellExePath || "",
             hubDisplayName: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
             condaEnv: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.condaEnv", saved.condaEnv === undefined ? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv : saved.condaEnv),
             workerRealtimeMode: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.workerRealtimeMode", saved.workerRealtimeMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_workers" : "hub_only")),
@@ -6143,7 +6147,6 @@ class RealtimeTunnelPanelProvider {
     async saveState() {
         await this.context.globalState.update(keys.tunnelConfig, persistedTunnelGatewayConfig(this.tunnelConfig));
         await this.context.globalState.update(keys.setupConfig, persistedXshellSetupConfig(this.setupConfig));
-        await this.context.globalState.update(keys.legacySetupConfig, undefined);
     }
     async refreshXshellSessionLibrary(options = {}) {
         const dirs = xshellScanDirs(this.setupConfig);
@@ -14446,12 +14449,10 @@ function renderHtml() {
     function labelStatus(value) {
       const map = {
         xshell_tunnel_realtime: "Xshell 本地隧道",
-        [legacyTunnelConnectionMode]: "Xshell 本地隧道（旧配置兼容）",
         offline_import: "离线导入",
         unknown: "未知",
         not_configured: "未配置",
         xshell_not_found: "未找到 Xshell",
-        [legacyTunnelNotFoundState]: "未找到 Xshell",
         local_port_closed: "本地端口未打开",
         agent_unreachable: "Agent 不可达",
         agent_ok: "Agent 正常",
@@ -15069,15 +15070,12 @@ function successfulSyncStatus(value) {
     return Boolean(text && !["-", "待同步", "pending", "unknown", "running", "已跳过", "未参与本次同步"].includes(text) && !text.includes("fail") && !text.includes("error") && !text.includes("未参与") && !text.includes("skip"));
 }
 function persistedTunnelGatewayConfig(config) {
-    return (0, LegacyTunnelCompat_1.omitLegacyTunnelKeys)(config, ["ExePath", "CommandTemplate"]);
+    return { ...config };
 }
 function persistedXshellSetupConfig(config) {
-    const { workerTunnels, ...rest } = (0, LegacyTunnelCompat_1.omitLegacyTunnelKeys)(config, ["ExePath", "SessionName"]);
     return {
-        ...rest,
-        workerTunnels: workerTunnels.map((worker) => {
-            return (0, LegacyTunnelCompat_1.omitLegacyTunnelKeys)(worker, ["SessionName"]);
-        }),
+        ...config,
+        workerTunnels: config.workerTunnels.map((worker) => ({ ...worker })),
     };
 }
 function workspaceMappingConfig() {

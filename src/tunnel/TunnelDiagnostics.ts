@@ -1,7 +1,7 @@
 import { RequestBudgetSnapshot } from "./RequestBudget";
 
 export interface TunnelDiagnostics {
-  connectionMode: "mobaxterm_tunnel" | "offline_import";
+  connectionMode: "xshell_tunnel_realtime" | "offline_import";
   localEndpoint: string;
   directAccessDisabled: true;
   requests: RequestBudgetSnapshot;

@@ -15,7 +15,7 @@ export async function launchXshellTunnelProcess(config: XshellRealtimeTunnelConf
   const preview = buildXshellTunnelCommand(config);
   return new Promise((resolve) => {
     let settled = false;
-    const child = spawn(config.mobaxtermExePath, preview.args, {
+    const child = spawn(config.xshellExePath, preview.args, {
       detached: false,
       windowsHide: false,
       stdio: "ignore",

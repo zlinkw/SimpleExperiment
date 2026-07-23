@@ -7,5 +7,5 @@ test("legacy SSH config is ignored and migrated to tunnel warning", () => {
   const result = migrateLegacyRemoteConfig({ sshTransportMode: "oneshot", sshHost: "hub", displayName: "Hub" });
   assert.equal(result.migratedToTunnel, true);
   assert.ok(result.removedFields.includes("sshTransportMode"));
-  assert.match(result.warning, /MobaXterm/);
+  assert.match(result.warning, /Xshell/);
 });

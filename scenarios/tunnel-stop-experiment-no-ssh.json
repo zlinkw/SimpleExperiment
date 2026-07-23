@@ -4,5 +4,5 @@
   "steps": [
     { "action": "tunnelAction", "tunnelAction": "stop-experiment", "opId": "stop-no-ssh" }
   ],
-  "expect": { "transport": "mobaxterm_tunnel_realtime" }
+  "expect": { "transport": "xshell_tunnel_realtime" }
 }

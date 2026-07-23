@@ -26,6 +26,6 @@ function migrateLegacyRemoteConfig(input) {
     return {
         removedFields: removed.removedFields,
         migratedToTunnel: true,
-        warning: "旧版直接远程连接模式已移除。请配置 Xshell 本地隧道；原 MobaXterm 实时隧道配置仅保留兼容迁移。",
+        warning: "旧版直接远程连接模式已移除。请仅配置 Xshell 本地隧道。",
     };
 }

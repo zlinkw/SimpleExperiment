@@ -7,13 +7,11 @@ exports.workerTunnelToXshellSetupConfig = workerTunnelToXshellSetupConfig;
 exports.validateXshellSetupConfig = validateXshellSetupConfig;
 exports.xshellExecutablePath = xshellExecutablePath;
 exports.publicXshellSetupSummary = publicXshellSetupSummary;
-const LegacyTunnelCompat_1 = require("./LegacyTunnelCompat");
 const TunnelGateway_1 = require("./TunnelGateway");
 const TunnelPortConflict_1 = require("./TunnelPortConflict");
 const WorkerTelemetryApi_1 = require("./WorkerTelemetryApi");
 exports.defaultXshellTunnelSetupConfig = {
     xshellExePath: "",
-    mobaxtermExePath: "",
     hubHost: "",
     hubUser: "",
     hubSshPort: 22,
@@ -49,14 +47,11 @@ function normalizeXshellSetupConfig(input = {}) {
     const workerTelemetryMode = input.workerTelemetryMode === "hub_plus_worker_telemetry" || input.workerRealtimeMode === "hub_plus_workers"
         ? "hub_plus_worker_telemetry"
         : "hub_only";
-    const xshellExePath = (input.xshellExePath || (0, LegacyTunnelCompat_1.legacyTunnelString)(input, "ExePath") || "").trim();
-    const xshellSessionName = (input.xshellSessionName || (0, LegacyTunnelCompat_1.legacyTunnelString)(input, "SessionName") || "").trim() || undefined;
-    const cleaned = (0, LegacyTunnelCompat_1.omitLegacyTunnelKeys)({ ...input }, ["ExePath", "SessionName"]);
+    const xshellExePath = (input.xshellExePath || "").trim();
+    const xshellSessionName = (input.xshellSessionName || "").trim() || undefined;
     return {
         ...exports.defaultXshellTunnelSetupConfig,
-        ...cleaned,
         xshellExePath,
-        mobaxtermExePath: xshellExePath,
         hubDisplayName: input.hubDisplayName?.trim() || undefined,
         hubHost: input.hubHost || "",
         hubUser: input.hubUser || "",
@@ -70,7 +65,6 @@ function normalizeXshellSetupConfig(input = {}) {
         remoteAgentHost: "127.0.0.1",
         remoteAgentPort: (0, TunnelGateway_1.normalizePort)(input.remoteAgentPort, exports.defaultXshellTunnelSetupConfig.remoteAgentPort),
         xshellSessionName,
-        mobaxtermSessionName: xshellSessionName,
         savedSessionRunner: normalizeSavedSessionRunner(input.savedSessionRunner),
         savedSessionPath: input.savedSessionPath?.trim() || undefined,
         savedSessionForwardIndex: normalizeForwardIndex(input.savedSessionForwardIndex),
@@ -98,10 +92,8 @@ function normalizeXshellWorkerTunnelConfig(input = {}, index = 0, fallbackRemote
     const workerUser = input.workerUser || input.hubUser || "";
     const workerSshPort = normalizeSshPort(input.workerSshPort || input.hubSshPort, exports.defaultXshellTunnelSetupConfig.hubSshPort);
     const remoteTelemetryPort = (0, TunnelGateway_1.normalizePort)(input.remoteTelemetryPort || input.remoteAgentPort, (0, TunnelGateway_1.normalizePort)(fallbackRemoteAgentPort, TunnelPortConflict_1.defaultTunnelPorts.defaultWorkerTelemetryPort));
-    const xshellSessionName = (input.xshellSessionName || (0, LegacyTunnelCompat_1.legacyTunnelString)(input, "SessionName") || "").trim() || undefined;
-    const cleaned = (0, LegacyTunnelCompat_1.omitLegacyTunnelKeys)({ ...input }, ["SessionName"]);
+    const xshellSessionName = (input.xshellSessionName || "").trim() || undefined;
     return {
-        ...cleaned,
         id,
         displayName: input.displayName || input.sshConfigAlias || workerHost || id,
         hubHost: workerHost,
@@ -122,7 +114,6 @@ function normalizeXshellWorkerTunnelConfig(input = {}, index = 0, fallbackRemote
         sshConfigAlias: input.sshConfigAlias?.trim() || undefined,
         privateKeyPath: input.privateKeyPath?.trim() || undefined,
         xshellSessionName,
-        mobaxtermSessionName: xshellSessionName,
         savedSessionRunner: normalizeSavedSessionRunner(input.savedSessionRunner),
         savedSessionPath: input.savedSessionPath?.trim() || undefined,
         savedSessionForwardIndex: normalizeForwardIndex(input.savedSessionForwardIndex),
@@ -193,17 +184,16 @@ function validateXshellSetupConfig(config) {
     return errors;
 }
 function xshellExecutablePath(config) {
-    return (config.xshellExePath || (0, LegacyTunnelCompat_1.legacyTunnelString)(config, "ExePath") || "").trim();
+    return (config.xshellExePath || "").trim();
 }
 function publicXshellSetupSummary(config) {
-    const root = (0, LegacyTunnelCompat_1.omitLegacyTunnelKeys)(config, ["ExePath", "SessionName"]);
     return {
-        ...root,
+        ...config,
         privateKeyPath: config.privateKeyPath ? basename(config.privateKeyPath) : undefined,
         ports: config.ports,
         realtime: config.realtime,
         workerTunnels: config.workerTunnels.map((worker) => ({
-            ...(0, LegacyTunnelCompat_1.omitLegacyTunnelKeys)(worker, ["SessionName"]),
+            ...worker,
             privateKeyPath: worker.privateKeyPath ? basename(worker.privateKeyPath) : undefined,
         })),
     };

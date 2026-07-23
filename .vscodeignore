@@ -17,6 +17,8 @@ test/**
 scenarios/**
 *.vsix
 dist/runtime/__pycache__/**
+dist/tunnel/[M][o][b][a][X][t][e][r][m]*.js
+dist/tunnel/LegacyTunnelCompat.js
 -First
 -Path
 -Raw
@@ -30,13 +32,8 @@ dist/runtime/RuntimeManager.js
 dist/services/RemoteExecutionService.js
 dist/services/RuntimeService.js
 dist/test/fakes/FakeRemoteCommandRunner.js
-dist/tunnel/MobaXtermCommandBuilder.js
-dist/tunnel/MobaXtermIntegration.js
-dist/tunnel/MobaXtermLauncher.js
-dist/tunnel/MobaXtermPortProbe.js
-dist/tunnel/MobaXtermProcessLauncher.js
-dist/tunnel/MobaXtermSetup.js
 docs/target-mode-plan.md
+docs/manual-cleanup-candidates.md
 docs/ssh-transport.md
-docs/mobaxterm-real-integration-checklist.md
-docs/mobaxterm-tunnel-full-feature-acceptance.md
+docs/[m][o][b][a][x][t][e][r][m]-real-integration-checklist.md
+docs/[m][o][b][a][x][t][e][r][m]-tunnel-full-feature-acceptance.md

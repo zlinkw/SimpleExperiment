@@ -1,11 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { normalizeMobaXtermSetupConfig } = require("../../dist/tunnel/MobaXtermSetup.js");
+const { normalizeXshellSetupConfig } = require("../../dist/tunnel/XshellTunnelSetup.js");
 const { buildTunnelEndpointRegistry } = require("../../dist/tunnel/TunnelEndpointRegistry.js");
 
 test("endpoint registry represents Hub and Workers with stable roles", () => {
-  const setup = normalizeMobaXtermSetupConfig({
+  const setup = normalizeXshellSetupConfig({
     hubHost: "hub.local",
     hubUser: "zlk",
     workerRealtimeMode: "hub_plus_workers",

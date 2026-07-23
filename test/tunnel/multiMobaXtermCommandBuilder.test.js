@@ -7,7 +7,7 @@ const { buildMultiEndpointTunnelCommands, generateMobaXtermStartAllBatScript } =
 
 test("multi endpoint command builder emits grouped Hub and Worker tunnel commands", () => {
   const setup = normalizeMobaXtermSetupConfig({
-    mobaxtermExePath: "C:\\MobaXterm.exe",
+    xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "hub.local",
     hubUser: "zlk",
     workerRealtimeMode: "hub_plus_workers",

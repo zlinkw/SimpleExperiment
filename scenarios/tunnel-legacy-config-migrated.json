@@ -3,7 +3,7 @@
   "servers": ["hub"],
   "metadata": {
     "legacyFields": ["sshTransportMode", "controlMaster", "workerSsh"],
-    "connectionMode": "mobaxterm_tunnel_realtime"
+    "connectionMode": "xshell_tunnel_realtime"
   },
   "steps": [],
   "expect": { "legacySshIgnored": true }

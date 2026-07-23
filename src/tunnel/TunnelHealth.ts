@@ -1,7 +1,7 @@
 export type TunnelHealthState =
   | "unknown"
   | "not_configured"
-  | "mobaxterm_not_found"
+  | "xshell_not_found"
   | "local_port_closed"
   | "agent_unreachable"
   | "agent_ok"
@@ -29,8 +29,6 @@ export interface TunnelHealth {
   checkedAt: string;
   message?: string;
 }
-
-export type MobaXtermTunnelHealth = TunnelHealth;
 
 export function classifyTunnelHealth(input: {
   configured: boolean;

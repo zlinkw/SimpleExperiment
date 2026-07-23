@@ -12,11 +12,11 @@ const {
   generatePs1Script,
   validateXshellExecutable,
 } = require("../../dist/tunnel/XshellTunnelLauncher.js");
-const { normalizeMobaXtermSetupConfig } = require("../../dist/tunnel/MobaXtermSetup.js");
+const { normalizeXshellSetupConfig } = require("../../dist/tunnel/XshellTunnelSetup.js");
 
 test("xshell launcher builds visible local forwarding command with custom ports", () => {
-  const config = normalizeMobaXtermSetupConfig({
-    mobaxtermExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
+  const config = normalizeXshellSetupConfig({
+    xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "hub.example.edu",
     hubUser: "zlk",
     hubSshPort: 2222,
@@ -42,5 +42,4 @@ test("xshell executable validation only accepts Xshell.exe files", async () => {
   assert.equal(await validateXshellExecutable(exe), true);
   assert.equal(await validateXshellExecutable(other), false);
 });
-
 
