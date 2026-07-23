@@ -38,8 +38,8 @@
 - [已完成] SimpleExperiment `0.2.1` 与 SimpleSFTP `0.1.3` 对照包的 manifest、package 版本和扩展 ID 一致。
 - [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
 - [失败] 当前计划 A 输入缺少 `vscode-remote` 与 `127.0.0.1` 明示声明，且 `containerUser=root`；校验结果为 `failed`，不得生成兼容通过结果。
+- [失败] Plan A Live Codex 只读请求返回外部接口 `401 Unauthorized`，未把失败归因于插件，也未修改容器配置。
 - [待现场验证] Dev Container 文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`；当前只读检查未发现 Xshell 进程或本地监听端口。
-- [已完成] 两个插件仓库加入 `* text=auto` 换行规范；Docker Linux 工作区不再把 Windows 混合换行误报为源码修改，Windows 工作区状态保持干净。SimpleExperiment `2fb064e`、SimpleSFTP `57137db` 已同步。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。

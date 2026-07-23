@@ -155,7 +155,7 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 - 用本地校验器检查 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md` 的固定字段、宿主路径、远程根、扩展 Host、回环边界和 Xshell 边界。
 - 结构错误返回 `failed`；root 或缺少运行用户信息返回 `needs_experiment`；只有无警告的非 root 输入才允许返回 `passed`。
 
-验收记录：校验器单元测试通过，SimpleExperiment 全量测试通过 `659/659`，lint 通过，提交 `0a34572` 已同步 `origin/master`。对当前计划 A 文件的只读执行返回 `failed`：`PLUGIN-HANDOFF.md` 未明确包含 `vscode-remote` 与 `127.0.0.1`，且配置声明 `containerUser=root`。因此不得生成 `plugin-compat-result.json` 的通过状态；未修改计划 A 文件。
+验收记录：校验器单元测试通过，SimpleExperiment 全量测试通过 `659/659`，lint 通过，提交 `0a34572` 已同步 `origin/master`。对当前计划 A 文件的只读执行返回 `failed`：`PLUGIN-HANDOFF.md` 未明确包含 `vscode-remote` 与 `127.0.0.1`，且配置声明 `containerUser=root`。Plan A 结构检查通过，但 Live Codex 只读请求因外部接口返回 `401 Unauthorized` 失败，标记为 `needs_experiment`，不归因于插件。不得生成 `plugin-compat-result.json` 的通过状态；未修改计划 A 文件。
 
 ## 输出接口
 
