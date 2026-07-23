@@ -30,7 +30,11 @@ test("public release package creates an offline paired installer", () => {
   assert.match(packageScript, /simple-experiment/);
   assert.match(packageScript, /install-public-release\.ps1/);
   assert.match(packageScript, /simple-experiment-setup\.md/);
-  assert.match(packageScript, /Get-ChildItem -LiteralPath \$bundle -File -Filter "\*\.vsix" \| Remove-Item -Force/);
+  assert.match(packageScript, /function Invoke-VscePackage/);
+  assert.match(packageScript, /Release bundle already exists and will not be overwritten/);
+  assert.doesNotMatch(packageScript, /Remove-Item/);
+  assert.doesNotMatch(packageScript, /Copy-Item[^\r\n]*-Force/);
+  assert.doesNotMatch(packageScript, /Set-Content/);
   assert.match(installScript, /simple-sftp-\*\.vsix/);
   assert.match(installScript, /simple-experiment-\*\.vsix/);
   assert.match(installScript, /\$sftp/);

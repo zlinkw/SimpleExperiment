@@ -20,18 +20,42 @@ function Invoke-NpmScript([string]$WorkingDirectory, [string]$Script) {
     }
 }
 
+function Invoke-VscePackage([string]$WorkingDirectory, [string]$OutputPath) {
+    Push-Location $WorkingDirectory
+    try {
+        & npm exec -- @vscode/vsce package --no-dependencies --out $OutputPath --allow-missing-repository
+        if ($LASTEXITCODE -ne 0) {
+            throw "vsce package failed: $WorkingDirectory"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+$sftpPackage = Get-Content -Raw -Encoding UTF8 (Join-Path $sftpRoot "package.json") | ConvertFrom-Json
+$experimentPackage = Get-Content -Raw -Encoding UTF8 (Join-Path $root "package.json") | ConvertFrom-Json
+$bundle = Join-Path $ReleaseDirectory "SimpleExperiment-$($experimentPackage.version)"
+if (Test-Path -LiteralPath $bundle) {
+    throw "Release bundle already exists and will not be overwritten: $bundle"
+}
 if (-not $SkipTests) {
     Invoke-NpmScript $sftpRoot "test"
     Invoke-NpmScript $root "test"
 }
+else {
+    Invoke-NpmScript $root "build"
+}
 
-Invoke-NpmScript $sftpRoot "package"
-Invoke-NpmScript $root "package"
+$releaseParent = Split-Path -Parent $bundle
+New-Item -ItemType Directory -Force -Path $releaseParent | Out-Null
+New-Item -ItemType Directory -Path $bundle | Out-Null
 
-$sftpPackage = Get-Content -Raw -Encoding UTF8 (Join-Path $sftpRoot "package.json") | ConvertFrom-Json
-$experimentPackage = Get-Content -Raw -Encoding UTF8 (Join-Path $root "package.json") | ConvertFrom-Json
-$sftpVsix = Join-Path $sftpRoot "$($sftpPackage.name)-$($sftpPackage.version).vsix"
-$experimentVsix = Join-Path $root "$($experimentPackage.name)-$($experimentPackage.version).vsix"
+$sftpVsix = Join-Path $bundle "$($sftpPackage.name)-$($sftpPackage.version).vsix"
+$experimentVsix = Join-Path $bundle "$($experimentPackage.name)-$($experimentPackage.version).vsix"
+
+Invoke-VscePackage $sftpRoot $sftpVsix
+Invoke-VscePackage $root $experimentVsix
 
 foreach ($file in @($sftpVsix, $experimentVsix)) {
     if (-not (Test-Path -LiteralPath $file)) {
@@ -39,12 +63,13 @@ foreach ($file in @($sftpVsix, $experimentVsix)) {
     }
 }
 
-$bundle = Join-Path $ReleaseDirectory "SimpleExperiment-$($experimentPackage.version)"
-New-Item -ItemType Directory -Force -Path $bundle | Out-Null
-Get-ChildItem -LiteralPath $bundle -File -Filter "*.vsix" | Remove-Item -Force
-Copy-Item -LiteralPath $sftpVsix, $experimentVsix -Destination $bundle -Force
-Copy-Item -LiteralPath (Join-Path $root "scripts\\install-public-release.ps1") -Destination $bundle -Force
-Copy-Item -LiteralPath (Join-Path $root "docs\\simple-experiment-setup.md") -Destination $bundle -Force
+foreach ($source in @(
+        (Join-Path $root "scripts\\install-public-release.ps1"),
+        (Join-Path $root "docs\\simple-experiment-setup.md")
+    )) {
+    $destination = Join-Path $bundle (Split-Path -Leaf $source)
+    [System.IO.File]::Copy($source, $destination, $false)
+}
 
 $readme = @(
     "# SimpleExperiment Offline Bundle",
@@ -59,6 +84,7 @@ $readme = @(
     "Before reload, an already-running legacy extension host can temporarily leave old ZLK status-bar items beside the new UI."
 ) -join [Environment]::NewLine
 
-$readme | Set-Content -LiteralPath (Join-Path $bundle "README.md") -Encoding UTF8
+$readmePath = Join-Path $bundle "README.md"
+[System.IO.File]::WriteAllText($readmePath, $readme, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "Offline bundle created: $bundle"
