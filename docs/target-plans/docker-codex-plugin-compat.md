@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：待执行。
+- 状态：执行中，当前批次 `docker-plugin-001a`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -45,6 +45,7 @@
 ```
 
 输入校验失败时停止改造验收，不猜测路径或降级为容器内本地路径。
+schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所有上述必需字段仍必须逐项匹配。
 
 ## 强制边界
 

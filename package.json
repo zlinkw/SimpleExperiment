@@ -4,6 +4,9 @@
 	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
 	"version": "0.2.0",
 	"publisher": "simple-local",
+	"extensionKind": [
+		"ui"
+	],
 	"extensionDependencies": [
 		"simple-local.simple-sftp"
 	],
@@ -284,6 +287,18 @@
 		"configuration": {
 			"title": "SimpleExperiment",
 			"properties": {
+				"zlkCluster.workspaceHostRoot": {
+					"type": "string",
+					"default": "",
+					"scope": "application",
+					"description": "可选 Windows 宿主工作区根目录。仅用于将 Dev Container 工作区映射到 UI Extension Host；普通 Windows 工作区无需配置。"
+				},
+				"zlkCluster.workspaceContainerRoot": {
+					"type": "string",
+					"default": "",
+					"scope": "application",
+					"description": "可选 Dev Container 工作区根目录，例如 /workspaces。远程工作区副作用操作必须同时配置宿主根。"
+				},
 				"zlkCluster.showAdvancedCommands": {
 					"type": "boolean",
 					"default": false,

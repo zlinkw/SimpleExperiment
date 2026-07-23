@@ -1,4 +1,4 @@
-# 目标模式当前计划：服务器 GPU 三天历史曲线
+# 目标模式当前计划：Docker Codex 插件兼容
 本文档只保留最新活动目标。历史批次、验证和部署记录以 git 提交为准。
 打包/清理时会自动压缩本文件，禁止堆积流水账。
 
@@ -13,38 +13,34 @@
 - 长时间 Webview payload 预算：`schedulerStates` 与 `experimentTraces` 必须限量、压缩并保留受保护记录；`per-request timeout`、`pending key`、`lastSeq/lastHeartbeatAt` 由代码和测试覆盖。
 
 ## 后续优先级
-- [进行中] 服务器状态页三天 GPU 历史曲线，详见 `docs/target-plans/server-gpu-history.md`。
+- [待现场验证] 服务器状态页三天 GPU 历史曲线，详见 `docs/target-plans/server-gpu-history.md`。
 - [已完成] SimpleExperiment 恢复基线、target mode 压缩契约和 UI 契约修复；全量测试基线 624/624。
-- [待做] Docker Codex 的 SimpleExperiment/SimpleSFTP UI Host 与宿主路径兼容，详见 `docs/target-plans/docker-codex-plugin-compat.md`。
+- [进行中] Docker Codex 的 SimpleExperiment/SimpleSFTP UI Host 与宿主路径兼容，详见 `docs/target-plans/docker-codex-plugin-compat.md`。
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：history-005
+## 当前批次：docker-plugin-001a
 ### 修复点
-- 修复 GPU 历史曲线稳定配色，使用 OKLCH 候选色与 OKLab 感知距离。
-- 保留服务器 ID 稳定映射；候选色不足时使用线型和点形状区分。
-- 保持真实服务器连续三天采样状态为 `needs field verification`，未把设计或自动化测试当作现场证据。
+- 为 SimpleExperiment 增加纯双路径映射模块、UI Extension Host 声明和可选根目录配置。
+- 本地 `file` 工作区继续使用原 `fsPath`；`vscode-remote` 编辑器 URI 保持不变，副作用使用 Windows 宿主路径。
+- 拒绝 `..`、编码穿越、错误根、反斜杠、盘符和宿主根越界；本批不接入具体副作用入口。
 
 ### 回归风险
-- 相邻回归风险：图表展开不得触发实时 snapshot 高频历史查询或重复携带三天原始数据。
-- 断连风险：历史查询失败必须保留上次成功曲线并显示 stale，不得伪造零值或成功状态。
-- 布局风险：图表、图例、悬停层和文本不得覆盖 GPU 卡、抽屉或三列布局中的相邻内容。
-- 配色风险：感知色差阈值不足时不得误称颜色本身可区分，必须依靠线型和点形状回退。
-- 交付风险：未完成 UI 和真实现场验收前，不生成或安装 VSIX，不声明功能完整验收。
-- 边界风险：API 与状态链路不得接入结果、归档、CSV、论文、PPT 或 SimpleSFTP。
+- 相邻回归风险：未配置映射的本地工作区不得改变路径、命令 ID、Xshell 或结果生命周期行为。
+- 路径安全：远程路径必须先规范化并校验容器根，再映射并二次校验 Windows 宿主边界。
+- URI 边界：编辑器打开文件继续使用原始远程 URI，不得替换为 `file:///D:/...`。
+- 连接边界：Agent HTTP/realtime 继续访问 Windows `127.0.0.1`，不增加 Docker localhost 或直接 SSH。
+- 交付边界：本批不生成、安装或覆盖 VSIX，不写入 `plugin-drop` 通过结果。
 
 ### 验证清单
-- [已通过] `history-002a` Agent API/capability/OpenAPI、TunnelClient、build/lint/runtime/SHA256 与全量测试 625/625。
-- [已通过] `history-002b` 按需缓存、断连保留、请求合并、Webview payload 预算与全量测试 628/628。
-- [已通过] `history-003` 总体/单卡图表、缺口标记、稳定配色、可访问性、build/lint 与全量测试 631/631。
-- [已通过] `history-004` 模拟服务器数量、颜色稳定性、缺口/峰值/显存悬停逻辑与全量测试 635/635。
-- [已通过] `history-004` build、typecheck、lint、`node -c`、`git diff --check` 与 `vsce ls --no-dependencies`；未生成或安装 VSIX。
-- [已通过] `history-005` OKLCH 候选色、OKLab 色差和超出候选色数量的线型/点形状回退定向测试。
-- [已通过] `history-005` 全量测试 636/636、build、lint、`node -c`、`git diff --check` 与 `vsce ls --no-dependencies`；未生成或安装 VSIX。
-- [待验证] `history-004` 实际浏览器视觉布局、高 DPI/窄侧栏截图、三天资源现场观测和连续采样。
+- [已通过] 计划 A 交接文件的 schemaVersion、工作区根、URI scheme、extension host 和配置键必需字段一致。
+- [待验证] 本地 file URI、远程 URI、嵌套项目、分隔符、大小写和尾部斜杠。
+- [待验证] 明文/编码穿越、错误根、盘符、UNC、NUL 和映射后二次越界。
+- [待验证] build、typecheck、lint、全量测试、`node -c`、`git diff --check` 与公开打包文件清单。
+- [待现场验证] Dev Container UI Host、远程编辑器 URI、Windows `127.0.0.1` 和双插件联调均为 `needs experiment`。
 
 ## 本批记录
-- 上一完成批次：`recovery-build-053`，修复提交 `a7a71e87849606cae09de12d71c4a313fee2a2fa`，记录提交 `fa239e25afd2ad88687cd64460bed1d207653f18`。
-- 当前目标状态：`history-003` 已完成并同步；`history-004` 自动化部分完成，`history-005` 执行中。
-- 本批涉及：GPU 历史配色感知距离与回退测试；不安装或覆盖 VSIX。
-- 上一修复提交：`6547e60`（悬停详情；前置验收提交 `629b1b0`）；真实服务器连续三天采样仍为 `needs field verification`。
+- 上一完成批次：`history-005`，提交 `bd496c858e8f243a5a16a71621ee70ad2ba46f67` 已同步 `origin/master`。
+- 当前目标状态：GPU 自动化实现完成，真实三天采样仍为 `needs field verification`；Docker 兼容进入 `docker-plugin-001a`。
+- 本批涉及：SimpleExperiment 路径契约、配置声明和测试；不修改 SimpleSFTP，不接入副作用操作。
+- 计划 A 交接中的扩展字段不参与插件路径决策；插件仅消费 schemaVersion 1 的必需字段。
