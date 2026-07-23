@@ -41,4 +41,11 @@ test("public release package creates an offline paired installer", () => {
 test("public VSIX excludes local assistant state and rendered scratch files", () => {
   assert.match(vsixIgnore, /^\.claude\/\*\*$/m);
   assert.match(vsixIgnore, /^_\*\.html$/m);
+  for (const recoveredArtifact of ["-First", "-Path", "-Raw", ".vscodeignore}else{'NO", "package.json)"]) {
+    assert.match(vsixIgnore, new RegExp(`^${escapeRegExp(recoveredArtifact)}$`, "m"));
+  }
 });
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

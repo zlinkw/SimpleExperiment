@@ -17,6 +17,9 @@
 | `-Raw` | 文件 | PowerShell 参数被误写成文件名；内容是旧目标计划副本。 | 删除前确认当前计划和 Git 历史足以追溯。 | 2026-07-22 | 待审核 |
 | `.vscodeignore}else{'NO` | 文件 | 损坏命令产生的异常文件名；内容是 `.vscodeignore` 片段和命令残留。 | 删除前与正式 `.vscodeignore` 对照，避免遗漏有效打包规则。 | 2026-07-22 | 待审核 |
 | `package.json)` | 文件 | 损坏命令产生的旧 `package.json` 副本，名称不是 Node manifest。 | 删除前确认当前 `package.json` 已包含需要的历史配置；不得用该副本覆盖当前 manifest。 | 2026-07-22 | 待审核 |
+| `src/extension.ts).Length` | 文件 | 损坏命令输出的长度片段，不是有效 TypeScript 源文件；正式实现位于 `src/extension.ts`。 | 删除前确认无脚本或恢复记录直接引用该异常路径。 | 2026-07-23 | 待审核 |
+| `src/ui/PanelHtml.ts).Length` | 文件 | 损坏命令输出的长度片段，不是有效 TypeScript 源文件；正式实现位于 `src/ui/PanelHtml.ts`。 | 删除前确认无脚本或恢复记录直接引用该异常路径。 | 2026-07-23 | 待审核 |
+| `src/ui/PanelHtml.ts)[994]` | 文件 | 损坏命令输出的源码片段，不是有效 TypeScript 源文件；正式实现位于 `src/ui/PanelHtml.ts`。 | 删除前确认恢复审计不再需要该片段。 | 2026-07-23 | 待审核 |
 | `scripts/tmp-dump-task-card.js` | 文件 | 一次性 UI 源码片段导出脚本，仅生成临时文本。 | 删除前确认不再用于恢复 `renderTaskCard`。 | 2026-07-22 | 待审核 |
 | `scripts/tmp-inspect-task-card.js` | 文件 | 一次性 UI 检查脚本，只打印源码片段。 | 删除前确认正式测试已覆盖对应检查。 | 2026-07-22 | 待审核 |
 | `scripts/tmp-patch-task-ui.js` | 文件 | 一次性源码改写脚本，会直接修改 `src/ui/PanelHtml.ts`。 | 不应再次执行；删除前确认其预期修改已进入已验证提交。 | 2026-07-22 | 待审核 |
