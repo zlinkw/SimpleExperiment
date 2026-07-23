@@ -1247,16 +1247,34 @@ def downsample_gpu_history_points(points, max_points):
     except Exception:
         requested = GPU_HISTORY_MAX_POINTS_PER_SERIES
     limit = max(1, min(GPU_HISTORY_MAX_POINTS_PER_SERIES, requested))
+    if not rows:
+        return []
     if len(rows) <= limit:
-        return rows
-    if limit == 1:
-        return [rows[-1]]
-    indexes = []
-    for index in range(limit):
-        sampled = int(round(index * (len(rows) - 1) / (limit - 1)))
-        if not indexes or sampled != indexes[-1]:
-            indexes.append(sampled)
-    return [rows[index] for index in indexes]
+        indexes = list(range(len(rows)))
+    elif limit == 1:
+        indexes = [len(rows) - 1]
+    else:
+        indexes = []
+        for index in range(limit):
+            sampled = int(round(index * (len(rows) - 1) / (limit - 1)))
+            if not indexes or sampled != indexes[-1]:
+                indexes.append(sampled)
+    out = []
+    previous_source_index = None
+    for source_index in indexes:
+        point = dict(rows[source_index])
+        gap_before = False
+        if previous_source_index is not None:
+            for current_index in range(previous_source_index + 1, source_index + 1):
+                previous_epoch = int(rows[current_index - 1].get("bucketEpoch") or 0)
+                current_epoch = int(rows[current_index].get("bucketEpoch") or 0)
+                if current_epoch - previous_epoch > GPU_HISTORY_BUCKET_SECONDS:
+                    gap_before = True
+                    break
+        point["gapBefore"] = gap_before
+        out.append(point)
+        previous_source_index = source_index
+    return out
 
 def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_points=GPU_HISTORY_MAX_POINTS_PER_SERIES):
     history = normalize_gpu_history(read_json(gpu_history_path(root), {}))

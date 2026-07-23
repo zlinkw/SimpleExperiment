@@ -50,6 +50,7 @@ export interface GpuHistoryPoint {
   memoryUsedMb: number | null;
   memoryTotalMb: number | null;
   memoryUtilPercent: number | null;
+  gapBefore?: boolean;
 }
 
 export interface GpuHistorySeries {

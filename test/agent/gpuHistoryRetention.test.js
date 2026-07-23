@@ -53,6 +53,12 @@ bounded = agent.update_gpu_history({"servers": {"server-a": {"0": many}}}, {}, b
 bounded_points = bounded["servers"]["server-a"]["0"]
 agent.atomic_write(agent.gpu_history_path(root), bounded)
 query = agent.query_gpu_history(root, "server-a", "0", end=base, max_points=12)
+gap_query = agent.downsample_gpu_history_points([
+    {"bucketEpoch": base, "gpuUtilPercent": 10},
+    {"bucketEpoch": base + agent.GPU_HISTORY_BUCKET_SECONDS, "gpuUtilPercent": 20},
+    {"bucketEpoch": base + agent.GPU_HISTORY_BUCKET_SECONDS * 4, "gpuUtilPercent": 30},
+    {"bucketEpoch": base + agent.GPU_HISTORY_BUCKET_SECONDS * 5, "gpuUtilPercent": 40},
+], 3)
 
 history_path = agent.gpu_history_path(root)
 with open(history_path, "w", encoding="utf-8") as handle:
@@ -69,6 +75,7 @@ print(json.dumps({
     "querySeries": len(query["series"]),
     "queryPoints": len(query["series"][0]["points"]),
     "queryRawPoints": query["series"][0]["rawPointCount"],
+    "queryGapMarkers": [point.get("gapBefore") for point in gap_query],
     "recovered": recovered.get("recoveredFromCorruption") is True,
     "recoveredServers": sorted(recovered["servers"].keys()),
     "recoveredGpuIds": sorted(recovered["servers"]["server-b"].keys()),
@@ -91,6 +98,7 @@ print(json.dumps({
   assert.equal(result.querySeries, 1);
   assert.equal(result.queryPoints, 12);
   assert.equal(result.queryRawPoints, 864);
+  assert.deepEqual(result.queryGapMarkers, [false, true, false]);
   assert.equal(result.recovered, true);
   assert.deepEqual(result.recoveredServers, ["server-b"]);
   assert.deepEqual(result.recoveredGpuIds, ["3"]);

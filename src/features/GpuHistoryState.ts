@@ -14,6 +14,7 @@ export interface GpuHistoryWebviewPoint {
   memoryUsedMb: number | null;
   memoryTotalMb: number | null;
   memoryUtilPercent: number | null;
+  gapBefore: boolean | null;
 }
 
 export interface GpuHistoryWebviewSeries {
@@ -211,6 +212,7 @@ function compactPoint(value: unknown): GpuHistoryWebviewPoint | undefined {
     memoryUsedMb: nullableNonNegative(item.memoryUsedMb),
     memoryTotalMb: nullableNonNegative(item.memoryTotalMb),
     memoryUtilPercent: nullablePercent(item.memoryUtilPercent),
+    gapBefore: typeof item.gapBefore === "boolean" ? item.gapBefore : null,
   };
 }
 

@@ -167,6 +167,7 @@ function compactPoint(value) {
         memoryUsedMb: nullableNonNegative(item.memoryUsedMb),
         memoryTotalMb: nullableNonNegative(item.memoryTotalMb),
         memoryUtilPercent: nullablePercent(item.memoryUtilPercent),
+        gapBefore: typeof item.gapBefore === "boolean" ? item.gapBefore : null,
     };
 }
 function evenlySample(items, limit) {

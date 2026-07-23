@@ -29,6 +29,7 @@ test("GPU history query and Webview payload stay bounded", () => {
       memoryUsedMb: 500 + pointIndex,
       memoryTotalMb: 1000,
       memoryUtilPercent: 50,
+      gapBefore: pointIndex === 6,
     })),
   }));
   const compact = compactGpuHistoryResponse({ schemaVersion: 1, bucketSeconds: 300, retentionHours: 72, maxPointsPerSeries: 864, updatedAt: "x", series });
@@ -39,6 +40,7 @@ test("GPU history query and Webview payload stay bounded", () => {
   assert.equal(compact.series[0].points[0].bucketEpoch, 2_000_000_000);
   assert.equal(compact.series[0].points.at(-1).bucketEpoch, 2_000_000_000 + 299 * 300);
   assert.equal("serverId" in compact.series[0].points[0], false);
+  assert.equal(compact.series[0].points.some((point) => point.gapBefore === true), true);
   assert.ok(Buffer.byteLength(JSON.stringify(compact), "utf8") < 2_000_000);
 });
 
