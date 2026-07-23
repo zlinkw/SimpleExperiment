@@ -20,25 +20,25 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-004b
+## 当前批次：docker-plugin-004c
 ### 修复点
-- 接入已完成的共享宿主操作租约：覆盖隧道、调度、Agent 部署、上传、下载、归档和删除等副作用。
-- 只读状态页允许并行；第二窗口副作用操作必须显示持有窗口、工作区和恢复方式并阻断。
+- 校验计划 A 的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，运行两个插件真实协议互操作检查。
+- 保持只读状态页并行；确认第二窗口副作用操作显示持有窗口、工作区、动作和过期恢复方式。
 - 联调验证 SimpleExperiment、SimpleSFTP、Windows Xshell `127.0.0.1` 与 Dev Container 工作区映射使用同一宿主项目路径。
 
 ### 回归风险
 - 相邻回归风险：租约不得阻断只读状态，不得改变单窗口 Windows 行为、旧命令 ID、Xshell 入口或任务生命周期。
 - 崩溃恢复：只能由过期租约接管，不得强制删除活动租约绕过保护。
-- 交付边界：本批不打包、安装或覆盖 VSIX；Dev Container 与 Xshell 联调仍需现场验证。
+- 交付边界：输入接口未通过前不生成交付结果；不安装或覆盖 VSIX；Dev Container 与 Xshell 联调仍需现场验证。
 
 ### 验证清单
 - [已完成] 共享租约协议模块：原子创建、心跳、过期接管、崩溃恢复、同窗口嵌套和持有者保护。
-- [待验证] 两个插件副作用入口接入租约，第二窗口冲突阻断和只读并行。
-- [待验证] 只读并行与副作用单窗口约束。
+- [已完成] 两个插件副作用入口接入租约；只读状态命令不申请租约；冲突使用强窗口展示完整恢复信息。
+- [待验证] 两个独立插件模块的真实互操作与计划 A 输入接口。
 - [待现场验证] Dev Container 双插件联调、文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
-- 当前目标状态：共享租约协议已完成；Docker 兼容进入两个插件副作用入口接入批次 `docker-plugin-004b`。
+- 当前目标状态：共享租约协议与两个插件副作用入口接入完成；Docker 兼容进入联调验收准备批次 `docker-plugin-004c`。
 - `docker-plugin-002`：SimpleExperiment 提交 `d5750ff` 已同步 `SimpleExperiment/origin/master`，`npm test` 通过 644/644。
 - `docker-plugin-003`：SimpleSFTP 提交 `bbaa528` 已同步 `SimpleSFTP/origin/master`，`npm test` 通过 10/10；未生成、安装或覆盖 VSIX。

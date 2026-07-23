@@ -77,6 +77,7 @@ const TunnelEndpointRegistry_1 = require("./tunnel/TunnelEndpointRegistry");
 const TunnelPortConflict_1 = require("./tunnel/TunnelPortConflict");
 const ConfigurationSettings_1 = require("./tunnel/ConfigurationSettings");
 const WorkspacePathMapper_1 = require("./core/WorkspacePathMapper");
+const HostOperationLease_1 = require("./core/HostOperationLease");
 const Results_1 = require("./features/Results");
 const PlanBuilder_1 = require("./features/PlanBuilder");
 const { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } = require("./features/PlanArchive");
@@ -325,8 +326,40 @@ const directWorkerActionMap = {
 let provider;
 function activate(context) {
     provider = new RealtimeTunnelPanelProvider(context);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("zlkCluster.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), vscode.commands.registerCommand("zlkCluster.quickSetup", () => provider?.quickSetup()), vscode.commands.registerCommand("zlkCluster.configureXshellSavedSessions", () => provider?.configureXshellSavedSessions()), vscode.commands.registerCommand("zlkCluster.configureXshellAgentSessions", () => provider?.configureXshellAgentSessions()), vscode.commands.registerCommand("zlkCluster.writeXshellAgentStartupCommands", () => provider?.writeXshellAgentStartupCommands()), vscode.commands.registerCommand("zlkCluster.configureWorkerTunnels", () => provider?.configureWorkerTunnels()), vscode.commands.registerCommand("zlkCluster.configureTunnelPorts", () => provider?.configureTunnelPorts()), vscode.commands.registerCommand("zlkCluster.configureXshellRealtimeTunnel", () => provider?.configureXshellRealtimeTunnel()), vscode.commands.registerCommand("zlkCluster.startHubTunnel", () => provider?.startHubTunnel()), vscode.commands.registerCommand("zlkCluster.startWorkerTunnel", () => provider?.startWorkerTunnel()), vscode.commands.registerCommand("zlkCluster.startXshellRealtimeTunnel", () => provider?.startXshellRealtimeTunnel()), vscode.commands.registerCommand("zlkCluster.startAllXshellRealtimeTunnels", () => provider?.startAllXshellRealtimeTunnels()), vscode.commands.registerCommand("zlkCluster.startAllXshellAgentSessions", () => provider?.startAllXshellAgentSessions()), vscode.commands.registerCommand("zlkCluster.startAllXshellConnections", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("zlkCluster.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("zlkCluster.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("zlkCluster.testXshellTunnel", () => provider?.testTunnel(true)), vscode.commands.registerCommand("zlkCluster.restartRealtimeStream", () => provider?.restartRealtimeStream()), vscode.commands.registerCommand("zlkCluster.pauseRealtimeStream", () => provider?.pauseRealtimeStream()), vscode.commands.registerCommand("zlkCluster.resumeRealtimeStream", () => provider?.resumeRealtimeStream()), vscode.commands.registerCommand("zlkCluster.pauseAllNetworkActivity", () => provider?.pauseAllNetworkActivity()), vscode.commands.registerCommand("zlkCluster.generateXshellTunnelScript", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("zlkCluster.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("zlkCluster.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("zlkCluster.manualRefresh", () => provider?.manualSnapshot()), vscode.commands.registerCommand("zlkCluster.importOfflineBundle", () => provider?.importOffline()));
-    context.subscriptions.push(vscode.commands.registerCommand("zlkCluster.bootstrapProject", () => provider?.bootstrapProjectFromUi()), vscode.commands.registerCommand("zlkCluster.prepareAgents", () => provider?.prepareAgentsForFirstRun()));
+    const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }),
+        vscode.commands.registerCommand("zlkCluster.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)),
+        hostCommand("zlkCluster.quickSetup", "quick-setup", "一键配置", () => provider?.quickSetup()),
+        hostCommand("zlkCluster.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()),
+        hostCommand("zlkCluster.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()),
+        hostCommand("zlkCluster.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()),
+        hostCommand("zlkCluster.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()),
+        hostCommand("zlkCluster.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()),
+        hostCommand("zlkCluster.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()),
+        hostCommand("zlkCluster.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()),
+        hostCommand("zlkCluster.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()),
+        hostCommand("zlkCluster.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()),
+        hostCommand("zlkCluster.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()),
+        hostCommand("zlkCluster.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()),
+        hostCommand("zlkCluster.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()),
+        vscode.commands.registerCommand("zlkCluster.testAllTunnels", () => provider?.testTunnel(true)),
+        vscode.commands.registerCommand("zlkCluster.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()),
+        vscode.commands.registerCommand("zlkCluster.testXshellTunnel", () => provider?.testTunnel(true)),
+        hostCommand("zlkCluster.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()),
+        hostCommand("zlkCluster.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()),
+        hostCommand("zlkCluster.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()),
+        hostCommand("zlkCluster.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()),
+        hostCommand("zlkCluster.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()),
+        vscode.commands.registerCommand("zlkCluster.openTunnelStatus", () => provider?.openTunnelStatus()),
+        vscode.commands.registerCommand("zlkCluster.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()),
+        vscode.commands.registerCommand("zlkCluster.manualRefresh", () => provider?.manualSnapshot()),
+        hostCommand("zlkCluster.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()),
+    );
+    context.subscriptions.push(
+        hostCommand("zlkCluster.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()),
+        hostCommand("zlkCluster.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()),
+    );
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
     void provider.migrateLegacyConfigOnce()
@@ -373,6 +406,7 @@ function setupGuideNextStep(options) {
 const SETUP_GUIDE_MAX_STEPS = 4;
 class RealtimeTunnelPanelProvider {
     context;
+    hostOperationLease = new HostOperationLease_1.HostOperationLeaseManager();
     view;
     tunnelConfig;
     setupConfig;
@@ -1106,6 +1140,23 @@ class RealtimeTunnelPanelProvider {
         this.pendingPanelNavigation = undefined;
         await this.client.disconnect("deactivate").catch(() => undefined);
         this.view = undefined;
+    }
+    async withHostOperationLease(actionType, actionLabel, operation) {
+        const leaseContext = currentHostOperationLeaseContext();
+        try {
+            return await this.hostOperationLease.run({
+                pluginId: "simple-local.simple-experiment",
+                workspaceUri: leaseContext.workspaceUri,
+                hostProjectPath: leaseContext.hostProjectPath,
+                actionType,
+                actionLabel,
+            }, operation);
+        }
+        catch (error) {
+            if (error instanceof HostOperationLease_1.HostOperationLeaseConflictError)
+                await vscode.window.showErrorMessage(error.message, { modal: true }, "知道了");
+            throw error;
+        }
     }
     async ensureRealtimeConnected(_reason) {
         const generation = this.projectContextGeneration;
@@ -2181,11 +2232,15 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
+        const leaseAction = hostOperationLeaseActionForUiCommand(command);
+        const work = leaseAction
+            ? () => this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command))
+            : () => this.handleMessageCore(message, command);
         if (clientActionId && commandNeedsUiStatus(command)) {
-            await this.withUiCommandStatus(clientActionId, command, message, () => this.handleMessageCore(message, command));
+            await this.withUiCommandStatus(clientActionId, command, message, work);
             return;
         }
-        await this.handleMessageCore(message, command);
+        await work();
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
         if (booleanField(message, "debugMode") && debugModeBlockedUiCommand(command))
@@ -2528,6 +2583,12 @@ class RealtimeTunnelPanelProvider {
         this.postState();
     }
     async runActionCommand(command, message) {
+        if (actionCommandMap[command]) {
+            return this.withHostOperationLease(command, hostOperationLeaseActionLabel(command), () => this.runActionCommandCore(command, message));
+        }
+        return this.runActionCommandCore(command, message);
+    }
+    async runActionCommandCore(command, message) {
         const action = actionCommandMap[command];
         if (!action)
             return;
@@ -9781,6 +9842,58 @@ function getSafeCommand(message) {
     ]);
     return basic.has(command) || uiActionCommands.has(command) ? command : "";
 }
+const hostOperationUiCommands = new Set([
+    "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands",
+    "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
+    "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
+    "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents",
+    "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "script", "offline",
+    "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject",
+    "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath",
+    "plotResultsToPpt", "startPptAutomation", "publishGithub", "syncGithub", "overwriteGithub",
+    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores",
+    "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact",
+]);
+function hostOperationLeaseActionForUiCommand(command) {
+    if (!command)
+        return "";
+    if (actionCommandMap[command])
+        return command;
+    return hostOperationUiCommands.has(command) ? command : "";
+}
+function hostOperationLeaseActionLabel(command) {
+    const labels = {
+        quickSetup: "一键配置",
+        configureSessions: "配置 Xshell 会话",
+        configureAgentSessions: "配置 Agent 会话",
+        writeAgentCommands: "写入 Agent 启动命令",
+        startTunnelEndpoint: "启动隧道端点",
+        startAgentEndpoint: "启动 Agent 端点",
+        startHub: "启动 Hub 隧道",
+        startWorker: "启动 Worker 隧道",
+        start: "启动 Xshell 隧道",
+        startAll: "启动全部隧道",
+        startAgents: "启动 Agent 会话",
+        startAllConnections: "启动全部连接",
+        prepareAgents: "准备 Agent",
+        runPlan: "运行计划",
+        reproducePlan: "恢复并重新运行",
+        runAllPlans: "运行全部计划",
+        archivePlan: "归档计划",
+        restoreArchivedPlan: "恢复归档计划",
+        archiveArtifacts: "归档结果",
+        deleteArtifacts: "删除结果",
+        uploadProjectToHub: "上传项目到 Hub",
+        uploadProjectToWorkers: "上传项目到 Worker",
+        distributeCodeToWorkers: "分发代码到 Worker",
+        deployLatestAgent: "部署 Agent runtime",
+        configureSftpIgnores: "配置 SFTP 忽略规则",
+        downloadDebugBundle: "下载调试包",
+        downloadRemoteResult: "下载远端结果",
+        openResultArtifact: "打开或下载结果文件",
+    };
+    return labels[command] || command;
+}
 function commandNeedsUiStatus(command) {
     return Boolean(command) && !["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"].includes(command);
 }
@@ -15043,6 +15156,24 @@ function workspaceRoot() {
     catch {
         return undefined;
     }
+}
+function currentHostOperationLeaseContext() {
+    if (process.platform !== "win32")
+        throw new Error("SimpleExperiment 宿主副作用必须由 Windows UI Extension Host 执行。");
+    const folders = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders : [];
+    if (folders.length > 1)
+        throw new Error("检测到多个工作区文件夹，已阻止宿主副作用操作。请在独立窗口中只打开一个目标项目。");
+    const folder = folders[0];
+    if (!folder?.uri) {
+        return { workspaceUri: "untitled://simple-experiment/no-workspace", hostProjectPath: "(未打开工作区)" };
+    }
+    const location = workspaceLocationForFolder(folder);
+    if (!location?.hostPath)
+        throw new Error("无法解析当前工作区宿主路径，已阻止宿主副作用操作。");
+    return {
+        workspaceUri: String(location.editorUri || folder.uri.toString?.(true) || ""),
+        hostProjectPath: location.hostPath,
+    };
 }
 function workspaceContextForWebview() {
     const folders = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders : [];

@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：执行中，当前批次 `docker-plugin-004b`。
+- 状态：执行中，当前批次 `docker-plugin-004c`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -118,10 +118,18 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 
 验收记录：SimpleExperiment `npm test` 通过 650/650，其中共享租约测试 6 项；SimpleSFTP `npm test` 通过 15/15，其中共享租约测试 5 项。SimpleSFTP 提交 `b2e8b24` 已同步 `origin/master`；SimpleExperiment 模块随本批提交。未生成、安装或覆盖 VSIX。
 
-### docker-plugin-004b 多窗口与双插件联调（当前）
+### docker-plugin-004b 副作用入口接入
 
 - 实现共享宿主操作租约并覆盖过期、崩溃恢复、只读并行和冲突阻断。
 - 将租约接入两个插件的所有宿主副作用入口；只读状态获取不申请租约。
+- SimpleExperiment 覆盖 Xshell 隧道启动、配置、Agent 准备与部署、Plan 调度、结果归档与删除、SFTP 编排、GitHub 操作和下载入口。
+- SimpleSFTP 覆盖工作区创建、上传、下载、交接、忽略扫描和保存时自动上传；共享租约模块已加入 VSIX 文件清单。
+
+验收记录：SimpleExperiment `npm test` 通过 652/652；SimpleSFTP `npm test` 通过 16/16，提交 `a62c321` 已同步 `origin/master`。两个插件均保留旧命令 ID，静态测试确认只读状态命令不申请租约；SimpleExperiment 接入随本批提交。真实双窗口 UI 阻断仍为 `needs field verification`。
+
+### docker-plugin-004c 多窗口与双插件联调（当前）
+
+- 校验计划 A 输入接口，并运行两个独立插件模块对同一租约文件的真实互操作检查。
 - 在一个 Dev Container 窗口同时验证 Codex、SimpleExperiment 和 SimpleSFTP 面板。
 - 验证集群状态、调度和上传使用同一个宿主项目路径。
 

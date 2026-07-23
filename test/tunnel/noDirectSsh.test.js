@@ -40,7 +40,7 @@ test("package UI does not expose direct fallback commands", () => {
 
 test("extension command registration exposes only Xshell tunnel command ids", () => {
   const text = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
-  const registered = Array.from(text.matchAll(/registerCommand\("([^"]+)"/g)).map((match) => match[1]);
+  const registered = Array.from(text.matchAll(/(?:registerCommand|hostCommand)\("([^"]+)"/g)).map((match) => match[1]);
   assert.equal(registered.some((id) => /MobaXterm/i.test(id)), false);
   assert.equal(registered.some((id) => /LegacySsh|legacySsh/i.test(id)), false);
   assert.equal(registered.includes("zlkCluster.configureXshellSavedSessions"), true);

@@ -54,7 +54,7 @@ test("command palette defaults to the new-project main workflow without removing
   for (const command of advancedCommands) {
     assert.ok(commands.has(command), `${command} must remain contributed`);
     assert.equal(hiddenByDefault.get(command), "config.zlkCluster.showAdvancedCommands");
-    assert.match(extension, new RegExp(`registerCommand\\("${command.replaceAll(".", "\\.")}"`));
+    assert.match(extension, new RegExp(`(?:registerCommand|hostCommand)\\("${command.replaceAll(".", "\\.")}"`));
   }
 
   for (const command of primaryCommands) {

@@ -17,8 +17,8 @@ test("command palette exposes the three primary new-project entry points", () =>
   assert.equal(command("zlkCluster.prepareAgents").title, "SimpleExperiment：准备 Agent 并启动");
   assert.ok(packageJson.activationEvents.includes("onCommand:zlkCluster.bootstrapProject"));
   assert.ok(packageJson.activationEvents.includes("onCommand:zlkCluster.prepareAgents"));
-  assert.match(extension, /registerCommand\("zlkCluster\.bootstrapProject", \(\) => provider\?\.bootstrapProjectFromUi\(\)\)/);
-  assert.match(extension, /registerCommand\("zlkCluster\.prepareAgents", \(\) => provider\?\.prepareAgentsForFirstRun\(\)\)/);
+  assert.match(extension, /hostCommand\("zlkCluster\.bootstrapProject", "bootstrap-project", "接入当前项目", \(\) => provider\?\.bootstrapProjectFromUi\(\)\)/);
+  assert.match(extension, /hostCommand\("zlkCluster\.prepareAgents", "prepare-agents", "准备 Agent 并启动", \(\) => provider\?\.prepareAgentsForFirstRun\(\)\)/);
   const bootstrapStart = extension.indexOf("async bootstrapProjectFromUi()");
   const bootstrapEnd = extension.indexOf("async generateOutputAdapterFromUi()", bootstrapStart);
   const bootstrap = extension.slice(bootstrapStart, bootstrapEnd);
