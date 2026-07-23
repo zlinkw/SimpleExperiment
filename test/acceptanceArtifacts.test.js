@@ -10,6 +10,9 @@ test("acceptance docs, script, and scenarios are registered", () => {
     "docs/acceptance-matrix.md",
     "docs/manual-acceptance-checklist.md",
     "docs/feature-coverage.md",
+    "docs/xshell-real-integration-checklist.md",
+    "docs/xshell-tunnel-full-feature-acceptance.md",
+    "docs/xshell-tunnel-policy.md",
     "scripts/acceptance.js",
     "scenarios/full-workflow-fake-acceptance.json",
   ]) {

@@ -20,15 +20,15 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-source-004
+## 当前批次：recovery-docs-005
 ### 修复点
-- 恢复 `src/extension.ts` 为 TypeScript 模块源码。
-- 仅替换文件头 CommonJS 编译包装器和静态 `require`；保留现有运行逻辑、类型和模块别名。
-- 使用 TypeScript `import = require` 保持本地模块加载语义，并扩展源码形态回归断言。
+- 根据已安装 `SimpleExperiment 0.2.0` 的本地证据恢复三份 Xshell 验收与策略文档。
+- 保留当前 Xshell、127.0.0.1 隧道、Hub/Worker Agent 和 SimpleSFTP 边界。
+- 增加文档存在性回归断言，确保后续 VSIX 打包不再遗漏这些验收资料。
 
 ### 回归风险
-- 相邻回归风险：插件激活、命令注册、面板状态、Xshell、SFTP、Plan、PPT 和 GPU 历史入口必须保持完整。
-- 行为风险：模块加载顺序、公开 `activate`/`deactivate` 导出和现有命令 ID 不得变化。
+- 相邻回归风险：Xshell 验收步骤必须对应当前命令 ID、Agent API 和 SimpleSFTP 文件传输边界。
+- 行为风险：文档不得暗示插件回退到直接 SSH 或由集群插件承担真实文件传输。
 - 外部边界：不运行真实实验，不写项目归档，不修改安装目录或已安装插件。
 
 ### 验证清单
@@ -39,11 +39,12 @@
 - [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
 - [已完成] 两个源码 manifest 已清除安装态 `__metadata`；临时对照包分别为 138、8 个归档项，包内扩展 ID、版本和显示名不变，均不含该字段。
 - [失败] 当前计划 A 输入缺少 `vscode-remote` 与 `127.0.0.1` 明示声明，且 `containerUser=root`；校验结果为 `failed`，不得生成兼容通过结果。
-- [已完成] `src/extension.ts` 源码形态恢复、编译产物对照和全量回归；全量测试 663/663、lint、构建和 diff 检查通过。
+- [已完成] 上一批 `src/extension.ts` 源码形态恢复、编译产物对照和全量回归；全量测试 663/663、lint、构建和 diff 检查通过。
+- [已完成] 三份 Xshell 文档恢复、文档回归和 VSIX 包含性检查；临时 VSIX 含 141 个条目且未安装。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
 - 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；跨平台 Git 工作区已稳定；Docker 兼容等待现场联调与正式交付。
 - `docker-plugin-008`：源码 manifest 安装态残留已清理；全量测试、lint、临时打包和包内 manifest 检查通过，未安装或覆盖插件。
 - `history-006`：独立视觉夹具与自动化检查已完成；本地页面自动截图不可用，桌面、高 DPI 和窄侧栏视觉检查保持 `needs field verification`。
-- `recovery-source-004`：`src/extension.ts` 已恢复为 TypeScript 模块并保留现有运行逻辑和公开激活入口；源码形态测试、全量测试 663/663、lint、构建和编译产物语法检查通过。
+- `recovery-docs-005`：从已安装 0.2.0 精确恢复三份 Xshell 验收与策略文档；文档测试、构建、lint 和全量测试 663/663 通过。
