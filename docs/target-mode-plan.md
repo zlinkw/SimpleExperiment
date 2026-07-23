@@ -15,29 +15,29 @@
 ## 后续优先级
 - [待现场验证] 服务器状态页三天 GPU 历史曲线，详见 `docs/target-plans/server-gpu-history.md`。
 - [已完成] SimpleExperiment 恢复基线、target mode 压缩契约和 UI 契约修复；全量测试基线 624/624。
-- [已完成] Docker Codex 的 SimpleExperiment 宿主路径接入与远程编辑器 URI 保留；SimpleSFTP 路径契约已完成，详见 `docs/target-plans/docker-codex-plugin-compat.md`。
-- [待做] Docker Codex 的 SimpleSFTP 实际上传接入与双插件联调。
+- [已完成] Docker Codex 的 SimpleExperiment 与 SimpleSFTP 宿主路径接入、远程编辑器 URI 保留和传输位置确认，详见 `docs/target-plans/docker-codex-plugin-compat.md`。
+- [待做] Docker Codex 的双插件多窗口租约与联调验收。
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-003
+## 当前批次：docker-plugin-004
 ### 修复点
-- 将 SimpleSFTP 工作区上传、文件上传、下载、忽略规则和路径确认接入 Windows 宿主路径映射。
-- 本地 `file` 工作区行为不变；远程编辑器继续使用原 `vscode-remote` URI。
-- 保留旧命令 ID、服务器配置和现有任务，不修改 SimpleExperiment 已完成入口。
+- 共享宿主操作租约：覆盖隧道、调度、Agent 部署、上传、下载、归档和删除等副作用。
+- 只读状态页允许并行；第二窗口副作用操作必须显示持有窗口、工作区和恢复方式并阻断。
+- 联调验证 SimpleExperiment、SimpleSFTP、Windows Xshell `127.0.0.1` 与 Dev Container 工作区映射使用同一宿主项目路径。
 
 ### 回归风险
-- 相邻回归风险：普通 Windows 工作区不得被强制配置映射；容器路径不得直接交给 Windows SFTP 或 Node `fs`。
-- 路径安全：拒绝穿越、错误根、盘符、UNC、NUL 与宿主根越界。
-- 交付边界：本批不实现多窗口租约，不打包、安装或覆盖 VSIX。
+- 相邻回归风险：租约不得阻断只读状态，不得改变单窗口 Windows 行为、旧命令 ID、Xshell 入口或任务生命周期。
+- 崩溃恢复：只能由过期租约接管，不得强制删除活动租约绕过保护。
+- 交付边界：本批不打包、安装或覆盖 VSIX；Dev Container 与 Xshell 联调仍需现场验证。
 
 ### 验证清单
-- [待验证] SimpleSFTP 上传、下载、忽略规则和路径确认使用宿主路径。
-- [待验证] 本地 Windows 工作区与现有命令 ID 回归。
-- [待现场验证] Dev Container 文件同字节上传与远程编辑器 URI 为 `needs experiment`。
+- [待验证] 共享租约原子创建、心跳、过期、崩溃恢复和冲突阻断。
+- [待验证] 只读并行与副作用单窗口约束。
+- [待现场验证] Dev Container 双插件联调、文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`。
 
 ## 本批记录
-- 上一完成批次：`docker-plugin-002`，本批验证记录与提交以 git 为准。
-- 当前目标状态：SimpleExperiment 宿主路径接入完成；Docker 兼容进入 `docker-plugin-003`。
-- `docker-plugin-002` 提交前验证：`npm test` 通过 644/644；未生成、安装或覆盖 VSIX。
-- 本批涉及：SimpleSFTP 上传、下载、忽略规则和路径确认接入。
+- 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
+- 当前目标状态：SimpleExperiment 与 SimpleSFTP 宿主路径接入完成；Docker 兼容进入 `docker-plugin-004`。
+- `docker-plugin-002`：SimpleExperiment 提交 `d5750ff` 已同步 `SimpleExperiment/origin/master`，`npm test` 通过 644/644。
+- `docker-plugin-003`：SimpleSFTP 提交 `bbaa528` 已同步 `SimpleSFTP/origin/master`，`npm test` 通过 10/10；未生成、安装或覆盖 VSIX。
