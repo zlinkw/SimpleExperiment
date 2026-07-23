@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：执行中，当前批次 `docker-plugin-002`。
+- 状态：执行中，当前批次 `docker-plugin-003`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -99,7 +99,9 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 - 保持 Agent HTTP/realtime 访问 Windows `127.0.0.1`，验证不使用容器 localhost。
 - 保留现有 Windows 工作区、命令 ID、设置、抽屉/三列布局和任务/结果生命周期。
 
-### docker-plugin-003 SimpleSFTP 接入
+验收记录：已完成。`npm test` 通过 644/644；远程工作区映射、Windows 宿主副作用路径、远程编辑器 URI 保留和结果文件远程打开均有本地自动化覆盖。Dev Container UI Host、Xshell `127.0.0.1` 联调仍为 `needs field verification`。
+
+### docker-plugin-003 SimpleSFTP 接入（当前）
 
 - 将工作区上传、文件上传、下载、忽略规则、共享目标和路径确认接入同一宿主路径语义。
 - 验证容器编辑后的文件从 `D:\GitRepo` 对应位置上传，且编辑器仍打开远程 URI。

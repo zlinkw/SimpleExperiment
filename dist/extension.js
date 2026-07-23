@@ -75,6 +75,7 @@ const TunnelPortAllocator_1 = require("./tunnel/TunnelPortAllocator");
 const TunnelEndpointRegistry_1 = require("./tunnel/TunnelEndpointRegistry");
 const TunnelPortConflict_1 = require("./tunnel/TunnelPortConflict");
 const ConfigurationSettings_1 = require("./tunnel/ConfigurationSettings");
+const WorkspacePathMapper_1 = require("./core/WorkspacePathMapper");
 const Results_1 = require("./features/Results");
 const PlanBuilder_1 = require("./features/PlanBuilder");
 const { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } = require("./features/PlanArchive");
@@ -5611,8 +5612,7 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
         await fs.mkdir(path.dirname(localPath), { recursive: true });
         await this.client.downloadFile(remotePath, localPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
-        const doc = await vscode.workspace.openTextDocument(localPath);
-        await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Active });
+        await openWorkspaceFile(localRelative);
         void vscode.window.showInformationMessage(`远端结果只读副本已打开：${localRelative}`);
     }
     async openResultArtifactFromUi(message) {
@@ -5670,8 +5670,7 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled("结果文件打开已取消，未下载文件，也未切换当前 Plan。");
         await fs.mkdir(path.dirname(localCopyPath), { recursive: true });
         await this.client.downloadFile(artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
-        const doc = await vscode.workspace.openTextDocument(localCopyPath);
-        await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Active });
+        await openWorkspaceFile(localRelative);
         void vscode.window.showInformationMessage(`结果只读副本已打开：${localRelative}`);
     }
     async openAuditTail() {
@@ -13941,7 +13940,7 @@ async function openWorkspaceFile(file) {
         await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(fullPath));
         return;
     }
-    const doc = await vscode.workspace.openTextDocument(fullPath);
+    const doc = await vscode.workspace.openTextDocument(workspaceEditorUriForFile(file));
     await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Active });
 }
 function safeWorkspacePlanPath(root, file, planDir) {
@@ -14963,17 +14962,59 @@ function persistedXshellSetupConfig(config) {
         }),
     };
 }
+function workspaceMappingConfig() {
+    const config = vscode.workspace.getConfiguration?.("zlkCluster");
+    return {
+        hostRoot: config?.get?.("workspaceHostRoot", "") || "",
+        containerRoot: config?.get?.("workspaceContainerRoot", "") || "",
+        remoteScheme: "vscode-remote",
+    };
+}
+function workspaceLocationForFolder(folder) {
+    const uri = folder?.uri;
+    if (!uri)
+        return undefined;
+    return (0, WorkspacePathMapper_1.resolveWorkspaceLocation)({
+        scheme: uri.scheme,
+        path: uri.path,
+        fsPath: uri.fsPath,
+        external: uri.toString?.(true),
+    }, workspaceMappingConfig());
+}
+function currentWorkspaceLocation() {
+    const folder = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders[0] : undefined;
+    return workspaceLocationForFolder(folder);
+}
 function workspaceRoot() {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    try {
+        return currentWorkspaceLocation()?.hostPath;
+    }
+    catch {
+        return undefined;
+    }
 }
 function workspaceContextForWebview() {
-    const root = workspaceRoot() || "";
     const folders = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders : [];
-    const name = root ? path.basename(root).trim() : "";
+    let location;
+    let mappingError = "";
+    try {
+        location = currentWorkspaceLocation();
+    }
+    catch (error) {
+        mappingError = errorMessage(error);
+    }
+    const root = location?.hostPath || "";
+    const uri = folders[0]?.uri;
+    const name = root ? path.basename(root).trim() : path.basename(String(uri?.path || "")).trim();
     return {
-        open: Boolean(root),
+        open: Boolean(uri),
         name,
         root,
+        hostPath: root,
+        editorUri: location?.editorUri || String(uri?.toString?.(true) || ""),
+        containerPath: location?.remote ? String(uri?.path || "") : "",
+        remote: Boolean(location?.remote),
+        mappingError,
         folderCount: folders.length,
         singleProject: folders.length === 1,
     };
@@ -14984,7 +15025,29 @@ function assertSingleProjectWorkspace(operation = "当前操作") {
         throw new Error(`${operation}需要先打开一个本地实验项目。`);
     if (folders.length > 1)
         throw new Error(`检测到 ${folders.length} 个工作区文件夹，已阻止${operation}。SimpleExperiment 的 Plan、项目状态、上传目录和 Agent 工作目录必须属于同一个项目；请在独立 VS Code 窗口中只打开目标实验项目后重试。`);
-    return folders[0].uri.fsPath;
+    try {
+        const location = workspaceLocationForFolder(folders[0]);
+        if (location?.remote && process.platform !== "win32")
+            throw new Error("远程工作区必须由 Windows UI Extension Host 执行。请确认 SimpleExperiment 未运行于 Linux workspace host。");
+        if (!location?.hostPath)
+            throw new Error("无法解析当前工作区宿主路径。");
+        return location.hostPath;
+    }
+    catch (error) {
+        throw new Error(`${operation}无法使用当前工作区：${errorMessage(error)}`);
+    }
+}
+function workspaceEditorUriForFile(file) {
+    const folder = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders[0] : undefined;
+    if (!folder?.uri)
+        throw new Error("需要先打开工作区。");
+    const location = workspaceLocationForFolder(folder);
+    const relative = String(file || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (location?.remote) {
+        const segments = relative.split("/").filter(Boolean);
+        return vscode.Uri.joinPath(folder.uri, ...segments);
+    }
+    return vscode.Uri.file(path.resolve(location.hostPath, relative));
 }
 async function pptDialogDefaultUri(currentPath) {
     const fallbackName = "simple-experiment-results.pptx";

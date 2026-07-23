@@ -158,7 +158,7 @@ test("extension and workbench expose a confirmed download-and-open path", () => 
   assert.match(extension, /remoteResultInspectionCandidates\(\[this\.localOperations, this\.lastRealtimeState\?\.operations\], planFile, version\.revision, version\.updatedAt\)/);
   assert.match(extension, /showWarningMessage\(\[\s*"【远端结果查看确认】"[\s\S]*`远端来源：\$\{remotePath\}`[\s\S]*`本地副本：\$\{localPath\}`[\s\S]*\{ modal: true \}, "下载并打开"\)/);
   assert.match(extension, /this\.client\.downloadFile\(remotePath, localPath, \{ maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES \}\)/);
-  assert.match(extension, /vscode\.workspace\.openTextDocument\(localPath\)/);
+  assert.match(extension, /await openWorkspaceFile\(localRelative\)/);
   assert.doesNotMatch(extension.slice(extension.indexOf("async downloadRemoteResultFromUi"), extension.indexOf("async openAuditTail")), /openWorkspaceFile\(remotePath\)/);
   assert.match(panel, /downloadRemoteResult: \["endpoints\.fileDownload"\]/);
   assert.match(panel, /data-command="downloadRemoteResult" data-remote-path=/);
@@ -179,6 +179,7 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.match(handler, /`远端来源：\$\{artifactPath\}`/);
   assert.match(handler, /`预期本地只读副本：\$\{localCopyPath\}`/);
   assert.match(handler, /this\.client\.downloadFile\(artifactPath, localCopyPath, \{ maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES \}\)/);
+  assert.match(handler, /await openWorkspaceFile\(localRelative\)/);
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
   assert.match(panel, /resultFileButton\("打开完整预览", previewCsvPath, resultPlanFile\)/);
   assert.match(panel, /resultFileButton\("打开有效结果", effectiveResultsCsvPath, resultPlanFile\)/);

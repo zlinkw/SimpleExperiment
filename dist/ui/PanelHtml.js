@@ -8462,13 +8462,17 @@ function renderPanelHtml() {
 
     function projectWorkspaceContext(state, project) {
       const item = (state || {}).workspace && typeof (state || {}).workspace === "object" ? (state || {}).workspace : {};
-      const fallbackRoot = meaningfulValue((project || {}).root);
+      const mappingError = meaningfulValue(item.mappingError);
+      const fallbackRoot = mappingError ? "" : meaningfulValue((project || {}).root);
       const root = meaningfulValue(item.root) || fallbackRoot;
       const name = meaningfulValue(item.name) || (root ? root.split(/[\\/]/).filter(Boolean).pop() : "");
       const folderCount = Number(item.folderCount || 0);
       if (!root && !name) return { open: false, singleProject: false, summary: "未打开本地项目；上传、Agent 和远端操作前必须打开一个项目" };
       if (item.singleProject === false || folderCount > 1) return { open: true, singleProject: false, summary: (name || "当前目录") + " · 多根工作区（" + Math.max(2, folderCount) + " 个），远端操作会阻断" };
-      return { open: true, singleProject: true, summary: (name || "当前项目") + " · " + compactPath(root) };
+      if (mappingError) return { open: true, singleProject: true, summary: (name || "当前项目") + " · 工作区路径映射错误：" + compactText(mappingError, 180) };
+      const remotePath = meaningfulValue(item.containerPath);
+      const pathSummary = remotePath ? "容器 " + remotePath + " → 宿主 " + compactPath(root) : compactPath(root);
+      return { open: true, singleProject: true, summary: (name || "当前项目") + " · " + pathSummary };
     }
 
     function executionEnvironmentText(value) {
