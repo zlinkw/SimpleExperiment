@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：执行中，当前批次 `docker-plugin-005`。
+- 状态：执行中，当前批次 `docker-plugin-006`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -135,13 +135,20 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 
 验收记录：已在本机同一 Node 进程加载两个插件的租约模块，验证跨窗口冲突、同窗口嵌套、跨插件释放，结果为 `passed`。修复两个插件心跳续租的截断写入竞态，SimpleExperiment 全量测试通过 `654/654`，租约压力测试通过 `10/10`，SimpleSFTP 回归测试通过 `17/17`，SimpleSFTP 修复提交 `95399bf` 已同步 `origin/master`。Docker daemon 恢复后，`Test-PlanA.ps1` 通过 root 模式结构检查，容器健康、挂载、无 Docker socket、无 SSH server、Codex、Node、Python、Git、GH、GPU 与 bwrap 检查均有本地输出；`D:\GitRepo\MCP\zlk-cluster-orchestrator\README.md` 与容器 `/workspaces/MCP/zlk-cluster-orchestrator/README.md` SHA256 一致。开发扩展窗口日志确认 SimpleExperiment 与 SimpleSFTP 均在 Windows UI Extension Host 激活，激活无异常。计划 A 的 `PLUGIN-HANDOFF.md` 与配置文件声明容器用户为 `root`，不满足原方案的非 root 约束，仍标记为 `needs experiment`；未进行 VSIX 安装、真实 SFTP 上传或 Xshell `127.0.0.1` 现场操作。
 
-### docker-plugin-005 打包与交付（当前）
+### docker-plugin-005 打包与交付
 
 - 分别运行两个插件的 build、typecheck、lint、测试、Windows 回归、远程工作区测试和公开打包检查。
 - 每个验证批次在对应仓库独立提交并普通快进推送 `origin/master`；禁止跨仓库混合提交或历史改写。
 - 只把通过验收的两个 VSIX 与兼容结果写入 `plugin-drop`，不安装、不覆盖当前 Profile 插件。
 
 验收记录：已把 SimpleExperiment 升级为 `0.2.1`、SimpleSFTP 升级为 `0.1.3`，版本提交 `98850e0`、`1445856` 已同步各自 `origin/master`，避免与本机已安装的 `0.2.0`、`0.1.2` 内容分叉但版本相同。已修复租约时间戳写入的 UTF-8 字节偏移问题，提交 `779b5f3`、`458c2b6` 已同步各自 `origin/master`；中文 `actionLabel` 回归覆盖通过。已在 `%TEMP%` 生成不覆盖现有安装的对照包；SimpleExperiment 包含 138 个归档项，SimpleSFTP 包含 8 个归档项，包内 manifest、package 版本与扩展 ID 均通过检查。SimpleExperiment 已排除恢复快照异常文件和 `dist/runtime/__pycache__`；相关修复提交 `3a3cdaf`、`f27bd4e` 已同步 `origin/master`。公开离线打包脚本已改为直接向全新版本目录生成两个 VSIX；目录已存在时立即失败，不再删除旧 VSIX、强制复制或覆盖 README；提交 `06e5730` 已同步 `origin/master`。`npm test` 通过 655/655，静态打包测试、lint、临时目录实际打包和重复路径拒绝检查均通过；产物仍只位于 `%TEMP%`，未安装。与本机已安装目录相比，新包新增宿主租约、工作区映射、GPU 历史和恢复计划文档；SimpleSFTP 新包包含 `host-operation-lease.js` 与 `workspace-path.js`。只读现场检查未发现 Xshell 进程或 `127.0.0.1` 监听端口，未执行上传、远端写入或隧道启动；未安装任何对照包，未写入 `plugin-drop`，真实 SFTP 上传、Xshell `127.0.0.1`、非 root 容器和最终兼容结果仍为 `needs experiment`。
+
+### docker-plugin-006 跨平台共享工作区（当前）
+
+- 两个仓库使用同一份 `* text=auto` Git 属性，避免 Windows 工作区换行导致 Docker Linux Git 误报源码修改。
+- Windows 与容器分别检查状态、分支和关键文件；不改变源码语义，不安装或覆盖插件。
+
+验收记录：当前宿主仓库状态干净；加入属性后，Docker 容器内原先 12 个仅换行差异的集群插件文件不再显示修改，SimpleSFTP 容器工作区状态保持干净。容器仍以 `root` 运行，属于计划 A 非 root 约束不满足的 `needs experiment`，不据此生成兼容通过结果。
 
 ## 输出接口
 

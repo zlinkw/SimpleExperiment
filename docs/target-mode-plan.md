@@ -20,7 +20,7 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-005
+## 当前批次：docker-plugin-006
 ### 修复点
 - 生成不覆盖现有安装的临时 VSIX，并与本机已安装的同版本插件逐文件比较。
 - 排除恢复快照异常文件和 Python bytecode，确认 SimpleSFTP 租约与工作区映射模块进入新包。
@@ -39,6 +39,7 @@
 - [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
 - [待验证] 计划 A 输入接口；当前 `PLUGIN-HANDOFF.md` 声明容器用户为 `root`，与原计划的非 root 约束不一致。
 - [待现场验证] Dev Container 文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`；当前只读检查未发现 Xshell 进程或本地监听端口。
+- [已完成] 两个插件仓库加入 `* text=auto` 换行规范；Docker Linux 工作区不再把 Windows 混合换行误报为源码修改，Windows 工作区状态保持干净。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
