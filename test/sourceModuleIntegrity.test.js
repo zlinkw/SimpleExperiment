@@ -4,6 +4,24 @@ const path = require("node:path");
 const test = require("node:test");
 
 const sourceRoot = path.join(__dirname, "..", "src");
+const compilerOutputPattern = /var __createBinding|Object\.defineProperty\(exports|^exports\.|^const .* = require\(/m;
+
+function typescriptFiles(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) return typescriptFiles(absolute);
+    return entry.isFile() && entry.name.endsWith(".ts") ? [absolute] : [];
+  });
+}
+
+test("the complete TypeScript source tree contains no copied compiler output", () => {
+  const files = typescriptFiles(sourceRoot);
+  assert.ok(files.length > 100, "expected the complete recovered TypeScript source tree");
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(source, compilerOutputPattern, path.relative(sourceRoot, file));
+  }
+});
 
 test("recovered feature and template sources remain TypeScript modules", () => {
   const files = [
@@ -16,7 +34,7 @@ test("recovered feature and template sources remain TypeScript modules", () => {
 
   for (const [relativePath, markers] of files) {
     const source = fs.readFileSync(path.join(sourceRoot, relativePath), "utf8");
-    assert.doesNotMatch(source, /var __createBinding|Object\.defineProperty\(exports|^exports\.|^const .* = require\(/m, relativePath);
+    assert.doesNotMatch(source, compilerOutputPattern, relativePath);
     for (const marker of markers) {
       assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${relativePath}: ${marker}`);
     }
