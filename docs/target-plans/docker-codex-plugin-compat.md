@@ -148,7 +148,7 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 - 两个仓库使用同一份 `* text=auto` Git 属性，避免 Windows 工作区换行导致 Docker Linux Git 误报源码修改。
 - Windows 与容器分别检查状态、分支和关键文件；不改变源码语义，不安装或覆盖插件。
 
-验收记录：当前宿主仓库状态干净；加入属性后，Docker 容器内原先 12 个仅换行差异的集群插件文件不再显示修改，SimpleSFTP 容器工作区状态保持干净。容器仍以 `root` 运行，属于计划 A 非 root 约束不满足的 `needs experiment`，不据此生成兼容通过结果。
+验收记录：当前宿主仓库状态干净；加入属性后，Docker 容器内原先 12 个仅换行差异的集群插件文件不再显示修改，SimpleSFTP 容器工作区状态保持干净。SimpleExperiment 提交 `2fb064e`、SimpleSFTP 提交 `57137db` 均已同步各自 `origin/master`。容器仍以 `root` 运行，属于计划 A 非 root 约束不满足的 `needs experiment`，不据此生成兼容通过结果。
 
 ## 输出接口
 

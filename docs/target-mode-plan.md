@@ -39,10 +39,10 @@
 - [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
 - [待验证] 计划 A 输入接口；当前 `PLUGIN-HANDOFF.md` 声明容器用户为 `root`，与原计划的非 root 约束不一致。
 - [待现场验证] Dev Container 文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`；当前只读检查未发现 Xshell 进程或本地监听端口。
-- [已完成] 两个插件仓库加入 `* text=auto` 换行规范；Docker Linux 工作区不再把 Windows 混合换行误报为源码修改，Windows 工作区状态保持干净。
+- [已完成] 两个插件仓库加入 `* text=auto` 换行规范；Docker Linux 工作区不再把 Windows 混合换行误报为源码修改，Windows 工作区状态保持干净。SimpleExperiment `2fb064e`、SimpleSFTP `57137db` 已同步。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
-- 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；Docker 兼容等待现场联调与正式交付。
+- 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；跨平台 Git 工作区已稳定；Docker 兼容等待现场联调与正式交付。
 - `docker-plugin-004c`：SimpleExperiment `21b375a`、`779b5f3`，SimpleSFTP `95399bf`、`458c2b6` 已同步各自 `origin/master`。
 - `docker-plugin-005`：打包清理 `3a3cdaf`、`f27bd4e`，版本提交 `98850e0`、`1445856`，非覆盖公开打包提交 `06e5730` 已同步；临时包未安装。
