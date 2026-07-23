@@ -19,9 +19,9 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-001a
+## 当前批次：docker-plugin-001b
 ### 修复点
-- 为 SimpleExperiment 增加纯双路径映射模块、UI Extension Host 声明和可选根目录配置。
+- 为 SimpleSFTP 增加与 SimpleExperiment 一致的纯双路径映射模块、UI Extension Host 声明和可选根目录配置。
 - 本地 `file` 工作区继续使用原 `fsPath`；`vscode-remote` 编辑器 URI 保持不变，副作用使用 Windows 宿主路径。
 - 拒绝 `..`、编码穿越、错误根、反斜杠、盘符和宿主根越界；本批不接入具体副作用入口。
 
@@ -34,13 +34,13 @@
 
 ### 验证清单
 - [已通过] 计划 A 交接文件的 schemaVersion、工作区根、URI scheme、extension host 和配置键必需字段一致。
-- [待验证] 本地 file URI、远程 URI、嵌套项目、分隔符、大小写和尾部斜杠。
-- [待验证] 明文/编码穿越、错误根、盘符、UNC、NUL 和映射后二次越界。
-- [待验证] build、typecheck、lint、全量测试、`node -c`、`git diff --check` 与公开打包文件清单。
+- [已通过] `docker-plugin-001a` SimpleExperiment 双路径映射、越界拒绝、UI host/config、全量测试 642/642 与公开文件清单。
+- [待验证] `docker-plugin-001b` SimpleSFTP 本地/远程 URI、嵌套项目、编码穿越、错误根、盘符、UNC 与 NUL。
+- [待验证] SimpleSFTP `node --check`、全量测试、`git diff --check` 与公开打包文件清单。
 - [待现场验证] Dev Container UI Host、远程编辑器 URI、Windows `127.0.0.1` 和双插件联调均为 `needs experiment`。
 
 ## 本批记录
-- 上一完成批次：`history-005`，提交 `bd496c858e8f243a5a16a71621ee70ad2ba46f67` 已同步 `origin/master`。
-- 当前目标状态：GPU 自动化实现完成，真实三天采样仍为 `needs field verification`；Docker 兼容进入 `docker-plugin-001a`。
-- 本批涉及：SimpleExperiment 路径契约、配置声明和测试；不修改 SimpleSFTP，不接入副作用操作。
+- 上一完成批次：`docker-plugin-001a`，提交 `bef6d517caff3e7e2e9cfb01bfaf274356d48ccb` 已同步 `origin/master`。
+- 当前目标状态：SimpleExperiment 路径契约完成；Docker 兼容进入 `docker-plugin-001b`。
+- 本批涉及：SimpleSFTP 路径契约、配置声明和测试；不接入上传下载副作用操作。
 - 计划 A 交接中的扩展字段不参与插件路径决策；插件仅消费 schemaVersion 1 的必需字段。
