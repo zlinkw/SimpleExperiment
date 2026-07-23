@@ -20,26 +20,26 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-004c
+## 当前批次：docker-plugin-005
 ### 修复点
-- 校验计划 A 的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，运行两个插件真实协议互操作检查。
-- 保持只读状态页并行；确认第二窗口副作用操作显示持有窗口、工作区、动作和过期恢复方式。
-- 联调验证 SimpleExperiment、SimpleSFTP、Windows Xshell `127.0.0.1` 与 Dev Container 工作区映射使用同一宿主项目路径。
+- 生成不覆盖现有安装的临时 VSIX，并与本机已安装的同版本插件逐文件比较。
+- 排除恢复快照异常文件和 Python bytecode，确认 SimpleSFTP 租约与工作区映射模块进入新包。
+- 仅在真实上传、Xshell、非 root 容器和远程工作区验收全部通过后写入 `plugin-drop` 与兼容结果。
 
 ### 回归风险
-- 相邻回归风险：租约不得阻断只读状态，不得改变单窗口 Windows 行为、旧命令 ID、Xshell 入口或任务生命周期。
-- 崩溃恢复：只能由过期租约接管，不得强制删除活动租约绕过保护。
-- 交付边界：输入接口未通过前不生成交付结果；不安装或覆盖 VSIX；Dev Container 与 Xshell 联调仍需现场验证。
+- 相邻回归风险：打包规则不得遗漏运行必需模块，不得把恢复残片、缓存或本机状态装入公开 VSIX。
+- 版本风险：源码和已安装版版本号相同但内容不同，对照包不得覆盖现有安装。
+- 交付边界：输入接口未完全通过前不生成正式兼容结果；Dev Container 与 Xshell 联调仍需现场验证。
 
 ### 验证清单
-- [已完成] 共享租约协议模块：原子创建、心跳、过期接管、崩溃恢复、同窗口嵌套和持有者保护。
-- [已完成] 两个插件副作用入口接入租约；只读状态命令不申请租约；冲突使用强窗口展示完整恢复信息。
-- [已完成] 两个独立插件模块对同一租约文件的真实互操作：跨窗口冲突、同窗口嵌套和最终释放。
+- [已完成] SimpleExperiment `npm test` 通过 654/654；SimpleSFTP `npm test` 通过 17/17；两插件租约压力测试均通过 10/10。
+- [已完成] 临时对照包未覆盖现有安装；SimpleExperiment VSIX 不含恢复异常文件或 Python bytecode。
+- [已完成] SimpleSFTP VSIX 包含共享租约与工作区映射模块；两个独立插件模块互操作通过。
 - [待验证] 计划 A 输入接口；当前 `PLUGIN-HANDOFF.md` 声明容器用户为 `root`，与原计划的非 root 约束不一致。
-- [待现场验证] Dev Container 双插件联调、文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`。
+- [待现场验证] Dev Container 文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
-- 当前目标状态：共享租约协议、两个插件副作用入口与租约心跳稳定性修复完成；Docker 兼容等待现场联调批次 `docker-plugin-004c`。
-- `docker-plugin-002`：SimpleExperiment 提交 `d5750ff` 已同步 `SimpleExperiment/origin/master`，`npm test` 通过 644/644。
-- `docker-plugin-003`：SimpleSFTP 提交 `bbaa528` 已同步 `SimpleSFTP/origin/master`，`npm test` 通过 10/10；未生成、安装或覆盖 VSIX。
+- 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；Docker 兼容等待现场联调与正式交付。
+- `docker-plugin-004c`：SimpleExperiment `21b375a`、SimpleSFTP `95399bf` 已同步各自 `origin/master`。
+- `docker-plugin-005`：打包清理提交 `3a3cdaf`、`f27bd4e` 已同步 `origin/master`；临时包未安装。

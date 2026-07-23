@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：执行中，当前批次 `docker-plugin-004c`。
+- 状态：执行中，当前批次 `docker-plugin-005`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -127,7 +127,7 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 
 验收记录：SimpleExperiment `npm test` 通过 652/652，提交 `308d293` 已同步 `origin/master`；SimpleSFTP `npm test` 通过 16/16，提交 `a62c321` 已同步 `origin/master`。两个插件均保留旧命令 ID，静态测试确认只读状态命令不申请租约。真实双窗口 UI 阻断仍为 `needs field verification`。
 
-### docker-plugin-004c 多窗口与双插件联调（当前）
+### docker-plugin-004c 多窗口与双插件联调
 
 - 校验计划 A 输入接口，并运行两个独立插件模块对同一租约文件的真实互操作检查。
 - 在一个 Dev Container 窗口同时验证 Codex、SimpleExperiment 和 SimpleSFTP 面板。
@@ -135,11 +135,13 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 
 验收记录：已在本机同一 Node 进程加载两个插件的租约模块，验证跨窗口冲突、同窗口嵌套、跨插件释放，结果为 `passed`。修复两个插件心跳续租的截断写入竞态，SimpleExperiment 全量测试通过 `654/654`，租约压力测试通过 `10/10`，SimpleSFTP 回归测试通过 `17/17`，SimpleSFTP 修复提交 `95399bf` 已同步 `origin/master`。Docker daemon 恢复后，`Test-PlanA.ps1` 通过 root 模式结构检查，容器健康、挂载、无 Docker socket、无 SSH server、Codex、Node、Python、Git、GH、GPU 与 bwrap 检查均有本地输出；`D:\GitRepo\MCP\zlk-cluster-orchestrator\README.md` 与容器 `/workspaces/MCP/zlk-cluster-orchestrator/README.md` SHA256 一致。开发扩展窗口日志确认 SimpleExperiment 与 SimpleSFTP 均在 Windows UI Extension Host 激活，激活无异常。计划 A 的 `PLUGIN-HANDOFF.md` 与配置文件声明容器用户为 `root`，不满足原方案的非 root 约束，仍标记为 `needs experiment`；未进行 VSIX 安装、真实 SFTP 上传或 Xshell `127.0.0.1` 现场操作。
 
-### docker-plugin-005 打包与交付
+### docker-plugin-005 打包与交付（当前）
 
 - 分别运行两个插件的 build、typecheck、lint、测试、Windows 回归、远程工作区测试和公开打包检查。
 - 每个验证批次在对应仓库独立提交并普通快进推送 `origin/master`；禁止跨仓库混合提交或历史改写。
 - 只把通过验收的两个 VSIX 与兼容结果写入 `plugin-drop`，不安装、不覆盖当前 Profile 插件。
+
+验收记录：已在 `%TEMP%` 生成不覆盖现有安装的对照包。SimpleExperiment 对照包包含 138 个归档项，已排除恢复快照异常文件和 `dist/runtime/__pycache__`；相关修复提交 `3a3cdaf`、`f27bd4e` 已同步 `origin/master`。与本机已安装的同版本目录相比，新包新增宿主租约、工作区映射、GPU 历史和三份恢复计划文档，109 个同名文件哈希不同；已安装目录仍保留旧 Xshell 文档和 `.vsixmanifest`。SimpleSFTP 对照包包含 8 个归档项，扩展内容新增 `host-operation-lease.js` 与 `workspace-path.js`，且 `extension.js`、`package.json`、`readme.md` 与已安装版不同。未安装任何对照包，未写入 `plugin-drop`，真实 SFTP 上传、Xshell `127.0.0.1`、非 root 容器和最终兼容结果仍为 `needs experiment`。
 
 ## 输出接口
 
