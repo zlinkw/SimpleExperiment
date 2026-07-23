@@ -33,6 +33,9 @@ test("GPU history server styling persists by server id and has fallback patterns
   assert.match(html, /gpuHistoryServerStyle\(serverId\)/);
   assert.match(html, /lineDashForStyle/);
   assert.match(html, /gpuStableIndex/);
+  assert.match(html, /GPU_HISTORY_OKLCH_CANDIDATES/);
+  assert.match(html, /gpuHistoryOklchToHex/);
+  assert.match(html, /gpuHistoryOklab/);
   assert.match(html, /chooseGpuHistoryColor/);
   assert.match(html, /GPU_HISTORY_MIN_COLOR_DISTANCE/);
 });

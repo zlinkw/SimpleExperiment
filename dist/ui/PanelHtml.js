@@ -1481,8 +1481,9 @@ function renderPanelHtml() {
     const GPU_PROCESS_SIGNATURE_LIMIT = 4;
     const GPU_CACHE_SERVER_LIMIT = 80;
     const GPU_HISTORY_GAP_FACTOR = 1.75;
-    const GPU_HISTORY_COLORS = ["#2563EB", "#D97706", "#059669", "#DC2626", "#7C3AED", "#0891B2", "#A21CAF", "#4D7C0F", "#C2410C", "#0F766E", "#BE123C", "#475569"];
-    const GPU_HISTORY_MIN_COLOR_DISTANCE = 80;
+    const GPU_HISTORY_OKLCH_CANDIDATES = [[0.62, 0.18, 255], [0.67, 0.16, 75], [0.62, 0.17, 150], [0.62, 0.2, 25], [0.62, 0.19, 310], [0.64, 0.14, 205], [0.62, 0.18, 340], [0.65, 0.15, 120], [0.65, 0.17, 50], [0.62, 0.13, 180], [0.60, 0.17, 5], [0.60, 0.13, 230]];
+    const GPU_HISTORY_COLORS = GPU_HISTORY_OKLCH_CANDIDATES.map(gpuHistoryOklchToHex);
+    const GPU_HISTORY_MIN_COLOR_DISTANCE = 0.09;
     const GPU_HISTORY_LINE_STYLES = ["solid", "dash", "dot", "dashdot"];
     const GPU_HISTORY_MARKERS = ["circle", "square", "triangle", "diamond"];
     const TASK_LOG_EXPANSION_LIMIT = 160;
@@ -7544,9 +7545,13 @@ function renderPanelHtml() {
       const used = new Set(Object.values(gpuHistoryServerStyles).map((item) => item && item.color).filter(Boolean));
       const available = GPU_HISTORY_COLORS.filter((candidate) => !used.has(candidate));
       let color = chooseGpuHistoryColor(available, Array.from(used));
-      if (!color) color = GPU_HISTORY_COLORS[gpuStableIndex(key) % GPU_HISTORY_COLORS.length];
-      const index = Object.keys(gpuHistoryServerStyles).length;
-      const style = { color, dash: lineDashForStyle(GPU_HISTORY_LINE_STYLES[index % GPU_HISTORY_LINE_STYLES.length]), marker: GPU_HISTORY_MARKERS[index % GPU_HISTORY_MARKERS.length] };
+      if (!color) {
+        const reusable = Array.from(used).sort();
+        color = reusable[gpuStableIndex(key) % reusable.length] || GPU_HISTORY_COLORS[gpuStableIndex(key) % GPU_HISTORY_COLORS.length];
+      }
+      const sameColor = Object.values(gpuHistoryServerStyles).filter((item) => item && item.color === color);
+      const variant = sameColor.length;
+      const style = { color, dash: lineDashForStyle(GPU_HISTORY_LINE_STYLES[variant % GPU_HISTORY_LINE_STYLES.length]), marker: GPU_HISTORY_MARKERS[Math.floor(variant / GPU_HISTORY_LINE_STYLES.length) % GPU_HISTORY_MARKERS.length] };
       gpuHistoryServerStyles[key] = style;
       saveGpuHistoryServerStyles();
       return style;
@@ -7561,18 +7566,44 @@ function renderPanelHtml() {
         const distance = Math.min.apply(Math, used.map((color) => gpuHistoryColorDistance(candidate, color)));
         if (distance > bestDistance) { best = candidate; bestDistance = distance; }
       });
-      return bestDistance >= GPU_HISTORY_MIN_COLOR_DISTANCE ? best : candidates[0];
+      return bestDistance >= GPU_HISTORY_MIN_COLOR_DISTANCE ? best : "";
     }
 
     function gpuHistoryColorDistance(left, right) {
-      const a = gpuHistoryRgb(left);
-      const b = gpuHistoryRgb(right);
+      const a = gpuHistoryOklab(left);
+      const b = gpuHistoryOklab(right);
       return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
     }
 
-    function gpuHistoryRgb(value) {
+    // OKLab/OKLCH conversion keeps color choice perceptual and deterministic across themes.
+    function gpuHistoryOklab(value) {
       const hex = String(value || "").replace("#", "");
-      return [0, 1, 2].map((index) => parseInt(hex.slice(index * 2, index * 2 + 2), 16) || 0);
+      const rgb = [0, 1, 2].map((index) => {
+        const srgb = (parseInt(hex.slice(index * 2, index * 2 + 2), 16) || 0) / 255;
+        return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+      });
+      const [red, green, blue] = rgb;
+      const l = Math.cbrt(0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue);
+      const m = Math.cbrt(0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue);
+      const s = Math.cbrt(0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue);
+      return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+    }
+
+    function gpuHistoryOklchToHex(candidate) {
+      const lightness = Number(candidate && candidate[0]);
+      const chroma = Number(candidate && candidate[1]);
+      const hue = Number(candidate && candidate[2]) * Math.PI / 180;
+      const a = chroma * Math.cos(hue);
+      const b = chroma * Math.sin(hue);
+      const l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+      const m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+      const s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
+      const linearRgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+      return "#" + linearRgb.map((value) => {
+        const clipped = Math.max(0, Math.min(1, value));
+        const srgb = clipped <= 0.0031308 ? 12.92 * clipped : 1.055 * (clipped ** (1 / 2.4)) - 0.055;
+        return Math.round(srgb * 255).toString(16).padStart(2, "0").toUpperCase();
+      }).join("");
     }
 
     function gpuStableIndex(value) {

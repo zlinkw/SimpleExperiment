@@ -34,10 +34,10 @@ function chartContext(functionNames) {
     gpuHistoryServerStyles: {},
     gpuHistoryMeta: { bucketSeconds: 300 },
     gpuHistorySeriesCache: new Map(),
-    GPU_HISTORY_COLORS: ["#2563EB", "#D97706", "#059669", "#DC2626", "#7C3AED", "#0891B2", "#A21CAF", "#4D7C0F", "#C2410C", "#0F766E", "#BE123C", "#475569"],
+    GPU_HISTORY_COLORS: ["#2885EF", "#CD8300", "#03A14A", "#E64343", "#A95DDA", "#00A3B4", "#C952A8", "#849B11", "#DE6907", "#009F89", "#CE4A72", "#008DBE"],
     GPU_HISTORY_LINE_STYLES: ["solid", "dash", "dot", "dashdot"],
     GPU_HISTORY_MARKERS: ["circle", "square", "triangle", "diamond"],
-    GPU_HISTORY_MIN_COLOR_DISTANCE: 80,
+    GPU_HISTORY_MIN_COLOR_DISTANCE: 0.09,
     saveGpuHistoryServerStyles() {},
     asArray(value) { return Array.isArray(value) ? value : []; },
     gpuServerDisplayName(_state, server) { return server.serverId; },
@@ -49,18 +49,30 @@ function chartContext(functionNames) {
 
 test("GPU history server styles remain stable and distinguish 1, 2, 8, and 16 servers", () => {
   const context = chartContext([
-    "gpuHistoryServerStyle", "chooseGpuHistoryColor", "gpuHistoryColorDistance", "gpuHistoryRgb",
+    "gpuHistoryServerStyle", "chooseGpuHistoryColor", "gpuHistoryColorDistance", "gpuHistoryOklab",
     "gpuStableIndex", "lineDashForStyle",
     "finiteHistoryPercent",
   ]);
   for (const count of [1, 2, 8, 16]) {
     const styles = Array.from({ length: count }, (_, index) => context.gpuHistoryServerStyle("server-" + index));
-    assert.equal(new Set(styles.map((style) => style.color)).size, Math.min(count, 12));
+    const signatures = styles.map((style) => [style.color, JSON.stringify(style.dash), style.marker].join("|"));
+    assert.equal(new Set(signatures).size, count);
+    assert.ok(new Set(styles.map((style) => style.color)).size <= Math.min(count, 12));
     assert.ok(styles.every((style) => style.dash && style.marker));
   }
   const before = JSON.stringify(context.gpuHistoryServerStyle("server-3"));
   context.gpuHistoryServerStyle("server-new");
   assert.equal(JSON.stringify(context.gpuHistoryServerStyle("server-3")), before);
+});
+
+test("GPU history palette uses OKLCH candidates and OKLab color distance", () => {
+  const context = chartContext(["chooseGpuHistoryColor", "gpuHistoryColorDistance", "gpuHistoryOklab", "gpuHistoryOklchToHex"]);
+  assert.equal(context.gpuHistoryOklchToHex([0.62, 0.18, 255]), "#2885EF");
+  const blueOrangeDistance = context.gpuHistoryColorDistance("#2885EF", "#CD8300");
+  const blueOrangeRgbDistance = Math.sqrt((40 - 205) ** 2 + (133 - 131) ** 2 + (239 - 0) ** 2);
+  assert.ok(blueOrangeDistance > 0.1);
+  assert.notEqual(blueOrangeDistance, blueOrangeRgbDistance);
+  assert.equal(context.chooseGpuHistoryColor(["#E64343"], ["#DE6907"]), "");
 });
 
 test("GPU history gap detection distinguishes explicit gaps from regular downsampling", () => {
