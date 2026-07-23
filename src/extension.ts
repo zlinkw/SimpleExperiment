@@ -1,89 +1,43 @@
 // @ts-nocheck
-export {};
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function (o, m, k, k2) {
-    if (k2 === undefined)
-        k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function () { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function (o, m, k, k2) {
-    if (k2 === undefined)
-        k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function (o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function (o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function (o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o)
-                if (Object.prototype.hasOwnProperty.call(o, k))
-                    ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule)
-            return mod;
-        var result = {};
-        if (mod != null)
-            for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-                if (k[i] !== "default")
-                    __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.activate = activate;
-exports.deactivate = deactivate;
-const vscode = __importStar(require("vscode"));
-const fs = __importStar(require("fs/promises"));
-const path = __importStar(require("path"));
-const crypto = __importStar(require("crypto"));
-const os = __importStar(require("os"));
-const RequestBudget_1 = require("./tunnel/RequestBudget");
-const TunnelGateway_1 = require("./tunnel/TunnelGateway");
-const RealtimeEventReducer_1 = require("./tunnel/RealtimeEventReducer");
-const RealtimeTunnelClient_1 = require("./tunnel/RealtimeTunnelClient");
-const FileTransferTypes_1 = require("./tunnel/FileTransferTypes");
-const TunnelHealth_1 = require("./tunnel/TunnelHealth");
-const XshellTunnelSetup_1 = require("./tunnel/XshellTunnelSetup");
-const XshellTunnelLauncher_1 = require("./tunnel/XshellTunnelLauncher");
-const XshellTunnelIntegration_1 = require("./tunnel/XshellTunnelIntegration");
-const XshellTunnelCommandBuilder_1 = require("./tunnel/XshellTunnelCommandBuilder");
-const XshellTunnelPortProbe_1 = require("./tunnel/XshellTunnelPortProbe");
-const XshellSessionLauncher_1 = require("./tunnel/XshellSessionLauncher");
-const AgentTmuxPolicy_1 = require("./tunnel/AgentTmuxPolicy");
-const XshellSessionScanner_1 = require("./tunnel/XshellSessionScanner");
-const XshellSessionPatcher_1 = require("./tunnel/XshellSessionPatcher");
-const OfflineImport_1 = require("./tunnel/OfflineImport");
-const TunnelDiagnostics_1 = require("./tunnel/TunnelDiagnostics");
-const LegacyTunnelCompat_1 = require("./tunnel/LegacyTunnelCompat");
-const TunnelOnlyPolicy_1 = require("./tunnel/TunnelOnlyPolicy");
-const MultiEndpointRealtimeClient_1 = require("./tunnel/MultiEndpointRealtimeClient");
-const PanelHtml_1 = require("./ui/PanelHtml");
+import * as vscode from "vscode";
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as crypto from "crypto";
+import * as os from "os";
+import RequestBudget_1 = require("./tunnel/RequestBudget");
+import TunnelGateway_1 = require("./tunnel/TunnelGateway");
+import RealtimeEventReducer_1 = require("./tunnel/RealtimeEventReducer");
+import RealtimeTunnelClient_1 = require("./tunnel/RealtimeTunnelClient");
+import FileTransferTypes_1 = require("./tunnel/FileTransferTypes");
+import TunnelHealth_1 = require("./tunnel/TunnelHealth");
+import XshellTunnelSetup_1 = require("./tunnel/XshellTunnelSetup");
+import XshellTunnelLauncher_1 = require("./tunnel/XshellTunnelLauncher");
+import XshellTunnelIntegration_1 = require("./tunnel/XshellTunnelIntegration");
+import XshellTunnelCommandBuilder_1 = require("./tunnel/XshellTunnelCommandBuilder");
+import XshellTunnelPortProbe_1 = require("./tunnel/XshellTunnelPortProbe");
+import XshellSessionLauncher_1 = require("./tunnel/XshellSessionLauncher");
+import AgentTmuxPolicy_1 = require("./tunnel/AgentTmuxPolicy");
+import XshellSessionScanner_1 = require("./tunnel/XshellSessionScanner");
+import XshellSessionPatcher_1 = require("./tunnel/XshellSessionPatcher");
+import OfflineImport_1 = require("./tunnel/OfflineImport");
+import TunnelDiagnostics_1 = require("./tunnel/TunnelDiagnostics");
+import LegacyTunnelCompat_1 = require("./tunnel/LegacyTunnelCompat");
+import TunnelOnlyPolicy_1 = require("./tunnel/TunnelOnlyPolicy");
+import MultiEndpointRealtimeClient_1 = require("./tunnel/MultiEndpointRealtimeClient");
+import PanelHtml_1 = require("./ui/PanelHtml");
 const { renderPanelHtml } = PanelHtml_1;
-const TunnelPortAllocator_1 = require("./tunnel/TunnelPortAllocator");
-const TunnelEndpointRegistry_1 = require("./tunnel/TunnelEndpointRegistry");
-const TunnelPortConflict_1 = require("./tunnel/TunnelPortConflict");
-const ConfigurationSettings_1 = require("./tunnel/ConfigurationSettings");
-const WorkspacePathMapper_1 = require("./core/WorkspacePathMapper");
-const HostOperationLease_1 = require("./core/HostOperationLease");
-const Results_1 = require("./features/Results");
-const PlanBuilder_1 = require("./features/PlanBuilder");
-const { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } = require("./features/PlanArchive");
-const ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates");
-const PptPlotBridge_1 = require("./PptPlotBridge");
-const GpuHistoryState_1 = require("./features/GpuHistoryState");
+import TunnelPortAllocator_1 = require("./tunnel/TunnelPortAllocator");
+import TunnelEndpointRegistry_1 = require("./tunnel/TunnelEndpointRegistry");
+import TunnelPortConflict_1 = require("./tunnel/TunnelPortConflict");
+import ConfigurationSettings_1 = require("./tunnel/ConfigurationSettings");
+import WorkspacePathMapper_1 = require("./core/WorkspacePathMapper");
+import HostOperationLease_1 = require("./core/HostOperationLease");
+import Results_1 = require("./features/Results");
+import PlanBuilder_1 = require("./features/PlanBuilder");
+import { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } from "./features/PlanArchive";
+import ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates");
+import PptPlotBridge_1 = require("./PptPlotBridge");
+import GpuHistoryState_1 = require("./features/GpuHistoryState");
 type TunnelAction = string;
 type UiActionError = {
     command: string;
@@ -324,7 +278,7 @@ const directWorkerActionMap = {
     deleteArtifacts: "delete-worker-artifacts",
 };
 let provider;
-function activate(context) {
+export function activate(context) {
     provider = new RealtimeTunnelPanelProvider(context);
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
     context.subscriptions.push(
@@ -368,7 +322,7 @@ function activate(context) {
         .then(() => provider?.showFirstRunSetupPromptOnce());
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
 }
-function deactivate() {
+export function deactivate() {
     void provider?.dispose();
     provider = undefined;
 }

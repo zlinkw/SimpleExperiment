@@ -1,42 +1,33 @@
 "use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function (o, m, k, k2) {
-    if (k2 === undefined)
-        k2 = k;
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
     if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function () { return m[k]; } };
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
     Object.defineProperty(o, k2, desc);
-}) : (function (o, m, k, k2) {
-    if (k2 === undefined)
-        k2 = k;
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
     o[k2] = m[k];
 }));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function (o, v) {
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
     Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function (o, v) {
+}) : function(o, v) {
     o["default"] = v;
 });
 var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function (o) {
+    var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
-            for (var k in o)
-                if (Object.prototype.hasOwnProperty.call(o, k))
-                    ar[ar.length] = k;
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
             return ar;
         };
         return ownKeys(o);
     };
     return function (mod) {
-        if (mod && mod.__esModule)
-            return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
-        if (mod != null)
-            for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-                if (k[i] !== "default")
-                    __createBinding(result, mod, k[i]);
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         __setModuleDefault(result, mod);
         return result;
     };
@@ -44,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
+// @ts-nocheck
 const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
@@ -79,7 +71,7 @@ const WorkspacePathMapper_1 = require("./core/WorkspacePathMapper");
 const HostOperationLease_1 = require("./core/HostOperationLease");
 const Results_1 = require("./features/Results");
 const PlanBuilder_1 = require("./features/PlanBuilder");
-const { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } = require("./features/PlanArchive");
+const PlanArchive_1 = require("./features/PlanArchive");
 const ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates");
 const PptPlotBridge_1 = require("./PptPlotBridge");
 const GpuHistoryState_1 = require("./features/GpuHistoryState");
@@ -2760,7 +2752,7 @@ class RealtimeTunnelPanelProvider {
         const text = await fs.readFile(safeWorkspacePlanPath(root, file, planDirSafe()), "utf8");
         const summary = (0, PlanBuilder_1.parsePlanSummary)(text);
         const missing = [];
-        const configReferences = planRuntimeConfigReferences(text, summary.mode);
+        const configReferences = (0, PlanArchive_1.planRuntimeConfigReferences)(text, summary.mode);
         const legacyRestoredConfigs = configReferences.filter((relative) => /^zlk_cluster\/restored_configs\//i.test(relative));
         if (legacyRestoredConfigs.length) {
             throw new Error(`旧恢复 Plan 的配置位于本地状态目录，不会上传到服务器：${legacyRestoredConfigs.join("、")}。请从已归档计划卡再次点击“恢复”，生成可同步的新版本。`);
@@ -4555,7 +4547,7 @@ class RealtimeTunnelPanelProvider {
         const environmentBundleFiles = archiveManifestFileList(bundle.environment);
         const parameterBundle = bundle.parameters && typeof bundle.parameters === "object" && !Array.isArray(bundle.parameters) ? bundle.parameters : {};
         const parameterBundleFiles = [stringField(parameterBundle, "snapshot"), ...archiveManifestFileList(parameterBundle.entryScripts)].filter(Boolean);
-        const restoredPreview = restorePlanText(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap: new Map() });
+        const restoredPreview = (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap: new Map() });
         const restoredOutputCandidates = uniqueStrings((0, PlanBuilder_1.parsePlanSummary)(restoredPreview).outputCandidates || []);
         const restoredOutputPreview = restoredOutputCandidates.slice(0, 12);
         const confirmLabel = "确认恢复独立版本";
@@ -4640,7 +4632,7 @@ class RealtimeTunnelPanelProvider {
             restoredParameterFiles.push({ original: relative, restored: path.relative(root, parameterTarget).replace(/\\/g, "/") });
         }
         await fs.mkdir(path.dirname(target), { recursive: true });
-        await fs.writeFile(target, restorePlanText(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }), "utf8");
+        await fs.writeFile(target, (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }), "utf8");
         const restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("zlk_cluster", "plan_restores", `${safePlanToken(restoredFile)}.json`));
         await fs.mkdir(path.dirname(restoreRecordFile), { recursive: true });
         await fs.writeFile(restoreRecordFile, JSON.stringify({
@@ -11241,7 +11233,7 @@ function planArchiveExcludedResults(selection) {
 }
 async function planArchiveConfigFiles(root, planText) {
     const out = new Set();
-    for (const value of planStaticConfigReferences(planText)) {
+    for (const value of (0, PlanArchive_1.planStaticConfigReferences)(planText)) {
         const fullPath = safeWorkspaceChildPath(root, value);
         const stat = await fs.stat(fullPath).catch(() => undefined);
         if (stat?.isFile())
@@ -11304,7 +11296,7 @@ async function planArchiveParameterSnapshot(root, planText) {
         scanned.add(file);
         scannedBytes += stat.size;
         const source = await fs.readFile(fullPath, "utf8");
-        const parameterAudit = pythonCliParameterAudit(source);
+        const parameterAudit = (0, PlanArchive_1.pythonCliParameterAudit)(source);
         const parameters = parameterAudit.parameters;
         const hasCliEvidence = item.required || parameters.length || parameterAudit.parserDeclarations.length || parameterAudit.unresolvedDeclarations.length || parameterAudit.parserFeatures.length;
         if (hasCliEvidence) {
@@ -11316,7 +11308,7 @@ async function planArchiveParameterSnapshot(root, planText) {
                     parserFeatures: parameterAudit.parserFeatures,
                 } });
         }
-        for (const imported of pythonLocalImportReferences(source, file)) {
+        for (const imported of (0, PlanArchive_1.pythonLocalImportReferences)(source, file)) {
             const key = imported.candidates.join("|");
             if (queued.has(key))
                 continue;
