@@ -133,6 +133,8 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 - 在一个 Dev Container 窗口同时验证 Codex、SimpleExperiment 和 SimpleSFTP 面板。
 - 验证集群状态、调度和上传使用同一个宿主项目路径。
 
+验收记录：已在本机同一 Node 进程加载两个插件的租约模块，验证跨窗口冲突、同窗口嵌套、跨插件释放，结果为 `passed`。计划 A 的 `plugin-handoff.json` 已包含必需路径映射和扩展宿主字段；但其 `PLUGIN-HANDOFF.md` 与配置文件声明容器用户为 `root`，不满足原方案的非 root 约束，标记为 `needs experiment`，未进行 VSIX 安装或 Dev Container 现场验收。
+
 ### docker-plugin-005 打包与交付
 
 - 分别运行两个插件的 build、typecheck、lint、测试、Windows 回归、远程工作区测试和公开打包检查。
