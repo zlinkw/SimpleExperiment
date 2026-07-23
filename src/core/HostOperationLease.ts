@@ -265,19 +265,17 @@ export class HostOperationLeaseManager {
         let handle;
         try {
             handle = await fs.open(this.leasePath, "r+");
-            const current = parseHostOperationLeaseRecord(await handle.readFile("utf8"));
+            const currentText = await handle.readFile("utf8");
+            const current = parseHostOperationLeaseRecord(currentText);
             if (!current || current.leaseId !== leaseId || current.windowId !== this.windowId)
                 throw new HostOperationLeaseLostError();
             const now = this.now();
-            const next: HostOperationLeaseRecord = {
-                ...current,
-                heartbeatAt: new Date(now).toISOString(),
-                expiresAt: new Date(release ? now : now + this.ttlMs).toISOString(),
-                ...(release ? { releasedAt: new Date(now).toISOString() } : {}),
-            };
-            const text = `${JSON.stringify(next, null, 2)}\n`;
-            await handle.truncate(0);
-            await handle.write(text, 0, "utf8");
+            const heartbeatAt = new Date(now).toISOString();
+            const expiresAt = new Date(release ? now : now + this.ttlMs).toISOString();
+            // Patch fixed-width timestamp fields in place. Truncating first lets another
+            // window observe an empty or partial JSON lease during heartbeat renewal.
+            await writeLeaseTimestamp(handle, currentText, "heartbeatAt", heartbeatAt);
+            await writeLeaseTimestamp(handle, currentText, "expiresAt", expiresAt);
             await handle.sync();
         }
         catch (error) {
@@ -289,6 +287,15 @@ export class HostOperationLeaseManager {
             await handle?.close().catch(() => undefined);
         }
     }
+}
+
+async function writeLeaseTimestamp(handle: import("fs/promises").FileHandle, text: string, field: string, value: string): Promise<void> {
+    const match = new RegExp(`"${field}"\\s*:\\s*"([^"]+)"`).exec(text);
+    const offset = match ? match.index + match[0].indexOf(match[1]) : -1;
+    if (offset < 0 || match?.[1].length !== value.length)
+        throw new HostOperationLeaseLostError("宿主操作租约格式已变化，当前窗口不能继续提交副作用操作。");
+    const bytes = Buffer.from(value, "utf8");
+    await handle.write(bytes, 0, bytes.length, offset);
 }
 
 export function defaultHostOperationLeasePath(localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")): string {

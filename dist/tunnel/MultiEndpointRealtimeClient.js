@@ -16,6 +16,7 @@ class MultiEndpointRealtimeClient {
     clients = new Map();
     budgets = new Map();
     mergedState = (0, RealtimeEventReducer_1.createRealtimeState)();
+    protectedLogKeys = [];
     constructor(endpoints, budgetFactory, policy = RealtimeTunnelClient_1.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.endpoints = endpoints;
         this.policy = policy;
@@ -24,7 +25,7 @@ class MultiEndpointRealtimeClient {
             const budget = budgetFactory(endpoint);
             this.budgets.set(endpoint.id, budget);
             this.clients.set(endpoint.id, new RealtimeTunnelClient_1.RealtimeTunnelClient(endpoint, budget, policy, (state) => {
-                this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints);
+                this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints, this.protectedLogKeys);
                 this.onState(this.mergedState);
             }));
         }
@@ -132,7 +133,7 @@ class MultiEndpointRealtimeClient {
                 ...(0, RealtimeEventReducer_1.compactRealtimeLogs)({
                     ...this.mergedState.logs,
                     [runKey]: { text, offset, seq: this.mergedState.lastSeq },
-                }),
+                }, undefined, undefined, this.protectedLogKeys),
             },
         };
         this.onState(this.mergedState);
@@ -200,6 +201,12 @@ class MultiEndpointRealtimeClient {
         for (const client of this.clients.values())
             client.setHidden(hidden);
     }
+    setProtectedLogKeys(keys) {
+        this.protectedLogKeys = [...new Set((Array.isArray(keys) ? keys : []).map((key) => String(key || "").trim()).filter(Boolean))];
+        for (const client of this.clients.values())
+            client.setProtectedLogKeys(this.protectedLogKeys);
+        this.updateMergedState();
+    }
     budgetSnapshots() {
         return Object.fromEntries([...this.budgets.entries()].map(([id, budget]) => [id, budget.snapshot()]));
     }
@@ -210,7 +217,7 @@ class MultiEndpointRealtimeClient {
         }));
     }
     updateMergedState(snapshot) {
-        this.mergedState = snapshot ? (0, RealtimeEventReducer_1.createRealtimeState)(snapshot) : mergeRealtimeStates(this.endpointStates(), this.endpoints);
+        this.mergedState = snapshot ? (0, RealtimeEventReducer_1.createRealtimeState)(snapshot) : mergeRealtimeStates(this.endpointStates(), this.endpoints, this.protectedLogKeys);
         this.onState(this.mergedState);
     }
     hubClient() {
@@ -224,12 +231,12 @@ exports.MultiEndpointRealtimeClient = MultiEndpointRealtimeClient;
 function createBudget(config) {
     return new RequestBudget_1.RequestBudget(config);
 }
-function mergeRealtimeStates(entries, endpoints = entries.map((entry) => entry.endpoint)) {
+function mergeRealtimeStates(entries, endpoints = entries.map((entry) => entry.endpoint), protectedLogKeys = []) {
     const endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
     return (0, AuthorityMergePolicy_1.mergeAuthorityRealtimeStates)(entries.map(({ endpoint, state }) => ({
         endpoint: endpointById.get(endpoint.id) || endpoint,
         state,
-    })));
+    })), { protectedLogKeys });
 }
 function mergeClusterSnapshots(entries) {
     const generatedAt = latest(entries.map((entry) => entry.snapshot.generatedAt));

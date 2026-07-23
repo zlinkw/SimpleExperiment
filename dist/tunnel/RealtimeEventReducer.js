@@ -84,7 +84,7 @@ function validateRealtimeEvent(input) {
         return { ok: false, warning: `unknown event type=${String(event.type)}`, event: item };
     return { ok: true, event: event };
 }
-function applyRealtimeEvent(state, input) {
+function applyRealtimeEvent(state, input, options = {}) {
     const valid = validateRealtimeEvent(input);
     if (valid.ok === false)
         return { ...state, warnings: [...state.warnings.slice(-20), valid.warning] };
@@ -154,7 +154,7 @@ function applyRealtimeEvent(state, input) {
         experimentTraces: next.experimentTraces,
         diagnostics: next.diagnostics,
     });
-    return compactRealtimeState(next);
+    return compactRealtimeState(next, options);
 }
 function compactRealtimeLogs(logs, limit = exports.REALTIME_LOG_RECORD_LIMIT, textLimit = exports.REALTIME_LOG_TEXT_LIMIT, protectedKeys = []) {
     const entries = Object.entries(logs || {})
@@ -445,7 +445,7 @@ function stringFromRecord(item, keys) {
     }
     return "";
 }
-function applySnapshot(state, snapshot) {
+function applySnapshot(state, snapshot, options = {}) {
     const compactSnapshot = compactClusterSnapshot(snapshot);
     return compactRealtimeState({
         ...state,
@@ -455,7 +455,7 @@ function applySnapshot(state, snapshot) {
         operations: mergeSnapshotOperations(state.operations, operationsRecord(compactSnapshot?.operations)),
         diagnostics: compactSnapshot?.diagnostics || state.diagnostics,
         lastKnownGood: compactSnapshot,
-    });
+    }, options);
 }
 function mergeByKey(previous, incoming, seq) {
     const map = new Map();

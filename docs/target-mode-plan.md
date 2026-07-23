@@ -16,7 +16,7 @@
 - [待现场验证] 服务器状态页三天 GPU 历史曲线，详见 `docs/target-plans/server-gpu-history.md`。
 - [已完成] SimpleExperiment 恢复基线、target mode 压缩契约和 UI 契约修复；全量测试基线 624/624。
 - [已完成] Docker Codex 的 SimpleExperiment 与 SimpleSFTP 宿主路径接入、远程编辑器 URI 保留和传输位置确认，详见 `docs/target-plans/docker-codex-plugin-compat.md`。
-- [待做] Docker Codex 的双插件多窗口租约与联调验收。
+- [待现场验证] Docker Codex 的双插件多窗口租约、真实 SFTP 上传和 Xshell `127.0.0.1` 联调验收；两插件租约心跳截断竞态已修复，自动化验证通过。
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
@@ -40,6 +40,6 @@
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
-- 当前目标状态：共享租约协议与两个插件副作用入口接入完成；Docker 兼容进入联调验收准备批次 `docker-plugin-004c`。
+- 当前目标状态：共享租约协议、两个插件副作用入口与租约心跳稳定性修复完成；Docker 兼容等待现场联调批次 `docker-plugin-004c`。
 - `docker-plugin-002`：SimpleExperiment 提交 `d5750ff` 已同步 `SimpleExperiment/origin/master`，`npm test` 通过 644/644。
 - `docker-plugin-003`：SimpleSFTP 提交 `bbaa528` 已同步 `SimpleSFTP/origin/master`，`npm test` 通过 10/10；未生成、安装或覆盖 VSIX。

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { mergeClusterSnapshots, mergeRealtimeStates } = require("../../dist/tunnel/MultiEndpointRealtimeClient.js");
+const { MultiEndpointRealtimeClient } = require("../../dist/tunnel/MultiEndpointRealtimeClient.js");
 const { createRealtimeState, applyRealtimeEvent } = require("../../dist/tunnel/RealtimeEventReducer.js");
 
 test("multi endpoint snapshots merge hub scheduler and worker gpu", () => {
@@ -48,4 +49,9 @@ test("multi endpoint realtime state remaps worker default gpu key", () => {
   assert.equal(state.gpu.w1[0].index, 1);
   assert.equal(state.gpu.w1[0].workerDirect, true);
   assert.equal(state.lastSeq, 1);
+});
+
+test("multi endpoint client exposes protected log key forwarding", () => {
+  const client = new MultiEndpointRealtimeClient([], () => { throw new Error("no endpoint budget expected"); });
+  assert.doesNotThrow(() => client.setProtectedLogKeys(["run-1", "run-1", ""]));
 });

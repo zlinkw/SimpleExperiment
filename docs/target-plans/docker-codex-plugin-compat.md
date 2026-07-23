@@ -133,7 +133,7 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 - 在一个 Dev Container 窗口同时验证 Codex、SimpleExperiment 和 SimpleSFTP 面板。
 - 验证集群状态、调度和上传使用同一个宿主项目路径。
 
-验收记录：已在本机同一 Node 进程加载两个插件的租约模块，验证跨窗口冲突、同窗口嵌套、跨插件释放，结果为 `passed`。计划 A 的 `plugin-handoff.json` 已包含必需路径映射和扩展宿主字段；但其 `PLUGIN-HANDOFF.md` 与配置文件声明容器用户为 `root`，不满足原方案的非 root 约束，标记为 `needs experiment`，未进行 VSIX 安装或 Dev Container 现场验收。
+验收记录：已在本机同一 Node 进程加载两个插件的租约模块，验证跨窗口冲突、同窗口嵌套、跨插件释放，结果为 `passed`。修复两个插件心跳续租的截断写入竞态，SimpleExperiment 全量测试通过 `654/654`，租约压力测试通过 `10/10`，SimpleSFTP 回归测试通过 `17/17`，SimpleSFTP 修复提交 `95399bf` 已同步 `origin/master`。Docker daemon 恢复后，`Test-PlanA.ps1` 通过 root 模式结构检查，容器健康、挂载、无 Docker socket、无 SSH server、Codex、Node、Python、Git、GH、GPU 与 bwrap 检查均有本地输出；`D:\GitRepo\MCP\zlk-cluster-orchestrator\README.md` 与容器 `/workspaces/MCP/zlk-cluster-orchestrator/README.md` SHA256 一致。开发扩展窗口日志确认 SimpleExperiment 与 SimpleSFTP 均在 Windows UI Extension Host 激活，激活无异常。计划 A 的 `PLUGIN-HANDOFF.md` 与配置文件声明容器用户为 `root`，不满足原方案的非 root 约束，仍标记为 `needs experiment`；未进行 VSIX 安装、真实 SFTP 上传或 Xshell `127.0.0.1` 现场操作。
 
 ### docker-plugin-005 打包与交付
 

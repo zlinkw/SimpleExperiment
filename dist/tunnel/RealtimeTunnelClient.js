@@ -43,6 +43,7 @@ class RealtimeTunnelClient {
     reconnectCount = 0;
     lastError;
     hidden = false;
+    protectedLogKeys = [];
     constructor(endpoint, budget, policy = exports.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.endpoint = endpoint;
         this.budget = budget;
@@ -136,6 +137,10 @@ class RealtimeTunnelClient {
     }
     getLiveOutput(runKey, since = 0) {
         return this.http.getLiveOutput(runKey, since);
+    }
+    setProtectedLogKeys(keys) {
+        this.protectedLogKeys = normalizeProtectedLogKeys(keys);
+        this.state = (0, RealtimeEventReducer_1.compactRealtimeState)(this.state, { protectedLogKeys: this.protectedLogKeys });
     }
     getResultsSummary() {
         return this.http.getResultsSummary();
@@ -293,7 +298,7 @@ class RealtimeTunnelClient {
     }
     async refreshSnapshot() {
         const snapshot = await this.http.getSnapshot();
-        this.state = (0, RealtimeEventReducer_1.applySnapshot)(this.state, snapshot);
+        this.state = (0, RealtimeEventReducer_1.applySnapshot)(this.state, snapshot, { protectedLogKeys: this.protectedLogKeys });
         this.onState(this.state);
     }
     acceptEvent(raw) {
@@ -302,9 +307,9 @@ class RealtimeTunnelClient {
         const beforeState = this.state;
         const before = this.state.lastSeq;
         const beforeDirtyKey = this.state.resultSummaryDirtyKey;
-        this.state = (0, RealtimeEventReducer_1.applyRealtimeEvent)(this.state, raw);
+        this.state = (0, RealtimeEventReducer_1.applyRealtimeEvent)(this.state, raw, { protectedLogKeys: this.protectedLogKeys });
         if (journalGap)
-            this.state = (0, RealtimeEventReducer_1.compactRealtimeState)({ ...this.state, lastSeq: 0 });
+            this.state = (0, RealtimeEventReducer_1.compactRealtimeState)({ ...this.state, lastSeq: 0 }, { protectedLogKeys: this.protectedLogKeys });
         if (this.state !== beforeState || this.state.lastSeq !== before || this.state.resultSummaryDirtyKey !== beforeDirtyKey)
             this.onState(this.state);
         if (journalGap) {
@@ -336,6 +341,9 @@ class RealtimeTunnelClient {
     }
 }
 exports.RealtimeTunnelClient = RealtimeTunnelClient;
+function normalizeProtectedLogKeys(keys) {
+    return [...new Set((Array.isArray(keys) ? keys : []).map((key) => String(key || "").trim()).filter(Boolean))];
+}
 function capabilityEndpoints(capabilities) {
     const caps = objectRecord(capabilities);
     return objectRecord(caps?.endpoints);

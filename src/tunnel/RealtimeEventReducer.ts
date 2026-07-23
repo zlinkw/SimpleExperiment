@@ -161,7 +161,7 @@ export function validateRealtimeEvent(input: unknown): { ok: true; event: Realti
   return { ok: true, event: event as RealtimeEvent };
 }
 
-export function applyRealtimeEvent(state: RealtimeState, input: unknown): RealtimeState {
+export function applyRealtimeEvent(state: RealtimeState, input: unknown, options: { protectedLogKeys?: string[] } = {}): RealtimeState {
   const valid = validateRealtimeEvent(input);
   if (valid.ok === false) return { ...state, warnings: [...state.warnings.slice(-20), valid.warning] };
   const event = valid.event;
@@ -226,7 +226,7 @@ export function applyRealtimeEvent(state: RealtimeState, input: unknown): Realti
     experimentTraces: next.experimentTraces,
     diagnostics: next.diagnostics as Record<string, unknown>,
   });
-  return compactRealtimeState(next);
+  return compactRealtimeState(next, options);
 }
 
 export function compactRealtimeLogs(
@@ -515,7 +515,7 @@ function stringFromRecord(item: Record<string, unknown>, keys: string[]): string
   return "";
 }
 
-export function applySnapshot(state: RealtimeState, snapshot: ClusterSnapshot): RealtimeState {
+export function applySnapshot(state: RealtimeState, snapshot: ClusterSnapshot, options: { protectedLogKeys?: string[] } = {}): RealtimeState {
   const compactSnapshot = compactClusterSnapshot(snapshot);
   return compactRealtimeState({
     ...state,
@@ -525,7 +525,7 @@ export function applySnapshot(state: RealtimeState, snapshot: ClusterSnapshot): 
     operations: mergeSnapshotOperations(state.operations, operationsRecord(compactSnapshot?.operations)),
     diagnostics: compactSnapshot?.diagnostics || state.diagnostics,
     lastKnownGood: compactSnapshot,
-  });
+  }, options);
 }
 
 function mergeByKey(previous: unknown[], incoming: unknown[], seq: number): unknown[] {

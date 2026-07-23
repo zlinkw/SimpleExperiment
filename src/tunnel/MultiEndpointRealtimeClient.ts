@@ -35,6 +35,7 @@ export class MultiEndpointRealtimeClient {
   private readonly clients = new Map<string, RealtimeTunnelClient>();
   private readonly budgets = new Map<string, RequestBudget>();
   private mergedState: RealtimeState = createRealtimeState();
+  private protectedLogKeys: string[] = [];
 
   constructor(
     private readonly endpoints: NamedTunnelEndpointConfig[],
@@ -46,7 +47,7 @@ export class MultiEndpointRealtimeClient {
       const budget = budgetFactory(endpoint);
       this.budgets.set(endpoint.id, budget);
       this.clients.set(endpoint.id, new RealtimeTunnelClient(endpoint, budget, policy, (state) => {
-        this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints);
+        this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints, this.protectedLogKeys);
         this.onState(this.mergedState);
       }));
     }
@@ -168,7 +169,7 @@ export class MultiEndpointRealtimeClient {
         ...compactRealtimeLogs({
           ...this.mergedState.logs,
           [runKey]: { text, offset, seq: this.mergedState.lastSeq },
-        }),
+        }, undefined, undefined, this.protectedLogKeys),
       },
     };
     this.onState(this.mergedState);
@@ -245,6 +246,12 @@ export class MultiEndpointRealtimeClient {
     for (const client of this.clients.values()) client.setHidden(hidden);
   }
 
+  setProtectedLogKeys(keys: string[]): void {
+    this.protectedLogKeys = [...new Set((Array.isArray(keys) ? keys : []).map((key) => String(key || "").trim()).filter(Boolean))];
+    for (const client of this.clients.values()) client.setProtectedLogKeys(this.protectedLogKeys);
+    this.updateMergedState();
+  }
+
   budgetSnapshots(): Record<string, RequestBudgetSnapshot> {
     return Object.fromEntries([...this.budgets.entries()].map(([id, budget]) => [id, budget.snapshot()]));
   }
@@ -257,7 +264,7 @@ export class MultiEndpointRealtimeClient {
   }
 
   private updateMergedState(snapshot?: ClusterSnapshot): void {
-    this.mergedState = snapshot ? createRealtimeState(snapshot) : mergeRealtimeStates(this.endpointStates(), this.endpoints);
+    this.mergedState = snapshot ? createRealtimeState(snapshot) : mergeRealtimeStates(this.endpointStates(), this.endpoints, this.protectedLogKeys);
     this.onState(this.mergedState);
   }
 
@@ -275,12 +282,13 @@ export function createBudget(config: RequestBudgetConfig): RequestBudget {
 export function mergeRealtimeStates(
   entries: Array<{ endpoint: NamedTunnelEndpointConfig; state: RealtimeState }>,
   endpoints: NamedTunnelEndpointConfig[] = entries.map((entry) => entry.endpoint),
+  protectedLogKeys: string[] = [],
 ): RealtimeState {
   const endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
   return mergeAuthorityRealtimeStates(entries.map(({ endpoint, state }) => ({
     endpoint: endpointById.get(endpoint.id) || endpoint,
     state,
-  })));
+  })), { protectedLogKeys });
 }
 
 export function mergeClusterSnapshots(entries: Array<{ endpoint: NamedTunnelEndpointConfig; snapshot: ClusterSnapshot }>): ClusterSnapshot {

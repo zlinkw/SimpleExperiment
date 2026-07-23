@@ -63,6 +63,7 @@ export class RealtimeTunnelClient {
   private reconnectCount = 0;
   private lastError?: string;
   private hidden = false;
+  private protectedLogKeys: string[] = [];
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -163,6 +164,11 @@ export class RealtimeTunnelClient {
 
   getLiveOutput(runKey: string, since = 0): Promise<unknown> {
     return this.http.getLiveOutput(runKey, since);
+  }
+
+  setProtectedLogKeys(keys: string[]): void {
+    this.protectedLogKeys = normalizeProtectedLogKeys(keys);
+    this.state = compactRealtimeState(this.state, { protectedLogKeys: this.protectedLogKeys });
   }
 
   getResultsSummary(): Promise<unknown> {
@@ -324,7 +330,7 @@ export class RealtimeTunnelClient {
 
   private async refreshSnapshot(): Promise<void> {
     const snapshot = await this.http.getSnapshot();
-    this.state = applySnapshot(this.state, snapshot);
+    this.state = applySnapshot(this.state, snapshot, { protectedLogKeys: this.protectedLogKeys });
     this.onState(this.state);
   }
 
@@ -334,8 +340,8 @@ export class RealtimeTunnelClient {
     const beforeState = this.state;
     const before = this.state.lastSeq;
     const beforeDirtyKey = this.state.resultSummaryDirtyKey;
-    this.state = applyRealtimeEvent(this.state, raw);
-    if (journalGap) this.state = compactRealtimeState({ ...this.state, lastSeq: 0 });
+    this.state = applyRealtimeEvent(this.state, raw, { protectedLogKeys: this.protectedLogKeys });
+    if (journalGap) this.state = compactRealtimeState({ ...this.state, lastSeq: 0 }, { protectedLogKeys: this.protectedLogKeys });
     if (this.state !== beforeState || this.state.lastSeq !== before || this.state.resultSummaryDirtyKey !== beforeDirtyKey) this.onState(this.state);
     if (journalGap) {
       void this.getSnapshot()
@@ -363,6 +369,10 @@ export class RealtimeTunnelClient {
     const endpoints = capabilityEndpoints(this.endpoint.capabilities);
     return endpoints ? endpoints.sseEvents !== false : true;
   }
+}
+
+function normalizeProtectedLogKeys(keys: string[]): string[] {
+  return [...new Set((Array.isArray(keys) ? keys : []).map((key) => String(key || "").trim()).filter(Boolean))];
 }
 
 function capabilityEndpoints(capabilities: unknown): Record<string, unknown> | undefined {

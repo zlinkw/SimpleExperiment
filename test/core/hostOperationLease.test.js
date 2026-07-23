@@ -75,6 +75,21 @@ test("heartbeat renews a long operation and prevents premature takeover", async 
   }
 });
 
+test("heartbeat renewal never exposes partial lease JSON", async () => {
+  const fixture = leaseFixture();
+  try {
+    const holder = await fixture.manager("window-a", { ttlMs: 120, heartbeatMs: 5 }).acquire(fixture.input());
+    for (let index = 0; index < 40; index += 1) {
+      const record = parseHostOperationLeaseRecord(fs.readFileSync(fixture.leasePath, "utf8"));
+      assert.ok(record, `invalid lease record at iteration ${index}`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await holder.release();
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("expired lease supports crash recovery without force-removing an active lease", async () => {
   const fixture = leaseFixture();
   try {
