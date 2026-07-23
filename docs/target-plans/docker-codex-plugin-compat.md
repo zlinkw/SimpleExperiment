@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`docker-codex-plugin-compat`。
-- 状态：执行中，当前批次 `docker-plugin-004`。
+- 状态：执行中，当前批次 `docker-plugin-004b`。
 - 范围：只改造 SimpleExperiment 与 SimpleSFTP；不创建 Docker 容器、不配置 VS Code Profile、不安装 VSIX。
 - 启动条件：收到并校验计划 A 生成的 `plugin-handoff.json` 与 `PLUGIN-HANDOFF.md`，且两个插件仓库均无未归属改动。
 - 验证状态：远程工作区、Windows 回归、双插件联调和 VSIX 安装均为 `needs experiment`。
@@ -109,9 +109,19 @@ schemaVersion 1 的未知扩展字段允许保留但不参与插件决策；所�
 
 验收记录：已完成。SimpleSFTP 提交 `bbaa528` 已同步 `origin/master`；`npm test` 通过 10/10。上传、下载、交接、忽略扫描和创建同步工作区均在副作用前显示本地宿主位置与远端预期位置；远程保存上传与项目文件打开保留映射语义。Dev Container 文件同字节上传仍为 `needs field verification`。
 
-### docker-plugin-004 多窗口与双插件联调（当前）
+### docker-plugin-004a 共享租约协议
+
+- 两个插件使用完全相同的 `%LOCALAPPDATA%\\SimpleExperiment\\host-operation-lease.json` 路径、schemaVersion 1 和字段语义。
+- 采用排他创建；租约包含插件 ID、窗口标识、进程标识、工作区 URI、宿主项目路径、动作、创建时间、心跳时间和过期时间。
+- 持有者通过心跳续租；崩溃只依靠过期接管；同一 UI Extension Host 内两个插件允许嵌套操作，共享同一个窗口租约。
+- 已有本地自动化覆盖原子冲突、心跳、过期接管、崩溃恢复、同窗口嵌套和旧持有者不得影响新持有者。
+
+验收记录：SimpleExperiment `npm test` 通过 650/650，其中共享租约测试 6 项；SimpleSFTP `npm test` 通过 15/15，其中共享租约测试 5 项。SimpleSFTP 提交 `b2e8b24` 已同步 `origin/master`；SimpleExperiment 模块随本批提交。未生成、安装或覆盖 VSIX。
+
+### docker-plugin-004b 多窗口与双插件联调（当前）
 
 - 实现共享宿主操作租约并覆盖过期、崩溃恢复、只读并行和冲突阻断。
+- 将租约接入两个插件的所有宿主副作用入口；只读状态获取不申请租约。
 - 在一个 Dev Container 窗口同时验证 Codex、SimpleExperiment 和 SimpleSFTP 面板。
 - 验证集群状态、调度和上传使用同一个宿主项目路径。
 

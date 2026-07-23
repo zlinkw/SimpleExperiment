@@ -20,9 +20,9 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：docker-plugin-004
+## 当前批次：docker-plugin-004b
 ### 修复点
-- 共享宿主操作租约：覆盖隧道、调度、Agent 部署、上传、下载、归档和删除等副作用。
+- 接入已完成的共享宿主操作租约：覆盖隧道、调度、Agent 部署、上传、下载、归档和删除等副作用。
 - 只读状态页允许并行；第二窗口副作用操作必须显示持有窗口、工作区和恢复方式并阻断。
 - 联调验证 SimpleExperiment、SimpleSFTP、Windows Xshell `127.0.0.1` 与 Dev Container 工作区映射使用同一宿主项目路径。
 
@@ -32,12 +32,13 @@
 - 交付边界：本批不打包、安装或覆盖 VSIX；Dev Container 与 Xshell 联调仍需现场验证。
 
 ### 验证清单
-- [待验证] 共享租约原子创建、心跳、过期、崩溃恢复和冲突阻断。
+- [已完成] 共享租约协议模块：原子创建、心跳、过期接管、崩溃恢复、同窗口嵌套和持有者保护。
+- [待验证] 两个插件副作用入口接入租约，第二窗口冲突阻断和只读并行。
 - [待验证] 只读并行与副作用单窗口约束。
 - [待现场验证] Dev Container 双插件联调、文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
-- 当前目标状态：SimpleExperiment 与 SimpleSFTP 宿主路径接入完成；Docker 兼容进入 `docker-plugin-004`。
+- 当前目标状态：共享租约协议已完成；Docker 兼容进入两个插件副作用入口接入批次 `docker-plugin-004b`。
 - `docker-plugin-002`：SimpleExperiment 提交 `d5750ff` 已同步 `SimpleExperiment/origin/master`，`npm test` 通过 644/644。
 - `docker-plugin-003`：SimpleSFTP 提交 `bbaa528` 已同步 `SimpleSFTP/origin/master`，`npm test` 通过 10/10；未生成、安装或覆盖 VSIX。
