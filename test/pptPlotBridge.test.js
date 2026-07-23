@@ -5,6 +5,16 @@ const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
 
+test("PptPlotBridge source remains TypeScript instead of copied compiler output", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "PptPlotBridge.ts"), "utf8");
+  assert.match(source, /import \* as fs from "fs\/promises";/);
+  assert.match(source, /export class PptPlotBridge/);
+  assert.match(source, /export async function buildPptPlotRequest/);
+  assert.doesNotMatch(source, /var __createBinding/);
+  assert.doesNotMatch(source, /Object\.defineProperty\(exports/);
+  assert.doesNotMatch(source, /^exports\./m);
+});
+
 test("PptPlotBridge builds stable request schema and resolves md to sibling json", async () => {
   const { buildPptPlotRequest } = require("../dist/PptPlotBridge.js");
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-ppt-schema-"));

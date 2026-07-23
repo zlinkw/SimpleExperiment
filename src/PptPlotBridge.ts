@@ -1,59 +1,9 @@
 // @ts-nocheck
-export {};
-// @ts-nocheck
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function (o, m, k, k2) {
-    if (k2 === undefined)
-        k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function () { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function (o, m, k, k2) {
-    if (k2 === undefined)
-        k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function (o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function (o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function (o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o)
-                if (Object.prototype.hasOwnProperty.call(o, k))
-                    ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule)
-            return mod;
-        var result = {};
-        if (mod != null)
-            for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-                if (k[i] !== "default")
-                    __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.PptPlotBridge = void 0;
-exports.ensureLocalPlottingContract = ensureLocalPlottingContract;
-exports.buildPptPlotRequest = buildPptPlotRequest;
-exports.defaultPptAutomationReadiness = defaultPptAutomationReadiness;
-exports.pptAutomationReadinessFromError = pptAutomationReadinessFromError;
-const fs = __importStar(require("fs/promises"));
-const path = __importStar(require("path"));
-const os = __importStar(require("os"));
-const child_process_1 = require("child_process");
-const PlottingContract_1 = require("./features/PlottingContract");
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+import * as child_process_1 from "child_process";
+import * as PlottingContract_1 from "./features/PlottingContract";
 const activePlotRequests = new Set();
 let powerPointLaunchInFlight;
 let lastPowerPointLaunchAt = 0;
@@ -61,7 +11,7 @@ const PPT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const PPT_LIGHTWEIGHT_SOURCE_EXTENSIONS = new Set([".json", ".csv", ".md", ".tex"]);
 const PPT_FINAL_STATISTICS_PATH = "zlk_cluster/results/statistics.json";
 const PPT_FINAL_PAPER_TABLE_PATH = "paper/tables/zlk_results_table.csv";
-class PptPlotBridge {
+export class PptPlotBridge {
     fetchImpl;
     localAppData;
     requestIdFactory;
@@ -254,11 +204,10 @@ class PptPlotBridge {
         }
     }
 }
-exports.PptPlotBridge = PptPlotBridge;
-function defaultPptAutomationReadiness() {
+export function defaultPptAutomationReadiness() {
     return pptAutomationReadiness("unknown", "尚未检测 PPT automation；不影响实验运行，仅影响结果绘图。", { actionCommand: "refreshPptAutomation", actionLabel: "检测 PPT 插件" });
 }
-function pptAutomationReadinessFromError(error) {
+export function pptAutomationReadinessFromError(error) {
     const state = pptAutomationErrorState(error);
     return pptAutomationReadiness(state === "unknown" ? "unavailable" : state, errorMessage(error));
 }
@@ -302,7 +251,7 @@ function parseJsonObject(text) {
         return {};
     }
 }
-async function ensureLocalPlottingContract(projectRoot, planFile = "") {
+export async function ensureLocalPlottingContract(projectRoot, planFile = "") {
     const root = path.resolve(projectRoot);
     const plan = String(planFile || "").trim();
     const preferredRel = (0, PlottingContract_1.plottingContractJsonPath)(plan);
@@ -327,7 +276,7 @@ async function ensureLocalPlottingContract(projectRoot, planFile = "") {
     }
     return toProjectRelative(root, preferredPath);
 }
-async function buildPptPlotRequest(input, requestId = defaultRequestId()) {
+export async function buildPptPlotRequest(input, requestId = defaultRequestId()) {
     const projectRoot = path.resolve(input.projectRoot);
     const planFile = cleanOptional(input.planFile) || "";
     const plottingContractPath = normalizeProjectRelativePath(input.plottingContractPath || (0, PlottingContract_1.plottingContractJsonPath)(planFile) || PlottingContract_1.PLOTTING_CONTRACT_JSON_PATH, projectRoot);
