@@ -7337,7 +7337,7 @@ function renderPanelHtml() {
 
     function historyExpectedStep(points) {
       const values = asArray(points).map((point) => Number(point.bucketEpoch)).filter(Number.isFinite).sort((a, b) => a - b);
-      const deltas = values.slice(1).map((value, index) => value - values[index]).filter((value) => value > 0);
+      const deltas = values.slice(1).map((value, index) => value - values[index]).filter((value) => value > 0).sort((a, b) => a - b);
       if (!deltas.length) return Number(gpuHistoryMeta.bucketSeconds || 300);
       return deltas[Math.floor(deltas.length / 2)];
     }
