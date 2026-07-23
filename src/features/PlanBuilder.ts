@@ -231,43 +231,12 @@ export interface PlanResultCoverage {
   bestByMetric: Record<string, { experimentId: string; value: number }>;
 }
 
-export declare const PLAN_REGISTRY_PATH: string;
-export declare const PLAN_REGISTRY_LOCAL_PATH: string;
-export declare const PLAN_EXPORT_DIR: string;
-export declare const builtInPlanSchemas: PlanSchema[];
-export declare const builtInPlanTemplates: PlanTemplate[];
-// @ts-nocheck
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.builtInPlanTemplates = exports.builtInPlanSchemas = exports.PLAN_EXPORT_DIR = exports.PLAN_REGISTRY_LOCAL_PATH = exports.PLAN_REGISTRY_PATH = void 0;
-exports.buildExperimentMatrix = buildExperimentMatrix;
-exports.renderPlanYaml = renderPlanYaml;
-exports.parsePlanCases = parsePlanCases;
-exports.parsePlanOutputEvidence = parsePlanOutputEvidence;
-exports.parsePlanSummary = parsePlanSummary;
-exports.normalizePlanMode = normalizePlanMode;
-exports.validateDeepLearningPlanContract = validateDeepLearningPlanContract;
-exports.expandPlanMatrix = expandPlanMatrix;
-exports.renderPlanTemplate = renderPlanTemplate;
-exports.validateTemplateVariables = validateTemplateVariables;
-exports.importLegacyPlanYamlToRegistry = importLegacyPlanYamlToRegistry;
-exports.upsertPlanRecords = upsertPlanRecords;
-exports.deprecatePlan = deprecatePlan;
-exports.validatePlanRecord = validatePlanRecord;
-exports.estimatePlanResources = estimatePlanResources;
-exports.createPlanRevision = createPlanRevision;
-exports.diffPlans = diffPlans;
-exports.cloneOrReproducePlan = cloneOrReproducePlan;
-exports.searchPlans = searchPlans;
-exports.tagPlan = tagPlan;
-exports.computePlanResultCoverage = computePlanResultCoverage;
-exports.dependencyBlockedReasons = dependencyBlockedReasons;
-exports.readPlanConfigJson = readPlanConfigJson;
-const crypto_1 = require("crypto");
-exports.PLAN_REGISTRY_PATH = "zlk_cluster/plans/plan_registry.json";
-exports.PLAN_REGISTRY_LOCAL_PATH = "zlk_cluster/plans/plan_registry.local.json";
-exports.PLAN_EXPORT_DIR = "zlk_cluster/plans/exports";
-exports.builtInPlanSchemas = [
+import { createHash } from "crypto";
+
+export const PLAN_REGISTRY_PATH = "zlk_cluster/plans/plan_registry.json";
+export const PLAN_REGISTRY_LOCAL_PATH = "zlk_cluster/plans/plan_registry.local.json";
+export const PLAN_EXPORT_DIR = "zlk_cluster/plans/exports";
+export const builtInPlanSchemas: PlanSchema[] = [
     {
         schemaVersion: 1,
         id: "generic_experiment_plan",
@@ -310,7 +279,7 @@ exports.builtInPlanSchemas = [
         defaultPlanTemplateId: "medical_segmentation_ablation",
     },
 ];
-exports.builtInPlanTemplates = [
+export const builtInPlanTemplates: PlanTemplate[] = [
     template("generic_grid_search", "Generic grid search", "generic_experiment_plan", "{{suite}}.generated.yaml"),
     template("medical_segmentation_ablation", "Medical segmentation ablation", "medical_segmentation_plan", "{{suite}}.ablation.yaml"),
     template("missing_modality_experiment", "Missing modality experiment", "medical_segmentation_plan", "{{suite}}.missing_modality.yaml"),
@@ -318,7 +287,7 @@ exports.builtInPlanTemplates = [
     template("cross_dataset_evaluation", "Cross dataset evaluation", "medical_segmentation_plan", "{{suite}}.cross_dataset.yaml"),
     template("seed_repeat_experiment", "Seed repeat experiment", "generic_experiment_plan", "{{suite}}.seeds.yaml"),
 ];
-function buildExperimentMatrix(matrix, existingRunKeys = []) {
+export function buildExperimentMatrix(matrix, existingRunKeys = []) {
     const existing = new Set(existingRunKeys);
     const advanced = expandPlanMatrix({
         variables: [
@@ -345,7 +314,7 @@ function buildExperimentMatrix(matrix, existingRunKeys = []) {
     }
     return { experiments, duplicateRunKeys: Array.from(new Set(duplicateRunKeys)), filteredCount: advanced.filteredCount, errors: advanced.errors, yaml: renderPlanYaml(matrix, experiments), previewCsv: matrixPreviewCsv(experiments) };
 }
-function renderPlanYaml(matrix, experiments) {
+export function renderPlanYaml(matrix, experiments) {
     const cases = caseEntriesForPlanYaml(matrix, experiments);
     const lines = [
         `suite: ${quoteYaml(matrix.suite)}`,
@@ -395,7 +364,7 @@ function planYamlCaseName(matrix, overrides) {
         return fromRule;
     return Object.keys(overrides).length ? experimentName(matrix.suite, overrides) : `${matrix.suite}__baseline`;
 }
-function parsePlanCases(yaml) {
+export function parsePlanCases(yaml) {
     const cases = [];
     let sectionIndent = -1;
     let inPlanList = false;
@@ -655,7 +624,7 @@ const planResultPrefixPairs = new Set([
     "zlk_cluster/archive",
 ]);
 const planResultExactPairs = new Set(["experiments/results.csv"]);
-function parsePlanOutputEvidence(yaml, commands = {}) {
+export function parsePlanOutputEvidence(yaml, commands = {}) {
     const clean = stripYamlComments(yaml);
     const declaredMode = commands.mode || firstTopLevelPlanScalar(clean, collectYamlScalarAnchors(clean), "mode");
     const mode = normalizePlanMode(declaredMode);
@@ -720,7 +689,7 @@ function parsePlanOutputEvidence(yaml, commands = {}) {
         signals.add("metricRegex: 自定义指标正则");
     return { outputCandidates, outputSignals: [...signals].sort(), evidenceCandidates };
 }
-function parsePlanSummary(yaml) {
+export function parsePlanSummary(yaml) {
     const clean = stripYamlComments(yaml);
     const anchors = collectYamlScalarAnchors(clean);
     const modeRaw = firstTopLevelPlanScalar(clean, anchors, "mode");
@@ -877,7 +846,7 @@ function yamlConfigValueHasContent(lines, index, baseIndent, rest) {
     }
     return false;
 }
-function normalizePlanMode(value, fallback = "train_test") {
+export function normalizePlanMode(value, fallback = "train_test") {
     const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
     if (!normalized)
         return fallback;
@@ -889,7 +858,7 @@ function normalizePlanMode(value, fallback = "train_test") {
         return "train_test";
     return fallback;
 }
-function validateDeepLearningPlanContract(yaml) {
+export function validateDeepLearningPlanContract(yaml) {
     const clean = stripYamlComments(yaml);
     const summary = parsePlanSummary(clean);
     const evidence = parsePlanOutputEvidence(clean, { mode: summary.mode, trainCommand: summary.trainCommand, testCommand: summary.testCommand });
@@ -1350,8 +1319,8 @@ function uniquePlanStrings(values) {
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-function expandPlanMatrix(matrix: PlanMatrix, existingRunKeys?: Iterable<string>, suite?: string): PlanBuildResult;
-function expandPlanMatrix(matrix, existingRunKeys = [], suite = "suite") {
+export function expandPlanMatrix(matrix: PlanMatrix, existingRunKeys?: Iterable<string>, suite?: string): PlanBuildResult;
+export function expandPlanMatrix(matrix, existingRunKeys = [], suite = "suite") {
     const errors = [];
     const paired = matrix.variables.filter((item) => item.mode === "paired");
     const fixed = matrix.variables.filter((item) => item.mode === "fixed");
@@ -1396,15 +1365,15 @@ function expandPlanMatrix(matrix, existingRunKeys = [], suite = "suite") {
     }
     return { experiments, duplicateRunKeys: Array.from(new Set(duplicateRunKeys)), filteredCount, errors, yaml: "", previewCsv: matrixPreviewCsv(experiments) };
 }
-function renderPlanTemplate(template, variables) {
+export function renderPlanTemplate(template, variables) {
     validateTemplateVariables(template, variables);
     return template.files.map((file) => ({ relativePath: renderTemplate(file.relativePath, variables), content: renderTemplate(file.contentTemplate, variables), overwritePolicy: file.overwritePolicy }));
 }
-function validateTemplateVariables(template, variables) {
+export function validateTemplateVariables(template, variables) {
     return template.variables.filter((item) => item.required && variables[item.key] === undefined && item.defaultValue === undefined).map((item) => ({ id: `missing_variable_${item.key}`, severity: "critical", path: `variables.${item.key}`, message: `Missing template variable: ${item.key}`, suggestion: "Set variable before generating plan." }));
 }
-function importLegacyPlanYamlToRegistry(planFile: string, text: string, existing?: ExperimentPlanRecord[]): ExperimentPlanRecord;
-function importLegacyPlanYamlToRegistry(planFile, text, existing = []) {
+export function importLegacyPlanYamlToRegistry(planFile: string, text: string, existing?: ExperimentPlanRecord[]): ExperimentPlanRecord;
+export function importLegacyPlanYamlToRegistry(planFile, text, existing = []) {
     const summary = parsePlanSummary(text);
     const suite = summary.suite || stripExt(planFile);
     const cases = summary.cases;
@@ -1447,7 +1416,7 @@ function expandPlannedExperiments(suite, cases, seeds) {
         };
     }));
 }
-function upsertPlanRecords(existing, incoming) {
+export function upsertPlanRecords(existing, incoming) {
     const map = new Map(existing.map((item) => [item.planId, item]));
     for (const record of incoming) {
         const prev = map.get(record.planId);
@@ -1455,10 +1424,10 @@ function upsertPlanRecords(existing, incoming) {
     }
     return Array.from(map.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
-function deprecatePlan(record, reason = "deprecated") {
+export function deprecatePlan(record, reason = "deprecated") {
     return { ...record, status: "deprecated", notes: [record.notes, reason].filter(Boolean).join("\n"), updatedAt: new Date().toISOString() };
 }
-function validatePlanRecord(record, context = {}) {
+export function validatePlanRecord(record, context = {}) {
     const warnings = [];
     const errors = [];
     const duplicates = [];
@@ -1486,7 +1455,7 @@ function validatePlanRecord(record, context = {}) {
         warnings.push(...record.resourceEstimate.warnings.map((message, index) => planIssue(`resource_${index}`, "warning", "resourceEstimate", message)));
     return { planId: record.planId, status: errors.length ? "failed" : warnings.length || duplicates.length ? "warning" : "ok", experimentCount: record.experimentCount, warnings, errors, duplicateExperiments: duplicates };
 }
-function estimatePlanResources(experimentCount, perExperiment = {}, workers = []) {
+export function estimatePlanResources(experimentCount, perExperiment = {}, workers = []) {
     const estimate = {
         experimentCount,
         estimatedGpuHours: multiply(perExperiment.estimatedGpuHours, experimentCount),
@@ -1504,7 +1473,7 @@ function estimatePlanResources(experimentCount, perExperiment = {}, workers = []
         estimate.warnings.push("No worker appears to satisfy GPU memory requirement.");
     return estimate;
 }
-function createPlanRevision(planId, planText, reason, source = "manual_edit", previous) {
+export function createPlanRevision(planId, planText, reason, source = "manual_edit", previous) {
     const hash = sha256(planText);
     return {
         revisionId: `plan_rev_${hash.slice(0, 12)}`,
@@ -1517,7 +1486,7 @@ function createPlanRevision(planId, planText, reason, source = "manual_edit", pr
         changedFields: previous && previous.planSha256 !== hash ? ["planSha256"] : [],
     };
 }
-function diffPlans(a, b) {
+export function diffPlans(a, b) {
     const changed = ["planName", "suite", "status", "planFile", "planSha256", "schemaId", "templateId", "experimentCount"].filter((key) => JSON.stringify(a[key]) !== JSON.stringify(b[key]));
     const expA = new Set(a.plannedExperiments.map((item) => item.experimentKey));
     const expB = new Set(b.plannedExperiments.map((item) => item.experimentKey));
@@ -1525,8 +1494,8 @@ function diffPlans(a, b) {
     const removed = Array.from(expA).filter((key) => !expB.has(key)).length;
     return `fields=${changed.join(",") || "none"} experiments_added=${added} experiments_removed=${removed}`;
 }
-function cloneOrReproducePlan(source: ExperimentPlanRecord, options: ReproducePlanOptions): ExperimentPlanRecord;
-function cloneOrReproducePlan(source, options) {
+export function cloneOrReproducePlan(source: ExperimentPlanRecord, options: ReproducePlanOptions): ExperimentPlanRecord;
+export function cloneOrReproducePlan(source, options) {
     const now = new Date().toISOString();
     const filtered = source.plannedExperiments.filter((item) => {
         if (options.mode === "retry_failed")
@@ -1553,7 +1522,7 @@ function cloneOrReproducePlan(source, options) {
         revisions: [createPlanRevision(planId, JSON.stringify({ source: source.planId, options }), "clone/reproduce", "clone")],
     };
 }
-function searchPlans(records, query) {
+export function searchPlans(records, query) {
     return records.filter((record) => {
         if (query.suite && record.suite !== query.suite)
             return false;
@@ -1574,7 +1543,7 @@ function searchPlans(records, query) {
         return true;
     });
 }
-function tagPlan(record, tag, enabled = true) {
+export function tagPlan(record, tag, enabled = true) {
     const tags = new Set(record.tags || []);
     if (enabled)
         tags.add(tag);
@@ -1582,7 +1551,7 @@ function tagPlan(record, tag, enabled = true) {
         tags.delete(tag);
     return { ...record, tags: Array.from(tags), updatedAt: new Date().toISOString() };
 }
-function computePlanResultCoverage(plan, lifecycles = [], results = [], primaryMetric = "DSC") {
+export function computePlanResultCoverage(plan, lifecycles = [], results = [], primaryMetric = "DSC") {
     const aliasesByExperiment = plan.plannedExperiments.map((item) => planExperimentAliases(item));
     const allAliases = new Set(aliasesByExperiment.flatMap((aliases) => Array.from(aliases)));
     const completed = lifecycles.filter((item) => planRecordMatchesAliases(item, allAliases) && ["completed", "archived"].includes(String(item.state || item.status))).length;
@@ -1610,7 +1579,7 @@ function planExperimentAliases(item) {
 function planRecordMatchesAliases(item, aliases) {
     return [item.experimentKey, item.experimentId, item.runKey].some((value) => aliases.has(String(value || "").trim()));
 }
-function dependencyBlockedReasons(plan, completedIds, metrics = {}) {
+export function dependencyBlockedReasons(plan, completedIds, metrics = {}) {
     const completed = new Set(completedIds);
     const blocked = {};
     for (const dep of plan.dependencies || []) {
@@ -1628,7 +1597,7 @@ function dependencyBlockedReasons(plan, completedIds, metrics = {}) {
     }
     return blocked;
 }
-function readPlanConfigJson(text, validate, lastKnownGood) {
+export function readPlanConfigJson(text, validate, lastKnownGood) {
     try {
         const parsed = JSON.parse(text);
         return validate(parsed) ? { ok: true, value: parsed } : { ok: false, value: lastKnownGood, error: "schema validation failed" };
@@ -1889,7 +1858,7 @@ function stripExt(file) {
     return pathName(file).replace(/\.[^.]+$/, "");
 }
 function sha256(text) {
-    return (0, crypto_1.createHash)("sha256").update(text).digest("hex");
+    return createHash("sha256").update(text).digest("hex");
 }
 function mergeRevisions(a = [], b = []) {
     const map = new Map([...a, ...b].map((item) => [item.revisionId, item]));

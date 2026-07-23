@@ -20,15 +20,15 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 
-## 当前批次：recovery-source-002
+## 当前批次：recovery-source-003
 ### 修复点
-- 恢复 `PlanArchive.ts`、`PlottingContract.ts` 和 `ProjectAdapterTemplates.ts` 为 TypeScript 模块源码。
-- 仅移除 CommonJS 编译包装器并恢复 import/export，保留函数正文和运行行为。
-- 增加统一源码形态回归断言，防止构建产物再次覆盖 TypeScript 源文件。
+- 恢复 `PlanBuilder.ts` 为 TypeScript 模块源码。
+- 仅移除 CommonJS 编译包装器并恢复 `crypto` 导入和公开导出，保留类型、重载和函数正文。
+- 扩展源码形态回归断言，防止构建产物再次覆盖 TypeScript 源文件。
 
 ### 回归风险
-- 相邻回归风险：计划归档、绘图契约和项目适配模板的现有 API 必须保持完整。
-- 行为风险：argparse 参数审计、Plan 配置归档、PPT 最终结果路径和模板正文不得变化。
+- 相邻回归风险：Plan builder 的计划生成、校验、版本恢复和结果覆盖 API 必须保持完整。
+- 行为风险：Plan YAML、模板变量、hash 和计划注册表行为不得变化。
 - 外部边界：不运行真实实验，不写项目归档，不修改安装目录或已安装插件。
 
 ### 验证清单
@@ -39,11 +39,11 @@
 - [已完成] 公开离线包改为直接写入全新版本目录；目标目录已存在时立即阻断，不删除、不覆盖旧 VSIX 或说明文件。实际打包与重复路径拒绝检查通过。
 - [已完成] 两个源码 manifest 已清除安装态 `__metadata`；临时对照包分别为 138、8 个归档项，包内扩展 ID、版本和显示名不变，均不含该字段。
 - [失败] 当前计划 A 输入缺少 `vscode-remote` 与 `127.0.0.1` 明示声明，且 `containerUser=root`；校验结果为 `failed`，不得生成兼容通过结果。
-- [已完成] 三份恢复污染模块的源码形态、编译产物和全量回归检查；全量测试 663/663、lint、构建和 diff 检查通过。
+- [已完成] `PlanBuilder.ts` 源码形态恢复、编译产物对照和全量回归；全量测试 663/663、lint、构建和 diff 检查通过。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
 - 当前目标状态：共享租约、UI Host 激活和对照打包修复完成；跨平台 Git 工作区已稳定；Docker 兼容等待现场联调与正式交付。
 - `docker-plugin-008`：源码 manifest 安装态残留已清理；全量测试、lint、临时打包和包内 manifest 检查通过，未安装或覆盖插件。
 - `history-006`：独立视觉夹具与自动化检查已完成；本地页面自动截图不可用，桌面、高 DPI 和窄侧栏视觉检查保持 `needs field verification`。
-- `recovery-source-002`：`PlanArchive.ts`、`PlottingContract.ts`、`ProjectAdapterTemplates.ts` 已恢复为 TypeScript 模块；源码形态测试、全量测试 663/663、lint、构建和编译产物语法检查通过。
+- `recovery-source-003`：`PlanBuilder.ts` 已恢复为 TypeScript 模块并保留公开 API、重载和行为；定向测试 54/54、全量测试 663/663、lint、构建和编译产物语法检查通过。
