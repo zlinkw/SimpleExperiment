@@ -39,10 +39,12 @@
 - [已通过] `history-002b` build、typecheck、lint、runtime/SHA256、`git diff --check` 与全量测试 628/628。
 - [已通过] `history-003` 总体/单卡图表、服务端缺口标记、稳定配色、可访问图例、响应式绘制定向测试。
 - [已通过] `history-003` build、typecheck、lint、`node -c`、`git diff --check` 与全量测试 631/631。
-- [待验证] `history-004` 模拟服务器数量、UI 视觉布局、三天数据资源预算、打包检查和现场连续采样。
+- [已通过] `history-004` 模拟服务器数量、颜色稳定性、缺口/峰值/显存悬停逻辑与全量测试 635/635。
+- [已通过] `history-004` build、typecheck、lint、`node -c`、`git diff --check` 与 `vsce ls --no-dependencies`；未生成或安装 VSIX。
+- [待验证] `history-004` 实际浏览器视觉布局、高 DPI/窄侧栏截图、三天资源现场观测和连续采样。
 
 ## 本批记录
 - 上一完成批次：`recovery-build-053`，修复提交 `a7a71e87849606cae09de12d71c4a313fee2a2fa`，记录提交 `fa239e25afd2ad88687cd64460bed1d207653f18`。
 - 当前目标状态：`history-003` 已完成并同步；`history-004` 执行中。
 - 本批涉及：模拟服务器数量、UI 视觉布局、资源预算、打包与现场验收；不安装或覆盖 VSIX。
-- 上一修复提交：`967a868b1e09a05e51509894e0b64ac5bc734255`；真实服务器连续三天采样仍为 `needs field verification`。
+- 上一修复提交：`6547e60`（悬停详情；前置验收提交 `629b1b0`）；真实服务器连续三天采样仍为 `needs field verification`。

@@ -76,8 +76,10 @@
 ### history-004 验收
 
 - 状态：执行中。
-- 运行 typecheck、lint、UI、realtime、Agent、状态预算和打包检查。
-- 使用至少 `1`、`2`、`8`、`16` 台模拟服务器验证配色、图例和布局。
+- 自动化已通过：全量测试 `635/635`、typecheck、lint、`node -c`、`git diff --check`、`vsce ls --no-dependencies`。
+- 已用 `1`、`2`、`8`、`16` 台模拟服务器验证配色稳定性、线型/点形状回退、图例、峰值聚合、缺口和悬停文本。
+- 未生成、安装或覆盖 VSIX；当前仓库与 `origin/master` 已同步。
+- 待做：真实浏览器视觉布局、高 DPI/窄侧栏截图、三天资源观测和现场连续采样。
 - 验证三天数据量、内存、磁盘、Webview payload、展开性能和断连缺口。
 - 在真实服务器连续采样三天前，功能状态保持 `needs field verification`。
 
