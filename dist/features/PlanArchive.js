@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.normalizePlanConfigReference = normalizePlanConfigReference;
@@ -6,10 +5,11 @@ exports.planConfigScalarTokens = planConfigScalarTokens;
 exports.planCommandConfigTokens = planCommandConfigTokens;
 exports.planStaticConfigReferences = planStaticConfigReferences;
 exports.planRuntimeConfigReferences = planRuntimeConfigReferences;
-exports.pythonCliParameterDeclarations = pythonCliParameterDeclarations;
-exports.pythonCliParameterAudit = pythonCliParameterAudit;
 exports.pythonLocalImportReferences = pythonLocalImportReferences;
+exports.pythonCliParameterAudit = pythonCliParameterAudit;
+exports.pythonCliParameterDeclarations = pythonCliParameterDeclarations;
 exports.restorePlanText = restorePlanText;
+// @ts-nocheck
 function normalizePlanConfigReference(value) {
     return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
 }

@@ -1,17 +1,5 @@
 // @ts-nocheck
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.normalizePlanConfigReference = normalizePlanConfigReference;
-exports.planConfigScalarTokens = planConfigScalarTokens;
-exports.planCommandConfigTokens = planCommandConfigTokens;
-exports.planStaticConfigReferences = planStaticConfigReferences;
-exports.planRuntimeConfigReferences = planRuntimeConfigReferences;
-exports.pythonCliParameterDeclarations = pythonCliParameterDeclarations;
-exports.pythonCliParameterAudit = pythonCliParameterAudit;
-exports.pythonLocalImportReferences = pythonLocalImportReferences;
-exports.restorePlanText = restorePlanText;
-
-function normalizePlanConfigReference(value) {
+export function normalizePlanConfigReference(value) {
     return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
@@ -124,7 +112,7 @@ function isStaticCommandConfigReference(value) {
     return isConfigFileReference(normalized) && !/^(?:[A-Za-z]:\/|\/)/.test(normalized);
 }
 
-function planConfigScalarTokens(planText) {
+export function planConfigScalarTokens(planText) {
     return planYamlScalarTokens(planText, /^(base_config|config)/i)
         .map((token) => ({ ...token, value: normalizePlanConfigReference(token.value) }))
         .filter((token) => isConfigFileReference(token.value));
@@ -282,7 +270,7 @@ function commandConfigTokensForSpan(span) {
     return tokens;
 }
 
-function planCommandConfigTokens(planText) {
+export function planCommandConfigTokens(planText) {
     const scalarSpans = planYamlScalarTokens(planText, /^(train_command|trainCommand|test_command|testCommand|command)/);
     const spans = [...scalarSpans, ...planCommandLineSpans(planText), ...planCommandBlockSpans(planText)].sort((a, b) => a.start - b.start);
     const seen = new Set();
@@ -295,11 +283,11 @@ function planCommandConfigTokens(planText) {
     });
 }
 
-function planStaticConfigReferences(planText) {
+export function planStaticConfigReferences(planText) {
     return [...new Set([...planConfigScalarTokens(planText), ...planCommandConfigTokens(planText)].map((item) => item.value))];
 }
 
-function planRuntimeConfigReferences(planText, mode = "train_test") {
+export function planRuntimeConfigReferences(planText, mode = "train_test") {
     const normalized = String(mode || "train_test").trim().toLowerCase().replace(/[\s-]+/g, "_");
     const commandTokens = planCommandConfigTokens(planText).filter((item) => {
         if (normalized === "train")
@@ -410,7 +398,7 @@ function pythonModuleCandidates(moduleName, sourceFile) {
     return [`${base}.py`, `${base}/__init__.py`];
 }
 
-function pythonLocalImportReferences(source, sourceFile) {
+export function pythonLocalImportReferences(source, sourceFile) {
     const code = pythonCodeMask(source).replace(/\\\s*\r?\n\s*/g, " ");
     const references = [];
     const add = (moduleName) => {
@@ -644,7 +632,7 @@ function pythonNargsKind(value) {
     return "required";
 }
 
-function pythonCliParameterAudit(source) {
+export function pythonCliParameterAudit(source) {
     const text = String(source || "").split(/\r?\n/).map(stripPythonLineComment).join("\n");
     const code = pythonCodeMask(text);
     const moduleConstants = pythonStaticModuleConstants(source);
@@ -889,7 +877,7 @@ function pythonCliParameterAudit(source) {
     return { parameters: out, parserDeclarations, unresolvedDeclarations, dynamicDefaults, parserFeatures };
 }
 
-function pythonCliParameterDeclarations(source) {
+export function pythonCliParameterDeclarations(source) {
     return pythonCliParameterAudit(source).parameters;
 }
 
@@ -1022,7 +1010,7 @@ function planRestoreResultListTokens(planText, planVersion) {
     return tokens;
 }
 
-function restorePlanText(planText, context) {
+export function restorePlanText(planText, context) {
     const outputNamespace = restoreOutputNamespace(context.planVersion);
     const header = [
         `# ZLK restore version: v${context.planVersion}`,

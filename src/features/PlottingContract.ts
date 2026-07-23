@@ -1,23 +1,7 @@
 // @ts-nocheck
-export {};
-// @ts-nocheck
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.plottingContractRequiredFields = exports.PLOTTING_CONTRACT_JSON_PATH = exports.PLOTTING_CONTRACT_DOC_PATH = void 0;
-exports.buildPlottingOutputContract = buildPlottingOutputContract;
-exports.plottingContractMarkdown = plottingContractMarkdown;
-exports.planSlugFromPlanFile = planSlugFromPlanFile;
-exports.planResultsArtifactRelPath = planResultsArtifactRelPath;
-exports.plottingContractJsonPath = plottingContractJsonPath;
-exports.plottingContractMarkdownPath = plottingContractMarkdownPath;
-exports.statisticsJsonPath = statisticsJsonPath;
-exports.resultRegistryJsonPath = resultRegistryJsonPath;
-exports.caseLevelIndexJsonPath = caseLevelIndexJsonPath;
-exports.datasetProfileJsonPath = datasetProfileJsonPath;
-exports.paperTableCsvPath = paperTableCsvPath;
-exports.PLOTTING_CONTRACT_DOC_PATH = "docs/output-contract-for-plotting.md";
-exports.PLOTTING_CONTRACT_JSON_PATH = "zlk_cluster/results/plotting_contract.json";
-exports.plottingContractRequiredFields = [
+export const PLOTTING_CONTRACT_DOC_PATH = "docs/output-contract-for-plotting.md";
+export const PLOTTING_CONTRACT_JSON_PATH = "zlk_cluster/results/plotting_contract.json";
+export const plottingContractRequiredFields = [
     "method",
     "dataset",
     "split",
@@ -36,7 +20,7 @@ exports.plottingContractRequiredFields = [
     "subgroup",
     "error_type",
 ];
-function planSlugFromPlanFile(planFile) {
+export function planSlugFromPlanFile(planFile) {
     const text = String(planFile || "").trim().replace(/\\/g, "/");
     if (!text)
         return "";
@@ -44,7 +28,7 @@ function planSlugFromPlanFile(planFile) {
     const stem = base.replace(/\.[^.]+$/, "");
     return stem.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80);
 }
-function planResultsArtifactRelPath(planFile, filename) {
+export function planResultsArtifactRelPath(planFile, filename) {
     const slug = planSlugFromPlanFile(planFile);
     const name = String(filename || "").replace(/^\/+/, "");
     if (!name)
@@ -53,39 +37,39 @@ function planResultsArtifactRelPath(planFile, filename) {
         return `zlk_cluster/results/${name}`;
     return `zlk_cluster/results/by_plan/${slug}/${name}`;
 }
-function plottingContractJsonPath(planFile) {
+export function plottingContractJsonPath(planFile) {
     return planResultsArtifactRelPath(planFile, "plotting_contract.json");
 }
-function plottingContractMarkdownPath(planFile) {
+export function plottingContractMarkdownPath(planFile) {
     return planResultsArtifactRelPath(planFile, "output_contract_for_plotting.md");
 }
-function statisticsJsonPath(planFile) {
+export function statisticsJsonPath(planFile) {
     return planResultsArtifactRelPath(planFile, "statistics.json");
 }
-function resultRegistryJsonPath(planFile) {
+export function resultRegistryJsonPath(planFile) {
     return planResultsArtifactRelPath(planFile, "result_registry.json");
 }
-function caseLevelIndexJsonPath(planFile) {
+export function caseLevelIndexJsonPath(planFile) {
     return planResultsArtifactRelPath(planFile, "case_level_index.json");
 }
-function paperTableCsvPath(planFile) {
+export function paperTableCsvPath(planFile) {
     const slug = planSlugFromPlanFile(planFile);
     return slug ? `paper/tables/zlk_results_table__${slug}.csv` : "paper/tables/zlk_results_table.csv";
 }
-function datasetProfileJsonPath(planFile) {
+export function datasetProfileJsonPath(planFile) {
     const slug = planSlugFromPlanFile(planFile);
     if (!slug)
         return "zlk_cluster/datasets/profile.json";
     return `zlk_cluster/datasets/by_plan/${slug}/profile.json`;
 }
-function buildPlottingOutputContract(generatedAt = new Date().toISOString(), planFile = "") {
+export function buildPlottingOutputContract(generatedAt = new Date().toISOString(), planFile = "") {
     const plan = String(planFile || "").trim();
     return {
         schemaVersion: 1,
         generatedAt,
         consumer: "D:/GitRepo/my_ppt_app",
         planFile: plan || "",
-        requiredFields: exports.plottingContractRequiredFields,
+        requiredFields: plottingContractRequiredFields,
         files: {
             resultRegistry: {
                 path: resultRegistryJsonPath(plan),
@@ -126,7 +110,7 @@ function buildPlottingOutputContract(generatedAt = new Date().toISOString(), pla
         ],
     };
 }
-function plottingContractMarkdown(contract = buildPlottingOutputContract()) {
+export function plottingContractMarkdown(contract = buildPlottingOutputContract()) {
     const lines = [
         "# ZLK 输出到 PPT 绘图插件的稳定契约",
         "",

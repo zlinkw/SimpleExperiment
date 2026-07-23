@@ -1,10 +1,6 @@
-// @ts-nocheck
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-Object.defineProperty(exports, "__esModule", { value: true });
 exports.plottingContractRequiredFields = exports.PLOTTING_CONTRACT_JSON_PATH = exports.PLOTTING_CONTRACT_DOC_PATH = void 0;
-exports.buildPlottingOutputContract = buildPlottingOutputContract;
-exports.plottingContractMarkdown = plottingContractMarkdown;
 exports.planSlugFromPlanFile = planSlugFromPlanFile;
 exports.planResultsArtifactRelPath = planResultsArtifactRelPath;
 exports.plottingContractJsonPath = plottingContractJsonPath;
@@ -12,8 +8,11 @@ exports.plottingContractMarkdownPath = plottingContractMarkdownPath;
 exports.statisticsJsonPath = statisticsJsonPath;
 exports.resultRegistryJsonPath = resultRegistryJsonPath;
 exports.caseLevelIndexJsonPath = caseLevelIndexJsonPath;
-exports.datasetProfileJsonPath = datasetProfileJsonPath;
 exports.paperTableCsvPath = paperTableCsvPath;
+exports.datasetProfileJsonPath = datasetProfileJsonPath;
+exports.buildPlottingOutputContract = buildPlottingOutputContract;
+exports.plottingContractMarkdown = plottingContractMarkdown;
+// @ts-nocheck
 exports.PLOTTING_CONTRACT_DOC_PATH = "docs/output-contract-for-plotting.md";
 exports.PLOTTING_CONTRACT_JSON_PATH = "zlk_cluster/results/plotting_contract.json";
 exports.plottingContractRequiredFields = [
