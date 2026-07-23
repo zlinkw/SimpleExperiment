@@ -37,7 +37,7 @@
 - [已完成] SimpleSFTP VSIX 包含共享租约与工作区映射模块；两个独立插件模块互操作通过。
 - [已完成] SimpleExperiment `0.2.1` 与 SimpleSFTP `0.1.3` 对照包的 manifest、package 版本和扩展 ID 一致。
 - [待验证] 计划 A 输入接口；当前 `PLUGIN-HANDOFF.md` 声明容器用户为 `root`，与原计划的非 root 约束不一致。
-- [待现场验证] Dev Container 文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`。
+- [待现场验证] Dev Container 文件同字节上传和 Xshell `127.0.0.1` 为 `needs experiment`；当前只读检查未发现 Xshell 进程或本地监听端口。
 
 ## 本批记录
 - 上一完成批次：`docker-plugin-003`，本批验证记录与提交以 git 为准。
