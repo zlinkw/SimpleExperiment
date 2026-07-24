@@ -21,6 +21,7 @@ function extractFunction(name) {
 
 test("first activation offers the exact missing setup or SimpleSFTP action", () => {
   assert.match(source, /firstRunSetupPrompt: "simpleExperiment\.firstRunSetupPromptVersion"/);
+  assert.match(source, /projectOnboardingCompleted: "simpleExperiment\.projectOnboardingCompleted"/);
   assert.match(source, /legacySftpNoticeShown: "simpleExperiment\.legacySftpNoticeShown"/);
   assert.match(source, /const FIRST_RUN_SETUP_PROMPT_VERSION = 4/);
   assert.match(source, /void provider\.runActivationOnboarding\(\)/);
@@ -67,6 +68,7 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /choice === "不再提示"[\s\S]{0,140}globalState\.update/);
   assert.match(source, /afterSftp = simpleSftpIntegrationReadiness\(\)/);
   assert.match(source, /async markProjectOnboardingComplete\(\)/);
+  assert.match(source, /workspaceState\.update\(keys\.projectOnboardingCompleted, true\)/);
   assert.match(source, /await this\.markProjectOnboardingComplete\(\)/);
   assert.doesNotMatch(source, /needsSftpOnly/);
   assert.match(source, /"打开配置说明", "开始一键配置", "不再提示"/);

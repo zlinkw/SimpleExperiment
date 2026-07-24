@@ -92,6 +92,7 @@ const keys = {
     pptPlotConfig: "zlkCluster.pptPlotConfig",
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
+    projectOnboardingCompleted: "simpleExperiment.projectOnboardingCompleted",
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
 };
@@ -380,6 +381,7 @@ class RealtimeTunnelPanelProvider {
     statePostTimer;
     statePostPending = false;
     lastPostedStateSignature = "";
+    lastStateBuildErrorSignature = "";
     statePostBatchMs = 100;
     webviewReady = false;
     panelReadyWatchdogTimer;
@@ -1090,6 +1092,7 @@ class RealtimeTunnelPanelProvider {
         this.statePostTimer = undefined;
         this.statePostPending = false;
         this.lastPostedStateSignature = "";
+        this.lastStateBuildErrorSignature = "";
         this.webviewReady = false;
         this.pendingPanelNavigation = undefined;
         await this.client.disconnect("deactivate").catch(() => undefined);
@@ -1158,13 +1161,6 @@ class RealtimeTunnelPanelProvider {
     async showFirstRunSetupPromptOnceCore() {
         const simpleSftp = simpleSftpIntegrationReadiness();
         const legacySftp = legacySftpInstallationState();
-        if (simpleSftp.ready && legacySftp.installed && !this.context.globalState.get(keys.legacySftpNoticeShown)) {
-            const choice = await vscode.window.showWarningMessage("检测到旧版 SFTP 插件仍已安装。新版 SimpleSFTP 已可用；若看到旧版状态栏按钮，请先卸载旧版，再执行 Developer: Reload Window。", "打开旧版扩展管理", "不再提示");
-            if (choice === "打开旧版扩展管理")
-                await vscode.commands.executeCommand("workbench.extensions.search", `@id:${LEGACY_SFTP_EXTENSION_ID}`);
-            else if (choice === "不再提示")
-                await this.context.globalState.update(keys.legacySftpNoticeShown, true);
-        }
         const serverSetupComplete = initialServerSetupComplete(this.setupConfig);
         const enabledWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
@@ -1182,6 +1178,13 @@ class RealtimeTunnelPanelProvider {
             else if (choice === "不再提示")
                 await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
             return;
+        }
+        if (simpleSftp.ready && legacySftp.installed && !this.context.globalState.get(keys.legacySftpNoticeShown)) {
+            const choice = await vscode.window.showWarningMessage("检测到旧版 SFTP 插件仍已安装。新版 SimpleSFTP 已可用；若看到旧版状态栏按钮，请先卸载旧版，再执行 Developer: Reload Window。", "打开旧版扩展管理", "不再提示");
+            if (choice === "打开旧版扩展管理")
+                await vscode.commands.executeCommand("workbench.extensions.search", `@id:${LEGACY_SFTP_EXTENSION_ID}`);
+            else if (choice === "不再提示")
+                await this.context.globalState.update(keys.legacySftpNoticeShown, true);
         }
         const shownVersion = Number(this.context.globalState.get(keys.firstRunSetupPrompt, 0));
         if (shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION)
@@ -1216,8 +1219,10 @@ class RealtimeTunnelPanelProvider {
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
     }
     async markProjectOnboardingComplete() {
-        if (workspaceRoot())
+        if (workspaceRoot()) {
+            await this.context.workspaceState.update(keys.projectOnboardingCompleted, true);
             await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
+        }
     }
     async ensureSimpleSftpReadyForSetup(operation) {
         const simpleSftp = simpleSftpIntegrationReadiness();
@@ -2231,6 +2236,10 @@ class RealtimeTunnelPanelProvider {
                 this.recordActionError({ command, message: this.lastError, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
                 if (!this.webviewReady)
                     this.showPanelRecovery(this.lastError);
+                break;
+            case "webviewRenderError":
+                this.lastError = String(message?.error || "Webview 状态渲染失败").slice(0, 480);
+                this.recordActionError({ command, message: this.lastError, suggestion: "请重新加载面板；若仍失败，请执行 Developer: Reload Window。" });
                 break;
             case "reloadPanel":
                 this.reloadPanelHtml();
@@ -6851,6 +6860,8 @@ class RealtimeTunnelPanelProvider {
             setup: this.setupConfig,
             simpleSftp: integrations.simpleSftp,
             promptShown: this.context.workspaceState.get(keys.projectOnboardingPrompt, 0),
+            completed: this.context.workspaceState.get(keys.projectOnboardingCompleted, false) === true
+                || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState),
         });
         return {
             extensionVersion: String(this.context.extension.packageJSON?.version || ""),
@@ -7081,6 +7092,104 @@ class RealtimeTunnelPanelProvider {
     reloadPanelHtml() {
         this.loadPanelHtml();
     }
+    buildPanelFallbackState(message) {
+        let workspace = {
+            open: false,
+            name: "",
+            root: "",
+            hostPath: "",
+            editorUri: "",
+            containerPath: "",
+            remote: false,
+            mappingError: "",
+            folderCount: 0,
+            singleProject: false,
+        };
+        try {
+            workspace = workspaceContextForWebview();
+        }
+        catch {
+            // Keep recovery rendering independent from workspace path mapping.
+        }
+        const setup = { workerTunnels: [] };
+        const simpleSftp = {
+            ready: false,
+            installed: false,
+            extensionId: SIMPLE_SFTP_EXTENSION_ID,
+            version: "",
+            missingCommands: [...SIMPLE_SFTP_REQUIRED_COMMANDS],
+            message: "面板状态暂不可用；请重新加载面板。",
+        };
+        let projectOnboarding;
+        try {
+            projectOnboarding = projectOnboardingStateForWebview({ workspace, setup, simpleSftp, completed: false });
+        }
+        catch {
+            projectOnboarding = { required: false, completed: false, ready: false, blocked: false, missing: [], projectName: "当前项目", detail: "" };
+        }
+        const boundedMessage = compactSensitiveText(message, 600) || "面板状态生成失败。";
+        return {
+            extensionVersion: String(this.context.extension.packageJSON?.version || ""),
+            connectionMode: "xshell_tunnel_realtime",
+            localEndpoint: "http://127.0.0.1:18765",
+            workspace,
+            setup,
+            schedulerConfig: {},
+            pptPlotConfig: {},
+            pptAutomation: {},
+            integrations: { simpleSftp },
+            projectOnboarding,
+            health: { state: "unknown", status: "unknown", message: "面板状态暂不可用。" },
+            realtime: { status: "disconnected", endpoints: [], lastSeq: 0 },
+            gpuOwnerConfig: {},
+            planDir: "experiments/plans",
+            detectedProject: {},
+            plans: [],
+            plansTotalCount: 0,
+            plansOmittedCount: 0,
+            planArchive: { plans: [], totalCount: 0, omittedCount: 0 },
+            planScanError: boundedMessage,
+            gpu: [],
+            gpuHistory: { status: "idle" },
+            schedulerStates: [],
+            experimentTraces: [],
+            logs: [],
+            operations: {},
+            fileTransfers: {},
+            codeSync: {},
+            remotePathConfirmations: { count: 0, stateFile: "" },
+            pptPathConfirmations: { count: 0, stateFile: "" },
+            uiLayout: { order: [], collapsed: {}, resourceTreeChildren: {}, manual: false, treePinned: false, inspectorPinned: false, detailActions: [], pinnedActions: [] },
+            selection: { selectedPlanId: "", selectedExperimentIds: [], selectedRunKeys: [], selectedRunKey: "", selectedArchiveKeys: [], hiddenLegacyTaskUiKeys: [], selectedLogRunKey: "" },
+            planFileInput: "",
+            recentPlans: [],
+            resultsSummary: {},
+            auditTail: undefined,
+            debugBundlePath: "",
+            actionErrors: [{ command: "panelState", message: boundedMessage, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" }],
+            selectedLogRunKey: "",
+            probe: {},
+            workerProbes: {},
+            agentSessions: [],
+            xshellSessions: { sessions: [], error: boundedMessage },
+            endpointRegistry: { endpoints: [], workers: [], conflicts: [] },
+            configurationSources: [],
+            tunnelPortAssignments: [],
+            tunnelPortConflicts: [],
+            realtimePolicy: {},
+            hubControlStatus: {},
+            workerTelemetryStatus: [],
+            integrationReport: {},
+            capabilities: {},
+            fileCapabilities: {},
+            lastSeq: 0,
+            lastHeartbeatAt: undefined,
+            lastSnapshotAt: undefined,
+            lastKnownGood: undefined,
+            diagnostics: { directAccessDisabled: true, panelStateBuildError: boundedMessage },
+            lastError: boundedMessage,
+        };
+    }
     flushStatePost(force) {
         if (this.statePostTimer)
             clearTimeout(this.statePostTimer);
@@ -7092,12 +7201,39 @@ class RealtimeTunnelPanelProvider {
         if (!this.view.visible)
             return;
         this.statePostPending = false;
-        const state = this.buildState();
+        let state;
+        try {
+            state = this.buildState();
+            this.lastStateBuildErrorSignature = "";
+        }
+        catch (error) {
+            const message = errorMessage(error);
+            this.lastError = `面板状态生成失败：${message}`;
+            if (message !== this.lastStateBuildErrorSignature) {
+                this.lastStateBuildErrorSignature = message;
+                this.recordActionError({ command: "panelState", message: this.lastError, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
+            }
+            state = this.buildPanelFallbackState(this.lastError);
+        }
         const signature = webviewStatePostSignature(state);
         if (!force && signature === this.lastPostedStateSignature)
             return;
         this.lastPostedStateSignature = signature;
-        void this.view.webview.postMessage({ type: "state", state });
+        const reportPostError = (error) => {
+            this.statePostPending = true;
+            const message = `面板状态发送失败：${errorMessage(error)}`;
+            if (message !== this.lastStateBuildErrorSignature) {
+                this.lastStateBuildErrorSignature = message;
+                this.recordActionError({ command: "panelState", message, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
+            }
+        };
+        try {
+            const posted = this.view.webview.postMessage({ type: "state", state });
+            void Promise.resolve(posted).catch(reportPostError);
+        }
+        catch (error) {
+            reportPostError(error);
+        }
     }
     integration() {
         return new XshellTunnelIntegration_1.XshellIntegration({
@@ -9870,7 +10006,7 @@ function buildWorkerTelemetryStatus(registryState, probes, realtime) {
 function getSafeCommand(message) {
     const command = stringField(message, "command");
     const basic = new Set([
-        "webviewReady", "webviewBootstrapError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+        "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
         "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
         "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
         "selectPlan", "selectExperiment",
@@ -10830,6 +10966,10 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes) {
 function initialServerSetupComplete(setup) {
     return serverSetupMissingItems(setup).length === 0;
 }
+function projectOnboardingCompletedFromCodeSync(codeSync) {
+    const item = codeSync && typeof codeSync === "object" ? codeSync : {};
+    return successfulSyncStatus(item.hub) && successfulSyncStatus(item.workers);
+}
 function projectOnboardingStateForWebview(options) {
     const item = options || {};
     const workspace = item.workspace && typeof item.workspace === "object" ? item.workspace : {};
@@ -10838,18 +10978,33 @@ function projectOnboardingStateForWebview(options) {
     const enabledWorkerCount = Array.isArray(setup.workerTunnels)
         ? setup.workerTunnels.filter((worker) => worker && worker.enabled !== false).length
         : 0;
-    const projectReady = Boolean(workspace.root)
-        && workspace.singleProject === true
-        && initialServerSetupComplete(setup)
-        && simpleSftp.ready === true
-        && enabledWorkerCount > 0;
+    const hasProject = Boolean(workspace.root) && workspace.singleProject === true;
+    const missing = [
+        ...serverSetupMissingItems(setup),
+        ...(simpleSftp.ready === true ? [] : [String(simpleSftp.message || "配套 SimpleSFTP 未就绪")]),
+        ...(enabledWorkerCount > 0 ? [] : ["至少一个启用的执行 Worker"]),
+    ];
+    const projectReady = hasProject && missing.length === 0;
     const promptShown = Number(item.promptShown || 0);
+    const completed = hasProject && item.completed === true;
     const projectName = String(workspace.name || path.basename(String(workspace.root || "")) || "当前项目").trim();
+    const detail = !hasProject
+        ? ""
+        : completed
+            ? `当前项目 ${projectName} 已完成接入。`
+            : projectReady
+                ? `当前项目 ${projectName} 尚未完成接入；点击“接入当前项目”继续。`
+                : `当前项目 ${projectName} 尚未完成接入；先补全：${[...new Set(missing.filter(Boolean))].join("、")}，然后点击“接入当前项目”。`;
+    const missingItems = [...new Set(missing.filter(Boolean))];
     return {
-        required: projectReady && promptShown < 1,
-        completed: projectReady && promptShown >= 1,
+        required: hasProject && !completed,
+        completed,
+        ready: projectReady,
+        blocked: hasProject && !projectReady && !completed,
+        missing: missingItems,
         projectName,
-        detail: projectReady ? `当前项目 ${projectName} 尚未完成接入；点击“接入当前项目”继续。` : "",
+        promptShown,
+        detail,
     };
 }
 function agentSessionReuseBlockers(targets) {

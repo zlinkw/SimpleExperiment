@@ -25,11 +25,15 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
   assert.match(flushBlock, /if \(!force && !this\.statePostPending\) return/);
   assert.match(flushBlock, /if \(!this\.view\.visible\) return/);
   assert.match(flushBlock, /this\.statePostPending = false/);
-  assert.match(flushBlock, /const state = this\.buildState\(\)/);
+  assert.match(flushBlock, /try \{\s*state = this\.buildState\(\)/);
+  assert.match(flushBlock, /catch \(error\)[\s\S]{0,700}this\.buildPanelFallbackState\(this\.lastError\)/);
+  assert.match(source, /private buildPanelFallbackState\(message: string\): WebviewClusterState/);
   assert.match(flushBlock, /const signature = webviewStatePostSignature\(state\)/);
   assert.match(flushBlock, /if \(!force && signature === this\.lastPostedStateSignature\) return/);
   assert.match(flushBlock, /this\.lastPostedStateSignature = signature/);
-  assert.match(flushBlock, /postMessage\(\{ type: "state", state \}\)/);
+  assert.match(flushBlock, /const posted = this\.view\.webview\.postMessage\(\{ type: "state", state \}\)/);
+  assert.match(flushBlock, /Promise\.resolve\(posted\)\.catch\(reportPostError\)/);
+  assert.match(flushBlock, /catch \(error\) \{\s*reportPostError\(error\)/);
   assert.match(source, /function webviewStatePostSignature\(state: WebviewClusterState\): string/);
   assert.match(source, /return realtimeUiFieldSignature\(state\)/);
   assert.doesNotMatch(postStateBlock, /postMessage\(\{ type: "state"/);

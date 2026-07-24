@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const { renderPanelBootstrapDocument } = require("../../dist/ui/PanelBootstrap.js");
 const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
 
 test("panel host rendering falls back to a recovery document", () => {
   const normal = renderPanelBootstrapDocument(() => "<main>ready</main>", () => "recovery");
@@ -50,4 +51,11 @@ test("panel registers the message listener before HTML can emit the ready handsh
   assert.ok(html >= 0, "missing panel HTML load");
   assert.ok(listener < html, "ready listener must be attached before HTML assignment");
   assert.match(extension, /if \(!this\.webviewReady\)\s*this\.startPanelReadyWatchdog\(\)/);
+});
+
+test("panel reports post-bootstrap render failures without hiding the recovery path", () => {
+  assert.match(extension, /case "webviewRenderError":[\s\S]{0,260}recordActionError/);
+  assert.match(extension, /"webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel"/);
+  assert.match(panel, /let lastRenderErrorMessage = ""/);
+  assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", error: message\.slice\(0, 480\) \}\)/);
 });

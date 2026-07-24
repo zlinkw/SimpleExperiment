@@ -127,11 +127,18 @@ test("configured single-project workspaces keep onboarding visible until explici
   assert.equal(pending.completed, false);
   assert.match(pending.detail, /Demo/);
 
-  const completed = projectOnboardingState({ workspace, setup, simpleSftp: { ready: true }, promptShown: 1 });
+  const completed = projectOnboardingState({ workspace, setup, simpleSftp: { ready: true }, completed: true, promptShown: 1 });
   assert.equal(completed.required, false);
   assert.equal(completed.completed, true);
-  assert.equal(projectOnboardingState({ workspace: { ...workspace, singleProject: false }, setup, simpleSftp: { ready: true }, promptShown: 0 }).required, false);
-  assert.equal(projectOnboardingState({ workspace, setup: { ...setup, workerTunnels: [] }, simpleSftp: { ready: true }, promptShown: 0 }).required, false);
+  const dismissed = projectOnboardingState({ workspace, setup, simpleSftp: { ready: true }, promptShown: 1 });
+  assert.equal(dismissed.required, true);
+  assert.equal(dismissed.ready, true);
+  const noWorkspace = projectOnboardingState({ workspace: { ...workspace, singleProject: false }, setup, simpleSftp: { ready: true }, promptShown: 0 });
+  assert.equal(noWorkspace.required, false);
+  const missingWorker = projectOnboardingState({ workspace, setup: { ...setup, workerTunnels: [] }, simpleSftp: { ready: true }, promptShown: 0 });
+  assert.equal(missingWorker.required, true);
+  assert.equal(missingWorker.blocked, true);
+  assert.match(missingWorker.detail, /至少一个启用的执行 Worker/);
 });
 
 test("quick project onboarding completes safe Plan and output setup in one flow", () => {

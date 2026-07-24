@@ -1358,6 +1358,7 @@ export function renderPanelHtml(): string {
     const DIAGNOSTIC_PORT_CONFLICT_LIMIT = 8;
     const DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT = 8;
     let lastState = {};
+    let lastRenderErrorMessage = "";
     let lastGpuServersById = {};
     let expandedTaskLogs = {};
     let pendingButtonKeys = new Set();
@@ -2005,6 +2006,7 @@ export function renderPanelHtml(): string {
           renderResourceTree(state);
           updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
           applyPendingButtonStates();
+          lastRenderErrorMessage = "";
           return;
         }
         applyUiLayout(state);
@@ -2014,8 +2016,14 @@ export function renderPanelHtml(): string {
         renderVisibleSections(state);
         applyLayoutColumns();
         schedulePostRenderMaintenance();
+        lastRenderErrorMessage = "";
       } catch (error) {
-        el("renderError").textContent = "UI 渲染失败：" + (error && error.message ? error.message : String(error));
+        const message = error && error.message ? String(error.message) : String(error);
+        el("renderError").textContent = "UI 渲染失败：" + message;
+        if (message !== lastRenderErrorMessage) {
+          lastRenderErrorMessage = message;
+          vscode.postMessage({ command: "webviewRenderError", error: message.slice(0, 480) });
+        }
       }
     }
 
