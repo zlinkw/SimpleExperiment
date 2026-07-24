@@ -42,7 +42,7 @@
 - [deferred] 真实服务器、Xshell 隧道、SimpleSFTP 上传、GPU 和 Agent 联调。
 
 ## 本批记录
-- 本批代码提交 `1e09702` 已推送并确认与 `origin/master` 一致；发布提交待执行。
+- 本批代码提交 `1e09702`、发布提交 `3174f14` 已推送并确认与 `origin/master` 一致；正式安装包为 `simple-experiment-0.2.8.vsix`。
 - 上一完成批次：`gpu-history-stability-001`；恢复交付 `5b78dd3`、`df0ade6`、`3e7dc83` 已同步，安装包为 `simple-experiment-0.2.3.vsix`。
 - 本批静态加固提交 `37dd2c6` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
 - 本批发布提交 `0be4166`、记录提交 `b7956d1` 已推送；正式待安装包 `simple-experiment-0.2.5.vsix`，SHA256 `14AABE3E298C0B978B6CC6CEF950D08BD5E6672D62E6176F79F650F34C29CBBD`，未覆盖当前安装。
