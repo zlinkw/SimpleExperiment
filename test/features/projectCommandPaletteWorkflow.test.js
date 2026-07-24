@@ -29,7 +29,10 @@ test("command palette exposes the three primary new-project entry points", () =>
   assert.match(extension, /pendingWorkspaceContinuation/);
   assert.match(extension, /executeCommand\("vscode\.openFolder", folder, false\)/);
   assert.match(extension, /async resumePendingWorkspaceContinuation\(\)/);
-  assert.match(extension, /migrateLegacyConfigOnce\(\)[\s\S]{0,180}resumePendingWorkspaceContinuation\(\)[\s\S]{0,120}showFirstRunSetupPromptOnce\(\)/);
+  assert.match(extension, /void provider\.runActivationOnboarding\(\)/);
+  assert.match(extension, /name: "workspaceContinuation"[\s\S]{0,180}resumePendingWorkspaceContinuation\(\)/);
+  assert.match(extension, /name: "projectStateBootstrap"[\s\S]{0,160}projectBootstrapPromise/);
+  assert.match(extension, /name: "firstRunPrompt"[\s\S]{0,140}showFirstRunSetupPromptOnce\(\)/);
   assert.match(extension, /pending\.action === "bootstrapProject"[\s\S]{0,100}bootstrapProjectFromUi\(\)/);
   assert.match(extension, /pending\.action === "quickSetup"[\s\S]{0,140}completeQuickSetupAfterWorkspace/);
   assert.match(extension, /pending\.action === "setupGuide"[\s\S]{0,120}openSetupGuide\(\)/);

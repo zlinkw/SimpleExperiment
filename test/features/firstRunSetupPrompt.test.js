@@ -23,7 +23,14 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /firstRunSetupPrompt: "simpleExperiment\.firstRunSetupPromptVersion"/);
   assert.match(source, /legacySftpNoticeShown: "simpleExperiment\.legacySftpNoticeShown"/);
   assert.match(source, /const FIRST_RUN_SETUP_PROMPT_VERSION = 4/);
-  assert.match(source, /migrateLegacyConfigOnce\(\)[\s\S]{0,240}resumePendingWorkspaceContinuation\(\)[\s\S]{0,120}showFirstRunSetupPromptOnce\(\)/);
+  assert.match(source, /void provider\.runActivationOnboarding\(\)/);
+  const activationFlow = source.slice(source.indexOf("async runActivationOnboarding()"), source.indexOf("async recordOnboardingBackgroundError"));
+  assert.ok(activationFlow.indexOf('name: "legacyConfigMigration"') < activationFlow.indexOf('name: "workspaceContinuation"'));
+  assert.ok(activationFlow.indexOf('name: "workspaceContinuation"') < activationFlow.indexOf('name: "projectStateBootstrap"'));
+  assert.ok(activationFlow.indexOf('name: "projectStateBootstrap"') < activationFlow.indexOf('name: "firstRunPrompt"'));
+  assert.match(activationFlow, /run: \(\) => this\.projectBootstrapPromise/);
+  assert.match(source, /firstRunSetupPromptSingleFlight = createSingleFlightRunner\(\)/);
+  assert.match(source, /showFirstRunSetupPromptOnce\(\)[\s\S]{0,160}firstRunSetupPromptSingleFlight\(\(\) => this\.showFirstRunSetupPromptOnceCore\(\)\)/);
   assert.match(source, /shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION/);
   assert.match(source, /globalState\.update\(keys\.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION\)/);
   assert.match(source, /首次使用 SimpleExperiment：先配置 Xshell 会话，再填写 Hub\/Worker 项目父目录；插件会自动追加当前项目名/);

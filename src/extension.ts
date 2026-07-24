@@ -27,6 +27,8 @@ import PanelHtml_1 = require("./ui/PanelHtml");
 const { renderPanelHtml } = PanelHtml_1;
 import PanelRecoveryHtml_1 = require("./ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
+import PanelBootstrap_1 = require("./ui/PanelBootstrap");
+const { renderPanelBootstrapDocument } = PanelBootstrap_1;
 import TunnelPortAllocator_1 = require("./tunnel/TunnelPortAllocator");
 import TunnelEndpointRegistry_1 = require("./tunnel/TunnelEndpointRegistry");
 import TunnelPortConflict_1 = require("./tunnel/TunnelPortConflict");
@@ -322,15 +324,40 @@ async function activateExtension(context) {
     );
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
-    void provider.migrateLegacyConfigOnce()
-        .catch(() => undefined)
-        .then(() => provider?.resumePendingWorkspaceContinuation())
-        .then(() => provider?.showFirstRunSetupPromptOnce());
+    void provider.runActivationOnboarding();
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
 }
 export function deactivate() {
     void provider?.dispose();
     provider = undefined;
+}
+async function runOnboardingSteps(steps, onError = async () => undefined) {
+    for (const step of steps) {
+        try {
+            await step.run();
+        }
+        catch (error) {
+            try {
+                await onError(step.name, error);
+            }
+            catch {
+                // Background onboarding must continue even if error reporting fails.
+            }
+        }
+    }
+}
+function createSingleFlightRunner() {
+    let inFlight;
+    return (operation) => {
+        if (inFlight)
+            return inFlight;
+        const current = Promise.resolve().then(operation).finally(() => {
+            if (inFlight === current)
+                inFlight = undefined;
+        });
+        inFlight = current;
+        return current;
+    };
 }
 function setupGuideNextStep(options) {
     const item = options || {};
@@ -443,6 +470,7 @@ class RealtimeTunnelPanelProvider {
     localPlanMetadataRefreshPromise;
     workspaceChangePromise;
     projectBootstrapPromise;
+    firstRunSetupPromptSingleFlight = createSingleFlightRunner();
     localPlanMetadataUpdatedAt = 0;
     localPlanMetadataActionUpdatedAt = 0;
     localPlanMetadataKey = "";
@@ -467,6 +495,24 @@ class RealtimeTunnelPanelProvider {
         this.setupConfig = this.loadSetupConfig();
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
+    }
+    async runActivationOnboarding() {
+        await runOnboardingSteps([
+            { name: "legacyConfigMigration", run: () => this.migrateLegacyConfigOnce() },
+            { name: "workspaceContinuation", run: () => this.resumePendingWorkspaceContinuation() },
+            { name: "projectStateBootstrap", run: () => this.projectBootstrapPromise },
+            { name: "firstRunPrompt", run: () => this.showFirstRunSetupPromptOnce() },
+        ], (step, error) => this.recordOnboardingBackgroundError(step, error));
+    }
+    async recordOnboardingBackgroundError(step, error) {
+        const message = errorMessage(error);
+        this.lastError = message;
+        this.recordActionError({
+            command: `onboarding:${step}`,
+            message,
+            suggestion: "请重新打开 SimpleExperiment 面板或从命令面板执行“接入当前项目”。",
+        });
+        this.postState(true);
     }
     async bootstrapProjectLocalUiState() {
         const projectContext = this.captureProjectContext();
@@ -1036,10 +1082,8 @@ class RealtimeTunnelPanelProvider {
     }
     resolveWebviewView(webviewView) {
         this.view = webviewView;
-        this.webviewReady = false;
         webviewView.webview.options = { enableScripts: true };
-        webviewView.webview.html = renderPanelHtml();
-        this.startPanelReadyWatchdog();
+        this.loadPanelHtml();
         webviewView.onDidChangeVisibility(() => {
             this.budget.setHidden(!webviewView.visible);
             this.client.setHidden(!webviewView.visible);
@@ -1078,9 +1122,7 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async dispose() {
-        if (this.panelReadyWatchdogTimer)
-            clearTimeout(this.panelReadyWatchdogTimer);
-        this.panelReadyWatchdogTimer = undefined;
+        this.clearPanelReadyWatchdog();
         this.disposeSelectedPlanFileWatchers();
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
@@ -1165,6 +1207,9 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showWarningMessage(legacy.warning);
     }
     async showFirstRunSetupPromptOnce() {
+        return this.firstRunSetupPromptSingleFlight(() => this.showFirstRunSetupPromptOnceCore());
+    }
+    async showFirstRunSetupPromptOnceCore() {
         const simpleSftp = simpleSftpIntegrationReadiness();
         const legacySftp = legacySftpInstallationState();
         if (simpleSftp.ready && legacySftp.installed && !this.context.globalState.get(keys.legacySftpNoticeShown)) {
@@ -2231,9 +2276,7 @@ class RealtimeTunnelPanelProvider {
             case "webviewReady":
                 this.webviewReady = true;
                 await this.flushPendingPanelNavigation();
-                if (this.panelReadyWatchdogTimer)
-                    clearTimeout(this.panelReadyWatchdogTimer);
-                this.panelReadyWatchdogTimer = undefined;
+                this.clearPanelReadyWatchdog();
                 this.postState(true);
                 void this.refreshPptAutomationReadiness(false).catch(() => undefined);
                 break;
@@ -7043,8 +7086,7 @@ class RealtimeTunnelPanelProvider {
         this.statePostTimer.unref?.();
     }
     private startPanelReadyWatchdog(): void {
-        if (this.panelReadyWatchdogTimer)
-            clearTimeout(this.panelReadyWatchdogTimer);
+        this.clearPanelReadyWatchdog();
         this.panelReadyWatchdogTimer = setTimeout(() => {
             this.panelReadyWatchdogTimer = undefined;
             if (this.view && !this.webviewReady)
@@ -7052,17 +7094,33 @@ class RealtimeTunnelPanelProvider {
         }, 10_000);
         this.panelReadyWatchdogTimer.unref?.();
     }
+    private clearPanelReadyWatchdog(): void {
+        if (this.panelReadyWatchdogTimer)
+            clearTimeout(this.panelReadyWatchdogTimer);
+        this.panelReadyWatchdogTimer = undefined;
+    }
     private showPanelRecovery(message: string): void {
         if (!this.view || this.webviewReady)
             return;
+        this.clearPanelReadyWatchdog();
         this.view.webview.html = renderPanelRecoveryHtml(message);
     }
-    private reloadPanelHtml(): void {
+    private loadPanelHtml(): void {
         if (!this.view)
             return;
         this.webviewReady = false;
-        this.view.webview.html = renderPanelHtml();
+        const document = renderPanelBootstrapDocument(renderPanelHtml, renderPanelRecoveryHtml);
+        this.view.webview.html = document.html;
+        if (document.recovered) {
+            this.clearPanelReadyWatchdog();
+            this.lastError = document.error;
+            this.recordActionError({ command: "panelBootstrap", message: document.error, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
+            return;
+        }
         this.startPanelReadyWatchdog();
+    }
+    private reloadPanelHtml(): void {
+        this.loadPanelHtml();
     }
     private flushStatePost(force): void {
         if (this.statePostTimer) clearTimeout(this.statePostTimer);
