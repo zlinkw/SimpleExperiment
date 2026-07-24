@@ -1334,6 +1334,15 @@ function renderPanelHtml() {
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    let bootstrapErrorReported = false;
+    const reportBootstrapError = (error) => {
+      if (bootstrapErrorReported) return;
+      bootstrapErrorReported = true;
+      const message = error && (error.message || error.reason || error.error) ? String(error.message || error.reason || error.error) : String(error || "Webview 启动失败");
+      vscode.postMessage({ command: "webviewBootstrapError", error: message.slice(0, 480) });
+    };
+    window.addEventListener("error", (event) => reportBootstrapError(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => reportBootstrapError(event.reason));
     const el = (id) => document.getElementById(id);
     const DIAGNOSTIC_JSON_PREVIEW_LIMIT = 16000;
     const DIAGNOSTIC_JSON_MAX_DEPTH = 4;

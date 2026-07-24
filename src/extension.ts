@@ -25,6 +25,8 @@ import TunnelOnlyPolicy_1 = require("./tunnel/TunnelOnlyPolicy");
 import MultiEndpointRealtimeClient_1 = require("./tunnel/MultiEndpointRealtimeClient");
 import PanelHtml_1 = require("./ui/PanelHtml");
 const { renderPanelHtml } = PanelHtml_1;
+import PanelRecoveryHtml_1 = require("./ui/PanelRecoveryHtml");
+const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
 import TunnelPortAllocator_1 = require("./tunnel/TunnelPortAllocator");
 import TunnelEndpointRegistry_1 = require("./tunnel/TunnelEndpointRegistry");
 import TunnelPortConflict_1 = require("./tunnel/TunnelPortConflict");
@@ -37,6 +39,7 @@ import { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParam
 import ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates");
 import PptPlotBridge_1 = require("./PptPlotBridge");
 import GpuHistoryState_1 = require("./features/GpuHistoryState");
+import RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
 type TunnelAction = string;
 type UiActionError = {
     command: string;
@@ -111,6 +114,7 @@ const keys = {
     hiddenLegacyTaskUiKeys: "zlkCluster.hiddenLegacyTaskUiKeys",
     pptPlotConfig: "zlkCluster.pptPlotConfig",
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
+    projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
 };
@@ -277,6 +281,10 @@ const directWorkerActionMap = {
 };
 let provider;
 export function activate(context) {
+    return activateExtension(context);
+}
+async function activateExtension(context) {
+    await (0, RenamedExtensionStateMigration_1.migrateRenamedExtensionState)(context).catch(() => undefined);
     provider = new RealtimeTunnelPanelProvider(context);
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
     context.subscriptions.push(
@@ -403,6 +411,7 @@ class RealtimeTunnelPanelProvider {
     private lastPostedStateSignature = "";
     private readonly statePostBatchMs = 100;
     webviewReady = false;
+    panelReadyWatchdogTimer;
     pendingPanelNavigation;
     operationStatusProbeMaxAttempts = 4;
     private realtimeUiStateRefs?: RealtimeUiStateRefs;
@@ -1030,6 +1039,7 @@ class RealtimeTunnelPanelProvider {
         this.webviewReady = false;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = renderPanelHtml();
+        this.startPanelReadyWatchdog();
         webviewView.onDidChangeVisibility(() => {
             this.budget.setHidden(!webviewView.visible);
             this.client.setHidden(!webviewView.visible);
@@ -1068,6 +1078,9 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async dispose() {
+        if (this.panelReadyWatchdogTimer)
+            clearTimeout(this.panelReadyWatchdogTimer);
+        this.panelReadyWatchdogTimer = undefined;
         this.disposeSelectedPlanFileWatchers();
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
@@ -1161,23 +1174,27 @@ class RealtimeTunnelPanelProvider {
             else if (choice === "不再提示")
                 await this.context.globalState.update(keys.legacySftpNoticeShown, true);
         }
-        const shownVersion = Number(this.context.globalState.get(keys.firstRunSetupPrompt, 0));
-        if (shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION)
-            return;
         const serverSetupComplete = initialServerSetupComplete(this.setupConfig);
         const enabledWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
             const root = workspaceRoot();
             if (!root)
                 return;
+            const projectPromptShown = Number(this.context.workspaceState.get(keys.projectOnboardingPrompt, 0));
+            if (projectPromptShown >= 1)
+                return;
             const choice = await vscode.window.showInformationMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}。接入项目后，首次上传前会再次确认本地与远端预期位置。`, "接入当前项目", "打开面板", "不再提示");
             if (choice === "接入当前项目")
                 await this.bootstrapProjectFromUi();
             else if (choice === "打开面板")
                 await vscode.commands.executeCommand(`${viewId}.focus`);
-            await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
+            else if (choice === "不再提示")
+                await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
             return;
         }
+        const shownVersion = Number(this.context.globalState.get(keys.firstRunSetupPrompt, 0));
+        if (shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION)
+            return;
         const needsSftp = !simpleSftp.ready;
         const needsWorker = !needsSftp && serverSetupComplete && enabledWorkerCount < 1;
         const message = needsSftp
@@ -1206,6 +1223,10 @@ class RealtimeTunnelPanelProvider {
         const afterWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
         if (workspaceRoot() && initialServerSetupComplete(this.setupConfig) && afterSftp.ready && afterWorkerCount > 0)
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
+    }
+    async markProjectOnboardingComplete() {
+        if (workspaceRoot())
+            await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
     }
     async ensureSimpleSftpReadyForSetup(operation) {
         const simpleSftp = simpleSftpIntegrationReadiness();
@@ -2209,9 +2230,21 @@ class RealtimeTunnelPanelProvider {
         switch (command) {
             case "webviewReady":
                 this.webviewReady = true;
-                this.postState(true);
                 await this.flushPendingPanelNavigation();
+                if (this.panelReadyWatchdogTimer)
+                    clearTimeout(this.panelReadyWatchdogTimer);
+                this.panelReadyWatchdogTimer = undefined;
+                this.postState(true);
                 void this.refreshPptAutomationReadiness(false).catch(() => undefined);
+                break;
+            case "webviewBootstrapError":
+                this.lastError = String(message?.error || "Webview 脚本启动失败").slice(0, 480);
+                this.recordActionError({ command, message: this.lastError, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
+                if (!this.webviewReady)
+                    this.showPanelRecovery(this.lastError);
+                break;
+            case "reloadPanel":
+                this.reloadPanelHtml();
                 break;
             case "configureSessions":
                 await this.configureXshellSavedSessions();
@@ -3206,6 +3239,7 @@ class RealtimeTunnelPanelProvider {
             updatedAt: new Date().toISOString(),
         };
         void this.persistProjectCodeSyncState().catch(() => undefined);
+        await this.markProjectOnboardingComplete();
         this.postState();
     }
     async confirmRemoteWriteTargets(operation, targets) {
@@ -7008,6 +7042,28 @@ class RealtimeTunnelPanelProvider {
         this.statePostTimer = setTimeout(() => this.flushStatePost(false), this.statePostBatchMs);
         this.statePostTimer.unref?.();
     }
+    private startPanelReadyWatchdog(): void {
+        if (this.panelReadyWatchdogTimer)
+            clearTimeout(this.panelReadyWatchdogTimer);
+        this.panelReadyWatchdogTimer = setTimeout(() => {
+            this.panelReadyWatchdogTimer = undefined;
+            if (this.view && !this.webviewReady)
+                this.showPanelRecovery("面板在规定时间内没有完成启动握手。请重新加载面板。");
+        }, 10_000);
+        this.panelReadyWatchdogTimer.unref?.();
+    }
+    private showPanelRecovery(message: string): void {
+        if (!this.view || this.webviewReady)
+            return;
+        this.view.webview.html = renderPanelRecoveryHtml(message);
+    }
+    private reloadPanelHtml(): void {
+        if (!this.view)
+            return;
+        this.webviewReady = false;
+        this.view.webview.html = renderPanelHtml();
+        this.startPanelReadyWatchdog();
+    }
     private flushStatePost(force): void {
         if (this.statePostTimer) clearTimeout(this.statePostTimer);
         this.statePostTimer = undefined;
@@ -9792,7 +9848,7 @@ function buildWorkerTelemetryStatus(registryState, probes, realtime) {
 function getSafeCommand(message) {
     const command = stringField(message, "command");
     const basic = new Set([
-        "webviewReady", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+        "webviewReady", "webviewBootstrapError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
         "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
         "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
         "selectPlan", "selectExperiment",
