@@ -22,7 +22,7 @@
 - [已完成自动化] GPU 三天历史按本机一分钟采样，停止高频历史请求和状态闪动；所有服务器通信继续强制经过 Xshell 本地隧道，不允许一次性 SSH 轮询。
 - [已完成自动化，待现场验证] 修复 SimpleExperiment 面板启动握手竞态，并将当前项目接入提示提升为可见的模态提示与面板内持久入口；真实服务器、Xshell 隧道、SFTP 上传和 GPU 请求联调暂缓。
 
-## 当前批次：panel-startup-onboarding-deployment-006（进行中）
+## 当前批次：panel-startup-onboarding-deployment-006（已完成自动化，待用户验证）
 ### 目标与边界
 - 目标：处理已安装集群插件持续加载，以及打开已配置项目后未出现项目接入/首次上传入口的问题。
 - 在范围内：对照已安装版本与当前源码、验证 Webview 握手顺序、验证项目接入提示静态路径、部署已验证 VSIX。
@@ -35,6 +35,7 @@
 - [已通过] 面板握手、恢复页、项目接入和启动流程定向静态测试 12/12；未访问真实服务器。
 - [已完成] 保留 `simple-experiment-0.2.3.vsix` 备份后已安装 `simple-experiment-0.2.7.vsix`；VS Code 已报告 `simple-local.simple-experiment@0.2.7`，安装目录中的扩展入口哈希与当前 `dist/extension.js` 一致。
 - [待用户验证] 重载 VS Code 后检查面板是否正常显示，以及已配置项目是否出现模态接入提示和持久“当前项目待接入”入口。
+- [已提交] 本批记录提交 `3a05333` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
 
 ## 上一批次：panel-onboarding-release-005（已完成自动化）
 ### 修复点
