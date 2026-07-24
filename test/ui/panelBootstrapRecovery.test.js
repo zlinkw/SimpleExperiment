@@ -38,3 +38,16 @@ test("panel ready watchdog is cleared on ready, recovery, reload, and dispose", 
   assert.match(watchdogFlow, /private reloadPanelHtml\(\): void \{\s*this\.loadPanelHtml\(\);/);
   assert.match(disposeFlow, /this\.clearPanelReadyWatchdog\(\)/);
 });
+
+test("panel registers the message listener before HTML can emit the ready handshake", () => {
+  const start = extension.indexOf("resolveWebviewView(webviewView)");
+  const end = extension.indexOf("async dispose()", start);
+  const flow = extension.slice(start, end);
+  const listener = flow.indexOf("webviewView.webview.onDidReceiveMessage");
+  const html = flow.indexOf("this.loadPanelHtml()");
+
+  assert.ok(listener >= 0, "missing webview message listener");
+  assert.ok(html >= 0, "missing panel HTML load");
+  assert.ok(listener < html, "ready listener must be attached before HTML assignment");
+  assert.match(extension, /if \(!this\.webviewReady\)\s*this\.startPanelReadyWatchdog\(\)/);
+});

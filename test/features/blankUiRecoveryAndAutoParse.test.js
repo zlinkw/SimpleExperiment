@@ -25,7 +25,7 @@ function renderPanelHtmlFromSource(source) {
 test("topbar-actions closes before header so three columns are not clipped", () => {
   const html = renderPanelHtmlFromSource(panel);
   assert.match(html, /<div class="topbar-actions">[\s\S]*?<\/div>\s*<\/header>/);
-  assert.match(html, /<\/header>\s*<div id="renderError"/);
+  assert.match(html, /<\/header>\s*<div id="projectOnboardingNotice"[^>]*><\/div>\s*<div id="renderError"/);
   // balanced topbar fragment: actions wrapper must not swallow cardDeck
   const body = html.slice(html.indexOf("<body"), html.indexOf("<script"));
   const topbar = body.slice(body.indexOf('<header class="topbar"'), body.indexOf("</header>") + 9);

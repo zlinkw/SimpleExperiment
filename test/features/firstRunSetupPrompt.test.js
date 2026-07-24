@@ -52,6 +52,7 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   const workspaceChange = source.slice(source.indexOf("handleWorkspaceFoldersChanged()"), source.indexOf("resetProjectContextInMemory()"));
   assert.match(workspaceChange, /reloadProjectContextAfterWorkspaceChange\(\)\)[\s\S]{0,120}showFirstRunSetupPromptOnce\(\)/);
   assert.match(source, /SimpleExperiment 已就绪，当前项目为/);
+  assert.match(source, /showWarningMessage\(`SimpleExperiment 已就绪，当前项目为[\s\S]{0,260}\{ modal: true \}, "接入当前项目", "打开面板", "不再提示"\)/);
   assert.match(source, /choice === "接入当前项目"\)\s*await this\.bootstrapProjectFromUi\(\)/);
   assert.match(source, /首次上传前会再次确认本地与远端预期位置/);
   assert.match(source, /配套 SimpleSFTP 未就绪/);

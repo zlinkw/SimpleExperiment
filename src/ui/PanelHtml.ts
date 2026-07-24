@@ -69,6 +69,12 @@ export function renderPanelHtml(): string {
     .topbar-actions { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; }
     .topbar-actions button { min-height: 24px; padding: 3px 8px; font-size: 12px; }
     .topbar-actions .topbarIconButton { width: 28px; height: 28px; min-width: 28px; padding: 0; font-size: 15px; }
+    .projectOnboardingNotice { display: none; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #F59E0B; border-left: 4px solid #D97706; border-radius: 8px; background: #FFFBEB; color: #78350F; }
+    .projectOnboardingNotice.is-visible { display: flex; }
+    .projectOnboardingNoticeBody { min-width: 0; display: grid; gap: 2px; }
+    .projectOnboardingNoticeBody b { font-size: 12px; }
+    .projectOnboardingNoticeBody span { min-width: 0; color: #92400E; font-size: 11px; overflow-wrap: anywhere; }
+    .projectOnboardingNotice button { flex: 0 0 auto; }
     .workflowStageRail {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
@@ -1107,6 +1113,7 @@ export function renderPanelHtml(): string {
       </div>
     </header>
 
+    <div id="projectOnboardingNotice" class="projectOnboardingNotice" role="status" aria-live="polite"></div>
     <div id="renderError" class="status-failed"></div>
 
     <main id="cardDeck" class="section-grid">
@@ -1992,6 +1999,7 @@ export function renderPanelHtml(): string {
     function render(state) {
       try {
         el("renderError").textContent = "";
+        renderProjectOnboardingNotice(state);
         const fastConfigEdit = shouldFastPathConfigEdit();
         if (fastConfigEdit) {
           renderResourceTree(state);
@@ -2009,6 +2017,24 @@ export function renderPanelHtml(): string {
       } catch (error) {
         el("renderError").textContent = "UI 渲染失败：" + (error && error.message ? error.message : String(error));
       }
+    }
+
+    function renderProjectOnboardingNotice(state) {
+      const target = el("projectOnboardingNotice");
+      if (!target) return;
+      const item = (state && state.projectOnboarding) || {};
+      const required = item.required === true;
+      target.classList.toggle("is-visible", required);
+      if (!required) {
+        setHtmlIfChanged(target, "");
+        return;
+      }
+      const projectName = String(item.projectName || ((state || {}).workspace || {}).name || "当前项目");
+      const detail = String(item.detail || ("当前项目 " + projectName + " 尚未完成接入；首次上传前仍会确认本地与远端预期位置。"));
+      setHtmlIfChanged(target,
+        '<div class="projectOnboardingNoticeBody"><b>当前项目待接入</b><span>' + esc(detail) + '</span></div>' +
+        '<button type="button" data-command="bootstrapProject" title="识别当前项目并继续接入">接入当前项目</button>'
+      );
     }
 
     function schedulePostRenderMaintenance(force) {

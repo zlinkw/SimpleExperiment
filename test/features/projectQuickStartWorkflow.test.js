@@ -38,9 +38,29 @@ function bootstrapPlanSelection(plans, planFileInput, selectedPlanId) {
   return JSON.parse(JSON.stringify(sandbox.check(plans, planFileInput, selectedPlanId)));
 }
 
+function projectOnboardingState(options) {
+  const sandbox = { path: require("node:path") };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction(extension, "serverSetupMissingItems"),
+    extractFunction(extension, "initialServerSetupComplete"),
+    extractFunction(extension, "projectOnboardingStateForWebview"),
+    "this.check = projectOnboardingStateForWebview;",
+  ].join("\n"), sandbox);
+  return JSON.parse(JSON.stringify(sandbox.check(options)));
+}
+
 test("quick project onboarding preserves granular actions and follows gate order", () => {
+  assert.match(extension, /function projectOnboardingStateForWebview\(options\)/);
+  assert.match(extension, /const projectOnboarding = projectOnboardingStateForWebview\(\{/);
+  assert.match(extension, /projectOnboarding,/);
+  assert.match(panel, /id="projectOnboardingNotice"/);
+  assert.match(panel, /function renderProjectOnboardingNotice\(state\)/);
+  assert.match(panel, /renderProjectOnboardingNotice\(state\)/);
+  assert.match(panel, /item\.required === true/);
+  assert.match(panel, /当前项目待接入/);
   assert.match(panel, /data-command="bootstrapProject"[^>]*>接入当前项目/);
-  assert.equal([...panel.matchAll(/data-command="bootstrapProject"[^>]*>接入当前项目/g)].length, 2);
+  assert.equal([...panel.matchAll(/data-command="bootstrapProject"[^>]*>接入当前项目/g)].length, 3);
   assert.match(panel, /<details class="projectQuickDetails"><summary>环境、服务器、连接与同步详情<\/summary>/);
   assert.match(panel, /const primaryRows = \[/);
   assert.match(panel, /const infrastructureRows = \[/);
@@ -88,6 +108,30 @@ test("quick project onboarding preserves granular actions and follows gate order
   const nextActionEnd = panel.indexOf("function renderPlanExecutionNextAction(", nextActionStart);
   const nextAction = panel.slice(nextActionStart, nextActionEnd);
   assert.doesNotMatch(nextAction, /uploadProjectToHub|uploadProjectToWorkers/);
+});
+
+test("configured single-project workspaces keep onboarding visible until explicitly completed", () => {
+  const setup = {
+    savedSessionPath: "C:/Sessions/hub.xsh",
+    agentProjectDir: "/srv/projects",
+    workerTunnels: [{
+      id: "worker-a",
+      savedSessionPath: "C:/Sessions/worker-a.xsh",
+      agentProjectDir: "/srv/projects",
+      enabled: true,
+    }],
+  };
+  const workspace = { root: "D:/GitRepo/Demo", name: "Demo", singleProject: true };
+  const pending = projectOnboardingState({ workspace, setup, simpleSftp: { ready: true }, promptShown: 0 });
+  assert.equal(pending.required, true);
+  assert.equal(pending.completed, false);
+  assert.match(pending.detail, /Demo/);
+
+  const completed = projectOnboardingState({ workspace, setup, simpleSftp: { ready: true }, promptShown: 1 });
+  assert.equal(completed.required, false);
+  assert.equal(completed.completed, true);
+  assert.equal(projectOnboardingState({ workspace: { ...workspace, singleProject: false }, setup, simpleSftp: { ready: true }, promptShown: 0 }).required, false);
+  assert.equal(projectOnboardingState({ workspace, setup: { ...setup, workerTunnels: [] }, simpleSftp: { ready: true }, promptShown: 0 }).required, false);
 });
 
 test("quick project onboarding completes safe Plan and output setup in one flow", () => {

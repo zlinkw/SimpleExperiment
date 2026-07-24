@@ -1027,6 +1027,7 @@ class RealtimeTunnelPanelProvider {
     resolveWebviewView(webviewView) {
         this.view = webviewView;
         webviewView.webview.options = { enableScripts: true };
+        webviewView.webview.onDidReceiveMessage((message) => void this.handleMessage(message));
         this.loadPanelHtml();
         webviewView.onDidChangeVisibility(() => {
             this.budget.setHidden(!webviewView.visible);
@@ -1038,7 +1039,6 @@ class RealtimeTunnelPanelProvider {
             else
                 this.postState();
         });
-        webviewView.webview.onDidReceiveMessage((message) => void this.handleMessage(message));
         void Promise.all([
             this.loadProjectPlanSelectionState().catch(() => undefined),
             this.loadProjectTaskSelectionState().catch(() => undefined),
@@ -1174,7 +1174,7 @@ class RealtimeTunnelPanelProvider {
             const projectPromptShown = Number(this.context.workspaceState.get(keys.projectOnboardingPrompt, 0));
             if (projectPromptShown >= 1)
                 return;
-            const choice = await vscode.window.showInformationMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}。接入项目后，首次上传前会再次确认本地与远端预期位置。`, "接入当前项目", "打开面板", "不再提示");
+            const choice = await vscode.window.showWarningMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}，但尚未完成项目接入。接入项目后，首次上传前会再次确认本地与远端预期位置。`, { modal: true }, "接入当前项目", "打开面板", "不再提示");
             if (choice === "接入当前项目")
                 await this.bootstrapProjectFromUi();
             else if (choice === "打开面板")
@@ -6846,6 +6846,12 @@ class RealtimeTunnelPanelProvider {
         webviewDetectedProject.missingOnboarding = projectOnboardingSuggestionsForSelection(this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.planFileInput, this.selectedPlanId);
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
         const workspace = workspaceContextForWebview();
+        const projectOnboarding = projectOnboardingStateForWebview({
+            workspace,
+            setup: this.setupConfig,
+            simpleSftp: integrations.simpleSftp,
+            promptShown: this.context.workspaceState.get(keys.projectOnboardingPrompt, 0),
+        });
         return {
             extensionVersion: String(this.context.extension.packageJSON?.version || ""),
             connectionMode,
@@ -6856,6 +6862,7 @@ class RealtimeTunnelPanelProvider {
             pptPlotConfig: this.pptPlotConfig(),
             pptAutomation: this.pptAutomationReadiness,
             integrations,
+            projectOnboarding,
             health: webviewHealth,
             realtime: webviewRealtime,
             gpuOwnerConfig: this.gpuOwnerConfig(),
@@ -7068,7 +7075,8 @@ class RealtimeTunnelPanelProvider {
             this.recordActionError({ command: "panelBootstrap", message: document.error, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
             return;
         }
-        this.startPanelReadyWatchdog();
+        if (!this.webviewReady)
+            this.startPanelReadyWatchdog();
     }
     reloadPanelHtml() {
         this.loadPanelHtml();
@@ -10821,6 +10829,28 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes) {
 }
 function initialServerSetupComplete(setup) {
     return serverSetupMissingItems(setup).length === 0;
+}
+function projectOnboardingStateForWebview(options) {
+    const item = options || {};
+    const workspace = item.workspace && typeof item.workspace === "object" ? item.workspace : {};
+    const setup = item.setup && typeof item.setup === "object" ? item.setup : {};
+    const simpleSftp = item.simpleSftp && typeof item.simpleSftp === "object" ? item.simpleSftp : {};
+    const enabledWorkerCount = Array.isArray(setup.workerTunnels)
+        ? setup.workerTunnels.filter((worker) => worker && worker.enabled !== false).length
+        : 0;
+    const projectReady = Boolean(workspace.root)
+        && workspace.singleProject === true
+        && initialServerSetupComplete(setup)
+        && simpleSftp.ready === true
+        && enabledWorkerCount > 0;
+    const promptShown = Number(item.promptShown || 0);
+    const projectName = String(workspace.name || path.basename(String(workspace.root || "")) || "当前项目").trim();
+    return {
+        required: projectReady && promptShown < 1,
+        completed: projectReady && promptShown >= 1,
+        projectName,
+        detail: projectReady ? `当前项目 ${projectName} 尚未完成接入；点击“接入当前项目”继续。` : "",
+    };
 }
 function agentSessionReuseBlockers(targets) {
     const blockers = [];
