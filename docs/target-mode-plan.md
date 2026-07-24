@@ -33,6 +33,8 @@
 - [已确认] 当前 VS Code 安装为 `simple-local.simple-experiment@0.2.3`；其监听器注册晚于 HTML 赋值，且没有持久项目接入提示。
 - [已确认] 当前仓库 `0.2.7` 源码已先注册 `onDidReceiveMessage`，再赋值 HTML，并包含模态项目接入提示和面板持久入口。
 - [已通过] 面板握手、恢复页、项目接入和启动流程定向静态测试 12/12；未访问真实服务器。
+- [已通过] TypeScript 类型检查、Lint、`node -c`、VSIX runtime 闭包（50 个本地模块、5 个入口）通过。
+- [已通过] 全量本地静态测试 679/679；测试未连接真实服务器、Xshell、SimpleSFTP 或 GPU。
 - [已完成] 保留 `simple-experiment-0.2.3.vsix` 备份后已安装 `simple-experiment-0.2.7.vsix`；VS Code 已报告 `simple-local.simple-experiment@0.2.7`，安装目录中的扩展入口哈希与当前 `dist/extension.js` 一致。
 - [待用户验证] 重载 VS Code 后检查面板是否正常显示，以及已配置项目是否出现模态接入提示和持久“当前项目待接入”入口。
 - [已提交] 本批记录提交 `3a05333` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
