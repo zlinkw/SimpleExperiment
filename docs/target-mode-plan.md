@@ -39,6 +39,8 @@
 - [已通过] VSIX runtime 闭包：50 个本地模块、5 个入口。
 - [已通过] 静态验证使用 Python 3.10.11；未连接真实服务器、Xshell、SimpleSFTP、GPU 或 Agent。
 - [已通过] 状态构建失败 fallback、Webview 渲染错误回报、单项目接入入口和旧版 SFTP 提示优先级均有定向覆盖。
+- [已通过] 本地 headless Webview smoke：内联脚本启动握手、待接入状态渲染和旧缓存状态渲染均无脚本错误；未启动服务器通信。
+- [已通过] 只读验证旧版扩展状态迁移可恢复 Xshell 配置并剥离直连 SSH 字段；未写入用户状态库。
 - [deferred] 真实服务器、Xshell 隧道、SimpleSFTP 上传、GPU 和 Agent 联调。
 
 ## 本批记录
