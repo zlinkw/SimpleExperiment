@@ -10,6 +10,7 @@ AGENTS.md
 CONTEXT.md
 .codex/**
 .claude/**
+.local-gpt/**
 .runtime/**
 .vscode/**
 scripts/**
