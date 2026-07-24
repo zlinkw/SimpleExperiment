@@ -20,7 +20,7 @@
 - [已完成] Hub/Worker、端口诊断、操作时间线、Plan action 和服务器设置 tooltip 恢复批次已提交；历史细节以 git 为准。
 - [待做] PPT 绘图链路与 realtime post gate 稳定化后的现场验收。
 - [已完成自动化] GPU 三天历史按本机一分钟采样，停止高频历史请求和状态闪动；所有服务器通信继续强制经过 Xshell 本地隧道，不允许一次性 SSH 轮询。
-- [执行中] 静态加固 SimpleExperiment 面板启动与项目接入提示；真实服务器、Xshell 隧道、SFTP 上传和 GPU 请求联调暂缓。
+- [已完成自动化，待现场验证] SimpleExperiment 面板启动与项目接入提示静态加固；真实服务器、Xshell 隧道、SFTP 上传和 GPU 请求联调暂缓。
 
 ## 当前批次：panel-onboarding-static-hardening-002
 ### 修复点
@@ -41,5 +41,5 @@
 ## 本批记录
 - 上一完成批次：`gpu-history-stability-001`，提交 `3fcdc52` 与记录提交 `3fb6b99` 已同步。
 - 上一恢复交付：`5b78dd3`、`df0ade6`、`3e7dc83` 已推送并确认与 `origin/master` 一致；安装包为 `simple-experiment-0.2.3.vsix`。
-- 本批静态加固代码与测试已完成，提交号将在提交后回填。
+- 本批静态加固提交 `37dd2c6` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
 - 当前限制：面板和当前项目提示只做可自动执行的静态验证；真实通信相关结论保持 `needs field verification`。
