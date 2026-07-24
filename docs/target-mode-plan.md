@@ -32,8 +32,10 @@
 - [已通过] 工作区切换引导回归测试、类型检查和全量测试：`npm test`，665/665。
 - [已通过] lint：`npm run lint`。
 - [已通过] VSIX 闭包：`npm run verify:package-runtime`，47 个本地模块、5 个入口。
-- [待执行] 生成候选包、提交并推送 `origin/master`。
+- [已通过] 候选包 `simple-experiment-0.2.2-xshell-only-onboarding-20260724.vsix` 共 139 个文件；文件名与文本内容均无废弃客户端残留，相对旧 `0.2.1` 包少 2 个文件。
+- [已通过] 修复提交 `c3f00c8` 已推送 `origin/master`，fetch 后本地与远端一致。
 
 ## 本批记录
 - 上一完成批次：`release-activation-002`，提交 `7279aec`；计划记录提交 `4bfcfea`。
-- 当前目标状态：已修复无工作区提前记账和工作区变更未重新触发；本批验证完成，等待候选包、提交和推送。
+- 当前目标状态：代码、自动化验证、独立候选包和 GitHub 同步均完成；按用户要求未覆盖安装现有 `0.2.1`，等待手动安装后的扩展宿主与项目接入现场验证。
+- 本批候选包：`simple-experiment-0.2.2-xshell-only-onboarding-20260724.vsix`；本批提交：`c3f00c8`。
