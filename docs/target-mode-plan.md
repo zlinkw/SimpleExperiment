@@ -33,8 +33,8 @@
 ### 验证清单
 - [已通过] GPU 历史缓存、真实 toggle、稳定状态和一分钟采样回归测试；相关测试 14/14。
 - [已通过] localhost/Xshell-only 传输边界测试 4/4；全量测试 669/669；build、typecheck、lint 和 VSIX 闭包检查通过。
-- [待执行] 分批提交并推送 `origin/master`，打包唯一命名 VSIX 后覆盖安装。
+- [已通过] 提交 `3fcdc52` 已推送并确认与 `origin/master` 一致；唯一命名 VSIX 已打包并覆盖安装 `simple-local.simple-experiment@0.2.2`。
 
 ## 本批记录
 - 上一完成批次：`ui-plan-selection-001`，提交 `1f1f767` 已与 `origin/master` 同步。
-- 当前目标状态：自动化修复和通信边界审计通过；真实服务器连续三天留存和现场视觉行为仍为 `needs field verification`。
+- 当前目标状态：自动化修复、通信边界审计、Git 同步、打包和覆盖安装完成；真实服务器连续三天留存和现场视觉行为仍为 `needs field verification`。
