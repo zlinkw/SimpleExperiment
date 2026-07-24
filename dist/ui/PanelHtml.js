@@ -1449,6 +1449,8 @@ function renderPanelHtml() {
     let gpuHistoryMeta = {};
     let gpuHistoryLastStateStatus = "idle";
     let expandedGpuHistoryKeys = new Set();
+    const GPU_HISTORY_REQUEST_COOLDOWN_MS = 60_000;
+    const gpuHistoryRequestLastAt = new Map();
     let gpuHistoryDrawFrame = 0;
     let gpuHistoryServerStyles = loadGpuHistoryServerStyles();
     let overviewTaskStatsCacheRows = null;
@@ -1853,15 +1855,17 @@ function renderPanelHtml() {
       if (historyDetails && historyDetails === event.target) {
         const scope = historyDetails.dataset.gpuHistoryScope || "";
         if (scope === "overview") {
+          const wasOpen = gpuHistoryOverviewOpen;
           gpuHistoryOverviewOpen = historyDetails.open;
-          if (historyDetails.open) requestGpuHistory({ maxPoints: 96 });
+          if (historyDetails.open && !wasOpen) requestGpuHistory({ maxPoints: 96 });
         } else if (scope === "gpu") {
           const serverId = historyDetails.dataset.serverId || "";
           const gpuId = historyDetails.dataset.gpuId || "";
           const key = gpuHistorySeriesKey(serverId, gpuId);
+          const wasOpen = expandedGpuHistoryKeys.has(key);
           if (historyDetails.open) {
             expandedGpuHistoryKeys.add(key);
-            requestGpuHistory({ serverId, gpuId, maxPoints: 288 });
+            if (!wasOpen) requestGpuHistory({ serverId, gpuId, maxPoints: 288 });
           } else {
             expandedGpuHistoryKeys.delete(key);
           }
@@ -7198,7 +7202,13 @@ function renderPanelHtml() {
 
     function requestGpuHistory(query) {
       const payload = query && typeof query === "object" ? query : {};
+      const key = gpuHistorySeriesKey(payload.serverId || "overview", payload.gpuId || "overview");
+      const now = Date.now();
+      const lastAt = Number(gpuHistoryRequestLastAt.get(key) || 0);
+      if (now - lastAt < GPU_HISTORY_REQUEST_COOLDOWN_MS) return false;
+      gpuHistoryRequestLastAt.set(key, now);
       vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));
+      return true;
     }
 
     function rememberGpuHistoryState(history) {
@@ -7209,6 +7219,7 @@ function renderPanelHtml() {
         gpuHistorySeriesCache.clear();
         gpuHistoryMeta = {};
         expandedGpuHistoryKeys.clear();
+        gpuHistoryRequestLastAt.clear();
         return;
       }
       gpuHistoryMeta = Object.assign({}, gpuHistoryMeta, {

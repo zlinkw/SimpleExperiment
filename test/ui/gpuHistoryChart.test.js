@@ -11,6 +11,12 @@ test("GPU history UI provides overview and per-card expandable charts", () => {
   assert.match(html, /command: "loadGpuHistory"/);
   assert.match(html, /gpuHistoryOverviewSeries/);
   assert.match(html, /gpuHistorySeriesCache/);
+  assert.match(html, /GPU_HISTORY_REQUEST_COOLDOWN_MS = 60_000/);
+  assert.match(html, /gpuHistoryRequestLastAt/);
+  assert.match(html, /const wasOpen = gpuHistoryOverviewOpen/);
+  assert.match(html, /historyDetails\.open && !wasOpen/);
+  assert.match(html, /const wasOpen = expandedGpuHistoryKeys\.has\(key\)/);
+  assert.match(html, /if \(!wasOpen\) requestGpuHistory/);
 });
 
 test("GPU history chart keeps missing buckets as gaps and exposes accessible legends", () => {

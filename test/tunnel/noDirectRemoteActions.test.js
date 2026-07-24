@@ -27,6 +27,7 @@ test("Agent actions and file browsing use localhost clients without direct remot
     if (req.url === "/api/health") return res.end(JSON.stringify({ state: "agent_ok", checkedAt: new Date().toISOString() }));
     if (req.url === "/api/snapshot") return res.end(JSON.stringify({ schemaVersion: 1 }));
     if (req.url === "/api/gpu") return res.end(JSON.stringify({ schemaVersion: 1, gpu: [] }));
+    if (req.url.startsWith("/api/gpu/history")) return res.end(JSON.stringify({ schemaVersion: 1, bucketSeconds: 60, retentionHours: 72, maxPointsPerSeries: 4320, updatedAt: "", series: [] }));
     if (req.url === "/api/scheduler") return res.end(JSON.stringify({ schemaVersion: 1, schedulerStates: [] }));
     if (req.url === "/api/traces") return res.end(JSON.stringify({ schemaVersion: 1, experimentTraces: [] }));
     if (req.url.startsWith("/api/live-output")) return res.end(JSON.stringify({ schemaVersion: 1, text: "" }));
@@ -50,6 +51,7 @@ test("Agent actions and file browsing use localhost clients without direct remot
     await client.getHealth({ userInitiated: true });
     await client.getSnapshot({ manual: true });
     await client.getGpu();
+    await client.getGpuHistory({ serverId: "worker-a", gpuId: "0" });
     await client.getScheduler();
     await client.getTraces();
     await client.getLiveOutput("zlk_cluster/logs/train.log", 0);
@@ -65,6 +67,7 @@ test("Agent actions and file browsing use localhost clients without direct remot
     assert.equal(requests.some((item) => item.url === "/api/actions/run-plan"), true);
     assert.equal(requests.some((item) => item.url === "/api/actions/delete-artifacts"), true);
     assert.equal(requests.some((item) => item.url.startsWith("/api/files/list")), true);
+    assert.equal(requests.some((item) => item.url.startsWith("/api/gpu/history?serverId=worker-a&gpuId=0")), true);
   } finally {
     server.close();
     childProcess.spawn = oldSpawn;

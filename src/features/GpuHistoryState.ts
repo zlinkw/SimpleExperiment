@@ -1,7 +1,8 @@
+import { RequestBudgetDeniedError } from "../tunnel/RequestBudget";
 import { GpuHistoryQuery, GpuHistoryResponse } from "../tunnel/TunnelClient";
 
 export const GPU_HISTORY_CACHE_LIMIT = 8;
-export const GPU_HISTORY_CACHE_TTL_MS = 30_000;
+export const GPU_HISTORY_CACHE_TTL_MS = 60_000;
 export const GPU_HISTORY_MAX_SERIES = 160;
 export const GPU_HISTORY_MAX_POINTS_PER_SERIES = 288;
 export const GPU_HISTORY_OVERVIEW_POINTS_PER_SERIES = 96;
@@ -89,7 +90,12 @@ export class GpuHistoryStateCache {
     }
 
     const previous = this.view;
-    this.view = {
+    this.view = previous.data ? {
+      ...previous,
+      requestedQuery: query,
+      pendingKey: key,
+      error: undefined,
+    } : {
       ...previous,
       status: "loading",
       requestedQuery: query,
@@ -115,13 +121,11 @@ export class GpuHistoryStateCache {
       return this.view;
     } catch (error) {
       if (epoch === this.epoch && sequence === this.requestSequence) {
-        this.view = {
-          ...previous,
-          status: previous.data ? "stale" : "error",
-          requestedQuery: query,
-          pendingKey: undefined,
-          error: boundedError(error),
-        };
+        if (previous.data && isExpectedBudgetDenial(error)) {
+          this.view = { ...previous, requestedQuery: query, pendingKey: undefined, error: undefined };
+          return this.view;
+        }
+        this.view = { ...previous, status: previous.data ? "stale" : "error", requestedQuery: query, pendingKey: undefined, error: boundedError(error) };
       }
       throw error;
     }
@@ -136,6 +140,11 @@ export class GpuHistoryStateCache {
       this.entries.delete(oldest);
     }
   }
+}
+
+function isExpectedBudgetDenial(error: unknown): boolean {
+  return error instanceof RequestBudgetDeniedError
+    && (error.decision.reason === "cooldown" || error.decision.reason === "rate_limited");
 }
 
 export function normalizeGpuHistoryQuery(input: GpuHistoryQuery = {}): GpuHistoryQuery {

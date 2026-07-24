@@ -19,7 +19,7 @@
 ## 数据契约
 
 - 复用现有 GPU snapshot 作为原始数据源，不建立第二套采集命令。
-- Agent 侧按固定时间桶生成三天滚动历史，默认桶宽 `5 min`，每条曲线最多 `864` 个点。
+- Agent 侧复用本机 GPU snapshot，每分钟最多记录一次，生成三天滚动历史；每条曲线最多 `4320` 个点，查询返回前继续按界面预算降采样。
 - 每卡时间点至少包含 `serverId`、`gpuId`、`timestamp`、`gpuUtilPercent`、`memoryUsedMb`、`memoryTotalMb` 和 `memoryUtilPercent`。
 - 总体曲线的服务器峰值定义为同一时间桶内全部 GPU 的 `gpuUtilPercent` 最大值；悬停详情同时显示峰值卡号和服务器 GPU 数量。
 - 缺失桶保留为空值，不使用零值伪造离线期间负载；图中断线并标记数据缺口。

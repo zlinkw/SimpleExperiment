@@ -16,6 +16,7 @@ test("gpu scheduler traces and live output use Hub Agent APIs", async () => {
   const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] }));
   try {
     await client.getGpu();
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
     await client.getGpuHistory({ serverId: "worker a", gpuId: "0/1", start: 100, end: 200, maxPoints: 5000 });
     await client.getScheduler();
     await client.getTraces();

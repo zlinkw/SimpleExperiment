@@ -32,7 +32,7 @@ def gpu(util, used, total=1000):
     return {"index": 0, "utilizationPercent": util, "memoryUsedMb": used, "memoryTotalMb": total}
 
 history = agent.update_gpu_history({}, {"server-a": [gpu(10, 500)]}, base)
-history = agent.update_gpu_history(history, {"server-a": [gpu(55, 750)]}, base + 120)
+history = agent.update_gpu_history(history, {"server-a": [gpu(55, 750)]}, base + 20)
 history = agent.update_gpu_history(history, {"server-a": [gpu(80, 900)]}, base + 600)
 points = history["servers"]["server-a"]["0"]
 
@@ -70,6 +70,8 @@ print(json.dumps({
     "sameBucketLatestUtil": points[0]["gpuUtilPercent"],
     "sameBucketMemoryUtil": points[0]["memoryUtilPercent"],
     "gapSeconds": points[1]["bucketEpoch"] - points[0]["bucketEpoch"],
+    "bucketSeconds": agent.GPU_HISTORY_BUCKET_SECONDS,
+    "maxPointsPerSeries": agent.GPU_HISTORY_MAX_POINTS_PER_SERIES,
     "boundedCount": len(bounded_points),
     "boundedOldest": bounded_points[0]["bucketEpoch"],
     "querySeries": len(query["series"]),
@@ -93,11 +95,13 @@ print(json.dumps({
   assert.equal(result.sameBucketLatestUtil, 55);
   assert.equal(result.sameBucketMemoryUtil, 75);
   assert.equal(result.gapSeconds, 600);
-  assert.equal(result.boundedCount, 864);
-  assert.equal(result.boundedOldest, 1999999800 - 863 * 300);
+  assert.equal(result.bucketSeconds, 60);
+  assert.equal(result.maxPointsPerSeries, 4320);
+  assert.equal(result.boundedCount, 900);
+  assert.equal(result.boundedOldest, 1999999800 - 899 * 60);
   assert.equal(result.querySeries, 1);
   assert.equal(result.queryPoints, 12);
-  assert.equal(result.queryRawPoints, 864);
+  assert.equal(result.queryRawPoints, 900);
   assert.deepEqual(result.queryGapMarkers, [false, true, false]);
   assert.equal(result.recovered, true);
   assert.deepEqual(result.recoveredServers, ["server-b"]);

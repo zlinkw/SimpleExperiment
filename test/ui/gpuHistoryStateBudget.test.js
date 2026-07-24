@@ -5,12 +5,31 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 const {
+  GPU_HISTORY_CACHE_TTL_MS,
   GPU_HISTORY_MAX_SERIES,
   GPU_HISTORY_TOTAL_POINT_LIMIT,
   GpuHistoryStateCache,
   compactGpuHistoryResponse,
   normalizeGpuHistoryQuery,
 } = require("../../dist/features/GpuHistoryState.js");
+const { RequestBudgetDeniedError } = require("../../dist/tunnel/RequestBudget.js");
+
+test("GPU history cache enforces a one-minute acquisition interval per query", async () => {
+  let now = 1_000;
+  let calls = 0;
+  const response = { schemaVersion: 1, bucketSeconds: 60, retentionHours: 72, maxPointsPerSeries: 4320, updatedAt: "x", series: [] };
+  const cache = new GpuHistoryStateCache(() => now);
+  const fetcher = async () => { calls += 1; return response; };
+
+  assert.equal(GPU_HISTORY_CACHE_TTL_MS, 60_000);
+  await cache.load({ serverId: "worker-a", gpuId: "0" }, fetcher);
+  now += 59_999;
+  await cache.load({ serverId: "worker-a", gpuId: "0" }, fetcher);
+  assert.equal(calls, 1);
+  now += 2;
+  await cache.load({ serverId: "worker-a", gpuId: "0" }, fetcher);
+  assert.equal(calls, 2);
+});
 
 test("GPU history query and Webview payload stay bounded", () => {
   assert.deepEqual(normalizeGpuHistoryQuery({ maxPoints: 9999, start: 200, end: 100 }), { start: 100, end: 200, maxPoints: 96 });
@@ -80,6 +99,34 @@ test("GPU history cache coalesces requests and preserves last data on failure", 
   assert.equal(cache.snapshot().query.serverId, "worker-a");
   assert.equal(cache.snapshot().requestedQuery.serverId, "missing");
   assert.equal(cache.snapshot().data.series[0].serverId, "worker-a");
+});
+
+test("GPU history keeps successful state stable while refreshing and ignores expected budget denial", async () => {
+  let resolveRefresh;
+  const cache = new GpuHistoryStateCache(() => 1_000);
+  const response = {
+    schemaVersion: 1,
+    bucketSeconds: 60,
+    retentionHours: 72,
+    maxPointsPerSeries: 4320,
+    updatedAt: "2026-07-24T00:00:00Z",
+    series: [{ serverId: "worker-a", gpuId: "0", rawPointCount: 1, points: [{ timestamp: "2026-07-24T00:00:00Z", bucketEpoch: 2_000_000_000, gpuUtilPercent: 10, memoryUsedMb: 100, memoryTotalMb: 1000, memoryUtilPercent: 10 }] }],
+  };
+  await cache.load({ serverId: "worker-a", gpuId: "0" }, async () => response);
+
+  const refresh = cache.load({ serverId: "worker-b", gpuId: "1" }, () => new Promise((resolve) => { resolveRefresh = resolve; }));
+  assert.equal(cache.snapshot().status, "ready");
+  assert.ok(cache.snapshot().pendingKey);
+  resolveRefresh(response);
+  await refresh;
+
+  const before = cache.snapshot();
+  const after = await cache.load({ serverId: "worker-c", gpuId: "2" }, async () => {
+    throw new RequestBudgetDeniedError("gpu_history", { allowed: false, reason: "rate_limited", retryAfterMs: 500 });
+  });
+  assert.equal(after.status, "ready");
+  assert.equal(after.data, before.data);
+  assert.equal(after.error, undefined);
 });
 
 test("Extension exposes GPU history only through explicit on-demand state", () => {

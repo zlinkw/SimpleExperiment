@@ -4,8 +4,9 @@ exports.GpuHistoryStateCache = exports.GPU_HISTORY_TOTAL_POINT_LIMIT = exports.G
 exports.normalizeGpuHistoryQuery = normalizeGpuHistoryQuery;
 exports.gpuHistoryQueryKey = gpuHistoryQueryKey;
 exports.compactGpuHistoryResponse = compactGpuHistoryResponse;
+const RequestBudget_1 = require("../tunnel/RequestBudget");
 exports.GPU_HISTORY_CACHE_LIMIT = 8;
-exports.GPU_HISTORY_CACHE_TTL_MS = 30_000;
+exports.GPU_HISTORY_CACHE_TTL_MS = 60_000;
 exports.GPU_HISTORY_MAX_SERIES = 160;
 exports.GPU_HISTORY_MAX_POINTS_PER_SERIES = 288;
 exports.GPU_HISTORY_OVERVIEW_POINTS_PER_SERIES = 96;
@@ -42,7 +43,12 @@ class GpuHistoryStateCache {
             return this.view;
         }
         const previous = this.view;
-        this.view = {
+        this.view = previous.data ? {
+            ...previous,
+            requestedQuery: query,
+            pendingKey: key,
+            error: undefined,
+        } : {
             ...previous,
             status: "loading",
             requestedQuery: query,
@@ -70,13 +76,11 @@ class GpuHistoryStateCache {
         }
         catch (error) {
             if (epoch === this.epoch && sequence === this.requestSequence) {
-                this.view = {
-                    ...previous,
-                    status: previous.data ? "stale" : "error",
-                    requestedQuery: query,
-                    pendingKey: undefined,
-                    error: boundedError(error),
-                };
+                if (previous.data && isExpectedBudgetDenial(error)) {
+                    this.view = { ...previous, requestedQuery: query, pendingKey: undefined, error: undefined };
+                    return this.view;
+                }
+                this.view = { ...previous, status: previous.data ? "stale" : "error", requestedQuery: query, pendingKey: undefined, error: boundedError(error) };
             }
             throw error;
         }
@@ -93,6 +97,10 @@ class GpuHistoryStateCache {
     }
 }
 exports.GpuHistoryStateCache = GpuHistoryStateCache;
+function isExpectedBudgetDenial(error) {
+    return error instanceof RequestBudget_1.RequestBudgetDeniedError
+        && (error.decision.reason === "cooldown" || error.decision.reason === "rate_limited");
+}
 function normalizeGpuHistoryQuery(input = {}) {
     const serverId = boundedText(input.serverId, 120);
     const gpuId = boundedText(input.gpuId, 120);

@@ -1,6 +1,7 @@
 export type TunnelRequestPurpose =
   | "health"
   | "snapshot"
+  | "gpu_history"
   | "manual_refresh"
   | "run_plan"
   | "stop"
@@ -63,6 +64,7 @@ export const defaultRequestBudgetConfig: RequestBudgetConfig = {
   minIntervalByPurpose: {
     health: 60_000,
     snapshot: 60_000,
+    gpu_history: 1_000,
     manual_refresh: 1_000,
     diagnostics: 60_000,
     events: 0,

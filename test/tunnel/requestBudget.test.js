@@ -41,6 +41,7 @@ test("tunnel gateway defaults and realtime refresh policy match the current cont
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.health, 60_000);
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.snapshot, 60_000);
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.diagnostics, 60_000);
+  assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.gpu_history, 1_000);
   assert.equal(defaultTunnelGatewayConfig.healthCheckIntervalSeconds, 30);
   assert.equal(defaultTunnelGatewayConfig.snapshotPollIntervalSeconds, 30);
   assert.equal(defaultTunnelGatewayConfig.maxRequestsPerMinute, 120);
