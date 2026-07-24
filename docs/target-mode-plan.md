@@ -44,5 +44,4 @@
 - 上一完成批次：`gpu-history-stability-001`，提交 `3fcdc52` 与记录提交 `3fb6b99` 已同步。
 - 上一恢复交付：`5b78dd3`、`df0ade6`、`3e7dc83` 已推送并确认与 `origin/master` 一致；安装包为 `simple-experiment-0.2.3.vsix`。
 - 本批静态加固提交 `37dd2c6` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
-- 正式待安装包为 `simple-experiment-0.2.5.vsix`，SHA256 `14AABE3E298C0B978B6CC6CEF950D08BD5E6672D62E6176F79F650F34C29CBBD`；未覆盖当前安装。
-- 当前限制：面板和当前项目提示只做可自动执行的静态验证；真实通信相关结论保持 `needs field verification`。
+- 本批发布提交 `0be4166` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
