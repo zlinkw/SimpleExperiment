@@ -2,7 +2,7 @@
 	"name": "simple-experiment",
 	"displayName": "SimpleExperiment",
 	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-	"version": "0.2.7",
+	"version": "0.2.8",
 	"publisher": "simple-local",
 	"extensionKind": [
 		"ui"

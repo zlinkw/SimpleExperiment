@@ -22,21 +22,27 @@
 - [已完成自动化] GPU 三天历史按本机一分钟采样，停止高频历史请求和状态闪动；所有服务器通信继续强制经过 Xshell 本地隧道，不允许一次性 SSH 轮询。
 - [已完成自动化，待现场验证] 修复 SimpleExperiment 面板启动握手竞态，并将当前项目接入提示提升为可见的模态提示与面板内持久入口；真实服务器、Xshell 隧道、SFTP 上传和 GPU 请求联调暂缓。
 
-## 当前批次：panel-state-fallback-onboarding-007（已完成自动化，待用户验证）
+## 当前批次：panel-state-fallback-release-008（已完成自动化，待用户验证）
 
 ### 相邻回归风险
 - 未改变 Xshell、SimpleSFTP、GPU 历史、Agent、归档、结果和 PPT 的真实连接边界。
 - 项目提示“已显示”不等于“已接入”；只有成功代码同步才写入项目接入完成标记。
 - 状态构建失败时仅发送本地恢复状态，不触发服务器请求或文件传输。
+- 新包必须使用短文件名和新版本号，不覆盖任何历史 VSIX；安装后仅要求本地 UI 验证。
 
 ### 验证清单
-- [已通过] TypeScript、Lint、Node 语法检查、定向静态测试 15/15、全量静态测试 680/680。
+- [已通过] 代码批 `1e09702` 已推送并确认本地与 `origin/master` 一致。
+- [已通过] 已升级至 0.2.8 并生成 `simple-experiment-0.2.8.vsix`；139 个文件，SHA256 `2DC44CE91A75139AA6CEA5A3FC303D6487A8A59B16E52218B185304D584B33DD`。
+- [已通过] 相对 0.2.7 文件数不变，只修改 manifest、`package.json`、`dist/extension.js`、`dist/ui/PanelHtml.js`，无新增或移除文件。
+- [已通过] 已覆盖安装 0.2.8；安装目录 `dist/extension.js` 与源码构建产物 SHA256 一致。未启动任何服务器通信。
+- [已通过] TypeScript、Lint、Node 语法检查、定向静态测试 16/16、全量静态测试 680/680。
 - [已通过] VSIX runtime 闭包：50 个本地模块、5 个入口。
 - [已通过] 静态验证使用 Python 3.10.11；未连接真实服务器、Xshell、SimpleSFTP、GPU 或 Agent。
 - [已通过] 状态构建失败 fallback、Webview 渲染错误回报、单项目接入入口和旧版 SFTP 提示优先级均有定向覆盖。
 - [deferred] 真实服务器、Xshell 隧道、SimpleSFTP 上传、GPU 和 Agent 联调。
 
 ## 本批记录
+- 本批代码提交 `1e09702` 已推送并确认与 `origin/master` 一致；发布提交待执行。
 - 上一完成批次：`gpu-history-stability-001`；恢复交付 `5b78dd3`、`df0ade6`、`3e7dc83` 已同步，安装包为 `simple-experiment-0.2.3.vsix`。
 - 本批静态加固提交 `37dd2c6` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
 - 本批发布提交 `0be4166`、记录提交 `b7956d1` 已推送；正式待安装包 `simple-experiment-0.2.5.vsix`，SHA256 `14AABE3E298C0B978B6CC6CEF950D08BD5E6672D62E6176F79F650F34C29CBBD`，未覆盖当前安装。
