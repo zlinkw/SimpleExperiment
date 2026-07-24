@@ -6726,7 +6726,7 @@ class RealtimeTunnelPanelProvider {
         const snapshot = this.lastSnapshot || realtimeState?.lastKnownGood;
         const offlineSnapshot = this.offlineBundle?.snapshot;
         const gpu = compactGpuForWebview(mergeFallbackRecords(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu));
-        const selectedPlanKeys = new Set(uniqueStrings([this.planFileInput || "", this.selectedPlanId || ""]));
+        const selectedPlanKeys = uniqueStrings([this.planFileInput || "", this.selectedPlanId || ""]);
         const selectedTracePlanFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
         const selectedTracePlanVersion = this.planVersionForFile(selectedTracePlanFile);
         const selectedTracePlan = { planFile: selectedTracePlanFile, planRevision: selectedTracePlanVersion.revision, planUpdatedAt: selectedTracePlanVersion.updatedAt };
@@ -6764,7 +6764,7 @@ class RealtimeTunnelPanelProvider {
         const webviewDebugBundlePath = compactDebugBundlePathForWebview(this.debugBundlePath);
         const webviewLastError = this.lastError ? compactSensitiveText(this.lastError, 600) : undefined;
         const webviewPlans = compactLocalPlansForWebview(this.localPlanMetadata.plans, selectedPlanKeys, WEBVIEW_LOCAL_PLAN_LIMIT);
-        const webviewArchivedPlans = compactLocalPlansForWebview(this.localPlanMetadata.archivedPlans || [], new Set(), WEBVIEW_ARCHIVED_PLAN_LIMIT);
+        const webviewArchivedPlans = compactLocalPlansForWebview(this.localPlanMetadata.archivedPlans || [], [], WEBVIEW_ARCHIVED_PLAN_LIMIT);
         const webviewDetectedProject = compactDetectedProjectForWebview(this.localPlanMetadata.detectedProject);
         webviewDetectedProject.missingOnboarding = projectOnboardingSuggestionsForSelection(this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.planFileInput, this.selectedPlanId);
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
@@ -8443,7 +8443,7 @@ function compactLocalPlansForWebview(plans, selectedPlanKeys, limit = WEBVIEW_LO
     const rows = plans.map((plan, index) => ({ plan, index }));
     const selectedRows = [];
     const parseErrorRows = [];
-    const selected = (plan) => planIdentityKeys(plan).some((key) => selectedPlanKeys.has(key));
+    const selected = (plan) => planIdentityKeys(plan).some((key) => selectedPlanKeys.some((selectedKey) => samePlanSelection(key, selectedKey)));
     for (const row of rows) {
         if (selected(row.plan))
             selectedRows.push(row);

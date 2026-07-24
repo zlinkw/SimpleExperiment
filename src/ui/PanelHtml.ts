@@ -889,6 +889,7 @@ export function renderPanelHtml(): string {
     .serverObjectHead h4 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 800; color: #111827; }
     .serverObjectRole { color: #64748B; font-size: 11px; font-weight: 700; text-transform: uppercase; }
     .serverObjectMeta { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+    .serverObjectMeta .pill { flex: 0 0 auto; white-space: nowrap; overflow-wrap: normal; border-radius: 6px; }
     .serverObjectStats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
     .serverObjectStat { display: grid; gap: 2px; min-width: 0; padding: 6px 8px; border: 1px solid #E2E8F0; border-radius: 6px; background: #FFFFFF; }
     .serverObjectStat span { color: #64748B; font-size: 11px; font-weight: 600; }
@@ -6231,8 +6232,12 @@ export function renderPanelHtml(): string {
       return Boolean(input && input.dataset && input.dataset.planPreview);
     }
 
-    function shouldKeepPlanPreviewDraft() {
-      if (isPlanPreviewEditor(document.activeElement)) return true;
+    function shouldKeepPlanPreviewDraft(state) {
+      const editor = document.querySelector('textarea[data-plan-preview="true"]');
+      if (!editor) return false;
+      const selectedPlan = String((state && (state.planFileInput || ((state.selection || {}).selectedPlanId))) || "");
+      if (!selectedPlan || !samePlanSelection(editor.dataset.planFile || "", selectedPlan)) return false;
+      if (document.activeElement === editor) return true;
       return Date.now() < planPreviewEditLockUntil;
     }
 
@@ -6645,7 +6650,7 @@ export function renderPanelHtml(): string {
       refreshRunModeNote(state);
       const plans = (state.plans && state.plans.length ? state.plans : state.recentPlans) || [];
       const planProjectChanged = setHtmlIfChanged("planDetectedProject", renderPlanRunWorkbench(state, plans) + renderDetectedProject(state));
-      const recentPlansChanged = shouldKeepPlanPreviewDraft() ? false : setHtmlIfChanged("recentPlans", renderPlanCards(state, plans));
+      const recentPlansChanged = shouldKeepPlanPreviewDraft(state) ? false : setHtmlIfChanged("recentPlans", renderPlanCards(state, plans));
       if (planProjectChanged) bindPlanInspectControls();
       if (recentPlansChanged) bindPlanSelectionControls();
     }
@@ -9656,7 +9661,6 @@ export function renderPanelHtml(): string {
             '<input class="taskSelectBox" type="checkbox" data-command="selectPlan" data-plan-file="' + escAttr(file) + '" data-plan-id="' + escAttr(plan.planId || file) + '"' + (selected ? " checked" : "") + '>' +
           '<div class="taskTitle"><b>' + esc(title) + '</b><span class="pill">' + esc(planTaskScaleSummary(plan)) + '</span><span class="pill">' + esc(planModeLabel(plan.mode)) + '</span>' + (plan.restoreVersion ? '<span class="pill">' + esc(plan.restoreVersion) + '</span>' : "") + '</div>' +
             '<div class="planCardActions">' +
-              '<button class="taskActionButton" data-command="selectPlan" data-plan-file="' + escAttr(file) + '" data-plan-id="' + escAttr(plan.planId || file) + '">选择</button>' +
               '<button class="taskActionButton secondary" data-command="openPlan" data-file="' + escAttr(file) + '">打开 YAML</button>' +
               (plan.restoreEnvironmentDir ? '<button class="taskActionButton secondary" data-command="openPlan" data-file="' + escAttr(plan.restoreEnvironmentDir) + '" title="打开归档时保存的依赖环境清单">环境快照</button>' : '') +
               (plan.restoreParameterDir ? '<button class="taskActionButton secondary" data-command="openPlan" data-file="' + escAttr(plan.restoreParameterDir) + '" title="打开归档时保存的入口脚本和 CLI 默认参数">参数快照</button>' : '') +
@@ -9679,7 +9683,7 @@ export function renderPanelHtml(): string {
             (archiveReadiness.resultCount ? taskMetric("结果取舍", "有效 " + archiveReadiness.archivedCount + " / 未纳入 " + archiveReadiness.notIncludedCount) : "") +
           '</div>' +
           (plan.parseError ? '<div class="status-failed">' + esc(plan.parseError) + '</div>' : "") +
-          (editable ? '<textarea id="plan-preview-' + index + '" class="wide" rows="8" data-plan-preview="true">' + esc(text) + '</textarea>' : textNotice) +
+          (editable ? '<textarea id="plan-preview-' + index + '" class="wide" rows="8" data-plan-preview="true" data-plan-file="' + escAttr(file) + '">' + esc(text) + '</textarea>' : textNotice) +
         '</div>';
       }).join("") + '</div>';
     }
@@ -9717,7 +9721,7 @@ export function renderPanelHtml(): string {
       const file = String((plan && (plan.file || plan.planFile || plan.path)) || "");
       const id = String((plan && (plan.planId || file)) || "");
       const selected = String((state && (state.planFileInput || ((state.selection || {}).selectedPlanId))) || "");
-      return Boolean(selected && (selected === file || selected === id));
+      return Boolean(selected && (samePlanSelection(selected, file) || samePlanSelection(selected, id)));
     }
 
     function normalizePlanSelectionKey(value) {
