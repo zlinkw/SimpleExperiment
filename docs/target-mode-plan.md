@@ -42,6 +42,7 @@
 - [已通过] 本地 headless Webview smoke：内联脚本启动握手、待接入状态渲染和旧缓存状态渲染均无脚本错误；未启动服务器通信。
 - [已通过] 只读验证旧版扩展状态迁移可恢复 Xshell 配置并剥离直连 SSH 字段；未写入用户状态库。
 - [待用户] 当前 VS Code Extension Host 日志仍早于 0.2.8 安装时间，尚未加载新包；需执行 `Developer: Reload Window` 后再读取新激活日志。
+- [待用户] 当前可见 VS Code 窗口标题为 `README.md - MultiModal`，不是目标仓库；SimpleExperiment 需在 `zlk-cluster-orchestrator` 的独立窗口中验证。
 - [deferred] 真实服务器、Xshell 隧道、SimpleSFTP 上传、GPU 和 Agent 联调。
 
 ## 本批记录
