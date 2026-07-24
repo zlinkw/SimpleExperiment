@@ -38,5 +38,5 @@
 
 ## 本批记录
 - 上一完成批次：`gpu-history-stability-001`，提交 `3fcdc52` 与记录提交 `3fb6b99` 已同步。
-- 自动化交付提交：`5b78dd3` 已推送并确认与 `origin/master` 一致；安装包为 `simple-experiment-0.2.2-panel-onboarding-recovery-r3-20260724.vsix`。
+- 自动化交付提交：`5b78dd3` 已推送并确认与 `origin/master` 一致；正式安装包按版本号命名为 `simple-experiment-0.2.3.vsix`。
 - 现场证据：公开扩展仍有 0 个 Worker，旧扩展状态有 3 个 Worker，迁移将在重载后的新扩展宿主激活时执行；面板、迁移结果和当前项目提示为 `needs field verification`。
