@@ -22,7 +22,7 @@
 - [已完成自动化] GPU 三天历史按本机一分钟采样，停止高频历史请求和状态闪动；所有服务器通信继续强制经过 Xshell 本地隧道，不允许一次性 SSH 轮询。
 - [已完成自动化，待现场验证] 修复 SimpleExperiment 面板启动握手竞态，并将当前项目接入提示提升为可见的模态提示与面板内持久入口；真实服务器、Xshell 隧道、SFTP 上传和 GPU 请求联调暂缓。
 
-## 当前批次：panel-onboarding-release-005
+## 当前批次：panel-onboarding-release-005（已完成自动化）
 ### 修复点
 - [已完成自动化] Webview 先注册消息监听，再赋值 HTML；握手同步到达时不得丢失，已加入顺序回归测试。
 - [已完成自动化] 项目接入通知改为模态窗口；取消或关闭通知时，面板保留“当前项目待接入”持久入口。
@@ -48,4 +48,4 @@
 - 上一完成批次：`gpu-history-stability-001`；恢复交付 `5b78dd3`、`df0ade6`、`3e7dc83` 已同步，安装包为 `simple-experiment-0.2.3.vsix`。
 - 本批静态加固提交 `37dd2c6` 已推送，并确认本地 `HEAD` 与 `origin/master` 一致。
 - 本批发布提交 `0be4166`、记录提交 `b7956d1` 已推送；正式待安装包 `simple-experiment-0.2.5.vsix`，SHA256 `14AABE3E298C0B978B6CC6CEF950D08BD5E6672D62E6176F79F650F34C29CBBD`，未覆盖当前安装。
-- 本批代码提交 `4660c69` 已推送并确认与 `origin/master` 一致；正式安装包 `simple-experiment-0.2.7.vsix`，SHA256 `B69DEE420B63B66AA369E3298E5A15DFCF66B00DD36D65C522B1BF918261F683`，未覆盖当前安装。
+- 本批代码提交 `4660c69` 已推送并确认与 `origin/master` 一致；正式安装包 `simple-experiment-0.2.7.vsix`，SHA256 `B69DEE420B63B66AA369E3298E5A15DFCF66B00DD36D65C522B1BF918261F683`，未覆盖当前安装；下一批边界：用户开始使用后，仅现场验收 Xshell 隧道、SimpleSFTP 上传、GPU 历史和 Agent 项目接入，不在本批自动执行。
