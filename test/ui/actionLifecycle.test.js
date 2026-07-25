@@ -80,7 +80,8 @@ test("local toolbar commands wait for extension terminal status", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   assert.match(source, /function localCommandReleasesAfterTrigger/);
-  assert.match(source, /\["startAllConnections", "testAll", "snapshot"\]/);
+  assert.match(source, /const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set\(\["startAllConnections", "testAll", "snapshot"\]\)/);
+  assert.match(source, /return LOCAL_COMMAND_RELEASES_AFTER_TRIGGER\.has/);
   assert.match(source, /已触发本地 VS Code 操作/);
   assert.match(source, /Promise\.race\(\[guardedWork, timeout\]\)/);
 });

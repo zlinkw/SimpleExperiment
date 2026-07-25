@@ -246,6 +246,15 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "selectExperiment",
     "selectPlan",
 ]);
+const SAFE_WEBVIEW_COMMANDS = new Set([
+    "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
+    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+    "selectPlan", "selectExperiment",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
+]);
+const COMMANDS_WITHOUT_UI_STATUS = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
+const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
 const actionCommandMap = {
     validatePlan: "validate-plan",
     dryRunPlan: "dry-run-plan",
@@ -10215,14 +10224,7 @@ function buildWorkerTelemetryStatus(registryState, probes, realtime) {
 }
 function getSafeCommand(message) {
     const command = stringField(message, "command");
-    const basic = new Set([
-        "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
-        "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
-        "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
-        "selectPlan", "selectExperiment",
-        "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
-    ]);
-    return basic.has(command) || uiActionCommands.has(command) ? command : "";
+    return SAFE_WEBVIEW_COMMANDS.has(command) || uiActionCommands.has(command) ? command : "";
 }
 const hostOperationUiCommands = new Set([
     "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands",
@@ -10277,10 +10279,10 @@ function hostOperationLeaseActionLabel(command) {
     return labels[command] || command;
 }
 function commandNeedsUiStatus(command) {
-    return Boolean(command) && !["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"].includes(command);
+    return Boolean(command) && !COMMANDS_WITHOUT_UI_STATUS.has(command);
 }
 function localCommandReleasesAfterTrigger(command) {
-    return ["startAllConnections", "testAll", "snapshot"].includes(String(command || ""));
+    return LOCAL_COMMAND_RELEASES_AFTER_TRIGGER.has(String(command || ""));
 }
 function normalizeUiLayout(input) {
     const orderInput = Array.isArray(input.order) ? input.order.map((item) => String(item)) : [];
