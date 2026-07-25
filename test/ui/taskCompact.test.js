@@ -52,3 +52,29 @@ test("task workbench derives counts selections and render priority in one view m
   assert.doesNotMatch(extractFunction("taskRowsViewModel"), /allRows\.filter\(/);
   assert.ok([...panelSource.matchAll(/const taskView = taskRowsViewModel\(rows, selected\)/g)].length >= 2);
 });
+
+test("task views reuse cached selection sets and invalidate on changed sources", () => {
+  const helper = extractFunction("taskSelectionSetsForState");
+  const sandbox = {
+    EMPTY_TASK_SELECTION_VALUES: [],
+    taskSelectionSetsCacheSources: null,
+    taskSelectionSetsCacheValue: null,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${helper}\nthis.selectionSets = taskSelectionSetsForState;`, sandbox);
+  const firstState = { selection: { selectedTaskUiKeys: ["task-1"], selectedRunKeys: ["run-1"] } };
+  const first = sandbox.selectionSets(firstState);
+  assert.equal(sandbox.selectionSets(firstState), first);
+  assert.equal(first.uiKeys.has("task-1"), true);
+  assert.equal(first.operationKeys.has("run-1"), true);
+
+  const second = sandbox.selectionSets({ selection: { selectedTaskUiKeys: ["task-2"], selectedRunKeys: ["run-2"] } });
+  assert.notEqual(second, first);
+  assert.equal(second.uiKeys.has("task-2"), true);
+  assert.equal(second.operationKeys.has("run-1"), false);
+
+  for (const name of ["pruneExpandedTaskLogs", "compactSchedulerForSignature", "renderTaskSection", "selectedTaskRowsFromState"]) {
+    assert.match(extractFunction(name), /taskSelectionSetsForState\(state\)/, name);
+  }
+  assert.doesNotMatch(extractFunction("isTaskRowSelected"), /new Set\(/);
+});

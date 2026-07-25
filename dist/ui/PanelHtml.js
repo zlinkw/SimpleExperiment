@@ -1445,6 +1445,8 @@ function renderPanelHtml() {
     let nextObjectReferenceId = 1;
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
+    let taskSelectionSetsCacheSources = null;
+    let taskSelectionSetsCacheValue = null;
     let planActiveRunEvidenceCacheState = null;
     let planActiveRunEvidenceCache = new Map();
     let operationViewCacheRows = null;
@@ -1520,6 +1522,8 @@ function renderPanelHtml() {
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_SERVER_STATUS_ROWS = [];
+    const EMPTY_TASK_SELECTION_VALUES = [];
+    const EMPTY_TASK_SELECTION_SET = new Set();
     const TASK_LOG_RENDER_LIMIT = 8000;
     const PLAN_RENDER_LIMIT = 30;
     const TRACE_RENDER_LIMIT = 60;
@@ -2376,11 +2380,7 @@ function renderPanelHtml() {
       if (entries.length <= TASK_LOG_EXPANSION_LIMIT) return expandedTaskLogs;
       const visible = new Set();
       const rows = schedulerRowsForState(state || {});
-      const selection = (state && state.selection) || {};
-      const selected = {
-        uiKeys: new Set(asArray(selection.selectedTaskUiKeys || []).filter(Boolean).map(String)),
-        operationKeys: new Set([...(selection.selectedRunKeys || []), ...(selection.selectedExperimentIds || []), ...(selection.selectedArchiveKeys || []), selection.selectedRunKey].filter(Boolean).map(String))
-      };
+      const selected = taskSelectionSetsForState(state);
       const taskView = taskRowsViewModel(rows, selected);
       taskView.visibleRows.forEach((row) => visible.add(taskLogKey(row)));
       taskView.activeRows.forEach((row) => visible.add(taskLogKey(row)));
@@ -2870,13 +2870,9 @@ function renderPanelHtml() {
     }
 
     function compactSchedulerForSignature(state) {
-      const selection = (state && state.selection) || {};
-      const hiddenLegacyTaskUiKeys = new Set(asArray(selection.hiddenLegacyTaskUiKeys || (state && state.hiddenLegacyTaskUiKeys) || []).map(String));
+      const selected = taskSelectionSetsForState(state);
+      const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
       const rows = schedulerRowsForState(state || {}).filter((row) => !hiddenLegacyTaskUiKeys.has(String(row.uiKey || "")));
-      const selected = {
-        uiKeys: new Set(asArray(selection.selectedTaskUiKeys || []).filter(Boolean).map(String)),
-        operationKeys: new Set([...(selection.selectedRunKeys || []), ...(selection.selectedExperimentIds || []), ...(selection.selectedArchiveKeys || []), selection.selectedRunKey].filter(Boolean).map(String))
-      };
       const taskView = taskRowsViewModel(rows, selected);
       return {
         count: rows.length,
@@ -8366,18 +8362,39 @@ function renderPanelHtml() {
       return debugRows.length ? { manualReview: true } : undefined;
     }
 
+    function taskSelectionSetsForState(state) {
+      const data = state || {};
+      const selection = data.selection && typeof data.selection === "object" ? data.selection : {};
+      const selectedTaskUiKeys = Array.isArray(selection.selectedTaskUiKeys) ? selection.selectedTaskUiKeys : EMPTY_TASK_SELECTION_VALUES;
+      const selectedRunKeys = Array.isArray(selection.selectedRunKeys) ? selection.selectedRunKeys : EMPTY_TASK_SELECTION_VALUES;
+      const selectedExperimentIds = Array.isArray(selection.selectedExperimentIds) ? selection.selectedExperimentIds : EMPTY_TASK_SELECTION_VALUES;
+      const selectedArchiveKeys = Array.isArray(selection.selectedArchiveKeys) ? selection.selectedArchiveKeys : EMPTY_TASK_SELECTION_VALUES;
+      const selectedRunKey = String(selection.selectedRunKey || "");
+      const hiddenLegacyTaskUiKeySource = Array.isArray(selection.hiddenLegacyTaskUiKeys)
+        ? selection.hiddenLegacyTaskUiKeys
+        : Array.isArray(data.hiddenLegacyTaskUiKeys) ? data.hiddenLegacyTaskUiKeys : EMPTY_TASK_SELECTION_VALUES;
+      const cached = taskSelectionSetsCacheSources;
+      if (cached && cached.selectedTaskUiKeys === selectedTaskUiKeys && cached.selectedRunKeys === selectedRunKeys && cached.selectedExperimentIds === selectedExperimentIds && cached.selectedArchiveKeys === selectedArchiveKeys && cached.selectedRunKey === selectedRunKey && cached.hiddenLegacyTaskUiKeys === hiddenLegacyTaskUiKeySource) {
+        return taskSelectionSetsCacheValue;
+      }
+      taskSelectionSetsCacheSources = { selectedTaskUiKeys, selectedRunKeys, selectedExperimentIds, selectedArchiveKeys, selectedRunKey, hiddenLegacyTaskUiKeys: hiddenLegacyTaskUiKeySource };
+      taskSelectionSetsCacheValue = {
+        uiKeys: new Set(selectedTaskUiKeys.filter(Boolean).map(String)),
+        operationKeys: new Set([...selectedRunKeys, ...selectedExperimentIds, ...selectedArchiveKeys, selectedRunKey].filter(Boolean).map(String)),
+        hiddenLegacyTaskUiKeys: new Set(hiddenLegacyTaskUiKeySource.map(String))
+      };
+      return taskSelectionSetsCacheValue;
+    }
+
     function renderTaskSection(state) {
       const selection = state.selection || {};
-      const hiddenLegacyTaskUiKeys = new Set(asArray(selection.hiddenLegacyTaskUiKeys || state.hiddenLegacyTaskUiKeys || []).map(String));
+      const selected = taskSelectionSetsForState(state);
+      const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
       const allRows = schedulerRowsForState(state).filter((row) => !hiddenLegacyTaskUiKeys.has(String(row.uiKey || "")));
       const selectedPlanFile = state.planFileInput || selection.selectedPlanId || "";
       const selectedPlan = selectedPlanFile ? planFromContext(state || {}, { planFile: selectedPlanFile }) || {} : {};
       const scope = taskRowsForPlanScope(allRows, selectedPlanFile, taskPlanScope, selectedPlan);
       const rows = scope.rows;
-      const selected = {
-        uiKeys: new Set(asArray(selection.selectedTaskUiKeys || []).filter(Boolean).map(String)),
-        operationKeys: new Set([...(selection.selectedRunKeys || []), ...(selection.selectedExperimentIds || []), ...(selection.selectedArchiveKeys || []), selection.selectedRunKey].filter(Boolean).map(String))
-      };
       const taskView = taskRowsViewModel(rows, selected);
       const counts = taskView.counts;
       const scopeBar = scope.selectedPlanFile
@@ -10278,8 +10295,8 @@ function renderPanelHtml() {
     }
 
     function isTaskRowSelected(row, selected) {
-      const uiKeys = selected && selected.uiKeys ? selected.uiKeys : new Set();
-      const operationKeys = selected && selected.operationKeys ? selected.operationKeys : new Set();
+      const uiKeys = selected && selected.uiKeys ? selected.uiKeys : EMPTY_TASK_SELECTION_SET;
+      const operationKeys = selected && selected.operationKeys ? selected.operationKeys : EMPTY_TASK_SELECTION_SET;
       return uiKeys.has(String(row.uiKey || "")) || (!uiKeys.size && taskOperationKeys(row).some((value) => operationKeys.has(value)));
     }
 
@@ -12337,10 +12354,7 @@ function renderPanelHtml() {
         })
       ].join("::");
       if (selectedTaskStateRowsCacheKey === cacheKey) return selectedTaskStateRowsCache;
-      const selected = {
-        uiKeys: new Set(asArray(selection.selectedTaskUiKeys || []).filter(Boolean).map(String)),
-        operationKeys: new Set([...(selection.selectedRunKeys || []), ...(selection.selectedExperimentIds || []), ...(selection.selectedArchiveKeys || []), selection.selectedRunKey].filter(Boolean).map(String))
-      };
+      const selected = taskSelectionSetsForState(state);
       const selectedRows = (!selected.uiKeys.size && !selected.operationKeys.size) ? [] : rows.filter((row) => isTaskRowSelected(row, selected));
       selectedTaskStateRowsCacheKey = cacheKey;
       selectedTaskStateRowsCache = selectedRows;

@@ -21,15 +21,15 @@
 - [已完成] 1/5 后端：复用 Webview 命令路由固定集合。
 - [已完成] 2/5 前端：复用服务器设置状态索引。
 - [已完成] 3/5 后端：复用 UI 布局校验固定集合。
-- [待做] 4/5 前端：减少任务选择状态重复构建。
+- [已完成] 4/5 前端：减少任务选择状态重复构建。
 - [待做] 5/5 前后端：执行第七轮非服务器静态测试。
 
-## 当前批次：autonomous-static-033（已完成）
+## 当前批次：autonomous-static-034（已完成）
 
 ### 范围
-- 将布局分区、固定命令、详情动作命令和动作 payload 字段白名单提升为模块常量。
-- 避免布局加载、合并和保存时重复构建相同校验集合。
-- 保持布局顺序、动作上限、字段截断和未知值过滤语义不变。
+- 按 selection 数组引用与单选 runKey 缓存任务 UI key、operation key 和旧任务隐藏集合。
+- 任务签名、日志裁剪、任务渲染与批量选择复用同一选择模型。
+- 保持任务选择优先级、旧任务隐藏和批量操作语义不变。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
@@ -37,11 +37,11 @@
 - 不重载或关闭 VS Code，不执行真实网络联调。
 
 ### 相邻回归风险
-- 默认固定命令与所有已注册 UI action 必须继续进入详情动作白名单。
-- 非法分区、命令和 payload 字段必须继续被过滤。
+- 任一选择数组或单选 runKey 变化时必须重建集合。
+- 任务表、详情、签名与 payload 必须使用一致的选择结果。
 
 ### 验证清单
-- [已通过] TypeScript、Lint、生成 JavaScript 语法及布局规范化定向测试 13/13。
+- [已通过] TypeScript、Lint、生成 JavaScript 语法、内联脚本及任务选择定向测试 7/7。
 - [跳过] 广泛测试；本周期第 5 批执行。
 
 ## 本批记录
@@ -49,4 +49,5 @@
 - 本周期 1/5：`perf: reuse webview command routing sets`；TypeScript、Lint、生成 JavaScript 语法及命令路由定向测试 11/11 通过，推送后以 `origin/master` Git 历史为准。
 - 本周期 2/5：`perf: reuse server status indexes`；TypeScript、Lint、生成 JavaScript 语法、内联脚本及服务器管理定向测试 7/7 通过，推送后以 `origin/master` Git 历史为准。
 - 本周期 3/5：`perf: reuse UI layout validation sets`；TypeScript、Lint、生成 JavaScript 语法及布局规范化定向测试 13/13 通过，推送后以 `origin/master` Git 历史为准。
-- 下一批边界：仅减少前端任务选择状态重复构建。
+- 本周期 4/5：`perf: reuse task selection sets`；TypeScript、Lint、生成 JavaScript 语法、内联脚本及任务选择定向测试 7/7 通过，推送后以 `origin/master` Git 历史为准。
+- 下一批边界：仅执行第七轮非服务器静态测试。
