@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
 
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
@@ -26,4 +27,14 @@ test("operation progress renders as a VS Code timeline", () => {
   assert.match(html, /if \(operationIsFailureLike\(row\.status\)\) return row\.error/);
   assert.match(html, /if \(operationIsCompleted\(row\.status\)\) return "操作已完成。"/);
   assert.match(html, /meaningfulValue\(row\.progress\)/);
+  assert.match(html, /const timestamp = operationTimestampView\(row\)/);
+  assert.match(html, /timestamp\.label \+ "时间：" \+ timestamp\.raw/);
+  assert.match(html, /minuteBucket === operationSectionSignatureCacheMinute/);
+  const relativeSource = html.match(/function relativeTimeLabel\(value, nowMs\) \{[\s\S]*?\n    \}/)?.[0] || "";
+  const relativeTimeLabel = vm.runInNewContext(relativeSource + "; relativeTimeLabel");
+  const now = Date.parse("2026-07-26T12:00:00.000Z");
+  assert.equal(relativeTimeLabel("2026-07-26T11:59:40.000Z", now), "刚刚");
+  assert.equal(relativeTimeLabel("2026-07-26T11:55:00.000Z", now), "5 分钟前");
+  assert.equal(relativeTimeLabel("2026-07-26T10:00:00.000Z", now), "2 小时前");
+  assert.equal(relativeTimeLabel("-", now), "时间未知");
 });

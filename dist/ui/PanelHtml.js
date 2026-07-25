@@ -1447,6 +1447,7 @@ function renderPanelHtml() {
     let operationSignatureCacheRows = null;
     let operationSignatureCacheValue = null;
     let operationSectionSignatureCacheRows = null;
+    let operationSectionSignatureCacheMinute = -1;
     let operationSectionSignatureCacheValue = null;
     let experimentTraceRowsCacheInput = null;
     let experimentTraceRowsCacheRows = [];
@@ -2946,10 +2947,13 @@ function renderPanelHtml() {
 
     function compactOperationSectionForSignature(state) {
       const view = operationViewModelForState(state || {});
-      if (view.rows === operationSectionSignatureCacheRows && operationSectionSignatureCacheValue) return operationSectionSignatureCacheValue;
+      const minuteBucket = Math.floor(Date.now() / 60000);
+      if (view.rows === operationSectionSignatureCacheRows && minuteBucket === operationSectionSignatureCacheMinute && operationSectionSignatureCacheValue) return operationSectionSignatureCacheValue;
       operationSectionSignatureCacheRows = view.rows;
+      operationSectionSignatureCacheMinute = minuteBucket;
       operationSectionSignatureCacheValue = {
         count: view.rows.length,
+        minuteBucket,
         hiddenCount: view.hiddenCount,
         statusCounts: view.statusCounts,
         visibleRows: compactOperationRowsForSignature(view.visibleRows)
@@ -10644,6 +10648,7 @@ function renderPanelHtml() {
       const fileActions = renderRemoteResultInspectionActions(row.unparseableFileList, row.planFile, 3, row.unparseableDetails);
       const rawType = row.type || row.action || "operation";
       const itemTitle = operationTypeLabel(rawType) + "（原始：" + rawType + "）：" + operationStatusLabel(row.status);
+      const timestamp = operationTimestampView(row);
       return '<div class="operationItem ' + cls + '" data-anchor="' + escAttr(treeAnchorId("operation", row.operationId || row.id || row.type || row.updatedAt)) + '" title="' + escAttr(itemTitle) + '">' +
         '<span class="operationDot" aria-hidden="true"></span>' +
         '<div class="operationBody">' +
@@ -10654,9 +10659,28 @@ function renderPanelHtml() {
           '<div class="operationMessage">' + esc(message) + '</div>' +
           details +
           fileActions +
-          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill">更新 ' + esc(row.updatedAt) + '</span>' + (row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
+          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
         '</div>' +
       '</div>';
+    }
+
+    function operationTimestampView(row) {
+      const terminal = operationIsFailureLike(row.status) || operationIsCancelled(row.status) || operationIsCompleted(row.status);
+      const terminalAt = meaningfulValue(row.terminalAt) ? row.terminalAt : row.updatedAt;
+      const raw = String((terminal ? terminalAt : row.updatedAt) || "-");
+      return { label: terminal ? "终态" : "更新", raw, relative: relativeTimeLabel(raw, Date.now()) };
+    }
+
+    function relativeTimeLabel(value, nowMs) {
+      const at = Date.parse(String(value || ""));
+      if (!Number.isFinite(at)) return "时间未知";
+      const deltaMs = Math.max(0, Number(nowMs || Date.now()) - at);
+      if (deltaMs < 45000) return "刚刚";
+      const minutes = Math.floor(deltaMs / 60000);
+      if (minutes < 60) return String(minutes) + " 分钟前";
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return String(hours) + " 小时前";
+      return String(Math.floor(hours / 24)) + " 天前";
     }
 
     function renderOperationDetailPills(row) {
@@ -12549,7 +12573,8 @@ function renderPanelHtml() {
           blockedReasonCount: Object.keys(preview).length ? asArray(preview.blockedReasons).length : "-",
           progress: pick(row, ["progress", "percent"], "-"),
           message: pick(row, ["message", "detail"], pick(payload, ["message", "error"], "-")),
-          updatedAt: pick(row, ["updatedAt", "updated_at", "generatedAt", "startedAt"], "-"),
+          terminalAt: pick(row, ["completedAt", "completed_at", "finishedAt", "finished_at", "cancelledAt", "cancelled_at", "failedAt", "failed_at"], pick(payload, ["completedAt", "completed_at", "finishedAt", "finished_at", "cancelledAt", "cancelled_at", "failedAt", "failed_at"], "-")),
+          updatedAt: pick(row, ["updatedAt", "updated_at", "completedAt", "completed_at", "finishedAt", "finished_at", "generatedAt", "startedAt"], pick(payload, ["updatedAt", "updated_at", "completedAt", "completed_at", "finishedAt", "finished_at", "generatedAt", "startedAt"], "-")),
           error: pick(row, ["error", "lastError"], pick(payload, ["error"], "-")),
           seq: Number(pick(row, ["seq"], 0)),
           targetCount: pick(row, ["targetCount", "target_count"], pick(payload, ["targetCount", "target_count"], pick(manifest, ["targetCount", "target_count"], pick(threeWay, ["targetCount", "target_count"], "-")))),
