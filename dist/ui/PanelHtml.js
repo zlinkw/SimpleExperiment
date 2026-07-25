@@ -584,6 +584,8 @@ function renderPanelHtml() {
     .param-key { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; min-width: 0; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
     .param-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; }
     .empty-state { min-height: 78px; display: grid; place-items: center; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 16px; background: color-mix(in srgb, var(--card-bg) 70%, transparent); }
+    .initial-state-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); background: var(--subtle-bg); }
+    .initial-state-notice[hidden] { display: none; }
     .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
     .section-title { display: grid; gap: 3px; min-width: 0; }
     .section-desc { font-size: 12px; color: var(--muted); }
@@ -1118,6 +1120,10 @@ function renderPanelHtml() {
 
     <div id="projectOnboardingNotice" class="projectOnboardingNotice" role="status" aria-live="polite"></div>
     <div id="renderError" class="status-failed"></div>
+    <div id="initialStateNotice" class="initial-state-notice" role="status" aria-live="polite">
+      <span id="initialStateMessage">正在读取本地面板状态...</span>
+      <button id="initialStateRetry" class="secondary" type="button" hidden>重新读取</button>
+    </div>
 
     <main id="cardDeck" class="section-grid">
     <aside id="resourceTree" class="resourceTree" aria-label="集群资源导航">
@@ -1361,6 +1367,7 @@ function renderPanelHtml() {
     const DIAGNOSTIC_PORT_CONFLICT_LIMIT = 8;
     const DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT = 8;
     let lastState = {};
+    let initialStateTimer = 0;
     let lastRenderErrorMessage = "";
     let lastGpuServersById = {};
     let expandedTaskLogs = {};
@@ -1959,7 +1966,32 @@ function renderPanelHtml() {
       handleIncomingWebviewMessage(event.data);
     });
     setupResourceTreeObserver();
-    vscode.postMessage({ command: "webviewReady" });
+    el("initialStateRetry").addEventListener("click", requestInitialPanelState);
+    requestInitialPanelState();
+
+    function requestInitialPanelState() {
+      const notice = el("initialStateNotice");
+      const retry = el("initialStateRetry");
+      if (notice) notice.hidden = false;
+      if (retry) retry.hidden = true;
+      el("initialStateMessage").textContent = "正在读取本地面板状态...";
+      document.body.setAttribute("aria-busy", "true");
+      vscode.postMessage({ command: "webviewReady" });
+      if (initialStateTimer) clearTimeout(initialStateTimer);
+      initialStateTimer = window.setTimeout(() => {
+        el("initialStateMessage").textContent = "尚未收到本地面板状态。";
+        if (retry) retry.hidden = false;
+        document.body.removeAttribute("aria-busy");
+      }, 8000);
+    }
+
+    function completeInitialPanelState() {
+      if (initialStateTimer) clearTimeout(initialStateTimer);
+      initialStateTimer = 0;
+      const notice = el("initialStateNotice");
+      if (notice) notice.hidden = true;
+      document.body.removeAttribute("aria-busy");
+    }
 
     function handleIncomingWebviewMessage(message) {
       if (!message) return;
@@ -1976,6 +2008,7 @@ function renderPanelHtml() {
         if (item.type === "navigate") latestNavigationMessage = item;
       }
       if (latestStateMessage) {
+        completeInitialPanelState();
         lastState = latestStateMessage.state || {};
         rememberGpuHistoryState(lastState.gpuHistory);
         invalidateSelectedTaskPayload();
@@ -10487,7 +10520,7 @@ function renderPanelHtml() {
       const view = operationViewModelForState(state);
       setHtmlIfChanged("operationList", view.rows.length
         ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'
-        : '<div class="muted">暂无操作进度。</div>');
+        : '<div class="empty-state">尚无操作记录。</div>');
     }
 
     function operationViewModelForState(state) {

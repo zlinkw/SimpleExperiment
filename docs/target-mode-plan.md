@@ -18,17 +18,17 @@
 
 ## 五批周期
 - [已完成] 1/5 后端：修复 `OperationQueue` 手动取消被误记为超时，并限制历史记录内存。
-- [待做] 2/5 前端：优化首次状态与空状态反馈，不依赖截图验收。
+- [已完成] 2/5 前端：优化首次状态与空状态反馈，不依赖截图验收。
 - [待做] 3/5 后端：加固 Webview 状态发送失败后的恢复与诊断。
 - [待做] 4/5 前端：优化操作时间线可读性与终态反馈。
 - [待做] 5/5 前后端：补齐 Plan 归档参数审计并执行全量静态测试。
 
-## 当前批次：autonomous-static-001（已完成）
+## 当前批次：autonomous-static-002（已完成）
 
 ### 范围
-- 修复运行中操作的手动取消状态，避免 abort 后被覆盖为 `timeout`。
-- 限制内部操作历史记录数量，避免长期开窗后内存持续增长。
-- 仅修改 `src/core/OperationQueue.ts`、对应测试、构建产物和本计划。
+- 首次状态到达前显示明确的本地加载状态，延迟时允许重新请求状态。
+- 首次状态到达后严格关闭加载反馈，并提升操作列表空状态可读性。
+- 仅修改 `src/ui/PanelHtml.ts`、对应测试、构建产物和本计划。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
@@ -36,12 +36,12 @@
 - 不重载或关闭 VS Code，不执行真实网络联调。
 
 ### 验证
-- [已通过] TypeScript。
-- [已通过] `OperationQueue` 与相邻场景定向测试 5/5。
-- [已通过] Lint 与生成 JS 语法检查。
+- [已通过] TypeScript、Lint 与生成 JS 语法检查。
+- [已通过] 首次状态、空状态与面板恢复定向静态测试 6/6。
 - [跳过] 全量测试；周期批次 5 执行。
 
 ## 批次记录
 - 0/5 基线：`f7db9ff`，上一目标已归档到 Git 历史。
-- 1/5 完成提交：`fix: correct operation cancellation lifecycle`；推送后以 `origin/master` Git 历史为准。
-- 下一批边界：仅优化前端首次状态与空状态反馈，不修改服务器通信。
+- 1/5 完成提交：`1419226 fix: correct operation cancellation lifecycle`，已推送并确认与 `origin/master` 一致。
+- 2/5 完成提交：`fix: clarify initial panel state feedback`；推送后以 `origin/master` Git 历史为准。
+- 下一批边界：加固 Webview 状态发送失败后的恢复与诊断，不修改服务器通信。
