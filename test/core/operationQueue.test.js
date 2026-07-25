@@ -76,3 +76,71 @@ test("completed operation history is bounded while preserving newest records", a
 
   assert.deepEqual(queue.snapshot(50).map((item) => item.id), ["operation-3", "operation-4", "operation-5"]);
 });
+
+test("exclusive key index preserves priority order without rescanning running operations", async () => {
+  const queue = new OperationQueue();
+  const starts = [];
+  let releaseFirst;
+  const first = queue.enqueue({
+    id: "first",
+    type: "test",
+    priority: "manual",
+    exclusiveKeys: ["server:a"],
+    run: () => new Promise((resolve) => {
+      starts.push("first");
+      releaseFirst = resolve;
+    }),
+  });
+  const background = queue.enqueue({
+    id: "background",
+    type: "test",
+    priority: "background",
+    exclusiveKeys: ["server:a"],
+    run: async () => { starts.push("background"); },
+  });
+  const blocking = queue.enqueue({
+    id: "blocking",
+    type: "test",
+    priority: "user_blocking",
+    exclusiveKeys: ["server:a"],
+    run: async () => { starts.push("blocking"); },
+  });
+
+  assert.deepEqual([...queue.activeExclusiveKeys()], ["server:a"]);
+  assert.deepEqual(starts, ["first"]);
+  releaseFirst();
+  await Promise.all([first, background, blocking]);
+  assert.deepEqual(starts, ["first", "blocking", "background"]);
+  assert.deepEqual([...queue.activeExclusiveKeys()], []);
+});
+
+test("operation queue keeps direct indexes for records and active exclusive keys", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "../../src/core/OperationQueue.ts"), "utf8");
+  assert.match(source, /latestRecordById = new Map/);
+  assert.match(source, /activeExclusiveKeyCounts = new Map/);
+  assert.doesNotMatch(source, /\[\.\.\.this\.records\]\.reverse\(\)\.find|for \(const item of this\.running\.values\(\)\)/);
+});
+
+test("history trimming remaps duplicate ids to a retained active record", async () => {
+  const queue = new OperationQueue(1);
+  let releaseFirst;
+  const first = queue.enqueue({
+    id: "duplicate",
+    type: "long",
+    priority: "manual",
+    run: () => new Promise((resolve) => { releaseFirst = resolve; }),
+  });
+  await queue.enqueue({
+    id: "duplicate",
+    type: "short",
+    priority: "manual",
+    run: async () => undefined,
+  });
+
+  assert.deepEqual(queue.snapshot(10).map((item) => [item.type, item.status]), [["long", "running"]]);
+  releaseFirst();
+  await first;
+  assert.deepEqual(queue.snapshot(10).map((item) => [item.type, item.status]), [["long", "succeeded"]]);
+});

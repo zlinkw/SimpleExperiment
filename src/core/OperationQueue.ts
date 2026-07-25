@@ -35,6 +35,7 @@ const priorityRank: Record<OperationPriority, number> = {
   background: 2,
   realtime: 3,
 };
+const terminalStatuses = new Set<OperationStatus>(["succeeded", "failed", "cancelled", "timeout", "coalesced"]);
 
 export class OperationQueue {
   private pending: Array<{ spec: OperationSpec; resolve: () => void; reject: (error: unknown) => void }> = [];
@@ -46,6 +47,8 @@ export class OperationQueue {
   }>();
   private coalesced = new Map<string, Promise<void>>();
   private records: QueuedOperationRecord[] = [];
+  private readonly latestRecordById = new Map<string, QueuedOperationRecord>();
+  private readonly activeExclusiveKeyCounts = new Map<string, number>();
 
   constructor(private readonly historyLimit = 500) {
     this.historyLimit = Math.max(1, Math.floor(Number(historyLimit) || 500));
@@ -94,11 +97,7 @@ export class OperationQueue {
   }
 
   activeExclusiveKeys(): Set<string> {
-    const keys = new Set<string>();
-    for (const item of this.running.values()) {
-      for (const key of item.spec.exclusiveKeys || []) keys.add(key);
-    }
-    return keys;
+    return new Set(this.activeExclusiveKeyCounts.keys());
   }
 
   private pump(): void {
@@ -114,14 +113,14 @@ export class OperationQueue {
   private canRun(spec: OperationSpec): boolean {
     const keys = spec.exclusiveKeys || [];
     if (!keys.length) return true;
-    const active = this.activeExclusiveKeys();
-    return !keys.some((key) => active.has(key));
+    return !keys.some((key) => this.activeExclusiveKeyCounts.has(key));
   }
 
   private async start(item: { spec: OperationSpec; resolve: () => void; reject: (error: unknown) => void }): Promise<void> {
     const controller = new AbortController();
     const execution = { spec: item.spec, controller, cancelled: false, timedOut: false };
     this.running.set(item.spec.id, execution);
+    this.addActiveExclusiveKeys(item.spec);
     this.update(item.spec.id, "running", { startedAt: new Date().toISOString() });
     let timer: NodeJS.Timeout | undefined;
     try {
@@ -147,12 +146,13 @@ export class OperationQueue {
     } finally {
       if (timer) clearTimeout(timer);
       this.running.delete(item.spec.id);
+      this.removeActiveExclusiveKeys(item.spec);
       this.pump();
     }
   }
 
   private record(spec: OperationSpec, status: OperationStatus): void {
-    this.records.push({
+    const record: QueuedOperationRecord = {
       id: spec.id,
       type: spec.type,
       priority: spec.priority,
@@ -160,26 +160,53 @@ export class OperationQueue {
       targetServers: spec.targetServers || [],
       targetKeys: spec.targetKeys || [],
       exclusiveKeys: spec.exclusiveKeys || [],
-    });
+    };
+    this.records.push(record);
+    this.latestRecordById.set(record.id, record);
     this.trimRecords();
   }
 
   private update(id: string, status: OperationStatus, patch: Partial<QueuedOperationRecord> = {}): void {
-    const current = [...this.records].reverse().find((item) => item.id === id);
+    const current = this.latestRecordById.get(id);
     if (current) Object.assign(current, patch, { status });
     this.trimRecords();
+  }
+
+  private addActiveExclusiveKeys(spec: OperationSpec): void {
+    for (const key of spec.exclusiveKeys || []) {
+      this.activeExclusiveKeyCounts.set(key, (this.activeExclusiveKeyCounts.get(key) || 0) + 1);
+    }
+  }
+
+  private removeActiveExclusiveKeys(spec: OperationSpec): void {
+    for (const key of spec.exclusiveKeys || []) {
+      const next = (this.activeExclusiveKeyCounts.get(key) || 0) - 1;
+      if (next > 0) this.activeExclusiveKeyCounts.set(key, next);
+      else this.activeExclusiveKeyCounts.delete(key);
+    }
   }
 
   private trimRecords(): void {
     let excess = this.records.length - this.historyLimit;
     if (excess <= 0) return;
-    const terminal = new Set<OperationStatus>(["succeeded", "failed", "cancelled", "timeout", "coalesced"]);
+    const remapIds = new Set<string>();
     this.records = this.records.filter((record) => {
-      if (excess > 0 && terminal.has(record.status)) {
+      if (excess > 0 && terminalStatuses.has(record.status)) {
         excess -= 1;
+        if (this.latestRecordById.get(record.id) === record) {
+          this.latestRecordById.delete(record.id);
+          remapIds.add(record.id);
+        }
         return false;
       }
       return true;
     });
+    for (const id of remapIds) {
+      for (let index = this.records.length - 1; index >= 0; index -= 1) {
+        if (this.records[index].id !== id) continue;
+        this.latestRecordById.set(id, this.records[index]);
+        break;
+      }
+    }
   }
 }

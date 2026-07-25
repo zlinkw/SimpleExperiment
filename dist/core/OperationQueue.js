@@ -8,12 +8,15 @@ const priorityRank = {
     background: 2,
     realtime: 3,
 };
+const terminalStatuses = new Set(["succeeded", "failed", "cancelled", "timeout", "coalesced"]);
 class OperationQueue {
     historyLimit;
     pending = [];
     running = new Map();
     coalesced = new Map();
     records = [];
+    latestRecordById = new Map();
+    activeExclusiveKeyCounts = new Map();
     constructor(historyLimit = 500) {
         this.historyLimit = historyLimit;
         this.historyLimit = Math.max(1, Math.floor(Number(historyLimit) || 500));
@@ -58,12 +61,7 @@ class OperationQueue {
         return this.records.slice(-limit);
     }
     activeExclusiveKeys() {
-        const keys = new Set();
-        for (const item of this.running.values()) {
-            for (const key of item.spec.exclusiveKeys || [])
-                keys.add(key);
-        }
-        return keys;
+        return new Set(this.activeExclusiveKeyCounts.keys());
     }
     pump() {
         this.pending.sort((a, b) => priorityRank[a.spec.priority] - priorityRank[b.spec.priority]);
@@ -79,13 +77,13 @@ class OperationQueue {
         const keys = spec.exclusiveKeys || [];
         if (!keys.length)
             return true;
-        const active = this.activeExclusiveKeys();
-        return !keys.some((key) => active.has(key));
+        return !keys.some((key) => this.activeExclusiveKeyCounts.has(key));
     }
     async start(item) {
         const controller = new AbortController();
         const execution = { spec: item.spec, controller, cancelled: false, timedOut: false };
         this.running.set(item.spec.id, execution);
+        this.addActiveExclusiveKeys(item.spec);
         this.update(item.spec.id, "running", { startedAt: new Date().toISOString() });
         let timer;
         try {
@@ -115,11 +113,12 @@ class OperationQueue {
             if (timer)
                 clearTimeout(timer);
             this.running.delete(item.spec.id);
+            this.removeActiveExclusiveKeys(item.spec);
             this.pump();
         }
     }
     record(spec, status) {
-        this.records.push({
+        const record = {
             id: spec.id,
             type: spec.type,
             priority: spec.priority,
@@ -127,27 +126,55 @@ class OperationQueue {
             targetServers: spec.targetServers || [],
             targetKeys: spec.targetKeys || [],
             exclusiveKeys: spec.exclusiveKeys || [],
-        });
+        };
+        this.records.push(record);
+        this.latestRecordById.set(record.id, record);
         this.trimRecords();
     }
     update(id, status, patch = {}) {
-        const current = [...this.records].reverse().find((item) => item.id === id);
+        const current = this.latestRecordById.get(id);
         if (current)
             Object.assign(current, patch, { status });
         this.trimRecords();
+    }
+    addActiveExclusiveKeys(spec) {
+        for (const key of spec.exclusiveKeys || []) {
+            this.activeExclusiveKeyCounts.set(key, (this.activeExclusiveKeyCounts.get(key) || 0) + 1);
+        }
+    }
+    removeActiveExclusiveKeys(spec) {
+        for (const key of spec.exclusiveKeys || []) {
+            const next = (this.activeExclusiveKeyCounts.get(key) || 0) - 1;
+            if (next > 0)
+                this.activeExclusiveKeyCounts.set(key, next);
+            else
+                this.activeExclusiveKeyCounts.delete(key);
+        }
     }
     trimRecords() {
         let excess = this.records.length - this.historyLimit;
         if (excess <= 0)
             return;
-        const terminal = new Set(["succeeded", "failed", "cancelled", "timeout", "coalesced"]);
+        const remapIds = new Set();
         this.records = this.records.filter((record) => {
-            if (excess > 0 && terminal.has(record.status)) {
+            if (excess > 0 && terminalStatuses.has(record.status)) {
                 excess -= 1;
+                if (this.latestRecordById.get(record.id) === record) {
+                    this.latestRecordById.delete(record.id);
+                    remapIds.add(record.id);
+                }
                 return false;
             }
             return true;
         });
+        for (const id of remapIds) {
+            for (let index = this.records.length - 1; index >= 0; index -= 1) {
+                if (this.records[index].id !== id)
+                    continue;
+                this.latestRecordById.set(id, this.records[index]);
+                break;
+            }
+        }
     }
 }
 exports.OperationQueue = OperationQueue;
