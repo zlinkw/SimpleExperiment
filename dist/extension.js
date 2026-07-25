@@ -364,6 +364,7 @@ class RealtimeTunnelPanelProvider {
     hiddenLegacyTaskUiKeys = new Set();
     planSelectionPersistenceQueue = { dirty: false };
     taskSelectionPersistenceQueue = { dirty: false };
+    projectStatePersistenceQueues = new Map();
     planFileInput;
     planFileWatchers = [];
     planFileWatchRoot = "";
@@ -635,6 +636,8 @@ class RealtimeTunnelPanelProvider {
         this.hiddenLegacyTaskUiKeys.clear();
         this.planSelectionPersistenceQueue.dirty = false;
         this.taskSelectionPersistenceQueue.dirty = false;
+        for (const queue of this.projectStatePersistenceQueues.values())
+            queue.dirty = false;
         this.selectedLogRunKey = undefined;
         this.offlineBundle = undefined;
         this.resultsSummary = undefined;
@@ -847,6 +850,14 @@ class RealtimeTunnelPanelProvider {
                 break;
         }
     }
+    projectStatePersistenceQueue(key) {
+        let queue = this.projectStatePersistenceQueues.get(key);
+        if (!queue) {
+            queue = { dirty: false };
+            this.projectStatePersistenceQueues.set(key, queue);
+        }
+        return queue;
+    }
     queueProjectStatePersistence(queue, snapshot, write) {
         if (queue.promise || !queue.dirty)
             return;
@@ -884,7 +895,7 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async persistProjectOfflineBundleState() {
-        await writeProjectOfflineBundleState(workspaceRoot(), this.offlineBundle);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("offlineBundle"), () => this.offlineBundle, writeProjectOfflineBundleState);
     }
     applyOfflineResultsSummaryFromBundle(bundle) {
         if (!bundle) {
@@ -940,7 +951,7 @@ class RealtimeTunnelPanelProvider {
             this.actionErrors = rows.slice(0, UI_ACTION_ERROR_RECORD_LIMIT);
     }
     async persistProjectActionErrorsState() {
-        await writeProjectActionErrorsState(workspaceRoot(), this.actionErrors);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("actionErrors"), () => this.actionErrors, writeProjectActionErrorsState);
     }
     async loadProjectPptPlotConfigState() {
         const loaded = await this.readCurrentProjectState(readProjectPptPlotConfigState);
@@ -949,7 +960,7 @@ class RealtimeTunnelPanelProvider {
             this.projectPptPlotConfig = config;
     }
     async persistProjectPptPlotConfigState() {
-        await writeProjectPptPlotConfigState(workspaceRoot(), this.projectPptPlotConfig);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("pptPlotConfig"), () => this.projectPptPlotConfig, writeProjectPptPlotConfigState);
     }
     async loadProjectUiLayoutState() {
         const loaded = await this.readCurrentProjectState(readProjectUiLayoutState);
@@ -958,7 +969,7 @@ class RealtimeTunnelPanelProvider {
             this.projectUiLayout = layout;
     }
     async persistProjectUiLayoutState() {
-        await writeProjectUiLayoutState(workspaceRoot(), this.projectUiLayout);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("uiLayout"), () => this.projectUiLayout, writeProjectUiLayoutState);
     }
     async loadProjectDebugBundleState() {
         const loaded = await this.readCurrentProjectState(readProjectDebugBundleState);
@@ -967,7 +978,7 @@ class RealtimeTunnelPanelProvider {
             this.debugBundlePath = debugBundlePath;
     }
     async persistProjectDebugBundleState() {
-        await writeProjectDebugBundleState(workspaceRoot(), this.debugBundlePath);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("debugBundle"), () => this.debugBundlePath, writeProjectDebugBundleState);
     }
     async loadProjectCodeSyncState() {
         const loaded = await this.readCurrentProjectState(readProjectCodeSyncState);
@@ -976,7 +987,7 @@ class RealtimeTunnelPanelProvider {
             this.lastCodeSyncState = codeSync;
     }
     async persistProjectCodeSyncState() {
-        await writeProjectCodeSyncState(workspaceRoot(), this.lastCodeSyncState);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("codeSync"), () => this.lastCodeSyncState, writeProjectCodeSyncState);
     }
     async loadProjectRemotePathConfirmationsState() {
         const loaded = await this.readCurrentProjectState(readProjectRemotePathConfirmationsState);
@@ -984,7 +995,7 @@ class RealtimeTunnelPanelProvider {
             this.confirmedRemotePaths = mergeRemotePathConfirmations(loaded.value);
     }
     async persistProjectRemotePathConfirmationsState() {
-        await writeProjectRemotePathConfirmationsState(workspaceRoot(), this.confirmedRemotePaths);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("remotePathConfirmations"), () => this.confirmedRemotePaths, writeProjectRemotePathConfirmationsState);
     }
     async loadProjectPptPathConfirmationsState() {
         const loaded = await this.readCurrentProjectState(readProjectPptPathConfirmationsState);
@@ -992,7 +1003,7 @@ class RealtimeTunnelPanelProvider {
             this.confirmedPptPaths = mergePptPathConfirmations(loaded.value);
     }
     async persistProjectPptPathConfirmationsState() {
-        await writeProjectPptPathConfirmationsState(workspaceRoot(), this.confirmedPptPaths);
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("pptPathConfirmations"), () => this.confirmedPptPaths, writeProjectPptPathConfirmationsState);
     }
     async resetPptPathConfirmationsFromUi() {
         assertSingleProjectWorkspace("恢复 PPT 路径提醒");
@@ -1101,10 +1112,10 @@ class RealtimeTunnelPanelProvider {
         this.localPlanMetadataFullRefresh = false;
     }
     async persistProjectLocalPlanMetadataState() {
-        await writeProjectLocalPlanMetadataState(workspaceRoot(), {
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("localPlanMetadata"), () => ({
             ...this.localPlanMetadata,
             recentPlans: this.recentPlans,
-        });
+        }), writeProjectLocalPlanMetadataState);
     }
     resolveWebviewView(webviewView) {
         this.view = webviewView;

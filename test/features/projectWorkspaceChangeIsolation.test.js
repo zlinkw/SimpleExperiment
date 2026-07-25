@@ -39,6 +39,7 @@ test("workspace folder changes reload isolated project context", () => {
     /selectedTaskUiKeys\.clear\(\)/,
     /planSelectionPersistenceQueue\.dirty = false/,
     /taskSelectionPersistenceQueue\.dirty = false/,
+    /projectStatePersistenceQueues\.values\(\)/,
     /offlineBundle = undefined/,
     /resultsSummary = undefined/,
     /projectPptPlotConfig = undefined/,
@@ -70,6 +71,27 @@ test("project selection writes are coalesced and isolated across workspace chang
   assert.match(queue, /queue\.dirty = false;\s*await write\(projectContext\.root, state\)/);
   assert.match(queue, /if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
   assert.match(queue, /queue\.promise === persistence/);
+});
+
+test("all remaining project JSON states use independent coalesced queues", () => {
+  const cases = [
+    ["OfflineBundle", "offlineBundle", "writeProjectOfflineBundleState"],
+    ["ActionErrors", "actionErrors", "writeProjectActionErrorsState"],
+    ["PptPlotConfig", "pptPlotConfig", "writeProjectPptPlotConfigState"],
+    ["UiLayout", "uiLayout", "writeProjectUiLayoutState"],
+    ["DebugBundle", "debugBundle", "writeProjectDebugBundleState"],
+    ["CodeSync", "codeSync", "writeProjectCodeSyncState"],
+    ["RemotePathConfirmations", "remotePathConfirmations", "writeProjectRemotePathConfirmationsState"],
+    ["PptPathConfirmations", "pptPathConfirmations", "writeProjectPptPathConfirmationsState"],
+    ["LocalPlanMetadata", "localPlanMetadata", "writeProjectLocalPlanMetadataState"],
+  ];
+  for (const [name, key, writer] of cases) {
+    const pattern = new RegExp(`async persistProject${name}State\\(\\) \\{[\\s\\S]{0,420}persistCoalescedProjectState\\(this\\.projectStatePersistenceQueue\\("${key}"\\)[\\s\\S]{0,320}${writer}`);
+    assert.match(source, pattern, name);
+  }
+  const queueLookup = methodBody("private projectStatePersistenceQueue", "private queueProjectStatePersistence<T>");
+  assert.match(queueLookup, /projectStatePersistenceQueues\.get\(key\)/);
+  assert.match(queueLookup, /projectStatePersistenceQueues\.set\(key, queue\)/);
 });
 
 test("workspace reset precedes project loaders and stale scans cannot win", () => {
