@@ -6477,23 +6477,22 @@ class RealtimeTunnelPanelProvider {
                 return;
             this.lastRealtimeState = state;
             this.scheduleResultsSummaryRefreshFromRealtime(state);
-            if (this.shouldPushLocalAvailabilityFromRealtime(state))
+            const uiRefs = this.realtimeUiStateRefsFor(state);
+            if (this.shouldPushLocalAvailabilityFromRealtime(uiRefs.gpu))
                 void this.pushLocalWorkerAvailability(false);
-            if (this.shouldPostRealtimeStateForWebview(state))
+            if (this.shouldPostRealtimeStateForWebview(uiRefs))
                 this.postState();
         });
         client.setProtectedLogKeys(this.logProtectedKeys());
         return client;
     }
-    shouldPushLocalAvailabilityFromRealtime(state) {
-        const signature = realtimeUiFieldSignature(state.gpu);
+    shouldPushLocalAvailabilityFromRealtime(signature) {
         if (this.lastAvailabilityGpuSignature === signature)
             return false;
         this.lastAvailabilityGpuSignature = signature;
         return true;
     }
-    shouldPostRealtimeStateForWebview(state) {
-        const nextRefs = this.realtimeUiStateRefsFor(state);
+    shouldPostRealtimeStateForWebview(nextRefs) {
         const previous = this.realtimeUiStateRefs;
         this.realtimeUiStateRefs = nextRefs;
         if (!previous) {
@@ -9961,28 +9960,6 @@ function realtimeUiStableHash(value, depth, digest) {
         realtimeUiStableHash(record[key], depth + 1, digest);
     });
     realtimeUiHashToken(digest, "}");
-}
-function realtimeUiStableText(value, depth) {
-    if (value === null || value === undefined)
-        return "";
-    if (typeof value === "string") {
-        const text = value.length > 320 ? `${value.slice(0, 160)}...${value.slice(-80)}` : value;
-        return JSON.stringify(text);
-    }
-    if (typeof value === "number" || typeof value === "boolean")
-        return JSON.stringify(value);
-    if (depth >= 5)
-        return Array.isArray(value) ? "[array]" : "{object}";
-    if (Array.isArray(value)) {
-        const visible = value.slice(0, 240).map((item) => realtimeUiStableText(item, depth + 1));
-        return `[${value.length}:${visible.join(",")}]`;
-    }
-    if (typeof value !== "object")
-        return JSON.stringify(String(value));
-    const record = value;
-    const keys = Object.keys(record).sort();
-    const visibleKeys = keys.slice(0, 240);
-    return `{${keys.length}:${visibleKeys.map((key) => `${JSON.stringify(key)}:${realtimeUiStableText(record[key], depth + 1)}`).join(",")}}`;
 }
 function objectRecord(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;

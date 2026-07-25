@@ -52,9 +52,12 @@ test("extension skips heartbeat-only realtime webview posts and keeps content ch
   assert.match(source, /private readonly realtimeHeartbeatPostMinMs = 60_000/);
   assert.match(source, /private lastAvailabilityGpuSignature = ""/);
   assert.match(source, /function realtimeUiFieldSignature\(value: unknown\): string/);
-  assert.match(source, /function realtimeUiStableText\(value: unknown, depth: number\): string/);
-  assert.match(createClientBlock, /if \(this\.shouldPushLocalAvailabilityFromRealtime\(state\)\) void this\.pushLocalWorkerAvailability\(false\)/);
-  assert.match(createClientBlock, /if \(this\.shouldPostRealtimeStateForWebview\(state\)\) this\.postState\(\)/);
+  assert.match(source, /function realtimeUiStableHash\(value, depth, digest\)/);
+  assert.doesNotMatch(source, /function realtimeUiStableText/);
+  assert.match(createClientBlock, /const uiRefs = this\.realtimeUiStateRefsFor\(state\)/);
+  assert.equal((createClientBlock.match(/realtimeUiStateRefsFor\(state\)/g) || []).length, 1);
+  assert.match(createClientBlock, /if \(this\.shouldPushLocalAvailabilityFromRealtime\(uiRefs\.gpu\)\) void this\.pushLocalWorkerAvailability\(false\)/);
+  assert.match(createClientBlock, /if \(this\.shouldPostRealtimeStateForWebview\(uiRefs\)\) this\.postState\(\)/);
   for (const field of ["gpu", "schedulerStates", "experimentTraces", "logs", "operations", "diagnostics", "fileTransfers", "workerHealth", "workerTasks", "warnings"]) {
     assert.match(postGateBlock, new RegExp(`previous\\.${field} !== nextRefs\\.${field}`));
     assert.match(refsBlock, new RegExp(`${field}: realtimeUiFieldSignature\\(state\\.${field}\\)`));
@@ -62,7 +65,8 @@ test("extension skips heartbeat-only realtime webview posts and keeps content ch
   }
   assert.match(postGateBlock, /previous\.resultSummaryDirtyKey !== nextRefs\.resultSummaryDirtyKey/);
   assert.match(postGateBlock, /nowMs - this\.lastRealtimeHeartbeatPostAt < this\.realtimeHeartbeatPostMinMs/);
-  assert.match(source, /const signature = realtimeUiFieldSignature\(state\.gpu\)/);
+  assert.match(source, /private shouldPushLocalAvailabilityFromRealtime\(signature\)/);
+  assert.doesNotMatch(source, /private shouldPushLocalAvailabilityFromRealtime[\s\S]{0,160}realtimeUiFieldSignature/);
   assert.match(source, /this\.lastAvailabilityGpuSignature === signature/);
   assert.doesNotMatch(source, /lastAvailabilityGpuRef/);
 });
