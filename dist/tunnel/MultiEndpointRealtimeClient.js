@@ -10,22 +10,24 @@ const RealtimeEventReducer_1 = require("./RealtimeEventReducer");
 const AuthorityMergePolicy_1 = require("./AuthorityMergePolicy");
 const WorkerTelemetryApi_1 = require("./WorkerTelemetryApi");
 class MultiEndpointRealtimeClient {
-    endpoints;
     policy;
     onState;
+    endpoints;
+    endpointById;
     clients = new Map();
     budgets = new Map();
     mergedState = (0, RealtimeEventReducer_1.createRealtimeState)();
     protectedLogKeys = [];
     constructor(endpoints, budgetFactory, policy = RealtimeTunnelClient_1.defaultRealtimeRefreshPolicy, onState = () => undefined) {
-        this.endpoints = endpoints;
         this.policy = policy;
         this.onState = onState;
-        for (const endpoint of endpoints) {
+        this.endpoints = endpoints.map((endpoint) => ({ ...endpoint }));
+        this.endpointById = new Map(this.endpoints.map((endpoint) => [endpoint.id, endpoint]));
+        for (const endpoint of this.endpoints) {
             const budget = budgetFactory(endpoint);
             this.budgets.set(endpoint.id, budget);
             this.clients.set(endpoint.id, new RealtimeTunnelClient_1.RealtimeTunnelClient(endpoint, budget, policy, (state) => {
-                this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints, this.protectedLogKeys);
+                this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints, this.protectedLogKeys, this.endpointById);
                 this.onState(this.mergedState);
             }));
         }
@@ -65,7 +67,7 @@ class MultiEndpointRealtimeClient {
             const rejected = entries.find((entry) => entry.status === "rejected");
             throw rejected?.reason || new Error("No realtime endpoint returned GPU state.");
         }
-        const gpu = fulfilled.reduce((out, entry) => ({ ...out, ...apiGpu(entry.value.value, entry.value.endpoint) }), {});
+        const gpu = fulfilled.reduce((out, entry) => Object.assign(out, apiGpu(entry.value.value, entry.value.endpoint)), {});
         this.mergedState = { ...this.mergedState, gpu, lastKnownGood: { ...(this.mergedState.lastKnownGood || {}), gpu } };
         this.onState(this.mergedState);
         return gpu;
@@ -111,7 +113,7 @@ class MultiEndpointRealtimeClient {
     }
     async getWorkerOperation(workerId, operationId) {
         const client = this.clients.get(workerId);
-        const endpoint = this.endpoints.find((item) => item.id === workerId);
+        const endpoint = this.endpointById.get(workerId);
         if (!client || endpoint?.role !== "worker") {
             throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
         }
@@ -119,7 +121,7 @@ class MultiEndpointRealtimeClient {
     }
     async getLiveOutput(runKey, since = 0, workerId) {
         const client = workerId ? this.clients.get(workerId) : this.hubClient();
-        const endpoint = workerId ? this.endpoints.find((item) => item.id === workerId) : undefined;
+        const endpoint = workerId ? this.endpointById.get(workerId) : undefined;
         if (!client || (workerId && endpoint?.role !== "worker")) {
             throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
         }
@@ -147,7 +149,7 @@ class MultiEndpointRealtimeClient {
             throw new Error(`Worker Agent action not allowed: ${action}`);
         }
         const client = this.clients.get(workerId);
-        const endpoint = this.endpoints.find((item) => item.id === workerId);
+        const endpoint = this.endpointById.get(workerId);
         if (!client || endpoint?.role !== "worker") {
             throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
         }
@@ -217,7 +219,7 @@ class MultiEndpointRealtimeClient {
         }));
     }
     updateMergedState(snapshot) {
-        this.mergedState = snapshot ? (0, RealtimeEventReducer_1.createRealtimeState)(snapshot) : mergeRealtimeStates(this.endpointStates(), this.endpoints, this.protectedLogKeys);
+        this.mergedState = snapshot ? (0, RealtimeEventReducer_1.createRealtimeState)(snapshot) : mergeRealtimeStates(this.endpointStates(), this.endpoints, this.protectedLogKeys, this.endpointById);
         this.onState(this.mergedState);
     }
     hubClient() {
@@ -231,8 +233,7 @@ exports.MultiEndpointRealtimeClient = MultiEndpointRealtimeClient;
 function createBudget(config) {
     return new RequestBudget_1.RequestBudget(config);
 }
-function mergeRealtimeStates(entries, endpoints = entries.map((entry) => entry.endpoint), protectedLogKeys = []) {
-    const endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
+function mergeRealtimeStates(entries, endpoints = entries.map((entry) => entry.endpoint), protectedLogKeys = [], endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]))) {
     return (0, AuthorityMergePolicy_1.mergeAuthorityRealtimeStates)(entries.map(({ endpoint, state }) => ({
         endpoint: endpointById.get(endpoint.id) || endpoint,
         state,
@@ -240,7 +241,7 @@ function mergeRealtimeStates(entries, endpoints = entries.map((entry) => entry.e
 }
 function mergeClusterSnapshots(entries) {
     const generatedAt = latest(entries.map((entry) => entry.snapshot.generatedAt));
-    const gpu = entries.reduce((out, entry) => ({ ...out, ...snapshotGpu(entry.snapshot, entry.endpoint) }), {});
+    const gpu = entries.reduce((out, entry) => Object.assign(out, snapshotGpu(entry.snapshot, entry.endpoint)), {});
     const schedulerStates = mergeRows([], entries.flatMap((entry) => entry.snapshot.schedulerStates || []));
     const experimentTraces = mergeRows([], entries.flatMap((entry) => entry.snapshot.experimentTraces || []));
     const diagnostics = Object.fromEntries(entries.map((entry) => [entry.endpoint.id, entry.snapshot.diagnostics || {}]));

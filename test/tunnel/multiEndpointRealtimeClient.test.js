@@ -55,3 +55,16 @@ test("multi endpoint client exposes protected log key forwarding", () => {
   const client = new MultiEndpointRealtimeClient([], () => { throw new Error("no endpoint budget expected"); });
   assert.doesNotThrow(() => client.setProtectedLogKeys(["run-1", "run-1", ""]));
 });
+
+test("multi endpoint client snapshots endpoint configuration at construction", () => {
+  const endpoints = [
+    { id: "w1", role: "worker", displayName: "Worker 1", localHost: "127.0.0.1", localPort: 18766 },
+  ];
+  const client = new MultiEndpointRealtimeClient(endpoints, () => ({ snapshot: () => ({}) }));
+  endpoints[0].role = "hub";
+  endpoints.push({ id: "w2", role: "worker", localHost: "127.0.0.1", localPort: 18767 });
+
+  assert.deepEqual(client.diagnostics().endpoints.map(({ id, role }) => ({ id, role })), [
+    { id: "w1", role: "worker" },
+  ]);
+});
