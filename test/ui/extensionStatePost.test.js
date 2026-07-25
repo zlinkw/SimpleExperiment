@@ -5,6 +5,14 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 
+function loadRealtimeUiFieldSignature(source) {
+  const block = source.match(/function realtimeUiFieldSignature[\s\S]*?function objectRecord/)?.[0] || "";
+  const runnable = block
+    .replace("function realtimeUiFieldSignature(value: unknown): string", "function realtimeUiFieldSignature(value)")
+    .replace(/\nfunction objectRecord[\s\S]*$/, "");
+  return new Function(runnable + "; return realtimeUiFieldSignature;")();
+}
+
 test("extension coalesces ordinary webview state posts and flushes on visibility", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   const postStateBlock = source.match(/private postState[\s\S]*?private flushStatePost/)?.[0] || "";
@@ -69,6 +77,29 @@ test("extension skips heartbeat-only realtime webview posts and keeps content ch
   assert.doesNotMatch(source, /private shouldPushLocalAvailabilityFromRealtime[\s\S]{0,160}realtimeUiFieldSignature/);
   assert.match(source, /this\.lastAvailabilityGpuSignature === signature/);
   assert.doesNotMatch(source, /lastAvailabilityGpuRef/);
+});
+
+test("realtime state signatures stay bounded and sample across large values", () => {
+  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const signature = loadRealtimeUiFieldSignature(source);
+  assert.equal(signature({ b: 2, a: 1 }), signature({ a: 1, b: 2 }));
+
+  const longA = "a".repeat(600);
+  const longB = longA.slice(0, 300) + "b" + longA.slice(301);
+  assert.notEqual(signature(longA), signature(longB));
+
+  const rowsA = Array.from({ length: 600 }, (_, index) => ({ index, value: "same" }));
+  const rowsB = rowsA.map((row) => ({ ...row }));
+  rowsB[599].value = "changed";
+  assert.notEqual(signature(rowsA), signature(rowsB));
+
+  const deepA = { a: { b: { c: { d: { e: { f: "before" } } } } } };
+  const deepB = { a: { b: { c: { d: { e: { f: "after" } } } } } };
+  assert.notEqual(signature(deepA), signature(deepB));
+
+  const dense = Array.from({ length: 240 }, (_, outer) => Array.from({ length: 240 }, (_, inner) => outer * 240 + inner));
+  const nodeCount = Number(signature(dense).split(":")[2]);
+  assert.equal(nodeCount, 4096);
 });
 
 test("local availability push stays server-only and project-state-free", () => {

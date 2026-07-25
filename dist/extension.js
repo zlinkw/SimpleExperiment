@@ -9906,42 +9906,71 @@ function webviewStatePostSignature(state) {
 function realtimeUiFieldSignature(value) {
     const digest = createRealtimeUiHash();
     realtimeUiStableHash(value, 0, digest);
-    return `${digest.length}:${digest.hash >>> 0}`;
+    return `${digest.length}:${digest.hash >>> 0}:${digest.nodes}`;
 }
 function createRealtimeUiHash() {
-    return { length: 0, hash: 0 };
+    return { length: 0, hash: 0, nodes: 0, truncated: false };
 }
+const REALTIME_UI_HASH_MAX_DEPTH = 8;
+const REALTIME_UI_HASH_MAX_ITEMS = 240;
+const REALTIME_UI_HASH_MAX_NODES = 4096;
 function realtimeUiHashToken(digest, token) {
     const text = String(token || "");
     digest.length += text.length;
     for (let i = 0; i < text.length; i += 1)
         digest.hash = ((digest.hash << 5) - digest.hash + text.charCodeAt(i)) | 0;
 }
+function realtimeUiHashBudgetAvailable(digest) {
+    if (digest.nodes < REALTIME_UI_HASH_MAX_NODES)
+        return true;
+    if (!digest.truncated) {
+        digest.truncated = true;
+        realtimeUiHashToken(digest, "[budget]");
+    }
+    return false;
+}
+function realtimeUiSampleIndexes(length, limit = REALTIME_UI_HASH_MAX_ITEMS) {
+    if (length <= 0)
+        return [];
+    if (length <= limit)
+        return Array.from({ length }, (_, index) => index);
+    return Array.from({ length: limit }, (_, index) => Math.floor(index * (length - 1) / (limit - 1)));
+}
+function realtimeUiSampleText(value, limit = REALTIME_UI_HASH_MAX_ITEMS) {
+    if (value.length <= limit)
+        return value;
+    return realtimeUiSampleIndexes(value.length, limit).map((index) => value[index]).join("");
+}
 function realtimeUiStableHash(value, depth, digest) {
+    if (!realtimeUiHashBudgetAvailable(digest))
+        return;
+    digest.nodes += 1;
     if (value === null || value === undefined) {
         realtimeUiHashToken(digest, "");
         return;
     }
     if (typeof value === "string") {
-        const text = value.length > 320 ? `${value.slice(0, 160)}...${value.slice(-80)}` : value;
-        realtimeUiHashToken(digest, JSON.stringify(text));
+        realtimeUiHashToken(digest, `${value.length}:${JSON.stringify(realtimeUiSampleText(value))}`);
         return;
     }
     if (typeof value === "number" || typeof value === "boolean") {
         realtimeUiHashToken(digest, JSON.stringify(value));
         return;
     }
-    if (depth >= 5) {
+    if (depth >= REALTIME_UI_HASH_MAX_DEPTH) {
         realtimeUiHashToken(digest, Array.isArray(value) ? "[array]" : "{object}");
         return;
     }
     if (Array.isArray(value)) {
         realtimeUiHashToken(digest, `[${value.length}:`);
-        value.slice(0, 240).forEach((item, index) => {
+        for (const index of realtimeUiSampleIndexes(value.length)) {
+            if (!realtimeUiHashBudgetAvailable(digest))
+                break;
             if (index > 0)
                 realtimeUiHashToken(digest, ",");
-            realtimeUiStableHash(item, depth + 1, digest);
-        });
+            realtimeUiHashToken(digest, `${index}:`);
+            realtimeUiStableHash(value[index], depth + 1, digest);
+        }
         realtimeUiHashToken(digest, "]");
         return;
     }
@@ -9951,14 +9980,16 @@ function realtimeUiStableHash(value, depth, digest) {
     }
     const record = value;
     const keys = Object.keys(record).sort();
-    const visibleKeys = keys.slice(0, 240);
     realtimeUiHashToken(digest, `{${keys.length}:`);
-    visibleKeys.forEach((key, index) => {
+    for (const index of realtimeUiSampleIndexes(keys.length)) {
+        if (!realtimeUiHashBudgetAvailable(digest))
+            break;
         if (index > 0)
             realtimeUiHashToken(digest, ",");
+        const key = keys[index];
         realtimeUiHashToken(digest, `${JSON.stringify(key)}:`);
         realtimeUiStableHash(record[key], depth + 1, digest);
-    });
+    }
     realtimeUiHashToken(digest, "}");
 }
 function objectRecord(value) {
