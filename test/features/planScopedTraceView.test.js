@@ -79,6 +79,9 @@ test("trace UI defaults to current Plan while preserving all-record access", () 
   assert.match(panel, /return PLAN_VIEW_SCOPE_VALUES\.includes\(scope\) \? scope : "selected"/);
   assert.match(panel, /data-trace-plan-scope="selected"/);
   assert.match(panel, /data-trace-plan-scope="all"/);
+  assert.match(panel, /event\.target\.closest\("button\[data-trace-plan-scope\]"\)/);
+  assert.match(panel, /handleTracePlanScopeClick\(tracePlanScopeTarget\)/);
+  assert.doesNotMatch(panel, /bindTracePlanScopeControls/);
   assert.match(panel, /当前 Plan 暂无实验记录；可切换“全部记录”/);
   assert.match(panel, /traceRowsForPlanScope\(experimentTraceRowsForState\(state\), state, "selected"\)/);
   assert.match(panel, /planFile: pick\(row, \["planFile", "plan_file", "plan"\]/);

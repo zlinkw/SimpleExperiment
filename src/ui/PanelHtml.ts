@@ -1616,6 +1616,11 @@ export function renderPanelHtml(): string {
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
+      const taskSelectionInput = event.target.closest('input[type="checkbox"][data-command="selectExperiment"]');
+      if (taskSelectionInput) {
+        event.stopPropagation();
+        return;
+      }
       const auditRefresh = event.target.closest("#refreshDomCommandAudit");
       if (auditRefresh) {
         event.preventDefault();
@@ -1672,6 +1677,18 @@ export function renderPanelHtml(): string {
         navigateToResourceTarget(treeTarget.dataset.sectionTarget, treeTarget.dataset.anchorTarget);
         renderResourceTreeInspector(activeResourceSection, activeResourceAnchor);
         renderWorkbenchInspector(lastState || {});
+        return;
+      }
+      const taskPlanScopeTarget = event.target.closest("button[data-task-plan-scope]");
+      if (taskPlanScopeTarget) {
+        event.preventDefault();
+        handleTaskPlanScopeClick(taskPlanScopeTarget);
+        return;
+      }
+      const tracePlanScopeTarget = event.target.closest("button[data-trace-plan-scope]");
+      if (tracePlanScopeTarget) {
+        event.preventDefault();
+        handleTracePlanScopeClick(tracePlanScopeTarget);
         return;
       }
       const mainTarget = event.target.closest && event.target.closest("#mainColumn [data-anchor], #mainColumn [data-section]");
@@ -1991,6 +2008,11 @@ export function renderPanelHtml(): string {
     window.addEventListener("pointerup", () => finishLayoutResize());
     document.addEventListener("change", (event) => {
       const input = event.target;
+      if (input && input.matches && input.matches('input[type="checkbox"][data-command="selectExperiment"]')) {
+        event.stopPropagation();
+        handleTaskSelectionChange(input);
+        return;
+      }
       if (input && input.dataset && input.dataset.configInput) {
         updateConfigDraft(input);
         updateServerDestinationPreview(input);
@@ -8430,7 +8452,6 @@ export function renderPanelHtml(): string {
         ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
         : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>');
       setHtmlIfChanged("taskSummary", taskSummaryHtml);
-      bindTaskPlanScopeControls();
       const selectedRows = taskView.selectedRows;
       renderTaskBatchActions(state, rows, selectedRows);
       setHtmlIfChanged("taskProgressCards", "");
@@ -8439,38 +8460,21 @@ export function renderPanelHtml(): string {
         ? renderTaskCards(state, visibleRows, selected, rows.length)
         : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换“全部任务”查看历史记录。" : "暂无任务数据。") + '</div>');
       renderTaskDetailPane(state, rows, selectedRows, taskView.detailRow);
-      if (taskTableChanged) {
-        invalidateSelectedTaskPayload();
-        bindTaskSelectionControls();
-      }
+      if (taskTableChanged) invalidateSelectedTaskPayload();
     }
 
-    function bindTaskPlanScopeControls() {
-      const root = el("taskSummary");
-      if (!root) return;
-      root.querySelectorAll("button[data-task-plan-scope]").forEach((button) => {
-        button.onclick = () => {
-          const next = button.dataset.taskPlanScope === "all" ? "all" : "selected";
-          if (!setTaskPlanScope(next)) return;
-          renderTaskSection(lastState || {});
-        };
-      });
+    function handleTaskPlanScopeClick(button) {
+      const next = button.dataset.taskPlanScope === "all" ? "all" : "selected";
+      if (!setTaskPlanScope(next)) return;
+      renderTaskSection(lastState || {});
     }
 
-    function bindTaskSelectionControls() {
-      el("taskTable").querySelectorAll('input[type="checkbox"][data-command="selectExperiment"]').forEach((box) => {
-        if (box.dataset.boundSelectExperiment === "1") return;
-        box.dataset.boundSelectExperiment = "1";
-        box.addEventListener("click", (event) => event.stopPropagation());
-        box.addEventListener("change", (event) => {
-          event.stopPropagation();
-          invalidateSelectedTaskPayload();
-          refreshContextualActionButtons(lastState || {}, el("workbenchInspector"));
-          refreshContextualActionButtons(lastState || {}, el("pinnedActionsHost"));
-          refreshContextualActionButtons(lastState || {}, el("taskBatchActions"));
-          vscode.postMessage({ command: "selectExperiment", taskUiKey: box.dataset.taskUiKey, runKey: box.dataset.actionKey || box.dataset.runKey, experimentId: box.dataset.experimentId, archiveKey: box.dataset.archiveKey, selected: box.checked });
-        });
-      });
+    function handleTaskSelectionChange(box) {
+      invalidateSelectedTaskPayload();
+      refreshContextualActionButtons(lastState || {}, el("workbenchInspector"));
+      refreshContextualActionButtons(lastState || {}, el("pinnedActionsHost"));
+      refreshContextualActionButtons(lastState || {}, el("taskBatchActions"));
+      vscode.postMessage({ command: "selectExperiment", taskUiKey: box.dataset.taskUiKey, runKey: box.dataset.actionKey || box.dataset.runKey, experimentId: box.dataset.experimentId, archiveKey: box.dataset.archiveKey, selected: box.checked });
     }
 
     function renderDetectedProject(state) {
@@ -10453,21 +10457,14 @@ export function renderPanelHtml(): string {
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部实验记录。</span></div>';
       setHtmlIfChanged("traceTable", scopeBar + (rows.length ? traceNotice + '<div class="traceList">' + visibleRows.map((row) => renderTraceCard(row, selected)).join("") + '</div>' : '<div class="muted">' + (scope.scoped ? '当前 Plan 暂无实验记录；可切换“全部记录”查看历史或未归属记录。' : '暂无实验记录。') + '</div>') +
         (archivedPlans.length ? '<h3>已归档计划</h3>' + archivedNotice + '<div class="traceList">' + visibleArchivedPlans.map(renderArchivedPlanCard).join("") + '</div>' : ""));
-      bindTracePlanScopeControls();
       renderTraceDetailPane(selectedRow, rows.length);
     }
 
-    function bindTracePlanScopeControls() {
-      const root = el("traceTable");
-      if (!root) return;
-      root.querySelectorAll("button[data-trace-plan-scope]").forEach((button) => {
-        button.onclick = () => {
-          const next = button.dataset.tracePlanScope === "all" ? "all" : "selected";
-          if (!setTracePlanScope(next)) return;
-          renderTraceSection(lastState || {});
-          renderResultSummary(lastState || {});
-        };
-      });
+    function handleTracePlanScopeClick(button) {
+      const next = button.dataset.tracePlanScope === "all" ? "all" : "selected";
+      if (!setTracePlanScope(next)) return;
+      renderTraceSection(lastState || {});
+      renderResultSummary(lastState || {});
     }
 
     function traceVisibleRows(rows, selected) {

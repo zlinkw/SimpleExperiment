@@ -145,7 +145,11 @@ test("task UI exposes an explicit current-Plan/all-task switch and resets scope 
   assert.match(panel, /当前 Plan 暂无任务，等待提交或调度状态回传/);
   assert.match(panel, /setTaskPlanScope\(String\(data\.command \|\| ""\) === "runAllPlans" \? "all" : "selected"\)/);
   assert.match(panel, /stableSectionJson\(\{ expandedTaskLogs, taskPlanScope \}\)/);
-  assert.match(panel, /bindTaskPlanScopeControls\(\)/);
+  assert.match(panel, /event\.target\.closest\("button\[data-task-plan-scope\]"\)/);
+  assert.match(panel, /handleTaskPlanScopeClick\(taskPlanScopeTarget\)/);
+  assert.match(panel, /input\.matches\('input\[type="checkbox"\]\[data-command="selectExperiment"\]'\)/);
+  assert.match(panel, /handleTaskSelectionChange\(input\)/);
+  assert.doesNotMatch(panel, /boundSelectExperiment|bindTaskSelectionControls|bindTaskPlanScopeControls/);
   assert.match(panel, /const parentPlanRevision = row\.planRevision \|\| row\.plan_revision/);
   assert.match(panel, /status: childRecord\.status \|\| childRecord\.state \|\| bucketStatus\(key\)/);
   assert.match(panel, /planRevision: pick\(row, \["planRevision", "plan_revision"\]/);
