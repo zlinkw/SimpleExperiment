@@ -23,6 +23,11 @@ test("operation progress renders as a VS Code timeline", () => {
   assert.match(html, /operationIsActive\(status\) && status !== "accepted" && status !== "submitted"/);
   assert.match(html, /当前筛选下没有操作记录/);
   assert.match(html, /operationStatusFilter === operationViewCacheFilter/);
+  assert.match(html, /const restoredWebviewState = typeof vscode\.getState === "function"/);
+  assert.match(html, /normalizeOperationStatusFilter\(restoredWebviewState\.operationStatusFilter\)/);
+  assert.match(html, /persistWebviewState\(\{ operationStatusFilter \}\)/);
+  assert.match(html, /vscode\.setState\(Object\.assign\(\{\}, current, patch \|\| \{\}\)\)/);
+  assert.match(html, /return OPERATION_STATUS_FILTER_VALUES\.includes\(filter\) \? filter : "all"/);
   assert.match(html, /operationIsCancelled\(status\) \? "is-cancelled"/);
   assert.match(html, /if \(operationIsFailureLike\(row\.status\)\) return row\.error/);
   assert.match(html, /if \(operationIsCompleted\(row\.status\)\) return "操作已完成。"/);

@@ -1352,6 +1352,8 @@ function renderPanelHtml() {
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const OPERATION_STATUS_FILTER_VALUES = ["all", "accepted", "running", "completed", "cancelled", "failed"];
+    const restoredWebviewState = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
     let bootstrapErrorReported = false;
     const reportBootstrapError = (error) => {
       if (bootstrapErrorReported) return;
@@ -1443,7 +1445,7 @@ function renderPanelHtml() {
     let operationViewCacheRows = null;
     let operationViewCacheFilter = "";
     let operationViewCacheValue = null;
-    let operationStatusFilter = "all";
+    let operationStatusFilter = normalizeOperationStatusFilter(restoredWebviewState.operationStatusFilter);
     let operationSignatureCacheRows = null;
     let operationSignatureCacheValue = null;
     let operationSectionSignatureCacheRows = null;
@@ -1620,8 +1622,9 @@ function renderPanelHtml() {
       if (operationFilterTarget) {
         event.preventDefault();
         const nextFilter = String(operationFilterTarget.dataset.operationFilter || "all");
-        if (["all", "accepted", "running", "completed", "cancelled", "failed"].includes(nextFilter) && operationStatusFilter !== nextFilter) {
+        if (OPERATION_STATUS_FILTER_VALUES.includes(nextFilter) && operationStatusFilter !== nextFilter) {
           operationStatusFilter = nextFilter;
+          persistWebviewState({ operationStatusFilter });
           operationViewCacheRows = null;
           operationViewCacheFilter = "";
           operationViewCacheValue = null;
@@ -10586,6 +10589,17 @@ function renderPanelHtml() {
       if (filter === "cancelled") return operationIsCancelled(status);
       if (filter === "completed") return operationIsCompleted(status);
       return true;
+    }
+
+    function normalizeOperationStatusFilter(value) {
+      const filter = String(value || "all");
+      return OPERATION_STATUS_FILTER_VALUES.includes(filter) ? filter : "all";
+    }
+
+    function persistWebviewState(patch) {
+      if (typeof vscode.setState !== "function") return;
+      const current = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
+      vscode.setState(Object.assign({}, current, patch || {}));
     }
 
     function operationRowsForRender(rows) {
