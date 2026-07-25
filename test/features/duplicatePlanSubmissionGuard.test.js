@@ -54,6 +54,10 @@ function loadPanelGuard() {
     samePlanSelection,
     operationRowsForState: (state) => state.operations || [],
     schedulerRowsForState: (state) => state.schedulerStates || [],
+    PLAN_ACTIVE_STATUSES: new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]),
+    PLAN_RUN_OPERATION_TYPES: new Set(["run-plan", "reproduce-plan"]),
+    planActiveRunEvidenceCacheState: null,
+    planActiveRunEvidenceCache: new Map(),
   };
   vm.createContext(sandbox);
   vm.runInContext(`${extractFunction(panel, "planActiveRunEvidence")}\nthis.guard = planActiveRunEvidence;`, sandbox);
@@ -102,9 +106,17 @@ test("backend protects active old revisions without misclassifying them as curre
 test("webview disables duplicate submission using the same Plan-scoped activity evidence", () => {
   const guard = loadPanelGuard();
   const planFile = "experiments/plans/smoke.yaml";
-  assert.equal(guard({ operations: [{ type: "reproduce-plan", status: "submitted", planFile }] }, planFile).operationCount, 1);
+  const state = { operations: [{ type: "reproduce-plan", status: "submitted", planFile }] };
+  const first = guard(state, planFile);
+  assert.equal(first.operationCount, 1);
+  assert.equal(guard(state, planFile), first);
   assert.equal(guard({ schedulerStates: [{ status: "queued", planFile }] }, planFile).taskCount, 1);
   assert.equal(guard({ operations: [{ type: "run-plan", status: "completed", planFile }] }, planFile).active, false);
+  const planActivity = extractFunction(panel, "planActiveRunEvidence");
+  assert.match(planActivity, /planActiveRunEvidenceCache\.has\(cacheKey\)/);
+  assert.match(planActivity, /for \(const row of operationRowsForState/);
+  assert.match(planActivity, /for \(const row of schedulerRowsForState/);
+  assert.doesNotMatch(planActivity, /\.filter\(/);
   assert.match(panel, /当前 Plan 已有 [\s\S]{0,160}不能重复提交/);
   assert.match(extension, /assertPlanNotAlreadyActive[\s\S]{0,1000}已阻止重复提交/);
 });

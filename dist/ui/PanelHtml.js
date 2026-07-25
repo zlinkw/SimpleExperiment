@@ -1445,6 +1445,8 @@ function renderPanelHtml() {
     let nextObjectReferenceId = 1;
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
+    let planActiveRunEvidenceCacheState = null;
+    let planActiveRunEvidenceCache = new Map();
     let operationViewCacheRows = null;
     let operationViewCacheFilter = "";
     let operationViewCacheValue = null;
@@ -1509,6 +1511,8 @@ function renderPanelHtml() {
     let activeButtonActionSpec = null;
     let activeLayoutResize = null;
     const TASK_RENDER_LIMIT = 80;
+    const PLAN_ACTIVE_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
+    const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
     const TASK_LOG_RENDER_LIMIT = 8000;
     const PLAN_RENDER_LIMIT = 30;
     const TRACE_RENDER_LIMIT = 60;
@@ -8743,7 +8747,14 @@ function renderPanelHtml() {
         ? selectedPlanRecord
         : (typeof planFromContext === "function" ? planFromContext(state || {}, { planFile }) || {} : {});
       const planRevision = String(plan.revision || plan.planRevision || plan.plan_revision || "").trim();
-      const planUpdatedAt = Date.parse(String(plan.updatedAt || plan.updated_at || ""));
+      const planUpdatedAtText = String(plan.updatedAt || plan.updated_at || "");
+      const planUpdatedAt = Date.parse(planUpdatedAtText);
+      if (planActiveRunEvidenceCacheState !== state) {
+        planActiveRunEvidenceCacheState = state;
+        planActiveRunEvidenceCache = new Map();
+      }
+      const cacheKey = [selectedPlan, planRevision, planUpdatedAtText].join("|");
+      if (planActiveRunEvidenceCache.has(cacheKey)) return planActiveRunEvidenceCache.get(cacheKey);
       const matchesCurrentVersion = (row) => {
         const revision = String((row || {}).planRevision || (row || {}).plan_revision || "").trim();
         if (planRevision && revision) return revision === planRevision;
@@ -8753,27 +8764,27 @@ function renderPanelHtml() {
         }
         return !planRevision;
       };
-      const activeStatus = (status) => {
-        const value = String(status || "").toLowerCase();
-        return new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]).has(value);
-      };
-      const allActiveOperations = operationRowsForState(state || {}).filter((row) =>
-        ["run-plan", "reproduce-plan"].includes(String((row || {}).type || "").toLowerCase())
-        && samePlanSelection((row || {}).planFile || "", selectedPlan)
-        && !(row || {}).schedulerFinished
-        && activeStatus((row || {}).status));
-      const allActiveTasks = schedulerRowsForState(state || {}).filter((row) =>
-        samePlanSelection((row || {}).planFile || (row || {}).plan || "", selectedPlan)
-        && activeStatus((row || {}).status));
-      const currentOperations = allActiveOperations.filter(matchesCurrentVersion);
-      const currentTasks = allActiveTasks.filter(matchesCurrentVersion);
-      const operationCount = allActiveOperations.length;
-      const taskCount = allActiveTasks.length;
-      const currentOperationCount = currentOperations.length;
-      const currentTaskCount = currentTasks.length;
+      let operationCount = 0;
+      let taskCount = 0;
+      let currentOperationCount = 0;
+      let currentTaskCount = 0;
+      for (const row of operationRowsForState(state || {})) {
+        if (!PLAN_RUN_OPERATION_TYPES.has(String((row || {}).type || "").toLowerCase())
+          || !samePlanSelection((row || {}).planFile || "", selectedPlan)
+          || (row || {}).schedulerFinished
+          || !PLAN_ACTIVE_STATUSES.has(String((row || {}).status || "").toLowerCase())) continue;
+        operationCount += 1;
+        if (matchesCurrentVersion(row)) currentOperationCount += 1;
+      }
+      for (const row of schedulerRowsForState(state || {})) {
+        if (!samePlanSelection((row || {}).planFile || (row || {}).plan || "", selectedPlan)
+          || !PLAN_ACTIVE_STATUSES.has(String((row || {}).status || "").toLowerCase())) continue;
+        taskCount += 1;
+        if (matchesCurrentVersion(row)) currentTaskCount += 1;
+      }
       const active = operationCount > 0 || taskCount > 0;
       const currentActive = currentOperationCount > 0 || currentTaskCount > 0;
-      return {
+      const result = {
         active,
         currentActive,
         historicalActive: active && (currentOperationCount < operationCount || currentTaskCount < taskCount),
@@ -8785,6 +8796,8 @@ function renderPanelHtml() {
         historicalOperationCount: operationCount - currentOperationCount,
         historicalTaskCount: taskCount - currentTaskCount
       };
+      planActiveRunEvidenceCache.set(cacheKey, result);
+      return result;
     }
 
     function planExecutionStage(state, planFile) {
