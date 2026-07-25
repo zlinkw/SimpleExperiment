@@ -134,6 +134,8 @@ test("Debug requests cannot enter formal result, archive, delete, or PPT actions
 test("first-run mode guidance recommends Debug without changing the formal default", () => {
   assert.match(panelSource, /function runModeGuidance\(state\)/);
   assert.match(panelSource, /function syncRunModeActionLabels\(root\)/);
+  assert.match(panelSource, /cache\.runModeActionLabelSig === signature/);
+  assert.match(panelSource, /\[String\(postRenderButtonDomVersion\), runMode, rootRefreshIdentity\(scope\)\]/);
   assert.match(panelSource, /runModeActionLabel\(runMode, button\.dataset\.formalRunLabel\)/);
   assert.match(panelSource, /data-force-formal="true"/);
   assert.match(panelSource, /首次运行建议先选择 Debug：只提交首个任务/);

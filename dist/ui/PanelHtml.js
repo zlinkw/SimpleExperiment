@@ -1501,6 +1501,7 @@ function renderPanelHtml() {
     const GPU_HISTORY_REQUEST_COOLDOWN_MS = 60_000;
     const gpuHistoryRequestLastAt = new Map();
     let gpuHistoryDrawFrame = 0;
+    let activeGpuHistoryTooltip = null;
     let gpuHistoryServerStyles = loadGpuHistoryServerStyles();
     let overviewTaskStatsCacheRows = null;
     let overviewTaskStatsCacheValue = null;
@@ -7596,11 +7597,13 @@ function renderPanelHtml() {
     }
 
     function updateGpuHistoryTooltip(canvas, event) {
-      document.querySelectorAll(".gpuHistoryTooltip:not([hidden])").forEach((tooltip) => { tooltip.hidden = true; });
-      if (!canvas || !event) return;
-      const tooltip = canvas.parentElement && canvas.parentElement.querySelector(".gpuHistoryTooltip");
+      const tooltip = canvas && canvas.parentElement && canvas.parentElement.querySelector(".gpuHistoryTooltip");
+      if (activeGpuHistoryTooltip && activeGpuHistoryTooltip !== tooltip) activeGpuHistoryTooltip.hidden = true;
+      activeGpuHistoryTooltip = null;
+      if (!canvas || !event || !tooltip) return;
+      tooltip.hidden = true;
       const series = gpuHistoryCanvasSeries(canvas);
-      if (!tooltip || !series.length) return;
+      if (!series.length) return;
       const points = series.flatMap((item) => asArray(item.points));
       const times = points.map((point) => Number(point.bucketEpoch)).filter(Number.isFinite);
       if (!times.length) return;
@@ -7624,6 +7627,7 @@ function renderPanelHtml() {
       if (!rows.length) return;
       tooltip.innerHTML = '<b>' + esc(new Date(nearestTime * 1000).toLocaleString()) + '</b><br>' + rows.join("<br>");
       tooltip.hidden = false;
+      activeGpuHistoryTooltip = tooltip;
       tooltip.style.left = x > rect.width / 2 ? "6px" : "auto";
       tooltip.style.right = x > rect.width / 2 ? "auto" : "6px";
     }
@@ -12225,6 +12229,10 @@ function renderPanelHtml() {
 
     function syncRunModeActionLabels(root) {
       const scope = root && root.querySelectorAll ? root : document;
+      const cache = refreshRootDataset(scope);
+      const signature = [String(postRenderButtonDomVersion), runMode, rootRefreshIdentity(scope)].join("::");
+      if (cache && cache.runModeActionLabelSig === signature) return;
+      if (cache) cache.runModeActionLabelSig = signature;
       scope.querySelectorAll('button[data-command="runPlan"]').forEach((button) => {
         if (button.dataset.forceFormal === "true" || button.classList.contains("is-loading")) return;
         if (!button.dataset.formalRunLabel) button.dataset.formalRunLabel = cleanButtonLabel(button) || "校验并提交运行";
