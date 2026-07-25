@@ -73,7 +73,8 @@ test("result exclusion is wired through Hub action, debug gate, and current revi
   const tunnel = fs.readFileSync(path.join(__dirname, "../../src/tunnel/TunnelClient.ts"), "utf8");
   const agent = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
   assert.match(extension, /excludeResults: "exclude-results"/);
-  assert.match(extension, /actionRequiresResultReparse[\s\S]{0,180}"exclude-results"/);
+  assert.match(extension, /const RESULT_REPARSE_ACTIONS = new Set\(\[[^\]]*"exclude-results"/);
+  assert.match(extension, /function actionRequiresResultReparse\(action\) \{\s*return RESULT_REPARSE_ACTIONS\.has/);
   assert.match(panel, /excludeResults: \["actions\.exclude-results"\]/);
   assert.match(panel, /traceActionButton\("排除但保留预览", "excludeResults", row, true\)/);
   assert.match(panel, /data-plan-revision=/);

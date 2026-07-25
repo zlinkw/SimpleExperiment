@@ -7945,6 +7945,42 @@ function operationStatusOf(value) {
     const item = value;
     return String(item.status || item.state || item.type || "");
 }
+const OPERATION_TERMINAL_STATUSES = new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stalled", "unsupported", "error"]);
+const OPERATION_FAILURE_TERMINAL_STATUSES = new Set(["completed_with_errors", "failed", "operation_failed", "stalled", "unsupported", "error"]);
+const OPERATION_CANCELLED_TERMINAL_STATUSES = new Set(["cancelled", "canceled"]);
+const REMOTE_ACTION_PENDING_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "progress", "in_progress", "operation_started"]);
+const LONG_RUNNING_OPERATION_ACTIONS = new Set(["run-plan", "reproduce-plan"]);
+const PROJECT_BOOTSTRAP_SUCCEEDED_STATUSES = new Set(["completed", "operation_completed", "done", "success", "succeeded"]);
+const RESULT_SUMMARY_RECORD_ARRAY_FIELDS = new Set(["results", "finalResults", "final_results", "pendingReviewRecords", "pending_review_records"]);
+const RESULT_REPARSE_ACTIONS = new Set(["archive-artifacts", "exclude-results", "delete-artifacts", "archive-worker-artifacts", "delete-worker-artifacts"]);
+const RESULT_SUMMARY_AFFECTING_ACTIONS = new Set([
+    "parse-results",
+    "refresh-results",
+    "run-quality-gate",
+    "run-statistics",
+    "export-paper-table",
+    "check-claim-evidence",
+    "check-output-contract",
+    "parse-case-level",
+    "run-leakage-check",
+    "run-subgroup-analysis",
+    "export-case-analysis",
+    "plan-checkpoint-retention",
+    "inspect-dataset",
+    "export-plotting-contract",
+    "infer-config-from-run",
+    "recover-plan-from-run",
+    "diagnose-result-anomaly",
+    "compare-with-best-config",
+    "archive-artifacts",
+    "exclude-results",
+    "sync-artifacts",
+    "complete-three-way",
+    "delete-artifacts",
+    "reconcile-deletions",
+    "archive-worker-artifacts",
+    "delete-worker-artifacts",
+]);
 function operationTerminal(value) {
     if (!value || typeof value !== "object")
         return false;
@@ -7952,22 +7988,22 @@ function operationTerminal(value) {
 }
 function operationTerminalStatus(value) {
     const text = operationStatusToken(value);
-    return new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stalled", "unsupported", "error"]).has(text);
+    return OPERATION_TERMINAL_STATUSES.has(text);
 }
 function operationFailureTerminalStatus(value) {
     const text = operationStatusToken(value);
-    return new Set(["completed_with_errors", "failed", "operation_failed", "stalled", "unsupported", "error"]).has(text);
+    return OPERATION_FAILURE_TERMINAL_STATUSES.has(text);
 }
 function operationCancelledTerminalStatus(value) {
     const text = operationStatusToken(value);
-    return new Set(["cancelled", "canceled"]).has(text);
+    return OPERATION_CANCELLED_TERMINAL_STATUSES.has(text);
 }
 function remoteActionPendingStatus(value) {
     const text = operationStatusToken(value);
-    return new Set(["accepted", "submitted", "queued", "pending", "running", "progress", "in_progress", "operation_started"]).has(text);
+    return REMOTE_ACTION_PENDING_STATUSES.has(text);
 }
 function operationLongRunningAction(action) {
-    return new Set(["run-plan", "reproduce-plan"]).has(String(action || "").trim().toLowerCase());
+    return LONG_RUNNING_OPERATION_ACTIONS.has(String(action || "").trim().toLowerCase());
 }
 function operationSubmissionAccepted(value) {
     if (!value || typeof value !== "object")
@@ -8022,34 +8058,7 @@ function operationDebugMode(record, payloads) {
     return [record, ...(Array.isArray(payloads) ? payloads : [])].some((item) => debugModeFromRecord(item));
 }
 function actionAffectsResultsSummary(action) {
-    return new Set([
-        "parse-results",
-        "refresh-results",
-        "run-quality-gate",
-        "run-statistics",
-        "export-paper-table",
-        "check-claim-evidence",
-        "check-output-contract",
-        "parse-case-level",
-        "run-leakage-check",
-        "run-subgroup-analysis",
-        "export-case-analysis",
-        "plan-checkpoint-retention",
-        "inspect-dataset",
-        "export-plotting-contract",
-        "infer-config-from-run",
-        "recover-plan-from-run",
-        "diagnose-result-anomaly",
-        "compare-with-best-config",
-        "archive-artifacts",
-        "exclude-results",
-        "sync-artifacts",
-        "complete-three-way",
-        "delete-artifacts",
-        "reconcile-deletions",
-        "archive-worker-artifacts",
-        "delete-worker-artifacts",
-    ]).has(action);
+    return RESULT_SUMMARY_AFFECTING_ACTIONS.has(action);
 }
 function operationStatusToken(value) {
     return String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -9153,7 +9162,7 @@ function compactResultsSummaryForWebview(summary) {
     return out;
 }
 function resultSummaryRecordArrayField(key) {
-    return new Set(["results", "finalResults", "final_results", "pendingReviewRecords", "pending_review_records"]).has(key);
+    return RESULT_SUMMARY_RECORD_ARRAY_FIELDS.has(key);
 }
 function resultRecordPlanFile(row) {
     const record = objectRecord(row) || {};
@@ -11015,7 +11024,7 @@ function resultStatus(result) {
     return stringFromRecord(item, ["status", "state"]) || (item.accepted ? "accepted" : undefined);
 }
 function actionRequiresResultReparse(action) {
-    return new Set(["archive-artifacts", "exclude-results", "delete-artifacts", "archive-worker-artifacts", "delete-worker-artifacts"]).has(String(action || ""));
+    return RESULT_REPARSE_ACTIONS.has(String(action || ""));
 }
 function normalizeActionSubmissionResult(result, operationId, status) {
     const item = result && typeof result === "object" ? result : {};
@@ -11372,7 +11381,7 @@ function projectBootstrapFinishedRunOutcome(state, plan) {
         return projectBootstrapFinishedTaskOutcome(state, planFile, planRevision, planUpdatedAt);
     const status = operationStatusToken(operationStatusOf(latest.row));
     const failed = operationFailureTerminalStatus(status) || operationCancelledTerminalStatus(status);
-    const succeeded = new Set(["completed", "operation_completed", "done", "success", "succeeded"]).has(status);
+    const succeeded = PROJECT_BOOTSTRAP_SUCCEEDED_STATUSES.has(status);
     const schedulerFinished = latest.payloads.some((entry) => entry.schedulerFinished === true || entry.scheduler_finished === true);
     if ((!failed && !succeeded) || (!operationSubmissionAccepted(latest.row) && !schedulerFinished))
         return undefined;
