@@ -388,11 +388,14 @@ export function compactRealtimeState(state: RealtimeState, options: { protectedL
 
 export function compactClusterSnapshot(snapshot?: ClusterSnapshot): ClusterSnapshot | undefined {
   if (!snapshot) return undefined;
+  const schedulerStates = compactSchedulerRows(snapshot.schedulerStates || []);
+  const experimentTraces = compactRows(snapshot.experimentTraces || [], REALTIME_TRACE_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime);
   const operations = compactRecord(operationsRecord(snapshot.operations), REALTIME_OPERATION_RECORD_LIMIT, realtimeRecordRank, realtimeRecordTime);
+  if (schedulerStates === snapshot.schedulerStates && experimentTraces === snapshot.experimentTraces && snapshot.operations === undefined) return snapshot;
   return {
     ...snapshot,
-    schedulerStates: compactSchedulerRows(snapshot.schedulerStates || []),
-    experimentTraces: compactRows(snapshot.experimentTraces || [], REALTIME_TRACE_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime),
+    schedulerStates,
+    experimentTraces,
     ...(Object.keys(operations).length ? { operations: Object.values(operations) } : {}),
   };
 }
@@ -406,6 +409,12 @@ function compactSchedulerRows(rows: unknown[]): unknown[] {
   if (!input.length) return [];
   const hasBuckets = input.some((row) => row && typeof row === "object" && schedulerBucketKeys.some((key) => Array.isArray((row as Record<string, unknown>)[key])));
   if (!hasBuckets) return compactRows(input, REALTIME_SCHEDULER_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime);
+  const needsCompaction = input.length > 16 || input.some((row) => row && typeof row === "object" && schedulerBucketKeys.some((key) => {
+    const bucket = (row as Record<string, unknown>)[key];
+    const limit = key === "completed_experiments" ? 80 : 160;
+    return Array.isArray(bucket) && bucket.length > limit;
+  }));
+  if (!needsCompaction) return input;
   return input.slice(-16).map((row) => {
     if (!row || typeof row !== "object") return row;
     const item = row as Record<string, unknown>;
@@ -422,8 +431,10 @@ function compactSchedulerRows(rows: unknown[]): unknown[] {
 }
 
 function compactWorkerTasks(tasks?: Record<string, unknown[]>): Record<string, unknown[]> {
+  const source = tasks || {};
+  if (Object.values(source).every((rows) => Array.isArray(rows) && rows.length <= REALTIME_WORKER_TASK_RECORD_LIMIT)) return source;
   const out: Record<string, unknown[]> = {};
-  for (const [workerId, rows] of Object.entries(tasks || {})) {
+  for (const [workerId, rows] of Object.entries(source)) {
     out[workerId] = compactRows(rows, REALTIME_WORKER_TASK_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime);
   }
   return out;
@@ -442,7 +453,7 @@ function compactRows(rows: unknown[], limit: number, keyOf: (row: unknown) => st
 
 function compactRecord(record: Record<string, unknown> | undefined, limit: number, rankOf: (row: unknown) => number, timeOf: (row: unknown) => number): Record<string, unknown> {
   const entries = Object.entries(record || {});
-  if (entries.length <= limit) return { ...(record || {}) };
+  if (entries.length <= limit) return record || {};
   return Object.fromEntries([...entries].sort((a, b) => rankOf(a[1]) - rankOf(b[1]) || timeOf(b[1]) - timeOf(a[1])).slice(0, limit));
 }
 

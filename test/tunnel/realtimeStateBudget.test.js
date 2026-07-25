@@ -64,6 +64,30 @@ test("snapshot and authority merge apply realtime state budgets", () => {
   assert.equal(merged.lastKnownGood.experimentTraces.length, REALTIME_TRACE_RECORD_LIMIT);
 });
 
+test("realtime compaction reuses state branches that are already within budget", () => {
+  const schedulerStates = [{ running_experiments: [{ runKey: "run-1", status: "running" }] }];
+  const experimentTraces = [{ runKey: "run-1", status: "running" }];
+  const operations = { "op-1": { status: "running", seq: 1 } };
+  const fileTransfers = { "transfer-1": { status: "running", seq: 1 } };
+  const workerTasks = { worker1: [{ runKey: "run-1", status: "running" }] };
+  const lastKnownGood = { gpu: {}, schedulerStates, experimentTraces };
+  const compacted = compactRealtimeState({
+    ...createRealtimeState(),
+    schedulerStates,
+    experimentTraces,
+    operations,
+    fileTransfers,
+    workerTasks,
+    lastKnownGood,
+  });
+  assert.equal(compacted.schedulerStates, schedulerStates);
+  assert.equal(compacted.experimentTraces, experimentTraces);
+  assert.equal(compacted.operations, operations);
+  assert.equal(compacted.fileTransfers, fileTransfers);
+  assert.equal(compacted.workerTasks, workerTasks);
+  assert.equal(compacted.lastKnownGood, lastKnownGood);
+});
+
 function event(seq, type, payload) {
   return {
     schemaVersion: 1,

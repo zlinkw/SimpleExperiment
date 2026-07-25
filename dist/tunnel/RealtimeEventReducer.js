@@ -311,11 +311,15 @@ function compactRealtimeState(state, options = {}) {
 function compactClusterSnapshot(snapshot) {
     if (!snapshot)
         return undefined;
+    const schedulerStates = compactSchedulerRows(snapshot.schedulerStates || []);
+    const experimentTraces = compactRows(snapshot.experimentTraces || [], exports.REALTIME_TRACE_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime);
     const operations = compactRecord(operationsRecord(snapshot.operations), exports.REALTIME_OPERATION_RECORD_LIMIT, realtimeRecordRank, realtimeRecordTime);
+    if (schedulerStates === snapshot.schedulerStates && experimentTraces === snapshot.experimentTraces && snapshot.operations === undefined)
+        return snapshot;
     return {
         ...snapshot,
-        schedulerStates: compactSchedulerRows(snapshot.schedulerStates || []),
-        experimentTraces: compactRows(snapshot.experimentTraces || [], exports.REALTIME_TRACE_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime),
+        schedulerStates,
+        experimentTraces,
         ...(Object.keys(operations).length ? { operations: Object.values(operations) } : {}),
     };
 }
@@ -329,6 +333,13 @@ function compactSchedulerRows(rows) {
     const hasBuckets = input.some((row) => row && typeof row === "object" && schedulerBucketKeys.some((key) => Array.isArray(row[key])));
     if (!hasBuckets)
         return compactRows(input, exports.REALTIME_SCHEDULER_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime);
+    const needsCompaction = input.length > 16 || input.some((row) => row && typeof row === "object" && schedulerBucketKeys.some((key) => {
+        const bucket = row[key];
+        const limit = key === "completed_experiments" ? 80 : 160;
+        return Array.isArray(bucket) && bucket.length > limit;
+    }));
+    if (!needsCompaction)
+        return input;
     return input.slice(-16).map((row) => {
         if (!row || typeof row !== "object")
             return row;
@@ -347,8 +358,11 @@ function compactSchedulerRows(rows) {
     });
 }
 function compactWorkerTasks(tasks) {
+    const source = tasks || {};
+    if (Object.values(source).every((rows) => Array.isArray(rows) && rows.length <= exports.REALTIME_WORKER_TASK_RECORD_LIMIT))
+        return source;
     const out = {};
-    for (const [workerId, rows] of Object.entries(tasks || {})) {
+    for (const [workerId, rows] of Object.entries(source)) {
         out[workerId] = compactRows(rows, exports.REALTIME_WORKER_TASK_RECORD_LIMIT, genericRowKey, genericRowRank, genericRowTime);
     }
     return out;
@@ -367,7 +381,7 @@ function compactRows(rows, limit, keyOf, rankOf, timeOf) {
 function compactRecord(record, limit, rankOf, timeOf) {
     const entries = Object.entries(record || {});
     if (entries.length <= limit)
-        return { ...(record || {}) };
+        return record || {};
     return Object.fromEntries([...entries].sort((a, b) => rankOf(a[1]) - rankOf(b[1]) || timeOf(b[1]) - timeOf(a[1])).slice(0, limit));
 }
 function operationsRecord(value) {
