@@ -2446,6 +2446,7 @@ function renderPanelHtml() {
       }
       if (section === "results") {
         return {
+          minuteBucket: Math.floor(Date.now() / 60000),
           planFileInput: data.planFileInput,
           plans: compactPlansForSignature(data.plans),
           resultsSummary: compactResultsSummaryForSignature(data.resultsSummary),
@@ -2471,6 +2472,7 @@ function renderPanelHtml() {
       }
       if (section === "tasks") {
         return {
+          minuteBucket: Math.floor(Date.now() / 60000),
           scheduler: compactSchedulerForSignature(data),
           selection: data.selection,
           selectedLogRunKey: data.selectedLogRunKey,
@@ -9943,6 +9945,10 @@ function renderPanelHtml() {
       return '<div class="taskMetric"><span class="metric-label">' + esc(label) + '</span><span class="metric-value" title="' + escAttr(value) + '">' + esc(compactText(value, 80)) + '</span></div>';
     }
 
+    function timeMetric(label, time) {
+      return '<div class="taskMetric"><span class="metric-label">' + esc(label) + '</span><span class="metric-value" title="' + escAttr(label + "时间：" + time.raw) + '">' + esc(time.relative) + '</span></div>';
+    }
+
     function optionHtml(value, label, selected) {
       return '<option value="' + escAttr(value) + '"' + (selected ? " selected" : "") + '>' + esc(label) + '</option>';
     }
@@ -10010,6 +10016,7 @@ function renderPanelHtml() {
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
       const detailTone = row.status === "completed" || row.status === "done" ? "good" : (taskFailureLikeStatus(row.status) ? "error" : (["queued", "pending"].includes(row.status) ? "warn" : "good"));
+      const taskTime = taskTimestampView(row);
       setHtmlIfChanged(pane,
         '<div class="detailHeader" title="任务详情">' +
           '<div class="detailHeaderText"><h3>任务详情</h3><span>' + esc(compactText(row.experimentName, 72)) + '</span></div>' +
@@ -10027,6 +10034,7 @@ function renderPanelHtml() {
           taskDetailLine("GPU", esc(arrayText(row.gpuIds))) +
           taskDetailLine("runKey", '<span title="' + escAttr(row.runKey) + '">' + esc(compactIdentifier(row.runKey)) + '</span>') +
           taskDetailLine("进度", esc(row.progress || "-")) +
+          taskDetailLine(taskTime.label, '<span title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.relative) + '</span>') +
         '</div>' +
         '<div class="taskActions">' + actions + '</div>' +
         renderTaskReadiness(state, row) +
@@ -10085,10 +10093,11 @@ function renderPanelHtml() {
     }
 
     function taskTimelineDetail(row) {
+      const taskTime = taskTimestampView(row);
       const parts = [
         row.progress && row.progress !== "-" ? "进度 " + row.progress : "",
         row.duration && row.duration !== "-" ? "耗时 " + row.duration : "",
-        row.updatedAt && row.updatedAt !== "-" ? "更新 " + row.updatedAt : ""
+        taskTime.raw !== "-" ? taskTime.label + " " + taskTime.relative : ""
       ].filter(Boolean);
       return parts.join("；") || "-";
     }
@@ -10108,6 +10117,7 @@ function renderPanelHtml() {
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
       const pendingBadge = pending ? '<span class="taskActionPending">' + loadingPrefix(true) + esc(pendingLabel(pending)) + '</span>' : "";
+      const taskTime = taskTimestampView(row);
       const titleBits = [
         row.experimentName || "",
         row.status || "",
@@ -10121,7 +10131,7 @@ function renderPanelHtml() {
       return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
         '<div class="taskCardHead">' +
           '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (checked ? " checked" : "") + '>' +
-          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span>' + (row.debugMode ? '<span class="pill status-warning">Debug</span>' : '') + pendingBadge + '</div>' +
+          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + (row.debugMode ? '<span class="pill status-warning">Debug</span>' : '') + pendingBadge + '</div>' +
           '<div class="taskActions">' + actions + '</div>' +
         '</div>' +
         renderTaskLogDetails(state, row) +
@@ -10400,6 +10410,7 @@ function renderPanelHtml() {
 
     function renderTraceCard(row, selected) {
       const checked = traceRowSelected(row, selected);
+      const traceTime = relativeTimestampView(row.updatedAt, "更新");
       return '<div class="traceCard ' + (checked ? "selectedRow" : "") + '">' +
         '<div class="traceCardHead">' +
           '<div class="traceTitle"><span title="' + escAttr(row.id) + '">' + esc(compactIdentifier(row.id)) + '</span><span class="' + traceClass(row) + '" title="原始归档状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span><span class="pill" title="原始删除状态：' + escAttr(row.deleteStatus) + '">删除 ' + esc(labelStatus(row.deleteStatus)) + '</span></div>' +
@@ -10410,7 +10421,7 @@ function renderPanelHtml() {
           taskMetric("解析", labelStatus(row.resultStatus)) +
           taskMetric("取舍", reviewStateLabel(row.reviewState)) +
           taskMetric("标签", row.tags || "-") +
-          taskMetric("更新", row.updatedAt) +
+          timeMetric("更新", traceTime) +
         '</div>' +
         '<div class="summaryLine"><span class="pill" title="' + escAttr(row.artifactPath) + '">产物 ' + esc(compactPath(row.artifactPath)) + '</span><span class="pill" title="' + escAttr(row.resultPath) + '">结果 ' + esc(compactPath(row.resultPath)) + '</span></div>' +
       '</div>';
@@ -10425,6 +10436,7 @@ function renderPanelHtml() {
       }
       const detailTone = traceTone(row.status) === "good" ? "good" : (traceTone(row.status) === "error" ? "error" : "warn");
       const traceStatisticsSourcePath = finalStatisticsSourcePath((lastState || {}).resultsSummary || {});
+      const traceTime = relativeTimestampView(row.updatedAt, "更新");
       setHtmlIfChanged(pane,
         '<div class="detailHeader" title="记录详情">' +
           '<div class="detailHeaderText"><h3>记录详情</h3><span>' + esc(compactIdentifier(row.id)) + '</span></div>' +
@@ -10446,7 +10458,7 @@ function renderPanelHtml() {
           taskDetailLine("删除", '<span title="原始状态：' + escAttr(row.deleteStatus) + '">' + esc(labelStatus(row.deleteStatus)) + '</span>') +
           taskDetailLine("解析", '<span title="原始状态：' + escAttr(row.resultStatus) + '">' + esc(labelStatus(row.resultStatus)) + '</span>') +
           taskDetailLine("标签", esc(row.tags || "-")) +
-          taskDetailLine("更新", esc(row.updatedAt)) +
+          taskDetailLine("更新", '<span title="' + escAttr("更新时间：" + traceTime.raw) + '">' + esc(traceTime.relative) + '</span>') +
         '</div>' +
         '<div class="taskActions">' +
           traceActionButton("解析", "parseResults", row) +
@@ -10526,7 +10538,7 @@ function renderPanelHtml() {
         ["解析", labelStatus(rawResultStatus), traceTone(row.resultStatus), rawResultStatus],
         ["归档", labelStatus(rawArchiveStatus), traceTone(row.status), rawArchiveStatus],
         ["删除", labelStatus(rawDeleteStatus), traceTone(row.deleteStatus), rawDeleteStatus],
-        ["更新", row.updatedAt || "-", row.updatedAt && row.updatedAt !== "-" ? "good" : "warn"]
+        ["更新", relativeTimeLabel(row.updatedAt, Date.now()), row.updatedAt && row.updatedAt !== "-" ? "good" : "warn", row.updatedAt || "-"]
       ];
       return '<div class="traceTimeline" title="记录事件">' +
         events.map((event) => traceTimelineItem(event[0], event[1], event[2], event[3])).join("") +
@@ -10535,7 +10547,7 @@ function renderPanelHtml() {
 
     function traceTimelineItem(title, status, tone, rawStatus) {
       const cls = tone === "good" ? "good" : (tone === "error" ? "error" : (tone === "warn" ? "warn" : ""));
-      const detail = rawStatus ? title + "原始状态：" + rawStatus : title + "：" + (status || "-");
+      const detail = rawStatus ? (title === "更新" ? "原始时间：" : title + "原始状态：") + rawStatus : title + "：" + (status || "-");
       return '<div class="traceTimelineItem ' + cls + '" title="' + escAttr(detail) + '"><b>' + esc(title) + ' · ' + esc(status || "-") + '</b></div>';
     }
 
@@ -10681,8 +10693,16 @@ function renderPanelHtml() {
     function operationTimestampView(row) {
       const terminal = operationIsFailureLike(row.status) || operationIsCancelled(row.status) || operationIsCompleted(row.status);
       const terminalAt = meaningfulValue(row.terminalAt) ? row.terminalAt : row.updatedAt;
-      const raw = String((terminal ? terminalAt : row.updatedAt) || "-");
-      return { label: terminal ? "终态" : "更新", raw, relative: relativeTimeLabel(raw, Date.now()) };
+      return relativeTimestampView(terminal ? terminalAt : row.updatedAt, terminal ? "终态" : "更新");
+    }
+
+    function taskTimestampView(row) {
+      return relativeTimestampView(row.updatedAt, taskTerminalStatus(row.status) ? "终态" : "更新");
+    }
+
+    function relativeTimestampView(value, label) {
+      const raw = String(value || "-");
+      return { label: label || "更新", raw, relative: relativeTimeLabel(raw, Date.now()) };
     }
 
     function relativeTimeLabel(value, nowMs) {

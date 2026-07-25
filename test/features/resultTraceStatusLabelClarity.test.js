@@ -43,7 +43,10 @@ test("result trace UI keeps raw statuses available in hover text", () => {
   assert.match(panel, /\["解析", labelStatus\(rawResultStatus\), traceTone\(row\.resultStatus\), rawResultStatus\]/);
   assert.match(panel, /\["归档", labelStatus\(rawArchiveStatus\), traceTone\(row\.status\), rawArchiveStatus\]/);
   assert.match(panel, /\["删除", labelStatus\(rawDeleteStatus\), traceTone\(row\.deleteStatus\), rawDeleteStatus\]/);
-  assert.match(panel, /title \+ "原始状态：" \+ rawStatus/);
+  assert.match(panel, /title === "更新" \? "原始时间：" : title \+ "原始状态："/);
+  assert.match(panel, /const traceTime = relativeTimestampView\(row\.updatedAt, "更新"\)/);
+  assert.match(panel, /timeMetric\("更新", traceTime\)/);
+  assert.match(panel, /label \+ "时间：" \+ time\.raw/);
 });
 
 test("unknown result status remains unchanged for old and future records", () => {
