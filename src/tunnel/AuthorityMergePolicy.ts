@@ -48,14 +48,17 @@ export function mergeAuthorityRealtimeStates(
 ): RealtimeState {
   const staleSeconds = options.staleWorkerTelemetrySeconds ?? 180;
   const nowMs = Date.parse(options.now || new Date().toISOString());
-  const hubEntries = entries.filter((entry) => entry.endpoint.role === "hub");
-  const workerEntries = entries.filter((entry) => entry.endpoint.role === "worker");
+  const protectedKeys = protectedLogKeys(options);
+  const hubEntries: AuthorityStateEntry[] = [];
+  const workerEntries: AuthorityStateEntry[] = [];
   const merged = createRealtimeState();
   const warnings: string[] = [];
 
   for (const entry of entries) {
+    if (entry.endpoint.role === "hub") hubEntries.push(entry);
+    else workerEntries.push(entry);
     merged.lastSeq = Math.max(merged.lastSeq, entry.state.lastSeq);
-    merged.lastHeartbeatAt = latest([merged.lastHeartbeatAt, entry.state.lastHeartbeatAt]);
+    merged.lastHeartbeatAt = latestTimestamp(merged.lastHeartbeatAt, entry.state.lastHeartbeatAt);
     if (newerResultSummaryDirty(entry.state, merged)) {
       merged.resultSummaryDirtySeq = entry.state.resultSummaryDirtySeq;
       merged.resultSummaryDirtyAt = entry.state.resultSummaryDirtyAt;
@@ -66,35 +69,36 @@ export function mergeAuthorityRealtimeStates(
   }
 
   for (const entry of hubEntries) {
-    merged.gpu = { ...merged.gpu, ...markGpuSource(entry.state.gpu, "hub", false) };
+    Object.assign(merged.gpu, markGpuSource(entry.state.gpu, "hub", false));
     merged.schedulerStates = mergeRows(merged.schedulerStates, entry.state.schedulerStates);
     merged.experimentTraces = mergeRows(merged.experimentTraces, entry.state.experimentTraces);
-    merged.operations = { ...merged.operations, ...entry.state.operations };
-    merged.fileTransfers = { ...merged.fileTransfers, ...entry.state.fileTransfers };
-    merged.logs = { ...merged.logs, ...entry.state.logs };
-    if (entry.state.diagnostics) merged.diagnostics = { ...(merged.diagnostics as object || {}), [entry.endpoint.id]: entry.state.diagnostics };
+    Object.assign(merged.operations, entry.state.operations);
+    Object.assign(merged.fileTransfers, entry.state.fileTransfers);
+    Object.assign(merged.logs, entry.state.logs);
+    if (entry.state.diagnostics) mergeEndpointDiagnostics(merged, entry.endpoint.id, entry.state.diagnostics);
     warnings.push(...entry.state.warnings);
   }
 
   const workerTasks: WorkerTaskTelemetry[] = [];
   for (const entry of workerEntries) {
     const fresh = isFresh(entry.state.lastHeartbeatAt, nowMs, staleSeconds);
-    if (fresh) merged.gpu = { ...merged.gpu, ...markGpuSource(remapWorkerGpu(entry.state.gpu, entry.endpoint.id), entry.endpoint.id, true) };
+    if (fresh) Object.assign(merged.gpu, markGpuSource(remapWorkerGpu(entry.state.gpu, entry.endpoint.id), entry.endpoint.id, true));
     else if (Object.keys(entry.state.gpu).length) warnings.push(`Worker ${entry.endpoint.id} telemetry stale; Hub GPU fallback is used.`);
     for (const row of Object.values(entry.state.workerTasks || {}).flat()) {
       workerTasks.push(normalizeWorkerTask(row, entry.endpoint.id));
     }
-    merged.workerHealth = { ...merged.workerHealth, ...entry.state.workerHealth };
-    merged.logs = mergeLogs(merged.logs, entry.state.logs, protectedLogKeys(options));
-    if (entry.state.diagnostics) merged.diagnostics = { ...(merged.diagnostics as object || {}), [entry.endpoint.id]: entry.state.diagnostics };
+    Object.assign(merged.workerHealth ||= {}, entry.state.workerHealth || {});
+    merged.logs = mergeLogs(merged.logs, entry.state.logs, protectedKeys);
+    if (entry.state.diagnostics) mergeEndpointDiagnostics(merged, entry.endpoint.id, entry.state.diagnostics);
     if (entry.state.schedulerStates.length) warnings.push(`Worker ${entry.endpoint.id} sent scheduler state; ignored because Hub is authoritative.`);
     if (Object.keys(entry.state.operations).length) warnings.push(`Worker ${entry.endpoint.id} sent operation state; ignored because operations are Hub-only.`);
     if (Object.keys(entry.state.fileTransfers).length) warnings.push(`Worker ${entry.endpoint.id} sent file transfer state; ignored because file transfers are Hub-only.`);
     warnings.push(...entry.state.warnings.map((warning) => `${entry.endpoint.id}: ${warning}`));
   }
 
-  merged.schedulerStates = enrichSchedulerRows(merged.schedulerStates, workerTasks, warnings);
-  merged.experimentTraces = enrichTraceRows(merged.experimentTraces, workerTasks);
+  const workerTasksByRunKey = indexWorkerTasks(workerTasks);
+  merged.schedulerStates = enrichSchedulerRows(merged.schedulerStates, workerTasks, warnings, workerTasksByRunKey);
+  merged.experimentTraces = enrichTraceRows(merged.experimentTraces, workerTasksByRunKey);
   merged.workerTasks = groupWorkerTasks(workerTasks);
   merged.warnings = warnings.slice(-50);
   merged.lastKnownGood = {
@@ -103,11 +107,15 @@ export function mergeAuthorityRealtimeStates(
     experimentTraces: merged.experimentTraces,
     diagnostics: merged.diagnostics as Record<string, unknown>,
   };
-  return compactRealtimeState(merged, { protectedLogKeys: protectedLogKeys(options) });
+  return compactRealtimeState(merged, { protectedLogKeys: protectedKeys });
 }
 
-export function enrichSchedulerRows(rows: unknown[], workerTasks: WorkerTaskTelemetry[], warnings: string[] = []): unknown[] {
-  const byRunKey = new Map(workerTasks.filter((task) => task.runKey).map((task) => [task.runKey as string, task]));
+export function enrichSchedulerRows(
+  rows: unknown[],
+  workerTasks: WorkerTaskTelemetry[],
+  warnings: string[] = [],
+  byRunKey: ReadonlyMap<string, WorkerTaskTelemetry> = indexWorkerTasks(workerTasks),
+): unknown[] {
   return (rows || []).map((row) => {
     const item = { ...(row as object) } as Record<string, unknown>;
     const runKey = String(item.runKey || item.run_key || "");
@@ -116,14 +124,13 @@ export function enrichSchedulerRows(rows: unknown[], workerTasks: WorkerTaskTele
     const status = String(item.status || item.state || item.runStatus || "").toLowerCase();
     const warning = liveStatusWarning(status, task.localStatus);
     if (warning) warnings.push(`${runKey}: ${warning}`);
-    return {
-      ...item,
+    return Object.assign(item, {
       workerLiveStatus: task.localStatus,
       workerPid: task.pid,
       workerGpuIds: task.gpuIds,
       workerLastSeenAt: task.lastSeenAt,
       workerTelemetryWarning: warning,
-    };
+    });
   });
 }
 
@@ -138,14 +145,19 @@ export function workerTelemetryCannotOverrideTerminal(hubRow: unknown, workerTas
   };
 }
 
-function enrichTraceRows(rows: unknown[], workerTasks: WorkerTaskTelemetry[]): unknown[] {
-  const byRunKey = new Map(workerTasks.filter((task) => task.runKey).map((task) => [task.runKey as string, task]));
+function enrichTraceRows(rows: unknown[], byRunKey: ReadonlyMap<string, WorkerTaskTelemetry>): unknown[] {
   return (rows || []).map((row) => {
     const item = { ...(row as object) } as Record<string, unknown>;
     const runKey = String(item.runKey || item.run_key || item.id || "");
     const task = byRunKey.get(runKey);
-    return task ? { ...item, localPid: task.pid, gpuIds: task.gpuIds || item.gpuIds, liveStatus: task.localStatus, lastSeenAt: task.lastSeenAt } : item;
+    return task ? Object.assign(item, { localPid: task.pid, gpuIds: task.gpuIds || item.gpuIds, liveStatus: task.localStatus, lastSeenAt: task.lastSeenAt }) : item;
   });
+}
+
+function indexWorkerTasks(tasks: WorkerTaskTelemetry[]): ReadonlyMap<string, WorkerTaskTelemetry> {
+  const byRunKey = new Map<string, WorkerTaskTelemetry>();
+  for (const task of tasks) if (task.runKey) byRunKey.set(task.runKey, task);
+  return byRunKey;
 }
 
 function liveStatusWarning(hubStatus: string, workerStatus: WorkerTaskTelemetry["localStatus"]): string | undefined {
@@ -215,6 +227,12 @@ function mergeLogs(base: RealtimeState["logs"], incoming: RealtimeState["logs"],
   return compactRealtimeLogs({ ...base, ...selectedIncoming }, undefined, undefined, protectedKeys);
 }
 
+function mergeEndpointDiagnostics(state: RealtimeState, endpointId: string, diagnostics: unknown): void {
+  const merged = state.diagnostics && typeof state.diagnostics === "object" ? state.diagnostics as Record<string, unknown> : {};
+  merged[endpointId] = diagnostics;
+  state.diagnostics = merged;
+}
+
 function protectedLogKeys(options: AuthorityMergeOptions): string[] {
   return [...new Set([options.selectedLogRunKey, ...(options.protectedLogKeys || [])].map((value) => String(value || "").trim()).filter(Boolean))];
 }
@@ -224,8 +242,9 @@ function rowKey(row: unknown): string {
   return String(item.runKey || item.run_key || item.experimentId || item.experiment_id || item.id || item.key || JSON.stringify(row));
 }
 
-function latest(values: Array<string | undefined>): string | undefined {
-  return values.filter(Boolean).sort().at(-1);
+function latestTimestamp(current: string | undefined, incoming: string | undefined): string | undefined {
+  if (!incoming) return current;
+  return !current || incoming > current ? incoming : current;
 }
 
 function isFresh(timestamp: string | undefined, nowMs: number, staleSeconds: number): boolean {
