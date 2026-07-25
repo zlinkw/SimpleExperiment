@@ -7509,6 +7509,9 @@ function compactExperimentTraces(rows, protectedKeys = [], selectedPlan = {}) {
     const sortedInput = sortExperimentTraces(input);
     const out = [];
     const selectedKeys = new Set();
+    const protectedRows = [];
+    const selectedPlanRows = [];
+    const attentionRows = [];
     const add = (row) => {
         if (out.length >= EXPERIMENT_TRACE_RECORD_LIMIT)
             return;
@@ -7519,14 +7522,27 @@ function compactExperimentTraces(rows, protectedKeys = [], selectedPlan = {}) {
             selectedKeys.add(key);
         out.push(row);
     };
-    sortedInput.filter((row) => experimentTraceMatchesProtectedKey(row, protectedSet)).forEach(add);
-    sortedInput.filter((row) => experimentTraceMatchesSelectedPlan(row, selectedPlan)).forEach(add);
-    sortedInput.filter(experimentTraceNeedsAttention).slice(0, EXPERIMENT_TRACE_ATTENTION_LIMIT).forEach(add);
+    for (const row of sortedInput) {
+        if (experimentTraceMatchesProtectedKey(row, protectedSet))
+            protectedRows.push(row);
+        if (experimentTraceMatchesSelectedPlan(row, selectedPlan))
+            selectedPlanRows.push(row);
+        if (attentionRows.length < EXPERIMENT_TRACE_ATTENTION_LIMIT && experimentTraceNeedsAttention(row))
+            attentionRows.push(row);
+    }
+    protectedRows.forEach(add);
+    selectedPlanRows.forEach(add);
+    attentionRows.forEach(add);
     sortedInput.forEach(add);
     return out;
 }
 function sortExperimentTraces(rows) {
-    return [...rows].sort((a, b) => experimentTraceRank(a) - experimentTraceRank(b) || experimentTraceTime(b) - experimentTraceTime(a));
+    return rows.map((row, index) => ({
+        row,
+        index,
+        rank: experimentTraceRank(row),
+        time: experimentTraceTime(row),
+    })).sort((a, b) => a.rank - b.rank || b.time - a.time || a.index - b.index).map((item) => item.row);
 }
 function experimentTraceMatchesProtectedKey(row, protectedSet) {
     if (!protectedSet.size)
