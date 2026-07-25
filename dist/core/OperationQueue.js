@@ -9,10 +9,15 @@ const priorityRank = {
     realtime: 3,
 };
 class OperationQueue {
+    historyLimit;
     pending = [];
     running = new Map();
     coalesced = new Map();
     records = [];
+    constructor(historyLimit = 500) {
+        this.historyLimit = historyLimit;
+        this.historyLimit = Math.max(1, Math.floor(Number(historyLimit) || 500));
+    }
     enqueue(spec) {
         if (spec.coalesceKey) {
             const existing = this.coalesced.get(spec.coalesceKey);
@@ -35,6 +40,7 @@ class OperationQueue {
     cancel(id) {
         const running = this.running.get(id);
         if (running && running.spec.cancellable) {
+            running.cancelled = true;
             running.controller.abort();
             this.update(id, "cancelled");
             return true;
@@ -78,13 +84,15 @@ class OperationQueue {
     }
     async start(item) {
         const controller = new AbortController();
-        this.running.set(item.spec.id, { spec: item.spec, controller });
+        const execution = { spec: item.spec, controller, cancelled: false, timedOut: false };
+        this.running.set(item.spec.id, execution);
         this.update(item.spec.id, "running", { startedAt: new Date().toISOString() });
         let timer;
         try {
             const timeout = item.spec.timeoutMs
                 ? new Promise((_, reject) => {
                     timer = setTimeout(() => {
+                        execution.timedOut = true;
                         controller.abort();
                         reject(new Error(`operation timeout: ${item.spec.id}`));
                     }, item.spec.timeoutMs);
@@ -92,12 +100,15 @@ class OperationQueue {
                 })
                 : undefined;
             await (timeout ? Promise.race([item.spec.run(controller.signal), timeout]) : item.spec.run(controller.signal));
-            this.update(item.spec.id, "succeeded", { finishedAt: new Date().toISOString() });
+            this.update(item.spec.id, execution.cancelled ? "cancelled" : "succeeded", { finishedAt: new Date().toISOString() });
             item.resolve();
         }
         catch (error) {
-            const status = controller.signal.aborted ? "timeout" : "failed";
-            this.update(item.spec.id, status, { finishedAt: new Date().toISOString(), error: (0, ErrorModel_1.normalizeZlkError)(error) });
+            const status = execution.timedOut ? "timeout" : execution.cancelled ? "cancelled" : "failed";
+            const patch = { finishedAt: new Date().toISOString() };
+            if (status !== "cancelled")
+                patch.error = (0, ErrorModel_1.normalizeZlkError)(error);
+            this.update(item.spec.id, status, patch);
             item.reject(error);
         }
         finally {
@@ -117,11 +128,26 @@ class OperationQueue {
             targetKeys: spec.targetKeys || [],
             exclusiveKeys: spec.exclusiveKeys || [],
         });
+        this.trimRecords();
     }
     update(id, status, patch = {}) {
         const current = [...this.records].reverse().find((item) => item.id === id);
         if (current)
             Object.assign(current, patch, { status });
+        this.trimRecords();
+    }
+    trimRecords() {
+        let excess = this.records.length - this.historyLimit;
+        if (excess <= 0)
+            return;
+        const terminal = new Set(["succeeded", "failed", "cancelled", "timeout", "coalesced"]);
+        this.records = this.records.filter((record) => {
+            if (excess > 0 && terminal.has(record.status)) {
+                excess -= 1;
+                return false;
+            }
+            return true;
+        });
     }
 }
 exports.OperationQueue = OperationQueue;

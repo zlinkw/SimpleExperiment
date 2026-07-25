@@ -38,9 +38,18 @@ const priorityRank: Record<OperationPriority, number> = {
 
 export class OperationQueue {
   private pending: Array<{ spec: OperationSpec; resolve: () => void; reject: (error: unknown) => void }> = [];
-  private running = new Map<string, { spec: OperationSpec; controller: AbortController }>();
+  private running = new Map<string, {
+    spec: OperationSpec;
+    controller: AbortController;
+    cancelled: boolean;
+    timedOut: boolean;
+  }>();
   private coalesced = new Map<string, Promise<void>>();
   private records: QueuedOperationRecord[] = [];
+
+  constructor(private readonly historyLimit = 500) {
+    this.historyLimit = Math.max(1, Math.floor(Number(historyLimit) || 500));
+  }
 
   enqueue(spec: OperationSpec): Promise<void> {
     if (spec.coalesceKey) {
@@ -65,6 +74,7 @@ export class OperationQueue {
   cancel(id: string): boolean {
     const running = this.running.get(id);
     if (running && running.spec.cancellable) {
+      running.cancelled = true;
       running.controller.abort();
       this.update(id, "cancelled");
       return true;
@@ -110,13 +120,15 @@ export class OperationQueue {
 
   private async start(item: { spec: OperationSpec; resolve: () => void; reject: (error: unknown) => void }): Promise<void> {
     const controller = new AbortController();
-    this.running.set(item.spec.id, { spec: item.spec, controller });
+    const execution = { spec: item.spec, controller, cancelled: false, timedOut: false };
+    this.running.set(item.spec.id, execution);
     this.update(item.spec.id, "running", { startedAt: new Date().toISOString() });
     let timer: NodeJS.Timeout | undefined;
     try {
       const timeout = item.spec.timeoutMs
         ? new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
+            execution.timedOut = true;
             controller.abort();
             reject(new Error(`operation timeout: ${item.spec.id}`));
           }, item.spec.timeoutMs);
@@ -124,11 +136,13 @@ export class OperationQueue {
         })
         : undefined;
       await (timeout ? Promise.race([item.spec.run(controller.signal), timeout]) : item.spec.run(controller.signal));
-      this.update(item.spec.id, "succeeded", { finishedAt: new Date().toISOString() });
+      this.update(item.spec.id, execution.cancelled ? "cancelled" : "succeeded", { finishedAt: new Date().toISOString() });
       item.resolve();
     } catch (error) {
-      const status: OperationStatus = controller.signal.aborted ? "timeout" : "failed";
-      this.update(item.spec.id, status, { finishedAt: new Date().toISOString(), error: normalizeZlkError(error) });
+      const status: OperationStatus = execution.timedOut ? "timeout" : execution.cancelled ? "cancelled" : "failed";
+      const patch: Partial<QueuedOperationRecord> = { finishedAt: new Date().toISOString() };
+      if (status !== "cancelled") patch.error = normalizeZlkError(error);
+      this.update(item.spec.id, status, patch);
       item.reject(error);
     } finally {
       if (timer) clearTimeout(timer);
@@ -147,10 +161,25 @@ export class OperationQueue {
       targetKeys: spec.targetKeys || [],
       exclusiveKeys: spec.exclusiveKeys || [],
     });
+    this.trimRecords();
   }
 
   private update(id: string, status: OperationStatus, patch: Partial<QueuedOperationRecord> = {}): void {
     const current = [...this.records].reverse().find((item) => item.id === id);
     if (current) Object.assign(current, patch, { status });
+    this.trimRecords();
+  }
+
+  private trimRecords(): void {
+    let excess = this.records.length - this.historyLimit;
+    if (excess <= 0) return;
+    const terminal = new Set<OperationStatus>(["succeeded", "failed", "cancelled", "timeout", "coalesced"]);
+    this.records = this.records.filter((record) => {
+      if (excess > 0 && terminal.has(record.status)) {
+        excess -= 1;
+        return false;
+      }
+      return true;
+    });
   }
 }
