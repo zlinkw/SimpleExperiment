@@ -59,6 +59,8 @@ function extractSourceFunction(source, name) {
 
 function resultLocation(project, meta, plan) {
   const sandbox = {
+    RESULT_METADATA_FILENAMES: new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]),
+    RESULT_METADATA_SUFFIXES: ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"],
     asArray(value) {
       return Array.isArray(value) ? value : (!value || typeof value !== "object" ? [] : Object.values(value));
     },
@@ -78,6 +80,8 @@ function resultLocation(project, meta, plan) {
 
 function panelPreviewScope(previews, plan, rules) {
   const sandbox = {
+    RESULT_METADATA_FILENAMES: new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]),
+    RESULT_METADATA_SUFFIXES: ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"],
     asArray(value) { return Array.isArray(value) ? value : []; },
   };
   vm.createContext(sandbox);
@@ -204,4 +208,20 @@ test("extension result preview scope compiles candidates before filtering previe
   const scopedSource = extractSourceFunction(extension, "planScopedResultParsePreviews");
   assert.match(scopedSource, /compileResultCandidatePatterns\(candidates, plan\)/);
   assert.doesNotMatch(scopedSource, /candidates\.some|resultCandidatePatternMatchesFile/);
+});
+
+test("panel state derivation reuses fixed command and result metadata collections", () => {
+  assert.match(panel, /const PPT_AUTOMATION_ACTION_COMMANDS = new Set\(/);
+  assert.match(panel, /const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set\(/);
+  assert.match(panel, /const RESULT_METADATA_FILENAMES = new Set\(/);
+  assert.match(panel, /const RESULT_METADATA_SUFFIXES = \[/);
+
+  const pptReadiness = extractFunction("pptAutomationReadinessForState");
+  const debugGate = extractFunction("debugModeBlockedUiCommand");
+  const resultCandidate = extractFunction("isParseableResultCandidate");
+  assert.match(pptReadiness, /PPT_AUTOMATION_ACTION_COMMANDS\.has/);
+  assert.match(debugGate, /DEBUG_MODE_BLOCKED_UI_COMMANDS\.has/);
+  assert.match(resultCandidate, /RESULT_METADATA_FILENAMES\.has/);
+  assert.match(resultCandidate, /RESULT_METADATA_SUFFIXES\.some/);
+  assert.doesNotMatch([pptReadiness, debugGate, resultCandidate].join("\n"), /new Set\(|const metadataSuffixes/);
 });

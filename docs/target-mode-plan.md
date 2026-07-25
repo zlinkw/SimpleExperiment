@@ -21,15 +21,15 @@
 - [已完成] 1/5 后端：复用操作与结果状态判定的静态集合。
 - [已完成] 2/5 前端：减少 Plan 活动状态的重复扫描。
 - [已完成] 3/5 后端：线性化结果候选匹配。
-- [待做] 4/5 前端：审计状态派生中的重复分配。
+- [已完成] 4/5 前端：审计状态派生中的重复分配。
 - [待做] 5/5 前后端：执行第六轮非服务器静态测试。
 
-## 当前批次：autonomous-static-028（已完成）
+## 当前批次：autonomous-static-029（已完成）
 
 ### 范围
-- 每个候选结果模式仅规范化并编译一次，复用精确路径、文件名和正则索引。
-- 每个结果预览路径仅规范化一次，移除预览与候选之间的重复模式构建。
-- 保持无 Plan、无候选、glob、占位符和计数语义不变。
+- 将 Debug 禁用命令、PPT automation 命令和结果元数据名称提升为稳定常量。
+- 避免高频状态派生函数重复分配固定集合与数组。
+- 保持命令白名单、Debug 门禁和结果候选判定不变。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
@@ -37,11 +37,11 @@
 - 不重载或关闭 VS Code，不执行真实网络联调。
 
 ### 相邻回归风险
-- 精确文件名仍需匹配任意目录下的同名文件。
-- glob、`?`、`**`、Plan 占位符和 Windows 路径必须保持一致。
+- Debug 模式必须继续阻止所有归档、删除、结果、统计、论文与 PPT 操作。
+- PPT actionCommand 白名单与结果元数据排除规则必须保持一致。
 
 ### 验证清单
-- [已通过] TypeScript、Lint、生成 JavaScript 语法及结果位置定向测试 5/5。
+- [已通过] TypeScript、Lint、生成 JavaScript 语法、内联脚本及定向测试 9/9。
 - [跳过] 广泛测试；本周期第 5 批执行。
 
 ## 本批记录
@@ -49,4 +49,5 @@
 - 本周期 1/5：`perf: reuse operation status sets`；TypeScript、Lint、生成 JavaScript 语法及定向测试 16/16 通过，推送后以 `origin/master` Git 历史为准。
 - 本周期 2/5：`perf: cache plan activity evidence`；TypeScript、Lint、生成 JavaScript 语法、内联脚本 2/2 及定向测试 16/16 通过，推送后以 `origin/master` Git 历史为准。
 - 本周期 3/5：`perf: compile result preview matchers`；TypeScript、Lint、生成 JavaScript 语法及结果位置定向测试 5/5 通过，推送后以 `origin/master` Git 历史为准。
-- 下一批边界：仅审计前端状态派生中的重复分配。
+- 本周期 4/5：`perf: reuse panel command sets`；TypeScript、Lint、生成 JavaScript 语法、内联脚本及定向测试 9/9 通过，推送后以 `origin/master` Git 历史为准。
+- 下一批边界：仅执行第六轮非服务器静态测试。

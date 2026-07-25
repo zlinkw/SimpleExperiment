@@ -1513,6 +1513,10 @@ function renderPanelHtml() {
     const TASK_RENDER_LIMIT = 80;
     const PLAN_ACTIVE_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
     const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
+    const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
+    const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
+    const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
+    const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const TASK_LOG_RENDER_LIMIT = 8000;
     const PLAN_RENDER_LIMIT = 30;
     const TRACE_RENDER_LIMIT = 60;
@@ -10958,7 +10962,6 @@ function renderPanelHtml() {
     function pptAutomationReadinessForState(state) {
       const item = (state || {}).pptAutomation || {};
       const status = String(item.state || "unknown");
-      const commands = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
       const labels = {
         unknown: "PPT 插件待检测",
         not_running: "PPT 插件未启动",
@@ -10974,7 +10977,7 @@ function renderPanelHtml() {
         ready: item.ready === true && status === "ready",
         label: labels[status] || labels.unknown,
         message: String(item.message || "尚未检测 PPT automation。"),
-        actionCommand: commands.has(String(item.actionCommand || "")) ? String(item.actionCommand) : "",
+        actionCommand: PPT_AUTOMATION_ACTION_COMMANDS.has(String(item.actionCommand || "")) ? String(item.actionCommand) : "",
         actionLabel: String(item.actionLabel || "")
       };
     }
@@ -11978,9 +11981,7 @@ function renderPanelHtml() {
       const text = String(value || "").trim().replace(/\\\\/g, "/");
       const base = text.split("/").pop() || "";
       const lower = base.toLowerCase();
-      const metadata = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
-      const metadataSuffixes = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
-      if (!text || text.toLowerCase().startsWith("zlk_cluster/results/") || metadata.has(lower) || metadataSuffixes.some((suffix) => lower.endsWith(suffix))) return false;
+      if (!text || text.toLowerCase().startsWith("zlk_cluster/results/") || RESULT_METADATA_FILENAMES.has(lower) || RESULT_METADATA_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return false;
       return /\\.(csv|json|txt|log|out)$/i.test(text);
     }
     function projectOutputGateReason(state, context) {
@@ -12113,7 +12114,7 @@ function renderPanelHtml() {
     }
 
     function debugModeBlockedUiCommand(command) {
-      return new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]).has(String(command || ""));
+      return DEBUG_MODE_BLOCKED_UI_COMMANDS.has(String(command || ""));
     }
 
     function debugModeDisableReason(command, mode) {
