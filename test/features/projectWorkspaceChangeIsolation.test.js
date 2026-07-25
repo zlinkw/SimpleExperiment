@@ -37,6 +37,8 @@ test("workspace folder changes reload isolated project context", () => {
     /selectedRunKeys\.clear\(\)/,
     /selectedArchiveKeys\.clear\(\)/,
     /selectedTaskUiKeys\.clear\(\)/,
+    /planSelectionPersistenceQueue\.dirty = false/,
+    /taskSelectionPersistenceQueue\.dirty = false/,
     /offlineBundle = undefined/,
     /resultsSummary = undefined/,
     /projectPptPlotConfig = undefined/,
@@ -51,6 +53,23 @@ test("workspace folder changes reload isolated project context", () => {
     /lastProbe = undefined/,
     /lastWorkerProbes = \{\}/,
   ]) assert.match(reset, pattern);
+});
+
+test("project selection writes are coalesced and isolated across workspace changes", () => {
+  const planPersist = methodBody("async persistProjectPlanSelectionState", "reconcileProjectPlanSelection");
+  const taskPersist = methodBody("async persistProjectTaskSelectionState", "private async persistCoalescedProjectState<T>");
+  const coalesced = methodBody("private async persistCoalescedProjectState<T>", "private queueProjectStatePersistence<T>");
+  const queue = methodBody("private queueProjectStatePersistence<T>", "async loadProjectOfflineBundleState");
+
+  assert.match(planPersist, /persistCoalescedProjectState\(this\.planSelectionPersistenceQueue/);
+  assert.match(taskPersist, /persistCoalescedProjectState\(this\.taskSelectionPersistenceQueue/);
+  assert.match(coalesced, /queue\.dirty = true/);
+  assert.match(coalesced, /while \(queue\.promise\)/);
+  assert.match(queue, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.match(queue, /while \(queue\.dirty && this\.projectContextIsCurrent\(projectContext\)\)/);
+  assert.match(queue, /queue\.dirty = false;\s*await write\(projectContext\.root, state\)/);
+  assert.match(queue, /if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(queue, /queue\.promise === persistence/);
 });
 
 test("workspace reset precedes project loaders and stale scans cannot win", () => {

@@ -362,6 +362,8 @@ class RealtimeTunnelPanelProvider {
     selectedArchiveKeys = new Set();
     selectedTaskUiKeys = new Set();
     hiddenLegacyTaskUiKeys = new Set();
+    planSelectionPersistenceQueue = { dirty: false };
+    taskSelectionPersistenceQueue = { dirty: false };
     planFileInput;
     planFileWatchers = [];
     planFileWatchRoot = "";
@@ -631,6 +633,8 @@ class RealtimeTunnelPanelProvider {
         this.selectedArchiveKeys.clear();
         this.selectedTaskUiKeys.clear();
         this.hiddenLegacyTaskUiKeys.clear();
+        this.planSelectionPersistenceQueue.dirty = false;
+        this.taskSelectionPersistenceQueue.dirty = false;
         this.selectedLogRunKey = undefined;
         this.offlineBundle = undefined;
         this.resultsSummary = undefined;
@@ -770,12 +774,12 @@ class RealtimeTunnelPanelProvider {
             this.recentPlans = mergeRecentPlans(state.recentPlans, this.recentPlans);
     }
     async persistProjectPlanSelectionState() {
-        await writeProjectPlanSelectionState(workspaceRoot(), {
+        await this.persistCoalescedProjectState(this.planSelectionPersistenceQueue, () => ({
             selectedPlanId: this.selectedPlanId || "",
             planFileInput: this.planFileInput || "",
             recentPlans: this.recentPlans || [],
             updatedAt: new Date().toISOString(),
-        });
+        }), writeProjectPlanSelectionState);
     }
     reconcileProjectPlanSelection(plans) {
         const list = Array.isArray(plans) ? plans : [];
@@ -822,7 +826,7 @@ class RealtimeTunnelPanelProvider {
             this.client.setProtectedLogKeys(this.logProtectedKeys());
     }
     async persistProjectTaskSelectionState() {
-        await writeProjectTaskSelectionState(workspaceRoot(), {
+        await this.persistCoalescedProjectState(this.taskSelectionPersistenceQueue, () => ({
             selectedExperimentIds: [...this.selectedExperimentIds],
             selectedRunKeys: [...this.selectedRunKeys],
             selectedArchiveKeys: [...this.selectedArchiveKeys],
@@ -831,7 +835,45 @@ class RealtimeTunnelPanelProvider {
             selectedRunKey: this.selectedRunKey || "",
             selectedLogRunKey: this.selectedLogRunKey || "",
             updatedAt: new Date().toISOString(),
+        }), writeProjectTaskSelectionState);
+    }
+    async persistCoalescedProjectState(queue, snapshot, write) {
+        queue.dirty = true;
+        this.queueProjectStatePersistence(queue, snapshot, write);
+        while (queue.promise) {
+            const persistence = queue.promise;
+            await persistence;
+            if (queue.promise === persistence)
+                break;
+        }
+    }
+    queueProjectStatePersistence(queue, snapshot, write) {
+        if (queue.promise || !queue.dirty)
+            return;
+        const projectContext = this.captureProjectContext();
+        let failed = false;
+        let persistence;
+        persistence = (async () => {
+            while (queue.dirty && this.projectContextIsCurrent(projectContext)) {
+                const state = snapshot();
+                queue.dirty = false;
+                await write(projectContext.root, state);
+            }
+        })()
+            .catch((error) => {
+            failed = true;
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+            queue.dirty = true;
+            throw error;
+        })
+            .finally(() => {
+            if (queue.promise === persistence)
+                queue.promise = undefined;
+            if (queue.dirty && (!failed || !this.projectContextIsCurrent(projectContext)))
+                this.queueProjectStatePersistence(queue, snapshot, write);
         });
+        queue.promise = persistence;
     }
     async loadProjectOfflineBundleState() {
         const loaded = await this.readCurrentProjectState(readProjectOfflineBundleState);
