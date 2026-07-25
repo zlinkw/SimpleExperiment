@@ -149,7 +149,9 @@ test("first-run mode guidance recommends Debug without changing the formal defau
   assert.match(panelSource, /\["validatePlan", "dryRunPlan", "runPlan", "runAllPlans"\]/);
   assert.match(panelSource, /function resultAwaitRunNextAction\(stage\)[\s\S]{0,1100}disableReason\(state, "parseResults", \{ planFile \}\)/);
   assert.match(panelSource, /function resultEvidenceWorkbenchCacheKeyFor\(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness\)[\s\S]{0,260}runMode:/);
-  assert.match(panelSource, /runMode = "formal"/);
+  assert.match(panelSource, /runMode = normalizeRunMode\(restoredWebviewState\.runMode\)/);
+  assert.match(panelSource, /return String\(value \|\| "formal"\) === "debug" \? "debug" : "formal"/);
+  assert.match(panelSource, /persistWebviewState\(\{ runMode \}\)/);
   assert.match(panelSource, /function runModeForButton\(button, command, fallbackMode\)/);
 });
 

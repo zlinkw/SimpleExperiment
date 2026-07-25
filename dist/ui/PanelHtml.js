@@ -1413,7 +1413,7 @@ function renderPanelHtml() {
     let activeResourceSection = "overview";
     let activeResourceAnchor = "overview";
     let currentMainView = "workspace";
-    let runMode = "formal";
+    let runMode = normalizeRunMode(restoredWebviewState.runMode);
     let lastWorkspaceResource = { section: "overview", anchor: "overview" };
     let activeResourceNode = null;
     let resourceTreeScrollLockUntil = 0;
@@ -1617,7 +1617,7 @@ function renderPanelHtml() {
       const runModeTarget = event.target.closest("button[data-run-mode]");
       if (runModeTarget) {
         event.preventDefault();
-        runMode = runModeTarget.dataset.runMode === "debug" ? "debug" : "formal";
+        setRunMode(runModeTarget.dataset.runMode);
         refreshRunModeUi();
         return;
       }
@@ -10621,6 +10621,18 @@ function renderPanelHtml() {
     function normalizePlanViewScope(value) {
       const scope = String(value || "selected");
       return PLAN_VIEW_SCOPE_VALUES.includes(scope) ? scope : "selected";
+    }
+
+    function normalizeRunMode(value) {
+      return String(value || "formal") === "debug" ? "debug" : "formal";
+    }
+
+    function setRunMode(value) {
+      const next = normalizeRunMode(value);
+      if (next === runMode) return false;
+      runMode = next;
+      persistWebviewState({ runMode });
+      return true;
     }
 
     function setTaskPlanScope(value) {
