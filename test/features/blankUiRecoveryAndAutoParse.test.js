@@ -40,6 +40,11 @@ test("topbar-actions closes before header so three columns are not clipped", () 
 test("incoming state renders sections via renderSectionIfVisible with signature cache", () => {
   assert.match(panel, /function renderSectionIfVisible\(/);
   assert.match(panel, /let lastRenderedSectionSignatures = \{\}/);
+  assert.match(panel, /let sectionDataSignatureCacheState = null/);
+  assert.match(panel, /if \(sectionDataSignatureCacheState !== cacheState\)/);
+  assert.match(panel, /Object\.prototype\.hasOwnProperty\.call\(sectionDataSignatureCache, section\)/);
+  assert.match(panel, /stableSectionSignature\(sectionRenderModel\(state, section\)\)/);
+  assert.match(panel, /sectionDataSignature\(state, section\) \+ "::" \+ sectionLocalSignature\(section, state\)/);
   assert.match(panel, /let resourceTreeStaticModelCache = null;/);
   assert.match(panel, /renderSectionIfVisible\(lastState \|\| \{\}, "[a-z]+"[,)]/);
   // 抽屉 rails：translateX 隐藏 + hover 展开

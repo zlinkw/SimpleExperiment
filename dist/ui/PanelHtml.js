@@ -1439,6 +1439,8 @@ function renderPanelHtml() {
     let contextActionStateSignatureCacheValue = "";
     let lastRenderedSectionSignatures = {};
     let lastSectionPreRenderKeys = {};
+    let sectionDataSignatureCacheState = null;
+    let sectionDataSignatureCache = {};
     let objectReferenceIds = new WeakMap();
     let nextObjectReferenceId = 1;
     let operationRowsCacheInput = null;
@@ -2248,7 +2250,19 @@ function renderPanelHtml() {
     }
 
     function sectionRenderSignature(state, section) {
-      return htmlSignature(section + "::" + stableSectionSignature(sectionRenderModel(state, section)) + "::" + sectionLocalSignature(section, state));
+      return htmlSignature(section + "::" + sectionDataSignature(state, section) + "::" + sectionLocalSignature(section, state));
+    }
+
+    function sectionDataSignature(state, section) {
+      const cacheState = state || null;
+      if (sectionDataSignatureCacheState !== cacheState) {
+        sectionDataSignatureCacheState = cacheState;
+        sectionDataSignatureCache = {};
+      }
+      if (Object.prototype.hasOwnProperty.call(sectionDataSignatureCache, section)) return sectionDataSignatureCache[section];
+      const signature = stableSectionSignature(sectionRenderModel(state, section));
+      sectionDataSignatureCache[section] = signature;
+      return signature;
     }
 
     function stableSectionSignature(value) {
@@ -2424,7 +2438,6 @@ function renderPanelHtml() {
           selectedPlan: compactPlanRecordForSignature(data.selectedPlan),
           plans: compactPlansForSignature(data.plans),
           localPlans: compactPlansForSignature(data.localPlans),
-          detectedProject: compactDetectedProjectForSignature(data.detectedProject),
           projectConfig: compactProjectConfigForSignature(data.projectConfig),
           adapterRules: compactAdapterRulesForSignature(data.adapterRules),
           integrations: data.integrations,
