@@ -50,7 +50,7 @@ test("task workbench derives counts selections and render priority in one view m
   assert.equal(model.detailRow.uiKey, "selected");
   assert.deepEqual(JSON.parse(JSON.stringify(model.counts)), { queued: 7, running: 1, testing: 0, completed: 91, failed: 1, stopped: 0 });
   assert.doesNotMatch(extractFunction("taskRowsViewModel"), /allRows\.filter\(/);
-  assert.ok([...panelSource.matchAll(/const taskView = taskRowsViewModel\(rows, selected\)/g)].length >= 2);
+  assert.ok([...panelSource.matchAll(/taskRowsViewModel\(rows, selected\)/g)].length >= 2);
 });
 
 test("task views reuse cached selection sets and invalidate on changed sources", () => {
@@ -73,8 +73,39 @@ test("task views reuse cached selection sets and invalidate on changed sources",
   assert.equal(second.uiKeys.has("task-2"), true);
   assert.equal(second.operationKeys.has("run-1"), false);
 
-  for (const name of ["pruneExpandedTaskLogs", "compactSchedulerForSignature", "renderTaskSection", "selectedTaskRowsFromState"]) {
-    assert.match(extractFunction(name), /taskSelectionSetsForState\(state\)/, name);
+  for (const name of ["pruneExpandedTaskLogs", "taskSectionViewModelForState", "selectedTaskRowsFromState"]) {
+    assert.match(extractFunction(name), /taskSelectionSetsForState\((?:state|data)\)/, name);
   }
   assert.doesNotMatch(extractFunction("isTaskRowSelected"), /new Set\(/);
+});
+
+test("task signature and render reuse one scoped view model", () => {
+  let schedulerCalls = 0;
+  const sandbox = {
+    taskPlanScope: "selected",
+    taskSectionViewCacheState: null,
+    taskSectionViewCacheScope: "",
+    taskSectionViewCacheValue: null,
+    taskSelectionSetsForState: () => ({ hiddenLegacyTaskUiKeys: new Set() }),
+    schedulerRowsForState: () => {
+      schedulerCalls += 1;
+      return [{ uiKey: "task-1", planFile: "plan.yaml" }];
+    },
+    planFromContext: () => ({ revision: "r1" }),
+    taskRowsForPlanScope: (rows, selectedPlanFile, scopeMode) => ({ rows, selectedPlanFile, selectedCount: rows.length, totalCount: rows.length, scopeMode }),
+    taskRowsViewModel: (rows) => ({ visibleRows: rows, selectedRows: [], activeRows: [], counts: {}, detailRow: rows[0] }),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction("taskSectionViewModelForState")}\nthis.viewForState = taskSectionViewModelForState;`, sandbox);
+  const state = { planFileInput: "plan.yaml", selection: {} };
+  const first = sandbox.viewForState(state);
+  assert.equal(sandbox.viewForState(state), first);
+  assert.equal(schedulerCalls, 1);
+
+  sandbox.taskPlanScope = "all";
+  assert.notEqual(sandbox.viewForState(state), first);
+  assert.equal(schedulerCalls, 2);
+  assert.match(extractFunction("compactSchedulerForSignature"), /taskSectionViewModelForState\(state\)/);
+  assert.match(extractFunction("renderTaskSection"), /taskSectionViewModelForState\(state\)/);
+  assert.match(extractFunction("sectionLocalSignature"), /taskPlanScope/);
 });

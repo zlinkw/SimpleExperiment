@@ -1447,6 +1447,9 @@ function renderPanelHtml() {
     let operationRowsCacheRows = [];
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
+    let taskSectionViewCacheState = null;
+    let taskSectionViewCacheScope = "";
+    let taskSectionViewCacheValue = null;
     let planActiveRunEvidenceCacheState = null;
     let planActiveRunEvidenceCache = new Map();
     let operationViewCacheRows = null;
@@ -2369,7 +2372,7 @@ function renderPanelHtml() {
         });
       }
       if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
-      if (section === "tasks") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}) });
+      if (section === "tasks") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}), taskPlanScope });
       if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
@@ -2870,12 +2873,15 @@ function renderPanelHtml() {
     }
 
     function compactSchedulerForSignature(state) {
-      const selected = taskSelectionSetsForState(state);
+      const view = taskSectionViewModelForState(state);
+      const selected = view.selected;
       const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
-      const rows = schedulerRowsForState(state || {}).filter((row) => !hiddenLegacyTaskUiKeys.has(String(row.uiKey || "")));
-      const taskView = taskRowsViewModel(rows, selected);
+      const rows = view.rows;
+      const taskView = view.taskView;
       return {
         count: rows.length,
+        totalCount: view.scope.totalCount,
+        selectedPlanCount: view.scope.selectedCount,
         hiddenLegacyCount: hiddenLegacyTaskUiKeys.size,
         counts: taskView.counts,
         selectedCount: taskView.selectedRows.length,
@@ -8386,16 +8392,36 @@ function renderPanelHtml() {
       return taskSelectionSetsCacheValue;
     }
 
-    function renderTaskSection(state) {
-      const selection = state.selection || {};
-      const selected = taskSelectionSetsForState(state);
+    function taskSectionViewModelForState(state) {
+      const data = state || {};
+      if (taskSectionViewCacheState === data && taskSectionViewCacheScope === taskPlanScope && taskSectionViewCacheValue) return taskSectionViewCacheValue;
+      const selection = data.selection || {};
+      const selected = taskSelectionSetsForState(data);
       const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
-      const allRows = schedulerRowsForState(state).filter((row) => !hiddenLegacyTaskUiKeys.has(String(row.uiKey || "")));
-      const selectedPlanFile = state.planFileInput || selection.selectedPlanId || "";
-      const selectedPlan = selectedPlanFile ? planFromContext(state || {}, { planFile: selectedPlanFile }) || {} : {};
+      const allRows = schedulerRowsForState(data).filter((row) => !hiddenLegacyTaskUiKeys.has(String(row.uiKey || "")));
+      const selectedPlanFile = data.planFileInput || selection.selectedPlanId || "";
+      const selectedPlan = selectedPlanFile ? planFromContext(data, { planFile: selectedPlanFile }) || {} : {};
       const scope = taskRowsForPlanScope(allRows, selectedPlanFile, taskPlanScope, selectedPlan);
       const rows = scope.rows;
-      const taskView = taskRowsViewModel(rows, selected);
+      taskSectionViewCacheState = data;
+      taskSectionViewCacheScope = taskPlanScope;
+      taskSectionViewCacheValue = {
+        selection,
+        selected,
+        allRows,
+        scope,
+        rows,
+        taskView: taskRowsViewModel(rows, selected)
+      };
+      return taskSectionViewCacheValue;
+    }
+
+    function renderTaskSection(state) {
+      const view = taskSectionViewModelForState(state);
+      const selected = view.selected;
+      const scope = view.scope;
+      const rows = view.rows;
+      const taskView = view.taskView;
       const counts = taskView.counts;
       const scopeBar = scope.selectedPlanFile
         ? '<div class="taskScopeBar"><span class="muted">任务范围</span><div class="taskScopeSwitch" role="group" aria-label="任务范围">' +
