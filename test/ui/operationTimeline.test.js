@@ -15,6 +15,13 @@ test("operation progress renders as a VS Code timeline", () => {
   assert.match(html, /title="' \+ escAttr\(itemTitle\) \+ '"/);
   assert.match(html, /function operationIsCancelled\(status\)/);
   assert.match(html, /operationStatusCard\("已取消", stats\.cancelled, "cancelled"\)/);
+  assert.match(html, /operationStatusCard\("全部", stats\.total, "all"\)/);
+  assert.match(html, /data-operation-filter=/);
+  assert.match(html, /aria-pressed=/);
+  assert.match(html, /function operationMatchesStatusFilter\(row, filter\)/);
+  assert.match(html, /operationIsActive\(status\) && status !== "accepted" && status !== "submitted"/);
+  assert.match(html, /当前筛选下没有操作记录/);
+  assert.match(html, /operationStatusFilter === operationViewCacheFilter/);
   assert.match(html, /operationIsCancelled\(status\) \? "is-cancelled"/);
   assert.match(html, /if \(operationIsFailureLike\(row\.status\)\) return row\.error/);
   assert.match(html, /if \(operationIsCompleted\(row\.status\)\) return "操作已完成。"/);

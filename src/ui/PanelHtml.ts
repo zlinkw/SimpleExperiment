@@ -489,7 +489,10 @@ export function renderPanelHtml(): string {
     .operationMeta { display: flex; flex-wrap: wrap; gap: 6px; }
     .operationStatusSummary { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 5px; margin-bottom: 7px; }
     .operationHiddenSummary { margin: 0 0 7px; padding: 5px 8px; border: 1px solid var(--border); border-left: 4px solid #CBD5E1; border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--muted); font-size: 11px; }
-    .operationStatusCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; background: var(--vscode-input-background); }
+    .operationStatusCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px; min-height: 42px; padding: 6px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; background: var(--vscode-input-background); color: var(--text); text-align: left; }
+    .operationStatusCard:hover:not(:disabled) { border-color: var(--vscode-focusBorder); }
+    .operationStatusCard.is-active { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+    .operationStatusCard:disabled { opacity: .55; cursor: default; }
     .operationStatusCard.running { border-left-color: #2563EB; }
     .operationStatusCard.completed { border-left-color: #16A34A; }
     .operationStatusCard.cancelled { border-left-color: #64748B; }
@@ -1435,7 +1438,9 @@ export function renderPanelHtml(): string {
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
     let operationViewCacheRows = null;
+    let operationViewCacheFilter = "";
     let operationViewCacheValue = null;
+    let operationStatusFilter = "all";
     let operationSignatureCacheRows = null;
     let operationSignatureCacheValue = null;
     let operationSectionSignatureCacheRows = null;
@@ -1605,6 +1610,21 @@ export function renderPanelHtml(): string {
         event.preventDefault();
         runMode = runModeTarget.dataset.runMode === "debug" ? "debug" : "formal";
         refreshRunModeUi();
+        return;
+      }
+      const operationFilterTarget = event.target.closest("button[data-operation-filter]");
+      if (operationFilterTarget) {
+        event.preventDefault();
+        const nextFilter = String(operationFilterTarget.dataset.operationFilter || "all");
+        if (["all", "accepted", "running", "completed", "cancelled", "failed"].includes(nextFilter) && operationStatusFilter !== nextFilter) {
+          operationStatusFilter = nextFilter;
+          operationViewCacheRows = null;
+          operationViewCacheFilter = "";
+          operationViewCacheValue = null;
+          operationSectionSignatureCacheRows = null;
+          operationSectionSignatureCacheValue = null;
+          renderOperationSection(lastState || {});
+        }
         return;
       }
       const historyLegend = event.target.closest("button[data-gpu-history-focus]");
@@ -10528,22 +10548,37 @@ export function renderPanelHtml(): string {
     function renderOperationSection(state) {
       const view = operationViewModelForState(state);
       setHtmlIfChanged("operationList", view.rows.length
-        ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'
+        ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + (view.visibleRows.length
+          ? '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'
+          : '<div class="empty-state">当前筛选下没有操作记录。</div>')
         : '<div class="empty-state">尚无操作记录。</div>');
     }
 
     function operationViewModelForState(state) {
       const rows = operationRowsForState(state || {});
-      if (rows === operationViewCacheRows && operationViewCacheValue) return operationViewCacheValue;
-      const visibleRows = operationRowsForRender(rows);
+      if (rows === operationViewCacheRows && operationStatusFilter === operationViewCacheFilter && operationViewCacheValue) return operationViewCacheValue;
+      const filteredRows = rows.filter((row) => operationMatchesStatusFilter(row, operationStatusFilter));
+      const visibleRows = operationRowsForRender(filteredRows);
       operationViewCacheRows = rows;
+      operationViewCacheFilter = operationStatusFilter;
       operationViewCacheValue = {
         rows,
         visibleRows,
-        hiddenCount: Math.max(0, rows.length - visibleRows.length),
+        hiddenCount: Math.max(0, filteredRows.length - visibleRows.length),
         statusCounts: operationStatusCounts(rows)
       };
       return operationViewCacheValue;
+    }
+
+    function operationMatchesStatusFilter(row, filter) {
+      if (!filter || filter === "all") return true;
+      const status = String((row || {}).status || "").toLowerCase();
+      if (filter === "accepted") return status === "accepted" || status === "submitted";
+      if (filter === "running") return operationIsActive(status) && status !== "accepted" && status !== "submitted";
+      if (filter === "failed") return operationIsFailureLike(status);
+      if (filter === "cancelled") return operationIsCancelled(status);
+      if (filter === "completed") return operationIsCompleted(status);
+      return true;
     }
 
     function operationRowsForRender(rows) {
@@ -10571,6 +10606,7 @@ export function renderPanelHtml(): string {
     function renderOperationStatusSummary(rowsOrStats) {
       const stats = rowsOrStats && rowsOrStats.accepted !== undefined ? rowsOrStats : operationStatusCounts(rowsOrStats);
       return '<div class="operationStatusSummary" title="操作进度">' +
+        operationStatusCard("全部", stats.total, "all") +
         operationStatusCard("已提交", stats.accepted, "accepted") +
         operationStatusCard("执行中", stats.running, "running") +
         operationStatusCard("已完成", stats.completed, "completed") +
@@ -10580,11 +10616,12 @@ export function renderPanelHtml(): string {
     }
 
     function operationStatusCard(label, value, klass) {
-      return '<div class="operationStatusCard ' + escAttr(klass) + '" title="' + escAttr(label + "：" + (value || 0)) + '"><span>' + esc(label) + '</span><b>' + esc(value) + '</b></div>';
+      const active = operationStatusFilter === klass;
+      return '<button type="button" class="operationStatusCard ' + escAttr(klass) + (active ? ' is-active' : '') + '" data-operation-filter="' + escAttr(klass) + '" aria-pressed="' + (active ? "true" : "false") + '" title="' + escAttr("筛选" + label + "操作：" + (value || 0)) + '"' + (!active && !value ? " disabled" : "") + '><span>' + esc(label) + '</span><b>' + esc(value || 0) + '</b></button>';
     }
 
     function operationStatusCounts(rows) {
-      const out = { accepted: 0, running: 0, completed: 0, cancelled: 0, failed: 0 };
+      const out = { total: rows.length, accepted: 0, running: 0, completed: 0, cancelled: 0, failed: 0 };
       rows.forEach((row) => {
         const status = String(row.status || "").toLowerCase();
         if (status === "accepted" || status === "submitted") out.accepted += 1;
