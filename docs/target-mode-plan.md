@@ -19,16 +19,16 @@
 ## 五批周期
 - [已完成] 1/5 后端：修复 `OperationQueue` 手动取消被误记为超时，并限制历史记录内存。
 - [已完成] 2/5 前端：优化首次状态与空状态反馈，不依赖截图验收。
-- [待做] 3/5 后端：加固 Webview 状态发送失败后的恢复与诊断。
+- [已完成] 3/5 后端：加固 Webview 状态发送失败后的恢复与诊断。
 - [待做] 4/5 前端：优化操作时间线可读性与终态反馈。
 - [待做] 5/5 前后端：补齐 Plan 归档参数审计并执行全量静态测试。
 
-## 当前批次：autonomous-static-002（已完成）
+## 当前批次：autonomous-static-003（已完成）
 
 ### 范围
-- 首次状态到达前显示明确的本地加载状态，延迟时允许重新请求状态。
-- 首次状态到达后严格关闭加载反馈，并提升操作列表空状态可读性。
-- 仅修改 `src/ui/PanelHtml.ts`、对应测试、构建产物和本计划。
+- 状态发送成功前不更新去重签名，避免失败消息被后续去重吞掉。
+- 检测 `postMessage` 返回 `false`，限制自动重试次数并独立记录发送错误。
+- 仅修改 `src/extension.ts`、对应测试、构建产物和本计划。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
@@ -37,11 +37,12 @@
 
 ### 验证
 - [已通过] TypeScript、Lint 与生成 JS 语法检查。
-- [已通过] 首次状态、空状态与面板恢复定向静态测试 6/6。
+- [已通过] Webview 状态发送恢复与相邻面板流程定向静态测试 15/15。
 - [跳过] 全量测试；周期批次 5 执行。
 
 ## 批次记录
 - 0/5 基线：`f7db9ff`，上一目标已归档到 Git 历史。
 - 1/5 完成提交：`1419226 fix: correct operation cancellation lifecycle`，已推送并确认与 `origin/master` 一致。
-- 2/5 完成提交：`fix: clarify initial panel state feedback`；推送后以 `origin/master` Git 历史为准。
-- 下一批边界：加固 Webview 状态发送失败后的恢复与诊断，不修改服务器通信。
+- 2/5 完成提交：`e94b5e8 fix: clarify initial panel state feedback`，已推送并确认与 `origin/master` 一致。
+- 3/5 完成提交：`fix: recover failed webview state posts`；推送后以 `origin/master` Git 历史为准。
+- 下一批边界：仅优化操作时间线可读性与终态反馈，不修改操作执行语义。

@@ -379,10 +379,16 @@ class RealtimeTunnelPanelProvider {
     resultsSummaryRefreshRetryCount = 0;
     resultsSummaryRefreshInFlight = false;
     statePostTimer;
+    statePostRetryTimer;
     statePostPending = false;
+    statePostInFlight = false;
+    statePostRetryCount = 0;
     lastPostedStateSignature = "";
     lastStateBuildErrorSignature = "";
+    lastStatePostErrorSignature = "";
     statePostBatchMs = 100;
+    statePostRetryMax = 3;
+    statePostRetryBaseMs = 500;
     webviewReady = false;
     panelReadyWatchdogTimer;
     pendingPanelNavigation;
@@ -1090,9 +1096,15 @@ class RealtimeTunnelPanelProvider {
         if (this.statePostTimer)
             clearTimeout(this.statePostTimer);
         this.statePostTimer = undefined;
+        if (this.statePostRetryTimer)
+            clearTimeout(this.statePostRetryTimer);
+        this.statePostRetryTimer = undefined;
         this.statePostPending = false;
+        this.statePostInFlight = false;
+        this.statePostRetryCount = 0;
         this.lastPostedStateSignature = "";
         this.lastStateBuildErrorSignature = "";
+        this.lastStatePostErrorSignature = "";
         this.webviewReady = false;
         this.pendingPanelNavigation = undefined;
         await this.client.disconnect("deactivate").catch(() => undefined);
@@ -2227,6 +2239,10 @@ class RealtimeTunnelPanelProvider {
             case "webviewReady":
                 this.webviewReady = true;
                 await this.flushPendingPanelNavigation();
+                this.statePostRetryCount = 0;
+                if (this.statePostRetryTimer)
+                    clearTimeout(this.statePostRetryTimer);
+                this.statePostRetryTimer = undefined;
                 this.clearPanelReadyWatchdog();
                 this.postState(true);
                 void this.refreshPptAutomationReadiness(false).catch(() => undefined);
@@ -7196,6 +7212,10 @@ class RealtimeTunnelPanelProvider {
         this.statePostTimer = undefined;
         if (!this.view)
             return;
+        if (this.statePostInFlight) {
+            this.statePostPending = true;
+            return;
+        }
         if (!force && !this.statePostPending)
             return;
         if (!this.view.visible)
@@ -7218,22 +7238,52 @@ class RealtimeTunnelPanelProvider {
         const signature = webviewStatePostSignature(state);
         if (!force && signature === this.lastPostedStateSignature)
             return;
-        this.lastPostedStateSignature = signature;
         const reportPostError = (error) => {
+            this.statePostInFlight = false;
             this.statePostPending = true;
             const message = `面板状态发送失败：${errorMessage(error)}`;
-            if (message !== this.lastStateBuildErrorSignature) {
-                this.lastStateBuildErrorSignature = message;
-                this.recordActionError({ command: "panelState", message, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
+            if (message !== this.lastStatePostErrorSignature) {
+                this.lastStatePostErrorSignature = message;
+                this.recordActionError({ command: "panelStatePost", message, suggestion: "插件将有限次自动重试；仍失败时请重新加载面板。" });
             }
+            this.scheduleStatePostRetry();
+        };
+        const completePost = (delivered) => {
+            if (!delivered) {
+                reportPostError(new Error("Webview 未接收状态消息"));
+                return;
+            }
+            this.statePostInFlight = false;
+            this.lastPostedStateSignature = signature;
+            this.lastStatePostErrorSignature = "";
+            this.statePostRetryCount = 0;
+            if (this.statePostRetryTimer)
+                clearTimeout(this.statePostRetryTimer);
+            this.statePostRetryTimer = undefined;
+            if (this.statePostPending)
+                this.postState();
         };
         try {
+            this.statePostInFlight = true;
             const posted = this.view.webview.postMessage({ type: "state", state });
-            void Promise.resolve(posted).catch(reportPostError);
+            void Promise.resolve(posted).then(completePost, reportPostError);
         }
         catch (error) {
             reportPostError(error);
         }
+    }
+    scheduleStatePostRetry() {
+        if (this.statePostRetryTimer || this.statePostRetryCount >= this.statePostRetryMax)
+            return;
+        if (!this.view?.visible || !this.webviewReady)
+            return;
+        const delay = Math.min(this.statePostRetryBaseMs * (2 ** this.statePostRetryCount), 4000);
+        this.statePostRetryCount += 1;
+        this.statePostRetryTimer = setTimeout(() => {
+            this.statePostRetryTimer = undefined;
+            this.flushStatePost(true);
+        }, delay);
+        this.statePostRetryTimer.unref?.();
     }
     integration() {
         return new XshellTunnelIntegration_1.XshellIntegration({

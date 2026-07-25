@@ -30,9 +30,10 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
   assert.match(source, /private buildPanelFallbackState\(message: string\): WebviewClusterState/);
   assert.match(flushBlock, /const signature = webviewStatePostSignature\(state\)/);
   assert.match(flushBlock, /if \(!force && signature === this\.lastPostedStateSignature\) return/);
+  assert.match(flushBlock, /if \(!delivered\)[\s\S]{0,180}reportPostError/);
   assert.match(flushBlock, /this\.lastPostedStateSignature = signature/);
   assert.match(flushBlock, /const posted = this\.view\.webview\.postMessage\(\{ type: "state", state \}\)/);
-  assert.match(flushBlock, /Promise\.resolve\(posted\)\.catch\(reportPostError\)/);
+  assert.match(flushBlock, /Promise\.resolve\(posted\)\.then\(completePost, reportPostError\)/);
   assert.match(flushBlock, /catch \(error\) \{\s*reportPostError\(error\)/);
   assert.match(source, /function webviewStatePostSignature\(state: WebviewClusterState\): string/);
   assert.match(source, /return realtimeUiFieldSignature\(state\)/);
