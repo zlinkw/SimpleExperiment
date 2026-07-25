@@ -7,6 +7,7 @@
 - 全局约束：不手工修改安装目录；仅在完成独立备份后，按用户本批明确授权通过 VS Code CLI 安装新版 VSIX；不覆盖已有 VSIX，不删除完整文件，不把未验证实验声明当作事实。
 - `Agent runtime cache` 只服务运行态；项目计划、结果、归档、删除墓碑和文件传输状态属于项目态。
 - 结果证据使用最终归档结果；`metrics_summary.csv`、PPT 和论文证据不得混入临时结果；PPT 绘图目标确认必须先于 automation 调用，且不迁移、删除或重写旧任务和结果。
+- PPT 绘图链路与 realtime post gate 稳定化继续保留；GPU 历史与 Docker 兼容后续验收分别见 `docs/target-plans/server-gpu-history.md`、`docs/target-plans/docker-codex-plugin-compat.md`。
 - 连接边界：Xshell 本地隧道 + Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 - 新增补充任务不得破坏当前主目标；计划更新必须防止修复循环。
 - 禁止“父级 evidence key 被子文件 archive 反向命中”。
@@ -16,20 +17,19 @@
 - 每批最多 2 至 3 个强相关问题、8 个源码/文档/测试文件，并独立提交、推送到 `origin/master`。
 - 每 5 个完成批次执行一次全量静态测试；其余批次只跑定向检查。
 
-## 后续优先级：五批周期
-- [已完成] 1/5 后端：修复 `OperationQueue` 手动取消被误记为超时，并限制历史记录内存。
-- [已完成] 2/5 前端：优化首次状态与空状态反馈，不依赖截图验收。
-- [已完成] 3/5 后端：加固 Webview 状态发送失败后的恢复与诊断。
-- [已完成] 4/5 前端：优化操作时间线可读性与终态反馈。
-- [已完成] 5/5 前后端：补齐 Plan 归档参数审计并执行全量静态测试。
-- [待做] 下一轮：隔离旧 MobaXterm 命名兼容层并继续前后端静态优化。
+## 后续优先级：第二个五批周期
+- [已完成] 1/5 构建：从 TypeScript 活动编译集隔离已废弃客户端兼容包装。
+- [待做] 2/5 前端：增加操作时间线状态筛选与计数联动。
+- [待做] 3/5 后端：审计面板状态签名计算与长时间运行开销。
+- [待做] 4/5 前端：统一相对时间与终态时间反馈。
+- [待做] 5/5 前后端：执行第二轮非服务器静态测试。
 
-## 当前批次：autonomous-static-005（已完成）
+## 当前批次：autonomous-static-006（已完成）
 
 ### 范围
-- 补充 argparse 参数组和互斥组声明快照，保留 `required` 等组级语义。
-- 修正非必选 subparser selector 的隐式默认值，避免误记为必填参数。
-- 仅修改 `src/features/PlanArchive.ts`、对应测试、构建产物和本计划。
+- 从 `tsconfig.json` 排除已废弃客户端的别名包装，防止后续构建继续生成无效兼容产物。
+- 保留现行 Xshell 实现与安装包闭包；完整旧文件仍仅由人工清理清单管理。
+- 仅修改 TypeScript 构建配置、对应静态测试和本计划。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
@@ -37,14 +37,13 @@
 - 不重载或关闭 VS Code，不执行真实网络联调。
 
 ### 相邻回归风险
-- 归档参数只做静态源码审计，不执行项目代码；配置迁移、结果取舍和恢复版本语义保持不变。
-- PPT 绘图链路与 realtime post gate 稳定化继续保留；GPU 历史与 Docker 兼容后续验收分别见 `docs/target-plans/server-gpu-history.md`、`docs/target-plans/docker-codex-plugin-compat.md`。
+- 活动入口不得引用被排除包装；现有 Xshell 命令、探测、启动和配置模块保持直接依赖。
+- 已生成旧文件不自动删除、不暂存删除；VSIX 继续排除这些文件。
 
 ### 验证清单
-- [已通过] TypeScript、Lint 与生成 JS 语法检查。
-- [已通过] Plan 归档参数审计与归档 UI 定向测试 4/4。
-- [已通过] 非服务器静态套件 649/649；使用本机 Python 3.10，未连接服务器或操作 VS Code。
-- [未执行] 会删除临时目录或验证清理行为的测试；遵守当前 Windows 删除保护约束。
+- [已通过] TypeScript、Lint、活动入口依赖与 VSIX 闭包静态检查。
+- [已通过] 目标模式计划守卫测试。
+- [跳过] 全量测试；本周期第 5 批执行。
 
 ## 本批记录
 - 0/5 基线：`f7db9ff`，上一目标已归档到 Git 历史。
@@ -52,5 +51,6 @@
 - 2/5 完成提交：`e94b5e8 fix: clarify initial panel state feedback`，已推送并确认与 `origin/master` 一致。
 - 3/5 完成提交：`ce2bbee fix: recover failed webview state posts`，已推送并确认与 `origin/master` 一致。
 - 4/5 完成提交：`dde9453 fix: clarify operation terminal outcomes`，已推送并确认与 `origin/master` 一致。
-- 5/5 完成提交：`fix: complete plan archive parameter audit`；推送后以 `origin/master` Git 历史为准。
-- 下一批边界：审计并隔离仍以 MobaXterm 命名的旧兼容实现；保留 Xshell 行为，不连接服务器。
+- 上一周期 5/5：`565f50d fix: complete plan archive parameter audit`，已推送并确认与 `origin/master` 一致。
+- 本周期 1/5：`build: exclude deprecated tunnel wrappers`；推送后以 `origin/master` Git 历史为准。
+- 下一批边界：仅增加操作时间线本地状态筛选，不修改操作执行语义。
