@@ -7461,12 +7461,15 @@ function compactExperimentTraces(rows, protectedKeys = [], selectedPlan = {}) {
         return input;
     const protectedSet = new Set(protectedKeys.map((item) => String(item || "").trim()).filter(Boolean));
     const out = [];
+    const selectedKeys = new Set();
     const add = (row) => {
         if (out.length >= EXPERIMENT_TRACE_RECORD_LIMIT)
             return;
         const key = experimentTraceKey(row);
-        if (key && out.some((item) => experimentTraceKey(item) === key))
+        if (key && selectedKeys.has(key))
             return;
+        if (key)
+            selectedKeys.add(key);
         out.push(row);
     };
     sortExperimentTraces(input.filter((row) => experimentTraceMatchesProtectedKey(row, protectedSet))).forEach(add);
@@ -7681,8 +7684,14 @@ function compactSchedulerBucket(rows, bucket, limit, protectedSet) {
 function compactFlatSchedulerRows(rows, protectedSet) {
     if (rows.length <= SCHEDULER_STATE_RECORD_LIMIT)
         return rows;
-    const active = rows.filter((row) => schedulerRowMatchesProtectedKey(row, protectedSet) || schedulerStatusRank(schedulerRowStatus(row)) <= 3);
-    const rest = rows.filter((row) => !active.includes(row));
+    const active = [];
+    const rest = [];
+    for (const row of rows) {
+        if (schedulerRowMatchesProtectedKey(row, protectedSet) || schedulerStatusRank(schedulerRowStatus(row)) <= 3)
+            active.push(row);
+        else
+            rest.push(row);
+    }
     return uniqueSchedulerRows([...sortSchedulerRows(active), ...sortSchedulerRows(rest)]).slice(0, SCHEDULER_STATE_RECORD_LIMIT);
 }
 function schedulerBucketLimit(bucket) {

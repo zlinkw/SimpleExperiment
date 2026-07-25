@@ -16,6 +16,10 @@ test("extension compacts experiment trace payload for all-day webview runs", () 
   assert.match(buildState, /this\.traceProtectedKeys\(\)/);
   assert.match(compact, /experimentTraceMatchesProtectedKey/);
   assert.match(compact, /experimentTraceNeedsAttention/);
+  assert.match(compact, /const selectedKeys = new Set\(\)/);
+  assert.match(compact, /selectedKeys\.has\(key\)/);
+  assert.match(compact, /selectedKeys\.add\(key\)/);
+  assert.doesNotMatch(compact, /out\.some\(/);
   assert.match(compact, /sortExperimentTraces\(input\)\.forEach\(add\)/);
   assert.match(source, /experimentTracePayloadBudget: EXPERIMENT_TRACE_RECORD_LIMIT/);
 });

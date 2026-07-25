@@ -19,6 +19,8 @@ test("extension compacts scheduler state payload for all-day webview runs", () =
   assert.match(compact, /uiOmittedSchedulerRows/);
   assert.match(compact, /schedulerRowMatchesProtectedKey/);
   assert.match(compact, /compactFlatSchedulerRows/);
+  assert.match(compact, /const active = \[\];\s*const rest = \[\];\s*for \(const row of rows\)/);
+  assert.doesNotMatch(compact, /rest = rows\.filter\(\(row\) => !active\.includes\(row\)\)/);
 });
 
 test("target mode plan records all-day scheduler payload budget", () => {
