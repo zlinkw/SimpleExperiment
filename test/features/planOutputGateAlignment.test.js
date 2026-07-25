@@ -53,8 +53,10 @@ test("panel and extension output gates share nextStep and parseable candidate re
 test("isParseableResultCandidate accepts nested plan result paths", () => {
   const script = loadRenderedPanelScript();
   const match = script.match(/function isParseableResultCandidate\(value\) \{[\s\S]*?\n    \}/);
+  const metadata = script.match(/const RESULT_METADATA_FILENAMES = new Set\([^;]+;\s+const RESULT_METADATA_SUFFIXES = \[[^\]]*\];/);
   assert.ok(match, "rendered helper missing");
-  const fn = new Function(match[0] + "; return isParseableResultCandidate;")();
+  assert.ok(metadata, "result metadata constants missing");
+  const fn = new Function(metadata[0] + match[0] + "; return isParseableResultCandidate;")();
   assert.equal(fn("work_dirs/smoke/metrics_summary.csv"), true);
   assert.equal(fn("experiments/results/suite_a/result.json"), true);
   assert.equal(fn("jobs.csv"), false);

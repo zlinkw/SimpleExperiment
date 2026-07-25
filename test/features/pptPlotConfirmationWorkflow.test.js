@@ -99,7 +99,8 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
   assert.match(source, /case "resetPptPathConfirmations":\s*await this\.resetPptPathConfirmationsFromUi\(\)/);
   assert.match(panel, /data-command="resetPptPathConfirmations"/);
   assert.match(panel, /section === "servers" \|\| section === "settings"[\s\S]*data\.remotePathConfirmations[\s\S]*data\.pptPathConfirmations/);
-  assert.match(panel, /function debugModeBlockedUiCommand\(command\)[\s\S]*plotResultsToPpt/);
+  assert.match(panel, /const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set\([^;]*plotResultsToPpt/);
+  assert.match(panel, /function debugModeBlockedUiCommand\(command\) \{\s*return DEBUG_MODE_BLOCKED_UI_COMMANDS\.has/);
   assert.match(plan, /PPT 绘图目标确认/);
   assert.match(plan, /不迁移、删除或重写旧任务和结果/);
 });

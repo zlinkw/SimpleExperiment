@@ -22,14 +22,15 @@
 - [已完成] 2/5 前端：减少 Plan 活动状态的重复扫描。
 - [已完成] 3/5 后端：线性化结果候选匹配。
 - [已完成] 4/5 前端：审计状态派生中的重复分配。
-- [待做] 5/5 前后端：执行第六轮非服务器静态测试。
+- [已完成] 5/5 前后端：执行第六轮非服务器静态测试。
+- [待做] 后续周期：根据静态审计结果继续优化前后端；真实连接验收保持延期。
 
-## 当前批次：autonomous-static-029（已完成）
+## 当前批次：autonomous-static-030（已完成）
 
 ### 范围
-- 将 Debug 禁用命令、PPT automation 命令和结果元数据名称提升为稳定常量。
-- 避免高频状态派生函数重复分配固定集合与数组。
-- 保持命令白名单、Debug 门禁和结果候选判定不变。
+- 对第六周期后端集合复用、结果候选匹配与前端状态派生执行广泛静态回归。
+- 排除真实服务器、本地监听、VS Code 操作及含完整文件删除或清理副作用的测试。
+- 仅在发现本周期回归时修改对应源码；否则只更新本计划。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
@@ -37,12 +38,14 @@
 - 不重载或关闭 VS Code，不执行真实网络联调。
 
 ### 相邻回归风险
-- Debug 模式必须继续阻止所有归档、删除、结果、统计、论文与 PPT 操作。
-- PPT actionCommand 白名单与结果元数据排除规则必须保持一致。
+- 当前结果只证明本地静态与隔离单元路径，不证明真实服务器连接、Agent 部署或 SFTP 传输。
+- 删除与清理测试不执行，避免违反 Windows 项目文件删除保护。
 
 ### 验证清单
-- [已通过] TypeScript、Lint、生成 JavaScript 语法、内联脚本及定向测试 9/9。
-- [跳过] 广泛测试；本周期第 5 批执行。
+- [已通过] TypeScript、Lint、119 个生成 JavaScript 语法检查及 VSIX runtime 闭包检查。
+- [已通过] 广泛非服务器静态测试 600/600；Python 3.10.11 + PyYAML 6.0.3。
+- [纠正并复验] 首轮暴露 3 个静态契约未同步；更新常量提取、Debug 门禁断言与后续待办后复验通过。
+- [明确跳过] 40 个涉及本地监听或删除/清理副作用的测试文件；PPT 路径确认测试仅做语法和静态门禁检查。
 
 ## 本批记录
 - 上一周期已完成基线：`6704dd0`，602/602 非服务器静态测试通过并已同步远程。
@@ -50,4 +53,5 @@
 - 本周期 2/5：`perf: cache plan activity evidence`；TypeScript、Lint、生成 JavaScript 语法、内联脚本 2/2 及定向测试 16/16 通过，推送后以 `origin/master` Git 历史为准。
 - 本周期 3/5：`perf: compile result preview matchers`；TypeScript、Lint、生成 JavaScript 语法及结果位置定向测试 5/5 通过，推送后以 `origin/master` Git 历史为准。
 - 本周期 4/5：`perf: reuse panel command sets`；TypeScript、Lint、生成 JavaScript 语法、内联脚本及定向测试 9/9 通过，推送后以 `origin/master` Git 历史为准。
-- 下一批边界：仅执行第六轮非服务器静态测试。
+- 本周期 5/5：`test: complete sixth static validation cycle`；推送后以 `origin/master` Git 历史为准。
+- 下一批边界：静态测试完成后根据剩余目标建立下一周期，不自动连接服务器。
