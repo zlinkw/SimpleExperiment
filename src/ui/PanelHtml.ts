@@ -1350,6 +1350,7 @@ export function renderPanelHtml(): string {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const OPERATION_STATUS_FILTER_VALUES = ["all", "accepted", "running", "completed", "cancelled", "failed"];
+    const PLAN_VIEW_SCOPE_VALUES = ["selected", "all"];
     const restoredWebviewState = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
     let bootstrapErrorReported = false;
     const reportBootstrapError = (error) => {
@@ -1493,8 +1494,8 @@ export function renderPanelHtml(): string {
     let overviewProjectStatsCacheValue = null;
     let configParamFilterTimer = 0;
     let selectedPlanCheckbox = null;
-    let taskPlanScope = "selected";
-    let tracePlanScope = "selected";
+    let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
+    let tracePlanScope = normalizePlanViewScope(restoredWebviewState.tracePlanScope);
     let webviewDomCommandAuditCache = null;
     let webviewDomCommandAuditCacheKey = "";
     let webviewDomCommandAuditUpdatedAt = 0;
@@ -1647,9 +1648,8 @@ export function renderPanelHtml(): string {
       if (treeTarget) {
         hidePinContextMenu();
         event.preventDefault();
-        if (treeTarget.dataset.taskPlanScope === "all") taskPlanScope = "all";
-      if (treeTarget.dataset.taskPlanScope === "selected") taskPlanScope = "selected";
-      navigateToResourceTarget(treeTarget.dataset.sectionTarget, treeTarget.dataset.anchorTarget);
+        if (PLAN_VIEW_SCOPE_VALUES.includes(treeTarget.dataset.taskPlanScope)) setTaskPlanScope(treeTarget.dataset.taskPlanScope);
+        navigateToResourceTarget(treeTarget.dataset.sectionTarget, treeTarget.dataset.anchorTarget);
         renderResourceTreeInspector(activeResourceSection, activeResourceAnchor);
         renderWorkbenchInspector(lastState || {});
         return;
@@ -2039,8 +2039,7 @@ export function renderPanelHtml(): string {
         render(lastState);
       }
       if (latestNavigationMessage) {
-        if (latestNavigationMessage.taskPlanScope === "all") taskPlanScope = "all";
-        if (latestNavigationMessage.taskPlanScope === "selected") taskPlanScope = "selected";
+        if (PLAN_VIEW_SCOPE_VALUES.includes(latestNavigationMessage.taskPlanScope)) setTaskPlanScope(latestNavigationMessage.taskPlanScope);
         navigateToResourceTarget(latestNavigationMessage.section, latestNavigationMessage.anchor, { force: true });
       }
     }
@@ -3204,8 +3203,8 @@ export function renderPanelHtml(): string {
         } else applyPendingButtonStates();
         const submittedTarget = submittedCommandTarget(data.command, data.status);
         if (submittedTarget) {
-          taskPlanScope = String(data.command || "") === "runAllPlans" ? "all" : "selected";
-          tracePlanScope = "selected";
+          setTaskPlanScope(String(data.command || "") === "runAllPlans" ? "all" : "selected");
+          setTracePlanScope("selected");
           navigateToResourceTarget(submittedTarget.section, submittedTarget.anchor, { force: true });
         }
       }
@@ -8370,8 +8369,7 @@ export function renderPanelHtml(): string {
       root.querySelectorAll("button[data-task-plan-scope]").forEach((button) => {
         button.onclick = () => {
           const next = button.dataset.taskPlanScope === "all" ? "all" : "selected";
-          if (next === taskPlanScope) return;
-          taskPlanScope = next;
+          if (!setTaskPlanScope(next)) return;
           renderTaskSection(lastState || {});
         };
       });
@@ -10347,8 +10345,7 @@ export function renderPanelHtml(): string {
       root.querySelectorAll("button[data-trace-plan-scope]").forEach((button) => {
         button.onclick = () => {
           const next = button.dataset.tracePlanScope === "all" ? "all" : "selected";
-          if (next === tracePlanScope) return;
-          tracePlanScope = next;
+          if (!setTracePlanScope(next)) return;
           renderTraceSection(lastState || {});
           renderResultSummary(lastState || {});
         };
@@ -10603,6 +10600,27 @@ export function renderPanelHtml(): string {
     function normalizeOperationStatusFilter(value) {
       const filter = String(value || "all");
       return OPERATION_STATUS_FILTER_VALUES.includes(filter) ? filter : "all";
+    }
+
+    function normalizePlanViewScope(value) {
+      const scope = String(value || "selected");
+      return PLAN_VIEW_SCOPE_VALUES.includes(scope) ? scope : "selected";
+    }
+
+    function setTaskPlanScope(value) {
+      const next = normalizePlanViewScope(value);
+      if (next === taskPlanScope) return false;
+      taskPlanScope = next;
+      persistWebviewState({ taskPlanScope });
+      return true;
+    }
+
+    function setTracePlanScope(value) {
+      const next = normalizePlanViewScope(value);
+      if (next === tracePlanScope) return false;
+      tracePlanScope = next;
+      persistWebviewState({ tracePlanScope });
+      return true;
     }
 
     function persistWebviewState(patch) {

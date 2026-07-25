@@ -74,7 +74,9 @@ test("result trace scope excludes foreign, stale, and unassigned records", () =>
 });
 
 test("trace UI defaults to current Plan while preserving all-record access", () => {
-  assert.match(panel, /let tracePlanScope = "selected"/);
+  assert.match(panel, /let tracePlanScope = normalizePlanViewScope\(restoredWebviewState\.tracePlanScope\)/);
+  assert.match(panel, /persistWebviewState\(\{ tracePlanScope \}\)/);
+  assert.match(panel, /return PLAN_VIEW_SCOPE_VALUES\.includes\(scope\) \? scope : "selected"/);
   assert.match(panel, /data-trace-plan-scope="selected"/);
   assert.match(panel, /data-trace-plan-scope="all"/);
   assert.match(panel, /当前 Plan 暂无实验记录；可切换“全部记录”/);

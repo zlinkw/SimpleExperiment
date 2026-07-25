@@ -138,11 +138,12 @@ test("task monitoring defaults to the selected Plan revision without deleting ac
 });
 
 test("task UI exposes an explicit current-Plan/all-task switch and resets scope after submission", () => {
-  assert.match(panel, /let taskPlanScope = "selected"/);
+  assert.match(panel, /let taskPlanScope = normalizePlanViewScope\(restoredWebviewState\.taskPlanScope\)/);
+  assert.match(panel, /persistWebviewState\(\{ taskPlanScope \}\)/);
   assert.match(panel, /data-task-plan-scope="selected"[\s\S]{0,240}当前版本/);
   assert.match(panel, /data-task-plan-scope="all"[\s\S]{0,240}全部任务/);
   assert.match(panel, /当前 Plan 暂无任务，等待提交或调度状态回传/);
-  assert.match(panel, /taskPlanScope = String\(data\.command \|\| ""\) === "runAllPlans" \? "all" : "selected"/);
+  assert.match(panel, /setTaskPlanScope\(String\(data\.command \|\| ""\) === "runAllPlans" \? "all" : "selected"\)/);
   assert.match(panel, /stableSectionJson\(\{ expandedTaskLogs, taskPlanScope \}\)/);
   assert.match(panel, /bindTaskPlanScopeControls\(\)/);
   assert.match(panel, /const parentPlanRevision = row\.planRevision \|\| row\.plan_revision/);
