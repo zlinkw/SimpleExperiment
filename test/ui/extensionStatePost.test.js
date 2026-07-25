@@ -36,6 +36,7 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
   assert.match(flushBlock, /try \{\s*state = this\.buildState\(\)/);
   assert.match(flushBlock, /catch \(error\)[\s\S]{0,700}this\.buildPanelFallbackState\(this\.lastError\)/);
   assert.match(source, /private buildPanelFallbackState\(message: string\): WebviewClusterState/);
+  assert.match(flushBlock, /state\.contextActionSignature = contextActionStatePostSignature\(state\)/);
   assert.match(flushBlock, /const signature = webviewStatePostSignature\(state\)/);
   assert.match(flushBlock, /if \(!force && signature === this\.lastPostedStateSignature\) return/);
   assert.match(flushBlock, /if \(!delivered\)[\s\S]{0,180}reportPostError/);
@@ -45,6 +46,13 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
   assert.match(flushBlock, /catch \(error\) \{\s*reportPostError\(error\)/);
   assert.match(source, /function webviewStatePostSignature\(state: WebviewClusterState\): string/);
   assert.match(source, /return realtimeUiFieldSignature\(state\)/);
+  const contextActionSignatureBlock = source.match(/function contextActionStatePostSignature[\s\S]*?function realtimeUiFieldSignature/)?.[0] || "";
+  for (const field of ["setup", "integrations", "health", "realtime", "capabilities", "selection", "workerProbes", "plans", "schedulerStates", "operations", "resultsSummary"]) {
+    assert.match(contextActionSignatureBlock, new RegExp(`${field}: state\\.${field}`));
+  }
+  for (const field of ["gpu", "gpuHistory", "logs", "fileTransfers", "diagnostics", "auditTail"]) {
+    assert.doesNotMatch(contextActionSignatureBlock, new RegExp(`state\\.${field}`));
+  }
   assert.doesNotMatch(postStateBlock, /postMessage\(\{ type: "state"/);
   assert.doesNotMatch(flushBlock, /JSON\.stringify/);
 });

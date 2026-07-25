@@ -6975,16 +6975,21 @@ function renderPanelHtml() {
     }
 
     function contextActionStateSignature(state) {
+      const hostSignature = String((state && state.contextActionSignature) || "");
+      if (hostSignature) return hostSignature;
       const version = [
-        objectReferenceKey(state),
         objectReferenceKey(state.capabilities),
         objectReferenceKey(state.fileCapabilities),
         objectReferenceKey(state.health),
+        objectReferenceKey(state.realtime),
         objectReferenceKey(state.selection),
         objectReferenceKey(state.workerProbes),
         objectReferenceKey(state.detectedProject),
         objectReferenceKey(state.plans),
         objectReferenceKey(state.recentPlans),
+        String(state.connectionMode || ""),
+        String(state.lastSnapshotAt || ""),
+        String(state.debugBundlePath || ""),
         stableSectionSignature(state.selection || {}),
         String((state && state.planFileInput) || ""),
         String(selectedTaskPayloadVersion)

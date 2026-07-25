@@ -124,6 +124,7 @@ test("right and pinned actions enforce explicit scoped context", () => {
   const actionButtonBlock = between(source, "function actionButton", "function rowActionButton");
   const scopedBlock = between(source, "function scopedActionMissingContextReason", "function hasTaskObjectTarget");
   const refreshBlock = between(source, "function refreshContextualActionButtons", "function planButtonDisableReason");
+  const stateSignatureBlock = between(source, "function contextActionStateSignature", "function contextRefreshPayloadFromButton");
   const auditBlock = between(source, "function auditButtonPayloadWarnings", "function genericButtonHelp");
 
   assert.match(source, /const taskObjectScopedCommands = new Set/);
@@ -141,6 +142,15 @@ test("right and pinned actions enforce explicit scoped context", () => {
   assert.doesNotMatch(refreshBlock, /configInputValue\(/);
   assert.doesNotMatch(refreshBlock, /plan-preview-/);
   assert.match(refreshBlock, /actionButtonDisableReason\(command, payload/);
+  assert.match(stateSignatureBlock, /const hostSignature = String\(\(state && state\.contextActionSignature\) \|\| ""\)/);
+  assert.match(stateSignatureBlock, /if \(hostSignature\) return hostSignature/);
+  assert.doesNotMatch(stateSignatureBlock, /objectReferenceKey\(state\),/);
+  for (const key of ["state.capabilities", "state.realtime", "state.selection", "state.workerProbes", "state.plans", "state.recentPlans"]) {
+    assert.match(stateSignatureBlock, new RegExp(`objectReferenceKey\\(${key.replace(".", "\\.")}\\)`));
+  }
+  for (const key of ["state.connectionMode", "state.lastSnapshotAt", "state.debugBundlePath"]) {
+    assert.match(stateSignatureBlock, new RegExp(key.replace(".", "\\.")));
+  }
   assert.match(source, /function contextRefreshPayloadFromButton/);
   assert.match(source, /requiresExplicitSavedPlanPayload/);
   assert.match(auditBlock, /scopedActionMissingContextReason\(command, buttonDatasetActionPayload\(button\)/);

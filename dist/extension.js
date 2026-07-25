@@ -7354,6 +7354,7 @@ class RealtimeTunnelPanelProvider {
             }
             state = this.buildPanelFallbackState(this.lastError);
         }
+        state.contextActionSignature = contextActionStatePostSignature(state);
         const signature = webviewStatePostSignature(state);
         if (!force && signature === this.lastPostedStateSignature)
             return;
@@ -10042,6 +10043,31 @@ function compactRealtimePolicyForWebview(policy) {
 }
 function webviewStatePostSignature(state) {
     return realtimeUiFieldSignature(state);
+}
+function contextActionStatePostSignature(state) {
+    return realtimeUiFieldSignature({
+        connectionMode: state.connectionMode,
+        setup: state.setup,
+        integrations: state.integrations,
+        health: state.health,
+        realtime: state.realtime,
+        lastSnapshotAt: state.lastSnapshotAt,
+        capabilities: state.capabilities,
+        fileCapabilities: state.fileCapabilities,
+        selection: state.selection,
+        planFileInput: state.planFileInput,
+        debugBundlePath: state.debugBundlePath,
+        probe: state.probe,
+        workerProbes: state.workerProbes,
+        agentSessions: state.agentSessions,
+        plans: state.plans,
+        recentPlans: state.recentPlans,
+        plansOmittedCount: state.plansOmittedCount,
+        detectedProject: state.detectedProject,
+        schedulerStates: state.schedulerStates,
+        operations: state.operations,
+        resultsSummary: state.resultsSummary,
+    });
 }
 function realtimeUiFieldSignature(value) {
     const digest = createRealtimeUiHash();
