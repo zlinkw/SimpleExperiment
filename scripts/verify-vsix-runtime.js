@@ -1,14 +1,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { npmCommand } = require("./npm-command");
 
 const root = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const result = spawnSync(npm, ["exec", "--", "@vscode/vsce", "ls", "--no-dependencies"], {
+const npm = npmCommand(["exec", "--", "@vscode/vsce", "ls", "--no-dependencies"]);
+const result = spawnSync(npm.command, npm.args, {
   cwd: root,
   encoding: "utf8",
-  shell: process.platform === "win32",
 });
 if (result.status !== 0) {
   process.stderr.write(result.stderr || result.stdout || "vsce ls failed\n");

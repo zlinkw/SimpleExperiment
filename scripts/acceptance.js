@@ -1,18 +1,16 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { npmCommand } = require("./npm-command");
 
 const root = path.resolve(__dirname, "..");
 const reportDir = path.join(root, "zlk_cluster", "reports", "acceptance");
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-
 function run(name, command, args) {
   const startedAt = new Date().toISOString();
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
     windowsHide: true,
-    shell: process.platform === "win32" && command === npm,
   });
   return {
     name,
@@ -23,6 +21,11 @@ function run(name, command, args) {
     error: result.error ? result.error.message : "",
     output: `${result.stdout || ""}${result.stderr || ""}`.trim(),
   };
+}
+
+function runNpm(name, args) {
+  const invocation = npmCommand(args);
+  return run(name, invocation.command, invocation.args);
 }
 
 function checkNoDatabaseDependency() {
@@ -82,14 +85,14 @@ function writeReports(checks) {
 }
 
 const checks = [
-  run("build", npm, ["run", "build"]),
-  run("lint", npm, ["run", "lint"]),
-  run("unit tests", npm, ["test"]),
-  run("feature regression tests", npm, ["run", "test:features"]),
+  runNpm("build", ["run", "build"]),
+  runNpm("lint", ["run", "lint"]),
+  runNpm("unit tests", ["test"]),
+  runNpm("feature regression tests", ["run", "test:features"]),
   run("extension syntax", process.execPath, ["-c", "dist/extension.js"]),
   run("panel syntax", process.execPath, ["-c", "dist/panel.js"]),
   run("CLI status", process.execPath, ["dist/cli.js", "status"]),
-  run("VSIX package", npm, ["run", "package"]),
+  runNpm("VSIX package", ["run", "package"]),
   checkNoDatabaseDependency(),
   checkReleaseDocs(),
 ];
