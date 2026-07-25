@@ -1499,6 +1499,8 @@ function renderPanelHtml() {
     let overviewProjectStatsCacheProject = null;
     let overviewProjectStatsCachePlans = null;
     let overviewProjectStatsCacheValue = null;
+    let serverStatusIndexCacheSources = null;
+    let serverStatusIndexCacheValue = null;
     let configParamFilterTimer = 0;
     let selectedPlanCheckbox = null;
     let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
@@ -1517,6 +1519,7 @@ function renderPanelHtml() {
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
+    const EMPTY_SERVER_STATUS_ROWS = [];
     const TASK_LOG_RENDER_LIMIT = 8000;
     const PLAN_RENDER_LIMIT = 30;
     const TRACE_RENDER_LIMIT = 60;
@@ -5906,20 +5909,40 @@ function renderPanelHtml() {
       return result("可提交", stage.status || "当前 Plan、服务器、Worker、Agent 与输出门禁均已就绪。", { ready: true, blocking: false, tone: "good" });
     }
 
+    function serverStatusIndexesForState(state) {
+      const data = state || {};
+      const workerTelemetry = Array.isArray(data.workerTelemetryStatus) ? data.workerTelemetryStatus : EMPTY_SERVER_STATUS_ROWS;
+      const assignments = Array.isArray(data.tunnelPortAssignments) ? data.tunnelPortAssignments : EMPTY_SERVER_STATUS_ROWS;
+      const conflicts = Array.isArray(data.tunnelPortConflicts) ? data.tunnelPortConflicts : EMPTY_SERVER_STATUS_ROWS;
+      const agentWorkers = Array.isArray(((data.agentSessions || {}).workers)) ? data.agentSessions.workers : EMPTY_SERVER_STATUS_ROWS;
+      const cached = serverStatusIndexCacheSources;
+      if (cached && cached.workerTelemetry === workerTelemetry && cached.assignments === assignments && cached.conflicts === conflicts && cached.agentWorkers === agentWorkers) {
+        return serverStatusIndexCacheValue;
+      }
+      serverStatusIndexCacheSources = { workerTelemetry, assignments, conflicts, agentWorkers };
+      serverStatusIndexCacheValue = {
+        assignments,
+        conflicts,
+        workerStatus: new Map(workerTelemetry.map((item) => [String(item.workerId), item])),
+        assignmentById: new Map(assignments.map((item) => [String(item.endpointId), item])),
+        conflictById: new Map(conflicts.map((item) => [String(item.endpointId), item])),
+        agentWorkerById: new Map(agentWorkers.map((item) => [String(item.id), item]))
+      };
+      return serverStatusIndexCacheValue;
+    }
+
     function renderServerObjectOverview(state) {
       const setup = state.setup || {};
       const scheduler = state.schedulerConfig || {};
-      const agent = state.agentSessions || {};
-      const assignments = state.tunnelPortAssignments || [];
-      const conflicts = state.tunnelPortConflicts || [];
+      const indexes = serverStatusIndexesForState(state);
+      const conflicts = indexes.conflicts;
       const workers = setup.workerTunnels || [];
       const enabledWorkers = workers.filter((worker) => worker.enabled !== false);
-      const workerStatus = new Map((state.workerTelemetryStatus || []).map((item) => [String(item.workerId), item]));
-      const assignmentById = new Map(assignments.map((item) => [String(item.endpointId), item]));
-      const conflictById = new Map(conflicts.map((item) => [String(item.endpointId), item]));
+      const workerStatus = indexes.workerStatus;
+      const assignmentById = indexes.assignmentById;
+      const conflictById = indexes.conflictById;
       const hubName = setup.hubDisplayName || setup.sshConfigAlias || setup.hubHost || "Hub";
       const hubAssignment = assignmentById.get("hub") || {};
-      const hubAgent = agent.hub || {};
       const hubStatus = (state.health || {}).state || "未检测";
       const goodWorkers = enabledWorkers.filter((worker) => serverObjectStatusClass((workerStatus.get(String(worker.id)) || {}).status || "已配置", conflictById.get(String(worker.id)), worker.enabled !== false) === "ok").length;
       const summary = [
@@ -5955,7 +5978,6 @@ function renderPanelHtml() {
         const assignment = assignmentById.get(String(worker.id)) || {};
         const probe = workerStatus.get(String(worker.id)) || {};
         const status = worker.enabled === false ? "禁用" : (probe.status || "已配置");
-        const workerAgent = (agent.workers || []).find((item) => String(item.id) === String(worker.id)) || {};
         const localPort = worker.localForwardPort || assignment.localForwardPort || "-";
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
         const allowed = Array.isArray(worker.allowedGpuIds) && worker.allowedGpuIds.length ? worker.allowedGpuIds.join(",") : "不限";
@@ -6152,11 +6174,11 @@ function renderPanelHtml() {
       const setup = state.setup || {};
       const scheduler = state.schedulerConfig || {};
       const agent = state.agentSessions || {};
-      const assignments = state.tunnelPortAssignments || [];
-      const conflicts = state.tunnelPortConflicts || [];
-      const workerStatus = new Map((state.workerTelemetryStatus || []).map((item) => [String(item.workerId), item]));
-      const assignmentById = new Map(assignments.map((item) => [String(item.endpointId), item]));
-      const conflictById = new Map(conflicts.map((item) => [String(item.endpointId), item]));
+      const indexes = serverStatusIndexesForState(state);
+      const conflicts = indexes.conflicts;
+      const workerStatus = indexes.workerStatus;
+      const assignmentById = indexes.assignmentById;
+      const conflictById = indexes.conflictById;
       const hubName = setup.hubDisplayName || setup.sshConfigAlias || setup.hubHost || "Hub";
       const hubAssignment = assignmentById.get("hub") || {};
       const hubAgent = agent.hub || {};
@@ -6220,7 +6242,7 @@ function renderPanelHtml() {
       (setup.workerTunnels || []).forEach((worker) => {
         const assignment = assignmentById.get(String(worker.id)) || {};
         const status = worker.enabled === false ? "禁用" : ((workerStatus.get(String(worker.id)) || {}).status || "已配置");
-        const workerAgent = (agent.workers || []).find((item) => String(item.id) === String(worker.id)) || {};
+        const workerAgent = indexes.agentWorkerById.get(String(worker.id)) || {};
         const scope = "worker:" + String(worker.id);
         const workerSession = sessionForPath(worker.savedSessionPath);
         cards.push(
