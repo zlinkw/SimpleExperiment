@@ -34,6 +34,11 @@ function chartContext(functionNames) {
     gpuHistoryServerStyles: {},
     gpuHistoryMeta: { bucketSeconds: 300 },
     gpuHistorySeriesCache: new Map(),
+    gpuHistorySeriesRevision: 0,
+    gpuHistoryOverviewCacheRevision: -1,
+    gpuHistoryOverviewCacheState: null,
+    gpuHistoryOverviewCacheServers: null,
+    gpuHistoryOverviewCacheValue: [],
     GPU_HISTORY_COLORS: ["#2885EF", "#CD8300", "#03A14A", "#E64343", "#A95DDA", "#00A3B4", "#C952A8", "#849B11", "#DE6907", "#009F89", "#CE4A72", "#008DBE"],
     GPU_HISTORY_LINE_STYLES: ["solid", "dash", "dot", "dashdot"],
     GPU_HISTORY_MARKERS: ["circle", "square", "triangle", "diamond"],
@@ -101,6 +106,26 @@ test("GPU overview curve uses per-time-bucket server GPU peak without zero filli
   const result = context.gpuHistoryOverviewSeries({}, [{ serverId: "server-a" }]);
   assert.equal(JSON.stringify(result[0].points.map((point) => [point.bucketEpoch, point.gpuUtilPercent])), JSON.stringify([[100, 70], [200, 80]]));
   assert.equal(result[0].points.some((point) => point.gpuUtilPercent === 0), false);
+});
+
+test("GPU overview curve reuses aggregation until history revision changes", () => {
+  const context = chartContext(["gpuHistoryOverviewSeries", "finiteHistoryPercent"]);
+  const state = {};
+  const servers = [{ serverId: "server-a" }];
+  context.gpuHistorySeriesCache.set("server-a::0", {
+    serverId: "server-a", gpuId: "0", points: [{ bucketEpoch: 100, gpuUtilPercent: 20 }],
+  });
+  const first = context.gpuHistoryOverviewSeries(state, servers);
+  const reused = context.gpuHistoryOverviewSeries(state, servers);
+  assert.equal(reused, first);
+
+  context.gpuHistorySeriesCache.set("server-a::0", {
+    serverId: "server-a", gpuId: "0", points: [{ bucketEpoch: 100, gpuUtilPercent: 80 }],
+  });
+  context.gpuHistorySeriesRevision += 1;
+  const refreshed = context.gpuHistoryOverviewSeries(state, servers);
+  assert.notEqual(refreshed, first);
+  assert.equal(refreshed[0].points[0].gpuUtilPercent, 80);
 });
 
 test("GPU card hover text reports percentage and memory MB", () => {

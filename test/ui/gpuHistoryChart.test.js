@@ -11,6 +11,8 @@ test("GPU history UI provides overview and per-card expandable charts", () => {
   assert.match(html, /command: "loadGpuHistory"/);
   assert.match(html, /gpuHistoryOverviewSeries/);
   assert.match(html, /gpuHistorySeriesCache/);
+  assert.match(html, /gpuHistorySeriesRevision \+= 1/);
+  assert.match(html, /gpuHistoryOverviewCacheRevision === gpuHistorySeriesRevision/);
   assert.match(html, /GPU_HISTORY_REQUEST_COOLDOWN_MS = 60_000/);
   assert.match(html, /gpuHistoryRequestLastAt/);
   assert.match(html, /const wasOpen = gpuHistoryOverviewOpen/);

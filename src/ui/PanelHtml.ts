@@ -1487,6 +1487,11 @@ export function renderPanelHtml(): string {
     let gpuOwnerStateCache = new WeakMap();
     let gpuHistoryOverviewOpen = false;
     let gpuHistorySeriesCache = new Map();
+    let gpuHistorySeriesRevision = 0;
+    let gpuHistoryOverviewCacheRevision = -1;
+    let gpuHistoryOverviewCacheState = null;
+    let gpuHistoryOverviewCacheServers = null;
+    let gpuHistoryOverviewCacheValue = [];
     let gpuHistoryMeta = {};
     let gpuHistoryLastStateStatus = "idle";
     let expandedGpuHistoryKeys = new Set();
@@ -7398,6 +7403,7 @@ export function renderPanelHtml(): string {
       gpuHistoryLastStateStatus = status;
       if (status === "idle") {
         gpuHistorySeriesCache.clear();
+        gpuHistorySeriesRevision += 1;
         gpuHistoryMeta = {};
         expandedGpuHistoryKeys.clear();
         gpuHistoryRequestLastAt.clear();
@@ -7419,6 +7425,7 @@ export function renderPanelHtml(): string {
         if (!series || !series.serverId || !series.gpuId) return;
         gpuHistorySeriesCache.set(gpuHistorySeriesKey(series.serverId, series.gpuId), series);
       });
+      gpuHistorySeriesRevision += 1;
       gpuHistoryMeta.seriesOmittedCount = Number(item.data.seriesOmittedCount || 0);
       gpuHistoryMeta.pointOmittedCount = Number(item.data.pointOmittedCount || 0);
     }
@@ -7473,6 +7480,9 @@ export function renderPanelHtml(): string {
     }
 
     function gpuHistoryOverviewSeries(state, servers) {
+      if (gpuHistoryOverviewCacheRevision === gpuHistorySeriesRevision && gpuHistoryOverviewCacheState === state && gpuHistoryOverviewCacheServers === servers) {
+        return gpuHistoryOverviewCacheValue;
+      }
       const byServer = new Map();
       gpuHistorySeriesCache.forEach((series) => {
         const serverId = String(series.serverId || "");
@@ -7495,12 +7505,17 @@ export function renderPanelHtml(): string {
         });
       });
       const names = new Map(asArray(servers).map((server) => [String(server.serverId || server.workerId || ""), gpuServerDisplayName(state || {}, server)]));
-      return Array.from(byServer.values()).map((server) => ({
+      const value = Array.from(byServer.values()).map((server) => ({
         serverId: server.serverId,
         label: names.get(server.serverId) || server.serverId,
         gpuCount: server.gpuCount,
         points: Array.from(server.points.values()).sort((a, b) => a.bucketEpoch - b.bucketEpoch)
       })).filter((series) => series.points.length).sort((a, b) => String(a.serverId).localeCompare(String(b.serverId)));
+      gpuHistoryOverviewCacheRevision = gpuHistorySeriesRevision;
+      gpuHistoryOverviewCacheState = state;
+      gpuHistoryOverviewCacheServers = servers;
+      gpuHistoryOverviewCacheValue = value;
+      return value;
     }
 
     function renderGpuHistoryChart(title, kind, series, description) {
