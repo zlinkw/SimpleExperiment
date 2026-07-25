@@ -2367,8 +2367,9 @@ export function renderPanelHtml(): string {
         uiKeys: new Set(asArray(selection.selectedTaskUiKeys || []).filter(Boolean).map(String)),
         operationKeys: new Set([...(selection.selectedRunKeys || []), ...(selection.selectedExperimentIds || []), ...(selection.selectedArchiveKeys || []), selection.selectedRunKey].filter(Boolean).map(String))
       };
-      taskVisibleRows(rows, selected).forEach((row) => visible.add(taskLogKey(row)));
-      rows.filter((row) => ["running", "testing"].includes(String(row.status || ""))).forEach((row) => visible.add(taskLogKey(row)));
+      const taskView = taskRowsViewModel(rows, selected);
+      taskView.visibleRows.forEach((row) => visible.add(taskLogKey(row)));
+      taskView.activeRows.forEach((row) => visible.add(taskLogKey(row)));
       const next = {};
       entries.forEach(([key, value]) => { if (visible.has(key)) next[key] = value; });
       for (const [key, value] of entries) {
@@ -2862,20 +2863,15 @@ export function renderPanelHtml(): string {
         uiKeys: new Set(asArray(selection.selectedTaskUiKeys || []).filter(Boolean).map(String)),
         operationKeys: new Set([...(selection.selectedRunKeys || []), ...(selection.selectedExperimentIds || []), ...(selection.selectedArchiveKeys || []), selection.selectedRunKey].filter(Boolean).map(String))
       };
-      const selectedRows = rows.filter((row) => isTaskRowSelected(row, selected));
-      const visibleRows = taskVisibleRows(rows, selected);
-      const activeRows = rows.filter((row) => ["running", "testing"].includes(row.status)).slice(0, 8);
-      const detailRow = selectedRows[0] || rows.find((item) => ["running", "testing"].includes(item.status)) || rows[0];
-      const counts = { queued: 0, running: 0, testing: 0, completed: 0, failed: 0, stopped: 0 };
-      rows.forEach((row) => { if (counts[row.status] !== undefined) counts[row.status] += 1; });
+      const taskView = taskRowsViewModel(rows, selected);
       return {
         count: rows.length,
         hiddenLegacyCount: hiddenLegacyTaskUiKeys.size,
-        counts,
-        selectedCount: selectedRows.length,
-        visibleRows: compactTaskRowsForSignature(visibleRows),
-        activeRows: compactTaskRowsForSignature(activeRows),
-        detailRow: detailRow ? compactTaskRowsForSignature([detailRow]).rows[0] : null
+        counts: taskView.counts,
+        selectedCount: taskView.selectedRows.length,
+        visibleRows: compactTaskRowsForSignature(taskView.visibleRows),
+        activeRows: compactTaskRowsForSignature(taskView.activeRows),
+        detailRow: taskView.detailRow ? compactTaskRowsForSignature([taskView.detailRow]).rows[0] : null
       };
     }
 
@@ -8349,8 +8345,8 @@ export function renderPanelHtml(): string {
         uiKeys: new Set(asArray(selection.selectedTaskUiKeys || []).filter(Boolean).map(String)),
         operationKeys: new Set([...(selection.selectedRunKeys || []), ...(selection.selectedExperimentIds || []), ...(selection.selectedArchiveKeys || []), selection.selectedRunKey].filter(Boolean).map(String))
       };
-      const counts = { queued: 0, running: 0, testing: 0, completed: 0, failed: 0, stopped: 0 };
-      rows.forEach((row) => { if (counts[row.status] !== undefined) counts[row.status] += 1; });
+      const taskView = taskRowsViewModel(rows, selected);
+      const counts = taskView.counts;
       const scopeBar = scope.selectedPlanFile
         ? '<div class="taskScopeBar"><span class="muted">任务范围</span><div class="taskScopeSwitch" role="group" aria-label="任务范围">' +
             '<button type="button" data-task-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + scope.selectedCount + '</button>' +
@@ -8362,14 +8358,14 @@ export function renderPanelHtml(): string {
         : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>');
       setHtmlIfChanged("taskSummary", taskSummaryHtml);
       bindTaskPlanScopeControls();
-      const selectedRows = rows.filter((row) => isTaskRowSelected(row, selected));
+      const selectedRows = taskView.selectedRows;
       renderTaskBatchActions(state, rows, selectedRows);
       setHtmlIfChanged("taskProgressCards", "");
-      const visibleRows = taskVisibleRows(rows, selected);
+      const visibleRows = taskView.visibleRows;
       const taskTableChanged = setHtmlIfChanged("taskTable", rows.length
         ? renderTaskCards(state, visibleRows, selected, rows.length)
         : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换“全部任务”查看历史记录。" : "暂无任务数据。") + '</div>');
-      renderTaskDetailPane(state, rows, selectedRows);
+      renderTaskDetailPane(state, rows, selectedRows, taskView.detailRow);
       if (taskTableChanged) {
         invalidateSelectedTaskPayload();
         bindTaskSelectionControls();
@@ -9982,32 +9978,59 @@ export function renderPanelHtml(): string {
       return budgetNotice + '<div class="taskCardList">' + rows.map((row) => renderTaskCard(state, row, selected)).join("") + '</div>';
     }
 
-    function taskVisibleRows(rows, selected) {
-      if (!Array.isArray(rows) || rows.length <= TASK_RENDER_LIMIT) return rows || [];
-      const selectedRows = rows.filter((row) => isTaskRowSelected(row, selected));
-      const criticalRows = rows.filter((row) => ["running", "testing"].includes(taskStatusToken(row.status)) || taskFailureLikeStatus(row.status));
-      const queuedRows = rows.filter((row) => ["queued", "pending"].includes(String(row.status || ""))).slice(0, Math.floor(TASK_RENDER_LIMIT / 3));
-      const out = [];
-      const seen = new Set();
-      function add(row) {
-        const key = String((row && row.uiKey) || "");
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        out.push(row);
-      }
-      selectedRows.forEach(add);
-      criticalRows.forEach(add);
-      queuedRows.forEach(add);
-      rows.forEach((row) => {
-        if (out.length < TASK_RENDER_LIMIT) add(row);
+    function taskRowsViewModel(rows, selected) {
+      const allRows = Array.isArray(rows) ? rows : [];
+      const counts = { queued: 0, running: 0, testing: 0, completed: 0, failed: 0, stopped: 0 };
+      const selectedRows = [];
+      const criticalRows = [];
+      const queuedRows = [];
+      const activeRows = [];
+      const queuedLimit = Math.floor(TASK_RENDER_LIMIT / 3);
+      allRows.forEach((row) => {
+        const status = String((row || {}).status || "");
+        if (counts[status] !== undefined) counts[status] += 1;
+        if (isTaskRowSelected(row, selected)) selectedRows.push(row);
+        if (["running", "testing"].includes(taskStatusToken(status)) || taskFailureLikeStatus(status)) criticalRows.push(row);
+        if (queuedRows.length < queuedLimit && ["queued", "pending"].includes(status)) queuedRows.push(row);
+        if (activeRows.length < 8 && ["running", "testing"].includes(status)) activeRows.push(row);
       });
-      return out.slice(0, TASK_RENDER_LIMIT);
+      let visibleRows = allRows;
+      if (allRows.length > TASK_RENDER_LIMIT) {
+        const out = [];
+        const seen = new Set();
+        const add = (row) => {
+          const key = String((row && row.uiKey) || "");
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          out.push(row);
+        };
+        selectedRows.forEach(add);
+        criticalRows.forEach(add);
+        queuedRows.forEach(add);
+        for (const row of allRows) {
+          if (out.length >= TASK_RENDER_LIMIT) break;
+          add(row);
+        }
+        visibleRows = out.slice(0, TASK_RENDER_LIMIT);
+      }
+      return {
+        rows: allRows,
+        counts,
+        selectedRows,
+        activeRows,
+        visibleRows,
+        detailRow: selectedRows[0] || activeRows[0] || allRows[0]
+      };
     }
 
-    function renderTaskDetailPane(state, rows, selectedRows) {
+    function taskVisibleRows(rows, selected) {
+      return taskRowsViewModel(rows, selected).visibleRows;
+    }
+
+    function renderTaskDetailPane(state, rows, selectedRows, preferredRow) {
       const pane = el("taskDetailPane");
       if (!pane) return;
-      const row = selectedRows[0] || rows.find((item) => ["running", "testing"].includes(item.status)) || rows[0];
+      const row = preferredRow || selectedRows[0] || rows[0];
       if (!row) {
         setHtmlIfChanged(pane, '<h3>任务详情</h3><div class="muted">暂无任务。</div>');
         return;
