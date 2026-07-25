@@ -10655,55 +10655,80 @@ function resultPreviewHasRecords(item) {
     const row = item && typeof item === "object" ? item : {};
     return row.parseable === true && Number(row.records || row.recordCount || row.rows || row.rowCount || 0) > 0;
 }
-function resultCandidatePatternMatchesFile(candidate, file, plan) {
+function normalizeResultCandidatePath(value) {
+    return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+function compileResultCandidatePatterns(candidates, plan) {
     plan = plan || {};
-    const pattern = String(candidate || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
-    const target = String(file || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
-    if (!pattern || !target)
-        return false;
-    if (!pattern.includes("/") && path.posix.basename(target).toLowerCase() === pattern.toLowerCase())
-        return true;
     const known = {
         suite: String(plan?.suite || "").trim(),
         plan: String(plan?.planFile || plan?.file || plan?.planId || "").trim(),
         plan_file: String(plan?.planFile || plan?.file || "").trim(),
     };
-    let source = "^";
-    for (let index = 0; index < pattern.length;) {
-        const placeholder = pattern.slice(index).match(/^\{+([A-Za-z0-9_.-]+)\}+/);
-        if (placeholder) {
-            const key = placeholder[1];
-            const value = known[key];
-            source += value ? escapeRegExp(value.replace(/\\/g, "/")) : /output_?dir/i.test(key) ? ".+" : "[^/]+";
-            index += placeholder[0].length;
+    const basenames = new Set();
+    const exactPaths = new Set();
+    const patterns = [];
+    for (const candidate of candidates) {
+        const pattern = normalizeResultCandidatePath(candidate);
+        if (!pattern)
+            continue;
+        if (!/[?*]/.test(pattern) && !pattern.includes(String.fromCharCode(123))) {
+            if (pattern.includes("/"))
+                exactPaths.add(pattern.toLowerCase());
+            else
+                basenames.add(pattern.toLowerCase());
             continue;
         }
-        const char = pattern[index];
-        if (char === "*") {
-            if (pattern[index + 1] === "*") {
-                source += ".*";
-                index += 2;
+        let source = "^";
+        for (let index = 0; index < pattern.length;) {
+            const placeholder = pattern.slice(index).match(/^\{+([A-Za-z0-9_.-]+)\}+/);
+            if (placeholder) {
+                const key = placeholder[1];
+                const value = known[key];
+                source += value ? escapeRegExp(value.replace(/\\/g, "/")) : /output_?dir/i.test(key) ? ".+" : "[^/]+";
+                index += placeholder[0].length;
+                continue;
             }
-            else {
-                source += "[^/]*";
+            const char = pattern[index];
+            if (char === "*") {
+                if (pattern[index + 1] === "*") {
+                    source += ".*";
+                    index += 2;
+                }
+                else {
+                    source += "[^/]*";
+                    index += 1;
+                }
+                continue;
+            }
+            if (char === "?") {
+                source += "[^/]";
                 index += 1;
+                continue;
             }
-            continue;
-        }
-        if (char === "?") {
-            source += "[^/]";
+            source += escapeRegExp(char);
             index += 1;
-            continue;
         }
-        source += escapeRegExp(char);
-        index += 1;
+        try {
+            patterns.push(new RegExp(`${source}$`, "i"));
+        }
+        catch {
+            // Ignore malformed candidates while retaining valid matchers.
+        }
     }
-    try {
-        return new RegExp(`${source}$`, "i").test(target);
-    }
-    catch {
+    return { basenames, exactPaths, patterns };
+}
+function compiledResultCandidatesMatchFile(compiled, file) {
+    const target = normalizeResultCandidatePath(file);
+    if (!target)
         return false;
-    }
+    const normalized = target.toLowerCase();
+    return compiled.exactPaths.has(normalized)
+        || compiled.basenames.has(path.posix.basename(target).toLowerCase())
+        || compiled.patterns.some((pattern) => pattern.test(target));
+}
+function resultCandidatePatternMatchesFile(candidate, file, plan) {
+    return compiledResultCandidatesMatchFile(compileResultCandidatePatterns([candidate], plan), file);
 }
 function planScopedResultParsePreviews(previews, plan, rules) {
     const all = (Array.isArray(previews) ? previews : []).filter((item) => item && typeof item === "object");
@@ -10714,9 +10739,8 @@ function planScopedResultParsePreviews(previews, plan, rules) {
         ...planOutputEvidenceCandidates(plan),
         ...adapterRuleResultCandidates(rules || {}),
     ]);
-    const items = candidates.length
-        ? all.filter((item) => candidates.some((candidate) => resultCandidatePatternMatchesFile(candidate, item.file || item.path || "", plan)))
-        : [];
+    const compiled = compileResultCandidatePatterns(candidates, plan);
+    const items = candidates.length ? all.filter((item) => compiledResultCandidatesMatchFile(compiled, item.file || item.path || "")) : [];
     return { items, totalCount: all.length, hiddenCount: Math.max(0, all.length - items.length), candidateCount: candidates.length, scoped: true };
 }
 function planOutputCandidates(plan) {

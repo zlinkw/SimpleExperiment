@@ -110,6 +110,9 @@ function extensionPreviewScope(previews, plan, rules) {
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractSourceFunction(extension, "normalizeResultCandidatePath"),
+    extractSourceFunction(extension, "compileResultCandidatePatterns"),
+    extractSourceFunction(extension, "compiledResultCandidatesMatchFile"),
     extractSourceFunction(extension, "resultCandidatePatternMatchesFile"),
     extractSourceFunction(extension, "planScopedResultParsePreviews"),
     "this.check = planScopedResultParsePreviews;",
@@ -179,4 +182,26 @@ test("local result previews stay scoped to the selected Plan and explicit projec
   assert.match(panel, /当前 Plan ' \+ matched\.length/);
   assert.match(panel, /隐藏其他 ' \+ normalized\.hiddenCount/);
   assert.match(extension, /planScopedResultParsePreviews\(arrayFromRecord\(project \|\| \{\}, "resultParsePreviews"\), plan, rules\)/);
+});
+
+test("extension result preview scope compiles candidates before filtering previews", () => {
+  const scope = extensionPreviewScope([
+    { file: "nested\\metrics.csv" },
+    { file: "runs/alpha/case-1/result.json" },
+    { file: "runs/alpha/deep/final.log" },
+    { file: "runs/beta/case-1/result.json" },
+  ], {
+    planFile: "experiments/plans/alpha.yaml",
+    suite: "alpha",
+    outputCandidates: ["metrics.csv", "runs/{suite}/case-?/result.json", "runs/{suite}/**/*.log"],
+  }, {});
+
+  assert.deepEqual(scope.items.map((item) => item.file), [
+    "nested\\metrics.csv",
+    "runs/alpha/case-1/result.json",
+    "runs/alpha/deep/final.log",
+  ]);
+  const scopedSource = extractSourceFunction(extension, "planScopedResultParsePreviews");
+  assert.match(scopedSource, /compileResultCandidatePatterns\(candidates, plan\)/);
+  assert.doesNotMatch(scopedSource, /candidates\.some|resultCandidatePatternMatchesFile/);
 });
