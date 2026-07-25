@@ -467,6 +467,7 @@ export function renderPanelHtml(): string {
     .operationDot { width: 10px; height: 10px; margin-top: 5px; border-radius: 999px; background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 16%, transparent); }
     .operationItem.is-running .operationDot { background: var(--info); box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 16%, transparent); }
     .operationItem.is-completed .operationDot { background: var(--success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 16%, transparent); }
+    .operationItem.is-cancelled .operationDot { background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 16%, transparent); }
     .operationItem.is-failed .operationDot, .operationItem.is-stalled .operationDot { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 16%, transparent); }
     .operationBody { min-width: 0; display: grid; gap: 6px; }
     .operationHead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
@@ -491,6 +492,7 @@ export function renderPanelHtml(): string {
     .operationStatusCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; background: var(--vscode-input-background); }
     .operationStatusCard.running { border-left-color: #2563EB; }
     .operationStatusCard.completed { border-left-color: #16A34A; }
+    .operationStatusCard.cancelled { border-left-color: #64748B; }
     .operationStatusCard.failed { border-left-color: #DC2626; background: #FEF2F2; color: #0F172A; }
     .operationStatusCard.accepted { border-left-color: #D97706; background: #FFFBEB; color: #0F172A; }
     .operationStatusCard span { color: var(--muted); font-size: var(--zlk-font-sm); }
@@ -3111,7 +3113,17 @@ export function renderPanelHtml(): string {
 
     function operationIsFailureLike(status) {
       const value = String(status || "").toLowerCase();
-      return ["failed", "failure", "stalled", "unsupported", "error"].some((item) => value.includes(item));
+      return ["failed", "failure", "stalled", "timeout", "unsupported", "error"].some((item) => value.includes(item));
+    }
+
+    function operationIsCancelled(status) {
+      const value = String(status || "").toLowerCase();
+      return value.includes("cancel") || value.includes("stop");
+    }
+
+    function operationIsCompleted(status) {
+      const value = String(status || "").toLowerCase();
+      return !operationIsFailureLike(value) && !operationIsCancelled(value) && (value.includes("complete") || value === "done" || value === "succeeded");
     }
 
     function operationRowsForState(state) {
@@ -10562,6 +10574,7 @@ export function renderPanelHtml(): string {
         operationStatusCard("已提交", stats.accepted, "accepted") +
         operationStatusCard("执行中", stats.running, "running") +
         operationStatusCard("已完成", stats.completed, "completed") +
+        operationStatusCard("已取消", stats.cancelled, "cancelled") +
         operationStatusCard("异常", stats.failed, "failed") +
       '</div>';
     }
@@ -10571,20 +10584,21 @@ export function renderPanelHtml(): string {
     }
 
     function operationStatusCounts(rows) {
-      const out = { accepted: 0, running: 0, completed: 0, failed: 0 };
+      const out = { accepted: 0, running: 0, completed: 0, cancelled: 0, failed: 0 };
       rows.forEach((row) => {
         const status = String(row.status || "").toLowerCase();
-        if (status === "accepted") out.accepted += 1;
+        if (status === "accepted" || status === "submitted") out.accepted += 1;
         else if (operationIsActive(status)) out.running += 1;
         else if (operationIsFailureLike(status)) out.failed += 1;
-        else if (status.includes("complete") || status.includes("cancel")) out.completed += 1;
+        else if (operationIsCancelled(status)) out.cancelled += 1;
+        else if (operationIsCompleted(status)) out.completed += 1;
       });
       return out;
     }
 
     function renderOperationItem(row) {
       const status = String(row.status || "-").toLowerCase();
-      const cls = operationIsActive(status) ? "is-running" : (operationIsFailureLike(status) ? "is-failed" : (status.includes("complete") ? "is-completed" : ""));
+      const cls = operationIsActive(status) ? "is-running" : (operationIsFailureLike(status) ? "is-failed" : (operationIsCancelled(status) ? "is-cancelled" : (operationIsCompleted(status) ? "is-completed" : "")));
       const message = operationDisplayMessage(row);
       const details = renderOperationDetailPills(row);
       const fileActions = renderRemoteResultInspectionActions(row.unparseableFileList, row.planFile, 3, row.unparseableDetails);
@@ -10600,7 +10614,7 @@ export function renderPanelHtml(): string {
           '<div class="operationMessage">' + esc(message) + '</div>' +
           details +
           fileActions +
-          '<div class="operationMeta"><span class="pill">进度 ' + esc(row.progress) + '</span><span class="pill">更新 ' + esc(row.updatedAt) + '</span>' + (row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
+          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill">更新 ' + esc(row.updatedAt) + '</span>' + (row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
         '</div>' +
       '</div>';
     }
@@ -10654,7 +10668,11 @@ export function renderPanelHtml(): string {
     function operationDisplayMessage(row) {
       const message = row.message || (row.status === "accepted" ? "等待 Hub Agent 回传进度" : "");
       if (message) return message;
-      return operationIsActive(row.status) ? "已提交，等待 Hub Agent 回传进度；可手动刷新数据。" : "-";
+      if (operationIsActive(row.status)) return "已提交，等待 Hub Agent 回传进度；可手动刷新数据。";
+      if (operationIsFailureLike(row.status)) return row.error && row.error !== "-" ? row.error : "操作未成功，请查看错误详情。";
+      if (operationIsCancelled(row.status)) return "操作已取消或停止。";
+      if (operationIsCompleted(row.status)) return "操作已完成。";
+      return "暂无状态说明。";
     }
 
     function operationStatusLabel(status) {

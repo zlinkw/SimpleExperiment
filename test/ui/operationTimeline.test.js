@@ -13,4 +13,10 @@ test("operation progress renders as a VS Code timeline", () => {
   assert.match(html, /operationDisplayMessage\(row\)/);
   assert.match(html, /const itemTitle = operationTypeLabel\(rawType\)/);
   assert.match(html, /title="' \+ escAttr\(itemTitle\) \+ '"/);
+  assert.match(html, /function operationIsCancelled\(status\)/);
+  assert.match(html, /operationStatusCard\("已取消", stats\.cancelled, "cancelled"\)/);
+  assert.match(html, /operationIsCancelled\(status\) \? "is-cancelled"/);
+  assert.match(html, /if \(operationIsFailureLike\(row\.status\)\) return row\.error/);
+  assert.match(html, /if \(operationIsCompleted\(row\.status\)\) return "操作已完成。"/);
+  assert.match(html, /meaningfulValue\(row\.progress\)/);
 });
