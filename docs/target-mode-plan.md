@@ -16,34 +16,41 @@
 - 每批最多 2 至 3 个强相关问题、8 个源码/文档/测试文件，并独立提交、推送到 `origin/master`。
 - 每 5 个完成批次执行一次全量静态测试；其余批次只跑定向检查。
 
-## 五批周期
+## 后续优先级：五批周期
 - [已完成] 1/5 后端：修复 `OperationQueue` 手动取消被误记为超时，并限制历史记录内存。
 - [已完成] 2/5 前端：优化首次状态与空状态反馈，不依赖截图验收。
 - [已完成] 3/5 后端：加固 Webview 状态发送失败后的恢复与诊断。
 - [已完成] 4/5 前端：优化操作时间线可读性与终态反馈。
-- [待做] 5/5 前后端：补齐 Plan 归档参数审计并执行全量静态测试。
+- [已完成] 5/5 前后端：补齐 Plan 归档参数审计并执行全量静态测试。
+- [待做] 下一轮：隔离旧 MobaXterm 命名兼容层并继续前后端静态优化。
 
-## 当前批次：autonomous-static-004（已完成）
+## 当前批次：autonomous-static-005（已完成）
 
 ### 范围
-- 在操作汇总中独立显示取消或停止，不再混入成功完成数量。
-- 为成功、取消和失败终态提供明确默认反馈，并减少无效进度占位。
-- 仅修改 `src/ui/PanelHtml.ts`、对应测试、构建产物和本计划。
+- 补充 argparse 参数组和互斥组声明快照，保留 `required` 等组级语义。
+- 修正非必选 subparser selector 的隐式默认值，避免误记为必填参数。
+- 仅修改 `src/features/PlanArchive.ts`、对应测试、构建产物和本计划。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
 - 不处理现有用户删除项、历史 VSIX 或 `zlk_cluster/ui/`。
 - 不重载或关闭 VS Code，不执行真实网络联调。
 
-### 验证
-- [已通过] TypeScript、Lint 与生成 JS 语法检查。
-- [已通过] 操作时间线、终态反馈与相邻生命周期定向静态测试 12/12。
-- [跳过] 全量测试；周期批次 5 执行。
+### 相邻回归风险
+- 归档参数只做静态源码审计，不执行项目代码；配置迁移、结果取舍和恢复版本语义保持不变。
+- PPT 绘图链路与 realtime post gate 稳定化继续保留；GPU 历史与 Docker 兼容后续验收分别见 `docs/target-plans/server-gpu-history.md`、`docs/target-plans/docker-codex-plugin-compat.md`。
 
-## 批次记录
+### 验证清单
+- [已通过] TypeScript、Lint 与生成 JS 语法检查。
+- [已通过] Plan 归档参数审计与归档 UI 定向测试 4/4。
+- [已通过] 非服务器静态套件 649/649；使用本机 Python 3.10，未连接服务器或操作 VS Code。
+- [未执行] 会删除临时目录或验证清理行为的测试；遵守当前 Windows 删除保护约束。
+
+## 本批记录
 - 0/5 基线：`f7db9ff`，上一目标已归档到 Git 历史。
 - 1/5 完成提交：`1419226 fix: correct operation cancellation lifecycle`，已推送并确认与 `origin/master` 一致。
 - 2/5 完成提交：`e94b5e8 fix: clarify initial panel state feedback`，已推送并确认与 `origin/master` 一致。
 - 3/5 完成提交：`ce2bbee fix: recover failed webview state posts`，已推送并确认与 `origin/master` 一致。
-- 4/5 完成提交：`fix: clarify operation terminal outcomes`；推送后以 `origin/master` Git 历史为准。
-- 下一批边界：审计 Plan 归档参数完整性并执行全量静态测试，不连接服务器。
+- 4/5 完成提交：`dde9453 fix: clarify operation terminal outcomes`，已推送并确认与 `origin/master` 一致。
+- 5/5 完成提交：`fix: complete plan archive parameter audit`；推送后以 `origin/master` Git 历史为准。
+- 下一批边界：审计并隔离仍以 MobaXterm 命名的旧兼容实现；保留 Xshell 行为，不连接服务器。

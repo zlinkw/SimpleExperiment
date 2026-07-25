@@ -623,7 +623,7 @@ function pythonCliParameterAudit(source) {
     const code = pythonCodeMask(text);
     const moduleConstants = pythonStaticModuleConstants(source);
     const calls = [];
-    const pattern = /\b(?:(?:([A-Za-z_]\w*)\s*\.)?(ArgumentParser|add_argument|set_defaults|add_parser|add_subparsers)|click\.(option|argument)|typer\.(Option|Argument))\s*\(/g;
+    const pattern = /\b(?:(?:([A-Za-z_]\w*)\s*\.)?(ArgumentParser|add_argument|set_defaults|add_parser|add_subparsers|add_argument_group|add_mutually_exclusive_group)|click\.(option|argument)|typer\.(Option|Argument))\s*\(/g;
     let match;
     while ((match = pattern.exec(code))) {
         const openIndex = code.indexOf("(", match.index);
@@ -633,7 +633,7 @@ function pythonCliParameterAudit(source) {
         const token = match[2] || match[3] || match[4] || "";
         const framework = match[3] ? "click" : match[4] ? "typer" : "argparse";
         const before = text.slice(text.lastIndexOf("\n", match.index) + 1, match.index);
-        const assignedReceiver = ["ArgumentParser", "add_parser", "add_subparsers"].includes(token) ? before.match(/([A-Za-z_]\w*)\s*=\s*(?:[A-Za-z_]\w*\s*\.\s*)?$/)?.[1] || "" : "";
+        const assignedReceiver = ["ArgumentParser", "add_parser", "add_subparsers", "add_argument_group", "add_mutually_exclusive_group"].includes(token) ? before.match(/([A-Za-z_]\w*)\s*=\s*(?:[A-Za-z_]\w*\s*\.\s*)?$/)?.[1] || "" : "";
         calls.push({ token, framework, ownerReceiver: match[1] || "", assignedReceiver, receiver: token === "ArgumentParser" || token === "add_parser" ? assignedReceiver : (match[1] || ""), body: parsed.body, index: match.index, expression: `${match[0].slice(0, match[0].indexOf("(")).trim()}(${parsed.body})` });
         pattern.lastIndex = parsed.end;
     }
@@ -671,7 +671,7 @@ function pythonCliParameterAudit(source) {
         if (value !== undefined && call.receiver)
             argumentDefaults.set(resolvedReceiver(call.receiver), value);
     }
-    const parserDeclarations = calls.filter((item) => ["ArgumentParser", "add_parser", "add_subparsers", "set_defaults"].includes(item.token)).map((call) => {
+    const parserDeclarations = calls.filter((item) => ["ArgumentParser", "add_parser", "add_subparsers", "add_argument_group", "add_mutually_exclusive_group", "set_defaults"].includes(item.token)).map((call) => {
         const parts = splitPythonCallArguments(call.body);
         return {
             kind: call.token,
@@ -686,7 +686,7 @@ function pythonCliParameterAudit(source) {
     });
     const out = [];
     const actionDefaultKeys = new Set();
-    for (const call of calls.filter((item) => !["ArgumentParser", "set_defaults", "add_parser"].includes(item.token))) {
+    for (const call of calls.filter((item) => !["ArgumentParser", "set_defaults", "add_parser", "add_argument_group", "add_mutually_exclusive_group"].includes(item.token))) {
         const parts = splitPythonCallArguments(call.body);
         const keywords = new Map(parts.map(pythonKeywordArgument).filter(Boolean).map((item) => [item.key, item.value]));
         const positionalParts = parts.filter((part) => !pythonKeywordArgument(part));
@@ -774,7 +774,7 @@ function pythonCliParameterAudit(source) {
         }
         if (defaultExpression === undefined) {
             const nargsKind = pythonNargsKind(keywords.get("nargs"));
-            if (keywords.get("required")?.match(/^True$/i) || isTyper || (isClickArgument && !keywords.get("required")?.match(/^False$/i)) || (call.framework === "argparse" && positional && nargsKind === "required")) {
+            if (keywords.get("required")?.match(/^True$/i) || isTyper || (isClickArgument && !keywords.get("required")?.match(/^False$/i)) || (call.framework === "argparse" && positional && !isSubparserSelector && nargsKind === "required")) {
                 defaultExpression = "...";
                 defaultSource = "required";
             }

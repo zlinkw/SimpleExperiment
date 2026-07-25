@@ -354,6 +354,10 @@ test("plan archive keeps implicit defaults, destinations, duplicate declarations
     "train_parser = subparsers.add_parser('train', argument_default=SUB_DEFAULT)",
     "train_parser.add_argument('--epochs')",
     "train_parser.add_argument('--options', **OPTION_KWARGS)",
+    "optional_subparsers = plain.add_subparsers(dest='optional_command')",
+    "runtime_group = plain.add_argument_group('runtime options')",
+    "exclusive_group = plain.add_mutually_exclusive_group(required=True)",
+    "exclusive_group.add_argument('--cpu', action='store_true')",
     "@click.option('--debug', is_flag=True)",
     "@click.option('--count', count=True)",
     "@click.option('--tag', multiple=True, envvar='TAGS')",
@@ -387,6 +391,8 @@ test("plan archive keeps implicit defaults, destinations, duplicate declarations
   assert.equal(byName.get("required_token").defaultSource, "required");
   assert.equal(byName.get("other_value").defaultExpression, "OTHER_DEFAULT");
   assert.equal(byName.get("command").defaultSource, "required");
+  assert.equal(byName.get("optional_command").defaultSource, "framework_implicit");
+  assert.equal(byName.get("optional_command").defaultValue, null);
   assert.equal(byName.get("epochs").defaultExpression, "SUB_DEFAULT");
   assert.equal(byName.get("debug").defaultValue, false);
   assert.equal(byName.get("count").defaultValue, 0);
@@ -406,6 +412,8 @@ test("plan archive keeps implicit defaults, destinations, duplicate declarations
   assert.equal(audit.parserDeclarations.filter((row) => row.kind === "ArgumentParser").length, 3);
   assert.equal(audit.parserDeclarations.filter((row) => row.kind === "add_parser").length, 1);
   assert.equal(audit.parserDeclarations.find((row) => row.kind === "add_parser").keywordArguments.argument_default, "SUB_DEFAULT");
+  assert.ok(audit.parserDeclarations.some((row) => row.kind === "add_argument_group" && row.assignedReceiver === "runtime_group"));
+  assert.equal(audit.parserDeclarations.find((row) => row.kind === "add_mutually_exclusive_group").keywordArguments.required, "True");
   assert.ok(audit.parserFeatures.includes("typer_plain_function_parameters_require_source_review"));
   assert.ok(audit.parserFeatures.includes("argparse_parents_require_source_review"));
   assert.ok(audit.parserFeatures.includes("argparse_namespace_defaults_require_runtime_evidence"));
