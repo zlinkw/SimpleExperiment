@@ -55,8 +55,11 @@ test("extension compacts operation payload without dropping active operations", 
   assert.match(compact, /entries\.length <= limit\)\s*return record && typeof record === "object" \? record : \{\}/);
   assert.match(compact, /if \(!operationTerminal\(entry\[1\]\)\)\s*active\.push\(entry\)/);
   assert.match(compact, /operationFailureTerminalStatus\(operationStatusOf\(entry\[1\]\)\)/);
-  assert.match(compact, /sortOperationEntries\(active\)\.forEach\(add\)/);
-  assert.match(compact, /sortOperationEntries\(terminal\)\.slice\(0, terminalLimit\)/);
+  assert.match(compact, /const sortedEntries = sortOperationEntries\(entries\)/);
+  assert.match(compact, /for \(const entry of sortedEntries\)/);
+  assert.match(compact, /active\.forEach\(add\)/);
+  assert.match(compact, /terminal\.slice\(0, terminalLimit\)\.forEach\(add\)/);
+  assert.equal((compact.match(/sortOperationEntries\(/g) || []).length, 2);
 });
 
 test("local operation persistence is dirty-gated, single-flight, and project-scoped", () => {

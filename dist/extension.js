@@ -7416,6 +7416,7 @@ function compactExperimentTraces(rows, protectedKeys = [], selectedPlan = {}) {
     if (input.length <= EXPERIMENT_TRACE_RECORD_LIMIT)
         return input;
     const protectedSet = new Set(protectedKeys.map((item) => String(item || "").trim()).filter(Boolean));
+    const sortedInput = sortExperimentTraces(input);
     const out = [];
     const selectedKeys = new Set();
     const add = (row) => {
@@ -7428,10 +7429,10 @@ function compactExperimentTraces(rows, protectedKeys = [], selectedPlan = {}) {
             selectedKeys.add(key);
         out.push(row);
     };
-    sortExperimentTraces(input.filter((row) => experimentTraceMatchesProtectedKey(row, protectedSet))).forEach(add);
-    sortExperimentTraces(input.filter((row) => experimentTraceMatchesSelectedPlan(row, selectedPlan))).forEach(add);
-    sortExperimentTraces(input.filter(experimentTraceNeedsAttention)).slice(0, EXPERIMENT_TRACE_ATTENTION_LIMIT).forEach(add);
-    sortExperimentTraces(input).forEach(add);
+    sortedInput.filter((row) => experimentTraceMatchesProtectedKey(row, protectedSet)).forEach(add);
+    sortedInput.filter((row) => experimentTraceMatchesSelectedPlan(row, selectedPlan)).forEach(add);
+    sortedInput.filter(experimentTraceNeedsAttention).slice(0, EXPERIMENT_TRACE_ATTENTION_LIMIT).forEach(add);
+    sortedInput.forEach(add);
     return out;
 }
 function sortExperimentTraces(rows) {
@@ -7799,10 +7800,11 @@ function compactOperationRecords(record, limit = STATE_OPERATION_RECORD_LIMIT, t
     const entries = Object.entries(record || {});
     if (entries.length <= limit)
         return record && typeof record === "object" ? record : {};
+    const sortedEntries = sortOperationEntries(entries);
     const active = [];
     const abnormal = [];
     const terminal = [];
-    for (const entry of entries) {
+    for (const entry of sortedEntries) {
         if (!operationTerminal(entry[1]))
             active.push(entry);
         else if (operationFailureTerminalStatus(operationStatusOf(entry[1])))
@@ -7815,11 +7817,11 @@ function compactOperationRecords(record, limit = STATE_OPERATION_RECORD_LIMIT, t
         if (!out.has(key))
             out.set(key, value);
     };
-    sortOperationEntries(active).forEach(add);
-    sortOperationEntries(abnormal).slice(0, ABNORMAL_OPERATION_RECORD_LIMIT).forEach(add);
-    sortOperationEntries(terminal).slice(0, terminalLimit).forEach(add);
+    active.forEach(add);
+    abnormal.slice(0, ABNORMAL_OPERATION_RECORD_LIMIT).forEach(add);
+    terminal.slice(0, terminalLimit).forEach(add);
     if (out.size < limit)
-        sortOperationEntries(entries).forEach((entry) => {
+        sortedEntries.forEach((entry) => {
             if (out.size < limit)
                 add(entry);
         });
