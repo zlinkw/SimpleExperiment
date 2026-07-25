@@ -37,6 +37,44 @@ test("events are enabled by default for realtime tunnel", async () => {
   assert.equal(await budget.run("events", async () => "ok"), "ok");
 });
 
+test("request budget rolling counters expire allowed and denied events together", async () => {
+  const realNow = Date.now;
+  let now = Date.parse("2026-07-26T00:00:00.000Z");
+  Date.now = () => now;
+  try {
+    const budget = new RequestBudget({
+      ...defaultRequestBudgetConfig,
+      maxRequestsPerMinute: 10,
+      minIntervalByPurpose: {},
+    });
+    await budget.run("health", async () => "ok");
+    budget.setHidden(true);
+    assert.equal(budget.decide("snapshot").allowed, false);
+    assert.deepEqual(
+      (({ requestsLastMinute, deniedLastMinute, lastAllowedAt }) => ({ requestsLastMinute, deniedLastMinute, lastAllowedAt }))(budget.snapshot()),
+      { requestsLastMinute: 1, deniedLastMinute: 1, lastAllowedAt: "2026-07-26T00:00:00.000Z" },
+    );
+
+    now += 60_001;
+    assert.deepEqual(
+      (({ requestsLastMinute, deniedLastMinute, lastAllowedAt }) => ({ requestsLastMinute, deniedLastMinute, lastAllowedAt }))(budget.snapshot()),
+      { requestsLastMinute: 0, deniedLastMinute: 0, lastAllowedAt: undefined },
+    );
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("request budget avoids rescanning or shifting the rolling event window", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "../../src/tunnel/RequestBudget.ts"), "utf8");
+  assert.match(source, /private eventStart = 0/);
+  assert.match(source, /private allowedEventCount = 0/);
+  assert.match(source, /private deniedEventCount = 0/);
+  assert.doesNotMatch(source, /this\.events\.shift\(\)|this\.events\.filter\(|\[\.\.\.this\.events\]\.reverse\(\)/);
+});
+
 test("tunnel gateway defaults and realtime refresh policy match the current contract", () => {
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.health, 60_000);
   assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.snapshot, 60_000);

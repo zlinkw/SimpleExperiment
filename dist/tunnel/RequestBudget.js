@@ -33,6 +33,10 @@ class RequestBudget {
     paused = false;
     hidden = false;
     events = [];
+    eventStart = 0;
+    allowedEventCount = 0;
+    deniedEventCount = 0;
+    lastAllowedAt;
     lastByPurpose = new Map();
     lastDeniedReason;
     constructor(config = exports.defaultRequestBudgetConfig) {
@@ -77,7 +81,7 @@ class RequestBudget {
         if (!decision.allowed)
             throw new RequestBudgetDeniedError(purpose, decision);
         const now = Date.now();
-        this.events.push({ at: now, purpose, allowed: true });
+        this.recordEvent({ at: now, purpose, allowed: true });
         this.lastByPurpose.set(purpose, now);
         this.inFlight += 1;
         try {
@@ -90,31 +94,52 @@ class RequestBudget {
     snapshot() {
         const now = Date.now();
         this.prune(now);
-        const lastAllowed = [...this.events].reverse().find((item) => item.allowed);
         return {
             paused: this.paused,
             hidden: this.hidden,
             inFlight: this.inFlight,
             maxRequestsPerMinute: this.config.maxRequestsPerMinute,
-            requestsLastMinute: this.allowedLastMinute(now),
-            deniedLastMinute: this.events.filter((item) => !item.allowed).length,
-            lastAllowedAt: lastAllowed ? new Date(lastAllowed.at).toISOString() : undefined,
+            requestsLastMinute: this.allowedEventCount,
+            deniedLastMinute: this.deniedEventCount,
+            lastAllowedAt: this.lastAllowedAt === undefined ? undefined : new Date(this.lastAllowedAt).toISOString(),
             lastDeniedReason: this.lastDeniedReason,
         };
     }
     deny(now, purpose, reason, retryAfterMs) {
-        this.events.push({ at: now, purpose, allowed: false, reason });
+        this.recordEvent({ at: now, purpose, allowed: false, reason });
         this.lastDeniedReason = reason;
         return { allowed: false, reason, retryAfterMs };
     }
     allowedLastMinute(now) {
         this.prune(now);
-        return this.events.filter((item) => item.allowed).length;
+        return this.allowedEventCount;
+    }
+    recordEvent(event) {
+        this.events.push(event);
+        if (event.allowed) {
+            this.allowedEventCount += 1;
+            this.lastAllowedAt = event.at;
+        }
+        else {
+            this.deniedEventCount += 1;
+        }
     }
     prune(now) {
         const cutoff = now - 60_000;
-        while (this.events.length && this.events[0].at < cutoff)
-            this.events.shift();
+        while (this.eventStart < this.events.length && this.events[this.eventStart].at < cutoff) {
+            const event = this.events[this.eventStart];
+            if (event.allowed)
+                this.allowedEventCount = Math.max(0, this.allowedEventCount - 1);
+            else
+                this.deniedEventCount = Math.max(0, this.deniedEventCount - 1);
+            this.eventStart += 1;
+        }
+        if (this.lastAllowedAt !== undefined && this.lastAllowedAt < cutoff)
+            this.lastAllowedAt = undefined;
+        if (this.eventStart >= 1024 && this.eventStart * 2 >= this.events.length) {
+            this.events.splice(0, this.eventStart);
+            this.eventStart = 0;
+        }
     }
 }
 exports.RequestBudget = RequestBudget;
