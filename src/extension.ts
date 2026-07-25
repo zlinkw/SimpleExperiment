@@ -255,6 +255,33 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
 ]);
 const COMMANDS_WITHOUT_UI_STATUS = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
 const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
+const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
+const PINNED_UI_COMMANDS = new Set([
+    "startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan",
+    "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable",
+    "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "plotResultsToPpt",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers",
+    "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck",
+    "createDebugBundle", "pauseAll", "resumeNetwork",
+]);
+const UI_BUTTON_ACTION_COMMANDS = new Set([
+    ...defaultUiLayout.pinnedCommands,
+    ...uiActionCommands,
+    "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
+    "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
+    "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
+    "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll",
+    "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
+    "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
+    "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "runAllPlans",
+    "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
+    "downloadDebugBundle", "downloadRemoteResult", "openAuditTail", "selectPlan", "selectExperiment",
+]);
+const UI_BUTTON_PAYLOAD_KEYS = new Set([
+    "endpointId", "planFile", "planId", "file", "runKey", "taskUiKey", "experimentId",
+    "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
+    "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
+]);
 const actionCommandMap = {
     validatePlan: "validate-plan",
     dryRunPlan: "dry-run-plan",
@@ -10286,9 +10313,8 @@ function localCommandReleasesAfterTrigger(command) {
 }
 function normalizeUiLayout(input) {
     const orderInput = Array.isArray(input.order) ? input.order.map((item) => String(item)) : [];
-    const known = new Set(defaultUiSectionOrder);
     const order = [
-        ...orderInput.filter((item) => known.has(item)),
+        ...orderInput.filter((item) => UI_LAYOUT_SECTION_KEYS.has(item)),
         ...defaultUiSectionOrder.filter((item) => !orderInput.includes(item)),
     ];
     const collapsedInput = input.collapsed && typeof input.collapsed === "object" && !Array.isArray(input.collapsed)
@@ -10315,9 +10341,8 @@ function normalizeUiLayout(input) {
 function normalizeResourceTreeChildOrders(input) {
     const record = input && typeof input === "object" && !Array.isArray(input) ? input : {};
     const out = {};
-    const known = new Set(defaultUiSectionOrder);
     for (const [section, raw] of Object.entries(record)) {
-        if (!known.has(section) || !Array.isArray(raw))
+        if (!UI_LAYOUT_SECTION_KEYS.has(section) || !Array.isArray(raw))
             continue;
         const unique = [];
         for (const item of raw.map((value) => String(value || "").trim()).filter(Boolean)) {
@@ -10390,18 +10415,10 @@ function normalizeUiLayoutColumns(input) {
     };
 }
 function normalizePinnedCommands(input) {
-    const allowed = new Set([
-        "startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan",
-        "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable",
-        "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "plotResultsToPpt",
-        "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers",
-        "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck",
-        "createDebugBundle", "pauseAll", "resumeNetwork",
-    ]);
     const source = Array.isArray(input) ? input : defaultUiLayout.pinnedCommands;
     const unique = [];
     for (const command of source.map((item) => String(item || ""))) {
-        if (allowed.has(command) && !unique.includes(command))
+        if (PINNED_UI_COMMANDS.has(command) && !unique.includes(command))
             unique.push(command);
     }
     return unique.slice(0, 8);
@@ -10409,25 +10426,12 @@ function normalizePinnedCommands(input) {
 function normalizeUiButtonActions(input, limit) {
     if (!Array.isArray(input))
         return [];
-    const allowed = new Set([
-        ...defaultUiLayout.pinnedCommands,
-        ...Array.from(uiActionCommands),
-        "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
-        "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
-        "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
-        "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll",
-        "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
-        "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
-        "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "runAllPlans",
-        "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
-        "downloadDebugBundle", "downloadRemoteResult", "openAuditTail", "selectPlan", "selectExperiment",
-    ]);
     const out = [];
     const seen = new Set();
     for (const raw of input) {
         const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
         const command = typeof record.command === "string" ? record.command.trim() : "";
-        if (!allowed.has(command))
+        if (!UI_BUTTON_ACTION_COMMANDS.has(command))
             continue;
         const payload = normalizeUiButtonPayload(record.payload);
         const section = typeof record.section === "string" ? record.section.trim() : "";
@@ -10456,14 +10460,9 @@ function normalizeUiButtonActions(input, limit) {
 }
 function normalizeUiButtonPayload(input) {
     const record = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-    const allowed = new Set([
-        "endpointId", "planFile", "planId", "file", "runKey", "taskUiKey", "experimentId",
-        "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
-        "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
-    ]);
     const out = {};
     for (const [key, value] of Object.entries(record)) {
-        if (!allowed.has(key))
+        if (!UI_BUTTON_PAYLOAD_KEYS.has(key))
             continue;
         if (typeof value === "string")
             out[key] = value.slice(0, 500);

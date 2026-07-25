@@ -73,6 +73,21 @@ test("panel exposes resizable columns, collapse controls, and persisted layout f
   assert.match(extension, /clampUiNumber\(record\.tree, 220, 420/);
 });
 
+test("extension reuses fixed UI layout validation sets", () => {
+  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const helpers = between(extension, "function normalizeUiLayout(input)", "function clampUiNumber");
+
+  assert.match(extension, /const UI_LAYOUT_SECTION_KEYS = new Set\(defaultUiSectionOrder\)/);
+  assert.match(extension, /const PINNED_UI_COMMANDS = new Set\(/);
+  assert.match(extension, /const UI_BUTTON_ACTION_COMMANDS = new Set\(/);
+  assert.match(extension, /const UI_BUTTON_PAYLOAD_KEYS = new Set\(/);
+  assert.match(helpers, /UI_LAYOUT_SECTION_KEYS\.has/);
+  assert.match(helpers, /PINNED_UI_COMMANDS\.has/);
+  assert.match(helpers, /UI_BUTTON_ACTION_COMMANDS\.has/);
+  assert.match(helpers, /UI_BUTTON_PAYLOAD_KEYS\.has/);
+  assert.doesNotMatch(helpers, /const (?:known|allowed) = new Set/);
+});
+
 test("right inspector supports pinned actions and publish sync command group", () => {
   const source = panelSource();
 

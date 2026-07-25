@@ -20,16 +20,16 @@
 ## 后续优先级：第七个五批周期
 - [已完成] 1/5 后端：复用 Webview 命令路由固定集合。
 - [已完成] 2/5 前端：复用服务器设置状态索引。
-- [待做] 3/5 后端：复用 UI 布局校验固定集合。
+- [已完成] 3/5 后端：复用 UI 布局校验固定集合。
 - [待做] 4/5 前端：减少任务选择状态重复构建。
 - [待做] 5/5 前后端：执行第七轮非服务器静态测试。
 
-## 当前批次：autonomous-static-032（已完成）
+## 当前批次：autonomous-static-033（已完成）
 
 ### 范围
-- 按服务器状态数组引用缓存 Worker telemetry、端口分配、冲突和 Agent Worker 索引。
-- 服务器概览与设置视图复用同一索引，并将 Agent Worker 查找从逐卡扫描改为 Map 查询。
-- 保持服务器状态、端口冲突和配置卡片渲染语义不变。
+- 将布局分区、固定命令、详情动作命令和动作 payload 字段白名单提升为模块常量。
+- 避免布局加载、合并和保存时重复构建相同校验集合。
+- 保持布局顺序、动作上限、字段截断和未知值过滤语义不变。
 
 ### 保护区
 - 不修改服务器通信、Xshell、SimpleSFTP、GPU、Agent、归档和 PPT 行为。
@@ -37,15 +37,16 @@
 - 不重载或关闭 VS Code，不执行真实网络联调。
 
 ### 相邻回归风险
-- 状态数组引用变化时必须重建全部索引，不能复用旧服务器信息。
-- Hub 与 Worker 的端口、冲突、状态和 Agent 目标必须继续按 endpoint id 对齐。
+- 默认固定命令与所有已注册 UI action 必须继续进入详情动作白名单。
+- 非法分区、命令和 payload 字段必须继续被过滤。
 
 ### 验证清单
-- [已通过] TypeScript、Lint、生成 JavaScript 语法、内联脚本及服务器管理定向测试 7/7。
+- [已通过] TypeScript、Lint、生成 JavaScript 语法及布局规范化定向测试 13/13。
 - [跳过] 广泛测试；本周期第 5 批执行。
 
 ## 本批记录
 - 上一周期已完成基线：`ea10cb8`，600/600 非服务器静态测试通过并已同步远程。
 - 本周期 1/5：`perf: reuse webview command routing sets`；TypeScript、Lint、生成 JavaScript 语法及命令路由定向测试 11/11 通过，推送后以 `origin/master` Git 历史为准。
 - 本周期 2/5：`perf: reuse server status indexes`；TypeScript、Lint、生成 JavaScript 语法、内联脚本及服务器管理定向测试 7/7 通过，推送后以 `origin/master` Git 历史为准。
-- 下一批边界：仅复用后端 UI 布局校验固定集合。
+- 本周期 3/5：`perf: reuse UI layout validation sets`；TypeScript、Lint、生成 JavaScript 语法及布局规范化定向测试 13/13 通过，推送后以 `origin/master` Git 历史为准。
+- 下一批边界：仅减少前端任务选择状态重复构建。

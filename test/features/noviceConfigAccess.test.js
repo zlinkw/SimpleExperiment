@@ -22,7 +22,7 @@ function loadLayoutHelpers() {
   ].join("\n");
   const sandbox = { console };
   vm.createContext(sandbox);
-  vm.runInContext(prelude + "\nthis.exports = { defaultUiLayout, defaultUiSectionOrder, normalizeUiLayout };", sandbox);
+  vm.runInContext(prelude + "\nthis.exports = { defaultUiLayout, defaultUiSectionOrder, normalizeUiLayout, normalizePinnedCommands, normalizeUiButtonActions, normalizeUiButtonPayload };", sandbox);
   return sandbox.exports;
 }
 
@@ -48,4 +48,15 @@ test("topbar keeps tunnel/network actions for novice recovery", () => {
   assert.match(source, /data-command="resumeNetwork"/);
   assert.match(source, /data-command="resetUiLayout"/);
   assert.match(source, /全局配置/);
+});
+
+test("layout normalization keeps allowed commands and strips unknown payload fields", () => {
+  const helpers = loadLayoutHelpers();
+  assert.deepEqual(Array.from(helpers.normalizePinnedCommands(["runPlan", "unknown", "runPlan"])), ["runPlan"]);
+  const actions = JSON.parse(JSON.stringify(helpers.normalizeUiButtonActions([
+    { command: "runPlan", payload: { planFile: "experiments/plans/demo.yaml", shellCommand: "blocked" } },
+    { command: "unknown", payload: { planFile: "ignored" } },
+  ], 40)));
+  assert.equal(actions.length, 1);
+  assert.deepEqual(actions[0].payload, { planFile: "experiments/plans/demo.yaml" });
 });
