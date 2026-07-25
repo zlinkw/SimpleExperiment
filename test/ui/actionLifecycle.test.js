@@ -49,12 +49,28 @@ test("extension compacts operation payload without dropping active operations", 
   assert.match(source, /const LOCAL_OPERATION_RECORD_LIMIT = 120/);
   assert.match(source, /const STATE_OPERATION_RECORD_LIMIT = 120/);
   assert.match(source, /const TERMINAL_OPERATION_RECORD_LIMIT = 80/);
-  assert.match(buildState, /this\.localOperations = compactOperationRecords\(this\.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT\)/);
+  assert.match(buildState, /this\.queueProjectLocalOperationsStatePersistence\(\)/);
+  assert.doesNotMatch(buildState, /persistProjectLocalOperationsState\(/);
   assert.match(buildState, /const operations = compactOperationRecords\(/);
+  assert.match(compact, /entries\.length <= limit\)\s*return record && typeof record === "object" \? record : \{\}/);
   assert.match(compact, /if \(!operationTerminal\(entry\[1\]\)\)\s*active\.push\(entry\)/);
   assert.match(compact, /operationFailureTerminalStatus\(operationStatusOf\(entry\[1\]\)\)/);
   assert.match(compact, /sortOperationEntries\(active\)\.forEach\(add\)/);
   assert.match(compact, /sortOperationEntries\(terminal\)\.slice\(0, terminalLimit\)/);
+});
+
+test("local operation persistence is dirty-gated, single-flight, and project-scoped", () => {
+  const root = path.resolve(__dirname, "..", "..");
+  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const queue = source.match(/private queueProjectLocalOperationsStatePersistence\(\)[\s\S]*?async persistProjectLocalOperationsState/)?.[0] || "";
+
+  assert.match(queue, /this\.localOperationsPersistPromise \|\| !this\.localOperationsDirty/);
+  assert.match(queue, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.match(queue, /while \(this\.localOperationsDirty && this\.projectContextIsCurrent\(projectContext\)\)/);
+  assert.match(queue, /this\.localOperationsDirty = false;\s*await writeProjectLocalOperationsState\(projectContext\.root, operations\)/);
+  assert.match(queue, /if \(this\.projectContextIsCurrent\(projectContext\)\)\s*this\.localOperationsDirty = true/);
+  assert.match(queue, /this\.localOperationsPersistPromise === persistence/);
+  assert.match(queue, /!failed \|\| !this\.projectContextIsCurrent\(projectContext\)/);
 });
 
 test("local toolbar commands wait for extension terminal status", () => {

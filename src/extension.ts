@@ -463,6 +463,7 @@ class RealtimeTunnelPanelProvider {
     projectUiLayout;
     localOperations = {};
     localOperationsDirty = false;
+    private localOperationsPersistPromise?: Promise<void>;
     operationTimers = new Map();
     operationProbeTimers = new Map();
     workerActionInFlight = new Map();
@@ -1051,14 +1052,45 @@ class RealtimeTunnelPanelProvider {
     markLocalOperationsDirty() {
         this.localOperationsDirty = true;
     }
-    async persistProjectLocalOperationsState(force = false) {
-        if (!force && !this.localOperationsDirty)
+    private queueProjectLocalOperationsStatePersistence() {
+        if (this.localOperationsPersistPromise || !this.localOperationsDirty)
             return false;
-        const compact = compactOperationRecords(this.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
-        this.localOperations = compact;
-        await writeProjectLocalOperationsState(workspaceRoot(), compact);
-        this.localOperationsDirty = false;
+        const projectContext = this.captureProjectContext();
+        let failed = false;
+        let persistence: Promise<void>;
+        persistence = (async () => {
+            while (this.localOperationsDirty && this.projectContextIsCurrent(projectContext)) {
+                this.localOperations = compactOperationRecords(this.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+                const operations = this.localOperations;
+                this.localOperationsDirty = false;
+                await writeProjectLocalOperationsState(projectContext.root, operations);
+            }
+        })()
+            .catch((error) => {
+            failed = true;
+            if (this.projectContextIsCurrent(projectContext))
+                this.localOperationsDirty = true;
+            throw error;
+        })
+            .finally(() => {
+            if (this.localOperationsPersistPromise === persistence)
+                this.localOperationsPersistPromise = undefined;
+            if (this.localOperationsDirty && (!failed || !this.projectContextIsCurrent(projectContext)))
+                this.queueProjectLocalOperationsStatePersistence();
+        });
+        this.localOperationsPersistPromise = persistence;
+        void persistence.catch(() => undefined);
         return true;
+    }
+    async persistProjectLocalOperationsState(force = false) {
+        if (force)
+            this.localOperationsDirty = true;
+        const queued = this.queueProjectLocalOperationsStatePersistence();
+        const persistence = this.localOperationsPersistPromise;
+        if (!persistence)
+            return false;
+        await persistence;
+        return queued;
     }
     async loadProjectLocalPlanMetadataState() {
         const loaded = await this.readCurrentProjectState(readProjectLocalPlanMetadataState);
@@ -6890,8 +6922,7 @@ class RealtimeTunnelPanelProvider {
         const protectedLogKeys = this.logProtectedKeys();
         this.client.setProtectedLogKeys(protectedLogKeys);
         const logs = (0, RealtimeEventReducer_1.compactRealtimeLogs)(firstRecord(realtimeState?.logs), undefined, undefined, protectedLogKeys);
-        this.localOperations = compactOperationRecords(this.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
-        void this.persistProjectLocalOperationsState().catch(() => undefined);
+        this.queueProjectLocalOperationsStatePersistence();
         const operations = compactOperationRecords(mergeOperationRecords(this.localOperations, compactOperationRecords(operationsRecord(snapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(operationsRecord(offlineSnapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(realtimeState?.operations, STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT)), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
         const fileTransfers = compactFileTransfersForWebview(firstRecord(realtimeState?.fileTransfers));
         const endpointRegistryState = this.endpointRegistryState();
@@ -7802,7 +7833,7 @@ function mergeOperationRecords(...records) {
 function compactOperationRecords(record, limit = STATE_OPERATION_RECORD_LIMIT, terminalLimit = TERMINAL_OPERATION_RECORD_LIMIT) {
     const entries = Object.entries(record || {});
     if (entries.length <= limit)
-        return { ...(record || {}) };
+        return record && typeof record === "object" ? record : {};
     const active = [];
     const abnormal = [];
     const terminal = [];
