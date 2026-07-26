@@ -36,6 +36,10 @@ function loadReadiness() {
   const sandbox = {
     overviewProjectReadinessCacheState: null,
     overviewProjectReadinessCacheValue: null,
+    EMPTY_SIMPLE_SFTP_INTEGRATION: {},
+    DEFAULT_SIMPLE_SFTP_READINESS: { ready: true, message: "" },
+    simpleSftpReadinessCacheSource: null,
+    simpleSftpReadinessCacheValue: null,
     asArray(value) { return Array.isArray(value) ? value : []; },
     overviewProjectStats(state) { return state._stats || { plans: 0, resultSignals: 0, ready: false }; },
     planFromContext(state) { return state._selectedPlan; },
