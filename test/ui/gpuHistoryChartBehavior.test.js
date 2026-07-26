@@ -83,13 +83,22 @@ test("GPU history palette uses OKLCH candidates and OKLab color distance", () =>
 });
 
 test("GPU history gap detection distinguishes explicit gaps from regular downsampling", () => {
-  const context = chartContext(["historyExpectedStep", "historyPointStartsGap", "historyGapCount"]);
+  const context = chartContext(["historyExpectedStepFromSortedTimes", "historyExpectedStep", "gpuHistoryPointIndex", "historyPointStartsGap", "historyGapCountFromIndex", "historyGapCount"]);
   context.GPU_HISTORY_GAP_FACTOR = 1.75;
   const sampled = [0, 2700, 5400].map((bucketEpoch) => ({ bucketEpoch }));
   assert.equal(context.historyGapCount(sampled), 0);
   const raw = Array.from({ length: 10 }, (_, index) => ({ bucketEpoch: index < 5 ? index * 300 : index * 300 + 300 }));
   assert.equal(context.historyGapCount(raw), 1);
   assert.equal(context.historyPointStartsGap({ bucketEpoch: 300, gapBefore: true }, { bucketEpoch: 0 }, 300), true);
+});
+
+test("GPU history summary stats reuse per-series indexes across servers", () => {
+  const context = chartContext(["historyExpectedStepFromSortedTimes", "gpuHistoryPointIndex", "historyPointStartsGap", "historyGapCountFromIndex", "gpuHistorySeriesStats"]);
+  const first = [{ bucketEpoch: 600, imputed: true }, { bucketEpoch: 300, imputed: false }];
+  const second = [{ bucketEpoch: 900, imputed: false }, { bucketEpoch: 1200, imputed: true, gapBefore: true }];
+  const stats = context.gpuHistorySeriesStats([{ points: first }, { points: second }]);
+  assert.equal(JSON.stringify(stats), JSON.stringify({ pointCount: 4, imputedCount: 2, gapCount: 1, min: 300, max: 1200 }));
+  assert.equal(context.gpuHistoryPointIndex(first), context.gpuHistoryPointIndex(first));
 });
 
 test("GPU overview curve uses per-time-bucket server GPU peak without zero filling", () => {
@@ -138,7 +147,7 @@ test("GPU card hover text reports percentage and memory MB", () => {
 
 test("GPU history point index caches sorted points and uses gap-aware binary lookup", () => {
   const context = chartContext([
-    "historyExpectedStep", "gpuHistoryPointIndex", "nearestHistoryPointFromIndex", "nearestHistoryPoint",
+    "historyExpectedStepFromSortedTimes", "gpuHistoryPointIndex", "nearestHistoryPointFromIndex", "nearestHistoryPoint",
     "gpuHistoryTimeRange", "gpuHistoryNearestTimestamp",
   ]);
   const points = [

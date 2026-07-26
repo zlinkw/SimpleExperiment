@@ -27,6 +27,9 @@ test("GPU history chart connects explicitly zero-filled buckets and exposes acce
   assert.match(html, /缺失补零仅用于连接曲线，不代表真实负载/);
   assert.match(html, /GPU_HISTORY_SERIES_CACHE_LIMIT = 128/);
   assert.match(html, /point\.imputed === true/);
+  assert.match(html, /gpuHistorySeriesStats/);
+  assert.match(html, /historyGapCountFromIndex\(index\)/);
+  assert.match(html, /function gpuHistoryTextSummary\(series, kind\) \{\s+const stats = gpuHistorySeriesStats\(series\)/);
   assert.match(html, /class="gpuLegendItem"/);
   assert.match(html, /data-gpu-history-focus/);
   assert.match(html, /tabindex="0" role="img"/);

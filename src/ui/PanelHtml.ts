@@ -7561,28 +7561,41 @@ export function renderPanelHtml(): string {
     }
 
     function gpuHistoryTextSummary(series, kind) {
-      const points = asArray(series).flatMap((item) => asArray(item.points));
-      if (!points.length) return "暂无历史点。";
-      const times = points.map((point) => Number(point.bucketEpoch)).filter(Number.isFinite).sort((a, b) => a - b);
-      const gaps = historyGapCount(points);
-      const imputed = points.filter((point) => point.imputed === true).length;
+      const stats = gpuHistorySeriesStats(series);
+      if (!stats.pointCount) return "暂无历史点。";
       const prefix = kind === "overview" ? "服务器峰值" : "GPU 利用率 / 显存利用率";
-      return prefix + "：" + points.length + " 个点，范围 " + new Date(times[0] * 1000).toLocaleString() + " 至 " + new Date(times[times.length - 1] * 1000).toLocaleString() + "；" + imputed + " 个缺失点按 0 补齐" + (gaps ? "，仍有 " + gaps + " 个异常缺口。" : "。 缺失补零仅用于连接曲线，不代表真实负载。");
+      return prefix + "：" + stats.pointCount + " 个点，范围 " + new Date(stats.min * 1000).toLocaleString() + " 至 " + new Date(stats.max * 1000).toLocaleString() + "；" + stats.imputedCount + " 个缺失点按 0 补齐" + (stats.gapCount ? "，仍有 " + stats.gapCount + " 个异常缺口。" : "。 缺失补零仅用于连接曲线，不代表真实负载。");
+    }
+
+    function gpuHistorySeriesStats(series) {
+      const stats = { pointCount: 0, imputedCount: 0, gapCount: 0, min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY };
+      asArray(series).forEach((item) => {
+        const index = gpuHistoryPointIndex(item && item.points);
+        if (!index.times.length) return;
+        stats.pointCount += index.rows.length;
+        stats.imputedCount += index.rows.reduce((count, point) => count + (point.imputed === true ? 1 : 0), 0);
+        stats.gapCount += historyGapCountFromIndex(index);
+        stats.min = Math.min(stats.min, index.times[0]);
+        stats.max = Math.max(stats.max, index.times[index.times.length - 1]);
+      });
+      return stats;
     }
 
     function historyGapCount(points) {
-      const rows = asArray(points).filter((point) => Number.isFinite(Number(point.bucketEpoch))).sort((a, b) => Number(a.bucketEpoch) - Number(b.bucketEpoch));
-      const expectedStep = historyExpectedStep(rows);
+      return historyGapCountFromIndex(gpuHistoryPointIndex(points));
+    }
+
+    function historyGapCountFromIndex(index) {
+      const rows = index && index.rows || [];
+      const expectedStep = Number(index && index.expectedStep || gpuHistoryMeta.bucketSeconds || 300);
       let count = 0;
-      rows.forEach((point, index) => { if (index && historyPointStartsGap(point, rows[index - 1], expectedStep)) count += 1; });
+      rows.forEach((point, rowIndex) => { if (rowIndex && historyPointStartsGap(point, rows[rowIndex - 1], expectedStep)) count += 1; });
       return count;
     }
 
     function historyExpectedStep(points) {
       const values = asArray(points).map((point) => Number(point.bucketEpoch)).filter(Number.isFinite).sort((a, b) => a - b);
-      const deltas = values.slice(1).map((value, index) => value - values[index]).filter((value) => value > 0).sort((a, b) => a - b);
-      if (!deltas.length) return Number(gpuHistoryMeta.bucketSeconds || 300);
-      return deltas[Math.floor(deltas.length / 2)];
+      return historyExpectedStepFromSortedTimes(values);
     }
 
     function historyPointStartsGap(point, previous, expectedStep) {
@@ -7663,13 +7676,21 @@ export function renderPanelHtml(): string {
       const cached = gpuHistoryPointIndexCache.get(source);
       if (cached) return cached;
       const rows = source.filter((point) => Number.isFinite(Number(point.bucketEpoch))).slice().sort((a, b) => Number(a.bucketEpoch) - Number(b.bucketEpoch));
+      const times = rows.map((point) => Number(point.bucketEpoch));
       const value = {
         rows,
-        times: rows.map((point) => Number(point.bucketEpoch)),
-        expectedStep: historyExpectedStep(rows)
+        times,
+        expectedStep: historyExpectedStepFromSortedTimes(times)
       };
       gpuHistoryPointIndexCache.set(source, value);
       return value;
+    }
+
+    function historyExpectedStepFromSortedTimes(times) {
+      const values = asArray(times);
+      const deltas = values.slice(1).map((value, index) => value - values[index]).filter((value) => value > 0).sort((a, b) => a - b);
+      if (!deltas.length) return Number(gpuHistoryMeta.bucketSeconds || 300);
+      return deltas[Math.floor(deltas.length / 2)];
     }
 
     function nearestHistoryPointFromIndex(index, target) {
