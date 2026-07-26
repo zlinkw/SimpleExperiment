@@ -1918,7 +1918,7 @@ def normalized_experiment_mode(raw):
     mode = aliases.get(normalized, normalized)
     return mode if mode in ("train", "test", "train_test") else "train_test"
 
-def read_events_after_seq(root, since, limit=100):
+def read_events_after_seq(root, since, limit=100, cursor_id=""):
     journal = os.path.abspath(path_for(root, "events.jsonl"))
     if not os.path.isfile(journal):
         return []
@@ -1926,9 +1926,11 @@ def read_events_after_seq(root, since, limit=100):
     requested_limit = max(1, int(limit or 100))
     stat = os.stat(journal)
     now_value = time.time()
+    cursor_name = re.sub(r"[^A-Za-z0-9_.:-]+", "_", str(cursor_id or "").strip())[:120]
+    cache_key = journal + "::" + cursor_name if cursor_name else journal
     with EVENT_CURSOR_LOCK:
-        prune_event_cursor_cache(now_value, journal)
-        cached = dict(EVENT_CURSOR_CACHE.get(journal) or {})
+        prune_event_cursor_cache(now_value, cache_key)
+        cached = dict(EVENT_CURSOR_CACHE.get(cache_key) or {})
     same_file = cached.get("device") == stat.st_dev and cached.get("inode") == stat.st_ino
     cached_offset = int(cached.get("offset") or 0)
     use_cursor = same_file and int(cached.get("seq") or 0) == requested_since and 0 <= cached_offset <= stat.st_size
@@ -1953,14 +1955,14 @@ def read_events_after_seq(root, since, limit=100):
                 if len(events) > requested_limit:
                     events.pop(0)
     with EVENT_CURSOR_LOCK:
-        EVENT_CURSOR_CACHE[journal] = {
+        EVENT_CURSOR_CACHE[cache_key] = {
             "seq": current_seq,
             "offset": current_offset,
             "device": stat.st_dev,
             "inode": stat.st_ino,
             "lastUsedAt": now_value,
         }
-        prune_event_cursor_cache(now_value, journal)
+        prune_event_cursor_cache(now_value, cache_key)
     return events
 
 def post_json(url, payload, timeout=5):
@@ -1986,7 +1988,7 @@ def start_worker_hub_uplink(root, hub_uplink_url="", worker_id="", availability_
         while True:
             try:
                 now_ts = time.time()
-                events = read_events_after_seq(root, last_seq, 100)
+                events = read_events_after_seq(root, last_seq, 100, "worker-uplink")
                 availability = None
                 if now_ts >= next_availability:
                     availability = availability_from_gpu(worker_id, api_worker_gpu(root), "worker_uplink", 180)
@@ -6969,7 +6971,7 @@ def full_scan_events_after(journal, since):
                 events.append(event)
     return events
 
-def read_events_since(root, since, limit=200):
+def read_events_since(root, since, limit=200, cursor_id=""):
     journal = path_for(root, "events.jsonl")
     limit = max(1, int(limit or 200))
     effective_since = int(since or 0)
@@ -6983,6 +6985,8 @@ def read_events_since(root, since, limit=200):
         effective_since = 0
         gap = {"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "message": "journal reset; pull snapshot", "resetSince": 0}}
         return [gap]
+    if cursor_id:
+        return read_events_after_seq(root, effective_since, limit, cursor_id)
     tail_window = max(1000, limit * 4)
     if not since or (last and since >= max(0, last - tail_window)):
         tail_lines = read_journal_tail_lines(journal, min(MAX_JOURNAL_BYTES, max(64 * 1024, limit * 4096)))
@@ -7335,7 +7339,7 @@ def serve_http(args):
                             idle_rounds += 1
                         time.sleep(sse_idle_sleep_seconds(idle_rounds))
                         continue
-                    events = read_events_since(root, last)
+                    events = read_events_since(root, last, 200, f"sse-{threading.get_ident()}")
                     for event in events:
                         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
                         if payload.get("code") == "journal_gap":
