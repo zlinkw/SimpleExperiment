@@ -1515,6 +1515,8 @@ function renderPanelHtml() {
     let overviewProjectStatsCacheValue = null;
     let serverStatusIndexCacheSources = null;
     let serverStatusIndexCacheValue = null;
+    let configInspectorIndexCacheSource = null;
+    let configInspectorIndexCacheValue = null;
     let configParamFilterTimer = 0;
     let selectedPlanCheckbox = null;
     let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
@@ -9959,14 +9961,16 @@ function renderPanelHtml() {
 
     function configInspectorInfo(project) {
       const configSummaries = project.configSummaries || [];
-      const indexed = configSummaries.map((cfg, index) => Object.assign({}, cfg, { index, pathParts: configPathParts(cfg.file) }));
-      const level1Values = Array.from(new Set(indexed.map((cfg) => cfg.pathParts.level1).filter(Boolean))).sort(naturalCompare);
+      const staticIndex = configInspectorIndex(configSummaries);
+      const indexed = staticIndex.indexed;
+      const level1Values = staticIndex.level1Values;
       if (configLevel1Filter !== "all" && !level1Values.includes(configLevel1Filter)) configLevel1Filter = "all";
-      const level1Matched = indexed.filter((cfg) => configLevel1Filter === "all" || cfg.pathParts.level1 === configLevel1Filter);
-      const level2Values = Array.from(new Set(level1Matched.map((cfg) => cfg.pathParts.level2).filter(Boolean))).sort(naturalCompare);
+      const level2Values = configLevel1Filter === "all"
+        ? staticIndex.level2Values
+        : staticIndex.level2ValuesByLevel1.get(configLevel1Filter) || [];
       if (configLevel2Filter !== "all" && !level2Values.includes(configLevel2Filter)) configLevel2Filter = "all";
       const query = configParamFilter.trim().toLowerCase();
-      const filteredConfigs = indexed.filter((cfg) => (configLevel1Filter === "all" || cfg.pathParts.level1 === configLevel1Filter) && (configLevel2Filter === "all" || cfg.pathParts.level2 === configLevel2Filter) && (!query || [cfg.file, cfg.folder, ...(cfg.params || []).flatMap((param) => [param.key, param.value, param.kind])].join(" ").toLowerCase().includes(query)));
+      const filteredConfigs = indexed.filter((cfg) => (configLevel1Filter === "all" || cfg.pathParts.level1 === configLevel1Filter) && (configLevel2Filter === "all" || cfg.pathParts.level2 === configLevel2Filter) && (!query || cfg.searchText.includes(query)));
       if (selectedConfigIndex >= filteredConfigs.length) selectedConfigIndex = 0;
       const selectedConfig = filteredConfigs[selectedConfigIndex] || filteredConfigs[0];
       return {
@@ -10229,6 +10233,34 @@ function renderPanelHtml() {
         visibleRows,
         detailRow: selectedRows[0] || activeRows[0] || allRows[0]
       };
+    }
+
+    function configInspectorIndex(configSummaries) {
+      const source = asArray(configSummaries);
+      if (configInspectorIndexCacheSource === source && configInspectorIndexCacheValue) return configInspectorIndexCacheValue;
+      const indexed = source.map((cfg, index) => Object.assign({}, cfg, {
+        index,
+        pathParts: configPathParts(cfg.file),
+        searchText: [cfg.file, cfg.folder, ...(cfg.params || []).flatMap((param) => [param.key, param.value, param.kind])].join(" ").toLowerCase()
+      }));
+      const level1Set = new Set();
+      const level2Set = new Set();
+      const level2SetsByLevel1 = new Map();
+      indexed.forEach((cfg) => {
+        const level1 = cfg.pathParts.level1;
+        const level2 = cfg.pathParts.level2;
+        if (level1) level1Set.add(level1);
+        if (level2) level2Set.add(level2);
+        if (!level1 || !level2) return;
+        if (!level2SetsByLevel1.has(level1)) level2SetsByLevel1.set(level1, new Set());
+        level2SetsByLevel1.get(level1).add(level2);
+      });
+      const level1Values = Array.from(level1Set).sort(naturalCompare);
+      const level2Values = Array.from(level2Set).sort(naturalCompare);
+      const level2ValuesByLevel1 = new Map(Array.from(level2SetsByLevel1.entries()).map(([level1, values]) => [level1, Array.from(values).sort(naturalCompare)]));
+      configInspectorIndexCacheSource = source;
+      configInspectorIndexCacheValue = { indexed, level1Values, level2Values, level2ValuesByLevel1 };
+      return configInspectorIndexCacheValue;
     }
 
     function taskVisibleRows(rows, selected) {
