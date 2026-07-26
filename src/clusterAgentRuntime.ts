@@ -2065,32 +2065,30 @@ def sampler_sleep_seconds(interval, jitter_seconds=30.0):
     jitter = max(0.0, float(jitter_seconds or 0.0))
     return interval + (random.random() * jitter if jitter else 0.0)
 
+def payload_cache_changed(cache, key, payload):
+    if key in cache and cache[key] == payload:
+        return False
+    cache[key] = payload
+    return True
+
 def start_worker_telemetry_sampler(root, poll_seconds=60, jitter_seconds=30):
     interval = sampler_interval_seconds(poll_seconds, 60.0)
     heartbeat_interval = max(60.0, interval)
     def loop():
-        last_gpu = ""
-        last_health = ""
-        last_tasks = ""
+        last_payloads = {}
         last_heartbeat = 0.0
         while True:
             try:
                 payload = write_worker_gpu_snapshot(root)
                 gpu_event = {"gpus": payload.get("gpus") or [], "status": payload.get("status"), "error": payload.get("error") or ""}
-                gpu_text = json.dumps(gpu_event, ensure_ascii=False, sort_keys=True)
-                if gpu_text != last_gpu:
+                if payload_cache_changed(last_payloads, "gpu", gpu_event):
                     append_event(root, {"type": "gpu_snapshot", "source": "worker_telemetry", "payload": gpu_event})
-                    last_gpu = gpu_text
                 health_payload = {"status": payload.get("status"), "lastError": payload.get("error") or "", "generatedAt": payload.get("generatedAt"), "gpuCount": len(payload.get("gpus") or [])}
-                health_text = json.dumps(health_payload, ensure_ascii=False, sort_keys=True)
-                if health_text != last_health:
+                if payload_cache_changed(last_payloads, "health", health_payload):
                     append_event(root, {"type": "worker_health", "source": "worker_telemetry", "payload": health_payload})
-                    last_health = health_text
                 tasks_payload = api_worker_tasks(root)
-                tasks_text = json.dumps(tasks_payload, ensure_ascii=False, sort_keys=True)
-                if tasks_text != last_tasks:
+                if payload_cache_changed(last_payloads, "tasks", tasks_payload):
                     append_event(root, {"type": "worker_task_snapshot", "source": "worker_telemetry", "payload": tasks_payload})
-                    last_tasks = tasks_text
                 if time.time() - last_heartbeat >= heartbeat_interval:
                     append_event(root, {"type": "agent_heartbeat", "source": "worker_telemetry", "payload": {"status": payload.get("status"), "gpuPollSeconds": interval, "agentVersion": AGENT_VERSION}})
                     last_heartbeat = time.time()
@@ -2121,14 +2119,12 @@ def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
                 for item in collect_live_output(scheduler):
                     payloads[f"log_tail:{item.get('runKey') or item.get('key')}"] = item
                 for name, payload in payloads.items():
-                    text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
-                    if last_payloads.get(name) != text:
+                    if payload_cache_changed(last_payloads, name, payload):
                         typ = name.split(":", 1)[0]
                         event = {"type": typ, "payload": payload}
                         if typ == "log_tail":
                             event["runKey"] = payload.get("runKey") or payload.get("key") or ""
                         append_event(root, event)
-                        last_payloads[name] = text
                 if time.time() - last_heartbeat >= heartbeat_interval:
                     append_event(root, {"type": "agent_heartbeat", "payload": {"status": "ok", "pollSeconds": interval, "agentVersion": AGENT_VERSION}})
                     last_heartbeat = time.time()
