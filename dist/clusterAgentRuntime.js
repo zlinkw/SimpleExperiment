@@ -15,6 +15,8 @@ MAX_AGENT_STATE_BYTES = 128 * 1024 * 1024
 MAX_UPLOAD_RECORDS = 120
 MAX_WORKER_COMMAND_RESULT_RECORDS = 240
 MAX_WORKER_ACTION_KEY_RECORDS = 240
+MAX_WORKER_COMMAND_CURSOR_RECORDS = 64
+WORKER_COMMAND_CURSOR_TTL_SECONDS = 60 * 60
 MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS = 32
 SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS = 10 * 60
 GPU_HISTORY_BUCKET_SECONDS = 60
@@ -121,6 +123,8 @@ ACTION_PATHS = [
 ACTION_ROUTES = set(ACTION_PATHS)
 WORKER_COMMAND_QUEUE = {}
 WORKER_COMMAND_RESULTS = {}
+WORKER_COMMAND_CURSOR_CACHE = {}
+WORKER_COMMAND_CURSOR_LOCK = threading.Lock()
 WORKER_ACTION_LOCK = threading.Lock()
 WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
@@ -177,6 +181,29 @@ def prune_scheduler_dependency_cache(now_epoch=None, active_key=None):
         if key not in keep:
             SCHEDULER_DEPENDENCY_CACHE.pop(key, None)
 
+def prune_worker_command_cursor_cache(now_epoch=None, active_path=None):
+    now_value = float(now_epoch if now_epoch is not None else time.time())
+    for path, value in list(WORKER_COMMAND_CURSOR_CACHE.items()):
+        try:
+            last_used = float((value or {}).get("lastUsedAt") or 0)
+        except Exception:
+            last_used = 0.0
+        if path != active_path and (last_used <= 0 or now_value - last_used > WORKER_COMMAND_CURSOR_TTL_SECONDS):
+            WORKER_COMMAND_CURSOR_CACHE.pop(path, None)
+    if len(WORKER_COMMAND_CURSOR_CACHE) <= MAX_WORKER_COMMAND_CURSOR_RECORDS:
+        return
+    ranked = sorted(WORKER_COMMAND_CURSOR_CACHE.items(), key=lambda item: float((item[1] or {}).get("lastUsedAt") or 0), reverse=True)
+    keep = {path for path, _ in ranked[:MAX_WORKER_COMMAND_CURSOR_RECORDS]}
+    if active_path in WORKER_COMMAND_CURSOR_CACHE:
+        keep.add(active_path)
+        if len(keep) > MAX_WORKER_COMMAND_CURSOR_RECORDS:
+            oldest = next((path for path, _ in reversed(ranked) if path != active_path and path in keep), None)
+            if oldest is not None:
+                keep.remove(oldest)
+    for path in list(WORKER_COMMAND_CURSOR_CACHE.keys()):
+        if path not in keep:
+            WORKER_COMMAND_CURSOR_CACHE.pop(path, None)
+
 def prune_runtime_memory_state():
     if len(UPLOADS) > MAX_UPLOAD_RECORDS:
         running = {key: value for key, value in UPLOADS.items() if not runtime_terminal_status(value)}
@@ -206,6 +233,8 @@ def prune_runtime_memory_state():
                 WORKER_ACTION_INFLIGHT.pop(key, None)
     with SCHEDULER_DEPENDENCY_CACHE_LOCK:
         prune_scheduler_dependency_cache()
+    with WORKER_COMMAND_CURSOR_LOCK:
+        prune_worker_command_cursor_cache()
 
 def agent_install_dir(root):
     configured = os.environ.get("ZLK_AGENT_INSTALL_DIR", "").strip()
@@ -648,20 +677,51 @@ def enqueue_worker_command(root, worker_id, command):
     return item
 
 def read_worker_commands(root, worker_id, since_seq=0, limit=20):
-    path = worker_command_path(root, worker_id)
+    path = os.path.abspath(worker_command_path(root, worker_id))
     out = []
-    if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as f:
-            for index, line in enumerate(f, start=1):
-                if index <= int(since_seq or 0):
-                    continue
-                try:
-                    item = json.loads(line)
-                    item["queueSeq"] = index
-                    out.append(item)
-                except Exception:
-                    continue
-    return out[:max(1, int(limit or 20))]
+    if not os.path.isfile(path):
+        return out
+    requested_since = max(0, int(since_seq or 0))
+    requested_limit = max(1, int(limit or 20))
+    stat = os.stat(path)
+    now_value = time.time()
+    with WORKER_COMMAND_CURSOR_LOCK:
+        prune_worker_command_cursor_cache(now_value, path)
+        cached = dict(WORKER_COMMAND_CURSOR_CACHE.get(path) or {})
+    same_file = cached.get("device") == stat.st_dev and cached.get("inode") == stat.st_ino
+    cached_offset = int(cached.get("offset") or 0)
+    use_cursor = same_file and int(cached.get("seq") or 0) == requested_since and 0 <= cached_offset <= stat.st_size
+    current_seq = requested_since if use_cursor else 0
+    current_offset = cached_offset if use_cursor else 0
+    with open(path, "r", encoding="utf-8") as f:
+        if current_offset:
+            f.seek(current_offset)
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            current_seq += 1
+            current_offset = f.tell()
+            if current_seq <= requested_since:
+                continue
+            try:
+                item = json.loads(line)
+                item["queueSeq"] = current_seq
+                out.append(item)
+            except Exception:
+                continue
+            if len(out) >= requested_limit:
+                break
+    with WORKER_COMMAND_CURSOR_LOCK:
+        WORKER_COMMAND_CURSOR_CACHE[path] = {
+            "seq": current_seq,
+            "offset": current_offset,
+            "device": stat.st_dev,
+            "inode": stat.st_ino,
+            "lastUsedAt": now_value,
+        }
+        prune_worker_command_cursor_cache(now_value, path)
+    return out
 
 def record_worker_command_results(root, worker_id, payload):
     rows = payload.get("commandResults") if isinstance(payload.get("commandResults"), list) else []
