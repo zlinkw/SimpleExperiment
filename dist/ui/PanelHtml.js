@@ -477,6 +477,8 @@ function renderPanelHtml() {
     .operationTitle { min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-weight: 800; }
     .operationId { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; color: var(--muted); }
     .operationMessage { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .operationError { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; padding: 4px 7px; border-left: 3px solid var(--danger); border-radius: 4px; background: color-mix(in srgb, var(--danger) 8%, var(--vscode-editor-background)); color: #7F1D1D; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .operationError b { flex: 0 0 auto; }
     .operationDetails { display: flex; flex-wrap: wrap; gap: 6px; }
     .operationDetailPill { display: inline-flex; gap: 4px; align-items: center; max-width: 100%; padding: 2px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--subtle-bg); font-size: 11px; color: var(--muted); }
     .operationDetailPill b { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -733,6 +735,7 @@ function renderPanelHtml() {
     .targetEvidenceCount { color: #64748B; white-space: nowrap; }
     .errorList { display: grid; gap: 4px; margin: 6px 0 10px; }
     .errorRow { display: grid; grid-template-columns: minmax(90px, 150px) auto minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border)); border-left: 3px solid var(--danger); border-radius: 6px; background: color-mix(in srgb, var(--danger) 6%, var(--vscode-editor-background)); color: #0F172A; font-size: 11px; }
+    .errorRowSuggestion { grid-column: 1 / -1; color: var(--muted); overflow-wrap: anywhere; }
     .errorRowCommand { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 850; }
     .errorRowTime { color: #64748B; white-space: nowrap; }
     .errorRowMessage { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -11173,6 +11176,7 @@ function renderPanelHtml() {
       const status = String(row.status || "-").toLowerCase();
       const cls = operationIsActive(status) ? "is-running" : (operationIsFailureLike(status) ? "is-failed" : (operationIsCancelled(status) ? "is-cancelled" : (operationIsCompleted(status) ? "is-completed" : "")));
       const message = operationDisplayMessage(row);
+      const errorLine = operationErrorLine(row, message);
       const details = renderOperationDetailPills(row);
       const fileActions = renderRemoteResultInspectionActions(row.unparseableFileList, row.planFile, 3, row.unparseableDetails);
       const rawType = row.type || row.action || "operation";
@@ -11186,11 +11190,22 @@ function renderPanelHtml() {
             '<span class="operationId" title="' + escAttr(row.operationId) + '">' + esc(compactIdentifier(row.operationId)) + '</span>' +
           '</div>' +
           '<div class="operationMessage">' + esc(message) + '</div>' +
+          errorLine +
           details +
           fileActions +
-          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
+          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
         '</div>' +
       '</div>';
+    }
+
+    // A failed operation's error was reachable only by hovering a two-character pill while the
+    // less actionable message occupied the visible line; promote it whenever it adds information.
+    function operationErrorLine(row, message) {
+      const error = String((row || {}).error || "").trim();
+      if (!error || error === "-") return "";
+      const shown = String(message || "").trim();
+      if (shown && (shown === error || shown.includes(error))) return "";
+      return '<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 220)) + '</span></div>';
     }
 
     function operationTimestampView(row) {
@@ -12191,6 +12206,7 @@ function renderPanelHtml() {
         '<span class="errorRowCommand" title="原始命令：' + escAttr(rawCommand) + '">' + esc(commandLabel) + '</span>' +
         '<span class="errorRowTime status-failed">' + esc(row.timestamp || "-") + '</span>' +
         '<span class="errorRowMessage status-failed">' + esc(row.message || "未知错误") + '</span>' +
+        '<span class="errorRowSuggestion" title="' + escAttr(suggestion) + '">下一步：' + esc(compactText(suggestion, 160)) + '</span>' +
       '</div>';
     }
 
