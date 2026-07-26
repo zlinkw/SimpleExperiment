@@ -24,6 +24,7 @@ GPU_HISTORY_BUCKET_SECONDS = 60
 GPU_HISTORY_RETENTION_SECONDS = 72 * 60 * 60
 GPU_HISTORY_MAX_POINTS_PER_SERIES = 72 * 60
 GPU_HISTORY_MAX_SERIES = 128
+LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
@@ -1105,6 +1106,23 @@ def collect_traces(root, scheduler=None):
             row.setdefault("generatedAt", now_iso())
     return data
 
+def read_live_log_tail(path, max_lines=120, max_bytes=LIVE_LOG_TAIL_MAX_BYTES):
+    line_limit = max(1, int(max_lines or 120))
+    byte_limit = max(1024, int(max_bytes or LIVE_LOG_TAIL_MAX_BYTES))
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        offset = f.tell()
+        start = max(0, offset - byte_limit)
+        f.seek(start)
+        data = f.read(byte_limit)
+    if start:
+        boundary = data.find(b"\n")
+        if boundary >= 0:
+            data = data[boundary + 1:]
+    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.splitlines(keepends=True)
+    return "".join(lines[-line_limit:]), offset
+
 def collect_live_output(states, max_lines=120):
     events = []
     for state in states:
@@ -1114,11 +1132,10 @@ def collect_live_output(states, max_lines=120):
                 if not log or not os.path.isfile(log):
                     continue
                 try:
-                    with open(log, "r", encoding="utf-8", errors="replace") as f:
-                        lines = f.readlines()[-max_lines:]
+                    text, offset = read_live_log_tail(log, max_lines)
                     run_key = scheduler_row_run_key(row)
                     live_key = run_key or "|".join(str(row.get(x) or "") for x in ("source", "plan", "experiment", "worker_id", "session", "log_path"))
-                    events.append({"key": live_key, "runKey": run_key or live_key, "text": "".join(lines), "path": log, "offset": os.path.getsize(log)})
+                    events.append({"key": live_key, "runKey": run_key or live_key, "text": text, "path": log, "offset": offset})
                 except Exception:
                     pass
     return events
