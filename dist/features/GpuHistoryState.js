@@ -7,7 +7,7 @@ exports.compactGpuHistoryResponse = compactGpuHistoryResponse;
 const RequestBudget_1 = require("../tunnel/RequestBudget");
 exports.GPU_HISTORY_CACHE_LIMIT = 8;
 exports.GPU_HISTORY_CACHE_TTL_MS = 60_000;
-exports.GPU_HISTORY_MAX_SERIES = 160;
+exports.GPU_HISTORY_MAX_SERIES = 128;
 exports.GPU_HISTORY_MAX_POINTS_PER_SERIES = 288;
 exports.GPU_HISTORY_OVERVIEW_POINTS_PER_SERIES = 96;
 exports.GPU_HISTORY_TOTAL_POINT_LIMIT = 8_000;
@@ -126,7 +126,7 @@ function compactGpuHistoryResponse(value) {
     let series = limitedSeries;
     if (initialPointCount > exports.GPU_HISTORY_TOTAL_POINT_LIMIT && series.length) {
         const perSeries = Math.max(2, Math.floor(exports.GPU_HISTORY_TOTAL_POINT_LIMIT / series.length));
-        series = series.map((item) => ({ ...item, points: evenlySample(item.points, perSeries) }));
+        series = series.map((item) => ({ ...item, points: evenlySampleHistoryPoints(item.points, perSeries) }));
     }
     const totalPointCount = series.reduce((sum, item) => sum + item.points.length, 0);
     const rawPointTotal = series.reduce((sum, item) => sum + item.rawPointCount, 0);
@@ -154,7 +154,7 @@ function compactSeries(value) {
         if (point)
             byBucket.set(point.bucketEpoch, point);
     }
-    const points = evenlySample([...byBucket.values()].sort((a, b) => a.bucketEpoch - b.bucketEpoch), exports.GPU_HISTORY_MAX_POINTS_PER_SERIES);
+    const points = evenlySampleHistoryPoints([...byBucket.values()].sort((a, b) => a.bucketEpoch - b.bucketEpoch), exports.GPU_HISTORY_MAX_POINTS_PER_SERIES);
     return {
         serverId,
         gpuId,
@@ -176,6 +176,7 @@ function compactPoint(value) {
         memoryTotalMb: nullableNonNegative(item.memoryTotalMb),
         memoryUtilPercent: nullablePercent(item.memoryUtilPercent),
         gapBefore: typeof item.gapBefore === "boolean" ? item.gapBefore : null,
+        imputed: item.imputed === true,
     };
 }
 function evenlySample(items, limit) {
@@ -190,6 +191,27 @@ function evenlySample(items, limit) {
             out.push(items[sourceIndex]);
     }
     return out;
+}
+function evenlySampleHistoryPoints(items, limit) {
+    if (items.length <= limit)
+        return items;
+    const critical = items
+        .map((point, index) => ({ point, index }))
+        .filter(({ point, index }) => point.gapBefore === true || (index > 0 && point.imputed !== items[index - 1].imputed))
+        .map(({ index }) => index);
+    if (critical.length >= limit)
+        return evenlySample(critical, limit).map((index) => items[index]);
+    const selected = new Set(critical);
+    const real = items.map((point, index) => ({ point, index })).filter(({ point }) => point.imputed === false).map(({ index }) => index);
+    if (real.length <= limit - selected.size)
+        real.forEach((index) => selected.add(index));
+    const sampled = evenlySample(items.map((_, index) => index), limit);
+    for (const index of [0, items.length - 1, ...sampled]) {
+        if (selected.size >= limit)
+            break;
+        selected.add(index);
+    }
+    return [...selected].sort((a, b) => a - b).map((index) => items[index]);
 }
 function readyView(entry) {
     return {

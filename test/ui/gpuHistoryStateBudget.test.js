@@ -54,7 +54,7 @@ test("GPU history query and Webview payload stay bounded", () => {
   const compact = compactGpuHistoryResponse({ schemaVersion: 1, bucketSeconds: 300, retentionHours: 72, maxPointsPerSeries: 864, updatedAt: "x", series });
   assert.equal(compact.series.length, GPU_HISTORY_MAX_SERIES);
   assert.ok(compact.totalPointCount <= GPU_HISTORY_TOTAL_POINT_LIMIT);
-  assert.equal(compact.seriesOmittedCount, 40);
+  assert.equal(compact.seriesOmittedCount, 72);
   assert.ok(compact.pointOmittedCount > 0);
   assert.equal(compact.series[0].points[0].bucketEpoch, 2_000_000_000);
   assert.equal(compact.series[0].points.at(-1).bucketEpoch, 2_000_000_000 + 299 * 300);

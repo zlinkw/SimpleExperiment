@@ -21,10 +21,12 @@ test("GPU history UI provides overview and per-card expandable charts", () => {
   assert.match(html, /if \(!wasOpen\) requestGpuHistory/);
 });
 
-test("GPU history chart keeps missing buckets as gaps and exposes accessible legends", () => {
+test("GPU history chart connects explicitly zero-filled buckets and exposes accessible legends", () => {
   const html = renderPanelHtml();
   assert.match(html, /GPU_HISTORY_GAP_FACTOR/);
-  assert.match(html, /缺口不会补零/);
+  assert.match(html, /缺失补零仅用于连接曲线，不代表真实负载/);
+  assert.match(html, /GPU_HISTORY_SERIES_CACHE_LIMIT = 128/);
+  assert.match(html, /point\.imputed === true/);
   assert.match(html, /class="gpuLegendItem"/);
   assert.match(html, /data-gpu-history-focus/);
   assert.match(html, /tabindex="0" role="img"/);

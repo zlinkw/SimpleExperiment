@@ -18,6 +18,7 @@ MAX_WORKER_ACTION_KEY_RECORDS = 240
 GPU_HISTORY_BUCKET_SECONDS = 60
 GPU_HISTORY_RETENTION_SECONDS = 72 * 60 * 60
 GPU_HISTORY_MAX_POINTS_PER_SERIES = 72 * 60
+GPU_HISTORY_MAX_SERIES = 128
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
@@ -1141,6 +1142,22 @@ def gpu_history_rows(value):
                 return value.get(key)
     return []
 
+def trim_gpu_history_series(servers, active_keys=None):
+    active = active_keys if isinstance(active_keys, set) else set()
+    ranked = []
+    for server_id, gpus in servers.items():
+        for gpu_id, points in gpus.items():
+            latest = max((int(point.get("bucketEpoch") or 0) for point in points), default=0)
+            key = (server_id, gpu_id)
+            ranked.append((0 if key in active else 1, -latest, server_id, gpu_id))
+    keep = {(server_id, gpu_id) for _, _, server_id, gpu_id in sorted(ranked)[:GPU_HISTORY_MAX_SERIES]}
+    for server_id in list(servers.keys()):
+        for gpu_id in list(servers[server_id].keys()):
+            if (server_id, gpu_id) not in keep:
+                servers[server_id].pop(gpu_id, None)
+        if not servers[server_id]:
+            servers.pop(server_id, None)
+
 def normalize_gpu_history(value):
     out = gpu_history_empty()
     source = value if isinstance(value, dict) else {}
@@ -1171,12 +1188,15 @@ def normalize_gpu_history(value):
                     "bucketEpoch": bucket,
                     "timestamp": gpu_history_iso(bucket),
                 })
+                point.pop("imputed", None)
+                point.pop("gapBefore", None)
                 points_by_bucket[bucket] = point
             points = [points_by_bucket[key] for key in sorted(points_by_bucket)][-GPU_HISTORY_MAX_POINTS_PER_SERIES:]
             if points:
                 normalized_gpus[gpu_id] = points
         if normalized_gpus:
             out["servers"][server_id] = normalized_gpus
+    trim_gpu_history_series(out["servers"])
     if source.get("recoveredFromCorruption"):
         out["recoveredFromCorruption"] = True
         out["recoveredAt"] = source.get("recoveredAt") or ""
@@ -1191,6 +1211,7 @@ def update_gpu_history(value, gpu_by_server, timestamp=None):
     bucket = int(epoch // GPU_HISTORY_BUCKET_SECONDS) * GPU_HISTORY_BUCKET_SECONDS
     cutoff = bucket - GPU_HISTORY_RETENTION_SECONDS + GPU_HISTORY_BUCKET_SECONDS
     servers = out["servers"]
+    active_keys = set()
     for server_id in list(servers.keys()):
         for gpu_id in list(servers[server_id].keys()):
             points = [point for point in servers[server_id][gpu_id] if cutoff <= int(point.get("bucketEpoch") or 0) <= bucket]
@@ -1210,6 +1231,7 @@ def update_gpu_history(value, gpu_by_server, timestamp=None):
             gpu_id = str(row.get("index") if row.get("index") is not None else row.get("gpu_index") if row.get("gpu_index") is not None else row.get("gpuId") if row.get("gpuId") is not None else row.get("gpu_id") if row.get("gpu_id") is not None else row.get("id") or row.get("uuid") or "").strip()
             if not gpu_id:
                 continue
+            active_keys.add((server_id, gpu_id))
             used = gpu_history_number(row, "memoryUsedMb", "memory_used_mb", "memoryUsed", "used")
             total = gpu_history_number(row, "memoryTotalMb", "memory_total_mb", "memoryTotal", "total")
             utilization = gpu_history_percent(gpu_history_number(row, "utilizationPercent", "utilization", "gpu_util", "utilization_gpu"))
@@ -1228,6 +1250,7 @@ def update_gpu_history(value, gpu_by_server, timestamp=None):
             points = [existing for existing in points if int(existing.get("bucketEpoch") or 0) != bucket]
             points.append(point)
             servers[server_id][gpu_id] = sorted(points, key=lambda item: int(item.get("bucketEpoch") or 0))[-GPU_HISTORY_MAX_POINTS_PER_SERIES:]
+    trim_gpu_history_series(servers, active_keys)
     out["updatedAt"] = gpu_history_iso(bucket)
     return out
 
@@ -1262,6 +1285,14 @@ def downsample_gpu_history_points(points, max_points):
             sampled = int(round(index * (len(rows) - 1) / (limit - 1)))
             if not indexes or sampled != indexes[-1]:
                 indexes.append(sampled)
+        real_indexes = [index for index, point in enumerate(rows) if point.get("imputed") is not True]
+        if len(real_indexes) <= limit:
+            selected = set(real_indexes)
+            for index in [0, len(rows) - 1] + indexes:
+                if len(selected) >= limit:
+                    break
+                selected.add(index)
+            indexes = sorted(selected)
     out = []
     previous_source_index = None
     for source_index in indexes:
@@ -1279,12 +1310,41 @@ def downsample_gpu_history_points(points, max_points):
         previous_source_index = source_index
     return out
 
+def fill_gpu_history_points(points, server_id, gpu_id, start_epoch, end_epoch):
+    start_bucket = int(math.ceil(float(start_epoch) / GPU_HISTORY_BUCKET_SECONDS)) * GPU_HISTORY_BUCKET_SECONDS
+    end_bucket = int(math.floor(float(end_epoch) / GPU_HISTORY_BUCKET_SECONDS)) * GPU_HISTORY_BUCKET_SECONDS
+    if start_bucket > end_bucket:
+        return []
+    real_by_bucket = {int(point.get("bucketEpoch") or 0): point for point in points or []}
+    out = []
+    for bucket in range(start_bucket, end_bucket + GPU_HISTORY_BUCKET_SECONDS, GPU_HISTORY_BUCKET_SECONDS):
+        real = real_by_bucket.get(bucket)
+        if real is not None:
+            point = dict(real)
+            point["imputed"] = False
+        else:
+            point = {
+                "serverId": server_id,
+                "gpuId": gpu_id,
+                "bucketEpoch": bucket,
+                "timestamp": gpu_history_iso(bucket),
+                "gpuUtilPercent": 0,
+                "memoryUsedMb": 0,
+                "memoryTotalMb": 0,
+                "memoryUtilPercent": 0,
+                "imputed": True,
+            }
+        out.append(point)
+    return out
+
 def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_points=GPU_HISTORY_MAX_POINTS_PER_SERIES):
     history = normalize_gpu_history(read_json(gpu_history_path(root), {}))
     start_epoch = gpu_history_epoch(start)
     end_epoch = gpu_history_epoch(end)
     effective_end = end_epoch if end_epoch is not None else time.time()
-    effective_start = start_epoch if start_epoch is not None else effective_end - GPU_HISTORY_RETENTION_SECONDS + GPU_HISTORY_BUCKET_SECONDS
+    effective_end = int(effective_end // GPU_HISTORY_BUCKET_SECONDS) * GPU_HISTORY_BUCKET_SECONDS
+    retention_start = effective_end - GPU_HISTORY_RETENTION_SECONDS + GPU_HISTORY_BUCKET_SECONDS
+    effective_start = max(start_epoch if start_epoch is not None else retention_start, retention_start)
     series = []
     for current_server_id, gpus in history.get("servers", {}).items():
         if server_id and current_server_id != str(server_id):
@@ -1293,17 +1353,20 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
             if gpu_id and current_gpu_id != str(gpu_id):
                 continue
             selected = [point for point in points if int(point.get("bucketEpoch") or 0) >= effective_start and int(point.get("bucketEpoch") or 0) <= effective_end]
+            filled = fill_gpu_history_points(selected, current_server_id, current_gpu_id, effective_start, effective_end)
             series.append({
                 "serverId": current_server_id,
                 "gpuId": current_gpu_id,
-                "points": downsample_gpu_history_points(selected, max_points),
-                "rawPointCount": len(selected),
+                "points": downsample_gpu_history_points(filled, max_points),
+                "rawPointCount": len(filled),
+                "sampledPointCount": len(selected),
             })
     return {
         "schemaVersion": 1,
         "bucketSeconds": GPU_HISTORY_BUCKET_SECONDS,
         "retentionHours": 72,
         "maxPointsPerSeries": GPU_HISTORY_MAX_POINTS_PER_SERIES,
+        "maxSeries": GPU_HISTORY_MAX_SERIES,
         "updatedAt": history.get("updatedAt") or "",
         "series": series,
     }
