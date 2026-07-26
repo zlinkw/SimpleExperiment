@@ -37,8 +37,9 @@ history = agent.update_gpu_history(history, {"server-a": [gpu(80, 900)]}, base +
 points = history["servers"]["server-a"]["0"]
 
 many = []
-for index in range(900):
-    epoch = base - (899 - index) * agent.GPU_HISTORY_BUCKET_SECONDS
+source_point_count = agent.GPU_HISTORY_MAX_POINTS_PER_SERIES + 120
+for index in range(source_point_count):
+    epoch = base - (source_point_count - 1 - index) * agent.GPU_HISTORY_BUCKET_SECONDS
     many.append({
         "serverId": "server-a",
         "gpuId": "0",
@@ -91,6 +92,7 @@ print(json.dumps({
     "querySampledPoints": query["series"][0]["sampledPointCount"],
     "queryImputed": sum(1 for point in query["series"][0]["points"] if point.get("imputed") is True),
     "filledValues": [point.get("gpuUtilPercent") for point in filled],
+    "filledDefaults": [[point.get("gpuUtilPercent"), point.get("memoryUsedMb"), point.get("memoryTotalMb"), point.get("memoryUtilPercent")] for point in filled if point.get("imputed") is True],
     "filledImputed": [point.get("imputed") for point in filled],
     "filledSampleReal": [point.get("gpuUtilPercent") for point in filled_sample if point.get("imputed") is not True],
     "queryGapMarkers": [point.get("gapBefore") for point in gap_query],
@@ -117,14 +119,15 @@ print(json.dumps({
   assert.equal(result.maxPointsPerSeries, 4320);
   assert.equal(result.boundedSeries, 128);
   assert.equal(result.normalizedStoredImputed, false);
-  assert.equal(result.boundedCount, 900);
-  assert.equal(result.boundedOldest, 1999999800 - 899 * 60);
+  assert.equal(result.boundedCount, 4320);
+  assert.equal(result.boundedOldest, 1999999800 - 4319 * 60);
   assert.equal(result.querySeries, 1);
   assert.equal(result.queryPoints, 12);
   assert.equal(result.queryRawPoints, 4320);
-  assert.equal(result.querySampledPoints, 900);
-  assert.ok(result.queryImputed > 0);
+  assert.equal(result.querySampledPoints, 4320);
+  assert.equal(result.queryImputed, 0);
   assert.deepEqual(result.filledValues, [10, 0, 0, 0, 0, 40]);
+  assert.deepEqual(result.filledDefaults, [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]);
   assert.deepEqual(result.filledImputed, [false, true, true, true, true, false]);
   assert.deepEqual(result.filledSampleReal, [10, 40]);
   assert.deepEqual(result.queryGapMarkers, [false, true, false]);
