@@ -28,6 +28,7 @@ GPU_HISTORY_BUCKET_SECONDS = 60
 GPU_HISTORY_RETENTION_SECONDS = 72 * 60 * 60
 GPU_HISTORY_MAX_POINTS_PER_SERIES = 72 * 60
 GPU_HISTORY_MAX_SERIES = 128
+GPU_HISTORY_MAX_TOTAL_POINTS = 40000
 LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
 AUDIT_TAIL_MAX_BYTES = 1024 * 1024
 ATOMIC_REPLACE_ATTEMPTS = 6
@@ -492,14 +493,19 @@ def replace_with_retry(src, dst, attempts=ATOMIC_REPLACE_ATTEMPTS):
             time.sleep(0.005 * (index + 1))
     raise last_error
 
-def atomic_write(path, payload):
+def atomic_write(path, payload, compact=False):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     # The temp name must be unique per writer, not per process: ThreadingHTTPServer can drive two
     # writes to the same target and a shared temp path makes them clobber each other's handle.
     tmp = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+            # Indented output is worth it for hand-inspected state, but not for bulk time series
+            # that are rewritten every sampling cycle.
+            if compact:
+                json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
+            else:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
             f.write("\n")
         replace_with_retry(tmp, path)
     except Exception:
@@ -1580,8 +1586,26 @@ def update_gpu_history(value, gpu_by_server, timestamp=None):
             points.append(point)
             servers[server_id][gpu_id] = sorted(points, key=lambda item: int(item.get("bucketEpoch") or 0))[-GPU_HISTORY_MAX_POINTS_PER_SERIES:]
     trim_gpu_history_series(servers, active_keys)
+    enforce_gpu_history_total_budget(servers)
     out["updatedAt"] = gpu_history_iso(bucket)
     return out
+
+# Per-series and series-count caps still allow 128 x 4320 points, and the whole file is reread and
+# rewritten on every sampling cycle; an aggregate ceiling keeps that cost bounded.
+def enforce_gpu_history_total_budget(servers, max_total=None):
+    budget = max(1, int(max_total or GPU_HISTORY_MAX_TOTAL_POINTS))
+    series = [(server_id, gpu_id) for server_id, gpus in servers.items() for gpu_id in gpus.keys()]
+    if not series:
+        return 0
+    total = sum(len(servers[server_id][gpu_id]) for server_id, gpu_id in series)
+    if total <= budget:
+        return total
+    share = max(1, budget // len(series))
+    for server_id, gpu_id in series:
+        points = servers[server_id][gpu_id]
+        if len(points) > share:
+            servers[server_id][gpu_id] = points[-share:]
+    return sum(len(servers[server_id][gpu_id]) for server_id, gpu_id in series)
 
 def record_gpu_history(root, gpu_by_server, timestamp=None):
     path = gpu_history_path(root)
@@ -1592,7 +1616,7 @@ def record_gpu_history(root, gpu_by_server, timestamp=None):
     if existed and not valid:
         out["recoveredFromCorruption"] = True
         out["recoveredAt"] = now_iso()
-    atomic_write(path, out)
+    atomic_write(path, out, compact=True)
     return out
 
 def downsample_gpu_history_points(points, max_points):

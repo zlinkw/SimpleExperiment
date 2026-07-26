@@ -64,6 +64,6 @@ test("agent write helpers drop cached runtime JSON entries", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
   assert.match(source, /def invalidate_runtime_json_cache\(path\)/);
   assert.match(source, /replace_with_retry\(tmp, path\)/);
-  assert.match(source, / {8}raise\n {4}invalidate_runtime_json_cache\(path\)/);
-  assert.match(source, /shutil\.move\(src, dst\)\n {4}invalidate_runtime_json_cache\(dst\)/);
+  assert.match(source, / {8}raise\r?\n {4}invalidate_runtime_json_cache\(path\)/);
+  assert.match(source, /shutil\.move\(src, dst\)\r?\n {4}invalidate_runtime_json_cache\(dst\)/);
 });

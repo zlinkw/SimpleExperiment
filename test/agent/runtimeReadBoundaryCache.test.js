@@ -85,5 +85,5 @@ test("result summary route reads cached while parse decisions keep uncached read
   assert.match(source, /read_summary = read_runtime_json_cached if cached else read_json/);
   assert.match(source, /read_results_summary\(root, plan or None, True\)/);
   assert.match(source, /read_runtime_json_cached\(path_for\(root, "agent\.session\.json"\), \{\}\)/);
-  assert.match(source, /summary = read_results_summary\(root, plan\)\n/);
+  assert.match(source, /summary = read_results_summary\(root, plan\)\r?\n/);
 });

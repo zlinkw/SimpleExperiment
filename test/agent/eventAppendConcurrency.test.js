@@ -135,10 +135,10 @@ print(json.dumps({
 test("event and worker command appends share one reentrant critical section", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
   assert.match(source, /EVENT_APPEND_LOCK = threading\.RLock\(\)/);
-  assert.match(source, /with EVENT_APPEND_LOCK:\n {8}seq = read_seq\(root\) \+ 1/);
-  assert.match(source, /write_seq\(root, seq\)\n {8}compact_journal\(root\)/);
-  assert.match(source, /with EVENT_APPEND_LOCK:\n {8}with open\(worker_command_path\(root, worker_id\)/);
+  assert.match(source, /with EVENT_APPEND_LOCK:\r?\n {8}seq = read_seq\(root\) \+ 1/);
+  assert.match(source, /write_seq\(root, seq\)\r?\n {8}compact_journal\(root\)/);
+  assert.match(source, /with EVENT_APPEND_LOCK:\r?\n {8}with open\(worker_command_path\(root, worker_id\)/);
   // The completion pipeline can re-enter append_event, so it must stay outside the lock.
-  assert.match(source, /\n {4}prune_agent_state\(root\)\n {4}maybe_auto_run_completion_pipeline\(root, event\)/);
+  assert.match(source, /\r?\n {4}prune_agent_state\(root\)\r?\n {4}maybe_auto_run_completion_pipeline\(root, event\)/);
   assert.match(source, /tmp = f"\{path\}\.tmp\.\{os\.getpid\(\)\}\.\{threading\.get_ident\(\)\}"/);
 });
