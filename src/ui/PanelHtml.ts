@@ -10306,7 +10306,7 @@ export function renderPanelHtml(): string {
         const status = String((row || {}).status || "");
         if (counts[status] !== undefined) counts[status] += 1;
         if (isTaskRowSelected(row, selected)) selectedRows.push(row);
-        if (["running", "testing"].includes(taskStatusToken(status)) || taskFailureLikeStatus(status)) criticalRows.push(row);
+        if (criticalRows.length < TASK_RENDER_LIMIT && (["running", "testing"].includes(taskStatusToken(status)) || taskFailureLikeStatus(status))) criticalRows.push(row);
         if (queuedRows.length < queuedLimit && ["queued", "pending"].includes(status)) queuedRows.push(row);
         if (activeRows.length < 8 && ["running", "testing"].includes(status)) activeRows.push(row);
       });
@@ -10315,6 +10315,7 @@ export function renderPanelHtml(): string {
         const out = [];
         const seen = new Set();
         const add = (row) => {
+          if (out.length >= TASK_RENDER_LIMIT) return;
           const key = String((row && row.uiKey) || "");
           if (!key || seen.has(key)) return;
           seen.add(key);
@@ -10327,7 +10328,7 @@ export function renderPanelHtml(): string {
           if (out.length >= TASK_RENDER_LIMIT) break;
           add(row);
         }
-        visibleRows = out.slice(0, TASK_RENDER_LIMIT);
+        visibleRows = out;
       }
       return {
         rows: allRows,
@@ -10733,6 +10734,7 @@ export function renderPanelHtml(): string {
       const attentionRows = [];
       const fillerRows = [];
       function add(row) {
+        if (out.length >= TRACE_RENDER_LIMIT) return;
         const key = traceRowKey(row);
         if (seen.has(key)) return;
         seen.add(key);
@@ -10740,13 +10742,13 @@ export function renderPanelHtml(): string {
       }
       rows.forEach((row) => {
         if (traceRowSelected(row, selected)) selectedRows.push(row);
-        else if (traceNeedsAttention(row)) attentionRows.push(row);
+        else if (traceNeedsAttention(row)) { if (attentionRows.length < TRACE_RENDER_LIMIT) attentionRows.push(row); }
         else if (fillerRows.length < TRACE_RENDER_LIMIT * 2) fillerRows.push(row);
       });
       selectedRows.forEach(add);
       attentionRows.forEach(add);
-      fillerRows.forEach((row) => { if (out.length < TRACE_RENDER_LIMIT) add(row); });
-      return out.slice(0, TRACE_RENDER_LIMIT);
+      fillerRows.forEach(add);
+      return out;
     }
 
     function traceNeedsAttention(row) {
