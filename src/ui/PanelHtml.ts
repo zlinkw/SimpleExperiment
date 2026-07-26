@@ -1499,6 +1499,7 @@ export function renderPanelHtml(): string {
     const gpuHistoryRequestLastAt = new Map();
     let gpuHistoryDrawFrame = 0;
     let activeGpuHistoryTooltip = null;
+    let gpuHistoryPointIndexCache = new WeakMap();
     let gpuHistoryServerStyles = loadGpuHistoryServerStyles();
     let overviewTaskStatsCacheRows = null;
     let overviewTaskStatsCacheValue = null;
@@ -7601,16 +7602,14 @@ export function renderPanelHtml(): string {
       tooltip.hidden = true;
       const series = gpuHistoryCanvasSeries(canvas);
       if (!series.length) return;
-      const points = series.flatMap((item) => asArray(item.points));
-      const times = points.map((point) => Number(point.bucketEpoch)).filter(Number.isFinite);
-      if (!times.length) return;
+      const timeRange = gpuHistoryTimeRange(series);
+      if (!timeRange) return;
       const rect = canvas.getBoundingClientRect();
       const x = Math.max(0, Math.min(rect.width, Number(event.clientX || 0) - rect.left));
       const ratio = rect.width > 0 ? x / rect.width : 0;
-      const minTime = Math.min.apply(Math, times);
-      const maxTime = Math.max.apply(Math, times);
-      const target = minTime + (maxTime - minTime) * ratio;
-      const nearestTime = times.reduce((best, value) => Math.abs(value - target) < Math.abs(best - target) ? value : best, times[0]);
+      const target = timeRange.min + (timeRange.max - timeRange.min) * ratio;
+      const nearestTime = gpuHistoryNearestTimestamp(series, target);
+      if (!Number.isFinite(nearestTime)) return;
       const kind = canvas.dataset.chartKind || "overview";
       const rows = series.flatMap((item) => {
         const point = nearestHistoryPoint(item.points || [], nearestTime);
@@ -7630,11 +7629,64 @@ export function renderPanelHtml(): string {
     }
 
     function nearestHistoryPoint(points, target) {
-      const rows = asArray(points).filter((point) => Number.isFinite(Number(point.bucketEpoch)));
-      if (!rows.length) return null;
-      const nearest = rows.reduce((best, point) => Math.abs(Number(point.bucketEpoch) - target) < Math.abs(Number(best.bucketEpoch) - target) ? point : best, rows[0]);
-      const threshold = Math.max(Number(gpuHistoryMeta.bucketSeconds || 300), historyExpectedStep(rows)) * GPU_HISTORY_GAP_FACTOR;
+      const index = gpuHistoryPointIndex(points);
+      const nearest = nearestHistoryPointFromIndex(index, target);
+      if (!nearest) return null;
+      const threshold = Math.max(Number(gpuHistoryMeta.bucketSeconds || 300), index.expectedStep) * GPU_HISTORY_GAP_FACTOR;
       return Math.abs(Number(nearest.bucketEpoch) - target) <= threshold ? nearest : null;
+    }
+
+    function gpuHistoryPointIndex(points) {
+      const source = asArray(points);
+      const cached = gpuHistoryPointIndexCache.get(source);
+      if (cached) return cached;
+      const rows = source.filter((point) => Number.isFinite(Number(point.bucketEpoch))).slice().sort((a, b) => Number(a.bucketEpoch) - Number(b.bucketEpoch));
+      const value = {
+        rows,
+        times: rows.map((point) => Number(point.bucketEpoch)),
+        expectedStep: historyExpectedStep(rows)
+      };
+      gpuHistoryPointIndexCache.set(source, value);
+      return value;
+    }
+
+    function nearestHistoryPointFromIndex(index, target) {
+      const times = index && index.times || [];
+      if (!times.length) return null;
+      let low = 0;
+      let high = times.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (times[middle] < target) low = middle + 1;
+        else high = middle;
+      }
+      const left = Math.max(0, low - 1);
+      const right = Math.min(times.length - 1, low);
+      const nearestIndex = Math.abs(times[right] - target) < Math.abs(times[left] - target) ? right : left;
+      return index.rows[nearestIndex] || null;
+    }
+
+    function gpuHistoryTimeRange(series) {
+      let min = Infinity;
+      let max = -Infinity;
+      asArray(series).forEach((item) => {
+        const times = gpuHistoryPointIndex(item && item.points).times;
+        if (!times.length) return;
+        min = Math.min(min, times[0]);
+        max = Math.max(max, times[times.length - 1]);
+      });
+      return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+    }
+
+    function gpuHistoryNearestTimestamp(series, target) {
+      let nearest = null;
+      asArray(series).forEach((item) => {
+        const point = nearestHistoryPointFromIndex(gpuHistoryPointIndex(item && item.points), target);
+        const time = Number(point && point.bucketEpoch);
+        if (!Number.isFinite(time)) return;
+        if (nearest === null || Math.abs(time - target) < Math.abs(nearest - target)) nearest = time;
+      });
+      return nearest;
     }
 
     function historyPercentText(value) {

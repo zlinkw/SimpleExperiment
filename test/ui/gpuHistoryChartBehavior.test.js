@@ -39,6 +39,8 @@ function chartContext(functionNames) {
     gpuHistoryOverviewCacheState: null,
     gpuHistoryOverviewCacheServers: null,
     gpuHistoryOverviewCacheValue: [],
+    gpuHistoryPointIndexCache: new WeakMap(),
+    GPU_HISTORY_GAP_FACTOR: 1.75,
     GPU_HISTORY_COLORS: ["#2885EF", "#CD8300", "#03A14A", "#E64343", "#A95DDA", "#00A3B4", "#C952A8", "#849B11", "#DE6907", "#009F89", "#CE4A72", "#008DBE"],
     GPU_HISTORY_LINE_STYLES: ["solid", "dash", "dot", "dashdot"],
     GPU_HISTORY_MARKERS: ["circle", "square", "triangle", "diamond"],
@@ -132,4 +134,23 @@ test("GPU card hover text reports percentage and memory MB", () => {
   const context = chartContext(["finiteHistoryPercent", "historyPercentText", "historyMemoryText"]);
   assert.equal(context.historyPercentText(42.34), "42.3%");
   assert.equal(context.historyMemoryText({ memoryUsedMb: 1024.4, memoryTotalMb: 8192 }), "1024 / 8192 MB");
+});
+
+test("GPU history point index caches sorted points and uses gap-aware binary lookup", () => {
+  const context = chartContext([
+    "historyExpectedStep", "gpuHistoryPointIndex", "nearestHistoryPointFromIndex", "nearestHistoryPoint",
+    "gpuHistoryTimeRange", "gpuHistoryNearestTimestamp",
+  ]);
+  const points = [
+    { id: "late", bucketEpoch: 300 },
+    { id: "early", bucketEpoch: 100 },
+    { id: "middle", bucketEpoch: 200 },
+  ];
+  const firstIndex = context.gpuHistoryPointIndex(points);
+  assert.equal(context.gpuHistoryPointIndex(points), firstIndex);
+  assert.deepEqual(Array.from(firstIndex.times), [100, 200, 300]);
+  assert.equal(context.nearestHistoryPoint(points, 220).id, "middle");
+  assert.equal(context.nearestHistoryPoint(points, 2000), null);
+  assert.equal(JSON.stringify(context.gpuHistoryTimeRange([{ points }])), JSON.stringify({ min: 100, max: 300 }));
+  assert.equal(context.gpuHistoryNearestTimestamp([{ points }], 260), 300);
 });
