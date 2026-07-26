@@ -20,6 +20,8 @@ MAX_OPERATION_JOURNAL_CACHE_RECORDS = 8
 OPERATION_JOURNAL_CACHE_TTL_SECONDS = 10 * 60
 MAX_RUNTIME_JSON_CACHE_RECORDS = 16
 RUNTIME_JSON_CACHE_TTL_SECONDS = 10 * 60
+MAX_RUNTIME_FILE_INDEX_RECORDS = 8
+RUNTIME_FILE_INDEX_TTL_SECONDS = 10 * 60
 MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS = 32
 SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS = 10 * 60
 GPU_HISTORY_BUCKET_SECONDS = 60
@@ -135,6 +137,8 @@ OPERATION_JOURNAL_CACHE = {}
 OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
 RUNTIME_JSON_CACHE = {}
 RUNTIME_JSON_CACHE_LOCK = threading.Lock()
+RUNTIME_FILE_INDEX_CACHE = {}
+RUNTIME_FILE_INDEX_CACHE_LOCK = threading.Lock()
 WORKER_ACTION_LOCK = threading.Lock()
 WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
@@ -510,6 +514,52 @@ def read_runtime_json_cached(path, fallback):
         RUNTIME_JSON_CACHE[key] = {"signature": signature, "value": value, "lastUsedAt": now_value}
         prune_runtime_json_cache(now_value, key)
     return value
+
+def prune_runtime_file_index_cache(now_value=None, active_key=""):
+    current = time.time() if now_value is None else float(now_value)
+    for key, value in list(RUNTIME_FILE_INDEX_CACHE.items()):
+        if key == active_key:
+            continue
+        if current - float((value or {}).get("lastUsedAt") or 0) > RUNTIME_FILE_INDEX_TTL_SECONDS:
+            RUNTIME_FILE_INDEX_CACHE.pop(key, None)
+    if len(RUNTIME_FILE_INDEX_CACHE) <= MAX_RUNTIME_FILE_INDEX_RECORDS:
+        return
+    ranked = sorted(RUNTIME_FILE_INDEX_CACHE.items(), key=lambda item: float((item[1] or {}).get("lastUsedAt") or 0), reverse=True)
+    keep = {key for key, _ in ranked[:MAX_RUNTIME_FILE_INDEX_RECORDS]}
+    if active_key:
+        keep.add(active_key)
+    for key in list(RUNTIME_FILE_INDEX_CACHE.keys()):
+        if key not in keep:
+            RUNTIME_FILE_INDEX_CACHE.pop(key, None)
+
+def runtime_directory_signature(path):
+    try:
+        stat = os.stat(path)
+        return (int(stat.st_dev), int(stat.st_ino), int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1000000000))))
+    except OSError:
+        return None
+
+def scheduler_state_paths(root):
+    base = os.path.abspath(os.path.join(root, "zlk_cluster", "tmp", "cluster_scheduler"))
+    key = base + "|*_state.json"
+    signature = runtime_directory_signature(base)
+    if signature is None:
+        with RUNTIME_FILE_INDEX_CACHE_LOCK:
+            RUNTIME_FILE_INDEX_CACHE.pop(key, None)
+        return []
+    now_value = time.time()
+    with RUNTIME_FILE_INDEX_CACHE_LOCK:
+        prune_runtime_file_index_cache(now_value, key)
+        cached = RUNTIME_FILE_INDEX_CACHE.get(key)
+        if cached and cached.get("signature") == signature:
+            cached["lastUsedAt"] = now_value
+            return list(cached.get("paths") or [])
+    paths = sorted(glob.glob(os.path.join(base, "*_state.json")))
+    refreshed_signature = runtime_directory_signature(base)
+    with RUNTIME_FILE_INDEX_CACHE_LOCK:
+        RUNTIME_FILE_INDEX_CACHE[key] = {"signature": refreshed_signature, "paths": paths, "lastUsedAt": now_value}
+        prune_runtime_file_index_cache(now_value, key)
+    return list(paths)
 
 def safe_project_path(root, value):
     rel = str(value or "").replace("\\", "/").lstrip("/")
@@ -1020,9 +1070,10 @@ def inspect_agent(root):
 
 def collect_scheduler(root):
     states = []
-    for p in glob.glob(os.path.join(root, "zlk_cluster", "tmp", "cluster_scheduler", "*_state.json")):
-        data = read_json(p, None)
-        if isinstance(data, dict):
+    for p in scheduler_state_paths(root):
+        source = read_runtime_json_cached(p, None)
+        if isinstance(source, dict):
+            data = dict(source)
             data.setdefault("file", p)
             data["source"] = "hub_agent"
             data["generatedAt"] = now_iso()
