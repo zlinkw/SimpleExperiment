@@ -11488,6 +11488,19 @@ export function renderPanelHtml(): string {
       return ready({ status: currentSummary ? "parsed" : runEvidence ? "run-evidence" : "waiting-run", planFile, planRevision, runEvidence });
     }
 
+    // An artifact produced against a smaller archived set is stale, not missing; without saying so
+    // the row reads "待运行" and the user has to diff two counts that live in different rows.
+    function evidenceCoverageState(artifactPath, coveredCount, archivedCount) {
+      const archived = Number(archivedCount) || 0;
+      const covered = Number(coveredCount) || 0;
+      const hasArtifact = Boolean(meaningfulValue(artifactPath));
+      if (!archived) return { tone: "warn", label: "等待归档", detail: "尚无已归档结果" };
+      if (!hasArtifact) return { tone: "warn", label: "待运行", detail: "尚未生成产物；已归档 " + archived + " 条" };
+      if (covered === archived) return { tone: "good", label: "已生成", detail: "覆盖全部 " + archived + " 条已归档结果" };
+      if (covered > archived) return { tone: "warn", label: "需重跑", detail: "产物含 " + covered + " 条，多于当前已归档 " + archived + " 条；归档已变更" };
+      return { tone: "warn", label: "需重跑", detail: "产物覆盖 " + covered + " 条，已归档 " + archived + " 条；" + (archived - covered) + " 条未纳入" };
+    }
+
     function renderResultEvidenceWorkbench(state, summary) {
       const traceScope = traceRowsForPlanScope(experimentTraceRowsForState(state), state, "selected");
       const traceStats = resultEvidenceTraceStatsForRows(traceScope.rows);
@@ -11545,18 +11558,23 @@ export function renderPanelHtml(): string {
       const archived = traceStats.archived;
       const deleted = traceStats.deleted;
       const parsedRows = traceStats.parsedRows;
+      const qualityCoverage = evidenceCoverageState(qualityGatePath, qualityGateResultCount, effectiveArchivedResultCount);
+      const statisticsCoverage = evidenceCoverageState(statisticsPath, statisticsResultCount, effectiveArchivedResultCount);
+      const paperTableCoverage = evidenceCoverageState(paperTablePath, paperTableResultCount, effectiveArchivedResultCount);
       const rows = [
         resultEvidenceRow("解析与质量", parsed || parsedRows ? (qualityReady && !hasWarningValue(qualityWarnings) ? "good" : "warn") : "warn", parsed || parsedRows ? (qualityReady ? (hasWarningValue(qualityWarnings) ? "有警告" : "已检查") : "待质量门禁") : "待解析", "", [
           ["最近解析", parsed || "-", ""],
           ["失败数", parseFailed, ""],
           ["警告", qualityWarnings, ""],
           ["质量报告", compactPath(qualityGatePath), qualityGatePath],
-          ["检查结果", String(qualityGateResultCount || 0), "仅检查已归档结果"]
+          ["检查结果", String(qualityGateResultCount || 0), "仅检查已归档结果"],
+          ["覆盖", qualityCoverage.detail, "质量门禁覆盖范围与当前已归档结果的对照"]
         ]),
-        resultEvidenceRow("SCI 统计", statisticsReady ? "good" : "warn", statisticsReady ? "已生成" : effectiveArchivedResultCount ? "待运行" : "等待归档", "", [
+        resultEvidenceRow("SCI 统计", statisticsCoverage.tone, statisticsCoverage.label, "", [
           ["更新时间", statisticsUpdatedAt, ""],
           ["统计文件", compactPath(statisticsPath), statisticsPath],
           ["纳入结果", String(statisticsResultCount || 0), "仅统计已归档结果"],
+          ["覆盖", statisticsCoverage.detail, "统计覆盖范围与当前已归档结果的对照"],
           ["配对比较", pairedComparisons.length ? String(pairedComparisons.length) + " 组" : "待生成", pairedComparisonTitle(firstComparison)],
           ["显著性", analysisStatusLabel(pick(summary, ["significanceStatus", "significance_status"], "待检查")), "原始值：" + String(pick(summary, ["significanceStatus", "significance_status"], "待检查"))]
         ], [pptPlotButton("统计绘图", statisticsSourcePath, "SCI 统计")]),
@@ -11574,6 +11592,7 @@ export function renderPanelHtml(): string {
         ]),
         resultEvidenceRow("论文与归档", claimIssueCount ? "warn" : meaningfulValue(claimStatus) && claimStatus !== "待检查" ? "mine" : "warn", claimDisplayStatus, "", [
           ["论文表格", compactPath(paperTablePath), paperTablePath || ""],
+          ["表格覆盖", paperTableCoverage.detail, "论文表格覆盖范围与当前已归档结果的对照"],
           ["论文声明", String(claimCount), ""],
           ["缺证据", String(claimUnsupported), ""],
           ["已归档", String(archived), ""]
