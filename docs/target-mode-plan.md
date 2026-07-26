@@ -15,32 +15,32 @@
 ## 后续优先级
 - [已完成] 1/5 后端：复用 Extension Host 启用 Worker 配置视图。
 - [已完成] 2/5 前端：复用结果区就绪状态与分析产物派生。
-- [待做] 3/5 后端：审计运行态扫描或缓存边界。
+- [已完成] 3/5 后端：复用只读遥测 API 的文件签名缓存。
 - [待做] 4/5 前端：审计渲染索引和重复查找。
 - [待做] 5/5 前后端：执行第十七轮非服务器静态测试。
 
-## 当前批次：autonomous-static-081（已完成）
+## 当前批次：autonomous-static-082（已完成）
 ### 修复点
 
-- 按 Webview 状态与结果摘要引用缓存自动解析就绪状态。
-- 复用当前 Plan 分析产物派生，避免结果签名和结果渲染重复扫描操作记录。
-- 增加缓存复用和状态替换失效测试。
+- 将 GPU、Worker 任务、availability、scheduler 和 trace 只读端点接入有界文件签名缓存。
+- 保留 availability 写入路径的非缓存读取，避免修改缓存对象。
+- 增加复用、文件替换失效和写入路径隔离测试。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 新 Webview 状态或结果摘要替换后必须立即重新派生。
-- Plan revision、运行证据和分析产物路径不得跨状态复用。
+- 原子替换运行态 JSON 后必须按文件签名立即失效。
+- 写入前读取不得返回共享缓存对象，避免未提交修改污染并发 GET。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建和生成文件一致性。
-- [已通过] 结果自动解析、结果刷新、PPT 分析产物和 Plan 统计来源定向测试 12/12。
-- [已通过] Lint 与 `git diff --check`。
+- [已通过] TypeScript 构建、Agent runtime 生成和哈希一致性。
+- [已通过] 只读遥测 API、通用运行态 JSON、HTTP 契约和采样 payload 定向测试 5/5。
+- [已通过] Lint、Python/JavaScript 语法与 `git diff --check`。
 
 ## 本批记录
-- 同一 Webview 状态与结果摘要只派生一次自动解析就绪状态和分析产物路径。
-- 状态或摘要引用替换后立即失效，Plan revision 和运行证据仍由原有版本门禁判定。
+- GPU、Worker 任务、availability、scheduler 和 trace GET 路径复用现有有界文件签名缓存。
+- availability 写入前继续直接读取独立对象；原子替换后缓存按 inode、大小和修改时间失效。
 - 提交记录：本批使用独立 `perf` 提交并推送 `origin/master`；哈希以 Git 历史为准。
 - 真实服务器、Xshell、SimpleSFTP、GPU 和 Agent 通信继续标记为未执行现场验证。

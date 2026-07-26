@@ -1631,7 +1631,7 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
     }
 
 def api_worker_gpu(root):
-    cached = read_json(path_for(root, "gpu_snapshot.json"), {})
+    cached = read_runtime_json_cached(path_for(root, "gpu_snapshot.json"), {})
     if cached:
         return cached
     return {
@@ -1693,8 +1693,9 @@ def api_worker_availability(root):
 def availability_cache_path(root):
     return path_for(root, "worker_availability.json")
 
-def read_availability_cache(root):
-    data = read_json(availability_cache_path(root), {})
+def read_availability_cache(root, cached=False):
+    path = availability_cache_path(root)
+    data = read_runtime_json_cached(path, {}) if cached else read_json(path, {})
     return data if isinstance(data, dict) else {}
 
 def write_availability_batch(root, payload):
@@ -6910,7 +6911,7 @@ def handle_action(root, action, payload, operation_id, op_id):
     return terminal_action(root, action, operation_id, op_id, "failed", f"不支持的操作：{action}")
 
 def api_worker_tasks(root):
-    data = read_json(path_for(root, "worker_task_snapshot.json"), None)
+    data = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), None)
     if isinstance(data, dict):
         return data
     return {"schemaVersion": SCHEMA_VERSION, "tasks": [], "generatedAt": now_iso()}
@@ -7529,7 +7530,7 @@ def serve_http(args):
             if route == "/api/gpu":
                 if mode == "worker_telemetry":
                     return self.send_json(api_worker_gpu(root))
-                return self.send_json(read_json(path_for(root, "gpu_snapshot.json"), {}))
+                return self.send_json(read_runtime_json_cached(path_for(root, "gpu_snapshot.json"), {}))
             if route == "/api/gpu/history":
                 params = parse_qs(parsed.query)
                 server_id = (params.get("serverId") or params.get("server_id") or [""])[0]
@@ -7541,7 +7542,7 @@ def serve_http(args):
             if route in ("/api/worker/availability", "/api/availability"):
                 if mode == "worker_telemetry":
                     return self.send_json(api_worker_availability(root))
-                return self.send_json(read_availability_cache(root))
+                return self.send_json(read_availability_cache(root, True))
             if route == "/api/worker/tasks":
                 return self.send_json(api_worker_tasks(root))
             if route == "/api/worker/commands":
@@ -7550,9 +7551,9 @@ def serve_http(args):
                 since = int((params.get("since") or ["0"])[0] or 0)
                 return self.send_json({"schemaVersion": SCHEMA_VERSION, "commands": read_worker_commands(root, worker_id, since)})
             if route == "/api/scheduler":
-                return self.send_json(read_json(path_for(root, "cluster_snapshot.json"), {}))
+                return self.send_json(read_runtime_json_cached(path_for(root, "cluster_snapshot.json"), {}))
             if route == "/api/traces":
-                return self.send_json(read_json(path_for(root, "experiment_traces_snapshot.json"), {}))
+                return self.send_json(read_runtime_json_cached(path_for(root, "experiment_traces_snapshot.json"), {}))
             if route == "/api/results/summary":
                 params = parse_qs(parsed.query)
                 plan = (params.get("planFile") or params.get("plan") or params.get("selectedPlanId") or [""])[0]
