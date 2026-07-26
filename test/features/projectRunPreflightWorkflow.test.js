@@ -20,8 +20,13 @@ function extractFunction(source, name) {
 }
 
 function loadPlanExecutionStage() {
-  const names = ["planExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "planVersionOperationRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
+  const names = ["planExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
   const sandbox = {
+    PLAN_VERSION_ROWS_CACHE_LIMIT: 64,
+    planVersionRowsCacheState: null,
+    planVersionOperationRowsCache: new Map(),
+    planVersionTaskRowsCache: new Map(),
+    normalizePlanSelectionKey: (value) => String(value || ""),
     planFromContext: (state) => state.plan || {},
     operationRowsForState: (state) => state.operations || [],
     schedulerRowsForState: (state) => state.tasks || [],
