@@ -878,6 +878,10 @@ function renderPanelHtml() {
     .metric-value { color: #0F172A; font-size: 14px; font-weight: 800; }
     .metric-value.statusValue { color: var(--gpu-status-text); }
     .metric-value.statusValue.mine { color: #6D28D9; font-weight: 800; }
+    .metric-value.statusValue.stale { color: #92400E; font-style: italic; }
+    .gpu-row.is-stale { border-style: dashed; }
+    .gpuServerStatusGroup { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .pill.gpuServerFreshness.stale { border-color: #E5C07B; background: #FEF6E7; color: #92400E; }
     .metric-value.warn { color: #D97706; font-weight: 800; }
     .metric-value.danger { color: #DC2626; font-weight: 800; }
     .progress-line { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 10px; align-items: center; }
@@ -7515,8 +7519,12 @@ function renderPanelHtml() {
         const mineBadge = myGpuCount ? '<span class="gpuServerMineBadge">我的任务 ' + myGpuCount + '</span>' : "";
         const statusText = labelStatus(server.status || "未知");
         const serverTitle = gpuMetaLine(server);
+        const freshness = gpuServerFreshnessView(server);
+        const freshnessPill = freshness.label
+          ? '<span class="pill gpuServerFreshness' + (server.staleFromCache ? " stale" : "") + '" title="' + escAttr(freshness.title) + '">' + esc(freshness.label) + '</span>'
+          : "";
         return '<div class="card gpuServer" data-anchor="' + escAttr(treeAnchorId("gpu-server", server.serverId || server.workerId)) + '" title="' + escAttr(serverTitle) + '">' +
-          '<div class="gpuServerHead"><span class="gpuServerTitle">' + esc(displayName) + ' ' + rawId + mineBadge + '</span><span class="gpuServerStatus ' + escAttr(gpuServerStatusClass(server.status)) + '" title="原始服务器状态：' + escAttr(server.status) + '">' + esc(statusText) + '</span></div>' +
+          '<div class="gpuServerHead"><span class="gpuServerTitle">' + esc(displayName) + ' ' + rawId + mineBadge + '</span><span class="gpuServerStatusGroup"><span class="gpuServerStatus ' + escAttr(gpuServerStatusClass(server.status)) + '" title="原始服务器状态：' + escAttr(server.status) + '">' + esc(statusText) + '</span>' + freshnessPill + '</span></div>' +
           '<div class="gpuList">' + rows + '</div>' +
           '</div>';
       }).join("");
@@ -8062,6 +8070,7 @@ function renderPanelHtml() {
       else klass.push("is-free");
       if (highMemory) klass.push("mem-danger");
       if (highLoad) klass.push("load-warning");
+      if (gpu.staleFromCache) klass.push("is-stale");
       const fillClass = highMemory ? "danger" : "";
       const percentClass = highMemory ? " danger" : "";
       const experiment = gpu.runKey && gpu.runKey !== "-" ? ' · 实验 ' + esc(gpu.runKey) : "";
@@ -8096,11 +8105,13 @@ function renderPanelHtml() {
           metric("利用率", valuePercent(gpu.utilizationPercent), highUtilization ? "warn" : "") +
           metric("温度", gpu.temperature === "-" ? "-" : gpu.temperature + " C", dangerTemperature ? "danger" : (hotTemperature ? "warn" : "")) +
           metric("进程", gpu.processCount) +
-          metric("状态", status, "statusValue" + (owner.isMine ? " mine" : "")) +
+          metric("状态", status, "statusValue" + (owner.isMine ? " mine" : "") + (gpu.staleFromCache ? " stale" : "")) +
         '</div>' +
       '</div>';
     }
 
+    // "空闲" read from a stale cache is indistinguishable from a fresh "空闲" unless the
+    // staleness travels with the status itself, so it is appended here rather than only badged.
     function gpuStatusText(gpu, owner, flags) {
       const parts = [];
       if (owner.isMine) {
@@ -8111,6 +8122,7 @@ function renderPanelHtml() {
       }
       if (flags.highMemory) parts.push("高显存");
       if (flags.highLoad) parts.push("高负载");
+      if (gpu && gpu.staleFromCache) parts.push("数据陈旧");
       return parts.join(" · ");
     }
 
@@ -8416,6 +8428,16 @@ function renderPanelHtml() {
 
     function cleanEndpointId(value) {
       return String(value || "").trim().replace(/^worker:/, "");
+    }
+
+    // An "online" card whose snapshot is 40 minutes old must not read the same as a fresh
+    // one, so the relative age sits next to the status instead of only inside the tooltip.
+    function gpuServerFreshnessView(server) {
+      const item = server || {};
+      const raw = hasText(item.updatedAt) ? item.updatedAt : item.uiReceivedAt;
+      if (!hasText(raw)) return { label: "", title: "" };
+      const view = relativeTimestampView(raw, "更新");
+      return { label: view.relative, title: "更新时间：" + view.raw + (item.staleFromCache ? "；沿用上次数据" : "") };
     }
 
     function gpuMetaLine(server) {
