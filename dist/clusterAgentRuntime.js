@@ -2205,36 +2205,57 @@ def run_agent(args):
     append_event(args.project_dir, {"type": "worker_health", "payload": {"status": "stopped"}})
     return 0
 
-def stream_events(args):
-    journal = path_for(args.project_dir, "events.jsonl")
-    pos = 0
-    since = int(args.since or 0)
-    warned_gap = False
-    while True:
-        if os.path.exists(journal):
-            with open(journal, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-                if not warned_gap and lines:
+def read_stream_event_batch(root, since, pos=0, journal_identity=None, warned_gap=False):
+    journal = path_for(root, "events.jsonl")
+    if not os.path.exists(journal):
+        return [], None, pos, since, journal_identity, warned_gap
+    try:
+        with open(journal, "r", encoding="utf-8") as f:
+            stat = os.fstat(f.fileno())
+            current_identity = (int(stat.st_dev), int(stat.st_ino))
+            if (journal_identity is not None and current_identity != journal_identity) or int(stat.st_size) < int(pos or 0):
+                pos = 0
+                warned_gap = False
+            warning = None
+            if not warned_gap:
+                first_line = f.readline()
+                if first_line:
                     try:
-                        first = json.loads(lines[0]).get("seq", 0)
-                        if since and since < int(first) - 1:
-                            print(json.dumps({"schemaVersion": SCHEMA_VERSION, "seq": int(first), "type": "agent_warning", "generatedAt": now_iso(), "source": "hub_agent", "hubId": "hub", "payload": {"code": "journal_gap", "message": "journal gap; read snapshot"}}, ensure_ascii=False, separators=(",", ":")), flush=True)
+                        first = int(json.loads(first_line).get("seq", 0))
+                        if since and since < first - 1:
+                            warning = {"schemaVersion": SCHEMA_VERSION, "seq": first, "type": "agent_warning", "generatedAt": now_iso(), "source": "hub_agent", "hubId": "hub", "payload": {"code": "journal_gap", "message": "journal gap; read snapshot"}}
                     except Exception:
                         pass
                     warned_gap = True
-                f.seek(0)
-                if pos:
-                    f.seek(pos)
-                for line in f:
-                    try:
-                        event = json.loads(line)
-                    except Exception:
-                        continue
-                    if int(event.get("seq") or 0) > since:
-                        handle_read_event_side_effects(args.project_dir, event)
-                        print(json.dumps(event, ensure_ascii=False, separators=(",", ":")), flush=True)
-                        since = int(event.get("seq") or since)
-                pos = f.tell()
+            f.seek(int(pos or 0))
+            events = []
+            for line in f:
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                seq = int(event.get("seq") or 0)
+                if seq > since:
+                    events.append(event)
+                    since = seq
+            return events, warning, f.tell(), since, current_identity, warned_gap
+    except (FileNotFoundError, OSError):
+        return [], None, pos, since, journal_identity, warned_gap
+
+def stream_events(args):
+    pos = 0
+    since = int(args.since or 0)
+    journal_identity = None
+    warned_gap = False
+    while True:
+        events, warning, pos, since, journal_identity, warned_gap = read_stream_event_batch(
+            args.project_dir, since, pos, journal_identity, warned_gap
+        )
+        if warning:
+            print(json.dumps(warning, ensure_ascii=False, separators=(",", ":")), flush=True)
+        for event in events:
+            handle_read_event_side_effects(args.project_dir, event)
+            print(json.dumps(event, ensure_ascii=False, separators=(",", ":")), flush=True)
         time.sleep(0.5)
 
 def iso_age_seconds(value):
