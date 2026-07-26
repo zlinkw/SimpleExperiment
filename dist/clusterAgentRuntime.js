@@ -21,6 +21,8 @@ MAX_EVENT_CURSOR_RECORDS = 64
 EVENT_CURSOR_TTL_SECONDS = 60 * 60
 MAX_OPERATION_JOURNAL_CACHE_RECORDS = 8
 OPERATION_JOURNAL_CACHE_TTL_SECONDS = 10 * 60
+MAX_RUNTIME_JSON_CACHE_RECORDS = 16
+RUNTIME_JSON_CACHE_TTL_SECONDS = 10 * 60
 MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS = 32
 SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS = 10 * 60
 GPU_HISTORY_BUCKET_SECONDS = 60
@@ -134,6 +136,8 @@ EVENT_CURSOR_CACHE = {}
 EVENT_CURSOR_LOCK = threading.Lock()
 OPERATION_JOURNAL_CACHE = {}
 OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
+RUNTIME_JSON_CACHE = {}
+RUNTIME_JSON_CACHE_LOCK = threading.Lock()
 WORKER_ACTION_LOCK = threading.Lock()
 WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
@@ -465,6 +469,50 @@ def read_json(path, fallback):
             return json.load(f)
     except Exception:
         return fallback
+
+def prune_runtime_json_cache(now_value=None, active_key=""):
+    current = time.time() if now_value is None else float(now_value)
+    for key, value in list(RUNTIME_JSON_CACHE.items()):
+        if key == active_key:
+            continue
+        if current - float((value or {}).get("lastUsedAt") or 0) > RUNTIME_JSON_CACHE_TTL_SECONDS:
+            RUNTIME_JSON_CACHE.pop(key, None)
+    if len(RUNTIME_JSON_CACHE) <= MAX_RUNTIME_JSON_CACHE_RECORDS:
+        return
+    ranked = sorted(RUNTIME_JSON_CACHE.items(), key=lambda item: float((item[1] or {}).get("lastUsedAt") or 0), reverse=True)
+    keep = {key for key, _ in ranked[:MAX_RUNTIME_JSON_CACHE_RECORDS]}
+    if active_key:
+        keep.add(active_key)
+    for key in list(RUNTIME_JSON_CACHE.keys()):
+        if key not in keep:
+            RUNTIME_JSON_CACHE.pop(key, None)
+
+def read_runtime_json_cached(path, fallback):
+    key = os.path.abspath(path)
+    try:
+        stat = os.stat(key)
+    except OSError:
+        with RUNTIME_JSON_CACHE_LOCK:
+            RUNTIME_JSON_CACHE.pop(key, None)
+        return fallback
+    signature = (int(stat.st_dev), int(stat.st_ino), int(stat.st_size), int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1000000000))))
+    now_value = time.time()
+    with RUNTIME_JSON_CACHE_LOCK:
+        prune_runtime_json_cache(now_value, key)
+        cached = RUNTIME_JSON_CACHE.get(key)
+        if cached and cached.get("signature") == signature:
+            cached["lastUsedAt"] = now_value
+            return cached.get("value")
+    sentinel = object()
+    value = read_json(key, sentinel)
+    if value is sentinel:
+        with RUNTIME_JSON_CACHE_LOCK:
+            RUNTIME_JSON_CACHE.pop(key, None)
+        return fallback
+    with RUNTIME_JSON_CACHE_LOCK:
+        RUNTIME_JSON_CACHE[key] = {"signature": signature, "value": value, "lastUsedAt": now_value}
+        prune_runtime_json_cache(now_value, key)
+    return value
 
 def safe_project_path(root, value):
     rel = str(value or "").replace("\\", "/").lstrip("/")
@@ -958,10 +1006,10 @@ def acquire_pid(root):
     return True
 
 def inspect_agent(root):
-    health = read_json(path_for(root, "health_snapshot.json"), {})
-    pid_info = read_json(path_for(root, "agent.pid"), {})
-    version_info = read_json(path_for(root, "agent.version"), {})
-    started_info = read_json(path_for(root, "agent.started_at"), {})
+    health = read_runtime_json_cached(path_for(root, "health_snapshot.json"), {})
+    pid_info = read_runtime_json_cached(path_for(root, "agent.pid"), {})
+    version_info = read_runtime_json_cached(path_for(root, "agent.version"), {})
+    started_info = read_runtime_json_cached(path_for(root, "agent.started_at"), {})
     pid = pid_info.get("pid")
     running = bool(pid and is_pid_running(pid))
     return {
@@ -2278,9 +2326,9 @@ def iso_age_seconds(value):
     return max(0, int(time.time() - parsed))
 
 def api_snapshot(root):
-    scheduler = read_json(path_for(root, "cluster_snapshot.json"), {})
-    gpu = read_json(path_for(root, "gpu_snapshot.json"), {})
-    traces = read_json(path_for(root, "experiment_traces_snapshot.json"), {})
+    scheduler = read_runtime_json_cached(path_for(root, "cluster_snapshot.json"), {})
+    gpu = read_runtime_json_cached(path_for(root, "gpu_snapshot.json"), {})
+    traces = read_runtime_json_cached(path_for(root, "experiment_traces_snapshot.json"), {})
     diagnostics = api_diagnostics(root, include_token=False)
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -2295,7 +2343,7 @@ def api_snapshot(root):
     }
 
 def api_health(root, mode="realtime"):
-    snapshot = read_json(path_for(root, "cluster_snapshot.json"), {})
+    snapshot = read_runtime_json_cached(path_for(root, "cluster_snapshot.json"), {})
     health = inspect_agent(root)
     age = iso_age_seconds(snapshot.get("generatedAt"))
     started_at = health.get("startedAt") or now_iso()
