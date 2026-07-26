@@ -1454,6 +1454,9 @@ function renderPanelHtml() {
     let taskSectionViewCacheValue = null;
     let planActiveRunEvidenceCacheState = null;
     let planActiveRunEvidenceCache = new Map();
+    let planVersionRowsCacheState = null;
+    let planVersionOperationRowsCache = new Map();
+    let planVersionTaskRowsCache = new Map();
     let operationViewCacheRows = null;
     let operationViewCacheFilter = "";
     let operationViewCacheValue = null;
@@ -1567,6 +1570,7 @@ function renderPanelHtml() {
     const INSPECTOR_ACTION_RENDER_LIMIT = 10;
     const INSPECTOR_CUSTOM_ACTION_RENDER_LIMIT = 6;
     const INSPECTOR_READINESS_RENDER_LIMIT = 8;
+    const PLAN_VERSION_ROWS_CACHE_LIMIT = 64;
     const NATIVE_TITLE_MAX_CHARS = 56;
     const LOW_VALUE_NATIVE_TITLES = new Set([
       "详情", "工作流", "对象状态", "通信矩阵", "通信拓扑", "调度参数", "服务器管理",
@@ -9086,8 +9090,7 @@ function renderPanelHtml() {
     }
 
     function terminalPlanTaskExecutionStage(state, planFile, planRevision, planUpdatedAt) {
-      const matching = schedulerRowsForState(state || {}).filter((row) => samePlanSelection((row || {}).planFile || (row || {}).plan || "", planFile)
-        && taskMatchesPlanVersion(row, planRevision, planUpdatedAt));
+      const matching = planVersionTaskRows(state, planFile, planRevision, planUpdatedAt);
       if (!matching.length || matching.some((row) => !taskTerminalStatus((row || {}).status))) return undefined;
       if (matching.some((row) => taskFailureLikeStatus((row || {}).status))) {
         return { phase: "review", status: "调度任务均已结束且存在失败、停止或取消记录；先查看任务并按需重试", label: "查看任务", section: "tasks", anchor: "tasks" };
@@ -9127,7 +9130,38 @@ function renderPanelHtml() {
     }
 
     function planVersionOperationRows(state, planFile, planRevision, planUpdatedAt) {
-      return operationRowsForState(state || {}).filter((row) => samePlanSelection(row.planFile, planFile) && operationMatchesPlanVersion(row, planRevision, planUpdatedAt));
+      ensurePlanVersionRowsCache(state);
+      const cacheKey = planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt);
+      if (planVersionOperationRowsCache.has(cacheKey)) return planVersionOperationRowsCache.get(cacheKey);
+      const rows = operationRowsForState(state || {}).filter((row) => samePlanSelection(row.planFile, planFile) && operationMatchesPlanVersion(row, planRevision, planUpdatedAt));
+      cachePlanVersionRows(planVersionOperationRowsCache, cacheKey, rows);
+      return rows;
+    }
+
+    function planVersionTaskRows(state, planFile, planRevision, planUpdatedAt) {
+      ensurePlanVersionRowsCache(state);
+      const cacheKey = planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt);
+      if (planVersionTaskRowsCache.has(cacheKey)) return planVersionTaskRowsCache.get(cacheKey);
+      const rows = schedulerRowsForState(state || {}).filter((row) => samePlanSelection((row || {}).planFile || (row || {}).plan || "", planFile)
+        && taskMatchesPlanVersion(row, planRevision, planUpdatedAt));
+      cachePlanVersionRows(planVersionTaskRowsCache, cacheKey, rows);
+      return rows;
+    }
+
+    function ensurePlanVersionRowsCache(state) {
+      if (planVersionRowsCacheState === state) return;
+      planVersionRowsCacheState = state;
+      planVersionOperationRowsCache = new Map();
+      planVersionTaskRowsCache = new Map();
+    }
+
+    function planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt) {
+      return [normalizePlanSelectionKey(planFile), String(planRevision || ""), Number.isFinite(planUpdatedAt) ? String(planUpdatedAt) : ""].join("|");
+    }
+
+    function cachePlanVersionRows(cache, key, rows) {
+      if (cache.size >= PLAN_VERSION_ROWS_CACHE_LIMIT) cache.clear();
+      cache.set(key, rows);
     }
 
     function operationMatchesPlanVersion(row, planRevision, planUpdatedAt) {
