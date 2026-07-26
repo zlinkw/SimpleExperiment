@@ -1502,6 +1502,8 @@ export function renderPanelHtml(): string {
     let gpuViewModelCacheValue = null;
     let gpuWorkerLookupCacheSource = null;
     let gpuWorkerLookupCacheValue = null;
+    let gpuServerWorkerMatchCacheLookup = null;
+    let gpuServerWorkerMatchCache = new WeakMap();
     let gpuOwnerStateCacheOwnerSig = "";
     let gpuOwnerStateCache = new WeakMap();
     let gpuHistoryOverviewOpen = false;
@@ -1556,6 +1558,7 @@ export function renderPanelHtml(): string {
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_PLAN_ROWS_FOR_LOOKUP = [];
+    const GPU_SERVER_UNCONFIGURED_INDEX = 10000;
     const EMPTY_SIMPLE_SFTP_INTEGRATION = {};
     const DEFAULT_SIMPLE_SFTP_READINESS = { ready: true, message: "" };
     const EMPTY_SERVER_STATUS_ROWS = [];
@@ -8283,11 +8286,25 @@ export function renderPanelHtml(): string {
       });
     }
 
-    function gpuServerConfigIndex(state, server) {
-      const aliases = gpuServerAliases(server);
+    function gpuServerWorkerMatch(state, server) {
       const lookup = gpuWorkerLookupForState(state || {});
-      const found = aliases.map((alias) => lookup.get(alias)).find(Boolean);
-      return found ? found.index : 10000;
+      if (lookup !== gpuServerWorkerMatchCacheLookup) {
+        gpuServerWorkerMatchCacheLookup = lookup;
+        gpuServerWorkerMatchCache = new WeakMap();
+      }
+      const cacheable = Boolean(server) && typeof server === "object";
+      if (cacheable) {
+        const cached = gpuServerWorkerMatchCache.get(server);
+        if (cached) return cached;
+      }
+      const found = gpuServerAliases(server || {}).map((alias) => lookup.get(alias)).find(Boolean);
+      const match = { index: found ? found.index : GPU_SERVER_UNCONFIGURED_INDEX, worker: (found && found.worker) || null };
+      if (cacheable) gpuServerWorkerMatchCache.set(server, match);
+      return match;
+    }
+
+    function gpuServerConfigIndex(state, server) {
+      return gpuServerWorkerMatch(state, server).index;
     }
 
     function gpuServerSortLabel(state, server) {
@@ -8304,9 +8321,7 @@ export function renderPanelHtml(): string {
     }
 
     function gpuServerDisplayName(state, server) {
-      const aliases = gpuServerAliases(server);
-      const lookup = gpuWorkerLookupForState(state || {});
-      const found = aliases.map((alias) => lookup.get(alias)).find(Boolean)?.worker;
+      const found = gpuServerWorkerMatch(state, server).worker;
       return (found && (found.displayName || found.id)) || server.displayName || server.serverId || server.workerId || "Worker";
     }
 
