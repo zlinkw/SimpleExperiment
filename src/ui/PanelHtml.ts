@@ -1585,6 +1585,24 @@ export function renderPanelHtml(): string {
     const ARCHIVED_PLAN_RENDER_LIMIT = 24;
     const EMPTY_WORKER_TUNNELS_FOR_ALIAS = [];
     const EMPTY_XSHELL_SESSIONS = [];
+    const FEATURE_READINESS_GROUPS = [
+      ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
+      ["计划运行链路", ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]],
+      ["Worker 手动控制", ["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts"]],
+      ["结果证据闭环", ["parseResults", "refreshResults", "excludeResults", "checkOutputContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "exportPlottingContract", "plotResultsToPpt"]],
+      ["诊断与恢复", ["selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail", "reconcileDeletions"]]
+    ];
+    const TARGET_MATRIX_BASELINE_ROWS = [
+      ["UI 中文与工作流", "partial", "持续优化", ["test/ui/*.test.js", "README", "入口不删减"]],
+      ["Xshell 本地隧道边界", "done", "已实现+测试", ["127.0.0.1", "tunnel tests", "lint"]],
+      ["通信风控节奏", "done", "已实现+测试", ["60s+jitter", "requestBudget", "realtimeReconnect"]],
+      ["任务按钮终态", "done", "已实现+测试", ["clientActionId", "taskActionLayout", "operationTimeline"]]
+    ];
+    const TARGET_MATRIX_TRAILING_ROWS = [
+      ["旧隧道内部遗留", "later", "最后阶段", ["P3", "迁移测试", "兼容读取"]]
+    ];
+    const TARGET_MATRIX_PROJECT_EVIDENCE = ["planActionWorkflow", "Results", "ProjectAdapterTemplates"];
+    const TARGET_MATRIX_SMOKE_EVIDENCE = ["检测全部", "GPU 状态", "任务/结果/归档"];
     const SECTION_SIGNATURE_ROW_LIMIT = 80;
     const GPU_SERVER_RENDER_LIMIT = 24;
     const GPU_ROW_PER_SERVER_RENDER_LIMIT = 16;
@@ -11897,14 +11915,11 @@ export function renderPanelHtml(): string {
       const version = String(state.extensionVersion || "-");
       const rows = [
         ["当前插件版本", "done", version, ["package.json", "VSIX", version]],
-        ["UI 中文与工作流", "partial", "持续优化", ["test/ui/*.test.js", "README", "入口不删减"]],
-        ["Xshell 本地隧道边界", "done", "已实现+测试", ["127.0.0.1", "tunnel tests", "lint"]],
-        ["通信风控节奏", "done", "已实现+测试", ["60s+jitter", "requestBudget", "realtimeReconnect"]],
-        ["任务按钮终态", "done", "已实现+测试", ["clientActionId", "taskActionLayout", "operationTimeline"]],
-        ["项目自动接入", project.adapterConfig ? "done" : "partial", project.adapterConfig ? "已接入" : "可生成", ["planActionWorkflow", "Results", "ProjectAdapterTemplates"]],
+        ...TARGET_MATRIX_BASELINE_ROWS,
+        ["项目自动接入", project.adapterConfig ? "done" : "partial", project.adapterConfig ? "已接入" : "可生成", TARGET_MATRIX_PROJECT_EVIDENCE],
         ["真实 Agent 能力", endpoints.actions ? "done" : "partial", endpoints.actions ? "可用" : "待检测/升级", ["capabilities", health || "未检测", "Agent"]],
-        ["真实集群烟测", "partial", health === "agent_ok" ? "Hub 可达，待现场验收" : "待现场验收", ["检测全部", "GPU 状态", "任务/结果/归档"]],
-        ["旧隧道内部遗留", "later", "最后阶段", ["P3", "迁移测试", "兼容读取"]]
+        ["真实集群烟测", "partial", health === "agent_ok" ? "Hub 可达，待现场验收" : "待现场验收", TARGET_MATRIX_SMOKE_EVIDENCE],
+        ...TARGET_MATRIX_TRAILING_ROWS
       ];
       setHtmlIfChanged("targetCompletionMatrix",
         '<div class="targetMatrix">' +
@@ -11922,15 +11937,8 @@ export function renderPanelHtml(): string {
     }
 
     function renderFeatureReadiness(state) {
-      const groups = [
-        ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
-        ["计划运行链路", ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]],
-        ["Worker 手动控制", ["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts"]],
-        ["结果证据闭环", ["parseResults", "refreshResults", "excludeResults", "checkOutputContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "exportPlottingContract", "plotResultsToPpt"]],
-        ["诊断与恢复", ["selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail", "reconcileDeletions"]]
-      ];
       const audit = cachedWebviewDomCommandAudit(state);
-      const rowsHtml = featureReadinessRowsHtmlForState(state, groups);
+      const rowsHtml = featureReadinessRowsHtmlForState(state, FEATURE_READINESS_GROUPS);
       setHtmlIfChanged("featureReadiness",
         '<div class="featureReadiness">' +
           '<div class="toolbar"><button id="refreshDomCommandAudit" class="secondary" title="按钮审计">刷新按钮审计</button><span class="muted">' + esc(audit.stale ? "审计缓存待刷新" : (audit.updatedAt ? "审计已缓存" : "审计尚未刷新")) + '</span></div>' +
@@ -12108,12 +12116,15 @@ export function renderPanelHtml(): string {
       const endpoints = caps.endpoints || {};
       const realtimeRaw = endpoints.websocketEvents ? "WebSocket" : (endpoints.sseEvents ? "SSE" : "snapshot");
       const realtime = labelStatus(realtimeRaw);
+      const fileList = hasCapability(state, "endpoints.fileList");
+      const fileDownload = hasCapability(state, "endpoints.fileDownload");
+      const fileUploadChunk = hasCapability(state, "endpoints.fileUploadChunk");
       const items = [
         capabilityItem("动作接口", endpoints.actions ? "可用" : "需升级", endpoints.actions),
         capabilityItem("实时通道", realtime, Boolean(endpoints.websocketEvents || endpoints.sseEvents), "原始通道：" + realtimeRaw),
-        capabilityItem("文件列表", hasCapability(state, "endpoints.fileList") ? "可用" : "需升级", hasCapability(state, "endpoints.fileList")),
-        capabilityItem("下载", hasCapability(state, "endpoints.fileDownload") ? "可用" : "需升级", hasCapability(state, "endpoints.fileDownload")),
-        capabilityItem("上传", hasCapability(state, "endpoints.fileUploadChunk") ? "可用" : "需升级", hasCapability(state, "endpoints.fileUploadChunk"))
+        capabilityItem("文件列表", fileList ? "可用" : "需升级", fileList),
+        capabilityItem("下载", fileDownload ? "可用" : "需升级", fileDownload),
+        capabilityItem("上传", fileUploadChunk ? "可用" : "需升级", fileUploadChunk)
       ];
       setHtmlIfChanged("capabilities", '<div class="capabilityBar">' + items.join("") + '</div>');
     }
