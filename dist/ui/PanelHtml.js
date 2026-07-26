@@ -1537,6 +1537,8 @@ function renderPanelHtml() {
     let overviewProjectReadinessCacheValue = null;
     let serverStatusIndexCacheSources = null;
     let serverStatusIndexCacheValue = null;
+    let xshellSessionIndexCacheSource = null;
+    let xshellSessionIndexCacheValue = null;
     let configInspectorIndexCacheSource = null;
     let configInspectorIndexCacheValue = null;
     let configParamFilterTimer = 0;
@@ -1585,6 +1587,7 @@ function renderPanelHtml() {
     const OPERATION_RENDER_LIMIT = 24;
     const ARCHIVED_PLAN_RENDER_LIMIT = 24;
     const EMPTY_WORKER_TUNNELS_FOR_ALIAS = [];
+    const EMPTY_XSHELL_SESSIONS = [];
     const SECTION_SIGNATURE_ROW_LIMIT = 80;
     const GPU_SERVER_RENDER_LIMIT = 24;
     const GPU_ROW_PER_SERVER_RENDER_LIMIT = 16;
@@ -6670,13 +6673,29 @@ function renderPanelHtml() {
       return attrs.join("");
     }
 
+    function sessionPathKey(value) {
+      return value ? String(value).replace(/\\\\/g, "/").toLowerCase() : "";
+    }
+    function xshellSessionPathIndex() {
+      const rows = (((lastState || {}).xshellSessions || {}).sessions);
+      const source = Array.isArray(rows) ? rows : EMPTY_XSHELL_SESSIONS;
+      if (source === xshellSessionIndexCacheSource && xshellSessionIndexCacheValue) return xshellSessionIndexCacheValue;
+      const index = new Map();
+      source.forEach((session) => {
+        const key = sessionPathKey(session && session.filePath);
+        if (key && !index.has(key)) index.set(key, session);
+      });
+      xshellSessionIndexCacheSource = source;
+      xshellSessionIndexCacheValue = index;
+      return index;
+    }
     function sessionForPath(value) {
-      const sessions = (((lastState || {}).xshellSessions || {}).sessions || []);
-      return sessions.find((session) => samePath(session.filePath, value));
+      const key = sessionPathKey(value);
+      return key ? xshellSessionPathIndex().get(key) : undefined;
     }
     function samePath(a, b) {
       if (!a || !b) return false;
-      return String(a).replace(/\\\\/g, "/").toLowerCase() === String(b).replace(/\\\\/g, "/").toLowerCase();
+      return sessionPathKey(a) === sessionPathKey(b);
     }
     function sessionLabel(session) {
       const forward = (session.forwards || []).map(forwardPairLabel).join("; ");
