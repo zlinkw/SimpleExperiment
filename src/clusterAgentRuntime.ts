@@ -616,6 +616,8 @@ RESULT_PREFIX_PAIRS = {
 }
 
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
+MAX_RESULT_CANDIDATE_CACHE_RECORDS = 512
+RESULT_CANDIDATE_CACHE = {}
 
 NON_RESULT_METADATA_FILES = {
     "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json",
@@ -4061,6 +4063,19 @@ def yaml_policy_map(text, outputs, key):
     return out
 
 def normalize_result_candidate(value):
+    key = value if isinstance(value, str) else None
+    if key is not None:
+        cached = RESULT_CANDIDATE_CACHE.get(key)
+        if cached is not None:
+            return cached
+    normalized = compute_result_candidate(value)
+    if key is not None:
+        if len(RESULT_CANDIDATE_CACHE) >= MAX_RESULT_CANDIDATE_CACHE_RECORDS:
+            RESULT_CANDIDATE_CACHE.clear()
+        RESULT_CANDIDATE_CACHE[key] = normalized
+    return normalized
+
+def compute_result_candidate(value):
     text = str(value or "").strip().strip("'\"").replace("\\", "/").lstrip("/")
     if not text or text.lower() in ("none", "null", "false"):
         return ""
