@@ -7407,18 +7407,36 @@ export function renderPanelHtml(): string {
       return { ready: endpoint.ready, status, detail: endpoint.summary || "Hub/Worker Agent 状态未知" };
     }
 
-    function renderPublishFlow(state) {
+    // A step that failed and a step that has not started yet used to render identically, and the
+    // flow offered no way to act on the first blocker; both are resolved here.
+    function publishFlowSteps(state) {
       const sync = (state || {}).codeSync || {};
-      const hubReady = syncStatusOk(sync.hub);
-      const workerReady = syncStatusOk(sync.workers);
-      const hasFingerprint = hasText(sync.fingerprint);
       const agent = publishAgentReadiness(state);
-      return '<div class="onboardingFlow" title="发布同步">' +
-        onboardingStep("1. 本地代码", hasFingerprint, hasFingerprint ? "已生成指纹" : "待生成", "代码指纹 " + compactIdentifier(sync.fingerprint || "-")) +
-        onboardingStep("2. 同步 Hub", hubReady, labelStatus(sync.hub || "待同步"), "Hub 原始状态：" + (sync.hub || "待同步")) +
-        onboardingStep("3. 同步 Worker", workerReady, labelStatus(sync.workers || "待同步"), "Worker 原始状态：" + (sync.workers || "待同步")) +
-        onboardingStep("4. Agent", agent.ready, agent.status, agent.detail) +
-      '</div>';
+      const hasFingerprint = hasText(sync.fingerprint);
+      return [
+        { title: "1. 本地代码", ok: hasFingerprint, status: hasFingerprint ? "已生成指纹" : "待生成", detail: "代码指纹 " + compactIdentifier(sync.fingerprint || "-"), failed: false, command: "syncGithub", action: "同步 GitHub" },
+        { title: "2. 同步 Hub", ok: syncStatusOk(sync.hub), status: labelStatus(sync.hub || "待同步"), detail: "Hub 原始状态：" + (sync.hub || "待同步"), failed: syncStatusFailure(sync.hub), command: "uploadProjectToHub", action: "上传到 Hub" },
+        { title: "3. 同步 Worker", ok: syncStatusOk(sync.workers), status: labelStatus(sync.workers || "待同步"), detail: "Worker 原始状态：" + (sync.workers || "待同步"), failed: syncStatusFailure(sync.workers), command: "distributeCodeToWorkers", action: "分发到 Worker" },
+        { title: "4. Agent", ok: agent.ready, status: agent.status, detail: agent.detail, failed: false, command: "deployLatestAgent", action: "部署最新 Agent" }
+      ];
+    }
+
+    function publishFlowBlocker(steps) {
+      return asArray(steps).find((step) => step && (step.failed || !step.ok)) || null;
+    }
+
+    function renderPublishFlow(state) {
+      const steps = publishFlowSteps(state);
+      const blocker = publishFlowBlocker(steps);
+      const blockerIndex = blocker ? steps.indexOf(blocker) : -1;
+      const cards = steps.map((step, index) => onboardingStep(step.title, step.ok, step.status, step.detail, {
+        pending: !step.ok && !step.failed && blockerIndex >= 0 && index > blockerIndex,
+        current: index === blockerIndex && !step.failed
+      })).join("");
+      const next = blocker
+        ? projectNextAction((blocker.failed ? "修复" : "完成") + blocker.title.replace(/^\d+\.\s*/, "") + "：" + blocker.status, blocker.action, blocker.command)
+        : '<div class="projectQuickNext"><span>下一步</span><b>发布同步链路已就绪，可提交计划</b></div>';
+      return '<div class="onboardingFlow" title="发布同步">' + cards + '</div>' + next;
     }
 
     function syncStatusOk(value) {

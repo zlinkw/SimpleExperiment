@@ -50,7 +50,8 @@ test("publish workflow reports actual Hub and Worker Agent readiness", () => {
 test("publish workflow rerenders on endpoint changes and removes permanent Agent warning", () => {
   assert.match(panel, /section === "sync"[^\n]+data\.probe, data\.workerProbes/);
   assert.match(panel, /renderPublishFlow\(state\)/);
-  assert.match(panel, /onboardingStep\("4\. Agent", agent\.ready, agent\.status, agent\.detail\)/);
+  assert.match(panel, /\{ title: "4\. Agent", ok: agent\.ready, status: agent\.status, detail: agent\.detail,/);
+  assert.match(panel, /onboardingStep\(step\.title, step\.ok, step\.status, step\.detail,/);
   assert.doesNotMatch(panel, /onboardingStep\("4\. 部署 Agent", false, "按需执行"/);
   assert.match(panel, /产物入口：归档、检查同步清单、删除、校准/);
 });
