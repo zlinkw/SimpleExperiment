@@ -16,31 +16,31 @@
 - [已完成] 1/5 后端：复用 Extension Host 启用 Worker 配置视图。
 - [已完成] 2/5 前端：复用结果区就绪状态与分析产物派生。
 - [已完成] 3/5 后端：复用只读遥测 API 的文件签名缓存。
-- [待做] 4/5 前端：审计渲染索引和重复查找。
+- [已完成] 4/5 前端：复用 Plan 元数据查找索引。
 - [待做] 5/5 前后端：执行第十七轮非服务器静态测试。
 
-## 当前批次：autonomous-static-082（已完成）
+## 当前批次：autonomous-static-083（已完成）
 ### 修复点
 
-- 将 GPU、Worker 任务、availability、scheduler 和 trace 只读端点接入有界文件签名缓存。
-- 保留 availability 写入路径的非缓存读取，避免修改缓存对象。
-- 增加复用、文件替换失效和写入路径隔离测试。
+- 按活动 Plan 数组引用建立文件路径与 Plan ID 查找索引。
+- 让结果、任务、运行门禁和项目视图复用索引，避免每次查找线性扫描。
+- 增加首项语义、索引复用和数组替换失效测试。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 原子替换运行态 JSON 后必须按文件签名立即失效。
-- 写入前读取不得返回共享缓存对象，避免未提交修改污染并发 GET。
+- 同一键重复出现时必须保持原有“首项优先”语义。
+- `plans` 与 `recentPlans` 来源切换或数组替换后必须立即重建索引。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建、Agent runtime 生成和哈希一致性。
-- [已通过] 只读遥测 API、通用运行态 JSON、HTTP 契约和采样 payload 定向测试 5/5。
-- [已通过] Lint、Python/JavaScript 语法与 `git diff --check`。
+- [已通过] TypeScript 构建和生成文件一致性。
+- [已通过] Plan 查找、运行门禁、任务、结果、trace 和项目就绪视图定向测试 29/29。
+- [已通过] Lint 与 `git diff --check`。
 
 ## 本批记录
-- GPU、Worker 任务、availability、scheduler 和 trace GET 路径复用现有有界文件签名缓存。
-- availability 写入前继续直接读取独立对象；原子替换后缓存按 inode、大小和修改时间失效。
+- 同一活动 Plan 数组只建立一次文件路径与 Plan ID 索引；重复键继续保留数组首项。
+- `plans`、`recentPlans` 来源或数组引用替换后立即重建，所有既有 `planFromContext` 消费者自动受益。
 - 提交记录：本批使用独立 `perf` 提交并推送 `origin/master`；哈希以 Git 历史为准。
 - 真实服务器、Xshell、SimpleSFTP、GPU 和 Agent 通信继续标记为未执行现场验证。

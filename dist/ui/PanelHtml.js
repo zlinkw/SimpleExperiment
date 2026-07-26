@@ -1485,6 +1485,8 @@ function renderPanelHtml() {
     let resultEvidenceWorkbenchCacheHtml = "";
     let claimEvidencePreviewHtmlCacheKey = "";
     let claimEvidencePreviewHtmlCache = "";
+    let planLookupIndexCacheSource = null;
+    let planLookupIndexCacheValue = new Map();
     let enabledWorkerTunnelsCacheSource = null;
     let enabledWorkerTunnelsCacheValue = [];
     let workerAliasMapCacheSource = null;
@@ -1554,6 +1556,7 @@ function renderPanelHtml() {
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
+    const EMPTY_PLAN_ROWS_FOR_LOOKUP = [];
     const EMPTY_SERVER_STATUS_ROWS = [];
     const EMPTY_TASK_SELECTION_VALUES = [];
     const EMPTY_TASK_SELECTION_SET = new Set();
@@ -12268,15 +12271,35 @@ function renderPanelHtml() {
     function hasSelectedPlan(state, context) {
       return Boolean((context && (context.planFile || context.planId)) || state.planFileInput || ((state.selection || {}).selectedPlanId));
     }
+    function planLookupIndexForState(state) {
+      const data = state || {};
+      const source = data.plans && data.plans.length
+        ? data.plans
+        : (Array.isArray(data.recentPlans) ? data.recentPlans : EMPTY_PLAN_ROWS_FOR_LOOKUP);
+      if (source === planLookupIndexCacheSource) return planLookupIndexCacheValue;
+      const index = new Map();
+      source.forEach((plan, rowIndex) => {
+        if (!plan || typeof plan !== "object") return;
+        const file = String(plan.file || plan.planFile || plan.path || "");
+        const id = String(plan.planId || file || "");
+        [file, id].filter(Boolean).forEach((key) => {
+          if (!index.has(key)) index.set(key, { plan, rowIndex });
+        });
+      });
+      planLookupIndexCacheSource = source;
+      planLookupIndexCacheValue = index;
+      return index;
+    }
     function planFromContext(state, context) {
       const planFile = String((context && context.planFile) || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");
       const planId = String((context && context.planId) || planFile || "");
-      const planRows = state.plans && state.plans.length ? state.plans : state.recentPlans;
-      return asArray(planRows || []).find((plan) => {
-        const file = String(plan.file || plan.planFile || plan.path || "");
-        const id = String(plan.planId || file || "");
-        return Boolean((planFile && (file === planFile || id === planFile)) || (planId && (id === planId || file === planId)));
-      });
+      if (!planFile && !planId) return undefined;
+      const index = planLookupIndexForState(state);
+      const fileMatch = planFile ? index.get(planFile) : null;
+      const idMatch = planId ? index.get(planId) : null;
+      if (!fileMatch) return idMatch && idMatch.plan;
+      if (!idMatch) return fileMatch.plan;
+      return (fileMatch.rowIndex <= idMatch.rowIndex ? fileMatch : idMatch).plan;
     }
     function planMayBeOmittedFromWebview(state, context) {
       const planFile = String((context && (context.planFile || context.planId)) || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");
