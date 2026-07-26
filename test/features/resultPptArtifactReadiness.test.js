@@ -48,6 +48,9 @@ function loadArtifactHelper() {
     planVersionRowsCacheState: null,
     planVersionOperationRowsCache: new Map(),
     planVersionTaskRowsCache: new Map(),
+    resultAnalysisArtifactsCacheState: null,
+    resultAnalysisArtifactsCacheSummary: null,
+    resultAnalysisArtifactsCacheValue: null,
     normalizePlanSelectionKey: (value) => String(value || "").toLowerCase(),
   };
   vm.createContext(sandbox);
@@ -139,4 +142,14 @@ test("analysis artifact extraction scans operation rows once", () => {
   assert.match(helper, /for \(const row of asArray\(rows\)\)/);
   assert.doesNotMatch(helper, /\.find\(/);
   assert.doesNotMatch(panel, /function latestResultAnalysisArtifactPath\(/);
+});
+
+test("analysis artifact derivation reuses state and summary references", () => {
+  const artifacts = loadArtifactHelper();
+  const state = { planFileInput: "experiments/plans/current.yaml", operations: [] };
+  const summary = { planFile: "experiments/plans/current.yaml", plottingContractPath: "current/plotting.json" };
+  const first = artifacts(state, summary);
+  assert.equal(artifacts(state, summary), first);
+  assert.notEqual(artifacts({ ...state }, summary), first);
+  assert.notEqual(artifacts(state, { ...summary }), first);
 });

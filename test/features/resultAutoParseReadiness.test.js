@@ -19,8 +19,11 @@ function extractFunction(name) {
   throw new Error(`${name} incomplete`);
 }
 
-function loadReadiness() {
+function loadReadiness(raw = false) {
   const sandbox = {
+    resultAutoParseReadinessCacheState: null,
+    resultAutoParseReadinessCacheSummary: null,
+    resultAutoParseReadinessCacheValue: null,
     meaningfulValue(value) {
       const text = String(value === undefined || value === null ? "" : value).trim();
       return text && text !== "-" ? text : "";
@@ -47,6 +50,7 @@ function loadReadiness() {
   vm.runInContext(`${extractFunction("currentPlanRevisionRunEvidenceForState")}
 ${extractFunction("resultAutoParseReadinessForState")}
 this.readiness = resultAutoParseReadinessForState;`, sandbox);
+  if (raw) return sandbox;
   return (state, summary) => JSON.parse(JSON.stringify(sandbox.readiness(state, summary)));
 }
 
@@ -73,3 +77,13 @@ test("results section refreshes when Plan or scheduler evidence changes", () => 
   assert.match(panel, /resultEvidenceWorkbenchCacheKeyFor\(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness\)/);
 });
 
+test("result auto parse readiness reuses one derivation per state and summary", () => {
+  const sandbox = loadReadiness(true);
+  const plan = { planFile: "experiments/plans/demo.yaml", revision: "rev2", updatedAt: "2026-07-18T01:00:00.000Z" };
+  const state = { plans: [plan], planFileInput: plan.planFile, operations: [], schedulerStates: [] };
+  const summary = {};
+  const first = sandbox.readiness(state, summary);
+  assert.equal(sandbox.readiness(state, summary), first);
+  assert.notEqual(sandbox.readiness({ ...state }, summary), first);
+  assert.notEqual(sandbox.readiness(state, { ...summary }), first);
+});

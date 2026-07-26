@@ -1475,6 +1475,12 @@ function renderPanelHtml() {
     let resultEvidenceTraceStatsCacheValue = null;
     let currentPlanWorkflowResultCacheState = null;
     let currentPlanWorkflowResultCache = new Map();
+    let resultAutoParseReadinessCacheState = null;
+    let resultAutoParseReadinessCacheSummary = null;
+    let resultAutoParseReadinessCacheValue = null;
+    let resultAnalysisArtifactsCacheState = null;
+    let resultAnalysisArtifactsCacheSummary = null;
+    let resultAnalysisArtifactsCacheValue = null;
     let resultEvidenceWorkbenchCacheKey = "";
     let resultEvidenceWorkbenchCacheHtml = "";
     let claimEvidencePreviewHtmlCacheKey = "";
@@ -11300,10 +11306,19 @@ function renderPanelHtml() {
     function resultAutoParseReadinessForState(state, summary) {
       const data = state || {};
       const item = summary || {};
+      if (resultAutoParseReadinessCacheState === data && resultAutoParseReadinessCacheSummary === item && resultAutoParseReadinessCacheValue) {
+        return resultAutoParseReadinessCacheValue;
+      }
+      const ready = (value) => {
+        resultAutoParseReadinessCacheState = data;
+        resultAutoParseReadinessCacheSummary = item;
+        resultAutoParseReadinessCacheValue = value;
+        return value;
+      };
       const planFile = meaningfulValue(data.planFileInput || (data.selection || {}).selectedPlanId || pick(item, ["planFile", "plan_file"], ""));
-      if (!planFile) return { status: "no-plan", planFile: "", planRevision: "", runEvidence: false };
+      if (!planFile) return ready({ status: "no-plan", planFile: "", planRevision: "", runEvidence: false });
       const plan = planFromContext(data, { planFile }) || {};
-      if (!Object.keys(plan).length) return { status: "plan-unavailable", planFile, planRevision: "", runEvidence: false };
+      if (!Object.keys(plan).length) return ready({ status: "plan-unavailable", planFile, planRevision: "", runEvidence: false });
       const planRevision = String(plan.revision || "");
       const planUpdatedAt = Date.parse(String(plan.updatedAt || ""));
       const summaryPlanFile = meaningfulValue(pick(item, ["planFile", "plan_file"], ""));
@@ -11313,7 +11328,7 @@ function renderPanelHtml() {
         && samePlanSelection(summaryPlanFile, planFile)
         && resultSummaryMatchesPlanVersion(item, planRevision, planUpdatedAt));
       const runEvidence = currentPlanRevisionRunEvidenceForState(data, planFile, plan);
-      return { status: currentSummary ? "parsed" : runEvidence ? "run-evidence" : "waiting-run", planFile, planRevision, runEvidence };
+      return ready({ status: currentSummary ? "parsed" : runEvidence ? "run-evidence" : "waiting-run", planFile, planRevision, runEvidence });
     }
 
     function renderResultEvidenceWorkbench(state, summary) {
@@ -11645,6 +11660,9 @@ function renderPanelHtml() {
     function resultAnalysisArtifactsForState(state, summary) {
       const data = state || {};
       const item = summary || {};
+      if (resultAnalysisArtifactsCacheState === data && resultAnalysisArtifactsCacheSummary === item && resultAnalysisArtifactsCacheValue) {
+        return resultAnalysisArtifactsCacheValue;
+      }
       const planFile = meaningfulValue(data.planFileInput || (data.selection || {}).selectedPlanId || pick(item, ["planFile", "plan_file"], ""));
       const summaryPlanFile = meaningfulValue(pick(item, ["planFile", "plan_file"], ""));
       const plan = planFromContext(data, { planFile }) || {};
@@ -11654,12 +11672,16 @@ function renderPanelHtml() {
       const summaryMatchesVersion = resultSummaryMatchesPlanVersion(item, planRevision, planUpdatedAt);
       const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
       const artifacts = latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt);
-      return {
+      const value = {
         plottingContractPath: (summaryMatchesPlan && summaryMatchesVersion ? meaningfulValue(pick(item, ["plottingContractPath", "plotting_contract_path"], "")) : "") || artifacts.plottingContractPath,
         caseLevelPath: artifacts.caseLevelPath,
         recoveredPlanReportPath: artifacts.recoveredPlanReportPath,
         anomalyPath: artifacts.anomalyPath
       };
+      resultAnalysisArtifactsCacheState = data;
+      resultAnalysisArtifactsCacheSummary = item;
+      resultAnalysisArtifactsCacheValue = value;
+      return value;
     }
 
     function latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt) {
