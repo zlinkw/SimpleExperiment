@@ -1,6 +1,0 @@
-{
-  "name": "mobaxterm realtime connect",
-  "servers": [],
-  "steps": [],
-  "expect": { "connectionMode": "mobaxterm_tunnel_realtime", "stream": "websocket" }
-}

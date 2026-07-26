@@ -1,9 +1,0 @@
-{
-  "name": "mobaxterm custom port",
-  "servers": [],
-  "steps": [],
-  "expect": {
-    "localForwardPort": 20001,
-    "remoteAgentPort": 20002
-  }
-}

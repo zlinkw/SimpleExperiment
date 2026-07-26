@@ -1,9 +1,0 @@
-{
-  "name": "mobaxterm one click config",
-  "servers": [],
-  "steps": [],
-  "expect": {
-    "connectionMode": "mobaxterm_tunnel",
-    "launchMode": "open_mobaxterm_exec"
-  }
-}

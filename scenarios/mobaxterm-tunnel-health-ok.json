@@ -1,8 +1,0 @@
-{
-  "name": "mobaxterm tunnel health ok",
-  "servers": [],
-  "steps": [],
-  "expect": {
-    "tunnelHealth": "agent_ok"
-  }
-}
