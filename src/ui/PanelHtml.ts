@@ -1510,6 +1510,8 @@ export function renderPanelHtml(): string {
     let overviewProjectStatsCacheProject = null;
     let overviewProjectStatsCachePlans = null;
     let overviewProjectStatsCacheValue = null;
+    let overviewProjectReadinessCacheState = null;
+    let overviewProjectReadinessCacheValue = null;
     let serverStatusIndexCacheSources = null;
     let serverStatusIndexCacheValue = null;
     let configInspectorIndexCacheSource = null;
@@ -5881,6 +5883,7 @@ export function renderPanelHtml(): string {
 
     function overviewProjectReadiness(state) {
       state = state || {};
+      if (overviewProjectReadinessCacheState === state && overviewProjectReadinessCacheValue) return overviewProjectReadinessCacheValue;
       const project = state.detectedProject || {};
       const stats = overviewProjectStats(state);
       const plans = asArray(state.plans && state.plans.length ? state.plans : (state.recentPlans && state.recentPlans.length ? state.recentPlans : project.plans));
@@ -5891,16 +5894,21 @@ export function renderPanelHtml(): string {
       const workerReadiness = executionWorkerReadiness(state);
       const endpointReadiness = projectEndpointReadiness(state);
       const outputGate = projectOutputGateDiagnostics(project, {}, selectedPlan);
-      const result = (status, detail, options) => Object.assign({
-        ready: false,
-        blocking: true,
-        tone: "warn",
-        status,
-        detail,
-        planFile,
-        planCount,
-        outputReady: Boolean(outputGate.ok)
-      }, options || {});
+      const result = (status, detail, options) => {
+        const value = Object.assign({
+          ready: false,
+          blocking: true,
+          tone: "warn",
+          status,
+          detail,
+          planFile,
+          planCount,
+          outputReady: Boolean(outputGate.ok)
+        }, options || {});
+        overviewProjectReadinessCacheState = state;
+        overviewProjectReadinessCacheValue = value;
+        return value;
+      };
       const activeRun = selectedPlan ? planActiveRunEvidence(state, planFile, selectedPlan) : { active: false };
       if (activeRun.active) {
         if (activeRun.historicalOnly) {
