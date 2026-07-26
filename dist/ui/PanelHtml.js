@@ -1534,6 +1534,10 @@ function renderPanelHtml() {
     const PLAN_ACTIVE_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
     const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
     const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
+    const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
+    const RESOURCE_TREE_SECTION_KEYS = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
+    const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
+    const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
@@ -3915,7 +3919,6 @@ function renderPanelHtml() {
     }
 
     function auditButtonPayloadWarnings(buttons) {
-      const rowActionCommands = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
       const warnings = [];
       buttons.forEach((button) => {
         const command = String(button.dataset.command || "");
@@ -3928,7 +3931,7 @@ function renderPanelHtml() {
         if (storedContextReason) warnings.push(command + ": " + storedContextReason);
         if (command === "archivePlan" && !(button.dataset.planFile || button.dataset.file)) warnings.push(command + ": 缺少 planFile");
         if (["validatePlan", "dryRunPlan", "runPlan"].includes(command) && button.closest("#recentPlans") && !button.dataset.planFile) warnings.push(command + ": 缺少 planFile");
-        if (!rowActionCommands.has(command) || !button.classList.contains("taskActionButton")) return;
+        if (!BUTTON_AUDIT_ROW_ACTION_COMMANDS.has(command) || !button.classList.contains("taskActionButton")) return;
         const hasOperationKey = Boolean(button.dataset.runKey || button.dataset.archiveKey || button.dataset.experimentId || button.dataset.actionKey);
         if (!hasOperationKey) warnings.push(command + ": 缺少可操作 key");
         if (["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts"].includes(command) && !button.dataset.workerId) {
@@ -4097,10 +4100,9 @@ function renderPanelHtml() {
 
     function normalizeResourceTreeChildOrders(input) {
       const record = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-      const known = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
       const out = {};
       Object.keys(record).forEach((section) => {
-        if (!known.has(section) || !Array.isArray(record[section])) return;
+        if (!RESOURCE_TREE_SECTION_KEYS.has(section) || !Array.isArray(record[section])) return;
         const unique = [];
         record[section].map((value) => String(value || "").trim()).filter(Boolean).forEach((anchor) => {
           if (!unique.includes(anchor)) unique.push(anchor);
@@ -4122,11 +4124,10 @@ function renderPanelHtml() {
     }
 
     function normalizePinnedCommands(commands) {
-      const allowed = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
       const unique = [];
       (Array.isArray(commands) ? commands : []).forEach((command) => {
         const value = String(command || "");
-        if (allowed.has(value) && !unique.includes(value)) unique.push(value);
+        if (PINNED_COMMAND_VALUES.has(value) && !unique.includes(value)) unique.push(value);
       });
       return unique.slice(0, 8);
     }
@@ -5878,8 +5879,7 @@ function renderPanelHtml() {
     }
 
     function simpleSftpCommandDisableReason(state, command) {
-      const gatedCommands = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
-      if (!gatedCommands.has(String(command || ""))) return "";
+      if (!SIMPLE_SFTP_GATED_COMMANDS.has(String(command || ""))) return "";
       const simpleSftp = simpleSftpReadinessForState(state);
       return simpleSftp.ready ? "" : simpleSftp.message;
     }
