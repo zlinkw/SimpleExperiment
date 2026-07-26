@@ -1426,8 +1426,10 @@ export function renderPanelHtml(): string {
     let postRenderDomVersion = 0;
     let postRenderButtonDomVersion = 0;
     let postRenderCardDomVersion = 0;
+    let nativeTitleMutationVersion = 0;
     let lastButtonDecorationVersion = -1;
     let lastCardDecorationKey = "";
+    let lastNativeTitleCompactKey = "";
     let statusCardCollapseVersion = 0;
     let lastStatusCollapseScanKey = "";
     let lastStatusCollapseKey = "";
@@ -3774,7 +3776,7 @@ export function renderPanelHtml(): string {
         }
         const help = button.dataset.command ? commandHelp(button.dataset.command, button) : genericButtonHelp(button);
         if (!help) return;
-        button.setAttribute("title", help);
+        setNativeTitle(button, help);
         const label = String(button.textContent || button.dataset.command || "").replace(/\s+/g, " ").trim();
         button.setAttribute("aria-label", label ? label + "：" + help : help);
         button.dataset.tooltipReady = "1";
@@ -3782,6 +3784,9 @@ export function renderPanelHtml(): string {
     }
 
     function compactNativeTitleAttributes() {
+      const compactKey = [postRenderDomVersion, nativeTitleMutationVersion].join("::");
+      if (compactKey === lastNativeTitleCompactKey) return;
+      lastNativeTitleCompactKey = compactKey;
       document.querySelectorAll("[title]").forEach((node) => {
         const raw = String(node.getAttribute("title") || "");
         const compact = compactNativeTitleText(raw);
@@ -3831,7 +3836,7 @@ export function renderPanelHtml(): string {
         if (webviewHandledCommands.has(command)) return;
         const reason = "该按钮尚未接入 Extension handler，已自动禁用，避免点击无反应。";
         button.disabled = true;
-        button.setAttribute("title", reason);
+        setNativeTitle(button, reason);
         button.setAttribute("aria-label", reason);
         button.dataset.tooltipReady = "1";
       });
@@ -4264,9 +4269,20 @@ export function renderPanelHtml(): string {
         const label = button.dataset.drawerPin === "tree" ? "左侧目录" : "右侧详情";
         button.classList.toggle("is-pinned", pinned);
         button.setAttribute("aria-pressed", String(pinned));
-        button.title = (pinned ? "取消固定" : "固定") + label;
+        setNativeTitle(button, (pinned ? "取消固定" : "固定") + label);
         button.setAttribute("aria-label", button.title);
       });
+    }
+
+    function setNativeTitle(node, value) {
+      if (!node || !node.getAttribute || !node.setAttribute) return false;
+      const next = String(value || "");
+      const current = String(node.getAttribute("title") || "");
+      if (current === next) return false;
+      if (next) node.setAttribute("title", next);
+      else node.removeAttribute("title");
+      nativeTitleMutationVersion = (nativeTitleMutationVersion + 1) % 1000000;
+      return true;
     }
 
     function setAllSectionsCollapsed(collapsed) {
@@ -4330,7 +4346,7 @@ export function renderPanelHtml(): string {
       menu.innerHTML =
         '<button type="button" data-pin-menu-action="toggle-detail" data-pin-command="' + escAttr(activeButtonActionSpec.command) + '" role="menuitem">' + esc(detailSaved ? "从当前工作详情移除" : "加入当前工作详情") + '</button>' +
         '<button type="button" data-pin-menu-action="toggle-pin" data-pin-command="' + escAttr(activeButtonActionSpec.command) + '" role="menuitem">' + esc(pinned ? "从右侧置顶移除" : "加入右侧置顶") + '</button>';
-      menu.title = "右键操作：" + activeButtonActionSpec.label;
+      setNativeTitle(menu, "右键操作：" + activeButtonActionSpec.label);
       menu.hidden = false;
       menu.classList.add("is-open");
       menu.dataset.open = "1";
@@ -4386,7 +4402,7 @@ export function renderPanelHtml(): string {
       menu.innerHTML =
         '<button type="button" data-card-menu-action="' + escAttr(collapsed ? "expand" : "collapse") + '" data-card-key="' + escAttr(key) + '" role="menuitem">' + esc(collapsed ? "展开此卡片" : "折叠此卡片") + '</button>' +
         '<button type="button" data-card-menu-action="expand" data-card-key="__all__" role="menuitem">展开全部状态卡片</button>';
-      menu.title = "右键状态卡片：" + label;
+      setNativeTitle(menu, "右键状态卡片：" + label);
       menu.hidden = false;
       menu.classList.add("is-open");
       menu.dataset.open = "1";
@@ -4675,7 +4691,7 @@ export function renderPanelHtml(): string {
       if (!head) return;
       const normalizedTone = normalizeTreeTone(tone);
       head.className = "tree-head" + (normalizedTone ? " " + normalizedTone : "");
-      head.title = resourceTreeGroupToneHelp(normalizedTone);
+      setNativeTitle(head, resourceTreeGroupToneHelp(normalizedTone));
     }
 
     function resourceTreeGroupToneHelp(tone) {
@@ -6179,7 +6195,7 @@ export function renderPanelHtml(): string {
       if (status) status.textContent = issue || warning || (!projectName ? "未保存预览；打开本地项目后计算代码目录" : "未保存预览；点击保存服务器后生效");
       preview.classList.add("draft");
       preview.classList.toggle("error", Boolean(issue));
-      preview.title = issue || warning || "当前为未保存预览；上传和 Agent 启动仍使用已保存配置";
+      setNativeTitle(preview, issue || warning || "当前为未保存预览；上传和 Agent 启动仍使用已保存配置");
     }
 
     function renderServerDestinationPreview(agentState, scope) {
@@ -6887,7 +6903,7 @@ export function renderPanelHtml(): string {
           const reason = planButtonDisableReason(state, command, button);
           button.disabled = Boolean(reason);
           const title = reason || commandHelp(command);
-          button.title = title;
+          setNativeTitle(button, title);
           button.setAttribute("aria-label", title);
         });
       });
@@ -6898,7 +6914,7 @@ export function renderPanelHtml(): string {
         const debugReason = debugModeDisableReason("archivePlan");
         button.disabled = Boolean(debugReason || !hasPlan || !readiness.ready);
         const title = debugReason || (readiness.ready ? commandHelp("archivePlan") : readiness.reason);
-        button.title = title;
+        setNativeTitle(button, title);
         button.setAttribute("aria-label", title);
       });
     }
@@ -6928,7 +6944,7 @@ export function renderPanelHtml(): string {
         button.dataset.pendingKey = pendingKey;
         const title = reason || (pending ? "执行中" : commandHelp(command));
         if (title) {
-          button.title = title;
+          setNativeTitle(button, title);
           button.setAttribute("aria-label", cleanButtonLabel(button) + "：" + title);
         }
       });
@@ -11096,7 +11112,7 @@ export function renderPanelHtml(): string {
       const prerequisiteReason = !statisticsSourcePath ? "请先归档结果并运行统计" : automation.ready ? statisticsSourcePath : automation.message;
       const title = debugReason || prerequisiteReason;
       button.disabled = Boolean(debugReason || !statisticsSourcePath || !automation.ready);
-      button.title = title;
+      setNativeTitle(button, title);
       button.setAttribute("aria-label", "绘图到 PPT：" + title);
     }
 

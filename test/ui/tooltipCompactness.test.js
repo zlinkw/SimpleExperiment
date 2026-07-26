@@ -27,3 +27,12 @@ test("native title tooltips avoid design notes and long explanations", () => {
     assert.match(source, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), expected);
   }
 });
+
+test("native title maintenance skips unchanged global scans and tracks dynamic writes", () => {
+  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  assert.match(source, /const compactKey = \[postRenderDomVersion, nativeTitleMutationVersion\]\.join\("::"\)/);
+  assert.match(source, /if \(compactKey === lastNativeTitleCompactKey\) return/);
+  assert.match(source, /function setNativeTitle\(node, value\)/);
+  assert.match(source, /nativeTitleMutationVersion = \(nativeTitleMutationVersion \+ 1\) % 1000000/);
+  assert.doesNotMatch(source, /\.title\s*=\s*/);
+});
