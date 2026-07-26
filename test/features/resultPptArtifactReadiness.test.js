@@ -38,13 +38,27 @@ function loadArtifactHelper() {
       }
       return fallback;
     },
+    RESULT_ANALYSIS_ARTIFACT_FIELDS: Object.freeze({
+      "export-plotting-contract": "plottingContractPath",
+      "parse-case-level": "caseLevelPath",
+      "recover-plan-from-run": "recoveredPlanReportPath",
+      "diagnose-result-anomaly": "anomalyPath",
+    }),
+    PLAN_VERSION_ROWS_CACHE_LIMIT: 64,
+    planVersionRowsCacheState: null,
+    planVersionOperationRowsCache: new Map(),
+    planVersionTaskRowsCache: new Map(),
+    normalizePlanSelectionKey: (value) => String(value || "").toLowerCase(),
   };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("operationMatchesPlanVersion"),
     extractFunction("resultSummaryMatchesPlanVersion"),
+    extractFunction("ensurePlanVersionRowsCache"),
+    extractFunction("planVersionRowsCacheKey"),
+    extractFunction("cachePlanVersionRows"),
     extractFunction("planVersionOperationRows"),
-    extractFunction("latestResultAnalysisArtifactPath"),
+    extractFunction("latestResultAnalysisArtifactPaths"),
     extractFunction("resultAnalysisArtifactsForState"),
     "this.check = resultAnalysisArtifactsForState;",
   ].join("\n"), sandbox);
@@ -118,4 +132,11 @@ test("result workbench disables unproven PPT sources and refreshes on artifact c
   assert.match(panel, /recoveredPlanReportPath: pick\(row/);
   assert.match(panel, /anomalyPath: pick\(row/);
   assert.doesNotMatch(panel, /pptPlotButton\([^\n]+(?:plotting_contract|case_level_index|anomaly\/latest|recovered\/latest)[^\n]+/);
+});
+
+test("analysis artifact extraction scans operation rows once", () => {
+  const helper = extractFunction("latestResultAnalysisArtifactPaths");
+  assert.match(helper, /for \(const row of asArray\(rows\)\)/);
+  assert.doesNotMatch(helper, /\.find\(/);
+  assert.doesNotMatch(panel, /function latestResultAnalysisArtifactPath\(/);
 });

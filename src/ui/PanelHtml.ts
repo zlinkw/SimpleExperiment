@@ -1568,6 +1568,12 @@ export function renderPanelHtml(): string {
     const INSPECTOR_CUSTOM_ACTION_RENDER_LIMIT = 6;
     const INSPECTOR_READINESS_RENDER_LIMIT = 8;
     const PLAN_VERSION_ROWS_CACHE_LIMIT = 64;
+    const RESULT_ANALYSIS_ARTIFACT_FIELDS = Object.freeze({
+      "export-plotting-contract": "plottingContractPath",
+      "parse-case-level": "caseLevelPath",
+      "recover-plan-from-run": "recoveredPlanReportPath",
+      "diagnose-result-anomaly": "anomalyPath"
+    });
     const NATIVE_TITLE_MAX_CHARS = 56;
     const LOW_VALUE_NATIVE_TITLES = new Set([
       "详情", "工作流", "对象状态", "通信矩阵", "通信拓扑", "调度参数", "服务器管理",
@@ -11619,21 +11625,28 @@ export function renderPanelHtml(): string {
       const summaryMatchesPlan = !planFile || Boolean(summaryPlanFile && samePlanSelection(summaryPlanFile, planFile));
       const summaryMatchesVersion = resultSummaryMatchesPlanVersion(item, planRevision, planUpdatedAt);
       const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
+      const artifacts = latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt);
       return {
-        plottingContractPath: (summaryMatchesPlan && summaryMatchesVersion ? meaningfulValue(pick(item, ["plottingContractPath", "plotting_contract_path"], "")) : "") || latestResultAnalysisArtifactPath(rows, planFile, "export-plotting-contract", "plottingContractPath", planRevision, planUpdatedAt),
-        caseLevelPath: latestResultAnalysisArtifactPath(rows, planFile, "parse-case-level", "caseLevelPath", planRevision, planUpdatedAt),
-        recoveredPlanReportPath: latestResultAnalysisArtifactPath(rows, planFile, "recover-plan-from-run", "recoveredPlanReportPath", planRevision, planUpdatedAt),
-        anomalyPath: latestResultAnalysisArtifactPath(rows, planFile, "diagnose-result-anomaly", "anomalyPath", planRevision, planUpdatedAt)
+        plottingContractPath: (summaryMatchesPlan && summaryMatchesVersion ? meaningfulValue(pick(item, ["plottingContractPath", "plotting_contract_path"], "")) : "") || artifacts.plottingContractPath,
+        caseLevelPath: artifacts.caseLevelPath,
+        recoveredPlanReportPath: artifacts.recoveredPlanReportPath,
+        anomalyPath: artifacts.anomalyPath
       };
     }
 
-    function latestResultAnalysisArtifactPath(rows, planFile, action, field, planRevision, planUpdatedAt) {
-      const targetAction = String(action || "").toLowerCase();
-      const found = asArray(rows).find((row) => {
-        if (String((row || {}).type || "").toLowerCase() !== targetAction || !operationSucceeded(row)) return false;
-        return (!planFile || samePlanSelection(row.planFile, planFile)) && operationMatchesPlanVersion(row, planRevision, planUpdatedAt);
-      });
-      return meaningfulValue(found && found[field]);
+    function latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt) {
+      const out = { plottingContractPath: "", caseLevelPath: "", recoveredPlanReportPath: "", anomalyPath: "" };
+      const seenActions = new Set();
+      for (const row of asArray(rows)) {
+        const action = String((row || {}).type || "").toLowerCase();
+        const field = RESULT_ANALYSIS_ARTIFACT_FIELDS[action];
+        if (!field || seenActions.has(action) || !operationSucceeded(row)) continue;
+        if ((planFile && !samePlanSelection(row.planFile, planFile)) || !operationMatchesPlanVersion(row, planRevision, planUpdatedAt)) continue;
+        seenActions.add(action);
+        out[field] = meaningfulValue(row[field]);
+        if (seenActions.size === Object.keys(RESULT_ANALYSIS_ARTIFACT_FIELDS).length) break;
+      }
+      return out;
     }
 
     function compactOutputContractCheckForSignature(check) {
