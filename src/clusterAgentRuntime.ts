@@ -16,6 +16,8 @@ MAX_WORKER_COMMAND_CURSOR_RECORDS = 64
 WORKER_COMMAND_CURSOR_TTL_SECONDS = 60 * 60
 MAX_EVENT_CURSOR_RECORDS = 64
 EVENT_CURSOR_TTL_SECONDS = 60 * 60
+MAX_OPERATION_JOURNAL_CACHE_RECORDS = 8
+OPERATION_JOURNAL_CACHE_TTL_SECONDS = 10 * 60
 MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS = 32
 SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS = 10 * 60
 GPU_HISTORY_BUCKET_SECONDS = 60
@@ -126,6 +128,8 @@ WORKER_COMMAND_CURSOR_CACHE = {}
 WORKER_COMMAND_CURSOR_LOCK = threading.Lock()
 EVENT_CURSOR_CACHE = {}
 EVENT_CURSOR_LOCK = threading.Lock()
+OPERATION_JOURNAL_CACHE = {}
+OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
 WORKER_ACTION_LOCK = threading.Lock()
 WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
@@ -228,6 +232,29 @@ def prune_event_cursor_cache(now_epoch=None, active_path=None):
         if path not in keep:
             EVENT_CURSOR_CACHE.pop(path, None)
 
+def prune_operation_journal_cache(now_epoch=None, active_path=None):
+    now_value = float(now_epoch if now_epoch is not None else time.time())
+    for path, value in list(OPERATION_JOURNAL_CACHE.items()):
+        try:
+            last_used = float((value or {}).get("lastUsedAt") or 0)
+        except Exception:
+            last_used = 0.0
+        if path != active_path and (last_used <= 0 or now_value - last_used > OPERATION_JOURNAL_CACHE_TTL_SECONDS):
+            OPERATION_JOURNAL_CACHE.pop(path, None)
+    if len(OPERATION_JOURNAL_CACHE) <= MAX_OPERATION_JOURNAL_CACHE_RECORDS:
+        return
+    ranked = sorted(OPERATION_JOURNAL_CACHE.items(), key=lambda item: float((item[1] or {}).get("lastUsedAt") or 0), reverse=True)
+    keep = {path for path, _ in ranked[:MAX_OPERATION_JOURNAL_CACHE_RECORDS]}
+    if active_path in OPERATION_JOURNAL_CACHE:
+        keep.add(active_path)
+        if len(keep) > MAX_OPERATION_JOURNAL_CACHE_RECORDS:
+            oldest = next((path for path, _ in reversed(ranked) if path != active_path and path in keep), None)
+            if oldest is not None:
+                keep.remove(oldest)
+    for path in list(OPERATION_JOURNAL_CACHE.keys()):
+        if path not in keep:
+            OPERATION_JOURNAL_CACHE.pop(path, None)
+
 def prune_runtime_memory_state():
     if len(UPLOADS) > MAX_UPLOAD_RECORDS:
         running = {key: value for key, value in UPLOADS.items() if not runtime_terminal_status(value)}
@@ -261,6 +288,8 @@ def prune_runtime_memory_state():
         prune_worker_command_cursor_cache()
     with EVENT_CURSOR_LOCK:
         prune_event_cursor_cache()
+    with OPERATION_JOURNAL_CACHE_LOCK:
+        prune_operation_journal_cache()
 
 def agent_install_dir(root):
     configured = os.environ.get("ZLK_AGENT_INSTALL_DIR", "").strip()
@@ -7016,21 +7045,47 @@ def operation_status_from_event(event):
 def operation_terminal(status):
     return status in ("completed", "failed", "cancelled", "stalled")
 
+def operation_journal_signature(journal):
+    try:
+        stat = os.stat(journal)
+        return (stat.st_dev, stat.st_ino, stat.st_size, getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1000000000)))
+    except Exception:
+        return None
+
+def operation_journal_index(root):
+    journal = os.path.abspath(path_for(root, "events.jsonl"))
+    signature = operation_journal_signature(journal)
+    if signature is None:
+        return {"groups": {}, "rows": []}
+    now_value = time.time()
+    with OPERATION_JOURNAL_CACHE_LOCK:
+        prune_operation_journal_cache(now_value, journal)
+        cached = OPERATION_JOURNAL_CACHE.get(journal)
+        if cached and cached.get("signature") == signature:
+            cached["lastUsedAt"] = now_value
+            return cached
+    groups = {}
+    with open(journal, "r", encoding="utf-8") as f:
+        for line in f:
+            event = parse_event_line(line)
+            if not event:
+                continue
+            keys = event_operation_keys(event)
+            if keys:
+                groups.setdefault(keys[0], []).append(event)
+    rows = [operation_summary_from_events(key, events) for key, events in groups.items()]
+    rows.sort(key=lambda row: row.get("updatedAt") or "", reverse=True)
+    entry = {"signature": signature, "groups": groups, "rows": rows, "lastUsedAt": now_value}
+    with OPERATION_JOURNAL_CACHE_LOCK:
+        OPERATION_JOURNAL_CACHE[journal] = entry
+        prune_operation_journal_cache(now_value, journal)
+    return entry
+
 def read_operation_events(root, operation_id, limit=200):
     wanted = str(operation_id or "").strip()
-    events = []
     if not wanted:
-        return events
-    journal = path_for(root, "events.jsonl")
-    if os.path.isfile(journal):
-        with open(journal, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    event = json.loads(line)
-                except Exception:
-                    continue
-                if wanted in event_operation_keys(event):
-                    events.append(event)
+        return []
+    events = operation_journal_index(root)["groups"].get(wanted, [])
     return events[-max(1, int(limit or 200)):]
 
 def operation_summary_from_events(operation_id, events):
@@ -7070,21 +7125,7 @@ def api_operation(root, operation_id):
     return result
 
 def recent_operations(root, limit=100):
-    groups = {}
-    journal = path_for(root, "events.jsonl")
-    if os.path.isfile(journal):
-        with open(journal, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    event = json.loads(line)
-                except Exception:
-                    continue
-                keys = event_operation_keys(event)
-                if not keys:
-                    continue
-                groups.setdefault(keys[0], []).append(event)
-    rows = [operation_summary_from_events(key, events) for key, events in groups.items()]
-    rows.sort(key=lambda row: row.get("updatedAt") or "", reverse=True)
+    rows = operation_journal_index(root)["rows"]
     return rows[:max(1, int(limit or 100))]
 
 def list_files(root, path_value):
