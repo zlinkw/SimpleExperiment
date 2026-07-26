@@ -34,6 +34,8 @@ function extractFunction(name) {
 
 function loadReadiness() {
   const sandbox = {
+    overviewProjectReadinessCacheState: null,
+    overviewProjectReadinessCacheValue: null,
     asArray(value) { return Array.isArray(value) ? value : []; },
     overviewProjectStats(state) { return state._stats || { plans: 0, resultSignals: 0, ready: false }; },
     planFromContext(state) { return state._selectedPlan; },
