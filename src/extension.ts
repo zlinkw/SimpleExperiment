@@ -540,6 +540,11 @@ class RealtimeTunnelPanelProvider {
     xshellLibraryRefreshMinIntervalMs = 15_000;
     enabledWorkerConfigsCacheSource;
     enabledWorkerConfigsCacheValue = [];
+    currentAssignmentsCacheConfig;
+    currentAssignmentsCacheValue = [];
+    currentPortConflictsCacheAssignments;
+    currentPortConflictsCacheRangeKey = "";
+    currentPortConflictsCacheValue = [];
     constructor(context) {
         this.context = context;
         this.tunnelConfig = this.loadTunnelConfig();
@@ -6909,11 +6914,25 @@ class RealtimeTunnelPanelProvider {
         };
     }
     currentAssignments() {
+        if (this.currentAssignmentsCacheConfig === this.setupConfig)
+            return this.currentAssignmentsCacheValue;
         const enabledWorkers = new Set(this.enabledWorkerConfigs().map((worker) => worker.id));
-        return (0, TunnelEndpointRegistry_1.endpointAssignmentsFromConfig)(this.setupConfig).filter((assignment) => assignment.role === "hub_control" || enabledWorkers.has(assignment.endpointId));
+        const assignments = (0, TunnelEndpointRegistry_1.endpointAssignmentsFromConfig)(this.setupConfig).filter((assignment) => assignment.role === "hub_control" || enabledWorkers.has(assignment.endpointId));
+        this.currentAssignmentsCacheConfig = this.setupConfig;
+        this.currentAssignmentsCacheValue = assignments;
+        return assignments;
     }
     currentPortConflicts() {
-        return (0, TunnelPortAllocator_1.detectStaticTunnelPortConflicts)(this.currentAssignments(), this.setupConfig.ports.workerLocalPortRange);
+        const assignments = this.currentAssignments();
+        const range = this.setupConfig.ports.workerLocalPortRange;
+        const rangeKey = `${Number(range?.start || 0)}:${Number(range?.end || 0)}`;
+        if (this.currentPortConflictsCacheAssignments === assignments && this.currentPortConflictsCacheRangeKey === rangeKey)
+            return this.currentPortConflictsCacheValue;
+        const conflicts = (0, TunnelPortAllocator_1.detectStaticTunnelPortConflicts)(assignments, range);
+        this.currentPortConflictsCacheAssignments = assignments;
+        this.currentPortConflictsCacheRangeKey = rangeKey;
+        this.currentPortConflictsCacheValue = conflicts;
+        return conflicts;
     }
     hubDisplayName() {
         return this.setupConfig.hubDisplayName || this.setupConfig.sshConfigAlias || this.setupConfig.hubHost || "Hub";
