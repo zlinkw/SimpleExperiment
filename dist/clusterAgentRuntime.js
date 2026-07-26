@@ -17,6 +17,8 @@ MAX_WORKER_COMMAND_RESULT_RECORDS = 240
 MAX_WORKER_ACTION_KEY_RECORDS = 240
 MAX_WORKER_COMMAND_CURSOR_RECORDS = 64
 WORKER_COMMAND_CURSOR_TTL_SECONDS = 60 * 60
+MAX_EVENT_CURSOR_RECORDS = 64
+EVENT_CURSOR_TTL_SECONDS = 60 * 60
 MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS = 32
 SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS = 10 * 60
 GPU_HISTORY_BUCKET_SECONDS = 60
@@ -125,6 +127,8 @@ WORKER_COMMAND_QUEUE = {}
 WORKER_COMMAND_RESULTS = {}
 WORKER_COMMAND_CURSOR_CACHE = {}
 WORKER_COMMAND_CURSOR_LOCK = threading.Lock()
+EVENT_CURSOR_CACHE = {}
+EVENT_CURSOR_LOCK = threading.Lock()
 WORKER_ACTION_LOCK = threading.Lock()
 WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
@@ -204,6 +208,29 @@ def prune_worker_command_cursor_cache(now_epoch=None, active_path=None):
         if path not in keep:
             WORKER_COMMAND_CURSOR_CACHE.pop(path, None)
 
+def prune_event_cursor_cache(now_epoch=None, active_path=None):
+    now_value = float(now_epoch if now_epoch is not None else time.time())
+    for path, value in list(EVENT_CURSOR_CACHE.items()):
+        try:
+            last_used = float((value or {}).get("lastUsedAt") or 0)
+        except Exception:
+            last_used = 0.0
+        if path != active_path and (last_used <= 0 or now_value - last_used > EVENT_CURSOR_TTL_SECONDS):
+            EVENT_CURSOR_CACHE.pop(path, None)
+    if len(EVENT_CURSOR_CACHE) <= MAX_EVENT_CURSOR_RECORDS:
+        return
+    ranked = sorted(EVENT_CURSOR_CACHE.items(), key=lambda item: float((item[1] or {}).get("lastUsedAt") or 0), reverse=True)
+    keep = {path for path, _ in ranked[:MAX_EVENT_CURSOR_RECORDS]}
+    if active_path in EVENT_CURSOR_CACHE:
+        keep.add(active_path)
+        if len(keep) > MAX_EVENT_CURSOR_RECORDS:
+            oldest = next((path for path, _ in reversed(ranked) if path != active_path and path in keep), None)
+            if oldest is not None:
+                keep.remove(oldest)
+    for path in list(EVENT_CURSOR_CACHE.keys()):
+        if path not in keep:
+            EVENT_CURSOR_CACHE.pop(path, None)
+
 def prune_runtime_memory_state():
     if len(UPLOADS) > MAX_UPLOAD_RECORDS:
         running = {key: value for key, value in UPLOADS.items() if not runtime_terminal_status(value)}
@@ -235,6 +262,8 @@ def prune_runtime_memory_state():
         prune_scheduler_dependency_cache()
     with WORKER_COMMAND_CURSOR_LOCK:
         prune_worker_command_cursor_cache()
+    with EVENT_CURSOR_LOCK:
+        prune_event_cursor_cache()
 
 def agent_install_dir(root):
     configured = os.environ.get("ZLK_AGENT_INSTALL_DIR", "").strip()
@@ -1864,18 +1893,49 @@ def normalized_experiment_mode(raw):
     return mode if mode in ("train", "test", "train_test") else "train_test"
 
 def read_events_after_seq(root, since, limit=100):
+    journal = os.path.abspath(path_for(root, "events.jsonl"))
+    if not os.path.isfile(journal):
+        return []
+    requested_since = max(0, int(since or 0))
+    requested_limit = max(1, int(limit or 100))
+    stat = os.stat(journal)
+    now_value = time.time()
+    with EVENT_CURSOR_LOCK:
+        prune_event_cursor_cache(now_value, journal)
+        cached = dict(EVENT_CURSOR_CACHE.get(journal) or {})
+    same_file = cached.get("device") == stat.st_dev and cached.get("inode") == stat.st_ino
+    cached_offset = int(cached.get("offset") or 0)
+    use_cursor = same_file and int(cached.get("seq") or 0) == requested_since and 0 <= cached_offset <= stat.st_size
+    current_seq = requested_since if use_cursor else 0
+    current_offset = cached_offset if use_cursor else 0
     events = []
-    journal = path_for(root, "events.jsonl")
-    if os.path.isfile(journal):
-        with open(journal, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    item = json.loads(line)
-                    if int(item.get("seq") or 0) > int(since or 0):
-                        events.append(item)
-                except Exception:
-                    continue
-    return events[-max(1, int(limit or 100)):]
+    with open(journal, "r", encoding="utf-8") as f:
+        if current_offset:
+            f.seek(current_offset)
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            current_offset = f.tell()
+            item = parse_event_line(line)
+            if not item:
+                continue
+            seq = event_seq(item)
+            current_seq = max(current_seq, seq)
+            if seq > requested_since:
+                events.append(item)
+                if len(events) > requested_limit:
+                    events.pop(0)
+    with EVENT_CURSOR_LOCK:
+        EVENT_CURSOR_CACHE[journal] = {
+            "seq": current_seq,
+            "offset": current_offset,
+            "device": stat.st_dev,
+            "inode": stat.st_ino,
+            "lastUsedAt": now_value,
+        }
+        prune_event_cursor_cache(now_value, journal)
+    return events
 
 def post_json(url, payload, timeout=5):
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
