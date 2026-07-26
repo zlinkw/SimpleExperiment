@@ -58,12 +58,12 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /首次上传前会再次确认本地与远端预期位置/);
   assert.match(source, /配套 SimpleSFTP 未就绪/);
   assert.match(source, /const needsSftp = !simpleSftp\.ready/);
-  assert.match(source, /const enabledWorkerCount = this\.setupConfig\.workerTunnels\.filter\(\(worker\) => worker\.enabled !== false\)\.length/);
+  assert.match(source, /const enabledWorkerCount = this\.enabledWorkerConfigs\(\)\.length/);
   assert.match(source, /const needsWorker = !needsSftp && serverSetupComplete && enabledWorkerCount < 1/);
   assert.match(source, /正式运行、复现和批量运行还缺少至少一个启用的执行 Worker/);
   assert.match(source, /needsWorker\s*\? await vscode\.window\.showInformationMessage\(message, "添加 Worker", "打开配置说明", "不再提示"\)/);
   assert.match(source, /choice === "添加 Worker"\)\s*await this\.addWorkerConfigFromUi\(false\)/);
-  assert.match(source, /const afterWorkerCount = this\.setupConfig\.workerTunnels\.filter\(\(worker\) => worker\.enabled !== false\)\.length/);
+  assert.match(source, /const afterWorkerCount = this\.enabledWorkerConfigs\(\)\.length/);
   assert.match(source, /workspaceRoot\(\) && initialServerSetupComplete\(this\.setupConfig\) && afterSftp\.ready && afterWorkerCount > 0/);
   assert.match(source, /choice === "不再提示"[\s\S]{0,140}globalState\.update/);
   assert.match(source, /afterSftp = simpleSftpIntegrationReadiness\(\)/);

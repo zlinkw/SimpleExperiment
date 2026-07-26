@@ -478,6 +478,8 @@ class RealtimeTunnelPanelProvider {
     xshellLibraryUpdatedAt = 0;
     xshellLibraryDirsKey = "";
     xshellLibraryRefreshMinIntervalMs = 15_000;
+    enabledWorkerConfigsCacheSource;
+    enabledWorkerConfigsCacheValue = [];
     constructor(context) {
         this.context = context;
         this.tunnelConfig = this.loadTunnelConfig();
@@ -489,6 +491,14 @@ class RealtimeTunnelPanelProvider {
         this.setupConfig = this.loadSetupConfig();
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
+    }
+    enabledWorkerConfigs() {
+        const source = this.setupConfig.workerTunnels;
+        if (source === this.enabledWorkerConfigsCacheSource)
+            return this.enabledWorkerConfigsCacheValue;
+        this.enabledWorkerConfigsCacheSource = source;
+        this.enabledWorkerConfigsCacheValue = source.filter((worker) => worker.enabled !== false);
+        return this.enabledWorkerConfigsCacheValue;
     }
     async runActivationOnboarding() {
         await runOnboardingSteps([
@@ -1297,7 +1307,7 @@ class RealtimeTunnelPanelProvider {
         const simpleSftp = simpleSftpIntegrationReadiness();
         const legacySftp = legacySftpInstallationState();
         const serverSetupComplete = initialServerSetupComplete(this.setupConfig);
-        const enabledWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
+        const enabledWorkerCount = this.enabledWorkerConfigs().length;
         if (serverSetupComplete && simpleSftp.ready && enabledWorkerCount > 0) {
             const root = workspaceRoot();
             if (!root)
@@ -1349,7 +1359,7 @@ class RealtimeTunnelPanelProvider {
         if (choice === "开始一键配置")
             await this.quickSetup();
         const afterSftp = simpleSftpIntegrationReadiness();
-        const afterWorkerCount = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
+        const afterWorkerCount = this.enabledWorkerConfigs().length;
         if (workspaceRoot() && initialServerSetupComplete(this.setupConfig) && afterSftp.ready && afterWorkerCount > 0)
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
     }
@@ -1444,12 +1454,12 @@ class RealtimeTunnelPanelProvider {
                 await this.openPanelAt("settings", "settings-servers");
             return false;
         }
-        let enabledWorkers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false);
+        let enabledWorkers = this.enabledWorkerConfigs();
         if (!enabledWorkers.length) {
             const workerNext = await vscode.window.showWarningMessage("当前只配置了 Hub。正式运行、复现或批量运行至少需要一个启用的 Worker；现在添加可避免完成 Agent 部署后才发现无法提交实验。", "添加 Worker", "仅保存 Hub", "打开服务器设置");
             if (workerNext === "添加 Worker") {
                 await this.addWorkerConfigFromUi(false);
-                enabledWorkers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false);
+                enabledWorkers = this.enabledWorkerConfigs();
             }
             else if (workerNext === "打开服务器设置") {
                 await this.openPanelAt("settings", "settings-servers");
@@ -1702,7 +1712,7 @@ class RealtimeTunnelPanelProvider {
         if (preparationBlockers.length)
             throw new Error(`Agent 准备已阻止，尚未修改 .xsh 或部署 runtime：${preparationBlockers.join("；")}`);
         const targets = this.agentStartupTargets();
-        const expectedTargets = 1 + this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length;
+        const expectedTargets = 1 + this.enabledWorkerConfigs().length;
         if (targets.length !== expectedTargets)
             throw new Error(`Agent 准备目标不完整：需要 ${expectedTargets} 个，当前 ${targets.length} 个。请检查所有启用服务器的 Xshell 会话和项目父目录。`);
         const availableProfileTargets = this.sftpSharedTargets().length;
@@ -2884,7 +2894,7 @@ class RealtimeTunnelPanelProvider {
     }
     assertExecutionAgentProjectsReady() {
         this.assertHubAgentProjectReady();
-        for (const worker of this.setupConfig.workerTunnels.filter((item) => item.enabled !== false)) {
+        for (const worker of this.enabledWorkerConfigs()) {
             assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
         }
     }
@@ -2914,7 +2924,7 @@ class RealtimeTunnelPanelProvider {
         }
         const seen = new Set();
         for (let step = 0; step < SETUP_GUIDE_MAX_STEPS; step += 1) {
-            const enabledWorkers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false);
+            const enabledWorkers = this.enabledWorkerConfigs();
             const simpleSftp = simpleSftpIntegrationReadiness();
             const next = setupGuideNextStep({
                 simpleSftpReady: simpleSftp.ready,
@@ -3500,7 +3510,7 @@ class RealtimeTunnelPanelProvider {
         catch {
             // Readiness count reports the incomplete Hub target to quick setup.
         }
-        for (const worker of this.setupConfig.workerTunnels.filter((item) => item.enabled !== false)) {
+        for (const worker of this.enabledWorkerConfigs()) {
             try {
                 targets.push(this.workerCodeSyncTarget(worker));
             }
@@ -3558,8 +3568,7 @@ class RealtimeTunnelPanelProvider {
         };
     }
     workerCodeSyncTargets() {
-        return this.setupConfig.workerTunnels
-            .filter((worker) => worker.enabled !== false)
+        return this.enabledWorkerConfigs()
             .map((worker) => this.workerCodeSyncTarget(worker));
     }
     workerCodeSyncTarget(worker) {
@@ -3570,8 +3579,7 @@ class RealtimeTunnelPanelProvider {
         return { ...target, remotePath: dirs.workDir };
     }
     workerActualWorkRootTargets() {
-        return this.setupConfig.workerTunnels
-            .filter((worker) => worker.enabled !== false)
+        return this.enabledWorkerConfigs()
             .map((worker) => this.workerActualWorkRootTarget(worker));
     }
     workerActualWorkRootTarget(worker) {
@@ -3643,7 +3651,7 @@ class RealtimeTunnelPanelProvider {
                 await this.openSetupGuide();
             return;
         }
-        const enabledWorkers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false);
+        const enabledWorkers = this.enabledWorkerConfigs();
         if (!enabledWorkers.length) {
             const next = await vscode.window.showInformationMessage(message, "添加 Worker");
             if (next === "添加 Worker") {
@@ -5130,7 +5138,7 @@ class RealtimeTunnelPanelProvider {
                 hasExistingProjectState: initialProjectState,
                 simpleSftp: simpleSftpIntegrationReadiness(),
                 setupComplete: initialServerSetupComplete(this.setupConfig),
-                workerCount: this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length,
+                workerCount: this.enabledWorkerConfigs().length,
             });
             if (!prerequisite)
                 break;
@@ -5144,7 +5152,7 @@ class RealtimeTunnelPanelProvider {
             hasExistingProjectState: initialProjectState,
             simpleSftp: simpleSftpIntegrationReadiness(),
             setupComplete: initialServerSetupComplete(this.setupConfig),
-            workerCount: this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length,
+            workerCount: this.enabledWorkerConfigs().length,
         });
         if (remainingPrerequisite) {
             const open = await vscode.window.showWarningMessage(`新项目接入仍停留在基础设施配置：${remainingPrerequisite.message}`, "打开服务器设置", "稍后");
@@ -5179,7 +5187,7 @@ class RealtimeTunnelPanelProvider {
         }
         const finalGateReason = projectOutputGateReason(project, selected);
         const simpleSftp = simpleSftpIntegrationReadiness();
-        const enabledWorkers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false);
+        const enabledWorkers = this.enabledWorkerConfigs();
         const currentRunState = () => {
             const state = this.buildState();
             return {
@@ -5212,7 +5220,7 @@ class RealtimeTunnelPanelProvider {
         if (selectionChanged)
             this.queueSelectedPlanResultParse("接入当前项目切换计划", planFile);
         const currentCompletion = () => {
-            const currentWorkers = this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false);
+            const currentWorkers = this.enabledWorkerConfigs();
             const { activeRun, finishedRun } = currentRunState();
             return projectBootstrapCompletion({
                 outputGateReason: finalGateReason,
@@ -6558,7 +6566,7 @@ class RealtimeTunnelPanelProvider {
     }
     localWorkerAvailabilityRows(ttlSeconds) {
         const gpu = (this.lastRealtimeState?.gpu || {});
-        return this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).map((worker) => {
+        return this.enabledWorkerConfigs().map((worker) => {
             const rows = Array.isArray(gpu[worker.id]) ? gpu[worker.id] : [];
             const allowed = new Set((worker.allowedGpuIds || []).map((item) => String(item || "").trim()).filter(Boolean));
             const availableGpuIds = [];
@@ -6702,7 +6710,7 @@ class RealtimeTunnelPanelProvider {
         const items = [
             { id: "hub", role: "hub", config: (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({ ...this.setupConfig, workerRealtimeMode: "hub_only", workerTelemetryMode: "hub_only", workerTunnels: [] }) },
         ];
-        for (const worker of this.setupConfig.workerTunnels.filter((item) => item.enabled !== false)) {
+        for (const worker of this.enabledWorkerConfigs()) {
             items.push({ id: worker.id, role: "worker", config: (0, XshellTunnelSetup_1.workerTunnelToXshellSetupConfig)(this.setupConfig, worker) });
         }
         return items;
@@ -6761,7 +6769,7 @@ class RealtimeTunnelPanelProvider {
                 command: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: this.setupConfig.condaEnv }),
             });
         }
-        for (const worker of this.setupConfig.workerTunnels.filter((item) => item.enabled !== false)) {
+        for (const worker of this.enabledWorkerConfigs()) {
             const filePath = worker.savedSessionPath;
             if (!filePath)
                 continue;
@@ -6845,7 +6853,7 @@ class RealtimeTunnelPanelProvider {
         };
     }
     currentAssignments() {
-        const enabledWorkers = new Set(this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).map((worker) => worker.id));
+        const enabledWorkers = new Set(this.enabledWorkerConfigs().map((worker) => worker.id));
         return (0, TunnelEndpointRegistry_1.endpointAssignmentsFromConfig)(this.setupConfig).filter((assignment) => assignment.role === "hub_control" || enabledWorkers.has(assignment.endpointId));
     }
     currentPortConflicts() {
@@ -6900,7 +6908,7 @@ class RealtimeTunnelPanelProvider {
             savedHubSession: Boolean(saved.savedSessionPath),
             savedHubAgentSession: Boolean(saved.agentSessionPath),
             savedWorkerCount,
-            enabledWorkerCount: this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false).length,
+            enabledWorkerCount: this.enabledWorkerConfigs().length,
             workspaceWorkerConfigIgnored: Boolean(savedWorkerCount && Array.isArray(workspaceWorkers) && workspaceWorkers.length === 0),
             sessionLibraryCount: this.xshellLibrary.sessions.length,
             note: "服务器配置以插件全局状态为主；工作区只决定项目名、计划目录和实验接入文件。空 workerTunnels 设置不会覆盖已导入端点档案。",
