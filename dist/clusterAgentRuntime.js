@@ -6996,7 +6996,7 @@ def api_diagnostics(root, include_token=False):
         "journalMaxEvents": MAX_EVENTS,
         "journalMaxBytes": MAX_JOURNAL_BYTES,
         "maxAgentStateBytes": MAX_AGENT_STATE_BYTES,
-        "tokenConfigured": bool(read_json(path_for(root, "agent.session.json"), {}).get("tokenConfigured")),
+        "tokenConfigured": bool((read_runtime_json_cached(path_for(root, "agent.session.json"), {}) or {}).get("tokenConfigured")),
         "schedulerDependencies": scheduler_dependency_health(root),
     }
     return result
@@ -7012,11 +7012,12 @@ def read_audit_tail(root, lines=100):
                 return "".join(f.readlines()[-lines:])
     return ""
 
-def read_results_summary(root, plan=None):
+def read_results_summary(root, plan=None, cached=False):
+    read_summary = read_runtime_json_cached if cached else read_json
     plan_norm = normalize_result_candidate(plan) if plan else ""
     if plan_norm:
         plan_path = os.path.join(root, *plan_results_summary_relpath(plan_norm).split("/"))
-        data = read_json(plan_path, None)
+        data = read_summary(plan_path, None)
         if isinstance(data, dict):
             if not data.get("planFile"):
                 data = {**data, "planFile": plan_norm}
@@ -7029,7 +7030,7 @@ def read_results_summary(root, plan=None):
     existing = [p for p in candidates if os.path.isfile(p)]
     existing.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     for p in existing:
-        data = read_json(p, None)
+        data = read_summary(p, None)
         if data is not None:
             return data
     return {"schemaVersion": SCHEMA_VERSION, "results": []}
@@ -7560,7 +7561,7 @@ def serve_http(args):
             if route == "/api/results/summary":
                 params = parse_qs(parsed.query)
                 plan = (params.get("planFile") or params.get("plan") or params.get("selectedPlanId") or [""])[0]
-                return self.send_json(read_results_summary(root, plan or None))
+                return self.send_json(read_results_summary(root, plan or None, True))
             if route == "/api/diagnostics":
                 return self.send_json(api_diagnostics(root))
             if route == "/api/audit/tail":
