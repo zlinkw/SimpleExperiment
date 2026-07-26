@@ -449,6 +449,7 @@ def move_file_replace(src, dst):
         if os.path.exists(dst):
             os.remove(dst)
         shutil.move(src, dst)
+    invalidate_runtime_json_cache(dst)
 
 def atomic_write(path, payload):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -457,6 +458,7 @@ def atomic_write(path, payload):
         json.dump(payload, f, ensure_ascii=False, indent=2)
         f.write("\n")
     os.replace(tmp, path)
+    invalidate_runtime_json_cache(path)
 
 def file_size(path):
     try:
@@ -514,6 +516,14 @@ def read_runtime_json_cached(path, fallback):
         RUNTIME_JSON_CACHE[key] = {"signature": signature, "value": value, "lastUsedAt": now_value}
         prune_runtime_json_cache(now_value, key)
     return value
+
+def invalidate_runtime_json_cache(path):
+    try:
+        key = os.path.abspath(path)
+    except Exception:
+        return
+    with RUNTIME_JSON_CACHE_LOCK:
+        RUNTIME_JSON_CACHE.pop(key, None)
 
 def prune_runtime_file_index_cache(now_value=None, active_key=""):
     current = time.time() if now_value is None else float(now_value)
