@@ -1470,6 +1470,8 @@ export function renderPanelHtml(): string {
     let experimentTraceViewCacheValue = null;
     let resultEvidenceTraceStatsCacheRows = null;
     let resultEvidenceTraceStatsCacheValue = null;
+    let currentPlanWorkflowResultCacheState = null;
+    let currentPlanWorkflowResultCache = new Map();
     let resultEvidenceWorkbenchCacheKey = "";
     let resultEvidenceWorkbenchCacheHtml = "";
     let claimEvidencePreviewHtmlCacheKey = "";
@@ -1568,6 +1570,7 @@ export function renderPanelHtml(): string {
     const INSPECTOR_CUSTOM_ACTION_RENDER_LIMIT = 6;
     const INSPECTOR_READINESS_RENDER_LIMIT = 8;
     const PLAN_VERSION_ROWS_CACHE_LIMIT = 64;
+    const CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT = 32;
     const RESULT_ANALYSIS_ARTIFACT_FIELDS = Object.freeze({
       "export-plotting-contract": "plottingContractPath",
       "parse-case-level": "caseLevelPath",
@@ -9477,16 +9480,31 @@ export function renderPanelHtml(): string {
     function currentPlanWorkflowResultReadiness(state, selectedPlanFile) {
       const planFile = String(selectedPlanFile || "").trim();
       if (!planFile) return { tone: "info", status: "待选择 Plan", detail: "选择当前 Plan 后显示对应结果进度" };
-      const scopedState = Object.assign({}, state || {}, { planFileInput: planFile });
+      const data = state || {};
+      if (currentPlanWorkflowResultCacheState !== data) {
+        currentPlanWorkflowResultCacheState = data;
+        currentPlanWorkflowResultCache = new Map();
+      }
+      const cacheKey = normalizePlanSelectionKey(planFile);
+      if (currentPlanWorkflowResultCache.has(cacheKey)) return currentPlanWorkflowResultCache.get(cacheKey);
+      const scopedState = data.planFileInput === planFile ? data : Object.assign({}, data, { planFileInput: planFile });
       const summary = scopedState.resultsSummary || {};
       const autoParse = resultAutoParseReadinessForState(scopedState, summary);
       if (autoParse.status === "parsed") {
         const workflowStatus = currentPlanResultWorkflowStatus(scopedState, summary, autoParse);
-        return projectWorkflowResultStep(resultWorkflowStage(workflowStatus));
+        return cacheCurrentPlanWorkflowResult(cacheKey, projectWorkflowResultStep(resultWorkflowStage(workflowStatus)));
       }
-      if (autoParse.status === "run-evidence") return { tone: "info", status: "等待当前结果", detail: "当前 Plan revision 已运行，等待解析、筛选与归档" };
-      if (autoParse.status === "plan-unavailable") return { tone: "warn", status: "等待 Plan 元数据", detail: "当前 Plan 元数据尚未加载完成" };
-      return { tone: "info", status: "待运行", detail: "尚无当前 Plan revision 的运行与结果证据" };
+      if (autoParse.status === "run-evidence") return cacheCurrentPlanWorkflowResult(cacheKey, { tone: "info", status: "等待当前结果", detail: "当前 Plan revision 已运行，等待解析、筛选与归档" });
+      if (autoParse.status === "plan-unavailable") return cacheCurrentPlanWorkflowResult(cacheKey, { tone: "warn", status: "等待 Plan 元数据", detail: "当前 Plan 元数据尚未加载完成" });
+      return cacheCurrentPlanWorkflowResult(cacheKey, { tone: "info", status: "待运行", detail: "尚无当前 Plan revision 的运行与结果证据" });
+    }
+
+    function cacheCurrentPlanWorkflowResult(key, value) {
+      if (currentPlanWorkflowResultCache.size >= CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT) {
+        currentPlanWorkflowResultCache.delete(currentPlanWorkflowResultCache.keys().next().value);
+      }
+      currentPlanWorkflowResultCache.set(key, value);
+      return value;
     }
 
     function currentPlanResultWorkflowStatus(state, summary, autoParse) {
