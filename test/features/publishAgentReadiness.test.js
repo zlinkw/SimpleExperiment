@@ -20,9 +20,14 @@ function extractFunction(name) {
 }
 
 function readiness(state) {
-  const sandbox = { asArray: (value) => Array.isArray(value) ? value : [] };
+  const sandbox = {
+    EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],
+    enabledWorkerTunnelsCacheSource: null,
+    enabledWorkerTunnelsCacheValue: [],
+  };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFunction("enabledWorkerTunnelsForState"),
     extractFunction("projectEndpointReadiness"),
     extractFunction("publishAgentReadiness"),
     "this.check = publishAgentReadiness;",

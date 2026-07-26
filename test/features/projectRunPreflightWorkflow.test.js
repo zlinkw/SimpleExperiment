@@ -61,7 +61,7 @@ test("project next action follows the real preflight order", () => {
 });
 
 test("Hub-only projects do not require a Worker sync status", () => {
-  assert.match(panel, /const workerRequired = asArray\(setup\.workerTunnels\)\.some/);
+  assert.match(panel, /const workerRequired = enabledWorkerTunnelsForState\(state\)\.length > 0/);
   assert.match(panel, /const workerReady = !workerRequired \|\| syncStatusOk\(sync\.workers\)/);
   assert.match(panel, /ready: hubReady && workerReady && fingerprintReady/);
 });

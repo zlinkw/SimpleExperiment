@@ -31,9 +31,17 @@ test("project quick access gates run readiness on server setup", () => {
 });
 
 test("experiment submission requires an enabled Worker before confirmation or sync", () => {
-  const sandbox = { asArray: (value) => Array.isArray(value) ? value : [] };
+  const sandbox = {
+    EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],
+    enabledWorkerTunnelsCacheSource: null,
+    enabledWorkerTunnelsCacheValue: [],
+  };
   vm.createContext(sandbox);
-  vm.runInContext(extractFunction(panel, "executionWorkerReadiness") + "\nthis.check = executionWorkerReadiness;", sandbox);
+  vm.runInContext([
+    extractFunction(panel, "enabledWorkerTunnelsForState"),
+    extractFunction(panel, "executionWorkerReadiness"),
+    "this.check = executionWorkerReadiness;",
+  ].join("\n"), sandbox);
   assert.equal(sandbox.check({ setup: { workerTunnels: [] } }).ready, false);
   assert.equal(sandbox.check({ setup: { workerTunnels: [{ id: "w1", enabled: false }] } }).ready, false);
   assert.equal(sandbox.check({ setup: { workerTunnels: [{ id: "w1", enabled: true }] } }).ready, true);

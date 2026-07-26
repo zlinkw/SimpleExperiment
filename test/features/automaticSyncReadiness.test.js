@@ -21,13 +21,16 @@ function extractFunction(name) {
 
 function readiness(state) {
   const sandbox = {
-    asArray: (value) => Array.isArray(value) ? value : [],
+    EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],
+    enabledWorkerTunnelsCacheSource: null,
+    enabledWorkerTunnelsCacheValue: [],
     hasText: (value) => Boolean(String(value || "").trim()),
   };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("syncStatusOk"),
     extractFunction("syncStatusFailure"),
+    extractFunction("enabledWorkerTunnelsForState"),
     extractFunction("overviewSyncReadiness"),
     "this.check = overviewSyncReadiness;",
   ].join("\n"), sandbox);

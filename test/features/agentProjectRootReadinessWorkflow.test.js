@@ -34,9 +34,17 @@ function loadAgentRootHelpers() {
 }
 
 function loadEndpointReadiness() {
-  const sandbox = { asArray: (value) => Array.isArray(value) ? value : [] };
+  const sandbox = {
+    EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],
+    enabledWorkerTunnelsCacheSource: null,
+    enabledWorkerTunnelsCacheValue: [],
+  };
   vm.createContext(sandbox);
-  vm.runInContext(extractFunction(panel, "projectEndpointReadiness") + "\nthis.check = projectEndpointReadiness;", sandbox);
+  vm.runInContext([
+    extractFunction(panel, "enabledWorkerTunnelsForState"),
+    extractFunction(panel, "projectEndpointReadiness"),
+    "this.check = projectEndpointReadiness;",
+  ].join("\n"), sandbox);
   return sandbox.check;
 }
 
