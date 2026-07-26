@@ -78,7 +78,7 @@ function compactSection(section) {
     for (const line of body) {
       if (/^###\s+/.test(line)) {
         const subsection = line.replace(/^###\s+/, "").trim();
-        skip = !/^(修复点|回归风险|验证清单)$/.test(subsection);
+        skip = !/^(修复点|(?:相邻)?回归风险|验证清单)$/.test(subsection);
         if (skip) continue;
       }
       if (!skip) kept.push(line);
