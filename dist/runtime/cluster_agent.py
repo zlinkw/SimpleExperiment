@@ -154,7 +154,9 @@ def parse_iso_epoch(value):
         return None
     text = str(value).replace(".000Z", "Z")
     try:
-        return time.mktime(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ"))
+        # Stamps come from now_iso()/time.gmtime(), so they must be read back as UTC;
+        # time.mktime() would offset every age by the host timezone.
+        return float(calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ")))
     except Exception:
         return None
 
@@ -618,6 +620,8 @@ RESULT_PREFIX_PAIRS = {
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
 MAX_RESULT_CANDIDATE_CACHE_RECORDS = 512
 RESULT_CANDIDATE_CACHE = {}
+MAX_WORKER_AVAILABILITY_RECORDS = 64
+WORKER_AVAILABILITY_EXPIRY_FACTOR = 4
 
 NON_RESULT_METADATA_FILES = {
     "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json",
@@ -1711,12 +1715,38 @@ def read_availability_cache(root, cached=False):
     data = read_runtime_json_cached(path, {}) if cached else read_json(path, {})
     return data if isinstance(data, dict) else {}
 
+def availability_entry_expired(entry, ttl_default=180):
+    if not isinstance(entry, dict):
+        return True
+    age = iso_age_seconds(entry.get("updatedAt"))
+    if age is None:
+        return False
+    try:
+        ttl = int(entry.get("ttlSeconds") or ttl_default)
+    except Exception:
+        ttl = ttl_default
+    return age > max(60, ttl) * WORKER_AVAILABILITY_EXPIRY_FACTOR
+
+# Entries accumulate per worker id and are broadcast whole on every batch, so retired or
+# renamed workers must not linger forever in the cache, the API payload or the journal.
+def prune_availability_entries(entries, keep_ids, ttl_default=180):
+    kept = {}
+    for worker_id, entry in entries.items():
+        if worker_id in keep_ids or not availability_entry_expired(entry, ttl_default):
+            kept[worker_id] = entry
+    if len(kept) <= MAX_WORKER_AVAILABILITY_RECORDS:
+        return kept
+    ranked = sorted(kept.items(), key=lambda item: (item[0] in keep_ids, parse_iso_epoch((item[1] or {}).get("updatedAt")) or 0.0), reverse=True)
+    return dict(ranked[:MAX_WORKER_AVAILABILITY_RECORDS])
+
 def write_availability_batch(root, payload):
     now = now_iso()
     ttl = int(payload.get("ttlSeconds") or 180)
     rows = payload.get("workers") if isinstance(payload.get("workers"), list) else []
     current = read_availability_cache(root)
-    entries = current.get("workers") if isinstance(current.get("workers"), dict) else {}
+    source_entries = current.get("workers") if isinstance(current.get("workers"), dict) else {}
+    entries = dict(source_entries)
+    updated_ids = set()
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -1729,6 +1759,8 @@ def write_availability_batch(root, payload):
         merged["updatedAt"] = str(row.get("updatedAt") or payload.get("generatedAt") or now)
         merged["ttlSeconds"] = int(row.get("ttlSeconds") or ttl)
         entries[worker_id] = merged
+        updated_ids.add(worker_id)
+    entries = prune_availability_entries(entries, updated_ids, ttl)
     out = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now, "workers": entries}
     atomic_write(availability_cache_path(root), out)
     append_event(root, {"type": "worker_availability", "source": str(payload.get("source") or "local_aggregator"), "payload": {"workers": list(entries.values()), "generatedAt": now}})
