@@ -967,6 +967,9 @@ function renderPanelHtml() {
     .schedulerGlossaryItem b { color: var(--vscode-foreground); font-size: 12px; }
     .schedulerGlossaryItem span { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.4; }
     .field { display: grid; gap: 3px; min-width: 0; }
+    .configBoundsHint { margin-left: 6px; color: var(--muted); font-size: var(--zlk-font-xs); font-weight: 500; }
+    .configBoundsError { color: var(--danger); font-size: var(--zlk-font-sm); overflow-wrap: anywhere; }
+    .field.is-invalid > input { border-color: var(--danger); }
     .field.wide { grid-column: 1 / -1; }
     .field label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
     .helpBadge { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 700; line-height: 1; cursor: help; }
@@ -6610,7 +6613,36 @@ function renderPanelHtml() {
       const title = help ? ' title="' + escAttr(help) + '"' : "";
       const bounds = configInputBounds(scope, key);
       value = configDraftValue(scope, key, value);
-      return '<div class="field ' + escAttr(cls || "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + '</label><input' + title + configBoundsAttrs(bounds) + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"></div>';
+      // min/max attributes alone are advisory: the save path reads input.value directly, so an
+      // out-of-range value saves silently and the allowed range is never stated anywhere.
+      const hint = configBoundsHint(bounds);
+      const violation = configBoundsViolation(bounds, value);
+      const hintHtml = hint ? '<span class="configBoundsHint" title="' + escAttr(hint) + '">' + esc(hint) + '</span>' : "";
+      const violationHtml = violation ? '<span class="configBoundsError" title="' + escAttr(label + "：" + violation) + '">' + esc(violation) + '</span>' : "";
+      return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
+    }
+
+    function configBoundsHint(bounds) {
+      if (!bounds) return "";
+      const hasMin = meaningfulValue(bounds.min) !== "";
+      const hasMax = meaningfulValue(bounds.max) !== "";
+      if (hasMin && hasMax) return bounds.min + "–" + bounds.max;
+      if (hasMin) return "≥ " + bounds.min;
+      if (hasMax) return "≤ " + bounds.max;
+      return "";
+    }
+
+    function configBoundsViolation(bounds, value) {
+      if (!bounds) return "";
+      const bounded = meaningfulValue(bounds.min) !== "" || meaningfulValue(bounds.max) !== "";
+      if (!bounded) return "";
+      const text = String(value === undefined || value === null ? "" : value).trim();
+      if (!text) return "";
+      const number = Number(text);
+      if (!Number.isFinite(number)) return "需要填写数字";
+      if (meaningfulValue(bounds.min) !== "" && number < Number(bounds.min)) return "不得小于 " + bounds.min;
+      if (meaningfulValue(bounds.max) !== "" && number > Number(bounds.max)) return "不得大于 " + bounds.max;
+      return "";
     }
 
     function renderXshellSessionBudgetNote(state) {
