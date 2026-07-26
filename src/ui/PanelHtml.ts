@@ -791,6 +791,8 @@ export function renderPanelHtml(): string {
     .progressTrack { height: 6px; background: var(--vscode-editorWidget-background); border-radius: 3px; overflow: hidden; min-width: 70px; }
     .progressBar { height: 6px; background: var(--vscode-progressBar-background); }
     .pill, .status-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 20px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; background: var(--subtle-bg); color: var(--muted); font-size: 12px; }
+    .pill.taskLivePill { border-color: #BFD4EA; background: #EEF4FB; color: #1F4E79; }
+    .taskRenderBudgetNotice .muted { margin-left: 6px; }
     .mini { padding: 3px 6px; font-size: 11px; }
     .gpuServer {
       display: grid;
@@ -1585,6 +1587,8 @@ export function renderPanelHtml(): string {
     const ARCHIVED_PLAN_RENDER_LIMIT = 24;
     const EMPTY_WORKER_TUNNELS_FOR_ALIAS = [];
     const EMPTY_XSHELL_SESSIONS = [];
+    const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
+    const TASK_RENDER_BUDGET_HINT = "超出渲染预算时按已选、运行或失败、排队、其余的顺序保留；折叠的任务仍参与计数与批量操作";
     const FEATURE_READINESS_GROUPS = [
       ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
       ["计划运行链路", ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]],
@@ -10347,7 +10351,7 @@ export function renderPanelHtml(): string {
       const total = Number(totalCount || rows.length || 0);
       const omitted = Math.max(0, total - rows.length);
       const budgetNotice = omitted
-        ? '<div class="taskRenderBudgetNotice" title="' + escAttr("折叠：" + omitted) + '">任务 ' + rows.length + ' / ' + total + '；折叠 ' + omitted + '</div>'
+        ? '<div class="taskRenderBudgetNotice" title="' + escAttr(TASK_RENDER_BUDGET_HINT + "；折叠 " + omitted + " 条") + '">任务 ' + rows.length + ' / ' + total + '；折叠 ' + omitted + '<span class="muted">（优先显示已选、运行与失败）</span></div>'
         : "";
       return budgetNotice + '<div class="taskCardList">' + rows.map((row) => renderTaskCard(state, row, selected)).join("") + '</div>';
     }
@@ -10565,11 +10569,25 @@ export function renderPanelHtml(): string {
       return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
         '<div class="taskCardHead">' +
           '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (checked ? " checked" : "") + '>' +
-          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + (row.debugMode ? '<span class="pill status-warning">Debug</span>' : '') + pendingBadge + '</div>' +
+          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + taskLivePills(row) + (row.debugMode ? '<span class="pill status-warning">Debug</span>' : '') + pendingBadge + '</div>' +
           '<div class="taskActions">' + actions + '</div>' +
         '</div>' +
         renderTaskLogDetails(state, row) +
       '</div>';
+    }
+
+    // Running rows only: progress and placement are what the user scans for while a
+    // plan is live. Terminal rows keep the compact head and leave detail to the tooltip.
+    function taskLivePills(row) {
+      if (!TASK_LIVE_STATUS_TOKENS.has(taskStatusToken(String((row || {}).status || "")))) return "";
+      const progress = compactText(String((row || {}).progress || "").trim(), 18);
+      const gpuIds = arrayText((row || {}).gpuIds);
+      const worker = (row || {}).serverId && row.serverId !== "-" ? workerName(row.serverId) : "";
+      const pills = [];
+      if (progress && progress !== "-") pills.push(['进度 ' + esc(progress), "进度：" + progress]);
+      if (worker) pills.push([esc(compactText(worker, 18)), "Worker：" + worker + (gpuIds && gpuIds !== "-" ? "；GPU " + gpuIds : "")]);
+      if (gpuIds && gpuIds !== "-") pills.push(['GPU ' + esc(compactText(gpuIds, 12)), "GPU：" + gpuIds]);
+      return pills.map((pill) => '<span class="pill taskLivePill" title="' + escAttr(pill[1]) + '">' + pill[0] + '</span>').join("");
     }
 
     function renderTaskTable(state, rows, selected) {
