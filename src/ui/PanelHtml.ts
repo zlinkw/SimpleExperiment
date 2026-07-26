@@ -1486,6 +1486,8 @@ export function renderPanelHtml(): string {
     let planLookupIndexCacheValue = new Map();
     let enabledWorkerTunnelsCacheSource = null;
     let enabledWorkerTunnelsCacheValue = [];
+    let simpleSftpReadinessCacheSource = null;
+    let simpleSftpReadinessCacheValue = null;
     let workerAliasMapCacheSource = null;
     let workerAliasMapCacheValue = null;
     let overviewGpuStatsCacheState = null;
@@ -1554,6 +1556,8 @@ export function renderPanelHtml(): string {
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_PLAN_ROWS_FOR_LOOKUP = [];
+    const EMPTY_SIMPLE_SFTP_INTEGRATION = {};
+    const DEFAULT_SIMPLE_SFTP_READINESS = { ready: true, message: "" };
     const EMPTY_SERVER_STATUS_ROWS = [];
     const EMPTY_TASK_SELECTION_VALUES = [];
     const EMPTY_TASK_SELECTION_SET = new Set();
@@ -5890,16 +5894,21 @@ export function renderPanelHtml(): string {
 
     function simpleSftpReadinessForState(state) {
       const item = (((state || {}).integrations || {}).simpleSftp);
-      if (!item || typeof item !== "object") return { ready: true, message: "" };
-      return {
-        ready: item.ready === true,
-        installed: item.installed === true,
-        version: String(item.version || ""),
-        missingCommands: asArray(item.missingCommands),
-        legacyInstalled: item.legacyInstalled === true,
-        legacyVersion: String(item.legacyVersion || ""),
-        message: String(item.message || "配套 SimpleSFTP 未就绪。")
-      };
+      const source = item && typeof item === "object" ? item : EMPTY_SIMPLE_SFTP_INTEGRATION;
+      if (source === simpleSftpReadinessCacheSource && simpleSftpReadinessCacheValue) return simpleSftpReadinessCacheValue;
+      simpleSftpReadinessCacheSource = source;
+      simpleSftpReadinessCacheValue = source === EMPTY_SIMPLE_SFTP_INTEGRATION
+        ? DEFAULT_SIMPLE_SFTP_READINESS
+        : {
+          ready: source.ready === true,
+          installed: source.installed === true,
+          version: String(source.version || ""),
+          missingCommands: asArray(source.missingCommands),
+          legacyInstalled: source.legacyInstalled === true,
+          legacyVersion: String(source.legacyVersion || ""),
+          message: String(source.message || "配套 SimpleSFTP 未就绪。")
+        };
+      return simpleSftpReadinessCacheValue;
     }
 
     function legacySftpNoticeForState(state) {
