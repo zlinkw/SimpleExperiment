@@ -29,6 +29,7 @@ GPU_HISTORY_RETENTION_SECONDS = 72 * 60 * 60
 GPU_HISTORY_MAX_POINTS_PER_SERIES = 72 * 60
 GPU_HISTORY_MAX_SERIES = 128
 LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
+AUDIT_TAIL_MAX_BYTES = 1024 * 1024
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
@@ -7008,15 +7009,29 @@ def api_diagnostics(root, include_token=False):
     }
     return result
 
+def audit_tail_byte_budget(line_limit):
+    return min(AUDIT_TAIL_MAX_BYTES, max(64 * 1024, int(line_limit) * 4096))
+
 def read_audit_tail(root, lines=100):
+    line_limit = max(1, int(lines or 100))
+    byte_limit = audit_tail_byte_budget(line_limit)
     candidates = [
         os.path.join(root, "zlk_cluster", "logs", "operation_audit.jsonl"),
         os.path.join(root, "zlk_cluster", "tmp", "operation_audit.jsonl"),
     ]
     for p in candidates:
-        if os.path.isfile(p):
-            with open(p, "r", encoding="utf-8", errors="replace") as f:
-                return "".join(f.readlines()[-lines:])
+        if not os.path.isfile(p):
+            continue
+        with open(p, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            start = max(0, f.tell() - byte_limit)
+            f.seek(start)
+            data = f.read(byte_limit)
+        if start:
+            boundary = data.find(b"\n")
+            data = data[boundary + 1:] if boundary >= 0 else b""
+        text = data.decode("utf-8", errors="replace")
+        return "".join(text.splitlines(keepends=True)[-line_limit:])
     return ""
 
 def read_results_summary(root, plan=None, cached=False):
