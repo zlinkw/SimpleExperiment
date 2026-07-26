@@ -1444,6 +1444,7 @@ export function renderPanelHtml(): string {
     let nextObjectReferenceId = 1;
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
+    const operationSearchHaystackCache = new WeakMap();
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
     let taskSectionViewCacheState = null;
@@ -1558,6 +1559,17 @@ export function renderPanelHtml(): string {
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_PLAN_ROWS_FOR_LOOKUP = [];
+    const MATCH_EVERY_OPERATION = () => true;
+    const MATCH_NO_OPERATION = () => false;
+    const OPERATION_INFRASTRUCTURE_PATTERN = /self|debug|audit|diagnostic|agent|tunnel|port/;
+    const OPERATION_SECTION_MATCH_PATTERNS = new Map([
+      ["sync", /publish|github|upload|deploy|sftp|sync|distribute/],
+      ["tasks", /stop|retry|archive|delete|worker|task|experiment|run/],
+      ["results", /parse|result|quality|statistics|paper|claim|archive|sync/],
+      ["plans", /plan|validate|dry-run|run-plan|reproduce/],
+      ["servers", OPERATION_INFRASTRUCTURE_PATTERN],
+      ["diagnostics", OPERATION_INFRASTRUCTURE_PATTERN]
+    ]);
     const GPU_SERVER_UNCONFIGURED_INDEX = 10000;
     const EMPTY_SIMPLE_SFTP_INTEGRATION = {};
     const DEFAULT_SIMPLE_SFTP_READINESS = { ready: true, message: "" };
@@ -5475,29 +5487,38 @@ export function renderPanelHtml(): string {
     function firstMatchingOperationRows(rows, meta, section, limit) {
       const out = [];
       const max = Math.max(1, Number(limit) || 4);
+      const matches = operationResourceMatcher(meta, section);
       for (const row of asArray(rows)) {
-        if (!operationMatchesResource(row, meta, section)) continue;
+        if (!matches(operationSearchHaystack(row))) continue;
         out.push(row);
         if (out.length >= max) break;
       }
       return out;
     }
 
-    function operationMatchesResource(row, meta, section) {
-      const anchor = String((meta || {}).anchor || "");
-      const label = String((meta || {}).label || "");
+    function operationSearchHaystack(row) {
+      if (!row || typeof row !== "object") return "";
+      const cached = operationSearchHaystackCache.get(row);
+      if (cached !== undefined) return cached;
       const haystack = [row.operationId, row.id, row.type, row.action, row.status, row.message, row.error, row.searchText].join(" ").toLowerCase();
-      const text = [anchor, label, section, (meta || {}).searchText || ""].join(" ").toLowerCase();
+      operationSearchHaystackCache.set(row, haystack);
+      return haystack;
+    }
+
+    function operationResourceMatcher(meta, section) {
+      const anchor = String((meta || {}).anchor || "");
       if (!anchor || anchor === section) {
-        if (section === "operations") return true;
-        if (section === "sync") return /publish|github|upload|deploy|sftp|sync|distribute/.test(haystack);
-        if (section === "tasks") return /stop|retry|archive|delete|worker|task|experiment|run/.test(haystack);
-        if (section === "results") return /parse|result|quality|statistics|paper|claim|archive|sync/.test(haystack);
-        if (section === "plans") return /plan|validate|dry-run|run-plan|reproduce/.test(haystack);
-        if (section === "servers" || section === "diagnostics") return /self|debug|audit|diagnostic|agent|tunnel|port/.test(haystack);
-        return false;
+        if (section === "operations") return MATCH_EVERY_OPERATION;
+        const pattern = OPERATION_SECTION_MATCH_PATTERNS.get(section);
+        return pattern ? (haystack) => pattern.test(haystack) : MATCH_NO_OPERATION;
       }
-      return text.split(/\s+/).filter((part) => part.length > 2).some((part) => haystack.includes(part));
+      const label = String((meta || {}).label || "");
+      const parts = [anchor, label, section, (meta || {}).searchText || ""].join(" ").toLowerCase().split(/\s+/).filter((part) => part.length > 2);
+      return (haystack) => parts.some((part) => haystack.includes(part));
+    }
+
+    function operationMatchesResource(row, meta, section) {
+      return operationResourceMatcher(meta, section)(operationSearchHaystack(row));
     }
 
     function renderInspectorEvent(row) {
