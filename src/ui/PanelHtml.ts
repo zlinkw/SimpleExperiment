@@ -1476,6 +1476,8 @@ export function renderPanelHtml(): string {
     let resultEvidenceWorkbenchCacheHtml = "";
     let claimEvidencePreviewHtmlCacheKey = "";
     let claimEvidencePreviewHtmlCache = "";
+    let enabledWorkerTunnelsCacheSource = null;
+    let enabledWorkerTunnelsCacheValue = [];
     let workerAliasMapCacheSource = null;
     let workerAliasMapCacheValue = null;
     let overviewGpuStatsCacheState = null;
@@ -5090,7 +5092,7 @@ export function renderPanelHtml(): string {
     function workbenchInspectorFactSignature(state, section, meta) {
       const setup = state.setup || {};
       const workers = asArray(setup.workerTunnels || []);
-      const enabledWorkers = workers.filter((worker) => worker.enabled !== false);
+      const enabledWorkers = enabledWorkerTunnelsForState(state);
       const conflicts = asArray(state.tunnelPortConflicts || []);
       const project = state.detectedProject || {};
       const summary = state.resultsSummary || {};
@@ -5179,7 +5181,7 @@ export function renderPanelHtml(): string {
       const setup = state.setup || {};
       const scheduler = state.schedulerConfig || {};
       const workers = asArray(setup.workerTunnels || []);
-      const enabledWorkers = workers.filter((worker) => worker.enabled !== false);
+      const enabledWorkers = enabledWorkerTunnelsForState(state);
       const gpuStats = overviewGpuStats(state);
       const taskStats = overviewTaskStats(state);
       const operationStats = overviewOperationStats(state);
@@ -5603,9 +5605,8 @@ export function renderPanelHtml(): string {
     }
 
     function renderWorkbenchObjectStrip(state) {
-      const setup = state.setup || {};
       const health = state.health || {};
-      const workers = asArray((setup || {}).workerTunnels || []).filter((worker) => worker.enabled !== false);
+      const workers = enabledWorkerTunnelsForState(state);
       const tasks = schedulerRowsForState(state);
       const project = state.detectedProject || {};
       const gpuStats = overviewGpuStats(state);
@@ -5641,7 +5642,7 @@ export function renderPanelHtml(): string {
       const diagnostics = state.diagnostics || {};
       const scheduler = state.schedulerConfig || {};
       const workers = asArray(setup.workerTunnels || []);
-      const enabledWorkers = workers.filter((worker) => worker.enabled !== false);
+      const enabledWorkers = enabledWorkerTunnelsForState(state);
       const workerTelemetry = asArray(state.workerTelemetryStatus || []);
       const workerOk = workerTelemetry.filter((item) => String(item.status || "").toLowerCase().includes("ok") || String(item.status || "").toLowerCase().includes("online")).length;
       const gpuStats = overviewGpuStats(state);
@@ -5869,6 +5870,15 @@ export function renderPanelHtml(): string {
       return overviewProjectStatsCacheValue;
     }
 
+    function enabledWorkerTunnelsForState(state) {
+      const setup = (state || {}).setup || {};
+      const source = Array.isArray(setup.workerTunnels) ? setup.workerTunnels : EMPTY_WORKER_TUNNELS_FOR_ALIAS;
+      if (source === enabledWorkerTunnelsCacheSource) return enabledWorkerTunnelsCacheValue;
+      enabledWorkerTunnelsCacheSource = source;
+      enabledWorkerTunnelsCacheValue = source.filter((worker) => worker && worker.enabled !== false);
+      return enabledWorkerTunnelsCacheValue;
+    }
+
     function simpleSftpReadinessForState(state) {
       const item = (((state || {}).integrations || {}).simpleSftp);
       if (!item || typeof item !== "object") return { ready: true, message: "" };
@@ -6006,7 +6016,7 @@ export function renderPanelHtml(): string {
       const indexes = serverStatusIndexesForState(state);
       const conflicts = indexes.conflicts;
       const workers = setup.workerTunnels || [];
-      const enabledWorkers = workers.filter((worker) => worker.enabled !== false);
+      const enabledWorkers = enabledWorkerTunnelsForState(state);
       const workerStatus = indexes.workerStatus;
       const assignmentById = indexes.assignmentById;
       const conflictById = indexes.conflictById;
@@ -6141,10 +6151,11 @@ export function renderPanelHtml(): string {
     function renderServerTopologyMap(state) {
       const setup = state.setup || {};
       const workers = asArray(setup.workerTunnels || []);
+      const enabledWorkers = enabledWorkerTunnelsForState(state);
       const scheduler = state.schedulerConfig || {};
       const hubPort = setup.localForwardPort || 18765;
       const workerPorts = workers.map((worker) => worker.localForwardPort).filter(Boolean);
-      const enabledCount = workers.filter((worker) => worker.enabled !== false).length;
+      const enabledCount = enabledWorkers.length;
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
       const poll = Number(configDefault(scheduler.pollSeconds, 60));
       const lanes = [
@@ -7149,8 +7160,7 @@ export function renderPanelHtml(): string {
     }
 
     function planConfiguredWorkerCapacity(state) {
-      const setup = (state || {}).setup || {};
-      const workers = (Array.isArray(setup.workerTunnels) ? setup.workerTunnels : []).filter((worker) => worker && worker.enabled !== false);
+      const workers = enabledWorkerTunnelsForState(state);
       return workers.reduce((sum, worker) => {
         const limitValue = Number(worker.maxConcurrentGpus || worker.max_concurrent_gpus || 1);
         const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.trunc(limitValue) : 1;
@@ -7332,9 +7342,8 @@ export function renderPanelHtml(): string {
     }
 
     function overviewSyncReadiness(state) {
-      const setup = (state || {}).setup || {};
       const sync = (state || {}).codeSync || {};
-      const workerRequired = asArray(setup.workerTunnels).some((worker) => worker && worker.enabled !== false);
+      const workerRequired = enabledWorkerTunnelsForState(state).length > 0;
       const hubReady = syncStatusOk(sync.hub);
       const workerReady = !workerRequired || syncStatusOk(sync.workers);
       const fingerprintReady = hasText(sync.fingerprint);
@@ -8150,7 +8159,7 @@ export function renderPanelHtml(): string {
       const workers = asArray(setup.workerTunnels || []);
       if (!workers.length) return;
       const configured = new Set();
-      workers.filter((worker) => worker.enabled !== false).forEach((worker) => {
+      enabledWorkerTunnelsForState(state).forEach((worker) => {
         [worker.id, worker.workerId, worker.worker_id, worker.displayName, worker.name, worker.workerHost, worker.host].forEach((value) => {
           const key = cleanEndpointId(value);
           if (key) configured.add(key);
@@ -8808,7 +8817,7 @@ export function renderPanelHtml(): string {
       const setup = (state || {}).setup || {};
       const hubEnv = meaningfulValue(setup.condaEnv);
       const hubEnvironment = executionEnvironmentText(hubEnv);
-      const workerEnvironments = uniqueText(asArray(setup.workerTunnels).filter((worker) => worker && worker.enabled !== false).map((worker) => executionEnvironmentText(worker.condaEnv === undefined ? hubEnv : worker.condaEnv)));
+      const workerEnvironments = uniqueText(enabledWorkerTunnelsForState(state).map((worker) => executionEnvironmentText(worker.condaEnv === undefined ? hubEnv : worker.condaEnv)));
       const distinctWorkers = workerEnvironments.filter((item) => item !== hubEnvironment);
       const environmentText = distinctWorkers.length ? "Hub " + hubEnvironment + " · Worker " + distinctWorkers.join("/") : hubEnvironment;
       const files = asArray((project || {}).environmentFiles).map(String).filter(Boolean);
@@ -9210,7 +9219,7 @@ export function renderPanelHtml(): string {
 
     function serverSetupReadiness(state) {
       const setup = (state || {}).setup || {};
-      const workers = asArray(setup.workerTunnels).filter((worker) => worker && worker.enabled !== false);
+      const workers = enabledWorkerTunnelsForState(state);
       const missing = [];
       if (!meaningfulValue(setup.savedSessionPath)) missing.push("Hub Xshell 会话");
       if (!meaningfulValue(setup.agentProjectDir)) missing.push("Hub 项目父目录");
@@ -9228,7 +9237,7 @@ export function renderPanelHtml(): string {
     }
 
     function executionWorkerReadiness(state) {
-      const workers = asArray(((state || {}).setup || {}).workerTunnels).filter((worker) => worker && worker.enabled !== false);
+      const workers = enabledWorkerTunnelsForState(state);
       return {
         ready: workers.length > 0,
         count: workers.length,
@@ -9242,8 +9251,7 @@ export function renderPanelHtml(): string {
     }
 
     function projectEndpointReadiness(state) {
-      const setup = (state || {}).setup || {};
-      const workers = asArray(setup.workerTunnels).filter((worker) => worker && worker.enabled !== false);
+      const workers = enabledWorkerTunnelsForState(state);
       const workerProbes = (state || {}).workerProbes || {};
       const hubStatus = String(((state || {}).probe || {}).status || ((state || {}).health || {}).state || "").toLowerCase();
       const restartRequired = hubStatus === "agent_restart_required";
@@ -9296,8 +9304,7 @@ export function renderPanelHtml(): string {
     }
 
     function projectCodeSyncReadiness(state) {
-      const setup = (state || {}).setup || {};
-      const workerRequired = asArray(setup.workerTunnels).some((worker) => worker && worker.enabled !== false);
+      const workerRequired = enabledWorkerTunnelsForState(state).length > 0;
       const sync = (state || {}).codeSync || {};
       const hubReady = syncStatusOk(sync.hub);
       const workerReady = !workerRequired || syncStatusOk(sync.workers);
