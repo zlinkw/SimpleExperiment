@@ -15,6 +15,8 @@ MAX_AGENT_STATE_BYTES = 128 * 1024 * 1024
 MAX_UPLOAD_RECORDS = 120
 MAX_WORKER_COMMAND_RESULT_RECORDS = 240
 MAX_WORKER_ACTION_KEY_RECORDS = 240
+MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS = 32
+SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS = 10 * 60
 GPU_HISTORY_BUCKET_SECONDS = 60
 GPU_HISTORY_RETENTION_SECONDS = 72 * 60 * 60
 GPU_HISTORY_MAX_POINTS_PER_SERIES = 72 * 60
@@ -123,6 +125,7 @@ WORKER_ACTION_LOCK = threading.Lock()
 WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
 SCHEDULER_DEPENDENCY_CACHE = {}
+SCHEDULER_DEPENDENCY_CACHE_LOCK = threading.Lock()
 
 def now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -151,6 +154,29 @@ def runtime_terminal_status(value):
     status = str((value or {}).get("status") or (value or {}).get("state") or "").strip().lower()
     return status in ("completed", "failed", "cancelled", "canceled", "stalled", "unsupported", "error", "done")
 
+def prune_scheduler_dependency_cache(now_epoch=None, active_key=None):
+    now_value = float(now_epoch if now_epoch is not None else time.time())
+    for key, value in list(SCHEDULER_DEPENDENCY_CACHE.items()):
+        try:
+            checked_at = float((value or {}).get("_checkedAtEpoch") or 0)
+        except Exception:
+            checked_at = 0.0
+        if key != active_key and (checked_at <= 0 or now_value - checked_at > SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS):
+            SCHEDULER_DEPENDENCY_CACHE.pop(key, None)
+    if len(SCHEDULER_DEPENDENCY_CACHE) <= MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS:
+        return
+    ranked = sorted(SCHEDULER_DEPENDENCY_CACHE.items(), key=lambda item: float((item[1] or {}).get("_checkedAtEpoch") or 0), reverse=True)
+    keep = {key for key, _ in ranked[:MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS]}
+    if active_key in SCHEDULER_DEPENDENCY_CACHE:
+        keep.add(active_key)
+        if len(keep) > MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS:
+            oldest = next((key for key, _ in reversed(ranked) if key != active_key and key in keep), None)
+            if oldest is not None:
+                keep.remove(oldest)
+    for key in list(SCHEDULER_DEPENDENCY_CACHE.keys()):
+        if key not in keep:
+            SCHEDULER_DEPENDENCY_CACHE.pop(key, None)
+
 def prune_runtime_memory_state():
     if len(UPLOADS) > MAX_UPLOAD_RECORDS:
         running = {key: value for key, value in UPLOADS.items() if not runtime_terminal_status(value)}
@@ -178,6 +204,8 @@ def prune_runtime_memory_state():
         for key in list(WORKER_ACTION_INFLIGHT.keys()):
             if key not in keep and int(WORKER_ACTION_INFLIGHT.get(key) or 0) <= 0:
                 WORKER_ACTION_INFLIGHT.pop(key, None)
+    with SCHEDULER_DEPENDENCY_CACHE_LOCK:
+        prune_scheduler_dependency_cache()
 
 def agent_install_dir(root):
     configured = os.environ.get("ZLK_AGENT_INSTALL_DIR", "").strip()
@@ -6154,7 +6182,10 @@ def scheduler_dependency_health(root, max_age_seconds=30):
         return {"ok": False, "missingRuntime": True, "missingModules": [], "installCommand": "", "message": "缺少 cluster_scheduler.py，请先部署最新版 Agent。", "checkedAt": now_iso()}
     env = zlk_runtime_env(os.environ.copy())
     key = "|".join([os.path.abspath(root), os.path.abspath(scheduler), str(env.get("ZLK_CONDA_ENV") or ""), str(zlk_runtime_python(env) or "")])
-    cached = SCHEDULER_DEPENDENCY_CACHE.get(key)
+    checked_at = time.time()
+    with SCHEDULER_DEPENDENCY_CACHE_LOCK:
+        prune_scheduler_dependency_cache(checked_at, key)
+        cached = SCHEDULER_DEPENDENCY_CACHE.get(key)
     if isinstance(cached, dict) and time.time() - float(cached.get("_checkedAtEpoch") or 0) < max(1, int(max_age_seconds or 30)):
         return {k: v for k, v in cached.items() if not str(k).startswith("_")}
     try:
@@ -6162,7 +6193,10 @@ def scheduler_dependency_health(root, max_age_seconds=30):
     except Exception as exc:
         status = {"ok": False, "missingModules": [], "installCommand": "", "message": str(exc)}
     status = {**status, "checkedAt": now_iso(), "schedulerPath": relpath(root, scheduler) if os.path.abspath(scheduler).startswith(os.path.abspath(root) + os.sep) else scheduler}
-    SCHEDULER_DEPENDENCY_CACHE[key] = {**status, "_checkedAtEpoch": time.time()}
+    checked_at = time.time()
+    with SCHEDULER_DEPENDENCY_CACHE_LOCK:
+        SCHEDULER_DEPENDENCY_CACHE[key] = {**status, "_checkedAtEpoch": checked_at}
+        prune_scheduler_dependency_cache(checked_at, key)
     return status
 
 def require_scheduler_dependencies(root, scheduler, env=None):

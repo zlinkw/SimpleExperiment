@@ -39,6 +39,14 @@ for i in range(agent.MAX_WORKER_ACTION_KEY_RECORDS + 30):
 agent.WORKER_ACTION_INFLIGHT["worker-0"] = 1
 
 agent.prune_runtime_memory_state()
+
+agent.SCHEDULER_DEPENDENCY_CACHE.clear()
+cache_now = 2000
+for i in range(agent.MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS + 30):
+    agent.SCHEDULER_DEPENDENCY_CACHE[f"scheduler-{i}"] = {"_checkedAtEpoch": cache_now - i}
+agent.SCHEDULER_DEPENDENCY_CACHE["active-old"] = {"_checkedAtEpoch": cache_now - agent.SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS - 10}
+agent.prune_scheduler_dependency_cache(cache_now, "active-old")
+
 print(json.dumps({
     "uploads": len(agent.UPLOADS),
     "uploadOld": "upload-0" in agent.UPLOADS,
@@ -51,6 +59,10 @@ print(json.dumps({
     "actionOldActive": "worker-0" in agent.WORKER_ACTION_LAST_AT,
     "actionOldInactive": "worker-1" in agent.WORKER_ACTION_LAST_AT,
     "actionNew": f"worker-{agent.MAX_WORKER_ACTION_KEY_RECORDS + 29}" in agent.WORKER_ACTION_LAST_AT,
+    "dependencyCache": len(agent.SCHEDULER_DEPENDENCY_CACHE),
+    "dependencyNewest": "scheduler-0" in agent.SCHEDULER_DEPENDENCY_CACHE,
+    "dependencyOldInactive": f"scheduler-{agent.MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS + 29}" in agent.SCHEDULER_DEPENDENCY_CACHE,
+    "dependencyActive": "active-old" in agent.SCHEDULER_DEPENDENCY_CACHE,
 }, ensure_ascii=False))
 `, "utf8");
   const run = spawnSync(python, [script], { cwd: root, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
@@ -67,4 +79,8 @@ print(json.dumps({
   assert.equal(result.actionOldActive, true);
   assert.equal(result.actionOldInactive, false);
   assert.equal(result.actionNew, true);
+  assert.equal(result.dependencyCache, 32);
+  assert.equal(result.dependencyNewest, true);
+  assert.equal(result.dependencyOldInactive, false);
+  assert.equal(result.dependencyActive, true);
 });
