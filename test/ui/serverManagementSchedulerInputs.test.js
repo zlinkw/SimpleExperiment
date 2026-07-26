@@ -50,7 +50,7 @@ test("visible command buttons receive Chinese hover explanations", () => {
   assert.match(html, /function decorateCommandTooltips/);
   assert.match(html, /document\.querySelectorAll\("button:not\(\[data-tooltip-ready='1'\]\)"\)/);
   assert.match(html, /function genericButtonHelp/);
-  assert.match(html, /button\.setAttribute\("title", help\)/);
+  assert.match(html, /setNativeTitle\(button, help\)/);
   assert.match(html, /button\.setAttribute\("aria-label"/);
   const commands = new Set();
   for (const match of html.matchAll(/data-command="([A-Za-z][A-Za-z0-9]+)"/g)) commands.add(match[1]);

@@ -35,6 +35,7 @@ import TunnelPortConflict_1 = require("./tunnel/TunnelPortConflict");
 import ConfigurationSettings_1 = require("./tunnel/ConfigurationSettings");
 import WorkspacePathMapper_1 = require("./core/WorkspacePathMapper");
 import HostOperationLease_1 = require("./core/HostOperationLease");
+import BoundedTimestampMap_1 = require("./core/BoundedTimestampMap");
 import Results_1 = require("./features/Results");
 import PlanBuilder_1 = require("./features/PlanBuilder");
 import { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } from "./features/PlanArchive";
@@ -513,6 +514,7 @@ class RealtimeTunnelPanelProvider {
     workerActionLastAt = new Map();
     workerActionAdmissionLocks = new Map();
     workerActionReleaseWaiters = new Map();
+    workerActionLastAtLimit = 256;
     availabilityPushTimer;
     lastAvailabilityPushAt = 0;
     lastCodeSyncState = {};
@@ -4142,7 +4144,7 @@ class RealtimeTunnelPanelProvider {
                 await sleep(waitMs);
             const currentInFlight = this.workerActionInFlight.get(workerId) || 0;
             this.workerActionInFlight.set(workerId, currentInFlight + 1);
-            this.workerActionLastAt.set(workerId, Date.now());
+            this.recordWorkerActionAt(workerId, Date.now(), settings.workerActionMinIntervalMs);
         }
         finally {
             releaseAdmission();
@@ -4159,9 +4161,20 @@ class RealtimeTunnelPanelProvider {
                 this.workerActionInFlight.delete(workerId);
             else
                 this.workerActionInFlight.set(workerId, current - 1);
-            this.workerActionLastAt.set(workerId, Date.now());
+            this.recordWorkerActionAt(workerId);
             this.notifyWorkerActionRelease(workerId);
         };
+    }
+    recordWorkerActionAt(workerId, timestamp = Date.now(), maxAgeMs = this.schedulerSettings().workerActionMinIntervalMs) {
+        const protectedKeys = new Set([
+            ...this.workerActionInFlight.keys(),
+            ...this.workerActionAdmissionLocks.keys(),
+        ]);
+        (0, BoundedTimestampMap_1.touchBoundedTimestampMap)(this.workerActionLastAt, workerId, timestamp, {
+            limit: this.workerActionLastAtLimit,
+            maxAgeMs,
+            protectedKeys,
+        });
     }
     waitForWorkerActionRelease(workerId) {
         return new Promise((resolve) => {
