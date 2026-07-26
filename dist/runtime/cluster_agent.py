@@ -31,6 +31,7 @@ GPU_HISTORY_MAX_SERIES = 128
 LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
 AUDIT_TAIL_MAX_BYTES = 1024 * 1024
 ATOMIC_REPLACE_ATTEMPTS = 6
+TRANSFER_STALL_SECONDS = 120
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
@@ -395,7 +396,28 @@ def public_transfer_record(item):
     if "transferredBytes" not in out:
         out["transferredBytes"] = 0
     out["updatedAt"] = source.get("updatedAt") or now_iso()
+    # transferredBytes is defaulted to 0 above, so an upload that only reports receivedBytes needs
+    # the alias to win over that placeholder rather than sit behind it.
+    total = transfer_int(out.get("totalBytes"), 0) or transfer_int(out.get("expectedSize"), 0) or transfer_int(out.get("size"), 0)
+    done = transfer_int(out.get("transferredBytes"), 0) or transfer_int(out.get("receivedBytes"), 0)
+    if total > 0:
+        out["percent"] = round(min(100.0, max(0.0, done * 100.0 / total)), 1)
+    # A writer that dies leaves its last updatedAt behind, so "running" alone cannot tell a live
+    # transfer from an abandoned one; surface the stall instead of letting it poll forever.
+    if str(out.get("status") or "").lower() == "running":
+        age = iso_age_seconds(out.get("updatedAt"))
+        if age is not None and age > TRANSFER_STALL_SECONDS:
+            out["stalled"] = True
+            out["stalledForSeconds"] = int(age)
     return out
+
+def transfer_int(value, fallback=0):
+    try:
+        if value is None or value == "":
+            return fallback
+        return int(float(value))
+    except Exception:
+        return fallback
 
 def write_transfer_status(root, item):
     public = public_transfer_record(item)

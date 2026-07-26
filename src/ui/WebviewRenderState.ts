@@ -152,18 +152,45 @@ function operationPayload(row: unknown): Record<string, unknown> {
 
 export function normalizeFileTransferRows(fileTransfers: unknown): Array<Record<string, unknown>> {
   const rows = Array.isArray(fileTransfers) ? fileTransfers : Object.entries((fileTransfers || {}) as Record<string, unknown>).map(([id, value]) => ({ id, ...(value as object) }));
-  return rows.map((row) => ({
-    transferId: pick(row, ["transferId", "transfer_id", "id"], "-"),
-    direction: pick(row, ["direction", "type"], "-"),
-    remotePath: pick(row, ["remotePath", "remote_path", "path"], "-"),
-    localPath: pick(row, ["localPath", "local_path"], "-"),
-    status: pick(row, ["status", "state"], "-"),
-    transferredBytes: pick(row, ["transferredBytes", "transferred_bytes", "receivedBytes", "sentBytes", "doneBytes"], 0),
-    totalBytes: pick(row, ["totalBytes", "total_bytes", "size", "bytes"], 0),
-    speed: pick(row, ["speed", "speedBytesPerSecond", "speed_bytes_per_second", "bytesPerSecond"], "-"),
-    eta: pick(row, ["eta", "etaSeconds", "eta_seconds"], "-"),
-    error: pick(row, ["error", "lastError"], "-"),
-  }));
+  return rows.map((row) => {
+    const transferredBytes = pick(row, ["transferredBytes", "transferred_bytes", "receivedBytes", "sentBytes", "doneBytes"], 0);
+    // expectedSize is what the upload handshake reports; without it an upload has no total at all.
+    const totalBytes = pick(row, ["totalBytes", "total_bytes", "expectedSize", "expected_size", "size", "bytes"], 0);
+    const startedAt = pick(row, ["startedAt", "started_at"], "");
+    const updatedAt = pick(row, ["updatedAt", "updated_at", "finishedAt", "finished_at"], "");
+    const bytesPerSecond = transferRateBytesPerSecond(transferredBytes, startedAt, updatedAt);
+    return {
+      transferId: pick(row, ["transferId", "transfer_id", "id"], "-"),
+      direction: pick(row, ["direction", "type"], "-"),
+      remotePath: pick(row, ["remotePath", "remote_path", "path"], "-"),
+      localPath: pick(row, ["localPath", "local_path"], "-"),
+      status: pick(row, ["status", "state"], "-"),
+      transferredBytes,
+      totalBytes,
+      percent: pick(row, ["percent"], percent(transferredBytes, totalBytes)),
+      speed: pick(row, ["speed", "speedBytesPerSecond", "speed_bytes_per_second", "bytesPerSecond"], bytesPerSecond ?? "-"),
+      eta: pick(row, ["eta", "etaSeconds", "eta_seconds"], transferEtaSeconds(transferredBytes, totalBytes, bytesPerSecond) ?? "-"),
+      stalled: pick(row, ["stalled"], false),
+      error: pick(row, ["error", "lastError"], "-"),
+    };
+  });
+}
+
+export function transferRateBytesPerSecond(transferredBytes: unknown, startedAt: unknown, updatedAt: unknown): number | undefined {
+  const bytes = numberOrUndefined(transferredBytes);
+  const start = Date.parse(String(startedAt || ""));
+  if (bytes === undefined || bytes <= 0 || !Number.isFinite(start)) return undefined;
+  const end = Date.parse(String(updatedAt || "")) || Date.now();
+  const seconds = (end - start) / 1000;
+  return seconds > 0 ? Math.round(bytes / seconds) : undefined;
+}
+
+export function transferEtaSeconds(transferredBytes: unknown, totalBytes: unknown, bytesPerSecond: unknown): number | undefined {
+  const done = numberOrUndefined(transferredBytes);
+  const total = numberOrUndefined(totalBytes);
+  const rate = numberOrUndefined(bytesPerSecond);
+  if (done === undefined || total === undefined || rate === undefined || rate <= 0 || total <= done) return undefined;
+  return Math.max(0, Math.round((total - done) / rate));
 }
 
 export function percent(used: unknown, total: unknown): number | undefined {
