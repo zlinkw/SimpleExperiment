@@ -29,6 +29,8 @@ TAIL_BYTES = 16 * 1024
 ARCHIVE_STATE_PATH = Path("zlk_cluster/archive_state.json")
 DELETED_EXPERIMENTS_PATH = Path("zlk_cluster/deleted_experiments.jsonl")
 DELETED_SCHEDULER_ROWS_PATH = Path("zlk_cluster/deleted_scheduler_rows.jsonl")
+MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
+AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
 
 
 def scheduler_dependency_status() -> dict[str, Any]:
@@ -1156,7 +1158,7 @@ def scheduler_default_agent_state_dir() -> Path:
     return Path("zlk_agent/state/projects") / scheduler_project_state_namespace(Path.cwd())
 
 
-def resolve_scheduler_agent_state_dir(project_dir: str | Path = ".", configured: str = "") -> Path:
+def compute_scheduler_agent_state_dir(project_dir: str | Path = ".", configured: str = "") -> Path:
     root = Path(project_dir or ".").expanduser()
     try:
         root = root.resolve()
@@ -1181,6 +1183,21 @@ def resolve_scheduler_agent_state_dir(project_dir: str | Path = ".", configured:
             return base.parent / namespace if parts[-2:-1] == ["projects"] else base / namespace
         return base / namespace
     return base / "projects" / namespace
+
+
+def resolve_scheduler_agent_state_dir(project_dir: str | Path = ".", configured: str = "") -> Path:
+    raw = Path(project_dir or ".").expanduser()
+    if not raw.is_absolute():
+        return compute_scheduler_agent_state_dir(project_dir, configured)
+    cache_key = (str(raw), str(configured or ""))
+    cached = AGENT_STATE_DIR_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    resolved = compute_scheduler_agent_state_dir(project_dir, configured)
+    if len(AGENT_STATE_DIR_CACHE) >= MAX_AGENT_STATE_DIR_CACHE_RECORDS:
+        AGENT_STATE_DIR_CACHE.clear()
+    AGENT_STATE_DIR_CACHE[cache_key] = resolved
+    return resolved
 
 
 def scheduler_agent_state_dir() -> Path:
