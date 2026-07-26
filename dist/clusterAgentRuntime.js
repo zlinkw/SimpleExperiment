@@ -33,6 +33,7 @@ GPU_HISTORY_MAX_POINTS_PER_SERIES = 72 * 60
 GPU_HISTORY_MAX_SERIES = 128
 LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
 AUDIT_TAIL_MAX_BYTES = 1024 * 1024
+ATOMIC_REPLACE_ATTEMPTS = 6
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
@@ -137,6 +138,7 @@ WORKER_COMMAND_CURSOR_CACHE = {}
 WORKER_COMMAND_CURSOR_LOCK = threading.Lock()
 EVENT_CURSOR_CACHE = {}
 EVENT_CURSOR_LOCK = threading.Lock()
+EVENT_APPEND_LOCK = threading.RLock()
 OPERATION_JOURNAL_CACHE = {}
 OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
 RUNTIME_JSON_CACHE = {}
@@ -457,13 +459,35 @@ def move_file_replace(src, dst):
         shutil.move(src, dst)
     invalidate_runtime_json_cache(dst)
 
+# POSIX rename is atomic, but Windows raises a sharing violation when two writers replace the
+# same destination at once; a short bounded retry keeps concurrent state writes from failing.
+def replace_with_retry(src, dst, attempts=ATOMIC_REPLACE_ATTEMPTS):
+    last_error = None
+    for index in range(max(1, int(attempts or 1))):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.005 * (index + 1))
+    raise last_error
+
 def atomic_write(path, payload):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = f"{path}.tmp.{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    os.replace(tmp, path)
+    # The temp name must be unique per writer, not per process: ThreadingHTTPServer can drive two
+    # writes to the same target and a shared temp path makes them clobber each other's handle.
+    tmp = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        replace_with_retry(tmp, path)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     invalidate_runtime_json_cache(path)
 
 def file_size(path):
@@ -819,12 +843,17 @@ def write_seq(root, seq):
 def append_event(root, event):
     prune_runtime_memory_state()
     os.makedirs(agent_dir(root), exist_ok=True)
-    seq = read_seq(root) + 1
-    event = {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"), **event}
-    with open(path_for(root, "events.jsonl"), "a", encoding="utf-8") as f:
-        f.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
-    write_seq(root, seq)
-    compact_journal(root)
+    # ThreadingHTTPServer serves concurrent actions, so allocating seq, appending the line and
+    # compacting must be one critical section; duplicate seq values silently drop realtime
+    # events for any client whose cursor already passed that number. RLock because the
+    # completion pipeline below can re-enter append_event on this same thread.
+    with EVENT_APPEND_LOCK:
+        seq = read_seq(root) + 1
+        event = {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"), **event}
+        with open(path_for(root, "events.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+        write_seq(root, seq)
+        compact_journal(root)
     prune_agent_state(root)
     maybe_auto_run_completion_pipeline(root, event)
     return event
@@ -845,8 +874,9 @@ def enqueue_worker_command(root, worker_id, command):
         **command,
     }
     os.makedirs(agent_dir(root), exist_ok=True)
-    with open(worker_command_path(root, worker_id), "a", encoding="utf-8") as f:
-        f.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
+    with EVENT_APPEND_LOCK:
+        with open(worker_command_path(root, worker_id), "a", encoding="utf-8") as f:
+            f.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
     append_event(root, {"type": "worker_command_enqueued", "workerId": worker_id, "operationId": item["commandId"], "payload": item})
     return item
 
