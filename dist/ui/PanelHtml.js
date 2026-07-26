@@ -3948,8 +3948,7 @@ function renderPanelHtml() {
       return label ? "执行：" + label : "";
     }
 
-    function commandHelp(command, context) {
-      const map = {
+    const COMMAND_HELP_TEXT = Object.freeze({
         startAllConnections: "打开已配置的 Xshell 连接",
         prepareAgents: "部署 Agent、写入受管自启动命令、启动会话并检测全部",
         testAll: "检测全部",
@@ -4056,8 +4055,10 @@ function renderPanelHtml() {
         selectPlan: "选择计划",
         selectExperiment: "选择任务",
         selectLogRunKey: "查看日志"
-      };
-      const base = map[String(command || "")] || "";
+      });
+
+    function commandHelp(command, context) {
+      const base = COMMAND_HELP_TEXT[String(command || "")] || "";
       if (!base) return "";
       const endpoint = context && context.dataset && context.dataset.endpointId ? "端点：" + context.dataset.endpointId + "。" : "";
       return endpoint + base;

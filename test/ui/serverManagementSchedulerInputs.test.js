@@ -66,6 +66,28 @@ test("visible command buttons receive Chinese hover explanations", () => {
   assert.match(html, /pending \? "执行中" : commandHelp\(command\)/);
 });
 
+test("command help reuses one immutable map and preserves endpoint context", () => {
+  const root = path.join(__dirname, "..", "..");
+  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const helper = extractFunction(html, "commandHelp");
+
+  assert.match(html, /const COMMAND_HELP_TEXT = Object\.freeze\(\{/);
+  assert.doesNotMatch(helper, /const map\s*=\s*\{/);
+  assert.match(helper, /COMMAND_HELP_TEXT\[String\(command \|\| ""\)\]/);
+
+  const mapStart = html.indexOf("const COMMAND_HELP_TEXT = Object.freeze({");
+  const helperStart = html.indexOf("function commandHelp(", mapStart);
+  const mapSource = html.slice(mapStart, helperStart);
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(mapSource.replace("const COMMAND_HELP_TEXT", "this.COMMAND_HELP_TEXT"), sandbox);
+  vm.runInContext(helper + "\nthis.commandHelp = commandHelp;", sandbox);
+  assert.equal(Object.isFrozen(sandbox.COMMAND_HELP_TEXT), true);
+  assert.equal(sandbox.commandHelp("snapshot"), "刷新快照");
+  assert.equal(sandbox.commandHelp("snapshot", { dataset: { endpointId: "worker-a" } }), "端点：worker-a。刷新快照");
+  assert.equal(sandbox.commandHelp("unknown"), "");
+});
+
 test("server management config fields receive Chinese hover explanations", () => {
   const root = path.join(__dirname, "..", "..");
   const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
