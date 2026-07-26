@@ -5482,9 +5482,20 @@ function renderPanelHtml() {
       const sectionId = section || "overview";
       const fallbackSection = main.querySelector('[data-section="' + cssEscape(sectionId) + '"]');
       const exactInSection = fallbackSection && ((fallbackSection.getAttribute("data-anchor") === anchorId ? fallbackSection : null) || fallbackSection.querySelector('[data-anchor="' + cssEscape(anchorId) + '"]'));
-      const exact = main.querySelector('[data-anchor="' + cssEscape(anchorId) + '"]');
+      if (exactInSection) return exactInSection;
       const syncFallback = sectionId === "sync" ? main.querySelector('[data-anchor="sync-publish"]') : null;
-      return exactInSection || syncFallback || exact || fallbackSection;
+      if (syncFallback) return syncFallback;
+      const exact = main.querySelector('[data-anchor="' + cssEscape(anchorId) + '"]');
+      // Landing on a same-named anchor that lives in a different section reads as if the tree
+      // selection was ignored; the requested section is the better answer when both exist.
+      if (exact && fallbackSection && anchorOutsideSection(exact, sectionId)) return fallbackSection;
+      return exact || fallbackSection;
+    }
+
+    function anchorOutsideSection(target, sectionId) {
+      if (!target || !target.closest) return false;
+      const owner = target.closest("[data-section]");
+      return Boolean(owner && owner.getAttribute("data-section") !== sectionId);
     }
 
     function stableResourceScrollTarget(target) {
