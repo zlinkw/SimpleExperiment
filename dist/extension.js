@@ -79,6 +79,7 @@ const PlanArchive_1 = require("./features/PlanArchive");
 const ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates");
 const PptPlotBridge_1 = require("./PptPlotBridge");
 const GpuHistoryState_1 = require("./features/GpuHistoryState");
+const TopologyMode_1 = require("./features/TopologyMode");
 const RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
 const viewId = "zlkCluster.panel";
 const keys = {
@@ -219,7 +220,7 @@ const uiActionCommands = new Set([
     "selectPlan",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
-    "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -240,7 +241,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     ...defaultUiLayout.pinnedCommands,
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
-    "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
+    "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
     "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
     "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll",
     "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
@@ -2407,6 +2408,9 @@ class RealtimeTunnelPanelProvider {
             case "writeAgentCommands":
                 await this.writeXshellAgentStartupCommands();
                 break;
+            case "saveTopologyMode":
+                await this.saveTopologyModeFromUi(message);
+                break;
             case "saveHubConfig":
                 await this.saveHubConfigFromUi(message);
                 break;
@@ -3682,6 +3686,54 @@ class RealtimeTunnelPanelProvider {
         const next = await vscode.window.showInformationMessage(message, "准备 Agent 并启动");
         if (next === "准备 Agent 并启动")
             await this.prepareAgentsForFirstRun();
+    }
+    projectTopologyAssessment(configuredModeOverride) {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        const config = vscode.workspace.getConfiguration("zlkCluster", folder?.uri);
+        const configuredMode = configuredModeOverride === undefined
+            ? String(config.get("topologyMode", "") || "").trim()
+            : String(configuredModeOverride || "").trim();
+        const normalizedMode = (0, TopologyMode_1.normalizeTopologyMode)(configuredMode);
+        const storedHubConfigured = Boolean(String(this.setupConfig.savedSessionPath || "").trim() && String(this.setupConfig.agentProjectDir || "").trim());
+        const hubConfigured = normalizedMode ? normalizedMode === "hub_worker" && storedHubConfigured : storedHubConfigured;
+        const assessment = (0, TopologyMode_1.assessProjectTopology)(configuredMode, {
+            hubConfigured,
+            enabledWorkerIds: this.enabledWorkerConfigs().map((worker) => worker.id),
+        });
+        return {
+            ...assessment,
+            configuredMode,
+            storedHubConfigured,
+            modeLabel: topologyModeLabel(assessment.mode),
+        };
+    }
+    async saveTopologyModeFromUi(message) {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder)
+            throw new Error("请先打开一个项目，再保存项目级拓扑模式。");
+        const patch = recordField(message, "patch");
+        const requestedMode = String(patch.mode || "").trim();
+        if (!(0, TopologyMode_1.normalizeTopologyMode)(requestedMode))
+            throw new Error("请选择单 Worker、仅多 Worker或 Hub 可用模式。");
+        const current = this.projectTopologyAssessment();
+        const next = this.projectTopologyAssessment(requestedMode);
+        const issueText = next.issues.length ? `\n\n当前配置仍需修复：${next.issues.join("；")} 保存后会阻止新运行，已有任务不受影响。` : "";
+        const backupText = next.hubAllowed
+            ? "Hub 负责汇总状态与结果；沿用现有 Hub 归档链路。"
+            : "不会访问 Hub、同步到 Hub或创建跨节点自动备份；每台 Worker 保存自己的任务与结果。";
+        const answer = await vscode.window.showWarningMessage([
+            `将当前项目拓扑从“${current.modeLabel}”改为“${next.modeLabel}”。`,
+            `调度所有者：${next.schedulerOwner}`,
+            `状态与结果位置：${next.stateOwner}`,
+            backupText,
+            "模式切换不会迁移、覆盖或删除已有任务与结果。" + issueText,
+        ].join("\n"), { modal: true }, "保存拓扑");
+        if (answer !== "保存拓扑")
+            throw new UiCommandCancelled("拓扑模式修改已取消。");
+        const config = vscode.workspace.getConfiguration("zlkCluster", folder.uri);
+        await config.update("topologyMode", requestedMode, vscode.ConfigurationTarget.WorkspaceFolder);
+        this.postState();
+        void vscode.window.showInformationMessage(`当前项目已保存为${next.modeLabel}。`);
     }
     async saveHubConfigFromUi(message) {
         await this.refreshXshellSessionLibrary();
@@ -7030,6 +7082,7 @@ class RealtimeTunnelPanelProvider {
         webviewDetectedProject.missingOnboarding = projectOnboardingSuggestionsForSelection(this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.planFileInput, this.selectedPlanId);
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
         const workspace = workspaceContextForWebview();
+        const topology = this.projectTopologyAssessment();
         const projectOnboarding = projectOnboardingStateForWebview({
             workspace,
             setup: this.setupConfig,
@@ -7043,6 +7096,7 @@ class RealtimeTunnelPanelProvider {
             connectionMode,
             localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
             workspace,
+            topology,
             setup: compactXshellSetupForWebview(this.setupConfig),
             schedulerConfig,
             pptPlotConfig: this.pptPlotConfig(),
@@ -10289,7 +10343,7 @@ function getSafeCommand(message) {
 }
 const hostOperationUiCommands = new Set([
     "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands",
-    "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
+    "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
     "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
     "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents",
     "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "script", "offline",
@@ -10876,6 +10930,15 @@ function boolField(message, key, fallback) {
 }
 function nonEmptyWorkerTunnelConfig(value) {
     return Array.isArray(value) && value.length ? value : [];
+}
+function topologyModeLabel(value) {
+    if (value === "single_worker")
+        return "单 Worker模式";
+    if (value === "worker_pool")
+        return "仅多 Worker模式";
+    if (value === "hub_worker")
+        return "Hub 可用模式";
+    return "尚未确认";
 }
 function stringPatch(patch, key, fallback = "") {
     const value = patch[key];

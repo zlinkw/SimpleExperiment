@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`worker-topology-modes`。
-- 状态：实施中；`topology-001` 已完成配置与领域模型，下一批进入 UI 呈现与确认。
+- 状态：实施中；`topology-001` 与 `topology-002` 已完成配置领域、UI 呈现和模式变更确认，下一批进入单 Worker 运行门禁。
 - 证据状态：设计目标；尚无实现或真实服务器证据，全部运行行为均为 `needs field verification`。
 
 ## 目标

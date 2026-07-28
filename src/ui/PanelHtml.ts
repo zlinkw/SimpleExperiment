@@ -1707,7 +1707,7 @@ export function renderPanelHtml(): string {
     const explicitPlanFileCommands = new Set(["openPlan", "archivePlan", "restoreArchivedPlan"]);
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
-      "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "prepareAgents",
+      "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
@@ -2526,6 +2526,7 @@ export function renderPanelHtml(): string {
           extensionVersion: data.extensionVersion,
           integrations: data.integrations,
           workspace: data.workspace,
+          topology: data.topology,
           setup: compactOverviewSetupForSignature(data.setup),
           agentDestinations: compactAgentDestinationsForSignature(data.agentSessions),
           health: compactOverviewHealthForSignature(data.health),
@@ -2548,6 +2549,7 @@ export function renderPanelHtml(): string {
       }
       if (section === "servers") {
         return {
+          topology: data.topology,
           setup: compactSetupForSignature(data.setup),
           agentDestinations: compactAgentDestinationsForSignature(data.agentSessions),
           xshellSessions: compactXshellSessionsForSignature(data.xshellSessions),
@@ -3405,7 +3407,7 @@ export function renderPanelHtml(): string {
     }
 
     function isConfigSaveCommand(command) {
-      return ["saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"].includes(String(command || ""));
+      return ["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"].includes(String(command || ""));
     }
 
     function clearPendingActionTimeout(clientActionId) {
@@ -4051,6 +4053,7 @@ export function renderPanelHtml(): string {
         deployLatestAgent: "部署 Agent runtime",
         configureSftpIgnores: "配置 SFTP 忽略",
         resetRemotePathConfirmations: "恢复当前项目的上传路径确认提醒",
+        saveTopologyMode: "保存项目拓扑模式",
         saveSchedulerConfig: "保存调度配置",
         saveHubConfig: "保存 Hub",
         saveWorkerConfig: "保存 Worker",
@@ -5099,6 +5102,7 @@ export function renderPanelHtml(): string {
         startAllConnections: "overview",
         pauseAll: "overview",
         resumeNetwork: "overview",
+        saveTopologyMode: "servers",
         saveSchedulerConfig: "servers",
         startAll: "servers",
         testAll: "servers",
@@ -5388,6 +5392,7 @@ export function renderPanelHtml(): string {
       const text = String(command || "");
       if (section === "sync") return syncCommandAnchor(text);
       const map = {
+        saveTopologyMode: "settings-servers",
         saveSchedulerConfig: "servers-scheduler",
         startAll: "servers-sessions",
         startAllConnections: "servers-sessions",
@@ -6104,6 +6109,8 @@ export function renderPanelHtml(): string {
 
     function renderServerObjectOverview(state) {
       const setup = state.setup || {};
+      const topology = state.topology || {};
+      const hubParticipates = topology.hubAllowed === true;
       const scheduler = state.schedulerConfig || {};
       const indexes = serverStatusIndexesForState(state);
       const conflicts = indexes.conflicts;
@@ -6117,13 +6124,14 @@ export function renderPanelHtml(): string {
       const hubStatus = (state.health || {}).state || "未检测";
       const goodWorkers = enabledWorkers.filter((worker) => serverObjectStatusClass((workerStatus.get(String(worker.id)) || {}).status || "已配置", conflictById.get(String(worker.id)), worker.enabled !== false) === "ok").length;
       const summary = [
-        serverObjectSummaryItem("端点", 1 + workers.length, "端点总数"),
+        serverObjectSummaryItem("模式", topology.modeLabel || topologyModeLabel(topology.mode), topology.schedulerOwner || "尚未确认"),
+        serverObjectSummaryItem("端点", (hubParticipates ? 1 : 0) + workers.length, "当前模式参与的端点总数"),
         serverObjectSummaryItem("启用 Worker", enabledWorkers.length + "/" + workers.length, "Worker"),
         serverObjectSummaryItem("健康 Worker", goodWorkers + "/" + enabledWorkers.length, "健康"),
         serverObjectSummaryItem("端口冲突", conflicts.length, "冲突")
       ].join("");
-      const cards = [
-        serverObjectCard({
+      const cards = [];
+      if (hubParticipates) cards.push(serverObjectCard({
           kind: "hub",
           role: "Hub 对象",
           name: hubName,
@@ -6143,8 +6151,7 @@ export function renderPanelHtml(): string {
             ["项目父目录", compactPath(setup.agentProjectDir || "-"), setup.agentProjectDir || "未配置"],
             ["会话来源", setup.savedSessionPath ? "Xshell .xsh" : "未选择", setup.savedSessionPath || "未选择 Xshell 隧道会话"]
           ]
-        })
-      ];
+        }));
       workers.forEach((worker) => {
         const assignment = assignmentById.get(String(worker.id)) || {};
         const probe = workerStatus.get(String(worker.id)) || {};
@@ -6190,6 +6197,8 @@ export function renderPanelHtml(): string {
       const jitter = configDefault(scheduler.jitterSeconds, 30);
       const poll = configDefault(scheduler.pollSeconds, 60);
       const riskBand = [
+        '<span class="pill" title="调度所有者">' + esc(topology.schedulerOwner || "拓扑待确认") + '</span>',
+        '<span class="pill" title="状态与结果位置">' + esc(topology.stateOwner || "保存位置待确认") + '</span>',
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>',
         '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>',
         '<span class="pill" title="事件延迟">实时事件 <= ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>',
@@ -6242,6 +6251,7 @@ export function renderPanelHtml(): string {
 
     function renderServerTopologyMap(state) {
       const setup = state.setup || {};
+      const topology = state.topology || {};
       const workers = asArray(setup.workerTunnels || []);
       const enabledWorkers = enabledWorkerTunnelsForState(state);
       const scheduler = state.schedulerConfig || {};
@@ -6250,23 +6260,38 @@ export function renderPanelHtml(): string {
       const enabledCount = enabledWorkers.length;
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
       const poll = Number(configDefault(scheduler.pollSeconds, 60));
-      const lanes = [
-        ["本机 -> Hub", "127.0.0.1:" + hubPort],
-        ["本机 -> Worker", workerPorts.length ? workerPorts.join(", ") : "未配置"],
-        ["Worker -> Hub", "可用性批量上报"],
-        ["Worker -> 本机", "实时日志/GPU/任务（WebSocket/SSE；快照备用）"],
-        ["SFTP 文件", "低频代码/配置/结果/日志包"]
-      ];
+      const hubParticipates = topology.hubAllowed === true;
+      const nodes = [topologyNode("local", "本机 VS Code", "127.0.0.1")];
+      if (hubParticipates) nodes.push(topologyNode("hub", "Hub Agent", "全局调度/汇总"));
+      nodes.push(topologyNode("worker", "Worker Agent", topology.mode === "worker_pool" ? "独立分片调度" : topology.mode === "single_worker" ? "本机调度" : "GPU/任务"));
+      nodes.push(topologyNode("sftp", "SimpleSFTP", "显式文件传输"));
+      const lanes = hubParticipates
+        ? [
+            ["本机 -> Hub", "127.0.0.1:" + hubPort],
+            ["本机 -> Worker", workerPorts.length ? workerPorts.join(", ") : "未配置"],
+            ["Worker -> Hub", "可用性批量上报"],
+            ["Worker -> 本机", "实时日志/GPU/任务（WebSocket/SSE；快照备用）"],
+            ["SFTP 文件", "低频代码/配置/结果/日志包"]
+          ]
+        : [
+            ["本机 -> Worker", workerPorts.length ? workerPorts.join(", ") : "未配置"],
+            ["Worker 调度", topology.mode === "worker_pool" ? "各 Worker 独立处理确定性任务分片" : "Worker 本机处理完整 Plan"],
+            ["Worker -> 本机", "有界状态与事件；至少 60 秒采样"],
+            ["SFTP 文件", "仅用户触发上传或下载；无自动备份"],
+            ["Hub 链路", "当前模式不访问 Hub"]
+          ];
       return '<div class="serverTopologyMap" data-anchor="servers-sessions" title="通信拓扑">' +
-        '<div class="topologyHeader"><b>通信拓扑</b><span>自动周期 ' + esc(poll) + '-' + esc(poll + jitter) + 's · Worker ' + esc(enabledCount) + '/' + esc(workers.length) + '</span></div>' +
-        '<div class="topologyGrid">' +
-          topologyNode("local", "本机 VS Code", "127.0.0.1") +
-          topologyNode("hub", "Hub Agent", "调度/结果") +
-          topologyNode("worker", "Worker Agent", "GPU/任务") +
-          topologyNode("sftp", "SimpleSFTP", "文件") +
-        '</div>' +
+        '<div class="topologyHeader"><b>' + esc(topology.modeLabel || topologyModeLabel(topology.mode)) + '</b><span>' + esc(topology.schedulerOwner || "拓扑待确认") + ' · 自动周期 ' + esc(poll) + '-' + esc(poll + jitter) + 's · Worker ' + esc(enabledCount) + '/' + esc(workers.length) + '</span></div>' +
+        '<div class="topologyGrid">' + nodes.join("") + '</div>' +
         '<div class="topologyLanes">' + lanes.map((lane) => '<div class="topologyLane" title="' + escAttr(lane[1]) + '"><b>' + esc(lane[0]) + '</b><span>' + esc(lane[1]) + '</span></div>').join("") + '</div>' +
       '</div>';
+    }
+
+    function topologyModeLabel(mode) {
+      if (mode === "single_worker") return "单 Worker模式";
+      if (mode === "worker_pool") return "仅多 Worker模式";
+      if (mode === "hub_worker") return "Hub 可用模式";
+      return "拓扑待确认";
     }
 
     function topologyNode(kind, title, detail) {
@@ -6344,6 +6369,8 @@ export function renderPanelHtml(): string {
 
     function renderServerCardsV2(state) {
       const setup = state.setup || {};
+      const topology = state.topology || {};
+      const hubParticipates = topology.hubAllowed === true;
       const scheduler = state.schedulerConfig || {};
       const agent = state.agentSessions || {};
       const indexes = serverStatusIndexesForState(state);
@@ -6356,6 +6383,25 @@ export function renderPanelHtml(): string {
       const hubAgent = agent.hub || {};
       const hubSession = sessionForPath(setup.savedSessionPath);
       const cards = [];
+      const topologyIssues = asArray(topology.issues || []);
+      cards.push(
+        '<div class="server-card" data-anchor="settings-topology">' +
+          '<div class="serverHead"><div class="serverTitle"><h3>服务器拓扑</h3><div class="muted">项目级模式；不会迁移已有任务或结果</div></div>' +
+          '<div class="serverBadges"><span class="pill ' + (topology.valid ? "status-completed" : "status-warning") + '">' + esc(topology.valid ? "配置一致" : "待确认或修复") + '</span></div></div>' +
+          '<div class="configGrid">' +
+            configSelect("topology", "mode", "拓扑模式", topology.mode || "", [["", "请选择"], ["single_worker", "单 Worker"], ["worker_pool", "仅多 Worker"], ["hub_worker", "Hub 可用"]]) +
+          '</div>' +
+          '<div class="taskDetailMeta">' +
+            taskDetailLine("调度所有者", esc(topology.schedulerOwner || "尚未确认")) +
+            taskDetailLine("状态与结果", esc(topology.stateOwner || "尚未确认")) +
+            taskDetailLine("自动备份", esc(topology.hubAllowed ? "沿用 Hub 归档链路" : "不创建 Hub 或跨节点副本")) +
+            taskDetailLine("启用 Worker", esc(String(topology.workerCount || 0))) +
+          '</div>' +
+          (topologyIssues.length ? '<div class="status-warning">' + esc(topologyIssues.join("；")) + '</div>' : '') +
+          '<div class="toolbar"><button data-command="saveTopologyMode" data-config-scope="topology">保存拓扑</button></div>' +
+          '<div class="muted">模式变更会显示强确认。仅 Worker 旧项目必须明确选择；旧 Hub 配置在无 Hub 模式下保留但不参与运行。</div>' +
+        '</div>'
+      );
       cards.push(
         '<div class="server-card" data-anchor="servers-scheduler">' +
           '<div class="serverHead"><div class="serverTitle"><h3>调度与上报策略</h3><div class="muted">低频稳态、随机抖动与实时事件边界</div></div>' +
@@ -6382,7 +6428,7 @@ export function renderPanelHtml(): string {
           '<div class="muted">所有自动轮询和可用性上报都使用正向随机抖动。TTL 表示 Hub 本地缓存有效期，不是轮询频率。实时事件延迟只影响停止、删除、归档和任务状态推送聚合。</div>' +
         '</div>'
       );
-      cards.push(
+      if (hubParticipates) cards.push(
         '<div class="server-card" data-anchor="servers-hub">' +
           '<div class="serverHead"><div class="serverTitle"><h3>' + esc(hubName) + '</h3><div class="muted">Hub 控制面</div></div>' +
           '<div class="serverBadges">' +
@@ -6409,6 +6455,18 @@ export function renderPanelHtml(): string {
             '<button data-command="startTunnelEndpoint" data-endpoint-id="hub" data-confirm="true" class="secondary">启动隧道</button>' +
             '<button data-command="test" class="secondary">检测</button>' +
           '</div>' +
+        '</div>'
+      );
+      else cards.push(
+        '<div class="server-card" data-anchor="servers-hub">' +
+          '<div class="serverHead"><div class="serverTitle"><h3>Hub 不参与当前模式</h3><div class="muted">旧 Hub 配置保持只读兼容，不会清除或迁移</div></div></div>' +
+          '<div class="taskDetailMeta">' +
+            taskDetailLine("当前模式", esc(topology.modeLabel || topologyModeLabel(topology.mode))) +
+            taskDetailLine("调度", esc(topology.schedulerOwner || "尚未确认")) +
+            taskDetailLine("Hub 请求", "禁用") +
+            taskDetailLine("自动备份", "禁用") +
+          '</div>' +
+          '<div class="muted">切换并保存为 Hub 可用模式后，原 Hub 字段和操作会重新显示。</div>' +
         '</div>'
       );
       (setup.workerTunnels || []).forEach((worker) => {
@@ -6546,7 +6604,7 @@ export function renderPanelHtml(): string {
 
     function isServerConfigScope(scope) {
       const key = String(scope || "");
-      return key === "hub" || key === "scheduler" || key.startsWith("worker:");
+      return key === "topology" || key === "hub" || key === "scheduler" || key.startsWith("worker:");
     }
 
     function shouldKeepServerConfigDraft() {
@@ -6585,6 +6643,7 @@ export function renderPanelHtml(): string {
         return;
       }
       if (value === "saveHubConfig") delete configDrafts.hub;
+      if (value === "saveTopologyMode") delete configDrafts.topology;
       if (value === "saveSchedulerConfig") delete configDrafts.scheduler;
       if (value === "saveProjectAdapterRules") delete configDrafts.projectAdapterRules;
       if (value === "savePptPlotConfig" || value === "choosePptPath" || value === "chooseNewPptPath") delete configDrafts.ppt;
@@ -12298,6 +12357,7 @@ export function renderPanelHtml(): string {
         selectPlan: "选择计划",
         selectExperiment: "选择任务",
         selectLogRunKey: "查看日志",
+        saveTopologyMode: "保存拓扑",
         saveSchedulerConfig: "保存策略",
         saveHubConfig: "保存 Hub",
         saveWorkerConfig: "保存服务器",
