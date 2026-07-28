@@ -3,8 +3,8 @@
 ## 状态
 
 - 目标 ID：`worker-topology-modes`。
-- 状态：实施中；`topology-001` 与 `topology-002` 已完成配置领域、UI 呈现和模式变更确认，下一批进入单 Worker 运行门禁。
-- 证据状态：设计目标；尚无实现或真实服务器证据，全部运行行为均为 `needs field verification`。
+- 状态：实施中；`topology-001` 至 `topology-003` 已完成配置、UI、单 Worker 本机调度和无 Hub 门禁，下一批进入多 Worker 分片与结果归属。
+- 证据状态：配置、UI、单 Worker 路由和通信门禁已有静态证据；全部真实服务器行为仍为 `needs field verification`。
 
 ## 目标
 
@@ -80,20 +80,18 @@
 - 更新设置向导、运行门禁和强确认摘要。
 - 静态覆盖三种合法模式、数量不匹配、Hub 临时离线和旧配置迁移。
 
-### topology-002 Worker 本机 scheduler
+### topology-003 Worker 本机 scheduler
 
 - 让单 Worker 接收完整 Plan 并在本机运行现有 scheduler 能力。
 - 状态、日志、结果和归档全部落在 Worker 项目命名空间。
 - 禁用 Hub 请求、Hub 同步和自动备份分支。
+- 静态验证已覆盖 Plan 路由、Worker 动作白名单、Hub 不回退、Xshell 启动目标和无 Hub 可用性上报门禁；真实服务器未连接。
 
-### topology-003 多 Worker 确定性分片
+### topology-004 多 Worker 确定性分片与结果归属
 
 - 增加 `workerSetRevision`、稳定分片和每 Worker 提交清单。
 - 合并只读总览，保持各 Worker 状态独立且有界。
 - 覆盖重试一致性、Worker 增减、新 revision 和部分 Worker 离线。
-
-### topology-004 结果与归档对齐
-
 - 将有效 CSV、结果解析、归档、恢复版本和 PPT 最终数据源按拓扑绑定到正确 Worker。
 - 阻止无 Hub revision 进入 Hub 汇总分支，阻止跨 Worker 结果误归属。
 - 审计所有“备份”“同步到 Hub”“三方一致”文案及 handler 门禁。

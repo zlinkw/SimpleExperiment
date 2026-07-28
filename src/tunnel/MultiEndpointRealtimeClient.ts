@@ -4,7 +4,7 @@ import { DownloadOptions, FileListResponse, FileTransferTask } from "./FileTrans
 import { defaultRealtimeRefreshPolicy, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
 import { compactRealtimeLogs, createRealtimeState, RealtimeState } from "./RealtimeEventReducer";
 import { mergeAuthorityRealtimeStates } from "./AuthorityMergePolicy";
-import { isWorkerTelemetryAction } from "./WorkerTelemetryApi";
+import { isWorkerTelemetryAction, workerLocalSchedulerActionNames, WorkerLocalSchedulerAction } from "./WorkerTelemetryApi";
 
 export interface NamedTunnelEndpointConfig extends TunnelEndpointConfig {
   id: string;
@@ -185,7 +185,7 @@ export class MultiEndpointRealtimeClient {
   }
 
   async postWorkerAction<T>(workerId: string, action: TunnelAction, body: unknown): Promise<T> {
-    if (!isWorkerTelemetryAction(action)) {
+    if (!isWorkerTelemetryAction(action) && !isWorkerLocalSchedulerRequest(action, body)) {
       throw new Error(`Worker Agent action not allowed: ${action}`);
     }
     const client = this.clients.get(workerId);
@@ -273,10 +273,19 @@ export class MultiEndpointRealtimeClient {
   }
 
   private hubClient(): RealtimeTunnelClient {
-    const hub = this.clients.get("hub") || this.clients.values().next().value;
-    if (!hub) throw new Error("No realtime endpoint configured.");
+    const hub = this.clients.get("hub");
+    if (!hub) throw new Error("Hub realtime endpoint not configured for current topology.");
     return hub;
   }
+}
+
+function isWorkerLocalSchedulerRequest(action: TunnelAction, body: unknown): boolean {
+  if (!workerLocalSchedulerActionNames.includes(action as WorkerLocalSchedulerAction)) return false;
+  const request = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const options = request.options && typeof request.options === "object" ? request.options as Record<string, unknown> : {};
+  return options.topologyMode === "single_worker"
+    && options.localWorkerScheduler === true
+    && Boolean(String(options.schedulerOwnerWorkerId || "").trim());
 }
 
 export function createBudget(config: RequestBudgetConfig): RequestBudget {

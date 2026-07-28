@@ -2573,6 +2573,10 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "stop-worker-task": True,
                 "delete-worker-artifacts": True,
                 "archive-worker-artifacts": True,
+                "validate-plan": True,
+                "dry-run-plan": True,
+                "run-plan": True,
+                "reproduce-plan": True,
             },
         }
     return {
@@ -6793,7 +6797,7 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         scheduler = cluster_scheduler_path(root)
         if not scheduler:
-            return terminal_action(root, action, operation_id, op_id, "failed", "Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。", request=payload)
+            return terminal_action(root, action, operation_id, op_id, "failed", "调度节点缺少 cluster_scheduler.py，请先部署最新版 Agent。", request=payload)
         try:
             validation = scheduler_validate_json(root, scheduler, plan)
             job_count = int(validation.get("job_count") or len(validation.get("jobs") or []))
@@ -6826,7 +6830,7 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         scheduler = cluster_scheduler_path(root)
         if not scheduler:
-            return terminal_action(root, action, operation_id, op_id, "failed", "Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。", request=payload)
+            return terminal_action(root, action, operation_id, op_id, "failed", "调度节点缺少 cluster_scheduler.py，请先部署最新版 Agent。", request=payload)
         output_gate = plan_output_capture_evidence(root, plan)
         if not output_gate.get("ok"):
             return terminal_action(root, action, operation_id, op_id, "failed", output_gate.get("message") or "未识别到可用的结果捕获规则，已阻止运行实验。", {"outputGate": output_gate}, request=payload)
@@ -7102,6 +7106,10 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/actions/stop-worker-task",
             "/api/actions/delete-worker-artifacts",
             "/api/actions/archive-worker-artifacts",
+            "/api/actions/validate-plan",
+            "/api/actions/dry-run-plan",
+            "/api/actions/run-plan",
+            "/api/actions/reproduce-plan",
         ]
         return {
             "openapi": "3.0.0",
@@ -7816,7 +7824,7 @@ def serve_http(args):
                 return
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts"):
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan"):
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             allowed = ACTION_ROUTES | {
                 "/api/worker/availability/batch",
@@ -7927,10 +7935,17 @@ def serve_http(args):
                 return
             action = route.rsplit("/", 1)[-1]
             operation_id = str(payload.get("operationId") or f"{action}-{op_id}")
+            if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
+                options = payload.get("options") or {}
+                topology_mode = str(options.get("topologyMode") or payload.get("topologyMode") or "")
+                owner = str(options.get("schedulerOwnerWorkerId") or payload.get("schedulerOwnerWorkerId") or "").strip()
+                current_worker = str(getattr(args, "worker_id", "") or os.environ.get("ZLK_WORKER_ID") or "worker").strip()
+                if topology_mode != "single_worker" or options.get("localWorkerScheduler") is not True or not owner or owner != current_worker:
+                    return self.send_json({"error": "single worker local scheduler identity mismatch"}, status=403)
             append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:
-                if mode == "worker_telemetry" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts"):
+                if mode == "worker_telemetry" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
                     release_worker_action = acquire_worker_action_slot(root, selected_worker_id(payload) or os.environ.get("ZLK_WORKER_ID") or "worker", payload)
                 return self.send_json(handle_action(root, action, payload, operation_id, op_id))
             except Exception as exc:

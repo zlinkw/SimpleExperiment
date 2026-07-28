@@ -34,7 +34,15 @@ export const workerTelemetryActionNames = [
   "archive-worker-artifacts",
 ] as const;
 
+export const workerLocalSchedulerActionNames = [
+  "validate-plan",
+  "dry-run-plan",
+  "run-plan",
+  "reproduce-plan",
+] as const;
+
 export type WorkerTelemetryAction = typeof workerTelemetryActionNames[number];
+export type WorkerLocalSchedulerAction = typeof workerLocalSchedulerActionNames[number];
 
 export const workerTelemetryAllowedActions = workerTelemetryActionNames.map((action) =>
   `POST /api/actions/${action}`,
@@ -46,11 +54,15 @@ export const workerTelemetryForbiddenEndpoints = [
   "POST /api/actions/archive-artifacts",
   "POST /api/actions/delete-artifacts",
   "POST /api/actions/parse-results",
-  "POST /api/actions/run-plan",
 ] as const;
 
 export function isWorkerTelemetryAction(action: unknown): action is WorkerTelemetryAction {
   return workerTelemetryActionNames.includes(action as WorkerTelemetryAction);
+}
+
+export function isWorkerDirectAction(action: unknown): action is WorkerTelemetryAction | WorkerLocalSchedulerAction {
+  return isWorkerTelemetryAction(action)
+    || workerLocalSchedulerActionNames.includes(action as WorkerLocalSchedulerAction);
 }
 
 export interface WorkerTaskTelemetry {
@@ -140,7 +152,7 @@ export function validateWorkerTelemetryCapabilities(value: unknown): { ok: boole
   if (caps.endpoints.actions) {
     const actions = caps.actionEndpoints || {};
     for (const action of Object.keys(actions)) {
-      if (!isWorkerTelemetryAction(action) && actions[action]) {
+      if (!isWorkerDirectAction(action) && actions[action]) {
         warnings.push(`Worker Telemetry 暴露了不允许的控制动作：${action}`);
       }
     }

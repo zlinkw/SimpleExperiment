@@ -52,12 +52,17 @@ test("project next action follows the real preflight order", () => {
   const preflightEnd = extension.indexOf("async openSetupGuide()", preflightStart);
   assert.ok(preflightStart >= 0 && preflightEnd > preflightStart);
   const preflight = extension.slice(preflightStart, preflightEnd);
-  assert.ok(preflight.indexOf('postTunnelAction("validate-plan"') < preflight.indexOf('postTunnelAction("dry-run-plan"'));
+  assert.ok(preflight.indexOf('postPlanSchedulerAction("validate-plan"') < preflight.indexOf('postPlanSchedulerAction("dry-run-plan"'));
   assert.match(preflight, /waitForOperationTerminalResult\("validate-plan"/);
   assert.match(preflight, /waitForOperationTerminalResult\("dry-run-plan"/);
   assert.match(extension, /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/);
   assert.match(extension, /if \(!await this\.runPlanPreflight\(body, `计划 \$\{planFile\}`\)\)\s*throw new Error\(`计划 \$\{planFile\} 的校验或预演未返回有效结果，已停止整批提交。`\);/);
   assert.match(extension, /个计划已通过校验与预演，并提交/);
+  assert.match(extension, /topology\.mode === "single_worker"[\s\S]{0,180}postWorkerTunnelAction\(workerId, action, body, options\)/);
+  assert.match(extension, /endpoint\.enabled && \(hubAllowed \|\| endpoint\.role !== "hub_control"\)/);
+  assert.match(extension, /当前拓扑不使用 Hub/);
+  const runtime = fs.readFileSync(path.join(__dirname, "../../dist/runtime/cluster_agent.py"), "utf8");
+  assert.match(runtime, /topology_mode != "single_worker"[\s\S]{0,180}localWorkerScheduler/);
 });
 
 test("Hub-only projects do not require a Worker sync status", () => {

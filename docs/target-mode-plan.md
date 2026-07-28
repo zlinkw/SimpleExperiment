@@ -15,30 +15,32 @@
 ## 后续优先级
 - [已完成] 1/5 topology-001：增加项目级拓扑配置、领域解析与一致性校验。
 - [已完成] 2/5 topology-002：对齐设置页、概览与强确认中的拓扑呈现。
-- [待做] 3/5 topology-003：实现单 Worker 本机调度与无 Hub 门禁。
+- [已完成] 3/5 topology-003：实现单 Worker 本机调度与无 Hub 门禁。
 - [待做] 4/5 topology-004：实现多 Worker 稳定分片及结果归档归属。
 - [待做] 5/5 topology-005：执行第二十五轮完整非服务器静态测试。
 
-## 当前批次：topology-002（已完成）
+## 当前批次：topology-003（已完成）
 ### 修复点
 
-- 设置页增加拓扑模式选择、调度与保存所有者摘要及模式变更强确认。
-- 概览通信图按模式隐藏不参与的 Hub，并明确无 Hub 模式不自动备份。
+- 单 Worker 的 Plan 校验、预演、运行、复现和批量运行只提交到唯一 Worker Agent。
+- 无 Hub 模式从实时端点、Xshell 启动、代码同步、runtime 部署和可用性上报中排除 Hub。
+- 旧 Hub 专属入口在无 Hub 模式下明确阻止，不得把首个 Worker 当作 Hub。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 未明确模式的仅 Worker 项目必须持续显示待确认，不能由 UI 静默保存建议值。
-- 无 Hub 模式只隐藏 Hub 必填表单和操作，必须保留旧 Hub 配置及兼容说明。
+- 未确认或配置不一致的拓扑必须阻止新 Plan 操作；仅多 Worker调度留到 topology-004。
+- Hub 可用模式不得在 Hub 离线时静默降级到 Worker。
+- Worker Agent 只新增四个本机 scheduler 动作，不开放文件 API 或其他 Hub 动作。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建、Webview 内联脚本与 Node 语法。
-- [已通过] 拓扑状态映射、强确认和 UI 呈现定向测试，18/18。
+- [已通过] TypeScript 构建、Agent runtime 生成与 Node/Python 语法。
+- [已通过] 单 Worker 路由、Worker 动作白名单、Agent/Xshell 和无 Hub 静态边界定向测试，51/51。
 - [已通过] Lint 与 `git diff --check`。
 
 ## 本批记录
-- 本批只改变配置与展示，不提前启用无 Hub 调度或归档分支。
-- 无 Hub 模式隐藏 Hub 编辑与启动操作，只显示保留旧配置的只读兼容说明。
+- 本批不启用多 Worker 分片、无 Hub 结果汇总或归档；这些边界继续阻止。
+- 真实服务器行为保持 `needs field verification`。
 - 提交记录：验证通过后使用独立 `feat` 提交并推送 `origin/master`；哈希以 Git 历史为准。

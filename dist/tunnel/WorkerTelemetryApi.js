@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
+exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerLocalSchedulerActionNames = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
 exports.isWorkerTelemetryAction = isWorkerTelemetryAction;
+exports.isWorkerDirectAction = isWorkerDirectAction;
 exports.isWorkerTelemetryEventType = isWorkerTelemetryEventType;
 exports.validateWorkerTelemetryCapabilities = validateWorkerTelemetryCapabilities;
 exports.workerTelemetryAllowedEvents = [
@@ -29,6 +30,12 @@ exports.workerTelemetryActionNames = [
     "delete-worker-artifacts",
     "archive-worker-artifacts",
 ];
+exports.workerLocalSchedulerActionNames = [
+    "validate-plan",
+    "dry-run-plan",
+    "run-plan",
+    "reproduce-plan",
+];
 exports.workerTelemetryAllowedActions = exports.workerTelemetryActionNames.map((action) => `POST /api/actions/${action}`);
 exports.workerTelemetryForbiddenEndpoints = [
     "GET /api/files/*",
@@ -36,10 +43,13 @@ exports.workerTelemetryForbiddenEndpoints = [
     "POST /api/actions/archive-artifacts",
     "POST /api/actions/delete-artifacts",
     "POST /api/actions/parse-results",
-    "POST /api/actions/run-plan",
 ];
 function isWorkerTelemetryAction(action) {
     return exports.workerTelemetryActionNames.includes(action);
+}
+function isWorkerDirectAction(action) {
+    return isWorkerTelemetryAction(action)
+        || exports.workerLocalSchedulerActionNames.includes(action);
 }
 exports.defaultMultiWorkerRealtimePolicy = {
     connectHubOnStartup: true,
@@ -71,7 +81,7 @@ function validateWorkerTelemetryCapabilities(value) {
     if (caps.endpoints.actions) {
         const actions = caps.actionEndpoints || {};
         for (const action of Object.keys(actions)) {
-            if (!isWorkerTelemetryAction(action) && actions[action]) {
+            if (!isWorkerDirectAction(action) && actions[action]) {
                 warnings.push(`Worker Telemetry 暴露了不允许的控制动作：${action}`);
             }
         }

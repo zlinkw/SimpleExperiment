@@ -145,7 +145,7 @@ class MultiEndpointRealtimeClient {
         return this.hubClient().postAction(action, body);
     }
     async postWorkerAction(workerId, action, body) {
-        if (!(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action)) {
+        if (!(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body)) {
             throw new Error(`Worker Agent action not allowed: ${action}`);
         }
         const client = this.clients.get(workerId);
@@ -223,13 +223,22 @@ class MultiEndpointRealtimeClient {
         this.onState(this.mergedState);
     }
     hubClient() {
-        const hub = this.clients.get("hub") || this.clients.values().next().value;
+        const hub = this.clients.get("hub");
         if (!hub)
-            throw new Error("No realtime endpoint configured.");
+            throw new Error("Hub realtime endpoint not configured for current topology.");
         return hub;
     }
 }
 exports.MultiEndpointRealtimeClient = MultiEndpointRealtimeClient;
+function isWorkerLocalSchedulerRequest(action, body) {
+    if (!WorkerTelemetryApi_1.workerLocalSchedulerActionNames.includes(action))
+        return false;
+    const request = body && typeof body === "object" ? body : {};
+    const options = request.options && typeof request.options === "object" ? request.options : {};
+    return options.topologyMode === "single_worker"
+        && options.localWorkerScheduler === true
+        && Boolean(String(options.schedulerOwnerWorkerId || "").trim());
+}
 function createBudget(config) {
     return new RequestBudget_1.RequestBudget(config);
 }
