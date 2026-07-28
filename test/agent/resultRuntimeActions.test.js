@@ -22,6 +22,8 @@ test("hub agent runtime performs real result actions", (t) => {
       "experiment_id,suite,run_key,dataset,split,seed,metric,value",
       "e1,classification,r1,VinDr,test,1,AUC,0.91",
       "e1,classification,r1,VinDr,test,1,accuracy,0.82",
+      "e2,classification,r2,VinDr,test,2,AUC,NaN",
+      "e3,classification,r3,VinDr,test,3,,0.75",
     ].join("\n"),
     "utf8",
   );
@@ -36,6 +38,13 @@ spec.loader.exec_module(agent)
 out = {
     "parse-results": agent.handle_action(str(root), "parse-results", {"opId": "parse-results", "operationId": "parse-results"}, "parse-results", "parse-results"),
     "archive-artifacts": agent.handle_action(str(root), "archive-artifacts", {"opId": "archive-artifacts", "operationId": "archive-artifacts", "selectedArchiveKeys": ["experiments/results/metrics.csv"]}, "archive-artifacts", "archive-artifacts"),
+    "duplicate-pairs": agent.paired_metric_comparisons([
+        {"runKey": "baseline", "dimensions": {"method": "baseline", "dataset": "d", "split": "test", "seed": "1"}, "metrics": {"AUC": {"value": 0.8}}},
+        {"runKey": "baseline", "dimensions": {"method": "baseline", "dataset": "d", "split": "test", "seed": "1"}, "metrics": {"AUC": {"value": 0.81}}},
+        {"runKey": "ours", "dimensions": {"method": "ours", "dataset": "d", "split": "test", "seed": "1"}, "metrics": {"AUC": {"value": 0.9}}},
+        {"runKey": "baseline", "dimensions": {"method": "baseline", "dataset": "d", "split": "test"}, "metrics": {"AUC": {"value": 0.7}}},
+        {"runKey": "ours", "dimensions": {"method": "ours", "dataset": "d", "split": "test"}, "metrics": {"AUC": {"value": 0.8}}},
+    ], "AUC"),
 }
 for action in ["run-quality-gate", "run-statistics", "export-paper-table", "create-debug-bundle"]:
     out[action] = agent.handle_action(str(root), action, {"opId": action, "operationId": action}, action, action)
@@ -50,6 +59,10 @@ print(json.dumps(out, ensure_ascii=False))
   const result = JSON.parse(run.stdout.trim());
   assert.equal(result["parse-results"].status, "completed");
   assert.equal(result["parse-results"].resultCount, 1);
+  const summary = JSON.parse(fs.readFileSync(path.join(project, "zlk_cluster", "results", "summary.json"), "utf8"));
+  assert.equal(summary.results[0].experimentId, "e1");
+  assert.equal(result["duplicate-pairs"][0].pairedN, 0);
+  assert.deepEqual(result["duplicate-pairs"][0].duplicateKeys, ["d|test||1|"]);
   assert.equal(result["archive-artifacts"].status, "completed");
   assert.equal(result["run-quality-gate"].qualityGate.status, "passed");
   assert.equal(result["run-statistics"].statistics.rows.length, 1);

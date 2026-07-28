@@ -67,7 +67,12 @@ export function leaderboardToMarkdown(rows: LeaderboardRow[], metrics: string[])
 }
 
 function numericEntries(value: Record<string, unknown>): Record<string, number> {
-  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, Number(v)]).filter(([, v]) => Number.isFinite(v)));
+  return Object.fromEntries(Object.entries(value).flatMap(([key, raw]) => {
+    if (typeof raw === "number") return Number.isFinite(raw) ? [[key, raw]] : [];
+    if (typeof raw !== "string" || !raw.trim()) return [];
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? [[key, parsed]] : [];
+  }));
 }
 
 function splitCsv(line = ""): string[] {

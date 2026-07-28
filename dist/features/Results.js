@@ -164,6 +164,7 @@ function previewResultParse(text, sourceFile, preset, parserConfig = {}) {
     const headers = isJson ? jsonPreviewColumns(text) : rows[0] || [];
     const missingRequiredColumns = isJson ? [] : (preset.requiredColumns || []).filter((column) => !headers.includes(column));
     const records = parseResultFile(text, { path: sourceFile, type: isJson ? "json" : "csv", endpoint: "local" }, preset, parserConfig);
+    const inputWarnings = isJson ? [] : resultInputWarnings(rows.slice(1), headers, preset, parserConfig);
     return {
         presetId: preset.id,
         format: isJson ? "json" : preset.format,
@@ -174,6 +175,7 @@ function previewResultParse(text, sourceFile, preset, parserConfig = {}) {
         warnings: [
             ...(isCaseLevelMetricsFile(sourceFile) ? ["metrics_case.csv 是 case-level 明细，只用于错误样本、子组和泄漏检查；论文级汇总请写 metrics_summary.csv。"] : []),
             ...(missingRequiredColumns.length ? [`missing required columns: ${missingRequiredColumns.join(", ")}`] : []),
+            ...inputWarnings,
             ...records.filter((record) => record.notes).map((record) => `${record.resultId}: ${record.notes}`),
         ],
         sampleMetrics: records[0]?.metrics || {},
@@ -686,11 +688,14 @@ function parseLongRows(rows, sourceFile, preset, parserConfig) {
     const map = new Map();
     for (const [index, row] of rows.entries()) {
         const m = { ...preset.columnMapping, ...parserConfig.columnMapping };
-        const metricInfo = metricFromName(row[m.metric || "metric"] || "", preset);
-        const value = parseValue(row[m.value || "value"]);
+        const rawMetric = String(row[m.metric || "metric"] || "").trim();
+        const value = finiteMetricNumber(row[m.value || "value"]);
+        if (!rawMetric || value === undefined)
+            continue;
+        const metricInfo = metricFromName(rawMetric, preset);
         const ids = idsFromRow(row, m, sourceFile.path, index);
         const record = map.get(ids.resultId) || baseRecord(ids, sourceFile, preset, parserConfig, row, m);
-        const metric = metricStorageKey(record.metrics, metricInfo.metric, metricInfo.split, row[m.metric || "metric"] || "");
+        const metric = metricStorageKey(record.metrics, metricInfo.metric, metricInfo.split, rawMetric);
         record.metrics[metric] = metricValue(value, metric, row, m, sourceFile.path, preset, metricInfo.split);
         record.dimensions = { ...record.dimensions, ...dimensionsFromRow(row, parserConfig.dimensions || [], sourceFile.path), ...standardDimensions(row, m) };
         finalizeRecordSemantics(record);
@@ -707,8 +712,8 @@ function parseWideRows(rows, headers, sourceFile, preset, parserConfig) {
         const record = baseRecord(ids, sourceFile, preset, parserConfig, row, m);
         for (const column of metricColumns) {
             const metricInfo = metricFromName(column, preset);
-            const value = parseValue(row[column]);
-            if (value === null || value === undefined || value === "")
+            const value = finiteMetricNumber(row[column]);
+            if (value === undefined)
                 continue;
             const metric = metricStorageKey(record.metrics, metricInfo.metric, metricInfo.split, column);
             record.metrics[metric] = metricValue(value, metric, row, { ...m, value: column }, sourceFile.path, preset, metricInfo.split);
@@ -789,7 +794,7 @@ function jsonMetricObject(row, m) {
         }
     }
     const dimensionKeys = new Set(["experiment_id", "experimentId", "attempt_id", "attemptId", "suite", "run_key", "runKey", "dataset", "split", "fold", "seed", "epoch", "step", "timestamp", "status", "command", ...Object.values(m).filter(Boolean)]);
-    return Object.fromEntries(Object.entries(row).filter(([key, value]) => !dimensionKeys.has(key) && Number.isFinite(Number(value))));
+    return Object.fromEntries(Object.entries(row).filter(([key, value]) => !dimensionKeys.has(key) && finiteMetricNumber(value) !== undefined));
 }
 function jsonMetricNameAllowed(name) {
     const normalized = String(name || "").toLowerCase().replace(/^(?:train|val|valid|validation|test|external|ext)[_.-]+/, "");
@@ -822,7 +827,7 @@ function jsonMetricEntries(value, path = [], out = [], depth = 0) {
             jsonMetricEntries(child, [...path, key], out, depth + 1);
         return out;
     }
-    if (!Number.isFinite(Number(value)) || !path.length)
+    if (finiteMetricNumber(value) === undefined || !path.length)
         return out;
     const leaf = path[path.length - 1];
     const split = [...path.slice(0, -1)].reverse().find((item) => /^(train|val|valid|validation|test|external|ext)$/i.test(item));
@@ -1142,6 +1147,29 @@ function unique(values) {
 }
 function parseDimensionValue(value) {
     return coerceDimension(value, "string");
+}
+function finiteMetricNumber(value) {
+    if (typeof value === "number")
+        return Number.isFinite(value) ? value : undefined;
+    if (typeof value !== "string" || !value.trim())
+        return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+}
+function resultInputWarnings(rows, headers, preset, parserConfig) {
+    if (!isLongFormat(headers, preset))
+        return [];
+    const mapping = { ...preset.columnMapping, ...parserConfig.columnMapping };
+    const metricIndex = headers.indexOf(mapping.metric || "metric");
+    const valueIndex = headers.indexOf(mapping.value || "value");
+    if (metricIndex < 0 || valueIndex < 0)
+        return [];
+    const missingMetric = rows.filter((row) => !String(row[metricIndex] || "").trim()).length;
+    const invalidValue = rows.filter((row) => String(row[metricIndex] || "").trim() && finiteMetricNumber(row[valueIndex]) === undefined).length;
+    return [
+        ...(missingMetric ? [`已跳过 ${missingMetric} 行空指标名。`] : []),
+        ...(invalidValue ? [`已跳过 ${invalidValue} 行空值或非有限数值指标。`] : []),
+    ];
 }
 function coerceDimension(value, type) {
     if (type === "number")

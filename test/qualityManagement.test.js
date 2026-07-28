@@ -112,6 +112,74 @@ test("statistical rigor supports paired t-test wilcoxon bootstrap and correction
   assert.match(annotatePaperTableWithSignificance("table", stats), /table/);
 });
 
+test("statistical analysis rejects malformed plans and unsupported methods remain unclaimed", () => {
+  const rows = parseCaseLevelCsv(caseCsv(), "r1");
+  const base = {
+    schemaVersion: 1,
+    id: "stats",
+    name: "Stats",
+    pairedBy: ["case_id"],
+    tests: [{ id: "p", metric: "DSC", method: "permutation_test", baselineMethodId: "baseline", compareAllAgainstBaseline: true, alpha: 0.05, correction: "bonferroni", minPairs: 2 }],
+    output: { updateLeaderboard: false, updatePaperTable: false, showPValues: true, showSignificanceStars: true, showEffectSize: false },
+  };
+  assert.throws(() => runStatisticalAnalysis(base, rows, []), /at least two distinct methods/);
+  assert.throws(() => runStatisticalAnalysis({ ...base, tests: [{ ...base.tests[0], alpha: 1 }] }, rows, ["baseline", "ours"]), /Invalid alpha/);
+  assert.throws(() => runStatisticalAnalysis({ ...base, pairedBy: [] }, rows, ["baseline", "ours"]), /pairing keys/);
+  const [unsupported] = runStatisticalAnalysis(base, rows, ["baseline", "ours"]);
+  assert.match(unsupported.warnings.join(" "), /needs experiment/);
+  assert.equal(unsupported.pValue, undefined);
+  assert.equal(unsupported.adjustedPValue, undefined);
+  assert.equal(unsupported.significant, false);
+});
+
+test("case metrics exclude invalid values and duplicate pairing keys block statistics", () => {
+  const invalidRows = parseCaseLevelCsv("experiment_id,case_id,method,metric,value,probability\ne,c1,ours,DSC,NaN,Infinity\n", "r");
+  assert.deepEqual(invalidRows[0].metrics, {});
+  assert.equal(invalidRows[0].probability, undefined);
+
+  const rows = parseCaseLevelCsv(`${caseCsv()}\ne1,c1,p1,VinDr,test,0,1,baseline,1,1,0.7,DSC,0.71,,female,img1.png`, "r1");
+  const plan = {
+    schemaVersion: 1,
+    id: "stats",
+    name: "Stats",
+    pairedBy: ["case_id"],
+    tests: [{ id: "t", metric: "DSC", method: "paired_t_test", baselineMethodId: "baseline", compareAllAgainstBaseline: true, alpha: 0.05, correction: "holm", minPairs: 2 }],
+    output: { updateLeaderboard: false, updatePaperTable: false, showPValues: true, showSignificanceStars: true, showEffectSize: false },
+  };
+  const [stat] = runStatisticalAnalysis(plan, rows, ["baseline", "ours"]);
+  assert.equal(stat.nPairs, 1);
+  assert.match(stat.warnings.join(" "), /Duplicate pairing keys excluded: c1/);
+  assert.equal(stat.pValue, undefined);
+  assert.equal(stat.adjustedPValue, undefined);
+});
+
+test("Holm and FDR corrections stay monotonic across finite p-values", () => {
+  const values = {
+    baseline: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    close: [0.51, 0.49, 0.52, 0.48, 0.51, 0.5],
+    strong: [0.6, 0.58, 0.62, 0.59, 0.61, 0.6],
+    medium: [0.55, 0.54, 0.56, 0.57, 0.53, 0.55],
+  };
+  const rows = Object.entries(values).flatMap(([method, metrics]) => metrics.map((value, index) => ({
+    schemaVersion: 1, caseResultId: `${method}:${index}`, experimentId: method, resultId: "r", caseId: String(index), dataset: "d", split: "test", method, metrics: { DSC: value }, subgroup: {}, paths: {}, parsedAt: "now",
+  })));
+  const plan = {
+    schemaVersion: 1, id: "corrections", name: "Corrections", pairedBy: ["case_id"],
+    tests: [
+      { id: "holm", metric: "DSC", method: "paired_t_test", baselineMethodId: "baseline", compareAllAgainstBaseline: true, alpha: 0.05, correction: "holm", minPairs: 2 },
+      { id: "fdr", metric: "DSC", method: "paired_t_test", baselineMethodId: "baseline", compareAllAgainstBaseline: true, alpha: 0.05, correction: "fdr_bh", minPairs: 2 },
+    ],
+    output: { updateLeaderboard: false, updatePaperTable: false, showPValues: true, showSignificanceStars: true, showEffectSize: false },
+  };
+  const stats = runStatisticalAnalysis(plan, rows, Object.keys(values));
+  for (const testId of ["holm", "fdr"]) {
+    const ordered = stats.filter((item) => item.testId === testId).sort((a, b) => a.pValue - b.pValue);
+    assert.equal(ordered.length, 3);
+    assert.ok(ordered.every((item) => Number.isFinite(item.adjustedPValue)));
+    assert.ok(ordered.every((item, index) => index === 0 || item.adjustedPValue >= ordered[index - 1].adjustedPValue));
+  }
+});
+
 test("leakage check warns on missing patient_id and fails on overlap", () => {
   const noPatient = parseCaseLevelCsv("experiment_id,case_id,dataset,split,method,metric,value\ne,c1,d,test,m,DSC,0.9\n", "r");
   assert.equal(runDataLeakageCheck(noPatient).status, "warning");

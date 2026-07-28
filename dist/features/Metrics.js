@@ -53,7 +53,14 @@ function leaderboardToMarkdown(rows, metrics) {
     return [header, sep, ...body].join("\n");
 }
 function numericEntries(value) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, Number(v)]).filter(([, v]) => Number.isFinite(v)));
+    return Object.fromEntries(Object.entries(value).flatMap(([key, raw]) => {
+        if (typeof raw === "number")
+            return Number.isFinite(raw) ? [[key, raw]] : [];
+        if (typeof raw !== "string" || !raw.trim())
+            return [];
+        const parsed = Number(raw);
+        return Number.isFinite(parsed) ? [[key, parsed]] : [];
+    }));
 }
 function splitCsv(line = "") {
     return line.split(",").map((item) => item.trim());

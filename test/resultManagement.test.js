@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { parseMetricsFile } = require("../dist/features/Metrics.js");
 
 const {
   builtInResultPresets,
@@ -26,6 +27,35 @@ test("results parser supports standard long CSV", () => {
   assert.equal(preview.records, 1);
   assert.equal(records[0].metrics.DSC.value, 0.876);
   assert.equal(records[0].metrics.ASD.higherIsBetter, false);
+});
+
+test("result parser skips invalid metric inputs and reports preview warnings", () => {
+  const preset = builtInResultPresets.find((item) => item.id === "generic_metric_long_csv");
+  const csv = [
+    "experiment_id,run_key,metric,value,step",
+    "e1,r1,AUC,0.91,final",
+    "e1,r1,,0.8,final",
+    "e1,r1,loss,,final",
+    "e1,r1,F1,NaN,final",
+    "e1,r1,precision,Infinity,final",
+  ].join("\n");
+  const records = parseResultFile(csv, { path: "results.csv", type: "csv", endpoint: "local" }, preset);
+  const preview = previewResultParse(csv, "results.csv", preset);
+  assert.deepEqual(Object.keys(records[0].metrics), ["AUC"]);
+  assert.match(preview.warnings.join(" "), /已跳过 1 行空指标名/);
+  assert.match(preview.warnings.join(" "), /已跳过 3 行空值或非有限数值指标/);
+
+  const widePreset = builtInResultPresets.find((item) => item.id === "medical_segmentation_wide_csv");
+  const wide = parseResultFile("experiment_id,DSC,HD95\ne2,0.8,NaN\n", { path: "wide.csv", type: "csv", endpoint: "local" }, widePreset, { metricColumns: ["DSC", "HD95"] });
+  assert.deepEqual(Object.keys(wide[0].metrics), ["DSC"]);
+});
+
+test("compatibility metrics parser excludes blank null boolean and non-finite values", () => {
+  const csvRows = parseMetricsFile("runKey,experimentId,DSC,HD95\nr1,e1,,NaN\nr2,e2,0.8,Infinity\n", "results.csv");
+  assert.deepEqual(csvRows[0].metrics, {});
+  assert.deepEqual(csvRows[1].metrics, { DSC: 0.8 });
+  const [jsonRow] = parseMetricsFile(JSON.stringify({ experimentId: "e3", metrics: { blank: "", missing: null, flag: true, AUC: "0.91" } }), "results.json");
+  assert.deepEqual(jsonRow.metrics, { AUC: 0.91 });
 });
 
 test("results parser supports standard wide CSV and custom metric columns", () => {
@@ -87,4 +117,3 @@ test("broken result config keeps lastKnownGood", () => {
   assert.equal(result.ok, false);
   assert.equal(result.value, last);
 });
-

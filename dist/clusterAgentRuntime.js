@@ -3408,12 +3408,13 @@ def parse_csv_result_file(root, source_rel, policy=None):
         grouped = {}
         for i, row in enumerate(rows):
             metric = metric_name(row.get(metric_col), aliases)
-            if not metric:
+            value = coerce_metric_value(row.get(value_col))
+            if not metric or not is_number(value):
                 continue
             experiment_id, run_key = record_identity(source_rel, row, i)
             key = (experiment_id, run_key)
             item = grouped.setdefault(key, {"row": row, "metrics": {}, "index": i})
-            item["metrics"][metric] = metric_value(row.get(value_col), metric, value_col, source_rel)
+            item["metrics"][metric] = metric_value(value, metric, value_col, source_rel)
         for item in grouped.values():
             if item["metrics"]:
                 records.append(make_result_record(source_rel, item["row"], item["metrics"], item["index"]))
@@ -4907,7 +4908,11 @@ def metric_distribution(values, metric):
 
 def comparison_sample_key(record):
     dims = record.get("dimensions") if isinstance(record.get("dimensions"), dict) else {}
-    return "|".join(str(dims.get(key) or record.get(key) or "") for key in ("dataset", "split", "fold", "seed", "case"))
+    sample = [dims.get(key) or record.get(key) or "" for key in ("fold", "seed", "case")]
+    if not any(str(value).strip() for value in sample):
+        return ""
+    context = [dims.get(key) or record.get(key) or "" for key in ("dataset", "split")]
+    return "|".join(str(value) for value in [*context, *sample])
 
 def paired_t_approx(diffs):
     if len(diffs) < 2:
@@ -4925,6 +4930,7 @@ def paired_t_approx(diffs):
 def paired_metric_comparisons(records, primary):
     primary = metric_name(primary)
     values = {}
+    duplicate_keys = set()
     for record in records:
         metrics = record.get("metrics") if isinstance(record.get("metrics"), dict) else {}
         data = metrics.get(primary)
@@ -4933,7 +4939,18 @@ def paired_metric_comparisons(records, primary):
             continue
         dims = record.get("dimensions") if isinstance(record.get("dimensions"), dict) else {}
         group = str(dims.get("method") or record.get("runKey") or record.get("experimentId") or "unknown")
-        values.setdefault(group, {})[comparison_sample_key(record)] = float(value)
+        key = comparison_sample_key(record)
+        if not key:
+            continue
+        marker = (group, key)
+        if marker in duplicate_keys:
+            continue
+        group_values = values.setdefault(group, {})
+        if key in group_values:
+            duplicate_keys.add(marker)
+            group_values.pop(key, None)
+            continue
+        group_values[key] = float(value)
     groups = sorted(values.keys())
     if len(groups) < 2:
         return []
@@ -4944,6 +4961,10 @@ def paired_metric_comparisons(records, primary):
         raw_diffs = [values[group][key] - values[baseline][key] for key in shared]
         improvement_diffs = [-d for d in raw_diffs] if metric_direction(primary) == "lower" else raw_diffs
         stats = paired_t_approx(improvement_diffs)
+        duplicates = sorted({key for method, key in duplicate_keys if method in (baseline, group)})
+        if duplicates:
+            stats["duplicateKeys"] = duplicates[:50]
+            stats["note"] = (str(stats.get("note") or "") + f" 重复配对键已排除：{len(duplicates)} 个。 ").strip()
         wins = len([d for d in improvement_diffs if d > 0])
         losses = len([d for d in improvement_diffs if d < 0])
         stats.update({"metric": primary, "baseline": baseline, "candidate": group, "sharedKeys": shared[:50], "wins": wins, "losses": losses, "ties": len(improvement_diffs) - wins - losses, "direction": metric_direction(primary)})

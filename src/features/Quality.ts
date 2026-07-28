@@ -319,8 +319,13 @@ export function parseCaseLevelCsv(text: string, resultId: string): CaseLevelResu
     const row = Object.fromEntries(headers.map((h, i) => [h, cols[i] || ""]));
     const metricName = row.metric || "";
     const metrics: Record<string, number | string | boolean | null> = {};
-    if (metricName) metrics[metricName] = parseValue(row.value);
-    for (const key of ["DSC", "ASD", "HD95", "IoU", "loss", "accuracy"]) if (row[key] !== undefined && row[key] !== "") metrics[key] = parseValue(row[key]);
+    const metricValue = finiteNumber(row.value);
+    if (metricName && metricValue !== undefined) metrics[metricName] = metricValue;
+    for (const key of ["DSC", "ASD", "HD95", "IoU", "loss", "accuracy"]) {
+      const value = finiteNumber(row[key]);
+      if (value !== undefined) metrics[key] = value;
+    }
+    const probability = finiteNumber(row.probability);
     return {
       schemaVersion: 1,
       caseResultId: `${resultId}:${row.case_id || row.caseId || index}`,
@@ -336,7 +341,7 @@ export function parseCaseLevelCsv(text: string, resultId: string): CaseLevelResu
       method: row.method || undefined,
       label: parseOptionalValue(row.label),
       prediction: parseOptionalValue(row.prediction),
-      probability: row.probability ? Number(row.probability) : undefined,
+      probability,
       metrics,
       errorType: row.error_type || undefined,
       subgroup: parseSubgroup(row),
@@ -348,17 +353,24 @@ export function parseCaseLevelCsv(text: string, resultId: string): CaseLevelResu
 
 export function runStatisticalAnalysis(plan: StatisticalAnalysisPlan, rows: CaseLevelResultRecord[], methods: string[], comparisonId = "comparison"): StatisticalTestResult[] {
   const results: StatisticalTestResult[] = [];
-  const baseline = plan.tests[0]?.baselineMethodId || methods[0];
+  const normalizedMethods = Array.from(new Set(methods.map((method) => String(method || "").trim()).filter(Boolean)));
+  validateStatisticalInputs(plan, normalizedMethods);
   for (const test of plan.tests) {
-    const targets = test.compareAllAgainstBaseline ? methods.filter((m) => m !== baseline) : methods.slice(1, 2);
+    const baseline = String(test.baselineMethodId || normalizedMethods[0]).trim();
+    const targets = test.compareAllAgainstBaseline ? normalizedMethods.filter((method) => method !== baseline) : normalizedMethods.filter((method) => method !== baseline).slice(0, 1);
     for (const method of targets) {
-      const pairs = pairedMetricValues(rows, baseline, method, test.metric, plan.pairedBy);
+      const paired = pairedMetricValues(rows, baseline, method, test.metric, plan.pairedBy);
+      const pairs = paired.pairs;
       const warnings: string[] = [];
-      if (pairs.length < (test.minPairs || 2)) warnings.push(`Not enough paired samples for ${test.method}: ${pairs.length}`);
+      if (paired.duplicateKeys.length) warnings.push(`Duplicate pairing keys excluded: ${paired.duplicateKeys.join(", ")}`);
+      if (paired.missingKeyRows) warnings.push(`Rows missing pairing keys excluded: ${paired.missingKeyRows}`);
+      if (!["paired_t_test", "wilcoxon_signed_rank", "bootstrap_ci"].includes(test.method)) warnings.push(`Unsupported statistical method ${test.method}; needs experiment`);
+      if (pairs.length < (test.minPairs ?? 2)) warnings.push(`Not enough paired samples for ${test.method}: ${pairs.length}`);
       const diffs = pairs.map(([a, b]) => b - a);
-      const pValue = warnings.length ? undefined : test.method === "wilcoxon_signed_rank" ? wilcoxonSignedRankP(diffs) : test.method === "bootstrap_ci" ? undefined : pairedTTestP(diffs);
-      const ci = test.method === "bootstrap_ci" || plan.output.showEffectSize ? bootstrapCi(diffs) : undefined;
-      results.push({ schemaVersion: 1, testId: test.id, comparisonId, metric: test.metric, methodA: baseline, methodB: method, pairedBy: plan.pairedBy, nPairs: pairs.length, statistic: avg(diffs), pValue, significant: pValue !== undefined ? pValue < test.alpha : false, alpha: test.alpha, correction: test.correction, effectSize: effectSize(plan, test.metric, diffs), ci, generatedAt: new Date().toISOString(), warnings });
+      const valid = warnings.length === 0;
+      const pValue = !valid || test.method === "bootstrap_ci" ? undefined : test.method === "wilcoxon_signed_rank" ? wilcoxonSignedRankP(diffs) : pairedTTestP(diffs);
+      const ci = valid && (test.method === "bootstrap_ci" || plan.output.showEffectSize) ? bootstrapCi(diffs) : undefined;
+      results.push({ schemaVersion: 1, testId: test.id, comparisonId, metric: test.metric, methodA: baseline, methodB: method, pairedBy: plan.pairedBy, nPairs: pairs.length, statistic: valid ? avg(diffs) : undefined, pValue, significant: pValue !== undefined ? pValue < test.alpha : false, alpha: test.alpha, correction: test.correction, effectSize: valid ? effectSize(plan, test.metric, diffs) : undefined, ci, generatedAt: new Date().toISOString(), warnings });
     }
   }
   return applyCorrection(results);
@@ -542,11 +554,22 @@ function parseSubgroup(row: Record<string, string>): Record<string, string | num
   return out;
 }
 
-function pairedMetricValues(rows: CaseLevelResultRecord[], methodA: string, methodB: string, metric: string, pairedBy: StatisticalAnalysisPlan["pairedBy"]): Array<[number, number]> {
-  const keyOf = (row: CaseLevelResultRecord) => pairedBy.map((key) => key === "case_id" ? row.caseId : key === "patient_id" ? row.patientId || "" : String((row as any)[camel(key)] ?? "")).join("|");
-  const a = new Map(rows.filter((r) => r.method === methodA && Number.isFinite(Number(r.metrics[metric]))).map((r) => [keyOf(r), Number(r.metrics[metric])]));
-  const b = new Map(rows.filter((r) => r.method === methodB && Number.isFinite(Number(r.metrics[metric]))).map((r) => [keyOf(r), Number(r.metrics[metric])]));
-  return Array.from(a.entries()).filter(([key]) => b.has(key)).map(([key, value]) => [value, b.get(key)!]);
+function pairedMetricValues(rows: CaseLevelResultRecord[], methodA: string, methodB: string, metric: string, pairedBy: StatisticalAnalysisPlan["pairedBy"]): { pairs: Array<[number, number]>; duplicateKeys: string[]; missingKeyRows: number } {
+  const maps = [methodA, methodB].map(() => new Map<string, number>());
+  const duplicates = new Set<string>();
+  let missingKeyRows = 0;
+  for (const row of rows) {
+    const methodIndex = row.method === methodA ? 0 : row.method === methodB ? 1 : -1;
+    const value = finiteNumber(row.metrics[metric]);
+    if (methodIndex < 0 || value === undefined) continue;
+    const parts = pairedBy.map((key) => key === "case_id" ? row.caseId : key === "patient_id" ? row.patientId : (row as any)[camel(key)]);
+    if (parts.some((part) => part === undefined || part === null || String(part).trim() === "")) { missingKeyRows++; continue; }
+    const key = parts.map(String).join("|");
+    if (maps[methodIndex].has(key)) duplicates.add(key);
+    else maps[methodIndex].set(key, value);
+  }
+  const pairs = Array.from(maps[0].entries()).filter(([key]) => maps[1].has(key) && !duplicates.has(key)).map(([key, value]) => [value, maps[1].get(key)!] as [number, number]);
+  return { pairs, duplicateKeys: Array.from(duplicates).sort(), missingKeyRows };
 }
 
 function pairedTTestP(diffs: number[]): number {
@@ -580,19 +603,48 @@ function bootstrapCi(values: number[], level = 0.95): StatisticalTestResult["ci"
 }
 
 function applyCorrection(results: StatisticalTestResult[]): StatisticalTestResult[] {
-  const byCorrection = groupBy(results, (r) => r.correction || "none");
+  const byCorrection = groupBy(results.filter((item) => item.pValue !== undefined && Number.isFinite(item.pValue)), (r) => r.correction || "none");
   for (const [correction, items] of byCorrection) {
     if (correction === "bonferroni") for (const item of items) setAdjusted(item, Math.min(1, (item.pValue ?? 1) * items.length));
     if (correction === "holm") {
       const sorted = [...items].sort((a, b) => (a.pValue ?? 1) - (b.pValue ?? 1));
-      sorted.forEach((item, index) => setAdjusted(item, Math.min(1, (item.pValue ?? 1) * (sorted.length - index))));
+      let previous = 0;
+      sorted.forEach((item, index) => {
+        previous = Math.max(previous, Math.min(1, (item.pValue ?? 1) * (sorted.length - index)));
+        setAdjusted(item, previous);
+      });
     }
     if (correction === "fdr_bh") {
       const sorted = [...items].sort((a, b) => (a.pValue ?? 1) - (b.pValue ?? 1));
-      sorted.forEach((item, index) => setAdjusted(item, Math.min(1, (item.pValue ?? 1) * sorted.length / (index + 1))));
+      let next = 1;
+      for (let index = sorted.length - 1; index >= 0; index--) {
+        next = Math.min(next, Math.min(1, (sorted[index].pValue ?? 1) * sorted.length / (index + 1)));
+        setAdjusted(sorted[index], next);
+      }
     }
   }
   return results;
+}
+
+function validateStatisticalInputs(plan: StatisticalAnalysisPlan, methods: string[]): void {
+  if (!Array.isArray(plan.tests) || !plan.tests.length) throw new TypeError("Statistical plan must contain at least one test");
+  if (!Array.isArray(plan.pairedBy) || !plan.pairedBy.length) throw new TypeError("Statistical plan must contain pairing keys");
+  if (new Set(plan.pairedBy).size !== plan.pairedBy.length) throw new TypeError("Statistical pairing keys must be unique");
+  if (methods.length < 2) throw new TypeError("Statistical analysis requires at least two distinct methods");
+  for (const test of plan.tests) {
+    if (!String(test.id || "").trim() || !String(test.metric || "").trim()) throw new TypeError("Statistical tests require non-empty id and metric");
+    if (!Number.isFinite(test.alpha) || test.alpha <= 0 || test.alpha >= 1) throw new RangeError(`Invalid alpha for statistical test ${test.id}`);
+    if (test.minPairs !== undefined && (!Number.isInteger(test.minPairs) || test.minPairs < 2)) throw new RangeError(`Invalid minPairs for statistical test ${test.id}`);
+    const baseline = String(test.baselineMethodId || methods[0]).trim();
+    if (!methods.includes(baseline)) throw new TypeError(`Baseline method not found: ${baseline}`);
+  }
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function setAdjusted(item: StatisticalTestResult, value: number): void {
