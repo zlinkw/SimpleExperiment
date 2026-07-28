@@ -287,6 +287,24 @@
 		"configuration": {
 			"title": "SimpleExperiment",
 			"properties": {
+				"zlkCluster.topologyMode": {
+					"type": "string",
+					"default": "",
+					"enum": [
+						"",
+						"single_worker",
+						"worker_pool",
+						"hub_worker"
+					],
+					"enumDescriptions": [
+						"尚未明确选择；旧 Hub + Worker 项目只读推断为 Hub 可用模式，仅 Worker 项目需要先确认。",
+						"恰好一台 Worker 在本机调度和保存，不使用 Hub 或自动备份。",
+						"两台及以上 Worker 各自调度确定性分片，不使用 Hub 或跨节点备份。",
+						"Hub 全局调度，至少一台 Worker 执行，并由 Hub 汇总状态和结果。"
+					],
+					"scope": "resource",
+					"description": "当前项目的服务器拓扑。模式与启用端点数量不一致时阻止新运行；模式切换不会迁移已有任务或结果。"
+				},
 				"zlkCluster.workspaceHostRoot": {
 					"type": "string",
 					"default": "",
