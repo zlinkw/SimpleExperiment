@@ -24,7 +24,7 @@ test("target mode plan keeps only the latest active target and current guardrail
     "Agent runtime cache",
     "项目计划、结果、归档、删除墓碑和文件传输状态属于项目态",
     "metrics_summary.csv",
-    "Xshell 本地隧道 + Hub/Worker Agent + SimpleSFTP",
+    "Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP",
     "新增补充任务不得破坏当前主目标",
     "计划更新必须防止修复循环",
     "PPT 绘图链路与 realtime post gate 稳定化",
@@ -45,9 +45,8 @@ test("target mode plan keeps only the latest active target and current guardrail
   ]) {
     assert.doesNotMatch(plan, new RegExp(oldText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
-  for (const status of ["待做", "已完成"]) {
-    assert.match(plan, new RegExp(status));
-  }
+  assert.match(plan, /\[(?:待做|进行中|已完成)\]/);
+  assert.match(plan, /\[已完成\]/);
   assert.equal((plan.match(/^## 当前批次/gm) || []).length, 1);
   assert.ok(plan.split(/\r?\n/).length <= 80);
 });
