@@ -617,6 +617,7 @@ function renderPanelHtml() {
     .detailBadge.warn { color: #B45309; background: #FFFBEB; border-color: #FDE68A; }
     .detailBadge.error { color: #DC2626; background: #FEF2F2; border-color: #FCA5A5; }
     .detailTabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .traceDetailPane .detailTabs { grid-template-columns: repeat(auto-fit, minmax(82px, 1fr)); }
     .detailTab { display: grid; gap: 2px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle-bg); }
     .detailTab b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text); }
     .detailTab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; }
@@ -648,6 +649,9 @@ function renderPanelHtml() {
     .traceCard:has(.status-completed)::before { background: #16A34A; }
     .traceCard:has(.status-failed)::before { background: #DC2626; }
     .traceCard:has(.status-warning)::before { background: #D97706; }
+    .traceCard.status-completed::before { background: #16A34A; }
+    .traceCard.status-failed::before { background: #DC2626; }
+    .traceCard.status-warning::before { background: #D97706; }
     .traceCard.selectedRow { border-color: var(--vscode-focusBorder); box-shadow: inset 0 0 0 1px var(--vscode-focusBorder); }
     .traceCardHead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
     .traceTitle { min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-weight: 800; }
@@ -10982,7 +10986,7 @@ function renderPanelHtml() {
     }
 
     function traceNeedsAttention(row) {
-      const text = [row.status, row.resultStatus, row.deleteStatus].map((value) => String(value || "").toLowerCase()).join(" ");
+      const text = [row.executionStatus, row.status, row.resultStatus, row.deleteStatus].map((value) => String(value || "").toLowerCase()).join(" ");
       return /fail|error|stalled|residue|missing|缺失|失败|残留/.test(text);
     }
 
@@ -11010,9 +11014,9 @@ function renderPanelHtml() {
     function renderTraceCard(row, selected) {
       const checked = traceRowSelected(row, selected);
       const traceTime = relativeTimestampView(row.updatedAt, "更新");
-      return '<div class="traceCard ' + (checked ? "selectedRow" : "") + '">' +
+      return '<div class="traceCard ' + traceClass(row) + ' ' + (checked ? "selectedRow" : "") + '">' +
         '<div class="traceCardHead">' +
-          '<div class="traceTitle"><span title="' + escAttr(row.id) + '">' + esc(compactIdentifier(row.id)) + '</span><span class="' + traceClass(row) + '" title="原始归档状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span><span class="pill" title="原始删除状态：' + escAttr(row.deleteStatus) + '">删除 ' + esc(labelStatus(row.deleteStatus)) + '</span></div>' +
+          '<div class="traceTitle"><span title="' + escAttr(row.id) + '">' + esc(compactIdentifier(row.id)) + '</span><span class="' + statusClass(row.executionStatus) + '" title="原始执行状态：' + escAttr(row.executionStatus) + '">执行 ' + esc(labelStatus(row.executionStatus)) + '</span><span class="' + statusClass(row.status) + '" title="原始归档状态：' + escAttr(row.status) + '">归档 ' + esc(labelStatus(row.status)) + '</span><span class="pill ' + statusClass(row.deleteStatus) + '" title="原始删除状态：' + escAttr(row.deleteStatus) + '">删除 ' + esc(labelStatus(row.deleteStatus)) + '</span></div>' +
           '<button class="mini" data-command="selectExperiment" data-run-key="' + escAttr(row.id) + '" data-archive-key="' + escAttr(row.archiveKey || row.id) + '" title="实验详情">详情</button>' +
         '</div>' +
         '<div class="traceMetaGrid">' +
@@ -11033,18 +11037,22 @@ function renderPanelHtml() {
         setHtmlIfChanged(pane, '<h3>记录详情</h3><div class="muted">暂无实验记录。完成任务、解析结果或归档后会显示详情。</div>');
         return;
       }
-      const detailTone = traceTone(row.status) === "good" ? "good" : (traceTone(row.status) === "error" ? "error" : "warn");
+      const headlineStage = meaningfulValue(row.executionStatus) ? "执行" : "归档";
+      const headlineStatus = meaningfulValue(row.executionStatus) ? row.executionStatus : row.status;
+      const detailTone = traceTone(headlineStatus) === "good" ? "good" : (traceTone(headlineStatus) === "error" ? "error" : "warn");
       const traceStatisticsSourcePath = finalStatisticsSourcePath((lastState || {}).resultsSummary || {});
       const traceTime = relativeTimestampView(row.updatedAt, "更新");
       setHtmlIfChanged(pane,
         '<div class="detailHeader" title="记录详情">' +
           '<div class="detailHeaderText"><h3>记录详情</h3><span>' + esc(compactIdentifier(row.id)) + '</span></div>' +
-          '<span class="detailBadge ' + escAttr(detailTone) + '" title="原始归档状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status || "-")) + '</span>' +
+          '<span class="detailBadge ' + escAttr(detailTone) + '" title="' + escAttr(headlineStage + "原始状态：" + headlineStatus) + '">' + esc(headlineStage + " · " + labelStatus(headlineStatus || "-")) + '</span>' +
         '</div>' +
         '<div class="detailTabs" title="详情分区">' +
-          detailTab("归档", labelStatus(row.status || "待归档")) +
-          detailTab("删除", labelStatus(row.deleteStatus || "未删除")) +
+          detailTab("执行", labelStatus(row.executionStatus || "未知")) +
           detailTab("解析", labelStatus(row.resultStatus || "待解析")) +
+          detailTab("取舍", reviewStateLabel(row.reviewState)) +
+          detailTab("归档", labelStatus(row.status || "待筛选")) +
+          detailTab("删除", labelStatus(row.deleteStatus || "未删除")) +
         '</div>' +
         '<div class="taskDetailMeta">' +
           taskDetailLine("记录数", esc(count || 0)) +
@@ -11052,7 +11060,8 @@ function renderPanelHtml() {
           taskDetailLine("Plan", '<span title="' + escAttr(row.planFile || "") + '">' + esc(compactPath(row.planFile || "未归属")) + '</span>') +
           taskDetailLine("版本", esc(row.planRevision || "未记录")) +
           taskDetailLine("Worker", esc(workerName(row.workerId || "-"))) +
-          taskDetailLine("归档", '<span class="' + traceClass(row) + '" title="原始状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span>') +
+          taskDetailLine("执行", '<span title="原始状态：' + escAttr(row.executionStatus) + '">' + esc(labelStatus(row.executionStatus)) + '</span>') +
+          taskDetailLine("归档", '<span class="' + statusClass(row.status) + '" title="原始状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span>') +
           taskDetailLine("结果取舍", '<span title="' + escAttr(row.reviewReason || "") + '">' + esc(reviewStateLabel(row.reviewState)) + '</span>') +
           taskDetailLine("删除", '<span title="原始状态：' + escAttr(row.deleteStatus) + '">' + esc(labelStatus(row.deleteStatus)) + '</span>') +
           taskDetailLine("解析", '<span title="原始状态：' + escAttr(row.resultStatus) + '">' + esc(labelStatus(row.resultStatus)) + '</span>') +
@@ -11130,11 +11139,14 @@ function renderPanelHtml() {
     }
 
     function renderTraceTimeline(row) {
+      const rawExecutionStatus = row.executionStatus || "未知";
       const rawResultStatus = row.resultStatus || "待解析";
       const rawArchiveStatus = row.status || "待归档";
       const rawDeleteStatus = row.deleteStatus || "未删除";
       const events = [
+        ["执行", labelStatus(rawExecutionStatus), traceTone(row.executionStatus), rawExecutionStatus],
         ["解析", labelStatus(rawResultStatus), traceTone(row.resultStatus), rawResultStatus],
+        ["取舍", reviewStateLabel(row.reviewState), traceTone(row.reviewState), row.reviewState || "pending_review"],
         ["归档", labelStatus(rawArchiveStatus), traceTone(row.status), rawArchiveStatus],
         ["删除", labelStatus(rawDeleteStatus), traceTone(row.deleteStatus), rawDeleteStatus],
         ["更新", relativeTimeLabel(row.updatedAt, Date.now()), row.updatedAt && row.updatedAt !== "-" ? "good" : "warn", row.updatedAt || "-"]
@@ -11908,7 +11920,7 @@ function renderPanelHtml() {
         if (archived) stats.archived += 1;
         if (excluded) stats.excluded += 1;
         if (deleted) stats.deleted += 1;
-        if (!archived && !excluded && !deleted && isArchivableTraceStatus(status) && usableTaskKey(item.archiveKey || item.id)) {
+        if (!archived && !excluded && !deleted && isArchivableTraceStatus(item.executionStatus) && usableTaskKey(item.archiveKey || item.id)) {
           if (usableTaskKey(item.workerId)) stats.archivable += 1;
           else stats.archiveBlocked += 1;
         }
@@ -13191,22 +13203,37 @@ function renderPanelHtml() {
         .filter((value) => value && value !== "-");
     }
     function normalizeExperimentTraceRows(rows) {
-      return asArray(rows).map((row) => ({
-        id: pick(row, ["id", "experimentId", "experiment_id", "runKey", "run_key", "run_id", "global_job_id"], "-"),
-        archiveKey: pick(row, ["archiveKey", "archive_key"], pick(row, ["id", "runKey", "run_key"], "-")),
-        planFile: pick(row, ["planFile", "plan_file", "plan"], ""),
-        planRevision: pick(row, ["planRevision", "plan_revision"], ""),
-        status: pick(row, ["status", "state", "archiveStatus", "archive_status", "artifact_state"], "-"),
-        reviewState: pick(row, ["reviewState", "review_state"], ""),
-        reviewReason: pick(row, ["reviewReason", "review_reason"], ""),
-        resultStatus: pick(row, ["resultStatus", "result_status", "parseStatus", "parse_status"], "-"),
-        deleteStatus: pick(row, ["deleteStatus", "delete_status", "deleted", "residue"], "-"),
-        workerId: resolveWorkerId(pick(row, ["workerId", "worker_id", "serverId", "server_id", "worker", "server", "worker_name"], "-")),
-        tags: asArray(pick(row, ["tags"], [])).join(", "),
-        updatedAt: pick(row, ["updatedAt", "updated_at", "synced_at", "finished_at"], "-"),
-        artifactPath: pick(row, ["artifactPath", "artifact_path", "hub_job_dir", "worker_job_dir", "native_job_dir"], "-"),
-        resultPath: pick(row, ["resultPath", "result_path", "results_csv"], "-")
-      }));
+      return asArray(rows).map((row) => {
+        const stages = traceStageStatuses(row);
+        return ({
+          id: pick(row, ["id", "experimentId", "experiment_id", "runKey", "run_key", "run_id", "global_job_id"], "-"),
+          archiveKey: pick(row, ["archiveKey", "archive_key"], pick(row, ["id", "runKey", "run_key"], "-")),
+          planFile: pick(row, ["planFile", "plan_file", "plan"], ""),
+          planRevision: pick(row, ["planRevision", "plan_revision"], ""),
+          executionStatus: stages.executionStatus,
+          status: stages.archiveStatus,
+          reviewState: pick(row, ["reviewState", "review_state"], ""),
+          reviewReason: pick(row, ["reviewReason", "review_reason"], ""),
+          resultStatus: pick(row, ["resultStatus", "result_status", "parseStatus", "parse_status"], "-"),
+          deleteStatus: pick(row, ["deleteStatus", "delete_status", "deleted", "residue"], "-"),
+          workerId: resolveWorkerId(pick(row, ["workerId", "worker_id", "serverId", "server_id", "worker", "server", "worker_name"], "-")),
+          tags: asArray(pick(row, ["tags"], [])).join(", "),
+          updatedAt: pick(row, ["updatedAt", "updated_at", "synced_at", "finished_at"], "-"),
+          artifactPath: pick(row, ["artifactPath", "artifact_path", "hub_job_dir", "worker_job_dir", "native_job_dir"], "-"),
+          resultPath: pick(row, ["resultPath", "result_path", "results_csv"], "-")
+        });
+      });
+    }
+
+    function traceStageStatuses(row) {
+      const rawStatus = pick(row, ["status", "state"], "-");
+      const explicitExecution = pick(row, ["executionStatus", "execution_status", "runStatus", "run_status", "schedulerStatus", "scheduler_status", "taskStatus", "task_status", "jobStatus", "job_status"], "");
+      const explicitArchive = pick(row, ["archiveStatus", "archive_status", "artifact_state"], "");
+      const reviewState = String(pick(row, ["reviewState", "review_state"], "") || "").toLowerCase();
+      const rawArchiveLike = /^(archived|pending_review|included|excluded|not_archived)$/i.test(String(rawStatus || ""));
+      const executionStatus = explicitExecution || (rawArchiveLike ? "-" : rawStatus);
+      const archiveStatus = explicitArchive || (rawArchiveLike ? rawStatus : reviewState === "archived" ? "archived" : reviewState === "excluded" ? "excluded" : "pending_review");
+      return { executionStatus: executionStatus || "-", archiveStatus: archiveStatus || "pending_review" };
     }
     function experimentTraceRowsForState(state) {
       const input = state && state.experimentTraces;
@@ -13489,8 +13516,9 @@ function renderPanelHtml() {
       return "";
     }
     function traceClass(row) {
-      const text = String(row.status) + " " + String(row.deleteStatus);
-      return text.includes("failed") || text.includes("residue") ? "status-warning" : statusClass(row.status);
+      const text = [row.executionStatus, row.status, row.resultStatus, row.deleteStatus].map((value) => String(value || "").toLowerCase()).join(" ");
+      if (/failed|error|stalled|residue|parse_failed/.test(text)) return "status-failed";
+      return statusClass(row.executionStatus) || statusClass(row.status);
     }
     function gpuServerStatusClass(status) {
       const text = String(status || "").toLowerCase();
