@@ -3,8 +3,8 @@
 ## 状态
 
 - 目标 ID：`worker-topology-modes`。
-- 状态：实施中；`topology-001` 至 `topology-003` 已完成配置、UI、单 Worker 本机调度和无 Hub 门禁，下一批进入多 Worker 分片与结果归属。
-- 证据状态：配置、UI、单 Worker 路由和通信门禁已有静态证据；全部真实服务器行为仍为 `needs field verification`。
+- 状态：实施中；`topology-001` 至 `topology-004a` 已完成配置、UI、单 Worker 本机调度、无 Hub 门禁和多 Worker 确定性分片，下一批进入结果与归档归属。
+- 证据状态：配置、UI、单 Worker 路由、通信门禁和多 Worker 分片已有静态证据；全部真实服务器行为仍为 `needs field verification`。
 
 ## 目标
 
@@ -87,11 +87,16 @@
 - 禁用 Hub 请求、Hub 同步和自动备份分支。
 - 静态验证已覆盖 Plan 路由、Worker 动作白名单、Hub 不回退、Xshell 启动目标和无 Hub 可用性上报门禁；真实服务器未连接。
 
-### topology-004 多 Worker 确定性分片与结果归属
+### topology-004a 多 Worker 确定性分片
 
 - 增加 `workerSetRevision`、稳定分片和每 Worker 提交清单。
+- 每台 Worker 请求只保留本机配置、owner、分片 revision 和任务索引，scheduler 仅建立对应索引队列。
+- 提交前校验全部 Worker capability 和 Plan 展开索引；任一 Worker 离线或展开不一致时不开始新运行。
+- 已静态覆盖重试一致性、Worker 集合变化、独立提交、Agent owner 门禁和 scheduler 索引过滤。
+
+### topology-004b 多 Worker 结果与归档归属
+
 - 合并只读总览，保持各 Worker 状态独立且有界。
-- 覆盖重试一致性、Worker 增减、新 revision 和部分 Worker 离线。
 - 将有效 CSV、结果解析、归档、恢复版本和 PPT 最终数据源按拓扑绑定到正确 Worker。
 - 阻止无 Hub revision 进入 Hub 汇总分支，阻止跨 Worker 结果误归属。
 - 审计所有“备份”“同步到 Hub”“三方一致”文案及 handler 门禁。

@@ -6660,21 +6660,25 @@ def scheduler_validate_json(root, scheduler, plan, env=None):
     except Exception:
         return {"ok": True, "plan": plan, "jobs": [], "raw": result.stdout}
 
-def dry_run_preview_action(root, plan, workers):
+def dry_run_preview_action(root, plan, workers, assigned_indices=None):
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
         raise RuntimeError("Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。")
     require_scheduler_dependencies(root, scheduler)
     workers_path = state_child_path(root, "actions", f"dry-run-workers-{int(time.time() * 1000)}.json")
     atomic_write(workers_path, workers if isinstance(workers, list) else [])
-    result = scheduler_capture(root, scheduler, [
+    scheduler_args = [
         "--dry-run-plan",
         "--plan", plan,
         "--workers-json", workers_path,
         "--availability-path", availability_cache_path(root),
         "--worker-status-ttl-seconds", "180",
         "--agent-state-dir", agent_dir(root),
-    ])
+    ]
+    indices = normalized_experiment_indices(assigned_indices)
+    if indices:
+        scheduler_args.extend(["--only-indices", ",".join(str(index) for index in indices)])
+    result = scheduler_capture(root, scheduler, scheduler_args)
     text = (result.stdout or result.stderr or "").strip()
     if result.returncode != 0:
         raise RuntimeError(text[-1200:] or "Dry-run 预演失败")
@@ -6742,13 +6746,34 @@ def action_operation_fields(payload):
     plan_file = action_plan_file(body)
     selected_plan_id = str(body.get("selectedPlanId") or options.get("selectedPlanId") or plan_file or "").strip()
     plan_revision = str(body.get("planRevision") or body.get("plan_revision") or options.get("planRevision") or options.get("plan_revision") or "").strip()
+    topology_mode = str(body.get("topologyMode") or options.get("topologyMode") or "").strip()
+    worker_set_revision = str(body.get("workerSetRevision") or options.get("workerSetRevision") or "").strip()
+    scheduler_owner_worker_id = str(body.get("schedulerOwnerWorkerId") or options.get("schedulerOwnerWorkerId") or "").strip()
+    assigned_experiment_indices = normalized_experiment_indices(body.get("assignedExperimentIndices") or options.get("assignedExperimentIndices") or [])
     return {
         **({"planFile": plan_file} if plan_file else {}),
         **({"selectedPlanId": selected_plan_id} if selected_plan_id else {}),
         **({"planRevision": plan_revision} if plan_revision else {}),
+        **({"topologyMode": topology_mode} if topology_mode else {}),
+        **({"workerSetRevision": worker_set_revision} if worker_set_revision else {}),
+        **({"schedulerOwnerWorkerId": scheduler_owner_worker_id, "workerId": scheduler_owner_worker_id} if scheduler_owner_worker_id else {}),
+        **({"assignedExperimentIndices": assigned_experiment_indices} if assigned_experiment_indices else {}),
         "debugMode": action_debug_mode(body),
         **({"debugRunId": action_debug_run_id(body)} if action_debug_run_id(body) else {}),
     }
+
+def normalized_experiment_indices(values):
+    if not isinstance(values, list):
+        return []
+    out = set()
+    for value in values:
+        try:
+            index = int(value)
+        except Exception:
+            continue
+        if index >= 0:
+            out.add(index)
+    return sorted(out)
 
 def action_event_fields(extra=None, request=None):
     fields = action_operation_fields(request)
@@ -6814,7 +6839,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         try:
-            preview = dry_run_preview_action(root, plan, action_options(payload).get("workers") if isinstance(action_options(payload).get("workers"), list) else [])
+            preview = dry_run_preview_action(root, plan, action_options(payload).get("workers") if isinstance(action_options(payload).get("workers"), list) else [], action_operation_fields(payload).get("assignedExperimentIndices") or [])
             out_path = safe_project_path(root, f"zlk_cluster/tmp/cluster_scheduler/{op_id}_dry_run.json")
             atomic_write(out_path, preview)
             return terminal_action(root, action, operation_id, op_id, "completed", f"Dry-run 完成：可立即调度 {preview.get('dispatchableCount', 0)}，排队 {preview.get('queuedCount', 0)}", {"preview": preview, "previewPath": relpath(root, out_path)}, request=payload)
@@ -6874,6 +6899,14 @@ def handle_action(root, action, payload, operation_id, op_id):
             "--plan-revision", str(action_operation_fields(payload).get("planRevision") or ""),
             "--scheduler-log", log_rel,
         ]
+        operation_fields = action_operation_fields(payload)
+        assigned_indices = operation_fields.get("assignedExperimentIndices") or []
+        if assigned_indices:
+            scheduler_args.extend(["--only-indices", ",".join(str(index) for index in assigned_indices)])
+        if operation_fields.get("workerSetRevision"):
+            scheduler_args.extend(["--worker-set-revision", str(operation_fields.get("workerSetRevision"))])
+        if operation_fields.get("schedulerOwnerWorkerId"):
+            scheduler_args.extend(["--scheduler-owner-worker-id", str(operation_fields.get("schedulerOwnerWorkerId"))])
         if debug_mode:
             scheduler_args.extend(["--debug-mode", "--debug-run-id", debug_run_id, "--debug-output-dir", debug_output_dir])
         tmux_session = zlk_tmux_name(f"scheduler-{op_id}")
@@ -7940,8 +7973,15 @@ def serve_http(args):
                 topology_mode = str(options.get("topologyMode") or payload.get("topologyMode") or "")
                 owner = str(options.get("schedulerOwnerWorkerId") or payload.get("schedulerOwnerWorkerId") or "").strip()
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("ZLK_WORKER_ID") or "worker").strip()
-                if topology_mode != "single_worker" or options.get("localWorkerScheduler") is not True or not owner or owner != current_worker:
-                    return self.send_json({"error": "single worker local scheduler identity mismatch"}, status=403)
+                workers = options.get("workers") if isinstance(options.get("workers"), list) else []
+                worker_ids = [str((worker or {}).get("id") or (worker or {}).get("worker_id") or "").strip() for worker in workers if isinstance(worker, dict)]
+                if (topology_mode != "single_worker" and topology_mode != "worker_pool") or options.get("localWorkerScheduler") is not True or not owner or owner != current_worker or worker_ids != [owner]:
+                    return self.send_json({"error": "local worker scheduler identity mismatch"}, status=403)
+                if topology_mode == "worker_pool" and action in ("dry-run-plan", "run-plan", "reproduce-plan"):
+                    assigned = normalized_experiment_indices(payload.get("assignedExperimentIndices") or options.get("assignedExperimentIndices") or [])
+                    worker_set_revision = str(payload.get("workerSetRevision") or options.get("workerSetRevision") or "").strip()
+                    if not assigned or not worker_set_revision:
+                        return self.send_json({"error": "worker pool shard identity or assigned indices missing"}, status=403)
             append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:

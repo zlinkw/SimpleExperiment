@@ -790,9 +790,37 @@ def isolate_debug_jobs(jobs: list[Job], plan_file: str, run_id: str, output_root
 
 def jobs_for_args(plan: dict[str, Any], args: argparse.Namespace) -> list[Job]:
     _, jobs = build_jobs(plan)
+    allowed_indices = only_indices_for_args(args)
+    if allowed_indices:
+        allowed = set(allowed_indices)
+        jobs = [job for job in jobs if int(job.index) in allowed]
+        missing = sorted(allowed.difference(int(job.index) for job in jobs))
+        if missing:
+            raise SystemExit("Assigned experiment indices are not present in Plan: " + ",".join(str(index) for index in missing))
     if bool(getattr(args, "debug_mode", False)):
         jobs = isolate_debug_jobs(jobs, str(getattr(args, "plan", "") or plan.get("_file") or "plan"), str(getattr(args, "debug_run_id", "") or "debug"), str(getattr(args, "debug_output_dir", "") or ""))
     return jobs
+
+
+def only_indices_for_args(args: argparse.Namespace) -> list[int]:
+    raw = str(getattr(args, "only_indices", "") or "").strip()
+    if not raw:
+        return []
+    values: set[int] = set()
+    for item in raw.split(","):
+        text = item.strip()
+        if not text:
+            continue
+        try:
+            index = int(text)
+        except ValueError as exc:
+            raise SystemExit(f"Invalid --only-indices value: {text}") from exc
+        if index < 0:
+            raise SystemExit(f"Invalid --only-indices value: {text}")
+        values.add(index)
+    if not values:
+        raise SystemExit("--only-indices must contain at least one experiment index")
+    return sorted(values)
 
 
 def write_job_config(job: Job) -> Path:
@@ -1070,13 +1098,15 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
 
 def dry_run_plan_mode(args: argparse.Namespace) -> None:
     project_root = Path.cwd()
-    plan, jobs = build_jobs(load_plan(args.plan))
+    plan = load_plan(args.plan)
+    jobs = jobs_for_args(plan, args)
     mode = plan_execution_mode(plan, args.mode)
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8")) if args.workers_json else []
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
     simulated_active: dict[str, dict[str, Any]] = {}
     queue = [job.index for job in jobs]
+    jobs_by_index = {int(job.index): job for job in jobs}
     assignments: list[dict[str, Any]] = []
     dispatch_probe: list[dict[str, Any]] = []
     for worker in ordered_workers_for_dispatch(workers):
@@ -1086,7 +1116,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
             if not queue:
                 break
             experiment_index = queue.pop(0)
-            job = jobs[experiment_index]
+            job = jobs_by_index[int(experiment_index)]
             slot_key = f"{worker.get('id')}:{gpu_id}:{experiment_index}"
             simulated_active[slot_key] = {"worker_id": worker.get("id"), "gpu_id": gpu_id, "experiment_index": experiment_index}
             assignments.append({
@@ -1304,6 +1334,9 @@ def append_scheduler_operation_event(args: argparse.Namespace, status: str, mess
         "plan": str(getattr(args, "plan", "") or ""),
         "planFile": str(getattr(args, "plan", "") or ""),
         "planRevision": str(getattr(args, "plan_revision", "") or ""),
+        "workerSetRevision": str(getattr(args, "worker_set_revision", "") or ""),
+        "schedulerOwnerWorkerId": str(getattr(args, "scheduler_owner_worker_id", "") or ""),
+        "assignedExperimentIndices": only_indices_for_args(args),
         "debugMode": bool(getattr(args, "debug_mode", False)),
         "debugRunId": str(getattr(args, "debug_run_id", "") or ""),
         "debugOutputDir": str(getattr(args, "debug_output_dir", "") or ""),
@@ -2177,6 +2210,7 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--mode", choices=["train_test", "train", "test"], default="")
     parser.add_argument("--only-index", type=int)
+    parser.add_argument("--only-indices", default="")
     parser.add_argument("--gpu-ids", default="")
     parser.add_argument("--worker-id", default="local")
     parser.add_argument("--availability-path", default="")
@@ -2190,6 +2224,8 @@ def main() -> None:
     parser.add_argument("--op-id", default="")
     parser.add_argument("--operation-action", default="run-plan")
     parser.add_argument("--plan-revision", default="")
+    parser.add_argument("--worker-set-revision", default="")
+    parser.add_argument("--scheduler-owner-worker-id", default="")
     parser.add_argument("--debug-mode", action="store_true")
     parser.add_argument("--debug-run-id", default="")
     parser.add_argument("--debug-output-dir", default="")
@@ -2320,6 +2356,9 @@ def main() -> None:
         return {
             "plan": args.plan,
             "planRevision": str(getattr(args, "plan_revision", "") or ""),
+            "workerSetRevision": str(args.worker_set_revision or ""),
+            "schedulerOwnerWorkerId": str(args.scheduler_owner_worker_id or ""),
+            "assignedExperimentIndices": only_indices_for_args(args),
             "debugMode": bool(args.debug_mode),
             "debugRunId": str(args.debug_run_id or ""),
             "debugOutputDir": str(args.debug_output_dir or ""),

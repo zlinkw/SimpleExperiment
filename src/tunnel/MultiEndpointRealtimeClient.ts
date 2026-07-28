@@ -283,7 +283,7 @@ function isWorkerLocalSchedulerRequest(action: TunnelAction, body: unknown): boo
   if (!workerLocalSchedulerActionNames.includes(action as WorkerLocalSchedulerAction)) return false;
   const request = body && typeof body === "object" ? body as Record<string, unknown> : {};
   const options = request.options && typeof request.options === "object" ? request.options as Record<string, unknown> : {};
-  return options.topologyMode === "single_worker"
+  return ["single_worker", "worker_pool"].includes(String(options.topologyMode || ""))
     && options.localWorkerScheduler === true
     && Boolean(String(options.schedulerOwnerWorkerId || "").trim());
 }

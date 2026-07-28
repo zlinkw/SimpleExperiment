@@ -80,6 +80,7 @@ const ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates")
 const PptPlotBridge_1 = require("./PptPlotBridge");
 const GpuHistoryState_1 = require("./features/GpuHistoryState");
 const TopologyMode_1 = require("./features/TopologyMode");
+const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 const RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
 const viewId = "zlkCluster.panel";
 const keys = {
@@ -2939,8 +2940,8 @@ class RealtimeTunnelPanelProvider {
             this.assertHubAgentProjectReady();
             return;
         }
-        const worker = this.enabledWorkerConfigs()[0];
-        assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
+        for (const worker of this.enabledWorkerConfigs())
+            assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
     }
     assertPlanNotAlreadyActive(planFile, plan) {
         const selectedPlan = plan || (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item?.planFile || item?.file || item?.planId || "", planFile));
@@ -3368,7 +3369,7 @@ class RealtimeTunnelPanelProvider {
     async ensureHubCodeReadyForPlanCheck() {
         await this.prepareSftpTargets("ensureHubCodeReadyForPlanCheck", "simpleSftp.uploadWorkspace");
         const topology = this.assertPlanTopologyReady("Plan 校验");
-        const targets = topology.mode === "single_worker" ? this.workerCodeSyncTargets().slice(0, 1) : [this.hubCodeSyncTarget()];
+        const targets = topology.mode === "hub_worker" ? [this.hubCodeSyncTarget()] : this.workerCodeSyncTargets();
         await this.syncCodeTargets(targets, "plan-check");
     }
     async syncCodeTargets(targets, scope, options = {}) {
@@ -3761,11 +3762,7 @@ class RealtimeTunnelPanelProvider {
         return topology;
     }
     assertPlanTopologyReady(operation = "Plan 操作") {
-        const topology = this.assertTopologyReady(operation);
-        if (topology.mode === "worker_pool") {
-            throw new Error(`${operation}已阻止：仅多 Worker模式需要先生成确定性任务分片；该能力将在下一目标批次启用。`);
-        }
-        return topology;
+        return this.assertTopologyReady(operation);
     }
     planSchedulerWorkerId() {
         const topology = this.assertPlanTopologyReady("Plan 调度");
@@ -3797,11 +3794,90 @@ class RealtimeTunnelPanelProvider {
         return { topology, workerId };
     }
     async postPlanSchedulerAction(action, body, options = {}) {
+        const route = this.assertPlanTopologyReady(options.title || action);
+        if (route.mode === "worker_pool")
+            return this.postWorkerPoolPlanAction(action, body, options);
         const { topology, workerId } = this.stampPlanTopology(body);
         if (topology.mode === "single_worker") {
             return this.postWorkerTunnelAction(workerId, action, body, options);
         }
         return this.postTunnelAction(action, body, options);
+    }
+    workerPoolActionBody(body, workerId, shardSet, experimentIndices = []) {
+        const worker = this.enabledWorkerConfigs().find((item) => item.id === workerId);
+        if (!worker)
+            throw new Error(`Worker pool 缺少目标配置：${workerId}`);
+        const remoteAgentPort = worker.remoteTelemetryPort || worker.remoteAgentPort;
+        const workerTarget = this.workerActionTargets().find((item) => item.id === workerId);
+        if (!workerTarget)
+            throw new Error(`Worker pool 无法计算目标项目路径：${workerId}`);
+        const indices = uniqueNumbers(experimentIndices);
+        const shard = shardSet?.shards?.find((item) => item.workerId === workerId);
+        return {
+            ...body,
+            topologyMode: "worker_pool",
+            schedulerOwnerWorkerId: workerId,
+            workerSetRevision: shardSet?.workerSetRevision,
+            assignedExperimentIndices: indices,
+            options: {
+                ...(body.options || {}),
+                workers: [{
+                        ...workerTarget,
+                        local_agent_url: `http://127.0.0.1:${remoteAgentPort}`,
+                        topology_mode: "worker_pool",
+                        scheduler_owner_worker_id: workerId,
+                    }],
+                topologyMode: "worker_pool",
+                schedulerOwnerWorkerId: workerId,
+                localWorkerScheduler: true,
+                automaticBackup: false,
+                workerSetRevision: shardSet?.workerSetRevision,
+                workerShardRevision: shard?.shardRevision,
+                assignedExperimentIndices: indices,
+            },
+        };
+    }
+    async postWorkerPoolPlanAction(action, body, options = {}) {
+        const workerIds = this.enabledWorkerConfigs().map((worker) => worker.id).sort((a, b) => a.localeCompare(b));
+        const command = options.title || action;
+        for (const workerId of workerIds) {
+            const missing = this.missingWorkerActionCapabilities(workerId, action);
+            if (missing.length)
+                throw new Error(`${command}已阻止：Worker ${workerId} capability 缺失: ${missing.join(", ")}`);
+        }
+        if (action === "validate-plan") {
+            const submissions = await Promise.all(workerIds.map(async (workerId) => {
+                const request = this.workerPoolActionBody(body, workerId, undefined);
+                const submitted = await this.postWorkerTunnelAction(workerId, action, request, { ...options, confirm: false, danger: false });
+                const result = remoteActionPendingStatus(resultStatus(submitted))
+                    ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId)
+                    : submitted;
+                return { workerId, result };
+            }));
+            const indexSets = submissions.map(({ workerId, result }) => ({ workerId, indices: planValidationExperimentIndices(result) }));
+            const expected = indexSets[0]?.indices || [];
+            const inconsistent = indexSets.find((item) => !sameNumberArray(item.indices, expected));
+            if (!expected.length || inconsistent)
+                throw new Error(`${command}已阻止：各 Worker 的 Plan 展开结果不一致或为空。${indexSets.map((item) => `${item.workerId}=[${item.indices.join(",")}]`).join("；")}`);
+            const planRevision = String(body.planRevision || body.options?.planRevision || "").trim();
+            const shardSet = (0, WorkerPlanSharding_1.createWorkerPlanShardSet)(planRevision, workerIds, expected);
+            body.workerSetRevision = shardSet.workerSetRevision;
+            body.options = { ...(body.options || {}), workerSetRevision: shardSet.workerSetRevision, workerPlanShardSet: shardSet };
+            return workerPoolAggregateResult(action, submissions, shardSet);
+        }
+        let shardSet = body.options?.workerPlanShardSet;
+        const planRevision = String(body.planRevision || body.options?.planRevision || "").trim();
+        if (!(0, WorkerPlanSharding_1.workerPlanShardSetMatches)(shardSet, planRevision, workerIds)) {
+            await this.postWorkerPoolPlanAction("validate-plan", body, { title: `${command}：分片校验` });
+            shardSet = body.options?.workerPlanShardSet;
+        }
+        const activeShards = shardSet.shards.filter((shard) => shard.experimentIndices.length > 0);
+        const submissions = await Promise.all(activeShards.map(async (shard) => {
+            const request = this.workerPoolActionBody(body, shard.workerId, shardSet, shard.experimentIndices);
+            const result = await this.postWorkerTunnelAction(shard.workerId, action, request, { ...options, confirm: false, danger: false });
+            return { workerId: shard.workerId, result };
+        }));
+        return workerPoolAggregateResult(action, submissions, shardSet);
     }
     assertTopologyActualWorkRoots(operation = "服务器操作") {
         const topology = this.assertTopologyReady(operation);
@@ -5134,7 +5210,11 @@ class RealtimeTunnelPanelProvider {
                 pendingSubmitted += 1;
             submitted += 1;
         }
-        const schedulerLabel = topology.mode === "single_worker" ? `Worker ${this.planSchedulerWorkerId()} 本机调度队列` : "Hub 调度队列";
+        const schedulerLabel = topology.mode === "single_worker"
+            ? `Worker ${this.planSchedulerWorkerId()} 本机调度队列`
+            : topology.mode === "worker_pool"
+                ? "各 Worker 独立分片调度队列"
+                : "Hub 调度队列";
         void vscode.window.showInformationMessage(`全部 ${preparedPlans.length} 个计划已通过校验与预演，并提交 ${submitted}/${preparedPlans.length} 个到 ${schedulerLabel}；${pendingSubmitted} 个正在后台调度。`);
         this.postState();
         if (pendingSubmitted)
@@ -8237,6 +8317,9 @@ function operationPlanFields(request) {
     const planFile = usableSelectionKey(String(body.planFile || body.plan || body.selectedPlanId || options.planFile || options.plan || options.selectedPlanId || ""));
     const selectedPlanId = usableSelectionKey(String(body.selectedPlanId || options.selectedPlanId || planFile || ""));
     const planRevision = String(body.planRevision || body.plan_revision || options.planRevision || options.plan_revision || "").trim();
+    const workerSetRevision = String(body.workerSetRevision || options.workerSetRevision || "").trim();
+    const schedulerOwnerWorkerId = String(body.schedulerOwnerWorkerId || options.schedulerOwnerWorkerId || "").trim();
+    const assignedExperimentIndices = uniqueNumbers(body.assignedExperimentIndices || options.assignedExperimentIndices || []);
     const debugMode = body.debugMode === true || options.debugMode === true;
     const debugRunId = String(body.debugRunId || options.debugRunId || "").trim();
     if (!planFile && !selectedPlanId)
@@ -8245,8 +8328,47 @@ function operationPlanFields(request) {
         ...(planFile ? { planFile } : {}),
         ...(selectedPlanId ? { selectedPlanId } : {}),
         ...(planRevision ? { planRevision } : {}),
+        ...(workerSetRevision ? { workerSetRevision } : {}),
+        ...(schedulerOwnerWorkerId ? { schedulerOwnerWorkerId, workerId: schedulerOwnerWorkerId } : {}),
+        ...(assignedExperimentIndices.length ? { assignedExperimentIndices } : {}),
         debugMode,
         ...(debugRunId ? { debugRunId } : {}),
+    };
+}
+function uniqueNumbers(values) {
+    return [...new Set((Array.isArray(values) ? values : []).map(Number).filter((value) => Number.isInteger(value) && value >= 0))].sort((a, b) => a - b);
+}
+function sameNumberArray(left, right) {
+    const a = uniqueNumbers(left);
+    const b = uniqueNumbers(right);
+    return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+function planValidationExperimentIndices(result) {
+    const item = result && typeof result === "object" ? result : {};
+    const validation = item.validation && typeof item.validation === "object" ? item.validation : {};
+    const jobs = Array.isArray(validation.jobs) ? validation.jobs : [];
+    const indices = uniqueNumbers(jobs.map((job) => Number(job?.index)));
+    if (indices.length)
+        return indices;
+    const count = Number(item.jobCount || validation.job_count || 0);
+    return Number.isInteger(count) && count > 0 ? Array.from({ length: count }, (_, index) => index) : [];
+}
+function workerPoolAggregateResult(action, submissions, shardSet) {
+    const rows = (Array.isArray(submissions) ? submissions : []).map(({ workerId, result }) => ({
+        workerId,
+        status: resultStatus(result) || "completed",
+        operationId: stringFromRecord(result && typeof result === "object" ? result : {}, ["operationId", "opId", "id"]),
+        result,
+    }));
+    const pending = rows.some((row) => remoteActionPendingStatus(row.status));
+    return {
+        schemaVersion: 1,
+        action,
+        status: pending ? "accepted" : "completed",
+        workerSetRevision: shardSet.workerSetRevision,
+        workerPlanShardSet: shardSet,
+        workerSubmissions: rows,
+        message: `${rows.length} 个 Worker ${pending ? "已接收独立分片，等待终态" : "已完成本机操作"}`,
     };
 }
 function operationResultPlanFile(record) {
@@ -11394,7 +11516,7 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired
         const status = String(probe.status || "未检测").toLowerCase();
         return { id, label, status, ready: status === "ok", probe };
     });
-    const dependencyIssues = [...(hubRequired ? [{ label: "Hub", probe: hub }] : []), ...workers].flatMap((row) => {
+    const dependencyIssues = [{ label: "Hub", probe: hub }, ...workers].filter((row) => hubRequired || row.label !== "Hub").flatMap((row) => {
         const dependency = row?.probe?.schedulerDependencies;
         if (!dependency || dependency.ok !== false)
             return [];
