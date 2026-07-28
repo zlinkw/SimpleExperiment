@@ -164,11 +164,35 @@ def render_template(template: str, values: dict[str, Any]) -> str:
     return out
 
 
-def load_config(path: str | Path) -> dict[str, Any]:
-    cfg = load_yaml_file(path)
+def render_config_templates(value: Any, values: dict[str, Any]) -> Any:
+    if isinstance(value, str):
+        return render_template(value, values)
+    if isinstance(value, dict):
+        return {key: render_config_templates(item, values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [render_config_templates(item, values) for item in value]
+    return value
+
+
+def load_config(path: str | Path, inheritance_stack: tuple[Path, ...] = ()) -> dict[str, Any]:
+    config_path = Path(path).expanduser()
+    resolved_path = config_path.resolve()
+    if resolved_path in inheritance_stack:
+        cycle = " -> ".join(item.as_posix() for item in (*inheritance_stack, resolved_path))
+        raise ValueError(f"配置 defaults_from 存在循环：{cycle}")
+    cfg = load_yaml_file(config_path)
+    if not isinstance(cfg, dict):
+        raise ValueError(f"配置文件根节点必须是对象：{config_path.as_posix()}")
     parent = cfg.get("defaults_from")
     if parent:
-        return deep_merge(load_config(parent), {k: v for k, v in cfg.items() if k != "defaults_from"})
+        if not isinstance(parent, (str, Path)) or not str(parent).strip():
+            raise ValueError(f"defaults_from 必须是配置路径：{config_path.as_posix()}")
+        parent_path = Path(parent).expanduser()
+        if not parent_path.is_absolute():
+            adjacent = config_path.parent / parent_path
+            project_relative = parent_path
+            parent_path = adjacent if adjacent.is_file() or not project_relative.is_file() else project_relative
+        return deep_merge(load_config(parent_path, (*inheritance_stack, resolved_path)), {k: v for k, v in cfg.items() if k != "defaults_from"})
     return cfg
 
 
@@ -686,6 +710,7 @@ def build_jobs(plan: dict[str, Any]) -> tuple[dict[str, Any], list[Job]]:
             set_dotted(cfg, "runtime.output_dir", output_dir)
             for key, value in overrides.items():
                 set_dotted(cfg, str(key), value)
+            cfg = render_config_templates(cfg, values)
             jobs.append(Job(
                 index=index,
                 suite=suite,
