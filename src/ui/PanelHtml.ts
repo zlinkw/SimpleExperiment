@@ -8847,7 +8847,7 @@ export function renderPanelHtml(): string {
       return renderProjectQuickAccess(state, project, projectMeta) +
       renderAdapterRules(adapterRules) +
       renderResultParsePreviews(previewScope) +
-      renderConfigInspector(project);
+      renderConfigInspector(project, selectedPlan);
     }
 
     function projectUploadDestinationSummary(state) {
@@ -10172,24 +10172,38 @@ export function renderPanelHtml(): string {
       return compactList(list, emptyText) + (omitted > 0 ? '<span class="muted" title="' + escAttr("省略：" + String(omitted)) + '"> +' + esc(String(omitted)) + '</span>' : "");
     }
 
-    function renderConfigInspector(project) {
+    function renderConfigInspector(project, selectedPlan) {
+      const planConfigFile = configInspectorPlanConfigFile(selectedPlan);
       if (!detailIsOpen("config-inspector", false)) {
         const count = asArray((project || {}).configSummaries || []).length;
         return '<details class="advanced" data-details-key="config-inspector"' + detailsOpenAttr("config-inspector", false) + '><summary>配置参数预览<span class="muted">已识别 ' + count + ' 个配置</span></summary>' +
-          '<div class="muted">配置筛选按需展开。</div></details>';
+          '<div class="muted">' + (planConfigFile ? '当前 Plan 配置：' + esc(compactPath(planConfigFile)) : '当前 Plan 未提供可比较的单文件配置') + '；配置筛选按需展开。</div></details>';
       }
-      const info = configInspectorInfo(project || {});
+      const info = configInspectorInfo(project || {}, selectedPlan);
       const selected = info.selectedConfig;
-      const params = selected ? (selected.params || []).filter((param) => paramMatchesQuery(param, info.query, selected)).slice(0, 18) : [];
-      const omittedParamNotice = selected && selected.omittedParamCount
-        ? '<div class="taskRenderBudgetNotice" title="' + escAttr("省略：" + String(selected.omittedParamCount)) + '">省略 ' + esc(String(selected.omittedParamCount)) + ' 个参数。</div>'
+      const diff = configParamDiffRows(selected, info.planConfig, info.query);
+      const params = diff.rows.slice(0, 18);
+      const sourceOmitted = Number((selected && selected.omittedParamCount) || 0) + Number((info.planConfig && info.planConfig !== selected && info.planConfig.omittedParamCount) || 0);
+      const renderedOmitted = Math.max(0, diff.rows.length - params.length);
+      const omittedParamNotice = sourceOmitted || renderedOmitted
+        ? '<div class="taskRenderBudgetNotice" title="' + escAttr("源摘要省略：" + sourceOmitted + "；当前视图折叠：" + renderedOmitted) + '">参数摘要未完全展开：源文件省略 ' + esc(String(sourceOmitted)) + '，当前视图折叠 ' + esc(String(renderedOmitted)) + '。</div>'
         : "";
-      const paramRows = params.length ? params.map((param) =>
-        '<div class="param-row' + (param.important ? " important" : "") + '">' +
-          '<div class="param-key">' + esc(param.key) + '<span class="pill" title="' + escAttr("原始类型：" + (param.kind || "参数")) + '">' + esc(configParamKindLabel(param.kind)) + '</span></div>' +
-          '<div class="param-value" title="' + escAttr(param.value) + '">' + esc(compactText(param.value, 120)) + '</div>' +
+      const comparisonSummary = selected && info.planConfig
+        ? '<div class="summaryLine"><span class="muted" title="' + escAttr(info.planConfig.file || "") + '">Plan 基准：' + esc(compactPath(info.planConfig.file || "-")) + '</span>' +
+            '<span class="pill status-completed">一致 ' + diff.counts.same + '</span>' +
+            '<span class="pill status-warning">变更 ' + diff.counts.changed + '</span>' +
+            '<span class="pill">仅所选 ' + diff.counts.added + '</span>' +
+            '<span class="pill">所选缺少 ' + diff.counts.missing + '</span>' +
+            (diff.counts.uncertain ? '<span class="pill status-warning">摘要外待确认 ' + diff.counts.uncertain + '</span>' : '') + '</div>'
+        : '<div class="muted">' + (planConfigFile ? '当前 Plan 配置未进入可预览摘要，暂不能逐项比较。' : '当前 Plan 使用内联、case 级配置或未声明配置，暂不能建立单文件比较基准。') + '</div>';
+      const paramRows = params.length ? params.map((item) => {
+        const param = item.param || item.baselineParam || {};
+        const valueText = configParamDiffValue(item);
+        return '<div class="param-row' + (param.important ? " important" : "") + '">' +
+          '<div class="param-key">' + esc(item.key) + '<span class="pill" title="' + escAttr("原始类型：" + (param.kind || "参数")) + '">' + esc(configParamKindLabel(param.kind)) + '</span><span class="pill ' + escAttr(configParamDiffClass(item.kind)) + '">' + esc(configParamDiffLabel(item.kind)) + '</span></div>' +
+          '<div class="param-value" title="' + escAttr(valueText) + '">' + esc(compactText(valueText, 160)) + '</div>' +
         '</div>'
-      ).join("") : '<div class="muted">未识别到可预览参数。</div>';
+      }).join("") : '<div class="muted">未识别到符合当前筛选的可比较参数。</div>';
       return '<details class="advanced" data-details-key="config-inspector"' + detailsOpenAttr("config-inspector", false) + '><summary>配置参数预览<span class="muted">筛选后可预览</span></summary>' +
         '<div class="toolbar">' +
           '<select id="configLevel1Filter" data-config-filter="true">' + info.level1Options + '</select>' +
@@ -10197,6 +10211,7 @@ export function renderPanelHtml(): string {
           '<input id="configParamFilter" data-config-filter="true" class="wide" placeholder="筛选 dataset / output_dir / seed / 参数" value="' + escAttr(configParamFilter) + '">' +
         '</div>' +
         '<div class="toolbar"><select id="configParamSelect" data-config-filter="true">' + info.configOptions + '</select>' + (selected ? '<button class="secondary" data-command="openPlan" data-file="' + escAttr(selected.file) + '" title="打开配置文件：' + escAttr(selected.file) + '">打开配置文件</button>' : '') + '</div>' +
+        comparisonSummary +
         omittedParamNotice +
         '<div class="param-list">' + paramRows + '</div>' +
       '</details>';
@@ -10211,10 +10226,59 @@ export function renderPanelHtml(): string {
       return labels[raw.toLowerCase()] || raw || "参数";
     }
 
-    function configInspectorInfo(project) {
+    function configInspectorPlanConfigFile(plan) {
+      const raw = String((plan && (plan.baseConfig || plan.base_config)) || "").trim();
+      const value = raw.length > 1 && ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) ? raw.slice(1, -1) : raw;
+      const lower = value.toLowerCase();
+      return [".yaml", ".yml", ".json", ".py"].some((suffix) => lower.endsWith(suffix)) ? value : "";
+    }
+
+    function normalizeConfigInspectorFile(value) {
+      return String(value || "").trim().replace(/\\\\/g, "/").replace(/^\\.\\//, "").toLowerCase();
+    }
+
+    function configParamDiffRows(selected, baseline, query) {
+      const counts = { same: 0, changed: 0, added: 0, missing: 0, uncertain: 0 };
+      if (!selected) return { rows: [], counts };
+      const selectedOmitted = Number(selected.omittedParamCount || 0) > 0;
+      const baselineOmitted = Number((baseline && baseline.omittedParamCount) || 0) > 0;
+      const currentByKey = new Map(asArray(selected && selected.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
+      const baselineByKey = new Map(asArray(baseline && baseline.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
+      const keys = Array.from(new Set([...currentByKey.keys(), ...baselineByKey.keys()])).sort(naturalCompare);
+      const rows = keys.map((key) => {
+        const param = currentByKey.get(key);
+        const baselineParam = baselineByKey.get(key);
+        const kind = !baseline ? "uncompared" : !baselineParam ? baselineOmitted ? "uncertain" : "added" : !param ? selectedOmitted ? "uncertain" : "missing" : String(param.value) === String(baselineParam.value) ? "same" : "changed";
+        if (counts[kind] !== undefined) counts[kind] += 1;
+        return { key, kind, param, baselineParam };
+      }).filter((item) => !query || [selected && selected.file, baseline && baseline.file, item.key, item.param && item.param.value, item.baselineParam && item.baselineParam.value, item.param && item.param.kind, item.baselineParam && item.baselineParam.kind].join(" ").toLowerCase().includes(query));
+      return { rows, counts };
+    }
+
+    function configParamDiffLabel(kind) {
+      return ({ same: "与 Plan 一致", changed: "值不同", added: "仅所选配置", missing: "所选配置缺少", uncertain: "摘要外待确认", uncompared: "未比较" })[kind] || "未比较";
+    }
+
+    function configParamDiffClass(kind) {
+      return kind === "same" ? "status-completed" : kind === "changed" ? "status-warning" : "";
+    }
+
+    function configParamDiffValue(item) {
+      const current = item && item.param ? String(item.param.value ?? "") : "";
+      const baseline = item && item.baselineParam ? String(item.baselineParam.value ?? "") : "";
+      if (item.kind === "changed") return "所选配置：" + current + "；Plan 配置：" + baseline;
+      if (item.kind === "added") return "所选配置：" + current + "；Plan 配置未声明";
+      if (item.kind === "missing") return "所选配置未声明；Plan 配置：" + baseline;
+      if (item.kind === "uncertain") return "所选配置：" + (current || "摘要未包含") + "；Plan 配置：" + (baseline || "摘要未包含") + "；存在省略参数，需打开源文件确认";
+      return current || baseline;
+    }
+
+    function configInspectorInfo(project, selectedPlan) {
       const configSummaries = project.configSummaries || [];
       const staticIndex = configInspectorIndex(configSummaries);
       const indexed = staticIndex.indexed;
+      const planConfigKey = normalizeConfigInspectorFile(configInspectorPlanConfigFile(selectedPlan));
+      const planConfig = planConfigKey ? indexed.find((cfg) => normalizeConfigInspectorFile(cfg.file) === planConfigKey) : undefined;
       const level1Values = staticIndex.level1Values;
       if (configLevel1Filter !== "all" && !level1Values.includes(configLevel1Filter)) configLevel1Filter = "all";
       const level2Values = configLevel1Filter === "all"
@@ -10222,11 +10286,12 @@ export function renderPanelHtml(): string {
         : staticIndex.level2ValuesByLevel1.get(configLevel1Filter) || [];
       if (configLevel2Filter !== "all" && !level2Values.includes(configLevel2Filter)) configLevel2Filter = "all";
       const query = configParamFilter.trim().toLowerCase();
-      const filteredConfigs = indexed.filter((cfg) => (configLevel1Filter === "all" || cfg.pathParts.level1 === configLevel1Filter) && (configLevel2Filter === "all" || cfg.pathParts.level2 === configLevel2Filter) && (!query || cfg.searchText.includes(query)));
+      const filteredConfigs = indexed.filter((cfg) => (configLevel1Filter === "all" || cfg.pathParts.level1 === configLevel1Filter) && (configLevel2Filter === "all" || cfg.pathParts.level2 === configLevel2Filter) && (!query || cfg.searchText.includes(query) || (planConfig && planConfig.searchText.includes(query)))).sort((left, right) => left === planConfig ? -1 : right === planConfig ? 1 : left.index - right.index);
       if (selectedConfigIndex >= filteredConfigs.length) selectedConfigIndex = 0;
       const selectedConfig = filteredConfigs[selectedConfigIndex] || filteredConfigs[0];
       return {
         query,
+        planConfig,
         selectedConfig,
         configOptions: filteredConfigs.map((cfg, index) => '<option value="' + index + '"' + (cfg === selectedConfig ? " selected" : "") + '>' + esc(cfg.file) + '</option>').join(""),
         level1Options: optionHtml("all", "全部目录", configLevel1Filter === "all") + level1Values.map((value) => optionHtml(value, value, configLevel1Filter === value)).join(""),
