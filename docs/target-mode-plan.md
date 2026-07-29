@@ -13,36 +13,36 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-066：缓存前后端 Plan 结果预览作用域派生。
-- [已完成] 2/5 project-067：缓存实时诊断 Webview 与 post gate 压缩结果。
-- [已完成] 3/5 project-068：缓存 Hub 与 Worker 状态摘要。
-- [已完成] 4/5 project-069：缓存前端项目结果位置派生。
-- [已完成] 5/5 project-070：执行第四十四轮完整非服务器静态测试。
+- [已完成] 1/5 project-071：缓存 Agent 会话 Webview 状态。
+- [待做] 2/5 project-072：缓存服务器配置来源状态。
+- [待做] 3/5 project-073：缓存工作区与项目接入状态。
+- [待做] 4/5 project-074：缓存前端项目环境与位置摘要。
+- [待做] 5/5 project-075：执行第四十五轮完整非服务器静态测试。
 
-## 当前批次：project-070（已完成）
+## 当前批次：project-071（已完成）
 ### 修复点
 
-- 对 project-066 至 project-069 执行第四十四轮完整非服务器静态回归。
-- 覆盖 TypeScript 构建、全部 Node 测试、Lint、Node/Python 语法和差异检查。
-- 仅更新目标计划验证记录，不修改功能源码或扩大当前五批周期范围。
+- Extension Host 按服务器配置、Xshell 会话库、端口冲突、项目上下文和拓扑缓存 Agent 会话状态。
+- 未变化的 Webview 状态构建复用 Hub/Worker 目录、启动命令和准备阻断摘要。
+- 任一实际来源替换后失效，Agent 准备入口和 Xshell-only 边界保持不变。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
-- 构建不得改变已保持不变的 Agent runtime 或写入历史资产。
-- 任何失败必须保留为未完成，不得提交或推送成功记录。
+- 配置、会话库、端口冲突、工作区或拓扑变化后不得复用旧启动命令和路径。
+- `preparationBlockers` 与 `canWriteStartupCommands` 必须继续反映当前配置。
+- 缓存不得绕过重复会话、端口冲突或非回环转发检查。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 安全 preload 下第四十四轮完整非服务器 `npm test`，969/969。
-- [已通过] TypeScript、Lint、4 个 Node 入口语法、7 个 Python 文件语法与 `git diff --check`。
+- [已通过] Agent 会话状态缓存命中及五类来源失效定向测试，12/12。
+- [已通过] TypeScript 构建、Lint、相关 Node 文件语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮建立 project-066 至 project-070 五批静态优化周期；project-070 再执行完整测试。
-- 本批只更新完整静态回归记录，最多修改 1 个计划文档；构建产物无差异时不提交。
-- 完整测试未产生功能源码、构建或历史资产差异；工作树仍仅含受保护未跟踪资产。
+- 本轮建立 project-071 至 project-075 五批静态优化周期；project-075 再执行完整测试。
+- 本批只处理 Agent 会话 Webview 状态，最多修改 4 个源码、测试、构建和计划文件。
+- 定向回归覆盖 Agent 准备顺序、重复会话、远端位置展示和 Xshell 会话归一化。
 - 真实服务器行为保持 `needs field verification`。

@@ -516,6 +516,12 @@ class RealtimeTunnelPanelProvider {
     endpointRegistryStateCacheConflicts;
     endpointRegistryStateCachePolicy;
     endpointRegistryStateCacheValue;
+    agentSessionStateCacheSetup;
+    agentSessionStateCacheSessions;
+    agentSessionStateCachePortConflicts;
+    agentSessionStateCacheProjectGeneration = -1;
+    agentSessionStateCacheTopologyMode = "";
+    agentSessionStateCacheValue;
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
@@ -7808,8 +7814,19 @@ class RealtimeTunnelPanelProvider {
         return uniqueStrings(blockers);
     }
     agentSessionState() {
+        const sessions = this.xshellLibrary.sessions;
+        const portConflicts = this.currentPortConflicts();
+        const topologyMode = this.projectTopologyAssessment().mode;
+        if (this.agentSessionStateCacheSetup === this.setupConfig
+            && this.agentSessionStateCacheSessions === sessions
+            && this.agentSessionStateCachePortConflicts === portConflicts
+            && this.agentSessionStateCacheProjectGeneration === this.projectContextGeneration
+            && this.agentSessionStateCacheTopologyMode === topologyMode
+            && this.agentSessionStateCacheValue) {
+            return this.agentSessionStateCacheValue;
+        }
         const hubDirs = this.agentRuntimeDirs(this.setupConfig.agentProjectDir);
-        return {
+        const value = {
             mode: "xshell_saved_session_tmux",
             canWriteStartupCommands: this.agentStartupTargets().length > 0,
             preparationBlockers: this.currentAgentPreparationBlockers(),
@@ -7844,6 +7861,13 @@ class RealtimeTunnelPanelProvider {
             }),
             note: "Agent 跟随 Xshell 隧道会话启动。插件只打开 .xsh 会话文件，不直接执行远端命令。",
         };
+        this.agentSessionStateCacheSetup = this.setupConfig;
+        this.agentSessionStateCacheSessions = sessions;
+        this.agentSessionStateCachePortConflicts = portConflicts;
+        this.agentSessionStateCacheProjectGeneration = this.projectContextGeneration;
+        this.agentSessionStateCacheTopologyMode = topologyMode;
+        this.agentSessionStateCacheValue = value;
+        return value;
     }
     agentRuntimeDirs(actualWorkRoot) {
         const projectName = remoteProjectName();
