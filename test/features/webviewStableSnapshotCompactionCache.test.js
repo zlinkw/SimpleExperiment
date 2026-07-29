@@ -24,12 +24,20 @@ function loadCompactors() {
     xshellSetupForWebviewCache: new WeakMap(),
     probeForWebviewCache: new WeakMap(),
     workerProbesForWebviewCache: new WeakMap(),
+    capabilitiesForWebviewCache: new WeakMap(),
+    fileCapabilitiesForWebviewCache: new WeakMap(),
+    integrationReportForWebviewCache: new WeakMap(),
     codeSyncForWebviewCache: new WeakMap(),
     healthForWebviewCache: new WeakMap(),
     workerSetupCalls: 0,
     probeNestedCalls: 0,
     workerProbeCalls: 0,
     sensitiveCalls: 0,
+    path: {
+      basename(value) {
+        return String(value || "").split(/[\\/]/).pop() || "";
+      },
+    },
     dropUndefined(record) {
       return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
     },
@@ -41,13 +49,9 @@ function loadCompactors() {
       sandbox.probeNestedCalls += 1;
       return value;
     },
-    compactCapabilitiesForWebview(value) {
+    compactBooleanRecord(value, limit) {
       sandbox.probeNestedCalls += 1;
-      return value;
-    },
-    compactFileCapabilitiesForWebview(value) {
-      sandbox.probeNestedCalls += 1;
-      return value;
+      return Object.fromEntries(Object.entries(value || {}).slice(0, limit).filter(([, item]) => typeof item === "boolean"));
     },
     compactStringArrayForWebview(value, limit) {
       sandbox.probeNestedCalls += 1;
@@ -81,12 +85,18 @@ function loadCompactors() {
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("compactXshellSetupForWebview"),
+    extractFunction("compactCapabilitiesForWebview"),
+    extractFunction("compactFileCapabilitiesForWebview"),
+    extractFunction("compactIntegrationReportForWebview"),
     extractFunction("compactProbeForWebview"),
     extractFunction("compactWorkerProbesForWebview"),
     extractFunction("compactCodeSyncForWebview"),
     extractFunction("splitSyncFailures"),
     extractFunction("compactHealthForWebview"),
     "this.compactSetup = compactXshellSetupForWebview;",
+    "this.compactCapabilities = compactCapabilitiesForWebview;",
+    "this.compactFileCapabilities = compactFileCapabilitiesForWebview;",
+    "this.compactIntegrationReport = compactIntegrationReportForWebview;",
     "this.compactProbe = compactProbeForWebview;",
     "this.compactWorkerProbes = compactWorkerProbesForWebview;",
     "this.compactCodeSync = compactCodeSyncForWebview;",
@@ -128,6 +138,56 @@ test("Worker probe snapshots cache as a group and invalidate on replacement", ()
   const second = sandbox.compactWorkerProbes({ ...probes });
   assert.notStrictEqual(second, first);
   assert.equal(sandbox.workerProbeCalls, calls + 2);
+});
+
+test("capability and integration snapshots reuse compacted Webview objects", () => {
+  const sandbox = loadCompactors();
+  const capabilities = {
+    schemaVersion: 1,
+    apiVersion: "2",
+    agentVersion: "0.2.8",
+    mode: "hub",
+    endpoints: { health: true, actions: true, ignored: "yes" },
+    actionEndpoints: { runPlan: true },
+    limits: { maxUploadChunkBytes: 1024, maxDownloadChunkBytes: 2048, maxConcurrentTransfers: 2, maxPathLength: 240 },
+    auth: { required: true, scheme: "Bearer" },
+  };
+  const fileCapabilities = {
+    schemaVersion: 1,
+    rootPolicy: "allowlist",
+    supportsList: true,
+    supportsDownload: true,
+    supportsUploadChunk: false,
+    safeRoots: ["/a", "/b"],
+  };
+  const integrationReport = {
+    schemaVersion: 1,
+    generatedAt: "2026-07-30T00:00:00Z",
+    overall: "ok",
+    xshell: { found: true, launchAttempted: true, launchSucceeded: true, exePath: "C:\\Xshell\\Xshell.exe" },
+    tunnel: { localForwardPort: 18765, remoteAgentPort: 18765, localPortOpen: true, healthOk: true, latencyMs: 12 },
+    agent: { reachable: true, agentVersion: "0.2.8", apiVersion: "2", capabilitiesOk: true, missingCapabilities: [] },
+    realtime: { streamStatus: "connected" },
+    fileTransfer: { listOk: true, downloadOk: true, uploadOk: true, sha256Ok: true, message: "ready" },
+    suggestions: ["none"],
+  };
+
+  const compactedCapabilities = sandbox.compactCapabilities(capabilities);
+  const compactedFileCapabilities = sandbox.compactFileCapabilities(fileCapabilities);
+  const compactedIntegrationReport = sandbox.compactIntegrationReport(integrationReport);
+  const calls = { nested: sandbox.probeNestedCalls, sensitive: sandbox.sensitiveCalls };
+
+  assert.strictEqual(sandbox.compactCapabilities(capabilities), compactedCapabilities);
+  assert.strictEqual(sandbox.compactFileCapabilities(fileCapabilities), compactedFileCapabilities);
+  assert.strictEqual(sandbox.compactIntegrationReport(integrationReport), compactedIntegrationReport);
+  assert.deepEqual({ nested: sandbox.probeNestedCalls, sensitive: sandbox.sensitiveCalls }, calls);
+  assert.equal(compactedCapabilities.endpoints.health, true);
+  assert.equal(compactedCapabilities.endpoints.ignored, undefined);
+  assert.equal(compactedFileCapabilities.safeRootCount, 2);
+  assert.equal(compactedIntegrationReport.xshell.exeName, "Xshell.exe");
+  assert.notStrictEqual(sandbox.compactCapabilities({ ...capabilities }), compactedCapabilities);
+  assert.notStrictEqual(sandbox.compactFileCapabilities({ ...fileCapabilities }), compactedFileCapabilities);
+  assert.notStrictEqual(sandbox.compactIntegrationReport({ ...integrationReport }), compactedIntegrationReport);
 });
 
 test("health and code sync snapshots retain defaults and refresh on replacement", () => {

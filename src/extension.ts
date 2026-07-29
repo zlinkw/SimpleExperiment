@@ -10927,13 +10927,17 @@ function compactWorkerProbeForWebview(probe) {
         suggestion: probe.suggestion ? compactSensitiveText(probe.suggestion, 400) : undefined,
     });
 }
+const capabilitiesForWebviewCache = new WeakMap();
 function compactCapabilitiesForWebview(capabilities) {
     const caps = objectRecord(capabilities);
     if (!caps)
         return undefined;
+    const cached = capabilitiesForWebviewCache.get(caps);
+    if (cached)
+        return cached;
     const limits = objectRecord(caps.limits);
     const auth = objectRecord(caps.auth);
-    return dropUndefined({
+    const compacted = dropUndefined({
         schemaVersion: caps.schemaVersion,
         apiVersion: caps.apiVersion,
         agentVersion: caps.agentVersion,
@@ -10951,12 +10955,18 @@ function compactCapabilitiesForWebview(capabilities) {
             scheme: typeof auth.scheme === "string" ? auth.scheme : undefined,
         }) : undefined,
     });
+    capabilitiesForWebviewCache.set(caps, compacted);
+    return compacted;
 }
+const fileCapabilitiesForWebviewCache = new WeakMap();
 function compactFileCapabilitiesForWebview(fileCapabilities) {
     const caps = objectRecord(fileCapabilities);
     if (!caps)
         return undefined;
-    return dropUndefined({
+    const cached = fileCapabilitiesForWebviewCache.get(caps);
+    if (cached)
+        return cached;
+    const compacted = dropUndefined({
         schemaVersion: caps.schemaVersion,
         rootPolicy: caps.rootPolicy,
         supportsList: caps.supportsList,
@@ -10969,11 +10979,17 @@ function compactFileCapabilitiesForWebview(fileCapabilities) {
         maxUploadChunkBytes: caps.maxUploadChunkBytes,
         safeRootCount: Array.isArray(caps.safeRoots) ? caps.safeRoots.length : undefined,
     });
+    fileCapabilitiesForWebviewCache.set(caps, compacted);
+    return compacted;
 }
+const integrationReportForWebviewCache = new WeakMap();
 function compactIntegrationReportForWebview(report) {
     if (!report)
         return undefined;
-    return dropUndefined({
+    const cached = integrationReportForWebviewCache.get(report);
+    if (cached)
+        return cached;
+    const compacted = dropUndefined({
         schemaVersion: report.schemaVersion,
         generatedAt: report.generatedAt,
         overall: report.overall,
@@ -11007,6 +11023,8 @@ function compactIntegrationReportForWebview(report) {
         }),
         suggestions: compactStringArrayForWebview(report.suggestions, 8, 240),
     });
+    integrationReportForWebviewCache.set(report, compacted);
+    return compacted;
 }
 const EMPTY_FILE_TRANSFERS_FOR_WEBVIEW = Object.freeze({});
 const fileTransfersForWebviewCache = new WeakMap();
