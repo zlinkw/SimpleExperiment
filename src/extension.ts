@@ -8059,7 +8059,7 @@ class RealtimeTunnelPanelProvider {
         const realtime = this.client.diagnostics();
         const runtimeEvidence = this.buildPlanRuntimeEvidenceState();
         const { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations } = runtimeEvidence;
-        const gpu = compactGpuForWebview(mergeFallbackRecords(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu));
+        const gpu = compactMergedGpuForWebview(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu);
         const selectedPlanKeys = uniqueStrings([this.planFileInput || "", this.selectedPlanId || ""]);
         const selectedTracePlanFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
         const selectedTracePlanVersion = this.planVersionForFile(selectedTracePlanFile);
@@ -11117,6 +11117,22 @@ function compactHealthForWebview(health) {
     });
     healthForWebviewCache.set(item, compacted);
     return compacted;
+}
+const EMPTY_GPU_FOR_WEBVIEW_SOURCE = Object.freeze({});
+let mergedGpuForWebviewCache = null;
+function compactMergedGpuForWebview(offlineGpu, snapshotGpu, realtimeGpu) {
+    const offlineSource = offlineGpu && typeof offlineGpu === "object" ? offlineGpu : EMPTY_GPU_FOR_WEBVIEW_SOURCE;
+    const snapshotSource = snapshotGpu && typeof snapshotGpu === "object" ? snapshotGpu : EMPTY_GPU_FOR_WEBVIEW_SOURCE;
+    const realtimeSource = realtimeGpu && typeof realtimeGpu === "object" ? realtimeGpu : EMPTY_GPU_FOR_WEBVIEW_SOURCE;
+    if (mergedGpuForWebviewCache
+        && mergedGpuForWebviewCache.offlineSource === offlineSource
+        && mergedGpuForWebviewCache.snapshotSource === snapshotSource
+        && mergedGpuForWebviewCache.realtimeSource === realtimeSource) {
+        return mergedGpuForWebviewCache.value;
+    }
+    const value = compactGpuForWebview(mergeFallbackRecords(offlineSource, snapshotSource, realtimeSource));
+    mergedGpuForWebviewCache = { offlineSource, snapshotSource, realtimeSource, value };
+    return value;
 }
 function compactGpuForWebview(gpu) {
     const out = {};
