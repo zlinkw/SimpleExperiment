@@ -67,9 +67,10 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /workspaceRoot\(\) && initialServerSetupComplete\(this\.setupConfig, this\.projectTopologyAssessment\(\)\.hubAllowed\) && afterSftp\.ready && afterWorkerCount > 0/);
   assert.match(source, /choice === "不再提示"[\s\S]{0,140}globalState\.update/);
   assert.match(source, /afterSftp = simpleSftpIntegrationReadiness\(\)/);
-  assert.match(source, /async markProjectOnboardingComplete\(\)/);
+  assert.match(source, /async markProjectOnboardingComplete\(projectContext\)/);
+  assert.match(source, /projectContext && !this\.projectContextIsCurrent\(projectContext\)/);
   assert.match(source, /workspaceState\.update\(keys\.projectOnboardingCompleted, true\)/);
-  assert.match(source, /await this\.markProjectOnboardingComplete\(\)/);
+  assert.match(source, /await this\.markProjectOnboardingComplete\(projectContext\)/);
   assert.doesNotMatch(source, /needsSftpOnly/);
   assert.match(source, /"打开配置说明", "开始一键配置", "不再提示"/);
   assert.match(source, /choice === "打开配置说明"[\s\S]{0,80}this\.openSetupGuide\(\)/);

@@ -24,7 +24,8 @@ test("Hub and Worker action submissions bind completion to the initiating client
   for (const [method, nextMethod, request] of methods) {
     const start = source.indexOf(method);
     const body = source.slice(start, source.indexOf(nextMethod, start + method.length));
-    assert.match(body, /const client = this\.client/, method);
+    assert.match(body, /const client = options\.authorityClient \|\| this\.client/, method);
+    assert.match(body, /const generation = options\.projectContext\?\.generation \?\? this\.projectContextGeneration/, method);
     assert.match(body, request, method);
     assert.ok([...body.matchAll(/client !== this\.client/g)].length >= 2, method);
   }
