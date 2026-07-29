@@ -167,6 +167,16 @@ test("offline bundle import cannot apply stale project state", () => {
   assert.match(source, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(\)/);
 });
 
+test("plan save checks project context before and after each file operation", () => {
+  const save = methodBody("async savePlanFromUi", "async archivePlanFromUi");
+  assert.match(save, /const generation = this\.projectContextGeneration/);
+  assert.ok([...save.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 6);
+  assert.match(save, /await fs\.mkdir\(path\.dirname\(fullPath\), \{ recursive: true \}\)/);
+  assert.match(save, /await fs\.readFile\(fullPath, "utf8"\)/);
+  assert.match(save, /await fs\.writeFile\(fullPath, ensurePlanPurposeHeader/);
+  assert.match(save, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(\)/);
+});
+
 test("stale network probes and realtime callbacks cannot overwrite the new project", () => {
   const tunnel = methodBody("async testTunnel", "async runXshellRealIntegrationCheck");
   const integration = methodBody("async runXshellRealIntegrationCheck", "async restartRealtimeStream");

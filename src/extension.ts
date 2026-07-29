@@ -5083,9 +5083,12 @@ class RealtimeTunnelPanelProvider {
         this.selectPlanFromUi({ planFile: file, planId: file });
     }
     async savePlanFromUi(message) {
+        const generation = this.projectContextGeneration;
         const file = stringField(message, "file") || stringField(message, "planFile");
         const text = stringField(message, "text");
         if (!file || !text) {
+            if (generation !== this.projectContextGeneration)
+                return;
             this.recordActionError({ command: "savePlan", message: "缺少 plan 文件或内容" });
             this.postState();
             return;
@@ -5093,18 +5096,31 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         const fullPath = safeWorkspacePlanPath(root, file, planDirSafe());
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         const backup = `${fullPath}.bak`;
         const oldText = await fs.readFile(fullPath, "utf8").catch(() => "");
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         if (oldText)
             await fs.writeFile(backup, oldText, "utf8");
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await fs.writeFile(fullPath, ensurePlanPurposeHeader(text, path.basename(file)), "utf8");
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         this.planFileInput = file;
         this.selectedPlanId = file;
         void this.persistProjectPlanSelectionState().catch(() => undefined);
-        this.postState();
+        if (generation === this.projectContextGeneration && root === workspaceRoot())
+            this.postState();
     }
     async archivePlanFromUi(message) {
         const root = workspaceRoot();
