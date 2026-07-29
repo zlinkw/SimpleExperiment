@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const root = path.join(__dirname, "..", "..");
 
@@ -182,4 +183,26 @@ test("resource tree includes stable semantic sections including publish sync", (
   assert.match(source, /resourceTreeMeta/);
   assert.match(source, /aria-current/);
   assert.match(source, /\.tree-item\.is-current/);
+});
+
+test("resource tree search text reuses node identities and refreshes replacements", () => {
+  const source = panelSource();
+  const block = between(source, "function resourceTreeSearchText", "function treeAnchorId");
+  const sandbox = {
+    resourceTreeSearchTextCache: new WeakMap(),
+    asArray(value) { return Array.isArray(value) ? value : []; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(block + "\nthis.searchText = resourceTreeSearchText;", sandbox);
+
+  const child = { label: "Worker A" };
+  const node = { label: "GPU", children: [child] };
+  const first = sandbox.searchText(node);
+  node.label = "Changed";
+  child.label = "Changed child";
+  assert.equal(sandbox.searchText(node), first);
+  const replacement = sandbox.searchText({ label: "Changed", children: [{ label: "Changed child" }] });
+  assert.match(replacement, /changed/);
+  assert.match(replacement, /changed child/);
+  assert.equal(sandbox.searchText('<i data-search-text="GPU Worker"></i>'), "gpu worker");
 });

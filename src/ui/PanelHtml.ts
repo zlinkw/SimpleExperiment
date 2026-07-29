@@ -1461,6 +1461,7 @@ export function renderPanelHtml(): string {
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
     const operationSearchHaystackCache = new WeakMap();
+    const resourceTreeSearchTextCache = new WeakMap();
     const pinnedCommandsNormalizationCache = new WeakMap();
     const savedButtonActionsNormalizationCache = new WeakMap();
     const SAVED_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 8;
@@ -4949,7 +4950,11 @@ export function renderPanelHtml(): string {
     function resourceTreeSearchText(html) {
       if (html && typeof html === "object") {
         const node = html;
-        return [node.id, node.label, node.kind, node.icon, node.tone, node.status, node.count, node.section, node.anchor, node.tooltip, node.searchText, asArray(node.children || []).map(resourceTreeSearchText).join(" ")].join(" ").toLowerCase();
+        const cached = resourceTreeSearchTextCache.get(node);
+        if (typeof cached === "string") return cached;
+        const value = [node.id, node.label, node.kind, node.icon, node.tone, node.status, node.count, node.section, node.anchor, node.tooltip, node.searchText, asArray(node.children || []).map(resourceTreeSearchText).join(" ")].join(" ").toLowerCase();
+        resourceTreeSearchTextCache.set(node, value);
+        return value;
       }
       const values = [];
       String(html || "").replace(/data-search-text="([^"]*)"/g, (_match, value) => {
