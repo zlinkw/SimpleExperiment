@@ -13542,8 +13542,32 @@ function planCommandValues(planText, mode = "train_test") {
     }
     return uniqueStrings(out.map((value) => String(value || "").trim()).filter(Boolean));
 }
+const PYTHON_COMMAND_REFERENCE_CACHE_LIMIT = 256;
+const pythonCommandEntryReferencesCache = new Map();
+const pythonCommandArchiveEntryReferencesCache = new Map();
+function pythonCommandReferenceCacheValue(cache, key) {
+    if (!cache.has(key))
+        return undefined;
+    const cached = cache.get(key);
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached;
+}
+function cachePythonCommandReferenceValue(cache, key, value) {
+    cache.set(key, value);
+    while (cache.size > PYTHON_COMMAND_REFERENCE_CACHE_LIMIT) {
+        const oldestKey = cache.keys().next().value;
+        if (oldestKey === undefined)
+            break;
+        cache.delete(oldestKey);
+    }
+    return value;
+}
 function pythonCommandEntryReferences(command) {
     const text = String(command || "").replace(/\\\s*\r?\n\s*/g, " ");
+    const cached = pythonCommandReferenceCacheValue(pythonCommandEntryReferencesCache, text);
+    if (cached !== undefined)
+        return cached;
     const pattern = /(?:^|[\s;&|])(?:python(?:3(?:\.\d+)?)?|torchrun)\s+([^;&|]+)/gi;
     const out = [];
     for (const match of text.matchAll(pattern)) {
@@ -13553,13 +13577,16 @@ function pythonCommandEntryReferences(command) {
             continue;
         out.push(value);
     }
-    return uniqueStrings(out);
+    return cachePythonCommandReferenceValue(pythonCommandEntryReferencesCache, text, uniqueStrings(out));
 }
 function pythonCommandArchiveEntryReferences(command) {
-    const direct = pythonCommandEntryReferences(command);
-    if (direct.length)
-        return direct;
     const text = String(command || "").replace(/\\\s*\r?\n\s*/g, " ");
+    const cached = pythonCommandReferenceCacheValue(pythonCommandArchiveEntryReferencesCache, text);
+    if (cached !== undefined)
+        return cached;
+    const direct = pythonCommandEntryReferences(text);
+    if (direct.length)
+        return cachePythonCommandReferenceValue(pythonCommandArchiveEntryReferencesCache, text, direct);
     const pattern = /(?:^|[\s;&|])python(?:3(?:\.\d+)?)?\s+([^;&|]+)/gi;
     const out = [];
     for (const match of text.matchAll(pattern)) {
@@ -13569,7 +13596,7 @@ function pythonCommandArchiveEntryReferences(command) {
         if (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/.test(moduleName))
             out.push(`${moduleName.replace(/\./g, "/")}.py`);
     }
-    return uniqueStrings(out);
+    return cachePythonCommandReferenceValue(pythonCommandArchiveEntryReferencesCache, text, uniqueStrings(out));
 }
 async function planArchiveConfigMigration(root, planDir, sourcePlan, configFiles) {
     const sourceKey = path.resolve(sourcePlan);

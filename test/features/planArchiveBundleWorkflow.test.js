@@ -423,7 +423,7 @@ test("plan archive keeps implicit defaults, destinations, duplicate declarations
 
 test("plan archive discovers entry scripts from scalar, block, flow-map, and torchrun commands", () => {
   const sandbox = { path, uniqueStrings: (values) => [...new Set(values)] };
-  const entryStart = source.indexOf("function pythonCommandEntryReferences(");
+  const entryStart = source.indexOf("const PYTHON_COMMAND_REFERENCE_CACHE_LIMIT");
   const entryEnd = source.indexOf("\nasync function planArchiveConfigMigration", entryStart);
   assert.ok(entryStart >= 0 && entryEnd > entryStart);
   vm.createContext(sandbox);
@@ -431,7 +431,7 @@ test("plan archive discovers entry scripts from scalar, block, flow-map, and tor
     extractFunction("stripYamlComment"),
     extractFunction("planCommandValues"),
     source.slice(entryStart, entryEnd),
-    "this.api = { planCommandValues, pythonCommandEntryReferences, pythonCommandArchiveEntryReferences };",
+    "this.api = { planCommandValues, pythonCommandEntryReferences, pythonCommandArchiveEntryReferences, entryCache: pythonCommandEntryReferencesCache, archiveCache: pythonCommandArchiveEntryReferencesCache, cacheLimit: PYTHON_COMMAND_REFERENCE_CACHE_LIMIT };",
   ].join("\n"), sandbox);
   const plan = [
     'train_command: "python train.py --seed {seed}"',
@@ -442,10 +442,46 @@ test("plan archive discovers entry scripts from scalar, block, flow-map, and tor
     'module_command: "python -m package.runner --config base.yaml"',
   ].join("\n");
   const moduleCommands = sandbox.api.planCommandValues('command: "python -m package.runner --config base.yaml"');
-  assert.deepEqual(sandbox.api.pythonCommandArchiveEntryReferences(moduleCommands[0]), ["package/runner.py"]);
+  const moduleEntries = sandbox.api.pythonCommandArchiveEntryReferences(moduleCommands[0]);
+  assert.deepEqual(moduleEntries, ["package/runner.py"]);
+  assert.strictEqual(sandbox.api.pythonCommandArchiveEntryReferences(moduleCommands[0]), moduleEntries);
+  const moduleDirect = sandbox.api.pythonCommandEntryReferences(moduleCommands[0]);
+  assert.deepEqual(moduleDirect, []);
+  assert.strictEqual(sandbox.api.pythonCommandEntryReferences(moduleCommands[0]), moduleDirect);
   const commands = sandbox.api.planCommandValues(plan);
   const entries = [...new Set(commands.flatMap(sandbox.api.pythonCommandEntryReferences))].sort();
   assert.deepEqual(entries, ["scripts/extra.py", "tools/eval.py", "train.py"]);
+
+  const directCommand = 'python "scripts/train.py" --config base.yaml';
+  const directEntries = sandbox.api.pythonCommandEntryReferences(directCommand);
+  assert.deepEqual(directEntries, ["scripts/train.py"]);
+  assert.strictEqual(sandbox.api.pythonCommandEntryReferences(directCommand), directEntries);
+  assert.strictEqual(sandbox.api.pythonCommandArchiveEntryReferences(directCommand), directEntries);
+
+  const excludedCommand = 'python "/opt/train.py" && python "C:\\tools\\train.py" && python "{entry}.py" && python "$ENTRY.py"';
+  const excludedEntries = sandbox.api.pythonCommandEntryReferences(excludedCommand);
+  assert.deepEqual(excludedEntries, []);
+  assert.strictEqual(sandbox.api.pythonCommandEntryReferences(excludedCommand), excludedEntries);
+
+  sandbox.api.entryCache.clear();
+  const hotCommand = "python hot.py";
+  sandbox.api.pythonCommandEntryReferences(hotCommand);
+  for (let index = 0; index < sandbox.api.cacheLimit - 1; index += 1)
+    sandbox.api.pythonCommandEntryReferences(`python cache_${index}.py`);
+  sandbox.api.pythonCommandEntryReferences(hotCommand);
+  sandbox.api.pythonCommandEntryReferences("python overflow.py");
+  assert.equal(sandbox.api.entryCache.size, sandbox.api.cacheLimit);
+  assert.equal(sandbox.api.entryCache.has(hotCommand), true);
+  assert.equal(sandbox.api.entryCache.has("python cache_0.py"), false);
+
+  sandbox.api.entryCache.clear();
+  sandbox.api.archiveCache.clear();
+  for (let index = 0; index <= sandbox.api.cacheLimit; index += 1)
+    sandbox.api.pythonCommandArchiveEntryReferences(`python -m package.runner_${index}`);
+  assert.equal(sandbox.api.entryCache.size, sandbox.api.cacheLimit);
+  assert.equal(sandbox.api.archiveCache.size, sandbox.api.cacheLimit);
+  assert.equal(sandbox.api.archiveCache.has("python -m package.runner_0"), false);
+  assert.equal(sandbox.api.archiveCache.has(`python -m package.runner_${sandbox.api.cacheLimit}`), true);
 });
 
 test("plan archive follows project-local Python imports without executing them", () => {
@@ -488,7 +524,7 @@ test("plan archive snapshot includes argparse declared in an imported module", a
     };
     const snapshotStart = source.indexOf("async function planArchiveParameterSnapshot(");
     const snapshotEnd = source.indexOf("\nfunction planCommandValues(", snapshotStart);
-    const entryStart = source.indexOf("function pythonCommandEntryReferences(");
+    const entryStart = source.indexOf("const PYTHON_COMMAND_REFERENCE_CACHE_LIMIT");
     const entryEnd = source.indexOf("\nasync function planArchiveConfigMigration", entryStart);
     assert.ok(snapshotStart >= 0 && snapshotEnd > snapshotStart);
     assert.ok(entryStart >= 0 && entryEnd > entryStart);
