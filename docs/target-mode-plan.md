@@ -16,34 +16,34 @@
 - [已完成] 1/5 project-046：缓存前端配置参数结构差异。
 - [已完成] 2/5 project-047：缓存 Extension Host 的 SimpleSFTP ABI 就绪派生。
 - [已完成] 3/5 project-048：缓存本地 Plan Webview 压缩结果。
-- [待做] 4/5 project-049：优化 Scheduler 大批量待运行队列。
+- [已完成] 4/5 project-049：优化 Scheduler 大批量待运行队列。
 - [待做] 5/5 project-050：执行第四十轮完整非服务器静态测试。
 
-## 当前批次：project-048（已完成）
+## 当前批次：project-049（已完成）
 ### 修复点
 
-- Extension Host 按 Plan 源数组、选择等价键和压缩上限缓存 Webview Plan 列表。
-- 单个 Plan 按对象身份分别缓存“选中”和“未选中”压缩形态，避免心跳状态重复切片、展开和复制摘要。
-- 选择键先统一编译为等价键 Set，避免每个 Plan 对每个候选重复建立路径等价集合。
+- Scheduler 的 dry-run 和正式运行待运行队列统一改为 `collections.deque`，批量派发和失败清空不再反复移动列表头部。
+- 状态 JSON 中的 `queuedExperimentIndexes` 与 `pending_experiments` 显式序列化为列表。
+- 删除墓碑过滤保持原顺序，通过 `clear()` 和 `extend()` 原位更新队列。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- Plan 源数组、选择键或压缩上限变化后必须重新挑选列表。
-- 选中 Plan 仍保留可用 YAML text；未选中 Plan 仍隐藏 text 并保留 textOmitted。
-- parseError 优先级、原列表顺序、总数和省略数不得变化；缓存变体必须有界。
+- dry-run 派发顺序、正式运行派发顺序和重试追加顺序不得变化。
+- 状态文件和 dry-run JSON 仍必须输出普通数组，不能泄漏 Python deque 类型。
+- 停止、重试、补跑、删除墓碑过滤和连续派发失败清空队列的行为不得变化。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] Plan Webview 压缩缓存命中、选择变化、源替换和有界变体定向测试，6/6。
-- [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
+- [已通过] Scheduler deque 使用、列表序列化、顺序保持和旧 `pop(0)` 清除定向测试，3/3。
+- [已通过] TypeScript、Lint、Node/Python 语法与 `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-046 至 project-050 五批静态优化周期；project-050 再执行完整测试。
-- 本批只处理本地 Plan Webview 压缩路径，最多修改 4 个源码、测试、构建和计划文件。
-- Plan 列表缓存按源数组使用弱引用，每个源最多保留 8 个最近选择变体；单 Plan 只保留选中和未选中两种弱引用缓存。
+- 本批只处理 Scheduler 本地 Python runtime 的待运行队列，最多修改 5 个源码、测试、构建和计划文件。
+- dry-run、正式派发和连续派发失败清空均使用 deque 头部弹出，状态输出继续使用普通列表。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：优化 Scheduler 大批量待运行队列；本批使用独立 `perf` 提交并推送 `origin/master`，提交哈希以 git 历史为准。
+- 下一批边界：执行第四十轮完整非服务器静态测试；本批使用独立 `perf` 提交并推送 `origin/master`，提交哈希以 git 历史为准。

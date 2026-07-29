@@ -16,6 +16,7 @@ import shlex
 import subprocess
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -1105,7 +1106,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
     simulated_active: dict[str, dict[str, Any]] = {}
-    queue = [job.index for job in jobs]
+    queue = deque(job.index for job in jobs)
     jobs_by_index = {int(job.index): job for job in jobs}
     assignments: list[dict[str, Any]] = []
     dispatch_probe: list[dict[str, Any]] = []
@@ -1115,7 +1116,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
         for gpu_id in list(probe.get("idle_gpu_ids") or []):
             if not queue:
                 break
-            experiment_index = queue.pop(0)
+            experiment_index = queue.popleft()
             job = jobs_by_index[int(experiment_index)]
             slot_key = f"{worker.get('id')}:{gpu_id}:{experiment_index}"
             simulated_active[slot_key] = {"worker_id": worker.get("id"), "gpu_id": gpu_id, "experiment_index": experiment_index}
@@ -1158,7 +1159,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
         "queued": len(queue),
         "willQueue": len(queue) > 0,
         "assignments": assignments,
-        "queuedExperimentIndexes": queue,
+        "queuedExperimentIndexes": list(queue),
         "blockedReasons": blocked_reasons,
         "runnerWarnings": runner_missing,
         "availabilitySource": "hub_availability_cache",
@@ -2285,7 +2286,7 @@ def main() -> None:
     execution_mode = plan_execution_mode(plan, args.mode)
     args.mode = execution_mode
     jobs_by_index = {int(job.index): job for job in jobs}
-    queue = [job.index for job in (jobs[:1] if args.debug_mode else jobs)]
+    queue = deque(job.index for job in (jobs[:1] if args.debug_mode else jobs))
     active: dict[str, dict[str, Any]] = {}
     testing: dict[str, dict[str, Any]] = {}
     completed: list[dict[str, Any]] = []
@@ -2328,9 +2329,11 @@ def main() -> None:
                     item.pop(field, None)
                     changed = True
 
-        original_queue = list(queue)
-        queue[:] = [index for index in queue if not any(scheduler_matcher_matches_pending(args.plan, runtime_state, index, matcher) for matcher in row_matchers)]
-        if len(queue) != len(original_queue):
+        original_queue_count = len(queue)
+        kept_queue = [index for index in queue if not any(scheduler_matcher_matches_pending(args.plan, runtime_state, index, matcher) for matcher in row_matchers)]
+        if len(kept_queue) != original_queue_count:
+            queue.clear()
+            queue.extend(kept_queue)
             changed = True
         for group in [completed, failed, stopped]:
             for item in list(group):
@@ -2364,7 +2367,7 @@ def main() -> None:
             "debugOutputDir": str(args.debug_output_dir or ""),
             "execution_mode": execution_mode,
             "total_experiments": len(jobs),
-            "pending_experiments": queue,
+            "pending_experiments": list(queue),
             "running_experiments": list(active.values()),
             "testing_experiments": list(testing.values()),
             "completed_experiments": completed,
@@ -2647,7 +2650,7 @@ def main() -> None:
                 for gpu_id in list(probe.get("idle_gpu_ids") or []):
                     if not queue:
                         break
-                    experiment_index = queue.pop(0)
+                    experiment_index = queue.popleft()
                     try:
                         session = launch_experiment(worker, args.plan, experiment_index, gpu_id, log_dir, execution_mode, args.debug_mode, args.debug_run_id, args.debug_output_dir)
                         item = {
@@ -2702,7 +2705,7 @@ def main() -> None:
                             reason = scheduler_wait_reason or "all worker dispatch probes failed"
                             append_log(queue_log, f"[{now()}] fail_pending reason={reason}")
                             while queue:
-                                failed.append({"experiment_index": queue.pop(0), "finished_at": now(), "error": reason})
+                                failed.append({"experiment_index": queue.popleft(), "finished_at": now(), "error": reason})
                             write_current_state(reason)
                             break
                     else:
