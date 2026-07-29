@@ -174,3 +174,20 @@ test("stale network probes and realtime callbacks cannot overwrite the new proje
   assert.match(readme, /旧项目尚未完成的项目状态文件回读、检测或实时回调都会被丢弃/);
   assert.match(guide, /旧项目尚未完成的项目状态文件回读、检测、快照或实时回调不会写入新项目/);
 });
+
+test("stale Xshell library scans cannot overwrite a new project or request key", () => {
+  const refresh = methodBody("async refreshXshellSessionLibrary", "private xshellLibraryRequestKey");
+  const key = methodBody("private xshellLibraryRequestKey", "configuredXshellSessionPaths");
+  const reset = methodBody("resetProjectContextInMemory", "async migrateLegacyProjectUiStateFromVsCode");
+  assert.match(source, /xshellLibraryRefreshPromiseKey = ""/);
+  assert.match(refresh, /const requestKey = this\.xshellLibraryRequestKey\(dirs, configuredPaths\)/);
+  assert.match(refresh, /const generation = this\.projectContextGeneration/);
+  assert.match(refresh, /this\.xshellLibraryRefreshPromiseKey === requestKey/);
+  assert.match(refresh, /generation !== this\.projectContextGeneration \|\| requestKey !== this\.xshellLibraryRequestKey\(\)/);
+  assert.match(refresh, /if \(this\.xshellLibraryRefreshPromise === refresh\)/);
+  assert.match(refresh, /this\.xshellLibraryRefreshPromiseKey = requestKey/);
+  assert.match(key, /dirs: dirs\.map/);
+  assert.match(key, /sessions: configuredPaths\.map/);
+  assert.match(reset, /this\.xshellLibraryRefreshPromise = undefined/);
+  assert.match(reset, /this\.xshellLibraryRefreshPromiseKey = ""/);
+});

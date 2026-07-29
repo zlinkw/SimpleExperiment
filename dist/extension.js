@@ -491,6 +491,7 @@ class RealtimeTunnelPanelProvider {
     xshellLibrary = { searchedDirs: [], existingDirs: [], sessions: [] };
     xshellLibraryError;
     xshellLibraryRefreshPromise;
+    xshellLibraryRefreshPromiseKey = "";
     xshellLibraryUpdatedAt = 0;
     xshellLibraryDirsKey = "";
     xshellLibraryRefreshMinIntervalMs = 15_000;
@@ -728,6 +729,8 @@ class RealtimeTunnelPanelProvider {
         this.confirmedPptPaths = [];
         this.localPlanMetadata = { planDir: planDirSafe(), detectedProject: {}, plans: [], archivedPlans: [] };
         this.localPlanMetadataRefreshPromise = undefined;
+        this.xshellLibraryRefreshPromise = undefined;
+        this.xshellLibraryRefreshPromiseKey = "";
         this.localPlanMetadataUpdatedAt = 0;
         this.localPlanMetadataActionUpdatedAt = 0;
         this.localPlanMetadataKey = "";
@@ -6847,25 +6850,27 @@ class RealtimeTunnelPanelProvider {
     }
     async refreshXshellSessionLibrary(options = {}) {
         const dirs = xshellScanDirs(this.setupConfig);
-        const dirsKey = JSON.stringify(dirs.map((dir) => localPathKey(dir)).sort());
+        const configuredPaths = this.configuredXshellSessionPaths();
+        const requestKey = this.xshellLibraryRequestKey(dirs, configuredPaths);
+        const generation = this.projectContextGeneration;
         const recent = this.xshellLibraryUpdatedAt && Date.now() - this.xshellLibraryUpdatedAt < this.xshellLibraryRefreshMinIntervalMs;
-        if (!options.force && recent && dirsKey === this.xshellLibraryDirsKey) {
+        if (!options.force && recent && requestKey === this.xshellLibraryDirsKey) {
             if (options.postState !== false)
                 this.postState();
             return;
         }
-        if (this.xshellLibraryRefreshPromise) {
+        if (this.xshellLibraryRefreshPromise && this.xshellLibraryRefreshPromiseKey === requestKey) {
             await this.xshellLibraryRefreshPromise;
-            if (options.postState !== false)
+            if (options.postState !== false && generation === this.projectContextGeneration && requestKey === this.xshellLibraryRequestKey())
                 this.postState();
             return;
         }
-        this.xshellLibraryRefreshPromise = (async () => {
+        const refresh = (async () => {
             try {
                 const library = await (0, XshellSessionScanner_1.scanXshellSessions)(dirs);
                 const sessions = [...library.sessions];
                 const seen = new Set(sessions.map((session) => localPathKey(session.filePath)));
-                for (const filePath of this.configuredXshellSessionPaths()) {
+                for (const filePath of configuredPaths) {
                     const key = localPathKey(filePath);
                     if (seen.has(key))
                         continue;
@@ -6875,21 +6880,37 @@ class RealtimeTunnelPanelProvider {
                     sessions.push(info);
                     seen.add(key);
                 }
+                if (generation !== this.projectContextGeneration || requestKey !== this.xshellLibraryRequestKey())
+                    return;
                 this.xshellLibrary = { ...library, sessions: sessions.sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN")) };
                 this.xshellLibraryError = library.warning;
                 this.xshellLibraryUpdatedAt = Date.now();
-                this.xshellLibraryDirsKey = dirsKey;
+                this.xshellLibraryDirsKey = requestKey;
             }
             catch (error) {
-                this.xshellLibraryError = errorMessage(error);
-            }
-            finally {
-                this.xshellLibraryRefreshPromise = undefined;
+                if (generation === this.projectContextGeneration && requestKey === this.xshellLibraryRequestKey())
+                    this.xshellLibraryError = errorMessage(error);
             }
         })();
-        await this.xshellLibraryRefreshPromise;
-        if (options.postState !== false)
+        this.xshellLibraryRefreshPromise = refresh;
+        this.xshellLibraryRefreshPromiseKey = requestKey;
+        try {
+            await refresh;
+        }
+        finally {
+            if (this.xshellLibraryRefreshPromise === refresh) {
+                this.xshellLibraryRefreshPromise = undefined;
+                this.xshellLibraryRefreshPromiseKey = "";
+            }
+        }
+        if (options.postState !== false && generation === this.projectContextGeneration && requestKey === this.xshellLibraryRequestKey())
             this.postState();
+    }
+    xshellLibraryRequestKey(dirs = xshellScanDirs(this.setupConfig), configuredPaths = this.configuredXshellSessionPaths()) {
+        return JSON.stringify({
+            dirs: dirs.map((dir) => localPathKey(dir)).sort(),
+            sessions: configuredPaths.map((filePath) => localPathKey(filePath)).sort(),
+        });
     }
     configuredXshellSessionPaths() {
         return uniqueStrings([
