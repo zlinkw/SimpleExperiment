@@ -79,6 +79,69 @@ test("task views reuse cached selection sets and invalidate on changed sources",
   assert.doesNotMatch(extractFunction("isTaskRowSelected"), /new Set\(/);
 });
 
+test("task key derivations reuse row cache and preserve operation key order", () => {
+  const sandbox = { taskKeyDerivationCache: new WeakMap() };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction("firstText"),
+    extractFunction("arrayText"),
+    extractFunction("firstPathLike"),
+    extractFunction("usableTaskKey"),
+    extractFunction("taskKeyDerivations"),
+    extractFunction("taskTargetKey"),
+    extractFunction("taskActionKey"),
+    extractFunction("taskArchiveActionKey"),
+    extractFunction("taskLogActionKey"),
+    extractFunction("taskPlanFile"),
+    extractFunction("taskSelectableKeys"),
+    extractFunction("taskOperationKeys"),
+    "this.api = { derive: taskKeyDerivations, target: taskTargetKey, action: taskActionKey, archive: taskArchiveActionKey, log: taskLogActionKey, plan: taskPlanFile, selectable: taskSelectableKeys, operation: taskOperationKeys };",
+  ].join("\n"), sandbox);
+
+  const row = {
+    runKey: "run-1",
+    experimentId: "exp-1",
+    archiveKey: "archive-1",
+    actionArchiveKey: "artifacts/run-1",
+    artifactPath: "artifacts/run-1",
+    resultPath: "results/run-1.csv",
+    logPath: "logs/run-1.log",
+    planFile: "experiments/plans/demo.yaml",
+  };
+  const first = sandbox.api.derive(row);
+  assert.strictEqual(sandbox.api.derive(row), first);
+  assert.strictEqual(sandbox.api.selectable(row), first.selectableKeys);
+  assert.strictEqual(sandbox.api.operation(row), first.operationKeys);
+  assert.equal(sandbox.api.target(row), "run-1");
+  assert.equal(sandbox.api.action(row), "run-1");
+  assert.equal(sandbox.api.archive(row), "artifacts/run-1");
+  assert.equal(sandbox.api.log(row), "logs/run-1.log");
+  assert.equal(sandbox.api.plan(row), "experiments/plans/demo.yaml");
+  assert.deepEqual([...first.operationKeys], ["run-1", "artifacts/run-1", "run-1", "exp-1", "archive-1", "artifacts/run-1", "artifacts/run-1"]);
+  assert.deepEqual([...first.selectableKeys], ["run-1", ...first.operationKeys]);
+
+  const replacement = { ...row, runKey: "run-2" };
+  const replaced = sandbox.api.derive(replacement);
+  assert.notStrictEqual(replaced, first);
+  assert.equal(replaced.targetKey, "run-2");
+
+  const fallback = sandbox.api.derive({
+    status: "running",
+    plan: "demo",
+    experimentName: "case-a",
+    serverId: "worker-1",
+    gpuIds: ["0", "1"],
+    startedAt: "2026-07-30T00:00:00Z",
+    updatedAt: "2026-07-30T00:01:00Z",
+    progress: "50%",
+  });
+  assert.equal(fallback.targetKey, "task|running|demo|case-a|worker-1|0, 1|2026-07-30T00:00:00Z|2026-07-30T00:01:00Z|50%");
+  assert.equal(fallback.actionKey, "");
+  assert.equal(fallback.logActionKey, fallback.targetKey);
+  assert.deepEqual([...fallback.operationKeys], []);
+  assert.deepEqual([...fallback.selectableKeys], [fallback.targetKey]);
+});
+
 test("task signature and render reuse one scoped view model", () => {
   let schedulerCalls = 0;
   const sandbox = {

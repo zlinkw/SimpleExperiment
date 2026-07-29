@@ -13792,10 +13792,13 @@ export function renderPanelHtml(): string {
         .join("|");
       return fallback ? "task:" + fallback : ("task-ui-" + String(index));
     }
-    function taskTargetKey(row) {
+    const taskKeyDerivationCache = new WeakMap();
+    function taskKeyDerivations(row) {
+      const cacheable = Boolean(row) && (typeof row === "object" || typeof row === "function");
+      if (cacheable && taskKeyDerivationCache.has(row)) return taskKeyDerivationCache.get(row);
       const direct = firstText(row.runKey, row.experimentId, row.archiveKey, row.session);
-      if (usableTaskKey(direct)) return direct;
-      const fallback = [
+      const actionKey = usableTaskKey(direct) ? direct : "";
+      const targetFallback = [
         "task",
         row.status,
         row.plan,
@@ -13806,26 +13809,40 @@ export function renderPanelHtml(): string {
         row.updatedAt,
         row.progress
       ].map((value) => String(value || "").trim()).filter((value) => value && value !== "-").join("|");
-      return fallback || "";
+      const targetKey = actionKey || targetFallback || "";
+      const archiveDirect = firstPathLike(row.actionArchiveKey, row.artifactPath, row.resultPath, row.archiveKey);
+      const archiveActionKey = usableTaskKey(archiveDirect) ? archiveDirect : actionKey;
+      const logDirect = firstPathLike(row.logPath, row.runKey);
+      const logActionKey = usableTaskKey(logDirect) ? logDirect : targetKey;
+      const planDirect = firstPathLike(row.planFile, row.plan);
+      const planFile = usableTaskKey(planDirect) ? planDirect : "";
+      const operationKeys = [actionKey, archiveActionKey, row.runKey, row.experimentId, row.archiveKey, row.actionArchiveKey, row.artifactPath]
+        .map((value) => String(value || "").trim())
+        .filter((value) => value && value !== "-");
+      const selectableKeys = [targetKey, ...operationKeys]
+        .map((value) => String(value || "").trim())
+        .filter((value) => value && value !== "-");
+      const derived = { targetKey, actionKey, archiveActionKey, logActionKey, planFile, selectableKeys, operationKeys };
+      if (cacheable) taskKeyDerivationCache.set(row, derived);
+      return derived;
+    }
+    function taskTargetKey(row) {
+      return taskKeyDerivations(row).targetKey;
     }
     function taskActionKey(row) {
-      const direct = firstText(row.runKey, row.experimentId, row.archiveKey, row.session);
-      return usableTaskKey(direct) ? direct : "";
+      return taskKeyDerivations(row).actionKey;
     }
     function taskArchiveActionKey(row) {
-      const direct = firstPathLike(row.actionArchiveKey, row.artifactPath, row.resultPath, row.archiveKey);
-      return usableTaskKey(direct) ? direct : taskActionKey(row);
+      return taskKeyDerivations(row).archiveActionKey;
     }
     function taskLogActionKey(row) {
-      const direct = firstPathLike(row.logPath, row.runKey);
-      return usableTaskKey(direct) ? direct : taskTargetKey(row);
+      return taskKeyDerivations(row).logActionKey;
     }
     function taskActionKeyForCommand(row, command) {
       return ["archiveArtifacts", "deleteArtifacts"].includes(command) ? taskArchiveActionKey(row) : taskActionKey(row);
     }
     function taskPlanFile(row) {
-      const direct = firstPathLike(row.planFile, row.plan);
-      return usableTaskKey(direct) ? direct : "";
+      return taskKeyDerivations(row).planFile;
     }
     function firstPathLike() {
       return Array.from(arguments).map((value) => String(value || "").trim()).find((value) => value && value !== "-" && /[\\/]/.test(value)) || "";
@@ -13835,14 +13852,10 @@ export function renderPanelHtml(): string {
       return Boolean(text && text !== "-");
     }
     function taskSelectableKeys(row) {
-      return [taskTargetKey(row), ...taskOperationKeys(row)]
-        .map((value) => String(value || "").trim())
-        .filter((value) => value && value !== "-");
+      return taskKeyDerivations(row).selectableKeys;
     }
     function taskOperationKeys(row) {
-      return [taskActionKey(row), taskArchiveActionKey(row), row.runKey, row.experimentId, row.archiveKey, row.actionArchiveKey, row.artifactPath]
-        .map((value) => String(value || "").trim())
-        .filter((value) => value && value !== "-");
+      return taskKeyDerivations(row).operationKeys;
     }
     function normalizeExperimentTraceRows(rows) {
       return asArray(rows).map((row) => {
