@@ -8008,6 +8008,8 @@ class RealtimeTunnelPanelProvider {
         const selectedTracePlanFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
         const selectedTracePlanVersion = this.planVersionForFile(selectedTracePlanFile);
         const selectedTracePlan = { planFile: selectedTracePlanFile, planRevision: selectedTracePlanVersion.revision, planUpdatedAt: selectedTracePlanVersion.updatedAt };
+        const selectedResultsPlanFile = this.resolveSelectedPlanFile(this.selectedPlanId || this.planFileInput || "");
+        const selectedResultsPlanVersion = this.planVersionForFile(selectedResultsPlanFile);
         const traceProtectedKeys = this.traceProtectedKeys();
         const experimentTraces = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces], (rows) => compactExperimentTraces(rows, traceProtectedKeys, selectedTracePlan)), experimentTraceFallbackRowKey), traceProtectedKeys, selectedTracePlan);
         const protectedLogKeys = this.logProtectedKeys();
@@ -8105,7 +8107,7 @@ class RealtimeTunnelPanelProvider {
             },
             planFileInput: this.planFileInput,
             recentPlans: this.recentPlans,
-            resultsSummary: compactResultsSummaryForWebview(this.filterResultsSummaryForPlan(this.resultsSummary, this.resolveSelectedPlanFile(this.selectedPlanId || this.planFileInput || ""))),
+            resultsSummary: compactResultsSummaryForPlanForWebview(this.resultsSummary, selectedResultsPlanFile, selectedResultsPlanVersion.revision, selectedResultsPlanVersion.updatedAt),
             auditTail: this.auditTail,
             debugBundlePath: webviewDebugBundlePath,
             actionErrors: this.actionErrors,
@@ -10323,6 +10325,35 @@ const resultsSummaryArrayLimits = {
     qualityIssues: 20,
     quality_issues: 20,
 };
+const RESULTS_SUMMARY_WEBVIEW_VARIANT_CACHE_LIMIT = 8;
+const resultsSummaryForWebviewCache = new WeakMap();
+function compactResultsSummaryForPlanForWebview(summary, selectedPlan, planRevision = "", planUpdatedAt = "") {
+    const cacheable = Boolean(summary) && typeof summary === "object" && !Array.isArray(summary);
+    if (!cacheable)
+        return compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision, planUpdatedAt));
+    const plan = usableSelectionKey(String(selectedPlan || "").trim().replace(/\\/g, "/"));
+    const cacheKey = [plan, String(planRevision || "").trim(), String(planUpdatedAt || "")].join("|");
+    let variants = resultsSummaryForWebviewCache.get(summary);
+    if (variants?.has(cacheKey)) {
+        const cached = variants.get(cacheKey);
+        variants.delete(cacheKey);
+        variants.set(cacheKey, cached);
+        return cached;
+    }
+    const compacted = compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(summary, plan, planRevision, planUpdatedAt));
+    if (!variants) {
+        variants = new Map();
+        resultsSummaryForWebviewCache.set(summary, variants);
+    }
+    variants.set(cacheKey, compacted);
+    while (variants.size > RESULTS_SUMMARY_WEBVIEW_VARIANT_CACHE_LIMIT) {
+        const oldestKey = variants.keys().next().value;
+        if (oldestKey === undefined)
+            break;
+        variants.delete(oldestKey);
+    }
+    return compacted;
+}
 function compactResultsSummaryForWebview(summary) {
     if (!summary || typeof summary !== "object" || Array.isArray(summary))
         return summary;
