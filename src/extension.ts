@@ -10646,7 +10646,9 @@ function compactArrayFieldForWebview(record, key, limit, mapper) {
     record[`${key}OmittedCount`] = value.length - limit;
 }
 const XSHELL_SESSION_WEBVIEW_LIMIT = 120;
+const XSHELL_SESSION_WEBVIEW_VARIANT_CACHE_LIMIT = 4;
 const xshellSetupForWebviewCache = new WeakMap();
+const xshellSessionLibraryForWebviewCache = new WeakMap();
 function compactXshellSetupForWebview(config) {
     const cacheable = Boolean(config) && (typeof config === "object" || typeof config === "function");
     const cached = cacheable ? xshellSetupForWebviewCache.get(config) : undefined;
@@ -10712,6 +10714,17 @@ function compactWorkerSetupForWebview(worker) {
     });
 }
 function compactXshellSessionLibraryForWebview(library, setup, error) {
+    const cacheableLibrary = Boolean(library) && (typeof library === "object" || typeof library === "function");
+    const cacheableSetup = Boolean(setup) && (typeof setup === "object" || typeof setup === "function");
+    let setupCache = cacheableLibrary ? xshellSessionLibraryForWebviewCache.get(library) : undefined;
+    let variants = setupCache && cacheableSetup ? setupCache.get(setup) : undefined;
+    const cacheKey = String(error || "");
+    const cached = variants?.get(cacheKey);
+    if (cached) {
+        variants.delete(cacheKey);
+        variants.set(cacheKey, cached);
+        return cached;
+    }
     const protectedSessionPaths = new Set(uniqueStrings([
         setup.savedSessionPath,
         setup.agentSessionPath,
@@ -10727,7 +10740,7 @@ function compactXshellSessionLibraryForWebview(library, setup, error) {
             ordinaryCount += 1;
         sessions.push(publicXshellSessionForWebview(session));
     }
-    return {
+    const compacted = {
         searchedDirs: library.searchedDirs,
         existingDirs: library.existingDirs,
         error: error ? compactSensitiveText(error, 360) : undefined,
@@ -10740,6 +10753,24 @@ function compactXshellSessionLibraryForWebview(library, setup, error) {
         omittedCount: Math.max(0, (library.sessions || []).length - sessions.length),
         sessions,
     };
+    if (cacheableLibrary && cacheableSetup) {
+        if (!setupCache) {
+            setupCache = new WeakMap();
+            xshellSessionLibraryForWebviewCache.set(library, setupCache);
+        }
+        if (!variants) {
+            variants = new Map();
+            setupCache.set(setup, variants);
+        }
+        variants.set(cacheKey, compacted);
+        while (variants.size > XSHELL_SESSION_WEBVIEW_VARIANT_CACHE_LIMIT) {
+            const oldestKey = variants.keys().next().value;
+            if (oldestKey === undefined)
+                break;
+            variants.delete(oldestKey);
+        }
+    }
+    return compacted;
 }
 function compactDebugBundlePathForWebview(value) {
     if (typeof value !== "string" || !value.trim())
