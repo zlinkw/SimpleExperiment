@@ -1472,6 +1472,8 @@ export function renderPanelHtml(): string {
     const planOutputEvidenceSignalsCache = new WeakMap();
     const adapterRuleResultCandidatesCache = new WeakMap();
     const renderAdapterRulesCache = new WeakMap();
+    const planTaskScaleSummaryCache = new WeakMap();
+    const validResultPreviewCountCache = new WeakMap();
     const planScopedResultCandidateCache = new WeakMap();
     const planScopedResultPreviewCache = new WeakMap();
     const projectResultLocationCache = new WeakMap();
@@ -7505,14 +7507,21 @@ export function renderPanelHtml(): string {
     }
 
     function planTaskScaleSummary(plan) {
-      const item = plan && typeof plan === "object" ? plan : {};
-      const cases = Array.isArray(item.cases) ? item.cases : [];
-      const seeds = Array.isArray(item.seeds) ? item.seeds : [];
+      const source = plan && typeof plan === "object" ? plan : null;
+      if (source && planTaskScaleSummaryCache.has(source)) return planTaskScaleSummaryCache.get(source);
+      const item = source || {};
+      const caseSource = item.cases;
+      const seedSource = item.seeds;
+      const cases = Array.isArray(caseSource) ? caseSource : [];
+      const seeds = Array.isArray(seedSource) ? seedSource : [];
       const jobValue = Number(item.jobCount || item.job_count || 0);
       const jobCount = Number.isFinite(jobValue) && jobValue > 0 ? Math.trunc(jobValue) : 0;
-      if (!cases.length || !seeds.length) return jobCount ? jobCount + " 个任务（实验项/随机种子待校验）" : "任务规模待校验";
-      const expanded = cases.length * seeds.length;
-      return cases.length + " 个实验项 × " + seeds.length + " 个随机种子 = " + expanded + " 个任务" + (jobCount && jobCount !== expanded ? "（记录 " + jobCount + " 个任务，校验为准）" : "");
+      const expanded = cases.length && seeds.length ? cases.length * seeds.length : 0;
+      const summary = !expanded
+        ? (jobCount ? jobCount + " 个任务（实验项/随机种子待校验）" : "任务规模待校验")
+        : cases.length + " 个实验项 × " + seeds.length + " 个随机种子 = " + expanded + " 个任务" + (jobCount && jobCount !== expanded ? "（记录 " + jobCount + " 个任务，校验为准）" : "");
+      if (source) planTaskScaleSummaryCache.set(source, summary);
+      return summary;
     }
 
     function planConfiguredWorkerCapacity(state) {
@@ -10192,7 +10201,11 @@ export function renderPanelHtml(): string {
     }
 
     function validResultPreviewCount(previews) {
-      return asArray(previews || []).filter(resultPreviewHasRecords).length;
+      const source = previews && typeof previews === "object" ? previews : null;
+      if (source && validResultPreviewCountCache.has(source)) return validResultPreviewCountCache.get(source);
+      const count = asArray(source || []).filter(resultPreviewHasRecords).length;
+      if (source) validResultPreviewCountCache.set(source, count);
+      return count;
     }
 
     function resultPreviewHasRecords(item) {
