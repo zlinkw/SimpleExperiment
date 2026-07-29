@@ -95,6 +95,10 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
   assert.match(handler, /pptPlotAuditRelativePath\(root, result\.requestPath\)/);
   assert.match(handler, /pptPlotAuditRelativePath\(root, result\.responsePath\)/);
   assert.match(handler, /openWorkspaceFile\(auditPath\)/);
+  assert.match(handler, /const generation = this\.projectContextGeneration/);
+  assert.ok([...handler.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 5);
+  assert.match(handler, /\.then\(\(choice\) => \{\s*if \(generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)\)\s*return undefined/);
+  assert.match(handler, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*void vscode\.window\.showErrorMessage/);
   assert.match(source, /pptPathConfirmations: \{\s*count: this\.confirmedPptPaths\.length/);
   assert.match(source, /case "resetPptPathConfirmations":\s*await this\.resetPptPathConfirmationsFromUi\(\)/);
   assert.match(panel, /data-command="resetPptPathConfirmations"/);

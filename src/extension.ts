@@ -5995,10 +5995,13 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区，才能把结果绘图到 PPT。");
+        const generation = this.projectContextGeneration;
         const config = this.pptPlotConfig();
         const planTarget = this.actionPlanTarget(message);
         const planFile = this.resolveSelectedPlanFile(planTarget.planFile || this.planFileInput || this.selectedPlanId || "") || planTarget.planFile || this.planFileInput || this.selectedPlanId || "";
         await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }));
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         const rawSummary = this.resultsSummary && typeof this.resultsSummary === "object" ? this.resultsSummary : {};
         const summary = this.filterResultsSummaryForPlan(rawSummary, planFile);
         const validFinalSources = finalPlotSourcesFromSummary(summary);
@@ -6013,6 +6016,8 @@ class RealtimeTunnelPanelProvider {
             throw new Error("没有可用的最终结果。请先选择并归档有效记录，再运行统计或导出论文表格。");
         const preferredContract = stringFromRecord(summary, ["plottingContractPath", "plotting_contract_path"]);
         const contractPath = preferredContract || await (0, PptPlotBridge_1.ensureLocalPlottingContract)(root, planFile);
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         const input = {
             projectRoot: root,
             planFile,
@@ -6028,8 +6033,12 @@ class RealtimeTunnelPanelProvider {
             sourceLabel: stringField(message, "sourceLabel") || "SimpleExperiment 结果",
         };
         await this.confirmPptPlotTarget(input);
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         try {
             const result = await new PptPlotBridge_1.PptPlotBridge().plot(input);
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+                return;
             this.pptAutomationReadiness = {
                 state: "ready",
                 ready: true,
@@ -6043,16 +6052,21 @@ class RealtimeTunnelPanelProvider {
             const responseAuditPath = pptPlotAuditRelativePath(root, result.responsePath);
             void vscode.window.showInformationMessage(`绘图到 PPT 已提交：${result.requestId}。请求审计：${requestAuditPath}；响应审计：${responseAuditPath}`, "打开请求审计", "打开响应审计")
                 .then((choice) => {
+                if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+                    return undefined;
                 const auditPath = choice === "打开请求审计" ? requestAuditPath : choice === "打开响应审计" ? responseAuditPath : "";
                 if (auditPath)
                     return openWorkspaceFile(auditPath);
                 return undefined;
             })
                 .catch((error) => {
-                void vscode.window.showErrorMessage(`打开 PPT 绘图审计失败：${errorMessage(error)}`);
+                if (generation === this.projectContextGeneration && root === workspaceRoot())
+                    void vscode.window.showErrorMessage(`打开 PPT 绘图审计失败：${errorMessage(error)}`);
             });
         }
         catch (error) {
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+                return;
             this.pptAutomationReadiness = (0, PptPlotBridge_1.pptAutomationReadinessFromError)(error);
             this.postState(true);
             throw error;
