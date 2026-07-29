@@ -50,7 +50,7 @@ test("opening a configured project automatically restores endpoint readiness", (
   assert.ok(start >= 0 && end > start);
   const flow = extension.slice(start, end);
   assert.match(flow, /syncConfiguredXshellSessions\("webview resolved"\)/);
-  assert.match(flow, /this\.isRealtimeMode\(\) && initialServerSetupComplete\(this\.setupConfig\)/);
+  assert.match(flow, /this\.isRealtimeMode\(\) && initialServerSetupComplete\(this\.setupConfig, this\.projectTopologyAssessment\(\)\.hubAllowed\)/);
   assert.match(flow, /await this\.testTunnel\(false\)/);
   assert.match(flow, /this\.postState\(\)/);
   assert.doesNotMatch(flow, /testTunnel\(true\)/);

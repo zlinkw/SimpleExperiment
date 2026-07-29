@@ -46,7 +46,7 @@ test("remote project operations require exactly one workspace folder", () => {
 
 test("webview state exposes the local project identity and workspace count", () => {
   assert.match(source, /const workspace = workspaceContextForWebview\(\)/);
-  assert.match(source, /workspace,\s*setup: compactXshellSetupForWebview/);
+  assert.match(source, /workspace,\s*topology,\s*setup: compactXshellSetupForWebview/);
   assert.match(source, /function workspaceContextForWebview\(\)/);
   assert.match(source, /editorUri: location\?\.editorUri/);
   assert.match(source, /containerPath: location\?\.remote/);

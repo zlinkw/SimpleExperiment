@@ -16,8 +16,8 @@ test("manual server saves show computed destinations before offering one next st
   assert.match(helper, /next === "选择项目并继续"[\s\S]{0,140}openWorkspaceFolderForContinuation\(`\$\{label\} 配置`, "quickSetup"/);
   assert.match(helper, /打开配置说明/);
   assert.match(helper, /if \(!enabledWorkers\.length\)[\s\S]{0,260}"添加 Worker"/);
-  assert.match(helper, /initialServerSetupComplete\(this\.setupConfig\)/);
-  assert.match(helper, /assertConfiguredActualWorkRoots\(this\.setupConfig\)/);
+  assert.match(helper, /initialServerSetupComplete\(this\.setupConfig, this\.projectTopologyAssessment\(\)\.hubAllowed\)/);
+  assert.match(helper, /assertTopologyActualWorkRoots\("完成服务器设置"\)/);
   assert.match(helper, /showInformationMessage\(message, "准备 Agent 并启动"\)/);
   assert.doesNotMatch(helper, /showInformationMessage\(message, "准备 Agent 并启动",/);
   assert.match(helper, /next === "准备 Agent 并启动"\)\s*await this\.prepareAgentsForFirstRun\(\)/);
