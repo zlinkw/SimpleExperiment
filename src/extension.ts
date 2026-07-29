@@ -11336,20 +11336,26 @@ function firstNumberFieldForWebview(row, ...keys) {
     }
     return undefined;
 }
+const endpointRegistryForWebviewCache = new WeakMap();
 function compactEndpointRegistryForWebview(registry) {
     const record = objectRecord(registry);
     if (!record)
         return undefined;
+    const cached = endpointRegistryForWebviewCache.get(record);
+    if (cached)
+        return cached;
     const endpoints = Array.isArray(record.endpoints) ? record.endpoints.map(compactEndpointForWebview).filter(Boolean) : [];
     const hub = compactEndpointForWebview(record.hub);
     const workers = Array.isArray(record.workers) ? record.workers.map(compactEndpointForWebview).filter(Boolean) : [];
-    return dropUndefined({
+    const compacted = dropUndefined({
         endpoints,
         hub,
         workers,
         endpointCount: endpoints.length,
         workerCount: workers.length,
     });
+    endpointRegistryForWebviewCache.set(record, compacted);
+    return compacted;
 }
 function compactEndpointForWebview(endpoint) {
     const item = objectRecord(endpoint);
@@ -11397,10 +11403,15 @@ function compactEndpointProbeForWebview(probe) {
         message: item.message ? compactSensitiveText(item.message, 240) : undefined,
     });
 }
+const EMPTY_TUNNEL_PORT_ASSIGNMENTS_FOR_WEBVIEW = Object.freeze([]);
+const tunnelPortAssignmentsForWebviewCache = new WeakMap();
 function compactTunnelPortAssignmentsForWebview(assignments) {
     if (!Array.isArray(assignments))
-        return [];
-    return assignments.slice(0, 240).map((assignment) => {
+        return EMPTY_TUNNEL_PORT_ASSIGNMENTS_FOR_WEBVIEW;
+    const cached = tunnelPortAssignmentsForWebviewCache.get(assignments);
+    if (cached)
+        return cached;
+    const compacted = assignments.slice(0, 240).map((assignment) => {
         const item = objectRecord(assignment);
         if (!item)
             return undefined;
@@ -11418,11 +11429,18 @@ function compactTunnelPortAssignmentsForWebview(assignments) {
             source: item.source,
         });
     }).filter((item) => Boolean(item));
+    tunnelPortAssignmentsForWebviewCache.set(assignments, compacted);
+    return compacted;
 }
+const EMPTY_TUNNEL_PORT_CONFLICTS_FOR_WEBVIEW = Object.freeze([]);
+const tunnelPortConflictsForWebviewCache = new WeakMap();
 function compactTunnelPortConflictsForWebview(conflicts) {
     if (!Array.isArray(conflicts))
-        return [];
-    return conflicts.slice(0, 120).map((conflict) => {
+        return EMPTY_TUNNEL_PORT_CONFLICTS_FOR_WEBVIEW;
+    const cached = tunnelPortConflictsForWebviewCache.get(conflicts);
+    if (cached)
+        return cached;
+    const compacted = conflicts.slice(0, 120).map((conflict) => {
         const item = objectRecord(conflict);
         if (!item)
             return undefined;
@@ -11435,12 +11453,18 @@ function compactTunnelPortConflictsForWebview(conflicts) {
             suggestion: item.suggestion ? compactSensitiveText(item.suggestion, 240) : undefined,
         });
     }).filter((item) => Boolean(item));
+    tunnelPortConflictsForWebviewCache.set(conflicts, compacted);
+    return compacted;
 }
+const realtimePolicyForWebviewCache = new WeakMap();
 function compactRealtimePolicyForWebview(policy) {
     const item = objectRecord(policy);
     if (!item)
         return undefined;
-    return dropUndefined({
+    const cached = realtimePolicyForWebviewCache.get(item);
+    if (cached)
+        return cached;
+    const compacted = dropUndefined({
         hubPollSeconds: item.hubPollSeconds,
         workerPollSeconds: item.workerPollSeconds,
         workerStatusTtlSeconds: item.workerStatusTtlSeconds,
@@ -11452,6 +11476,8 @@ function compactRealtimePolicyForWebview(policy) {
         workerActionMaxConcurrent: item.workerActionMaxConcurrent,
         uiBatchMs: item.uiBatchMs,
     });
+    realtimePolicyForWebviewCache.set(item, compacted);
+    return compacted;
 }
 function webviewStatePostSignature(state: WebviewClusterState): string {
     return realtimeUiTopLevelSignature(state);
