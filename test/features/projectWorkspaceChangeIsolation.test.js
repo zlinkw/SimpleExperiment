@@ -226,6 +226,21 @@ test("project adapter rule saves cannot continue in a replacement workspace", ()
   assert.match(save, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
 });
 
+test("project onboarding cannot continue after its workspace is replaced", () => {
+  const bootstrap = methodBody("async bootstrapProjectFromUi", "async handleProjectBootstrapAction");
+  const action = methodBody("async handleProjectBootstrapAction", "async generateOutputAdapterFromUi");
+  assert.match(bootstrap, /const projectContext = this\.captureProjectContext\(\);\s*const root = projectContext\.root/);
+  assert.ok([...bootstrap.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 15);
+  assert.match(bootstrap, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(bootstrap, /const selected = await this\.pickProjectBootstrapPlan\(plans\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(bootstrap, /await this\.persistProjectPlanSelectionState\(\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(bootstrap, /await this\.testTunnel\(false\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(action, /const projectContext = context\?\.projectContext \|\| this\.captureProjectContext\(\)/);
+  assert.match(action, /openWorkspaceFileForProjectContext\(context\.planFile, projectContext\)/);
+  assert.match(action, /openWorkspaceFileForProjectContext\(context\.adapterConfig, projectContext\)/);
+  assert.ok([...action.matchAll(/if \(!isCurrent\(\)\)/g)].length >= 3);
+});
+
 test("stale network probes and realtime callbacks cannot overwrite the new project", () => {
   const tunnel = methodBody("async testTunnel", "async runXshellRealIntegrationCheck");
   const integration = methodBody("async runXshellRealIntegrationCheck", "async restartRealtimeStream");

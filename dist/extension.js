@@ -5666,17 +5666,22 @@ class RealtimeTunnelPanelProvider {
         return picked.plan;
     }
     async bootstrapProjectFromUi() {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root) {
             await this.openWorkspaceFolderForContinuation("接入当前项目", "bootstrapProject");
             return;
         }
         assertSingleProjectWorkspace("接入当前项目");
         await this.refreshLocalPlanMetadata({ post: false, force: true });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         let plans = this.localPlanMetadata.plans || [];
         const initialProjectState = Boolean(this.planFileInput || this.selectedPlanId || this.localPlanMetadata.error);
         let preferDebugFirstRun = false;
         for (let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step += 1) {
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             const prerequisite = projectBootstrapNewProjectPrerequisite({
                 planCount: plans.length,
                 hasExistingProjectState: initialProjectState,
@@ -5687,7 +5692,11 @@ class RealtimeTunnelPanelProvider {
             if (!prerequisite)
                 break;
             const next = await vscode.window.showInformationMessage(prerequisite.message, prerequisite.action, "稍后");
-            const continueFlow = await this.handleProjectBootstrapAction(next, {});
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+            const continueFlow = await this.handleProjectBootstrapAction(next, { projectContext });
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             if (!continueFlow)
                 return;
         }
@@ -5700,18 +5709,26 @@ class RealtimeTunnelPanelProvider {
         });
         if (remainingPrerequisite) {
             const open = await vscode.window.showWarningMessage(`新项目接入仍停留在基础设施配置：${remainingPrerequisite.message}`, "打开服务器设置", "稍后");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             if (open === "打开服务器设置")
                 await this.openPanelAt("settings", "settings-servers");
             return;
         }
         if (!plans.length) {
             await this.generatePlanGuideFromUi(false);
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             plans = this.localPlanMetadata.plans || [];
             if (!plans.length)
                 throw new Error("未能生成项目 Plan，请检查 experiments/plans 写入权限。");
         }
         const selected = await this.pickProjectBootstrapPlan(plans);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const planFile = String(selected?.planFile || selected?.file || selected?.planId || "");
         preferDebugFirstRun = !currentPlanRevisionHasRunEvidence(this.buildState(), selected);
         const selectionChanged = Boolean(planFile) && (!samePlanSelection(this.planFileInput || "", planFile) || !samePlanSelection(this.selectedPlanId || "", selected?.planId || planFile));
@@ -5719,13 +5736,19 @@ class RealtimeTunnelPanelProvider {
             this.planFileInput = planFile;
             this.selectedPlanId = String(selected?.planId || planFile);
             await this.persistProjectPlanSelectionState();
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
         }
         let project = this.localPlanMetadata.detectedProject || {};
         let gateDiagnostics = projectOutputGateDiagnostics(project, selected);
         const gateReason = projectOutputGateReason(project, selected);
         if (gateReason && gateDiagnostics.nextLabel === "接入配置" && !project.adapterConfig) {
             await this.generateOutputAdapterFromUi();
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             project = this.localPlanMetadata.detectedProject || {};
             gateDiagnostics = projectOutputGateDiagnostics(project, selected);
         }
@@ -5758,8 +5781,11 @@ class RealtimeTunnelPanelProvider {
             activeRun: initialRunState.activeRun,
             finishedRun: initialRunState.finishedRun,
             endpointsReady: projectBootstrapEndpointProbeReusable(endpointReadiness, this.lastFullEndpointProbeAt),
-        }))
+        })) {
             await this.testTunnel(false);
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+        }
         this.postState();
         if (selectionChanged)
             this.queueSelectedPlanResultParse("接入当前项目切换计划", planFile);
@@ -5788,11 +5814,17 @@ class RealtimeTunnelPanelProvider {
         };
         const seenCompletions = new Set();
         const stopAtProjectPanel = async (completion) => {
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             const open = await vscode.window.showWarningMessage(`项目接入仍停留在当前步骤：${completion.message}`, "打开实验准备", "稍后");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             if (open === "打开实验准备")
                 await this.openPanelAt("plans", "plans-detected");
         };
         for (let step = 0; step < PROJECT_BOOTSTRAP_MAX_STEPS; step += 1) {
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             const completion = currentCompletion();
             const completionKey = JSON.stringify([completion.state, completion.action, completion.secondaryAction, completion.message]);
             if (seenCompletions.has(completionKey)) {
@@ -5804,17 +5836,28 @@ class RealtimeTunnelPanelProvider {
             const next = completionActions.length
                 ? await vscode.window.showInformationMessage(completion.message, ...completionActions)
                 : await vscode.window.showInformationMessage(completion.message);
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             const continueFlow = await this.handleProjectBootstrapAction(next, {
+                projectContext,
                 planFile,
                 planId: selected?.planId || planFile,
                 adapterConfig: project.adapterConfig,
             });
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             if (!continueFlow)
                 return;
         }
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         await stopAtProjectPanel(currentCompletion());
     }
     async handleProjectBootstrapAction(action, context) {
+        const projectContext = context?.projectContext || this.captureProjectContext();
+        const isCurrent = () => this.projectContextIsCurrent(projectContext);
+        if (!isCurrent())
+            return false;
         const next = String(action || "");
         if (next === "开始一键配置")
             return this.quickSetup(false);
@@ -5832,7 +5875,11 @@ class RealtimeTunnelPanelProvider {
         }
         if (next === "恢复在线连接") {
             await this.clearOfflineImport();
+            if (!isCurrent())
+                return false;
             await this.ensureRealtimeConnected("resume from project onboarding");
+            if (!isCurrent())
+                return false;
             this.postState(true);
             return true;
         }
@@ -5841,11 +5888,11 @@ class RealtimeTunnelPanelProvider {
             return false;
         }
         if (next === "打开当前 Plan" && context.planFile) {
-            await openWorkspaceFile(context.planFile);
+            await this.openWorkspaceFileForProjectContext(context.planFile, projectContext);
             return false;
         }
         if (next === "打开接入配置" && context.adapterConfig) {
-            await openWorkspaceFile(context.adapterConfig);
+            await this.openWorkspaceFileForProjectContext(context.adapterConfig, projectContext);
             return false;
         }
         if (next === "查看任务") {

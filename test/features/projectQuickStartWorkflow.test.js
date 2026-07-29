@@ -158,9 +158,9 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /await confirmGuidedPlanCreation\(/);
   assert.match(extension, /title: "选择新 Plan 使用的配置"/);
   assert.match(extension, /if \(list\.length <= 1\)/);
-  assert.match(extension, /if \(!plans\.length\) \{\s*await this\.generatePlanGuideFromUi\(false\);\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
+  assert.match(extension, /if \(!plans\.length\) \{\s*await this\.generatePlanGuideFromUi\(false\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
   assert.match(extension, /let gateDiagnostics = projectOutputGateDiagnostics\(project, selected\)/);
-  assert.match(extension, /if \(gateReason && gateDiagnostics\.nextLabel === "接入配置" && !project\.adapterConfig\) \{\s*await this\.generateOutputAdapterFromUi\(\);\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
+  assert.match(extension, /if \(gateReason && gateDiagnostics\.nextLabel === "接入配置" && !project\.adapterConfig\) \{\s*await this\.generateOutputAdapterFromUi\(\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
   assert.match(extension, /return projectBootstrapCompletion\(/);
   assert.match(extension, /adapterConfig: project\.adapterConfig/);
   assert.match(extension, /offlineBundleActive: Boolean\(this\.offlineBundle\)/);
@@ -174,8 +174,8 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /next === "添加 Worker"[\s\S]{0,80}this\.addWorkerConfigFromUi\(false\)/);
   assert.match(extension, /next === "打开连接设置"[\s\S]{0,140}workbench\.action\.openSettings/);
   assert.match(extension, /next === "恢复在线连接"[\s\S]{0,180}clearOfflineImport\(\)[\s\S]{0,180}ensureRealtimeConnected\("resume from project onboarding"\)/);
-  assert.match(extension, /next === "打开当前 Plan" && context\.planFile\)[\s\S]{0,80}openWorkspaceFile\(context\.planFile\)/);
-  assert.match(extension, /next === "打开接入配置" && context\.adapterConfig\)[\s\S]{0,80}openWorkspaceFile\(context\.adapterConfig\)/);
+  assert.match(extension, /next === "打开当前 Plan" && context\.planFile\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.planFile, projectContext\)/);
+  assert.match(extension, /next === "打开接入配置" && context\.adapterConfig\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.adapterConfig, projectContext\)/);
   assert.match(extension, /next === "查看任务"[\s\S]{0,100}openPanelAt\("tasks", "tasks-list"\)/);
   assert.match(extension, /next === "查看提交进度"[\s\S]{0,120}openPanelAt\("operations", "operations-list"\)/);
   assert.match(extension, /next === "校验并提交运行"[\s\S]{0,180}this\.runActionCommand\("runPlan"/);
