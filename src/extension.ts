@@ -6192,7 +6192,8 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async saveProjectAdapterRulesFromUi(message) {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root)
             throw new Error("需要先打开工作区。");
         const patch = normalizeProjectAdapterRulesPatch(recordField(message, "patch"));
@@ -6203,11 +6204,17 @@ class RealtimeTunnelPanelProvider {
             const templateFiles = await this.loadProjectAdapterTemplateFiles(projectName);
             return templateFiles.find((file) => file.relativePath === "zlk_project.yaml")?.text || (0, ProjectAdapterTemplates_1.projectAdapterTemplateFiles)(projectName).find((file) => file.relativePath === "zlk_project.yaml")?.text || "";
         });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         if (!text.trim())
             throw new Error("VSIX 缺少 zlk_project.yaml 接入模板，无法保存规则。");
         text = applyProjectAdapterRulesPatch(text, patch);
         const result = await writeWorkspaceTextWithBackup(fullPath, text);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.postState();
         void vscode.window.showInformationMessage(result.status === "unchanged"
             ? "项目接入规则已是最新：experiments/zlk_project.yaml。"
