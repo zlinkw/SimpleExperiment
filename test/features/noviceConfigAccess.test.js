@@ -60,3 +60,23 @@ test("layout normalization keeps allowed commands and strips unknown payload fie
   assert.equal(actions.length, 1);
   assert.deepEqual(actions[0].payload, { planFile: "experiments/plans/demo.yaml" });
 });
+
+test("layout action normalization caches bounded limit variants", () => {
+  const helpers = loadLayoutHelpers();
+  const input = [
+    { command: "runPlan", label: "Run" },
+    { command: "testAll", label: "Test" },
+    { command: "snapshot", label: "Snapshot" },
+    { command: "pauseAll", label: "Pause" },
+    { command: "resumeNetwork", label: "Resume" },
+  ];
+  const one = helpers.normalizeUiButtonActions(input, 1);
+  const two = helpers.normalizeUiButtonActions(input, 2);
+  helpers.normalizeUiButtonActions(input, 3);
+  helpers.normalizeUiButtonActions(input, 4);
+  assert.equal(helpers.normalizeUiButtonActions(input, 1), one);
+  assert.equal(helpers.normalizeUiButtonActions(one, 1), one);
+  helpers.normalizeUiButtonActions(input, 5);
+  assert.notEqual(helpers.normalizeUiButtonActions(input, 2), two);
+  assert.equal(helpers.normalizeUiButtonActions(input, 2).length, 2);
+});

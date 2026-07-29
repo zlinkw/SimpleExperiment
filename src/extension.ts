@@ -290,6 +290,8 @@ const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
     "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
 ]);
+const normalizeUiButtonActionsCache = new WeakMap();
+const UI_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 4;
 const actionCommandMap = {
     validatePlan: "validate-plan",
     dryRunPlan: "dry-run-plan",
@@ -11925,6 +11927,13 @@ function normalizePinnedCommands(input) {
 function normalizeUiButtonActions(input, limit) {
     if (!Array.isArray(input))
         return [];
+    let variants = normalizeUiButtonActionsCache.get(input);
+    const cached = variants?.get(limit);
+    if (cached) {
+        variants.delete(limit);
+        variants.set(limit, cached);
+        return cached;
+    }
     const out = [];
     const seen = new Set();
     for (const raw of input) {
@@ -11955,6 +11964,18 @@ function normalizeUiButtonActions(input, limit) {
         if (out.length >= limit)
             break;
     }
+    if (!variants) {
+        variants = new Map();
+        normalizeUiButtonActionsCache.set(input, variants);
+    }
+    variants.set(limit, out);
+    while (variants.size > UI_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT) {
+        const oldest = variants.keys().next();
+        if (oldest.done)
+            break;
+        variants.delete(oldest.value);
+    }
+    normalizeUiButtonActionsCache.set(out, new Map([[limit, out]]));
     return out;
 }
 function normalizeUiButtonPayload(input) {
