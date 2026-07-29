@@ -35,6 +35,8 @@ function extractExtensionFunction(name) {
 
 function loadHelpers() {
   const sandbox = {
+    TASK_FAILURE_STATUSES: new Set(["failed", "error", "stalled", "stopped", "cancelled"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed", "done", "archived", "deleted"]),
     PLAN_FILE_EQUIVALENCE_CACHE_LIMIT: 128,
     PLAN_ARCHIVE_READINESS_CACHE_LIMIT: 64,
     EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY: { keys: [], keySet: new Set() },

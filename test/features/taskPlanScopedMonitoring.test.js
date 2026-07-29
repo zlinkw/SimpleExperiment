@@ -6,6 +6,14 @@ const vm = require("node:vm");
 
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
 
+function taskStatusSets() {
+  return {
+    TASK_FAILURE_STATUSES: new Set(["failed", "error", "stalled", "stopped", "cancelled"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed", "done", "archived", "deleted"]),
+    TASK_ARCHIVABLE_STATUSES: new Set(["completed", "done"]),
+  };
+}
+
 function extractFunction(name) {
   const start = panel.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `missing function ${name}`);
@@ -48,6 +56,7 @@ function loadScope() {
 function loadCompletion() {
   const normalize = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
   const sandbox = {
+    ...taskStatusSets(),
     asArray: (value) => Array.isArray(value) ? value : [],
     samePlanSelection(left, right) {
       const a = normalize(left);
@@ -62,7 +71,7 @@ function loadCompletion() {
 }
 
 function loadTaskStatus() {
-  const sandbox = {};
+  const sandbox = taskStatusSets();
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("taskStatusToken"),
@@ -221,6 +230,12 @@ test("failed current-Plan tasks expose a direct log target without auto retry", 
 
 test("task UI treats all scheduler failure terminals as visible retryable failures", () => {
   const status = loadTaskStatus();
+  assert.match(panel, /const TASK_FAILURE_STATUSES = new Set\(\["failed", "error", "stalled", "stopped", "cancelled"\]\)/);
+  assert.match(panel, /const TASK_TERMINAL_STATUSES = new Set\(\["completed", "done", "archived", "deleted"\]\)/);
+  assert.match(panel, /const TASK_ARCHIVABLE_STATUSES = new Set\(\["completed", "done"\]\)/);
+  assert.match(panel, /TASK_FAILURE_STATUSES\.has\(taskStatusToken\(status\)\)/);
+  assert.match(panel, /TASK_TERMINAL_STATUSES\.has\(value\)/);
+  assert.match(panel, /TASK_ARCHIVABLE_STATUSES\.has\(value\)/);
   assert.equal(status.taskStatusLabel("queued"), "排队中");
   assert.equal(status.taskStatusLabel("normal_completed"), "已完成");
   assert.equal(status.taskStatusLabel("manual_interrupted_completed"), "已停止");

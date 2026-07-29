@@ -1624,6 +1624,9 @@ export function renderPanelHtml(): string {
     let activeLayoutResize = null;
     const TASK_RENDER_LIMIT = 80;
     const PLAN_ACTIVE_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
+    const TASK_FAILURE_STATUSES = new Set(["failed", "error", "stalled", "stopped", "cancelled"]);
+    const TASK_TERMINAL_STATUSES = new Set(["completed", "done", "archived", "deleted"]);
+    const TASK_ARCHIVABLE_STATUSES = new Set(["completed", "done"]);
     const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
     const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
@@ -14071,15 +14074,15 @@ export function renderPanelHtml(): string {
       return labels[taskStatusToken(raw)] || raw;
     }
     function taskFailureLikeStatus(status) {
-      return ["failed", "error", "stalled", "stopped", "cancelled"].includes(taskStatusToken(status));
+      return TASK_FAILURE_STATUSES.has(taskStatusToken(status));
     }
     function taskTerminalStatus(status) {
       const value = taskStatusToken(status);
-      return ["completed", "done", "archived", "deleted"].includes(value) || taskFailureLikeStatus(value);
+      return TASK_TERMINAL_STATUSES.has(value) || taskFailureLikeStatus(value);
     }
     function taskArchivableStatus(status) {
       const value = taskStatusToken(status);
-      return ["completed", "done"].includes(value) || taskFailureLikeStatus(value);
+      return TASK_ARCHIVABLE_STATUSES.has(value) || taskFailureLikeStatus(value);
     }
     function bucketStatus(key) { return SCHEDULER_BUCKET_STATUSES[key] ?? key.replace("_experiments", "").replace("pending", "queued"); }
     function operationStatusFromType(type) {
