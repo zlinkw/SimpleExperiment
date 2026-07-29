@@ -16,7 +16,7 @@ test("run gate presents automatic sync validation and dry-run as informational",
 });
 
 test("automatic preflight remains ordered and failures remain blocking evidence", () => {
-  const start = extension.indexOf("async runPlanPreflight(body, label)");
+  const start = extension.indexOf("async runPlanPreflight(body, label, authority = {})");
   const end = extension.indexOf("async openSetupGuide()", start);
   const flow = extension.slice(start, end);
   assert.ok(flow.indexOf('postPlanSchedulerAction("validate-plan"') < flow.indexOf('postPlanSchedulerAction("dry-run-plan"'));

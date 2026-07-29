@@ -48,7 +48,7 @@ test("project next action follows the real preflight order", () => {
   assert.match(panel, /projectQuickRow\("连接"/);
   assert.match(panel, /projectQuickRow\("代码同步"/);
   assert.match(panel, /projectQuickRow\("代码同步", codeSyncReadiness\.ready \? codeSyncReadiness\.summary : "校验时自动同步 Hub；提交运行时自动同步 Hub\/Worker"/);
-  const preflightStart = extension.indexOf("async runPlanPreflight(body, label)");
+  const preflightStart = extension.indexOf("async runPlanPreflight(body, label, authority = {})");
   const preflightEnd = extension.indexOf("async openSetupGuide()", preflightStart);
   assert.ok(preflightStart >= 0 && preflightEnd > preflightStart);
   const preflight = extension.slice(preflightStart, preflightEnd);
@@ -56,7 +56,7 @@ test("project next action follows the real preflight order", () => {
   assert.match(preflight, /waitForOperationTerminalResult\("validate-plan"/);
   assert.match(preflight, /waitForOperationTerminalResult\("dry-run-plan"/);
   assert.match(extension, /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/);
-  assert.match(extension, /if \(!await this\.runPlanPreflight\(body, `计划 \$\{planFile\}`\)\)\s*throw new Error\(`计划 \$\{planFile\} 的校验或预演未返回有效结果，已停止整批提交。`\);/);
+  assert.match(extension, /if \(!await this\.runPlanPreflight\(body, `计划 \$\{planFile\}`, authority\)\)\s*throw new Error\(`计划 \$\{planFile\} 的校验或预演未返回有效结果，已停止整批提交。`\);/);
   assert.match(extension, /个计划已通过校验与预演，并提交/);
   assert.match(extension, /topology\.mode === "single_worker"[\s\S]{0,180}postWorkerTunnelAction\(workerId, action, body, options\)/);
   assert.match(extension, /endpoint\.enabled && \(hubAllowed \|\| endpoint\.role !== "hub_control"\)/);

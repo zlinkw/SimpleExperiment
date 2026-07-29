@@ -200,6 +200,33 @@ test("archived Plan restore cannot continue in a replacement workspace", () => {
   assert.match(restore, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*assertCurrent\(\);\s*await this\.persistProjectPlanSelectionState\(\);\s*assertCurrent\(\)/);
 });
 
+test("batch Plan execution keeps project, SFTP root, and Agent client authority", () => {
+  const runAll = methodBody("async runAllPlansFromUi", "async generatePlanGuideFromUi");
+  const codeReady = methodBody("async ensureCodeReadyForRun", "async ensureHubCodeReadyForPlanCheck");
+  const sync = methodBody("async syncCodeTargets", "async confirmRemoteWriteTargets");
+  const preflight = methodBody("async runPlanPreflight", "async confirmPlanRunSubmission");
+  const scheduler = methodBody("async postPlanSchedulerAction", "workerPoolActionBody");
+  const workerAction = methodBody("async postWorkerTunnelAction", "activeWorkerActionOperation");
+  const wait = methodBody("async waitForOperationTerminalResult", "async finishOperationWatchdog");
+  assert.match(runAll, /const projectContext = this\.captureProjectContext\(\);\s*const client = this\.client;\s*const authority = \{ projectContext, authorityClient: client \}/);
+  assert.ok([...runAll.matchAll(/assertCurrent\(\)/g)].length >= 10);
+  assert.match(runAll, /ensureCodeReadyForRun\(projectContext\)/);
+  assert.match(runAll, /runPlanPreflight\(body, `计划 \$\{planFile\}`, authority\)/);
+  assert.match(runAll, /requiresCapability: capabilityForAction\("run-plan"\),\s*\.\.\.authority/);
+  assert.match(codeReady, /syncCodeTargets\(targets, "run", \{ projectContext \}\)/);
+  assert.match(sync, /const projectContext = options\.projectContext/);
+  assert.match(sync, /const root = projectContext\?\.root \|\| workspaceRoot\(\)/);
+  assert.match(sync, /confirmRemoteWriteTargets\([\s\S]{0,500}projectContext\)/);
+  assert.match(sync, /if \(isUiCommandCancelled\(error\)\)\s*throw error/);
+  assert.match(sync, /markProjectOnboardingComplete\(projectContext\)/);
+  assert.ok([...preflight.matchAll(/assertActionAuthorityCurrent\(authority/g)].length >= 5);
+  assert.match(preflight, /waitForOperationTerminalResult\("validate-plan"[\s\S]{0,160}authority\)/);
+  assert.ok([...scheduler.matchAll(/assertActionAuthorityCurrent\(options\)/g)].length >= 2);
+  assert.match(workerAction, /const client = options\.authorityClient \|\| this\.client/);
+  assert.match(wait, /refreshOperationStatus\(opId, action, workerId, attempt, authority\.authorityClient \|\| this\.client\)/);
+  assert.match(source, /postWorkerTunnelAction\(workerId, action, scoped, \{ \.\.\.options, title: command, confirm: false, danger: false \}\)/);
+});
+
 test("stale UI layout saves cannot refresh a replacement workspace", () => {
   const save = methodBody("async saveUiLayoutFromUi", "async resetUiLayoutFromUi");
   const reset = methodBody("async resetUiLayoutFromUi", "async runActionCommand");

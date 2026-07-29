@@ -7,7 +7,7 @@ const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts")
 
 test("all accepted Plan submissions open the current task monitor", () => {
   const start = extension.indexOf("async runActionCommandCore(command, message)");
-  const end = extension.indexOf("async runPlanPreflight(body, label)", start);
+  const end = extension.indexOf("async runPlanPreflight(body, label, authority = {})", start);
   assert.ok(start >= 0 && end > start);
   const source = extension.slice(start, end);
   const post = source.indexOf("const result = noHubResult !== undefined");
@@ -22,7 +22,7 @@ test("all accepted Plan submissions open the current task monitor", () => {
 
 test("submission navigation does not replace preflight blocking", () => {
   const start = extension.indexOf("async runActionCommandCore(command, message)");
-  const end = extension.indexOf("async runPlanPreflight(body, label)", start);
+  const end = extension.indexOf("async runPlanPreflight(body, label, authority = {})", start);
   const source = extension.slice(start, end);
   assert.ok(source.indexOf("await this.runPlanPreflight(body, \"当前计划\")") < source.indexOf("const result = noHubResult !== undefined"));
   assert.match(source, /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/);

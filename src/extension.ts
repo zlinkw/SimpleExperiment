@@ -1495,10 +1495,17 @@ class RealtimeTunnelPanelProvider {
         if (workspaceRoot() && initialServerSetupComplete(this.setupConfig, this.projectTopologyAssessment().hubAllowed) && afterSftp.ready && afterWorkerCount > 0)
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
     }
-    async markProjectOnboardingComplete() {
-        if (workspaceRoot()) {
+    async markProjectOnboardingComplete(projectContext) {
+        const assertCurrent = () => {
+            if (projectContext && !this.projectContextIsCurrent(projectContext))
+                throw new UiCommandCancelled("工作区已切换，项目接入完成标记已取消。");
+        };
+        assertCurrent();
+        if (projectContext?.root || workspaceRoot()) {
             await this.context.workspaceState.update(keys.projectOnboardingCompleted, true);
+            assertCurrent();
             await this.context.workspaceState.update(keys.projectOnboardingPrompt, 1);
+            assertCurrent();
         }
     }
     async ensureSimpleSftpReadyForSetup(operation) {
@@ -3047,25 +3054,32 @@ class RealtimeTunnelPanelProvider {
         }
         this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult);
     }
-    async runPlanPreflight(body, label) {
+    async runPlanPreflight(body, label, authority = {}) {
+        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const prefix = String(label || "当前计划").trim() || "当前计划";
         const workerId = this.planSchedulerWorkerId();
         const validate = await this.postPlanSchedulerAction("validate-plan", body, {
             title: `${prefix}：校验`,
             requiresCapability: ["endpoints.actions", "actions.validate-plan"],
+            ...authority,
         });
+        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const validated = remoteActionPendingStatus(resultStatus(validate))
-            ? await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId)
+            ? await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId, authority)
             : validate;
+        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         if (!validated)
             return false;
         const preview = await this.postPlanSchedulerAction("dry-run-plan", body, {
             title: `${prefix}：预演`,
             requiresCapability: ["endpoints.actions", "actions.dry-run-plan"],
+            ...authority,
         });
+        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const previewed = remoteActionPendingStatus(resultStatus(preview))
-            ? await this.waitForOperationTerminalResult("dry-run-plan", preview, `${prefix}：预演`, 45_000, workerId)
+            ? await this.waitForOperationTerminalResult("dry-run-plan", preview, `${prefix}：预演`, 45_000, workerId, authority)
             : preview;
+        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         return Boolean(previewed);
     }
     async confirmPlanRunSubmission(command, plan, debugMode = false) {
@@ -3548,10 +3562,14 @@ class RealtimeTunnelPanelProvider {
         if (record.ok === false)
             throw new Error(stringFromRecord(record, ["error", "message"]) || "SFTP 忽略规则配置失败。");
     }
-    async ensureCodeReadyForRun() {
+    async ensureCodeReadyForRun(projectContext = this.captureProjectContext()) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
         const targets = this.topologyCodeSyncTargets();
-        await this.syncCodeTargets(targets, "run");
+        await this.syncCodeTargets(targets, "run", { projectContext });
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
     async ensureHubCodeReadyForPlanCheck() {
         await this.prepareSftpTargets("ensureHubCodeReadyForPlanCheck", "simpleSftp.uploadWorkspace");
@@ -3560,22 +3578,32 @@ class RealtimeTunnelPanelProvider {
         await this.syncCodeTargets(targets, "plan-check");
     }
     async syncCodeTargets(targets, scope, options = {}) {
+        const projectContext = options.projectContext;
+        const assertCurrent = () => {
+            if (projectContext && !this.projectContextIsCurrent(projectContext))
+                throw new UiCommandCancelled("工作区已切换，代码同步已取消。");
+        };
+        assertCurrent();
         await this.ensureSftpManagerCommand("simpleSftp.uploadWorkspace");
-        const root = workspaceRoot();
+        assertCurrent();
+        const root = projectContext?.root || workspaceRoot();
         if (!root)
             throw new Error("请先打开一个工作区，再同步代码。");
         const enabledTargets = targets.filter(Boolean);
         if (!enabledTargets.length)
             throw new Error("没有可用于代码同步的 Hub/Worker 目标。");
         const manifest = await buildLocalCodeManifest(root);
+        assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
         await this.confirmRemoteWriteTargets(codeSyncConfirmationLabel(scope), enabledTargets.map((target) => ({
             ...target,
             expectedFiles: expectedRelativeFiles.map((file) => `${target.remotePath.replace(/\/+$/, "")}/${file.replace(/\\/g, "/").replace(/^\/+/, "")}`),
             expectedFileCount: Object.keys(manifest).length,
-        })));
+        })), projectContext);
+        assertCurrent();
         await this.writeSftpManagerServerProfiles(enabledTargets.map((target) => target.id));
+        assertCurrent();
         if (options.startedAction)
             this.notifyLocalActionStarted(options.startedAction.title, options.startedAction.detail);
         const roleStatus = syncRoleStatus(enabledTargets, this.lastCodeSyncState, fingerprint);
@@ -3594,10 +3622,13 @@ class RealtimeTunnelPanelProvider {
                     manifest,
                     server: this.sftpServerOptions(target),
                 });
+                assertCurrent();
                 if (!sftpUploadSucceeded(result, fingerprint))
                     throw new Error(resultError(result) || "SFTP 上传未确认成功。");
             }
             catch (error) {
+                if (isUiCommandCancelled(error))
+                    throw error;
                 failures.push({ role: target.role, label: target.label, message: errorMessage(error) });
             }
         }
@@ -3623,12 +3654,19 @@ class RealtimeTunnelPanelProvider {
             updatedAt: new Date().toISOString(),
         };
         void this.persistProjectCodeSyncState().catch(() => undefined);
-        await this.markProjectOnboardingComplete();
+        await this.markProjectOnboardingComplete(projectContext);
+        assertCurrent();
         this.postState();
     }
-    async confirmRemoteWriteTargets(operation, targets) {
-        const localProjectRoot = assertSingleProjectWorkspace(operation);
+    async confirmRemoteWriteTargets(operation, targets, projectContext) {
+        const assertCurrent = () => {
+            if (projectContext && !this.projectContextIsCurrent(projectContext))
+                throw new UiCommandCancelled("工作区已切换，远端路径确认已取消。");
+        };
+        assertCurrent();
+        const localProjectRoot = projectContext?.root || assertSingleProjectWorkspace(operation);
         await this.loadProjectRemotePathConfirmationsState();
+        assertCurrent();
         const normalized = normalizeRemoteWriteTargets(targets);
         if (!normalized.length)
             throw new Error(`${operation}缺少可确认的远端目标路径。`);
@@ -3636,12 +3674,14 @@ class RealtimeTunnelPanelProvider {
             return;
         const rememberLabel = normalized.length === 1 ? "确认，此后不再提醒该路径" : "确认，此后不再提醒这些路径";
         const answer = await vscode.window.showWarningMessage(remoteWriteConfirmationDetail(operation, normalized, localProjectRoot), { modal: true }, "确认位置并继续", rememberLabel);
+        assertCurrent();
         if (!["确认位置并继续", rememberLabel].includes(String(answer || "")))
             throw new UiCommandCancelled(`${operation}已取消，未写入任何远端文件。`);
         if (answer === rememberLabel) {
             const confirmedAt = new Date().toISOString();
             this.confirmedRemotePaths = mergeRemotePathConfirmations(this.confirmedRemotePaths, normalized.map((item) => ({ ...item, confirmedAt })));
             await this.persistProjectRemotePathConfirmationsState();
+            assertCurrent();
         }
     }
     async prepareSftpTargets(reason, requiredCommand) {
@@ -3980,15 +4020,29 @@ class RealtimeTunnelPanelProvider {
         };
         return { topology, workerId };
     }
+    actionAuthorityIsCurrent(options = {}) {
+        return (!options.projectContext || this.projectContextIsCurrent(options.projectContext))
+            && (!options.authorityClient || options.authorityClient === this.client);
+    }
+    assertActionAuthorityCurrent(options = {}, message = "工作区或连接已切换，远端操作已取消。") {
+        if (!this.actionAuthorityIsCurrent(options))
+            throw new UiCommandCancelled(message);
+    }
     async postPlanSchedulerAction(action, body, options = {}) {
+        this.assertActionAuthorityCurrent(options);
         const route = this.assertPlanTopologyReady(options.title || action);
-        if (route.mode === "worker_pool")
-            return this.postWorkerPoolPlanAction(action, body, options);
-        const { topology, workerId } = this.stampPlanTopology(body);
-        if (topology.mode === "single_worker") {
-            return this.postWorkerTunnelAction(workerId, action, body, options);
+        let result;
+        if (route.mode === "worker_pool") {
+            result = await this.postWorkerPoolPlanAction(action, body, options);
         }
-        return this.postTunnelAction(action, body, options);
+        else {
+            const { topology, workerId } = this.stampPlanTopology(body);
+            result = topology.mode === "single_worker"
+                ? await this.postWorkerTunnelAction(workerId, action, body, options)
+                : await this.postTunnelAction(action, body, options);
+        }
+        this.assertActionAuthorityCurrent(options);
+        return result;
     }
     workerPoolActionBody(body, workerId, shardSet, experimentIndices = []) {
         const worker = this.enabledWorkerConfigs().find((item) => item.id === workerId);
@@ -4037,7 +4091,7 @@ class RealtimeTunnelPanelProvider {
                 const request = this.workerPoolActionBody(body, workerId, undefined);
                 const submitted = await this.postWorkerTunnelAction(workerId, action, request, { ...options, confirm: false, danger: false });
                 const result = remoteActionPendingStatus(resultStatus(submitted))
-                    ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId)
+                    ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId, options)
                     : submitted;
                 return { workerId, result };
             }));
@@ -4125,9 +4179,9 @@ class RealtimeTunnelPanelProvider {
         for (const workerId of workerIds) {
             try {
                 const scoped = this.stampNoHubResultOwnership(this.workerScopedActionBody(body, workerId), workerId);
-                const submitted = await this.postWorkerTunnelAction(workerId, action, scoped, { title: command, confirm: false, danger: false });
+                const submitted = await this.postWorkerTunnelAction(workerId, action, scoped, { ...options, title: command, confirm: false, danger: false });
                 const result = remoteActionPendingStatus(resultStatus(submitted))
-                    ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId)
+                    ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId, options)
                     : submitted;
                 submissions.push({ workerId, result });
             }
@@ -4348,6 +4402,7 @@ class RealtimeTunnelPanelProvider {
         await this.startTunnelEndpointFromUi(message);
     }
     async postTunnelAction(action, body, options = {}) {
+        this.assertActionAuthorityCurrent(options);
         const topology = this.projectTopologyAssessment();
         if (!topology.hubAllowed) {
             const message = `${options.title || action} 已阻止：当前拓扑不使用 Hub，不能调用 Hub Agent。`;
@@ -4374,9 +4429,11 @@ class RealtimeTunnelPanelProvider {
             const answer = await vscode.window.showWarningMessage(remoteActionConfirmationDetail(command, action, body), { modal: true }, label);
             if (answer !== label)
                 throw new UiCommandCancelled(`${command} 已取消。`);
+            this.assertActionAuthorityCurrent(options);
         }
-        const generation = this.projectContextGeneration;
-        const client = this.client;
+        const generation = options.projectContext?.generation ?? this.projectContextGeneration;
+        const client = options.authorityClient || this.client;
+        this.assertActionAuthorityCurrent(options);
         const request = {
             ...body,
             schemaVersion: 1,
@@ -4441,6 +4498,7 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async postWorkerTunnelAction(workerId, action, body, options = {}) {
+        this.assertActionAuthorityCurrent(options);
         workerId = this.resolveWorkerEndpointId(workerId) || workerId;
         const command = options.title || action;
         if (!this.isRealtimeMode()) {
@@ -4470,6 +4528,10 @@ class RealtimeTunnelPanelProvider {
             throw new Error(message);
         }
         const releaseWorkerAction = await this.enterWorkerActionSlot(workerId);
+        if (!this.actionAuthorityIsCurrent(options)) {
+            releaseWorkerAction();
+            throw new UiCommandCancelled("工作区或连接已切换，Worker 操作已取消。");
+        }
         const workerActionKey = workerActionDedupKey(action, workerId, body);
         const active = this.activeWorkerActionOperation(workerActionKey);
         if (active) {
@@ -4483,9 +4545,13 @@ class RealtimeTunnelPanelProvider {
                 releaseWorkerAction();
                 throw new UiCommandCancelled(`${command} 已取消。`);
             }
+            if (!this.actionAuthorityIsCurrent(options)) {
+                releaseWorkerAction();
+                throw new UiCommandCancelled("工作区或连接已切换，Worker 操作已取消。");
+            }
         }
-        const generation = this.projectContextGeneration;
-        const client = this.client;
+        const generation = options.projectContext?.generation ?? this.projectContextGeneration;
+        const client = options.authorityClient || this.client;
         const request = {
             ...body,
             schemaVersion: 1,
@@ -4693,7 +4759,8 @@ class RealtimeTunnelPanelProvider {
         const jitterMs = Math.min(2_000, Math.max(0, settings.jitterSeconds * 1000));
         return Math.round(backoffMs + Math.random() * jitterMs);
     }
-    async waitForOperationTerminalResult(action, result, title, timeoutMs, workerId) {
+    async waitForOperationTerminalResult(action, result, title, timeoutMs, workerId, authority = {}) {
+        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
         const status = resultStatus(result);
         if (!remoteActionPendingStatus(status))
             return result;
@@ -4707,7 +4774,9 @@ class RealtimeTunnelPanelProvider {
             const delayMs = Math.min(this.operationManualWaitDelayMs(attempt), Math.max(0, timeoutMs - (Date.now() - started)));
             if (delayMs > 0)
                 await sleep(delayMs);
-            await this.refreshOperationStatus(opId, action, workerId, attempt).catch(() => false);
+            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
+            await this.refreshOperationStatus(opId, action, workerId, attempt, authority.authorityClient || this.client).catch(() => false);
+            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
             const current = this.localOperations[opId];
             if (operationTerminal(current)) {
                 const terminalStatus = resultStatus(current) || stringFromRecord(current || {}, ["status", "state"]);
@@ -5534,8 +5603,15 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`Plan 已恢复为独立版本 v${planVersion}：${restoredFile}；输出使用 ${outputNamespace} 命名空间，结果写入独立 Plan 范围。已恢复配置 ${restoredConfigs} 个、环境清单 ${restoredEnvironmentFiles.length} 个、参数资料 ${restoredParameterFiles.length} 个；缺失配置 ${missingConfigs} 个、环境清单 ${missingEnvironmentFiles} 个、参数资料 ${missingParameterFiles} 个。已自动切换到 Plan 工作台，可先检查恢复内容，再执行“校验并提交运行”。`);
     }
     async runAllPlansFromUi() {
+        const projectContext = this.captureProjectContext();
+        const client = this.client;
+        const authority = { projectContext, authorityClient: client };
+        const assertCurrent = () => this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，运行全部 Plan 已取消。");
+        assertCurrent();
         const topology = this.assertPlanTopologyReady("批量运行计划");
+        const schedulerWorkerId = topology.mode === "single_worker" ? this.planSchedulerWorkerId() : undefined;
         await this.refreshLocalPlanMetadataForAction(undefined, { allPlans: true });
+        assertCurrent();
         const plans = this.localPlanMetadata.plans || [];
         if (!plans.length)
             throw new Error("没有可运行的计划文件。");
@@ -5553,7 +5629,9 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("计划元数据缺少 planFile，已停止批量运行；请刷新识别后重试。");
             const body = this.actionBody({ planFile, planId: plan.planId || planFile, selectedPlanId: plan.planId || planFile });
             this.stampPlanRevision(body, plan);
+            assertCurrent();
             await this.assertPlanLocalConfigFiles(body);
+            assertCurrent();
             candidatePlans.push({ planFile, body, plan });
         }
         this.assertExecutionAgentProjectsReady();
@@ -5563,36 +5641,47 @@ class RealtimeTunnelPanelProvider {
             .filter((item) => item.activity.active);
         if (activePlans.length)
             throw new Error(`有 ${activePlans.length} 个 Plan 仍在排队或运行，已阻止重复批量提交：${activePlans.slice(0, 5).map((item) => `${item.planFile}${item.activity.historicalOnly ? "（旧 revision 仍活跃）" : ""}`).join("、")}。请先在“任务运行状态”处理。`);
-        if (!await this.ensureSimpleSftpReadyForSetup("批量运行"))
+        if (!await this.ensureSimpleSftpReadyForSetup("批量运行")) {
+            assertCurrent();
             return;
+        }
+        assertCurrent();
         await this.confirmPlanBatchRunSubmission(candidatePlans.map((candidate) => candidate.plan));
-        await this.ensureCodeReadyForRun();
+        assertCurrent();
+        await this.ensureCodeReadyForRun(projectContext);
+        assertCurrent();
         const preparedPlans = [];
         for (const candidate of candidatePlans) {
             const { planFile, body } = candidate;
-            if (!await this.runPlanPreflight(body, `计划 ${planFile}`))
+            assertCurrent();
+            if (!await this.runPlanPreflight(body, `计划 ${planFile}`, authority))
                 throw new Error(`计划 ${planFile} 的校验或预演未返回有效结果，已停止整批提交。`);
+            assertCurrent();
             preparedPlans.push({ planFile, body });
         }
         let submitted = 0;
         let pendingSubmitted = 0;
         for (const prepared of preparedPlans) {
             const { planFile, body } = prepared;
+            assertCurrent();
             const result = await this.postPlanSchedulerAction("run-plan", body, {
                 title: `运行计划 ${planFile}`,
                 confirm: false,
                 danger: false,
                 requiresCapability: capabilityForAction("run-plan"),
+                ...authority,
             });
+            assertCurrent();
             if (remoteActionPendingStatus(resultStatus(result)))
                 pendingSubmitted += 1;
             submitted += 1;
         }
         const schedulerLabel = topology.mode === "single_worker"
-            ? `Worker ${this.planSchedulerWorkerId()} 本机调度队列`
+            ? `Worker ${schedulerWorkerId} 本机调度队列`
             : topology.mode === "worker_pool"
                 ? "各 Worker 独立分片调度队列"
                 : "Hub 调度队列";
+        assertCurrent();
         void vscode.window.showInformationMessage(`全部 ${preparedPlans.length} 个计划已通过校验与预演，并提交 ${submitted}/${preparedPlans.length} 个到 ${schedulerLabel}；${pendingSubmitted} 个正在后台调度。`);
         this.postState();
         if (pendingSubmitted)

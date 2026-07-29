@@ -75,7 +75,7 @@ test("matching roots pass while missing or stale roots become a dedicated mismat
 
 test("Hub-only checks and execution checks use different endpoint scopes", () => {
   const actionStart = extension.indexOf("async runActionCommand(command, message)");
-  const actionEnd = extension.indexOf("async runPlanPreflight(body, label)", actionStart);
+  const actionEnd = extension.indexOf("async runPlanPreflight(body, label, authority = {})", actionStart);
   const action = extension.slice(actionStart, actionEnd);
   const validateStart = action.indexOf('if (command === "validatePlan"');
   const runStart = action.indexOf('if (command === "runPlan"');
