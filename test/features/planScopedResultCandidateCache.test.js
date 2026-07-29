@@ -23,8 +23,11 @@ function extractFunction(name) {
 function loadPreviewScope() {
   const sandbox = {
     EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
+    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
     planScopedResultCandidateCache: new WeakMap(),
+    planScopedResultPreviewCache: new WeakMap(),
     compileCalls: 0,
+    matchCalls: 0,
     planOutputEvidenceCandidates(plan) { return Array.isArray((plan || {}).outputCandidates) ? plan.outputCandidates : []; },
     adapterRuleResultCandidates(rules) { return Array.isArray((rules || {}).candidateCsv) ? rules.candidateCsv : []; },
     uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
@@ -33,6 +36,7 @@ function loadPreviewScope() {
       return { candidates: new Set(candidates.map((item) => String(item).toLowerCase())) };
     },
     compiledResultCandidatesMatchFile(compiled, file) {
+      sandbox.matchCalls += 1;
       return compiled.candidates.has(String(file || "").toLowerCase());
     },
   };
@@ -57,8 +61,11 @@ function extractPanelFunction(name) {
 function loadFrontendPreviewScope() {
   const sandbox = {
     EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
+    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
     planScopedResultCandidateCache: new WeakMap(),
+    planScopedResultPreviewCache: new WeakMap(),
     compileCalls: 0,
+    matchCalls: 0,
     asArray(value) { return Array.isArray(value) ? value : []; },
     planOutputEvidenceCandidates(plan) { return Array.isArray((plan || {}).outputCandidates) ? plan.outputCandidates : []; },
     adapterRuleResultCandidates(rules) { return Array.isArray((rules || {}).candidateCsv) ? rules.candidateCsv : []; },
@@ -68,6 +75,7 @@ function loadFrontendPreviewScope() {
       return { candidates: new Set(candidates.map((item) => String(item).toLowerCase())) };
     },
     compiledResultCandidatesMatchFile(compiled, file) {
+      sandbox.matchCalls += 1;
       return compiled.candidates.has(String(file || "").toLowerCase());
     },
   };
@@ -110,6 +118,19 @@ test("Plan or rules replacement invalidates the compiled candidate cache", () =>
   assert.equal(sandbox.compileCalls, 3);
 });
 
+test("Plan-scoped preview filtering reuses one stable preview snapshot", () => {
+  const sandbox = loadPreviewScope();
+  const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["runs/a.csv"] };
+  const rules = { candidateCsv: [] };
+  const previews = [{ file: "runs/a.csv" }, { file: "runs/b.csv" }];
+  const first = sandbox.scope(previews, plan, rules);
+  const matchCalls = sandbox.matchCalls;
+
+  assert.strictEqual(sandbox.scope(previews, plan, rules), first);
+  assert.equal(sandbox.matchCalls, matchCalls);
+  assert.notStrictEqual(sandbox.scope([...previews], plan, rules), first);
+});
+
 test("missing rules reuse the shared empty source without changing unscoped behavior", () => {
   const sandbox = loadPreviewScope();
   const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["runs/a.csv"] };
@@ -123,6 +144,7 @@ test("missing rules reuse the shared empty source without changing unscoped beha
   assert.equal(unscoped.items.length, 1);
   assert.equal(sandbox.compileCalls, 1);
   assert.match(extension, /const planScopedResultCandidateCache = new WeakMap\(\)/);
+  assert.match(extension, /const planScopedResultPreviewCache = new WeakMap\(\)/);
 });
 
 test("frontend Plan-scoped candidate compilation is reused while preview rows stay current", () => {
@@ -148,6 +170,19 @@ test("frontend Plan or rules replacement invalidates the compiled candidate cach
   assert.equal(sandbox.compileCalls, 3);
 });
 
+test("frontend Plan-scoped preview filtering reuses one stable preview snapshot", () => {
+  const sandbox = loadFrontendPreviewScope();
+  const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["runs/a.csv"] };
+  const rules = { candidateCsv: [] };
+  const previews = [{ file: "runs/a.csv" }, { file: "runs/b.csv" }];
+  const first = sandbox.scope(previews, plan, rules);
+  const matchCalls = sandbox.matchCalls;
+
+  assert.strictEqual(sandbox.scope(previews, plan, rules), first);
+  assert.equal(sandbox.matchCalls, matchCalls);
+  assert.notStrictEqual(sandbox.scope([...previews], plan, rules), first);
+});
+
 test("frontend missing rules reuse the shared empty source without changing unscoped behavior", () => {
   const sandbox = loadFrontendPreviewScope();
   const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["runs/a.csv"] };
@@ -159,4 +194,5 @@ test("frontend missing rules reuse the shared empty source without changing unsc
   assert.equal(unscoped.scoped, false);
   assert.equal(unscoped.items.length, 1);
   assert.match(panel, /const planScopedResultCandidateCache = new WeakMap\(\)/);
+  assert.match(panel, /const planScopedResultPreviewCache = new WeakMap\(\)/);
 });

@@ -11956,6 +11956,7 @@ const planOutputEvidenceCandidatesCache = new WeakMap();
 const planOutputEvidenceSignalsCache = new WeakMap();
 const adapterRuleResultCandidatesCache = new WeakMap();
 const planScopedResultCandidateCache = new WeakMap();
+const planScopedResultPreviewCache = new WeakMap();
 const adapterRuleCandidatePatternsCache = new WeakMap();
 const adapterRuleExactFilesCache = new WeakMap();
 function nestedRecord(record, key) {
@@ -12168,12 +12169,28 @@ function resultCandidatePatternMatchesFile(candidate, file, plan) {
     return compiledResultCandidatesMatchFile(compileResultCandidatePatterns([candidate], plan), file);
 }
 function planScopedResultParsePreviews(previews, plan, rules) {
-    const all = (Array.isArray(previews) ? previews : []).filter((item) => item && typeof item === "object");
-    const selected = Boolean(plan && (plan.planFile || plan.file || plan.planId || plan.suite));
-    if (!selected)
-        return { items: all, totalCount: all.length, hiddenCount: 0, candidateCount: 0, scoped: false };
+    const previewSource = Array.isArray(previews) ? previews : EMPTY_OUTPUT_DERIVATION_VALUES;
     const planSource = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : EMPTY_OUTPUT_DERIVATION_SOURCE;
     const rulesSource = rules && typeof rules === "object" && !Array.isArray(rules) ? rules : EMPTY_OUTPUT_DERIVATION_SOURCE;
+    let planCache = planScopedResultPreviewCache.get(previewSource);
+    if (!planCache) {
+        planCache = new WeakMap();
+        planScopedResultPreviewCache.set(previewSource, planCache);
+    }
+    let rulesCacheForPreviews = planCache.get(planSource);
+    if (!rulesCacheForPreviews) {
+        rulesCacheForPreviews = new WeakMap();
+        planCache.set(planSource, rulesCacheForPreviews);
+    }
+    if (rulesCacheForPreviews.has(rulesSource))
+        return rulesCacheForPreviews.get(rulesSource);
+    const all = previewSource.filter((item) => item && typeof item === "object");
+    const selected = Boolean(plan && (plan.planFile || plan.file || plan.planId || plan.suite));
+    if (!selected) {
+        const unscoped = { items: all, totalCount: all.length, hiddenCount: 0, candidateCount: 0, scoped: false };
+        rulesCacheForPreviews.set(rulesSource, unscoped);
+        return unscoped;
+    }
     let rulesCache = planScopedResultCandidateCache.get(planSource);
     if (!rulesCache) {
         rulesCache = new WeakMap();
@@ -12190,7 +12207,9 @@ function planScopedResultParsePreviews(previews, plan, rules) {
     }
     const { candidates, compiled } = derived;
     const items = candidates.length ? all.filter((item) => compiledResultCandidatesMatchFile(compiled, item.file || item.path || "")) : [];
-    return { items, totalCount: all.length, hiddenCount: Math.max(0, all.length - items.length), candidateCount: candidates.length, scoped: true };
+    const scoped = { items, totalCount: all.length, hiddenCount: Math.max(0, all.length - items.length), candidateCount: candidates.length, scoped: true };
+    rulesCacheForPreviews.set(rulesSource, scoped);
+    return scoped;
 }
 function planOutputCandidates(plan) {
     const source = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;

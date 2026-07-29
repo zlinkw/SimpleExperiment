@@ -92,6 +92,7 @@ function panelPreviewScope(previews, plan, rules) {
     planOutputEvidenceCandidatesCache: new WeakMap(),
     adapterRuleResultCandidatesCache: new WeakMap(),
     planScopedResultCandidateCache: new WeakMap(),
+    planScopedResultPreviewCache: new WeakMap(),
     asArray(value) { return Array.isArray(value) ? value : []; },
   };
   vm.createContext(sandbox);
@@ -115,8 +116,10 @@ function panelPreviewScope(previews, plan, rules) {
 function extensionPreviewScope(previews, plan, rules) {
   const sandbox = {
     path,
+    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
     EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
     planScopedResultCandidateCache: new WeakMap(),
+    planScopedResultPreviewCache: new WeakMap(),
     escapeRegExp(value) { return String(value || "").replace(/[.*+?^{}$()|[\]\\]/g, "\\$&"); },
     uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
     planOutputEvidenceCandidates(item) { return Array.isArray((item || {}).outputCandidates) ? item.outputCandidates : []; },
