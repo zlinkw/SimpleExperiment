@@ -64,24 +64,29 @@ export interface FileTransferVerifyResult {
   message: string;
 }
 
+const ROOT_RESULT_FILES: ReadonlySet<string> = new Set([
+  "metrics_summary.csv", "metrics_case.csv", "results.csv", "result.csv", "metrics.csv", "summary.csv", "scores.csv", "score.csv",
+  "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv", "metrics.json", "summary.json", "result.json", "results.json",
+  "classification_report.json", "summary.txt", "result.txt", "results.txt", "classification_report.txt", "stdout.log", "stderr.log",
+  "train.log", "test.log", "console.log", "output.out",
+]);
+
+const ALLOWED_REMOTE_PATH_ROOTS: ReadonlySet<string> = new Set([
+  "zlk_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results",
+  "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions",
+]);
+
 export function isSafeRemotePath(remotePath: string): boolean {
   const normalized = remotePath.replace(/\\/g, "/").trim();
   if (!normalized || normalized.includes("\0")) return false;
   if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) return false;
-  if (normalized.split("/").some((part) => part === "..")) return false;
-  if (normalized.split("/").some((part) => /^(id_rsa|id_ed25519|known_hosts|\.ssh)(\.|$)/i.test(part) || /\.(pem|key)$/i.test(part))) return false;
-  const parts = normalized.split("/").filter((part) => part && part !== ".");
-  const rootResultFiles = new Set([
-    "metrics_summary.csv", "metrics_case.csv", "results.csv", "result.csv", "metrics.csv", "summary.csv", "scores.csv", "score.csv",
-    "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv", "metrics.json", "summary.json", "result.json", "results.json",
-    "classification_report.json", "summary.txt", "result.txt", "results.txt", "classification_report.txt", "stdout.log", "stderr.log",
-    "train.log", "test.log", "console.log", "output.out",
-  ]);
-  if (parts.length === 1) return rootResultFiles.has(parts[0].toLowerCase());
-  return new Set([
-    "zlk_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results",
-    "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions",
-  ]).has(parts[0].toLowerCase());
+  const segments = normalized.split("/");
+  if (segments.some((part) => part === "..")) return false;
+  if (segments.some((part) => /^(id_rsa|id_ed25519|known_hosts|\.ssh)(\.|$)/i.test(part) || /\.(pem|key)$/i.test(part))) return false;
+  const parts = segments.filter((part) => part && part !== ".");
+  if (!parts.length) return false;
+  if (parts.length === 1) return ROOT_RESULT_FILES.has(parts[0].toLowerCase());
+  return ALLOWED_REMOTE_PATH_ROOTS.has(parts[0].toLowerCase());
 }
 
 export function makeTransferId(prefix = "transfer"): string {
