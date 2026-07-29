@@ -12639,6 +12639,19 @@ function schedulerTaskMatchesPlanVersion(row, planRevision, planUpdatedAt) {
     }
     return !planRevision;
 }
+const EMPTY_PLAN_ARCHIVE_SCHEDULER_ROWS = [];
+let planArchiveSchedulerRowsCacheState = null;
+let planArchiveSchedulerRowsCacheSource = null;
+let planArchiveSchedulerRowsCacheValue = [];
+function planArchiveSchedulerRowsForState(state) {
+    const source = Array.isArray(state?.schedulerStates) ? state.schedulerStates : EMPTY_PLAN_ARCHIVE_SCHEDULER_ROWS;
+    if (planArchiveSchedulerRowsCacheState === state && planArchiveSchedulerRowsCacheSource === source)
+        return planArchiveSchedulerRowsCacheValue;
+    planArchiveSchedulerRowsCacheState = state;
+    planArchiveSchedulerRowsCacheSource = source;
+    planArchiveSchedulerRowsCacheValue = flattenPlanArchiveSchedulerRows(source);
+    return planArchiveSchedulerRowsCacheValue;
+}
 function currentPlanRevisionHasRunEvidence(state, plan) {
     const item = plan && typeof plan === "object" ? plan : {};
     const planFile = normalizePlanSelectionKey(item.planFile || item.file || item.planId || "");
@@ -12667,11 +12680,11 @@ function currentPlanRevisionHasRunEvidence(state, plan) {
     });
     if (matchingOperation)
         return true;
-    return flattenPlanArchiveSchedulerRows(state?.schedulerStates || []).some((row) => samePlanSelection(String(row.planFile || row.plan || ""), planFile)
+    return planArchiveSchedulerRowsForState(state).some((row) => samePlanSelection(String(row.planFile || row.plan || ""), planFile)
         && schedulerTaskMatchesPlanVersion(row, planRevision, planUpdatedAt));
 }
 function projectBootstrapFinishedTaskOutcome(state, planFile, planRevision, planUpdatedAt) {
-    const matching = flattenPlanArchiveSchedulerRows(state?.schedulerStates || []).filter((row) => samePlanSelection(String(row.planFile || row.plan || ""), planFile)
+    const matching = planArchiveSchedulerRowsForState(state).filter((row) => samePlanSelection(String(row.planFile || row.plan || ""), planFile)
         && schedulerTaskMatchesPlanVersion(row, planRevision, planUpdatedAt));
     if (!matching.length || matching.some((row) => !schedulerStatusTerminal(row.status || row.state || "")))
         return undefined;
@@ -12841,7 +12854,7 @@ function activePlanRunEvidence(state, planFile, plan) {
             && activeStatuses.has(operationStatusToken(operationStatusOf(row)));
         return active ? { row, payloads } : undefined;
     }).filter(Boolean);
-    const schedulerRows = flattenPlanArchiveSchedulerRows(state?.schedulerStates || []);
+    const schedulerRows = planArchiveSchedulerRowsForState(state);
     const activeTasks = schedulerRows.filter((row) => samePlanSelection(String(row.planFile || row.plan || ""), selectedPlan)
         && activeStatuses.has(operationStatusToken(row.status || row.state || "")));
     const currentOperations = activeOperationRows.filter((item) => matchesCurrentVersion(item.row, item.payloads));
@@ -12887,7 +12900,7 @@ function planArchiveGateFromResults(summary, planFile) {
     return { ok: true, reason: "已归档结果将作为有效结果；未归档结果保留为排除记录。", totalCount: records.length, includedCount: included.length, excludedCount: records.length - included.length, archivedCount: included.length };
 }
 function planArchiveRunGate(state, planFile) {
-    const rows = flattenPlanArchiveSchedulerRows(state?.schedulerStates || []);
+    const rows = planArchiveSchedulerRowsForState(state);
     const matching = rows.filter((row) => samePlanSelection(String(row.planFile || row.plan || ""), planFile));
     const active = matching.filter((row) => !schedulerStatusTerminal(row.status || row.state || ""));
     if (active.length)

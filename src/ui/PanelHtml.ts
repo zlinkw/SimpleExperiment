@@ -1597,6 +1597,7 @@ export function renderPanelHtml(): string {
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_PLAN_ROWS_FOR_LOOKUP = [];
+    const EMPTY_SCHEDULER_STATES = [];
     const MATCH_EVERY_OPERATION = () => true;
     const MATCH_NO_OPERATION = () => false;
     const OPERATION_INFRASTRUCTURE_PATTERN = /self|debug|audit|diagnostic|agent|tunnel|port/;
@@ -13321,10 +13322,14 @@ export function renderPanelHtml(): string {
     let schedulerRowsCacheSignature = "";
     let schedulerRowsCacheRows = [];
     function schedulerRowsForState(state) {
-      const source = (state && state.schedulerStates) || [];
+      const source = (state && state.schedulerStates) || EMPTY_SCHEDULER_STATES;
+      if (schedulerRowsCacheState === state && schedulerRowsCacheSource === source) return schedulerRowsCacheRows;
       const sourceModel = schedulerRowsSourceModel(source);
       const signature = sourceModel.signature;
-      if (schedulerRowsCacheState === state && schedulerRowsCacheSource === source && schedulerRowsCacheSignature === signature) return schedulerRowsCacheRows;
+      if (schedulerRowsCacheSource === source && schedulerRowsCacheSignature === signature) {
+        schedulerRowsCacheState = state;
+        return schedulerRowsCacheRows;
+      }
       schedulerRowsCacheState = state;
       schedulerRowsCacheSource = source;
       schedulerRowsCacheSignature = signature;

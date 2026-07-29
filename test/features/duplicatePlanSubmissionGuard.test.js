@@ -42,6 +42,7 @@ function loadExtensionGuard() {
       }
       return out.length ? out : [row];
     }) : [],
+    planArchiveSchedulerRowsForState: (state) => sandbox.flattenPlanArchiveSchedulerRows((state || {}).schedulerStates || []),
   };
   vm.createContext(sandbox);
   vm.runInContext(`${extractFunction(extension, "activePlanRunEvidence")}\nthis.guard = activePlanRunEvidence;`, sandbox);
