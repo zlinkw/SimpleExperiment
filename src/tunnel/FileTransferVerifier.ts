@@ -19,11 +19,14 @@ export async function verifyLocalFileSha256(
 ): Promise<FileTransferVerifyResult> {
   if (!expectedSha256) return { transferId, ok: true, message: "No sha256 expected value provided." };
   const actualSha256 = await sha256File(localPath);
+  const normalizedActualSha256 = actualSha256.toLowerCase();
+  const normalizedExpectedSha256 = expectedSha256.toLowerCase();
+  const ok = normalizedActualSha256 === normalizedExpectedSha256;
   return {
     transferId,
-    ok: actualSha256.toLowerCase() === expectedSha256.toLowerCase(),
+    ok,
     expectedSha256,
     actualSha256,
-    message: actualSha256.toLowerCase() === expectedSha256.toLowerCase() ? "sha256 ok" : "sha256 mismatch",
+    message: ok ? "sha256 ok" : "sha256 mismatch",
   };
 }
