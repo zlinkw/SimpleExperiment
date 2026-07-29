@@ -10646,8 +10646,13 @@ function compactArrayFieldForWebview(record, key, limit, mapper) {
     record[`${key}OmittedCount`] = value.length - limit;
 }
 const XSHELL_SESSION_WEBVIEW_LIMIT = 120;
+const xshellSetupForWebviewCache = new WeakMap();
 function compactXshellSetupForWebview(config) {
-    return dropUndefined({
+    const cacheable = Boolean(config) && (typeof config === "object" || typeof config === "function");
+    const cached = cacheable ? xshellSetupForWebviewCache.get(config) : undefined;
+    if (cached)
+        return cached;
+    const compacted = dropUndefined({
         hubDisplayName: config.hubDisplayName,
         hubHost: config.hubHost,
         hubUser: config.hubUser,
@@ -10673,6 +10678,9 @@ function compactXshellSetupForWebview(config) {
         autoTestTunnelAfterStart: config.autoTestTunnelAfterStart,
         workerTunnels: config.workerTunnels.map(compactWorkerSetupForWebview),
     });
+    if (cacheable)
+        xshellSetupForWebviewCache.set(config, compacted);
+    return compacted;
 }
 function compactWorkerSetupForWebview(worker) {
     return dropUndefined({
@@ -10789,10 +10797,15 @@ function auditTailRawText(value) {
     }
     return "";
 }
+const probeForWebviewCache = new WeakMap();
 function compactProbeForWebview(probe) {
     if (!probe)
         return undefined;
-    return dropUndefined({
+    const cacheable = typeof probe === "object" || typeof probe === "function";
+    const cached = cacheable ? probeForWebviewCache.get(probe) : undefined;
+    if (cached)
+        return cached;
+    const compacted = dropUndefined({
         status: probe.status,
         localForwardPort: probe.localForwardPort,
         remoteAgentPort: probe.remoteAgentPort,
@@ -10814,11 +10827,21 @@ function compactProbeForWebview(probe) {
         message: compactSensitiveText(probe.message, 600),
         suggestion: probe.suggestion ? compactSensitiveText(probe.suggestion, 400) : undefined,
     });
+    if (cacheable)
+        probeForWebviewCache.set(probe, compacted);
+    return compacted;
 }
+const workerProbesForWebviewCache = new WeakMap();
 function compactWorkerProbesForWebview(probes) {
+    const cacheable = Boolean(probes) && (typeof probes === "object" || typeof probes === "function");
+    const cached = cacheable ? workerProbesForWebviewCache.get(probes) : undefined;
+    if (cached)
+        return cached;
     const out = {};
     for (const [workerId, probe] of Object.entries(probes || {}))
         out[workerId] = compactWorkerProbeForWebview(probe);
+    if (cacheable)
+        workerProbesForWebviewCache.set(probes, out);
     return out;
 }
 function compactWorkerProbeForWebview(probe) {
@@ -10937,12 +10960,16 @@ function compactFileTransfersForWebview(fileTransfers) {
         .slice(0, WEBVIEW_FILE_TRANSFER_TERMINAL_LIMIT);
     return Object.fromEntries([...active, ...terminal].map(([id, row]) => [id, compactFileTransferForWebview(id, row)]));
 }
+const codeSyncForWebviewCache = new WeakMap();
 function compactCodeSyncForWebview(codeSync) {
     const sync = objectRecord(codeSync);
     if (!sync)
         return {};
+    const cached = codeSyncForWebviewCache.get(sync);
+    if (cached)
+        return cached;
     const error = firstStringFieldForWebview(sync, "error", "message", "reason");
-    return dropUndefined({
+    const compacted = dropUndefined({
         fingerprint: firstStringFieldForWebview(sync, "fingerprint", "sha256", "digest"),
         scope: firstStringFieldForWebview(sync, "scope"),
         hub: firstStringFieldForWebview(sync, "hub"),
@@ -10951,6 +10978,8 @@ function compactCodeSyncForWebview(codeSync) {
         failureCount: firstNumberFieldForWebview(sync, "failureCount", "failure_count") || (error ? splitSyncFailures(error).length : undefined),
         error: error ? compactSensitiveText(splitSyncFailures(error).slice(0, 3).join("；"), 480) : undefined,
     });
+    codeSyncForWebviewCache.set(sync, compacted);
+    return compacted;
 }
 function splitSyncFailures(error) {
     return String(error || "").split(/\s*;\s*/).map((item) => item.trim()).filter(Boolean);
@@ -10989,12 +11018,16 @@ function compactRealtimeDiagnosticsForPostGate(realtime) {
         endpointOmittedCount: Math.max(0, rawEndpoints.length - endpoints.length),
     });
 }
+const healthForWebviewCache = new WeakMap();
 function compactHealthForWebview(health) {
     const item = objectRecord(health);
     if (!item)
         return { state: "unknown", checkedAt: "" };
+    const cached = healthForWebviewCache.get(item);
+    if (cached)
+        return cached;
     const message = firstStringFieldForWebview(item, "message", "error", "reason");
-    return dropUndefined({
+    const compacted = dropUndefined({
         state: firstStringFieldForWebview(item, "state", "status") || "unknown",
         status: firstStringFieldForWebview(item, "status", "state"),
         localForwardPort: firstNumberFieldForWebview(item, "localForwardPort", "local_forward_port", "localPort"),
@@ -11011,6 +11044,8 @@ function compactHealthForWebview(health) {
         checkedAt: firstStringFieldForWebview(item, "checkedAt", "checked_at"),
         message: message ? compactSensitiveText(message, 360) : undefined,
     });
+    healthForWebviewCache.set(item, compacted);
+    return compacted;
 }
 function compactGpuForWebview(gpu) {
     const out = {};
