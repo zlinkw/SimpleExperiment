@@ -1585,6 +1585,8 @@ export function renderPanelHtml(): string {
     let serverStatusIndexCacheValue = null;
     let xshellSessionIndexCacheSource = null;
     let xshellSessionIndexCacheValue = null;
+    const configParamDiffBaseCache = new WeakMap();
+    const EMPTY_CONFIG_PARAM_DIFF_SOURCE = Object.freeze({});
     let configInspectorIndexCacheSource = null;
     let configInspectorIndexCacheValue = null;
     let configParamFilterTimer = 0;
@@ -10488,22 +10490,42 @@ export function renderPanelHtml(): string {
       return String(value || "").trim().replace(/\\\\/g, "/").replace(/^\\.\\//, "").toLowerCase();
     }
 
-    function configParamDiffRows(selected, baseline, query) {
+    function configParamDiffBase(selected, baseline) {
       const counts = { same: 0, changed: 0, added: 0, missing: 0, uncertain: 0 };
       if (!selected) return { rows: [], counts };
+      const selectedSource = selected && typeof selected === "object" && !Array.isArray(selected) ? selected : null;
+      if (!selectedSource) return { rows: [], counts };
+      const baselineSource = baseline && typeof baseline === "object" && !Array.isArray(baseline) ? baseline : EMPTY_CONFIG_PARAM_DIFF_SOURCE;
+      let baselineCache = configParamDiffBaseCache.get(selectedSource);
+      if (!baselineCache) {
+        baselineCache = new WeakMap();
+        configParamDiffBaseCache.set(selectedSource, baselineCache);
+      }
+      const cached = baselineCache.get(baselineSource);
+      if (cached) return cached;
+      const hasBaseline = baselineSource !== EMPTY_CONFIG_PARAM_DIFF_SOURCE;
       const selectedOmitted = Number(selected.omittedParamCount || 0) > 0;
-      const baselineOmitted = Number((baseline && baseline.omittedParamCount) || 0) > 0;
-      const currentByKey = new Map(asArray(selected && selected.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
-      const baselineByKey = new Map(asArray(baseline && baseline.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
+      const baselineOmitted = Number((baselineSource && baselineSource.omittedParamCount) || 0) > 0;
+      const currentByKey = new Map(asArray(selectedSource.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
+      const baselineByKey = new Map(asArray(hasBaseline && baselineSource.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
       const keys = Array.from(new Set([...currentByKey.keys(), ...baselineByKey.keys()])).sort(naturalCompare);
       const rows = keys.map((key) => {
         const param = currentByKey.get(key);
         const baselineParam = baselineByKey.get(key);
-        const kind = !baseline ? "uncompared" : !baselineParam ? baselineOmitted ? "uncertain" : "added" : !param ? selectedOmitted ? "uncertain" : "missing" : String(param.value) === String(baselineParam.value) ? "same" : "changed";
+        const kind = !hasBaseline ? "uncompared" : !baselineParam ? baselineOmitted ? "uncertain" : "added" : !param ? selectedOmitted ? "uncertain" : "missing" : String(param.value) === String(baselineParam.value) ? "same" : "changed";
         if (counts[kind] !== undefined) counts[kind] += 1;
-        return { key, kind, param, baselineParam };
-      }).filter((item) => !query || [selected && selected.file, baseline && baseline.file, item.key, item.param && item.param.value, item.baselineParam && item.baselineParam.value, item.param && item.param.kind, item.baselineParam && item.baselineParam.kind].join(" ").toLowerCase().includes(query));
-      return { rows, counts };
+        const searchText = [selectedSource.file, hasBaseline && baselineSource.file, key, param && param.value, baselineParam && baselineParam.value, param && param.kind, baselineParam && baselineParam.kind].join(" ").toLowerCase();
+        return { key, kind, param, baselineParam, searchText };
+      });
+      const value = { rows, counts };
+      baselineCache.set(baselineSource, value);
+      return value;
+    }
+
+    function configParamDiffRows(selected, baseline, query) {
+      const base = configParamDiffBase(selected, baseline);
+      const normalizedQuery = String(query || "").trim().toLowerCase();
+      return normalizedQuery ? { rows: base.rows.filter((item) => item.searchText.includes(normalizedQuery)), counts: base.counts } : base;
     }
 
     function configParamDiffLabel(kind) {

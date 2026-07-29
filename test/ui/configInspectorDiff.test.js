@@ -31,10 +31,12 @@ function inlineFunction(name) {
 
 test("config inspector classifies selected values against the current Plan config", () => {
   const context = {
+    configParamDiffBaseCache: new WeakMap(),
+    EMPTY_CONFIG_PARAM_DIFF_SOURCE: Object.freeze({}),
     asArray(value) { return Array.isArray(value) ? value : []; },
     naturalCompare(left, right) { return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); },
   };
-  vm.runInNewContext(inlineFunction("configParamDiffRows"), context);
+  vm.runInNewContext([inlineFunction("configParamDiffBase"), inlineFunction("configParamDiffRows")].join("\n"), context);
   const baseline = { file: "configs/base.yaml", params: [
     { key: "model.depth", value: "18", kind: "scalar" },
     { key: "seed", value: "7", kind: "scalar" },
@@ -59,6 +61,31 @@ test("config inspector classifies selected values against the current Plan confi
   assert.equal(truncated.rows.find((row) => row.key === "trainer.epochs").kind, "uncertain");
   assert.equal(truncated.counts.missing, 0);
   assert.equal(truncated.counts.uncertain, 1);
+});
+
+test("config inspector reuses structural diffs while keeping each search current", () => {
+  const context = {
+    configParamDiffBaseCache: new WeakMap(),
+    EMPTY_CONFIG_PARAM_DIFF_SOURCE: Object.freeze({}),
+    asArray(value) { return Array.isArray(value) ? value : []; },
+    naturalCompare(left, right) { return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); },
+  };
+  vm.runInNewContext([inlineFunction("configParamDiffBase"), inlineFunction("configParamDiffRows")].join("\n"), context);
+  const selected = { file: "configs/large.yaml", params: [
+    { key: "model.depth", value: "50", kind: "scalar" },
+    { key: "optimizer.lr", value: "0.001", kind: "scalar" },
+  ] };
+  const baseline = { file: "configs/base.yaml", params: [
+    { key: "model.depth", value: "18", kind: "scalar" },
+    { key: "trainer.epochs", value: "10", kind: "scalar" },
+  ] };
+
+  const first = context.configParamDiffRows(selected, baseline, "");
+  assert.equal(context.configParamDiffRows(selected, baseline, ""), first);
+  assert.deepEqual(Array.from(context.configParamDiffRows(selected, baseline, "optimizer").rows, (row) => row.key), ["optimizer.lr"]);
+  assert.deepEqual(Array.from(context.configParamDiffRows(selected, baseline, "trainer").rows, (row) => row.key), ["trainer.epochs"]);
+  assert.equal(context.configParamDiffRows(selected, { ...baseline, params: [...baseline.params] }, "") === first, false);
+  assert.equal(context.configParamDiffRows({ ...selected, params: [...selected.params] }, baseline, "") === first, false);
 });
 
 test("config inspector accepts only concrete Plan config files as a comparison baseline", () => {
