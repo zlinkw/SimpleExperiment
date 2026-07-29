@@ -569,6 +569,13 @@ class RealtimeTunnelPanelProvider {
     currentPortConflictsCacheAssignments;
     currentPortConflictsCacheRangeKey = "";
     currentPortConflictsCacheValue = [];
+    endpointRegistryStateCacheConfig;
+    endpointRegistryStateCacheHubProbe;
+    endpointRegistryStateCacheWorkerProbes;
+    endpointRegistryStateCacheAssignments;
+    endpointRegistryStateCacheConflicts;
+    endpointRegistryStateCachePolicy;
+    endpointRegistryStateCacheValue;
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
@@ -7957,13 +7964,32 @@ class RealtimeTunnelPanelProvider {
         });
     }
     endpointRegistryState() {
-        return {
+        const assignments = this.currentAssignments();
+        const conflicts = this.currentPortConflicts();
+        const policy = this.setupConfig.realtime;
+        if (this.endpointRegistryStateCacheConfig === this.setupConfig
+            && this.endpointRegistryStateCacheHubProbe === this.lastProbe
+            && this.endpointRegistryStateCacheWorkerProbes === this.lastWorkerProbes
+            && this.endpointRegistryStateCacheAssignments === assignments
+            && this.endpointRegistryStateCacheConflicts === conflicts
+            && this.endpointRegistryStateCachePolicy === policy) {
+            return this.endpointRegistryStateCacheValue;
+        }
+        const state = {
             registry: (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(this.setupConfig, { hub: this.lastProbe, ...this.lastWorkerProbes }),
-            assignments: this.currentAssignments(),
-            conflicts: this.currentPortConflicts(),
-            policy: this.setupConfig.realtime,
+            assignments,
+            conflicts,
+            policy,
             note: `插件不内置 ${"S" + "SH"}，也不会执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。Hub 和 Worker 连接都由 Xshell 会话本地端口转发提供；插件只访问 127.0.0.1 端口。配置保存在 VS Code 全局扩展状态中。`,
         };
+        this.endpointRegistryStateCacheConfig = this.setupConfig;
+        this.endpointRegistryStateCacheHubProbe = this.lastProbe;
+        this.endpointRegistryStateCacheWorkerProbes = this.lastWorkerProbes;
+        this.endpointRegistryStateCacheAssignments = assignments;
+        this.endpointRegistryStateCacheConflicts = conflicts;
+        this.endpointRegistryStateCachePolicy = policy;
+        this.endpointRegistryStateCacheValue = state;
+        return state;
     }
     configurationSourceState() {
         const config = vscode.workspace.getConfiguration("zlkCluster");
