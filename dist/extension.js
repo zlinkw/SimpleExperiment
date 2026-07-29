@@ -5302,9 +5302,14 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`Plan 归档包已创建：${archivedRelative}`);
     }
     async restoreArchivedPlanFromUi(message) {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root)
             throw new Error("需要先打开工作区。");
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext))
+                throw new UiCommandCancelled("工作区已切换，归档 Plan 恢复已取消。");
+        };
         const file = stringField(message, "file") || stringField(message, "planFile");
         if (!file)
             throw new Error("缺少要恢复的归档 Plan。");
@@ -5316,9 +5321,11 @@ class RealtimeTunnelPanelProvider {
             throw new Error("只能恢复归档包根目录中的 plan.yaml。");
         const bundleDir = path.dirname(source);
         const bundle = await readPlanArchiveBundle(source);
+        assertCurrent();
         if (!bundle.schemaVersion || !stringField(bundle, "originalPlanFile"))
             throw new Error("归档包缺少 archive_manifest.json，无法安全恢复。");
         const planText = await fs.readFile(source, "utf8");
+        assertCurrent();
         const originalPlanFile = stringField(bundle, "originalPlanFile");
         const requestedTarget = safeWorkspacePlanPath(root, originalPlanFile, planDir);
         const planRoot = path.resolve(root, planDir);
@@ -5327,6 +5334,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("归档包原始 Plan 路径无效。");
         const parsed = path.parse(requestedTarget);
         const target = await nextAvailableVersionedPlanFile(path.join(planRoot, "_restored", path.dirname(originalRelative)), parsed.name, parsed.ext);
+        assertCurrent();
         const restoredFile = path.relative(root, target).replace(/\\/g, "/");
         const planVersion = path.basename(target, parsed.ext).match(/__v(\d+)$/)?.[1] || "1";
         const outputNamespace = `__restored_v${planVersion}`;
@@ -5355,6 +5363,7 @@ class RealtimeTunnelPanelProvider {
             "恢复后的输出目录、固定结果文件和命令内固定输出参数会自动加入该版本命名空间，避免覆盖历史结果。",
             "确认后才会写入新 Plan 和恢复资产；归档包不会改变。",
         ].join("\n"), { modal: true }, confirmLabel);
+        assertCurrent();
         if (answer !== confirmLabel)
             throw new UiCommandCancelled("恢复归档 Plan 已取消，未写入新版本或恢复资产。");
         let restoredConfigs = 0;
@@ -5364,12 +5373,15 @@ class RealtimeTunnelPanelProvider {
             const configSource = safeArchiveBundleChildPath(path.join(bundleDir, "configs"), relative);
             const configTarget = safeWorkspaceChildPath(root, path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "configs", relative));
             const stat = await fs.stat(configSource).catch(() => undefined);
+            assertCurrent();
             if (!stat?.isFile()) {
                 missingConfigs += 1;
                 continue;
             }
             await fs.mkdir(path.dirname(configTarget), { recursive: true });
+            assertCurrent();
             await fs.copyFile(configSource, configTarget);
+            assertCurrent();
             configPathMap.set(relative, path.relative(root, configTarget).replace(/\\/g, "/"));
             restoredConfigs += 1;
         }
@@ -5381,12 +5393,15 @@ class RealtimeTunnelPanelProvider {
             const environmentSource = safeArchiveBundleChildPath(path.join(bundleDir, "environment"), relative);
             const environmentTarget = safeWorkspaceChildPath(root, path.posix.join("experiments", "restored_assets", safePlanToken(restoredFile), "environment", relative));
             const stat = await fs.stat(environmentSource).catch(() => undefined);
+            assertCurrent();
             if (!stat?.isFile()) {
                 missingEnvironmentFiles += 1;
                 continue;
             }
             await fs.mkdir(path.dirname(environmentTarget), { recursive: true });
+            assertCurrent();
             await fs.copyFile(environmentSource, environmentTarget);
+            assertCurrent();
             restoredEnvironmentFiles.push({ original: relative, restored: path.relative(root, environmentTarget).replace(/\\/g, "/") });
         }
         const parameterSnapshotFile = stringField(parameterBundle, "snapshot");
@@ -5398,9 +5413,12 @@ class RealtimeTunnelPanelProvider {
             const parameterSource = safeArchiveBundleChildPath(bundleDir, parameterSnapshotFile);
             const parameterTarget = safeWorkspaceChildPath(root, path.posix.join(restoredParameterDir, "cli_parameters.json"));
             const stat = await fs.stat(parameterSource).catch(() => undefined);
+            assertCurrent();
             if (stat?.isFile()) {
                 await fs.mkdir(path.dirname(parameterTarget), { recursive: true });
+                assertCurrent();
                 await fs.copyFile(parameterSource, parameterTarget);
+                assertCurrent();
                 restoredParameterFiles.push({ original: parameterSnapshotFile, restored: path.relative(root, parameterTarget).replace(/\\/g, "/") });
             }
             else {
@@ -5411,18 +5429,24 @@ class RealtimeTunnelPanelProvider {
             const parameterSource = safeArchiveBundleChildPath(path.join(bundleDir, "parameters", "entries"), relative);
             const parameterTarget = safeWorkspaceChildPath(root, path.posix.join(restoredParameterDir, "entries", relative));
             const stat = await fs.stat(parameterSource).catch(() => undefined);
+            assertCurrent();
             if (!stat?.isFile()) {
                 missingParameterFiles += 1;
                 continue;
             }
             await fs.mkdir(path.dirname(parameterTarget), { recursive: true });
+            assertCurrent();
             await fs.copyFile(parameterSource, parameterTarget);
+            assertCurrent();
             restoredParameterFiles.push({ original: relative, restored: path.relative(root, parameterTarget).replace(/\\/g, "/") });
         }
         await fs.mkdir(path.dirname(target), { recursive: true });
+        assertCurrent();
         await fs.writeFile(target, (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }), "utf8");
+        assertCurrent();
         const restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("zlk_cluster", "plan_restores", `${safePlanToken(restoredFile)}.json`));
         await fs.mkdir(path.dirname(restoreRecordFile), { recursive: true });
+        assertCurrent();
         await fs.writeFile(restoreRecordFile, JSON.stringify({
             schemaVersion: 1,
             restoredAt: new Date().toISOString(),
@@ -5441,10 +5465,13 @@ class RealtimeTunnelPanelProvider {
             restoredParameterFiles,
             missingParameterFiles,
         }, null, 2) + "\n", "utf8");
+        assertCurrent();
         this.planFileInput = restoredFile;
         this.selectedPlanId = restoredFile;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
+        assertCurrent();
         await this.persistProjectPlanSelectionState();
+        assertCurrent();
         this.postState();
         void vscode.window.showInformationMessage(`Plan 已恢复为独立版本 v${planVersion}：${restoredFile}；输出使用 ${outputNamespace} 命名空间，结果写入独立 Plan 范围。已恢复配置 ${restoredConfigs} 个、环境清单 ${restoredEnvironmentFiles.length} 个、参数资料 ${restoredParameterFiles.length} 个；缺失配置 ${missingConfigs} 个、环境清单 ${missingEnvironmentFiles} 个、参数资料 ${missingParameterFiles} 个。已自动切换到 Plan 工作台，可先检查恢复内容，再执行“校验并提交运行”。`);
     }

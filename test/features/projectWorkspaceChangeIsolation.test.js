@@ -189,6 +189,17 @@ test("Plan archive stays bound to its initiating project and client", () => {
   assert.match(archive, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!isCurrent\(\)\)\s*return/);
 });
 
+test("archived Plan restore cannot continue in a replacement workspace", () => {
+  const restore = methodBody("async restoreArchivedPlanFromUi", "async runAllPlansFromUi");
+  assert.match(restore, /const projectContext = this\.captureProjectContext\(\);\s*const root = projectContext\.root/);
+  assert.match(restore, /throw new UiCommandCancelled\("工作区已切换，归档 Plan 恢复已取消。"\)/);
+  assert.ok([...restore.matchAll(/assertCurrent\(\)/g)].length >= 20);
+  assert.match(restore, /const bundle = await readPlanArchiveBundle\(source\);\s*assertCurrent\(\)/);
+  assert.match(restore, /await fs\.copyFile\(configSource, configTarget\);\s*assertCurrent\(\)/);
+  assert.match(restore, /await fs\.writeFile\(target, restorePlanText[\s\S]{0,380}assertCurrent\(\)/);
+  assert.match(restore, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*assertCurrent\(\);\s*await this\.persistProjectPlanSelectionState\(\);\s*assertCurrent\(\)/);
+});
+
 test("stale UI layout saves cannot refresh a replacement workspace", () => {
   const save = methodBody("async saveUiLayoutFromUi", "async resetUiLayoutFromUi");
   const reset = methodBody("async resetUiLayoutFromUi", "async runActionCommand");

@@ -16,6 +16,8 @@ test("archived plan restore creates an isolated version with isolated configs an
   assert.match(extension, /path\.posix\.join\("experiments", "restored_assets", safePlanToken\(restoredFile\), "configs", relative\)/);
   assert.match(extension, /resultScopeFile: restoredFile/);
   assert.match(extension, /restorePlanText\(planText, \{ originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir \}\)/);
+  assert.match(extension, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.match(extension, /工作区已切换，归档 Plan 恢复已取消/);
   assert.match(extension, /await this\.persistProjectPlanSelectionState\(\)/);
   assert.match(extension, /自动切换到 Plan 工作台/);
 });
