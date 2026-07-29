@@ -12906,7 +12906,7 @@ function renderPanelHtml() {
       if (cached) return cached;
       const value = uniqueText(asArray(source.outputSignals || [])
         .map((item) => String(item || "").trim())
-        .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
+        .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|结果目录|命令参数|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
       planOutputEvidenceSignalsCache.set(source, value);
       return value;
     }
