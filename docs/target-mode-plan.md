@@ -17,34 +17,36 @@
 - [已完成] 2/5 project-087：缓存 Extension Host 远端写入目标归一化。
 - [已完成] 3/5 project-088：缓存前端 GPU 历史颜色转换。
 - [已完成] 4/5 project-089：缓存 Extension Host UI 操作归一化。
-- [待处理] 5/5 project-090：执行第四十八轮完整非服务器静态测试。
+- [已完成] 5/5 project-090：执行第四十八轮完整非服务器静态测试。
 
-## 当前批次：project-089（已完成）
+## 当前批次：project-090（已完成）
 ### 修复点
 
-- 为 Extension Host 的 UI 按钮操作归一化增加按输入数组和上限区分的有界缓存。
-- 复用项目与全局布局合并中的重复命令白名单、payload 清洗、ID 生成和去重。
-- 增加定向回归，覆盖同一变体复用、输出自映射、不同上限隔离和变体淘汰。
+- 对 project-086 至 project-089 执行第四十八轮完整非服务器静态回归。
+- 覆盖 TypeScript 构建、全部 Node 测试、Lint、4 个 Node 入口和 8 个 Python 文件语法检查。
+- 仅修复完整回归明确检出的兼容问题，不扩大当前五批周期范围。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 每个输入数组的上限变体必须有界，避免异常布局数据造成长期 Extension Host 内存增长。
-- 缓存不得改变命令白名单、payload 字段清洗、ID、顺序、去重或 16/40 上限。
+- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
+- 构建不得改变 Agent runtime 生成内容或写入历史 VSIX、`zlk_cluster/ui/`。
+- 任何失败必须保留为未完成，不得提交或推送成功记录。
 - 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] 新手配置访问定向 Node 测试，4/4。
+- [已通过] 安全 preload 下第四十八轮完整非服务器 `npm test`，993/993。
+- [已通过] TypeScript、Lint、4/4 个 Node 入口和 8/8 个 Python 文件语法。
 - [已通过] `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-086 至 project-090 五批静态优化周期；project-090 再执行完整测试。
-- project-086 至 project-088 已由提交 `dce4280`、`6937470`、`c7e305b` 同步至 `origin/master`。
-- 本批修改 Extension Host 布局归一化、对应定向测试和计划文档，不改变可见 UI。
-- 下一批边界为 project-090，仅执行第四十八轮完整非服务器静态回归并修复其明确检出的问题。
+- project-086 至 project-089 已由提交 `dce4280`、`6937470`、`c7e305b`、`0bad97b` 同步至 `origin/master`。
+- 本批仅记录完整回归；未检出需要修改的兼容问题。
+- 构建未改变 Agent runtime；project-086 至 project-089 的缓存边界和现有功能入口保持不变。
+- 未连接服务器、未截图、未生成或安装 VSIX，真实服务器行为保持 `needs field verification`。
 - 不调用无感截图；前端视觉验收留给后续人工确认。
