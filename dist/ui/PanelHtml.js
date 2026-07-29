@@ -1468,6 +1468,7 @@ function renderPanelHtml() {
     const planOutputEvidenceCandidatesCache = new WeakMap();
     const planOutputEvidenceSignalsCache = new WeakMap();
     const adapterRuleResultCandidatesCache = new WeakMap();
+    const planScopedResultCandidateCache = new WeakMap();
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
     let taskSectionViewCacheState = null;
@@ -1613,6 +1614,7 @@ function renderPanelHtml() {
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_OUTPUT_DERIVATION_VALUES = Object.freeze([]);
+    const EMPTY_OUTPUT_DERIVATION_SOURCE = Object.freeze({});
     const EMPTY_SERVER_SETUP = Object.freeze({});
     const EMPTY_AGENT_PREPARATION_BLOCKERS = Object.freeze([]);
     const EMPTY_CAPABILITY_SOURCE = Object.freeze({});
@@ -10043,64 +10045,102 @@ function renderPanelHtml() {
       return String(value || "").split("").map((char) => ".*+?^{}()|[]$".includes(char) || char.charCodeAt(0) === 92 ? String.fromCharCode(92) + char : char).join("");
     }
 
-    function resultCandidatePatternMatchesFile(candidate, file, plan) {
+    function normalizeResultCandidatePath(value) {
+      return String(value || "").trim().replace(/\\\\/g, "/").replace(/^\\.\\//, "");
+    }
+
+    function compileResultCandidatePatterns(candidates, plan) {
       plan = plan || {};
-      const pattern = String(candidate || "").trim().replace(/\\\\/g, "/").replace(/^\\.\\//, "");
-      const target = String(file || "").trim().replace(/\\\\/g, "/").replace(/^\\.\\//, "");
-      if (!pattern || !target) return false;
-      if (!pattern.includes("/") && target.split("/").pop().toLowerCase() === pattern.toLowerCase()) return true;
       const known = {
         suite: String(plan.suite || "").trim(),
         plan: String(plan.planFile || plan.file || plan.planId || "").trim(),
         plan_file: String(plan.planFile || plan.file || "").trim()
       };
-      let source = "^";
-      for (let index = 0; index < pattern.length;) {
-        const placeholder = pattern.slice(index).match(/^\{+([A-Za-z0-9_.-]+)\}+/);
-        if (placeholder) {
-          const key = placeholder[1];
-          const value = known[key];
-          source += value ? resultPreviewRegexEscape(value.replace(/\\\\/g, "/")) : /output_?dir/i.test(key) ? ".+" : "[^/]+";
-          index += placeholder[0].length;
-          continue;
+      const basenames = new Set();
+      const exactPaths = new Set();
+      const patterns = [];
+      asArray(candidates).forEach((candidate) => {
+        const pattern = normalizeResultCandidatePath(candidate);
+        if (!pattern) return;
+        if (!/[?*]/.test(pattern) && !pattern.includes(String.fromCharCode(123))) {
+          if (pattern.includes("/")) exactPaths.add(pattern.toLowerCase());
+          else basenames.add(pattern.toLowerCase());
+          return;
         }
-        const char = pattern[index];
-        if (char === "*") {
-          if (pattern[index + 1] === "*") {
-            source += ".*";
-            index += 2;
-          } else {
-            source += "[^/]*";
-            index += 1;
+        let source = "^";
+        for (let index = 0; index < pattern.length;) {
+          const placeholder = pattern.slice(index).match(/^\{+([A-Za-z0-9_.-]+)\}+/);
+          if (placeholder) {
+            const key = placeholder[1];
+            const value = known[key];
+            source += value ? resultPreviewRegexEscape(value.replace(/\\\\/g, "/")) : /output_?dir/i.test(key) ? ".+" : "[^/]+";
+            index += placeholder[0].length;
+            continue;
           }
-          continue;
-        }
-        if (char === "?") {
-          source += "[^/]";
+          const char = pattern[index];
+          if (char === "*") {
+            if (pattern[index + 1] === "*") {
+              source += ".*";
+              index += 2;
+            } else {
+              source += "[^/]*";
+              index += 1;
+            }
+            continue;
+          }
+          if (char === "?") {
+            source += "[^/]";
+            index += 1;
+            continue;
+          }
+          source += resultPreviewRegexEscape(char);
           index += 1;
-          continue;
         }
-        source += resultPreviewRegexEscape(char);
-        index += 1;
-      }
-      try {
-        return new RegExp(source + "$", "i").test(target);
-      } catch (_) {
-        return false;
-      }
+        try {
+          patterns.push(new RegExp(source + "$", "i"));
+        } catch (_) {
+          // Ignore malformed candidates while retaining valid matchers.
+        }
+      });
+      return { basenames, exactPaths, patterns };
+    }
+
+    function compiledResultCandidatesMatchFile(compiled, file) {
+      const target = normalizeResultCandidatePath(file);
+      if (!target) return false;
+      const normalized = target.toLowerCase();
+      const basename = (target.split("/").pop() || "").toLowerCase();
+      return compiled.exactPaths.has(normalized)
+        || compiled.basenames.has(basename)
+        || compiled.patterns.some((pattern) => pattern.test(target));
+    }
+
+    function resultCandidatePatternMatchesFile(candidate, file, plan) {
+      return compiledResultCandidatesMatchFile(compileResultCandidatePatterns([candidate], plan), file);
     }
 
     function planScopedResultParsePreviews(previews, plan, rules) {
       const all = asArray(previews).filter((item) => item && typeof item === "object");
       const selected = Boolean(plan && (plan.planFile || plan.file || plan.planId || plan.suite));
       if (!selected) return { items: all, totalCount: all.length, hiddenCount: 0, candidateCount: 0, scoped: false };
-      const candidates = uniqueText([
-        ...planOutputEvidenceCandidates(plan),
-        ...adapterRuleResultCandidates(rules || {})
-      ]);
-      const items = candidates.length
-        ? all.filter((item) => candidates.some((candidate) => resultCandidatePatternMatchesFile(candidate, item.file || item.path || "", plan)))
-        : [];
+      const planSource = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const rulesSource = rules && typeof rules === "object" && !Array.isArray(rules) ? rules : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      let rulesCache = planScopedResultCandidateCache.get(planSource);
+      if (!rulesCache) {
+        rulesCache = new WeakMap();
+        planScopedResultCandidateCache.set(planSource, rulesCache);
+      }
+      let derived = rulesCache.get(rulesSource);
+      if (!derived) {
+        const candidates = uniqueText([
+          ...planOutputEvidenceCandidates(plan),
+          ...adapterRuleResultCandidates(rulesSource)
+        ]);
+        derived = { candidates, compiled: compileResultCandidatePatterns(candidates, plan) };
+        rulesCache.set(rulesSource, derived);
+      }
+      const candidates = derived.candidates;
+      const items = candidates.length ? all.filter((item) => compiledResultCandidatesMatchFile(derived.compiled, item.file || item.path || "")) : [];
       return { items, totalCount: all.length, hiddenCount: Math.max(0, all.length - items.length), candidateCount: candidates.length, scoped: true };
     }
 

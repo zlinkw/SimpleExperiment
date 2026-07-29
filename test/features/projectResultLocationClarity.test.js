@@ -87,9 +87,11 @@ function panelPreviewScope(previews, plan, rules) {
     RESULT_METADATA_FILENAMES: new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]),
     RESULT_METADATA_SUFFIXES: ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"],
     EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
+    EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
     planOutputCandidatesCache: new WeakMap(),
     planOutputEvidenceCandidatesCache: new WeakMap(),
     adapterRuleResultCandidatesCache: new WeakMap(),
+    planScopedResultCandidateCache: new WeakMap(),
     asArray(value) { return Array.isArray(value) ? value : []; },
   };
   vm.createContext(sandbox);
@@ -100,6 +102,9 @@ function panelPreviewScope(previews, plan, rules) {
     extractFunction("planOutputEvidenceCandidates"),
     extractFunction("adapterRuleResultCandidates"),
     extractFunction("resultPreviewRegexEscape"),
+    extractFunction("normalizeResultCandidatePath"),
+    extractFunction("compileResultCandidatePatterns"),
+    extractFunction("compiledResultCandidatesMatchFile"),
     extractFunction("resultCandidatePatternMatchesFile"),
     extractFunction("planScopedResultParsePreviews"),
     "this.check = planScopedResultParsePreviews;",
@@ -198,26 +203,31 @@ test("local result previews stay scoped to the selected Plan and explicit projec
   assert.match(extension, /planScopedResultParsePreviews\(arrayFromRecord\(project \|\| \{\}, "resultParsePreviews"\), plan, rules\)/);
 });
 
-test("extension result preview scope compiles candidates before filtering previews", () => {
-  const scope = extensionPreviewScope([
+test("frontend and backend result preview scopes compile candidates before filtering previews", () => {
+  const previews = [
     { file: "nested\\metrics.csv" },
     { file: "runs/alpha/case-1/result.json" },
     { file: "runs/alpha/deep/final.log" },
     { file: "runs/beta/case-1/result.json" },
-  ], {
+  ];
+  const plan = {
     planFile: "experiments/plans/alpha.yaml",
     suite: "alpha",
     outputCandidates: ["metrics.csv", "runs/{suite}/case-?/result.json", "runs/{suite}/**/*.log"],
-  }, {});
-
-  assert.deepEqual(scope.items.map((item) => item.file), [
+  };
+  const expected = [
     "nested\\metrics.csv",
     "runs/alpha/case-1/result.json",
     "runs/alpha/deep/final.log",
-  ]);
-  const scopedSource = extractSourceFunction(extension, "planScopedResultParsePreviews");
-  assert.match(scopedSource, /compileResultCandidatePatterns\(candidates, plan\)/);
-  assert.doesNotMatch(scopedSource, /candidates\.some|resultCandidatePatternMatchesFile/);
+  ];
+
+  assert.deepEqual(panelPreviewScope(previews, plan, {}).items.map((item) => item.file), expected);
+  assert.deepEqual(extensionPreviewScope(previews, plan, {}).items.map((item) => item.file), expected);
+  for (const [source, extractor] of [[panelScript, extractSourceFunction], [extension, extractSourceFunction]]) {
+    const scopedSource = extractor(source, "planScopedResultParsePreviews");
+    assert.match(scopedSource, /compileResultCandidatePatterns\(candidates, plan\)/);
+    assert.doesNotMatch(scopedSource, /candidates\.some|resultCandidatePatternMatchesFile/);
+  }
 });
 
 test("panel state derivation reuses fixed command and result metadata collections", () => {
