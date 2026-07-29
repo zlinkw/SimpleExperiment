@@ -1636,6 +1636,10 @@ function renderPanelHtml() {
     const RESOURCE_TREE_SECTION_KEYS = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
     const INSPECTOR_OPERATION_SECTIONS = new Set(["tasks", "operations"]);
+    const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
+    const TERMINAL_UI_STATUSES = new Set(["completed", "submitted", "failed", "cancelled", "stalled"]);
+    const SUBMITTED_RUN_COMMANDS = new Set(["runPlan", "reproducePlan", "runAllPlans"]);
+    const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"]);
     const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
@@ -3386,7 +3390,7 @@ function renderPanelHtml() {
     }
 
     function commandNeedsLoading(command) {
-      return !["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"].includes(String(command || ""));
+      return !COMMANDS_WITHOUT_LOADING.has(String(command || ""));
     }
 
     function createClientActionId(command, pendingKey) {
@@ -3459,7 +3463,7 @@ function renderPanelHtml() {
     }
 
     function isTerminalUiStatus(status) {
-      return ["completed", "submitted", "failed", "cancelled", "stalled"].includes(String(status || "").toLowerCase());
+      return TERMINAL_UI_STATUSES.has(String(status || "").toLowerCase());
     }
 
     function handleUiCommandStatus(data) {
@@ -3499,7 +3503,7 @@ function renderPanelHtml() {
     function submittedCommandTarget(command, status) {
       const normalizedCommand = String(command || "");
       const normalizedStatus = String(status || "").toLowerCase();
-      if (normalizedStatus === "submitted" && ["runPlan", "reproducePlan", "runAllPlans"].includes(normalizedCommand)) {
+      if (normalizedStatus === "submitted" && SUBMITTED_RUN_COMMANDS.has(normalizedCommand)) {
         return { section: "tasks", anchor: "tasks-list" };
       }
       if (normalizedStatus === "completed" && normalizedCommand === "restoreArchivedPlan") {
@@ -3547,7 +3551,7 @@ function renderPanelHtml() {
     }
 
     function isConfigSaveCommand(command) {
-      return ["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"].includes(String(command || ""));
+      return CONFIG_SAVE_COMMANDS.has(String(command || ""));
     }
 
     function clearPendingActionTimeout(clientActionId) {

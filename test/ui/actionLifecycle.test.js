@@ -2,6 +2,20 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
+
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `missing function ${name}`);
+  const body = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated function ${name}`);
+}
 
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
@@ -92,4 +106,42 @@ test("webview repeated render does not preserve disabled state for loading butto
   assert.match(source, /const alreadyLoading = button\.classList\.contains\("is-loading"\)/);
   assert.match(source, /if \(!alreadyLoading\) button\.dataset\.wasDisabled/);
   assert.match(source, /delete button\.dataset\.clientActionId/);
+});
+
+test("webview command lifecycle reuses fixed status and command sets", () => {
+  const root = path.resolve(__dirname, "..", "..");
+  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const sandbox = {
+    COMMANDS_WITHOUT_LOADING: new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]),
+    TERMINAL_UI_STATUSES: new Set(["completed", "submitted", "failed", "cancelled", "stalled"]),
+    SUBMITTED_RUN_COMMANDS: new Set(["runPlan", "reproducePlan", "runAllPlans"]),
+    CONFIG_SAVE_COMMANDS: new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"]),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction(source, "commandNeedsLoading"),
+    extractFunction(source, "isTerminalUiStatus"),
+    extractFunction(source, "submittedCommandTarget"),
+    extractFunction(source, "isConfigSaveCommand"),
+    "this.api = { commandNeedsLoading, isTerminalUiStatus, submittedCommandTarget, isConfigSaveCommand };",
+  ].join("\n"), sandbox);
+
+  assert.equal(sandbox.api.commandNeedsLoading("status"), false);
+  assert.equal(sandbox.api.commandNeedsLoading("runPlan"), true);
+  assert.equal(sandbox.api.isTerminalUiStatus("STALLED"), true);
+  assert.equal(sandbox.api.isTerminalUiStatus("running"), false);
+  assert.equal(sandbox.api.submittedCommandTarget("runAllPlans", "submitted").section, "tasks");
+  assert.equal(sandbox.api.submittedCommandTarget("restoreArchivedPlan", "completed").section, "plans");
+  assert.equal(sandbox.api.submittedCommandTarget("runPlan", "running"), null);
+  assert.equal(sandbox.api.isConfigSaveCommand("saveSchedulerConfig"), true);
+  assert.equal(sandbox.api.isConfigSaveCommand("runPlan"), false);
+
+  assert.match(source, /const COMMANDS_WITHOUT_LOADING = new Set\(/);
+  assert.match(source, /const TERMINAL_UI_STATUSES = new Set\(/);
+  assert.match(source, /const SUBMITTED_RUN_COMMANDS = new Set\(/);
+  assert.match(source, /const CONFIG_SAVE_COMMANDS = new Set\(/);
+  assert.match(source, /COMMANDS_WITHOUT_LOADING\.has\(String\(command \|\| ""\)\)/);
+  assert.match(source, /TERMINAL_UI_STATUSES\.has\(String\(status \|\| ""\)\.toLowerCase\(\)\)/);
+  assert.match(source, /SUBMITTED_RUN_COMMANDS\.has\(normalizedCommand\)/);
+  assert.match(source, /CONFIG_SAVE_COMMANDS\.has\(String\(command \|\| ""\)\)/);
 });
