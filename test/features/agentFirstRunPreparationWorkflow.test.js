@@ -107,6 +107,15 @@ test("quick setup and main UI expose preparation while connection keeps literal 
   assert.match(extension, /async quickSetup\(showAgentCompletion = true\)/);
   assert.match(extension, /async writeXshellAgentStartupCommands\(showMessage = true, requireConfirm = true\)/);
   assert.match(extension, /async startAllXshellConnections\(requireConfirm = true, scheduleAutoTest = true\)/);
+  assert.equal((extension.match(/this\.schedulePostLaunchAutoTest\(\)/g) || []).length, 3);
+  assert.doesNotMatch(extension, /setTimeout\(\(\) => void this\.testTunnel\(true\), 2500\)/);
+  assert.match(extension, /private postLaunchAutoTestTimer\?: ReturnType<typeof setTimeout>/);
+  assert.match(extension, /private postLaunchAutoTestGeneration = 0/);
+  const schedule = extension.match(/private schedulePostLaunchAutoTest\(\)[\s\S]*?private cancelPostLaunchAutoTest/)?.[0] || "";
+  assert.match(schedule, /const timerGeneration = this\.postLaunchAutoTestGeneration/);
+  assert.match(schedule, /generation !== this\.projectContextGeneration \|\| client !== this\.client/);
+  assert.match(schedule, /this\.testTunnel\(true\)\.catch/);
+  assert.match(extension, /private resetClient\(\)[\s\S]{0,180}this\.cancelPostLaunchAutoTest\(\)/);
   assert.match(extension, /case "prepareAgents":\s*await this\.prepareAgentsForFirstRun\(\)/);
   assert.match(panel, /data-command="prepareAgents">准备 Agent 并启动<\/button>/);
   assert.match(panel, /prepareAgents: "部署 Agent、写入受管自启动命令、启动会话并检测全部"/);

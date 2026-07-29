@@ -463,6 +463,8 @@ class RealtimeTunnelPanelProvider {
     localOperationsPersistPromise;
     operationTimers = new Map();
     operationProbeTimers = new Map();
+    postLaunchAutoTestTimer;
+    postLaunchAutoTestGeneration = 0;
     workerActionInFlight = new Map();
     workerActionLastAt = new Map();
     workerActionAdmissionLocks = new Map();
@@ -687,6 +689,7 @@ class RealtimeTunnelPanelProvider {
             clearTimeout(this.planLocalChangeParseTimer);
         this.planLocalChangeParseTimer = undefined;
         this.planLocalChangeParseGeneration += 1;
+        this.cancelPostLaunchAutoTest();
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
         this.resultsSummaryRefreshTimer = undefined;
@@ -1245,6 +1248,7 @@ class RealtimeTunnelPanelProvider {
             clearTimeout(this.planLocalChangeParseTimer);
         this.planLocalChangeParseTimer = undefined;
         this.planLocalChangeParseGeneration += 1;
+        this.cancelPostLaunchAutoTest();
         for (const timer of this.operationTimers.values())
             clearTimeout(timer);
         this.operationTimers.clear();
@@ -1723,7 +1727,7 @@ class RealtimeTunnelPanelProvider {
         }
         await this.launchUniqueXshellSessions(launchItems);
         if (scheduleAutoTest && this.setupConfig.autoTestTunnelAfterStart) {
-            setTimeout(() => void this.testTunnel(true), 2500).unref?.();
+            this.schedulePostLaunchAutoTest();
         }
         else {
             void this.ensureRealtimeConnected("xshell sessions launched");
@@ -1930,7 +1934,7 @@ class RealtimeTunnelPanelProvider {
             return;
         await this.launchTunnelItem(hubItem);
         if (this.setupConfig.autoTestTunnelAfterStart) {
-            setTimeout(() => void this.testTunnel(true), 2500).unref?.();
+            this.schedulePostLaunchAutoTest();
         }
         else {
             void this.ensureRealtimeConnected("xshell launched");
@@ -2026,7 +2030,7 @@ class RealtimeTunnelPanelProvider {
             await waitForXshellBatchLaunchSlot();
         }
         if (this.setupConfig.autoTestTunnelAfterStart) {
-            setTimeout(() => void this.testTunnel(true), 2500).unref?.();
+            this.schedulePostLaunchAutoTest();
         }
         else {
             void this.ensureRealtimeConnected("xshell launched all");
@@ -2122,6 +2126,33 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             this.showTunnelTestToast();
         }
+    }
+    schedulePostLaunchAutoTest() {
+        this.cancelPostLaunchAutoTest();
+        const timerGeneration = this.postLaunchAutoTestGeneration;
+        const generation = this.projectContextGeneration;
+        const client = this.client;
+        const timer = setTimeout(() => {
+            if (this.postLaunchAutoTestTimer === timer)
+                this.postLaunchAutoTestTimer = undefined;
+            if (timerGeneration !== this.postLaunchAutoTestGeneration || generation !== this.projectContextGeneration || client !== this.client)
+                return;
+            void this.testTunnel(true).catch((error) => {
+                if (timerGeneration !== this.postLaunchAutoTestGeneration || generation !== this.projectContextGeneration || client !== this.client)
+                    return;
+                this.lastError = errorMessage(error);
+                this.recordActionError({ command: "testTunnel", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
+                this.postState();
+            });
+        }, 2500);
+        this.postLaunchAutoTestTimer = timer;
+        timer.unref?.();
+    }
+    cancelPostLaunchAutoTest() {
+        this.postLaunchAutoTestGeneration += 1;
+        if (this.postLaunchAutoTestTimer)
+            clearTimeout(this.postLaunchAutoTestTimer);
+        this.postLaunchAutoTestTimer = undefined;
     }
     async runXshellRealIntegrationCheck() {
         const generation = this.projectContextGeneration;
@@ -7077,6 +7108,7 @@ class RealtimeTunnelPanelProvider {
     }
     resetClient() {
         const previous = this.client;
+        this.cancelPostLaunchAutoTest();
         this.resultsSummaryRefreshTimerGeneration += 1;
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
