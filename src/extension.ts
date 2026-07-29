@@ -2308,23 +2308,24 @@ class RealtimeTunnelPanelProvider {
     }
     async manualGpuSnapshot() {
         const generation = this.projectContextGeneration;
+        const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import")
             return;
         try {
-            await this.client.getGpu();
-            if (generation !== this.projectContextGeneration)
+            await client.getGpu();
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             await this.pushLocalWorkerAvailability(true);
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = undefined;
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
         }
-        if (generation === this.projectContextGeneration)
+        if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
     }
     async loadGpuHistoryFromUi(message) {
@@ -2361,38 +2362,40 @@ class RealtimeTunnelPanelProvider {
     }
     async manualSchedulerSnapshot() {
         const generation = this.projectContextGeneration;
+        const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import")
             return;
         try {
-            await this.client.getScheduler();
-            if (generation !== this.projectContextGeneration)
+            await client.getScheduler();
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = undefined;
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
         }
-        if (generation === this.projectContextGeneration)
+        if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
     }
     async manualTracesSnapshot() {
         const generation = this.projectContextGeneration;
+        const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import")
             return;
         try {
-            await this.client.getTraces();
-            if (generation !== this.projectContextGeneration)
+            await client.getTraces();
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = undefined;
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
         }
-        if (generation === this.projectContextGeneration)
+        if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
     }
     async generateTunnelScript() {

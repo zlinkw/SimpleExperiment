@@ -10,9 +10,25 @@ test("manual ui snapshots call tunnel client APIs", () => {
   assert.match(source, /case "manualGpuSnapshot":[\s\S]+manualGpuSnapshot/);
   assert.match(source, /case "manualSchedulerSnapshot":[\s\S]+manualSchedulerSnapshot/);
   assert.match(source, /case "manualTracesSnapshot":[\s\S]+manualTracesSnapshot/);
-  assert.match(source, /await this\.client\.getGpu\(\)/);
-  assert.match(source, /await this\.client\.getScheduler\(\)/);
-  assert.match(source, /await this\.client\.getTraces\(\)/);
+  assert.match(source, /await client\.getGpu\(\)/);
+  assert.match(source, /await client\.getScheduler\(\)/);
+  assert.match(source, /await client\.getTraces\(\)/);
+});
+
+test("manual ui snapshots bind completion to the initiating client", () => {
+  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const methods = [
+    ["manualGpuSnapshot", "loadGpuHistoryFromUi"],
+    ["manualSchedulerSnapshot", "manualTracesSnapshot"],
+    ["manualTracesSnapshot", "generateTunnelScript"],
+  ];
+  for (const [method, nextMethod] of methods) {
+    const start = source.indexOf(`async ${method}()`);
+    const body = source.slice(start, source.indexOf(`async ${nextMethod}(`, start));
+    assert.match(body, /const client = this\.client/, method);
+    assert.ok([...body.matchAll(/client !== this\.client/g)].length >= 2, method);
+    assert.match(body, /client === this\.client/, method);
+  }
 });
 
 test("select log run key updates selection and refreshes live output", () => {

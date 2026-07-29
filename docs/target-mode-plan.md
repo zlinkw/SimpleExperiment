@@ -15,32 +15,32 @@
 ## 后续优先级
 - [已完成] 1/5 authority-001：阻止旧拓扑或旧连接的端点检测结果回写当前运行态。
 - [已完成] 2/5 authority-002：隔离 GPU 历史缓存 reset 前后的异步加载结果。
-- [待做] 3/5 authority-003：绑定手动 scheduler 与 trace 快照到发起请求的实时客户端。
+- [已完成] 3/5 authority-003：绑定手动 GPU、scheduler 与 trace 快照到发起请求的实时客户端。
 - [待做] 4/5 authority-004：审计 Webview 状态摘要截断与有效变更遗漏边界。
 - [待做] 5/5 authority-005：执行第二十七轮完整非服务器静态测试并修正新增回归。
 
-## 当前批次：authority-002（已完成）
+## 当前批次：authority-003（已完成）
 ### 修复点
 
-- 复核 GPU 历史缓存已有 epoch 门禁，避免重复实现同类 generation 状态。
-- 增加 reset 后旧异步成功和失败均不能覆盖新缓存或 idle 状态的竞态回归。
-- 保留调用层工作区 generation 与客户端实例双门禁。
+- 手动 GPU、scheduler 与 trace 快照必须捕获发起时的实时客户端。
+- 客户端切换后，旧请求成功或失败不得修改当前错误状态或触发旧状态发布。
+- 保留工作区 generation 门禁和离线模式无网络行为。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- reset 清理 entries、pending 和 view 后，旧 Promise 完成不得重新填充状态。
-- reset 后的新请求结果必须保持权威，旧请求 cleanup 不得删除新 pending。
-- GPU 历史继续按需通过现有 Xshell 本地隧道查询；本批不增加请求频率。
+- 手动 GPU 请求完成后的 availability 上报只能由仍权威的客户端触发。
+- scheduler 与 trace 读取继续只更新实时客户端内部快照，不新增缓存副本。
+- 所有请求继续使用现有 Xshell 本地隧道客户端，不引入直接服务器连接。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] GPU 历史缓存预算、reset 竞态与工作区隔离定向测试，12/12。
+- [已通过] 手动快照客户端权威、无直连与相邻工作区隔离定向测试，10/10。
 - [已通过] TypeScript 构建、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮复用缓存已有 epoch 权威边界并补齐缺失的 reset 竞态证据。
+- 本轮统一三个手动实时快照入口的客户端实例门禁。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：手动 scheduler 与 trace 快照的客户端实例权威，不扩展自动轮询。
-- 提交记录：本批使用独立 `test` 提交并推送 `origin/master`；哈希以 Git 历史为准。
+- 下一批边界：Webview 状态摘要截断与有效变更签名，不扩展状态字段。
+- 提交记录：本批使用独立 `fix` 提交并推送 `origin/master`；哈希以 Git 历史为准。

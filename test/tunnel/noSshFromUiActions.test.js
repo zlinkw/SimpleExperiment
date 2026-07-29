@@ -8,9 +8,9 @@ const root = path.resolve(__dirname, "..", "..");
 test("new realtime UI snapshots use the localhost client", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   const methods = [
-    ["manualGpuSnapshot", "manualSchedulerSnapshot", /this\.client\.getGpu\(\)/],
-    ["manualSchedulerSnapshot", "manualTracesSnapshot", /this\.client\.getScheduler\(\)/],
-    ["manualTracesSnapshot", "generateTunnelScript", /this\.client\.getTraces\(\)/],
+    ["manualGpuSnapshot", "manualSchedulerSnapshot", /client\.getGpu\(\)/],
+    ["manualSchedulerSnapshot", "manualTracesSnapshot", /client\.getScheduler\(\)/],
+    ["manualTracesSnapshot", "generateTunnelScript", /client\.getTraces\(\)/],
   ];
   for (const [method, nextMethod, clientCall] of methods) {
     const start = source.indexOf(`async ${method}()`);
