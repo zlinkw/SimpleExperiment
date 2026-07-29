@@ -29,12 +29,22 @@ function samePlanSelection(left, right) {
 
 function loadExtensionGuard() {
   const sandbox = {
+    ACTIVE_PLAN_RUN_EVIDENCE_VARIANT_CACHE_LIMIT: 3,
+    ACTIVE_PLAN_RUN_STATUSES: new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]),
+    EMPTY_ACTIVE_PLAN_RUN_EVIDENCE_STATE: Object.freeze({}),
+    EMPTY_ACTIVE_PLAN_RUN_OPERATIONS: Object.freeze({}),
+    EMPTY_PLAN_ARCHIVE_SCHEDULER_ROWS: Object.freeze([]),
+    activePlanRunEvidenceCache: new WeakMap(),
+    payloadReads: 0,
     normalizePlanSelectionKey: (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, ""),
     operationResultPlanFile: (row) => String((row || {}).planFile || (row || {}).plan || ""),
     samePlanSelection,
     operationStatusToken: (value) => String(value || "").trim().toLowerCase(),
     operationStatusOf: (row) => String((row || {}).status || (row || {}).state || (row || {}).type || ""),
-    remoteResultOperationPayloads: (row) => [row || {}, (row || {}).payload || {}, (row || {}).latestEvent || {}, ((row || {}).latestEvent || {}).payload || {}],
+    remoteResultOperationPayloads: (row) => {
+      sandbox.payloadReads += 1;
+      return [row || {}, (row || {}).payload || {}, (row || {}).latestEvent || {}, ((row || {}).latestEvent || {}).payload || {}];
+    },
     flattenPlanArchiveSchedulerRows: (rows) => Array.isArray(rows) ? rows.flatMap((row) => {
       const out = [];
       for (const [key, status] of [["running_experiments", "running"], ["testing_experiments", "testing"], ["queued_experiments", "queued"], ["pending_experiments", "pending"], ["completed_experiments", "completed"]]) {
@@ -46,6 +56,8 @@ function loadExtensionGuard() {
   };
   vm.createContext(sandbox);
   vm.runInContext(`${extractFunction(extension, "activePlanRunEvidence")}\nthis.guard = activePlanRunEvidence;`, sandbox);
+  sandbox.guard.cache = sandbox.activePlanRunEvidenceCache;
+  sandbox.guard.sandbox = sandbox;
   return sandbox.guard;
 }
 
@@ -157,6 +169,38 @@ test("backend protects active old revisions without misclassifying them as curre
   assert.equal(current.active, true);
   assert.equal(current.historicalOnly, false);
   assert.equal(current.currentOperationCount, 1);
+});
+
+test("backend reuses bounded current Plan activity evidence and invalidates source replacements", () => {
+  const guard = loadExtensionGuard();
+  const planFile = "experiments/plans/smoke.yaml";
+  const state = {
+    operations: { op: { type: "run-plan", status: "running", planFile } },
+    schedulerStates: [],
+  };
+  const plan = { revision: "r1", updatedAt: "2026-07-30T00:00:00.000Z" };
+  const first = guard(state, planFile, plan);
+  const payloadReads = guard.sandbox.payloadReads;
+
+  assert.strictEqual(guard(state, planFile, { ...plan }), first);
+  assert.equal(guard.sandbox.payloadReads, payloadReads);
+
+  const nextRevision = guard(state, planFile, { ...plan, revision: "r2" });
+  assert.notStrictEqual(nextRevision, first);
+  state.operations = { op: { type: "run-plan", status: "completed", planFile } };
+  const operationRefresh = guard(state, planFile, { ...plan, revision: "r2" });
+  assert.notStrictEqual(operationRefresh, nextRevision);
+  assert.equal(operationRefresh.active, false);
+
+  state.schedulerStates = [{ planFile, running_experiments: [{ id: "job-1", planRevision: "r2" }] }];
+  const schedulerRefresh = guard(state, planFile, { ...plan, revision: "r2" });
+  assert.notStrictEqual(schedulerRefresh, operationRefresh);
+  assert.equal(schedulerRefresh.taskCount, 1);
+
+  const oldest = guard(state, "plans/0.yaml", { revision: "r0" });
+  for (let index = 1; index < 4; index += 1) guard(state, `plans/${index}.yaml`, { revision: `r${index}` });
+  assert.equal(guard.cache.get(state).size, 3);
+  assert.notStrictEqual(guard(state, "plans/0.yaml", { revision: "r0" }), oldest);
 });
 
 test("webview disables duplicate submission using the same Plan-scoped activity evidence", () => {

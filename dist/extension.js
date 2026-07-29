@@ -13184,13 +13184,29 @@ function automaticResultParseReady(options) {
     const checked = enforceExpectedAgentProjectRoot(options.hubProbe, options.expectedProjectRoot, "Hub");
     return ["ok", "file_api_unavailable"].includes(String(checked?.status || "").toLowerCase());
 }
+const ACTIVE_PLAN_RUN_EVIDENCE_VARIANT_CACHE_LIMIT = 8;
+const ACTIVE_PLAN_RUN_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
+const EMPTY_ACTIVE_PLAN_RUN_EVIDENCE_STATE = Object.freeze({});
+const EMPTY_ACTIVE_PLAN_RUN_OPERATIONS = Object.freeze({});
+const activePlanRunEvidenceCache = new WeakMap();
 function activePlanRunEvidence(state, planFile, plan) {
     const selectedPlan = normalizePlanSelectionKey(planFile);
     if (!selectedPlan)
         return { active: false, operationCount: 0, taskCount: 0 };
+    const stateSource = state && typeof state === "object" ? state : EMPTY_ACTIVE_PLAN_RUN_EVIDENCE_STATE;
+    const operationsSource = stateSource.operations && typeof stateSource.operations === "object" ? stateSource.operations : EMPTY_ACTIVE_PLAN_RUN_OPERATIONS;
+    const schedulerSource = Array.isArray(stateSource.schedulerStates) ? stateSource.schedulerStates : EMPTY_PLAN_ARCHIVE_SCHEDULER_ROWS;
     const selectedPlanRecord = plan && typeof plan === "object" ? plan : {};
     const planRevision = String(selectedPlanRecord.revision || selectedPlanRecord.planRevision || selectedPlanRecord.plan_revision || "").trim();
     const planUpdatedAt = Date.parse(String(selectedPlanRecord.updatedAt || selectedPlanRecord.updated_at || ""));
+    const cacheKey = JSON.stringify([selectedPlan, planRevision, Number.isFinite(planUpdatedAt) ? planUpdatedAt : null]);
+    let variants = activePlanRunEvidenceCache.get(stateSource);
+    const cached = variants?.get(cacheKey);
+    if (cached && cached.operations === operationsSource && cached.schedulerStates === schedulerSource) {
+        variants.delete(cacheKey);
+        variants.set(cacheKey, cached);
+        return cached.value;
+    }
     const matchesCurrentVersion = (row, payloads = []) => {
         const records = [row, ...payloads].filter((item) => item && typeof item === "object");
         const revision = records.map((item) => String(item.planRevision || item.plan_revision || "").trim()).find(Boolean) || "";
@@ -13202,9 +13218,8 @@ function activePlanRunEvidence(state, planFile, plan) {
         }
         return !planRevision;
     };
-    const activeStatuses = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
-    const operations = state?.operations && typeof state.operations === "object"
-        ? (Array.isArray(state.operations) ? state.operations : Object.values(state.operations))
+    const operations = operationsSource !== EMPTY_ACTIVE_PLAN_RUN_OPERATIONS
+        ? (Array.isArray(operationsSource) ? operationsSource : Object.values(operationsSource))
         : [];
     const activeOperationRows = operations.map((row) => {
         if (!row || typeof row !== "object")
@@ -13216,12 +13231,12 @@ function activePlanRunEvidence(state, planFile, plan) {
         const active = !schedulerFinished
             && /(?:^|\s)(?:run-plan|reproduce-plan)(?:\s|$)/.test(action)
             && samePlanSelection(rowPlan, selectedPlan)
-            && activeStatuses.has(operationStatusToken(operationStatusOf(row)));
+            && ACTIVE_PLAN_RUN_STATUSES.has(operationStatusToken(operationStatusOf(row)));
         return active ? { row, payloads } : undefined;
     }).filter(Boolean);
-    const schedulerRows = planArchiveSchedulerRowsForState(state);
+    const schedulerRows = planArchiveSchedulerRowsForState(stateSource);
     const activeTasks = schedulerRows.filter((row) => samePlanSelection(String(row.planFile || row.plan || ""), selectedPlan)
-        && activeStatuses.has(operationStatusToken(row.status || row.state || "")));
+        && ACTIVE_PLAN_RUN_STATUSES.has(operationStatusToken(row.status || row.state || "")));
     const currentOperations = activeOperationRows.filter((item) => matchesCurrentVersion(item.row, item.payloads));
     const currentTasks = activeTasks.filter((row) => matchesCurrentVersion(row));
     const operationCount = activeOperationRows.length;
@@ -13230,7 +13245,7 @@ function activePlanRunEvidence(state, planFile, plan) {
     const currentTaskCount = currentTasks.length;
     const active = operationCount > 0 || taskCount > 0;
     const currentActive = currentOperationCount > 0 || currentTaskCount > 0;
-    return {
+    const value = {
         active,
         currentActive,
         historicalActive: active && (currentOperationCount < operationCount || currentTaskCount < taskCount),
@@ -13242,6 +13257,18 @@ function activePlanRunEvidence(state, planFile, plan) {
         historicalOperationCount: operationCount - currentOperationCount,
         historicalTaskCount: taskCount - currentTaskCount,
     };
+    if (!variants) {
+        variants = new Map();
+        activePlanRunEvidenceCache.set(stateSource, variants);
+    }
+    variants.set(cacheKey, { operations: operationsSource, schedulerStates: schedulerSource, value });
+    while (variants.size > ACTIVE_PLAN_RUN_EVIDENCE_VARIANT_CACHE_LIMIT) {
+        const oldestKey = variants.keys().next().value;
+        if (oldestKey === undefined)
+            break;
+        variants.delete(oldestKey);
+    }
+    return value;
 }
 async function readPlanArchiveBundle(planFile) {
     try {
