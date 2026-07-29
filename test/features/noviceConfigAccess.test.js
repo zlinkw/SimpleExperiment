@@ -52,7 +52,12 @@ test("topbar keeps tunnel/network actions for novice recovery", () => {
 
 test("layout normalization keeps allowed commands and strips unknown payload fields", () => {
   const helpers = loadLayoutHelpers();
-  assert.deepEqual(Array.from(helpers.normalizePinnedCommands(["runPlan", "unknown", "runPlan"])), ["runPlan"]);
+  const commands = ["runPlan", "unknown", "runPlan"];
+  const pinned = helpers.normalizePinnedCommands(commands);
+  assert.deepEqual(Array.from(pinned), ["runPlan"]);
+  assert.equal(helpers.normalizePinnedCommands(commands), pinned);
+  assert.equal(helpers.normalizePinnedCommands(pinned), pinned);
+  assert.notEqual(helpers.normalizePinnedCommands([...commands]), pinned);
   const actions = JSON.parse(JSON.stringify(helpers.normalizeUiButtonActions([
     { command: "runPlan", payload: { planFile: "experiments/plans/demo.yaml", shellCommand: "blocked" } },
     { command: "unknown", payload: { planFile: "ignored" } },

@@ -296,6 +296,7 @@ const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
     "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
 ]);
+const normalizePinnedCommandsCache = new WeakMap();
 const normalizeUiButtonActionsCache = new WeakMap();
 const UI_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 4;
 const actionCommandMap = {
@@ -11918,12 +11919,18 @@ function normalizeUiLayoutColumns(input) {
 }
 function normalizePinnedCommands(input) {
     const source = Array.isArray(input) ? input : defaultUiLayout.pinnedCommands;
+    const cached = normalizePinnedCommandsCache.get(source);
+    if (cached)
+        return cached;
     const unique = [];
     for (const command of source.map((item) => String(item || ""))) {
         if (PINNED_UI_COMMANDS.has(command) && !unique.includes(command))
             unique.push(command);
     }
-    return unique.slice(0, 8);
+    const normalized = unique.slice(0, 8);
+    normalizePinnedCommandsCache.set(source, normalized);
+    normalizePinnedCommandsCache.set(normalized, normalized);
+    return normalized;
 }
 function normalizeUiButtonActions(input, limit) {
     if (!Array.isArray(input))
