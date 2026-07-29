@@ -42,6 +42,9 @@ test("GPU history chart connects explicitly zero-filled buckets and exposes acce
   assert.match(html, /historyMemoryText/);
   assert.match(html, /GPU_HISTORY_LINE_STYLES/);
   assert.match(html, /GPU_HISTORY_MARKERS/);
+  assert.match(html, /const timeRange = gpuHistoryTimeRange\(series\)/);
+  assert.match(html, /const pointIndex = gpuHistoryPointIndex\(item\.points \|\| \[\]\)/);
+  assert.doesNotMatch(html, /asArray\(series\)\.flatMap\(\(item\) => asArray\(item\.points\)\)/);
 });
 
 test("GPU history server styling persists by server id and has fallback patterns", () => {

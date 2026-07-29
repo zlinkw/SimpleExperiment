@@ -8066,24 +8066,23 @@ export function renderPanelHtml(): string {
         context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
         context.fillText(String(value), 4, y + 3);
       }
-      const points = asArray(series).flatMap((item) => asArray(item.points));
-      const times = points.map((point) => Number(point.bucketEpoch)).filter(Number.isFinite);
-      if (!times.length) {
+      const timeRange = gpuHistoryTimeRange(series);
+      if (!timeRange) {
         context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
         context.fillText("暂无有效历史点", padding.left + 8, padding.top + plotHeight / 2);
         return;
       }
-      const minTime = Math.min.apply(Math, times);
-      const maxTime = Math.max.apply(Math, times);
+      const minTime = timeRange.min;
+      const maxTime = timeRange.max;
       const timeSpan = Math.max(1, maxTime - minTime);
       const focused = canvas.dataset.focusSeries || "";
       asArray(series).forEach((item) => {
         const serverStyle = gpuHistoryServerStyle(item.serverId);
-        const expectedStep = historyExpectedStep(item.points || []);
+        const pointIndex = gpuHistoryPointIndex(item.points || []);
         const lines = kind === "gpu"
           ? [{ field: "gpuUtilPercent", color: "#2563EB", dash: [], marker: "circle", focus: "util" }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], marker: "square", focus: "memory" }]
           : [{ field: "gpuUtilPercent", color: serverStyle.color, dash: serverStyle.dash, marker: serverStyle.marker, focus: item.serverId }];
-        lines.forEach((line) => drawHistoryLine(context, item.points || [], line, minTime, timeSpan, padding, plotWidth, plotHeight, focused, expectedStep));
+        lines.forEach((line) => drawHistoryLine(context, pointIndex.rows, line, minTime, timeSpan, padding, plotWidth, plotHeight, focused, pointIndex.expectedStep));
       });
       context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
       context.fillText(new Date(minTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), padding.left, height - 7);
@@ -8103,6 +8102,10 @@ export function renderPanelHtml(): string {
       let previousTime = null;
       let previousX = null;
       let previousY = null;
+      let hasSegment = false;
+      const markers = [];
+      const markerStep = Math.max(1, Math.floor(points.length / 24));
+      context.beginPath();
       points.forEach((point, index) => {
         const value = finiteHistoryPercent(point[line.field]);
         const time = Number(point.bucketEpoch);
@@ -8111,13 +8114,16 @@ export function renderPanelHtml(): string {
         const x = padding.left + (time - minTime) / timeSpan * plotWidth;
         const y = padding.top + plotHeight - value / 100 * plotHeight;
         if (!gap && previousX !== null && previousY !== null) {
-          context.beginPath(); context.moveTo(previousX, previousY); context.lineTo(x, y); context.stroke();
-        }
-        if (index === points.length - 1 || gap || index % Math.max(1, Math.floor(points.length / 24)) === 0) drawHistoryMarker(context, line.marker, x, y);
+          context.lineTo(x, y);
+          hasSegment = true;
+        } else context.moveTo(x, y);
+        if (index === points.length - 1 || gap || index % markerStep === 0) markers.push([x, y]);
         previousTime = time;
         previousX = x;
         previousY = y;
       });
+      if (hasSegment) context.stroke();
+      markers.forEach((point) => drawHistoryMarker(context, line.marker, point[0], point[1]));
       context.restore();
     }
 
