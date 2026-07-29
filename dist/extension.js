@@ -11708,10 +11708,12 @@ function arrayFromRecord(record, key) {
     return Array.isArray(value) ? value : [];
 }
 const EMPTY_OUTPUT_DERIVATION_VALUES = Object.freeze([]);
+const EMPTY_OUTPUT_DERIVATION_SOURCE = Object.freeze({});
 const planOutputCandidatesCache = new WeakMap();
 const planOutputEvidenceCandidatesCache = new WeakMap();
 const planOutputEvidenceSignalsCache = new WeakMap();
 const adapterRuleResultCandidatesCache = new WeakMap();
+const planScopedResultCandidateCache = new WeakMap();
 function nestedRecord(record, key) {
     const value = record[key];
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -11926,11 +11928,23 @@ function planScopedResultParsePreviews(previews, plan, rules) {
     const selected = Boolean(plan && (plan.planFile || plan.file || plan.planId || plan.suite));
     if (!selected)
         return { items: all, totalCount: all.length, hiddenCount: 0, candidateCount: 0, scoped: false };
-    const candidates = uniqueStrings([
-        ...planOutputEvidenceCandidates(plan),
-        ...adapterRuleResultCandidates(rules || {}),
-    ]);
-    const compiled = compileResultCandidatePatterns(candidates, plan);
+    const planSource = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : EMPTY_OUTPUT_DERIVATION_SOURCE;
+    const rulesSource = rules && typeof rules === "object" && !Array.isArray(rules) ? rules : EMPTY_OUTPUT_DERIVATION_SOURCE;
+    let rulesCache = planScopedResultCandidateCache.get(planSource);
+    if (!rulesCache) {
+        rulesCache = new WeakMap();
+        planScopedResultCandidateCache.set(planSource, rulesCache);
+    }
+    let derived = rulesCache.get(rulesSource);
+    if (!derived) {
+        const candidates = uniqueStrings([
+            ...planOutputEvidenceCandidates(plan),
+            ...adapterRuleResultCandidates(rulesSource),
+        ]);
+        derived = { candidates, compiled: compileResultCandidatePatterns(candidates, plan) };
+        rulesCache.set(rulesSource, derived);
+    }
+    const { candidates, compiled } = derived;
     const items = candidates.length ? all.filter((item) => compiledResultCandidatesMatchFile(compiled, item.file || item.path || "")) : [];
     return { items, totalCount: all.length, hiddenCount: Math.max(0, all.length - items.length), candidateCount: candidates.length, scoped: true };
 }

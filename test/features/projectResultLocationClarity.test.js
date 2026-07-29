@@ -110,6 +110,8 @@ function panelPreviewScope(previews, plan, rules) {
 function extensionPreviewScope(previews, plan, rules) {
   const sandbox = {
     path,
+    EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
+    planScopedResultCandidateCache: new WeakMap(),
     escapeRegExp(value) { return String(value || "").replace(/[.*+?^{}$()|[\]\\]/g, "\\$&"); },
     uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
     planOutputEvidenceCandidates(item) { return Array.isArray((item || {}).outputCandidates) ? item.outputCandidates : []; },
