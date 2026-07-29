@@ -3,8 +3,8 @@
 ## 状态
 
 - 目标 ID：`worker-topology-modes`。
-- 状态：实施中；`topology-001` 至 `topology-004a` 已完成配置、UI、单 Worker 本机调度、无 Hub 门禁和多 Worker 确定性分片，下一批进入结果与归档归属。
-- 证据状态：配置、UI、单 Worker 路由、通信门禁和多 Worker 分片已有静态证据；全部真实服务器行为仍为 `needs field verification`。
+- 状态：静态实施已完成；`topology-001` 至 `topology-005` 已覆盖配置、UI、单 Worker 调度、多 Worker 确定性分片、结果归属和归档门禁。
+- 证据状态：第二十五轮完整非服务器静态测试通过 856/856；全部真实服务器行为仍为 `needs field verification`。
 
 ## 目标
 

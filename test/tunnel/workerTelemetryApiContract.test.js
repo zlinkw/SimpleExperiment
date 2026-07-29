@@ -93,9 +93,27 @@ test("Worker summaries merge read-only while preserving result ownership", () =>
   assert.equal(merged.displayAggregateOnly, true);
   assert.equal(merged.resultCount, 2);
   assert.equal(merged.finalResultCount, 1);
+  assert.equal(merged.incompleteAggregate, false);
+  assert.equal(merged.aggregateCoverage, "2/2");
   assert.deepEqual(merged.workerIds, ["worker-a", "worker-b"]);
   assert.deepEqual(merged.results.map((row) => row.resultOwnershipKey).sort(), ["worker-a:same", "worker-b:same"]);
   assert.ok(merged.results.every((row) => row.workerId === row.resultOwnerWorkerId && row.provenance.workerId === row.workerId));
+});
+
+test("partial Worker summaries stay worker-pool scoped and disclose missing endpoints", () => {
+  const merged = mergeWorkerResultsSummaries([
+    { workerId: "worker-a", summary: { planFile: "experiments/plans/demo.yaml", planRevision: "rev-1", results: [{ resultId: "a", finalEvidenceState: "archived" }] } },
+  ], "experiments/plans/demo.yaml", ["worker-a", "worker-b"]);
+  assert.equal(merged.topologyMode, "worker_pool");
+  assert.equal(merged.incompleteAggregate, true);
+  assert.equal(merged.aggregateCoverage, "1/2");
+  assert.deepEqual(merged.expectedWorkerIds, ["worker-a", "worker-b"]);
+  assert.deepEqual(merged.availableWorkerIds, ["worker-a"]);
+  assert.deepEqual(merged.unavailableWorkerIds, ["worker-b"]);
+  assert.match(merged.message, /不是全局结果/);
+  const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  assert.match(panel, /function renderWorkerResultAggregateWarning\(summary\)/);
+  assert.match(panel, /当前数字仅代表可用 Worker 的只读部分视图/);
 });
 
 test("no-Hub result buttons use the owning Worker capability instead of Hub capability", () => {

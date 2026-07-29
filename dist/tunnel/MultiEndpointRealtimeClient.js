@@ -104,7 +104,8 @@ class MultiEndpointRealtimeClient {
         const hub = this.clients.get("hub");
         if (hub)
             return hub.getResultsSummary();
-        const entries = await Promise.allSettled(this.endpoints.filter((endpoint) => endpoint.role === "worker").map(async (endpoint) => ({
+        const workerEndpoints = this.endpoints.filter((endpoint) => endpoint.role === "worker");
+        const entries = await Promise.allSettled(workerEndpoints.map(async (endpoint) => ({
             workerId: endpoint.id,
             summary: await this.clients.get(endpoint.id)?.getResultsSummary(),
         })));
@@ -115,7 +116,11 @@ class MultiEndpointRealtimeClient {
             const rejected = entries.find((entry) => entry.status === "rejected");
             throw rejected?.reason || new Error("No Worker endpoint returned a results summary.");
         }
-        return mergeWorkerResultsSummaries(fulfilled, planFile);
+        const merged = mergeWorkerResultsSummaries(fulfilled, planFile, workerEndpoints.map((endpoint) => endpoint.id));
+        if (!Array.isArray(merged.availableWorkerIds) || !merged.availableWorkerIds.length) {
+            throw new Error("No Worker endpoint returned a valid results summary for the selected Plan.");
+        }
+        return merged;
     }
     async getDiagnostics() {
         return this.hubClient().getDiagnostics();
@@ -354,7 +359,7 @@ function rowKey(row) {
 function latest(values) {
     return values.filter(Boolean).sort().at(-1);
 }
-function mergeWorkerResultsSummaries(entries, requestedPlanFile = "") {
+function mergeWorkerResultsSummaries(entries, requestedPlanFile = "", expectedWorkerIds = []) {
     const requestedPlan = normalizePlanPath(requestedPlanFile);
     const accepted = entries.flatMap(({ workerId, summary }) => {
         const item = summary && typeof summary === "object" && !Array.isArray(summary) ? summary : undefined;
@@ -374,7 +379,11 @@ function mergeWorkerResultsSummaries(entries, requestedPlanFile = "") {
     const finalResults = results.filter((row) => String(row.finalEvidenceState || row.final_evidence_state || "").toLowerCase() === "archived");
     const pendingReviewRecords = results.filter((row) => String(row.finalEvidenceState || row.final_evidence_state || "").toLowerCase() !== "archived");
     const revisions = [...new Set(accepted.map(({ summary }) => String(summary.planRevision || summary.plan_revision || "").trim()).filter(Boolean))];
-    const workerIds = accepted.map((entry) => entry.workerId).sort((a, b) => a.localeCompare(b));
+    const workerIds = [...new Set(accepted.map((entry) => entry.workerId))].sort((a, b) => a.localeCompare(b));
+    const expectedWorkers = [...new Set((expectedWorkerIds.length ? expectedWorkerIds : entries.map((entry) => entry.workerId))
+            .map((workerId) => String(workerId || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const unavailableWorkerIds = expectedWorkers.filter((workerId) => !workerIds.includes(workerId));
+    const incompleteAggregate = unavailableWorkerIds.length > 0;
     const workerSetRevisions = [...new Set(accepted.map(({ summary }) => String(summary.workerSetRevision || "").trim()).filter(Boolean))];
     return {
         schemaVersion: 1,
@@ -382,8 +391,13 @@ function mergeWorkerResultsSummaries(entries, requestedPlanFile = "") {
         planFile: requestedPlan || normalizePlanPath(accepted[0]?.summary.planFile || accepted[0]?.summary.plan_file),
         ...(revisions.length === 1 ? { planRevision: revisions[0] } : {}),
         ...(workerSetRevisions.length === 1 ? { workerSetRevision: workerSetRevisions[0] } : {}),
-        topologyMode: workerIds.length > 1 ? "worker_pool" : "single_worker",
+        topologyMode: expectedWorkers.length > 1 ? "worker_pool" : "single_worker",
         workerIds,
+        expectedWorkerIds: expectedWorkers,
+        availableWorkerIds: workerIds,
+        unavailableWorkerIds,
+        incompleteAggregate,
+        aggregateCoverage: `${workerIds.length}/${expectedWorkers.length}`,
         resultCount: results.length,
         parsedResults: results.length,
         previewResultCount: results.length,
@@ -408,7 +422,9 @@ function mergeWorkerResultsSummaries(entries, requestedPlanFile = "") {
         displayAggregateOnly: true,
         authoritative: false,
         mixedPlanRevision: revisions.length > 1,
-        message: `${workerIds.length} 个 Worker 的结果摘要已只读合并；远端状态和归档仍由各 Worker 独立保存。`,
+        message: incompleteAggregate
+            ? `仅合并 ${workerIds.length}/${expectedWorkers.length} 个 Worker 的结果摘要；缺少 ${unavailableWorkerIds.join("、")}，当前数字不是全局结果。`
+            : `${workerIds.length} 个 Worker 的结果摘要已只读合并；远端状态和归档仍由各 Worker 独立保存。`,
     };
 }
 function stampWorkerResultOwnership(value, workerId) {

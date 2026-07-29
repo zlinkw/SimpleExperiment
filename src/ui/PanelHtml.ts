@@ -3063,6 +3063,11 @@ export function renderPanelHtml(): string {
         inclusionPolicy: pick(item, ["inclusionPolicy", "inclusion_policy"], ""),
         significanceStatus: pick(item, ["significanceStatus", "significance_status"], ""),
         stalePlanVersionSuppressed: item.stalePlanVersionSuppressed,
+        incompleteAggregate: item.incompleteAggregate,
+        aggregateCoverage: item.aggregateCoverage,
+        expectedWorkerIds: asArray(item.expectedWorkerIds),
+        availableWorkerIds: asArray(item.availableWorkerIds),
+        unavailableWorkerIds: asArray(item.unavailableWorkerIds),
         message: item.message,
         claimEvidenceStatus: pick(item, ["claimEvidenceStatus", "claim_evidence_status"], pick(claimEvidence, ["status"], "")),
         claimEvidencePath: pick(item, ["claimEvidencePath", "claim_evidence_path"], pick(claimEvidence, ["path"], "")),
@@ -11527,7 +11532,7 @@ export function renderPanelHtml(): string {
     function renderResultSummary(state) {
       const summary = state.resultsSummary || {};
       renderPptPlotConfig(state);
-      setHtmlIfChanged("resultSummary", renderResultEvidenceWorkbench(state, summary) + [
+      setHtmlIfChanged("resultSummary", renderWorkerResultAggregateWarning(summary) + renderResultEvidenceWorkbench(state, summary) + [
         row("最近解析", pick(summary, ["lastParsedAt", "last_parsed_at"], "-")),
         row("解析失败数量", pick(summary, ["parseFailed", "parse_failed"], "-")),
         row("质量警告", pick(summary, ["qualityWarnings", "quality_warnings"], "-")),
@@ -11536,6 +11541,16 @@ export function renderPanelHtml(): string {
         row("统计更新时间", pick(summary, ["statisticsUpdatedAt", "statistics_updated_at"], "-")),
         row("论文表格路径", pick(summary, ["paperTablePath", "paper_table_path", "exportPath"], "-"))
       ].join(""));
+    }
+
+    function renderWorkerResultAggregateWarning(summary) {
+      if (!(summary || {}).incompleteAggregate) return "";
+      const expected = asArray(summary.expectedWorkerIds);
+      const available = asArray(summary.availableWorkerIds);
+      const unavailable = asArray(summary.unavailableWorkerIds);
+      const coverage = String(summary.aggregateCoverage || (available.length + "/" + expected.length));
+      const missing = unavailable.length ? unavailable.join("、") : "未知 Worker";
+      return '<div class="notice warning" title="缺少 Worker：' + escAttr(missing) + '"><b>结果摘要不完整</b> 已读取 ' + esc(coverage) + '；缺少 ' + esc(missing) + '。当前数字仅代表可用 Worker 的只读部分视图。</div>';
     }
 
     function renderPptPlotConfig(state) {
