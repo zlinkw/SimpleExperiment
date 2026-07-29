@@ -234,6 +234,12 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
 ]);
 const COMMANDS_WITHOUT_UI_STATUS = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
 const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
+const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
+    "runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions",
+    "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract",
+    "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "exportPlottingContract",
+    "inspectDataset", "createOfflineBundle", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig",
+]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const PINNED_UI_COMMANDS = new Set([
     "startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan",
@@ -9813,12 +9819,7 @@ function normalizeRemoteWriteTargets(targets) {
     return normalized;
 }
 function debugModeBlockedUiCommand(command) {
-    return new Set([
-        "runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions",
-        "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract",
-        "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "exportPlottingContract",
-        "inspectDataset", "createOfflineBundle", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig",
-    ]).has(String(command || ""));
+    return DEBUG_MODE_BLOCKED_UI_COMMANDS.has(String(command || ""));
 }
 function mergeRemotePathConfirmations(...groups) {
     const merged = normalizeRemoteWriteTargets(groups.flatMap((group) => Array.isArray(group) ? group : []));
