@@ -4507,15 +4507,22 @@ class RealtimeTunnelPanelProvider {
     }
     scheduleOperationWatchdog(opId, action, workerId) {
         this.clearOperationWatchdog(opId);
-        const timer = setTimeout(() => void this.finishOperationWatchdog(opId, action, workerId), 60000);
+        const authorityClient = this.client;
+        const timer = setTimeout(() => {
+            if (this.operationTimers.get(opId) === timer)
+                this.operationTimers.delete(opId);
+            void this.finishOperationWatchdog(opId, action, workerId, authorityClient);
+        }, 60000);
         timer.unref?.();
         this.operationTimers.set(opId, timer);
     }
     scheduleOperationStatusProbe(opId, action, workerId, attempt = 1) {
         this.clearOperationStatusProbe(opId);
+        const authorityClient = this.client;
         const timer = setTimeout(() => {
-            this.operationProbeTimers.delete(opId);
-            void this.refreshOperationStatus(opId, action, workerId, attempt);
+            if (this.operationProbeTimers.get(opId) === timer)
+                this.operationProbeTimers.delete(opId);
+            void this.refreshOperationStatus(opId, action, workerId, attempt, authorityClient);
         }, this.operationStatusProbeDelayMs(attempt));
         timer.unref?.();
         this.operationProbeTimers.set(opId, timer);
@@ -4559,8 +4566,13 @@ class RealtimeTunnelPanelProvider {
         }
         throw new UiCommandRemotePending(`${title || action} 已提交到 Agent，等待 operation 终态 operationId=${opId}；按钮已恢复，可在“操作进度”查看。`);
     }
-    async finishOperationWatchdog(opId, action, workerId) {
-        await this.refreshOperationStatus(opId, action, workerId);
+    async finishOperationWatchdog(opId, action, workerId, authorityClient = this.client) {
+        const generation = this.projectContextGeneration;
+        if (authorityClient !== this.client)
+            return;
+        await this.refreshOperationStatus(opId, action, workerId, 0, authorityClient);
+        if (generation !== this.projectContextGeneration || authorityClient !== this.client)
+            return;
         this.clearOperationStatusProbe(opId);
         const current = this.localOperations[opId];
         if (operationTerminal(current))
@@ -4582,7 +4594,10 @@ class RealtimeTunnelPanelProvider {
         this.operationTimers.delete(opId);
         this.postState();
     }
-    async refreshOperationStatus(opId, action, workerId, probeAttempt = 0) {
+    async refreshOperationStatus(opId, action, workerId, probeAttempt = 0, authorityClient = this.client) {
+        const generation = this.projectContextGeneration;
+        if (authorityClient !== this.client)
+            return false;
         const current = this.localOperations[opId];
         if (operationTerminal(current)) {
             this.clearOperationStatusProbe(opId);
@@ -4590,8 +4605,10 @@ class RealtimeTunnelPanelProvider {
         }
         try {
             const result = workerId
-                ? await this.client.getWorkerOperation(workerId, opId)
-                : await this.client.getOperation(opId);
+                ? await authorityClient.getWorkerOperation(workerId, opId)
+                : await authorityClient.getOperation(opId);
+            if (generation !== this.projectContextGeneration || authorityClient !== this.client)
+                return false;
             const status = resultStatus(result) || (result && typeof result === "object" && result.terminal === true ? "completed" : undefined);
             this.localOperations[opId] = {
                 ...(current || {}),
