@@ -74,6 +74,25 @@ test("matrix expansion supports grid paired fixed derived conditional and constr
   assert.equal(new Set(result.experiments.map((item) => item.experimentKey)).size, result.experiments.length);
 });
 
+test("matrix expansion consumes existing run keys once and indexes generated duplicates", () => {
+  let iteratorCount = 0;
+  const existingRunKeys = {
+    [Symbol.iterator]() {
+      iteratorCount += 1;
+      if (iteratorCount > 1) throw new Error("existing run keys iterated more than once");
+      return ["suite:suite_a"][Symbol.iterator]();
+    },
+  };
+  const result = expandPlanMatrix({
+    variables: [{ key: "model", mode: "grid", values: ["a", "a", "b"] }],
+    namingRule: { pattern: "{{suite}}_{{model}}", sanitize: true },
+  }, existingRunKeys, "suite");
+
+  assert.equal(iteratorCount, 1);
+  assert.deepEqual(result.duplicateRunKeys, ["suite:suite_a"]);
+  assert.deepEqual(result.experiments.map((item) => item.runKey), ["suite:suite_a", "suite:suite_a", "suite:suite_b"]);
+});
+
 test("plan validation and resource estimate expose warnings not hard blocks", () => {
   const record = importLegacyPlanYamlToRegistry("p.yaml", "suite: s\ncases:\n  - name: a\n  - name: a\n");
   record.resourceEstimate = estimatePlanResources(record.experimentCount, { estimatedDiskGb: 100, requiredGpuMemoryMb: 24000 }, [{ serverId: "w1", freeDiskGb: 10, gpuMemoryMb: 8000 }]);

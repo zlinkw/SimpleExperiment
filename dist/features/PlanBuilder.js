@@ -90,11 +90,8 @@ function buildExperimentMatrix(matrix, existingRunKeys = []) {
         namingRule: matrix.namingRule,
     }, existing, matrix.suite);
     const experiments = [];
-    const duplicateRunKeys = [];
     let index = 0;
     for (const item of advanced.experiments) {
-        if (existing.has(item.runKey) || experiments.some((existingItem) => existingItem.runKey === item.runKey))
-            duplicateRunKeys.push(item.runKey);
         experiments.push({
             experimentIndex: index++,
             name: item.name,
@@ -104,7 +101,7 @@ function buildExperimentMatrix(matrix, existingRunKeys = []) {
             commandPreview: `config=${matrix.baseConfig} ${Object.entries(item.configOverrides).map(([k, v]) => `${k}=${v}`).join(" ")}`,
         });
     }
-    return { experiments, duplicateRunKeys: Array.from(new Set(duplicateRunKeys)), filteredCount: advanced.filteredCount, errors: advanced.errors, yaml: renderPlanYaml(matrix, experiments), previewCsv: matrixPreviewCsv(experiments) };
+    return { experiments, duplicateRunKeys: advanced.duplicateRunKeys, filteredCount: advanced.filteredCount, errors: advanced.errors, yaml: renderPlanYaml(matrix, experiments), previewCsv: matrixPreviewCsv(experiments) };
 }
 function renderPlanYaml(matrix, experiments) {
     const cases = caseEntriesForPlanYaml(matrix, experiments);
@@ -1113,6 +1110,8 @@ function escapeRegExp(value) {
 }
 function expandPlanMatrix(matrix, existingRunKeys = [], suite = "suite") {
     const errors = [];
+    const existingRunKeySet = existingRunKeys instanceof Set ? existingRunKeys : new Set(existingRunKeys);
+    const generatedRunKeys = new Set();
     const paired = matrix.variables.filter((item) => item.mode === "paired");
     const fixed = matrix.variables.filter((item) => item.mode === "fixed");
     const grid = matrix.variables.filter((item) => item.mode === "grid");
@@ -1149,8 +1148,9 @@ function expandPlanMatrix(matrix, existingRunKeys = [], suite = "suite") {
             const safeName = matrix.namingRule?.sanitize === false ? name : sanitizeName(name);
             const runKey = `${suite}:${safeName}`;
             const experimentKey = sha256(`${suite}:${JSON.stringify(sortObject(row))}`).slice(0, 16);
-            if (new Set(existingRunKeys).has(runKey) || experiments.some((item) => item.runKey === runKey))
+            if (existingRunKeySet.has(runKey) || generatedRunKeys.has(runKey))
                 duplicateRunKeys.push(runKey);
+            generatedRunKeys.add(runKey);
             experiments.push({ experimentIndex: index++, name: safeName, runKey, experimentKey, configOverrides: row, commandPreview: Object.entries(row).map(([k, v]) => `${k}=${v}`).join(" ") });
         }
     }
