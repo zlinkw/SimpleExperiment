@@ -17,33 +17,33 @@
 - [已完成] 2/5 project-082：缓存 Extension Host 配置摘要排序。
 - [已完成] 3/5 project-083：缓存前端任务操作键派生。
 - [已完成] 4/5 project-084：缓存 Extension Host Python 命令入口解析。
-- [待做] 5/5 project-085：执行第四十七轮完整非服务器静态测试。
+- [已完成] 5/5 project-085：执行第四十七轮完整非服务器静态测试。
 
-## 当前批次：project-084（已完成）
+## 当前批次：project-085（已完成）
 ### 修复点
 
-- Extension Host 按规范化命令文本复用 Python 脚本入口与归档模块入口解析结果。
-- 两类缓存均采用 256 项 LRU 上限，并缓存无入口的空数组结果。
-- 保持 `.py`、`torchrun`、`python -m module`、外部绝对路径和占位符排除语义不变。
+- 对 project-081 至 project-084 执行第四十七轮完整非服务器静态回归。
+- 覆盖 TypeScript 构建、全部 Node 测试、Lint、4 个 Node 入口和 8 个 Python 文件语法检查。
+- 仅修复完整回归明确检出的兼容问题，不扩大当前五批周期范围。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- Plan 归档参数快照仍必须发现普通 Python、Python 3 和 torchrun 的项目内脚本。
-- 仅在无直接 `.py` 入口时解析 `python -m` 模块，模块路径映射规则不得改变。
-- POSIX/Windows 绝对路径、模板占位符和环境变量入口仍不得被归档为项目文件。
+- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
+- 构建不得改变 Agent runtime 生成内容或写入历史 VSIX、`zlk_cluster/ui/`。
+- 任何失败必须保留为未完成，不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] Python 入口缓存命中、空结果、LRU、脚本、模块、绝对路径和占位符定向测试，12/12。
-- [已通过] TypeScript 构建、Lint、Extension Host Node 语法与 `git diff --check`。
+- [已通过] 安全 preload 下第四十七轮完整非服务器 `npm test`，990/990。
+- [已通过] TypeScript、Lint、4 个 Node 入口语法、8 个 Python 文件语法与 `git diff --check`。
+- [已修复并重验] 首次完整回归在 `planLocalEntryGate` 检出隔离沙箱未注入新增缓存依赖；补齐等价测试依赖后定向测试 1/1，完整回归通过。
 
 ## 本批记录
 - 本轮建立 project-081 至 project-085 五批静态优化周期；project-085 再执行完整测试。
-- 本批只处理 Extension Host Python 命令入口解析，最多修改 4 个源码、测试、构建和计划文件。
-- Plan 归档、参数快照、入口脚本复制和缺失入口报告保持现有语义。
-- 缓存键先折叠命令续行；命中会提升 LRU 顺序，脚本与模块缓存均独立限制为 256 项。
+- 本批仅修正隔离测试沙箱依赖并记录完整回归，修改 1 个测试文件和计划文档。
+- 构建未改变 Agent runtime；project-081 至 project-084 的缓存边界和现有功能入口保持不变。
 - 真实服务器行为保持 `needs field verification`。

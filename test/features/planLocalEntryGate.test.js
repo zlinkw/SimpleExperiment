@@ -16,12 +16,16 @@ function extractFunction(name) {
 test("local Plan gate checks explicit relative Python entries without blocking remote commands", () => {
   const sandbox = {
     path,
+    PYTHON_COMMAND_REFERENCE_CACHE_LIMIT: 256,
+    pythonCommandEntryReferencesCache: new Map(),
     uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
     stripYamlComment: (value) => String(value).replace(/\s+#.*$/, ""),
   };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("planCommandValues"),
+    extractFunction("pythonCommandReferenceCacheValue"),
+    extractFunction("cachePythonCommandReferenceValue"),
     extractFunction("pythonCommandEntryReferences"),
     "this.api = { planCommandValues, pythonCommandEntryReferences };",
   ].join("\n"), sandbox);
