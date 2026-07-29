@@ -6687,40 +6687,45 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showInformationMessage(`结果只读副本已打开：${localRelative}`);
     }
     async openAuditTail() {
-        const generation = this.projectContextGeneration;
+        const projectContext = this.captureProjectContext();
         const client = this.client;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
         try {
+            let auditTail;
+            let auditSummary;
             if (this.effectiveConnectionMode() === "offline_import") {
                 const offlineAudit = this.offlineBundle?.auditTail;
                 if (offlineAudit === undefined || offlineAudit === null)
                     throw new Error("离线 bundle 未包含 audit_tail.jsonl");
-                this.auditTail = {
+                auditTail = offlineAudit;
+                auditSummary = {
                     ...auditTailSummaryForWebview(offlineAudit),
                     __offlineImport: true,
                 };
-                const doc = await vscode.workspace.openTextDocument({ language: "jsonl", content: auditTailDocumentText(offlineAudit) });
-                await vscode.window.showTextDocument(doc, { preview: true });
-                this.lastError = undefined;
-                this.postState();
-                return;
             }
-            const auditTail = await client.getAuditTail();
-            if (generation !== this.projectContextGeneration || client !== this.client)
-                return;
-            this.auditTail = auditTailSummaryForWebview(auditTail);
+            else {
+                auditTail = await client.getAuditTail();
+                if (!isCurrent())
+                    return;
+                auditSummary = auditTailSummaryForWebview(auditTail);
+            }
             const doc = await vscode.workspace.openTextDocument({ language: "jsonl", content: auditTailDocumentText(auditTail) });
-            if (generation !== this.projectContextGeneration || client !== this.client)
+            if (!isCurrent())
                 return;
             await vscode.window.showTextDocument(doc, { preview: true });
+            if (!isCurrent())
+                return;
+            this.auditTail = auditSummary;
             this.lastError = undefined;
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration || client !== this.client)
+            if (!isCurrent())
                 return;
             this.lastError = errorMessage(error);
             this.recordActionError({ command: "openAuditTail", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
         }
-        this.postState();
+        if (isCurrent())
+            this.postState();
     }
     hasResultsSummaryEndpointCapability() {
         const topology = this.projectTopologyAssessment();

@@ -186,6 +186,16 @@ test("stale UI layout saves cannot refresh a replacement workspace", () => {
   }
 });
 
+test("audit log documents and state stay bound to the initiating project", () => {
+  const open = methodBody("async openAuditTail", "hasResultsSummaryEndpointCapability");
+  assert.match(open, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.match(open, /const client = this\.client/);
+  assert.match(open, /const isCurrent = \(\) => this\.projectContextIsCurrent\(projectContext\) && client === this\.client/);
+  assert.ok([...open.matchAll(/if \(!isCurrent\(\)\)\s*return/g)].length >= 4);
+  assert.ok(open.indexOf("await vscode.window.showTextDocument") < open.indexOf("this.auditTail = auditSummary"));
+  assert.match(open, /if \(isCurrent\(\)\)\s*this\.postState\(\)/);
+});
+
 test("opening a plan cannot select it in a replacement workspace", () => {
   const open = methodBody("async openWorkspacePlanFromUi", "async savePlanFromUi");
   assert.match(open, /const generation = this\.projectContextGeneration/);
