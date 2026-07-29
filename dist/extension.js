@@ -9756,9 +9756,15 @@ const PROJECT_CODE_SYNC_PATH = "zlk_cluster/ui/code_sync.json";
 const PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH = "zlk_cluster/ui/remote_path_confirmations.json";
 const PROJECT_LOCAL_OPERATIONS_PATH = "zlk_cluster/ui/local_operations.json";
 const PROJECT_LOCAL_PLAN_METADATA_PATH = "zlk_cluster/ui/local_plan_metadata.json";
+const normalizeRemoteWriteTargetsCache = new WeakMap();
 function normalizeRemoteWriteTargets(targets) {
+    if (!Array.isArray(targets))
+        return [];
+    const cached = normalizeRemoteWriteTargetsCache.get(targets);
+    if (cached)
+        return cached;
     const byKey = new Map();
-    for (const raw of Array.isArray(targets) ? targets : []) {
+    for (const raw of targets) {
         if (!raw || typeof raw !== "object" || Array.isArray(raw))
             continue;
         const host = String(raw.host || raw.sftpHost || raw.sshHost || "").trim();
@@ -9799,7 +9805,10 @@ function normalizeRemoteWriteTargets(targets) {
             confirmedAt: String(raw.confirmedAt || raw.confirmed_at || "").trim(),
         });
     }
-    return [...byKey.values()];
+    const normalized = [...byKey.values()];
+    normalizeRemoteWriteTargetsCache.set(targets, normalized);
+    normalizeRemoteWriteTargetsCache.set(normalized, normalized);
+    return normalized;
 }
 function debugModeBlockedUiCommand(command) {
     return new Set([

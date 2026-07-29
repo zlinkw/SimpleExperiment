@@ -58,6 +58,13 @@ test("remote path confirmation state is project-local and keyed by all expected 
   assert.equal(helpers.remoteWriteTargetsConfirmed([base], [{ ...base, remotePath: "/srv/other" }]), false);
   assert.equal(helpers.remoteWriteTargetsConfirmed([], [base]), false);
 
+  const reusableInput = [base];
+  const reusable = helpers.normalizeRemoteWriteTargets(reusableInput);
+  assert.equal(helpers.normalizeRemoteWriteTargets(reusableInput), reusable);
+  assert.equal(helpers.normalizeRemoteWriteTargets(reusable), reusable);
+  assert.notEqual(helpers.normalizeRemoteWriteTargets([...reusableInput]), reusable);
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.normalizeRemoteWriteTargets(undefined))), []);
+
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-path-confirm-"));
   await helpers.writeProjectRemotePathConfirmationsState(root, [base]);
   const file = path.join(root, "zlk_cluster", "ui", "remote_path_confirmations.json");
