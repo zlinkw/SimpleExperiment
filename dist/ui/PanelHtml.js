@@ -1475,6 +1475,9 @@ function renderPanelHtml() {
     const planScopedResultPreviewCache = new WeakMap();
     const projectResultLocationCache = new WeakMap();
     const projectOutputGateDiagnosticsCache = new WeakMap();
+    const projectUploadDestinationSummaryCache = new WeakMap();
+    const projectEnvironmentSummaryCache = new WeakMap();
+    const projectWorkspaceContextCache = new WeakMap();
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
     let taskSectionViewCacheState = null;
@@ -9053,19 +9056,39 @@ function renderPanelHtml() {
     }
 
     function projectUploadDestinationSummary(state) {
-      const agent = (state || {}).agentSessions || {};
-      const hubPath = meaningfulValue((agent.hub || {}).workDir);
-      const hubRoot = meaningfulValue((agent.hub || {}).actualWorkRoot);
-      const projectName = meaningfulValue((agent.hub || {}).projectName);
-      const enabledWorkers = asArray(agent.workers).filter((worker) => worker && worker.enabled !== false);
+      const agentInput = (state || {}).agentSessions;
+      const agent = agentInput && typeof agentInput === "object" ? agentInput : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const hubInput = agent.hub;
+      const hub = hubInput && typeof hubInput === "object" ? hubInput : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const workers = Array.isArray(agent.workers) ? agent.workers : EMPTY_OUTPUT_DERIVATION_VALUES;
+      const hubWorkDir = hub.workDir;
+      const hubActualWorkRoot = hub.actualWorkRoot;
+      const hubProjectName = hub.projectName;
+      const cached = projectUploadDestinationSummaryCache.get(agent);
+      if (cached
+        && cached.hub === hub
+        && cached.workers === workers
+        && cached.hubWorkDir === hubWorkDir
+        && cached.hubActualWorkRoot === hubActualWorkRoot
+        && cached.hubProjectName === hubProjectName) return cached.value;
+      const hubPath = meaningfulValue(hubWorkDir);
+      const hubRoot = meaningfulValue(hubActualWorkRoot);
+      const projectName = meaningfulValue(hubProjectName);
+      const enabledWorkers = workers.filter((worker) => worker && worker.enabled !== false);
       const workerPaths = enabledWorkers.map((worker) => meaningfulValue(worker.workDir)).filter(Boolean);
       const missingWorkers = Math.max(0, enabledWorkers.length - workerPaths.length);
-      if (!hubPath) return { ready: false, summary: hubRoot && !projectName ? "打开本地项目后显示上传位置" : "保存 Hub 项目父目录后显示" };
-      if (!enabledWorkers.length) return { ready: false, summary: "Hub：" + compactPath(hubPath) + "；尚未配置 Worker" };
-      if (missingWorkers) return { ready: false, summary: "Hub：" + compactPath(hubPath) + "；" + missingWorkers + " 个 Worker 路径待保存" };
-      const distinctPaths = uniqueText([hubPath, ...workerPaths]);
-      if (distinctPaths.length === 1) return { ready: true, summary: "Hub + " + enabledWorkers.length + " 个 Worker：" + compactPath(hubPath) };
-      return { ready: true, summary: "Hub：" + compactPath(hubPath) + "；Worker " + enabledWorkers.length + " 个独立位置" };
+      let value;
+      if (!hubPath) value = { ready: false, summary: hubRoot && !projectName ? "打开本地项目后显示上传位置" : "保存 Hub 项目父目录后显示" };
+      else if (!enabledWorkers.length) value = { ready: false, summary: "Hub：" + compactPath(hubPath) + "；尚未配置 Worker" };
+      else if (missingWorkers) value = { ready: false, summary: "Hub：" + compactPath(hubPath) + "；" + missingWorkers + " 个 Worker 路径待保存" };
+      else {
+        const distinctPaths = uniqueText([hubPath, ...workerPaths]);
+        value = distinctPaths.length === 1
+          ? { ready: true, summary: "Hub + " + enabledWorkers.length + " 个 Worker：" + compactPath(hubPath) }
+          : { ready: true, summary: "Hub：" + compactPath(hubPath) + "；Worker " + enabledWorkers.length + " 个独立位置" };
+      }
+      projectUploadDestinationSummaryCache.set(agent, { hub, workers, hubWorkDir, hubActualWorkRoot, hubProjectName, value });
+      return value;
     }
 
     function projectQuickLifecyclePresentation(stage, readyToStart, firstRunRecommended) {
@@ -9197,31 +9220,67 @@ function renderPanelHtml() {
     }
 
     function projectEnvironmentSummary(state, project) {
-      const setup = (state || {}).setup || {};
+      const setupInput = (state || {}).setup;
+      const setup = setupInput && typeof setupInput === "object" ? setupInput : EMPTY_SERVER_SETUP;
+      const projectSource = project && typeof project === "object" && !Array.isArray(project) ? project : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const environmentFiles = Array.isArray(projectSource.environmentFiles) ? projectSource.environmentFiles : EMPTY_OUTPUT_DERIVATION_VALUES;
+      const workers = enabledWorkerTunnelsForState(state);
+      const hubEnvInput = setup.condaEnv;
+      const cached = projectEnvironmentSummaryCache.get(projectSource);
+      if (cached
+        && cached.setup === setup
+        && cached.workers === workers
+        && cached.environmentFiles === environmentFiles
+        && cached.hubEnvInput === hubEnvInput) return cached.value;
       const hubEnv = meaningfulValue(setup.condaEnv);
       const hubEnvironment = executionEnvironmentText(hubEnv);
-      const workerEnvironments = uniqueText(enabledWorkerTunnelsForState(state).map((worker) => executionEnvironmentText(worker.condaEnv === undefined ? hubEnv : worker.condaEnv)));
+      const workerEnvironments = uniqueText(workers.map((worker) => executionEnvironmentText(worker.condaEnv === undefined ? hubEnv : worker.condaEnv)));
       const distinctWorkers = workerEnvironments.filter((item) => item !== hubEnvironment);
       const environmentText = distinctWorkers.length ? "Hub " + hubEnvironment + " · Worker " + distinctWorkers.join("/") : hubEnvironment;
-      const files = asArray((project || {}).environmentFiles).map(String).filter(Boolean);
+      const files = environmentFiles.map(String).filter(Boolean);
       const firstFile = files[0] || "";
       const fileText = firstFile ? firstFile + (files.length > 1 ? " 等 " + files.length + " 个清单" : "") : "未发现依赖清单，请确认执行环境已安装项目依赖";
-      return { files, firstFile, summary: environmentText + " · " + fileText };
+      const value = { files, firstFile, summary: environmentText + " · " + fileText };
+      projectEnvironmentSummaryCache.set(projectSource, { setup, workers, environmentFiles, hubEnvInput, value });
+      return value;
     }
 
     function projectWorkspaceContext(state, project) {
-      const item = (state || {}).workspace && typeof (state || {}).workspace === "object" ? (state || {}).workspace : {};
-      const mappingError = meaningfulValue(item.mappingError);
-      const fallbackRoot = mappingError ? "" : meaningfulValue((project || {}).root);
-      const root = meaningfulValue(item.root) || fallbackRoot;
-      const name = meaningfulValue(item.name) || (root ? root.split(/[\\/]/).filter(Boolean).pop() : "");
-      const folderCount = Number(item.folderCount || 0);
-      if (!root && !name) return { open: false, singleProject: false, summary: "未打开本地项目；上传、Agent 和远端操作前必须打开一个项目" };
-      if (item.singleProject === false || folderCount > 1) return { open: true, singleProject: false, summary: (name || "当前目录") + " · 多根工作区（" + Math.max(2, folderCount) + " 个），远端操作会阻断" };
-      if (mappingError) return { open: true, singleProject: true, summary: (name || "当前项目") + " · 工作区路径映射错误：" + compactText(mappingError, 180) };
-      const remotePath = meaningfulValue(item.containerPath);
-      const pathSummary = remotePath ? "容器 " + remotePath + " → 宿主 " + compactPath(root) : compactPath(root);
-      return { open: true, singleProject: true, summary: (name || "当前项目") + " · " + pathSummary };
+      const workspaceInput = (state || {}).workspace;
+      const item = workspaceInput && typeof workspaceInput === "object" ? workspaceInput : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const projectSource = project && typeof project === "object" && !Array.isArray(project) ? project : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const mappingErrorInput = item.mappingError;
+      const workspaceRootInput = item.root;
+      const workspaceNameInput = item.name;
+      const folderCountInput = item.folderCount;
+      const singleProjectInput = item.singleProject;
+      const containerPathInput = item.containerPath;
+      const projectRootInput = projectSource.root;
+      const cached = projectWorkspaceContextCache.get(item);
+      if (cached
+        && cached.mappingErrorInput === mappingErrorInput
+        && cached.workspaceRootInput === workspaceRootInput
+        && cached.workspaceNameInput === workspaceNameInput
+        && cached.folderCountInput === folderCountInput
+        && cached.singleProjectInput === singleProjectInput
+        && cached.containerPathInput === containerPathInput
+        && cached.projectRootInput === projectRootInput) return cached.value;
+      const mappingError = meaningfulValue(mappingErrorInput);
+      const fallbackRoot = mappingError ? "" : meaningfulValue(projectRootInput);
+      const root = meaningfulValue(workspaceRootInput) || fallbackRoot;
+      const name = meaningfulValue(workspaceNameInput) || (root ? root.split(/[\\/]/).filter(Boolean).pop() : "");
+      const folderCount = Number(folderCountInput || 0);
+      let value;
+      if (!root && !name) value = { open: false, singleProject: false, summary: "未打开本地项目；上传、Agent 和远端操作前必须打开一个项目" };
+      else if (singleProjectInput === false || folderCount > 1) value = { open: true, singleProject: false, summary: (name || "当前目录") + " · 多根工作区（" + Math.max(2, folderCount) + " 个），远端操作会阻断" };
+      else if (mappingError) value = { open: true, singleProject: true, summary: (name || "当前项目") + " · 工作区路径映射错误：" + compactText(mappingError, 180) };
+      else {
+        const remotePath = meaningfulValue(containerPathInput);
+        const pathSummary = remotePath ? "容器 " + remotePath + " → 宿主 " + compactPath(root) : compactPath(root);
+        value = { open: true, singleProject: true, summary: (name || "当前项目") + " · " + pathSummary };
+      }
+      projectWorkspaceContextCache.set(item, { mappingErrorInput, workspaceRootInput, workspaceNameInput, folderCountInput, singleProjectInput, containerPathInput, projectRootInput, value });
+      return value;
     }
 
     function executionEnvironmentText(value) {
