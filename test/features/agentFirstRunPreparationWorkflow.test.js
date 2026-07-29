@@ -50,9 +50,9 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.ok(launch < detect);
   assert.match(flow, /non_zlk_remote_command/);
   assert.match(flow, /different_zlk_agent_session/);
-  assert.match(flow, /Hub 不可达/);
-  assert.match(flow, /Worker 不可达/);
-  assert.match(flow, /if \(showMessage\) \{[\s\S]{0,240}"接入当前项目", "打开面板"/);
+  assert.match(flow, /tunnelTestCompletion\(this\.setupConfig, this\.lastProbe, this\.lastHealth, this\.lastWorkerProbes, topology\.hubAllowed\)/);
+  assert.match(flow, /当前拓扑端点健康检测未通过/);
+  assert.match(flow, /if \(showMessage\) \{[\s\S]{0,420}"接入当前项目", "打开面板"/);
   assert.match(flow, /next === "接入当前项目"\)\s*await this\.bootstrapProjectFromUi\(\)/);
   assert.match(flow, /if \(!workspaceRoot\(\)\) \{[\s\S]{0,180}openWorkspaceFolderForContinuation\("准备 Agent", "prepareAgents"\)[\s\S]{0,80}return false/);
   assert.match(extension, /pending\.action === "prepareAgents"[\s\S]{0,100}prepareAgentsForFirstRun\(true\)/);

@@ -53,9 +53,9 @@ test("setup saves and remote side effects share the same work-root gate", () => 
   assert.ok(workerSave.indexOf("confirmActualWorkRootAmbiguity") < workerSave.indexOf("applySetupDraft"));
   assert.match(hubSave, /agentProjectDir = await confirmActualWorkRootAmbiguity/);
   assert.match(workerSave, /targetAgentProjectDir = await confirmActualWorkRootAmbiguity/);
-  assert.match(sftpPrepare, /assertConfiguredActualWorkRoots\(this\.setupConfig\)/);
-  assert.match(agentWrite, /assertConfiguredActualWorkRoots\(this\.setupConfig\)/);
-  assert.match(source, /async writeSftpManagerServerProfiles\(targetIds\) \{\s*assertConfiguredActualWorkRoots/);
+  assert.match(sftpPrepare, /assertTopologyActualWorkRoots\("SFTP 上传或目录配置"\)/);
+  assert.match(agentWrite, /assertTopologyActualWorkRoots\("写入 Agent 自启动路径"\)/);
+  assert.match(source, /async writeSftpManagerServerProfiles\(targetIds\) \{\s*this\.assertTopologyActualWorkRoots\("写入 SimpleSFTP 服务器配置"\)/);
   assert.match(readme, /一键改为上一级父目录/);
   assert.match(guide, /警告窗口可一键改为上一级父目录/);
 });

@@ -19,7 +19,7 @@ test("automatic preflight remains ordered and failures remain blocking evidence"
   const start = extension.indexOf("async runPlanPreflight(body, label)");
   const end = extension.indexOf("async openSetupGuide()", start);
   const flow = extension.slice(start, end);
-  assert.ok(flow.indexOf('postTunnelAction("validate-plan"') < flow.indexOf('postTunnelAction("dry-run-plan"'));
+  assert.ok(flow.indexOf('postPlanSchedulerAction("validate-plan"') < flow.indexOf('postPlanSchedulerAction("dry-run-plan"'));
   assert.match(panel, /operationIsFailureLike\(dryRun\.status\).*tone: "error"/s);
   assert.match(panel, /operationIsFailureLike\(validate\.status\).*tone: "error"/s);
   assert.match(panel, /tone === "error" \? "status-failed"/);

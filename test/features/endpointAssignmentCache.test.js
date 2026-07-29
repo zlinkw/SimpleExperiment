@@ -47,6 +47,7 @@ test("Extension Host reuses endpoint assignments and port conflicts by config", 
       currentPortConflictsCacheRangeKey = "";
       currentPortConflictsCacheValue = [];
       enabledWorkerConfigs() { return this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false); }
+      projectTopologyAssessment() { return { hubAllowed: true }; }
       ${methods}
     }
     this.Subject = Subject;
