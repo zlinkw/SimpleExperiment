@@ -2465,7 +2465,7 @@ function renderPanelHtml() {
         seen.delete(value);
         return true;
       }
-      const keys = Object.keys(value);
+      const keys = Object.keys(value).sort();
       stableSectionHashToken(digest, "{");
       let count = 0;
       keys.forEach((key) => {
