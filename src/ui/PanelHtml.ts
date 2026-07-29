@@ -1471,6 +1471,12 @@ export function renderPanelHtml(): string {
     let planVersionRowsCacheState = null;
     let planVersionOperationRowsCache = new Map();
     let planVersionTaskRowsCache = new Map();
+    let planArchiveReadinessIndexState = null;
+    let planArchiveReadinessIndexSummary = null;
+    let planArchiveReadinessIndexResults = null;
+    let planArchiveReadinessIndexTasks = null;
+    let planArchiveReadinessIndexValue = null;
+    let planArchiveReadinessCache = new Map();
     let operationViewCacheRows = null;
     let operationViewCacheFilter = "";
     let operationViewCacheValue = null;
@@ -1645,6 +1651,7 @@ export function renderPanelHtml(): string {
     const PLAN_VERSION_ROWS_CACHE_LIMIT = 64;
     const CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT = 32;
     const PLAN_FILE_EQUIVALENCE_CACHE_LIMIT = 128;
+    const PLAN_ARCHIVE_READINESS_CACHE_LIMIT = 64;
     const EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY = Object.freeze({ keys: Object.freeze([]), keySet: new Set() });
     const RESULT_ANALYSIS_ARTIFACT_FIELDS = Object.freeze({
       "export-plotting-contract": "plottingContractPath",
@@ -10545,23 +10552,87 @@ export function renderPanelHtml(): string {
       return rightEntry.keys.length > 0 && planFileEquivalenceEntry(left).keys.some((key) => rightEntry.keySet.has(key));
     }
 
-    function planArchiveUiReadiness(state, planFile) {
-      const summary = (state || {}).resultsSummary || {};
-      const results = asArray(summary.results).filter((row) => {
-        const record = row && typeof row === "object" ? row : {};
-        const provenance = record.provenance && typeof record.provenance === "object" ? record.provenance : {};
-        return samePlanSelection(record.planFile || record.plan_file || provenance.planFile || provenance.plan_file || "", planFile);
+    function planArchiveRecordPlanFile(row) {
+      const record = row && typeof row === "object" ? row : {};
+      const provenance = record.provenance && typeof record.provenance === "object" ? record.provenance : {};
+      return record.planFile || record.plan_file || provenance.planFile || provenance.plan_file || "";
+    }
+
+    function addPlanArchiveReadinessIndexEntry(index, planFile, rowIndex) {
+      planFileEquivalenceKeys(planFile).forEach((key) => {
+        let rows = index.get(key);
+        if (!rows) {
+          rows = [];
+          index.set(key, rows);
+        }
+        rows.push(rowIndex);
       });
-      const archivedCount = results.filter((row) => String((row || {}).finalEvidenceState || (row || {}).final_evidence_state || "").toLowerCase() === "archived").length;
-      const notIncludedCount = Math.max(0, results.length - archivedCount);
-      const activeTasks = schedulerRowsForState(state || {}).filter((row) => samePlanSelection((row || {}).planFile || (row || {}).plan || "", planFile) && !taskTerminalStatus((row || {}).status));
+    }
+
+    function planArchiveUiReadinessIndexForState(state) {
+      state = state || {};
+      const summary = state.resultsSummary || {};
+      const results = asArray(summary.results);
+      const tasks = schedulerRowsForState(state);
+      if (planArchiveReadinessIndexState === state
+        && planArchiveReadinessIndexSummary === summary
+        && planArchiveReadinessIndexResults === results
+        && planArchiveReadinessIndexTasks === tasks
+        && planArchiveReadinessIndexValue) return planArchiveReadinessIndexValue;
+      const resultIndicesByKey = new Map();
+      const activeTaskIndicesByKey = new Map();
+      const archivedResultIndices = new Set();
+      results.forEach((row, index) => {
+        addPlanArchiveReadinessIndexEntry(resultIndicesByKey, planArchiveRecordPlanFile(row), index);
+        if (String((row || {}).finalEvidenceState || (row || {}).final_evidence_state || "").toLowerCase() === "archived") archivedResultIndices.add(index);
+      });
+      tasks.forEach((row, index) => {
+        if (taskTerminalStatus((row || {}).status)) return;
+        addPlanArchiveReadinessIndexEntry(activeTaskIndicesByKey, (row || {}).planFile || (row || {}).plan || "", index);
+      });
+      const value = { summary, results, resultIndicesByKey, activeTaskIndicesByKey, archivedResultIndices };
+      planArchiveReadinessIndexState = state;
+      planArchiveReadinessIndexSummary = summary;
+      planArchiveReadinessIndexResults = results;
+      planArchiveReadinessIndexTasks = tasks;
+      planArchiveReadinessIndexValue = value;
+      planArchiveReadinessCache.clear();
+      return value;
+    }
+
+    function planArchiveUiReadinessIndices(index, planFile) {
+      const rows = new Set();
+      planFileEquivalenceKeys(planFile).forEach((key) => asArray(index.get(key)).forEach((rowIndex) => rows.add(rowIndex)));
+      return rows;
+    }
+
+    function cachePlanArchiveUiReadiness(cacheKey, value) {
+      if (!planArchiveReadinessCache.has(cacheKey) && planArchiveReadinessCache.size >= PLAN_ARCHIVE_READINESS_CACHE_LIMIT) {
+        planArchiveReadinessCache.delete(planArchiveReadinessCache.keys().next().value);
+      }
+      planArchiveReadinessCache.set(cacheKey, value);
+      return value;
+    }
+
+    function planArchiveUiReadiness(state, planFile) {
+      const index = planArchiveUiReadinessIndexForState(state || {});
+      const cacheKey = normalizePlanSelectionKey(planFile).toLowerCase();
+      if (planArchiveReadinessCache.has(cacheKey)) return planArchiveReadinessCache.get(cacheKey);
+      const resultIndices = planArchiveUiReadinessIndices(index.resultIndicesByKey, planFile);
+      const activeTaskIndices = planArchiveUiReadinessIndices(index.activeTaskIndicesByKey, planFile);
+      let archivedCount = 0;
+      resultIndices.forEach((rowIndex) => { if (index.archivedResultIndices.has(rowIndex)) archivedCount += 1; });
+      const resultCount = resultIndices.size;
+      const activeTaskCount = activeTaskIndices.size;
+      const notIncludedCount = Math.max(0, resultCount - archivedCount);
+      const summary = index.summary;
       const previewCsvPath = String(summary.previewCsvPath || summary.preview_csv_path || "").trim();
       const effectiveResultsCsvPath = String(summary.effectiveResultsCsvPath || summary.effective_results_csv_path || "").trim();
-      if (activeTasks.length) return { ready: false, reason: "仍有 " + activeTasks.length + " 个任务未结束，暂不可归档 Plan。", archivedCount, notIncludedCount, resultCount: results.length, activeTaskCount: activeTasks.length };
-      if (!results.length) return { ready: false, reason: "没有该 Plan 的已解析结果；请先完成运行并解析结果。", archivedCount: 0, notIncludedCount: 0, resultCount: 0, activeTaskCount: 0 };
-      if (!archivedCount) return { ready: false, reason: "尚无已归档有效结果；请先在结果完整预览中至少归档一条记录。", archivedCount: 0, notIncludedCount, resultCount: results.length, activeTaskCount: 0 };
-      if (!previewCsvPath || !effectiveResultsCsvPath) return { ready: false, reason: "结果摘要缺少完整预览 CSV 或有效结果 CSV；请先重新解析当前 Plan。", archivedCount, notIncludedCount, resultCount: results.length, activeTaskCount: 0 };
-      return { ready: true, reason: "有效结果 " + archivedCount + " 条；未纳入 " + notIncludedCount + " 条。归档包会保存完整结果取舍清单。", archivedCount, notIncludedCount, resultCount: results.length, activeTaskCount: 0 };
+      if (activeTaskCount) return cachePlanArchiveUiReadiness(cacheKey, { ready: false, reason: "仍有 " + activeTaskCount + " 个任务未结束，暂不可归档 Plan。", archivedCount, notIncludedCount, resultCount, activeTaskCount });
+      if (!resultCount) return cachePlanArchiveUiReadiness(cacheKey, { ready: false, reason: "没有该 Plan 的已解析结果；请先完成运行并解析结果。", archivedCount: 0, notIncludedCount: 0, resultCount: 0, activeTaskCount: 0 });
+      if (!archivedCount) return cachePlanArchiveUiReadiness(cacheKey, { ready: false, reason: "尚无已归档有效结果；请先在结果完整预览中至少归档一条记录。", archivedCount: 0, notIncludedCount, resultCount, activeTaskCount: 0 });
+      if (!previewCsvPath || !effectiveResultsCsvPath) return cachePlanArchiveUiReadiness(cacheKey, { ready: false, reason: "结果摘要缺少完整预览 CSV 或有效结果 CSV；请先重新解析当前 Plan。", archivedCount, notIncludedCount, resultCount, activeTaskCount: 0 });
+      return cachePlanArchiveUiReadiness(cacheKey, { ready: true, reason: "有效结果 " + archivedCount + " 条；未纳入 " + notIncludedCount + " 条。归档包会保存完整结果取舍清单。", archivedCount, notIncludedCount, resultCount, activeTaskCount: 0 });
     }
 
     function bindPlanInspectControls() {

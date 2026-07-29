@@ -36,8 +36,15 @@ function extractExtensionFunction(name) {
 function loadHelpers() {
   const sandbox = {
     PLAN_FILE_EQUIVALENCE_CACHE_LIMIT: 128,
+    PLAN_ARCHIVE_READINESS_CACHE_LIMIT: 64,
     EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY: { keys: [], keySet: new Set() },
     planFileEquivalenceCache: new Map(),
+    planArchiveReadinessIndexState: null,
+    planArchiveReadinessIndexSummary: null,
+    planArchiveReadinessIndexResults: null,
+    planArchiveReadinessIndexTasks: null,
+    planArchiveReadinessIndexValue: null,
+    planArchiveReadinessCache: new Map(),
     asArray: (value) => Array.isArray(value) ? value : [],
     uniqueText: (values) => [...new Set((values || []).filter(Boolean))],
     schedulerRowsForState: (state) => state.__tasks || [],
@@ -51,8 +58,13 @@ function loadHelpers() {
     extractFunction("taskStatusToken"),
     extractFunction("taskFailureLikeStatus"),
     extractFunction("taskTerminalStatus"),
+    extractFunction("planArchiveRecordPlanFile"),
+    extractFunction("addPlanArchiveReadinessIndexEntry"),
+    extractFunction("planArchiveUiReadinessIndexForState"),
+    extractFunction("planArchiveUiReadinessIndices"),
+    extractFunction("cachePlanArchiveUiReadiness"),
     extractFunction("planArchiveUiReadiness"),
-    "this.api = { samePlanSelection, planArchiveUiReadiness };",
+    "this.api = { samePlanSelection, planArchiveUiReadiness, cacheState: () => ({ index: planArchiveReadinessIndexValue, size: planArchiveReadinessCache.size }) };",
   ].join("\n"), sandbox);
   return sandbox.api;
 }
@@ -95,6 +107,42 @@ test("plan archive UI mirrors result and active-task backend gates", () => {
   assert.match(planArchiveUiReadiness(missingEvidence, planFile).reason, /完整预览 CSV 或有效结果 CSV/);
 });
 
+test("plan archive readiness scans result and task sources once per state", () => {
+  const { planArchiveUiReadiness, cacheState } = loadHelpers();
+  let resultReads = 0;
+  let taskReads = 0;
+  const result = (planFile, finalEvidenceState) => ({
+    get planFile() { resultReads += 1; return planFile; },
+    finalEvidenceState,
+  });
+  const task = (planFile, status) => ({
+    get planFile() { taskReads += 1; return planFile; },
+    status,
+  });
+  const state = {
+    resultsSummary: {
+      previewCsvPath: "preview.csv",
+      effectiveResultsCsvPath: "effective.csv",
+      results: [result("a.yaml", "archived"), result("b.yaml", "excluded")],
+    },
+    __tasks: [task("a.yaml", "completed"), task("b.yaml", "running")],
+  };
+  const first = planArchiveUiReadiness(state, "a.yaml");
+  const firstIndex = cacheState().index;
+  const resultReadsAfterFirst = resultReads;
+  const taskReadsAfterFirst = taskReads;
+  assert.strictEqual(planArchiveUiReadiness(state, "a.yaml"), first);
+  assert.equal(planArchiveUiReadiness(state, "b.yaml").activeTaskCount, 1);
+  assert.strictEqual(cacheState().index, firstIndex);
+  assert.equal(resultReads, resultReadsAfterFirst);
+  assert.equal(taskReads, taskReadsAfterFirst);
+  state.resultsSummary = { ...state.resultsSummary, results: [result("a.yaml", "archived")] };
+  planArchiveUiReadiness(state, "a.yaml");
+  assert.notStrictEqual(cacheState().index, firstIndex);
+  for (let index = 0; index < 80; index += 1) planArchiveUiReadiness(state, `extra-${index}.yaml`);
+  assert.ok(cacheState().size <= 64);
+});
+
 test("backend Plan archive gate shares complete scheduler terminal semantics", () => {
   const sandbox = {};
   vm.createContext(sandbox);
@@ -117,4 +165,7 @@ test("plan archive buttons expose the same readiness reason", () => {
   assert.match(panel, /data\.resultsSummary, data\.schedulerStates/);
   assert.match(panel, /plan\.archiveEvidenceSourceMode === "hub_download" \? "Hub 只读同步"/);
   assert.match(panel, /迁移结果/);
+  const readiness = extractFunction("planArchiveUiReadiness");
+  assert.match(readiness, /planArchiveUiReadinessIndexForState/);
+  assert.doesNotMatch(readiness, /\.filter\(/);
 });
