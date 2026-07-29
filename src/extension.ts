@@ -5905,11 +5905,14 @@ class RealtimeTunnelPanelProvider {
         return false;
     }
     async generateOutputAdapterFromUi() {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root)
             throw new Error("需要先打开工作区。");
         const projectName = safePlanToken(path.basename(root) || "experiment");
         const templateFiles = await this.loadProjectAdapterTemplateFiles(projectName);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const templateText = (relativePath) => {
             const found = templateFiles.find((file) => file.relativePath === relativePath);
             if (!found)
@@ -5941,18 +5944,34 @@ class RealtimeTunnelPanelProvider {
             { fullPath: guidePath, text: templateText("output_contract_guide.md") },
         ];
         const plannedWrites = await previewAndConfirmWorkspaceWrites(root, writes, "生成输出接入模板");
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const changedWrites = plannedWrites.filter((write) => write.status !== "unchanged");
         const writeResults = [];
-        for (const write of changedWrites)
-            writeResults.push(await writeWorkspaceTextWithBackup(write.fullPath, write.text));
+        for (const write of changedWrites) {
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+            const result = await writeWorkspaceTextWithBackup(write.fullPath, write.text);
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+            writeResults.push(result);
+        }
         await this.refreshLocalPlanMetadata({ post: false, force: true });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.postState();
         const summary = summarizeWorkspaceWriteResults(writeResults);
         void vscode.window.showInformationMessage(summary
             ? `输出接入模板已更新：${summary}。入口：experiments/zlk_adapter/result_writer.py。`
             : "输出接入模板已是最新，无需写入。入口：experiments/zlk_adapter/result_writer.py。");
         this.queueResultParseAfterProjectChange("生成输出接入模板", this.planFileInput || this.selectedPlanId, this.selectedPlanId || this.planFileInput);
-        await openWorkspaceFile("experiments/zlk_adapter/README.md");
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        const readmeUri = workspaceEditorUriForFile("experiments/zlk_adapter/README.md");
+        const readmeDocument = await vscode.workspace.openTextDocument(readmeUri);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await vscode.window.showTextDocument(readmeDocument, { preview: false, viewColumn: vscode.ViewColumn.Active });
     }
     async savePptPlotConfigFromUi(message) {
         const patch = recordField(message, "patch");

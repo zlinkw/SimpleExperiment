@@ -185,6 +185,18 @@ test("opening a plan cannot select it in a replacement workspace", () => {
   assert.ok(open.indexOf("await openWorkspaceFile(file)") < open.indexOf("this.selectPlanFromUi"));
 });
 
+test("output adapter generation cannot continue in a replacement workspace", () => {
+  const generate = methodBody("async generateOutputAdapterFromUi", "async savePptPlotConfigFromUi");
+  assert.match(generate, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.match(generate, /const root = projectContext\.root/);
+  assert.ok([...generate.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 7);
+  assert.match(generate, /const templateFiles = await this\.loadProjectAdapterTemplateFiles\(projectName\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(generate, /const plannedWrites = await previewAndConfirmWorkspaceWrites[\s\S]{0,180}if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(generate, /for \(const write of changedWrites\) \{\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;[\s\S]{0,180}await writeWorkspaceTextWithBackup[\s\S]{0,180}if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(generate, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(generate, /const readmeUri = workspaceEditorUriForFile\("experiments\/zlk_adapter\/README\.md"\);\s*const readmeDocument = await vscode\.workspace\.openTextDocument\(readmeUri\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await vscode\.window\.showTextDocument\(readmeDocument/);
+});
+
 test("stale network probes and realtime callbacks cannot overwrite the new project", () => {
   const tunnel = methodBody("async testTunnel", "async runXshellRealIntegrationCheck");
   const integration = methodBody("async runXshellRealIntegrationCheck", "async restartRealtimeStream");
