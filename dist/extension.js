@@ -420,6 +420,7 @@ class RealtimeTunnelPanelProvider {
     recentPlans = [];
     resultsSummary;
     resultsSummaryRefreshTimer;
+    resultsSummaryRefreshTimerGeneration = 0;
     lastResultsSummaryRefreshedDirtyKey = "";
     pendingResultsSummaryDirtyKey = "";
     pendingResultsSummaryDirtyPlanFile = "";
@@ -686,6 +687,7 @@ class RealtimeTunnelPanelProvider {
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
         this.resultsSummaryRefreshTimer = undefined;
+        this.resultsSummaryRefreshTimerGeneration += 1;
         for (const timer of this.operationTimers.values())
             clearTimeout(timer);
         this.operationTimers.clear();
@@ -1252,6 +1254,7 @@ class RealtimeTunnelPanelProvider {
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
         this.resultsSummaryRefreshTimer = undefined;
+        this.resultsSummaryRefreshTimerGeneration += 1;
         if (this.statePostTimer)
             clearTimeout(this.statePostTimer);
         this.statePostTimer = undefined;
@@ -6616,15 +6619,22 @@ class RealtimeTunnelPanelProvider {
         }
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
-        this.resultsSummaryRefreshTimer = setTimeout(() => {
-            this.resultsSummaryRefreshTimer = undefined;
+        const timerGeneration = ++this.resultsSummaryRefreshTimerGeneration;
+        const generation = this.projectContextGeneration;
+        const client = this.client;
+        const timer = setTimeout(() => {
+            if (this.resultsSummaryRefreshTimer === timer)
+                this.resultsSummaryRefreshTimer = undefined;
+            if (timerGeneration !== this.resultsSummaryRefreshTimerGeneration || generation !== this.projectContextGeneration || client !== this.client)
+                return;
             if (this.resultsSummaryRefreshInFlight) {
                 this.scheduleResultsSummaryTimer("inflight", dirtyKey, 500 + Math.floor(Math.random() * 500));
                 return;
             }
             void this.refreshResultsSummaryFromRealtime(reason, dirtyKey);
         }, delayMs);
-        this.resultsSummaryRefreshTimer.unref?.();
+        this.resultsSummaryRefreshTimer = timer;
+        timer.unref?.();
     }
     resolveSelectedPlanFile(hint = "") {
         return resolvePlanFileFromPlanList(this.localPlanMetadata?.plans || [], hint, [this.planFileInput || "", this.selectedPlanId || ""]);
@@ -7049,6 +7059,11 @@ class RealtimeTunnelPanelProvider {
     }
     resetClient() {
         const previous = this.client;
+        this.resultsSummaryRefreshTimerGeneration += 1;
+        if (this.resultsSummaryRefreshTimer)
+            clearTimeout(this.resultsSummaryRefreshTimer);
+        this.resultsSummaryRefreshTimer = undefined;
+        this.resultsSummaryRefreshInFlight = false;
         this.gpuHistoryState.reset();
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
@@ -7057,6 +7072,8 @@ class RealtimeTunnelPanelProvider {
         this.lastAvailabilityGpuSignature = "";
         void previous?.disconnect("reconfigure").catch(() => undefined);
         this.startAvailabilityPushLoop();
+        if (this.view?.visible)
+            this.retryPendingResultsSummaryOnVisible();
     }
     async applyTopologyRuntimeMode(mode, reason) {
         const normalized = (0, TopologyMode_1.normalizeTopologyMode)(mode);
@@ -7070,6 +7087,7 @@ class RealtimeTunnelPanelProvider {
         return true;
     }
     invalidateTopologyRuntimeCaches() {
+        this.resultsSummaryRefreshTimerGeneration += 1;
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
         this.resultsSummaryRefreshTimer = undefined;
