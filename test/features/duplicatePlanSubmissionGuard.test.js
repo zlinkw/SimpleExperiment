@@ -64,6 +64,57 @@ function loadPanelGuard() {
   return sandbox.guard;
 }
 
+function loadPlanRuntimeEvidenceCache() {
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction(extension, "planRuntimeEvidenceCacheMatches")}\n${extractFunction(extension, "resolvePlanRuntimeEvidenceCache")}\nthis.resolveCache = resolvePlanRuntimeEvidenceCache;`, sandbox);
+  return sandbox.resolveCache;
+}
+
+test("backend reuses Plan runtime evidence merge only for identical sources", () => {
+  const resolveCache = loadPlanRuntimeEvidenceCache();
+  const realtimeState = {};
+  const snapshot = {};
+  const offlineSnapshot = {};
+  const localOperations = {};
+  const input = {
+    projectContextGeneration: 1,
+    connectionMode: "xshell_tunnel_realtime",
+    realtimeState,
+    snapshot,
+    offlineSnapshot,
+    localOperations,
+    localOperationsRevision: 3,
+    schedulerProtectedKey: '["run-a"]',
+  };
+  let builds = 0;
+  const build = () => ({ build: ++builds });
+  const first = resolveCache(undefined, input, build);
+  const reused = resolveCache(first, { ...input }, build);
+
+  assert.strictEqual(reused, first);
+  assert.strictEqual(reused.value, first.value);
+  assert.equal(builds, 1);
+
+  for (const [field, value] of [
+    ["projectContextGeneration", 2],
+    ["connectionMode", "offline_import"],
+    ["realtimeState", {}],
+    ["snapshot", {}],
+    ["offlineSnapshot", {}],
+    ["localOperations", {}],
+    ["localOperationsRevision", 4],
+    ["schedulerProtectedKey", '["run-b"]'],
+  ]) {
+    assert.notStrictEqual(resolveCache(first, { ...input, [field]: value }, build), first, field);
+  }
+  assert.equal(builds, 9);
+  assert.match(extension, /private localOperationsRevision = 0/);
+  assert.match(extension, /markLocalOperationsDirty\(\)\s*\{\s*this\.localOperationsDirty = true;\s*this\.localOperationsRevision \+= 1;/);
+  assert.match(extension, /this\.planRuntimeEvidenceCache = resolvePlanRuntimeEvidenceCache/);
+  assert.match(extension, /return this\.planRuntimeEvidenceCache\.value/);
+});
+
 test("backend blocks duplicate run operations and active scheduler tasks for the same Plan", () => {
   assert.match(extension, /private buildPlanRuntimeEvidenceState\(\)/);
   assert.match(extension, /private buildState\(\): WebviewClusterState \{[\s\S]{0,240}this\.buildPlanRuntimeEvidenceState\(\)/);

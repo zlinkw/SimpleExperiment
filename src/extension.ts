@@ -520,6 +520,8 @@ class RealtimeTunnelPanelProvider {
     projectUiLayout;
     localOperations = {};
     localOperationsDirty = false;
+    private localOperationsRevision = 0;
+    private planRuntimeEvidenceCache;
     private localOperationsPersistPromise?: Promise<void>;
     operationTimers = new Map();
     operationProbeTimers = new Map();
@@ -1226,6 +1228,7 @@ class RealtimeTunnelPanelProvider {
     }
     markLocalOperationsDirty() {
         this.localOperationsDirty = true;
+        this.localOperationsRevision += 1;
     }
     private queueProjectLocalOperationsStatePersistence() {
         if (this.localOperationsPersistPromise || !this.localOperationsDirty)
@@ -8028,10 +8031,23 @@ class RealtimeTunnelPanelProvider {
         const snapshot = this.lastSnapshot || realtimeState?.lastKnownGood;
         const offlineSnapshot = this.offlineBundle?.snapshot;
         const schedulerProtectedKeys = this.schedulerProtectedKeys();
-        const schedulerStates = compactSchedulerStates(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates], (rows) => compactSchedulerStates(rows, schedulerProtectedKeys)), schedulerFallbackRowKey, mergeSchedulerFallbackRow), schedulerProtectedKeys);
         this.queueProjectLocalOperationsStatePersistence();
-        const operations = compactOperationRecords(mergeOperationRecords(this.localOperations, compactOperationRecords(operationsRecord(snapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(operationsRecord(offlineSnapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(realtimeState?.operations, STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT)), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
-        return { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations };
+        const cacheInput = {
+            projectContextGeneration: this.projectContextGeneration,
+            connectionMode,
+            realtimeState,
+            snapshot,
+            offlineSnapshot,
+            localOperations: this.localOperations,
+            localOperationsRevision: this.localOperationsRevision,
+            schedulerProtectedKey: JSON.stringify(schedulerProtectedKeys),
+        };
+        this.planRuntimeEvidenceCache = resolvePlanRuntimeEvidenceCache(this.planRuntimeEvidenceCache, cacheInput, () => {
+            const schedulerStates = compactSchedulerStates(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates], (rows) => compactSchedulerStates(rows, schedulerProtectedKeys)), schedulerFallbackRowKey, mergeSchedulerFallbackRow), schedulerProtectedKeys);
+            const operations = compactOperationRecords(mergeOperationRecords(cacheInput.localOperations, compactOperationRecords(operationsRecord(snapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(operationsRecord(offlineSnapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(realtimeState?.operations, STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT)), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+            return { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations };
+        });
+        return this.planRuntimeEvidenceCache.value;
     }
     private buildState(): WebviewClusterState {
         const schedulerConfig = this.schedulerSettings();
@@ -8551,6 +8567,22 @@ function mergeFallbackRows(values, keyOf, mergeRow = mergeFallbackRow) {
 }
 function compactFallbackRowSources(values, compact) {
     return values.map((rows) => compact(Array.isArray(rows) ? rows : []));
+}
+function planRuntimeEvidenceCacheMatches(cache, input) {
+    return Boolean(cache
+        && cache.projectContextGeneration === input.projectContextGeneration
+        && cache.connectionMode === input.connectionMode
+        && cache.realtimeState === input.realtimeState
+        && cache.snapshot === input.snapshot
+        && cache.offlineSnapshot === input.offlineSnapshot
+        && cache.localOperations === input.localOperations
+        && cache.localOperationsRevision === input.localOperationsRevision
+        && cache.schedulerProtectedKey === input.schedulerProtectedKey);
+}
+function resolvePlanRuntimeEvidenceCache(cache, input, build) {
+    if (planRuntimeEvidenceCacheMatches(cache, input))
+        return cache;
+    return { ...input, value: build() };
 }
 function mergeFallbackRow(previous, incoming) {
     if (previous && incoming && typeof previous === "object" && typeof incoming === "object")

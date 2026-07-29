@@ -15,33 +15,33 @@
 ## 后续优先级
 - [已完成] 1/5 project-031：为 Plan 运行证据建立专用后端状态构建路径。
 - [已完成] 2/5 project-032：缓存前端 Plan 执行阶段派生。
-- [待处理] 3/5 project-033：缓存后端 Plan 运行证据合并结果。
+- [已完成] 3/5 project-033：缓存后端 Plan 运行证据合并结果。
 - [待处理] 4/5 project-034：审计并优化前端状态与检查器重复派生。
 - [待处理] 5/5 project-035：执行第三十七轮完整非服务器静态测试并修正新增回归。
 
-## 当前批次：project-032（已完成）
+## 当前批次：project-033（已完成）
 ### 修复点
 
-- 同一 Webview 状态内按 Plan 缓存执行阶段派生，避免总览、Plan 卡、资源树签名和下一步按钮重复判断同一 operation/task 链。
-- 状态对象变化时清空缓存，Plan revision 与更新时间进入缓存键。
-- 缓存保持 64 项上限，不改变校验、预演、提交、Debug、结果和失败复核阶段语义。
+- 按连接模式、实时/快照/离线来源、本地 operation revision 和 scheduler 保护键缓存 Plan 运行证据合并结果。
+- 同一输入重复检查直接复用 scheduler 与 operation 结果；本地 operation 原地更新、任务选择变化或数据源切换时必须失效。
+- 项目本地 operation 持久化队列保持原行为，不因缓存命中漏写状态。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- operation 与 scheduler fallback 的阶段优先级必须保持不变。
-- Plan 编辑后的 revision/updatedAt 必须使旧阶段结果失效。
+- scheduler fallback、operation 终态优先级与 payload 上限必须保持不变。
+- `localOperations` 原地更新、offline/realtime 切换和保护任务选择变化必须立即失效。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] Plan 运行前置、阶段推进、终态 scheduler fallback 和缓存边界定向测试，12/12。
+- [已通过] Plan 重复提交、scheduler/operation 合并、缓存命中与失效定向测试，14/14。
 - [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮只处理前端 Plan 执行阶段派生热点，最多修改 3 个源码/测试/计划文件。
+- 本轮只处理后端 Plan 运行证据合并热点，最多修改 3 个源码/测试/计划文件。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：缓存后端 Plan 运行证据合并结果。
+- 下一批边界：审计并优化前端状态与检查器重复派生。
 - 提交记录：本批使用独立 `perf` 提交并推送 `origin/master`。
