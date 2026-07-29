@@ -8094,8 +8094,11 @@ class RealtimeTunnelPanelProvider {
         const webviewLastError = this.lastError ? compactSensitiveText(this.lastError, 600) : undefined;
         const webviewPlans = compactLocalPlansForWebview(this.localPlanMetadata.plans, selectedPlanKeys, WEBVIEW_LOCAL_PLAN_LIMIT);
         const webviewArchivedPlans = compactLocalPlansForWebview(this.localPlanMetadata.archivedPlans || [], [], WEBVIEW_ARCHIVED_PLAN_LIMIT);
-        const webviewDetectedProject = compactDetectedProjectForWebview(this.localPlanMetadata.detectedProject);
-        webviewDetectedProject.missingOnboarding = projectOnboardingSuggestionsForSelection(this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.planFileInput, this.selectedPlanId);
+        const compactedDetectedProject = compactDetectedProjectForWebview(this.localPlanMetadata.detectedProject);
+        const webviewDetectedProject = {
+            ...compactedDetectedProject,
+            missingOnboarding: projectOnboardingSuggestionsForSelection(this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.planFileInput, this.selectedPlanId),
+        };
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
         const workspace = workspaceContextForWebview();
         const topology = this.projectTopologyAssessment();
@@ -10237,7 +10240,12 @@ const detectedProjectArrayLimits = {
     multimodalHints: 40,
     missingOnboarding: 20,
 };
+const detectedProjectForWebviewCache = new WeakMap();
 function compactDetectedProjectForWebview(project) {
+    const cacheable = Boolean(project) && typeof project === "object" && !Array.isArray(project);
+    const cached = cacheable ? detectedProjectForWebviewCache.get(project) : undefined;
+    if (cached)
+        return cached;
     const out = { ...project };
     for (const [key, limit] of Object.entries(detectedProjectArrayLimits)) {
         const value = project[key];
@@ -10255,6 +10263,8 @@ function compactDetectedProjectForWebview(project) {
         out.configSummariesOmittedCount = Math.max(0, configSummaries.length - visible.length);
     }
     out.adapterRules = compactAdapterRulesForWebview(project.adapterRules);
+    if (cacheable)
+        detectedProjectForWebviewCache.set(project, out);
     return out;
 }
 function compactConfigSummaryForWebview(summary) {

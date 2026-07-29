@@ -13,36 +13,36 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-046：缓存前端配置参数结构差异。
-- [已完成] 2/5 project-047：缓存 Extension Host 的 SimpleSFTP ABI 就绪派生。
-- [已完成] 3/5 project-048：缓存本地 Plan Webview 压缩结果。
-- [已完成] 4/5 project-049：优化 Scheduler 大批量待运行队列。
-- [已完成] 5/5 project-050：执行第四十轮完整非服务器静态测试。
+- [已完成] 1/5 project-051：缓存项目检测 Webview 压缩结果。
+- [待做] 2/5 project-052：缓存 Extension Host 稳定状态快照压缩结果。
+- [待做] 3/5 project-053：缓存前端固定操作归一化结果。
+- [待做] 4/5 project-054：缓存 Xshell 会话库 Webview 压缩结果。
+- [待做] 5/5 project-055：执行第四十一轮完整非服务器静态测试。
 
-## 当前批次：project-050（已完成）
+## 当前批次：project-051（已完成）
 ### 修复点
 
-- 在安全删除拦截 preload 下执行完整 `npm test`，覆盖本轮五批静态优化及全部历史回归。
-- 补充执行 Lint、Node/Python 语法和工作树差异检查。
-- 本批不新增功能，不生成或安装 VSIX，不连接真实服务器。
+- Extension Host 按检测项目对象身份缓存 Webview 有界摘要，避免心跳重复切片配置、结果和规则集合。
+- 动态 `missingOnboarding` 在缓存摘要外浅复制写入，避免选择变化污染缓存对象。
+- 检测项目对象替换后立即失效，原字段上限和省略计数保持不变。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整测试不得触发真实服务器连接、VS Code 重载、插件安装或项目文件永久删除。
-- 测试生成物不得污染提交；历史 VSIX 与 `zlk_cluster/ui/` 继续保持未跟踪保护状态。
-- 任一完整测试失败均阻止本批提交和推送，失败项必须进入后续修复批次。
+- 相同检测对象必须复用同一基础摘要；对象替换后不得复用旧结果。
+- 配置摘要、适配规则、数组截断、总数和省略数不得变化。
+- Plan 选择变化只更新 `missingOnboarding`，不得改写缓存基础摘要。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 安全 preload 下完整 `npm test`，923/923。
-- [已通过] Lint、Node/Python 语法与 `git diff --check`。
+- [已通过] 项目检测摘要缓存命中、对象替换失效和动态 onboarding 隔离定向测试，3/3。
+- [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮建立 project-046 至 project-050 五批静态优化周期；project-050 再执行完整测试。
-- 本批只记录完整静态回归结果，预期仅修改目标计划文档。
-- 完整测试未产生源码或构建差异，历史 VSIX 与 `zlk_cluster/ui/` 保持未跟踪保护状态。
+- 本轮建立 project-051 至 project-055 五批静态优化周期；project-055 再执行完整测试。
+- 本批只处理项目检测 Webview 压缩路径，最多修改 4 个源码、测试、构建和计划文件。
+- 缓存基础摘要不包含动态 onboarding 覆盖层，选择变化不会污染后续心跳状态。
 - 真实服务器行为保持 `needs field verification`。
