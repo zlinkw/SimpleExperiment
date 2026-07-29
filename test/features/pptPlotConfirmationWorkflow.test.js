@@ -105,6 +105,10 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
   assert.match(handler, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*void vscode\.window\.showErrorMessage/);
   assert.match(source, /pptPathConfirmations: \{\s*count: this\.confirmedPptPaths\.length/);
   assert.match(source, /case "resetPptPathConfirmations":\s*await this\.resetPptPathConfirmationsFromUi\(\)/);
+  const reset = source.match(/async resetPptPathConfirmationsFromUi\(\)[\s\S]*?async resetRemotePathConfirmationsFromUi/)?.[0] || "";
+  assert.match(reset, /const root = assertSingleProjectWorkspace\("恢复 PPT 路径提醒"\)/);
+  assert.match(reset, /const generation = this\.projectContextGeneration/);
+  assert.ok([...reset.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 3);
   assert.match(panel, /data-command="resetPptPathConfirmations"/);
   assert.match(panel, /section === "servers" \|\| section === "settings"[\s\S]*data\.remotePathConfirmations[\s\S]*data\.pptPathConfirmations/);
   assert.match(panel, /const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set\([^;]*plotResultsToPpt/);

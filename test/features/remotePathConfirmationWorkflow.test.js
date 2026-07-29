@@ -184,7 +184,10 @@ test("remembered remote paths can be reset from project settings", () => {
   assert.match(source, /remotePathConfirmations: \{\s*count: this\.confirmedRemotePaths\.length/);
   assert.match(source, /case "resetRemotePathConfirmations":\s*await this\.resetRemotePathConfirmationsFromUi\(\)/);
   assert.match(source, /async resetRemotePathConfirmationsFromUi\(\)/);
-  assert.match(source, /assertSingleProjectWorkspace\("恢复上传路径提醒"\)/);
+  const reset = source.match(/async resetRemotePathConfirmationsFromUi\(\)[\s\S]*?async loadProjectLocalOperationsState/)?.[0] || "";
+  assert.match(reset, /const root = assertSingleProjectWorkspace\("恢复上传路径提醒"\)/);
+  assert.match(reset, /const generation = this\.projectContextGeneration/);
+  assert.ok([...reset.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 3);
   assert.match(source, /this\.confirmedRemotePaths = \[\];\s*await this\.persistProjectRemotePathConfirmationsState\(\)/);
   assert.match(source, /服务器配置、SimpleSFTP 配置和远端文件不会改变/);
   assert.match(panel, /data-anchor="settings-path-confirmations"/);

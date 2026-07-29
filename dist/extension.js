@@ -1090,34 +1090,44 @@ class RealtimeTunnelPanelProvider {
         await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("pptPathConfirmations"), () => this.confirmedPptPaths, writeProjectPptPathConfirmationsState);
     }
     async resetPptPathConfirmationsFromUi() {
-        assertSingleProjectWorkspace("恢复 PPT 路径提醒");
+        const root = assertSingleProjectWorkspace("恢复 PPT 路径提醒");
+        const generation = this.projectContextGeneration;
         await this.loadProjectPptPathConfirmationsState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         const count = this.confirmedPptPaths.length;
         if (!count) {
             void vscode.window.showInformationMessage("当前项目没有已关闭提醒的 PPT 目标路径。");
             return;
         }
         const answer = await vscode.window.showWarningMessage(`将清除当前项目已记住的 ${count} 个 PPT 目标路径。后续绘图会重新显示完整确认；PPT 文件、结果文件和绘图配置不会改变。`, { modal: true }, "恢复 PPT 路径提醒");
-        if (answer !== "恢复 PPT 路径提醒")
+        if (answer !== "恢复 PPT 路径提醒" || generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         this.confirmedPptPaths = [];
         await this.persistProjectPptPathConfirmationsState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         this.postState(true);
         void vscode.window.showInformationMessage(`已恢复当前项目 ${count} 个 PPT 目标路径的确认提醒。`);
     }
     async resetRemotePathConfirmationsFromUi() {
-        assertSingleProjectWorkspace("恢复上传路径提醒");
+        const root = assertSingleProjectWorkspace("恢复上传路径提醒");
+        const generation = this.projectContextGeneration;
         await this.loadProjectRemotePathConfirmationsState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         const count = this.confirmedRemotePaths.length;
         if (!count) {
             void vscode.window.showInformationMessage("当前项目没有已关闭提醒的远端路径。");
             return;
         }
         const answer = await vscode.window.showWarningMessage(`将清除当前项目已记住的 ${count} 个远端路径。后续代码、Agent runtime 或忽略规则写入会重新显示完整路径确认；服务器配置、SimpleSFTP 配置和远端文件不会改变。`, { modal: true }, "恢复路径提醒");
-        if (answer !== "恢复路径提醒")
+        if (answer !== "恢复路径提醒" || generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         this.confirmedRemotePaths = [];
         await this.persistProjectRemotePathConfirmationsState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         this.postState(true);
         void vscode.window.showInformationMessage(`已恢复当前项目 ${count} 个远端路径的上传确认提醒。`);
     }
