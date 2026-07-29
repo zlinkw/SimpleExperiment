@@ -5101,9 +5101,16 @@ class RealtimeTunnelPanelProvider {
             this.postState();
     }
     async archivePlanFromUi(message) {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root)
             throw new Error("需要先打开工作区。");
+        const client = this.client;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        const assertCurrent = () => {
+            if (!isCurrent())
+                throw new UiCommandCancelled("工作区或连接已切换，Plan 归档已取消。");
+        };
         const file = stringField(message, "file") || stringField(message, "planFile") || this.planFileInput || this.selectedPlanId;
         if (!file)
             throw new Error("缺少要归档的 planFile。");
@@ -5111,11 +5118,14 @@ class RealtimeTunnelPanelProvider {
         const source = safeWorkspacePlanPath(root, file, planDir);
         const planRoot = path.resolve(root, planDir);
         const planText = await fs.readFile(source, "utf8");
+        assertCurrent();
         await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile: file }));
-        const runGate = planArchiveRunGate(this.lastRealtimeState || this.lastSnapshot || this.client.currentState(), file);
+        assertCurrent();
+        const runGate = planArchiveRunGate(this.lastRealtimeState || this.lastSnapshot || client.currentState(), file);
         if (!runGate.ok)
             throw new Error(`暂不可归档 Plan：${runGate.reason}`);
         await this.refreshResultsSummary(file);
+        assertCurrent();
         const resultSummary = this.filterResultsSummaryForPlan(this.resultsSummary, file);
         const archiveGate = planArchiveGateFromResults(resultSummary, file);
         if (!archiveGate.ok)
@@ -5123,9 +5133,13 @@ class RealtimeTunnelPanelProvider {
         const resultSelection = planArchiveResultSelection(resultSummary, file);
         const resultSelectionFile = "evidence/result_selection.json";
         const configFiles = await planArchiveConfigFiles(root, planText);
+        assertCurrent();
         const configMigration = await planArchiveConfigMigration(root, planDir, source, configFiles);
+        assertCurrent();
         const environmentFiles = await detectEnvironmentFiles(root);
+        assertCurrent();
         const parameterSnapshot = await planArchiveParameterSnapshot(root, planText);
+        assertCurrent();
         const evidencePlan = planArchiveEvidencePlan(resultSummary, file);
         if (evidencePlan.missingRequired.length)
             throw new Error(`暂不可归档 Plan：结果摘要缺少 ${evidencePlan.missingRequired.join("、")}。请先重新解析当前 Plan 结果。`);
@@ -5135,6 +5149,7 @@ class RealtimeTunnelPanelProvider {
         const evidenceMode = canDownloadEvidence ? "hub_download" : "local";
         if (evidenceMode === "local") {
             const localEvidence = await inspectLocalPlanArchiveEvidence(root, evidencePlan.files);
+            assertCurrent();
             if (localEvidence.missing.length)
                 throw new Error(`暂不可归档 Plan：Hub 轻量文件下载不可用，且本地缺少结果证据：${localEvidence.missing.join("、")}。请恢复 Hub 连接或先同步这些文件。`);
             if (localEvidence.oversized.length)
@@ -5147,6 +5162,7 @@ class RealtimeTunnelPanelProvider {
         const parsed = path.parse(source);
         const bundleParent = path.join(planRoot, "_archived", path.dirname(relativeFromPlanDir));
         const bundleDir = await nextAvailableDirectory(bundleParent, `${parsed.name}__archive`);
+        assertCurrent();
         const bundleRelative = path.relative(root, bundleDir).replace(/\\/g, "/");
         const evidenceLines = evidencePlan.entries.map((entry) => `- ${entry.label}：${entry.path}\n  -> ${path.posix.join(bundleRelative, "evidence", entry.path)}`);
         const confirmLabel = "确认归档并同步证据";
@@ -5167,23 +5183,34 @@ class RealtimeTunnelPanelProvider {
             "未纳入记录不会进入有效 CSV、统计或 PPT，但会按原状态完整保存到结果取舍清单。",
             "确认后才会创建归档包、同步轻量证据并迁移 Plan/独占配置；远端实验产物不会被删除。",
         ].join("\n"), { modal: true }, confirmLabel);
+        assertCurrent();
         if (answer !== confirmLabel)
             throw new UiCommandCancelled("Plan 归档已取消，未创建归档包或迁移文件。");
         const stagingDir = `${bundleDir}.staging`;
         let bundlePublished = false;
         try {
             await fs.mkdir(stagingDir, { recursive: true });
+            assertCurrent();
             await fs.writeFile(path.join(stagingDir, "plan.yaml"), planText, "utf8");
+            assertCurrent();
             const configs = await copyPlanArchiveFiles(root, stagingDir, "configs", configFiles);
+            assertCurrent();
             const environment = await copyPlanArchiveFiles(root, stagingDir, "environment", environmentFiles);
+            assertCurrent();
             const entryScripts = await copyPlanArchiveFiles(root, stagingDir, path.join("parameters", "entries"), parameterSnapshot.entryScripts);
+            assertCurrent();
             const parameterSnapshotPath = path.join(stagingDir, "parameters", "cli_parameters.json");
             await fs.mkdir(path.dirname(parameterSnapshotPath), { recursive: true });
+            assertCurrent();
             await fs.writeFile(parameterSnapshotPath, JSON.stringify(parameterSnapshot, null, 2) + "\n", "utf8");
+            assertCurrent();
             const resultSelectionPath = safeArchiveBundleChildPath(stagingDir, resultSelectionFile);
             await fs.mkdir(path.dirname(resultSelectionPath), { recursive: true });
+            assertCurrent();
             await fs.writeFile(resultSelectionPath, JSON.stringify(resultSelection, null, 2) + "\n", "utf8");
-            const evidence = await materializePlanArchiveEvidenceFiles(this.client, root, stagingDir, evidenceFiles, evidenceMode);
+            assertCurrent();
+            const evidence = await materializePlanArchiveEvidenceFiles(client, root, stagingDir, evidenceFiles, evidenceMode);
+            assertCurrent();
             const excludedResults = planArchiveExcludedResults(resultSelection);
             await fs.writeFile(path.join(stagingDir, "archive_manifest.json"), JSON.stringify({
                 schemaVersion: 5,
@@ -5228,11 +5255,16 @@ class RealtimeTunnelPanelProvider {
                 excludedResultsOmittedCount: Math.max(0, resultSelection.notIncludedCount - excludedResults.length),
                 note: "本包保存可复用 Plan、关联配置、项目依赖环境清单、入口脚本与 CLI 默认参数快照，以及小型结果证据。参数只做静态读取，不导入或执行项目代码。大体积运行产物仍由既有 Hub/Worker 归档保存，路径见证据文件。",
             }, null, 2) + "\n", "utf8");
+            assertCurrent();
             await fs.rename(stagingDir, bundleDir);
             bundlePublished = true;
+            assertCurrent();
             await fs.unlink(source);
+            assertCurrent();
             await removeArchivedWorkspaceFiles(root, configMigration.migrated);
+            assertCurrent();
             await removeArchivedWorkspaceFiles(root, movableEvidence);
+            assertCurrent();
         }
         catch (error) {
             if (bundlePublished) {
@@ -5255,12 +5287,16 @@ class RealtimeTunnelPanelProvider {
             }
             throw error;
         }
+        if (!isCurrent())
+            return;
         const archivedRelative = path.relative(root, bundleDir).replace(/\\/g, "/");
         if (this.planFileInput === file)
             this.planFileInput = undefined;
         if (this.selectedPlanId === file)
             this.selectedPlanId = undefined;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
+        if (!isCurrent())
+            return;
         void this.persistProjectPlanSelectionState().catch(() => undefined);
         this.postState();
         void vscode.window.showInformationMessage(`Plan 归档包已创建：${archivedRelative}`);

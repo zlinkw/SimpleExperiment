@@ -61,7 +61,7 @@ test("plan archive creates a reusable bundle from archived-only effective result
   assert.match(source, /showWarningMessage\(\[\s*"【Plan 归档位置确认】"/);
   assert.match(source, /`归档包位置：\$\{bundleRelative\}`/);
   assert.match(source, /`结果证据来源：\$\{evidenceMode === "hub_download"/);
-  assert.match(source, /materializePlanArchiveEvidenceFiles\(this\.client, root, stagingDir, evidenceFiles, evidenceMode\)/);
+  assert.match(source, /materializePlanArchiveEvidenceFiles\(client, root, stagingDir, evidenceFiles, evidenceMode\)/);
   assert.match(source, /environment,/);
   assert.match(source, /planArchiveConfigMigration\(root, planDir, source, configFiles\)/);
   assert.match(source, /planArchiveMovableEvidenceFiles\(evidenceFiles\)/);

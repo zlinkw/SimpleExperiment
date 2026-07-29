@@ -177,6 +177,18 @@ test("plan save checks project context before and after each file operation", ()
   assert.match(save, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(\)/);
 });
 
+test("Plan archive stays bound to its initiating project and client", () => {
+  const archive = methodBody("async archivePlanFromUi", "async restoreArchivedPlanFromUi");
+  assert.match(archive, /const projectContext = this\.captureProjectContext\(\);\s*const root = projectContext\.root/);
+  assert.match(archive, /const client = this\.client/);
+  assert.match(archive, /const isCurrent = \(\) => this\.projectContextIsCurrent\(projectContext\) && client === this\.client/);
+  assert.match(archive, /throw new UiCommandCancelled\("工作区或连接已切换，Plan 归档已取消。"\)/);
+  assert.ok([...archive.matchAll(/assertCurrent\(\)/g)].length >= 20);
+  assert.match(archive, /planArchiveRunGate\(this\.lastRealtimeState \|\| this\.lastSnapshot \|\| client\.currentState\(\), file\)/);
+  assert.match(archive, /materializePlanArchiveEvidenceFiles\(client, root, stagingDir, evidenceFiles, evidenceMode\)/);
+  assert.match(archive, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!isCurrent\(\)\)\s*return/);
+});
+
 test("stale UI layout saves cannot refresh a replacement workspace", () => {
   const save = methodBody("async saveUiLayoutFromUi", "async resetUiLayoutFromUi");
   const reset = methodBody("async resetUiLayoutFromUi", "async runActionCommand");
