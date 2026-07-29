@@ -6380,6 +6380,9 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
     }
     async downloadDebugBundle() {
+        const generation = this.projectContextGeneration;
+        const root = workspaceRoot();
+        const client = this.client;
         const pathFromOps = this.debugBundlePath || findDebugBundlePath(this.localOperations) || findDebugBundlePath(this.lastRealtimeState?.operations);
         if (!pathFromOps) {
             this.recordActionError({ command: "downloadDebugBundle", message: "未找到调试包", suggestion: "请先创建调试包，等待操作完成后再下载。" });
@@ -6392,21 +6395,22 @@ class RealtimeTunnelPanelProvider {
         });
         if (!picked)
             return;
-        const generation = this.projectContextGeneration;
-        const client = this.client;
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
+            return;
         try {
             await client.downloadFile(pathFromOps, picked.fsPath);
-            if (generation !== this.projectContextGeneration || client !== this.client)
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
                 return;
             this.lastError = undefined;
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration || client !== this.client)
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
                 return;
             this.lastError = userFacingFileError(error);
             this.recordActionError({ command: "downloadDebugBundle", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
         }
-        this.postState();
+        if (generation === this.projectContextGeneration && root === workspaceRoot() && client === this.client)
+            this.postState();
     }
     async downloadRemoteResultFromUi(message) {
         const root = workspaceRoot();
