@@ -1634,6 +1634,34 @@ function renderPanelHtml() {
     const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
+    const COMMAND_ACTION_NAMES = Object.freeze({
+      validatePlan: "validate-plan", dryRunPlan: "dry-run-plan", runPlan: "run-plan", stopExperiment: "stop-experiment", retryExperiment: "retry-experiment", reproducePlan: "reproduce-plan",
+      parseResults: "parse-results", refreshResults: "refresh-results", runQualityGate: "run-quality-gate", runStatistics: "run-statistics", exportPaperTable: "export-paper-table", checkClaimEvidence: "check-claim-evidence",
+      checkOutputContract: "check-output-contract", parseCaseLevel: "parse-case-level", runLeakageCheck: "run-leakage-check", runSubgroupAnalysis: "run-subgroup-analysis", exportCaseAnalysis: "export-case-analysis",
+      planCheckpointRetention: "plan-checkpoint-retention", inspectDataset: "inspect-dataset", exportPlottingContract: "export-plotting-contract", inferConfigFromRun: "infer-config-from-run", recoverPlanFromRun: "recover-plan-from-run",
+      diagnoseResultAnomaly: "diagnose-result-anomaly", compareWithBestConfig: "compare-with-best-config", archiveArtifacts: "archive-artifacts", excludeResults: "exclude-results", syncArtifacts: "sync-artifacts",
+      completeThreeWay: "complete-three-way", deleteArtifacts: "delete-artifacts", reconcileDeletions: "reconcile-deletions", selfCheck: "self-check", createDebugBundle: "create-debug-bundle"
+    });
+    const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", plans: "校验/预演", tasks: "查看任务", results: "解析/统计", sync: "发布/同步", operations: "看终态", diagnostics: "看诊断" });
+    const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
+      prepareAgents: "servers", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "servers", saveSchedulerConfig: "servers", startAll: "servers", testAll: "servers", snapshot: "gpu",
+      validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
+      stopExperiment: "tasks", retryExperiment: "tasks", archiveArtifacts: "tasks", excludeResults: "results", deleteArtifacts: "tasks", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
+      inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
+      parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
+      exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
+      uploadProjectToWorkers: "sync", distributeCodeToWorkers: "sync", deployLatestAgent: "sync", configureSftpIgnores: "sync", selfCheck: "diagnostics", createDebugBundle: "diagnostics", downloadDebugBundle: "diagnostics", openAuditTail: "diagnostics"
+    });
+    const ACTION_RESOURCE_ANCHORS = Object.freeze({
+      saveTopologyMode: "settings-servers", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
+      validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
+      stopExperiment: "tasks-list", retryExperiment: "tasks-list", archiveArtifacts: "tasks-list", excludeResults: "results-traces", deleteArtifacts: "tasks-list", parseResults: "results-summary", refreshResults: "results-summary",
+      runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
+      planCheckpointRetention: "results-checkpoints", inferConfigFromRun: "results-recovery", recoverPlanFromRun: "results-recovery", diagnoseResultAnomaly: "results-anomaly", compareWithBestConfig: "results-anomaly",
+      parseCaseLevel: "results-traces", runLeakageCheck: "results-traces", runSubgroupAnalysis: "results-traces", exportCaseAnalysis: "results-traces", exportPlottingContract: "results-plotting",
+      selfCheck: "diagnostics-targets", createDebugBundle: "diagnostics-json", downloadDebugBundle: "diagnostics-json", openAuditTail: "diagnostics-errors"
+    });
+    const SYNC_COMMAND_ANCHORS = Object.freeze({ publishGithub: "sync-publish-github", syncGithub: "sync-github-push", overwriteGithub: "sync-github-overwrite", uploadProjectToHub: "sync-upload-hub", uploadProjectToWorkers: "sync-upload-workers", distributeCodeToWorkers: "sync-distribute-workers", deployLatestAgent: "sync-deploy-agent", configureSftpIgnores: "sync-sftp-ignore" });
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_OUTPUT_DERIVATION_VALUES = Object.freeze([]);
@@ -3373,41 +3401,7 @@ function renderPanelHtml() {
     }
 
     function commandActionName(command) {
-      const map = {
-        validatePlan: "validate-plan",
-        dryRunPlan: "dry-run-plan",
-        runPlan: "run-plan",
-        stopExperiment: "stop-experiment",
-        retryExperiment: "retry-experiment",
-        reproducePlan: "reproduce-plan",
-        parseResults: "parse-results",
-        refreshResults: "refresh-results",
-        runQualityGate: "run-quality-gate",
-        runStatistics: "run-statistics",
-        exportPaperTable: "export-paper-table",
-        checkClaimEvidence: "check-claim-evidence",
-        checkOutputContract: "check-output-contract",
-        parseCaseLevel: "parse-case-level",
-        runLeakageCheck: "run-leakage-check",
-        runSubgroupAnalysis: "run-subgroup-analysis",
-        exportCaseAnalysis: "export-case-analysis",
-        planCheckpointRetention: "plan-checkpoint-retention",
-        inspectDataset: "inspect-dataset",
-        exportPlottingContract: "export-plotting-contract",
-        inferConfigFromRun: "infer-config-from-run",
-        recoverPlanFromRun: "recover-plan-from-run",
-        diagnoseResultAnomaly: "diagnose-result-anomaly",
-        compareWithBestConfig: "compare-with-best-config",
-        archiveArtifacts: "archive-artifacts",
-        excludeResults: "exclude-results",
-        syncArtifacts: "sync-artifacts",
-        completeThreeWay: "complete-three-way",
-        deleteArtifacts: "delete-artifacts",
-        reconcileDeletions: "reconcile-deletions",
-        selfCheck: "self-check",
-        createDebugBundle: "create-debug-bundle"
-      };
-      return map[command] || command;
+      return COMMAND_ACTION_NAMES[command] || command;
     }
 
     function operationIsActive(status) {
@@ -5128,18 +5122,7 @@ function renderPanelHtml() {
     function resourceTreeNextStep(section, tone, meta) {
       if (tone === "warn") return "处理提示";
       if (meta && meta.anchor && meta.anchor !== section) return "已定位：" + (meta.label || "对象");
-      const map = {
-        overview: "检查总览",
-        servers: "保存后检测",
-        gpu: "查看 GPU",
-        plans: "校验/预演",
-        tasks: "查看任务",
-        results: "解析/统计",
-        sync: "发布/同步",
-        operations: "看终态",
-        diagnostics: "看诊断"
-      };
-      return map[section] || "查看详情";
+      return RESOURCE_TREE_NEXT_STEPS[section] || "查看详情";
     }
 
     function renderWorkbenchInspector(state, options) {
@@ -5259,60 +5242,7 @@ function renderPanelHtml() {
 
     function commandInspectorSection(command) {
       const text = String(command || "");
-      const map = {
-        prepareAgents: "servers",
-        startAllConnections: "overview",
-        pauseAll: "overview",
-        resumeNetwork: "overview",
-        saveTopologyMode: "servers",
-        saveSchedulerConfig: "servers",
-        startAll: "servers",
-        testAll: "servers",
-        snapshot: "gpu",
-        validatePlan: "plans",
-        dryRunPlan: "plans",
-        runPlan: "plans",
-        runAllPlans: "plans",
-        archivePlan: "plans",
-        generateOutputAdapter: "plans",
-        stopExperiment: "tasks",
-        retryExperiment: "tasks",
-        archiveArtifacts: "tasks",
-        excludeResults: "results",
-        deleteArtifacts: "tasks",
-        parseResults: "results",
-        refreshResults: "results",
-        checkOutputContract: "results",
-        inferConfigFromRun: "results",
-        recoverPlanFromRun: "results",
-        diagnoseResultAnomaly: "results",
-        compareWithBestConfig: "results",
-        inspectDataset: "results",
-        planCheckpointRetention: "results",
-        parseCaseLevel: "results",
-        runLeakageCheck: "results",
-        runSubgroupAnalysis: "results",
-        exportCaseAnalysis: "results",
-        runQualityGate: "results",
-        runStatistics: "results",
-        checkClaimEvidence: "results",
-        exportPaperTable: "results",
-        exportPlottingContract: "results",
-        plotResultsToPpt: "results",
-        publishGithub: "sync",
-        syncGithub: "sync",
-        overwriteGithub: "sync",
-        uploadProjectToHub: "sync",
-        uploadProjectToWorkers: "sync",
-        distributeCodeToWorkers: "sync",
-        deployLatestAgent: "sync",
-        configureSftpIgnores: "sync",
-        selfCheck: "diagnostics",
-        createDebugBundle: "diagnostics",
-        downloadDebugBundle: "diagnostics",
-        openAuditTail: "diagnostics"
-      };
-      return map[text] || "overview";
+      return COMMAND_INSPECTOR_SECTIONS[text] || "overview";
     }
 
     function workbenchInspectorOperationSignatureRows(state, section, meta) {
@@ -5553,49 +5483,7 @@ function renderPanelHtml() {
     function actionResourceAnchor(section, command) {
       const text = String(command || "");
       if (section === "sync") return syncCommandAnchor(text);
-      const map = {
-        saveTopologyMode: "settings-servers",
-        saveSchedulerConfig: "servers-scheduler",
-        startAll: "servers-sessions",
-        startAllConnections: "servers-sessions",
-        prepareAgents: "servers-sessions",
-        testAll: "servers-sessions",
-        snapshot: "gpu-summary",
-        validatePlan: "plans-actions",
-        dryRunPlan: "plans-actions",
-        runPlan: "plans-actions",
-        runAllPlans: "plans-actions",
-        archivePlan: "plans-actions",
-        generateOutputAdapter: "plans-detected",
-        stopExperiment: "tasks-list",
-        retryExperiment: "tasks-list",
-        archiveArtifacts: "tasks-list",
-        excludeResults: "results-traces",
-        deleteArtifacts: "tasks-list",
-        parseResults: "results-summary",
-        refreshResults: "results-summary",
-        runQualityGate: "results-summary",
-        runStatistics: "results-summary",
-        checkClaimEvidence: "results-summary",
-        exportPaperTable: "results-summary",
-        checkOutputContract: "results-contract",
-        inspectDataset: "results-dataset",
-        planCheckpointRetention: "results-checkpoints",
-        inferConfigFromRun: "results-recovery",
-        recoverPlanFromRun: "results-recovery",
-        diagnoseResultAnomaly: "results-anomaly",
-        compareWithBestConfig: "results-anomaly",
-        parseCaseLevel: "results-traces",
-        runLeakageCheck: "results-traces",
-        runSubgroupAnalysis: "results-traces",
-        exportCaseAnalysis: "results-traces",
-        exportPlottingContract: "results-plotting",
-        selfCheck: "diagnostics-targets",
-        createDebugBundle: "diagnostics-json",
-        downloadDebugBundle: "diagnostics-json",
-        openAuditTail: "diagnostics-errors"
-      };
-      return map[text] || section || "";
+      return ACTION_RESOURCE_ANCHORS[text] || section || "";
     }
 
     function inspectorActionButton(label, command, options) {
@@ -7667,17 +7555,7 @@ function renderPanelHtml() {
     }
 
     function syncCommandAnchor(command) {
-      const map = {
-        publishGithub: "sync-publish-github",
-        syncGithub: "sync-github-push",
-        overwriteGithub: "sync-github-overwrite",
-        uploadProjectToHub: "sync-upload-hub",
-        uploadProjectToWorkers: "sync-upload-workers",
-        distributeCodeToWorkers: "sync-distribute-workers",
-        deployLatestAgent: "sync-deploy-agent",
-        configureSftpIgnores: "sync-sftp-ignore"
-      };
-      return map[command] || "sync-publish";
+      return SYNC_COMMAND_ANCHORS[command] || "sync-publish";
     }
 
     function publishAgentReadiness(state) {
