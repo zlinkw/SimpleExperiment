@@ -1466,6 +1466,8 @@ export function renderPanelHtml(): string {
     let taskSectionViewCacheState = null;
     let taskSectionViewCacheScope = "";
     let taskSectionViewCacheValue = null;
+    let planExecutionStageCacheState = null;
+    let planExecutionStageCache = new Map();
     let planActiveRunEvidenceCacheState = null;
     let planActiveRunEvidenceCache = new Map();
     let planVersionRowsCacheState = null;
@@ -1648,6 +1650,7 @@ export function renderPanelHtml(): string {
     const INSPECTOR_ACTION_RENDER_LIMIT = 10;
     const INSPECTOR_CUSTOM_ACTION_RENDER_LIMIT = 6;
     const INSPECTOR_READINESS_RENDER_LIMIT = 8;
+    const PLAN_EXECUTION_STAGE_CACHE_LIMIT = 64;
     const PLAN_VERSION_ROWS_CACHE_LIMIT = 64;
     const CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT = 32;
     const PLAN_FILE_EQUIVALENCE_CACHE_LIMIT = 128;
@@ -9333,75 +9336,96 @@ export function renderPanelHtml(): string {
     }
 
     function planExecutionStage(state, planFile) {
-      const plan = planFromContext(state || {}, { planFile }) || {};
-      const planUpdatedAt = Date.parse(String(plan.updatedAt || ""));
+      const data = state || {};
+      const plan = planFromContext(data, { planFile }) || {};
+      const planUpdatedAtText = String(plan.updatedAt || "");
+      const planUpdatedAt = Date.parse(planUpdatedAtText);
       const planRevision = String(plan.revision || "");
-      const rows = planVersionOperationRows(state, planFile, planRevision, planUpdatedAt);
+      if (planExecutionStageCacheState !== data) {
+        planExecutionStageCacheState = data;
+        planExecutionStageCache = new Map();
+      }
+      const cacheKey = planExecutionStageCacheKey(planFile, planRevision, planUpdatedAtText);
+      if (planExecutionStageCache.has(cacheKey)) return planExecutionStageCache.get(cacheKey);
+      const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
       if (!rows.length) {
-        const taskStage = terminalPlanTaskExecutionStage(state, planFile, planRevision, planUpdatedAt);
-        if (taskStage) return taskStage;
+        const taskStage = terminalPlanTaskExecutionStage(data, planFile, planRevision, planUpdatedAt);
+        if (taskStage) return cachePlanExecutionStage(cacheKey, taskStage);
       }
       const latestValidate = rows.find((row) => String(row.type || "").toLowerCase() === "validate-plan");
       if (!latestValidate) {
-        return {
+        return cachePlanExecutionStage(cacheKey, {
           phase: "ready",
           status: "准备就绪；确认后自动同步、校验、预演并提交",
           label: "校验并提交运行",
           command: "runPlan"
-        };
+        });
       }
       if (operationPending(latestValidate)) {
-        return { phase: "validating", status: "计划校验执行中，等待操作终态", label: "查看进度", section: "operations", anchor: "operations" };
+        return cachePlanExecutionStage(cacheKey, { phase: "validating", status: "计划校验执行中，等待操作终态", label: "查看进度", section: "operations", anchor: "operations" });
       }
       if (!operationSucceeded(latestValidate)) {
-        return {
+        return cachePlanExecutionStage(cacheKey, {
           phase: "validate",
           status: operationIsFailureLike(latestValidate.status) ? "最近一次校验失败；修正 Plan 后重新校验" : "最近一次校验未完成；重新校验当前计划",
           label: "重新校验",
           command: "validatePlan"
-        };
+        });
       }
       const latestDryRun = rows.find((row) => String(row.type || "").toLowerCase() === "dry-run-plan" && operationAtOrAfter(row, latestValidate));
       if (operationPending(latestDryRun)) {
-        return { phase: "dry-running", status: "计划预演执行中，等待调度预览", label: "查看进度", section: "operations", anchor: "operations" };
+        return cachePlanExecutionStage(cacheKey, { phase: "dry-running", status: "计划预演执行中，等待调度预览", label: "查看进度", section: "operations", anchor: "operations" });
       }
       if (!operationSucceeded(latestDryRun)) {
-        return {
+        return cachePlanExecutionStage(cacheKey, {
           phase: "dry-run",
           status: latestDryRun && operationIsFailureLike(latestDryRun.status) ? "最近一次预演失败；调整后重新预演" : "校验已通过，预演调度与任务展开结果",
           label: latestDryRun && operationIsFailureLike(latestDryRun.status) ? "重新预演" : "预演当前计划",
           command: "dryRunPlan"
-        };
+        });
       }
       const latestRun = rows.find((row) => ["run-plan", "reproduce-plan"].includes(String(row.type || "").toLowerCase()) && operationAtOrAfter(row, latestDryRun));
       const runAccepted = Boolean(latestRun && (latestRun.submissionAccepted || latestRun.schedulerStarted));
       if (operationPending(latestRun)) {
         if (runAccepted) {
-          return { phase: "monitor", status: "计划已提交，调度器正在排队或运行任务", label: "查看任务", section: "tasks", anchor: "tasks" };
+          return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "计划已提交，调度器正在排队或运行任务", label: "查看任务", section: "tasks", anchor: "tasks" });
         }
-        return { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "operations", anchor: "operations" };
+        return cachePlanExecutionStage(cacheKey, { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "operations", anchor: "operations" });
       }
       if (operationSucceeded(latestRun)) {
         if (debugRunRecord(latestRun)) {
-          return { phase: "debug-review", status: "Debug 已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "tasks", anchor: "tasks" };
+          return cachePlanExecutionStage(cacheKey, { phase: "debug-review", status: "Debug 已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "tasks", anchor: "tasks" });
         }
-        return { phase: "results", status: "调度已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" };
+        return cachePlanExecutionStage(cacheKey, { phase: "results", status: "调度已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" });
       }
       if (latestRun && operationIsFailureLike(latestRun.status) && runAccepted) {
-        return {
+        return cachePlanExecutionStage(cacheKey, {
           phase: "review",
           status: latestRun.schedulerFinished ? "调度已结束且存在失败任务；先查看任务并按需重试" : "调度状态异常；先查看任务与日志，避免重复提交整个 Plan",
           label: "查看任务",
           section: "tasks",
           anchor: "tasks"
-        };
+        });
       }
-      return {
+      return cachePlanExecutionStage(cacheKey, {
         phase: "run",
         status: latestRun && operationIsFailureLike(latestRun.status) ? "运行提交失败；修正后重新提交" : "预演已通过，可以提交正式运行",
         label: latestRun && operationIsFailureLike(latestRun.status) ? "重新提交" : "提交运行",
         command: "runPlan"
-      };
+      });
+    }
+
+    function planExecutionStageCacheKey(planFile, planRevision, planUpdatedAt) {
+      return [normalizePlanSelectionKey(planFile), String(planRevision || ""), String(planUpdatedAt || "")].join("|");
+    }
+
+    function cachePlanExecutionStage(cacheKey, stage) {
+      if (planExecutionStageCache.size >= PLAN_EXECUTION_STAGE_CACHE_LIMIT) {
+        const oldestKey = planExecutionStageCache.keys().next().value;
+        if (oldestKey !== undefined) planExecutionStageCache.delete(oldestKey);
+      }
+      planExecutionStageCache.set(cacheKey, stage);
+      return stage;
     }
 
     function taskMatchesPlanVersion(row, planRevision, planUpdatedAt) {

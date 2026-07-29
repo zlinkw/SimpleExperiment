@@ -14,34 +14,34 @@
 
 ## 后续优先级
 - [已完成] 1/5 project-031：为 Plan 运行证据建立专用后端状态构建路径。
-- [待处理] 2/5 project-032：缓存前端 Plan 执行阶段派生。
+- [已完成] 2/5 project-032：缓存前端 Plan 执行阶段派生。
 - [待处理] 3/5 project-033：缓存后端 Plan 运行证据合并结果。
 - [待处理] 4/5 project-034：审计并优化前端状态与检查器重复派生。
 - [待处理] 5/5 project-035：执行第三十七轮完整非服务器静态测试并修正新增回归。
 
-## 当前批次：project-031（已完成）
+## 当前批次：project-032（已完成）
 ### 修复点
 
-- 从完整 Webview 状态构建中提取 Plan 运行证据所需的 scheduler 与 operation 状态。
-- 重复提交保护、批量运行检查和项目接入状态不再为只读证据判断构建 GPU、trace、诊断与结果等完整面板 payload。
-- 完整面板继续复用同一运行证据构建路径，避免两套合并语义漂移。
+- 同一 Webview 状态内按 Plan 缓存执行阶段派生，避免总览、Plan 卡、资源树签名和下一步按钮重复判断同一 operation/task 链。
+- 状态对象变化时清空缓存，Plan revision 与更新时间进入缓存键。
+- 缓存保持 64 项上限，不改变校验、预演、提交、Debug、结果和失败复核阶段语义。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- scheduler fallback、operation 合并优先级和当前/旧 revision 判定必须保持不变。
-- Webview 状态仍须包含同一份有界 scheduler 与 operation 数据。
+- operation 与 scheduler fallback 的阶段优先级必须保持不变。
+- Plan 编辑后的 revision/updatedAt 必须使旧阶段结果失效。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] Plan 重复提交、项目快速接入、scheduler 预算和 operation 生命周期定向测试，19/19。
+- [已通过] Plan 运行前置、阶段推进、终态 scheduler fallback 和缓存边界定向测试，12/12。
 - [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮只处理 Plan 运行证据状态构建热点，最多修改 5 个源码/测试/计划文件。
+- 本轮只处理前端 Plan 执行阶段派生热点，最多修改 3 个源码/测试/计划文件。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：缓存前端 Plan 执行阶段派生。
+- 下一批边界：缓存后端 Plan 运行证据合并结果。
 - 提交记录：本批使用独立 `perf` 提交并推送 `origin/master`。

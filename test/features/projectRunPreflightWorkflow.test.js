@@ -20,13 +20,15 @@ function extractFunction(source, name) {
 }
 
 function loadPlanExecutionStage() {
-  const names = ["planExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
+  const names = ["normalizePlanSelectionKey", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
   const sandbox = {
+    PLAN_EXECUTION_STAGE_CACHE_LIMIT: 64,
+    planExecutionStageCacheState: null,
+    planExecutionStageCache: new Map(),
     PLAN_VERSION_ROWS_CACHE_LIMIT: 64,
     planVersionRowsCacheState: null,
     planVersionOperationRowsCache: new Map(),
     planVersionTaskRowsCache: new Map(),
-    normalizePlanSelectionKey: (value) => String(value || ""),
     planFromContext: (state) => state.plan || {},
     operationRowsForState: (state) => state.operations || [],
     schedulerRowsForState: (state) => state.tasks || [],
@@ -34,7 +36,9 @@ function loadPlanExecutionStage() {
   };
   vm.createContext(sandbox);
   vm.runInContext(names.map((name) => extractFunction(panel, name)).join("\n") + "\nthis.result = planExecutionStage;", sandbox);
-  return sandbox.result;
+  const stage = sandbox.result;
+  stage.cacheState = () => ({ state: sandbox.planExecutionStageCacheState, cache: sandbox.planExecutionStageCache });
+  return stage;
 }
 
 test("project next action follows the real preflight order", () => {
@@ -143,6 +147,47 @@ test("Plan execution stage uses scoped terminal operations", () => {
   ] }, planFile).phase, "results");
   assert.equal(stage({ plan, operations: [op("validate-plan", "completed", "2026-07-16T02:01:00.000Z", "old-revision")] }, planFile).phase, "ready");
   assert.equal(stage({ plan, operations: [{ ...op("validate-plan", "completed", "2026-07-16T02:01:00.000Z"), planFile: "other.yaml" }] }, planFile).phase, "ready");
+});
+
+test("Plan execution stage reuses bounded per-state cache entries", () => {
+  const stage = loadPlanExecutionStage();
+  const planFile = "experiments/plans/smoke.yaml";
+  const plan = { revision: "rev1", updatedAt: "2026-07-16T02:00:00.000Z" };
+  const state = { plan, operations: [] };
+  const first = stage(state, `./${planFile}`);
+
+  assert.strictEqual(stage(state, planFile.replaceAll("/", "\\")), first);
+  assert.equal(stage.cacheState().cache.size, 1);
+
+  state.plan = { revision: "rev2", updatedAt: plan.updatedAt };
+  state.operations = [{ type: "validate-plan", status: "completed", updatedAt: "2026-07-16T02:01:00.000Z", planFile, planRevision: "rev2" }];
+  const revised = stage(state, planFile);
+  assert.notStrictEqual(revised, first);
+  assert.equal(revised.phase, "dry-run");
+
+  state.plan = { ...state.plan, updatedAt: "2026-07-16T02:02:00.000Z" };
+  state.operations = [];
+  const updated = stage(state, planFile);
+  assert.notStrictEqual(updated, revised);
+  assert.equal(updated.phase, "ready");
+
+  const nextState = {
+    plan,
+    operations: [{ type: "validate-plan", status: "completed", updatedAt: "2026-07-16T02:01:00.000Z", planFile, planRevision: "rev1" }],
+  };
+  const next = stage(nextState, planFile);
+  assert.notStrictEqual(next, first);
+  assert.equal(next.phase, "dry-run");
+  assert.strictEqual(stage.cacheState().state, nextState);
+  assert.equal(stage.cacheState().cache.size, 1);
+
+  const oldest = stage(nextState, "experiments/plans/cache-0.yaml");
+  for (let index = 1; index <= 64; index += 1) {
+    stage(nextState, `experiments/plans/cache-${index}.yaml`);
+  }
+  assert.equal(stage.cacheState().cache.size, 64);
+  assert.notStrictEqual(stage(nextState, "experiments/plans/cache-0.yaml"), oldest);
+  assert.equal(stage.cacheState().cache.size, 64);
 });
 
 test("Plan execution stage recovers from terminal scheduler tasks when operations are absent", () => {
