@@ -555,6 +555,7 @@ class RealtimeTunnelPanelProvider {
     currentPortConflictsCacheAssignments;
     currentPortConflictsCacheRangeKey = "";
     currentPortConflictsCacheValue = [];
+    topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
         this.tunnelConfig = this.loadTunnelConfig();
@@ -564,6 +565,7 @@ class RealtimeTunnelPanelProvider {
             this.ensureSelectedPlanFileWatchers("bootstrap");
         });
         this.setupConfig = this.loadSetupConfig();
+        this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
     }
@@ -723,6 +725,7 @@ class RealtimeTunnelPanelProvider {
     }
     async reloadProjectContextAfterWorkspaceChange() {
         this.resetProjectContextInMemory();
+        this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.resetClient();
         await this.bootstrapProjectLocalUiState();
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
@@ -860,15 +863,21 @@ class RealtimeTunnelPanelProvider {
         if (!event?.affectsConfiguration?.("zlkCluster"))
             return;
         const previousMode = this.effectiveConnectionMode();
+        const topologyChanged = event.affectsConfiguration("zlkCluster.topologyMode");
         const connectionChanged = event.affectsConfiguration("zlkCluster.connectionMode")
             || event.affectsConfiguration("zlkCluster.tunnel");
         if (connectionChanged) {
             this.tunnelConfig = this.loadTunnelConfig();
             this.setupConfig = this.loadSetupConfig();
-            this.resetClient();
-            if (this.isRealtimeMode())
-                await this.ensureRealtimeConnected("configuration changed");
         }
+        const topologyApplied = topologyChanged
+            ? await this.applyTopologyRuntimeMode(this.projectTopologyAssessment().mode, "topology configuration changed")
+            : false;
+        if (connectionChanged && !topologyApplied) {
+            this.resetClient();
+        }
+        if (connectionChanged && !topologyApplied && this.isRealtimeMode())
+            await this.ensureRealtimeConnected("configuration changed");
         this.postState(true);
         const currentMode = this.effectiveConnectionMode();
         if (connectionChanged
@@ -2256,6 +2265,7 @@ class RealtimeTunnelPanelProvider {
     }
     async manualSnapshot() {
         const generation = this.projectContextGeneration;
+        const client = this.client;
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
             if (generation !== this.projectContextGeneration)
                 return;
@@ -2270,12 +2280,12 @@ class RealtimeTunnelPanelProvider {
         }
         try {
             const results = await Promise.allSettled([
-                this.client.getSnapshot(),
-                this.client.getGpu(),
-                this.client.getScheduler(),
-                this.client.getTraces(),
+                client.getSnapshot(),
+                client.getGpu(),
+                client.getScheduler(),
+                client.getTraces(),
             ]);
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             const [snapshot] = results;
             if (results.every((result) => result.status === "rejected"))
@@ -2287,11 +2297,11 @@ class RealtimeTunnelPanelProvider {
             await this.pushLocalWorkerAvailability(true);
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
         }
-        if (generation === this.projectContextGeneration)
+        if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
     }
     async manualGpuSnapshot() {
@@ -4072,6 +4082,7 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled("拓扑模式修改已取消。");
         const config = vscode.workspace.getConfiguration("zlkCluster", folder.uri);
         await config.update("topologyMode", requestedMode, vscode.ConfigurationTarget.WorkspaceFolder);
+        await this.applyTopologyRuntimeMode(requestedMode, "topology saved from UI");
         this.postState();
         void vscode.window.showInformationMessage(`当前项目已保存为${next.modeLabel}。`);
     }
@@ -6447,11 +6458,12 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         const generation = this.projectContextGeneration;
+        const client = this.client;
         try {
             this.resultsSummaryRefreshInFlight = true;
             const planFile = this.resolveSelectedPlanFile(requestedPlan || this.planFileInput || this.selectedPlanId || "");
-            const summary = await this.client.getResultsSummary(planFile);
-            if (generation !== this.projectContextGeneration)
+            const summary = await client.getResultsSummary(planFile);
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.resultsSummary = summary;
             this.lastError = undefined;
@@ -6459,13 +6471,13 @@ class RealtimeTunnelPanelProvider {
             this.lastResultsSummaryCapabilityWarningKey = "";
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
             this.recordActionError({ command: "refreshResults", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
         }
         finally {
-            if (generation === this.projectContextGeneration)
+            if (generation === this.projectContextGeneration && client === this.client)
                 this.resultsSummaryRefreshInFlight = false;
         }
         this.postState();
@@ -6527,14 +6539,15 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         const generation = this.projectContextGeneration;
+        const client = this.client;
         try {
             this.resultsSummaryRefreshInFlight = true;
             // Fetch scope follows the currently selected plan only.
             // Dirty planFile only decides whether a refresh is relevant, never narrows an unselected multi-plan view.
             const selectedPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
             const planFile = selectedPlan || "";
-            const summary = await this.client.getResultsSummary(planFile);
-            if (generation !== this.projectContextGeneration)
+            const summary = await client.getResultsSummary(planFile);
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.resultsSummary = summary;
             this.lastError = undefined;
@@ -6544,7 +6557,7 @@ class RealtimeTunnelPanelProvider {
             this.markResultsSummaryDirtyKeyRefreshed(dirtyKey);
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             if (error instanceof RequestBudget_1.RequestBudgetDeniedError) {
                 this.scheduleResultsSummaryBudgetRetryFromRealtime(error, reason, dirtyKey);
@@ -6559,7 +6572,7 @@ class RealtimeTunnelPanelProvider {
             this.scheduleResultsSummaryFailureRetryFromRealtime(reason, dirtyKey);
         }
         finally {
-            if (generation === this.projectContextGeneration)
+            if (generation === this.projectContextGeneration && client === this.client)
                 this.resultsSummaryRefreshInFlight = false;
         }
         this.postState();
@@ -7036,6 +7049,43 @@ class RealtimeTunnelPanelProvider {
         this.lastAvailabilityGpuSignature = "";
         void previous?.disconnect("reconfigure").catch(() => undefined);
         this.startAvailabilityPushLoop();
+    }
+    private async applyTopologyRuntimeMode(mode, reason) {
+        const normalized = (0, TopologyMode_1.normalizeTopologyMode)(mode);
+        if (!normalized || normalized === this.topologyRuntimeMode)
+            return false;
+        this.topologyRuntimeMode = normalized;
+        this.invalidateTopologyRuntimeCaches();
+        this.resetClient();
+        if (this.isRealtimeMode())
+            await this.ensureRealtimeConnected(reason || "topology changed");
+        return true;
+    }
+    private invalidateTopologyRuntimeCaches() {
+        if (this.resultsSummaryRefreshTimer)
+            clearTimeout(this.resultsSummaryRefreshTimer);
+        this.resultsSummaryRefreshTimer = undefined;
+        this.resultsSummaryRefreshInFlight = false;
+        this.resultsSummaryRefreshRetryCount = 0;
+        this.lastResultsSummaryRefreshedDirtyKey = "";
+        this.pendingResultsSummaryDirtyKey = "";
+        this.pendingResultsSummaryDirtyPlanFile = "";
+        this.lastResultsSummaryRealtimeErrorKey = "";
+        this.lastResultsSummaryCapabilityWarningKey = "";
+        this.lastResultsSummaryCapabilitySkippedDirtyKey = "";
+        if (!this.resultsSummary || this.resultsSummary.__offlineImport !== true)
+            this.resultsSummary = undefined;
+        this.lastSnapshot = undefined;
+        this.lastRealtimeState = undefined;
+        this.lastSnapshotAt = undefined;
+        this.lastHealth = undefined;
+        this.lastProbe = undefined;
+        this.lastWorkerProbes = {};
+        this.lastFullEndpointProbeAt = 0;
+        this.lastIntegrationReport = undefined;
+        this.auditTail = undefined;
+        this.lastError = undefined;
+        this.lastPostedStateSignature = "";
     }
     private createClient(): MultiEndpointRealtimeClient {
         const generation = this.projectContextGeneration;

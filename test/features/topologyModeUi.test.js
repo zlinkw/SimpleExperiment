@@ -20,7 +20,45 @@ test("topology save is project-scoped and strongly confirmed", () => {
   assert.match(flow, /\{ modal: true \}, "保存拓扑"/);
   assert.match(flow, /模式切换不会迁移、覆盖或删除已有任务与结果/);
   assert.match(flow, /config\.update\("topologyMode", requestedMode, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
+  assert.match(flow, /applyTopologyRuntimeMode\(requestedMode, "topology saved from UI"\)/);
   assert.match(flow, /不会访问 Hub、同步到 Hub或创建跨节点自动备份/);
+});
+
+test("topology switch invalidates authority caches without deleting project records", () => {
+  const start = extension.indexOf("private invalidateTopologyRuntimeCaches");
+  const end = extension.indexOf("private createClient", start);
+  const invalidation = extension.slice(start, end);
+  assert.match(invalidation, /this\.resultsSummary = undefined/);
+  assert.match(invalidation, /this\.lastRealtimeState = undefined/);
+  assert.match(invalidation, /this\.lastProbe = undefined/);
+  assert.match(invalidation, /this\.lastWorkerProbes = \{\}/);
+  assert.match(invalidation, /this\.lastFullEndpointProbeAt = 0/);
+  assert.match(invalidation, /this\.resultsSummary\.__offlineImport !== true/);
+  assert.doesNotMatch(invalidation, /this\.localOperations = \{\}/);
+  assert.doesNotMatch(invalidation, /this\.localPlanMetadata =/);
+  assert.doesNotMatch(invalidation, /selectedRunKeys\.clear/);
+
+  const configFlow = extension.slice(extension.indexOf("async handleConfigurationChanged"), extension.indexOf("async showFirstRunSetupPromptOnce"));
+  assert.match(configFlow, /affectsConfiguration\("zlkCluster\.topologyMode"\)/);
+  assert.match(configFlow, /applyTopologyRuntimeMode\(this\.projectTopologyAssessment\(\)\.mode/);
+});
+
+test("stale result requests cannot repopulate caches after topology switch", () => {
+  const manualStart = extension.indexOf("async refreshResultsSummary(planHint");
+  const realtimeStart = extension.indexOf("async refreshResultsSummaryFromRealtime");
+  const manual = extension.slice(manualStart, extension.indexOf("scheduleResultsSummaryRefreshFromRealtime", manualStart));
+  const realtime = extension.slice(realtimeStart, extension.indexOf("async scheduleResultsSummaryBudgetRetryFromRealtime", realtimeStart));
+  for (const flow of [manual, realtime]) {
+    assert.match(flow, /const client = this\.client/);
+    assert.match(flow, /client\.getResultsSummary\(planFile\)/);
+    assert.match(flow, /client !== this\.client/);
+    assert.match(flow, /generation === this\.projectContextGeneration && client === this\.client/);
+  }
+  const snapshotStart = extension.indexOf("async manualSnapshot()");
+  const snapshot = extension.slice(snapshotStart, extension.indexOf("async manualGpuSnapshot()", snapshotStart));
+  assert.match(snapshot, /const client = this\.client/);
+  assert.match(snapshot, /client\.getSnapshot\(\)/);
+  assert.match(snapshot, /client !== this\.client/);
 });
 
 test("settings and overview render topology ownership without active Hub controls", () => {
