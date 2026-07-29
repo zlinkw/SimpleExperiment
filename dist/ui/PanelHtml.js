@@ -1634,6 +1634,8 @@ function renderPanelHtml() {
     const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
+    const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
+    const INSPECTOR_OPERATION_SECTIONS = new Set(["tasks", "operations"]);
     const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
@@ -4416,7 +4418,7 @@ function renderPanelHtml() {
 
     function normalizeActionSection(section) {
       const value = String(section || "overview");
-      if (["overview", "servers", "settings", "gpu", "plans", "tasks", "results", "sync", "operations", "diagnostics"].includes(value)) return value;
+      if (RESOURCE_TREE_SECTION_KEYS.has(value)) return value;
       if (value.startsWith("server")) return "servers";
       return "overview";
     }
@@ -4935,7 +4937,7 @@ function renderPanelHtml() {
 
     function normalizeTreeTone(tone) {
       const value = String(tone || "").toLowerCase();
-      return ["good", "info", "warn", "error", "mine"].includes(value) ? value : "";
+      return RESOURCE_TREE_TONE_VALUES.has(value) ? value : "";
     }
 
     function resourceTreeDominantTone(tones) {
@@ -5261,7 +5263,7 @@ function renderPanelHtml() {
 
     function workbenchInspectorOperationSignatureRows(state, section, meta) {
       const actionSection = inspectorActionSection(section, meta);
-      if (!["tasks", "operations"].includes(section) && !["tasks", "operations"].includes(actionSection)) return [];
+      if (!INSPECTOR_OPERATION_SECTIONS.has(section) && !INSPECTOR_OPERATION_SECTIONS.has(actionSection)) return [];
       return operationRowsForState(state).slice(0, section === "operations" || actionSection === "operations" ? 12 : 6)
         .map((op) => compactRecordForSignature(op || {}, ["operationId", "type", "status", "message", "error", "updatedAt", "workerId"]));
     }
@@ -5586,7 +5588,7 @@ function renderPanelHtml() {
 
     function workbenchInspectorEvents(state, meta, section) {
       const actionSection = inspectorActionSection(section, meta);
-      if (!["tasks", "operations"].includes(section) && !["tasks", "operations"].includes(actionSection)) {
+      if (!INSPECTOR_OPERATION_SECTIONS.has(section) && !INSPECTOR_OPERATION_SECTIONS.has(actionSection)) {
         return [];
       }
       const rows = operationRowsForState(state);

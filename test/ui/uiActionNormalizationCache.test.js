@@ -22,6 +22,7 @@ function extractFunction(name) {
 function loadNormalizers() {
   const sandbox = {
     activeResourceSection: "plans",
+    RESOURCE_TREE_SECTION_KEYS: new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]),
     PINNED_COMMAND_VALUES: new Set(["runPlan", "parseResults", "publishGithub"]),
     webviewHandledCommands: new Set(["runPlan", "parseResults", "publishGithub"]),
     pinnedCommandsNormalizationCache: new WeakMap(),
@@ -46,6 +47,7 @@ function loadNormalizers() {
     extractFunction("actionSpecId"),
     "this.normalizePinned = normalizePinnedCommands;",
     "this.normalizeActions = normalizeSavedButtonActions;",
+    "this.normalizeSection = normalizeActionSection;",
   ].join("\n"), sandbox);
   return sandbox;
 }
@@ -99,4 +101,25 @@ test("saved action normalization keeps only the newest bounded variants", () => 
   sandbox.activeResourceSection = "overview";
   assert.notStrictEqual(sandbox.normalizeActions(actions, 16), oldest);
   assert.equal(variants.size, 8);
+});
+
+test("panel reuses fixed resource section tone and inspector lookups", () => {
+  const sandbox = loadNormalizers();
+  assert.equal(sandbox.normalizeSection("results"), "results");
+  assert.equal(sandbox.normalizeSection("server-worker"), "servers");
+  assert.equal(sandbox.normalizeSection("unknown"), "overview");
+
+  const toneSandbox = {
+    RESOURCE_TREE_TONE_VALUES: new Set(["good", "info", "warn", "error", "mine"]),
+  };
+  vm.createContext(toneSandbox);
+  vm.runInContext(`${extractFunction("normalizeTreeTone")}\nthis.normalizeTone = normalizeTreeTone;`, toneSandbox);
+  assert.equal(toneSandbox.normalizeTone("MINE"), "mine");
+  assert.equal(toneSandbox.normalizeTone("unknown"), "");
+
+  assert.match(panel, /const RESOURCE_TREE_TONE_VALUES = new Set\(\["good", "info", "warn", "error", "mine"\]\)/);
+  assert.match(panel, /const INSPECTOR_OPERATION_SECTIONS = new Set\(\["tasks", "operations"\]\)/);
+  assert.match(panel, /RESOURCE_TREE_SECTION_KEYS\.has\(value\)/);
+  assert.match(panel, /RESOURCE_TREE_TONE_VALUES\.has\(value\)/);
+  assert.equal((panel.match(/INSPECTOR_OPERATION_SECTIONS\.has/g) || []).length, 4);
 });
