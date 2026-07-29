@@ -11762,6 +11762,8 @@ const planOutputEvidenceCandidatesCache = new WeakMap();
 const planOutputEvidenceSignalsCache = new WeakMap();
 const adapterRuleResultCandidatesCache = new WeakMap();
 const planScopedResultCandidateCache = new WeakMap();
+const adapterRuleCandidatePatternsCache = new WeakMap();
+const adapterRuleExactFilesCache = new WeakMap();
 function nestedRecord(record, key) {
     const value = record[key];
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -13444,6 +13446,34 @@ function projectOnboardingSuggestionsForSelection(project, plans, planFileInput,
         parseableResultCount: scopedPreviews.filter(resultPreviewHasRecords).length,
     });
 }
+const projectResultExactCandidates = Object.freeze([
+    "metrics_summary.csv",
+    "metrics_case.csv",
+    "results.csv",
+    "summary.txt",
+    "metrics.json",
+    "result.json",
+    "results.json",
+    "work_dirs/results.csv",
+    "experiments/results.csv",
+]);
+const actionGateResultScanSpecs = Object.freeze([
+    { relative: "experiments/results", limit: 30, maxDepth: 2, maxDirs: 60 },
+    { relative: "work_dirs", limit: 24, maxDepth: 2, maxDirs: 80 },
+    { relative: "results", limit: 24, maxDepth: 2, maxDirs: 60 },
+    { relative: "runs", limit: 24, maxDepth: 2, maxDirs: 60 },
+    { relative: "logs", limit: 16, maxDepth: 2, maxDirs: 40 },
+]);
+const fullProjectResultScanSpecs = Object.freeze([
+    { relative: "experiments/results", limit: 120, maxDepth: 4 },
+    { relative: "work_dirs", limit: 80, maxDepth: 3 },
+    { relative: "outputs", limit: 80, maxDepth: 3 },
+    { relative: "runs", limit: 80, maxDepth: 3 },
+    { relative: "logs", limit: 80, maxDepth: 3 },
+    { relative: "results", limit: 80, maxDepth: 3 },
+    { relative: "test_results", limit: 80, maxDepth: 3 },
+]);
+const projectResultScanConcurrency = 3;
 async function detectLocalProject(root, planDir) {
     const exists = async (relative) => (await existsAt(path.join(root, relative))) ? relative : "";
     const configs = [
@@ -13500,26 +13530,11 @@ async function detectLocalProjectForActionGate(root, planDir, previous = {}) {
     const previousRules = objectRecord(previous.adapterRules);
     const explicitRules = adapterConfig ? await readProjectAdapterRules(root, adapterConfig) : undefined;
     const adapterRules = explicitRules || previousRules || emptyProjectAdapterRules();
-    const exact = await existingRelativeFiles(root, [
-        "metrics_summary.csv",
-        "metrics_case.csv",
-        "results.csv",
-        "summary.txt",
-        "metrics.json",
-        "result.json",
-        "results.json",
-        "work_dirs/results.csv",
-        "experiments/results.csv",
-        ...adapterRuleExactFiles(adapterRules),
-    ]).then((files) => files.filter(isParseableResultCandidate));
-    const adapterExpanded = await expandAdapterResultCandidates(root, adapterRules, 48);
-    const discovered = [
-        ...await walkProjectFiles(path.join(root, "experiments", "results"), root, resultCandidateFile, 30, 2, 0, undefined, { maxDirs: 60 }),
-        ...await walkProjectFiles(path.join(root, "work_dirs"), root, resultCandidateFile, 24, 2, 0, undefined, { maxDirs: 80 }),
-        ...await walkProjectFiles(path.join(root, "results"), root, resultCandidateFile, 24, 2, 0, undefined, { maxDirs: 60 }),
-        ...await walkProjectFiles(path.join(root, "runs"), root, resultCandidateFile, 24, 2, 0, undefined, { maxDirs: 60 }),
-        ...await walkProjectFiles(path.join(root, "logs"), root, resultCandidateFile, 16, 2, 0, undefined, { maxDirs: 40 }),
-    ];
+    const [exact, adapterExpanded, discovered] = await Promise.all([
+        existingRelativeFiles(root, uniqueStrings([...projectResultExactCandidates, ...adapterRuleExactFiles(adapterRules)])).then((files) => files.filter(isParseableResultCandidate)),
+        expandAdapterResultCandidates(root, adapterRules, 48),
+        scanProjectResultCandidateDirs(root, actionGateResultScanSpecs),
+    ]);
     const files = uniqueStrings([...exact, ...adapterExpanded, ...discovered].filter(isParseableResultCandidate)).sort();
     return {
         ...previous,
@@ -15061,30 +15076,11 @@ async function detectFactoryPatterns(root) {
     };
 }
 async function detectResultOutputs(root, adapterRules) {
-    const exact = await existingRelativeFiles(root, [
-        "metrics_summary.csv",
-        "metrics_case.csv",
-        "results.csv",
-        "summary.txt",
-        "metrics.json",
-        "result.json",
-        "work_dirs/results.csv",
-        "experiments/results.csv",
-        "metrics.json",
-        "result.json",
-        "results.json",
-        ...adapterRuleExactFiles(adapterRules),
-    ]).then((files) => files.filter(isParseableResultCandidate));
-    const adapterExpanded = await expandAdapterResultCandidates(root, adapterRules, 160);
-    const discovered = [
-        ...await walkProjectFiles(path.join(root, "experiments", "results"), root, resultCandidateFile, 120),
-        ...await walkProjectFiles(path.join(root, "work_dirs"), root, resultCandidateFile, 80, 3),
-        ...await walkProjectFiles(path.join(root, "outputs"), root, resultCandidateFile, 80, 3),
-        ...await walkProjectFiles(path.join(root, "runs"), root, resultCandidateFile, 80, 3),
-        ...await walkProjectFiles(path.join(root, "logs"), root, resultCandidateFile, 80, 3),
-        ...await walkProjectFiles(path.join(root, "results"), root, resultCandidateFile, 80, 3),
-        ...await walkProjectFiles(path.join(root, "test_results"), root, resultCandidateFile, 80, 3),
-    ];
+    const [exact, adapterExpanded, discovered] = await Promise.all([
+        existingRelativeFiles(root, uniqueStrings([...projectResultExactCandidates, ...adapterRuleExactFiles(adapterRules)])).then((files) => files.filter(isParseableResultCandidate)),
+        expandAdapterResultCandidates(root, adapterRules, 160),
+        scanProjectResultCandidateDirs(root, fullProjectResultScanSpecs),
+    ]);
     const files = uniqueStrings([...exact, ...adapterExpanded, ...discovered].filter(isParseableResultCandidate)).sort();
     return {
         files,
@@ -15093,21 +15089,46 @@ async function detectResultOutputs(root, adapterRules) {
     };
 }
 function adapterRuleCandidatePatterns(adapterRules) {
-    if (!adapterRules)
-        return [];
-    return uniqueStrings([
-        ...(adapterRules.candidateCsv || []),
-        ...(adapterRules.candidateJson || []),
-        ...(adapterRules.consoleLogs || []),
-        ...(adapterRules.textLogs || []),
-        ...(adapterRules.inferredPlanCandidateCsv || []),
-        ...(adapterRules.inferredPlanCandidateJson || []),
-        ...(adapterRules.inferredPlanConsoleLogs || []),
-        ...(adapterRules.inferredPlanTextLogs || []),
+    const source = adapterRules && typeof adapterRules === "object" && !Array.isArray(adapterRules) ? adapterRules : null;
+    if (!source)
+        return EMPTY_OUTPUT_DERIVATION_VALUES;
+    const cached = adapterRuleCandidatePatternsCache.get(source);
+    if (cached)
+        return cached;
+    const value = uniqueStrings([
+        ...(source.candidateCsv || []),
+        ...(source.candidateJson || []),
+        ...(source.consoleLogs || []),
+        ...(source.textLogs || []),
+        ...(source.inferredPlanCandidateCsv || []),
+        ...(source.inferredPlanCandidateJson || []),
+        ...(source.inferredPlanConsoleLogs || []),
+        ...(source.inferredPlanTextLogs || []),
     ].map((file) => String(file || "").trim().replace(/\\/g, "/").replace(/\{+[A-Za-z0-9_.-]+\}+/g, "*").replace(/^\.\//, "")).filter(isParseableResultCandidate));
+    adapterRuleCandidatePatternsCache.set(source, value);
+    return value;
 }
 function adapterRuleExactFiles(adapterRules) {
-    return adapterRuleCandidatePatterns(adapterRules).filter((file) => !/[*?[\]]/.test(file));
+    const source = adapterRules && typeof adapterRules === "object" && !Array.isArray(adapterRules) ? adapterRules : null;
+    if (!source)
+        return EMPTY_OUTPUT_DERIVATION_VALUES;
+    const cached = adapterRuleExactFilesCache.get(source);
+    if (cached)
+        return cached;
+    const value = adapterRuleCandidatePatterns(source).filter((file) => !/[*?[\]]/.test(file));
+    adapterRuleExactFilesCache.set(source, value);
+    return value;
+}
+async function scanProjectResultCandidateDirs(root, specs, concurrency = projectResultScanConcurrency) {
+    const groups = await mapLimited(Array.isArray(specs) ? specs : [], concurrency, async (spec) => {
+        const relative = String(spec?.relative || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+        if (!relative)
+            return [];
+        const maxDirs = Number(spec?.maxDirs || 0);
+        const budget = maxDirs > 0 ? { maxDirs } : undefined;
+        return walkProjectFiles(path.join(root, ...relative.split("/")), root, resultCandidateFile, Number(spec?.limit || 0), Number(spec?.maxDepth || 0), 0, undefined, budget);
+    });
+    return groups.flat();
 }
 async function expandAdapterResultCandidates(root, adapterRules, limit = 120) {
     const patterns = adapterRuleCandidatePatterns(adapterRules);
