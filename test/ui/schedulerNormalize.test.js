@@ -1,7 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const { normalizeSchedulerRows, taskStatusRank, formatDuration } = require("../../dist/ui/WebviewRenderState.js");
+const source = fs.readFileSync(path.join(__dirname, "../../src/ui/WebviewRenderState.ts"), "utf8");
+
+function functionSource(name) {
+  const start = source.indexOf("function " + name + "(");
+  assert.ok(start >= 0, "missing " + name);
+  const end = source.indexOf("\n}", start);
+  return source.slice(start, end + 2);
+}
 
 test("scheduler normalize expands buckets and sorts active tasks first", () => {
   const rows = normalizeSchedulerRows([
@@ -23,4 +33,13 @@ test("scheduler normalize expands buckets and sorts active tasks first", () => {
 test("scheduler normalize filters deleted rows from task table", () => {
   const rows = normalizeSchedulerRows([{ status: "deleted", runKey: "gone" }, { state: "completed", runKey: "done" }]);
   assert.deepEqual(rows.map((row) => row.runKey), ["done"]);
+});
+
+test("task status sorting reuses one immutable rank table", () => {
+  const ranker = functionSource("taskStatusRank");
+  assert.match(source, /const TASK_STATUS_RANKS: Readonly<Record<string, number>> = Object\.freeze\(\{/);
+  assert.match(ranker, /TASK_STATUS_RANKS\[/);
+  assert.doesNotMatch(ranker, /const map|Object\.freeze|\{ running:/);
+  assert.equal(taskStatusRank("RUNNING"), 0);
+  assert.equal(taskStatusRank("future-status"), 6);
 });

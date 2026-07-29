@@ -1,3 +1,15 @@
+const TASK_STATUS_RANKS: Readonly<Record<string, number>> = Object.freeze({
+  running: 0,
+  testing: 1,
+  queued: 2,
+  pending: 2,
+  failed: 3,
+  completed: 4,
+  done: 4,
+  stopped: 5,
+  unknown: 6,
+});
+
 export function pick<T = unknown>(obj: unknown, keys: string[], fallback: T): T {
   if (!obj || typeof obj !== "object") return fallback;
   const item = obj as Record<string, unknown>;
@@ -93,8 +105,7 @@ function taskUiKeyFromRow(row: Record<string, unknown>, index: number): string {
 }
 
 export function taskStatusRank(status: string): number {
-  const map: Record<string, number> = { running: 0, testing: 1, queued: 2, pending: 2, failed: 3, completed: 4, done: 4, stopped: 5, unknown: 6 };
-  return map[String(status || "unknown").toLowerCase()] ?? 6;
+  return TASK_STATUS_RANKS[String(status || "unknown").toLowerCase()] ?? 6;
 }
 
 export function normalizeExperimentTraceRows(rows: unknown): Array<Record<string, unknown>> {

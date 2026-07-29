@@ -14,6 +14,17 @@ exports.transferRateBytesPerSecond = transferRateBytesPerSecond;
 exports.transferEtaSeconds = transferEtaSeconds;
 exports.percent = percent;
 exports.formatDuration = formatDuration;
+const TASK_STATUS_RANKS = Object.freeze({
+    running: 0,
+    testing: 1,
+    queued: 2,
+    pending: 2,
+    failed: 3,
+    completed: 4,
+    done: 4,
+    stopped: 5,
+    unknown: 6,
+});
 function pick(obj, keys, fallback) {
     if (!obj || typeof obj !== "object")
         return fallback;
@@ -104,8 +115,7 @@ function taskUiKeyFromRow(row, index) {
     return Array.from(new Set(values)).join("|") || `task-ui-${index}`;
 }
 function taskStatusRank(status) {
-    const map = { running: 0, testing: 1, queued: 2, pending: 2, failed: 3, completed: 4, done: 4, stopped: 5, unknown: 6 };
-    return map[String(status || "unknown").toLowerCase()] ?? 6;
+    return TASK_STATUS_RANKS[String(status || "unknown").toLowerCase()] ?? 6;
 }
 function normalizeExperimentTraceRows(rows) {
     return normalizeArray(rows).map((row) => ({
