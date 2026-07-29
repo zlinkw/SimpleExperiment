@@ -628,6 +628,30 @@ class RealtimeTunnelPanelProvider {
     projectContextIsCurrent(context) {
         return context?.generation === this.projectContextGeneration && context?.root === workspaceRoot();
     }
+    async openWorkspaceFileForProjectContext(file, projectContext, client) {
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && (!client || client === this.client);
+        if (!isCurrent())
+            return false;
+        const root = projectContext.root;
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const fullPath = safeWorkspaceChildPath(root, file);
+        const editorUri = workspaceEditorUriForFile(file);
+        const stat = await fs.stat(fullPath).catch(() => undefined);
+        if (!isCurrent())
+            return false;
+        if (!stat || (!stat.isFile() && !stat.isDirectory()))
+            throw new Error(`文件不存在：${file}`);
+        if (stat.isDirectory()) {
+            await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(fullPath));
+            return isCurrent();
+        }
+        const doc = await vscode.workspace.openTextDocument(editorUri);
+        if (!isCurrent())
+            return false;
+        await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Active });
+        return isCurrent();
+    }
     async openWorkspaceFolderForContinuation(operation, action, payload = {}) {
         const picked = await vscode.window.showOpenDialog({
             canSelectFiles: false,
@@ -6580,18 +6604,23 @@ class RealtimeTunnelPanelProvider {
         await client.downloadFile(remotePath, localPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
-        await openWorkspaceFile(localRelative);
-        if (generation === this.projectContextGeneration && root === workspaceRoot() && client === this.client)
+        const opened = await this.openWorkspaceFileForProjectContext(localRelative, { generation, root }, client);
+        if (opened && generation === this.projectContextGeneration && root === workspaceRoot() && client === this.client)
             void vscode.window.showInformationMessage(`远端结果只读副本已打开：${localRelative}`);
     }
     async openResultArtifactFromUi(message) {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
+        const client = this.client;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
         if (!root)
             throw new Error("请先打开当前实验项目。");
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
             throw new Error("无法确认结果文件所属 Plan，已阻止打开。");
         await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }));
+        if (!isCurrent())
+            return;
         const artifactPath = normalizeRemoteResultInspectionPath(stringField(message, "remotePath") || stringField(message, "file"));
         if (!artifactPath)
             throw new Error("只允许打开当前项目内的 CSV、JSON、TXT、LOG 或 OUT 轻量结果文件。");
@@ -6601,17 +6630,19 @@ class RealtimeTunnelPanelProvider {
             throw new Error("该文件不属于当前 Plan 的最新结果摘要，已阻止打开。");
         const localArtifactPath = safeWorkspaceChildPath(root, artifactPath);
         const localStat = await fs.stat(localArtifactPath).catch(() => undefined);
+        if (!isCurrent())
+            return;
         const hasLocalFile = Boolean(localStat?.isFile());
         if (this.effectiveConnectionMode() === "offline_import") {
             if (!hasLocalFile)
                 throw new Error(`离线模式下没有该结果文件的本地副本：${artifactPath}`);
-            await openWorkspaceFile(artifactPath);
+            await this.openWorkspaceFileForProjectContext(artifactPath, projectContext, client);
             return;
         }
         const missing = this.missingCapabilities(["endpoints.fileDownload"]);
         if (missing.length) {
             if (hasLocalFile) {
-                await openWorkspaceFile(artifactPath);
+                await this.openWorkspaceFileForProjectContext(artifactPath, projectContext, client);
                 return;
             }
             throw new Error(`Hub Agent 缺少结果文件下载能力：${missing.join(", ")}。请部署最新版 Agent；未修改当前 Plan 选择。`);
@@ -6631,20 +6662,23 @@ class RealtimeTunnelPanelProvider {
             "",
             "下载只通过当前 Hub 的 Xshell 本地隧道读取文件，不会修改远端结果，也不会切换当前 Plan。",
         ].join("\n"), { modal: true }, ...choices);
+        if (!isCurrent())
+            return;
         if (answer === "打开现有本地文件") {
-            await openWorkspaceFile(artifactPath);
+            await this.openWorkspaceFileForProjectContext(artifactPath, projectContext, client);
             return;
         }
         if (answer !== downloadLabel)
             throw new UiCommandCancelled("结果文件打开已取消，未下载文件，也未切换当前 Plan。");
-        const generation = this.projectContextGeneration;
-        const client = this.client;
         await fs.mkdir(path.dirname(localCopyPath), { recursive: true });
-        await client.downloadFile(artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
-        if (generation !== this.projectContextGeneration || client !== this.client)
+        if (!isCurrent())
             return;
-        await openWorkspaceFile(localRelative);
-        void vscode.window.showInformationMessage(`结果只读副本已打开：${localRelative}`);
+        await client.downloadFile(artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        if (!isCurrent())
+            return;
+        const opened = await this.openWorkspaceFileForProjectContext(localRelative, projectContext, client);
+        if (opened && isCurrent())
+            void vscode.window.showInformationMessage(`结果只读副本已打开：${localRelative}`);
     }
     async openAuditTail() {
         const generation = this.projectContextGeneration;

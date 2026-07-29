@@ -35,6 +35,8 @@ test("remote downloads do not open stale-client results", () => {
     const body = method(name, nextName);
     assert.match(body, /const client = this\.client/, name);
     assert.match(body, call, name);
-    assert.match(body, /generation !== this\.projectContextGeneration[\s\S]{0,80}client !== this\.client/, name);
+    assert.match(body, name === "openResultArtifactFromUi"
+      ? /const isCurrent = \(\) => this\.projectContextIsCurrent\(projectContext\) && client === this\.client/
+      : /generation !== this\.projectContextGeneration[\s\S]{0,80}client !== this\.client/, name);
   }
 });
