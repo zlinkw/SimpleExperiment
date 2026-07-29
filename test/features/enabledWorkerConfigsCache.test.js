@@ -69,3 +69,62 @@ test("high-frequency Extension Host consumers share enabled Worker cache", () =>
   }
   assert.doesNotMatch(source, /this\.setupConfig\.workerTunnels\s*\.filter\(\((?:worker|item)\) => (?:worker|item)\.enabled !== false\)/);
 });
+
+test("configuration source state reuses equal display semantics and invalidates changes", () => {
+  const sandbox = {
+    saved: {
+      savedSessionPath: "hub.xsh",
+      agentSessionPath: "hub-agent.xsh",
+      workerTunnels: [{ id: "worker-a" }],
+    },
+    workspaceWorkers: [],
+    vscode: {
+      workspace: {
+        getConfiguration() {
+          return { inspect: () => ({ workspaceFolderValue: sandbox.workspaceWorkers }) };
+        },
+      },
+    },
+    keys: { setupConfig: "setup" },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`
+    class Subject {
+      configurationSourceStateCacheKey = "";
+      configurationSourceStateCacheValue;
+      xshellLibrary = { sessions: [{ filePath: "hub.xsh" }] };
+      enabledWorkers = [{ id: "worker-a" }];
+      context = { globalState: { get: () => saved } };
+      enabledWorkerConfigs() { return this.enabledWorkers; }
+      ${extractMethod("configurationSourceState")}
+    }
+    this.Subject = Subject;
+  `, sandbox);
+
+  const subject = new sandbox.Subject();
+  const first = subject.configurationSourceState();
+  sandbox.saved = { ...sandbox.saved, workerTunnels: [{ id: "same-count" }] };
+  assert.strictEqual(subject.configurationSourceState(), first);
+  assert.equal(first.workspaceWorkerConfigIgnored, true);
+
+  sandbox.workspaceWorkers = [{ id: "workspace-worker" }];
+  const workspace = subject.configurationSourceState();
+  assert.notStrictEqual(workspace, first);
+  assert.equal(workspace.workspaceWorkerConfigIgnored, false);
+
+  subject.enabledWorkers = [{ id: "worker-a" }, { id: "worker-b" }];
+  const enabled = subject.configurationSourceState();
+  assert.notStrictEqual(enabled, workspace);
+  assert.equal(enabled.enabledWorkerCount, 2);
+
+  subject.xshellLibrary = { sessions: [{}, {}] };
+  const sessions = subject.configurationSourceState();
+  assert.notStrictEqual(sessions, enabled);
+  assert.equal(sessions.sessionLibraryCount, 2);
+
+  sandbox.saved = { workerTunnels: [] };
+  const saved = subject.configurationSourceState();
+  assert.notStrictEqual(saved, sessions);
+  assert.equal(saved.endpointProfiles, "未导入");
+  assert.equal(saved.savedHubSession, false);
+});

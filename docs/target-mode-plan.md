@@ -14,35 +14,35 @@
 
 ## 后续优先级
 - [已完成] 1/5 project-071：缓存 Agent 会话 Webview 状态。
-- [待做] 2/5 project-072：缓存服务器配置来源状态。
+- [已完成] 2/5 project-072：缓存服务器配置来源状态。
 - [待做] 3/5 project-073：缓存工作区与项目接入状态。
 - [待做] 4/5 project-074：缓存前端项目环境与位置摘要。
 - [待做] 5/5 project-075：执行第四十五轮完整非服务器静态测试。
 
-## 当前批次：project-071（已完成）
+## 当前批次：project-072（已完成）
 ### 修复点
 
-- Extension Host 按服务器配置、Xshell 会话库、端口冲突、项目上下文和拓扑缓存 Agent 会话状态。
-- 未变化的 Webview 状态构建复用 Hub/Worker 目录、启动命令和准备阻断摘要。
-- 任一实际来源替换后失效，Agent 准备入口和 Xshell-only 边界保持不变。
+- Extension Host 按最终展示字段缓存服务器配置来源状态对象。
+- 保存端点数量、Hub 会话、启用 Worker、工作区覆盖提示或会话库数量未变化时复用快照。
+- 任一展示语义变化后失效，globalState 主来源和工作区空配置忽略规则保持不变。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 配置、会话库、端口冲突、工作区或拓扑变化后不得复用旧启动命令和路径。
-- `preparationBlockers` 与 `canWriteStartupCommands` 必须继续反映当前配置。
-- 缓存不得绕过重复会话、端口冲突或非回环转发检查。
+- 保存 Hub/Worker 配置和启用 Worker 数量变化必须立即刷新。
+- 工作区 `workerTunnels` 从空到非空或反向变化不得隐藏覆盖提示。
+- Xshell 会话库数量变化必须反映到诊断状态。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] Agent 会话状态缓存命中及五类来源失效定向测试，12/12。
+- [已通过] 配置来源状态等值命中及保存配置、覆盖提示、Worker 和会话库失效测试，8/8。
 - [已通过] TypeScript 构建、Lint、相关 Node 文件语法与 `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-071 至 project-075 五批静态优化周期；project-075 再执行完整测试。
-- 本批只处理 Agent 会话 Webview 状态，最多修改 4 个源码、测试、构建和计划文件。
-- 定向回归覆盖 Agent 准备顺序、重复会话、远端位置展示和 Xshell 会话归一化。
+- 本批只处理服务器配置来源状态，最多修改 4 个源码、测试、构建和计划文件。
+- 定向回归覆盖配置热更新、全局持久化和 Webview 状态结构。
 - 真实服务器行为保持 `needs field verification`。

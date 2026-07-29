@@ -522,6 +522,8 @@ class RealtimeTunnelPanelProvider {
     agentSessionStateCacheProjectGeneration = -1;
     agentSessionStateCacheTopologyMode = "";
     agentSessionStateCacheValue;
+    configurationSourceStateCacheKey = "";
+    configurationSourceStateCacheValue;
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
@@ -7965,17 +7967,33 @@ class RealtimeTunnelPanelProvider {
         const inspectedWorkers = config.inspect("tunnel.workerTunnels");
         const workspaceWorkers = inspectedWorkers?.workspaceFolderValue ?? inspectedWorkers?.workspaceValue ?? inspectedWorkers?.globalValue;
         const savedWorkerCount = saved.workerTunnels?.length || 0;
-        return {
+        const enabledWorkerCount = this.enabledWorkerConfigs().length;
+        const workspaceWorkerConfigIgnored = Boolean(savedWorkerCount && Array.isArray(workspaceWorkers) && workspaceWorkers.length === 0);
+        const sessionLibraryCount = this.xshellLibrary.sessions.length;
+        const cacheKey = JSON.stringify([
+            savedWorkerCount,
+            Boolean(saved.savedSessionPath),
+            Boolean(saved.agentSessionPath),
+            enabledWorkerCount,
+            workspaceWorkerConfigIgnored,
+            sessionLibraryCount,
+        ]);
+        if (this.configurationSourceStateCacheKey === cacheKey && this.configurationSourceStateCacheValue)
+            return this.configurationSourceStateCacheValue;
+        const value = {
             primary: "VS Code globalState",
             endpointProfiles: savedWorkerCount || saved.savedSessionPath ? "已导入" : "未导入",
             savedHubSession: Boolean(saved.savedSessionPath),
             savedHubAgentSession: Boolean(saved.agentSessionPath),
             savedWorkerCount,
-            enabledWorkerCount: this.enabledWorkerConfigs().length,
-            workspaceWorkerConfigIgnored: Boolean(savedWorkerCount && Array.isArray(workspaceWorkers) && workspaceWorkers.length === 0),
-            sessionLibraryCount: this.xshellLibrary.sessions.length,
+            enabledWorkerCount,
+            workspaceWorkerConfigIgnored,
+            sessionLibraryCount,
             note: "服务器配置以插件全局状态为主；工作区只决定项目名、计划目录和实验接入文件。空 workerTunnels 设置不会覆盖已导入端点档案。",
         };
+        this.configurationSourceStateCacheKey = cacheKey;
+        this.configurationSourceStateCacheValue = value;
+        return value;
     }
     async detectPortOccupancy(port, endpointId) {
         if (await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(port))
