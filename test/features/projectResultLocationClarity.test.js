@@ -61,6 +61,10 @@ function resultLocation(project, meta, plan) {
   const sandbox = {
     RESULT_METADATA_FILENAMES: new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]),
     RESULT_METADATA_SUFFIXES: ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"],
+    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
+    planOutputCandidatesCache: new WeakMap(),
+    planOutputEvidenceCandidatesCache: new WeakMap(),
+    adapterRuleResultCandidatesCache: new WeakMap(),
     asArray(value) {
       return Array.isArray(value) ? value : (!value || typeof value !== "object" ? [] : Object.values(value));
     },
@@ -82,6 +86,10 @@ function panelPreviewScope(previews, plan, rules) {
   const sandbox = {
     RESULT_METADATA_FILENAMES: new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]),
     RESULT_METADATA_SUFFIXES: ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"],
+    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
+    planOutputCandidatesCache: new WeakMap(),
+    planOutputEvidenceCandidatesCache: new WeakMap(),
+    adapterRuleResultCandidatesCache: new WeakMap(),
     asArray(value) { return Array.isArray(value) ? value : []; },
   };
   vm.createContext(sandbox);

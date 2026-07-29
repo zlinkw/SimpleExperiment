@@ -1464,6 +1464,10 @@ function renderPanelHtml() {
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
     const operationSearchHaystackCache = new WeakMap();
+    const planOutputCandidatesCache = new WeakMap();
+    const planOutputEvidenceCandidatesCache = new WeakMap();
+    const planOutputEvidenceSignalsCache = new WeakMap();
+    const adapterRuleResultCandidatesCache = new WeakMap();
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
     let taskSectionViewCacheState = null;
@@ -1599,6 +1603,7 @@ function renderPanelHtml() {
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
+    const EMPTY_OUTPUT_DERIVATION_VALUES = Object.freeze([]);
     const EMPTY_PLAN_ROWS_FOR_LOOKUP = [];
     const EMPTY_SCHEDULER_STATES = [];
     const MATCH_EVERY_OPERATION = () => true;
@@ -10179,12 +10184,18 @@ function renderPanelHtml() {
     }
 
     function adapterRuleResultCandidates(rules) {
-      return uniqueText([
-        ...asArray((rules || {}).candidateCsv),
-        ...asArray((rules || {}).candidateJson),
-        ...asArray((rules || {}).consoleLogs),
-        ...asArray((rules || {}).textLogs)
+      const source = rules && typeof rules === "object" ? rules : null;
+      if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
+      const cached = adapterRuleResultCandidatesCache.get(source);
+      if (cached) return cached;
+      const value = uniqueText([
+        ...asArray(source.candidateCsv),
+        ...asArray(source.candidateJson),
+        ...asArray(source.consoleLogs),
+        ...asArray(source.textLogs)
       ].map((item) => String(item || "").trim()).filter(isParseableResultCandidate));
+      adapterRuleResultCandidatesCache.set(source, value);
+      return value;
     }
 
     function ignoredAdapterRuleCandidateCount(rules) {
@@ -12871,15 +12882,33 @@ function renderPanelHtml() {
       return Boolean(planFile && Number(state.plansOmittedCount || 0) > 0 && !planFromContext(state, context || {}));
     }
     function planOutputCandidates(plan) {
-      return uniqueText(asArray((plan || {}).outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
+      const source = plan && typeof plan === "object" ? plan : null;
+      if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
+      const cached = planOutputCandidatesCache.get(source);
+      if (cached) return cached;
+      const value = uniqueText(asArray(source.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
+      planOutputCandidatesCache.set(source, value);
+      return value;
     }
     function planOutputEvidenceCandidates(plan) {
-      return planOutputCandidates(plan).filter(isParseableResultCandidate);
+      const source = plan && typeof plan === "object" ? plan : null;
+      if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
+      const cached = planOutputEvidenceCandidatesCache.get(source);
+      if (cached) return cached;
+      const value = planOutputCandidates(source).filter(isParseableResultCandidate);
+      planOutputEvidenceCandidatesCache.set(source, value);
+      return value;
     }
     function planOutputEvidenceSignals(plan) {
-      return uniqueText(asArray((plan || {}).outputSignals || [])
+      const source = plan && typeof plan === "object" ? plan : null;
+      if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
+      const cached = planOutputEvidenceSignalsCache.get(source);
+      if (cached) return cached;
+      const value = uniqueText(asArray(source.outputSignals || [])
         .map((item) => String(item || "").trim())
         .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
+      planOutputEvidenceSignalsCache.set(source, value);
+      return value;
     }
     function isParseableResultCandidate(value) {
       const text = String(value || "").trim().replace(/\\\\/g, "/");
