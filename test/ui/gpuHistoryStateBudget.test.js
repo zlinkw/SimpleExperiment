@@ -129,6 +129,34 @@ test("GPU history keeps successful state stable while refreshing and ignores exp
   assert.equal(after.error, undefined);
 });
 
+test("GPU history reset rejects stale async success and failure state", async () => {
+  let resolveOld;
+  const cache = new GpuHistoryStateCache(() => 1_000);
+  const response = (serverId) => ({
+    schemaVersion: 1,
+    bucketSeconds: 60,
+    retentionHours: 72,
+    maxPointsPerSeries: 4320,
+    updatedAt: "2026-07-29T00:00:00Z",
+    series: [{ serverId, gpuId: "0", rawPointCount: 0, points: [] }],
+  });
+
+  const oldSuccess = cache.load({ serverId: "old-worker" }, () => new Promise((resolve) => { resolveOld = resolve; }));
+  cache.reset();
+  await cache.load({ serverId: "new-worker" }, async () => response("new-worker"));
+  resolveOld(response("old-worker"));
+  await oldSuccess;
+  assert.equal(cache.snapshot().status, "ready");
+  assert.equal(cache.snapshot().data.series[0].serverId, "new-worker");
+
+  let rejectOld;
+  const oldFailure = cache.load({ serverId: "failed-worker" }, () => new Promise((resolve, reject) => { rejectOld = reject; }));
+  cache.reset();
+  rejectOld(new Error("stale failure"));
+  await assert.rejects(oldFailure, /stale failure/);
+  assert.deepEqual(cache.snapshot(), { status: "idle" });
+});
+
 test("Extension exposes GPU history only through explicit on-demand state", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   assert.match(source, /case "loadGpuHistory"/);
