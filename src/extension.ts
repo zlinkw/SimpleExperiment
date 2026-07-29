@@ -5506,18 +5506,29 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandRemotePending(`已提交 ${pendingSubmitted}/${submitted} 个计划到 ${schedulerLabel} 并进入后台调度；按钮已恢复，可在“任务”查看排队、运行与日志。`);
     }
     async generatePlanGuideFromUi(openAfterCreate = true) {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root)
             throw new Error("需要先打开工作区。");
         const dir = path.join(root, planDirSafe());
         await fs.mkdir(dir, { recursive: true });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const configs = (await discoverProjectConfigFiles(root))
             .map((file) => path.relative(root, file).replace(/\\/g, "/"));
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const suite = safePlanToken(path.basename(root) || "experiment");
         const fullPath = await nextAvailableFile(dir, "guided_plan", ".yaml");
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const relative = path.relative(root, fullPath).replace(/\\/g, "/");
         const entries = await detectEntryCandidates(root);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const mode = await pickGuidedPlanMode(entries);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const stages = guidedPlanStages(mode);
         let trainEntry = "";
         let trainCommand = "";
@@ -5525,8 +5536,14 @@ class RealtimeTunnelPanelProvider {
         if (stages.train) {
             const trainCommandStage = mode === "train" ? "train_result" : "train";
             trainEntry = await this.pickGuidedPlanEntry(root, entries.trainEntries, trainCommandStage);
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             trainSuggestion = await guidedPlanCommandSuggestion(root, trainEntry, trainCommandStage);
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             const value = await inputRequired("确认训练命令", trainSuggestion.command, "例如 python tools/train.py --config {config} --output-dir {output_dir}", guidedPlanCommandPrompt(trainSuggestion, trainCommandStage), "请填写当前项目可执行的训练命令。");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             if (value === undefined)
                 throw new UiCommandCancelled("生成 Plan 已取消。");
             trainCommand = value;
@@ -5536,8 +5553,14 @@ class RealtimeTunnelPanelProvider {
         let testSuggestion = guidedPlanCommandInfo("", "test");
         if (stages.test) {
             testEntry = await this.pickGuidedPlanEntry(root, entries.testEntries, "test");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             testSuggestion = await guidedPlanCommandSuggestion(root, testEntry, "test");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             const value = await inputRequired("确认评估命令", testSuggestion.command, "例如 python tools/test.py --config {config} --result-csv {result_csv}", guidedPlanCommandPrompt(testSuggestion, "test"), "请填写当前项目可执行的评估命令。");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
             if (value === undefined)
                 throw new UiCommandCancelled("生成 Plan 已取消。");
             testCommand = value;
@@ -5547,15 +5570,25 @@ class RealtimeTunnelPanelProvider {
         const resultSuggestion = resultStage === "train" ? trainSuggestion : testSuggestion;
         const resultReview = guidedPlanResultPathReview(resultCommand, suite, resultSuggestion.resultExtension);
         const resultPath = await inputPlanResultPath("确认最终结果文件", resultReview.path, "例如 {output_dir}/metrics_summary.csv", `建议来源：${resultReview.source}。${resultReview.needsReview ? "当前文件名包含静态推断，必须核对命令真实写出的文件。" : "已从命令中识别到明确结果位置，仍需确认与实际实现一致。"} 必须填写${resultStage === "train" ? "训练" : "评估"}命令实际生成的项目内结果文件。使用 {result_csv} 时该路径会注入命令；固定输出路径必须与命令完全一致。CSV、JSON、TXT、LOG 均可解析，后续归档、统计和 PPT 只读取此结果链路。`);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         if (resultPath === undefined)
             throw new UiCommandCancelled("生成 Plan 已取消。");
         const requiresConfig = guidedPlanCommandUsesConfig(trainCommand) || guidedPlanCommandUsesConfig(testCommand);
         const baseConfig = await this.pickPlanBaseConfig(configs, { root, suite, requiresConfig });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const generatedFallbackConfig = !configs.length && !requiresConfig;
         const configReview = stages.train ? await guidedPlanConfigReview(root, baseConfig, generatedFallbackConfig) : { needsReview: false, summary: "仅评估，不启动训练", reason: "将直接运行评估命令。" };
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         await confirmGuidedPlanCreation({ relative, mode, baseConfig, trainEntry, testEntry, trainCommand, testCommand, resultPath, resultReview, configReview });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         if (generatedFallbackConfig)
             await ensureGuidedFallbackConfig(root, baseConfig);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         const text = [
             "# 由 SimpleExperiment 生成。",
             "# 首次接入固定为单 case、单 seed；运行前请确认运行模式、配置规模、runner 命令和结果路径。",
@@ -5585,13 +5618,17 @@ class RealtimeTunnelPanelProvider {
             "",
         ].join("\n");
         await fs.writeFile(fullPath, text, "utf8");
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.planFileInput = relative;
         this.selectedPlanId = relative;
         void this.persistProjectPlanSelectionState().catch(() => undefined);
         this.postState();
         this.queuePlanScopedResultParse("生成计划模板", relative, relative);
-        if (openAfterCreate)
+        if (openAfterCreate && this.projectContextIsCurrent(projectContext))
             await openWorkspaceFile(relative);
     }
     async pickGuidedPlanEntry(root, entries, stage) {

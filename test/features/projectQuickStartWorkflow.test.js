@@ -204,7 +204,9 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   const planGuideEnd = extension.indexOf("async pickGuidedPlanEntry(", planGuideStart);
   const planGuide = extension.slice(planGuideStart, planGuideEnd);
   assert.match(planGuide, /async generatePlanGuideFromUi\(openAfterCreate = true\)/);
-  assert.match(planGuide, /if \(openAfterCreate\)\s*await openWorkspaceFile\(relative\)/);
+  assert.match(planGuide, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.ok([...planGuide.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 14);
+  assert.match(planGuide, /if \(openAfterCreate && this\.projectContextIsCurrent\(projectContext\)\)\s*await openWorkspaceFile\(relative\)/);
   assert.doesNotMatch(bootstrap, /generatePlanGuideFromUi\(\)/);
 });
 
