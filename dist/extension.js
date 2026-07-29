@@ -12030,6 +12030,9 @@ const planScopedResultCandidateCache = new WeakMap();
 const planScopedResultPreviewCache = new WeakMap();
 const adapterRuleCandidatePatternsCache = new WeakMap();
 const adapterRuleExactFilesCache = new WeakMap();
+const PLAN_RUN_OUTPUT_LOCATION_VARIANT_CACHE_LIMIT = 4;
+const planRunOutputLocationSummaryCache = new WeakMap();
+const planRunTargetLocationsCache = new WeakMap();
 function nestedRecord(record, key) {
     const value = record[key];
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -14783,7 +14786,16 @@ function guidedPlanModeLabel(mode) {
     return normalized === "train" ? "仅训练" : normalized === "test" ? "仅评估" : "训练并评估";
 }
 function planRunOutputLocationSummary(plan, limit = 3) {
-    const item = plan && typeof plan === "object" ? plan : {};
+    const source = plan && typeof plan === "object" ? plan : null;
+    const item = source || {};
+    const visibleLimit = Math.max(1, Math.trunc(Number(limit) || 3));
+    let variants = source ? planRunOutputLocationSummaryCache.get(source) : undefined;
+    if (variants?.has(visibleLimit)) {
+        const cached = variants.get(visibleLimit);
+        variants.delete(visibleLimit);
+        variants.set(visibleLimit, cached);
+        return cached;
+    }
     const paper = item.paper && typeof item.paper === "object" ? item.paper : {};
     const direct = uniqueStrings([
         ...(Array.isArray(item.outputCandidates) ? item.outputCandidates : []),
@@ -14796,12 +14808,22 @@ function planRunOutputLocationSummary(plan, limit = 3) {
     const fallback = uniqueStrings((Array.isArray(item.confirmationOutputCandidates) ? item.confirmationOutputCandidates : [])
         .map((value) => String(value || "").trim()).filter(Boolean));
     const values = direct.length ? direct : fallback;
-    const visible = values.slice(0, Math.max(1, Math.trunc(Number(limit) || 3)));
-    return {
+    const visible = values.slice(0, visibleLimit);
+    const summary = {
         source: direct.length ? "Plan" : fallback.length ? "接入配置" : "未声明",
         values,
         text: visible.length ? visible.join("、") + (values.length > visible.length ? ` 等 ${values.length} 项` : "") : "未声明",
     };
+    if (source) {
+        if (!variants) {
+            variants = new Map();
+            planRunOutputLocationSummaryCache.set(source, variants);
+        }
+        variants.set(visibleLimit, summary);
+        while (variants.size > PLAN_RUN_OUTPUT_LOCATION_VARIANT_CACHE_LIMIT)
+            variants.delete(variants.keys().next().value);
+    }
+    return summary;
 }
 function planRunCommandSummary(plan, limit = 240) {
     const item = plan && typeof plan === "object" ? plan : {};
@@ -14820,9 +14842,12 @@ function planRunCommandSummary(plan, limit = 240) {
     return rows.length ? rows : [summarize("命令", train || test)];
 }
 function planRunTargetLocations(values) {
+    const source = Array.isArray(values) ? values : null;
+    if (source && planRunTargetLocationsCache.has(source))
+        return planRunTargetLocationsCache.get(source);
     const seen = new Set();
     const out = [];
-    for (const raw of Array.isArray(values) ? values : []) {
+    for (const raw of source || []) {
         const item = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { label: raw, role: "worker", remotePath: "" };
         const label = String(item.label || item.id || item.role || "目标").trim();
         const role = String(item.role || "worker").trim().toLowerCase();
@@ -14837,6 +14862,10 @@ function planRunTargetLocations(values) {
             continue;
         seen.add(key);
         out.push({ label, role, remotePath, maxConcurrentGpus, allowedGpuIds, condaEnv });
+    }
+    if (source) {
+        planRunTargetLocationsCache.set(source, out);
+        planRunTargetLocationsCache.set(out, out);
     }
     return out;
 }
