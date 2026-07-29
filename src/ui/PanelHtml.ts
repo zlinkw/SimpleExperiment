@@ -1462,6 +1462,8 @@ export function renderPanelHtml(): string {
     let operationRowsCacheRows = [];
     const operationSearchHaystackCache = new WeakMap();
     const resourceTreeSearchTextCache = new WeakMap();
+    const compactPathCache = new Map();
+    const COMPACT_PATH_CACHE_LIMIT = 256;
     const pinnedCommandsNormalizationCache = new WeakMap();
     const savedButtonActionsNormalizationCache = new WeakMap();
     const SAVED_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 8;
@@ -8803,9 +8805,17 @@ export function renderPanelHtml(): string {
 
     function compactPath(value) {
       const text = String(value === undefined || value === null || value === "" ? "-" : value);
+      const cached = compactPathCache.get(text);
+      if (cached !== undefined) {
+        compactPathCache.delete(text);
+        compactPathCache.set(text, cached);
+        return cached;
+      }
       const parts = text.split(String.fromCharCode(92)).join("/").split("/").filter(Boolean);
-      if (parts.length > 2) return "…/" + parts.slice(-2).join("/");
-      return compactText(text, 44);
+      const compacted = parts.length > 2 ? "…/" + parts.slice(-2).join("/") : compactText(text, 44);
+      while (compactPathCache.size >= COMPACT_PATH_CACHE_LIMIT) compactPathCache.delete(compactPathCache.keys().next().value);
+      compactPathCache.set(text, compacted);
+      return compacted;
     }
 
     function compactIdentifier(value) {
