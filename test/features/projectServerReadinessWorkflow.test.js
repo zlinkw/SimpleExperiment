@@ -35,6 +35,8 @@ test("experiment submission requires an enabled Worker before confirmation or sy
     EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],
     enabledWorkerTunnelsCacheSource: null,
     enabledWorkerTunnelsCacheValue: [],
+    executionWorkerReadinessCacheWorkers: null,
+    executionWorkerReadinessCacheValue: null,
   };
   vm.createContext(sandbox);
   vm.runInContext([

@@ -1522,6 +1522,15 @@ export function renderPanelHtml(): string {
     let enabledWorkerTunnelsCacheValue = [];
     let simpleSftpReadinessCacheSource = null;
     let simpleSftpReadinessCacheValue = null;
+    let serverSetupReadinessCacheSetup = null;
+    let serverSetupReadinessCacheWorkers = null;
+    let serverSetupReadinessCacheValue = null;
+    let executionWorkerReadinessCacheWorkers = null;
+    let executionWorkerReadinessCacheValue = null;
+    let agentPreparationBlockersCacheSource = null;
+    let agentPreparationBlockersCacheValue = null;
+    let uiCapabilityReadinessCacheKey = "";
+    let uiCapabilityReadinessCache = new Map();
     let workerAliasMapCacheSource = null;
     let workerAliasMapCacheValue = null;
     let overviewGpuStatsCacheState = null;
@@ -1601,6 +1610,9 @@ export function renderPanelHtml(): string {
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
     const EMPTY_OUTPUT_DERIVATION_VALUES = Object.freeze([]);
+    const EMPTY_SERVER_SETUP = Object.freeze({});
+    const EMPTY_AGENT_PREPARATION_BLOCKERS = Object.freeze([]);
+    const EMPTY_CAPABILITY_SOURCE = Object.freeze({});
     const EMPTY_PLAN_ROWS_FOR_LOOKUP = [];
     const EMPTY_SCHEDULER_STATES = [];
     const MATCH_EVERY_OPERATION = () => true;
@@ -9567,8 +9579,10 @@ export function renderPanelHtml(): string {
     }
 
     function serverSetupReadiness(state) {
-      const setup = (state || {}).setup || {};
+      const setupSource = (state || {}).setup;
+      const setup = setupSource && typeof setupSource === "object" ? setupSource : EMPTY_SERVER_SETUP;
       const workers = enabledWorkerTunnelsForState(state);
+      if (setup === serverSetupReadinessCacheSetup && workers === serverSetupReadinessCacheWorkers && serverSetupReadinessCacheValue) return serverSetupReadinessCacheValue;
       const missing = [];
       if (!meaningfulValue(setup.savedSessionPath)) missing.push("Hub Xshell 会话");
       if (!meaningfulValue(setup.agentProjectDir)) missing.push("Hub 项目父目录");
@@ -9578,25 +9592,38 @@ export function renderPanelHtml(): string {
         if (!meaningfulValue(worker.agentProjectDir)) missing.push(label + " 项目父目录");
       });
       const workerLabel = workers.length ? "；" + workers.length + " 个 Worker" : "；Hub 模式";
-      return {
+      const value = {
         ready: missing.length === 0,
         missing,
         summary: missing.length ? "缺少：" + missing.join("、") : "Hub 已配置" + workerLabel
       };
+      serverSetupReadinessCacheSetup = setup;
+      serverSetupReadinessCacheWorkers = workers;
+      serverSetupReadinessCacheValue = value;
+      return value;
     }
 
     function executionWorkerReadiness(state) {
       const workers = enabledWorkerTunnelsForState(state);
-      return {
+      if (workers === executionWorkerReadinessCacheWorkers && executionWorkerReadinessCacheValue) return executionWorkerReadinessCacheValue;
+      const value = {
         ready: workers.length > 0,
         count: workers.length,
         missing: workers.length ? [] : ["执行 Worker"],
         summary: workers.length ? workers.length + " 个 Worker 已启用" : "未配置执行 Worker，不能提交实验"
       };
+      executionWorkerReadinessCacheWorkers = workers;
+      executionWorkerReadinessCacheValue = value;
+      return value;
     }
 
     function agentPreparationBlockersFromState(state) {
-      return uniqueText(asArray(((state || {}).agentSessions || {}).preparationBlockers).map((item) => String(item || "").trim()).filter(Boolean));
+      const blockers = ((state || {}).agentSessions || {}).preparationBlockers;
+      const source = Array.isArray(blockers) ? blockers : EMPTY_AGENT_PREPARATION_BLOCKERS;
+      if (source === agentPreparationBlockersCacheSource && agentPreparationBlockersCacheValue) return agentPreparationBlockersCacheValue;
+      agentPreparationBlockersCacheSource = source;
+      agentPreparationBlockersCacheValue = uniqueText(source.map((item) => String(item || "").trim()).filter(Boolean));
+      return agentPreparationBlockersCacheValue;
     }
 
     function projectEndpointReadiness(state) {
@@ -12496,7 +12523,7 @@ export function renderPanelHtml(): string {
 
     function featureReadinessRow(state, title, commands) {
       const rows = commands.map((command) => {
-        const reason = simpleSftpCommandDisableReason(state, command) || disableReason(state, command, {});
+        const reason = disableReason(state, command, {});
         return { command, reason, label: featureCommandLabel(command) };
       });
       const blocked = rows.filter((row) => row.reason);
@@ -12783,8 +12810,9 @@ export function renderPanelHtml(): string {
       if (command === "clearLegacyTasks") return "";
       const simpleSftpReason = simpleSftpCommandDisableReason(state, command);
       if (simpleSftpReason) return simpleSftpReason;
-      const keys = uiCapabilityMap[command] || [];
-      const missing = keys.filter((key) => !hasCapability(state, key));
+      const capabilityReadiness = uiCapabilityReadinessForStateCommand(state, command);
+      const keys = capabilityReadiness.keys;
+      const missing = capabilityReadiness.missing.slice();
       const workerMissing = missingNoHubWorkerResultCapabilities(state, command, keys, context);
       if (workerMissing) missing.splice(0, missing.length, ...workerMissing);
       if (missing.length) return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
@@ -12794,7 +12822,10 @@ export function renderPanelHtml(): string {
       if (command === "startAgents" && !hasAnyTunnelSession(state)) return "请先配置 Hub 或 Worker 的 Xshell 隧道会话";
       if (command === "startAllConnections" && !hasAnyTunnelSession(state)) return "请先配置 Xshell 隧道会话";
       if (command === "prepareAgents" && !serverSetupReadiness(state).ready) return "请先配置 Hub/Worker 的 Xshell 会话和项目父目录";
-      if (command === "prepareAgents" && agentPreparationBlockersFromState(state).length) return agentPreparationBlockersFromState(state)[0];
+      if (command === "prepareAgents") {
+        const preparationBlockers = agentPreparationBlockersFromState(state);
+        if (preparationBlockers.length) return preparationBlockers[0];
+      }
       if (["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"].includes(command) && !hasSelectedPlan(state, context)) return "请先输入或选择 planFile";
       if (command === "archivePlan" && !hasSelectedPlan(state) && !(context && context.planFile)) return "请先输入或选择 planFile";
       if (command === "runAllPlans" && !asArray(state.plans || state.recentPlans || []).length) return "没有可运行的计划文件";
@@ -12955,6 +12986,25 @@ export function renderPanelHtml(): string {
         return Boolean(endpoints.actions && actionEndpoints[action] === true);
       }
       return false;
+    }
+    function uiCapabilityReadinessForStateCommand(state, command) {
+      const data = state || {};
+      const capabilities = data.capabilities && typeof data.capabilities === "object" ? data.capabilities : EMPTY_CAPABILITY_SOURCE;
+      const endpoints = capabilities.endpoints && typeof capabilities.endpoints === "object" ? capabilities.endpoints : EMPTY_CAPABILITY_SOURCE;
+      const actionEndpoints = capabilities.actionEndpoints && typeof capabilities.actionEndpoints === "object" ? capabilities.actionEndpoints : EMPTY_CAPABILITY_SOURCE;
+      const fileCapabilities = data.fileCapabilities && typeof data.fileCapabilities === "object" ? data.fileCapabilities : EMPTY_CAPABILITY_SOURCE;
+      const sourceKey = refListKey(capabilities, endpoints, actionEndpoints, fileCapabilities);
+      if (sourceKey !== uiCapabilityReadinessCacheKey) {
+        uiCapabilityReadinessCacheKey = sourceKey;
+        uiCapabilityReadinessCache = new Map();
+      }
+      const commandKey = String(command || "");
+      if (uiCapabilityReadinessCache.has(commandKey)) return uiCapabilityReadinessCache.get(commandKey);
+      const keys = uiCapabilityMap[command] || [];
+      const missing = keys.filter((key) => !hasCapability(state, key));
+      const value = { keys, missing };
+      uiCapabilityReadinessCache.set(commandKey, value);
+      return value;
     }
     function missingNoHubWorkerResultCapabilities(state, command, keys, context) {
       const topology = (state || {}).topology || {};
