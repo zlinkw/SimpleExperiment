@@ -10,6 +10,18 @@ const TASK_STATUS_RANKS: Readonly<Record<string, number>> = Object.freeze({
   unknown: 6,
 });
 
+const SCHEDULER_BUCKET_STATUSES: Readonly<Record<string, string>> = Object.freeze({
+  queued_experiments: "queued",
+  pending_experiments: "queued",
+  running_experiments: "running",
+  testing_experiments: "testing",
+  completed_experiments: "completed",
+  failed_experiments: "failed",
+  stopped_experiments: "stopped",
+});
+
+const SCHEDULER_BUCKETS: readonly string[] = Object.freeze(Object.keys(SCHEDULER_BUCKET_STATUSES));
+
 export function pick<T = unknown>(obj: unknown, keys: string[], fallback: T): T {
   if (!obj || typeof obj !== "object") return fallback;
   const item = obj as Record<string, unknown>;
@@ -224,9 +236,8 @@ export function formatDuration(startedAt: unknown, updatedAt: unknown): string {
 function expandSchedulerRow(row: unknown): unknown[] {
   if (!row || typeof row !== "object") return [];
   const item = row as Record<string, unknown>;
-  const buckets = ["queued_experiments", "pending_experiments", "running_experiments", "testing_experiments", "completed_experiments", "failed_experiments", "stopped_experiments"];
   const parentPlanFile = item.planFile || item.plan_file || item.planPath || item.plan_path || item.file || item.path || item.plan;
-  const expanded = buckets.flatMap((key) => normalizeArray(item[key]).map((child) => {
+  const expanded = SCHEDULER_BUCKETS.flatMap((key) => normalizeArray(item[key]).map((child) => {
     const childRecord = child && typeof child === "object" ? child as Record<string, unknown> : {};
     return { ...childRecord, status: bucketStatus(key), plan: item.plan || item.planName || item.suite || item.file, planFile: childRecord.planFile || childRecord.plan_file || childRecord.file || childRecord.path || parentPlanFile };
   }));
@@ -234,7 +245,7 @@ function expandSchedulerRow(row: unknown): unknown[] {
 }
 
 function bucketStatus(bucket: string): string {
-  return bucket.replace("_experiments", "").replace("pending", "queued");
+  return SCHEDULER_BUCKET_STATUSES[bucket] ?? bucket.replace("_experiments", "").replace("pending", "queued");
 }
 
 function operationStatusFromType(type: unknown): string {
