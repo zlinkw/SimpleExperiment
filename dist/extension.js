@@ -416,7 +416,9 @@ class RealtimeTunnelPanelProvider {
     planFileWatchers = [];
     planFileWatchRoot = "";
     planFileWatchPlanDir = "";
+    planFileWatcherGeneration = 0;
     planLocalChangeParseTimer;
+    planLocalChangeParseGeneration = 0;
     recentPlans = [];
     resultsSummary;
     resultsSummaryRefreshTimer;
@@ -684,6 +686,7 @@ class RealtimeTunnelPanelProvider {
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
         this.planLocalChangeParseTimer = undefined;
+        this.planLocalChangeParseGeneration += 1;
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
         this.resultsSummaryRefreshTimer = undefined;
@@ -1241,6 +1244,7 @@ class RealtimeTunnelPanelProvider {
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
         this.planLocalChangeParseTimer = undefined;
+        this.planLocalChangeParseGeneration += 1;
         for (const timer of this.operationTimers.values())
             clearTimeout(timer);
         this.operationTimers.clear();
@@ -6059,6 +6063,7 @@ class RealtimeTunnelPanelProvider {
         this.queuePlanScopedResultParse(reason || "结果闭环", planFile, planFile);
     }
     disposeSelectedPlanFileWatchers() {
+        this.planFileWatcherGeneration += 1;
         for (const disposable of this.planFileWatchers || []) {
             try {
                 disposable.dispose();
@@ -6083,27 +6088,29 @@ class RealtimeTunnelPanelProvider {
         this.disposeSelectedPlanFileWatchers();
         this.planFileWatchRoot = root;
         this.planFileWatchPlanDir = planDir;
+        const watcherGeneration = this.planFileWatcherGeneration;
         const pattern = new vscode.RelativePattern(root, `${planDir.replace(/\\/g, "/").replace(/\/+$/, "")}/**/*.{yml,yaml}`);
         const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-        const onLocalPlanFsEvent = (uri) => void this.handleLocalPlanFileSystemEvent(uri);
+        const onLocalPlanFsEvent = (uri) => void this.handleLocalPlanFileSystemEvent(uri, watcherGeneration, root);
         this.planFileWatchers = [
             watcher,
             watcher.onDidChange(onLocalPlanFsEvent),
             watcher.onDidCreate(onLocalPlanFsEvent),
             watcher.onDidDelete(onLocalPlanFsEvent),
-            vscode.workspace.onDidSaveTextDocument((document) => this.handleLocalPlanTextDocumentSave(document)),
+            vscode.workspace.onDidSaveTextDocument((document) => this.handleLocalPlanTextDocumentSave(document, watcherGeneration, root)),
         ];
         for (const disposable of this.planFileWatchers)
             this.context.subscriptions.push(disposable);
     }
-    handleLocalPlanTextDocumentSave(document) {
+    handleLocalPlanTextDocumentSave(document, watcherGeneration = this.planFileWatcherGeneration, expectedRoot = workspaceRoot()) {
         if (!document || document.uri.scheme !== "file")
             return;
-        void this.handleLocalPlanFileSystemEvent(document.uri);
+        void this.handleLocalPlanFileSystemEvent(document.uri, watcherGeneration, expectedRoot);
     }
-    async handleLocalPlanFileSystemEvent(uri) {
+    async handleLocalPlanFileSystemEvent(uri, watcherGeneration = this.planFileWatcherGeneration, expectedRoot = workspaceRoot()) {
+        const generation = this.projectContextGeneration;
         const root = workspaceRoot();
-        if (!root || !uri || uri.scheme !== "file")
+        if (!root || root !== expectedRoot || watcherGeneration !== this.planFileWatcherGeneration || !uri || uri.scheme !== "file")
             return;
         const fullPath = uri.fsPath;
         const relative = path.relative(root, fullPath).replace(/\\/g, "/");
@@ -6121,6 +6128,8 @@ class RealtimeTunnelPanelProvider {
             await this.refreshLocalPlanMetadata({ post: true, force: true });
         }
         catch (error) {
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot() || watcherGeneration !== this.planFileWatcherGeneration)
+                return;
             this.recordActionError({
                 command: "refreshPlans",
                 message: `Plan 文件变化后元数据刷新失败：${errorMessage(error)}`,
@@ -6129,6 +6138,8 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot() || watcherGeneration !== this.planFileWatcherGeneration)
+            return;
         const selected = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
         if (!selected)
             return;
@@ -6142,10 +6153,17 @@ class RealtimeTunnelPanelProvider {
             return;
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
-        this.planLocalChangeParseTimer = setTimeout(() => {
-            this.planLocalChangeParseTimer = undefined;
+        const timerGeneration = ++this.planLocalChangeParseGeneration;
+        const generation = this.projectContextGeneration;
+        const root = workspaceRoot();
+        const timer = setTimeout(() => {
+            if (this.planLocalChangeParseTimer === timer)
+                this.planLocalChangeParseTimer = undefined;
+            if (timerGeneration !== this.planLocalChangeParseGeneration || generation !== this.projectContextGeneration || root !== workspaceRoot())
+                return;
             this.queueSelectedPlanResultParse(reason || "本地 plan 变更", selected);
         }, 450);
+        this.planLocalChangeParseTimer = timer;
     }
     queueResultParseAfterProjectChange(reason, planFile, planId) {
         const nextPlanFile = usableSelectionKey(planFile || this.planFileInput || "") || undefined;

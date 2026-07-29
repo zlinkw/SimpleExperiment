@@ -107,6 +107,25 @@ test("workspace reset precedes project loaders and stale scans cannot win", () =
   assert.match(guide, /切换工作区目录.*重新加载/);
 });
 
+test("stale plan watcher and debounce callbacks cannot cross workspace context", () => {
+  const dispose = methodBody("disposeSelectedPlanFileWatchers", "ensureSelectedPlanFileWatchers");
+  const ensure = methodBody("ensureSelectedPlanFileWatchers", "handleLocalPlanTextDocumentSave");
+  const event = methodBody("async handleLocalPlanFileSystemEvent", "scheduleSelectedPlanLocalChangeParse");
+  const debounce = methodBody("scheduleSelectedPlanLocalChangeParse", "queueResultParseAfterProjectChange");
+  const reset = methodBody("resetProjectContextInMemory", "async migrateLegacyProjectUiStateFromVsCode");
+  assert.match(source, /private planFileWatcherGeneration = 0/);
+  assert.match(source, /private planLocalChangeParseGeneration = 0/);
+  assert.match(dispose, /this\.planFileWatcherGeneration \+= 1/);
+  assert.match(ensure, /const watcherGeneration = this\.planFileWatcherGeneration/);
+  assert.match(ensure, /handleLocalPlanFileSystemEvent\(uri, watcherGeneration, root\)/);
+  assert.match(event, /const generation = this\.projectContextGeneration/);
+  assert.match(event, /root !== expectedRoot \|\| watcherGeneration !== this\.planFileWatcherGeneration/);
+  assert.ok([...event.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\) \|\| watcherGeneration !== this\.planFileWatcherGeneration/g)].length >= 2);
+  assert.match(debounce, /const timerGeneration = \+\+this\.planLocalChangeParseGeneration/);
+  assert.match(debounce, /timerGeneration !== this\.planLocalChangeParseGeneration \|\| generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/);
+  assert.match(reset, /this\.planLocalChangeParseGeneration \+= 1/);
+});
+
 test("stale project-local state reads cannot overwrite the new workspace", () => {
   const bootstrap = methodBody("async bootstrapProjectLocalUiState", "captureProjectContext");
   const reader = methodBody("async readCurrentProjectState", "handleWorkspaceFoldersChanged");
