@@ -17,34 +17,33 @@
 - [已完成] 2/5 project-102：复用 PPT 绘图固定查找集合。
 - [已完成] 3/5 project-103：复用 Checkpoint 路径与布尔策略集合。
 - [已完成] 4/5 project-104：复用前端任务终态分类集合。
-- [待处理] 5/5 project-105：执行第五十一轮完整非服务器静态测试。
+- [已完成] 5/5 project-105：执行第五十一轮完整非服务器静态测试。
 
-## 当前批次：project-104（已完成）
+## 当前批次：project-105（已完成）
 ### 修复点
 
-- 将任务失败、终态和可归档状态提升为前端固定集合。
-- 避免任务完成引导、Plan 归档就绪和任务操作渲染重复创建状态数组。
-- 同步动态函数测试沙箱并增加固定集合回归，保持状态规范化语义不变。
+- 对 project-101 至 project-104 执行第五十一轮完整非服务器静态回归。
+- 覆盖 TypeScript 构建、全部 Node 测试、Lint、4 个 Node 入口和全部受控 Python 文件语法检查。
+- 仅修复完整回归明确检出的兼容问题，不扩大当前五批周期范围。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- `canceled`、`normal_completed`、`completed_with_errors` 和手动中断状态必须继续规范化。
-- 失败终态继续允许日志复核、重试和归档；运行态不得错误通过 Plan 归档门禁。
-- 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
+- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
+- 构建不得改变 Agent runtime 生成内容或写入历史 VSIX、`zlk_cluster/ui/`。
+- 任何失败必须保留为未完成，不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] 任务 Plan 监控与归档就绪定向 Node 测试，11/11。
+- [已通过] 安全 preload 下第五十一轮完整非服务器 `npm test`，1003/1003。
+- [已通过] TypeScript、Lint、4/4 个 Node 入口和 8/8 个 Python 文件语法。
 - [已通过] `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-101 至 project-105 五批静态优化周期；project-105 再执行完整测试。
-- project-102、project-103 已由提交 `13c03ae`、`bfb53fa` 同步至 `origin/master`。
-- 本批仅修改前端任务状态固定集合、对应定向测试和计划文档，不改变状态契约。
-- 下一批边界为 project-105，仅执行第五十一轮完整非服务器静态测试。
-- 未连接服务器、未截图、未生成或安装 VSIX，真实服务器行为保持 `needs field verification`。
+- project-101 至 project-104 已由提交 `3176ec8`、`13c03ae`、`bfb53fa`、`5f2cb9a` 同步至 `origin/master`。
+- 完整回归补齐 `projectRunPreflightWorkflow` 动态测试沙箱的任务终态集合后全部通过。
+- 构建未改变 Agent runtime；未连接服务器、未截图、未生成或安装 VSIX，真实服务器行为保持 `needs field verification`。

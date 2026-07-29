@@ -22,6 +22,8 @@ function extractFunction(source, name) {
 function loadPlanExecutionStage() {
   const names = ["normalizePlanSelectionKey", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
   const sandbox = {
+    TASK_FAILURE_STATUSES: new Set(["failed", "error", "stalled", "stopped", "cancelled"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed", "done", "archived", "deleted"]),
     PLAN_EXECUTION_STAGE_CACHE_LIMIT: 64,
     planExecutionStageCacheState: null,
     planExecutionStageCache: new Map(),
