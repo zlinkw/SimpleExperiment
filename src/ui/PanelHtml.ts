@@ -2363,7 +2363,7 @@ export function renderPanelHtml(): string {
       if (section === "overview") return refListKey(data.connectionMode, data.localEndpoint, data.lastError, data.extensionVersion, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.realtime, data.endpointRegistry, data.diagnostics, data.schedulerConfig, data.schedulerStates, data.operations, data.planFileInput, data.selection, data.plans, data.recentPlans, data.codeSync, data.gpu, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.tunnelPortConflicts, data.detectedProject, data.resultsSummary);
       if (section === "servers" || section === "settings") return refListKey(data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
-      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selectedTraceKey, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.capabilities);
+      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation);
       if (section === "sync") return refListKey(data.codeSync, data.capabilities, data.setup, data.health, data.probe, data.workerProbes);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
       if (section === "tasks") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary);
@@ -2601,9 +2601,8 @@ export function renderPanelHtml(): string {
       }
       if (section === "results") {
         return {
-          minuteBucket: Math.floor(Date.now() / 60000),
           planFileInput: data.planFileInput,
-          plans: compactPlansForSignature(data.plans),
+          selectedPlan: compactSelectedResultPlanForSignature(data),
           resultsSummary: compactResultsSummaryForSignature(data.resultsSummary),
           autoParseReadiness: resultAutoParseReadinessForState(data, data.resultsSummary || {}),
           outputContractCheck: compactOutputContractCheckForSignature(currentResultOutputContractCheck(data)),
@@ -2611,10 +2610,8 @@ export function renderPanelHtml(): string {
           pptPlotConfig: compactRecordForSignature(data.pptPlotConfig || {}, ["presentationPath", "chartType", "styleMode"]),
           pptAutomation: compactRecordForSignature(data.pptAutomation || {}, ["state", "ready", "message", "actionCommand", "actionLabel", "schemaVersion", "endpoint"]),
           traces: compactTracesForSignature(data),
-          selectedTraceKey: data.selectedTraceKey,
-          selection: data.selection,
-          planArchive: compactPlanArchiveForSignature(data.planArchive),
-          capabilities: compactCapabilitiesForSignature(data.capabilities)
+          selection: compactResultSelectionForSignature(data.selection),
+          planArchive: compactPlanArchiveForSignature(data.planArchive)
         };
       }
       if (section === "gpu") {
@@ -2894,6 +2891,22 @@ export function renderPanelHtml(): string {
 
     function compactPlansForSignature(plans) {
       return compactRowsForSignature(plans, PLAN_RENDER_LIMIT, ["id", "name", "file", "planFile", "revision", "status", "updatedAt", "caseCount", "runCount", "archived", "outputReady", "parseStatus", "restoreVersion", "restoreOutputNamespace", "restoreEnvironmentDir"]);
+    }
+
+    function compactSelectedResultPlanForSignature(state) {
+      const data = state || {};
+      const planFile = data.planFileInput || (data.selection || {}).selectedPlanId || "";
+      return compactPlanRecordForSignature(planFromContext(data, { planFile }));
+    }
+
+    function compactResultSelectionForSignature(selection) {
+      const item = selection && typeof selection === "object" ? selection : {};
+      return {
+        selectedPlanId: item.selectedPlanId,
+        selectedRunKey: item.selectedRunKey,
+        selectedRunKeys: asArray(item.selectedRunKeys),
+        selectedArchiveKeys: asArray(item.selectedArchiveKeys)
+      };
     }
 
     function compactPlanArchiveForSignature(archive) {
