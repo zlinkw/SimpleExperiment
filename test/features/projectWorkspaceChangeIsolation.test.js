@@ -177,6 +177,15 @@ test("plan save checks project context before and after each file operation", ()
   assert.match(save, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(\)/);
 });
 
+test("stale UI layout saves cannot refresh a replacement workspace", () => {
+  const save = methodBody("async saveUiLayoutFromUi", "async resetUiLayoutFromUi");
+  const reset = methodBody("async resetUiLayoutFromUi", "async runActionCommand");
+  for (const flow of [save, reset]) {
+    assert.match(flow, /const projectContext = this\.captureProjectContext\(\)/);
+    assert.match(flow, /await Promise\.all\([\s\S]*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*this\.postState\(\)/);
+  }
+});
+
 test("opening a plan cannot select it in a replacement workspace", () => {
   const open = methodBody("async openWorkspacePlanFromUi", "async savePlanFromUi");
   assert.match(open, /const generation = this\.projectContextGeneration/);

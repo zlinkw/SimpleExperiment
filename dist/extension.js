@@ -2837,6 +2837,7 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`${title} 已开始：${detail}`);
     }
     async saveUiLayoutFromUi(message) {
+        const projectContext = this.captureProjectContext();
         const layout = normalizeUiLayout(recordField(message, "layout"));
         // Project layout is authoritative for the open workspace.
         // globalState only keeps a pinnedCommands template for brand-new projects.
@@ -2847,9 +2848,12 @@ class RealtimeTunnelPanelProvider {
             this.context.workspaceState.update(keys.uiProjectLayout, undefined),
             this.context.workspaceState.update(keys.uiProjectActions, undefined),
         ]);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.postState();
     }
     async resetUiLayoutFromUi() {
+        const projectContext = this.captureProjectContext();
         this.projectUiLayout = projectUiLayoutState(defaultUiLayout);
         await Promise.all([
             this.context.globalState.update(keys.uiLayout, globalUiLayoutState(defaultUiLayout)),
@@ -2857,6 +2861,8 @@ class RealtimeTunnelPanelProvider {
             this.context.workspaceState.update(keys.uiProjectLayout, undefined),
             this.context.workspaceState.update(keys.uiProjectActions, undefined),
         ]);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.postState();
     }
     async runActionCommand(command, message) {
