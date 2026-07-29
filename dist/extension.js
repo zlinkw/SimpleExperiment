@@ -466,6 +466,7 @@ class RealtimeTunnelPanelProvider {
     workerActionReleaseWaiters = new Map();
     workerActionLastAtLimit = 256;
     availabilityPushTimer;
+    availabilityPushLoopGeneration = 0;
     lastAvailabilityPushAt = 0;
     lastCodeSyncState = {};
     confirmedRemotePaths = [];
@@ -1244,6 +1245,7 @@ class RealtimeTunnelPanelProvider {
         for (const timer of this.operationProbeTimers.values())
             clearTimeout(timer);
         this.operationProbeTimers.clear();
+        this.availabilityPushLoopGeneration += 1;
         if (this.availabilityPushTimer)
             clearTimeout(this.availabilityPushTimer);
         this.availabilityPushTimer = undefined;
@@ -6954,18 +6956,29 @@ class RealtimeTunnelPanelProvider {
         };
     }
     startAvailabilityPushLoop() {
+        const loopGeneration = ++this.availabilityPushLoopGeneration;
         if (this.availabilityPushTimer)
             clearTimeout(this.availabilityPushTimer);
         this.availabilityPushTimer = undefined;
         if (!this.isRealtimeMode() || !this.projectTopologyAssessment().hubAllowed)
             return;
         const scheduleNext = () => {
+            if (loopGeneration !== this.availabilityPushLoopGeneration)
+                return;
             const settings = this.schedulerSettings();
             const delayMs = (settings.localAvailabilityPushSeconds + Math.random() * settings.jitterSeconds) * 1000;
-            this.availabilityPushTimer = setTimeout(() => {
-                void this.pushLocalWorkerAvailability(false).finally(scheduleNext);
+            const timer = setTimeout(() => {
+                if (this.availabilityPushTimer === timer)
+                    this.availabilityPushTimer = undefined;
+                if (loopGeneration !== this.availabilityPushLoopGeneration)
+                    return;
+                void this.pushLocalWorkerAvailability(false).finally(() => {
+                    if (loopGeneration === this.availabilityPushLoopGeneration)
+                        scheduleNext();
+                });
             }, delayMs);
-            this.availabilityPushTimer.unref?.();
+            this.availabilityPushTimer = timer;
+            timer.unref?.();
         };
         scheduleNext();
     }
@@ -6978,6 +6991,8 @@ class RealtimeTunnelPanelProvider {
     async pushLocalWorkerAvailability(force) {
         if (!this.isRealtimeMode() || !this.projectTopologyAssessment().hubAllowed)
             return;
+        const generation = this.projectContextGeneration;
+        const client = this.client;
         const settings = this.schedulerSettings();
         const nowMs = Date.now();
         if (!force && nowMs - this.lastAvailabilityPushAt < this.availabilityPushMinIntervalMs(settings))
@@ -6987,7 +7002,7 @@ class RealtimeTunnelPanelProvider {
             return;
         this.lastAvailabilityPushAt = nowMs;
         try {
-            await this.client.postAvailabilityBatch({
+            await client.postAvailabilityBatch({
                 schemaVersion: 1,
                 source: "local_aggregator",
                 generatedAt: new Date(nowMs).toISOString(),
@@ -6996,7 +7011,8 @@ class RealtimeTunnelPanelProvider {
             });
         }
         catch (error) {
-            this.lastError = errorMessage(error);
+            if (generation === this.projectContextGeneration && client === this.client)
+                this.lastError = errorMessage(error);
         }
     }
     localWorkerAvailabilityRows(ttlSeconds) {

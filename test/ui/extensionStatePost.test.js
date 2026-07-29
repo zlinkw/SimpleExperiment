@@ -116,10 +116,21 @@ test("realtime state signatures stay bounded and sample across large values", ()
 
 test("local availability push stays server-only and project-state-free", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const loopBlock = source.match(/startAvailabilityPushLoop[\s\S]*?availabilityPushMinIntervalMs/)?.[0] || "";
   const pushBlock = source.match(/private async pushLocalWorkerAvailability[\s\S]*?private localWorkerAvailabilityRows/)?.[0] || "";
   const rowsBlock = source.match(/private localWorkerAvailabilityRows[\s\S]*?private resetClient/)?.[0] || "";
 
-  assert.match(pushBlock, /this\.client\.postAvailabilityBatch/);
+  assert.match(source, /private availabilityPushLoopGeneration = 0/);
+  assert.match(loopBlock, /const loopGeneration = \+\+this\.availabilityPushLoopGeneration/);
+  assert.match(loopBlock, /if \(loopGeneration !== this\.availabilityPushLoopGeneration\)\s*return/);
+  assert.match(loopBlock, /if \(this\.availabilityPushTimer === timer\)\s*this\.availabilityPushTimer = undefined/);
+  assert.match(loopBlock, /if \(loopGeneration === this\.availabilityPushLoopGeneration\)\s*scheduleNext\(\)/);
+  assert.doesNotMatch(loopBlock, /finally\(scheduleNext\)/);
+  assert.match(source, /async dispose\(\)[\s\S]{0,900}this\.availabilityPushLoopGeneration \+= 1;[\s\S]{0,160}clearTimeout\(this\.availabilityPushTimer\)/);
+  assert.match(pushBlock, /const generation = this\.projectContextGeneration/);
+  assert.match(pushBlock, /const client = this\.client/);
+  assert.match(pushBlock, /client\.postAvailabilityBatch/);
+  assert.match(pushBlock, /if \(generation === this\.projectContextGeneration && client === this\.client\)\s*this\.lastError = errorMessage\(error\)/);
   assert.match(pushBlock, /source: "local_aggregator"/);
   assert.match(pushBlock, /workers,/);
   for (const forbidden of ["plan", "recentPlans", "resultsSummary", "fileTransfers", "projectRoot", "workspaceState", "globalState"]) {
