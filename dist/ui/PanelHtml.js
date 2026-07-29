@@ -1537,6 +1537,7 @@ function renderPanelHtml() {
     let gpuHistoryLastStateStatus = "idle";
     let expandedGpuHistoryKeys = new Set();
     const GPU_HISTORY_REQUEST_COOLDOWN_MS = 60_000;
+    const GPU_HISTORY_SERVER_STYLE_LIMIT = 128;
     const gpuHistoryRequestLastAt = new Map();
     let gpuHistoryDrawFrame = 0;
     let activeGpuHistoryTooltip = null;
@@ -2059,6 +2060,7 @@ function renderPanelHtml() {
           const wasOpen = expandedGpuHistoryKeys.has(key);
           if (historyDetails.open) {
             expandedGpuHistoryKeys.add(key);
+            while (expandedGpuHistoryKeys.size > GPU_HISTORY_SERIES_CACHE_LIMIT) expandedGpuHistoryKeys.delete(expandedGpuHistoryKeys.values().next().value);
             if (!wasOpen) requestGpuHistory({ serverId, gpuId, maxPoints: 288 });
           } else {
             expandedGpuHistoryKeys.delete(key);
@@ -8121,7 +8123,9 @@ function renderPanelHtml() {
       try {
         const raw = window.localStorage && window.localStorage.getItem("simpleExperiment.gpuHistoryServerStyles");
         const parsed = raw ? JSON.parse(raw) : {};
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+        const entries = Object.entries(parsed).filter(([key, item]) => key && item && typeof item === "object" && typeof item.color === "string").slice(-GPU_HISTORY_SERVER_STYLE_LIMIT);
+        return Object.fromEntries(entries);
       } catch (_) { return {}; }
     }
 
@@ -8142,6 +8146,8 @@ function renderPanelHtml() {
       const sameColor = Object.values(gpuHistoryServerStyles).filter((item) => item && item.color === color);
       const variant = sameColor.length;
       const style = { color, dash: lineDashForStyle(GPU_HISTORY_LINE_STYLES[variant % GPU_HISTORY_LINE_STYLES.length]), marker: GPU_HISTORY_MARKERS[Math.floor(variant / GPU_HISTORY_LINE_STYLES.length) % GPU_HISTORY_MARKERS.length] };
+      const styleKeys = Object.keys(gpuHistoryServerStyles);
+      while (styleKeys.length >= GPU_HISTORY_SERVER_STYLE_LIMIT) delete gpuHistoryServerStyles[styleKeys.shift()];
       gpuHistoryServerStyles[key] = style;
       saveGpuHistoryServerStyles();
       return style;

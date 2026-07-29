@@ -18,6 +18,7 @@ test("GPU history UI provides overview and per-card expandable charts", () => {
   assert.match(html, /const wasOpen = gpuHistoryOverviewOpen/);
   assert.match(html, /historyDetails\.open && !wasOpen/);
   assert.match(html, /const wasOpen = expandedGpuHistoryKeys\.has\(key\)/);
+  assert.match(html, /while \(expandedGpuHistoryKeys\.size > GPU_HISTORY_SERIES_CACHE_LIMIT\)/);
   assert.match(html, /if \(!wasOpen\) requestGpuHistory/);
 });
 
@@ -46,6 +47,9 @@ test("GPU history chart connects explicitly zero-filled buckets and exposes acce
 test("GPU history server styling persists by server id and has fallback patterns", () => {
   const html = renderPanelHtml();
   assert.match(html, /simpleExperiment\.gpuHistoryServerStyles/);
+  assert.match(html, /GPU_HISTORY_SERVER_STYLE_LIMIT = 128/);
+  assert.match(html, /Object\.entries\(parsed\)[\s\S]{0,180}slice\(-GPU_HISTORY_SERVER_STYLE_LIMIT\)/);
+  assert.match(html, /while \(styleKeys\.length >= GPU_HISTORY_SERVER_STYLE_LIMIT\) delete gpuHistoryServerStyles/);
   assert.match(html, /gpuHistoryServerStyle\(serverId\)/);
   assert.match(html, /lineDashForStyle/);
   assert.match(html, /gpuStableIndex/);
