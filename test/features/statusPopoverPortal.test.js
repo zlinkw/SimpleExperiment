@@ -9,6 +9,10 @@ const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"),
 test("status popovers use details layer with legend entries", () => {
   assert.match(panel, /function statusInfoPopover\(text, label\)/);
   assert.match(panel, /function scheduleStatusInfoPopoverClose\(details\)/);
+  assert.match(panel, /let statusInfoPopoverTimers = new Map\(\)/);
+  assert.match(panel, /function cleanupDetachedStatusInfoPopoverTimers\(\)/);
+  assert.match(panel, /cleanupDetachedStatusInfoPopoverTimers\(\)/);
+  assert.match(panel, /if \(!details\.isConnected\)/);
   assert.match(panel, /<details class="statusInfoPopover">/);
   assert.match(panel, /\.statusInfoPopoverBody \{ position: absolute/);
   assert.match(panel, /class="legendItem"/);

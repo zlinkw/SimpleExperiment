@@ -1439,7 +1439,7 @@ function renderPanelHtml() {
     let resourceTreeStaticModelCache = null;
     let mainColumnSyncFrame = 0;
     let collapsedStatusCards = {};
-    let statusInfoPopoverTimers = new WeakMap();
+    let statusInfoPopoverTimers = new Map();
     let postRenderMaintenanceScheduled = false;
     let lastPostRenderMaintenanceKey = "";
     let postRenderDomVersion = 0;
@@ -2285,6 +2285,7 @@ function renderPanelHtml() {
     }
 
     function runPostRenderMaintenance() {
+      cleanupDetachedStatusInfoPopoverTimers();
       const nextCardDecorationKey = cardDecorationKey();
       if (nextCardDecorationKey !== lastCardDecorationKey) {
         refreshCardDecorations(nextCardDecorationKey);
@@ -6699,6 +6700,10 @@ function renderPanelHtml() {
     function scheduleStatusInfoPopoverClose(details) {
       clearStatusInfoPopoverClose(details);
       const timer = setTimeout(() => {
+        if (!details.isConnected) {
+          statusInfoPopoverTimers.delete(details);
+          return;
+        }
         details.open = false;
         statusInfoPopoverTimers.delete(details);
       }, 10000);
@@ -6709,6 +6714,14 @@ function renderPanelHtml() {
       const timer = statusInfoPopoverTimers.get(details);
       if (timer) clearTimeout(timer);
       statusInfoPopoverTimers.delete(details);
+    }
+
+    function cleanupDetachedStatusInfoPopoverTimers() {
+      statusInfoPopoverTimers.forEach((timer, details) => {
+        if (details && details.isConnected) return;
+        clearTimeout(timer);
+        statusInfoPopoverTimers.delete(details);
+      });
     }
 
     function configInput(scope, key, label, value, type, cls) {

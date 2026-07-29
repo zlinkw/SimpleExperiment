@@ -1436,7 +1436,7 @@ export function renderPanelHtml(): string {
     let resourceTreeStaticModelCache = null;
     let mainColumnSyncFrame = 0;
     let collapsedStatusCards = {};
-    let statusInfoPopoverTimers = new WeakMap();
+    let statusInfoPopoverTimers = new Map();
     let postRenderMaintenanceScheduled = false;
     let lastPostRenderMaintenanceKey = "";
     let postRenderDomVersion = 0;
@@ -2282,6 +2282,7 @@ export function renderPanelHtml(): string {
     }
 
     function runPostRenderMaintenance() {
+      cleanupDetachedStatusInfoPopoverTimers();
       const nextCardDecorationKey = cardDecorationKey();
       if (nextCardDecorationKey !== lastCardDecorationKey) {
         refreshCardDecorations(nextCardDecorationKey);
@@ -6696,6 +6697,10 @@ export function renderPanelHtml(): string {
     function scheduleStatusInfoPopoverClose(details) {
       clearStatusInfoPopoverClose(details);
       const timer = setTimeout(() => {
+        if (!details.isConnected) {
+          statusInfoPopoverTimers.delete(details);
+          return;
+        }
         details.open = false;
         statusInfoPopoverTimers.delete(details);
       }, 10000);
@@ -6706,6 +6711,14 @@ export function renderPanelHtml(): string {
       const timer = statusInfoPopoverTimers.get(details);
       if (timer) clearTimeout(timer);
       statusInfoPopoverTimers.delete(details);
+    }
+
+    function cleanupDetachedStatusInfoPopoverTimers() {
+      statusInfoPopoverTimers.forEach((timer, details) => {
+        if (details && details.isConnected) return;
+        clearTimeout(timer);
+        statusInfoPopoverTimers.delete(details);
+      });
     }
 
     function configInput(scope, key, label, value, type, cls) {
