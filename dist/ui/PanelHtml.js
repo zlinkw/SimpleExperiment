@@ -1560,6 +1560,7 @@ function renderPanelHtml() {
     let configInspectorIndexCacheSource = null;
     let configInspectorIndexCacheValue = null;
     let configParamFilterTimer = 0;
+    let configParamFilterGeneration = 0;
     let selectedPlanCheckbox = null;
     let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
     let tracePlanScope = normalizePlanViewScope(restoredWebviewState.tracePlanScope);
@@ -10558,8 +10559,10 @@ function renderPanelHtml() {
       if (filter) filter.oninput = () => {
         const value = filter.value || "";
         configParamFilter = value;
+        const generation = ++configParamFilterGeneration;
         clearTimeout(configParamFilterTimer);
         configParamFilterTimer = setTimeout(() => {
+          if (generation !== configParamFilterGeneration) return;
           refreshPlanLocalUi();
           const next = el("configParamFilter");
           if (next) { next.focus(); next.setSelectionRange(value.length, value.length); }

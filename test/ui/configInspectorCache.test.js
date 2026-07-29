@@ -58,3 +58,10 @@ test("config inspector filtering consumes cached search text", () => {
   assert.match(html, /cfg\.searchText\.includes\(query\)/);
   assert.match(html, /configInspectorIndexCacheSource === source/);
 });
+
+test("config inspector debounce ignores stale callbacks", () => {
+  const html = renderPanelHtml();
+  assert.match(html, /let configParamFilterGeneration = 0/);
+  assert.match(html, /const generation = \+\+configParamFilterGeneration/);
+  assert.match(html, /if \(generation !== configParamFilterGeneration\) return;/);
+});
