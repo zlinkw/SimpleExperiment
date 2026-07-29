@@ -40,8 +40,10 @@ function chartContext(functionNames) {
     gpuHistoryOverviewCacheServers: null,
     gpuHistoryOverviewCacheValue: [],
     gpuHistoryPointIndexCache: new WeakMap(),
+    gpuHistoryOklabCache: new Map(),
     GPU_HISTORY_GAP_FACTOR: 1.75,
     GPU_HISTORY_SERVER_STYLE_LIMIT: 128,
+    GPU_HISTORY_OKLAB_CACHE_LIMIT: 256,
     GPU_HISTORY_COLORS: ["#2885EF", "#CD8300", "#03A14A", "#E64343", "#A95DDA", "#00A3B4", "#C952A8", "#849B11", "#DE6907", "#009F89", "#CE4A72", "#008DBE"],
     GPU_HISTORY_LINE_STYLES: ["solid", "dash", "dot", "dashdot"],
     GPU_HISTORY_MARKERS: ["circle", "square", "triangle", "diamond"],
@@ -81,6 +83,16 @@ test("GPU history palette uses OKLCH candidates and OKLab color distance", () =>
   assert.ok(blueOrangeDistance > 0.1);
   assert.notEqual(blueOrangeDistance, blueOrangeRgbDistance);
   assert.equal(context.chooseGpuHistoryColor(["#E64343"], ["#DE6907"]), "");
+});
+
+test("GPU history OKLab conversion cache reuses colors and stays bounded", () => {
+  const context = chartContext(["gpuHistoryOklab"]);
+  const first = context.gpuHistoryOklab("#2885EF");
+  assert.equal(context.gpuHistoryOklab("#2885EF"), first);
+  for (let index = 0; index < 300; index += 1) {
+    context.gpuHistoryOklab("#" + index.toString(16).padStart(6, "0"));
+  }
+  assert.equal(context.gpuHistoryOklabCache.size, context.GPU_HISTORY_OKLAB_CACHE_LIMIT);
 });
 
 test("GPU history gap detection distinguishes explicit gaps from regular downsampling", () => {
