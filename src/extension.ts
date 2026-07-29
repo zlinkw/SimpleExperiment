@@ -4896,11 +4896,15 @@ class RealtimeTunnelPanelProvider {
         const key = usableSelectionKey(runKey || "");
         if (!key || !this.isRealtimeMode())
             return;
+        const generation = this.projectContextGeneration;
+        const client = this.client;
         const resolvedWorkerId = this.resolveWorkerEndpointId(workerId) || "";
         try {
-            await this.client.getLiveOutput(key, 0, resolvedWorkerId || undefined);
+            await client.getLiveOutput(key, 0, resolvedWorkerId || undefined);
         }
         catch (error) {
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return;
             this.recordActionError({
                 command: "selectLogRunKey",
                 message: errorMessage(error),
@@ -6302,11 +6306,17 @@ class RealtimeTunnelPanelProvider {
         });
         if (!picked)
             return;
+        const generation = this.projectContextGeneration;
+        const client = this.client;
         try {
-            await this.client.downloadFile(pathFromOps, picked.fsPath);
+            await client.downloadFile(pathFromOps, picked.fsPath);
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return;
             this.lastError = undefined;
         }
         catch (error) {
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return;
             this.lastError = userFacingFileError(error);
             this.recordActionError({ command: "downloadDebugBundle", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
         }
@@ -6341,8 +6351,12 @@ class RealtimeTunnelPanelProvider {
         ].join("\n"), { modal: true }, "下载并打开");
         if (answer !== "下载并打开")
             throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
+        const generation = this.projectContextGeneration;
+        const client = this.client;
         await fs.mkdir(path.dirname(localPath), { recursive: true });
-        await this.client.downloadFile(remotePath, localPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        await client.downloadFile(remotePath, localPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        if (generation !== this.projectContextGeneration || client !== this.client)
+            return;
         await openWorkspaceFile(localRelative);
         void vscode.window.showInformationMessage(`远端结果只读副本已打开：${localRelative}`);
     }
@@ -6399,12 +6413,18 @@ class RealtimeTunnelPanelProvider {
         }
         if (answer !== downloadLabel)
             throw new UiCommandCancelled("结果文件打开已取消，未下载文件，也未切换当前 Plan。");
+        const generation = this.projectContextGeneration;
+        const client = this.client;
         await fs.mkdir(path.dirname(localCopyPath), { recursive: true });
-        await this.client.downloadFile(artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        await client.downloadFile(artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        if (generation !== this.projectContextGeneration || client !== this.client)
+            return;
         await openWorkspaceFile(localRelative);
         void vscode.window.showInformationMessage(`结果只读副本已打开：${localRelative}`);
     }
     async openAuditTail() {
+        const generation = this.projectContextGeneration;
+        const client = this.client;
         try {
             if (this.effectiveConnectionMode() === "offline_import") {
                 const offlineAudit = this.offlineBundle?.auditTail;
@@ -6420,13 +6440,19 @@ class RealtimeTunnelPanelProvider {
                 this.postState();
                 return;
             }
-            const auditTail = await this.client.getAuditTail();
+            const auditTail = await client.getAuditTail();
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return;
             this.auditTail = auditTailSummaryForWebview(auditTail);
             const doc = await vscode.workspace.openTextDocument({ language: "jsonl", content: auditTailDocumentText(auditTail) });
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return;
             await vscode.window.showTextDocument(doc, { preview: true });
             this.lastError = undefined;
         }
         catch (error) {
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return;
             this.lastError = errorMessage(error);
             this.recordActionError({ command: "openAuditTail", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
         }
