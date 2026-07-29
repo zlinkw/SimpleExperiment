@@ -108,6 +108,10 @@ const SIMPLE_SFTP_REQUIRED_COMMANDS = [
     "simpleSftp.uploadFiles",
     "simpleSftp.configureIgnores",
 ];
+let simpleSftpIntegrationReadinessCacheRegistry = null;
+let simpleSftpIntegrationReadinessCacheExtension = null;
+let simpleSftpIntegrationReadinessCacheLegacyExtension = null;
+let simpleSftpIntegrationReadinessCacheValue = null;
 const defaultUiSectionOrder = [
     "plans",
     "results",
@@ -12468,8 +12472,15 @@ function projectBootstrapPlanSelection(plans, planFileInput, selectedPlanId) {
 }
 function simpleSftpIntegrationReadiness(extensionRegistry = vscode.extensions) {
     const extension = extensionRegistry?.getExtension?.(SIMPLE_SFTP_EXTENSION_ID);
+    const legacyExtension = extension ? extensionRegistry?.getExtension?.(LEGACY_SFTP_EXTENSION_ID) : undefined;
+    if (simpleSftpIntegrationReadinessCacheValue
+        && simpleSftpIntegrationReadinessCacheRegistry === extensionRegistry
+        && simpleSftpIntegrationReadinessCacheExtension === extension
+        && simpleSftpIntegrationReadinessCacheLegacyExtension === legacyExtension)
+        return simpleSftpIntegrationReadinessCacheValue;
+    let value;
     if (!extension) {
-        return {
+        value = {
             ready: false,
             installed: false,
             extensionId: SIMPLE_SFTP_EXTENSION_ID,
@@ -12478,24 +12489,32 @@ function simpleSftpIntegrationReadiness(extensionRegistry = vscode.extensions) {
             message: "未安装或未启用配套 SimpleSFTP。请运行公开离线包中的 install-public-release.ps1，安装后执行 Developer: Reload Window。",
         };
     }
-    const declaredCommands = new Set((Array.isArray(extension.packageJSON?.contributes?.commands) ? extension.packageJSON.contributes.commands : [])
-        .map((item) => String(item?.command || "").trim())
-        .filter(Boolean));
-    const missingCommands = SIMPLE_SFTP_REQUIRED_COMMANDS.filter((command) => !declaredCommands.has(command));
-    const version = String(extension.packageJSON?.version || "").trim();
-    const legacySftp = legacySftpInstallationState(extensionRegistry);
-    return {
-        ready: missingCommands.length === 0,
-        installed: true,
-        extensionId: SIMPLE_SFTP_EXTENSION_ID,
-        version,
-        missingCommands,
-        legacyInstalled: legacySftp.installed,
-        legacyVersion: legacySftp.version,
-        message: missingCommands.length
-            ? `SimpleSFTP ${version || "当前版本"} 缺少编排命令：${missingCommands.join("、")}。请使用配套公开离线包升级两个插件并重载窗口。`
-            : `SimpleSFTP ${version || "已安装"} 的上传 ABI 已就绪。`,
-    };
+    else {
+        const packageJson = extension.packageJSON || {};
+        const declaredCommands = new Set((Array.isArray(packageJson?.contributes?.commands) ? packageJson.contributes.commands : [])
+            .map((item) => String(item?.command || "").trim())
+            .filter(Boolean));
+        const missingCommands = SIMPLE_SFTP_REQUIRED_COMMANDS.filter((command) => !declaredCommands.has(command));
+        const version = String(packageJson?.version || "").trim();
+        const legacySftp = { installed: Boolean(legacyExtension), extensionId: LEGACY_SFTP_EXTENSION_ID, version: String(legacyExtension?.packageJSON?.version || "").trim() };
+        value = {
+            ready: missingCommands.length === 0,
+            installed: true,
+            extensionId: SIMPLE_SFTP_EXTENSION_ID,
+            version,
+            missingCommands,
+            legacyInstalled: legacySftp.installed,
+            legacyVersion: legacySftp.version,
+            message: missingCommands.length
+                ? `SimpleSFTP ${version || "当前版本"} 缺少编排命令：${missingCommands.join("、")}。请使用配套公开离线包升级两个插件并重载窗口。`
+                : `SimpleSFTP ${version || "已安装"} 的上传 ABI 已就绪。`,
+        };
+    }
+    simpleSftpIntegrationReadinessCacheRegistry = extensionRegistry;
+    simpleSftpIntegrationReadinessCacheExtension = extension;
+    simpleSftpIntegrationReadinessCacheLegacyExtension = legacyExtension;
+    simpleSftpIntegrationReadinessCacheValue = value;
+    return value;
 }
 function legacySftpInstallationState(extensionRegistry = vscode.extensions) {
     const extension = extensionRegistry?.getExtension?.(LEGACY_SFTP_EXTENSION_ID);

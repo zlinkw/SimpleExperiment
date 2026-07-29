@@ -14,35 +14,35 @@
 
 ## 后续优先级
 - [已完成] 1/5 project-046：缓存前端配置参数结构差异。
-- [待做] 2/5 project-047：缓存 Extension Host 的 SimpleSFTP ABI 就绪派生。
+- [已完成] 2/5 project-047：缓存 Extension Host 的 SimpleSFTP ABI 就绪派生。
 - [待做] 3/5 project-048：缓存本地 Plan Webview 压缩结果。
 - [待做] 4/5 project-049：优化 Scheduler 大批量待运行队列。
 - [待做] 5/5 project-050：执行第四十轮完整非服务器静态测试。
 
-## 当前批次：project-046（已完成）
+## 当前批次：project-047（已完成）
 ### 修复点
 
-- 配置参数预览按不可变“所选配置 + Plan 基准配置”对象身份缓存结构差异、计数和逐行搜索文本。
-- 搜索词变化只过滤缓存行，不重复构建参数 Map、联合 key、自然排序和差异分类。
-- 配置对象替换时立即失效；摘要省略导致的 uncertain 语义与现有显示顺序保持不变。
+- Extension Host 按扩展注册表、SimpleSFTP 扩展对象和旧版扩展对象身份缓存 ABI 就绪结果。
+- 高频 Webview 状态构建和配置流程不再重复扫描 contributed commands、版本和旧版安装状态。
+- 扩展对象或注册表替换时立即失效；未安装、命令缺失和旧版共存提示保持不变。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 同一对象下搜索词变化必须返回当前筛选结果，不能缓存旧 rows 子集。
-- 所选配置或 Plan 基准对象替换后，计数、顺序和值方向必须重新派生。
-- 参数摘要省略、Plan 单文件基准识别和配置筛选防抖不得变化。
+- SimpleSFTP 安装或升级后只要扩展对象替换，ready、version 和 missingCommands 必须刷新。
+- 旧版 SFTP 扩展对象替换后，legacyInstalled 和 legacyVersion 必须刷新。
+- 首次配置、项目接入、命令预检和 Webview integrations 必须继续使用同一 ABI 契约。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 配置差异缓存命中、搜索刷新和对象替换失效定向测试，9/9。
+- [已通过] SimpleSFTP ABI 缓存命中、扩展替换失效和现有预检定向测试，11/11。
 - [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-046 至 project-050 五批静态优化周期；project-050 再执行完整测试。
-- 本批只处理配置参数差异派生，最多修改 4 个源码、测试、构建和计划文件。
+- 本批只处理 Extension Host 的 SimpleSFTP ABI 派生，最多修改 4 个源码、测试、构建和计划文件。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：缓存 Extension Host 的 SimpleSFTP ABI 就绪派生；本批使用独立 `perf` 提交并推送 `origin/master`，提交哈希以 git 历史为准。
+- 下一批边界：缓存本地 Plan Webview 压缩结果；本批使用独立 `perf` 提交并推送 `origin/master`，提交哈希以 git 历史为准。

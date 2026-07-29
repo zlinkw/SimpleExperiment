@@ -73,6 +73,55 @@ test("SimpleSFTP integration readiness validates the paired command ABI", () => 
   assert.match(outdated.message, /配套公开离线包升级两个插件/);
 });
 
+test("SimpleSFTP integration readiness reuses ABI derivation and invalidates on extension replacement", () => {
+  const readiness = loadReadiness();
+  let packageReads = 0;
+  const packageJSON = {
+    version: "0.1.3",
+    contributes: { commands: [
+      { command: "simpleSftp.uploadWorkspace" },
+      { command: "simpleSftp.uploadFiles" },
+      { command: "simpleSftp.configureIgnores" },
+    ] },
+  };
+  const extension = {};
+  Object.defineProperty(extension, "packageJSON", {
+    get() { packageReads += 1; return packageJSON; },
+  });
+  let legacyExtension;
+  const registry = {
+    getExtension(id) {
+      if (id === "simple-local.simple-sftp") return extension;
+      if (id === "zlk-local.zlk-sftp-manager") return legacyExtension;
+      return undefined;
+    },
+  };
+
+  const first = readiness(registry);
+  const firstReads = packageReads;
+  assert.equal(first.ready, true);
+  assert.equal(readiness(registry), first);
+  assert.equal(packageReads, firstReads);
+
+  legacyExtension = { packageJSON: { version: "0.1.1" } };
+  const withLegacy = readiness(registry);
+  assert.notEqual(withLegacy, first);
+  assert.equal(withLegacy.legacyInstalled, true);
+  assert.equal(withLegacy.legacyVersion, "0.1.1");
+
+  const upgraded = { packageJSON: { ...packageJSON, version: "0.1.4" } };
+  const upgradedRegistry = {
+    getExtension(id) {
+      if (id === "simple-local.simple-sftp") return upgraded;
+      if (id === "zlk-local.zlk-sftp-manager") return legacyExtension;
+      return undefined;
+    },
+  };
+  const upgradedResult = readiness(upgradedRegistry);
+  assert.equal(upgradedResult.version, "0.1.4");
+  assert.notEqual(upgradedResult, withLegacy);
+});
+
 test("new-project readiness and UI expose SimpleSFTP before remote submission", () => {
   assert.match(source, /const integrations = \{ simpleSftp: simpleSftpIntegrationReadiness\(\) \}/);
   assert.match(source, /simpleSftpReady: simpleSftp\.ready/);
