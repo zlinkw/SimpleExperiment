@@ -56,8 +56,19 @@ test("local preview parses nested JSON dimensions and metric lists", () => {
   assert.ok(preview.columns.some((item) => item.toLowerCase() === "metrics.val_auc"));
   assert.ok(preview.columns.some((item) => item.toLowerCase() === "metrics.test_auc"));
 
-  const noMetrics = Results.parseResultFile(JSON.stringify({ results: [{ seed: 1, status: "ok" }] }), source, preset);
+  const noMetrics = Results.parseResultFile(JSON.stringify({ results: [{ seed: 1, pid: 20, gpu_id: 0, status: "ok" }] }), source, preset);
   assert.equal(noMetrics.length, 0);
+});
+
+test("result parser reuses fixed JSON metadata and segmentation metric lookups", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../../src/features/Results.ts"), "utf8");
+  assert.match(source, /const jsonNonMetricNames = new Set\(\[/);
+  assert.match(source, /const segmentationMetricNames = new Set\(\["DSC", "Dice", "IoU", "HD95", "ASD"\]\)/);
+  assert.match(source, /return !jsonNonMetricNames\.has\(normalized\)/);
+  assert.match(source, /!jsonNonMetricNames\.has\(key\.toLowerCase\(\)\)/);
+  assert.match(source, /return segmentationMetricNames\.has\(metric\)/);
+  assert.doesNotMatch(source, /return !new Set\(\["experiment_id"/);
+  assert.doesNotMatch(source, /return new Set\(\["DSC", "Dice", "IoU", "HD95", "ASD"\]\)\.has/);
 });
 
 test("Hub Agent keeps nested JSON dimensions and split metrics", () => {

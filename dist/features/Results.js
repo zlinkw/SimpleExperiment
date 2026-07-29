@@ -785,6 +785,11 @@ function normalizeJsonResultRow(row) {
     }
     return out;
 }
+const jsonNonMetricNames = new Set([
+    "experiment_id", "experimentid", "attempt_id", "attemptid", "run_key", "runkey", "run_id", "runid", "suite", "method", "dataset", "split", "fold", "seed", "case", "model", "tag", "index",
+    "experiment_index", "job_index", "job_count", "gpu_id", "gpu", "pid", "exit_code", "status", "state", "epoch", "step", "timestamp", "output_dir", "log_path",
+    "command",
+]);
 function jsonMetricObject(row, m) {
     for (const key of ["metrics", "metric_values", "scores", "summary", "results"]) {
         if (row[key] && typeof row[key] === "object") {
@@ -793,12 +798,12 @@ function jsonMetricObject(row, m) {
                 return Object.fromEntries(entries.map((entry) => [entry.name, entry.value]));
         }
     }
-    const dimensionKeys = new Set(["experiment_id", "experimentId", "attempt_id", "attemptId", "suite", "run_key", "runKey", "dataset", "split", "fold", "seed", "epoch", "step", "timestamp", "status", "command", ...Object.values(m).filter(Boolean)]);
-    return Object.fromEntries(Object.entries(row).filter(([key, value]) => !dimensionKeys.has(key) && finiteMetricNumber(value) !== undefined));
+    const dimensionKeys = new Set(Object.values(m).filter(Boolean));
+    return Object.fromEntries(Object.entries(row).filter(([key, value]) => !dimensionKeys.has(key) && !jsonNonMetricNames.has(key.toLowerCase()) && finiteMetricNumber(value) !== undefined));
 }
 function jsonMetricNameAllowed(name) {
     const normalized = String(name || "").toLowerCase().replace(/^(?:train|val|valid|validation|test|external|ext)[_.-]+/, "");
-    return !new Set(["experiment_id", "experimentid", "attempt_id", "attemptid", "run_key", "runkey", "run_id", "runid", "suite", "method", "dataset", "split", "fold", "seed", "case", "model", "tag", "index", "experiment_index", "job_index", "job_count", "gpu_id", "gpu", "pid", "exit_code", "status", "state", "epoch", "step", "timestamp", "output_dir", "log_path"]).has(normalized);
+    return !jsonNonMetricNames.has(normalized);
 }
 function jsonMetricEntries(value, path = [], out = [], depth = 0) {
     if (depth > 8 || out.length >= 200 || value === null || value === undefined)
@@ -1182,6 +1187,7 @@ const splitNameMap = {
     train: "train", val: "val", valid: "val", validation: "val", test: "test", external: "external", ext: "external",
 };
 const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric", "macro", "micro", "weighted"]);
+const segmentationMetricNames = new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]);
 function normalizeMetricToken(metric, aliases = {}) {
     const value = metric.trim();
     if (!value)
@@ -1302,7 +1308,7 @@ function isCaseLevelMetricsFile(sourcePath) {
     return sourcePath.replace(/\\/g, "/").split("/").pop()?.toLowerCase() === "metrics_case.csv";
 }
 function isSegmentationMetric(metric) {
-    return new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]).has(metric);
+    return segmentationMetricNames.has(metric);
 }
 function isClassificationMetric(metric) {
     return Object.prototype.hasOwnProperty.call(exports.classificationMetricDirections, metric);
