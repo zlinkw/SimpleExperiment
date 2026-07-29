@@ -5829,6 +5829,8 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(presentationPath ? "PPT 绘图配置已保存到当前项目：将追加到指定 PPT。" : "PPT 绘图配置已保存到当前项目：空路径会新建 PPT。");
     }
     async choosePptPathFromUi() {
+        const generation = this.projectContextGeneration;
+        const root = workspaceRoot();
         const current = this.pptPlotConfig().presentationPath;
         const picked = await vscode.window.showOpenDialog({
             title: "从资源管理器选择 PPT 文件",
@@ -5841,9 +5843,13 @@ class RealtimeTunnelPanelProvider {
         });
         if (!picked)
             throw new UiCommandCancelled("选择 PPT 路径已取消。");
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await this.updatePptPresentationPath(picked[0]?.fsPath || "");
     }
     async chooseNewPptPathFromUi() {
+        const generation = this.projectContextGeneration;
+        const root = workspaceRoot();
         const current = this.pptPlotConfig().presentationPath;
         const picked = await vscode.window.showSaveDialog({
             title: "选择新 PPT 保存位置",
@@ -5853,14 +5859,22 @@ class RealtimeTunnelPanelProvider {
         });
         if (!picked)
             throw new UiCommandCancelled("选择新 PPT 路径已取消。");
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await this.updatePptPresentationPath(picked.fsPath);
     }
     async updatePptPresentationPath(presentationPath) {
+        const generation = this.projectContextGeneration;
+        const root = workspaceRoot();
         if (!presentationPath)
             throw new UiCommandCancelled("选择 PPT 路径已取消。");
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         this.projectPptPlotConfig = normalizePptPlotConfig({ ...this.pptPlotConfig(), presentationPath });
         await this.persistProjectPptPlotConfigState();
         await this.context.globalState.update(keys.pptPlotConfig, undefined);
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         this.postState();
         void vscode.window.showInformationMessage(`PPT 路径已更新到当前项目：${presentationPath}`);
     }
@@ -5917,7 +5931,10 @@ class RealtimeTunnelPanelProvider {
     }
     async confirmPptPlotTarget(input) {
         const root = assertSingleProjectWorkspace("绘图到 PPT");
+        const generation = this.projectContextGeneration;
         await this.loadProjectPptPathConfirmationsState();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            throw new UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
         const target = normalizePptPathConfirmationTarget(input.presentationPath, root);
         if (target.presentationPath)
             input.presentationPath = target.presentationPath;
@@ -5925,12 +5942,15 @@ class RealtimeTunnelPanelProvider {
             return;
         const rememberLabel = target.presentationPath ? "确认，此后不再提醒该路径" : "确认，此后不再提醒新建 PPT";
         const answer = await vscode.window.showWarningMessage(pptPlotConfirmationDetail(input, target), { modal: true }, "确认位置并绘图", rememberLabel);
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            throw new UiCommandCancelled("工作区已切换，PPT 绘图确认已取消。");
         if (!["确认位置并绘图", rememberLabel].includes(String(answer || "")))
             throw new UiCommandCancelled("PPT 绘图已取消，未调用 PPT 插件，也未写入绘图请求审计。");
         if (answer === rememberLabel) {
             this.confirmedPptPaths = mergePptPathConfirmations(this.confirmedPptPaths, [{ ...target, confirmedAt: new Date().toISOString() }]);
             await this.persistProjectPptPathConfirmationsState();
-            this.postState(true);
+            if (generation === this.projectContextGeneration && root === workspaceRoot())
+                this.postState(true);
         }
     }
     async plotResultsToPptFromUi(message) {

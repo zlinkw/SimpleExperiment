@@ -89,6 +89,10 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
   const handler = source.slice(source.indexOf("async confirmPptPlotTarget"), source.indexOf("async saveProjectAdapterRulesFromUi"));
   assert.ok(handler.indexOf("confirmPptPlotTarget(input)") < handler.indexOf("new PptPlotBridge_1.PptPlotBridge().plot(input)"));
   assert.match(handler, /if \(target\.presentationPath\)\s*input\.presentationPath = target\.presentationPath/);
+  const confirmation = source.match(/async confirmPptPlotTarget\(input\)[\s\S]*?async plotResultsToPptFromUi/)?.[0] || "";
+  assert.match(confirmation, /const generation = this\.projectContextGeneration/);
+  assert.ok([...confirmation.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
+  assert.match(confirmation, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(true\)/);
   assert.match(handler, /未调用 PPT 插件，也未写入绘图请求审计/);
   assert.match(handler, /打开请求审计/);
   assert.match(handler, /打开响应审计/);
@@ -107,4 +111,15 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
   assert.match(panel, /function debugModeBlockedUiCommand\(command\) \{\s*return DEBUG_MODE_BLOCKED_UI_COMMANDS\.has/);
   assert.match(plan, /PPT 绘图目标确认/);
   assert.match(plan, /不迁移、删除或重写旧任务和结果/);
+});
+
+test("PPT path dialogs cannot write stale project state", () => {
+  const choose = source.match(/async choosePptPathFromUi\(\)[\s\S]*?async refreshPptAutomationReadiness/)?.[0] || "";
+  assert.match(choose, /const generation = this\.projectContextGeneration/);
+  assert.match(choose, /const root = workspaceRoot\(\)/);
+  assert.ok([...choose.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
+  const update = source.match(/async updatePptPresentationPath\(presentationPath\)[\s\S]*?async refreshPptAutomationReadiness/)?.[0] || "";
+  assert.match(update, /const generation = this\.projectContextGeneration/);
+  assert.match(update, /await this\.persistProjectPptPlotConfigState\(\)/);
+  assert.ok([...update.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
 });
