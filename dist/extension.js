@@ -11707,6 +11707,11 @@ function arrayFromRecord(record, key) {
     const value = record[key];
     return Array.isArray(value) ? value : [];
 }
+const EMPTY_OUTPUT_DERIVATION_VALUES = Object.freeze([]);
+const planOutputCandidatesCache = new WeakMap();
+const planOutputEvidenceCandidatesCache = new WeakMap();
+const planOutputEvidenceSignalsCache = new WeakMap();
+const adapterRuleResultCandidatesCache = new WeakMap();
 function nestedRecord(record, key) {
     const value = record[key];
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -11793,12 +11798,20 @@ function booleanField(message, key) {
     return ["1", "true", "yes", "on"].includes(text);
 }
 function adapterRuleResultCandidates(rules) {
-    return uniqueStrings([
-        ...arrayFromRecord(rules, "candidateCsv"),
-        ...arrayFromRecord(rules, "candidateJson"),
-        ...arrayFromRecord(rules, "consoleLogs"),
-        ...arrayFromRecord(rules, "textLogs"),
+    const source = rules && typeof rules === "object" && !Array.isArray(rules) ? rules : null;
+    if (!source)
+        return EMPTY_OUTPUT_DERIVATION_VALUES;
+    const cached = adapterRuleResultCandidatesCache.get(source);
+    if (cached)
+        return cached;
+    const value = uniqueStrings([
+        ...arrayFromRecord(source, "candidateCsv"),
+        ...arrayFromRecord(source, "candidateJson"),
+        ...arrayFromRecord(source, "consoleLogs"),
+        ...arrayFromRecord(source, "textLogs"),
     ].map((item) => String(item || "").trim()).filter(isParseableResultCandidate));
+    adapterRuleResultCandidatesCache.set(source, value);
+    return value;
 }
 function inferredPlanAdapterRuleCandidates(rules) {
     return uniqueStrings([
@@ -11922,15 +11935,39 @@ function planScopedResultParsePreviews(previews, plan, rules) {
     return { items, totalCount: all.length, hiddenCount: Math.max(0, all.length - items.length), candidateCount: candidates.length, scoped: true };
 }
 function planOutputCandidates(plan) {
-    return uniqueStrings((plan?.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
+    const source = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;
+    if (!source)
+        return EMPTY_OUTPUT_DERIVATION_VALUES;
+    const cached = planOutputCandidatesCache.get(source);
+    if (cached)
+        return cached;
+    const value = uniqueStrings((source.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
+    planOutputCandidatesCache.set(source, value);
+    return value;
 }
 function planOutputEvidenceCandidates(plan) {
-    return planOutputCandidates(plan).filter(isParseableResultCandidate);
+    const source = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;
+    if (!source)
+        return EMPTY_OUTPUT_DERIVATION_VALUES;
+    const cached = planOutputEvidenceCandidatesCache.get(source);
+    if (cached)
+        return cached;
+    const value = planOutputCandidates(source).filter(isParseableResultCandidate);
+    planOutputEvidenceCandidatesCache.set(source, value);
+    return value;
 }
 function planOutputEvidenceSignals(plan) {
-    return uniqueStrings((plan?.outputSignals || [])
+    const source = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : null;
+    if (!source)
+        return EMPTY_OUTPUT_DERIVATION_VALUES;
+    const cached = planOutputEvidenceSignalsCache.get(source);
+    if (cached)
+        return cached;
+    const value = uniqueStrings((source.outputSignals || [])
         .map((item) => String(item || "").trim())
         .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|结果目录|命令参数|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
+    planOutputEvidenceSignalsCache.set(source, value);
+    return value;
 }
 function isParseableResultCandidate(value) {
     const text = String(value || "").trim().replace(/\\/g, "/");
