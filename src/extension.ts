@@ -5974,6 +5974,7 @@ class RealtimeTunnelPanelProvider {
         await vscode.window.showTextDocument(readmeDocument, { preview: false, viewColumn: vscode.ViewColumn.Active });
     }
     async savePptPlotConfigFromUi(message) {
+        const projectContext = this.captureProjectContext();
         const patch = recordField(message, "patch");
         const current = this.pptPlotConfig();
         const presentationPath = stringPatch(patch, "presentationPath", current.presentationPath);
@@ -5981,7 +5982,11 @@ class RealtimeTunnelPanelProvider {
         const styleMode = stringPatch(patch, "styleMode", current.styleMode || "activePpt") || "activePpt";
         this.projectPptPlotConfig = normalizePptPlotConfig({ presentationPath, chartType, styleMode });
         await this.persistProjectPptPlotConfigState();
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         await this.context.globalState.update(keys.pptPlotConfig, undefined);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.postState();
         void vscode.window.showInformationMessage(presentationPath ? "PPT 绘图配置已保存到当前项目：将追加到指定 PPT。" : "PPT 绘图配置已保存到当前项目：空路径会新建 PPT。");
     }
@@ -6021,16 +6026,17 @@ class RealtimeTunnelPanelProvider {
         await this.updatePptPresentationPath(picked.fsPath);
     }
     async updatePptPresentationPath(presentationPath) {
-        const generation = this.projectContextGeneration;
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
         if (!presentationPath)
             throw new UiCommandCancelled("选择 PPT 路径已取消。");
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+        if (!this.projectContextIsCurrent(projectContext))
             return;
         this.projectPptPlotConfig = normalizePptPlotConfig({ ...this.pptPlotConfig(), presentationPath });
         await this.persistProjectPptPlotConfigState();
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         await this.context.globalState.update(keys.pptPlotConfig, undefined);
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+        if (!this.projectContextIsCurrent(projectContext))
             return;
         this.postState();
         void vscode.window.showInformationMessage(`PPT 路径已更新到当前项目：${presentationPath}`);

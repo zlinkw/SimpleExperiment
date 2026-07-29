@@ -118,12 +118,19 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
 });
 
 test("PPT path dialogs cannot write stale project state", () => {
+  const save = source.match(/async savePptPlotConfigFromUi\(message\)[\s\S]*?async choosePptPathFromUi/)?.[0] || "";
+  assert.match(save, /const projectContext = this\.captureProjectContext\(\)/);
+  assert.ok([...save.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 2);
+  assert.match(save, /await this\.persistProjectPptPlotConfigState\(\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(save, /await this\.context\.globalState\.update\(keys\.pptPlotConfig, undefined\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
   const choose = source.match(/async choosePptPathFromUi\(\)[\s\S]*?async refreshPptAutomationReadiness/)?.[0] || "";
   assert.match(choose, /const generation = this\.projectContextGeneration/);
   assert.match(choose, /const root = workspaceRoot\(\)/);
   assert.ok([...choose.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
   const update = source.match(/async updatePptPresentationPath\(presentationPath\)[\s\S]*?async refreshPptAutomationReadiness/)?.[0] || "";
-  assert.match(update, /const generation = this\.projectContextGeneration/);
+  assert.match(update, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(update, /await this\.persistProjectPptPlotConfigState\(\)/);
-  assert.ok([...update.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
+  assert.ok([...update.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 3);
+  assert.match(update, /await this\.persistProjectPptPlotConfigState\(\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(update, /await this\.context\.globalState\.update\(keys\.pptPlotConfig, undefined\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
 });
