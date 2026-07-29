@@ -296,6 +296,14 @@ const directWorkerActionMap = {
     archiveArtifacts: "archive-worker-artifacts",
     deleteArtifacts: "delete-worker-artifacts",
 };
+const noHubWorkerResultActions = new Set([
+    "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
+    "check-claim-evidence", "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis",
+    "export-case-analysis", "plan-checkpoint-retention", "inspect-dataset", "export-plotting-contract", "infer-config-from-run",
+    "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "exclude-results",
+    "sync-artifacts", "complete-three-way",
+]);
+const workerPoolResultFanoutActions = new Set(["refresh-results", "rescan-results", "parse-results"]);
 let provider;
 function activate(context) {
     return activateExtension(context);
@@ -2785,11 +2793,14 @@ class RealtimeTunnelPanelProvider {
         }
         const workerId = this.resolveWorkerEndpointId(stringField(message, "workerId")) || usableSelectionKey(stringField(message, "workerId")) || (messageWorkerIds.length === 1 ? messageWorkerIds[0] : "");
         if (workerAction && workerId) {
+            let workerBody = body;
             body.selectedWorkerIds = [workerId];
             body.options = { ...(body.options || {}), workerId };
+            if (!this.projectTopologyAssessment().hubAllowed && workerAction === "archive-worker-artifacts")
+                workerBody = this.stampNoHubResultOwnership(body, workerId);
             const missing = this.missingWorkerActionCapabilities(workerId, workerAction);
             if (!missing.length || !this.canFallbackTaskActionToHub(command, body, missing)) {
-                const result = await this.postWorkerTunnelAction(workerId, workerAction, body, {
+                const result = await this.postWorkerTunnelAction(workerId, workerAction, workerBody, {
                     title: command,
                     confirm: ["stopExperiment", "archiveArtifacts", "deleteArtifacts"].includes(command),
                     danger: command === "deleteArtifacts",
@@ -2836,19 +2847,25 @@ class RealtimeTunnelPanelProvider {
                 return;
         }
         const danger = command === "deleteArtifacts";
-        const result = ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"].includes(command)
-            ? await this.postPlanSchedulerAction(action, body, {
-                title: command,
-                confirm: false,
-                danger,
-                requiresCapability: capabilityForUiCommand(command, action),
-            })
-            : await this.postTunnelAction(action, body, {
-                title: command,
-                confirm: ["stopExperiment", "retryExperiment", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts"].includes(command),
-                danger,
-                requiresCapability: capabilityForUiCommand(command, action),
-            });
+        const noHubResult = await this.postNoHubResultAction(command, action, body, {
+            confirm: ["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"].includes(command),
+            danger,
+        });
+        const result = noHubResult !== undefined
+            ? noHubResult
+            : ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"].includes(command)
+                ? await this.postPlanSchedulerAction(action, body, {
+                    title: command,
+                    confirm: false,
+                    danger,
+                    requiresCapability: capabilityForUiCommand(command, action),
+                })
+                : await this.postTunnelAction(action, body, {
+                    title: command,
+                    confirm: ["stopExperiment", "retryExperiment", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts"].includes(command),
+                    danger,
+                    requiresCapability: capabilityForUiCommand(command, action),
+                });
         const finalResult = actionAffectsResultsSummary(action)
             ? await this.waitForOperationTerminalResult(action, result, command, 45_000)
             : result;
@@ -3132,7 +3149,9 @@ class RealtimeTunnelPanelProvider {
         let pendingCount = 0;
         for (const workerId of ids) {
             try {
-                const scopedBody = this.workerScopedActionBody(body, workerId);
+                let scopedBody = this.workerScopedActionBody(body, workerId);
+                if (!this.projectTopologyAssessment().hubAllowed && action === "archive-worker-artifacts")
+                    scopedBody = this.stampNoHubResultOwnership(scopedBody, workerId);
                 const result = await this.postWorkerTunnelAction(workerId, action, {
                     ...scopedBody,
                     selectedWorkerIds: [workerId],
@@ -3878,6 +3897,72 @@ class RealtimeTunnelPanelProvider {
             return { workerId: shard.workerId, result };
         }));
         return workerPoolAggregateResult(action, submissions, shardSet);
+    }
+    stampNoHubResultOwnership(body, workerId) {
+        const topology = this.assertPlanTopologyReady("结果操作");
+        if (topology.mode === "hub_worker")
+            return body;
+        const planRevision = String(body.planRevision || body.options?.planRevision || "").trim();
+        const workerIds = this.enabledWorkerConfigs().map((worker) => worker.id);
+        const workerSetRevision = topology.mode === "worker_pool" && planRevision
+            ? (0, WorkerPlanSharding_1.createWorkerSetRevision)(planRevision, workerIds)
+            : String(body.workerSetRevision || body.options?.workerSetRevision || "").trim();
+        return {
+            ...body,
+            topologyMode: topology.mode,
+            resultOwnerWorkerId: workerId,
+            workerSetRevision: workerSetRevision || undefined,
+            selectedWorkerIds: [workerId],
+            options: {
+                ...(body.options || {}),
+                topologyMode: topology.mode,
+                resultOwnerWorkerId: workerId,
+                workerSetRevision: workerSetRevision || undefined,
+                automaticBackup: false,
+                workerId,
+                directWorker: true,
+            },
+        };
+    }
+    resultActionWorkerIds(body) {
+        const direct = [
+            ...(Array.isArray(body.selectedWorkerIds) ? body.selectedWorkerIds : []),
+            body.workerId,
+            body.options?.workerId,
+            ...(Array.isArray(body.selectedTaskTargets) ? body.selectedTaskTargets.map((target) => target?.workerId) : []),
+        ];
+        return uniqueStrings(direct.map((id) => this.resolveWorkerEndpointId(String(id || "")) || String(id || "")).filter(Boolean));
+    }
+    async postNoHubResultAction(command, action, body, options = {}) {
+        if (!noHubWorkerResultActions.has(action))
+            return undefined;
+        const topology = this.assertPlanTopologyReady(command || action);
+        if (topology.mode === "hub_worker")
+            return undefined;
+        const explicitWorkerIds = this.resultActionWorkerIds(body);
+        let workerIds = topology.mode === "single_worker" ? [this.enabledWorkerConfigs()[0]?.id] : explicitWorkerIds;
+        if (topology.mode === "worker_pool" && workerPoolResultFanoutActions.has(action) && !explicitWorkerIds.length)
+            workerIds = this.enabledWorkerConfigs().map((worker) => worker.id);
+        workerIds = uniqueStrings(workerIds.filter(Boolean));
+        if (!workerIds.length) {
+            throw new Error(`${command || action}已阻止：仅多 Worker模式必须从带 Worker 归属的结果或任务行执行；不会把单 Worker结果冒充全局结果。`);
+        }
+        if (options.confirm || options.danger) {
+            const label = options.danger ? "确认危险操作" : "确认执行";
+            const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(command, action, body, workerIds), { modal: true }, label);
+            if (answer !== label)
+                throw new UiCommandCancelled(`${command} 已取消。`);
+        }
+        const submissions = [];
+        for (const workerId of workerIds) {
+            const scoped = this.stampNoHubResultOwnership(this.workerScopedActionBody(body, workerId), workerId);
+            const submitted = await this.postWorkerTunnelAction(workerId, action, scoped, { title: command, confirm: false, danger: false });
+            const result = remoteActionPendingStatus(resultStatus(submitted))
+                ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId)
+                : submitted;
+            submissions.push({ workerId, result });
+        }
+        return workerResultAggregateResult(action, submissions);
     }
     assertTopologyActualWorkRoots(operation = "服务器操作") {
         const topology = this.assertTopologyReady(operation);
@@ -5867,9 +5952,22 @@ class RealtimeTunnelPanelProvider {
         });
     }
     automaticResultParseReady() {
+        const topology = this.projectTopologyAssessment();
+        if (!topology.hubAllowed) {
+            const workers = this.enabledWorkerConfigs();
+            return this.isRealtimeMode() && workers.length > 0 && workers.every((worker) => {
+                try {
+                    assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
+                    return this.missingWorkerActionCapabilities(worker.id, "parse-results").length === 0;
+                }
+                catch {
+                    return false;
+                }
+            });
+        }
         return automaticResultParseReady({
             realtimeMode: this.isRealtimeMode(),
-            setupComplete: initialServerSetupComplete(this.setupConfig, this.projectTopologyAssessment().hubAllowed),
+            setupComplete: initialServerSetupComplete(this.setupConfig, topology.hubAllowed),
             hubProbe: this.lastProbe,
             expectedProjectRoot: this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir,
         });
@@ -6225,12 +6323,17 @@ class RealtimeTunnelPanelProvider {
         this.postState();
     }
     hasResultsSummaryEndpointCapability() {
-        if (!this.projectTopologyAssessment().hubAllowed)
-            return false;
-        return this.missingCapabilities(["endpoints.resultsSummary"]).length === 0;
+        const topology = this.projectTopologyAssessment();
+        if (topology.hubAllowed)
+            return this.missingCapabilities(["endpoints.resultsSummary"]).length === 0;
+        const workers = this.enabledWorkerConfigs();
+        return workers.length > 0 && workers.every((worker) => hasCapability(this.lastWorkerProbes[worker.id]?.capabilities, this.lastWorkerProbes[worker.id]?.fileCapabilities, "endpoints.resultsSummary"));
     }
     recordResultsSummaryCapabilitySkip(command, reason) {
-        const missing = this.missingCapabilities(["endpoints.resultsSummary"]);
+        const topology = this.projectTopologyAssessment();
+        const missing = topology.hubAllowed
+            ? this.missingCapabilities(["endpoints.resultsSummary"])
+            : this.enabledWorkerConfigs().filter((worker) => !hasCapability(this.lastWorkerProbes[worker.id]?.capabilities, this.lastWorkerProbes[worker.id]?.fileCapabilities, "endpoints.resultsSummary")).map((worker) => `Worker ${worker.id}: endpoints.resultsSummary`);
         if (!missing.length)
             return;
         if (this.lastError && /\/api\/results\/summary|resultsSummary|结果摘要|404|not found/i.test(this.lastError))
@@ -6242,7 +6345,7 @@ class RealtimeTunnelPanelProvider {
         this.recordActionError({
             command: command || "refreshResults",
             message: `结果摘要 API capability 缺失: ${missing.join(", ")}`,
-            suggestion: `请部署最新版 Hub Agent 并重启 Hub Agent 会话；${String(reason || "自动结果摘要刷新")} 已跳过，避免旧 Agent 反复请求 /api/results/summary。`,
+            suggestion: `请部署最新版${topology.hubAllowed ? " Hub" : " Worker"} Agent 并重启对应 Agent 会话；${String(reason || "自动结果摘要刷新")} 已跳过，避免旧 Agent 反复请求 /api/results/summary。`,
             capabilityMissing: missing,
         });
     }
@@ -8371,6 +8474,22 @@ function workerPoolAggregateResult(action, submissions, shardSet) {
         message: `${rows.length} 个 Worker ${pending ? "已接收独立分片，等待终态" : "已完成本机操作"}`,
     };
 }
+function workerResultAggregateResult(action, submissions) {
+    const rows = (Array.isArray(submissions) ? submissions : []).map(({ workerId, result }) => ({
+        workerId,
+        status: resultStatus(result) || "completed",
+        operationId: stringFromRecord(result && typeof result === "object" ? result : {}, ["operationId", "opId", "id"]),
+        result,
+    }));
+    const failed = rows.filter((row) => operationFailureTerminalStatus(row.status));
+    return {
+        schemaVersion: 1,
+        action,
+        status: failed.length ? "completed_with_errors" : "completed",
+        workerSubmissions: rows,
+        message: failed.length ? `${failed.length}/${rows.length} 个 Worker 结果操作失败` : `${rows.length} 个 Worker 已完成各自的结果操作`,
+    };
+}
 function operationResultPlanFile(record) {
     const item = record && typeof record === "object" ? record : {};
     const options = item.options && typeof item.options === "object" ? item.options : {};
@@ -9615,6 +9734,9 @@ function compactResultRecordForWebview(value) {
         experimentId: firstStringFieldForWebview(row, "experimentId", "experiment_id"),
         attemptId: firstStringFieldForWebview(row, "attemptId", "attempt_id"),
         runKey: firstStringFieldForWebview(row, "runKey", "run_key"),
+        workerId: firstStringFieldForWebview(row, "workerId", "worker_id", "resultOwnerWorkerId"),
+        resultOwnerWorkerId: firstStringFieldForWebview(row, "resultOwnerWorkerId", "workerId", "worker_id"),
+        resultOwnershipKey: firstStringFieldForWebview(row, "resultOwnershipKey"),
         suite: firstStringFieldForWebview(row, "suite"),
         method: firstStringFieldForWebview(row, "method") || firstStringFieldForWebview(objectRecord(row.dimensions) || {}, "method"),
         planFile: firstStringFieldForWebview(row, "planFile", "plan_file") || firstStringFieldForWebview(objectRecord(row.provenance) || {}, "planFile", "plan_file"),

@@ -86,6 +86,14 @@ ACTION_NAMES = [
     "archive-worker-artifacts",
     "finalize-worker-operation",
 ]
+WORKER_RESULT_ACTIONS = {
+    "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics",
+    "export-paper-table", "check-claim-evidence", "check-output-contract", "parse-case-level",
+    "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",
+    "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run",
+    "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "exclude-results",
+    "sync-artifacts", "complete-three-way",
+}
 ACTION_PATHS = [
     "/api/actions/run-plan",
     "/api/actions/stop-experiment",
@@ -2557,6 +2565,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerTasks": True,
                 "liveOutput": True,
                 "diagnostics": True,
+                "resultsSummary": True,
                 "websocketEvents": False,
                 "sseEvents": True,
                 "actions": True,
@@ -2574,6 +2583,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "dry-run-plan": True,
                 "run-plan": True,
                 "reproduce-plan": True,
+                **{name: True for name in WORKER_RESULT_ACTIONS},
             },
         }
     return {
@@ -2773,7 +2783,17 @@ def archive_state_relpath(plan=None):
         return f"zlk_cluster/archive_state/by_plan/{slug}.json"
     return "zlk_cluster/archive_state.json"
 
-def mark_archive_state(root, keys, status, plan=None, plan_revision=""):
+def archive_ownership_fields(ownership=None):
+    fields = ownership if isinstance(ownership, dict) else {}
+    owner = str(fields.get("resultOwnerWorkerId") or fields.get("schedulerOwnerWorkerId") or "").strip()
+    return {
+        **({"topologyMode": str(fields.get("topologyMode") or "").strip()} if str(fields.get("topologyMode") or "").strip() else {}),
+        **({"workerSetRevision": str(fields.get("workerSetRevision") or "").strip()} if str(fields.get("workerSetRevision") or "").strip() else {}),
+        **({"resultOwnerWorkerId": owner, "workerId": owner} if owner else {}),
+        **({"automaticBackup": False} if str(fields.get("topologyMode") or "").strip() in ("single_worker", "worker_pool") else {}),
+    }
+
+def mark_archive_state(root, keys, status, plan=None, plan_revision="", ownership=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     revision = str(plan_revision or "").strip()
     path = safe_project_path(root, archive_state_relpath(plan_norm or None))
@@ -2781,6 +2801,7 @@ def mark_archive_state(root, keys, status, plan=None, plan_revision=""):
     if not isinstance(data, dict):
         data = {}
     entries = data.get("entries") if isinstance(data.get("entries"), dict) else {}
+    owner_fields = archive_ownership_fields(ownership)
     for key in keys:
         entries[key] = {
             "archived": True,
@@ -2790,19 +2811,21 @@ def mark_archive_state(root, keys, status, plan=None, plan_revision=""):
             "last_verified_at": now_iso(),
             "planFile": plan_norm or entries.get(key, {}).get("planFile") or "",
             "planRevision": revision or entries.get(key, {}).get("planRevision") or "",
+            **owner_fields,
         }
     data["schemaVersion"] = 1
     data["project"] = os.path.basename(os.path.abspath(root))
     data["updated_at"] = now_iso()
     data["planFile"] = plan_norm or data.get("planFile") or ""
     data["planRevision"] = revision or data.get("planRevision") or ""
+    data.update(owner_fields)
     data["entries"] = entries
     atomic_write(path, data)
     # Keep project-level latest alias for unscoped consumers.
     if plan_norm:
         atomic_write(safe_project_path(root, "zlk_cluster/archive_state.json"), data)
 
-def mark_result_review_state(root, keys, status, plan=None, plan_revision=""):
+def mark_result_review_state(root, keys, status, plan=None, plan_revision="", ownership=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     revision = str(plan_revision or "").strip()
     if not plan_norm:
@@ -2815,6 +2838,7 @@ def mark_result_review_state(root, keys, status, plan=None, plan_revision=""):
         data = {}
     entries = data.get("entries") if isinstance(data.get("entries"), dict) else {}
     now = now_iso()
+    owner_fields = archive_ownership_fields(ownership)
     for key in keys:
         normalized = normalize_artifact_key(key)
         if not normalized:
@@ -2830,12 +2854,14 @@ def mark_result_review_state(root, keys, status, plan=None, plan_revision=""):
             "last_verified_at": now,
             "planFile": plan_norm,
             "planRevision": revision,
+            **owner_fields,
         }
     data["schemaVersion"] = 1
     data["project"] = os.path.basename(os.path.abspath(root))
     data["updated_at"] = now
     data["planFile"] = plan_norm
     data["planRevision"] = revision
+    data.update(owner_fields)
     data["entries"] = entries
     atomic_write(path, data)
     atomic_write(safe_project_path(root, "zlk_cluster/archive_state.json"), data)
@@ -2885,7 +2911,7 @@ def archive_manifest_entry(root, target):
         item["truncated"] = True
     return item
 
-def prepare_archive_manifest(root, keys, action, op_id, plan=None):
+def prepare_archive_manifest(root, keys, action, op_id, plan=None, ownership=None):
     resolved_keys, legacy_resolved = resolve_archive_target_keys(root, keys)
     plan_norm = normalize_result_candidate(plan) if plan else ""
     slug = plan_summary_slug(plan_norm)
@@ -2900,6 +2926,7 @@ def prepare_archive_manifest(root, keys, action, op_id, plan=None):
         "legacyResolved": legacy_resolved,
         "planFile": plan_norm or "",
         "targets": [archive_manifest_entry(root, key) for key in resolved_keys],
+        **archive_ownership_fields(ownership),
     }
     manifest["targetCount"] = len(manifest["targets"])
     manifest["fileCount"] = sum(int(item.get("fileCount") or 0) for item in manifest["targets"])
@@ -2947,7 +2974,7 @@ def unique_preserve_order(values):
         out.append(text)
     return out
 
-def complete_three_way_report(root, keys, op_id, plan=None):
+def complete_three_way_report(root, keys, op_id, plan=None, ownership=None):
     keys, legacy_resolved = resolve_archive_target_keys(root, keys)
     plan_norm = normalize_result_candidate(plan) if plan else ""
     slug = plan_summary_slug(plan_norm)
@@ -2978,6 +3005,7 @@ def complete_three_way_report(root, keys, op_id, plan=None):
         "unarchivedCount": unarchived_count,
         "status": "passed" if targets and missing_count == 0 and unarchived_count == 0 else "failed",
         "targets": targets,
+        **archive_ownership_fields(ownership),
     }
     out = safe_project_path(root, f"{rel_dir}/{op_id}_three_way.json")
     atomic_write(out, report)
@@ -4723,7 +4751,28 @@ def ordered_metric_list(metrics, policy):
             seen.add(metric)
     return ordered
 
-def parse_results_action(root, selected=None, plan=None, plan_revision=""):
+def apply_result_ownership(summary, ownership=None):
+    fields = ownership if isinstance(ownership, dict) else {}
+    topology_mode = str(fields.get("topologyMode") or os.environ.get("SIMPLE_EXPERIMENT_TOPOLOGY_MODE") or "").strip()
+    owner = str(fields.get("resultOwnerWorkerId") or fields.get("schedulerOwnerWorkerId") or (os.environ.get("ZLK_WORKER_ID") if topology_mode in ("single_worker", "worker_pool") else "") or "").strip()
+    worker_set_revision = str(fields.get("workerSetRevision") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_SET_REVISION") or "").strip()
+    if topology_mode:
+        summary["topologyMode"] = topology_mode
+    if worker_set_revision:
+        summary["workerSetRevision"] = worker_set_revision
+    if owner:
+        summary["resultOwnerWorkerId"] = owner
+        summary["workerId"] = owner
+        for record in summary.get("results") or []:
+            if not isinstance(record, dict):
+                continue
+            provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
+            record["workerId"] = owner
+            record["resultOwnerWorkerId"] = owner
+            record["provenance"] = {**provenance, "workerId": owner, "resultOwnerWorkerId": owner}
+    return summary
+
+def parse_results_action(root, selected=None, plan=None, plan_revision="", ownership=None):
     policy = read_project_metric_policy(root)
     selected_files = selected_result_candidates(root, selected)
     policy_only_files = set()
@@ -4785,6 +4834,7 @@ def parse_results_action(root, selected=None, plan=None, plan_revision=""):
         "planFile": plan_norm or "",
         "planRevision": str(plan_revision or "").strip(),
     }
+    apply_result_ownership(summary, ownership)
     apply_final_evidence_summary(root, summary)
     claim_report = evaluate_claim_evidence(root, summary)
     apply_claim_evidence_summary(summary, claim_report)
@@ -5298,7 +5348,7 @@ def maybe_auto_run_completion_pipeline(root, event):
             result = {"status": "completed", "triggerType": typ, "keys": pending, "startedAt": started, "planFile": plan or "", "planRevision": plan_revision}
             try:
                 contract = check_output_contract_action(root, plan or None)
-                summary = parse_results_action(root, None, plan or None, plan_revision)
+                summary = parse_results_action(root, None, plan or None, plan_revision, action_operation_fields(event.get("payload") if isinstance(event.get("payload"), dict) else {}))
                 statistics_report = compute_statistics_action(root, plan or None, plan_revision) if int(summary.get("finalResultCount") or 0) > 0 else {}
                 result.update({
                     "completedAt": now_iso(),
@@ -6746,6 +6796,7 @@ def action_operation_fields(payload):
     topology_mode = str(body.get("topologyMode") or options.get("topologyMode") or "").strip()
     worker_set_revision = str(body.get("workerSetRevision") or options.get("workerSetRevision") or "").strip()
     scheduler_owner_worker_id = str(body.get("schedulerOwnerWorkerId") or options.get("schedulerOwnerWorkerId") or "").strip()
+    result_owner_worker_id = str(body.get("resultOwnerWorkerId") or options.get("resultOwnerWorkerId") or scheduler_owner_worker_id).strip()
     assigned_experiment_indices = normalized_experiment_indices(body.get("assignedExperimentIndices") or options.get("assignedExperimentIndices") or [])
     return {
         **({"planFile": plan_file} if plan_file else {}),
@@ -6754,6 +6805,7 @@ def action_operation_fields(payload):
         **({"topologyMode": topology_mode} if topology_mode else {}),
         **({"workerSetRevision": worker_set_revision} if worker_set_revision else {}),
         **({"schedulerOwnerWorkerId": scheduler_owner_worker_id, "workerId": scheduler_owner_worker_id} if scheduler_owner_worker_id else {}),
+        **({"resultOwnerWorkerId": result_owner_worker_id, "workerId": result_owner_worker_id} if result_owner_worker_id else {}),
         **({"assignedExperimentIndices": assigned_experiment_indices} if assigned_experiment_indices else {}),
         "debugMode": action_debug_mode(body),
         **({"debugRunId": action_debug_run_id(body)} if action_debug_run_id(body) else {}),
@@ -6807,7 +6859,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         return terminal_action(root, action, operation_id, op_id, "completed", "自检完成", {"diagnostics": api_diagnostics(root)})
     if action in ("refresh-results", "rescan-results", "parse-results"):
         selected = action_values(payload, "selectedRunKeys", "selectedArchiveKeys", "selectedExperimentIds", "runKey", "archiveKey", "experimentId", "remotePath", "path") + action_task_target_values(payload)
-        summary = parse_results_action(root, selected, action_plan_file(payload), action_operation_fields(payload).get("planRevision") or "")
+        operation_fields = action_operation_fields(payload)
+        summary = parse_results_action(root, selected, action_plan_file(payload), operation_fields.get("planRevision") or "", operation_fields)
         return terminal_action(root, action, operation_id, op_id, "completed", f"解析完成：{summary.get('resultCount', 0)} 条结果，最终纳入 {summary.get('finalResultCount', 0)} 条，待审核 {summary.get('pendingReviewCount', 0)} 条，失败 {summary.get('parseFailed', 0)} 个文件", {"summaryPath": summary.get("summaryPath") or plan_results_summary_relpath(action_plan_file(payload) or summary.get("planFile") or ""), "resultCount": summary.get("resultCount", 0), "finalResultCount": summary.get("finalResultCount", 0), "pendingReviewCount": summary.get("pendingReviewCount", 0), "inclusionPolicy": summary.get("inclusionPolicy"), "parseFailed": summary.get("parseFailed", 0), "planFile": action_plan_file(payload) or summary.get("planFile") or ""}, request=payload)
     if action == "validate-plan":
         plan = action_plan_file(payload)
@@ -6904,6 +6957,10 @@ def handle_action(root, action, payload, operation_id, op_id):
             scheduler_args.extend(["--worker-set-revision", str(operation_fields.get("workerSetRevision"))])
         if operation_fields.get("schedulerOwnerWorkerId"):
             scheduler_args.extend(["--scheduler-owner-worker-id", str(operation_fields.get("schedulerOwnerWorkerId"))])
+        if operation_fields.get("topologyMode"):
+            env["SIMPLE_EXPERIMENT_TOPOLOGY_MODE"] = str(operation_fields.get("topologyMode"))
+        if operation_fields.get("workerSetRevision"):
+            env["SIMPLE_EXPERIMENT_WORKER_SET_REVISION"] = str(operation_fields.get("workerSetRevision"))
         if debug_mode:
             scheduler_args.extend(["--debug-mode", "--debug-run-id", debug_run_id, "--debug-output-dir", debug_output_dir])
         tmux_session = zlk_tmux_name(f"scheduler-{op_id}")
@@ -6940,19 +6997,19 @@ def handle_action(root, action, payload, operation_id, op_id):
         keys = action_target_keys(payload)
         if not keys:
             return terminal_action(root, action, operation_id, op_id, "failed", "没有选择可校验目标。")
-        report, report_path = complete_three_way_report(root, keys, op_id, action_plan_file(payload))
+        report, report_path = complete_three_way_report(root, keys, op_id, action_plan_file(payload), action_operation_fields(payload))
         status = "completed" if report.get("status") == "passed" else "failed"
         message = f"三方一致校验：{report.get('status')}，缺失 {report.get('missingCount', 0)} 项，未归档 {report.get('unarchivedCount', 0)} 项"
-        return terminal_action(root, action, operation_id, op_id, status, message, {"threeWay": report, "threeWayPath": report_path, "planFile": report.get("planFile") or action_plan_file(payload) or ""})
+        return terminal_action(root, action, operation_id, op_id, status, message, {"threeWay": report, "threeWayPath": report_path, "planFile": report.get("planFile") or action_plan_file(payload) or ""}, request=payload)
     if action == "sync-artifacts":
         keys = action_target_keys(payload)
         if not keys:
             return terminal_action(root, action, operation_id, op_id, "failed", "没有选择可检查的同步清单目标。")
-        manifest, manifest_path, resolved_keys = prepare_archive_manifest(root, keys, action, op_id, action_plan_file(payload))
+        manifest, manifest_path, resolved_keys = prepare_archive_manifest(root, keys, action, op_id, action_plan_file(payload), action_operation_fields(payload))
         missing = int(manifest.get("missingCount") or 0)
         status = "failed" if missing else "completed"
         message = f"同步清单检查完成（未传输文件）：{len(resolved_keys)} 个目标，{manifest.get('fileCount', 0)} 个文件，缺失 {missing} 个"
-        return terminal_action(root, action, operation_id, op_id, status, message, {"archiveKeys": resolved_keys, "requestedArchiveKeys": keys, "syncManifest": manifest, "syncManifestPath": manifest_path, "manifestPath": manifest_path, "planFile": action_plan_file(payload) or ""})
+        return terminal_action(root, action, operation_id, op_id, status, message, {"archiveKeys": resolved_keys, "requestedArchiveKeys": keys, "syncManifest": manifest, "syncManifestPath": manifest_path, "manifestPath": manifest_path, "planFile": action_plan_file(payload) or ""}, request=payload)
     if action == "exclude-results":
         keys = list(dict.fromkeys(action_target_keys(payload) + action_values(payload, "artifactPath", "resultPath", "confirmationPath") + action_task_target_values(payload)))
         plan = action_plan_file(payload)
@@ -6962,7 +7019,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         if not plan or not revision:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少当前 Plan 或 revision，不能修改旧任务的结果状态。", request=payload)
         try:
-            mark_result_review_state(root, keys, "excluded", plan, revision)
+            mark_result_review_state(root, keys, "excluded", plan, revision, action_operation_fields(payload))
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         return terminal_action(root, action, operation_id, op_id, "completed", f"已排除 {len(keys)} 条结果；完整预览保留，未删除任务或产物。", {"excludedKeys": keys, "planFile": plan, "planRevision": revision}, request=payload)
@@ -6970,13 +7027,14 @@ def handle_action(root, action, payload, operation_id, op_id):
         keys = action_target_keys(payload)
         if not keys:
             return terminal_action(root, action, operation_id, op_id, "failed", "没有选择可归档目标。")
-        manifest, manifest_path, resolved_keys = prepare_archive_manifest(root, keys, action, op_id, action_plan_file(payload))
+        operation_fields = action_operation_fields(payload)
+        manifest, manifest_path, resolved_keys = prepare_archive_manifest(root, keys, action, op_id, action_plan_file(payload), operation_fields)
         missing = int(manifest.get("missingCount") or 0)
         if missing:
             return terminal_action(root, action, operation_id, op_id, "failed", f"归档准备失败：{missing} 个目标缺失", {"archiveKeys": resolved_keys, "requestedArchiveKeys": keys, "archiveManifest": manifest, "archiveManifestPath": manifest_path, "manifestPath": manifest_path, "planFile": action_plan_file(payload) or ""})
-        mark_archive_state(root, resolved_keys, action, action_plan_file(payload), action_operation_fields(payload).get("planRevision") or "")
+        mark_archive_state(root, resolved_keys, action, action_plan_file(payload), operation_fields.get("planRevision") or "", operation_fields)
         message = f"归档准备完成：{len(resolved_keys)} 个目标，{manifest.get('fileCount', 0)} 个文件，缺失 {manifest.get('missingCount', 0)} 个目标"
-        return terminal_action(root, action, operation_id, op_id, "completed", message, {"archiveKeys": resolved_keys, "requestedArchiveKeys": keys, "archiveManifest": manifest, "archiveManifestPath": manifest_path, "manifestPath": manifest_path, "planFile": action_plan_file(payload) or ""})
+        return terminal_action(root, action, operation_id, op_id, "completed", message, {"archiveKeys": resolved_keys, "requestedArchiveKeys": keys, "archiveManifest": manifest, "archiveManifestPath": manifest_path, "manifestPath": manifest_path, "planFile": action_plan_file(payload) or ""}, request=payload)
     if action in ("delete-artifacts", "reconcile-deletions", "delete-worker-artifacts"):
         keys = action_target_keys(payload)
         if not keys:
@@ -7735,7 +7793,7 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/gpu", "/api/gpu/history", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/diagnostics", "/api/events", "/api/events/sse") and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/gpu", "/api/gpu/history", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse") and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
@@ -7854,7 +7912,8 @@ def serve_http(args):
                 return
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan"):
+                worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan") and worker_action not in WORKER_RESULT_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             allowed = ACTION_ROUTES | {
                 "/api/worker/availability/batch",
@@ -7979,6 +8038,13 @@ def serve_http(args):
                     worker_set_revision = str(payload.get("workerSetRevision") or options.get("workerSetRevision") or "").strip()
                     if not assigned or not worker_set_revision:
                         return self.send_json({"error": "worker pool shard identity or assigned indices missing"}, status=403)
+            if mode == "worker_telemetry" and action in WORKER_RESULT_ACTIONS:
+                options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+                topology_mode = str(options.get("topologyMode") or payload.get("topologyMode") or "")
+                owner = str(options.get("resultOwnerWorkerId") or payload.get("resultOwnerWorkerId") or options.get("schedulerOwnerWorkerId") or payload.get("schedulerOwnerWorkerId") or "").strip()
+                current_worker = str(getattr(args, "worker_id", "") or os.environ.get("ZLK_WORKER_ID") or "worker").strip()
+                if topology_mode not in ("single_worker", "worker_pool") or not owner or owner != current_worker or options.get("automaticBackup") is not False:
+                    return self.send_json({"error": "worker result ownership mismatch"}, status=403)
             append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:

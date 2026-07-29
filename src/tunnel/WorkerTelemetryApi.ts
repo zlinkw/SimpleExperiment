@@ -20,6 +20,7 @@ export const workerTelemetryRequiredEndpoints = [
   "/api/capabilities",
   "/api/gpu",
   "/api/worker/tasks",
+  "/api/results/summary",
   "/api/live-output?runKey=<key>&since=<offset>",
   "/api/diagnostics",
   "WS /api/events?since=<seq>",
@@ -41,8 +42,35 @@ export const workerLocalSchedulerActionNames = [
   "reproduce-plan",
 ] as const;
 
+export const workerResultActionNames = [
+  "refresh-results",
+  "rescan-results",
+  "parse-results",
+  "run-quality-gate",
+  "run-statistics",
+  "export-paper-table",
+  "check-claim-evidence",
+  "check-output-contract",
+  "parse-case-level",
+  "run-leakage-check",
+  "run-subgroup-analysis",
+  "export-case-analysis",
+  "plan-checkpoint-retention",
+  "inspect-dataset",
+  "export-plotting-contract",
+  "infer-config-from-run",
+  "recover-plan-from-run",
+  "diagnose-result-anomaly",
+  "compare-with-best-config",
+  "archive-artifacts",
+  "exclude-results",
+  "sync-artifacts",
+  "complete-three-way",
+] as const;
+
 export type WorkerTelemetryAction = typeof workerTelemetryActionNames[number];
 export type WorkerLocalSchedulerAction = typeof workerLocalSchedulerActionNames[number];
+export type WorkerResultAction = typeof workerResultActionNames[number];
 
 export const workerTelemetryAllowedActions = workerTelemetryActionNames.map((action) =>
   `POST /api/actions/${action}`,
@@ -51,18 +79,17 @@ export const workerTelemetryAllowedActions = workerTelemetryActionNames.map((act
 export const workerTelemetryForbiddenEndpoints = [
   "GET /api/files/*",
   "POST /api/files/*",
-  "POST /api/actions/archive-artifacts",
   "POST /api/actions/delete-artifacts",
-  "POST /api/actions/parse-results",
 ] as const;
 
 export function isWorkerTelemetryAction(action: unknown): action is WorkerTelemetryAction {
   return workerTelemetryActionNames.includes(action as WorkerTelemetryAction);
 }
 
-export function isWorkerDirectAction(action: unknown): action is WorkerTelemetryAction | WorkerLocalSchedulerAction {
+export function isWorkerDirectAction(action: unknown): action is WorkerTelemetryAction | WorkerLocalSchedulerAction | WorkerResultAction {
   return isWorkerTelemetryAction(action)
-    || workerLocalSchedulerActionNames.includes(action as WorkerLocalSchedulerAction);
+    || workerLocalSchedulerActionNames.includes(action as WorkerLocalSchedulerAction)
+    || workerResultActionNames.includes(action as WorkerResultAction);
 }
 
 export interface WorkerTaskTelemetry {
@@ -126,6 +153,7 @@ export interface WorkerTelemetryCapabilities {
     workerTasks: boolean;
     liveOutput: boolean;
     diagnostics: boolean;
+    resultsSummary?: boolean;
     websocketEvents: boolean;
     sseEvents: boolean;
     actions?: boolean;

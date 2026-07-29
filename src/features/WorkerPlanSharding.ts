@@ -26,7 +26,7 @@ export function createWorkerPlanShardSet(
   if (workers.length < 2) throw new Error("Worker pool sharding requires at least two unique Worker IDs.");
   const indices = normalizedExperimentIndices(experimentIndices);
   if (!indices.length) throw new Error("Plan validation returned no experiment indices to shard.");
-  const workerSetRevision = digest({ planRevision: revision, workerIds: workers });
+  const workerSetRevision = createWorkerSetRevision(revision, workers);
   const assigned = new Map(workers.map((workerId) => [workerId, [] as number[]]));
   for (const experimentIndex of indices) {
     const workerId = rendezvousWorker(revision, experimentIndex, workers);
@@ -52,8 +52,16 @@ export function workerPlanShardSetMatches(
   const item = value as Partial<WorkerPlanShardSet>;
   return item.schemaVersion === 1
     && item.planRevision === String(planRevision || "").trim()
-    && item.workerSetRevision === digest({ planRevision: item.planRevision, workerIds: normalizedWorkerIds(workerIds) })
+    && item.workerSetRevision === createWorkerSetRevision(item.planRevision, workerIds)
     && Array.isArray(item.shards);
+}
+
+export function createWorkerSetRevision(planRevision: string, workerIds: readonly string[]): string {
+  const revision = String(planRevision || "").trim();
+  if (!revision) throw new Error("Plan revision is required for Worker set identity.");
+  const workers = normalizedWorkerIds(workerIds);
+  if (!workers.length) throw new Error("At least one Worker ID is required for Worker set identity.");
+  return digest({ planRevision: revision, workerIds: workers });
 }
 
 function normalizedWorkerIds(values: readonly string[]): string[] {

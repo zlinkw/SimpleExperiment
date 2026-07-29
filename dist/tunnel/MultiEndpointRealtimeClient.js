@@ -4,6 +4,7 @@ exports.MultiEndpointRealtimeClient = void 0;
 exports.createBudget = createBudget;
 exports.mergeRealtimeStates = mergeRealtimeStates;
 exports.mergeClusterSnapshots = mergeClusterSnapshots;
+exports.mergeWorkerResultsSummaries = mergeWorkerResultsSummaries;
 const RequestBudget_1 = require("./RequestBudget");
 const RealtimeTunnelClient_1 = require("./RealtimeTunnelClient");
 const RealtimeEventReducer_1 = require("./RealtimeEventReducer");
@@ -99,8 +100,22 @@ class MultiEndpointRealtimeClient {
         this.onState(this.mergedState);
         return experimentTraces;
     }
-    async getResultsSummary() {
-        return this.hubClient().getResultsSummary();
+    async getResultsSummary(planFile = "") {
+        const hub = this.clients.get("hub");
+        if (hub)
+            return hub.getResultsSummary();
+        const entries = await Promise.allSettled(this.endpoints.filter((endpoint) => endpoint.role === "worker").map(async (endpoint) => ({
+            workerId: endpoint.id,
+            summary: await this.clients.get(endpoint.id)?.getResultsSummary(),
+        })));
+        const fulfilled = entries
+            .filter((entry) => entry.status === "fulfilled")
+            .map((entry) => entry.value);
+        if (!fulfilled.length) {
+            const rejected = entries.find((entry) => entry.status === "rejected");
+            throw rejected?.reason || new Error("No Worker endpoint returned a results summary.");
+        }
+        return mergeWorkerResultsSummaries(fulfilled, planFile);
     }
     async getDiagnostics() {
         return this.hubClient().getDiagnostics();
@@ -145,7 +160,7 @@ class MultiEndpointRealtimeClient {
         return this.hubClient().postAction(action, body);
     }
     async postWorkerAction(workerId, action, body) {
-        if (!(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body)) {
+        if (!(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
             throw new Error(`Worker Agent action not allowed: ${action}`);
         }
         const client = this.clients.get(workerId);
@@ -230,6 +245,15 @@ class MultiEndpointRealtimeClient {
     }
 }
 exports.MultiEndpointRealtimeClient = MultiEndpointRealtimeClient;
+function isWorkerOwnedResultRequest(action, body) {
+    if (!WorkerTelemetryApi_1.workerResultActionNames.includes(action))
+        return false;
+    const request = body && typeof body === "object" ? body : {};
+    const options = request.options && typeof request.options === "object" ? request.options : {};
+    return ["single_worker", "worker_pool"].includes(String(options.topologyMode || request.topologyMode || ""))
+        && Boolean(String(options.resultOwnerWorkerId || options.schedulerOwnerWorkerId || request.resultOwnerWorkerId || request.schedulerOwnerWorkerId || "").trim())
+        && options.automaticBackup === false;
+}
 function isWorkerLocalSchedulerRequest(action, body) {
     if (!WorkerTelemetryApi_1.workerLocalSchedulerActionNames.includes(action))
         return false;
@@ -329,4 +353,76 @@ function rowKey(row) {
 }
 function latest(values) {
     return values.filter(Boolean).sort().at(-1);
+}
+function mergeWorkerResultsSummaries(entries, requestedPlanFile = "") {
+    const requestedPlan = normalizePlanPath(requestedPlanFile);
+    const accepted = entries.flatMap(({ workerId, summary }) => {
+        const item = summary && typeof summary === "object" && !Array.isArray(summary) ? summary : undefined;
+        if (!item)
+            return [];
+        const summaryPlan = normalizePlanPath(item.planFile || item.plan_file);
+        if (requestedPlan && summaryPlan && summaryPlan !== requestedPlan)
+            return [];
+        return [{ workerId: String(workerId || "").trim(), summary: item }];
+    }).filter((entry) => entry.workerId);
+    const results = accepted.flatMap(({ workerId, summary }) => {
+        const rows = Array.isArray(summary.results)
+            ? summary.results
+            : [...(Array.isArray(summary.finalResults) ? summary.finalResults : []), ...(Array.isArray(summary.pendingReviewRecords) ? summary.pendingReviewRecords : [])];
+        return rows.map((row) => stampWorkerResultOwnership(row, workerId));
+    });
+    const finalResults = results.filter((row) => String(row.finalEvidenceState || row.final_evidence_state || "").toLowerCase() === "archived");
+    const pendingReviewRecords = results.filter((row) => String(row.finalEvidenceState || row.final_evidence_state || "").toLowerCase() !== "archived");
+    const revisions = [...new Set(accepted.map(({ summary }) => String(summary.planRevision || summary.plan_revision || "").trim()).filter(Boolean))];
+    const workerIds = accepted.map((entry) => entry.workerId).sort((a, b) => a.localeCompare(b));
+    const workerSetRevisions = [...new Set(accepted.map(({ summary }) => String(summary.workerSetRevision || "").trim()).filter(Boolean))];
+    return {
+        schemaVersion: 1,
+        generatedAt: latest(accepted.map(({ summary }) => String(summary.generatedAt || summary.generated_at || "") || undefined)),
+        planFile: requestedPlan || normalizePlanPath(accepted[0]?.summary.planFile || accepted[0]?.summary.plan_file),
+        ...(revisions.length === 1 ? { planRevision: revisions[0] } : {}),
+        ...(workerSetRevisions.length === 1 ? { workerSetRevision: workerSetRevisions[0] } : {}),
+        topologyMode: workerIds.length > 1 ? "worker_pool" : "single_worker",
+        workerIds,
+        resultCount: results.length,
+        parsedResults: results.length,
+        previewResultCount: results.length,
+        finalResultCount: finalResults.length,
+        effectiveArchivedResultCount: finalResults.length,
+        pendingReviewCount: pendingReviewRecords.length,
+        results,
+        finalResults,
+        final_results: finalResults,
+        pendingReviewRecords,
+        pending_review_records: pendingReviewRecords,
+        sources: accepted.flatMap(({ workerId, summary }) => (Array.isArray(summary.sources) ? summary.sources : []).map((source) => ({ workerId, path: String(source || "") }))),
+        workerSummaries: accepted.map(({ workerId, summary }) => ({
+            workerId,
+            summaryPath: String(summary.summaryPath || ""),
+            resultCount: Number(summary.resultCount || 0),
+            finalResultCount: Number(summary.finalResultCount || summary.effectiveArchivedResultCount || 0),
+            generatedAt: String(summary.generatedAt || summary.generated_at || ""),
+        })),
+        inclusionPolicy: "archived_only",
+        analysisSource: "worker_archived_final_results",
+        displayAggregateOnly: true,
+        authoritative: false,
+        mixedPlanRevision: revisions.length > 1,
+        message: `${workerIds.length} 个 Worker 的结果摘要已只读合并；远端状态和归档仍由各 Worker 独立保存。`,
+    };
+}
+function stampWorkerResultOwnership(value, workerId) {
+    const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const provenance = row.provenance && typeof row.provenance === "object" && !Array.isArray(row.provenance) ? row.provenance : {};
+    const identity = String(row.resultId || row.result_id || row.runKey || row.run_key || row.experimentId || row.experiment_id || row.sourceFile || row.source || "result");
+    return {
+        ...row,
+        workerId,
+        resultOwnerWorkerId: workerId,
+        resultOwnershipKey: `${workerId}:${identity}`,
+        provenance: { ...provenance, workerId, resultOwnerWorkerId: workerId },
+    };
+}
+function normalizePlanPath(value) {
+    return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
 }

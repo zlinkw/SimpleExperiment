@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createWorkerPlanShardSet = createWorkerPlanShardSet;
 exports.workerPlanShardSetMatches = workerPlanShardSetMatches;
+exports.createWorkerSetRevision = createWorkerSetRevision;
 const crypto_1 = require("crypto");
 function createWorkerPlanShardSet(planRevision, workerIds, experimentIndices) {
     const revision = String(planRevision || "").trim();
@@ -13,7 +14,7 @@ function createWorkerPlanShardSet(planRevision, workerIds, experimentIndices) {
     const indices = normalizedExperimentIndices(experimentIndices);
     if (!indices.length)
         throw new Error("Plan validation returned no experiment indices to shard.");
-    const workerSetRevision = digest({ planRevision: revision, workerIds: workers });
+    const workerSetRevision = createWorkerSetRevision(revision, workers);
     const assigned = new Map(workers.map((workerId) => [workerId, []]));
     for (const experimentIndex of indices) {
         const workerId = rendezvousWorker(revision, experimentIndex, workers);
@@ -35,8 +36,17 @@ function workerPlanShardSetMatches(value, planRevision, workerIds) {
     const item = value;
     return item.schemaVersion === 1
         && item.planRevision === String(planRevision || "").trim()
-        && item.workerSetRevision === digest({ planRevision: item.planRevision, workerIds: normalizedWorkerIds(workerIds) })
+        && item.workerSetRevision === createWorkerSetRevision(item.planRevision, workerIds)
         && Array.isArray(item.shards);
+}
+function createWorkerSetRevision(planRevision, workerIds) {
+    const revision = String(planRevision || "").trim();
+    if (!revision)
+        throw new Error("Plan revision is required for Worker set identity.");
+    const workers = normalizedWorkerIds(workerIds);
+    if (!workers.length)
+        throw new Error("At least one Worker ID is required for Worker set identity.");
+    return digest({ planRevision: revision, workerIds: workers });
 }
 function normalizedWorkerIds(values) {
     return [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));

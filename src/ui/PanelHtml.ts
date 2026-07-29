@@ -1695,6 +1695,13 @@ export function renderPanelHtml(): string {
       downloadRemoteResult: ["endpoints.fileDownload"],
       openAuditTail: ["endpoints.auditTail"]
     };
+    const noHubWorkerResultCommands = new Set([
+      "refreshResults", "parseResults", "runQualityGate", "runStatistics", "exportPaperTable",
+      "checkClaimEvidence", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis",
+      "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "inferConfigFromRun",
+      "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "archiveArtifacts", "excludeResults",
+      "syncArtifacts", "completeThreeWay"
+    ]);
     const directWorkerActionMap = {
       stopExperiment: "stop-worker-task",
       retryExperiment: "retry-worker-task",
@@ -12561,7 +12568,9 @@ export function renderPanelHtml(): string {
       if (simpleSftpReason) return simpleSftpReason;
       const keys = uiCapabilityMap[command] || [];
       const missing = keys.filter((key) => !hasCapability(state, key));
-      if (missing.length) return "需要升级或检测 Hub Agent: " + missing.join(", ");
+      const workerMissing = missingNoHubWorkerResultCapabilities(state, command, keys, context);
+      if (workerMissing) missing.splice(0, missing.length, ...workerMissing);
+      if (missing.length) return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
       const health = (state.health || {}).state;
       if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && ["local_port_closed", "agent_unreachable", "not_configured"].includes(health) && !hasRealtimeSignal(state)) return "tunnel 未连接";
       if (command === "startAll" && !hasAnyTunnelSession(state)) return "请先配置 Hub 或 Worker 的 Xshell 隧道会话";
@@ -12711,6 +12720,32 @@ export function renderPanelHtml(): string {
         return Boolean(endpoints.actions && actionEndpoints[action] === true);
       }
       return false;
+    }
+    function missingNoHubWorkerResultCapabilities(state, command, keys, context) {
+      const topology = (state || {}).topology || {};
+      if (!["single_worker", "worker_pool"].includes(String(topology.mode || "")) || !noHubWorkerResultCommands.has(command)) return null;
+      const targetIds = uniqueText([
+        context && context.workerId,
+        ...asArray((context || {}).selectedWorkerIds),
+        ...asArray((context || {}).selectedTaskTargets).map((target) => target && target.workerId)
+      ].map((value) => resolveWorkerId(value)).filter(Boolean));
+      const workerIds = targetIds.length
+        ? targetIds
+        : enabledWorkerTunnelsForState(state).map((worker) => String(worker.id || "").trim()).filter(Boolean);
+      if (!workerIds.length) return ["未配置可用 Worker"];
+      const probes = state.workerProbes || {};
+      return uniqueText(workerIds.flatMap((workerId) => {
+        const probe = probes[workerId] || {};
+        if (String(probe.status || "").toLowerCase() !== "ok") return [workerId + ": status." + String(probe.status || "missing")];
+        const caps = probe.capabilities || {};
+        const endpoints = caps.endpoints || {};
+        const actions = caps.actionEndpoints || {};
+        return keys.filter((key) => {
+          if (key === "endpoints.resultsSummary") return endpoints.resultsSummary !== true;
+          if (key.startsWith("actions.")) return endpoints.actions !== true || actions[key.slice("actions.".length)] !== true;
+          return !hasCapability(state, key);
+        }).map((key) => workerId + ": " + key);
+      }));
     }
     function missingWorkerActionCapabilities(state, workerId, action) {
       const probes = state.workerProbes || {};

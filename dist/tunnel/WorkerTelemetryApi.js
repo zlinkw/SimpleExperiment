@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerLocalSchedulerActionNames = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
+exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerResultActionNames = exports.workerLocalSchedulerActionNames = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
 exports.isWorkerTelemetryAction = isWorkerTelemetryAction;
 exports.isWorkerDirectAction = isWorkerDirectAction;
 exports.isWorkerTelemetryEventType = isWorkerTelemetryEventType;
@@ -18,6 +18,7 @@ exports.workerTelemetryRequiredEndpoints = [
     "/api/capabilities",
     "/api/gpu",
     "/api/worker/tasks",
+    "/api/results/summary",
     "/api/live-output?runKey=<key>&since=<offset>",
     "/api/diagnostics",
     "WS /api/events?since=<seq>",
@@ -36,20 +37,44 @@ exports.workerLocalSchedulerActionNames = [
     "run-plan",
     "reproduce-plan",
 ];
+exports.workerResultActionNames = [
+    "refresh-results",
+    "rescan-results",
+    "parse-results",
+    "run-quality-gate",
+    "run-statistics",
+    "export-paper-table",
+    "check-claim-evidence",
+    "check-output-contract",
+    "parse-case-level",
+    "run-leakage-check",
+    "run-subgroup-analysis",
+    "export-case-analysis",
+    "plan-checkpoint-retention",
+    "inspect-dataset",
+    "export-plotting-contract",
+    "infer-config-from-run",
+    "recover-plan-from-run",
+    "diagnose-result-anomaly",
+    "compare-with-best-config",
+    "archive-artifacts",
+    "exclude-results",
+    "sync-artifacts",
+    "complete-three-way",
+];
 exports.workerTelemetryAllowedActions = exports.workerTelemetryActionNames.map((action) => `POST /api/actions/${action}`);
 exports.workerTelemetryForbiddenEndpoints = [
     "GET /api/files/*",
     "POST /api/files/*",
-    "POST /api/actions/archive-artifacts",
     "POST /api/actions/delete-artifacts",
-    "POST /api/actions/parse-results",
 ];
 function isWorkerTelemetryAction(action) {
     return exports.workerTelemetryActionNames.includes(action);
 }
 function isWorkerDirectAction(action) {
     return isWorkerTelemetryAction(action)
-        || exports.workerLocalSchedulerActionNames.includes(action);
+        || exports.workerLocalSchedulerActionNames.includes(action)
+        || exports.workerResultActionNames.includes(action);
 }
 exports.defaultMultiWorkerRealtimePolicy = {
     connectHubOnStartup: true,

@@ -17,31 +17,31 @@
 - [已完成] 2/5 topology-002：对齐设置页、概览与强确认中的拓扑呈现。
 - [已完成] 3/5 topology-003：实现单 Worker 本机调度与无 Hub 门禁。
 - [已完成] 4/5 topology-004a：实现多 Worker 稳定分片与独立提交。
-- [待做] 5/5 topology-004b/005：对齐结果归档归属并执行第二十五轮完整非服务器静态测试。
+- [进行中] 5/5 topology-004b/005：结果归属实现已完成；修正拓扑改造后的静态契约并执行第二十五轮完整非服务器静态测试。
 
-## 当前批次：topology-004a（已完成）
+## 当前批次：topology-004b（已完成）
 ### 修复点
 
-- 生成不可变 `workerSetRevision`，按 Plan revision、稳定 Worker ID 和任务索引确定性分片。
-- 每台 Worker 只接收自己的任务索引及本机 Worker 配置，并独立启动本机 scheduler。
-- 多 Worker 提交前统一校验端点能力与 Plan 展开结果，部分 Worker 离线时不开始新提交。
+- 无 Hub 结果解析与归档动作只发送到结果所属 Worker，禁止回退到 Hub 或其他 Worker。
+- 单 Worker直接读取本机结果摘要；多 Worker只读合并摘要并保留每条记录的 Worker 归属，PPT 继续只读已归档最终记录。
+- 归档状态、manifest 和结果摘要记录拓扑、Worker set revision 与唯一保存 Worker。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 同一 Plan revision 与 Worker 集合必须重复得到相同分片；Worker 集合变化只生成新 revision。
-- 每个 Worker scheduler 必须拒绝缺少自身 owner 或分片索引的 `worker_pool` 请求。
-- 本批不提前合并 Worker 结果、有效 CSV 或归档，留到第五批统一对齐并执行完整测试。
+- 多 Worker只读摘要不能成为新的远端权威状态，也不能写回任一 Worker。
+- 无法按 Worker 正确聚合的跨节点统计动作必须明确阻止，不能把单 Worker统计冒充全局结论。
+- Hub 模式继续只使用 Hub 摘要和归档链路；无 Hub revision 不进入 Hub 汇总。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建、Agent/Scheduler runtime 生成与 Node/Python 语法。
-- [已通过] 分片确定性、Worker 集合变化、独立提交和无 Hub 静态门禁定向测试，52/52。
-- [已通过] Lint 与 `git diff --check`。
+- [已通过] TypeScript 构建、Agent runtime 生成、Node/Python 语法、Lint 与 `git diff --check`。
+- [已通过] Worker 结果 API、所有权门禁、摘要合并、最终 PPT 数据源和 Hub 隔离定向测试，29/29。
+- [待修正] 第二十五轮完整非服务器静态测试 843/856；13 项失败均为 topology-001 至 004b 改造后的旧源码形态断言，进入 topology-005 校正，不作为服务器行为证据。
 
 ## 本批记录
-- 本批只启用多 Worker Plan 校验、预演、运行与复现，不启用跨 Worker 结果或归档聚合。
+- 本批只允许只读合并跨 Worker 摘要；远端归档、有效 CSV 和状态文件始终保留在所属 Worker。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：只处理多 Worker 结果、有效 CSV、归档与恢复归属，并执行第五批完整非服务器静态测试。
+- 下一批边界：仅校正拓扑改造后的静态测试契约并完成全量测试，不扩展服务器功能。
 - 提交记录：本批使用独立 `feat` 提交并推送 `origin/master`；哈希以 Git 历史为准。
