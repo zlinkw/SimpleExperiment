@@ -44,6 +44,7 @@ class RealtimeTunnelClient {
     lastError;
     hidden = false;
     protectedLogKeys = [];
+    diagnosticsCache;
     constructor(endpoint, budget, policy = exports.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.endpoint = endpoint;
         this.budget = budget;
@@ -181,13 +182,24 @@ class RealtimeTunnelClient {
         }
     }
     diagnostics() {
-        return {
+        const cached = this.diagnosticsCache;
+        if (cached
+            && cached.streamStatus === this.status
+            && cached.lastSeq === this.state.lastSeq
+            && cached.lastHeartbeatAt === this.state.lastHeartbeatAt
+            && cached.reconnectCount === this.reconnectCount
+            && cached.lastError === this.lastError) {
+            return cached;
+        }
+        const diagnostics = {
             streamStatus: this.status,
             lastSeq: this.state.lastSeq,
             lastHeartbeatAt: this.state.lastHeartbeatAt,
             reconnectCount: this.reconnectCount,
             lastError: this.lastError,
         };
+        this.diagnosticsCache = diagnostics;
+        return diagnostics;
     }
     currentState() {
         return this.state;

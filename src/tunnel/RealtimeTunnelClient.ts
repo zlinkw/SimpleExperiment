@@ -50,6 +50,14 @@ export const defaultRealtimeRefreshPolicy: RealtimeRefreshPolicy = {
 
 export type StreamStatus = "disconnected" | "connecting" | "websocket" | "sse" | "polling" | "paused";
 
+export interface RealtimeClientDiagnostics {
+  streamStatus: StreamStatus;
+  lastSeq: number;
+  lastHeartbeatAt?: string;
+  reconnectCount: number;
+  lastError?: string;
+}
+
 export class RealtimeTunnelClient {
   private readonly http: HttpTunnelClient;
   private readonly files: FileTransferClient;
@@ -64,6 +72,7 @@ export class RealtimeTunnelClient {
   private lastError?: string;
   private hidden = false;
   private protectedLogKeys: string[] = [];
+  private diagnosticsCache?: RealtimeClientDiagnostics;
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -219,14 +228,25 @@ export class RealtimeTunnelClient {
     }
   }
 
-  diagnostics() {
-    return {
+  diagnostics(): RealtimeClientDiagnostics {
+    const cached = this.diagnosticsCache;
+    if (cached
+      && cached.streamStatus === this.status
+      && cached.lastSeq === this.state.lastSeq
+      && cached.lastHeartbeatAt === this.state.lastHeartbeatAt
+      && cached.reconnectCount === this.reconnectCount
+      && cached.lastError === this.lastError) {
+      return cached;
+    }
+    const diagnostics = {
       streamStatus: this.status,
       lastSeq: this.state.lastSeq,
       lastHeartbeatAt: this.state.lastHeartbeatAt,
       reconnectCount: this.reconnectCount,
       lastError: this.lastError,
     };
+    this.diagnosticsCache = diagnostics;
+    return diagnostics;
   }
 
   currentState(): RealtimeState {

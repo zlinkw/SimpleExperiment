@@ -1,7 +1,7 @@
 import { RequestBudget, RequestBudgetConfig, RequestBudgetSnapshot } from "./RequestBudget";
 import { ClusterSnapshot, GpuHistoryQuery, GpuHistoryResponse, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
 import { DownloadOptions, FileListResponse, FileTransferTask } from "./FileTransferTypes";
-import { defaultRealtimeRefreshPolicy, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
+import { defaultRealtimeRefreshPolicy, RealtimeClientDiagnostics, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
 import { compactRealtimeLogs, createRealtimeState, RealtimeState } from "./RealtimeEventReducer";
 import { mergeAuthorityRealtimeStates } from "./AuthorityMergePolicy";
 import { isWorkerTelemetryAction, workerLocalSchedulerActionNames, workerResultActionNames, WorkerLocalSchedulerAction, WorkerResultAction } from "./WorkerTelemetryApi";
@@ -38,6 +38,8 @@ export class MultiEndpointRealtimeClient {
   private readonly budgets = new Map<string, RequestBudget>();
   private mergedState: RealtimeState = createRealtimeState();
   private protectedLogKeys: string[] = [];
+  private diagnosticsEndpointSources: Array<RealtimeClientDiagnostics | undefined> = [];
+  private diagnosticsCache?: MultiEndpointDiagnostics;
 
   constructor(
     endpoints: NamedTunnelEndpointConfig[],
@@ -235,8 +237,14 @@ export class MultiEndpointRealtimeClient {
   }
 
   diagnostics(): MultiEndpointDiagnostics {
-    const endpoints = this.endpoints.map((endpoint) => {
-      const item = this.clients.get(endpoint.id)?.diagnostics();
+    const sources = this.endpoints.map((endpoint) => this.clients.get(endpoint.id)?.diagnostics());
+    if (this.diagnosticsCache
+      && sources.length === this.diagnosticsEndpointSources.length
+      && sources.every((source, index) => source === this.diagnosticsEndpointSources[index])) {
+      return this.diagnosticsCache;
+    }
+    const endpoints = this.endpoints.map((endpoint, index) => {
+      const item = sources[index];
       return {
         id: endpoint.id,
         role: endpoint.role,
@@ -250,7 +258,7 @@ export class MultiEndpointRealtimeClient {
       };
     });
     const statuses = new Set(endpoints.map((endpoint) => endpoint.streamStatus));
-    return {
+    const diagnostics: MultiEndpointDiagnostics = {
       streamStatus: statuses.size === 1 ? endpoints[0]?.streamStatus || "disconnected" : "mixed",
       lastSeq: Math.max(0, ...endpoints.map((endpoint) => endpoint.lastSeq)),
       lastHeartbeatAt: latest(endpoints.map((endpoint) => endpoint.lastHeartbeatAt)),
@@ -258,6 +266,9 @@ export class MultiEndpointRealtimeClient {
       lastError: endpoints.find((endpoint) => endpoint.lastError)?.lastError,
       endpoints,
     };
+    this.diagnosticsEndpointSources = sources;
+    this.diagnosticsCache = diagnostics;
+    return diagnostics;
   }
 
   currentState(): RealtimeState {

@@ -19,6 +19,8 @@ class MultiEndpointRealtimeClient {
     budgets = new Map();
     mergedState = (0, RealtimeEventReducer_1.createRealtimeState)();
     protectedLogKeys = [];
+    diagnosticsEndpointSources = [];
+    diagnosticsCache;
     constructor(endpoints, budgetFactory, policy = RealtimeTunnelClient_1.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.policy = policy;
         this.onState = onState;
@@ -192,8 +194,14 @@ class MultiEndpointRealtimeClient {
         return task;
     }
     diagnostics() {
-        const endpoints = this.endpoints.map((endpoint) => {
-            const item = this.clients.get(endpoint.id)?.diagnostics();
+        const sources = this.endpoints.map((endpoint) => this.clients.get(endpoint.id)?.diagnostics());
+        if (this.diagnosticsCache
+            && sources.length === this.diagnosticsEndpointSources.length
+            && sources.every((source, index) => source === this.diagnosticsEndpointSources[index])) {
+            return this.diagnosticsCache;
+        }
+        const endpoints = this.endpoints.map((endpoint, index) => {
+            const item = sources[index];
             return {
                 id: endpoint.id,
                 role: endpoint.role,
@@ -207,7 +215,7 @@ class MultiEndpointRealtimeClient {
             };
         });
         const statuses = new Set(endpoints.map((endpoint) => endpoint.streamStatus));
-        return {
+        const diagnostics = {
             streamStatus: statuses.size === 1 ? endpoints[0]?.streamStatus || "disconnected" : "mixed",
             lastSeq: Math.max(0, ...endpoints.map((endpoint) => endpoint.lastSeq)),
             lastHeartbeatAt: latest(endpoints.map((endpoint) => endpoint.lastHeartbeatAt)),
@@ -215,6 +223,9 @@ class MultiEndpointRealtimeClient {
             lastError: endpoints.find((endpoint) => endpoint.lastError)?.lastError,
             endpoints,
         };
+        this.diagnosticsEndpointSources = sources;
+        this.diagnosticsCache = diagnostics;
+        return diagnostics;
     }
     currentState() {
         return this.mergedState;

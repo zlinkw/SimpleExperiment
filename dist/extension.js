@@ -11051,14 +11051,19 @@ function compactCodeSyncForWebview(codeSync) {
 function splitSyncFailures(error) {
     return String(error || "").split(/\s*;\s*/).map((item) => item.trim()).filter(Boolean);
 }
+const EMPTY_REALTIME_DIAGNOSTICS_FOR_WEBVIEW = Object.freeze({});
+const realtimeDiagnosticsForWebviewCache = new WeakMap();
 function compactRealtimeDiagnosticsForWebview(realtime) {
     const item = objectRecord(realtime);
     if (!item)
-        return {};
+        return EMPTY_REALTIME_DIAGNOSTICS_FOR_WEBVIEW;
+    const cached = realtimeDiagnosticsForWebviewCache.get(item);
+    if (cached)
+        return cached;
     const rawEndpoints = Array.isArray(item.endpoints) ? item.endpoints : [];
     const endpoints = rawEndpoints.slice(0, 80).map(compactRealtimeEndpointForWebview).filter(Boolean);
     const lastError = firstStringFieldForWebview(item, "lastError", "error", "message");
-    return dropUndefined({
+    const compacted = dropUndefined({
         streamStatus: firstStringFieldForWebview(item, "streamStatus", "status"),
         lastSeq: firstNumberFieldForWebview(item, "lastSeq", "seq"),
         lastHeartbeatAt: firstStringFieldForWebview(item, "lastHeartbeatAt", "last_heartbeat_at"),
@@ -11068,15 +11073,21 @@ function compactRealtimeDiagnosticsForWebview(realtime) {
         endpointCount: rawEndpoints.length,
         endpointOmittedCount: Math.max(0, rawEndpoints.length - endpoints.length),
     });
+    realtimeDiagnosticsForWebviewCache.set(item, compacted);
+    return compacted;
 }
+const realtimeDiagnosticsForPostGateCache = new WeakMap();
 function compactRealtimeDiagnosticsForPostGate(realtime) {
     const item = objectRecord(realtime);
     if (!item)
-        return {};
+        return EMPTY_REALTIME_DIAGNOSTICS_FOR_WEBVIEW;
+    const cached = realtimeDiagnosticsForPostGateCache.get(item);
+    if (cached)
+        return cached;
     const rawEndpoints = Array.isArray(item.endpoints) ? item.endpoints : [];
     const endpoints = rawEndpoints.slice(0, 80).map(compactRealtimeEndpointForPostGate).filter(Boolean);
     const lastError = firstStringFieldForWebview(item, "lastError", "error", "message");
-    return dropUndefined({
+    const compacted = dropUndefined({
         streamStatus: firstStringFieldForWebview(item, "streamStatus", "status"),
         reconnectCount: firstNumberFieldForWebview(item, "reconnectCount", "reconnect_count"),
         lastError: lastError ? compactSensitiveText(lastError, 360) : undefined,
@@ -11084,6 +11095,8 @@ function compactRealtimeDiagnosticsForPostGate(realtime) {
         endpointCount: rawEndpoints.length,
         endpointOmittedCount: Math.max(0, rawEndpoints.length - endpoints.length),
     });
+    realtimeDiagnosticsForPostGateCache.set(item, compacted);
+    return compacted;
 }
 const healthForWebviewCache = new WeakMap();
 function compactHealthForWebview(health) {
