@@ -1467,6 +1467,9 @@ function renderPanelHtml() {
     const pinnedCommandsNormalizationCache = new WeakMap();
     const savedButtonActionsNormalizationCache = new WeakMap();
     const SAVED_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 8;
+    const compactRowsForSignatureCache = new WeakMap();
+    const compactObjectMapForSignatureCache = new WeakMap();
+    const SIGNATURE_COMPACTION_VARIANT_LIMIT = 8;
     const planOutputCandidatesCache = new WeakMap();
     const planOutputEvidenceCandidatesCache = new WeakMap();
     const planOutputEvidenceSignalsCache = new WeakMap();
@@ -2722,11 +2725,27 @@ function renderPanelHtml() {
     }
 
     function compactRowsForSignature(rows, limit, keys) {
-      const list = asArray(rows);
-      return {
+      const source = rows && typeof rows === "object" ? rows : EMPTY_OUTPUT_DERIVATION_VALUES;
+      const cacheKey = String(limit) + "|" + asArray(keys).join("|");
+      let variants = compactRowsForSignatureCache.get(source);
+      if (variants && variants.has(cacheKey)) {
+        const cached = variants.get(cacheKey);
+        variants.delete(cacheKey);
+        variants.set(cacheKey, cached);
+        return cached;
+      }
+      const list = asArray(source);
+      const value = {
         count: list.length,
         rows: list.slice(0, limit).map((row) => compactRecordForSignature(row, keys))
       };
+      if (!variants) {
+        variants = new Map();
+        compactRowsForSignatureCache.set(source, variants);
+      }
+      variants.set(cacheKey, value);
+      while (variants.size > SIGNATURE_COMPACTION_VARIANT_LIMIT) variants.delete(variants.keys().next().value);
+      return value;
     }
 
     function compactAgentDestinationsForSignature(agentSessions) {
@@ -2747,12 +2766,27 @@ function renderPanelHtml() {
     }
 
     function compactObjectMapForSignature(value, limit, keys) {
-      if (!value || typeof value !== "object") return { count: 0, rows: [] };
-      const entries = Object.entries(value);
-      return {
+      const source = value && typeof value === "object" ? value : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const cacheKey = String(limit) + "|" + asArray(keys).join("|");
+      let variants = compactObjectMapForSignatureCache.get(source);
+      if (variants && variants.has(cacheKey)) {
+        const cached = variants.get(cacheKey);
+        variants.delete(cacheKey);
+        variants.set(cacheKey, cached);
+        return cached;
+      }
+      const entries = Object.entries(source);
+      const compacted = {
         count: entries.length,
         rows: entries.slice(0, limit).map(([id, row]) => Object.assign({ id }, compactRecordForSignature(row, keys)))
       };
+      if (!variants) {
+        variants = new Map();
+        compactObjectMapForSignatureCache.set(source, variants);
+      }
+      variants.set(cacheKey, compacted);
+      while (variants.size > SIGNATURE_COMPACTION_VARIANT_LIMIT) variants.delete(variants.keys().next().value);
+      return compacted;
     }
 
     function compactOverviewSetupForSignature(setup) {
