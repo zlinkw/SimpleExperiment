@@ -15,34 +15,35 @@
 ## 后续优先级
 - [已完成] 1/5 project-046：缓存前端配置参数结构差异。
 - [已完成] 2/5 project-047：缓存 Extension Host 的 SimpleSFTP ABI 就绪派生。
-- [待做] 3/5 project-048：缓存本地 Plan Webview 压缩结果。
+- [已完成] 3/5 project-048：缓存本地 Plan Webview 压缩结果。
 - [待做] 4/5 project-049：优化 Scheduler 大批量待运行队列。
 - [待做] 5/5 project-050：执行第四十轮完整非服务器静态测试。
 
-## 当前批次：project-047（已完成）
+## 当前批次：project-048（已完成）
 ### 修复点
 
-- Extension Host 按扩展注册表、SimpleSFTP 扩展对象和旧版扩展对象身份缓存 ABI 就绪结果。
-- 高频 Webview 状态构建和配置流程不再重复扫描 contributed commands、版本和旧版安装状态。
-- 扩展对象或注册表替换时立即失效；未安装、命令缺失和旧版共存提示保持不变。
+- Extension Host 按 Plan 源数组、选择等价键和压缩上限缓存 Webview Plan 列表。
+- 单个 Plan 按对象身份分别缓存“选中”和“未选中”压缩形态，避免心跳状态重复切片、展开和复制摘要。
+- 选择键先统一编译为等价键 Set，避免每个 Plan 对每个候选重复建立路径等价集合。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- SimpleSFTP 安装或升级后只要扩展对象替换，ready、version 和 missingCommands 必须刷新。
-- 旧版 SFTP 扩展对象替换后，legacyInstalled 和 legacyVersion 必须刷新。
-- 首次配置、项目接入、命令预检和 Webview integrations 必须继续使用同一 ABI 契约。
+- Plan 源数组、选择键或压缩上限变化后必须重新挑选列表。
+- 选中 Plan 仍保留可用 YAML text；未选中 Plan 仍隐藏 text 并保留 textOmitted。
+- parseError 优先级、原列表顺序、总数和省略数不得变化；缓存变体必须有界。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] SimpleSFTP ABI 缓存命中、扩展替换失效和现有预检定向测试，11/11。
+- [已通过] Plan Webview 压缩缓存命中、选择变化、源替换和有界变体定向测试，6/6。
 - [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-046 至 project-050 五批静态优化周期；project-050 再执行完整测试。
-- 本批只处理 Extension Host 的 SimpleSFTP ABI 派生，最多修改 4 个源码、测试、构建和计划文件。
+- 本批只处理本地 Plan Webview 压缩路径，最多修改 4 个源码、测试、构建和计划文件。
+- Plan 列表缓存按源数组使用弱引用，每个源最多保留 8 个最近选择变体；单 Plan 只保留选中和未选中两种弱引用缓存。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：缓存本地 Plan Webview 压缩结果；本批使用独立 `perf` 提交并推送 `origin/master`，提交哈希以 git 历史为准。
+- 下一批边界：优化 Scheduler 大批量待运行队列；本批使用独立 `perf` 提交并推送 `origin/master`，提交哈希以 git 历史为准。

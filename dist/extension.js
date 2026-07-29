@@ -148,6 +148,7 @@ const WEBVIEW_LOCAL_PLAN_LIMIT = 80;
 const WEBVIEW_ARCHIVED_PLAN_LIMIT = 40;
 const WEBVIEW_PLAN_CASE_LIMIT = 24;
 const WEBVIEW_PLAN_OUTPUT_LIMIT = 16;
+const WEBVIEW_LOCAL_PLAN_VARIANT_CACHE_LIMIT = 8;
 const WEBVIEW_CONFIG_SUMMARY_LIMIT = 40;
 const WEBVIEW_CONFIG_SUMMARY_PARAM_LIMIT = 16;
 const WEBVIEW_ADAPTER_INFERRED_SIGNAL_LIMIT = 12;
@@ -10036,11 +10037,23 @@ async function writeProjectLocalPlanMetadataState(root, metadata) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
+const localPlansForWebviewCache = new WeakMap();
+const localPlanForWebviewCache = new WeakMap();
 function compactLocalPlansForWebview(plans, selectedPlanKeys, limit = WEBVIEW_LOCAL_PLAN_LIMIT) {
+    const selectedEquivalenceKeys = new Set((Array.isArray(selectedPlanKeys) ? selectedPlanKeys : []).flatMap((key) => planFileEquivalenceKeys(key)));
+    const selectionSignature = JSON.stringify([...selectedEquivalenceKeys].sort());
+    const cacheKey = `${typeof limit}:${String(limit)}:${selectionSignature}`;
+    let variants = localPlansForWebviewCache.get(plans);
+    const cached = variants?.get(cacheKey);
+    if (cached) {
+        variants.delete(cacheKey);
+        variants.set(cacheKey, cached);
+        return cached;
+    }
     const rows = plans.map((plan, index) => ({ plan, index }));
     const selectedRows = [];
     const parseErrorRows = [];
-    const selected = (plan) => planIdentityKeys(plan).some((key) => selectedPlanKeys.some((selectedKey) => samePlanSelection(key, selectedKey)));
+    const selected = (plan) => planIdentityKeys(plan).some((key) => planFileEquivalenceKeys(key).some((equivalentKey) => selectedEquivalenceKeys.has(equivalentKey)));
     for (const row of rows) {
         if (selected(row.plan))
             selectedRows.push(row);
@@ -10059,18 +10072,35 @@ function compactLocalPlansForWebview(plans, selectedPlanKeys, limit = WEBVIEW_LO
     parseErrorRows.forEach(add);
     rows.forEach(add);
     picked.sort((a, b) => a.index - b.index);
-    return {
+    const compacted = {
         plans: picked.map((row) => compactLocalPlanForWebview(row.plan, selected(row.plan))),
         totalCount: plans.length,
         omittedCount: Math.max(0, plans.length - picked.length),
     };
+    if (!variants) {
+        variants = new Map();
+        localPlansForWebviewCache.set(plans, variants);
+    }
+    variants.set(cacheKey, compacted);
+    while (variants.size > WEBVIEW_LOCAL_PLAN_VARIANT_CACHE_LIMIT) {
+        const oldestKey = variants.keys().next().value;
+        if (oldestKey === undefined)
+            break;
+        variants.delete(oldestKey);
+    }
+    return compacted;
 }
 function compactLocalPlanForWebview(plan, selected) {
-    const includeText = selected && !plan.metadataTruncated;
+    const selectedVariant = Boolean(selected);
+    let variants = localPlanForWebviewCache.get(plan);
+    const cached = variants?.get(selectedVariant);
+    if (cached)
+        return cached;
+    const includeText = selectedVariant && !plan.metadataTruncated;
     const cases = compactPlanArrayForWebview(plan.cases, WEBVIEW_PLAN_CASE_LIMIT);
     const outputCandidates = compactPlanArrayForWebview(plan.outputCandidates || [], WEBVIEW_PLAN_OUTPUT_LIMIT);
     const outputSignals = compactPlanArrayForWebview(plan.outputSignals || [], WEBVIEW_PLAN_OUTPUT_LIMIT);
-    return {
+    const compacted = {
         ...plan,
         cases: cases.items,
         casesTotalCount: cases.totalCount,
@@ -10084,6 +10114,12 @@ function compactLocalPlanForWebview(plan, selected) {
         text: includeText ? plan.text : "",
         textOmitted: includeText ? plan.textOmitted : Boolean(plan.text),
     };
+    if (!variants) {
+        variants = new Map();
+        localPlanForWebviewCache.set(plan, variants);
+    }
+    variants.set(selectedVariant, compacted);
+    return compacted;
 }
 function normalizePlanSelectionKey(value) {
     return usableSelectionKey(String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, ""));
