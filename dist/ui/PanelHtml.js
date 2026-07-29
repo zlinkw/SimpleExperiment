@@ -1472,6 +1472,7 @@ function renderPanelHtml() {
     const planOutputEvidenceSignalsCache = new WeakMap();
     const adapterRuleResultCandidatesCache = new WeakMap();
     const planScopedResultCandidateCache = new WeakMap();
+    const projectOutputGateDiagnosticsCache = new WeakMap();
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
     let taskSectionViewCacheState = null;
@@ -1693,6 +1694,7 @@ function renderPanelHtml() {
     const CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT = 32;
     const PLAN_FILE_EQUIVALENCE_CACHE_LIMIT = 128;
     const PLAN_ARCHIVE_READINESS_CACHE_LIMIT = 64;
+    const PROJECT_OUTPUT_GATE_DIAGNOSTICS_VARIANT_LIMIT = 16;
     const EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY = Object.freeze({ keys: Object.freeze([]), keySet: new Set() });
     const RESULT_ANALYSIS_ARTIFACT_FIELDS = Object.freeze({
       "export-plotting-contract": "plottingContractPath",
@@ -10030,19 +10032,32 @@ function renderPanelHtml() {
     function projectOutputGateDiagnostics(project, meta, plan) {
       project = project || {};
       meta = meta || {};
-      const rules = project.adapterRules || meta.adapterRules || {};
+      const projectSource = project && typeof project === "object" ? project : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const planSource = plan && typeof plan === "object" ? plan : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const rules = project.adapterRules || meta.adapterRules || EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const configs = project.configs || meta.configs || EMPTY_OUTPUT_DERIVATION_VALUES;
+      const outputContractFiles = project.outputContractFiles || meta.outputContractFiles || EMPTY_OUTPUT_DERIVATION_VALUES;
+      const resultParsePreviews = meta.resultParsePreviews || project.resultParsePreviews || EMPTY_OUTPUT_DERIVATION_VALUES;
       const contractReady = !plan || plan.planContractOk !== false;
       const configFile = String((plan || {}).baseConfig || (plan || {}).base_config || "").trim();
-      const configReady = !configFile || /[{}$]/.test(configFile) || asArray(project.configs || meta.configs || []).some((item) => String((item && item.file) || item || "") === configFile);
+      const adapterReady = Boolean(project.adapterConfig);
+      const cacheKey = refListKey(planSource, rules, configs, outputContractFiles, resultParsePreviews, contractReady, configFile, adapterReady);
+      let projectCache = projectOutputGateDiagnosticsCache.get(projectSource);
+      if (projectCache && projectCache.has(cacheKey)) {
+        const cached = projectCache.get(cacheKey);
+        projectCache.delete(cacheKey);
+        projectCache.set(cacheKey, cached);
+        return cached;
+      }
+      const configReady = !configFile || /[{}$]/.test(configFile) || asArray(configs).some((item) => String((item && item.file) || item || "") === configFile);
       const planSignals = contractReady ? planOutputEvidenceSignals(plan) : [];
       const planCandidates = contractReady ? planOutputEvidenceCandidates(plan) : [];
       const planReady = Boolean(planSignals.length && planCandidates.length);
       const ruleCandidateCount = actionableAdapterRuleSignals(rules) ? adapterRuleResultCandidates(rules).length : 0;
       const candidateCount = ruleCandidateCount + planCandidates.length;
-      const projectContractCount = asArray(project.outputContractFiles || meta.outputContractFiles || []).length;
+      const projectContractCount = asArray(outputContractFiles).length;
       const planContractCount = planCandidates.filter((file) => new RegExp("(^|/)(metrics_summary\\.csv|metrics_case\\.csv)$", "i").test(file)).length;
-      const parseableCount = validResultPreviewCount(meta.resultParsePreviews || project.resultParsePreviews || []);
-      const adapterReady = Boolean(project.adapterConfig);
+      const parseableCount = validResultPreviewCount(resultParsePreviews);
       const explicitAdapterReady = adapterReady && ruleCandidateCount > 0;
       const accessReady = planReady || ruleCandidateCount > 0;
       const outputReady = planReady || ruleCandidateCount > 0;
@@ -10055,7 +10070,14 @@ function renderPanelHtml() {
         { label: "标准结果契约", ok: planContractCount > 0 || ruleCandidateCount > 0 || (projectContractCount > 0 && planReady), fix: "推荐让测试代码输出 metrics_summary.csv，列为 experiment_id,suite,method,dataset,split,seed,metric,value。" },
         { label: "解析预览", ok: parseableCount > 0 || planReady || ruleCandidateCount > 0, fix: "保存接入规则后点击“刷新识别”，确认至少一个结果文件或控制台日志可解析。" }
       ];
-      return { ok: contractReady && configReady && accessReady && outputReady, rows, missing: rows.filter((row) => !row.ok).map((row) => row.label) };
+      const diagnostics = { ok: contractReady && configReady && accessReady && outputReady, rows, missing: rows.filter((row) => !row.ok).map((row) => row.label) };
+      if (!projectCache) {
+        projectCache = new Map();
+        projectOutputGateDiagnosticsCache.set(projectSource, projectCache);
+      }
+      if (projectCache.size >= PROJECT_OUTPUT_GATE_DIAGNOSTICS_VARIANT_LIMIT) projectCache.delete(projectCache.keys().next().value);
+      projectCache.set(cacheKey, diagnostics);
+      return diagnostics;
     }
 
     function planContractFixText(plan) {
