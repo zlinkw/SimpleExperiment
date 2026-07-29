@@ -1540,6 +1540,7 @@ export function renderPanelHtml(): string {
     let activeGpuHistoryTooltip = null;
     let gpuHistoryPointIndexCache = new WeakMap();
     let gpuHistoryServerStyles = loadGpuHistoryServerStyles();
+    let gpuHistoryServerStylesSaveTimer = 0;
     let overviewTaskStatsCacheRows = null;
     let overviewTaskStatsCacheValue = null;
     let overviewOperationStatsCacheRows = null;
@@ -8127,7 +8128,11 @@ export function renderPanelHtml(): string {
     }
 
     function saveGpuHistoryServerStyles() {
-      try { if (window.localStorage) window.localStorage.setItem("simpleExperiment.gpuHistoryServerStyles", JSON.stringify(gpuHistoryServerStyles)); } catch (_) { /* webview storage may be unavailable */ }
+      if (gpuHistoryServerStylesSaveTimer) return;
+      gpuHistoryServerStylesSaveTimer = setTimeout(() => {
+        gpuHistoryServerStylesSaveTimer = 0;
+        try { if (window.localStorage) window.localStorage.setItem("simpleExperiment.gpuHistoryServerStyles", JSON.stringify(gpuHistoryServerStyles)); } catch (_) { /* webview storage may be unavailable */ }
+      }, 0);
     }
 
     function gpuHistoryServerStyle(serverId) {

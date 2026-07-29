@@ -47,6 +47,10 @@ test("GPU history chart connects explicitly zero-filled buckets and exposes acce
 test("GPU history server styling persists by server id and has fallback patterns", () => {
   const html = renderPanelHtml();
   assert.match(html, /simpleExperiment\.gpuHistoryServerStyles/);
+  assert.match(html, /let gpuHistoryServerStylesSaveTimer = 0/);
+  assert.match(html, /if \(gpuHistoryServerStylesSaveTimer\) return/);
+  assert.match(html, /gpuHistoryServerStylesSaveTimer = setTimeout/);
+  assert.match(html, /gpuHistoryServerStylesSaveTimer = 0;[\s\S]{0,180}localStorage\.setItem/);
   assert.match(html, /GPU_HISTORY_SERVER_STYLE_LIMIT = 128/);
   assert.match(html, /Object\.entries\(parsed\)[\s\S]{0,180}slice\(-GPU_HISTORY_SERVER_STYLE_LIMIT\)/);
   assert.match(html, /while \(styleKeys\.length >= GPU_HISTORY_SERVER_STYLE_LIMIT\) delete gpuHistoryServerStyles/);
