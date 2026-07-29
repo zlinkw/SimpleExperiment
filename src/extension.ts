@@ -2096,6 +2096,7 @@ class RealtimeTunnelPanelProvider {
         await this.syncXshellConfigBeforeNetwork("test tunnel");
         if (generation !== this.projectContextGeneration)
             return;
+        const authorityClient = this.client;
         if (userInitiated) {
             this.lastHealth = {
                 state: "unknown",
@@ -2112,14 +2113,14 @@ class RealtimeTunnelPanelProvider {
             const probe = topology.hubAllowed
                 ? enforceExpectedAgentProjectRoot(await this.integration().probeLocalTunnel(this.setupConfig), this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir, "Hub")
                 : undefined;
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || authorityClient !== this.client)
                 return;
             const workerItems = this.tunnelLaunchItems().filter((entry) => entry.role === "worker");
             const workerProbes = await Promise.allSettled(workerItems.map(async (item) => [
                 item.id,
                 enforceExpectedAgentProjectRoot(await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }), this.expectedWorkerAgentProjectRoot(item.id), item.label || item.id),
             ]));
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || authorityClient !== this.client)
                 return;
             const nextWorkerProbes = {};
             workerProbes.forEach((entry, index) => {
@@ -2153,7 +2154,7 @@ class RealtimeTunnelPanelProvider {
             }
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || authorityClient !== this.client)
                 return;
             this.lastHealth = (0, TunnelHealth_1.classifyTunnelHealth)({
                 configured: Boolean((0, XshellTunnelSetup_1.xshellExecutablePath)(this.setupConfig)),
@@ -2179,10 +2180,11 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showWarningMessage("当前拓扑不使用 Hub。请使用“检测全部隧道”检查 Worker 本地隧道。");
             return;
         }
+        const authorityClient = this.client;
         const integration = this.integration();
         const preview = integration.buildTunnelCommand(this.setupConfig);
         const answer = await vscode.window.showWarningMessage(`将通过 127.0.0.1:${this.setupConfig.localForwardPort} 运行真实对接检测。\n\n${preview.redactedShellCommand}`, { modal: true }, "检测已有隧道", "启动并检测");
-        if (!answer || generation !== this.projectContextGeneration)
+        if (!answer || generation !== this.projectContextGeneration || authorityClient !== this.client)
             return;
         if (answer === "启动并检测") {
             const launch = await integration.launchTunnel(this.setupConfig);
@@ -2191,7 +2193,7 @@ class RealtimeTunnelPanelProvider {
                 return;
             }
             await new Promise((resolve) => setTimeout(resolve, 2500));
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || authorityClient !== this.client)
                 return;
         }
         let result;
@@ -2199,11 +2201,11 @@ class RealtimeTunnelPanelProvider {
             result = await integration.runIntegrationCheck(this.setupConfig);
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || authorityClient !== this.client)
                 return;
             throw error;
         }
-        if (generation !== this.projectContextGeneration)
+        if (generation !== this.projectContextGeneration || authorityClient !== this.client)
             return;
         result.probe = enforceExpectedAgentProjectRoot(result.probe, this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir, "Hub");
         this.lastProbe = result.probe;
@@ -2212,7 +2214,7 @@ class RealtimeTunnelPanelProvider {
         this.lastError = result.report.overall === "failed" ? result.probe.message : undefined;
         this.postState();
         const doc = await vscode.workspace.openTextDocument({ language: "json", content: JSON.stringify(result.report, null, 2) });
-        if (generation === this.projectContextGeneration)
+        if (generation === this.projectContextGeneration && authorityClient === this.client)
             await vscode.window.showTextDocument(doc, { preview: true });
     }
     async restartRealtimeStream() {

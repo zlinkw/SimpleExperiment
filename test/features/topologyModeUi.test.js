@@ -61,6 +61,20 @@ test("stale result requests cannot repopulate caches after topology switch", () 
   assert.match(snapshot, /client !== this\.client/);
 });
 
+test("endpoint probes cannot publish after topology or tunnel client changes", () => {
+  const tunnelStart = extension.indexOf("async testTunnel(userInitiated");
+  const tunnel = extension.slice(tunnelStart, extension.indexOf("async runXshellRealIntegrationCheck", tunnelStart));
+  assert.match(tunnel, /const authorityClient = this\.client/);
+  assert.ok([...tunnel.matchAll(/authorityClient !== this\.client/g)].length >= 3);
+  assert.ok(tunnel.indexOf("authorityClient !== this.client") < tunnel.indexOf("this.lastProbe = probe"));
+
+  const integrationStart = extension.indexOf("async runXshellRealIntegrationCheck");
+  const integration = extension.slice(integrationStart, extension.indexOf("async restartRealtimeStream", integrationStart));
+  assert.match(integration, /const authorityClient = this\.client/);
+  assert.ok([...integration.matchAll(/authorityClient !== this\.client/g)].length >= 4);
+  assert.ok(integration.indexOf("authorityClient !== this.client") < integration.indexOf("this.lastIntegrationReport = result.report"));
+});
+
 test("settings and overview render topology ownership without active Hub controls", () => {
   assert.match(panel, /data-command="saveTopologyMode" data-config-scope="topology"/);
   assert.match(panel, /taskDetailLine\("调度所有者", esc\(topology\.schedulerOwner/);
