@@ -15,6 +15,25 @@ test("PptPlotBridge source remains TypeScript instead of copied compiler output"
   assert.doesNotMatch(source, /^exports\./m);
 });
 
+test("PptPlotBridge reuses fixed readiness host and source lookups", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "PptPlotBridge.ts"), "utf8");
+  const rawSourceStart = source.indexOf("function isRawSingleRunPlotSource(");
+  const rawSourceEnd = source.indexOf("\nasync function assertPptLightweightSource", rawSourceStart);
+  const rawSource = source.slice(rawSourceStart, rawSourceEnd);
+  const baseUrlStart = source.indexOf("function automationBaseUrl(");
+  const baseUrlEnd = source.indexOf("\nfunction automationHeaders", baseUrlStart);
+  const baseUrl = source.slice(baseUrlStart, baseUrlEnd);
+
+  assert.match(source, /const PPT_BLOCKING_READINESS_STATES = new Set\(\["incompatible", "token_missing", "token_invalid"\]\)/);
+  assert.match(source, /const PPT_LOOPBACK_HOSTNAMES = new Set\(\["127\.0\.0\.1", "localhost"\]\)/);
+  assert.match(source, /const PPT_NON_RAW_SOURCE_PATHS = new Set\(\[/);
+  assert.equal((source.match(/PPT_BLOCKING_READINESS_STATES\.has/g) || []).length, 2);
+  assert.doesNotMatch(source, /\["incompatible", "token_missing", "token_invalid"\]\.includes/);
+  assert.match(rawSource, /PPT_NON_RAW_SOURCE_PATHS\.has\(text\)/);
+  assert.doesNotMatch(rawSource, /\.map\(\(item\) => item\.toLowerCase\(\)\)\.includes/);
+  assert.match(baseUrl, /PPT_LOOPBACK_HOSTNAMES\.has\(url\.hostname\)/);
+});
+
 test("PptPlotBridge builds stable request schema and resolves md to sibling json", async () => {
   const { buildPptPlotRequest } = require("../dist/PptPlotBridge.js");
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-ppt-schema-"));

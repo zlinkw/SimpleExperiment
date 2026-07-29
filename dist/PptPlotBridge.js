@@ -51,6 +51,16 @@ const PPT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const PPT_LIGHTWEIGHT_SOURCE_EXTENSIONS = new Set([".json", ".csv", ".md", ".tex"]);
 const PPT_FINAL_STATISTICS_PATH = "zlk_cluster/results/statistics.json";
 const PPT_FINAL_PAPER_TABLE_PATH = "paper/tables/zlk_results_table.csv";
+const PPT_BLOCKING_READINESS_STATES = new Set(["incompatible", "token_missing", "token_invalid"]);
+const PPT_LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
+const PPT_NON_RAW_SOURCE_PATHS = new Set([
+    PlottingContract_1.PLOTTING_CONTRACT_JSON_PATH,
+    PPT_FINAL_STATISTICS_PATH,
+    PPT_FINAL_PAPER_TABLE_PATH,
+    "paper/tables/zlk_results_table.md",
+    "zlk_cluster/results/case_level_index.json",
+    "zlk_cluster/datasets/profile.json",
+].map((item) => item.toLowerCase()));
 class PptPlotBridge {
     fetchImpl;
     localAppData;
@@ -113,7 +123,7 @@ class PptPlotBridge {
         const first = await this.probeAutomation();
         if (first.readiness.ready)
             return first.config;
-        if (["incompatible", "token_missing", "token_invalid"].includes(first.readiness.state))
+        if (PPT_BLOCKING_READINESS_STATES.has(first.readiness.state))
             throw pptAutomationError(first.readiness.state, first.readiness.message);
         const targetPresentationPath = cleanOptional(presentationPath);
         await this.launchPowerPointOnce(targetPresentationPath || undefined);
@@ -124,7 +134,7 @@ class PptPlotBridge {
             if (current.readiness.ready)
                 return current.config;
             lastReadiness = current.readiness;
-            if (["incompatible", "token_missing", "token_invalid"].includes(current.readiness.state))
+            if (PPT_BLOCKING_READINESS_STATES.has(current.readiness.state))
                 throw pptAutomationError(current.readiness.state, current.readiness.message);
             await this.sleepImpl(this.healthPollMs);
         }
@@ -425,14 +435,7 @@ function isRawSingleRunPlotSource(rel) {
         return false;
     if (/(^|\/)results_preview_all\.csv$/i.test(text))
         return true;
-    if ([
-        PlottingContract_1.PLOTTING_CONTRACT_JSON_PATH,
-        PPT_FINAL_STATISTICS_PATH,
-        PPT_FINAL_PAPER_TABLE_PATH,
-        "paper/tables/zlk_results_table.md",
-        "zlk_cluster/results/case_level_index.json",
-        "zlk_cluster/datasets/profile.json",
-    ].map((item) => item.toLowerCase()).includes(text))
+    if (PPT_NON_RAW_SOURCE_PATHS.has(text))
         return false;
     if (text.startsWith("zlk_cluster/results/by_plan/") && /(statistics\.json|plotting_contract\.json|case_level_index\.json|result_registry\.json|output_contract_for_plotting\.md)$/.test(text))
         return false;
@@ -472,7 +475,7 @@ function automationBaseUrl(raw) {
     if (!base)
         throw new Error("automation.json 缺少 baseUrl/url/endpoint 或 port。");
     const url = new URL(base);
-    if (!["127.0.0.1", "localhost"].includes(url.hostname)) {
+    if (!PPT_LOOPBACK_HOSTNAMES.has(url.hostname)) {
         throw new Error("PPT automation server 必须绑定本机 127.0.0.1 或 localhost。");
     }
     url.pathname = "";
