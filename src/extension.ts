@@ -8071,7 +8071,7 @@ class RealtimeTunnelPanelProvider {
         const protectedLogKeys = this.logProtectedKeys();
         this.client.setProtectedLogKeys(protectedLogKeys);
         const logs = (0, RealtimeEventReducer_1.compactRealtimeLogs)(firstRecord(realtimeState?.logs), undefined, undefined, protectedLogKeys);
-        const fileTransfers = compactFileTransfersForWebview(firstRecord(realtimeState?.fileTransfers));
+        const fileTransfers = compactFileTransfersForWebview(realtimeState?.fileTransfers);
         const endpointRegistryState = this.endpointRegistryState();
         this.recentPlans = mergeRecentPlans(this.recentPlans, this.localPlanMetadata.plans, extractPlans(snapshot), extractPlans(offlineSnapshot), extractPlans((snapshot?.diagnostics || offlineSnapshot?.diagnostics)));
         const previousDebugBundlePath = this.debugBundlePath || "";
@@ -11008,10 +11008,17 @@ function compactIntegrationReportForWebview(report) {
         suggestions: compactStringArrayForWebview(report.suggestions, 8, 240),
     });
 }
+const EMPTY_FILE_TRANSFERS_FOR_WEBVIEW = Object.freeze({});
+const fileTransfersForWebviewCache = new WeakMap();
 function compactFileTransfersForWebview(fileTransfers) {
-    const entries = fileTransferEntries(fileTransfers);
-    if (!entries.length)
-        return {};
+    const source = fileTransfers && typeof fileTransfers === "object" ? fileTransfers : EMPTY_FILE_TRANSFERS_FOR_WEBVIEW;
+    if (fileTransfersForWebviewCache.has(source))
+        return fileTransfersForWebviewCache.get(source);
+    const entries = fileTransferEntries(source);
+    if (!entries.length) {
+        fileTransfersForWebviewCache.set(source, EMPTY_FILE_TRANSFERS_FOR_WEBVIEW);
+        return EMPTY_FILE_TRANSFERS_FOR_WEBVIEW;
+    }
     const active = entries
         .filter(([, row]) => !isTerminalTransferForWebview(row))
         .sort((a, b) => rowTimeForWebview(b[1]) - rowTimeForWebview(a[1]))
@@ -11020,7 +11027,9 @@ function compactFileTransfersForWebview(fileTransfers) {
         .filter(([, row]) => isTerminalTransferForWebview(row))
         .sort((a, b) => rowTimeForWebview(b[1]) - rowTimeForWebview(a[1]))
         .slice(0, WEBVIEW_FILE_TRANSFER_TERMINAL_LIMIT);
-    return Object.fromEntries([...active, ...terminal].map(([id, row]) => [id, compactFileTransferForWebview(id, row)]));
+    const compacted = Object.fromEntries([...active, ...terminal].map(([id, row]) => [id, compactFileTransferForWebview(id, row)]));
+    fileTransfersForWebviewCache.set(source, compacted);
+    return compacted;
 }
 const codeSyncForWebviewCache = new WeakMap();
 function compactCodeSyncForWebview(codeSync) {
