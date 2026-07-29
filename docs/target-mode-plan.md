@@ -13,35 +13,35 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-026：隔离 Plan 归档流程的项目和客户端上下文。
-- [已完成] 2/5 project-027：隔离归档 Plan 恢复流程的项目上下文。
-- [已完成] 3/5 project-028：隔离批量运行 Plan 的项目和客户端上下文。
-- [已完成] 4/5 project-029：索引并缓存 Plan 归档就绪派生。
-- [已完成] 5/5 project-030：执行第三十六轮完整非服务器静态测试并修正新增回归。
+- [已完成] 1/5 project-031：为 Plan 运行证据建立专用后端状态构建路径。
+- [待处理] 2/5 project-032：缓存前端 Plan 执行阶段派生。
+- [待处理] 3/5 project-033：缓存后端 Plan 运行证据合并结果。
+- [待处理] 4/5 project-034：审计并优化前端状态与检查器重复派生。
+- [待处理] 5/5 project-035：执行第三十七轮完整非服务器静态测试并修正新增回归。
 
-## 当前批次：project-030（已完成）
+## 当前批次：project-031（已完成）
 ### 修复点
 
-- 完整静态回归暴露的 3 项旧断言已对齐项目上下文、客户端 authority 和 Plan 预检 authority 契约。
-- npm 临时缓存与测试清理目标通过仓库外 preload 钩子暂存，并统一发送到 Windows 回收站。
-- 本批只修改 3 个静态契约测试和本计划，未改变产品源码行为。
+- 从完整 Webview 状态构建中提取 Plan 运行证据所需的 scheduler 与 operation 状态。
+- 重复提交保护、批量运行检查和项目接入状态不再为只读证据判断构建 GPU、trace、诊断与结果等完整面板 payload。
+- 完整面板继续复用同一运行证据构建路径，避免两套合并语义漂移。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整回归不得改变现有任务、结果、归档、CSV/PPT 证据门禁或三类服务器拓扑语义。
-- TypeScript 构建产物、Agent runtime 和面板静态契约必须保持同步。
+- scheduler fallback、operation 合并优先级和当前/旧 revision 判定必须保持不变。
+- Webview 状态仍须包含同一份有界 scheduler 与 operation 数据。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 第三十六轮完整非服务器静态测试，888/888。
+- [已通过] Plan 重复提交、项目快速接入、scheduler 预算和 operation 生命周期定向测试，19/19。
 - [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮只处理完整静态回归及其直接暴露的问题，不扩展产品功能。
+- 本轮只处理 Plan 运行证据状态构建热点，最多修改 5 个源码/测试/计划文件。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：当前前后端静态优化周期结束，等待新的明确目标。
-- 提交记录：本批使用独立 `test` 提交并推送 `origin/master`。
+- 下一批边界：缓存前端 Plan 执行阶段派生。
+- 提交记录：本批使用独立 `perf` 提交并推送 `origin/master`。

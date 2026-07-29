@@ -65,6 +65,10 @@ function loadPanelGuard() {
 }
 
 test("backend blocks duplicate run operations and active scheduler tasks for the same Plan", () => {
+  assert.match(extension, /private buildPlanRuntimeEvidenceState\(\)/);
+  assert.match(extension, /private buildState\(\): WebviewClusterState \{[\s\S]{0,240}this\.buildPlanRuntimeEvidenceState\(\)/);
+  assert.doesNotMatch(extension, /activePlanRunEvidence\(this\.buildState\(\)/);
+  assert.doesNotMatch(extension, /currentPlanRevisionHasRunEvidence\(this\.buildState\(\)/);
   const guard = loadExtensionGuard();
   const planFile = "experiments/plans/smoke.yaml";
   const empty = guard({ operations: {} }, planFile);

@@ -43,15 +43,15 @@ test("extension action operations use stable ids and watchdog terminal states", 
 test("extension compacts operation payload without dropping active operations", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
-  const buildState = source.match(/private buildState\(\): WebviewClusterState[\s\S]*?return \{/)?.[0] || "";
+  const runtimeEvidence = source.match(/private buildPlanRuntimeEvidenceState\(\)[\s\S]*?return \{ connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations \};/)?.[0] || "";
   const compact = source.match(/function compactOperationRecords[\s\S]*?function operationTerminal/)?.[0] || "";
 
   assert.match(source, /const LOCAL_OPERATION_RECORD_LIMIT = 120/);
   assert.match(source, /const STATE_OPERATION_RECORD_LIMIT = 120/);
   assert.match(source, /const TERMINAL_OPERATION_RECORD_LIMIT = 80/);
-  assert.match(buildState, /this\.queueProjectLocalOperationsStatePersistence\(\)/);
-  assert.doesNotMatch(buildState, /persistProjectLocalOperationsState\(/);
-  assert.match(buildState, /const operations = compactOperationRecords\(/);
+  assert.match(runtimeEvidence, /this\.queueProjectLocalOperationsStatePersistence\(\)/);
+  assert.doesNotMatch(runtimeEvidence, /persistProjectLocalOperationsState\(/);
+  assert.match(runtimeEvidence, /const operations = compactOperationRecords\(/);
   assert.match(compact, /entries\.length <= limit\)\s*return record && typeof record === "object" \? record : \{\}/);
   assert.match(compact, /if \(!operationTerminal\(entry\[1\]\)\)\s*active\.push\(entry\)/);
   assert.match(compact, /operationFailureTerminalStatus\(operationStatusOf\(entry\[1\]\)\)/);

@@ -3086,7 +3086,7 @@ class RealtimeTunnelPanelProvider {
     }
     assertPlanNotAlreadyActive(planFile, plan) {
         const selectedPlan = plan || (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item?.planFile || item?.file || item?.planId || "", planFile));
-        const activity = activePlanRunEvidence(this.buildState(), planFile, selectedPlan);
+        const activity = activePlanRunEvidence(this.buildPlanRuntimeEvidenceState(), planFile, selectedPlan);
         if (!activity.active)
             return;
         if (activity.historicalOnly) {
@@ -5577,7 +5577,7 @@ class RealtimeTunnelPanelProvider {
             candidatePlans.push({ planFile, body, plan });
         }
         this.assertExecutionAgentProjectsReady();
-        const currentState = this.buildState();
+        const currentState = this.buildPlanRuntimeEvidenceState();
         const activePlans = candidatePlans
             .map((candidate) => ({ planFile: candidate.planFile, activity: activePlanRunEvidence(currentState, candidate.planFile, candidate.plan) }))
             .filter((item) => item.activity.active);
@@ -5882,7 +5882,7 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         const planFile = String(selected?.planFile || selected?.file || selected?.planId || "");
-        preferDebugFirstRun = !currentPlanRevisionHasRunEvidence(this.buildState(), selected);
+        preferDebugFirstRun = !currentPlanRevisionHasRunEvidence(this.buildPlanRuntimeEvidenceState(), selected);
         const selectionChanged = Boolean(planFile) && (!samePlanSelection(this.planFileInput || "", planFile) || !samePlanSelection(this.selectedPlanId || "", selected?.planId || planFile));
         if (planFile) {
             this.planFileInput = planFile;
@@ -5908,7 +5908,7 @@ class RealtimeTunnelPanelProvider {
         const simpleSftp = simpleSftpIntegrationReadiness();
         const enabledWorkers = this.enabledWorkerConfigs();
         const currentRunState = () => {
-            const state = this.buildState();
+            const state = this.buildPlanRuntimeEvidenceState();
             return {
                 activeRun: activePlanRunEvidence(state, planFile, selected),
                 finishedRun: projectBootstrapFinishedRunOutcome(state, selected),
@@ -6467,7 +6467,7 @@ class RealtimeTunnelPanelProvider {
         const planRevision = String(plan.revision || "").trim();
         if (summaryPlan && samePlanSelection(summaryPlan, resolved) && planRevision && summaryRevision === planRevision)
             return true;
-        return currentPlanRevisionHasRunEvidence(this.buildState(), plan);
+        return currentPlanRevisionHasRunEvidence(this.buildPlanRuntimeEvidenceState(), plan);
     }
     queueSelectedPlanResultParse(reason, planHint) {
         const hint = usableSelectionKey(String(planHint || "").trim().replace(/\\/g, "/"));
@@ -7964,29 +7964,34 @@ class RealtimeTunnelPanelProvider {
             return "";
         return `Xshell 会话 ${info?.name || config.savedSessionPath || ""} 存在非本机回环 FwdReq：${unsafe.join("；")}。请把 Source 和 Host 都改为 127.0.0.1、localhost 或 ::1 后再启动。`;
     }
-    buildState() {
-        const schedulerConfig = this.schedulerSettings();
-        const realtime = this.client.diagnostics();
+    buildPlanRuntimeEvidenceState() {
         const connectionMode = this.effectiveConnectionMode();
         const realtimeState = connectionMode === "offline_import"
             ? undefined
             : this.lastRealtimeState || this.client.currentState();
         const snapshot = this.lastSnapshot || realtimeState?.lastKnownGood;
         const offlineSnapshot = this.offlineBundle?.snapshot;
+        const schedulerProtectedKeys = this.schedulerProtectedKeys();
+        const schedulerStates = compactSchedulerStates(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates], (rows) => compactSchedulerStates(rows, schedulerProtectedKeys)), schedulerFallbackRowKey, mergeSchedulerFallbackRow), schedulerProtectedKeys);
+        this.queueProjectLocalOperationsStatePersistence();
+        const operations = compactOperationRecords(mergeOperationRecords(this.localOperations, compactOperationRecords(operationsRecord(snapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(operationsRecord(offlineSnapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(realtimeState?.operations, STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT)), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+        return { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations };
+    }
+    buildState() {
+        const schedulerConfig = this.schedulerSettings();
+        const realtime = this.client.diagnostics();
+        const runtimeEvidence = this.buildPlanRuntimeEvidenceState();
+        const { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations } = runtimeEvidence;
         const gpu = compactGpuForWebview(mergeFallbackRecords(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu));
         const selectedPlanKeys = uniqueStrings([this.planFileInput || "", this.selectedPlanId || ""]);
         const selectedTracePlanFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
         const selectedTracePlanVersion = this.planVersionForFile(selectedTracePlanFile);
         const selectedTracePlan = { planFile: selectedTracePlanFile, planRevision: selectedTracePlanVersion.revision, planUpdatedAt: selectedTracePlanVersion.updatedAt };
-        const schedulerProtectedKeys = this.schedulerProtectedKeys();
-        const schedulerStates = compactSchedulerStates(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates], (rows) => compactSchedulerStates(rows, schedulerProtectedKeys)), schedulerFallbackRowKey, mergeSchedulerFallbackRow), schedulerProtectedKeys);
         const traceProtectedKeys = this.traceProtectedKeys();
         const experimentTraces = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces], (rows) => compactExperimentTraces(rows, traceProtectedKeys, selectedTracePlan)), experimentTraceFallbackRowKey), traceProtectedKeys, selectedTracePlan);
         const protectedLogKeys = this.logProtectedKeys();
         this.client.setProtectedLogKeys(protectedLogKeys);
         const logs = (0, RealtimeEventReducer_1.compactRealtimeLogs)(firstRecord(realtimeState?.logs), undefined, undefined, protectedLogKeys);
-        this.queueProjectLocalOperationsStatePersistence();
-        const operations = compactOperationRecords(mergeOperationRecords(this.localOperations, compactOperationRecords(operationsRecord(snapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(operationsRecord(offlineSnapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(realtimeState?.operations, STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT)), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
         const fileTransfers = compactFileTransfersForWebview(firstRecord(realtimeState?.fileTransfers));
         const endpointRegistryState = this.endpointRegistryState();
         this.recentPlans = mergeRecentPlans(this.recentPlans, this.localPlanMetadata.plans, extractPlans(snapshot), extractPlans(offlineSnapshot), extractPlans((snapshot?.diagnostics || offlineSnapshot?.diagnostics)));

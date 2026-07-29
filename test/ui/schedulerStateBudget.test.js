@@ -7,14 +7,14 @@ const root = path.resolve(__dirname, "..", "..");
 
 test("extension compacts scheduler state payload for all-day webview runs", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
-  const buildState = source.match(/private buildState\(\): WebviewClusterState[\s\S]*?return \{/)?.[0] || "";
+  const runtimeEvidence = source.match(/private buildPlanRuntimeEvidenceState\(\)[\s\S]*?return \{ connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations \};/)?.[0] || "";
   const compact = source.match(/function compactSchedulerStates[\s\S]*?function operationsRecord/)?.[0] || "";
 
   assert.match(source, /const SCHEDULER_STATE_RECORD_LIMIT = 240/);
   assert.match(source, /const SCHEDULER_ACTIVE_BUCKET_LIMIT = 160/);
   assert.match(source, /const SCHEDULER_TERMINAL_BUCKET_LIMIT = 80/);
-  assert.match(buildState, /const schedulerStates = compactSchedulerStates\(/);
-  assert.match(buildState, /this\.schedulerProtectedKeys\(\)/);
+  assert.match(runtimeEvidence, /const schedulerStates = compactSchedulerStates\(/);
+  assert.match(runtimeEvidence, /this\.schedulerProtectedKeys\(\)/);
   assert.match(compact, /completed_experiments/);
   assert.match(compact, /uiOmittedSchedulerRows/);
   assert.match(compact, /schedulerRowMatchesProtectedKey/);
