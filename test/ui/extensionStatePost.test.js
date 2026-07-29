@@ -5,12 +5,13 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 
-function loadRealtimeUiFieldSignature(source) {
+function loadRealtimeUiSignatures(source) {
   const block = source.match(/function realtimeUiFieldSignature[\s\S]*?function objectRecord/)?.[0] || "";
   const runnable = block
     .replace("function realtimeUiFieldSignature(value: unknown): string", "function realtimeUiFieldSignature(value)")
+    .replace("function realtimeUiTopLevelSignature(value: Record<string, unknown>): string", "function realtimeUiTopLevelSignature(value)")
     .replace(/\nfunction objectRecord[\s\S]*$/, "");
-  return new Function(runnable + "; return realtimeUiFieldSignature;")();
+  return new Function(runnable + "; return { field: realtimeUiFieldSignature, topLevel: realtimeUiTopLevelSignature };")();
 }
 
 test("extension coalesces ordinary webview state posts and flushes on visibility", () => {
@@ -45,7 +46,7 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
   assert.match(flushBlock, /Promise\.resolve\(posted\)\.then\(completePost, reportPostError\)/);
   assert.match(flushBlock, /catch \(error\) \{\s*reportPostError\(error\)/);
   assert.match(source, /function webviewStatePostSignature\(state: WebviewClusterState\): string/);
-  assert.match(source, /return realtimeUiFieldSignature\(state\)/);
+  assert.match(source, /return realtimeUiTopLevelSignature\(state\)/);
   const contextActionSignatureBlock = source.match(/function contextActionStatePostSignature[\s\S]*?function realtimeUiFieldSignature/)?.[0] || "";
   for (const field of ["setup", "integrations", "health", "realtime", "capabilities", "selection", "workerProbes", "plans", "schedulerStates", "operations", "resultsSummary"]) {
     assert.match(contextActionSignatureBlock, new RegExp(`${field}: state\\.${field}`));
@@ -89,7 +90,7 @@ test("extension skips heartbeat-only realtime webview posts and keeps content ch
 
 test("realtime state signatures stay bounded and sample across large values", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
-  const signature = loadRealtimeUiFieldSignature(source);
+  const { field: signature, topLevel } = loadRealtimeUiSignatures(source);
   assert.equal(signature({ b: 2, a: 1 }), signature({ a: 1, b: 2 }));
 
   const longA = "a".repeat(600);
@@ -108,6 +109,9 @@ test("realtime state signatures stay bounded and sample across large values", ()
   const dense = Array.from({ length: 240 }, (_, outer) => Array.from({ length: 240 }, (_, inner) => outer * 240 + inner));
   const nodeCount = Number(signature(dense).split(":")[2]);
   assert.equal(nodeCount, 4096);
+
+  const saturated = Array.from({ length: 240 }, (_, outer) => Array.from({ length: 240 }, (_, inner) => outer * 240 + inner));
+  assert.notEqual(topLevel({ a: saturated, z: "before" }), topLevel({ a: saturated, z: "after" }));
 });
 
 test("local availability push stays server-only and project-state-free", () => {

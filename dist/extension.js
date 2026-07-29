@@ -10592,10 +10592,10 @@ function compactRealtimePolicyForWebview(policy) {
     });
 }
 function webviewStatePostSignature(state) {
-    return realtimeUiFieldSignature(state);
+    return realtimeUiTopLevelSignature(state);
 }
 function contextActionStatePostSignature(state) {
-    return realtimeUiFieldSignature({
+    return realtimeUiTopLevelSignature({
         connectionMode: state.connectionMode,
         setup: state.setup,
         integrations: state.integrations,
@@ -10623,6 +10623,9 @@ function realtimeUiFieldSignature(value) {
     const digest = createRealtimeUiHash();
     realtimeUiStableHash(value, 0, digest);
     return `${digest.length}:${digest.hash >>> 0}:${digest.nodes}`;
+}
+function realtimeUiTopLevelSignature(value) {
+    return Object.keys(value).sort().map((key) => `${JSON.stringify(key)}=${realtimeUiFieldSignature(value[key])}`).join("|");
 }
 function createRealtimeUiHash() {
     return { length: 0, hash: 0, nodes: 0, truncated: false };
