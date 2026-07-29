@@ -6,6 +6,7 @@ const path = require("node:path");
 
 const {
   buildCheckpointRetentionPlan,
+  checkpointRecordsFromManifest,
 } = require("../dist/features/Checkpoint.js");
 const {
   inspectDatasetCsvFiles,
@@ -65,6 +66,40 @@ test("checkpoint retention dry-run does not delete and protects best/latest/runn
   assert.equal(plan.deleteCount, 1);
   assert.equal(plan.items.find((item) => item.path.endsWith("old.ckpt")).action, "delete");
   assert.equal(plan.items.find((item) => item.path.includes("escape")).action, "skip");
+});
+
+test("checkpoint policies reuse fixed path and boolean lookups", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "features", "Checkpoint.ts"), "utf8");
+  assert.match(source, /const CHECKPOINT_FORBIDDEN_PATH_SEGMENTS = new Set\(/);
+  assert.match(source, /const CHECKPOINT_ALLOWED_ROOTS = new Set\(/);
+  assert.match(source, /const CHECKPOINT_TRUE_TOKENS = new Set\(/);
+  assert.match(source, /CHECKPOINT_FORBIDDEN_PATH_SEGMENTS\.has\(part\)/);
+  assert.match(source, /CHECKPOINT_ALLOWED_ROOTS\.has\(lowered\[0\]\)/);
+  assert.match(source, /CHECKPOINT_TRUE_TOKENS\.has\(String\(value\)\.toLowerCase\(\)\)/);
+
+  const records = checkpointRecordsFromManifest({
+    checkpoints: [{ path: "outputs/demo/model.pth", paper_ready: "paper_ready" }],
+  });
+  assert.equal(records[0].paperReady, true);
+
+  const plan = buildCheckpointRetentionPlan({
+    checkpoints: [
+      { path: "outputs/demo/model.pth" },
+      { path: "outputs/.git/model.pth" },
+      { path: "unknown/model.pth" },
+    ],
+    policy: {
+      keepBest: false,
+      keepLatest: false,
+      topK: 0,
+      protectPaperReady: false,
+      protectRunning: false,
+      protectFrozen: false,
+    },
+  });
+  assert.equal(plan.items.find((item) => item.path === "outputs/demo/model.pth").action, "delete");
+  assert.equal(plan.items.find((item) => item.path === "outputs/.git/model.pth").action, "skip");
+  assert.equal(plan.items.find((item) => item.path === "unknown/model.pth").action, "skip");
 });
 
 test("dataset inspector profiles splits/classes and reports patient leakage", () => {

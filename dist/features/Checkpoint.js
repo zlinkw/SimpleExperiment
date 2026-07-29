@@ -7,6 +7,9 @@ exports.buildCheckpointRetentionPlan = buildCheckpointRetentionPlan;
 exports.checkpointRetentionReportMarkdown = checkpointRetentionReportMarkdown;
 exports.CHECKPOINT_DELETE_PLAN_PATH = "zlk_cluster/checkpoints/delete_plan.json";
 exports.CHECKPOINT_RETENTION_REPORT_PATH = "zlk_cluster/checkpoints/retention_report.md";
+const CHECKPOINT_FORBIDDEN_PATH_SEGMENTS = new Set([".git", ".ssh", "node_modules", ".venv", "venv"]);
+const CHECKPOINT_ALLOWED_ROOTS = new Set(["work_dirs", "experiments", "zlk_cluster", "outputs", "runs", "checkpoints", "weights", "results"]);
+const CHECKPOINT_TRUE_TOKENS = new Set(["1", "true", "yes", "on", "paper_ready"]);
 function defaultCheckpointRetentionPolicy(input = {}) {
     return {
         keepBest: input.keepBest ?? true,
@@ -146,10 +149,9 @@ function normalizeCheckpointPath(value) {
     if (!parts.length || parts.includes(".."))
         return "";
     const lowered = parts.map((part) => part.toLowerCase());
-    if (lowered.some((part) => [".git", ".ssh", "node_modules", ".venv", "venv"].includes(part)))
+    if (lowered.some((part) => CHECKPOINT_FORBIDDEN_PATH_SEGMENTS.has(part)))
         return "";
-    const allowed = ["work_dirs", "experiments", "zlk_cluster", "outputs", "runs", "checkpoints", "weights", "results"];
-    if (!allowed.includes(lowered[0]))
+    if (!CHECKPOINT_ALLOWED_ROOTS.has(lowered[0]))
         return "";
     if (!/\.(pt|pth|ckpt|bin|safetensors|onnx|pkl|pickle)$/i.test(parts[parts.length - 1]))
         return "";
@@ -177,5 +179,5 @@ function boolValue(value) {
         return undefined;
     if (typeof value === "boolean")
         return value;
-    return ["1", "true", "yes", "on", "paper_ready"].includes(String(value).toLowerCase());
+    return CHECKPOINT_TRUE_TOKENS.has(String(value).toLowerCase());
 }
