@@ -10,7 +10,22 @@ test("postTunnelAction wrapper generates opId checks capabilities and posts fixe
   assert.match(source, /async postTunnelAction\(action, body, options = \{\}\)/);
   assert.match(source, /makeOpId\(action\)/);
   assert.match(source, /missingCapabilities\(options\.requiresCapability \|\| capabilityForAction\(action\)\)/);
-  assert.match(source, /await this\.client\.postAction\(action, request\)/);
+  assert.match(source, /await client\.postAction\(action, request\)/);
   assert.match(source, /schemaVersion: 1/);
   assert.match(source, /this\.localOperations\[request\.opId\] = \{/);
+});
+
+test("Hub and Worker action submissions bind completion to the initiating client", () => {
+  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const methods = [
+    ["async postTunnelAction", "async postWorkerTunnelAction", /client\.postAction\(action, request\)/],
+    ["async postWorkerTunnelAction", "    activeWorkerActionOperation(", /client\.postWorkerAction\(workerId, action, request\)/],
+  ];
+  for (const [method, nextMethod, request] of methods) {
+    const start = source.indexOf(method);
+    const body = source.slice(start, source.indexOf(nextMethod, start + method.length));
+    assert.match(body, /const client = this\.client/, method);
+    assert.match(body, request, method);
+    assert.ok([...body.matchAll(/client !== this\.client/g)].length >= 2, method);
+  }
 });

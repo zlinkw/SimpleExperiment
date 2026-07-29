@@ -101,8 +101,8 @@ test("workspace reset precedes project loaders and stale scans cannot win", () =
   assert.match(source, /if \(this\.localPlanMetadataRefreshPromise === refresh\)/);
   assert.ok([...source.matchAll(/generation !== this\.projectContextGeneration/g)].length >= 6);
   assert.match(source, /const client = this\.client;[\s\S]{0,260}const summary = await client\.getResultsSummary\(planFile\);\s*if \(generation !== this\.projectContextGeneration \|\| client !== this\.client\)\s*return;\s*this\.resultsSummary = summary/);
-  assert.match(source, /postAction\(action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration/);
-  assert.match(source, /postWorkerAction\(workerId, action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration/);
+  assert.match(source, /client\.postAction\(action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration \|\| client !== this\.client/);
+  assert.match(source, /client\.postWorkerAction\(workerId, action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration \|\| client !== this\.client/);
   assert.match(readme, /切换工作区目录.*清空上一项目/);
   assert.match(guide, /切换工作区目录.*重新加载/);
 });

@@ -13,34 +13,34 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 authority-001：阻止旧拓扑或旧连接的端点检测结果回写当前运行态。
-- [已完成] 2/5 authority-002：隔离 GPU 历史缓存 reset 前后的异步加载结果。
-- [已完成] 3/5 authority-003：绑定手动 GPU、scheduler 与 trace 快照到发起请求的实时客户端。
-- [已完成] 4/5 authority-004：隔离 Webview 顶层字段摘要预算，防止前序大字段吞掉后续有效变更。
-- [已完成] 5/5 authority-005：执行第二十七轮完整非服务器静态测试并修正新增回归。
+- [已完成] 1/5 transport-001：绑定 Hub 与 Worker 操作提交到发起请求的实时客户端。
+- [待做] 2/5 transport-002：隔离 operation 状态探测与 watchdog 的旧客户端回写。
+- [待做] 3/5 transport-003：隔离远端只读下载和审计读取的旧客户端结果。
+- [待做] 4/5 transport-004：规范化前端分区摘要对象键顺序，减少等价状态重绘。
+- [待做] 5/5 transport-005：执行第二十八轮完整非服务器静态测试并修正新增回归。
 
-## 当前批次：authority-005（已完成）
+## 当前批次：transport-001（已完成）
 ### 修复点
 
-- 执行第二十七轮完整非服务器静态测试，覆盖本周期全部异步权威与摘要变更。
-- 若出现新增回归，只修正与本周期变更直接相关的问题。
-- 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
+- Hub 与 Worker 操作提交必须捕获发起时的实时客户端。
+- 客户端切换后，旧提交成功或失败不得覆盖当前 operation、错误或结果摘要状态。
+- 保留项目 generation、操作 watchdog 和 Worker 并发释放语义。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整测试不得访问真实服务器、安装 VSIX 或重载 VS Code。
-- 运行态生成文件只允许构建产物，不纳入无关缓存或报告。
-- 真实服务器行为继续标记 `needs field verification`。
+- 客户端切换不删除项目态 operation 记录；旧 pending 仍由既有恢复流程处理。
+- Worker action slot 必须在旧请求失效时继续通过 `finally` 释放。
+- 所有操作继续只走 Xshell 本地隧道客户端。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] `npm test` 第二十七轮完整非服务器静态测试，864/864。
-- [已通过] Lint、Node 语法与 `git diff --check`。
+- [已通过] Hub/Worker 操作包装、工作区隔离与无直连定向测试，9/9。
+- [已通过] TypeScript 构建、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮只执行完整静态回归及必要的本周期修正。
+- 本轮开始审计所有长生命周期隧道请求的客户端权威边界。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：完整测试通过后结束本五批权威周期，由后续静态审计开启新周期。
-- 提交记录：本批使用独立 `test` 提交并推送 `origin/master`；哈希以 Git 历史为准。
+- 下一批边界：operation 状态探测和 watchdog，不扩展操作协议。
+- 提交记录：本批使用独立 `fix` 提交并推送 `origin/master`；哈希以 Git 历史为准。

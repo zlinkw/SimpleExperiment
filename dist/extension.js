@@ -4224,6 +4224,7 @@ class RealtimeTunnelPanelProvider {
                 throw new UiCommandCancelled(`${command} 已取消。`);
         }
         const generation = this.projectContextGeneration;
+        const client = this.client;
         const request = {
             ...body,
             schemaVersion: 1,
@@ -4242,10 +4243,10 @@ class RealtimeTunnelPanelProvider {
         this.scheduleOperationWatchdog(request.opId, action);
         this.postState();
         try {
-            const result = await this.client.postAction(action, request);
+            const result = await client.postAction(action, request);
             const status = resultStatus(result) || "accepted";
             const actionResult = normalizeActionSubmissionResult(result, request.opId, status);
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return actionResult;
             this.localOperations[request.opId] = {
                 ...this.localOperations[request.opId],
@@ -4265,7 +4266,7 @@ class RealtimeTunnelPanelProvider {
             return actionResult;
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             const message = errorMessage(error);
             const cancelled = isUiCommandCancelled(error);
@@ -4332,6 +4333,7 @@ class RealtimeTunnelPanelProvider {
             }
         }
         const generation = this.projectContextGeneration;
+        const client = this.client;
         const request = {
             ...body,
             schemaVersion: 1,
@@ -4359,10 +4361,10 @@ class RealtimeTunnelPanelProvider {
         this.scheduleOperationWatchdog(request.opId, action, workerId);
         this.postState();
         try {
-            const result = await this.client.postWorkerAction(workerId, action, request);
+            const result = await client.postWorkerAction(workerId, action, request);
             const status = resultStatus(result) || "accepted";
             const actionResult = normalizeActionSubmissionResult(result, request.opId, status);
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return actionResult;
             this.localOperations[request.opId] = {
                 ...this.localOperations[request.opId],
@@ -4382,7 +4384,7 @@ class RealtimeTunnelPanelProvider {
             return actionResult;
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration)
+            if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             const message = errorMessage(error);
             const cancelled = isUiCommandCancelled(error);
