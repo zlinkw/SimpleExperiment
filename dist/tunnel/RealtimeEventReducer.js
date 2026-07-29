@@ -15,6 +15,16 @@ exports.REALTIME_TRACE_RECORD_LIMIT = 240;
 exports.REALTIME_OPERATION_RECORD_LIMIT = 160;
 exports.REALTIME_FILE_TRANSFER_RECORD_LIMIT = 80;
 exports.REALTIME_WORKER_TASK_RECORD_LIMIT = 160;
+const realtimeRecordStatusRanks = new Map([
+    ["running", 0], ["queued", 0], ["pending", 0], ["progress", 0], ["accepted", 0],
+    ["failed", 1], ["stalled", 1], ["cancelled", 1], ["canceled", 1], ["error", 1],
+    ["completed", 3], ["done", 3], ["archived", 3], ["deleted", 3],
+]);
+const genericRowStatusRanks = new Map([
+    ["running", 0], ["testing", 0], ["queued", 0], ["pending", 0], ["progress", 0],
+    ["failed", 1], ["stalled", 1], ["stopped", 1], ["cancelled", 1], ["canceled", 1], ["error", 1], ["missing", 1], ["residue", 1],
+    ["completed", 3], ["done", 3], ["archived", 3], ["deleted", 3],
+]);
 const knownTypes = new Set([
     "agent_heartbeat",
     "gpu_snapshot",
@@ -406,24 +416,10 @@ function mergeSnapshotOperations(current, incoming) {
     return merged;
 }
 function realtimeRecordRank(row) {
-    const status = genericStatus(row);
-    if (["running", "queued", "pending", "progress", "accepted"].includes(status))
-        return 0;
-    if (["failed", "stalled", "cancelled", "canceled", "error"].includes(status))
-        return 1;
-    if (["completed", "done", "archived", "deleted"].includes(status))
-        return 3;
-    return 2;
+    return realtimeRecordStatusRanks.get(genericStatus(row)) ?? 2;
 }
 function genericRowRank(row) {
-    const status = genericStatus(row);
-    if (["running", "testing", "queued", "pending", "progress"].includes(status))
-        return 0;
-    if (["failed", "stalled", "stopped", "cancelled", "canceled", "error", "missing", "residue"].includes(status))
-        return 1;
-    if (["completed", "done", "archived", "deleted"].includes(status))
-        return 3;
-    return 2;
+    return genericRowStatusRanks.get(genericStatus(row)) ?? 2;
 }
 function genericStatus(row) {
     if (!row || typeof row !== "object")

@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const {
   applyRealtimeEvent,
@@ -86,6 +88,43 @@ test("realtime compaction reuses state branches that are already within budget",
   assert.equal(compacted.fileTransfers, fileTransfers);
   assert.equal(compacted.workerTasks, workerTasks);
   assert.equal(compacted.lastKnownGood, lastKnownGood);
+});
+
+test("realtime compaction reuses fixed status rank tables", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "..", "src", "tunnel", "RealtimeEventReducer.ts"), "utf8");
+  assert.match(source, /const realtimeRecordStatusRanks = new Map<string, number>\(\[/);
+  assert.match(source, /const genericRowStatusRanks = new Map<string, number>\(\[/);
+  assert.match(source, /return realtimeRecordStatusRanks\.get\(genericStatus\(row\)\) \?\? 2/);
+  assert.match(source, /return genericRowStatusRanks\.get\(genericStatus\(row\)\) \?\? 2/);
+
+  const experimentTraces = Array.from({ length: REALTIME_TRACE_RECORD_LIMIT }, (_, index) => ({
+    runKey: `completed-${index}`,
+    status: "completed",
+    seq: index,
+  })).concat([
+    { runKey: "active", status: "testing", seq: 1 },
+    { runKey: "failed", status: "residue", seq: 1 },
+    { runKey: "unknown", status: "custom", seq: 1 },
+  ]);
+  const operations = Object.fromEntries(Array.from({ length: REALTIME_OPERATION_RECORD_LIMIT }, (_, index) => [
+    `completed-${index}`,
+    { status: "completed", seq: index },
+  ]).concat([
+    ["active", { status: "accepted", seq: 1 }],
+    ["failed", { status: "error", seq: 1 }],
+    ["unknown", { status: "custom", seq: 1 }],
+  ]));
+  const compacted = compactRealtimeState({
+    ...createRealtimeState(),
+    experimentTraces,
+    operations,
+  });
+  assert.equal(compacted.experimentTraces.some((row) => row.runKey === "active"), true);
+  assert.equal(compacted.experimentTraces.some((row) => row.runKey === "failed"), true);
+  assert.equal(compacted.experimentTraces.some((row) => row.runKey === "unknown"), true);
+  assert.equal(Boolean(compacted.operations.active), true);
+  assert.equal(Boolean(compacted.operations.failed), true);
+  assert.equal(Boolean(compacted.operations.unknown), true);
 });
 
 function event(seq, type, payload) {
