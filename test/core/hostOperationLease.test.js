@@ -28,7 +28,17 @@ function leaseFixture(options = {}) {
     actionType,
     actionLabel: actionType,
   });
-  return { root, leasePath, managers, manager, input, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return {
+    root,
+    leasePath,
+    managers,
+    manager,
+    input,
+    cleanup: () => {
+      fs.rmSync(leasePath, { force: true });
+      fs.rmSync(root, { recursive: true, force: true });
+    },
+  };
 }
 
 test("shared lease path and schema are stable across both plugins", () => {

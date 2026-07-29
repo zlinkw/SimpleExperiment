@@ -38,6 +38,8 @@ function loadEndpointReadiness() {
     EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],
     enabledWorkerTunnelsCacheSource: null,
     enabledWorkerTunnelsCacheValue: [],
+    projectEndpointReadinessCacheState: null,
+    projectEndpointReadinessCacheValue: null,
   };
   vm.createContext(sandbox);
   vm.runInContext([

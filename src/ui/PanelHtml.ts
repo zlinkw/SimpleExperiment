@@ -9596,7 +9596,7 @@ export function renderPanelHtml(): string {
     function projectEndpointReadiness(state) {
       const data = state || {};
       if (projectEndpointReadinessCacheState === data && projectEndpointReadinessCacheValue) return projectEndpointReadinessCacheValue;
-      const workers = enabledWorkerTunnelsForState(data);
+      const workers = enabledWorkerTunnelsForState(state);
       const workerProbes = data.workerProbes || {};
       const hubStatus = String((data.probe || {}).status || (data.health || {}).state || "").toLowerCase();
       const restartRequired = hubStatus === "agent_restart_required";
@@ -9654,7 +9654,7 @@ export function renderPanelHtml(): string {
     function projectCodeSyncReadiness(state) {
       const data = state || {};
       if (projectCodeSyncReadinessCacheState === data && projectCodeSyncReadinessCacheValue) return projectCodeSyncReadinessCacheValue;
-      const workerRequired = enabledWorkerTunnelsForState(data).length > 0;
+      const workerRequired = enabledWorkerTunnelsForState(state).length > 0;
       const sync = data.codeSync || {};
       const hubReady = syncStatusOk(sync.hub);
       const workerReady = !workerRequired || syncStatusOk(sync.workers);
