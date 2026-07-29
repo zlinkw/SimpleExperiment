@@ -11589,13 +11589,18 @@ function compactStringArrayForWebview(value, limit, itemLimit) {
 function dropUndefined(record) {
     return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
+const hubControlStatusCache = new WeakMap();
 function buildHubControlStatus(registryState, probe) {
     const registry = registryState;
+    const cacheable = Boolean(registry) && (typeof registry === "object" || typeof registry === "function");
+    const cached = cacheable ? hubControlStatusCache.get(registry) : undefined;
+    if (cached && cached.probe === probe)
+        return cached.value;
     const hub = registry.hub || {};
     const tunnel = (hub.tunnel || {});
     const capabilities = probe?.capabilities || {};
     const endpoints = (capabilities.endpoints || {});
-    return {
+    const status = {
         endpointId: hub.id || "hub",
         localEndpoint: `http://127.0.0.1:${tunnel.localPort || "-"}`,
         health: probe?.status || "unknown",
@@ -11606,11 +11611,19 @@ function buildHubControlStatus(registryState, probe) {
         lastHeartbeat: probe?.checkedAt,
         controlActionsEnabled: Boolean(endpoints.actions),
     };
+    if (cacheable)
+        hubControlStatusCache.set(registry, { probe, value: status });
+    return status;
 }
+const workerTelemetryStatusCache = new WeakMap();
 function buildWorkerTelemetryStatus(registryState, probes, realtime) {
     const registry = registryState;
+    const cacheable = Boolean(registry) && (typeof registry === "object" || typeof registry === "function");
+    const cached = cacheable ? workerTelemetryStatusCache.get(registry) : undefined;
+    if (cached && cached.probes === probes && cached.realtime === realtime)
+        return cached.value;
     const realtimeEndpoints = new Map((realtime?.endpoints || []).map((endpoint) => [String(endpoint.id), endpoint]));
-    return (registry.workers || []).map((worker) => {
+    const status = (registry.workers || []).map((worker) => {
         const tunnel = (worker.tunnel || {});
         const probe = probes[String(worker.id)];
         const stream = realtimeEndpoints.get(String(worker.id));
@@ -11632,6 +11645,9 @@ function buildWorkerTelemetryStatus(registryState, probes, realtime) {
             status,
         };
     });
+    if (cacheable)
+        workerTelemetryStatusCache.set(registry, { probes, realtime, value: status });
+    return status;
 }
 function getSafeCommand(message) {
     const command = stringField(message, "command");
