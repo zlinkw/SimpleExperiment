@@ -42,6 +42,7 @@ this.compact = compactExperimentTraces;`, sandbox);
 
 function loadScope() {
   const sandbox = {
+    traceRowsForPlanScopeCache: new WeakMap(),
     asArray(value) { return Array.isArray(value) ? value : []; },
     normalizePlanSelectionKey(value) { return String(value || "").replace(/\\/g, "/"); },
     planFromContext(state, context) { return state.plans.find((plan) => plan.planFile === context.planFile); },

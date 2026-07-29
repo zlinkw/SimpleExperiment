@@ -13,36 +13,36 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-051：缓存项目检测 Webview 压缩结果。
-- [已完成] 2/5 project-052：缓存 Extension Host 稳定状态快照压缩结果。
-- [已完成] 3/5 project-053：缓存前端固定操作归一化结果。
-- [已完成] 4/5 project-054：缓存 Xshell 会话库 Webview 压缩结果。
-- [已完成] 5/5 project-055：执行第四十一轮完整非服务器静态测试。
+- [已完成] 1/5 project-056：缓存前端 Plan 结果轨迹作用域派生。
+- [待做] 2/5 project-057：缓存结果摘要筛选与 Webview 压缩结果。
+- [待做] 3/5 project-058：缓存文件传输 Webview 压缩结果。
+- [待做] 4/5 project-059：缓存合并后的 GPU Webview 快照。
+- [待做] 5/5 project-060：执行第四十二轮完整非服务器静态测试。
 
-## 当前批次：project-055（已完成）
+## 当前批次：project-056（已完成）
 ### 修复点
 
-- 对 project-051 至 project-054 执行第四十一轮完整非服务器静态回归。
-- 覆盖 TypeScript 构建、全部 Node 测试、Lint、Node/Python 语法和差异检查。
-- 仅更新目标计划验证记录，不修改功能源码或扩大当前五批周期范围。
+- 前端按规范化轨迹数组、状态对象和作用域模式缓存当前 Plan 的结果轨迹筛选结果。
+- 同一渲染周期内结果工作流、证据工作台和轨迹区不再重复遍历全部轨迹。
+- 轨迹数组、状态对象或作用域模式替换后失效，Plan revision 与更新时间匹配语义保持不变。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
-- 构建不得改变已保持不变的 Agent runtime 或写入历史资产。
-- 任何失败必须保留为未完成，不得提交或推送成功记录。
+- selected 与 all 两种轨迹作用域必须继续区分，未选择 Plan 时不得误隐藏轨迹。
+- Plan 文件等价匹配、revision 和 updatedAt 边界不得变化。
+- 缓存必须按输入对象替换失效，不得让新状态沿用旧筛选结果。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 安全 preload 下第四十一轮完整非服务器 `npm test`，935/935。
-- [已通过] TypeScript、Lint、4 个 Node 入口语法、7 个 Python 文件语法与 `git diff --check`。
+- [已通过] Plan 结果轨迹作用域缓存命中、失效和语义定向测试，12/12。
+- [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮建立 project-051 至 project-055 五批静态优化周期；project-055 再执行完整测试。
-- 本批只更新完整静态回归记录，最多修改 1 个计划文档；构建产物无差异时不提交。
-- 完整测试未产生源码或构建差异，历史 VSIX 与 `zlk_cluster/ui/` 保持未跟踪保护状态。
+- 本轮建立 project-056 至 project-060 五批静态优化周期；project-060 再执行完整测试。
+- 本批只处理前端 Plan 结果轨迹作用域派生，共修改 5 个源码、测试、构建和计划文件。
+- 缓存使用轨迹数组和状态对象双层弱引用，每组只保留 selected 与 all 作用域变体。
 - 真实服务器行为保持 `needs field verification`。

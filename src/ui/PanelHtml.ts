@@ -1501,6 +1501,7 @@ export function renderPanelHtml(): string {
     let experimentTraceViewCacheRows = null;
     let experimentTraceViewCacheSelectionKey = "";
     let experimentTraceViewCacheValue = null;
+    const traceRowsForPlanScopeCache = new WeakMap();
     let resultEvidenceTraceStatsCacheRows = null;
     let resultEvidenceTraceStatsCacheValue = null;
     let currentPlanWorkflowResultCacheState = null;
@@ -13731,6 +13732,12 @@ export function renderPanelHtml(): string {
     function traceRowsForPlanScope(rows, state, scopeMode) {
       const allRows = asArray(rows || []);
       const data = state || {};
+      const cacheableRows = Boolean(allRows) && (typeof allRows === "object" || typeof allRows === "function");
+      const cacheableState = Boolean(data) && (typeof data === "object" || typeof data === "function");
+      let stateCache = cacheableRows ? traceRowsForPlanScopeCache.get(allRows) : undefined;
+      let variants = stateCache && cacheableState ? stateCache.get(data) : undefined;
+      const cacheKey = String(scopeMode || "all");
+      if (variants && variants.has(cacheKey)) return variants.get(cacheKey);
       const selectedPlanFile = normalizePlanSelectionKey(data.planFileInput || (data.selection || {}).selectedPlanId || "");
       const plan = selectedPlanFile ? planFromContext(data, { planFile: selectedPlanFile }) || {} : {};
       const selectedPlanRevision = String(plan.revision || "");
@@ -13741,7 +13748,7 @@ export function renderPanelHtml(): string {
           && traceMatchesPlanVersion(row, selectedPlanRevision, planUpdatedAt))
         : [];
       const scoped = scopeMode !== "all" && Boolean(selectedPlanFile);
-      return {
+      const value = {
         rows: scoped ? selectedRows : allRows,
         scoped,
         selectedPlanFile,
@@ -13750,6 +13757,18 @@ export function renderPanelHtml(): string {
         unscopedCount: allRows.filter((row) => !meaningfulValue((row || {}).planFile)).length,
         totalCount: allRows.length
       };
+      if (cacheableRows && cacheableState) {
+        if (!stateCache) {
+          stateCache = new WeakMap();
+          traceRowsForPlanScopeCache.set(allRows, stateCache);
+        }
+        if (!variants) {
+          variants = new Map();
+          stateCache.set(data, variants);
+        }
+        variants.set(cacheKey, value);
+      }
+      return value;
     }
     function experimentTraceViewModelForState(state) {
       const allRows = experimentTraceRowsForState(state);
