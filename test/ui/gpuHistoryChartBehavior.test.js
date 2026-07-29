@@ -41,6 +41,7 @@ function chartContext(functionNames) {
     gpuHistoryOverviewCacheValue: [],
     gpuHistoryPointIndexCache: new WeakMap(),
     GPU_HISTORY_GAP_FACTOR: 1.75,
+    GPU_HISTORY_SERVER_STYLE_LIMIT: 128,
     GPU_HISTORY_COLORS: ["#2885EF", "#CD8300", "#03A14A", "#E64343", "#A95DDA", "#00A3B4", "#C952A8", "#849B11", "#DE6907", "#009F89", "#CE4A72", "#008DBE"],
     GPU_HISTORY_LINE_STYLES: ["solid", "dash", "dot", "dashdot"],
     GPU_HISTORY_MARKERS: ["circle", "square", "triangle", "diamond"],
