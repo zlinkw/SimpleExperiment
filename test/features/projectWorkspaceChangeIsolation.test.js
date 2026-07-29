@@ -177,6 +177,14 @@ test("plan save checks project context before and after each file operation", ()
   assert.match(save, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(\)/);
 });
 
+test("opening a plan cannot select it in a replacement workspace", () => {
+  const open = methodBody("async openWorkspacePlanFromUi", "async savePlanFromUi");
+  assert.match(open, /const generation = this\.projectContextGeneration/);
+  assert.match(open, /const root = workspaceRoot\(\)/);
+  assert.ok([...open.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
+  assert.ok(open.indexOf("await openWorkspaceFile(file)") < open.indexOf("this.selectPlanFromUi"));
+});
+
 test("stale network probes and realtime callbacks cannot overwrite the new project", () => {
   const tunnel = methodBody("async testTunnel", "async runXshellRealIntegrationCheck");
   const integration = methodBody("async runXshellRealIntegrationCheck", "async restartRealtimeStream");

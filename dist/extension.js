@@ -5017,10 +5017,16 @@ class RealtimeTunnelPanelProvider {
         void this.persistProjectPlanSelectionState().catch(() => undefined);
     }
     async openWorkspacePlanFromUi(message) {
+        const generation = this.projectContextGeneration;
+        const root = workspaceRoot();
         const file = stringField(message, "file") || stringField(message, "planFile");
         if (!file)
             return;
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await openWorkspaceFile(file);
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         // Opening a workspace plan should also become the active selected plan for closed-loop parse/run.
         this.selectPlanFromUi({ planFile: file, planId: file });
     }
