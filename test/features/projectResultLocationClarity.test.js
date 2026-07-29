@@ -57,14 +57,16 @@ function extractSourceFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
-function resultLocation(project, meta, plan) {
+function loadResultLocation() {
   const sandbox = {
     RESULT_METADATA_FILENAMES: new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]),
     RESULT_METADATA_SUFFIXES: ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"],
     EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
+    EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
     planOutputCandidatesCache: new WeakMap(),
     planOutputEvidenceCandidatesCache: new WeakMap(),
     adapterRuleResultCandidatesCache: new WeakMap(),
+    projectResultLocationCache: new WeakMap(),
     asArray(value) {
       return Array.isArray(value) ? value : (!value || typeof value !== "object" ? [] : Object.values(value));
     },
@@ -79,7 +81,11 @@ function resultLocation(project, meta, plan) {
     extractFunction("projectResultLocation"),
     "this.check = projectResultLocation;",
   ].join("\n"), sandbox);
-  return JSON.parse(JSON.stringify(sandbox.check(project, meta, plan)));
+  return sandbox.check;
+}
+
+function resultLocation(project, meta, plan) {
+  return JSON.parse(JSON.stringify(loadResultLocation()(project, meta, plan)));
 }
 
 function panelPreviewScope(previews, plan, rules) {
@@ -166,6 +172,38 @@ test("project result location falls back to adapter rules then actual results", 
   const actual = resultLocation({ resultFiles: ["env_snapshot.json", "outputs/actual.csv"] }, {}, {});
   assert.equal(actual.path, "outputs/actual.csv");
   assert.equal(actual.source, "已发现结果");
+});
+
+test("project result location caches actual candidate sources and invalidates replacements", () => {
+  const check = loadResultLocation();
+  const rules = { candidateCsv: ["outputs/rules.csv"] };
+  const outputContractFiles = ["outputs/contract.json"];
+  const resultFiles = ["outputs/actual.csv"];
+  const plan = { outputCandidates: ["outputs/plan.csv"] };
+  const first = check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, plan);
+
+  assert.strictEqual(check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, plan), first);
+  assert.equal(first.path, "outputs/plan.csv");
+
+  const planRefresh = check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, { outputCandidates: ["outputs/new-plan.csv"] });
+  assert.notStrictEqual(planRefresh, first);
+  assert.equal(planRefresh.path, "outputs/new-plan.csv");
+
+  const emptyPlan = {};
+  const ruleFirst = check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, emptyPlan);
+  const ruleRefresh = check({ adapterRules: { candidateCsv: ["outputs/new-rule.csv"] }, outputContractFiles, resultFiles }, {}, emptyPlan);
+  assert.notStrictEqual(ruleRefresh, ruleFirst);
+  assert.equal(ruleRefresh.path, "outputs/new-rule.csv");
+
+  const contractFirst = check({ outputContractFiles, resultFiles }, {}, emptyPlan);
+  const contractRefresh = check({ outputContractFiles: ["outputs/new-contract.json"], resultFiles }, {}, emptyPlan);
+  assert.notStrictEqual(contractRefresh, contractFirst);
+  assert.equal(contractRefresh.path, "outputs/new-contract.json");
+
+  const resultFirst = check({ resultFiles }, {}, emptyPlan);
+  const resultRefresh = check({ resultFiles: ["outputs/new-actual.csv"] }, {}, emptyPlan);
+  assert.notStrictEqual(resultRefresh, resultFirst);
+  assert.equal(resultRefresh.path, "outputs/new-actual.csv");
 });
 
 test("project result location never invents metrics_summary.csv", () => {

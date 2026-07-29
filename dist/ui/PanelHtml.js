@@ -1473,6 +1473,7 @@ function renderPanelHtml() {
     const adapterRuleResultCandidatesCache = new WeakMap();
     const planScopedResultCandidateCache = new WeakMap();
     const planScopedResultPreviewCache = new WeakMap();
+    const projectResultLocationCache = new WeakMap();
     const projectOutputGateDiagnosticsCache = new WeakMap();
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
@@ -9809,21 +9810,31 @@ function renderPanelHtml() {
     }
 
     function projectResultLocation(project, meta, plan) {
-      const planCandidates = planOutputEvidenceCandidates(plan);
-      const ruleCandidates = adapterRuleResultCandidates((project || {}).adapterRules || (meta || {}).adapterRules || {});
+      const projectSource = project && typeof project === "object" && !Array.isArray(project) ? project : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const metaSource = meta && typeof meta === "object" && !Array.isArray(meta) ? meta : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const planSource = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const rules = projectSource.adapterRules || metaSource.adapterRules || EMPTY_OUTPUT_DERIVATION_SOURCE;
+      const outputContractFiles = projectSource.outputContractFiles || metaSource.outputContractFiles || EMPTY_OUTPUT_DERIVATION_VALUES;
+      const resultFiles = projectSource.resultFiles || metaSource.resultFiles || EMPTY_OUTPUT_DERIVATION_VALUES;
+      const cached = projectResultLocationCache.get(planSource);
+      if (cached && cached.rules === rules && cached.outputContractFiles === outputContractFiles && cached.resultFiles === resultFiles) return cached.value;
+      const planCandidates = planOutputEvidenceCandidates(planSource);
+      const ruleCandidates = adapterRuleResultCandidates(rules);
       const existingCandidates = uniqueText([
-        ...asArray((project || {}).outputContractFiles || (meta || {}).outputContractFiles),
-        ...asArray((project || {}).resultFiles || (meta || {}).resultFiles)
+        ...asArray(outputContractFiles),
+        ...asArray(resultFiles)
       ].map((item) => String(item || "").trim()).filter(isParseableResultCandidate));
       const source = planCandidates.length ? "当前 Plan" : ruleCandidates.length ? "接入规则" : existingCandidates.length ? "已发现结果" : "";
       const candidates = uniqueText([...planCandidates, ...ruleCandidates, ...existingCandidates]);
       const resultPath = candidates[0] || "";
-      return {
+      const value = {
         path: resultPath,
         count: candidates.length,
         source,
         summary: resultPath ? resultPath + (candidates.length > 1 ? " 等 " + candidates.length + " 个" : "") + " · " + source : "未声明可解析结果位置"
       };
+      projectResultLocationCache.set(planSource, { rules, outputContractFiles, resultFiles, value });
+      return value;
     }
 
     function projectQuickRow(label, value, actions, klass) {
