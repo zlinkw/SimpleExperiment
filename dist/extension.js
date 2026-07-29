@@ -12738,11 +12738,23 @@ function projectOnboardingCompletedFromCodeSync(codeSync) {
     const item = codeSync && typeof codeSync === "object" ? codeSync : {};
     return successfulSyncStatus(item.hub) && successfulSyncStatus(item.workers);
 }
+const EMPTY_PROJECT_ONBOARDING_SOURCE = Object.freeze({});
+const projectOnboardingStateForWebviewCache = new WeakMap();
 function projectOnboardingStateForWebview(options) {
     const item = options || {};
-    const workspace = item.workspace && typeof item.workspace === "object" ? item.workspace : {};
-    const setup = item.setup && typeof item.setup === "object" ? item.setup : {};
-    const simpleSftp = item.simpleSftp && typeof item.simpleSftp === "object" ? item.simpleSftp : {};
+    const workspace = item.workspace && typeof item.workspace === "object" ? item.workspace : EMPTY_PROJECT_ONBOARDING_SOURCE;
+    const setup = item.setup && typeof item.setup === "object" ? item.setup : EMPTY_PROJECT_ONBOARDING_SOURCE;
+    const simpleSftp = item.simpleSftp && typeof item.simpleSftp === "object" ? item.simpleSftp : EMPTY_PROJECT_ONBOARDING_SOURCE;
+    const promptShown = Number(item.promptShown || 0);
+    const completedInput = item.completed === true;
+    const cached = projectOnboardingStateForWebviewCache.get(workspace);
+    if (cached
+        && cached.setup === setup
+        && cached.simpleSftp === simpleSftp
+        && cached.promptShown === promptShown
+        && cached.completedInput === completedInput) {
+        return cached.value;
+    }
     const enabledWorkerCount = Array.isArray(setup.workerTunnels)
         ? setup.workerTunnels.filter((worker) => worker && worker.enabled !== false).length
         : 0;
@@ -12753,8 +12765,7 @@ function projectOnboardingStateForWebview(options) {
         ...(enabledWorkerCount > 0 ? [] : ["至少一个启用的执行 Worker"]),
     ];
     const projectReady = hasProject && missing.length === 0;
-    const promptShown = Number(item.promptShown || 0);
-    const completed = hasProject && item.completed === true;
+    const completed = hasProject && completedInput;
     const projectName = String(workspace.name || path.basename(String(workspace.root || "")) || "当前项目").trim();
     const detail = !hasProject
         ? ""
@@ -12764,7 +12775,7 @@ function projectOnboardingStateForWebview(options) {
                 ? `当前项目 ${projectName} 尚未完成接入；点击“接入当前项目”继续。`
                 : `当前项目 ${projectName} 尚未完成接入；先补全：${[...new Set(missing.filter(Boolean))].join("、")}，然后点击“接入当前项目”。`;
     const missingItems = [...new Set(missing.filter(Boolean))];
-    return {
+    const value = {
         required: hasProject && !completed,
         completed,
         ready: projectReady,
@@ -12774,6 +12785,8 @@ function projectOnboardingStateForWebview(options) {
         promptShown,
         detail,
     };
+    projectOnboardingStateForWebviewCache.set(workspace, { setup, simpleSftp, promptShown, completedInput, value });
+    return value;
 }
 function agentSessionReuseBlockers(targets) {
     const blockers = [];
@@ -17157,7 +17170,7 @@ function workspaceMappingConfig() {
         remoteScheme: "vscode-remote",
     };
 }
-function workspaceLocationForFolder(folder) {
+function workspaceLocationForFolder(folder, mappingConfig = workspaceMappingConfig()) {
     const uri = folder?.uri;
     if (!uri)
         return undefined;
@@ -17166,7 +17179,7 @@ function workspaceLocationForFolder(folder) {
         path: uri.path,
         fsPath: uri.fsPath,
         external: uri.toString?.(true),
-    }, workspaceMappingConfig());
+    }, mappingConfig);
 }
 function currentWorkspaceLocation() {
     const folder = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders[0] : undefined;
@@ -17198,12 +17211,23 @@ function currentHostOperationLeaseContext() {
         hostProjectPath: location.hostPath,
     };
 }
+const EMPTY_WORKSPACE_FOLDERS_FOR_WEBVIEW = Object.freeze([]);
+let workspaceContextForWebviewCacheFolders;
+let workspaceContextForWebviewCacheMappingKey = "";
+let workspaceContextForWebviewCacheValue;
 function workspaceContextForWebview() {
-    const folders = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders : [];
+    const folders = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders : EMPTY_WORKSPACE_FOLDERS_FOR_WEBVIEW;
+    const mappingConfig = workspaceMappingConfig();
+    const mappingKey = JSON.stringify([mappingConfig.hostRoot, mappingConfig.containerRoot, mappingConfig.remoteScheme]);
+    if (workspaceContextForWebviewCacheFolders === folders
+        && workspaceContextForWebviewCacheMappingKey === mappingKey
+        && workspaceContextForWebviewCacheValue) {
+        return workspaceContextForWebviewCacheValue;
+    }
     let location;
     let mappingError = "";
     try {
-        location = currentWorkspaceLocation();
+        location = workspaceLocationForFolder(folders[0], mappingConfig);
     }
     catch (error) {
         mappingError = errorMessage(error);
@@ -17211,7 +17235,7 @@ function workspaceContextForWebview() {
     const root = location?.hostPath || "";
     const uri = folders[0]?.uri;
     const name = root ? path.basename(root).trim() : path.basename(String(uri?.path || "")).trim();
-    return {
+    const value = {
         open: Boolean(uri),
         name,
         root,
@@ -17223,6 +17247,10 @@ function workspaceContextForWebview() {
         folderCount: folders.length,
         singleProject: folders.length === 1,
     };
+    workspaceContextForWebviewCacheFolders = folders;
+    workspaceContextForWebviewCacheMappingKey = mappingKey;
+    workspaceContextForWebviewCacheValue = value;
+    return value;
 }
 function assertSingleProjectWorkspace(operation = "当前操作") {
     const folders = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders : [];

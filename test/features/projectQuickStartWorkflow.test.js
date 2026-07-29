@@ -39,7 +39,11 @@ function bootstrapPlanSelection(plans, planFileInput, selectedPlanId) {
 }
 
 function projectOnboardingState(options) {
-  const sandbox = { path: require("node:path") };
+  const sandbox = {
+    path: require("node:path"),
+    EMPTY_PROJECT_ONBOARDING_SOURCE: Object.freeze({}),
+    projectOnboardingStateForWebviewCache: new WeakMap(),
+  };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction(extension, "serverSetupMissingItems"),
