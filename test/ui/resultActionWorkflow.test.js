@@ -24,7 +24,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(extension, /resultsSummaryRefreshInFlight/);
   assert.match(extension, /if \(this\.resultsSummaryRefreshInFlight\) \{\s*this\.pendingResultsSummaryDirtyKey = this\.pendingResultsSummaryDirtyKey \|\| `manual:\$\{Date\.now\(\)\}`/);
   assert.match(extension, /this\.resultsSummaryRefreshInFlight = true/);
-  assert.match(extension, /finally \{\s*if \(generation === this\.projectContextGeneration\)\s*this\.resultsSummaryRefreshInFlight = false;\s*\}/);
+  assert.match(extension, /finally \{\s*if \(generation === this\.projectContextGeneration && client === this\.client\)\s*this\.resultsSummaryRefreshInFlight = false;\s*\}/);
   assert.match(extension, /if \(this\.resultsSummaryRefreshInFlight\) \{\s*this\.scheduleResultsSummaryTimer\("inflight", dirtyKey, 500 \+ Math\.floor\(Math\.random\(\) \* 500\)\);\s*return;\s*\}/);
   assert.match(extension, /scheduleResultsSummaryFailureRetryFromRealtime/);
   assert.match(extension, /markResultsSummaryDirtyKeyRefreshed\(dirtyKey\)/);
