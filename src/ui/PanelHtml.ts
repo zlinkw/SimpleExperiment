@@ -1471,6 +1471,7 @@ export function renderPanelHtml(): string {
     const planOutputEvidenceCandidatesCache = new WeakMap();
     const planOutputEvidenceSignalsCache = new WeakMap();
     const adapterRuleResultCandidatesCache = new WeakMap();
+    const renderAdapterRulesCache = new WeakMap();
     const planScopedResultCandidateCache = new WeakMap();
     const planScopedResultPreviewCache = new WeakMap();
     const projectResultLocationCache = new WeakMap();
@@ -10506,37 +10507,45 @@ export function renderPanelHtml(): string {
     }
 
     function renderAdapterRules(rules) {
-      if (!rules || !hasAdapterRuleSignals(rules)) return "";
-      const displayed = Object.assign({}, rules, {
-        candidateCsv: asArray(rules.candidateCsv).filter(isParseableResultCandidate),
-        candidateJson: asArray(rules.candidateJson).filter(isParseableResultCandidate),
-        consoleLogs: asArray(rules.consoleLogs).filter(isParseableResultCandidate),
-        textLogs: asArray(rules.textLogs).filter(isParseableResultCandidate)
+      const source = rules && typeof rules === "object" ? rules : null;
+      if (!source) return "";
+      if (renderAdapterRulesCache.has(source)) return renderAdapterRulesCache.get(source);
+      if (!hasAdapterRuleSignals(source)) {
+        renderAdapterRulesCache.set(source, "");
+        return "";
+      }
+      const displayed = Object.assign({}, source, {
+        candidateCsv: asArray(source.candidateCsv).filter(isParseableResultCandidate),
+        candidateJson: asArray(source.candidateJson).filter(isParseableResultCandidate),
+        consoleLogs: asArray(source.consoleLogs).filter(isParseableResultCandidate),
+        textLogs: asArray(source.textLogs).filter(isParseableResultCandidate)
       });
       ["candidateCsv", "candidateJson", "consoleLogs", "textLogs"].forEach((key) => {
         displayed[key + "TotalCount"] = displayed[key].length;
         displayed[key + "OmittedCount"] = 0;
       });
-      const ignoredCount = ignoredAdapterRuleCandidateCount(rules);
+      const ignoredCount = ignoredAdapterRuleCandidateCount(source);
       const rows = [
-        ["规则来源", rules.inferredFromProject ? "自动推断" : "配置文件/默认"],
-        ["推断线索", adapterRuleText(rules, "inferredSignals", "无")],
-        ["任务类型", projectTaskTypeLabel(rules.taskType || "classification")],
-        ["主指标", rules.primaryMetric || "AUC"],
-        ["分类指标", adapterRuleText(rules, "classificationMetrics", "默认分类指标")],
-        ["分割兼容指标", adapterRuleText(rules, "segmentationMetrics", "Dice、DSC、IoU、HD95、ASD")],
+        ["规则来源", source.inferredFromProject ? "自动推断" : "配置文件/默认"],
+        ["推断线索", adapterRuleText(source, "inferredSignals", "无")],
+        ["任务类型", projectTaskTypeLabel(source.taskType || "classification")],
+        ["主指标", source.primaryMetric || "AUC"],
+        ["分类指标", adapterRuleText(source, "classificationMetrics", "默认分类指标")],
+        ["分割兼容指标", adapterRuleText(source, "segmentationMetrics", "Dice、DSC、IoU、HD95、ASD")],
         ["候选 CSV", adapterRuleText(displayed, "candidateCsv", "未配置")],
         ["候选 JSON", adapterRuleText(displayed, "candidateJson", "未配置")],
         ["控制台日志", adapterRuleText(displayed, "consoleLogs", "未配置")],
         ["文本日志", adapterRuleText(displayed, "textLogs", "未配置")],
         ["已忽略非结果候选", ignoredCount ? ignoredCount + " 个状态、manifest 或内部文件" : ""],
-        ["指标正则", rules.metricRegex || "默认正则"],
-        ["指标别名", adapterRuleText(rules, "metricAliases", "默认别名")],
-        ["列映射", adapterRuleText(rules, "csvColumnMapping", "默认列名")],
+        ["指标正则", source.metricRegex || "默认正则"],
+        ["指标别名", adapterRuleText(source, "metricAliases", "默认别名")],
+        ["列映射", adapterRuleText(source, "csvColumnMapping", "默认列名")],
       ].filter((item) => item[1]);
-      return '<details class="advanced"><summary>项目接入规则</summary><div class="workbench-summary">' +
+      const html = '<details class="advanced"><summary>项目接入规则</summary><div class="workbench-summary">' +
         rows.map((item) => row(item[0], item[1])).join("") +
       '</div></details>';
+      renderAdapterRulesCache.set(source, html);
+      return html;
     }
 
     function renderResultParsePreviews(scope) {
