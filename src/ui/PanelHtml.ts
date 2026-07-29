@@ -1693,6 +1693,17 @@ export function renderPanelHtml(): string {
     const EMPTY_WORKER_TUNNELS_FOR_ALIAS = [];
     const EMPTY_XSHELL_SESSIONS = [];
     const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
+    const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
+    const SCHEDULER_BUCKET_STATUSES = Object.freeze({
+      running_experiments: "running",
+      testing_experiments: "testing",
+      queued_experiments: "queued",
+      pending_experiments: "queued",
+      completed_experiments: "completed",
+      failed_experiments: "failed",
+      stopped_experiments: "stopped"
+    });
+    const SCHEDULER_BUCKETS = Object.freeze(Object.keys(SCHEDULER_BUCKET_STATUSES));
     const TASK_RENDER_BUDGET_HINT = "超出渲染预算时按已选、运行或失败、排队、其余的顺序保留；折叠的任务仍参与计数与批量操作";
     const FEATURE_READINESS_GROUPS = [
       ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
@@ -13628,10 +13639,9 @@ export function renderPanelHtml(): string {
     }
     function expandSchedulerRow(row) {
       if (!row || typeof row !== "object") return [];
-      const buckets = ["running_experiments", "testing_experiments", "queued_experiments", "pending_experiments", "completed_experiments", "failed_experiments", "stopped_experiments"];
       const parentPlanFile = row.planFile || row.plan_file || row.planPath || row.plan_path || row.file || row.path || row.plan;
       const parentPlanRevision = row.planRevision || row.plan_revision || "";
-      const expanded = buckets.flatMap((key) => asArray(row[key]).map((child) => {
+      const expanded = SCHEDULER_BUCKETS.flatMap((key) => asArray(row[key]).map((child) => {
         const childRecord = child && typeof child === "object" ? child : {};
         return Object.assign({}, childRecord, { status: childRecord.status || childRecord.state || bucketStatus(key), plan: row.plan || row.planName || row.suite || row.file, planFile: childRecord.planFile || childRecord.plan_file || childRecord.file || childRecord.path || parentPlanFile, planRevision: childRecord.planRevision || childRecord.plan_revision || parentPlanRevision, debugMode: childRecord.debugMode === true || row.debugMode === true, debugRunId: childRecord.debugRunId || row.debugRunId || "", debugOutputDir: childRecord.debugOutputDir || row.debugOutputDir || "" });
       }));
@@ -14039,8 +14049,7 @@ export function renderPanelHtml(): string {
       return minutes ? String(minutes) + "m " + String(seconds % 60) + "s" : String(seconds) + "s";
     }
     function taskStatusRank(status) {
-      const map = { running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 };
-      return map[taskStatusToken(status) || "unknown"] ?? 6;
+      return TASK_STATUS_RANKS[taskStatusToken(status) || "unknown"] ?? 6;
     }
     function taskStatusToken(status) {
       const value = String(status || "").trim().toLowerCase();
@@ -14072,7 +14081,7 @@ export function renderPanelHtml(): string {
       const value = taskStatusToken(status);
       return ["completed", "done"].includes(value) || taskFailureLikeStatus(value);
     }
-    function bucketStatus(key) { return key.replace("_experiments", "").replace("pending", "queued"); }
+    function bucketStatus(key) { return SCHEDULER_BUCKET_STATUSES[key] ?? key.replace("_experiments", "").replace("pending", "queued"); }
     function operationStatusFromType(type) {
       const text = String(type);
       if (text.includes("completed")) return "completed";

@@ -20,6 +20,13 @@ function extractFunction(source, name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractDeclaration(source, name) {
+  const start = source.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing declaration ${name}`);
+  const end = source.indexOf(";\n", start);
+  return source.slice(start, end + 1);
+}
+
 test("frontend scheduler rows skip repeated expansion inside one state", () => {
   const sandbox = {
     EMPTY_SCHEDULER_STATES: [],
@@ -108,4 +115,34 @@ test("Plan archive scheduler flattening preserves bucket status and parent versi
     { runKey: "run-a", status: "running", planFile: "experiments/plans/a.yaml", planRevision: "r1" },
     { runKey: "run-b", status: "error", planFile: "experiments/plans/a.yaml", planRevision: "r2" },
   ]);
+});
+
+test("frontend scheduler expansion reuses fixed rank and bucket definitions", () => {
+  const sandbox = { asArray: (value) => Array.isArray(value) ? value : [] };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractDeclaration(panel, "TASK_STATUS_RANKS"),
+    extractDeclaration(panel, "SCHEDULER_BUCKET_STATUSES"),
+    extractDeclaration(panel, "SCHEDULER_BUCKETS"),
+    extractFunction(panel, "taskStatusToken"),
+    extractFunction(panel, "taskStatusRank"),
+    extractFunction(panel, "bucketStatus"),
+    extractFunction(panel, "expandSchedulerRow"),
+    "this.api = { taskStatusRank, expandSchedulerRow };",
+  ].join("\n"), sandbox);
+
+  assert.equal(sandbox.api.taskStatusRank("RUNNING"), 0);
+  assert.equal(sandbox.api.taskStatusRank("future-status"), 6);
+  const rows = sandbox.api.expandSchedulerRow({
+    planFile: "experiments/plans/a.yaml",
+    planRevision: "r1",
+    pending_experiments: [{ runKey: "pending" }],
+    failed_experiments: [{ runKey: "failed" }],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(rows)), [
+    { runKey: "pending", status: "queued", planFile: "experiments/plans/a.yaml", planRevision: "r1", debugMode: false, debugRunId: "", debugOutputDir: "" },
+    { runKey: "failed", status: "failed", planFile: "experiments/plans/a.yaml", planRevision: "r1", debugMode: false, debugRunId: "", debugOutputDir: "" },
+  ]);
+  assert.doesNotMatch(extractFunction(panel, "taskStatusRank"), /const map =/);
+  assert.doesNotMatch(extractFunction(panel, "expandSchedulerRow"), /const buckets =/);
 });
