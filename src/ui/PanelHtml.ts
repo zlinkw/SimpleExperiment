@@ -1497,9 +1497,13 @@ export function renderPanelHtml(): string {
     let resultEvidenceTraceStatsCacheValue = null;
     let currentPlanWorkflowResultCacheState = null;
     let currentPlanWorkflowResultCache = new Map();
+    let currentPlanRevisionRunEvidenceCacheState = null;
+    let currentPlanRevisionRunEvidenceCache = new Map();
     let resultAutoParseReadinessCacheState = null;
     let resultAutoParseReadinessCacheSummary = null;
     let resultAutoParseReadinessCacheValue = null;
+    let currentResultOutputContractCheckCacheState = null;
+    let currentResultOutputContractCheckCacheValue = null;
     let resultAnalysisArtifactsCacheState = null;
     let resultAnalysisArtifactsCacheSummary = null;
     let resultAnalysisArtifactsCacheValue = null;
@@ -1559,6 +1563,10 @@ export function renderPanelHtml(): string {
     let overviewProjectStatsCacheValue = null;
     let overviewProjectReadinessCacheState = null;
     let overviewProjectReadinessCacheValue = null;
+    let projectEndpointReadinessCacheState = null;
+    let projectEndpointReadinessCacheValue = null;
+    let projectCodeSyncReadinessCacheState = null;
+    let projectCodeSyncReadinessCacheValue = null;
     let serverStatusIndexCacheSources = null;
     let serverStatusIndexCacheValue = null;
     let xshellSessionIndexCacheSource = null;
@@ -1652,6 +1660,7 @@ export function renderPanelHtml(): string {
     const INSPECTOR_READINESS_RENDER_LIMIT = 8;
     const PLAN_EXECUTION_STAGE_CACHE_LIMIT = 64;
     const PLAN_VERSION_ROWS_CACHE_LIMIT = 64;
+    const CURRENT_PLAN_RUN_EVIDENCE_CACHE_LIMIT = 64;
     const CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT = 32;
     const PLAN_FILE_EQUIVALENCE_CACHE_LIMIT = 128;
     const PLAN_ARCHIVE_READINESS_CACHE_LIMIT = 64;
@@ -9585,15 +9594,17 @@ export function renderPanelHtml(): string {
     }
 
     function projectEndpointReadiness(state) {
-      const workers = enabledWorkerTunnelsForState(state);
-      const workerProbes = (state || {}).workerProbes || {};
-      const hubStatus = String(((state || {}).probe || {}).status || ((state || {}).health || {}).state || "").toLowerCase();
+      const data = state || {};
+      if (projectEndpointReadinessCacheState === data && projectEndpointReadinessCacheValue) return projectEndpointReadinessCacheValue;
+      const workers = enabledWorkerTunnelsForState(data);
+      const workerProbes = data.workerProbes || {};
+      const hubStatus = String((data.probe || {}).status || (data.health || {}).state || "").toLowerCase();
       const restartRequired = hubStatus === "agent_restart_required";
       let versionMismatch = hubStatus === "agent_version_mismatch";
       let projectMismatch = hubStatus === "agent_project_mismatch";
       const hubReady = ["ok", "agent_ok", "file_api_unavailable"].includes(hubStatus);
       let workerReady = true;
-      const hubProbe = (state || {}).probe || {};
+      const hubProbe = data.probe || {};
       const hubMismatch = "Hub 当前 Agent 仍指向旧项目（" + String(hubProbe.projectRoot || "未返回") + "；期望 " + String(hubProbe.expectedProjectRoot || "未配置") + "）";
       const missing = hubReady ? [] : [restartRequired ? "Agent 待重启" : versionMismatch ? "Hub Agent 版本不兼容" : projectMismatch ? hubMismatch : "Hub 未检测或不可达"];
       const dependencyRows = [{ label: "Hub", dependency: hubProbe.schedulerDependencies }];
@@ -9616,7 +9627,7 @@ export function renderPanelHtml(): string {
           missing.push(label + (status === "agent_version_mismatch" ? " Agent 版本不兼容" : status === "agent_project_mismatch" ? " 当前 Agent 仍指向旧项目（" + String(workerProbe.projectRoot || "未返回") + "；期望 " + String(workerProbe.expectedProjectRoot || "未配置") + "）" : " 未检测或不可达"));
         }
       });
-      return {
+      const value = {
         ready: missing.length === 0,
         hubReady,
         workerReady,
@@ -9635,11 +9646,16 @@ export function renderPanelHtml(): string {
             : dependencyIssues.length ? "Scheduler 依赖未就绪：" + dependencyIssues.join("、")
             : missing.length ? "缺少：" + missing.join("、") : "Hub/Worker Agent 可达"
       };
+      projectEndpointReadinessCacheState = data;
+      projectEndpointReadinessCacheValue = value;
+      return value;
     }
 
     function projectCodeSyncReadiness(state) {
-      const workerRequired = enabledWorkerTunnelsForState(state).length > 0;
-      const sync = (state || {}).codeSync || {};
+      const data = state || {};
+      if (projectCodeSyncReadinessCacheState === data && projectCodeSyncReadinessCacheValue) return projectCodeSyncReadinessCacheValue;
+      const workerRequired = enabledWorkerTunnelsForState(data).length > 0;
+      const sync = data.codeSync || {};
       const hubReady = syncStatusOk(sync.hub);
       const workerReady = !workerRequired || syncStatusOk(sync.workers);
       const fingerprintReady = hasText(sync.fingerprint);
@@ -9647,7 +9663,7 @@ export function renderPanelHtml(): string {
       if (!hubReady) missing.push("Hub 代码");
       if (!workerReady) missing.push("Worker 代码");
       if (!fingerprintReady) missing.push("代码指纹");
-      return {
+      const value = {
         ready: hubReady && workerReady && fingerprintReady,
         hubReady,
         workerReady,
@@ -9656,6 +9672,9 @@ export function renderPanelHtml(): string {
         missing,
         summary: missing.length ? "待同步：" + missing.join("、") : "代码已同步 · " + compactIdentifier(sync.fingerprint)
       };
+      projectCodeSyncReadinessCacheState = data;
+      projectCodeSyncReadinessCacheValue = value;
+      return value;
     }
 
     function projectReadinessStatusText(simpleSftpReadiness, serverReadiness, workerReadiness, endpointReadiness, outputGate) {
@@ -11801,17 +11820,31 @@ export function renderPanelHtml(): string {
       const selectedPlan = meaningfulValue(planFile);
       const item = plan || planFromContext(data, { planFile: selectedPlan }) || {};
       if (!selectedPlan || !Object.keys(item).length) return false;
+      if (currentPlanRevisionRunEvidenceCacheState !== data) {
+        currentPlanRevisionRunEvidenceCacheState = data;
+        currentPlanRevisionRunEvidenceCache = new Map();
+      }
       const planRevision = String(item.revision || "");
-      const planUpdatedAt = Date.parse(String(item.updatedAt || ""));
+      const planUpdatedAtText = String(item.updatedAt || "");
+      const planUpdatedAt = Date.parse(planUpdatedAtText);
+      const cacheKey = [normalizePlanSelectionKey(selectedPlan), planRevision, planUpdatedAtText].join("|");
+      if (currentPlanRevisionRunEvidenceCache.has(cacheKey)) return currentPlanRevisionRunEvidenceCache.get(cacheKey);
       const operationMatch = operationRowsForState(data).some((row) =>
         ["run-plan", "reproduce-plan"].includes(String((row || {}).type || "").toLowerCase())
         && samePlanSelection((row || {}).planFile || "", selectedPlan)
         && Boolean((row || {}).submissionAccepted || (row || {}).schedulerStarted)
         && operationMatchesPlanVersion(row, planRevision, planUpdatedAt));
-      if (operationMatch) return true;
-      return schedulerRowsForState(data).some((row) =>
+      if (operationMatch) return cacheCurrentPlanRevisionRunEvidence(cacheKey, true);
+      const value = schedulerRowsForState(data).some((row) =>
         samePlanSelection((row || {}).planFile || (row || {}).plan || "", selectedPlan)
         && taskMatchesPlanVersion(row, planRevision, planUpdatedAt));
+      return cacheCurrentPlanRevisionRunEvidence(cacheKey, value);
+    }
+
+    function cacheCurrentPlanRevisionRunEvidence(cacheKey, value) {
+      if (currentPlanRevisionRunEvidenceCache.size >= CURRENT_PLAN_RUN_EVIDENCE_CACHE_LIMIT) currentPlanRevisionRunEvidenceCache.clear();
+      currentPlanRevisionRunEvidenceCache.set(cacheKey, value);
+      return value;
     }
 
     function resultAutoParseReadinessForState(state, summary) {
@@ -12180,11 +12213,15 @@ export function renderPanelHtml(): string {
 
     function currentResultOutputContractCheck(state) {
       const data = state || {};
+      if (currentResultOutputContractCheckCacheState === data && currentResultOutputContractCheckCacheValue) return currentResultOutputContractCheckCacheValue;
       const summary = data.resultsSummary || {};
       const parsedAt = meaningfulValue(pick(summary, ["lastParsedAt", "last_parsed_at"], ""));
       const planFile = meaningfulValue(data.planFileInput || (data.selection || {}).selectedPlanId || pick(summary, ["planFile", "plan_file"], ""));
       const plan = planFromContext(data, { planFile }) || {};
-      return latestResultOutputContractCheck(data, planFile, parsedAt, String(plan.revision || ""), Date.parse(String(plan.updatedAt || "")));
+      const value = latestResultOutputContractCheck(data, planFile, parsedAt, String(plan.revision || ""), Date.parse(String(plan.updatedAt || "")));
+      currentResultOutputContractCheckCacheState = data;
+      currentResultOutputContractCheckCacheValue = value;
+      return value;
     }
 
     function resultAnalysisArtifactsForState(state, summary) {

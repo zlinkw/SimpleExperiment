@@ -21,6 +21,9 @@ function extractFunction(name) {
 
 function loadReadiness(raw = false) {
   const sandbox = {
+    CURRENT_PLAN_RUN_EVIDENCE_CACHE_LIMIT: 64,
+    currentPlanRevisionRunEvidenceCacheState: null,
+    currentPlanRevisionRunEvidenceCache: new Map(),
     resultAutoParseReadinessCacheState: null,
     resultAutoParseReadinessCacheSummary: null,
     resultAutoParseReadinessCacheValue: null,
@@ -47,7 +50,9 @@ function loadReadiness(raw = false) {
     taskMatchesPlanVersion(row, revision) { return !row.planRevision || row.planRevision === revision; },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("currentPlanRevisionRunEvidenceForState")}
+  vm.runInContext(`${extractFunction("normalizePlanSelectionKey")}
+${extractFunction("cacheCurrentPlanRevisionRunEvidence")}
+${extractFunction("currentPlanRevisionRunEvidenceForState")}
 ${extractFunction("resultAutoParseReadinessForState")}
 this.readiness = resultAutoParseReadinessForState;`, sandbox);
   if (raw) return sandbox;
