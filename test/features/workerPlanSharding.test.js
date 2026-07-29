@@ -2,9 +2,23 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const { createWorkerPlanShardSet, workerPlanShardSetMatches } = require("../../dist/features/WorkerPlanSharding.js");
 const root = path.join(__dirname, "..", "..");
+
+function extensionFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const body = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated ${name}`);
+}
 
 test("Worker pool sharding is deterministic and covers every experiment once", () => {
   const first = createWorkerPlanShardSet("plan-rev-1", ["worker-b", "worker-a", "worker-c"], [4, 0, 3, 1, 2, 2]);
@@ -46,6 +60,40 @@ test("Extension submits one immutable shard to each Worker without using Hub act
   assert.match(request, /schedulerOwnerWorkerId: workerId/);
   assert.match(request, /assignedExperimentIndices: indices/);
   assert.match(request, /automaticBackup: false/);
+});
+
+test("no-Hub result fanout preserves every Worker outcome before reporting failure", () => {
+  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const methodStart = source.indexOf("async postNoHubResultAction");
+  const method = source.slice(methodStart, source.indexOf("assertTopologyActualWorkRoots", methodStart));
+  assert.match(method, /for \(const workerId of workerIds\)/);
+  assert.match(method, /catch \(error\)/);
+  assert.match(method, /resultOwnerWorkerId: workerId/);
+  assert.match(method, /status: isUiCommandCancelled\(error\) \? "cancelled" : "failed"/);
+  assert.match(method, /return workerResultAggregateResult\(action, submissions\)/);
+
+  const sandbox = {
+    resultStatus: (result) => result?.status,
+    stringFromRecord: (record, keys) => keys.map((key) => record?.[key]).find(Boolean) || "",
+    operationFailureTerminalStatus: (status) => ["failed", "completed_with_errors", "error"].includes(status),
+    operationCancelledTerminalStatus: (status) => ["cancelled", "canceled"].includes(status),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${extensionFunction(source, "workerResultAggregateResult")}\nthis.aggregate = workerResultAggregateResult;`, sandbox);
+  const aggregate = sandbox.aggregate("parse-results", [
+    { workerId: "worker-a", result: { status: "completed" } },
+    { workerId: "worker-b", result: { status: "failed", error: "timeout" } },
+    { workerId: "worker-c", result: { status: "cancelled" } },
+  ]);
+  assert.equal(aggregate.status, "completed_with_errors");
+  assert.deepEqual([...aggregate.failedWorkerIds], ["worker-b", "worker-c"]);
+  assert.deepEqual([...aggregate.completedWorkerIds], ["worker-a"]);
+  assert.match(aggregate.message, /失败 Worker：worker-b、worker-c/);
+  assert.match(aggregate.message, /成功 Worker：worker-a/);
+
+  const actionCoreStart = source.indexOf("async runActionCommandCore");
+  const actionCore = source.slice(actionCoreStart, source.indexOf("async runPlanPreflight", actionCoreStart));
+  assert.ok(actionCore.indexOf("await this.refreshResultsSummary(planHint)") < actionCore.indexOf("this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult)"));
 });
 
 test("Worker Agent rejects incomplete or mismatched pool shard identity", () => {

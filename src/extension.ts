@@ -2936,6 +2936,7 @@ class RealtimeTunnelPanelProvider {
                 this.queueSelectedPlanResultParse(command, planHint);
             await this.refreshResultsSummary(planHint);
         }
+        this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult);
     }
     async runPlanPreflight(body, label) {
         const prefix = String(label || "当前计划").trim() || "当前计划";
@@ -4013,12 +4014,28 @@ class RealtimeTunnelPanelProvider {
         }
         const submissions = [];
         for (const workerId of workerIds) {
-            const scoped = this.stampNoHubResultOwnership(this.workerScopedActionBody(body, workerId), workerId);
-            const submitted = await this.postWorkerTunnelAction(workerId, action, scoped, { title: command, confirm: false, danger: false });
-            const result = remoteActionPendingStatus(resultStatus(submitted))
-                ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId)
-                : submitted;
-            submissions.push({ workerId, result });
+            try {
+                const scoped = this.stampNoHubResultOwnership(this.workerScopedActionBody(body, workerId), workerId);
+                const submitted = await this.postWorkerTunnelAction(workerId, action, scoped, { title: command, confirm: false, danger: false });
+                const result = remoteActionPendingStatus(resultStatus(submitted))
+                    ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId)
+                    : submitted;
+                submissions.push({ workerId, result });
+            }
+            catch (error) {
+                const message = errorMessage(error);
+                submissions.push({
+                    workerId,
+                    result: {
+                        schemaVersion: 1,
+                        status: isUiCommandCancelled(error) ? "cancelled" : "failed",
+                        workerId,
+                        resultOwnerWorkerId: workerId,
+                        error: message,
+                        message,
+                    },
+                });
+            }
         }
         return workerResultAggregateResult(action, submissions);
     }
@@ -8529,13 +8546,19 @@ function workerResultAggregateResult(action, submissions) {
         operationId: stringFromRecord(result && typeof result === "object" ? result : {}, ["operationId", "opId", "id"]),
         result,
     }));
-    const failed = rows.filter((row) => operationFailureTerminalStatus(row.status));
+    const failed = rows.filter((row) => operationFailureTerminalStatus(row.status) || operationCancelledTerminalStatus(row.status));
+    const failedWorkerIds = failed.map((row) => row.workerId);
+    const completedWorkerIds = rows.filter((row) => !failedWorkerIds.includes(row.workerId)).map((row) => row.workerId);
     return {
         schemaVersion: 1,
         action,
         status: failed.length ? "completed_with_errors" : "completed",
         workerSubmissions: rows,
-        message: failed.length ? `${failed.length}/${rows.length} 个 Worker 结果操作失败` : `${rows.length} 个 Worker 已完成各自的结果操作`,
+        failedWorkerIds,
+        completedWorkerIds,
+        message: failed.length
+            ? `${failed.length}/${rows.length} 个 Worker 结果操作未完成；失败 Worker：${failedWorkerIds.join("、")}${completedWorkerIds.length ? `；成功 Worker：${completedWorkerIds.join("、")}` : ""}`
+            : `${rows.length} 个 Worker 已完成各自的结果操作`,
     };
 }
 function operationResultPlanFile(record) {
