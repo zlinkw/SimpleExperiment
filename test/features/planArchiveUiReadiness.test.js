@@ -35,6 +35,9 @@ function extractExtensionFunction(name) {
 
 function loadHelpers() {
   const sandbox = {
+    PLAN_FILE_EQUIVALENCE_CACHE_LIMIT: 128,
+    EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY: { keys: [], keySet: new Set() },
+    planFileEquivalenceCache: new Map(),
     asArray: (value) => Array.isArray(value) ? value : [],
     uniqueText: (values) => [...new Set((values || []).filter(Boolean))],
     schedulerRowsForState: (state) => state.__tasks || [],
@@ -42,6 +45,7 @@ function loadHelpers() {
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("normalizePlanSelectionKey"),
+    extractFunction("planFileEquivalenceEntry"),
     extractFunction("planFileEquivalenceKeys"),
     extractFunction("samePlanSelection"),
     extractFunction("taskStatusToken"),

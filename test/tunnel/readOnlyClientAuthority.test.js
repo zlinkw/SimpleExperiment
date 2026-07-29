@@ -19,10 +19,12 @@ test("live output and audit reads ignore stale clients", () => {
   assert.match(live, /generation !== this\.projectContextGeneration \|\| client !== this\.client/);
 
   const audit = method("openAuditTail", "refreshResultsSummary");
+  assert.match(audit, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(audit, /const client = this\.client/);
+  assert.match(audit, /const isCurrent = \(\) => this\.projectContextIsCurrent\(projectContext\) && client === this\.client/);
   assert.match(audit, /client\.getAuditTail\(\)/);
-  assert.ok([...audit.matchAll(/client !== this\.client/g)].length >= 3);
-  assert.ok(audit.indexOf("client !== this.client") < audit.indexOf("this.auditTail = auditTailSummaryForWebview"));
+  assert.ok([...audit.matchAll(/isCurrent\(\)/g)].length >= 5);
+  assert.ok(audit.indexOf("if (!isCurrent())") < audit.indexOf("this.auditTail = auditSummary"));
 });
 
 test("remote downloads do not open stale-client results", () => {
