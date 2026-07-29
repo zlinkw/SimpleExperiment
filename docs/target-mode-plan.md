@@ -14,33 +14,33 @@
 
 ## 后续优先级
 - [已完成] 1/5 async-001：隔离 Xshell 启动后的延迟隧道检测回调。
-- [待处理] 2/5 async-002：隔离 PPT automation 异步结果的项目上下文。
+- [已完成] 2/5 async-002：隔离 PPT automation 异步结果的项目上下文。
 - [待处理] 3/5 async-003：隔离 Xshell 会话库扫描的配置上下文。
 - [待处理] 4/5 async-004：合并前端 GPU 曲线样式持久化写入。
 - [待处理] 5/5 async-005：执行第三十轮完整非服务器静态测试并修正新增回归。
 
-## 当前批次：async-001（已完成）
+## 当前批次：async-002（已完成）
 ### 修复点
 
-- Xshell 启动后的自动检测改为单一受控 timer，重复启动、客户端重置、工作区切换和 dispose 会使旧回调失效。
-- 延迟检测异常改为当前客户端限定的受控错误状态，避免未处理 Promise rejection。
+- PPT automation 请求在入队时固定项目世代和 PPT 路径，排队开始及异步完成后均校验当前上下文。
+- 旧项目的成功、失败和强制 UI 刷新不得覆盖新项目 readiness。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 本批只验证延迟回调静态契约，不实际启动 Xshell 或访问服务器。
+- 本批只验证本机 PPT bridge 调用的静态上下文契约，不启动 PowerPoint。
 - 定向测试只允许更新受版本控制的构建产物，不纳入无关缓存或报告。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] Xshell 延迟检测 timer、世代和客户端权威静态契约测试，11/11。
+- [已通过] PPT automation 排队、路径快照和项目世代静态契约测试，15/15。
 - [已通过] TypeScript、Lint、Node 语法与 `git diff --check`。
 
 ## 本批记录
-- 本轮只处理 Xshell 启动后延迟检测回调，不改变连接入口或检测内容。
+- 本轮只处理 PPT automation readiness 异步上下文，不改变绘图协议和按钮入口。
 - 真实服务器行为保持 `needs field verification`。
-- 下一批边界：PPT automation 异步结果的项目上下文隔离。
+- 下一批边界：Xshell 会话库扫描的配置上下文隔离。
 - 提交记录：本批使用独立 `fix` 提交并推送 `origin/master`；哈希以 Git 历史为准。

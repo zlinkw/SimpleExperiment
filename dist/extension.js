@@ -5862,23 +5862,33 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`PPT 路径已更新到当前项目：${presentationPath}`);
     }
     async refreshPptAutomationReadiness(start) {
+        const generation = this.projectContextGeneration;
+        const presentationPath = this.pptPlotConfig().presentationPath;
         const previous = this.pptAutomationRefreshPromise || Promise.resolve();
         const current = previous.catch(() => undefined).then(async () => {
+            if (generation !== this.projectContextGeneration)
+                return this.pptAutomationReadiness;
             const bridge = new PptPlotBridge_1.PptPlotBridge();
             try {
-                this.pptAutomationReadiness = start
-                    ? await bridge.prepareAutomation(this.pptPlotConfig().presentationPath)
+                const readiness = start
+                    ? await bridge.prepareAutomation(presentationPath)
                     : await bridge.inspectAutomation();
+                if (generation !== this.projectContextGeneration)
+                    return this.pptAutomationReadiness;
+                this.pptAutomationReadiness = readiness;
                 return this.pptAutomationReadiness;
             }
             catch (error) {
+                if (generation !== this.projectContextGeneration)
+                    return this.pptAutomationReadiness;
                 this.pptAutomationReadiness = (0, PptPlotBridge_1.pptAutomationReadinessFromError)(error);
                 if (start)
                     throw error;
                 return this.pptAutomationReadiness;
             }
             finally {
-                this.postState(true);
+                if (generation === this.projectContextGeneration)
+                    this.postState(true);
             }
         });
         this.pptAutomationRefreshPromise = current;

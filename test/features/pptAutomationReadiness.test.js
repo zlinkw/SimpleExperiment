@@ -109,6 +109,13 @@ test("result UI exposes PPT readiness without entering experiment gates", () => 
   const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
   assert.match(extension, /void this\.refreshPptAutomationReadiness\(false\)/);
   assert.match(extension, /pptAutomation: this\.pptAutomationReadiness/);
+  const refresh = extension.match(/async refreshPptAutomationReadiness\(start\)[\s\S]*?async openPptAutomationGuide/)?.[0] || "";
+  assert.match(refresh, /const generation = this\.projectContextGeneration/);
+  assert.match(refresh, /const presentationPath = this\.pptPlotConfig\(\)\.presentationPath/);
+  assert.match(refresh, /if \(generation !== this\.projectContextGeneration\)\s*return this\.pptAutomationReadiness/);
+  assert.match(refresh, /bridge\.prepareAutomation\(presentationPath\)/);
+  assert.doesNotMatch(refresh, /bridge\.prepareAutomation\(this\.pptPlotConfig\(\)\.presentationPath\)/);
+  assert.match(refresh, /if \(generation === this\.projectContextGeneration\)\s*this\.postState\(true\)/);
   assert.match(panel, /function pptAutomationReadinessForState\(state\)/);
   assert.match(panel, /PPT 版本不兼容/);
   assert.match(panel, /const plotDisabled = !statisticsSourcePath \|\| !automation\.ready/);
