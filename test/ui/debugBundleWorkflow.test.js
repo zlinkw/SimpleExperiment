@@ -10,6 +10,6 @@ test("debug bundle workflow creates through action and downloads through its bou
   assert.match(source, /createDebugBundle: "create-debug-bundle"/);
   assert.match(source, /case "downloadDebugBundle":\s*await this\.downloadDebugBundle\(\)/);
   assert.match(source, /findDebugBundlePath/);
-  assert.match(source, /this\.client\.downloadFile\(pathFromOps, picked\.fsPath\)/);
+  assert.match(source, /client\.downloadFile\(pathFromOps, picked\.fsPath\)/);
   assert.doesNotMatch(source, /downloadSelectedRemoteFile|listRemoteFiles|uploadFileToCurrentRemoteDir/);
 });

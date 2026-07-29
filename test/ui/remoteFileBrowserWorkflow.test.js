@@ -10,7 +10,7 @@ test("panel delegates uploads to SimpleSFTP and limits direct file access to res
   assert.match(source, /"simpleSftp\.uploadWorkspace"/);
   assert.match(source, /"simpleSftp\.uploadFiles"/);
   assert.match(source, /async downloadRemoteResultFromUi\(message\)/);
-  assert.match(source, /this\.client\.downloadFile\(remotePath, localPath, \{ maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES \}\)/);
+  assert.match(source, /client\.downloadFile\(remotePath, localPath, \{ maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES \}\)/);
   assert.doesNotMatch(source, /downloadSelectedRemoteFile|uploadFileToCurrentRemoteDir|selectRemoteFileFromUi|selectedRemoteFile/);
   assert.doesNotMatch(source, /client\.listRemoteFiles|client\.uploadFile/);
   assert.doesNotMatch(source, /\bscp\b|\brsync\b|runSsh|execFile|spawn/i);
