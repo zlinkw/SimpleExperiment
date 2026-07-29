@@ -1,0 +1,102 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const vm = require("node:vm");
+
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+
+function extractFunction(name) {
+  const start = panel.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const body = panel.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < panel.length; index += 1) {
+    if (panel[index] === "{") depth += 1;
+    if (panel[index] === "}") depth -= 1;
+    if (depth === 0) return panel.slice(start, index + 1);
+  }
+  throw new Error(`unterminated ${name}`);
+}
+
+function loadNormalizers() {
+  const sandbox = {
+    activeResourceSection: "plans",
+    PINNED_COMMAND_VALUES: new Set(["runPlan", "parseResults", "publishGithub"]),
+    webviewHandledCommands: new Set(["runPlan", "parseResults", "publishGithub"]),
+    pinnedCommandsNormalizationCache: new WeakMap(),
+    savedButtonActionsNormalizationCache: new WeakMap(),
+    SAVED_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT: 8,
+    labelCalls: 0,
+    featureCommandLabel(command) {
+      sandbox.labelCalls += 1;
+      return { runPlan: "Run", parseResults: "Parse", publishGithub: "Publish" }[command] || command;
+    },
+    compactText(value, limit) {
+      return String(value || "").slice(0, limit);
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction("normalizePinnedCommands"),
+    extractFunction("normalizeSavedButtonActions"),
+    extractFunction("normalizeSavedButtonAction"),
+    extractFunction("normalizeActionSection"),
+    extractFunction("sanitizeActionPayload"),
+    extractFunction("actionSpecId"),
+    "this.normalizePinned = normalizePinnedCommands;",
+    "this.normalizeActions = normalizeSavedButtonActions;",
+  ].join("\n"), sandbox);
+  return sandbox;
+}
+
+test("pinned command normalization reuses one source array and invalidates on replacement", () => {
+  const sandbox = loadNormalizers();
+  const commands = ["runPlan", "unknown", "runPlan", "parseResults"];
+  const first = sandbox.normalizePinned(commands);
+
+  assert.strictEqual(sandbox.normalizePinned(commands), first);
+  assert.deepEqual(Array.from(first), ["runPlan", "parseResults"]);
+  assert.notStrictEqual(sandbox.normalizePinned([...commands]), first);
+});
+
+test("saved action normalization caches by source, limit, and active section", () => {
+  const sandbox = loadNormalizers();
+  const actions = [
+    { command: "runPlan", payload: { planFile: "experiments/plans/demo.yaml", shellCommand: "blocked" } },
+    { command: "runPlan", payload: { planFile: "experiments/plans/demo.yaml", shellCommand: "blocked" } },
+    { command: "unknown", payload: { planFile: "ignored.yaml" } },
+  ];
+  const first = sandbox.normalizeActions(actions, 16);
+  const labelCalls = sandbox.labelCalls;
+
+  assert.strictEqual(sandbox.normalizeActions(actions, 16), first);
+  assert.equal(sandbox.labelCalls, labelCalls);
+  assert.equal(first.length, 1);
+  assert.equal(first[0].section, "plans");
+  assert.equal(first[0].payload.planFile, "experiments/plans/demo.yaml");
+  assert.equal(first[0].payload.shellCommand, undefined);
+
+  sandbox.activeResourceSection = "results";
+  const changedSection = sandbox.normalizeActions(actions, 16);
+  assert.notStrictEqual(changedSection, first);
+  assert.equal(changedSection[0].section, "results");
+  assert.notStrictEqual(sandbox.normalizeActions(actions, 1), changedSection);
+  assert.notStrictEqual(sandbox.normalizeActions([...actions], 16), changedSection);
+});
+
+test("saved action normalization keeps only the newest bounded variants", () => {
+  const sandbox = loadNormalizers();
+  const actions = [{ command: "runPlan", payload: { planFile: "demo.yaml" } }];
+  const sections = ["overview", "servers", "settings", "gpu", "plans", "tasks", "results", "sync", "operations", "diagnostics"];
+  const oldest = sandbox.normalizeActions(actions, 16);
+  for (const section of sections.slice(1)) {
+    sandbox.activeResourceSection = section;
+    sandbox.normalizeActions(actions, 16);
+  }
+  const variants = sandbox.savedButtonActionsNormalizationCache.get(actions);
+  assert.equal(variants.size, 8);
+  sandbox.activeResourceSection = "overview";
+  assert.notStrictEqual(sandbox.normalizeActions(actions, 16), oldest);
+  assert.equal(variants.size, 8);
+});

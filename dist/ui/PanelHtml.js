@@ -1464,6 +1464,9 @@ function renderPanelHtml() {
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
     const operationSearchHaystackCache = new WeakMap();
+    const pinnedCommandsNormalizationCache = new WeakMap();
+    const savedButtonActionsNormalizationCache = new WeakMap();
+    const SAVED_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 8;
     const planOutputCandidatesCache = new WeakMap();
     const planOutputEvidenceCandidatesCache = new WeakMap();
     const planOutputEvidenceSignalsCache = new WeakMap();
@@ -4284,24 +4287,52 @@ function renderPanelHtml() {
     }
 
     function normalizePinnedCommands(commands) {
+      const source = Array.isArray(commands) ? commands : null;
+      const cached = source ? pinnedCommandsNormalizationCache.get(source) : undefined;
+      if (cached) return cached;
       const unique = [];
-      (Array.isArray(commands) ? commands : []).forEach((command) => {
+      (source || []).forEach((command) => {
         const value = String(command || "");
         if (PINNED_COMMAND_VALUES.has(value) && !unique.includes(value)) unique.push(value);
       });
-      return unique.slice(0, 8);
+      const normalized = unique.slice(0, 8);
+      if (source) pinnedCommandsNormalizationCache.set(source, normalized);
+      return normalized;
     }
 
     function normalizeSavedButtonActions(actions, limit) {
+      const source = Array.isArray(actions) ? actions : null;
+      const normalizedLimit = limit || 24;
+      const cacheKey = String(normalizedLimit) + ":" + normalizeActionSection(activeResourceSection || "overview");
+      let variants = source ? savedButtonActionsNormalizationCache.get(source) : undefined;
+      const cached = variants && variants.get(cacheKey);
+      if (cached) {
+        variants.delete(cacheKey);
+        variants.set(cacheKey, cached);
+        return cached;
+      }
       const out = [];
       const seen = new Set();
-      (Array.isArray(actions) ? actions : []).forEach((item) => {
+      (source || []).forEach((item) => {
         const spec = normalizeSavedButtonAction(item);
         if (!spec || seen.has(spec.id)) return;
         seen.add(spec.id);
         out.push(spec);
       });
-      return out.slice(0, limit || 24);
+      const normalized = out.slice(0, normalizedLimit);
+      if (source) {
+        if (!variants) {
+          variants = new Map();
+          savedButtonActionsNormalizationCache.set(source, variants);
+        }
+        variants.set(cacheKey, normalized);
+        while (variants.size > SAVED_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT) {
+          const oldestKey = variants.keys().next().value;
+          if (oldestKey === undefined) break;
+          variants.delete(oldestKey);
+        }
+      }
+      return normalized;
     }
 
     function normalizeSavedButtonAction(item) {
