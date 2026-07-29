@@ -1501,6 +1501,7 @@ export function renderPanelHtml(): string {
     let claimEvidencePreviewHtmlCache = "";
     let planLookupIndexCacheSource = null;
     let planLookupIndexCacheValue = new Map();
+    const planFileEquivalenceCache = new Map();
     let enabledWorkerTunnelsCacheSource = null;
     let enabledWorkerTunnelsCacheValue = [];
     let simpleSftpReadinessCacheSource = null;
@@ -1643,6 +1644,8 @@ export function renderPanelHtml(): string {
     const INSPECTOR_READINESS_RENDER_LIMIT = 8;
     const PLAN_VERSION_ROWS_CACHE_LIMIT = 64;
     const CURRENT_PLAN_WORKFLOW_RESULT_CACHE_LIMIT = 32;
+    const PLAN_FILE_EQUIVALENCE_CACHE_LIMIT = 128;
+    const EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY = Object.freeze({ keys: Object.freeze([]), keySet: new Set() });
     const RESULT_ANALYSIS_ARTIFACT_FIELDS = Object.freeze({
       "export-plotting-contract": "plottingContractPath",
       "parse-case-level": "caseLevelPath",
@@ -10512,25 +10515,34 @@ export function renderPanelHtml(): string {
       return normalized.startsWith("./") ? normalized.slice(2) : normalized;
     }
 
-    function planFileEquivalenceKeys(value) {
+    function planFileEquivalenceEntry(value) {
       const raw = normalizePlanSelectionKey(value);
-      if (!raw) return [];
+      if (!raw) return EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY;
       const lower = raw.toLowerCase();
+      if (planFileEquivalenceCache.has(lower)) return planFileEquivalenceCache.get(lower);
       const base = lower.split("/").pop() || lower;
       const extension = [".yaml", ".yml", ".json"].find((item) => base.endsWith(item)) || "";
       const noExt = extension ? base.slice(0, -extension.length) : base;
-      return uniqueText([
+      const keys = uniqueText([
         lower,
         base,
         noExt,
         lower.startsWith("experiments/plans/") ? lower.slice("experiments/plans/".length) : lower,
         lower.startsWith("plans/") ? lower.slice("plans/".length) : lower
       ]);
+      const entry = { keys, keySet: new Set(keys) };
+      if (planFileEquivalenceCache.size >= PLAN_FILE_EQUIVALENCE_CACHE_LIMIT) planFileEquivalenceCache.clear();
+      planFileEquivalenceCache.set(lower, entry);
+      return entry;
+    }
+
+    function planFileEquivalenceKeys(value) {
+      return planFileEquivalenceEntry(value).keys;
     }
 
     function samePlanSelection(left, right) {
-      const rightKeys = new Set(planFileEquivalenceKeys(right));
-      return rightKeys.size > 0 && planFileEquivalenceKeys(left).some((key) => rightKeys.has(key));
+      const rightEntry = planFileEquivalenceEntry(right);
+      return rightEntry.keys.length > 0 && planFileEquivalenceEntry(left).keys.some((key) => rightEntry.keySet.has(key));
     }
 
     function planArchiveUiReadiness(state, planFile) {
