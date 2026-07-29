@@ -2466,6 +2466,8 @@ class RealtimeTunnelPanelProvider {
         await vscode.window.showTextDocument(doc, { preview: true });
     }
     async importOffline() {
+        const generation = this.projectContextGeneration;
+        const root = workspaceRoot();
         const picked = await vscode.window.showOpenDialog({
             canSelectFiles: true,
             canSelectFolders: true,
@@ -2476,18 +2478,27 @@ class RealtimeTunnelPanelProvider {
         const source = picked?.[0]?.fsPath;
         if (!source)
             return;
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         const result = await (0, OfflineImport_1.importOfflineBundle)(source);
         if (!result.ok || !result.bundle) {
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+                return;
             void vscode.window.showErrorMessage(result.error || "离线 bundle 导入失败。");
             return;
         }
         await this.pauseRealtimeStream();
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         this.offlineBundle = result.bundle;
         this.applyOfflineResultsSummaryFromBundle(result.bundle);
         await this.persistProjectOfflineBundleState().catch(() => undefined);
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await this.context.workspaceState.update(keys.offlineBundle, undefined);
         this.resetClient();
-        this.postState();
+        if (generation === this.projectContextGeneration && root === workspaceRoot())
+            this.postState();
     }
     async handleMessage(message) {
         const rawCommand = stringField(message, "command");

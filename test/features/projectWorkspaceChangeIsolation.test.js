@@ -157,6 +157,16 @@ test("stale project-local state reads cannot overwrite the new workspace", () =>
   assert.ok([...migration.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 6);
 });
 
+test("offline bundle import cannot apply stale project state", () => {
+  const source = methodBody("async importOffline", "async handleMessage");
+  assert.match(source, /const generation = this\.projectContextGeneration/);
+  assert.match(source, /const root = workspaceRoot\(\)/);
+  assert.ok([...source.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 4);
+  assert.match(source, /await this\.pauseRealtimeStream\(\)/);
+  assert.match(source, /this\.offlineBundle = result\.bundle/);
+  assert.match(source, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(\)/);
+});
+
 test("stale network probes and realtime callbacks cannot overwrite the new project", () => {
   const tunnel = methodBody("async testTunnel", "async runXshellRealIntegrationCheck");
   const integration = methodBody("async runXshellRealIntegrationCheck", "async restartRealtimeStream");
