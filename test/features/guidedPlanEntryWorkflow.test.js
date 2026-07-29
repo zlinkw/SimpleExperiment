@@ -20,7 +20,7 @@ function extractFunction(name) {
 }
 
 test("guided Plan requires confirmed real entry commands and keeps first run small", () => {
-  const sandbox = { path, localConfigSummaryLimit: 80, guidedPlanConfigPickerSummaryLimit: 24, uniqueStrings: (values) => [...new Set(values)] };
+  const sandbox = { path, localConfigSummaryLimit: 80, guidedPlanConfigPickerSummaryLimit: 24, configSummaryTargetsCache: new WeakMap(), uniqueStrings: (values) => [...new Set(values)] };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("experimentEntryFileName"),
@@ -171,6 +171,47 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
   assert.match(source, /placeHolder: "优先选择已检测到小规模参数的配置/);
   assert.doesNotMatch(source, /python -m your_package\.(?:train|test)/);
   assert.doesNotMatch(source, /"  (?:gpu_per_job|max_parallel|poll_seconds|test_on_failed_train|skip_success):/);
+});
+
+test("config summary targets cache stable source identity and invalidate on replacement", () => {
+  const sandbox = { path, localConfigSummaryLimit: 80, configSummaryTargetsCache: new WeakMap() };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction("guidedPlanConfigRecommendationPriority"),
+    extractFunction("configSummaryPriority"),
+    extractFunction("configSummaryTargets"),
+    "this.targets = configSummaryTargets;",
+  ].join("\n"), sandbox);
+
+  const files = [
+    "configs/z_full.yaml",
+    "configs/z_train.yaml",
+    "configs/dataset/main.yaml",
+    "configs/base.yaml",
+    "configs/z_smoke.yaml",
+    "configs/a_train.yaml",
+  ];
+  const first = sandbox.targets(files);
+  assert.strictEqual(sandbox.targets(files), first);
+  assert.deepEqual([...first], [
+    "configs/z_smoke.yaml",
+    "configs/base.yaml",
+    "configs/a_train.yaml",
+    "configs/dataset/main.yaml",
+    "configs/z_train.yaml",
+    "configs/z_full.yaml",
+  ]);
+
+  const replacement = [...files].reverse();
+  const replaced = sandbox.targets(replacement);
+  assert.notStrictEqual(replaced, first);
+  assert.deepEqual([...replaced], [...first]);
+
+  const empty = [];
+  const emptyTargets = sandbox.targets(empty);
+  assert.strictEqual(sandbox.targets(empty), emptyTargets);
+  assert.notStrictEqual(sandbox.targets([]), emptyTargets);
+  assert.deepEqual([...emptyTargets], []);
 });
 
 test("guided Plan config picker previews only the high-priority budget", async () => {

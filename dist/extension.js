@@ -13906,10 +13906,17 @@ function emptyProjectAdapterRules() {
 const localConfigSummaryLimit = 80;
 const guidedPlanConfigPickerSummaryLimit = 24;
 const guidedPlanEntryPickerSummaryLimit = 12;
+const configSummaryTargetsCache = new WeakMap();
 function configSummaryTargets(files) {
-    return [...files]
+    const cacheable = Boolean(files) && (typeof files === "object" || typeof files === "function");
+    if (cacheable && configSummaryTargetsCache.has(files))
+        return configSummaryTargetsCache.get(files);
+    const targets = [...files]
         .sort((a, b) => configSummaryPriority(a) - configSummaryPriority(b) || a.localeCompare(b))
         .slice(0, localConfigSummaryLimit);
+    if (cacheable)
+        configSummaryTargetsCache.set(files, targets);
+    return targets;
 }
 function configSummaryPriority(file) {
     const normalized = file.replace(/\\/g, "/").toLowerCase();
