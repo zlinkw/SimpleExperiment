@@ -6416,10 +6416,14 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root)
             throw new Error("请先打开当前实验项目。");
+        const generation = this.projectContextGeneration;
+        const client = this.client;
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
             throw new Error("无法确认结果文件所属 Plan，已阻止下载。");
         await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }));
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
+            return;
         const remotePath = normalizeRemoteResultInspectionPath(stringField(message, "remotePath"));
         if (!remotePath)
             throw new Error("只允许查看当前项目内的 CSV、JSON、TXT、LOG 或 OUT 轻量结果文件。");
@@ -6441,14 +6445,17 @@ class RealtimeTunnelPanelProvider {
         ].join("\n"), { modal: true }, "下载并打开");
         if (answer !== "下载并打开")
             throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
-        const generation = this.projectContextGeneration;
-        const client = this.client;
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
+            return;
         await fs.mkdir(path.dirname(localPath), { recursive: true });
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
+            return;
         await client.downloadFile(remotePath, localPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
-        if (generation !== this.projectContextGeneration || client !== this.client)
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
         await openWorkspaceFile(localRelative);
-        void vscode.window.showInformationMessage(`远端结果只读副本已打开：${localRelative}`);
+        if (generation === this.projectContextGeneration && root === workspaceRoot() && client === this.client)
+            void vscode.window.showInformationMessage(`远端结果只读副本已打开：${localRelative}`);
     }
     async openResultArtifactFromUi(message) {
         const root = workspaceRoot();

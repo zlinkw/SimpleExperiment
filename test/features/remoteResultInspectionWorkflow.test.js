@@ -155,6 +155,11 @@ test("generated result artifacts are authorized only by the matching Plan summar
 
 test("extension and workbench expose a confirmed download-and-open path", () => {
   assert.match(extension, /case "downloadRemoteResult":\s*await this\.downloadRemoteResultFromUi\(message\)/);
+  const download = extension.match(/async downloadRemoteResultFromUi\(message\)[\s\S]*?async openResultArtifactFromUi/)?.[0] || "";
+  assert.match(download, /const generation = this\.projectContextGeneration/);
+  assert.match(download, /const client = this\.client/);
+  assert.ok([...download.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\) \|\| client !== this\.client/g)].length >= 4);
+  assert.ok(download.indexOf("await client.downloadFile") < download.indexOf("await openWorkspaceFile(localRelative)"));
   assert.match(extension, /remoteResultInspectionCandidates\(\[this\.localOperations, this\.lastRealtimeState\?\.operations\], planFile, version\.revision, version\.updatedAt\)/);
   assert.match(extension, /showWarningMessage\(\[\s*"【远端结果查看确认】"[\s\S]*`远端来源：\$\{remotePath\}`[\s\S]*`本地副本：\$\{localPath\}`[\s\S]*\{ modal: true \}, "下载并打开"\)/);
   assert.match(extension, /client\.downloadFile\(remotePath, localPath, \{ maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES \}\)/);
