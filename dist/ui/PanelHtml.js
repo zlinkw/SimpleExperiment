@@ -1673,6 +1673,8 @@ function renderPanelHtml() {
       completeThreeWay: "complete-three-way", deleteArtifacts: "delete-artifacts", reconcileDeletions: "reconcile-deletions", selfCheck: "self-check", createDebugBundle: "create-debug-bundle"
     });
     const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", plans: "校验/预演", tasks: "查看任务", results: "解析/统计", sync: "发布/同步", operations: "看终态", diagnostics: "看诊断" });
+    const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ overview: "◌", servers: "▧", gpu: "◫", plans: "◇", tasks: "▣", results: "▤", sync: "⇅", operations: "◷", diagnostics: "⌁" });
+    const RESOURCE_TREE_TONE_RANKS = Object.freeze({ error: 5, warn: 4, mine: 3, good: 2, info: 1 });
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
       prepareAgents: "servers", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "servers", saveSchedulerConfig: "servers", startAll: "servers", testAll: "servers", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
@@ -4975,8 +4977,7 @@ function renderPanelHtml() {
     }
 
     function defaultTreeObjectIcon(section) {
-      const map = { overview: "◌", servers: "▧", gpu: "◫", plans: "◇", tasks: "▣", results: "▤", sync: "⇅", operations: "◷", diagnostics: "⌁" };
-      return map[section] || "•";
+      return RESOURCE_TREE_SECTION_ICONS[section] || "•";
     }
 
     function renderResourceTreeNode(node) {
@@ -5014,8 +5015,7 @@ function renderPanelHtml() {
     }
 
     function resourceTreeDominantTone(tones) {
-      const rank = { error: 5, warn: 4, mine: 3, good: 2, info: 1 };
-      return (tones || []).map(normalizeTreeTone).filter(Boolean).sort((a, b) => (rank[b] || 0) - (rank[a] || 0))[0] || "";
+      return (tones || []).map(normalizeTreeTone).filter(Boolean).sort((a, b) => (RESOURCE_TREE_TONE_RANKS[b] || 0) - (RESOURCE_TREE_TONE_RANKS[a] || 0))[0] || "";
     }
 
     function updateResourceTreeHead(tone) {
