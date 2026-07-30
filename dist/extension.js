@@ -573,6 +573,7 @@ class RealtimeTunnelPanelProvider {
     agentSessionStateCacheValue;
     configurationSourceStateCacheKey = "";
     configurationSourceStateCacheValue;
+    gpuOwnerConfigCache;
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
@@ -914,6 +915,8 @@ class RealtimeTunnelPanelProvider {
         const topologyChanged = event.affectsConfiguration("zlkCluster.topologyMode");
         const connectionChanged = event.affectsConfiguration("zlkCluster.connectionMode")
             || event.affectsConfiguration("zlkCluster.tunnel");
+        if (event.affectsConfiguration("zlkCluster.gpu"))
+            this.gpuOwnerConfigCache = undefined;
         if (connectionChanged) {
             this.tunnelConfig = this.loadTunnelConfig();
             this.setupConfig = this.loadSetupConfig();
@@ -7273,15 +7276,19 @@ class RealtimeTunnelPanelProvider {
         });
     }
     gpuOwnerConfig() {
+        if (this.gpuOwnerConfigCache)
+            return this.gpuOwnerConfigCache;
         const config = vscode.workspace.getConfiguration("zlkCluster");
         const mode = config.get("gpu.myProcessMatchMode", "both");
-        return {
+        const value = {
             currentUser: config.get("gpu.currentUser", ""),
             currentUserAliases: stringArrayConfig(config.get("gpu.currentUserAliases", [])),
             myCommandKeywords: stringArrayConfig(config.get("gpu.myCommandKeywords", [])),
             myProcessMatchMode: mode === "username" || mode === "command_contains" || mode === "both" ? mode : "both",
             localUserHint: process.env.USERNAME || process.env.USER || "",
         };
+        this.gpuOwnerConfigCache = value;
+        return value;
     }
     pptPlotConfig() {
         if (this.projectPptPlotConfig)
