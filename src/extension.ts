@@ -190,6 +190,7 @@ const WEBVIEW_ADAPTER_RULE_MAP_LIMIT = 80;
 const WEBVIEW_ADAPTER_RULE_HIDDEN_FIELDS = Object.freeze(["inferredPlanCandidateCsv", "inferredPlanCandidateJson", "inferredPlanConsoleLogs", "inferredPlanTextLogs"]);
 const WEBVIEW_ADAPTER_RULE_LIST_FIELDS = Object.freeze(["secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs"]);
 const WEBVIEW_ADAPTER_RULE_MAP_FIELDS = Object.freeze(["csvColumnMapping", "metricAliases"]);
+const SCHEDULER_FALLBACK_LIVE_FIELDS = Object.freeze(["workerLiveStatus", "worker_live_status", "workerPid", "worker_pid", "workerGpuIds", "worker_gpu_ids", "workerTelemetryWarning", "worker_telemetry_warning", "lastHeartbeatAt", "last_heartbeat_at"]);
 const SCHEDULER_STATE_RECORD_LIMIT = 240;
 const SCHEDULER_ACTIVE_BUCKET_LIMIT = 160;
 const SCHEDULER_TERMINAL_BUCKET_LIMIT = 80;
@@ -8721,7 +8722,7 @@ function mergeSchedulerFallbackRow(previous, incoming) {
     if (!schedulerStatusTerminal(schedulerRowStatus(previousRecord)) || schedulerStatusTerminal(schedulerRowStatus(incomingRecord)))
         return { ...previousRecord, ...incomingRecord };
     const merged = { ...incomingRecord, ...previousRecord };
-    for (const key of ["workerLiveStatus", "worker_live_status", "workerPid", "worker_pid", "workerGpuIds", "worker_gpu_ids", "workerTelemetryWarning", "worker_telemetry_warning", "lastHeartbeatAt", "last_heartbeat_at"]) {
+    for (const key of SCHEDULER_FALLBACK_LIVE_FIELDS) {
         if (incomingRecord[key] !== undefined)
             merged[key] = incomingRecord[key];
     }

@@ -117,6 +117,63 @@ test("Plan archive scheduler flattening preserves bucket status and parent versi
   ]);
 });
 
+test("backend scheduler fallback preserves terminal task data while refreshing fixed Worker observations", () => {
+  const sandbox = {
+    schedulerRowStatus: (row) => String(row?.status || row?.state || "").toLowerCase(),
+    schedulerStatusTerminal: (status) => ["completed", "failed", "cancelled"].includes(status),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractDeclaration(extension, "SCHEDULER_FALLBACK_LIVE_FIELDS"),
+    extractFunction(extension, "mergeFallbackRow"),
+    extractFunction(extension, "mergeSchedulerFallbackRow"),
+    "this.api = { fields: SCHEDULER_FALLBACK_LIVE_FIELDS, merge: mergeSchedulerFallbackRow };",
+  ].join("\n"), sandbox);
+
+  const previous = {
+    status: "completed",
+    resultPath: "runs/final",
+    finishedAt: "2026-07-30T00:00:00Z",
+    workerLiveStatus: "stale",
+    worker_live_status: "stale",
+    workerPid: 10,
+    worker_pid: 11,
+    workerGpuIds: [0],
+    worker_gpu_ids: [0],
+    workerTelemetryWarning: "old warning",
+    worker_telemetry_warning: "old warning",
+    lastHeartbeatAt: "2026-07-30T00:00:00Z",
+    last_heartbeat_at: "2026-07-30T00:00:00Z",
+  };
+  const incoming = {
+    status: "running",
+    resultPath: "runs/stale",
+    finishedAt: "",
+    workerLiveStatus: "pid_alive",
+    worker_live_status: "pid_alive",
+    workerPid: 20,
+    worker_pid: 21,
+    workerGpuIds: [1, 2],
+    worker_gpu_ids: [1, 2],
+    workerTelemetryWarning: "",
+    worker_telemetry_warning: "",
+    lastHeartbeatAt: "2026-07-30T00:01:00Z",
+    last_heartbeat_at: "2026-07-30T00:01:00Z",
+  };
+  const merged = sandbox.api.merge(previous, incoming);
+
+  assert.equal(merged.status, "completed");
+  assert.equal(merged.resultPath, "runs/final");
+  assert.equal(merged.finishedAt, "2026-07-30T00:00:00Z");
+  for (const key of sandbox.api.fields) assert.deepEqual(merged[key], incoming[key], key);
+  assert.equal(Object.isFrozen(sandbox.api.fields), true);
+  assert.equal(sandbox.api.fields.length, 10);
+
+  const source = extractFunction(extension, "mergeSchedulerFallbackRow");
+  assert.match(source, /SCHEDULER_FALLBACK_LIVE_FIELDS/);
+  assert.doesNotMatch(source, /for \(const key of \[/);
+});
+
 test("frontend scheduler expansion reuses fixed rank and bucket definitions", () => {
   const sandbox = { asArray: (value) => Array.isArray(value) ? value : [] };
   vm.createContext(sandbox);
