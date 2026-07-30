@@ -11828,10 +11828,14 @@ function renderPanelHtml() {
         seen.add(key);
         out.push(row);
       };
-      rows.filter((row) => operationIsActive(row.status)).forEach(add);
-      rows.filter((row) => operationIsFailureLike(row.status)).forEach(add);
-      rows.forEach(add);
-      return out.slice(0, OPERATION_RENDER_LIMIT);
+      for (const row of rows) {
+        if (operationIsActive(row.status)) add(row);
+      }
+      for (const row of rows) {
+        if (operationIsFailureLike(row.status)) add(row);
+      }
+      for (const row of rows) add(row);
+      return out;
     }
 
     function renderOperationHiddenSummary(hiddenCount) {

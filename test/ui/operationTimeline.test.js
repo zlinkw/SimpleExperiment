@@ -43,3 +43,24 @@ test("operation progress renders as a VS Code timeline", () => {
   assert.equal(relativeTimeLabel("2026-07-26T10:00:00.000Z", now), "2 小时前");
   assert.equal(relativeTimeLabel("-", now), "时间未知");
 });
+
+test("operation render budget scans priority groups without temporary filtered arrays", () => {
+  const html = renderPanelHtml();
+  const source = html.match(/function operationRowsForRender\(rows\) \{[\s\S]*?\n    \}/)?.[0] || "";
+  const operationRowsForRender = vm.runInNewContext(source + "; operationRowsForRender", {
+    OPERATION_RENDER_LIMIT: 4,
+    operationIsActive: (status) => status === "running",
+    operationIsFailureLike: (status) => status === "failed",
+  });
+  const rows = [
+    { operationId: "done", status: "completed" },
+    { operationId: "failed", status: "failed" },
+    { operationId: "live", status: "running" },
+    { operationId: "live", status: "failed" },
+    { operationId: "fallback", status: "completed" },
+  ];
+
+  assert.deepEqual(Array.from(operationRowsForRender(rows), (row) => row.operationId), ["live", "failed", "done", "fallback"]);
+  assert.doesNotMatch(source, /\.filter\(/);
+  assert.match(source, /for \(const row of rows\)/);
+});
