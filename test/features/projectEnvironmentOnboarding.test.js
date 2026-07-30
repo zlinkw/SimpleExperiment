@@ -22,6 +22,14 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function extractConst(source, name) {
+  const start = source.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = source.indexOf(";", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return source.slice(start, end + 1);
+}
+
 test("new project scan exposes dependency manifests without making them a run gate", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-env-"));
   fs.mkdirSync(path.join(root, "requirements"), { recursive: true });
@@ -39,6 +47,7 @@ test("new project scan exposes dependency manifests without making them a run ga
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractConst(extension, "heavyProjectDirNames"),
     extractFunction(extension, "isHeavyProjectDir"),
     extractFunction(extension, "walkProjectFiles"),
     extractFunction(extension, "existingRelativeFiles"),

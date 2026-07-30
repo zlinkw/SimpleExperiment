@@ -31,6 +31,14 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractConst(name) {
+  const start = extension.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = extension.indexOf(";", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return extension.slice(start, end + 1);
+}
+
 function loadRulePatterns() {
   const sandbox = {
     EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
@@ -170,4 +178,23 @@ test("project result scans stay fresh and both detection paths use the shared bo
   assert.match(extension, /const projectResultExactCandidates = Object\.freeze\(\[/);
   assert.match(extension, /const adapterRuleCandidatePatternsCache = new WeakMap\(\)/);
   assert.match(extension, /const adapterRuleExactFilesCache = new WeakMap\(\)/);
+});
+
+test("heavy project directory checks reuse one fixed exact-name set", () => {
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractConst("heavyProjectDirNames"),
+    extractFunction("isHeavyProjectDir"),
+    "this.isHeavy = isHeavyProjectDir;",
+  ].join("\n"), sandbox);
+
+  for (const relative of [".git/objects", "src/node_modules/pkg", "Research/Data/raw", "work_dirs/run-1", "build/output"]) {
+    assert.equal(sandbox.isHeavy(relative), true, relative);
+  }
+  for (const relative of ["src/datasets_loader", "src/builders", "experiments/output_logs", "research/runsets"]) {
+    assert.equal(sandbox.isHeavy(relative), false, relative);
+  }
+  assert.match(extension, /const heavyProjectDirNames = new Set\(\[/);
+  assert.doesNotMatch(extractFunction("isHeavyProjectDir"), /new Set/);
 });

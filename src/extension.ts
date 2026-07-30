@@ -15877,9 +15877,9 @@ function resultCandidateFile(name) {
         || /^(summary|result|results|metrics|classification_report)\.txt$/i.test(name)
         || /^(stdout|stderr|console|train|test|eval|evaluate|output)\.(log|out)$/i.test(name);
 }
+const heavyProjectDirNames = new Set([".git", ".hg", ".svn", ".venv", "venv", "env", "__pycache__", ".mypy_cache", ".pytest_cache", "node_modules", "datasets", "dataset", "data", "checkpoints", "checkpoint", "weights", "pretrained", "outputs", "output", "runs", "work_dirs", "lightning_logs", "wandb", "dist", "build"]);
 function isHeavyProjectDir(relative) {
-    const heavy = new Set([".git", ".hg", ".svn", ".venv", "venv", "env", "__pycache__", ".mypy_cache", ".pytest_cache", "node_modules", "datasets", "dataset", "data", "checkpoints", "checkpoint", "weights", "pretrained", "outputs", "output", "runs", "work_dirs", "lightning_logs", "wandb", "dist", "build"]);
-    return relative.split(/[\\/]+/).map((part) => part.toLowerCase()).some((part) => heavy.has(part));
+    return relative.split(/[\\/]+/).map((part) => part.toLowerCase()).some((part) => heavyProjectDirNames.has(part));
 }
 async function summarizeConfigFile(root, file) {
     const text = await readUtf8Preview(path.join(root, file));
