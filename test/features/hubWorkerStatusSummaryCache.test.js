@@ -26,6 +26,7 @@ function loadBuilders() {
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFunction("isWeakMapCacheKey"),
     extractFunction("buildHubControlStatus"),
     extractFunction("buildWorkerTelemetryStatus"),
     "this.buildHub = buildHubControlStatus;",

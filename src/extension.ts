@@ -10798,12 +10798,15 @@ function compactArrayFieldForWebview(record, key, limit, mapper) {
     record[`${key}TotalCount`] = value.length;
     record[`${key}OmittedCount`] = value.length - limit;
 }
+function isWeakMapCacheKey(value) {
+    return (typeof value === "object" && value !== null) || typeof value === "function";
+}
 const XSHELL_SESSION_WEBVIEW_LIMIT = 120;
 const XSHELL_SESSION_WEBVIEW_VARIANT_CACHE_LIMIT = 4;
 const xshellSetupForWebviewCache = new WeakMap();
 const xshellSessionLibraryForWebviewCache = new WeakMap();
 function compactXshellSetupForWebview(config) {
-    const cacheable = Boolean(config) && (typeof config === "object" || typeof config === "function");
+    const cacheable = isWeakMapCacheKey(config);
     const cached = cacheable ? xshellSetupForWebviewCache.get(config) : undefined;
     if (cached)
         return cached;
@@ -10867,8 +10870,8 @@ function compactWorkerSetupForWebview(worker) {
     });
 }
 function compactXshellSessionLibraryForWebview(library, setup, error) {
-    const cacheableLibrary = Boolean(library) && (typeof library === "object" || typeof library === "function");
-    const cacheableSetup = Boolean(setup) && (typeof setup === "object" || typeof setup === "function");
+    const cacheableLibrary = isWeakMapCacheKey(library);
+    const cacheableSetup = isWeakMapCacheKey(setup);
     let setupCache = cacheableLibrary ? xshellSessionLibraryForWebviewCache.get(library) : undefined;
     let variants = setupCache && cacheableSetup ? setupCache.get(setup) : undefined;
     const cacheKey = String(error || "");
@@ -10985,7 +10988,7 @@ const probeForWebviewCache = new WeakMap();
 function compactProbeForWebview(probe) {
     if (!probe)
         return undefined;
-    const cacheable = typeof probe === "object" || typeof probe === "function";
+    const cacheable = isWeakMapCacheKey(probe);
     const cached = cacheable ? probeForWebviewCache.get(probe) : undefined;
     if (cached)
         return cached;
@@ -11017,7 +11020,7 @@ function compactProbeForWebview(probe) {
 }
 const workerProbesForWebviewCache = new WeakMap();
 function compactWorkerProbesForWebview(probes) {
-    const cacheable = Boolean(probes) && (typeof probes === "object" || typeof probes === "function");
+    const cacheable = isWeakMapCacheKey(probes);
     const cached = cacheable ? workerProbesForWebviewCache.get(probes) : undefined;
     if (cached)
         return cached;
@@ -11737,7 +11740,7 @@ function dropUndefined(record) {
 const hubControlStatusCache = new WeakMap();
 function buildHubControlStatus(registryState, probe) {
     const registry = registryState;
-    const cacheable = Boolean(registry) && (typeof registry === "object" || typeof registry === "function");
+    const cacheable = isWeakMapCacheKey(registry);
     const cached = cacheable ? hubControlStatusCache.get(registry) : undefined;
     if (cached && cached.probe === probe)
         return cached.value;
@@ -11763,7 +11766,7 @@ function buildHubControlStatus(registryState, probe) {
 const workerTelemetryStatusCache = new WeakMap();
 function buildWorkerTelemetryStatus(registryState, probes, realtime) {
     const registry = registryState;
-    const cacheable = Boolean(registry) && (typeof registry === "object" || typeof registry === "function");
+    const cacheable = isWeakMapCacheKey(registry);
     const cached = cacheable ? workerTelemetryStatusCache.get(registry) : undefined;
     if (cached && cached.probes === probes && cached.realtime === realtime)
         return cached.value;
@@ -14064,7 +14067,7 @@ const guidedPlanConfigPickerSummaryLimit = 24;
 const guidedPlanEntryPickerSummaryLimit = 12;
 const configSummaryTargetsCache = new WeakMap();
 function configSummaryTargets(files) {
-    const cacheable = Boolean(files) && (typeof files === "object" || typeof files === "function");
+    const cacheable = isWeakMapCacheKey(files);
     if (cacheable && configSummaryTargetsCache.has(files))
         return configSummaryTargetsCache.get(files);
     const targets = [...files]

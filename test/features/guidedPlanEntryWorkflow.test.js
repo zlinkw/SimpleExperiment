@@ -38,6 +38,7 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFunction("isWeakMapCacheKey"),
     extractFunction("experimentEntryFileName"),
     extractFunction("isTrainEntryCandidate"),
     extractFunction("isTestEntryCandidate"),
@@ -196,6 +197,7 @@ test("config summary targets cache stable source identity and invalidate on repl
   const sandbox = { path, localConfigSummaryLimit: 80, configSummaryTargetsCache: new WeakMap() };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFunction("isWeakMapCacheKey"),
     extractFunction("guidedPlanConfigRecommendationPriority"),
     extractFunction("configSummaryPriority"),
     extractFunction("configSummaryTargets"),

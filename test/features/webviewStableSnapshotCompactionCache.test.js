@@ -84,6 +84,7 @@ function loadCompactors() {
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFunction("isWeakMapCacheKey"),
     extractFunction("compactXshellSetupForWebview"),
     extractFunction("compactCapabilitiesForWebview"),
     extractFunction("compactFileCapabilitiesForWebview"),
@@ -104,6 +105,29 @@ function loadCompactors() {
   ].join("\n"), sandbox);
   return sandbox;
 }
+
+test("WeakMap caches share the non-null object and function key guard", () => {
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction("isWeakMapCacheKey")}\nthis.isKey = isWeakMapCacheKey;`, sandbox);
+
+  for (const value of [{}, [], () => undefined]) assert.equal(sandbox.isKey(value), true);
+  for (const value of [null, undefined, false, 0, "object"]) assert.equal(sandbox.isKey(value), false);
+
+  const expectations = new Map([
+    ["compactXshellSetupForWebview", ["config"]],
+    ["compactXshellSessionLibraryForWebview", ["library", "setup"]],
+    ["compactProbeForWebview", ["probe"]],
+    ["compactWorkerProbesForWebview", ["probes"]],
+    ["buildHubControlStatus", ["registry"]],
+    ["buildWorkerTelemetryStatus", ["registry"]],
+    ["configSummaryTargets", ["files"]],
+  ]);
+  for (const [name, values] of expectations) {
+    const source = extractFunction(name);
+    for (const value of values) assert.match(source, new RegExp(`isWeakMapCacheKey\\(${value}\\)`), `${name}:${value}`);
+  }
+});
 
 test("stable setup and probe snapshots reuse compacted Webview objects", () => {
   const sandbox = loadCompactors();

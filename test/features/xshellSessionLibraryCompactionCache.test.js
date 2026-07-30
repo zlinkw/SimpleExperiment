@@ -40,7 +40,7 @@ function loadCompaction() {
     },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("compactXshellSessionLibraryForWebview")}\nthis.compact = compactXshellSessionLibraryForWebview;`, sandbox);
+  vm.runInContext(`${extractFunction("isWeakMapCacheKey")}\n${extractFunction("compactXshellSessionLibraryForWebview")}\nthis.compact = compactXshellSessionLibraryForWebview;`, sandbox);
   return sandbox;
 }
 
