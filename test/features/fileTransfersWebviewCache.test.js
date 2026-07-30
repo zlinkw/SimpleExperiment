@@ -21,17 +21,24 @@ function extractFunction(name) {
 
 function loadCompaction() {
   const empty = Object.freeze({});
+  const terminalStatuses = new Set(["completed", "failed", "cancelled", "canceled"]);
   const sandbox = {
     WEBVIEW_FILE_TRANSFER_ACTIVE_LIMIT: 2,
     WEBVIEW_FILE_TRANSFER_TERMINAL_LIMIT: 1,
     EMPTY_FILE_TRANSFERS_FOR_WEBVIEW: empty,
     fileTransfersForWebviewCache: new WeakMap(),
     compactCalls: 0,
+    terminalChecks: 0,
     fileTransferEntries(fileTransfers) {
       if (Array.isArray(fileTransfers)) return fileTransfers.map((row, index) => [String(row.id || index), row]);
       return Object.entries(fileTransfers || {});
     },
-    WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES: new Set(["completed", "failed", "cancelled", "canceled"]),
+    WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES: {
+      has(status) {
+        sandbox.terminalChecks += 1;
+        return terminalStatuses.has(status);
+      },
+    },
     rowTimeForWebview(row) {
       return Date.parse(String(row.updatedAt || "")) || Number(row.seq || 0);
     },
@@ -79,8 +86,10 @@ test("file transfer Webview cache preserves active and terminal ordering limits"
     doneOld: { status: "completed", updatedAt: "2026-07-29T01:00:00Z" },
     doneNew: { status: "failed", updatedAt: "2026-07-30T04:00:00Z" },
   };
+  assert.doesNotMatch(extractFunction("compactFileTransfersForWebview"), /entries\s*\.filter\(/);
   const compacted = sandbox.compactTransfers(transfers);
 
+  assert.equal(sandbox.terminalChecks, Object.keys(transfers).length);
   assert.deepEqual(Object.keys(compacted), ["activeNew", "activeMiddle", "doneNew"]);
   assert.equal(compacted.activeOld, undefined);
   assert.equal(compacted.doneOld, undefined);

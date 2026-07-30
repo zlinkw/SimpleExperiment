@@ -15,33 +15,33 @@
 ## 后续优先级
 - [已完成] 1/5 project-186：合并后端 Worker 结果聚合分类。
 - [已完成] 2/5 project-187：合并前端 Plan trace 范围统计遍历。
-- [待处理] 3/5 project-188：合并后端文件传输 Webview 分类遍历。
+- [已完成] 3/5 project-188：合并后端文件传输 Webview 分类遍历。
 - [待处理] 4/5 project-189：复用前端布局分区固定查找表。
 - [待处理] 5/5 project-190：执行第六十八轮完整非服务器静态测试。
 
-## 当前批次：project-187（已完成）
+## 当前批次：project-188（已完成）
 ### 修复点
 
-- Plan trace 范围派生在一次遍历中同时收集当前 Plan 行并统计无 Plan 行，避免对同一 trace 数组重复过滤。
-- 保持 selected/all 模式、Plan revision 与更新时间匹配、缓存键和返回对象结构不变。
+- 文件传输 Webview 压缩先单次划分 active/terminal，再分别排序和限额，避免对同一 entry 重复终态判断。
+- 保持 active 优先、组内时间倒序、独立数量上限、缓存复用和压缩字段不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 有 Plan、旧 revision、无 Plan 三类 trace 的分类和原始顺序不得改变。
-- `scopeMode=all` 仍返回原数组，selected 模式仅返回匹配当前 revision 或更新时间边界的行。
-- 稳定 rows/state/mode 必须复用同一缓存对象，替换 rows 或 state 后必须失效。
+- active 与 terminal 必须各自保持最新优先，最终对象仍先输出 active 再输出 terminal。
+- terminal 集合继续覆盖 completed、failed、cancelled、canceled，其他状态不得误归类。
+- 空输入共享不可变空对象，稳定 source 复用缓存，替换 source 后失效。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] Plan trace 单次遍历、范围匹配与缓存失效定向 Node 测试，5/5。
+- [已通过] 文件传输单次分类、排序限额、缓存与空输入定向 Node 测试，5/5。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-186 已由提交 `8cf8c24` 同步至 `origin/master`。
-- 本批仅处理前端 Plan trace 范围派生、对应测试和计划文档；无视觉样式变化，不调用截图。
-- Plan trace 每个缓存变体只遍历一次输入行，同时产出 selected 行与 unscoped 数量；5/5 定向测试通过。
+- project-187 已由提交 `528d87f` 同步至 `origin/master`。
+- 本批仅处理后端文件传输 Webview 压缩、对应测试和计划文档；无视觉样式变化，不调用截图。
+- 每个传输 entry 只执行一次终态判断，再分别排序和应用 active/terminal 上限；5/5 定向测试通过。

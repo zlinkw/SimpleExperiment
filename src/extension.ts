@@ -11216,15 +11216,18 @@ function compactFileTransfersForWebview(fileTransfers) {
         fileTransfersForWebviewCache.set(source, EMPTY_FILE_TRANSFERS_FOR_WEBVIEW);
         return EMPTY_FILE_TRANSFERS_FOR_WEBVIEW;
     }
-    const active = entries
-        .filter(([, row]) => !isTerminalTransferForWebview(row))
-        .sort((a, b) => rowTimeForWebview(b[1]) - rowTimeForWebview(a[1]))
-        .slice(0, WEBVIEW_FILE_TRANSFER_ACTIVE_LIMIT);
-    const terminal = entries
-        .filter(([, row]) => isTerminalTransferForWebview(row))
-        .sort((a, b) => rowTimeForWebview(b[1]) - rowTimeForWebview(a[1]))
-        .slice(0, WEBVIEW_FILE_TRANSFER_TERMINAL_LIMIT);
-    const compacted = Object.fromEntries([...active, ...terminal].map(([id, row]) => [id, compactFileTransferForWebview(id, row)]));
+    const active = [];
+    const terminal = [];
+    entries.forEach((entry) => {
+        (isTerminalTransferForWebview(entry[1]) ? terminal : active).push(entry);
+    });
+    active.sort((a, b) => rowTimeForWebview(b[1]) - rowTimeForWebview(a[1]));
+    terminal.sort((a, b) => rowTimeForWebview(b[1]) - rowTimeForWebview(a[1]));
+    const visible = [
+        ...active.slice(0, WEBVIEW_FILE_TRANSFER_ACTIVE_LIMIT),
+        ...terminal.slice(0, WEBVIEW_FILE_TRANSFER_TERMINAL_LIMIT),
+    ];
+    const compacted = Object.fromEntries(visible.map(([id, row]) => [id, compactFileTransferForWebview(id, row)]));
     fileTransfersForWebviewCache.set(source, compacted);
     return compacted;
 }
