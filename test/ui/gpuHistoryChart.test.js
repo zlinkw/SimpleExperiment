@@ -56,7 +56,10 @@ test("GPU history server styling persists by server id and has fallback patterns
   assert.match(html, /gpuHistoryServerStylesSaveTimer = 0;[\s\S]{0,180}localStorage\.setItem/);
   assert.match(html, /GPU_HISTORY_SERVER_STYLE_LIMIT = 128/);
   assert.match(html, /Object\.entries\(parsed\)[\s\S]{0,180}slice\(-GPU_HISTORY_SERVER_STYLE_LIMIT\)/);
-  assert.match(html, /while \(styleKeys\.length >= GPU_HISTORY_SERVER_STYLE_LIMIT\) delete gpuHistoryServerStyles/);
+  assert.match(html, /gpuHistoryServerStyleColorUsageCache/);
+  assert.match(html, /function gpuHistoryServerStyleColorUsage\(/);
+  assert.match(html, /adjustGpuHistoryServerStyleColorUsage\(removed && removed\.color, -1\)/);
+  assert.match(html, /adjustGpuHistoryServerStyleColorUsage\(color, 1\)/);
   assert.match(html, /gpuHistoryServerStyle\(serverId\)/);
   assert.match(html, /lineDashForStyle/);
   assert.match(html, /gpuStableIndex/);

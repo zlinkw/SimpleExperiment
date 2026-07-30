@@ -41,6 +41,7 @@ function chartContext(functionNames) {
     gpuHistoryOverviewCacheValue: [],
     gpuHistoryPointIndexCache: new WeakMap(),
     gpuHistoryOklabCache: new Map(),
+    gpuHistoryServerStyleColorUsageCache: null,
     GPU_HISTORY_GAP_FACTOR: 1.75,
     GPU_HISTORY_SERVER_STYLE_LIMIT: 128,
     GPU_HISTORY_OKLAB_CACHE_LIMIT: 256,
@@ -59,7 +60,7 @@ function chartContext(functionNames) {
 
 test("GPU history server styles remain stable and distinguish 1, 2, 8, and 16 servers", () => {
   const context = chartContext([
-    "gpuHistoryServerStyle", "chooseGpuHistoryColor", "gpuHistoryColorDistance", "gpuHistoryOklab",
+    "gpuHistoryServerStyleColorUsage", "adjustGpuHistoryServerStyleColorUsage", "gpuHistoryServerStyle", "chooseGpuHistoryColor", "gpuHistoryColorDistance", "gpuHistoryOklab",
     "gpuStableIndex", "lineDashForStyle",
     "finiteHistoryPercent",
   ]);
@@ -73,6 +74,43 @@ test("GPU history server styles remain stable and distinguish 1, 2, 8, and 16 se
   const before = JSON.stringify(context.gpuHistoryServerStyle("server-3"));
   context.gpuHistoryServerStyle("server-new");
   assert.equal(JSON.stringify(context.gpuHistoryServerStyle("server-3")), before);
+  const usage = context.gpuHistoryServerStyleColorUsage();
+  assert.equal(context.gpuHistoryServerStyleColorUsage(), usage);
+  assert.equal(Array.from(usage.values()).reduce((sum, count) => sum + count, 0), Object.keys(context.gpuHistoryServerStyles).length);
+});
+
+test("GPU history style eviction keeps the color usage index consistent", () => {
+  const context = chartContext([
+    "gpuHistoryServerStyleColorUsage", "adjustGpuHistoryServerStyleColorUsage", "gpuHistoryServerStyle", "chooseGpuHistoryColor", "gpuHistoryColorDistance", "gpuHistoryOklab",
+    "gpuStableIndex", "lineDashForStyle",
+  ]);
+  context.GPU_HISTORY_SERVER_STYLE_LIMIT = 4;
+  for (let index = 0; index < 7; index += 1) context.gpuHistoryServerStyle("bounded-" + index);
+  const usage = context.gpuHistoryServerStyleColorUsage();
+  assert.equal(Object.keys(context.gpuHistoryServerStyles).length, 4);
+  assert.equal(Array.from(usage.values()).reduce((sum, count) => sum + count, 0), 4);
+  assert.ok(Array.from(usage.values()).every((count) => count > 0));
+});
+
+test("GPU history style eviction indexes persisted styles before decrementing", () => {
+  const context = chartContext([
+    "gpuHistoryServerStyleColorUsage", "adjustGpuHistoryServerStyleColorUsage", "gpuHistoryServerStyle", "chooseGpuHistoryColor", "gpuHistoryColorDistance", "gpuHistoryOklab",
+    "gpuStableIndex", "lineDashForStyle",
+  ]);
+  context.GPU_HISTORY_SERVER_STYLE_LIMIT = 2;
+  context.gpuHistoryServerStyles = {
+    oldest: { color: "#2885EF", dash: [], marker: "circle" },
+    retained: { color: "#2885EF", dash: [], marker: "square" },
+  };
+  context.gpuHistoryServerStyleColorUsageCache = null;
+  context.gpuHistoryServerStyle("new-server");
+  const usage = context.gpuHistoryServerStyleColorUsage();
+  const actualUsage = new Map();
+  Object.values(context.gpuHistoryServerStyles).forEach((style) => actualUsage.set(style.color, (actualUsage.get(style.color) || 0) + 1));
+  assert.equal(Object.keys(context.gpuHistoryServerStyles).length, 2);
+  assert.equal(Object.hasOwn(context.gpuHistoryServerStyles, "oldest"), false);
+  assert.equal(JSON.stringify(Array.from(usage.entries()).sort()), JSON.stringify(Array.from(actualUsage.entries()).sort()));
+  assert.equal(Array.from(usage.values()).reduce((sum, count) => sum + count, 0), 2);
 });
 
 test("GPU history palette uses OKLCH candidates and OKLab color distance", () => {

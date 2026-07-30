@@ -1588,6 +1588,7 @@ export function renderPanelHtml(): string {
     let gpuHistoryPointIndexCache = new WeakMap();
     const gpuHistoryOklabCache = new Map();
     let gpuHistoryServerStyles = loadGpuHistoryServerStyles();
+    let gpuHistoryServerStyleColorUsageCache = null;
     let gpuHistoryServerStylesSaveTimer = 0;
     let overviewTaskStatsCacheRows = null;
     let overviewTaskStatsCacheValue = null;
@@ -8189,22 +8190,48 @@ export function renderPanelHtml(): string {
       }, 0);
     }
 
+    function gpuHistoryServerStyleColorUsage() {
+      if (gpuHistoryServerStyleColorUsageCache) return gpuHistoryServerStyleColorUsageCache;
+      const usage = new Map();
+      Object.values(gpuHistoryServerStyles).forEach((item) => {
+        const color = String(item && item.color || "").trim();
+        if (color) usage.set(color, (usage.get(color) || 0) + 1);
+      });
+      gpuHistoryServerStyleColorUsageCache = usage;
+      return usage;
+    }
+
+    function adjustGpuHistoryServerStyleColorUsage(color, delta) {
+      const key = String(color || "").trim();
+      if (!key || !delta) return;
+      const usage = gpuHistoryServerStyleColorUsage();
+      const next = (usage.get(key) || 0) + delta;
+      if (next > 0) usage.set(key, next);
+      else usage.delete(key);
+    }
+
     function gpuHistoryServerStyle(serverId) {
       const key = String(serverId || "").trim() || "unknown";
       if (gpuHistoryServerStyles[key] && gpuHistoryServerStyles[key].color) return gpuHistoryServerStyles[key];
-      const used = new Set(Object.values(gpuHistoryServerStyles).map((item) => item && item.color).filter(Boolean));
-      const available = GPU_HISTORY_COLORS.filter((candidate) => !used.has(candidate));
-      let color = chooseGpuHistoryColor(available, Array.from(used));
+      const colorUsage = gpuHistoryServerStyleColorUsage();
+      const styleKeys = Object.keys(gpuHistoryServerStyles);
+      while (styleKeys.length >= GPU_HISTORY_SERVER_STYLE_LIMIT) {
+        const removedKey = styleKeys.shift();
+        const removed = gpuHistoryServerStyles[removedKey];
+        delete gpuHistoryServerStyles[removedKey];
+        adjustGpuHistoryServerStyleColorUsage(removed && removed.color, -1);
+      }
+      const usedColors = Array.from(colorUsage.keys());
+      const available = GPU_HISTORY_COLORS.filter((candidate) => !colorUsage.has(candidate));
+      let color = chooseGpuHistoryColor(available, usedColors);
       if (!color) {
-        const reusable = Array.from(used).sort();
+        const reusable = usedColors.slice().sort();
         color = reusable[gpuStableIndex(key) % reusable.length] || GPU_HISTORY_COLORS[gpuStableIndex(key) % GPU_HISTORY_COLORS.length];
       }
-      const sameColor = Object.values(gpuHistoryServerStyles).filter((item) => item && item.color === color);
-      const variant = sameColor.length;
+      const variant = colorUsage.get(color) || 0;
       const style = { color, dash: lineDashForStyle(GPU_HISTORY_LINE_STYLES[variant % GPU_HISTORY_LINE_STYLES.length]), marker: GPU_HISTORY_MARKERS[Math.floor(variant / GPU_HISTORY_LINE_STYLES.length) % GPU_HISTORY_MARKERS.length] };
-      const styleKeys = Object.keys(gpuHistoryServerStyles);
-      while (styleKeys.length >= GPU_HISTORY_SERVER_STYLE_LIMIT) delete gpuHistoryServerStyles[styleKeys.shift()];
       gpuHistoryServerStyles[key] = style;
+      adjustGpuHistoryServerStyleColorUsage(color, 1);
       saveGpuHistoryServerStyles();
       return style;
     }
