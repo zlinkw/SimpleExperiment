@@ -26,6 +26,7 @@ function loadPlanExecutionStage() {
     OPERATION_FAILURE_MATCH_TOKENS: Object.freeze(["failed", "failure", "stalled", "timeout", "unsupported", "error"]),
     TASK_FAILURE_STATUSES: new Set(["failed", "error", "stalled", "stopped", "cancelled"]),
     TASK_TERMINAL_STATUSES: new Set(["completed", "done", "archived", "deleted"]),
+    PLAN_RUN_OPERATION_TYPES: new Set(["run-plan", "reproduce-plan"]),
     PLAN_EXECUTION_STAGE_CACHE_LIMIT: 64,
     planExecutionStageCacheState: null,
     planExecutionStageCache: new Map(),
@@ -111,7 +112,7 @@ test("Plan next action starts with one-click run and preserves manual recovery s
 
 test("submitted Plan runs navigate directly to the task list", () => {
   assert.match(panel, /function submittedCommandTarget\(command, status\)/);
-  assert.match(panel, /\["runPlan", "reproducePlan", "runAllPlans"\]/);
+  assert.match(extractFunction(panel, "submittedCommandTarget"), /SUBMITTED_RUN_COMMANDS\.has\(normalizedCommand\)/);
   assert.match(panel, /return \{ section: "tasks", anchor: "tasks-list" \}/);
   assert.match(panel, /submittedTarget = submittedCommandTarget\(data\.command, data\.status\)/);
   assert.match(panel, /navigateToResourceTarget\(submittedTarget\.section, submittedTarget\.anchor, \{ force: true \}\)/);

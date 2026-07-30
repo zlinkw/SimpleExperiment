@@ -46,6 +46,7 @@ function loadProjectReadinessChecks() {
 function loadRunEvidence() {
   const sandbox = {
     CURRENT_PLAN_RUN_EVIDENCE_CACHE_LIMIT: 2,
+    PLAN_RUN_OPERATION_TYPES: new Set(["run-plan", "reproduce-plan"]),
     currentPlanRevisionRunEvidenceCacheState: null,
     currentPlanRevisionRunEvidenceCache: new Map(),
     operationReads: 0,
@@ -139,6 +140,14 @@ test("current Plan revision evidence cache preserves false values and stays boun
   sandbox.evidence(operationState, "plans/b.yaml", plan);
   sandbox.evidence(operationState, "plans/c.yaml", plan);
   assert.ok(sandbox.currentPlanRevisionRunEvidenceCache.size <= 2);
+});
+
+test("Plan run evidence lookups reuse the fixed operation type set", () => {
+  for (const name of ["planActiveRunEvidence", "planExecutionStage", "currentPlanRevisionRunEvidenceForState"]) {
+    assert.match(extractFunction(name), /PLAN_RUN_OPERATION_TYPES\.has\(/, name);
+  }
+  assert.equal((panel.match(/const PLAN_RUN_OPERATION_TYPES = new Set/g) || []).length, 1);
+  assert.doesNotMatch(panel, /\["run-plan", "reproduce-plan"\]\.includes\(/);
 });
 
 test("current output contract check reuses the selected state result", () => {

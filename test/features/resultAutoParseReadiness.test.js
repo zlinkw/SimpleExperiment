@@ -22,6 +22,7 @@ function extractFunction(name) {
 function loadReadiness(raw = false) {
   const sandbox = {
     CURRENT_PLAN_RUN_EVIDENCE_CACHE_LIMIT: 64,
+    PLAN_RUN_OPERATION_TYPES: new Set(["run-plan", "reproduce-plan"]),
     currentPlanRevisionRunEvidenceCacheState: null,
     currentPlanRevisionRunEvidenceCache: new Map(),
     resultAutoParseReadinessCacheState: null,

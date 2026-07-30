@@ -9532,7 +9532,7 @@ export function renderPanelHtml(): string {
           command: "dryRunPlan"
         });
       }
-      const latestRun = rows.find((row) => ["run-plan", "reproduce-plan"].includes(String(row.type || "").toLowerCase()) && operationAtOrAfter(row, latestDryRun));
+      const latestRun = rows.find((row) => PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()) && operationAtOrAfter(row, latestDryRun));
       const runAccepted = Boolean(latestRun && (latestRun.submissionAccepted || latestRun.schedulerStarted));
       if (operationPending(latestRun)) {
         if (runAccepted) {
@@ -12108,7 +12108,7 @@ export function renderPanelHtml(): string {
       const cacheKey = [normalizePlanSelectionKey(selectedPlan), planRevision, planUpdatedAtText].join("|");
       if (currentPlanRevisionRunEvidenceCache.has(cacheKey)) return currentPlanRevisionRunEvidenceCache.get(cacheKey);
       const operationMatch = operationRowsForState(data).some((row) =>
-        ["run-plan", "reproduce-plan"].includes(String((row || {}).type || "").toLowerCase())
+        PLAN_RUN_OPERATION_TYPES.has(String((row || {}).type || "").toLowerCase())
         && samePlanSelection((row || {}).planFile || "", selectedPlan)
         && Boolean((row || {}).submissionAccepted || (row || {}).schedulerStarted)
         && operationMatchesPlanVersion(row, planRevision, planUpdatedAt));
