@@ -19,10 +19,18 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractFrozenObject(name) {
+  const start = panel.indexOf(`const ${name} = Object.freeze({`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = panel.indexOf("});", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return panel.slice(start, end + 3);
+}
+
 function labelStatus(value) {
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("labelStatus")}\nthis.labelStatus = labelStatus;`, sandbox);
+  vm.runInContext(`${extractFrozenObject("STATUS_LABELS")}\n${extractFunction("labelStatus")}\nthis.labelStatus = labelStatus;`, sandbox);
   return sandbox.labelStatus(value);
 }
 

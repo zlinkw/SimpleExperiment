@@ -1648,6 +1648,14 @@ function renderPanelHtml() {
       yaml: "YAML 配置", yml: "YAML 配置", json: "JSON 配置", python: "Python 配置", py: "Python 配置",
       scalar: "单值", mapping: "对象", object: "对象", sequence: "列表", array: "列表"
     });
+    const STATUS_LABELS = Object.freeze({
+      xshell_tunnel_realtime: "Xshell 实时隧道", offline_import: "离线导入", unknown: "未知", local_port_closed: "本地端口未打开", agent_unreachable: "Agent 不可达", agent_ok: "Agent 正常", file_api_unavailable: "文件 API 不可用",
+      disconnected: "未连接", connecting: "连接中", connected: "已连接", reconnecting: "重连中", websocket: "WebSocket（本地转发）", sse: "SSE（本地转发）", polling: "快照备用", snapshot: "快照备用", paused: "已暂停",
+      accepted: "已接收", submitted: "已提交", queued: "排队中", pending: "等待中", running: "运行中", in_progress: "运行中", testing: "检测中", completed: "已完成", completed_with_errors: "部分失败", done: "已完成",
+      success: "成功", succeeded: "成功", failed: "失败", error: "错误", warning: "注意", stalled: "已卡住", stopped: "已停止", cancelled: "已取消", canceled: "已取消", skipped: "已跳过",
+      ready: "已就绪", online: "在线", offline: "离线", stale: "已过期", degraded: "降级", configured: "已配置", not_configured: "未配置", synced: "已同步", syncing: "同步中", uploaded: "已上传", uploading: "上传中",
+      archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
+    });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
@@ -14188,17 +14196,9 @@ function renderPanelHtml() {
     function labelStatus(value) {
       const raw = String(value === undefined || value === null ? "" : value).trim();
       const key = raw.toLowerCase();
-      const map = {
-        xshell_tunnel_realtime: "Xshell 实时隧道", offline_import: "离线导入", unknown: "未知", local_port_closed: "本地端口未打开", agent_unreachable: "Agent 不可达", agent_ok: "Agent 正常", file_api_unavailable: "文件 API 不可用",
-        disconnected: "未连接", connecting: "连接中", connected: "已连接", reconnecting: "重连中", websocket: "WebSocket（本地转发）", sse: "SSE（本地转发）", polling: "快照备用", snapshot: "快照备用", paused: "已暂停",
-        accepted: "已接收", submitted: "已提交", queued: "排队中", pending: "等待中", running: "运行中", in_progress: "运行中", testing: "检测中", completed: "已完成", completed_with_errors: "部分失败", done: "已完成",
-        success: "成功", succeeded: "成功", failed: "失败", error: "错误", warning: "注意", stalled: "已卡住", stopped: "已停止", cancelled: "已取消", canceled: "已取消", skipped: "已跳过",
-        ready: "已就绪", online: "在线", offline: "离线", stale: "已过期", degraded: "降级", configured: "已配置", not_configured: "未配置", synced: "已同步", syncing: "同步中", uploaded: "已上传", uploading: "上传中",
-        archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
-      };
-      if (map[key]) return map[key];
+      if (STATUS_LABELS[key]) return STATUS_LABELS[key];
       const detailMatch = raw.match(/^(failed|error|warning)\s*[:：-]\s*(.+)$/i);
-      if (detailMatch) return map[detailMatch[1].toLowerCase()] + "：" + detailMatch[2];
+      if (detailMatch) return STATUS_LABELS[detailMatch[1].toLowerCase()] + "：" + detailMatch[2];
       return raw;
     }
     function parentPath(value) {
