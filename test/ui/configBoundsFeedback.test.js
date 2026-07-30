@@ -19,6 +19,14 @@ function extractFunction(name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function extractConst(name) {
+  const start = panelSource.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing const ${name}`);
+  const end = panelSource.indexOf(";", start);
+  assert.ok(end > start, `unterminated const ${name}`);
+  return panelSource.slice(start, end + 1);
+}
+
 function loadBounds() {
   const sandbox = {
     meaningfulValue: (value) => {
@@ -28,6 +36,11 @@ function loadBounds() {
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractConst("CONFIG_PORT_KEYS"),
+    extractConst("CONFIG_PORT_BOUNDS"),
+    extractConst("CONFIG_GPU_CONCURRENCY_BOUNDS"),
+    extractConst("CONFIG_SCHEDULER_BOUNDS"),
+    extractConst("EMPTY_CONFIG_INPUT_BOUNDS"),
     extractFunction("configInputBounds"),
     extractFunction("configBoundsHint"),
     extractFunction("configBoundsViolation"),
@@ -70,6 +83,14 @@ test("scheduler ranges match the documented policy bounds", () => {
   const concurrent = config.boundsFor("scheduler", "workerActionMaxConcurrent");
   assert.equal(config.violation(concurrent, 0), "不得小于 1");
   assert.equal(config.violation(concurrent, 99), "不得大于 16");
+});
+
+test("config bounds reuse stable fixed definitions", () => {
+  const config = loadBounds();
+  assert.equal(config.boundsFor("hub", "localForwardPort"), config.boundsFor("worker", "remoteAgentPort"));
+  assert.equal(config.boundsFor("worker", "maxConcurrentGpus"), config.boundsFor("scheduler", "workerActionMaxConcurrent"));
+  assert.equal(config.boundsFor("hub", "projectRoot"), config.boundsFor("scheduler", "unknownKey"));
+  assert.doesNotMatch(extractFunction("configInputBounds"), /const (?:portBounds|map)\s*=/);
 });
 
 test("unbounded and empty fields stay silent", () => {

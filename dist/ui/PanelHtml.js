@@ -1734,6 +1734,20 @@ function renderPanelHtml() {
     const ARCHIVED_PLAN_RENDER_LIMIT = 24;
     const EMPTY_WORKER_TUNNELS_FOR_ALIAS = [];
     const EMPTY_XSHELL_SESSIONS = [];
+    const CONFIG_PORT_KEYS = new Set(["localForwardPort", "remoteAgentPort", "remoteTelemetryPort"]);
+    const CONFIG_PORT_BOUNDS = Object.freeze({ min: 1024, max: 65535, step: 1 });
+    const CONFIG_GPU_CONCURRENCY_BOUNDS = Object.freeze({ min: 1, max: 16, step: 1 });
+    const CONFIG_SCHEDULER_BOUNDS = Object.freeze({
+      pollSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
+      jitterSeconds: Object.freeze({ min: 0, max: 1800, step: 1 }),
+      workerStatusTtlSeconds: Object.freeze({ min: 60, max: 7200, step: 1 }),
+      localAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
+      workerAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
+      operationEventMaxDelayMs: Object.freeze({ min: 100, max: 10000, step: 100 }),
+      workerActionMinIntervalMs: Object.freeze({ min: 500, max: 60000, step: 100 }),
+      workerActionMaxConcurrent: CONFIG_GPU_CONCURRENCY_BOUNDS
+    });
+    const EMPTY_CONFIG_INPUT_BOUNDS = Object.freeze({});
     const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
@@ -6878,23 +6892,10 @@ function renderPanelHtml() {
     }
 
     function configInputBounds(scope, key) {
-      const portBounds = { min: 1024, max: 65535, step: 1 };
-      if (["localForwardPort", "remoteAgentPort", "remoteTelemetryPort"].includes(key)) return portBounds;
-      if (key === "maxConcurrentGpus") return { min: 1, max: 16, step: 1 };
-      if (scope === "scheduler") {
-        const map = {
-          pollSeconds: { min: 60, max: 3600, step: 1 },
-          jitterSeconds: { min: 0, max: 1800, step: 1 },
-          workerStatusTtlSeconds: { min: 60, max: 7200, step: 1 },
-          localAvailabilityPushSeconds: { min: 60, max: 3600, step: 1 },
-          workerAvailabilityPushSeconds: { min: 60, max: 3600, step: 1 },
-          operationEventMaxDelayMs: { min: 100, max: 10000, step: 100 },
-          workerActionMinIntervalMs: { min: 500, max: 60000, step: 100 },
-          workerActionMaxConcurrent: { min: 1, max: 16, step: 1 }
-        };
-        return map[key] || {};
-      }
-      return {};
+      if (CONFIG_PORT_KEYS.has(key)) return CONFIG_PORT_BOUNDS;
+      if (key === "maxConcurrentGpus") return CONFIG_GPU_CONCURRENCY_BOUNDS;
+      if (scope === "scheduler") return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;
+      return EMPTY_CONFIG_INPUT_BOUNDS;
     }
 
     function configBoundsAttrs(bounds) {
