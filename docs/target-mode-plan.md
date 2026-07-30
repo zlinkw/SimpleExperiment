@@ -16,22 +16,22 @@
 - [已完成] 1/5 project-116：复用检查器动作分区优先级 Map。
 - [已完成] 2/5 project-117：复用后端重目录识别集合。
 - [已完成] 3/5 project-118：复用 Python 配置证据字段集合。
-- [待处理] 4/5 project-119：复用 pending scope 键与 data 属性映射。
+- [已完成] 4/5 project-119：复用 pending scope 键与 data 属性映射。
 - [待处理] 5/5 project-120：执行第五十四轮完整非服务器静态测试。
 
-## 当前批次：project-118（已完成）
+## 当前批次：project-119（已完成）
 ### 修复点
 
-- 将 Python 配置证据的标量、输出和列表字段提升为后端固定集合。
-- 避免每次证据提取重复创建 output Set 和执行数组线性查找。
-- 增加标量归一化、输出路径、指标列表及固定集合接线回归。
+- 将 pending action scope 键和对应 data 属性提升为前端固定定义。
+- 避免 scoped action 判断重复创建键数组，并跳过已知键的重复驼峰转换。
+- 增加固定定义复用、scoped selector 顺序及未知键回退回归。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- `task_type` 和 `primary_metric` 仍须分别归一化为 `task` 和 `metric`。
-- 嵌套输出路径、指标列表、注释过滤和 Python 静态解析不得改变。
+- pending action 与按钮 dataset 的 scope 判定必须继续覆盖全部现有键。
+- selector 属性顺序、转义和未知 data 键驼峰回退不得改变。
 - 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
@@ -39,11 +39,11 @@
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] Python 配置静态接入定向 Node 测试，1/1。
+- [已通过] 前端动作生命周期及脚本语法定向 Node 测试，11/11。
 - [已通过] `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-116 至 project-120 五批静态优化周期；project-120 再执行完整测试。
-- project-116、project-117 已由提交 `2fff7a5`、`d4d7403` 同步至 `origin/master`。
-- 本批仅处理 Python 配置证据固定字段集合、对应定向测试和计划文档。
-- 不触碰配置执行、扫描预算或结果解析规则；构建确认 Agent runtime 保持不变；下一批仅处理 pending scope 键与 data 属性映射。
+- project-116 至 project-118 已由提交 `2fff7a5`、`d4d7403`、`0463218` 同步至 `origin/master`。
+- 本批仅处理 pending scope 固定键、data 属性映射、对应定向测试和计划文档。
+- 不触碰动作 pendingKey 生成、超时清理或 DOM 查询预算；构建确认 Agent runtime 保持不变；下一批仅执行第五十四轮完整静态测试。

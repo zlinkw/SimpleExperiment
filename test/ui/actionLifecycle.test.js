@@ -17,6 +17,14 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function extractConst(source, name) {
+  const start = source.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing const ${name}`);
+  const end = source.indexOf(";", start);
+  assert.ok(end > start, `unterminated const ${name}`);
+  return source.slice(start, end + 1);
+}
+
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
@@ -144,4 +152,33 @@ test("webview command lifecycle reuses fixed status and command sets", () => {
   assert.match(source, /TERMINAL_UI_STATUSES\.has\(String\(status \|\| ""\)\.toLowerCase\(\)\)/);
   assert.match(source, /SUBMITTED_RUN_COMMANDS\.has\(normalizedCommand\)/);
   assert.match(source, /CONFIG_SAVE_COMMANDS\.has\(String\(command \|\| ""\)\)/);
+});
+
+test("pending action scope selectors reuse fixed keys and data attributes", () => {
+  const root = path.resolve(__dirname, "..", "..");
+  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const sandbox = { cssEscape: (value) => String(value) };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractConst(source, "PENDING_SCOPE_KEYS"),
+    extractConst(source, "PENDING_SCOPE_DATA_ATTRIBUTES"),
+    extractFunction(source, "pendingScopeKeys"),
+    extractFunction(source, "pendingActionIsScoped"),
+    extractFunction(source, "buttonHasPendingScope"),
+    extractFunction(source, "pendingActionSelector"),
+    extractFunction(source, "dataAttributeName"),
+    "this.api = { pendingScopeKeys, pendingActionIsScoped, buttonHasPendingScope, pendingActionSelector, dataAttributeName };",
+  ].join("\n"), sandbox);
+
+  const keys = sandbox.api.pendingScopeKeys();
+  assert.equal(sandbox.api.pendingScopeKeys(), keys);
+  assert.equal(sandbox.api.pendingActionIsScoped({ planFile: "demo.yaml" }), true);
+  assert.equal(sandbox.api.buttonHasPendingScope({ dataset: { configScope: "scheduler" } }), true);
+  assert.equal(sandbox.api.pendingActionSelector({ command: "runPlan", runKey: "run-1", planFile: "demo.yaml" }), 'button[data-command="runPlan"][data-run-key="run-1"][data-plan-file="demo.yaml"]');
+  assert.equal(sandbox.api.dataAttributeName("runKey"), "data-run-key");
+  assert.equal(sandbox.api.dataAttributeName("clientActionId"), "data-client-action-id");
+  assert.equal(sandbox.api.dataAttributeName("toString"), "data-to-string");
+  assert.match(source, /const PENDING_SCOPE_KEYS = Object\.freeze\(\[/);
+  assert.match(source, /const PENDING_SCOPE_DATA_ATTRIBUTES = Object\.freeze\(\{/);
+  assert.doesNotMatch(extractFunction(source, "pendingScopeKeys"), /return \[/);
 });

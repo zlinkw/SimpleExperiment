@@ -1649,6 +1649,12 @@ function renderPanelHtml() {
       presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode"
     });
     const BUTTON_PAYLOAD_ATTRIBUTE_KEYS = Object.freeze(Object.keys(BUTTON_PAYLOAD_ATTRIBUTE_NAMES));
+    const PENDING_SCOPE_KEYS = Object.freeze(["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "workerId", "configScope", "savePlan", "batchSelected"]);
+    const PENDING_SCOPE_DATA_ATTRIBUTES = Object.freeze({
+      runKey: "data-run-key", taskUiKey: "data-task-ui-key", experimentId: "data-experiment-id", archiveKey: "data-archive-key", experimentIndex: "data-experiment-index",
+      gpuId: "data-gpu-id", endpointId: "data-endpoint-id", remotePath: "data-remote-path", file: "data-file", planFile: "data-plan-file", workerId: "data-worker-id",
+      configScope: "data-config-scope", savePlan: "data-save-plan", batchSelected: "data-batch-selected"
+    });
     const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
@@ -3704,7 +3710,7 @@ function renderPanelHtml() {
     }
 
     function pendingScopeKeys() {
-      return ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "workerId", "configScope", "savePlan", "batchSelected"];
+      return PENDING_SCOPE_KEYS;
     }
 
     function pendingActionIsScoped(item) {
@@ -3725,7 +3731,9 @@ function renderPanelHtml() {
     }
 
     function dataAttributeName(key) {
-      return "data-" + String(key || "").replace(/[A-Z]/g, (match) => "-" + match.toLowerCase());
+      const normalized = String(key || "");
+      const known = PENDING_SCOPE_DATA_ATTRIBUTES[normalized];
+      return typeof known === "string" ? known : "data-" + normalized.replace(/[A-Z]/g, (match) => "-" + match.toLowerCase());
     }
 
     function loadingPrefix(active) {
