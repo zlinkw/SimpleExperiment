@@ -1764,6 +1764,7 @@ export function renderPanelHtml(): string {
     const PLAN_WORKFLOW_READY_PHASES = new Set(["ready", "run"]);
     const PLAN_TRAIN_MODE_TOKENS = new Set(["train", "training", "train_only"]);
     const PLAN_TEST_MODE_TOKENS = new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]);
+    const SYNC_NOT_READY_STATUS_TOKENS = new Set(["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"]);
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
       running_experiments: "running",
@@ -7661,7 +7662,7 @@ export function renderPanelHtml(): string {
 
     function syncStatusOk(value) {
       const text = String(value || "").toLowerCase();
-      return Boolean(text && !["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"].includes(text) && !text.includes("fail") && !text.includes("error") && !text.includes("失败") && !text.includes("错误") && !text.includes("未参与") && !text.includes("skip"));
+      return Boolean(text && !SYNC_NOT_READY_STATUS_TOKENS.has(text) && !text.includes("fail") && !text.includes("error") && !text.includes("失败") && !text.includes("错误") && !text.includes("未参与") && !text.includes("skip"));
     }
 
     function syncStatusFailure(value) {

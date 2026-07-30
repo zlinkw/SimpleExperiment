@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
 
@@ -90,4 +91,19 @@ test("Plan mode labels reuse backend-aligned alias sets", () => {
   assert.match(source, /PLAN_TRAIN_MODE_TOKENS\.has\(value\)/);
   assert.match(source, /PLAN_TEST_MODE_TOKENS\.has\(value\)/);
   assert.doesNotMatch(source, /\.includes\(value\)/);
+});
+
+test("sync readiness reuses one fixed non-ready status set", () => {
+  assert.match(panel, /const SYNC_NOT_READY_STATUS_TOKENS = new Set\(\["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"\]\)/);
+  const source = extractFunction("syncStatusOk");
+  assert.match(source, /SYNC_NOT_READY_STATUS_TOKENS\.has\(text\)/);
+  assert.doesNotMatch(source, /\["-", "待同步"/);
+
+  const sandbox = {
+    SYNC_NOT_READY_STATUS_TOKENS: new Set(["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"]),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${source}\nthis.syncStatusOk = syncStatusOk;`, sandbox);
+  for (const value of ["", "pending", "执行中", "failed", "error", "未参与", "skipped"]) assert.equal(sandbox.syncStatusOk(value), false, value);
+  for (const value of ["ok", "ready", "synced", "completed"]) assert.equal(sandbox.syncStatusOk(value), true, value);
 });
