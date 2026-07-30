@@ -13,37 +13,37 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-151：复用前端 Plan 运行阶段集合。
-- [已完成] 2/5 project-152：复用前端实时信号集合。
-- [已完成] 3/5 project-153：复用后端 WeakMap key 判定助手。
-- [已完成] 4/5 project-154：复用后端 Xshell 回环地址集合。
-- [已完成] 5/5 project-155：执行第六十一轮完整非服务器静态测试。
+- [已完成] 1/5 project-156：复用前端任务停止与失败状态集合。
+- [待处理] 2/5 project-157：复用前端远端操作连接边界集合。
+- [待处理] 3/5 project-158：优化后端首次接入缺失项与 Agent 阻塞原因派生。
+- [待处理] 4/5 project-159：复用后端 Host Operation 操作标签表。
+- [待处理] 5/5 project-160：执行第六十二轮完整非服务器静态测试。
 
-## 当前批次：project-155（已完成）
+## 当前批次：project-156（已完成）
 ### 修复点
 
-- 执行第六十一轮完整非服务器静态回归。
-- 覆盖 project-151 至 project-154 的前端阶段、实时信号与后端缓存、回环地址优化。
-- 保持生产功能与用户数据不变，仅修复完整回归暴露的问题。
+- 将任务停止、取消状态提升为固定集合，并由其派生完整失败状态集合。
+- 复用任务卡停止与失败样式判定，保持重试、归档和终态语义不变。
+- 增加集合组成、样式和别名规范化回归。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整测试、lint、JavaScript 语法与 Python 内存编译必须全部通过。
-- 若发现测试夹具未同步固定集合或助手，修复后必须重新执行完整回归。
+- `stopped`、`cancelled` 和 `canceled` 仍显示停止样式。
+- `failed`、`error` 和 `stalled` 仍显示失败样式，全部失败终态仍可重试和归档。
 - 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已失败] 首次完整 Node 测试 1041/1042；`overviewProjectReadiness` VM 沙箱缺少新增运行阶段集合。
-- [已通过] 修复测试沙箱后的安全预加载完整 Node 测试，1042/1042。
-- [已通过] lint、4 个 JavaScript 文件语法检查和 8 个 Python 文件内存编译。
+- [已通过] TypeScript 构建。
+- [已通过] 前端任务状态集合、样式与内联脚本定向 Node 测试，8/8。
 - [已通过] `git diff --check`。
 
 ## 本批记录
-- 本轮建立 project-151 至 project-155 五批静态优化周期；project-155 再执行完整测试。
-- project-151 至 project-154 已由提交 `a76fe9d`、`029f779`、`7fce2e7`、`8d8b367` 同步至 `origin/master`。
-- 本批同步 `overviewProjectReadiness` VM 沙箱后完整静态回归通过；无视觉变化，不调用截图，真实服务器行为继续标记 `needs field verification`。
+- 本轮建立 project-156 至 project-160 五批静态优化周期；project-160 再执行完整测试。
+- project-155 已由提交 `96930bd` 同步至 `origin/master`。
+- 本批仅处理前端任务状态集合、对应测试和计划文档；无视觉变化，不调用截图。
+- project-156 构建与 8/8 定向测试通过；下一批仅处理前端远端操作连接边界集合。

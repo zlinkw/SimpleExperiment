@@ -1628,7 +1628,8 @@ function renderPanelHtml() {
     let activeLayoutResize = null;
     const TASK_RENDER_LIMIT = 80;
     const PLAN_ACTIVE_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
-    const TASK_FAILURE_STATUSES = new Set(["failed", "error", "stalled", "stopped", "cancelled"]);
+    const TASK_STOPPED_STATUSES = new Set(["stopped", "cancelled"]);
+    const TASK_FAILURE_STATUSES = new Set([...TASK_STOPPED_STATUSES, "failed", "error", "stalled"]);
     const TASK_TERMINAL_STATUSES = new Set(["completed", "done", "archived", "deleted"]);
     const TASK_ARCHIVABLE_STATUSES = new Set(["completed", "done"]);
     const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
@@ -11360,8 +11361,8 @@ function renderPanelHtml() {
       if (value.includes("testing")) return "is-testing";
       if (value.includes("queue") || value.includes("pending")) return "is-queued";
       if (value.includes("complete") || value === "done") return "is-completed";
-      if (["stopped", "cancelled"].includes(value)) return "is-stopped";
-      if (["failed", "error", "stalled"].includes(value)) return "is-failed";
+      if (TASK_STOPPED_STATUSES.has(value)) return "is-stopped";
+      if (TASK_FAILURE_STATUSES.has(value)) return "is-failed";
       return "is-queued";
     }
 
