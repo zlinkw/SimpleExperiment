@@ -313,6 +313,7 @@ const directWorkerActionMap = {
     archiveArtifacts: "archive-worker-artifacts",
     deleteArtifacts: "delete-worker-artifacts",
 };
+const WORKER_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "archiveArtifacts", "deleteArtifacts"]);
 const noHubWorkerResultActions = new Set([
     "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
     "check-claim-evidence", "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis",
@@ -2948,7 +2949,7 @@ class RealtimeTunnelPanelProvider {
         if (workerAction && uniqueMessageWorkerIds.length > 1) {
             await this.postMultiWorkerTunnelAction(uniqueMessageWorkerIds, workerAction, body, {
                 title: command,
-                confirm: ["stopExperiment", "archiveArtifacts", "deleteArtifacts"].includes(command),
+                confirm: WORKER_ACTION_CONFIRM_COMMANDS.has(command),
                 danger: command === "deleteArtifacts",
             });
             if (actionAffectsResultsSummary(workerAction)) {
@@ -2969,7 +2970,7 @@ class RealtimeTunnelPanelProvider {
             if (!missing.length || !this.canFallbackTaskActionToHub(command, body, missing)) {
                 const result = await this.postWorkerTunnelAction(workerId, workerAction, workerBody, {
                     title: command,
-                    confirm: ["stopExperiment", "archiveArtifacts", "deleteArtifacts"].includes(command),
+                    confirm: WORKER_ACTION_CONFIRM_COMMANDS.has(command),
                     danger: command === "deleteArtifacts",
                 });
                 this.throwIfRemoteActionPending(command, workerAction, result);
