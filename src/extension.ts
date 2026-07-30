@@ -13967,28 +13967,49 @@ function projectOnboardingSuggestions(options) {
         return ["已发现结果文件但未解析出指标；请检查列映射、metric 别名或文本指标规则后刷新识别。"];
     return [];
 }
+const EMPTY_PROJECT_ONBOARDING_SELECTION_PROJECT = Object.freeze({});
+const EMPTY_PROJECT_ONBOARDING_SELECTION_PLANS = Object.freeze([]);
+let projectOnboardingSuggestionsForSelectionCache = null;
 function projectOnboardingSuggestionsForSelection(project, plans, planFileInput, selectedPlanId) {
-    const item = project && typeof project === "object" && !Array.isArray(project) ? project : {};
-    const list = (Array.isArray(plans) ? plans : []).filter((plan) => plan && typeof plan === "object" && !Array.isArray(plan));
-    if (!list.length)
-        return projectOnboardingSuggestions({ planCount: 0 });
-    const selectedFile = resolvePlanFileFromPlanList(list, planFileInput, [selectedPlanId]);
-    const selectedPlan = selectedFile
-        ? list.find((plan) => samePlanSelection(plan.planFile || plan.file || plan.planId || "", selectedFile))
-        : undefined;
-    if (!selectedPlan)
-        return [`发现 ${list.length} 个 Plan；请先明确选择本次要接入并运行的 Plan。`];
-    const rules = nestedRecord(item, "adapterRules");
-    const scopedPreviews = planScopedResultParsePreviews(arrayFromRecord(item, "resultParsePreviews"), selectedPlan, rules).items;
-    const planOutputReady = planOutputEvidenceSignals(selectedPlan).length > 0
-        && planOutputEvidenceCandidates(selectedPlan).length > 0;
-    return projectOnboardingSuggestions({
-        planCount: list.length,
-        hasActionableOutput: planOutputReady || actionableAdapterRuleSignals(rules),
-        adapterConfig: String(item.adapterConfig || "").trim(),
-        resultFileCount: scopedPreviews.length,
-        parseableResultCount: scopedPreviews.filter(resultPreviewHasRecords).length,
-    });
+    const projectSource = project && typeof project === "object" && !Array.isArray(project) ? project : EMPTY_PROJECT_ONBOARDING_SELECTION_PROJECT;
+    const plansSource = Array.isArray(plans) ? plans : EMPTY_PROJECT_ONBOARDING_SELECTION_PLANS;
+    const planFileKey = String(planFileInput || "");
+    const selectedPlanKey = String(selectedPlanId || "");
+    if (projectOnboardingSuggestionsForSelectionCache
+        && projectOnboardingSuggestionsForSelectionCache.projectSource === projectSource
+        && projectOnboardingSuggestionsForSelectionCache.plansSource === plansSource
+        && projectOnboardingSuggestionsForSelectionCache.planFileKey === planFileKey
+        && projectOnboardingSuggestionsForSelectionCache.selectedPlanKey === selectedPlanKey)
+        return projectOnboardingSuggestionsForSelectionCache.value;
+    const list = plansSource.filter((plan) => plan && typeof plan === "object" && !Array.isArray(plan));
+    let value;
+    if (!list.length) {
+        value = projectOnboardingSuggestions({ planCount: 0 });
+    }
+    else {
+        const selectedFile = resolvePlanFileFromPlanList(list, planFileInput, [selectedPlanId]);
+        const selectedPlan = selectedFile
+            ? list.find((plan) => samePlanSelection(plan.planFile || plan.file || plan.planId || "", selectedFile))
+            : undefined;
+        if (!selectedPlan) {
+            value = [`发现 ${list.length} 个 Plan；请先明确选择本次要接入并运行的 Plan。`];
+        }
+        else {
+            const rules = nestedRecord(projectSource, "adapterRules");
+            const scopedPreviews = planScopedResultParsePreviews(arrayFromRecord(projectSource, "resultParsePreviews"), selectedPlan, rules).items;
+            const planOutputReady = planOutputEvidenceSignals(selectedPlan).length > 0
+                && planOutputEvidenceCandidates(selectedPlan).length > 0;
+            value = projectOnboardingSuggestions({
+                planCount: list.length,
+                hasActionableOutput: planOutputReady || actionableAdapterRuleSignals(rules),
+                adapterConfig: String(projectSource.adapterConfig || "").trim(),
+                resultFileCount: scopedPreviews.length,
+                parseableResultCount: scopedPreviews.filter(resultPreviewHasRecords).length,
+            });
+        }
+    }
+    projectOnboardingSuggestionsForSelectionCache = { projectSource, plansSource, planFileKey, selectedPlanKey, value };
+    return value;
 }
 const projectResultExactCandidates = Object.freeze([
     "metrics_summary.csv",
