@@ -1749,6 +1749,7 @@ export function renderPanelHtml(): string {
     const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
     const TASK_QUEUED_STATUSES = new Set(["queued", "pending"]);
     const TASK_ACTIVE_STATUSES = new Set([...TASK_LIVE_STATUS_TOKENS, ...TASK_QUEUED_STATUSES]);
+    const TASK_CONTROL_COMMANDS = new Set(["stopExperiment", "retryExperiment"]);
     const ARTIFACT_SCOPE_COMMANDS = new Set(["archiveArtifacts", "deleteArtifacts"]);
     const PLAN_WORKFLOW_BUSY_PHASES = new Set(["validating", "dry-running", "submitting"]);
     const PLAN_WORKFLOW_TERMINAL_PHASES = new Set(["results", "debug-review", "review"]);
@@ -12999,7 +13000,7 @@ export function renderPanelHtml(): string {
       if (command === "selectLogRunKey") return context.runKey ? "" : "该任务缺少可定位日志标识";
       const workerAction = directWorkerActionMap[command];
       if (workerAction) {
-        const needsWorker = ["stopExperiment", "retryExperiment"].includes(command) || Boolean(context.workerId && context.workerId !== "-");
+        const needsWorker = TASK_CONTROL_COMMANDS.has(command) || Boolean(context.workerId && context.workerId !== "-");
         if (needsWorker) {
           if (!context.workerId || context.workerId === "-") return "该任务缺少 Worker 标识，不能直发 Worker Agent";
           const workerMissing = missingWorkerActionCapabilities(state, context.workerId, workerAction);
@@ -13066,7 +13067,7 @@ export function renderPanelHtml(): string {
         if (hasBatchTargets && selectedPlanFiles.length > 1) return "批量重试需要选中的任务来自同一个 plan；请按计划分批选择。";
         if (hasBatchTargets && selectedPlanFiles.length === 0) return "批量重试需要任务带有所属 planFile；旧任务缺少 plan 时不能安全重试。";
       }
-      if (["stopExperiment", "retryExperiment"].includes(command) && !contextRunKey && !hasSelectedExperiment(state)) return "请先在任务表勾选实验";
+      if (TASK_CONTROL_COMMANDS.has(command) && !contextRunKey && !hasSelectedExperiment(state)) return "请先在任务表勾选实验";
       if (ARTIFACT_SCOPE_COMMANDS.has(command) && !contextRunKey && !contextArchiveKey && !hasSelectedExperiment(state) && !hasSelectedArchive(state)) return "请先选择实验或归档项";
       if (command === "downloadDebugBundle" && !state.debugBundlePath) return "请先生成调试包并等待完成";
       return "";

@@ -19,7 +19,7 @@ function extractFunction(name) {
 }
 
 test("frequent UI lookup paths reuse fixed command sets", () => {
-  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS"]) {
+  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS"]) {
     assert.equal((panel.match(new RegExp(`const ${constant} = new Set`, "g")) || []).length, 1, constant);
   }
   const expectations = new Map([
@@ -50,4 +50,10 @@ test("Plan execution checks reuse selected and submitted run command sets", () =
   assert.match(extractFunction("runModeForButton"), /SELECTED_PLAN_RUN_COMMANDS\.has\(String\(command \|\| ""\)\)/);
   assert.doesNotMatch(panel, /\["runPlan", "reproducePlan"\]\.includes\(/);
   assert.doesNotMatch(panel, /\["runPlan", "reproducePlan", "runAllPlans"\]\.includes\(/);
+});
+
+test("task control checks reuse one fixed command set", () => {
+  assert.match(extractFunction("rowActionDisableReason"), /TASK_CONTROL_COMMANDS\.has\(command\)/);
+  assert.match(extractFunction("disableReason"), /TASK_CONTROL_COMMANDS\.has\(command\)/);
+  assert.doesNotMatch(panel, /\["stopExperiment", "retryExperiment"\]\.includes\(command\)/);
 });
