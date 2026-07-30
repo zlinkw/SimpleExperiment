@@ -1812,6 +1812,12 @@ export function renderPanelHtml(): string {
     const REALTIME_SIGNAL_STATUS_TOKENS = new Set(["websocket", "sse", "polling", "mixed"]);
     const REMOTE_ACTION_DISCONNECTED_HEALTH_STATES = new Set(["local_port_closed", "agent_unreachable", "not_configured"]);
     const NO_HUB_TOPOLOGY_MODES = new Set(["single_worker", "worker_pool"]);
+    const TASK_STATUS_LABELS = Object.freeze({
+      accepted: "已接收", submitted: "已提交", queued: "排队中", pending: "等待中",
+      running: "运行中", progress: "运行中", in_progress: "运行中", testing: "测试中",
+      completed: "已完成", done: "已完成", failed: "失败", error: "错误", stalled: "已卡住",
+      stopped: "已停止", cancelled: "已取消", archived: "已归档", deleted: "已删除"
+    });
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
       running_experiments: "running",
@@ -14108,13 +14114,7 @@ export function renderPanelHtml(): string {
     function taskStatusLabel(status) {
       const raw = String(status || "").trim();
       if (!raw || raw === "-") return raw || "未知";
-      const labels = {
-        accepted: "已接收", submitted: "已提交", queued: "排队中", pending: "等待中",
-        running: "运行中", progress: "运行中", in_progress: "运行中", testing: "测试中",
-        completed: "已完成", done: "已完成", failed: "失败", error: "错误", stalled: "已卡住",
-        stopped: "已停止", cancelled: "已取消", archived: "已归档", deleted: "已删除"
-      };
-      return labels[taskStatusToken(raw)] || raw;
+      return TASK_STATUS_LABELS[taskStatusToken(raw)] || raw;
     }
     function taskFailureLikeStatus(status) {
       return TASK_FAILURE_STATUSES.has(taskStatusToken(status));

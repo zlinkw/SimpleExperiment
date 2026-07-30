@@ -34,6 +34,13 @@ function pendingLabel(command) {
   return sandbox.check({ command });
 }
 
+function loadTaskStatusLabel() {
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFrozenObject("TASK_STATUS_LABELS")}\n${extractFunction("taskStatusToken")}\n${extractFunction("taskStatusLabel")}\nthis.check = taskStatusLabel;\nthis.labels = TASK_STATUS_LABELS;`, sandbox);
+  return sandbox;
+}
+
 test("task timeline translates task status and preserves the raw value in details", () => {
   assert.match(panel, /const rawTaskStatus = row\.status \|\| "-"/);
   assert.match(panel, /\["任务状态", taskStatusLabel\(rawTaskStatus\), "原始状态：" \+ rawTaskStatus/);
@@ -45,8 +52,17 @@ test("task timeline translates task status and preserves the raw value in detail
 });
 
 test("task timeline keeps unknown task status values compatible", () => {
-  assert.match(panel, /taskStatusLabel\(status\)/);
-  assert.match(panel, /return labels\[taskStatusToken\(raw\)\] \|\| raw/);
+  const sandbox = loadTaskStatusLabel();
+  assert.equal(sandbox.check("queued"), "排队中");
+  assert.equal(sandbox.check("normal_completed"), "已完成");
+  assert.equal(sandbox.check("manual_interrupted_completed"), "已停止");
+  assert.equal(sandbox.check("future-status"), "future-status");
+  assert.equal(sandbox.check(""), "未知");
+  assert.equal(sandbox.check("-"), "-");
+  assert.equal(Object.isFrozen(sandbox.labels), true);
+  assert.match(panel, /const TASK_STATUS_LABELS = Object\.freeze\(\{/);
+  assert.match(extractFunction("taskStatusLabel"), /TASK_STATUS_LABELS\[taskStatusToken\(raw\)\] \|\| raw/);
+  assert.doesNotMatch(extractFunction("taskStatusLabel"), /const labels =/);
 });
 
 test("task pending labels reuse one immutable lookup table", () => {

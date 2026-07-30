@@ -29,6 +29,14 @@ function extractFunction(name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function extractFrozenObject(name) {
+  const start = panel.indexOf(`const ${name} = Object.freeze({`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = panel.indexOf("});", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return panel.slice(start, end + 3);
+}
+
 function loadScope() {
   const normalize = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
   const sandbox = {
@@ -76,6 +84,7 @@ function loadTaskStatus() {
   const sandbox = taskStatusSets();
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFrozenObject("TASK_STATUS_LABELS"),
     extractFunction("taskStatusToken"),
     extractFunction("taskStatusLabel"),
     extractFunction("taskFailureLikeStatus"),
@@ -261,5 +270,8 @@ test("task UI treats all scheduler failure terminals as visible retryable failur
   assert.ok([...panel.matchAll(/\["重试", "retryExperiment", taskFailureLikeStatus\(row\.status\), true\]/g)].length >= 3);
   assert.ok([...panel.matchAll(/\["归档", "archiveArtifacts", taskArchivableStatus\(row\.status\), true\]/g)].length >= 3);
   assert.match(panel, /function taskStatusLabel\(status\)/);
+  assert.match(panel, /const TASK_STATUS_LABELS = Object\.freeze\(\{/);
+  assert.match(extractFunction("taskStatusLabel"), /TASK_STATUS_LABELS\[taskStatusToken\(raw\)\] \|\| raw/);
+  assert.doesNotMatch(extractFunction("taskStatusLabel"), /const labels =/);
   assert.match(panel, /原始状态：/);
 });
