@@ -19,10 +19,21 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractFrozenObject(name) {
+  const start = panel.indexOf(`const ${name} = Object.freeze({`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = panel.indexOf("});", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return panel.slice(start, end + 3);
+}
+
 function call(name, value) {
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction(name)}\nthis.fn = ${name};`, sandbox);
+  const dependency = name === "chartTypeLabel"
+    ? extractFrozenObject("PPT_CHART_TYPE_LABELS")
+    : name === "styleModeLabel" ? extractFrozenObject("PPT_STYLE_MODE_LABELS") : "";
+  vm.runInContext(`${dependency}\n${extractFunction(name)}\nthis.fn = ${name};`, sandbox);
   return sandbox.fn(value);
 }
 
@@ -32,6 +43,10 @@ test("analysis and PPT config values use clear Chinese labels", () => {
   assert.equal(call("analysisStatusLabel", "needs experiment"), "需实验");
   assert.equal(call("chartTypeLabel", "auto"), "自动");
   assert.equal(call("styleModeLabel", "activePpt"), "跟随当前 PPT");
+  assert.match(panel, /const PPT_CHART_TYPE_LABELS = Object\.freeze\(\{ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" \}\)/);
+  assert.match(panel, /const PPT_STYLE_MODE_LABELS = Object\.freeze\(\{ activePpt: "跟随当前 PPT", default: "默认样式" \}\)/);
+  assert.doesNotMatch(extractFunction("chartTypeLabel"), /const labels =/);
+  assert.doesNotMatch(extractFunction("styleModeLabel"), /const labels =/);
 });
 
 test("unknown analysis values remain unchanged for compatibility", () => {

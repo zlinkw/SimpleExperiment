@@ -26,7 +26,7 @@ function loadHelpers() {
     uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
   };
   vm.createContext(sandbox);
-  vm.runInContext(source.slice(start, end) + "\nthis.api = { PROJECT_PPT_PATH_CONFIRMATIONS_PATH, PPT_PLOT_REQUEST_AUDIT_DIR, normalizePptPathConfirmationTarget, mergePptPathConfirmations, pptPathTargetConfirmed, pptPlotConfirmationDetail, pptPlotAuditRelativePath, readProjectPptPathConfirmationsState, writeProjectPptPathConfirmationsState };", sandbox);
+  vm.runInContext(source.slice(start, end) + "\nthis.api = { PROJECT_PPT_PATH_CONFIRMATIONS_PATH, PPT_PLOT_REQUEST_AUDIT_DIR, PPT_CHART_TYPE_LABELS, PPT_STYLE_MODE_LABELS, normalizePptPathConfirmationTarget, mergePptPathConfirmations, pptPathTargetConfirmed, pptPlotConfirmationDetail, pptPlotAuditRelativePath, readProjectPptPathConfirmationsState, writeProjectPptPathConfirmationsState };", sandbox);
   return sandbox.api;
 }
 
@@ -74,6 +74,12 @@ test("PPT confirmation shows plan revision, final sources, contract, and target"
   assert.match(detail, /执行绘图请求时会在上述目录写入轻量 JSON 请求和响应审计/);
   assert.match(detail, /取消不会创建请求审计或调用 PPT 插件/);
   assert.match(detail, /误差图/);
+  assert.equal(helpers.PPT_CHART_TYPE_LABELS.meanStdErrorBar, "误差图");
+  assert.equal(helpers.PPT_STYLE_MODE_LABELS.activePpt, "跟随当前 PPT");
+  assert.match(source, /PPT_CHART_TYPE_LABELS\[chartType\] \|\| chartType/);
+  assert.match(source, /PPT_STYLE_MODE_LABELS\[styleMode\] \|\| styleMode/);
+  assert.match(panel, /PPT_CHART_TYPE_LABELS\[String\(value \|\| ""\)\]/);
+  assert.match(panel, /PPT_STYLE_MODE_LABELS\[String\(value \|\| ""\)\]/);
   assert.match(bridge, /safeProjectPath\(projectRoot, "zlk_cluster\/results\/ppt_plot_requests"\)/);
 });
 

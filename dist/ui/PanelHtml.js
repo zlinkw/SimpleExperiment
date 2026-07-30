@@ -1634,6 +1634,8 @@ function renderPanelHtml() {
     const TASK_ARCHIVABLE_STATUSES = new Set(["completed", "done"]);
     const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
     const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
+    const PPT_CHART_TYPE_LABELS = Object.freeze({ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" });
+    const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
@@ -12103,13 +12105,11 @@ function renderPanelHtml() {
     }
 
     function chartTypeLabel(value) {
-      const labels = { auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" };
-      return labels[String(value || "")] || String(value || "未知");
+      return PPT_CHART_TYPE_LABELS[String(value || "")] || String(value || "未知");
     }
 
     function styleModeLabel(value) {
-      const labels = { activePpt: "跟随当前 PPT", default: "默认样式" };
-      return labels[String(value || "")] || String(value || "未知");
+      return PPT_STYLE_MODE_LABELS[String(value || "")] || String(value || "未知");
     }
 
     function currentPlanRevisionRunEvidenceForState(state, planFile, plan) {

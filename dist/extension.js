@@ -9604,6 +9604,8 @@ async function writeProjectPptPlotConfigState(root, config) {
 }
 const PROJECT_PPT_PATH_CONFIRMATIONS_PATH = "zlk_cluster/ui/ppt_path_confirmations.json";
 const PPT_PLOT_REQUEST_AUDIT_DIR = "zlk_cluster/results/ppt_plot_requests";
+const PPT_CHART_TYPE_LABELS = Object.freeze({ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" });
+const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
 function normalizePptPathConfirmationTarget(presentationPath, projectRoot = "") {
     const raw = String(presentationPath || "").trim();
     if (!raw) {
@@ -9652,8 +9654,6 @@ function pptPathTargetConfirmed(confirmations, target) {
 }
 function pptPlotConfirmationDetail(input, target) {
     const sourcePaths = uniqueStrings((Array.isArray(input?.sourcePaths) ? input.sourcePaths : []).map((item) => String(item || "").trim()).filter(Boolean));
-    const chartLabels = { auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" };
-    const styleLabels = { activePpt: "跟随当前 PPT", default: "默认样式" };
     const chartType = String(input?.chartType || "auto").trim() || "auto";
     const styleMode = String(input?.styleMode || "activePpt").trim() || "activePpt";
     const auditDir = path.join(String(input?.projectRoot || "").trim(), ...PPT_PLOT_REQUEST_AUDIT_DIR.split("/"));
@@ -9670,8 +9670,8 @@ function pptPlotConfirmationDetail(input, target) {
         `PPT 绘图契约：${String(input?.plottingContractPath || "未找到").trim() || "未找到"}`,
         `目标 PPT：${String(target?.displayPath || "新建 PPT").trim() || "新建 PPT"}`,
         `本地请求审计目录：${auditDir || PPT_PLOT_REQUEST_AUDIT_DIR}`,
-        `图类型：${chartLabels[chartType] || chartType}`,
-        `样式：${styleLabels[styleMode] || styleMode}`,
+        `图类型：${PPT_CHART_TYPE_LABELS[chartType] || chartType}`,
+        `样式：${PPT_STYLE_MODE_LABELS[styleMode] || styleMode}`,
         "",
         "仅已归档结果生成的最终统计或论文表可作为数值绘图输入；临时预览 CSV 不会提交。",
         "执行绘图请求时会在上述目录写入轻量 JSON 请求和响应审计；取消不会创建请求审计或调用 PPT 插件。",
