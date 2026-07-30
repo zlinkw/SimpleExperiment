@@ -13,37 +13,37 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-116：复用检查器动作分区优先级 Map。
-- [已完成] 2/5 project-117：复用后端重目录识别集合。
-- [已完成] 3/5 project-118：复用 Python 配置证据字段集合。
-- [已完成] 4/5 project-119：复用 pending scope 键与 data 属性映射。
-- [已完成] 5/5 project-120：执行第五十四轮完整非服务器静态测试。
+- [已完成] 1/5 project-121：复用前端操作状态匹配词表。
+- [待处理] 2/5 project-122：复用后端调度状态分类集合。
+- [待处理] 3/5 project-123：复用前端配置数值边界定义。
+- [待处理] 4/5 project-124：复用后端 SFTP 与同步状态集合。
+- [待处理] 5/5 project-125：执行第五十五轮完整非服务器静态测试。
 
-## 当前批次：project-120（已完成）
+## 当前批次：project-121（已完成）
 ### 修复点
 
-- 对 project-116 至 project-119 执行第五十四轮完整非服务器静态回归。
-- 覆盖 TypeScript 构建、全部 Node 测试、Lint、4 个 Node 入口和全部受控 Python 文件语法检查。
-- 仅修复完整回归明确检出的兼容问题，不扩大当前五批周期范围。
+- 将操作进行中和失败状态的子串匹配词表提升为前端固定数组。
+- 避免操作统计、时间线和计划阶段判断时重复创建状态数组。
+- 增加固定词表接线回归，保持复合状态和未知状态语义不变。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
-- 构建不得改变 Agent runtime 生成内容或写入历史 VSIX、`zlk_cluster/ui/`。
-- 任何失败必须保留为未完成，不得提交或推送成功记录。
+- `operation_progress`、`completed_with_errors`、`unsupported` 等复合状态仍须正确分类。
+- 已取消、已停止和已完成判定顺序不得改变。
+- 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 安全 preload 下第五十四轮完整非服务器 `npm test`，1014/1014。
-- [已通过] TypeScript、Lint、4/4 个 Node 入口和 8/8 个 Python 文件语法。
+- [已通过] TypeScript 构建。
+- [已通过] 操作状态统计、计划阶段及前端脚本语法定向 Node 测试，16/16。
 - [已通过] `git diff --check`。
 
 ## 本批记录
-- 本轮建立 project-116 至 project-120 五批静态优化周期；project-120 再执行完整测试。
-- project-116 至 project-119 已由提交 `2fff7a5`、`d4d7403`、`0463218`、`d7bce4c` 同步至 `origin/master`。
-- 完整回归未检出新增兼容问题，本批仅修改计划文档。
-- 构建未改变 Agent runtime；未连接服务器、未截图、未生成或安装 VSIX，真实服务器行为保持 `needs field verification`。
+- 本轮建立 project-121 至 project-125 五批静态优化周期；project-125 再执行完整测试。
+- 上一轮 project-116 至 project-120 已由提交 `2fff7a5`、`d4d7403`、`0463218`、`d7bce4c`、`b0963ee` 同步至 `origin/master`。
+- 本批仅处理前端操作状态固定词表、对应定向测试和计划文档。
+- 复合状态分类保持不变，构建确认 Agent runtime 未变；无视觉变化，不调用截图；下一批仅处理后端调度状态分类集合。

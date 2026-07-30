@@ -21,6 +21,8 @@ function extractFunction(name) {
 
 function stats(rows) {
   const sandbox = {
+    OPERATION_ACTIVE_MATCH_TOKENS: Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]),
+    OPERATION_FAILURE_MATCH_TOKENS: Object.freeze(["failed", "failure", "stalled", "timeout", "unsupported", "error"]),
     operationRowsForState: () => rows,
     overviewOperationStatsCacheRows: null,
     overviewOperationStatsCacheValue: null,
@@ -80,6 +82,12 @@ test("overview operation stats cover active failure and completed statuses", () 
     latestStatus: "unsupported",
     latestType: "newest",
   });
+  assert.match(panel, /const OPERATION_ACTIVE_MATCH_TOKENS = Object\.freeze\(\[/);
+  assert.match(panel, /const OPERATION_FAILURE_MATCH_TOKENS = Object\.freeze\(\[/);
+  assert.match(extractFunction("operationIsActive"), /OPERATION_ACTIVE_MATCH_TOKENS\.some/);
+  assert.match(extractFunction("operationIsFailureLike"), /OPERATION_FAILURE_MATCH_TOKENS\.some/);
+  assert.doesNotMatch(extractFunction("operationIsActive"), /return \[/);
+  assert.doesNotMatch(extractFunction("operationIsFailureLike"), /return \[/);
 });
 
 test("overview operation surfaces use real counts and declare their runtime dependency", () => {

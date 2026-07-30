@@ -1710,6 +1710,8 @@ function renderPanelHtml() {
     const EMPTY_SCHEDULER_STATES = [];
     const MATCH_EVERY_OPERATION = () => true;
     const MATCH_NO_OPERATION = () => false;
+    const OPERATION_ACTIVE_MATCH_TOKENS = Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]);
+    const OPERATION_FAILURE_MATCH_TOKENS = Object.freeze(["failed", "failure", "stalled", "timeout", "unsupported", "error"]);
     const OPERATION_INFRASTRUCTURE_PATTERN = /self|debug|audit|diagnostic|agent|tunnel|port/;
     const OPERATION_SECTION_MATCH_PATTERNS = new Map([
       ["sync", /publish|github|upload|deploy|sftp|sync|distribute/],
@@ -3454,12 +3456,12 @@ function renderPanelHtml() {
 
     function operationIsActive(status) {
       const value = String(status || "").toLowerCase();
-      return ["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"].some((item) => value.includes(item));
+      return OPERATION_ACTIVE_MATCH_TOKENS.some((item) => value.includes(item));
     }
 
     function operationIsFailureLike(status) {
       const value = String(status || "").toLowerCase();
-      return ["failed", "failure", "stalled", "timeout", "unsupported", "error"].some((item) => value.includes(item));
+      return OPERATION_FAILURE_MATCH_TOKENS.some((item) => value.includes(item));
     }
 
     function operationIsCancelled(status) {
