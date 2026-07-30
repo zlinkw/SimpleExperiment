@@ -119,6 +119,7 @@ test("partial Worker summaries stay worker-pool scoped and disclose missing endp
 test("no-Hub result buttons use the owning Worker capability instead of Hub capability", () => {
   const sandbox = {
     noHubWorkerResultCommands: new Set(["archiveArtifacts", "parseResults", "refreshResults"]),
+    NO_HUB_TOPOLOGY_MODES: new Set(["single_worker", "worker_pool"]),
     asArray: (value) => Array.isArray(value) ? value : [],
     resolveWorkerId: (value) => String(value || "").trim(),
     uniqueText: (values) => [...new Set(values)],

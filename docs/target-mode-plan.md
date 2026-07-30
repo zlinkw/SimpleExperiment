@@ -17,33 +17,35 @@
 - [已完成] 2/5 project-157：复用前端远端操作连接边界集合。
 - [已完成] 3/5 project-158：优化后端首次接入缺失项与 Agent 阻塞原因派生。
 - [已完成] 4/5 project-159：复用后端 Host Operation 操作标签表。
-- [待处理] 5/5 project-160：执行第六十二轮完整非服务器静态测试。
+- [已完成] 5/5 project-160：执行第六十二轮完整非服务器静态测试。
 
-## 当前批次：project-159（已完成）
+## 当前批次：project-160（已完成）
 ### 修复点
 
-- 将 Host Operation 操作标签提升为冻结常量表。
-- 标签函数直接复用常量表，避免每次调用重建对象。
-- 增加常量表与调用边界回归。
+- 执行第六十二轮完整非服务器静态回归。
+- 覆盖 project-156 至 project-159 的前端集合与后端派生、标签复用优化。
+- 补齐 Worker telemetry 测试夹具的无 Hub 拓扑集合。
+- 保持生产功能与用户数据不变，仅修复完整回归暴露的问题。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 已知命令必须继续显示中文操作标签，未知命令必须回退原命令名。
-- Host Operation 租约覆盖范围和只读命令排除边界不得变化。
-- 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
+- 完整测试、lint、JavaScript 语法与 Python 内存编译必须全部通过。
+- 若发现测试夹具未同步固定集合或派生常量，修复后必须重新执行完整回归。
+- 完整测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] Host Operation 租约定向 Node 测试，3/3。
+- [已失败] 首次完整 Node 测试 1044/1045；`workerTelemetryApiContract` VM 沙箱缺少无 Hub 拓扑集合。
+- [已通过] 修复测试沙箱后的安全预加载完整 Node 测试，1045/1045。
+- [已通过] lint、4 个 JavaScript 文件语法检查和 8 个 Python 文件内存编译。
 - [已通过] `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-156 至 project-160 五批静态优化周期；project-160 再执行完整测试。
-- project-157、project-158 已由提交 `3588544`、`47c0645` 同步至 `origin/master`。
-- 本批仅处理 Host Operation 标签复用、对应测试和计划文档；无视觉变化，不调用截图。
-- project-159 构建与 3/3 定向测试通过；真实服务器行为保持 `needs field verification`，下一批执行第六十二轮完整静态回归。
+- project-156 至 project-159 已由提交 `998eed5`、`3588544`、`47c0645`、`d515934` 同步至 `origin/master`。
+- 本批仅执行完整静态回归及必要测试夹具修复；无视觉变化，不调用截图。
+- project-160 补齐 Worker telemetry VM 沙箱后完整静态回归通过；真实服务器行为继续标记 `needs field verification`。
