@@ -1769,6 +1769,7 @@ function renderPanelHtml() {
     const PLAN_TRAIN_MODE_TOKENS = new Set(["train", "training", "train_only"]);
     const PLAN_TEST_MODE_TOKENS = new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]);
     const SYNC_NOT_READY_STATUS_TOKENS = new Set(["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"]);
+    const REALTIME_SIGNAL_STATUS_TOKENS = new Set(["websocket", "sse", "polling", "mixed"]);
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
       running_experiments: "running",
@@ -13091,7 +13092,7 @@ function renderPanelHtml() {
     }
     function hasRealtimeSignal(state) {
       const status = String(((state.realtime || {}).streamStatus) || "");
-      return ["websocket", "sse", "polling", "mixed"].includes(status) || Boolean(state.lastSnapshotAt);
+      return REALTIME_SIGNAL_STATUS_TOKENS.has(status) || Boolean(state.lastSnapshotAt);
     }
     function hasAnyTunnelSession(state) {
       const setup = state.setup || {};

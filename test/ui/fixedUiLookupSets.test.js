@@ -20,7 +20,7 @@ function extractFunction(name) {
 }
 
 test("frequent UI lookup paths reuse fixed command sets", () => {
-  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "HUB_HEALTHY_STATUS_TOKENS", "OVERVIEW_HEALTHY_STATUS_TOKENS", "HUB_OPERATION_READY_STATUS_TOKENS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS", "SELECTED_PLAN_ACTION_COMMANDS", "PLAN_FILE_PAYLOAD_COMMANDS", "RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS"]) {
+  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "HUB_HEALTHY_STATUS_TOKENS", "OVERVIEW_HEALTHY_STATUS_TOKENS", "HUB_OPERATION_READY_STATUS_TOKENS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS", "SELECTED_PLAN_ACTION_COMMANDS", "PLAN_FILE_PAYLOAD_COMMANDS", "RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS", "REALTIME_SIGNAL_STATUS_TOKENS"]) {
     assert.equal((panel.match(new RegExp(`const ${constant} = new Set`, "g")) || []).length, 1, constant);
   }
   const expectations = new Map([
@@ -106,4 +106,22 @@ test("sync readiness reuses one fixed non-ready status set", () => {
   vm.runInContext(`${source}\nthis.syncStatusOk = syncStatusOk;`, sandbox);
   for (const value of ["", "pending", "执行中", "failed", "error", "未参与", "skipped"]) assert.equal(sandbox.syncStatusOk(value), false, value);
   for (const value of ["ok", "ready", "synced", "completed"]) assert.equal(sandbox.syncStatusOk(value), true, value);
+});
+
+test("realtime signal checks reuse one fixed status set", () => {
+  assert.match(panel, /const REALTIME_SIGNAL_STATUS_TOKENS = new Set\(\["websocket", "sse", "polling", "mixed"\]\)/);
+  const source = extractFunction("hasRealtimeSignal");
+  assert.match(source, /REALTIME_SIGNAL_STATUS_TOKENS\.has\(status\)/);
+  assert.doesNotMatch(source, /\["websocket", "sse", "polling", "mixed"\]\.includes/);
+
+  const sandbox = {
+    REALTIME_SIGNAL_STATUS_TOKENS: new Set(["websocket", "sse", "polling", "mixed"]),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${source}\nthis.hasRealtimeSignal = hasRealtimeSignal;`, sandbox);
+  for (const streamStatus of ["websocket", "sse", "polling", "mixed"]) {
+    assert.equal(sandbox.hasRealtimeSignal({ realtime: { streamStatus } }), true, streamStatus);
+  }
+  assert.equal(sandbox.hasRealtimeSignal({ realtime: { streamStatus: "disconnected" } }), false);
+  assert.equal(sandbox.hasRealtimeSignal({ realtime: { streamStatus: "unknown" }, lastSnapshotAt: "2026-07-30T00:00:00Z" }), true);
 });
