@@ -8733,13 +8733,15 @@ function experimentTraceNeedsAttention(row) {
     ].join(" ").toLowerCase();
     return /fail|error|stalled|residue|missing|unsupported|缺失|失败|残留/.test(text);
 }
+const EXPERIMENT_TRACE_ACTIVE_STATUSES = new Set(["running", "testing", "queued", "pending"]);
+const EXPERIMENT_TRACE_TERMINAL_STATUSES = new Set(["completed", "done", "archived", "deleted"]);
 function experimentTraceRank(row) {
     if (experimentTraceNeedsAttention(row))
         return 0;
     const status = experimentTraceStatus(row);
-    if (["running", "testing", "queued", "pending"].includes(status))
+    if (EXPERIMENT_TRACE_ACTIVE_STATUSES.has(status))
         return 1;
-    if (["completed", "done", "archived", "deleted"].includes(status))
+    if (EXPERIMENT_TRACE_TERMINAL_STATUSES.has(status))
         return 3;
     return 2;
 }
@@ -8938,6 +8940,7 @@ const SCHEDULER_QUEUED_STATUSES = new Set(["queued", "pending"]);
 const SCHEDULER_FAILURE_STATUSES = new Set(["failed", "stalled", "stopped", "cancelled", "canceled"]);
 const SCHEDULER_COMPLETED_STATUSES = new Set(["completed", "done", "archived"]);
 const SCHEDULER_TERMINAL_STATUSES = new Set([...SCHEDULER_FAILURE_STATUSES, ...SCHEDULER_COMPLETED_STATUSES, "error", "deleted"]);
+const SCHEDULER_OUTCOME_FAILURE_STATUSES = new Set([...SCHEDULER_FAILURE_STATUSES, "error"]);
 function schedulerEntryPriority(row, bucket, protectedSet) {
     if (schedulerRowMatchesProtectedKey(row, protectedSet))
         return 0;
@@ -11083,6 +11086,7 @@ function compactIntegrationReportForWebview(report) {
     integrationReportForWebviewCache.set(report, compacted);
     return compacted;
 }
+const WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
 const EMPTY_FILE_TRANSFERS_FOR_WEBVIEW = Object.freeze({});
 const fileTransfersForWebviewCache = new WeakMap();
 function compactFileTransfersForWebview(fileTransfers) {
@@ -11354,7 +11358,7 @@ function compactFileTransferForWebview(id, row) {
 }
 function isTerminalTransferForWebview(row) {
     const status = String(row.status || row.state || "").toLowerCase();
-    return ["completed", "failed", "cancelled", "canceled"].includes(status);
+    return WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES.has(status);
 }
 function rowTimeForWebview(row) {
     const raw = firstStringFieldForWebview(row, "updatedAt", "updated_at", "completedAt", "completed_at", "finishedAt", "finished_at", "startedAt", "started_at", "generatedAt", "generated_at");
@@ -13016,7 +13020,7 @@ function projectBootstrapFinishedRunOutcome(state, plan) {
             continue;
         const payloads = remoteResultOperationPayloads(row);
         const actions = payloads.map((entry) => String(entry.action || entry.type || "").trim().toLowerCase());
-        if (!actions.some((action) => ["run-plan", "reproduce-plan"].includes(action)))
+        if (!actions.some((action) => LONG_RUNNING_OPERATION_ACTIONS.has(action)))
             continue;
         const rowPlan = payloads.map((entry) => operationResultPlanFile(entry)).find(Boolean);
         if (!samePlanSelection(rowPlan, planFile))
@@ -13097,7 +13101,7 @@ function currentPlanRevisionHasRunEvidence(state, plan) {
             return false;
         const payloads = remoteResultOperationPayloads(row);
         const actions = payloads.map((entry) => String(entry.action || entry.type || "").trim().toLowerCase());
-        if (!actions.some((action) => ["run-plan", "reproduce-plan"].includes(action)))
+        if (!actions.some((action) => LONG_RUNNING_OPERATION_ACTIONS.has(action)))
             return false;
         const rowPlan = payloads.map((entry) => operationResultPlanFile(entry)).find(Boolean);
         if (!samePlanSelection(rowPlan, planFile))
@@ -13118,7 +13122,7 @@ function projectBootstrapFinishedTaskOutcome(state, planFile, planRevision, plan
         && schedulerTaskMatchesPlanVersion(row, planRevision, planUpdatedAt));
     if (!matching.length || matching.some((row) => !schedulerStatusTerminal(row.status || row.state || "")))
         return undefined;
-    const failed = matching.some((row) => ["failed", "error", "stalled", "stopped", "cancelled"].includes(schedulerStatusToken(row.status || row.state || "")));
+    const failed = matching.some((row) => SCHEDULER_OUTCOME_FAILURE_STATUSES.has(schedulerStatusToken(row.status || row.state || "")));
     if (matching.some((row) => debugModeFromRecord(row))) {
         return {
             state: "finished_debug_review",

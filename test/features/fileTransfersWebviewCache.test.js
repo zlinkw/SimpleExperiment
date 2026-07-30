@@ -31,9 +31,7 @@ function loadCompaction() {
       if (Array.isArray(fileTransfers)) return fileTransfers.map((row, index) => [String(row.id || index), row]);
       return Object.entries(fileTransfers || {});
     },
-    isTerminalTransferForWebview(row) {
-      return ["completed", "failed", "cancelled", "canceled"].includes(String(row.status || "").toLowerCase());
-    },
+    WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES: new Set(["completed", "failed", "cancelled", "canceled"]),
     rowTimeForWebview(row) {
       return Date.parse(String(row.updatedAt || "")) || Number(row.seq || 0);
     },
@@ -43,7 +41,7 @@ function loadCompaction() {
     },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("compactFileTransfersForWebview")}\nthis.compactTransfers = compactFileTransfersForWebview;`, sandbox);
+  vm.runInContext(`${extractFunction("isTerminalTransferForWebview")}\n${extractFunction("compactFileTransfersForWebview")}\nthis.compactTransfers = compactFileTransfersForWebview;\nthis.isTerminal = isTerminalTransferForWebview;`, sandbox);
   return sandbox;
 }
 
@@ -95,4 +93,12 @@ test("empty file transfer inputs share the immutable empty result", () => {
   assert.strictEqual(sandbox.compactTransfers(null), sandbox.EMPTY_FILE_TRANSFERS_FOR_WEBVIEW);
   assert.strictEqual(sandbox.compactTransfers({}), sandbox.EMPTY_FILE_TRANSFERS_FOR_WEBVIEW);
   assert.equal(sandbox.compactCalls, 0);
+});
+
+test("file transfer terminal classification reuses one fixed set", () => {
+  const sandbox = loadCompaction();
+  for (const status of ["completed", "failed", "cancelled", "canceled"]) assert.equal(sandbox.isTerminal({ status }), true, status);
+  for (const status of ["running", "queued", "unknown", ""]) assert.equal(sandbox.isTerminal({ status }), false, status);
+  assert.match(extension, /const WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES = new Set\(/);
+  assert.match(extractFunction("isTerminalTransferForWebview"), /WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES\.has\(status\)/);
 });

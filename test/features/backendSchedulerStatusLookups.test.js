@@ -49,6 +49,21 @@ function loadStatusHelpers() {
   return sandbox.api;
 }
 
+function loadTraceRank() {
+  const sandbox = {
+    experimentTraceNeedsAttention: (row) => Boolean(row && row.attention),
+    experimentTraceStatus: (row) => String((row || {}).status || ""),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractConst("EXPERIMENT_TRACE_ACTIVE_STATUSES"),
+    extractConst("EXPERIMENT_TRACE_TERMINAL_STATUSES"),
+    extractFunction("experimentTraceRank"),
+    "this.rank = experimentTraceRank;",
+  ].join("\n"), sandbox);
+  return sandbox.rank;
+}
+
 test("backend scheduler status classifiers reuse fixed sets", () => {
   const api = loadStatusHelpers();
   assert.equal(api.schedulerStatusToken("canceled"), "cancelled");
@@ -77,4 +92,19 @@ test("backend scheduler status classifiers reuse fixed sets", () => {
   assert.doesNotMatch(extractFunction("schedulerEntryPriority"), /\[[^\]]+\]\.includes/);
   assert.doesNotMatch(extractFunction("schedulerStatusRank"), /\[[^\]]+\]\.includes/);
   assert.doesNotMatch(extractFunction("schedulerStatusTerminal"), /\[[^\]]+\]\.includes/);
+});
+
+test("backend trace and Plan outcome classifiers reuse lifecycle sets", () => {
+  const rank = loadTraceRank();
+  assert.equal(rank({ status: "running" }), 1);
+  assert.equal(rank({ status: "future" }), 2);
+  assert.equal(rank({ status: "completed" }), 3);
+  assert.equal(rank({ status: "completed", attention: true }), 0);
+
+  for (const name of ["EXPERIMENT_TRACE_ACTIVE_STATUSES", "EXPERIMENT_TRACE_TERMINAL_STATUSES", "SCHEDULER_OUTCOME_FAILURE_STATUSES"]) {
+    assert.match(extension, new RegExp(`const ${name} = new Set\\(`));
+  }
+  assert.match(extractFunction("projectBootstrapFinishedTaskOutcome"), /SCHEDULER_OUTCOME_FAILURE_STATUSES\.has/);
+  assert.match(extractFunction("projectBootstrapFinishedRunOutcome"), /LONG_RUNNING_OPERATION_ACTIONS\.has/);
+  assert.match(extractFunction("currentPlanRevisionHasRunEvidence"), /LONG_RUNNING_OPERATION_ACTIONS\.has/);
 });
