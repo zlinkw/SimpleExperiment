@@ -21,7 +21,7 @@ function extractFunction(source, name) {
 }
 
 function bootstrapCompletion(options) {
-  const sandbox = {};
+  const sandbox = { HUB_READY_STATUSES: new Set(["ok", "file_api_unavailable", "agent_ok"]) };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction(extension, "projectBootstrapEndpointReadiness"),

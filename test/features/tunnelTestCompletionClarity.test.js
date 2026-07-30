@@ -20,7 +20,7 @@ function extractFunction(name) {
 }
 
 function completion(setup, hubProbe, health, workerProbes) {
-  const sandbox = {};
+  const sandbox = { HUB_READY_STATUSES: new Set(["ok", "file_api_unavailable", "agent_ok"]) };
   vm.createContext(sandbox);
   vm.runInContext(extractFunction("tunnelTestCompletion") + "\nthis.check = tunnelTestCompletion;", sandbox);
   return JSON.parse(JSON.stringify(sandbox.check(setup, hubProbe, health, workerProbes)));
@@ -78,4 +78,9 @@ test("scheduler dependency failure keeps otherwise healthy endpoints incomplete"
   assert.equal(result.ready, false);
   assert.match(result.issues[0], /Hub Scheduler：缺少 yaml/);
   assert.match(result.issues[0], /python -m pip install PyYAML/);
+});
+
+test("tunnel completion reuses fixed Hub readiness statuses", () => {
+  assert.match(extension, /const HUB_READY_STATUSES = new Set\(\[\.\.\.ENDPOINT_READY_PROBE_STATUSES, "agent_ok"\]\)/);
+  assert.match(extractFunction("tunnelTestCompletion"), /HUB_READY_STATUSES\.has\(hubStatus\)/);
 });

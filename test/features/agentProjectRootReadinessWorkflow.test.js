@@ -22,7 +22,7 @@ function extractFunction(source, name) {
 }
 
 function loadAgentRootHelpers() {
-  const sandbox = {};
+  const sandbox = { ENDPOINT_READY_PROBE_STATUSES: new Set(["ok", "file_api_unavailable"]) };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction(extension, "normalizeAgentProjectRoot"),
@@ -73,6 +73,14 @@ test("matching roots pass while missing or stale roots become a dedicated mismat
   const restored = enforceExpectedAgentProjectRoot(stale, "/remote/project-a", "Hub");
   assert.equal(restored.status, "file_api_unavailable");
   assert.equal(restored.projectRootValidatedStatus, undefined);
+});
+
+test("Agent root gates reuse fixed endpoint readiness statuses", () => {
+  assert.match(extension, /const AGENT_READY_HEALTH_STATES = new Set\(\["agent_ok", "file_api_unavailable"\]\)/);
+  assert.match(extension, /const ENDPOINT_READY_PROBE_STATUSES = new Set\(\["ok", "file_api_unavailable"\]\)/);
+  assert.match(extractFunction(extension, "enforceExpectedAgentProjectRoot"), /ENDPOINT_READY_PROBE_STATUSES\.has\(validatedStatus\)/);
+  assert.match(extractFunction(extension, "assertAgentProjectProbeReady"), /ENDPOINT_READY_PROBE_STATUSES\.has/);
+  assert.doesNotMatch(extension, /\["ok", "file_api_unavailable"\]\.includes/);
 });
 
 test("Hub-only checks and execution checks use different endpoint scopes", () => {

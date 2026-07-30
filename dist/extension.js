@@ -108,6 +108,9 @@ const SIMPLE_SFTP_REQUIRED_COMMANDS = [
     "simpleSftp.uploadFiles",
     "simpleSftp.configureIgnores",
 ];
+const AGENT_READY_HEALTH_STATES = new Set(["agent_ok", "file_api_unavailable"]);
+const ENDPOINT_READY_PROBE_STATUSES = new Set(["ok", "file_api_unavailable"]);
+const HUB_READY_STATUSES = new Set([...ENDPOINT_READY_PROBE_STATUSES, "agent_ok"]);
 let simpleSftpIntegrationReadinessCacheRegistry = null;
 let simpleSftpIntegrationReadinessCacheExtension = null;
 let simpleSftpIntegrationReadinessCacheLegacyExtension = null;
@@ -2196,7 +2199,7 @@ class RealtimeTunnelPanelProvider {
             this.lastFullEndpointProbeAt = Date.now();
             this.resetClient();
             this.lastError = undefined;
-            if (["agent_ok", "file_api_unavailable"].includes(this.lastHealth.state)) {
+            if (AGENT_READY_HEALTH_STATES.has(this.lastHealth.state)) {
                 void this.ensureRealtimeConnected("tunnel test ok");
             }
         }
@@ -12753,7 +12756,7 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired
     const fallbackHealth = health && typeof health === "object" ? health : {};
     const probes = workerProbes && typeof workerProbes === "object" ? workerProbes : {};
     const hubStatus = String(hub.status || fallbackHealth.state || "unknown").toLowerCase();
-    const hubReady = ["ok", "file_api_unavailable", "agent_ok"].includes(hubStatus);
+    const hubReady = HUB_READY_STATUSES.has(hubStatus);
     const enabledWorkers = Array.isArray(setup?.workerTunnels)
         ? setup.workerTunnels.filter((worker) => worker && worker.enabled !== false)
         : [];
@@ -12956,7 +12959,7 @@ function projectBootstrapNewProjectPrerequisite(options) {
 function projectBootstrapEndpointReadiness(options) {
     const item = options || {};
     const hubStatus = String(item.hubStatus || "").toLowerCase();
-    const hubReady = ["ok", "agent_ok", "file_api_unavailable"].includes(hubStatus);
+    const hubReady = HUB_READY_STATUSES.has(hubStatus);
     const workers = Array.isArray(item.workers) ? item.workers : [];
     const unavailableWorkers = workers.filter((worker) => String(worker?.status || "").toLowerCase() !== "ok");
     const dependencyIssues = [{ label: "Hub", dependency: item.hubSchedulerDependencies }, ...workers.map((worker) => ({ label: worker?.label, dependency: worker?.schedulerDependencies }))].flatMap((row) => {
@@ -13244,7 +13247,7 @@ function automaticResultParseReady(options) {
     if (!options.realtimeMode || !options.setupComplete)
         return false;
     const checked = enforceExpectedAgentProjectRoot(options.hubProbe, options.expectedProjectRoot, "Hub");
-    return ["ok", "file_api_unavailable"].includes(String(checked?.status || "").toLowerCase());
+    return ENDPOINT_READY_PROBE_STATUSES.has(String(checked?.status || "").toLowerCase());
 }
 const ACTIVE_PLAN_RUN_EVIDENCE_VARIANT_CACHE_LIMIT = 8;
 const ACTIVE_PLAN_RUN_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
@@ -17533,7 +17536,7 @@ function normalizeAgentProjectRoot(value) {
 function enforceExpectedAgentProjectRoot(probe, expectedRoot, label) {
     const rawStatus = String(probe?.status || "").toLowerCase();
     const validatedStatus = rawStatus === "agent_project_mismatch" ? String(probe?.projectRootValidatedStatus || "ok").toLowerCase() : rawStatus;
-    if (!probe || !["ok", "file_api_unavailable"].includes(validatedStatus))
+    if (!probe || !ENDPOINT_READY_PROBE_STATUSES.has(validatedStatus))
         return probe;
     const projectRoot = normalizeAgentProjectRoot(probe.projectRoot);
     const expectedProjectRoot = normalizeAgentProjectRoot(expectedRoot);
@@ -17553,7 +17556,7 @@ function enforceExpectedAgentProjectRoot(probe, expectedRoot, label) {
 }
 function assertAgentProjectProbeReady(probe, expectedRoot, label) {
     const checked = enforceExpectedAgentProjectRoot(probe, expectedRoot, label);
-    if (["ok", "file_api_unavailable"].includes(String(checked?.status || "").toLowerCase()))
+    if (ENDPOINT_READY_PROBE_STATUSES.has(String(checked?.status || "").toLowerCase()))
         return;
     if (checked?.status === "agent_project_mismatch")
         throw new Error(`${checked.message} ${checked.suggestion}`);
