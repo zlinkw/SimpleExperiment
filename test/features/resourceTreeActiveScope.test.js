@@ -19,3 +19,12 @@ test("resource tree reuses immutable icon and tone rank tables", () => {
   assert.doesNotMatch(panel, /function defaultTreeObjectIcon\(section\) \{\s*const map =/);
   assert.doesNotMatch(panel, /function resourceTreeDominantTone\(tones\) \{\s*const rank =/);
 });
+
+test("resource tree help and inspector labels reuse immutable maps", () => {
+  assert.match(panel, /const RESOURCE_TREE_TONE_HELP = Object\.freeze\(\{/);
+  assert.match(panel, /const INSPECTOR_ACTION_GROUP_LABELS = Object\.freeze\(\{/);
+  assert.match(panel, /RESOURCE_TREE_TONE_HELP\[normalizeTreeTone\(tone\)\] \|\| "浅灰色/);
+  assert.match(panel, /INSPECTOR_ACTION_GROUP_LABELS\[section\] \|\| section \|\| "总览"/);
+  assert.doesNotMatch(panel, /function resourceTreeGroupToneHelp\(tone\) \{\s*const map =/);
+  assert.doesNotMatch(panel, /function inspectorActionGroupLabel\(section\) \{\s*const labels =/);
+});

@@ -1689,6 +1689,17 @@ export function renderPanelHtml(): string {
     const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", plans: "校验/预演", tasks: "查看任务", results: "解析/统计", sync: "发布/同步", operations: "看终态", diagnostics: "看诊断" });
     const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ overview: "◌", servers: "▧", gpu: "◫", plans: "◇", tasks: "▣", results: "▤", sync: "⇅", operations: "◷", diagnostics: "⌁" });
     const RESOURCE_TREE_TONE_RANKS = Object.freeze({ error: 5, warn: 4, mine: 3, good: 2, info: 1 });
+    const RESOURCE_TREE_TONE_HELP = Object.freeze({
+      good: "绿色：当前区域状态正常或数据新鲜。",
+      info: "蓝色：当前区域有运行中或信息类状态。",
+      warn: "黄色：当前区域需要检查、等待配置或存在非终态问题。",
+      error: "红色：当前区域存在失败、冲突或不可用问题。",
+      mine: "紫色：当前区域包含我的任务或重点关注对象。"
+    });
+    const INSPECTOR_ACTION_GROUP_LABELS = Object.freeze({
+      overview: "总览", servers: "服务器", settings: "设置", gpu: "GPU", plans: "计划",
+      tasks: "任务", results: "结果", sync: "发布同步", operations: "操作进度", diagnostics: "诊断"
+    });
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
       prepareAgents: "servers", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "servers", saveSchedulerConfig: "servers", startAll: "servers", testAll: "servers", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
@@ -5041,14 +5052,7 @@ export function renderPanelHtml(): string {
     }
 
     function resourceTreeGroupToneHelp(tone) {
-      const map = {
-        good: "绿色：当前区域状态正常或数据新鲜。",
-        info: "蓝色：当前区域有运行中或信息类状态。",
-        warn: "黄色：当前区域需要检查、等待配置或存在非终态问题。",
-        error: "红色：当前区域存在失败、冲突或不可用问题。",
-        mine: "紫色：当前区域包含我的任务或重点关注对象。"
-      };
-      return map[normalizeTreeTone(tone)] || "浅灰色：当前区域无需要分级的状态。";
+      return RESOURCE_TREE_TONE_HELP[normalizeTreeTone(tone)] || "浅灰色：当前区域无需要分级的状态。";
     }
 
     function resourceTreeSearchText(html) {
@@ -5515,19 +5519,7 @@ export function renderPanelHtml(): string {
     }
 
     function inspectorActionGroupLabel(section) {
-      const labels = {
-        overview: "总览",
-        servers: "服务器",
-        settings: "设置",
-        gpu: "GPU",
-        plans: "计划",
-        tasks: "任务",
-        results: "结果",
-        sync: "发布同步",
-        operations: "操作进度",
-        diagnostics: "诊断"
-      };
-      return labels[section] || section || "总览";
+      return INSPECTOR_ACTION_GROUP_LABELS[section] || section || "总览";
     }
 
     function inspectorActionSection(section, meta) {
