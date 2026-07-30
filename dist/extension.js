@@ -314,6 +314,9 @@ const directWorkerActionMap = {
     deleteArtifacts: "delete-worker-artifacts",
 };
 const WORKER_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "archiveArtifacts", "deleteArtifacts"]);
+const NO_HUB_RESULT_CONFIRM_COMMANDS = new Set(["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"]);
+const PLAN_SCHEDULER_COMMANDS = new Set(["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]);
+const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"]);
 const noHubWorkerResultActions = new Set([
     "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
     "check-claim-evidence", "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis",
@@ -3016,12 +3019,12 @@ class RealtimeTunnelPanelProvider {
         }
         const danger = command === "deleteArtifacts";
         const noHubResult = await this.postNoHubResultAction(command, action, body, {
-            confirm: ["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"].includes(command),
+            confirm: NO_HUB_RESULT_CONFIRM_COMMANDS.has(command),
             danger,
         });
         const result = noHubResult !== undefined
             ? noHubResult
-            : ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"].includes(command)
+            : PLAN_SCHEDULER_COMMANDS.has(command)
                 ? await this.postPlanSchedulerAction(action, body, {
                     title: command,
                     confirm: false,
@@ -3030,7 +3033,7 @@ class RealtimeTunnelPanelProvider {
                 })
                 : await this.postTunnelAction(action, body, {
                     title: command,
-                    confirm: ["stopExperiment", "retryExperiment", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts"].includes(command),
+                    confirm: TUNNEL_ACTION_CONFIRM_COMMANDS.has(command),
                     danger,
                     requiresCapability: capabilityForUiCommand(command, action),
                 });
