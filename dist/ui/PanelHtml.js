@@ -8626,16 +8626,23 @@ function renderPanelHtml() {
 
     function gpuRenderBudget(servers, ownerConfig) {
       const visibleServers = budgetGpuServersForRender(servers, ownerConfig);
-      const visibleKeys = new Set(visibleServers.map((server) => cleanEndpointId(server.serverId || server.workerId)));
-      const gpuCount = servers.reduce((sum, server) => sum + server.gpuRows.length, 0);
-      const busyCount = servers.reduce((sum, server) => sum + server.gpuRows.filter((gpu) => gpu.busy).length, 0);
-      const mineCount = servers.reduce((sum, server) => sum + server.gpuRows.filter((gpu) => isMyGpu(gpu, ownerConfig)).length, 0);
-      const omittedServerCount = Math.max(0, servers.length - visibleServers.length);
-      const omittedGpuRowCount = servers.reduce((sum, server) => {
+      const visibleKeys = new Set();
+      for (const server of visibleServers) visibleKeys.add(cleanEndpointId(server.serverId || server.workerId));
+      let gpuCount = 0;
+      let busyCount = 0;
+      let mineCount = 0;
+      let omittedGpuRowCount = 0;
+      for (const server of servers) {
+        const rows = server.gpuRows;
+        gpuCount += rows.length;
+        for (const gpu of rows) {
+          if (gpu.busy) busyCount += 1;
+          if (isMyGpu(gpu, ownerConfig)) mineCount += 1;
+        }
         const key = cleanEndpointId(server.serverId || server.workerId);
-        if (!visibleKeys.has(key)) return sum + server.gpuRows.length;
-        return sum + budgetGpuRowsForRender(server.gpuRows, ownerConfig).omittedCount;
-      }, 0);
+        omittedGpuRowCount += visibleKeys.has(key) ? budgetGpuRowsForRender(rows, ownerConfig).omittedCount : rows.length;
+      }
+      const omittedServerCount = Math.max(0, servers.length - visibleServers.length);
       return { visibleServers, gpuCount, busyCount, mineCount, omittedServerCount, omittedGpuRowCount };
     }
 
