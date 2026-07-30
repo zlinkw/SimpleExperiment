@@ -38,6 +38,7 @@ function loadReadiness() {
     overviewProjectReadinessCacheValue: null,
     EMPTY_SIMPLE_SFTP_INTEGRATION: {},
     DEFAULT_SIMPLE_SFTP_READINESS: { ready: true, message: "" },
+    PLAN_WORKFLOW_RUNNING_PHASES: new Set(["validating", "dry-running", "submitting", "monitor"]),
     PLAN_WORKFLOW_TERMINAL_PHASES: new Set(["results", "debug-review", "review"]),
     simpleSftpReadinessCacheSource: null,
     simpleSftpReadinessCacheValue: null,
