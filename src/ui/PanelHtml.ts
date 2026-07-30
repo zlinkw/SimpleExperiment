@@ -1768,6 +1768,8 @@ export function renderPanelHtml(): string {
     const PLAN_TEST_MODE_TOKENS = new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]);
     const SYNC_NOT_READY_STATUS_TOKENS = new Set(["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"]);
     const REALTIME_SIGNAL_STATUS_TOKENS = new Set(["websocket", "sse", "polling", "mixed"]);
+    const REMOTE_ACTION_DISCONNECTED_HEALTH_STATES = new Set(["local_port_closed", "agent_unreachable", "not_configured"]);
+    const NO_HUB_TOPOLOGY_MODES = new Set(["single_worker", "worker_pool"]);
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
       running_experiments: "running",
@@ -13045,7 +13047,7 @@ export function renderPanelHtml(): string {
       if (workerMissing) missing.splice(0, missing.length, ...workerMissing);
       if (missing.length) return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
       const health = (state.health || {}).state;
-      if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && ["local_port_closed", "agent_unreachable", "not_configured"].includes(health) && !hasRealtimeSignal(state)) return "tunnel 未连接";
+      if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && REMOTE_ACTION_DISCONNECTED_HEALTH_STATES.has(health) && !hasRealtimeSignal(state)) return "tunnel 未连接";
       if (command === "startAll" && !hasAnyTunnelSession(state)) return "请先配置 Hub 或 Worker 的 Xshell 隧道会话";
       if (command === "startAgents" && !hasAnyTunnelSession(state)) return "请先配置 Hub 或 Worker 的 Xshell 隧道会话";
       if (command === "startAllConnections" && !hasAnyTunnelSession(state)) return "请先配置 Xshell 隧道会话";
@@ -13236,7 +13238,7 @@ export function renderPanelHtml(): string {
     }
     function missingNoHubWorkerResultCapabilities(state, command, keys, context) {
       const topology = (state || {}).topology || {};
-      if (!["single_worker", "worker_pool"].includes(String(topology.mode || "")) || !noHubWorkerResultCommands.has(command)) return null;
+      if (!NO_HUB_TOPOLOGY_MODES.has(String(topology.mode || "")) || !noHubWorkerResultCommands.has(command)) return null;
       const targetIds = uniqueText([
         context && context.workerId,
         ...asArray((context || {}).selectedWorkerIds),

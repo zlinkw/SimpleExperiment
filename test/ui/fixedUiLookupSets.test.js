@@ -20,7 +20,7 @@ function extractFunction(name) {
 }
 
 test("frequent UI lookup paths reuse fixed command sets", () => {
-  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "HUB_HEALTHY_STATUS_TOKENS", "OVERVIEW_HEALTHY_STATUS_TOKENS", "HUB_OPERATION_READY_STATUS_TOKENS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS", "SELECTED_PLAN_ACTION_COMMANDS", "PLAN_FILE_PAYLOAD_COMMANDS", "RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS", "REALTIME_SIGNAL_STATUS_TOKENS"]) {
+  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "HUB_HEALTHY_STATUS_TOKENS", "OVERVIEW_HEALTHY_STATUS_TOKENS", "HUB_OPERATION_READY_STATUS_TOKENS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS", "SELECTED_PLAN_ACTION_COMMANDS", "PLAN_FILE_PAYLOAD_COMMANDS", "RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS", "REALTIME_SIGNAL_STATUS_TOKENS", "REMOTE_ACTION_DISCONNECTED_HEALTH_STATES", "NO_HUB_TOPOLOGY_MODES"]) {
     assert.equal((panel.match(new RegExp(`const ${constant} = new Set`, "g")) || []).length, 1, constant);
   }
   const expectations = new Map([
@@ -124,4 +124,17 @@ test("realtime signal checks reuse one fixed status set", () => {
   }
   assert.equal(sandbox.hasRealtimeSignal({ realtime: { streamStatus: "disconnected" } }), false);
   assert.equal(sandbox.hasRealtimeSignal({ realtime: { streamStatus: "unknown" }, lastSnapshotAt: "2026-07-30T00:00:00Z" }), true);
+});
+
+test("remote action boundaries reuse fixed health and topology sets", () => {
+  assert.match(panel, /const REMOTE_ACTION_DISCONNECTED_HEALTH_STATES = new Set\(\["local_port_closed", "agent_unreachable", "not_configured"\]\)/);
+  assert.match(panel, /const NO_HUB_TOPOLOGY_MODES = new Set\(\["single_worker", "worker_pool"\]\)/);
+
+  const disabled = extractFunction("disableReason");
+  assert.match(disabled, /REMOTE_ACTION_DISCONNECTED_HEALTH_STATES\.has\(health\)/);
+  assert.doesNotMatch(disabled, /\["local_port_closed", "agent_unreachable", "not_configured"\]\.includes/);
+
+  const noHub = extractFunction("missingNoHubWorkerResultCapabilities");
+  assert.match(noHub, /NO_HUB_TOPOLOGY_MODES\.has\(String\(topology\.mode \|\| ""\)\)/);
+  assert.doesNotMatch(noHub, /\["single_worker", "worker_pool"\]\.includes/);
 });
