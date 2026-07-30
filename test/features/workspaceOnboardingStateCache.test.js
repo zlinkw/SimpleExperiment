@@ -118,8 +118,25 @@ test("project onboarding state reuses stable sources and invalidates each input"
   assert.notStrictEqual(configuration, sftp);
   assert.match(configuration.detail, /至少一个启用的执行 Worker/);
 
+  const duplicate = sandbox.check({
+    workspace,
+    setup: { ...setup, savedSessionPath: "" },
+    simpleSftp: { ready: false, message: "Hub Xshell 会话" },
+    promptShown: 1,
+  });
+  assert.deepEqual(Array.from(duplicate.missing), ["Hub Xshell 会话"]);
+  assert.equal((duplicate.detail.match(/Hub Xshell 会话/g) || []).length, 1);
+
   const noWorkspace = sandbox.check({ workspace: { ...workspace, root: "" }, setup, simpleSftp, promptShown: 1 });
   assert.notStrictEqual(noWorkspace, configuration);
   assert.equal(noWorkspace.required, false);
   assert.equal(noWorkspace.ready, false);
+});
+
+test("project onboarding derives the filtered missing item list once", () => {
+  const onboarding = extractFunction("projectOnboardingStateForWebview");
+  assert.equal((onboarding.match(/new Set\(missing\.filter\(Boolean\)\)/g) || []).length, 1);
+  assert.match(onboarding, /const missingItems = \[\.\.\.new Set\(missing\.filter\(Boolean\)\)\];/);
+  assert.match(onboarding, /const projectReady = hasProject && missingItems\.length === 0;/);
+  assert.match(onboarding, /\$\{missingItems\.join\("、"\)\}/);
 });

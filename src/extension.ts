@@ -140,6 +140,7 @@ const SIMPLE_SFTP_REQUIRED_COMMANDS = [
 const AGENT_READY_HEALTH_STATES = new Set(["agent_ok", "file_api_unavailable"]);
 const ENDPOINT_READY_PROBE_STATUSES = new Set(["ok", "file_api_unavailable"]);
 const HUB_READY_STATUSES = new Set([...ENDPOINT_READY_PROBE_STATUSES, "agent_ok"]);
+const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set(["non_zlk_remote_command", "different_zlk_agent_session"]);
 let simpleSftpIntegrationReadinessCacheRegistry = null;
 let simpleSftpIntegrationReadinessCacheExtension = null;
 let simpleSftpIntegrationReadinessCacheLegacyExtension = null;
@@ -1930,7 +1931,7 @@ class RealtimeTunnelPanelProvider {
         if (profileResult.targetCount < expectedTargets)
             throw new Error(`当前项目 SimpleSFTP 目标写入不完整：需要 ${expectedTargets} 个，当前 ${profileResult.targetCount} 个。尚未修改 .xsh 或上传 runtime。`);
         const commandResults = await this.writeXshellAgentStartupCommands(false, false);
-        const blocked = commandResults.filter((item) => item.error || ["non_zlk_remote_command", "different_zlk_agent_session"].includes(item.skippedReason));
+        const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
         if (blocked.length)
             throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
         await this.deployLatestAgentRuntime(false, true);
@@ -12900,7 +12901,8 @@ function projectOnboardingStateForWebview(options) {
         ...(simpleSftp.ready === true ? [] : [String(simpleSftp.message || "配套 SimpleSFTP 未就绪")]),
         ...(enabledWorkerCount > 0 ? [] : ["至少一个启用的执行 Worker"]),
     ];
-    const projectReady = hasProject && missing.length === 0;
+    const missingItems = [...new Set(missing.filter(Boolean))];
+    const projectReady = hasProject && missingItems.length === 0;
     const completed = hasProject && completedInput;
     const projectName = String(workspace.name || path.basename(String(workspace.root || "")) || "当前项目").trim();
     const detail = !hasProject
@@ -12909,8 +12911,7 @@ function projectOnboardingStateForWebview(options) {
             ? `当前项目 ${projectName} 已完成接入。`
             : projectReady
                 ? `当前项目 ${projectName} 尚未完成接入；点击“接入当前项目”继续。`
-                : `当前项目 ${projectName} 尚未完成接入；先补全：${[...new Set(missing.filter(Boolean))].join("、")}，然后点击“接入当前项目”。`;
-    const missingItems = [...new Set(missing.filter(Boolean))];
+                : `当前项目 ${projectName} 尚未完成接入；先补全：${missingItems.join("、")}，然后点击“接入当前项目”。`;
     const value = {
         required: hasProject && !completed,
         completed,
