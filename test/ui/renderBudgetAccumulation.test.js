@@ -49,6 +49,24 @@ function loadTraceBudget() {
   return sandbox.visibleRows;
 }
 
+function loadInspectorActionBudget() {
+  const constantsStart = panel.indexOf("const INSPECTOR_ACTION_PRIORITY_COMMON");
+  const constantsEnd = panel.indexOf("const ACTION_RESOURCE_ANCHORS", constantsStart);
+  assert.ok(constantsStart >= 0 && constantsEnd > constantsStart, "missing inspector action priority constants");
+  const sandbox = {
+    INSPECTOR_ACTION_RENDER_LIMIT: 3,
+    inspectorActionSection: (section) => section,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    panel.slice(constantsStart, constantsEnd),
+    extractFunction("inspectorActionPriority"),
+    extractFunction("budgetInspectorActions"),
+    "this.api = { priority: inspectorActionPriority, budget: budgetInspectorActions };",
+  ].join("\n"), sandbox);
+  return sandbox.api;
+}
+
 test("task render budget stays bounded when every row is failure-like", () => {
   const viewModel = loadTaskBudget();
   const rows = Array.from({ length: 500 }, (unused, index) => ({ uiKey: "task-" + index, status: "failed" }));
@@ -113,4 +131,23 @@ test("small row sets are returned untouched by both budgets", () => {
 
   assert.equal(viewModel(tasks, new Set()).visibleRows, tasks);
   assert.equal(visibleRows(traces, ""), traces);
+});
+
+test("inspector action budget reuses section priority maps and preserves source order", () => {
+  const api = loadInspectorActionBudget();
+  const plansPriority = api.priority("plans");
+  assert.equal(api.priority("plans"), plansPriority);
+  assert.equal(api.priority("unknown"), api.priority("overview"));
+
+  const actions = [
+    ["其他", "later"],
+    ["运行", "runPlan"],
+    ["校验", "validatePlan"],
+    ["预演", "dryRunPlan"],
+    ["归档", "archivePlan"],
+  ];
+  assert.deepEqual(Array.from(api.budget(actions, "plans", {}).map((item) => item[1])), ["runPlan", "validatePlan", "dryRunPlan"]);
+  assert.match(panel, /const INSPECTOR_ACTION_PRIORITIES = Object\.freeze\(\{/);
+  assert.match(extractFunction("inspectorActionPriority"), /return INSPECTOR_ACTION_PRIORITIES\[section\] \|\| INSPECTOR_ACTION_PRIORITY_COMMON/);
+  assert.doesNotMatch(extractFunction("inspectorActionPriority"), /new Map|\["prepareAgents"/);
 });

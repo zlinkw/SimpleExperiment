@@ -1670,6 +1670,19 @@ function renderPanelHtml() {
       exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
       uploadProjectToWorkers: "sync", distributeCodeToWorkers: "sync", deployLatestAgent: "sync", configureSftpIgnores: "sync", selfCheck: "diagnostics", createDebugBundle: "diagnostics", downloadDebugBundle: "diagnostics", openAuditTail: "diagnostics"
     });
+    const INSPECTOR_ACTION_PRIORITY_COMMON = new Map([["prepareAgents", 0], ["startAllConnections", 1], ["testAll", 2], ["snapshot", 3], ["pauseAll", 4]]);
+    const INSPECTOR_ACTION_PRIORITY_OPERATIONS = new Map([["selfCheck", 0], ["createDebugBundle", 1], ["downloadDebugBundle", 2], ["openAuditTail", 3]]);
+    const INSPECTOR_ACTION_PRIORITIES = Object.freeze({
+      overview: INSPECTOR_ACTION_PRIORITY_COMMON,
+      servers: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["testAll", 4]]),
+      gpu: new Map([["snapshot", 0], ["testAll", 1]]),
+      plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
+      tasks: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["archiveArtifacts", 2], ["deleteArtifacts", 3]]),
+      results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
+      sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["uploadProjectToHub", 2], ["uploadProjectToWorkers", 3], ["distributeCodeToWorkers", 4], ["deployLatestAgent", 5], ["configureSftpIgnores", 6]]),
+      operations: INSPECTOR_ACTION_PRIORITY_OPERATIONS,
+      diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
+    });
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
       saveTopologyMode: "settings-servers", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
@@ -5325,19 +5338,7 @@ function renderPanelHtml() {
     }
 
     function inspectorActionPriority(section) {
-      const common = ["prepareAgents", "startAllConnections", "testAll", "snapshot", "pauseAll"];
-      const bySection = {
-        overview: common,
-        servers: ["saveSchedulerConfig", "prepareAgents", "startAll", "startAllConnections", "testAll"],
-        gpu: ["snapshot", "testAll"],
-        plans: ["validatePlan", "dryRunPlan", "runPlan", "runAllPlans", "archivePlan", "generateOutputAdapter"],
-        tasks: ["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts"],
-        results: ["parseResults", "refreshResults", "runQualityGate", "checkOutputContract", "runStatistics", "checkClaimEvidence", "exportPaperTable", "exportPlottingContract", "plotResultsToPpt"],
-        sync: ["publishGithub", "syncGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"],
-        operations: ["selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail"],
-        diagnostics: ["selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail"]
-      };
-      return new Map((bySection[section] || common).map((command, index) => [command, index]));
+      return INSPECTOR_ACTION_PRIORITIES[section] || INSPECTOR_ACTION_PRIORITY_COMMON;
     }
 
     function inspectorBudgetNotice(label, total, visible, unit) {
