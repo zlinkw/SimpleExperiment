@@ -1749,6 +1749,8 @@ function renderPanelHtml() {
     });
     const EMPTY_CONFIG_INPUT_BOUNDS = Object.freeze({});
     const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
+    const TASK_QUEUED_STATUSES = new Set(["queued", "pending"]);
+    const TASK_ACTIVE_STATUSES = new Set([...TASK_LIVE_STATUS_TOKENS, ...TASK_QUEUED_STATUSES]);
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
       running_experiments: "running",
@@ -7422,8 +7424,8 @@ function renderPanelHtml() {
       const runtimeContractStage = currentPlanRuntimeContractStage(state, selectedPlan);
       const effectiveOutputReady = outputReady && !runtimeContractStage;
       const validPreviewCount = validResultPreviewCount(previewScope.items);
-      const running = rows.filter((row) => ["running", "testing"].includes(row.status)).length;
-      const queued = rows.filter((row) => ["queued", "pending"].includes(row.status)).length;
+      const running = rows.filter((row) => TASK_LIVE_STATUS_TOKENS.has(row.status)).length;
+      const queued = rows.filter((row) => TASK_QUEUED_STATUSES.has(row.status)).length;
       const failed = rows.filter((row) => taskFailureLikeStatus(row.status)).length;
       const outputSummary = planEvidenceCandidates.length ? compactText(planEvidenceCandidates.join("、"), 44) : (planOutputSignals.length ? "命令/日志证据" : "未声明");
       const outputStatus = runtimeContractStage ? runtimeContractStageMessage(runtimeContractStage, project) : (outputReady ? "可运行 / " + outputSummary : "待规则 / " + outputSummary);
@@ -11039,9 +11041,9 @@ function renderPanelHtml() {
         const status = String((row || {}).status || "");
         if (counts[status] !== undefined) counts[status] += 1;
         if (isTaskRowSelected(row, selected)) selectedRows.push(row);
-        if (criticalRows.length < TASK_RENDER_LIMIT && (["running", "testing"].includes(taskStatusToken(status)) || taskFailureLikeStatus(status))) criticalRows.push(row);
-        if (queuedRows.length < queuedLimit && ["queued", "pending"].includes(status)) queuedRows.push(row);
-        if (activeRows.length < 8 && ["running", "testing"].includes(status)) activeRows.push(row);
+        if (criticalRows.length < TASK_RENDER_LIMIT && (TASK_LIVE_STATUS_TOKENS.has(taskStatusToken(status)) || taskFailureLikeStatus(status))) criticalRows.push(row);
+        if (queuedRows.length < queuedLimit && TASK_QUEUED_STATUSES.has(status)) queuedRows.push(row);
+        if (activeRows.length < 8 && TASK_LIVE_STATUS_TOKENS.has(status)) activeRows.push(row);
       });
       let visibleRows = allRows;
       if (allRows.length > TASK_RENDER_LIMIT) {
@@ -11116,7 +11118,7 @@ function renderPanelHtml() {
       const key = taskTargetKey(row);
       const log = compactText(taskLogText(state, row, key) || "暂无日志。", 420);
       const actions = [
-        ["停止", "stopExperiment", ["running", "testing"].includes(row.status), true],
+        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["解析", "parseResults", true, false],
         ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
@@ -11124,7 +11126,7 @@ function renderPanelHtml() {
         ["日志", "selectLogRunKey", Boolean(key), false],
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
-      const detailTone = row.status === "completed" || row.status === "done" ? "good" : (taskFailureLikeStatus(row.status) ? "error" : (["queued", "pending"].includes(row.status) ? "warn" : "good"));
+      const detailTone = row.status === "completed" || row.status === "done" ? "good" : (taskFailureLikeStatus(row.status) ? "error" : (TASK_QUEUED_STATUSES.has(row.status) ? "warn" : "good"));
       const taskTime = taskTimestampView(row);
       setHtmlIfChanged(pane,
         '<div class="detailHeader" title="任务详情">' +
@@ -11217,7 +11219,7 @@ function renderPanelHtml() {
       const pending = taskActionPending(row);
       const pendingDelete = Boolean(taskActionPending(row, "deleteArtifacts"));
       const actions = [
-        ["停止", "stopExperiment", ["running", "testing"].includes(row.status), true],
+        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["解析", "parseResults", true, false],
         ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
@@ -11272,7 +11274,7 @@ function renderPanelHtml() {
       const key = taskTargetKey(row);
       const checked = isTaskRowSelected(row, selected);
       const actions = [
-        ["停止", "stopExperiment", ["running", "testing"].includes(row.status), true],
+        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["解析", "parseResults", true, false],
         ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
@@ -11412,7 +11414,7 @@ function renderPanelHtml() {
     }
 
     function isActiveTask(row) {
-      return ["running", "testing"].includes(String(row.status || "").toLowerCase());
+      return TASK_LIVE_STATUS_TOKENS.has(String(row.status || "").toLowerCase());
     }
 
     function isTerminalTask(row) {
@@ -13659,7 +13661,7 @@ function renderPanelHtml() {
     }
     function schedulerSourceRowNeedsAttention(row) {
       const status = taskStatusToken(pick(row || {}, ["status", "state", "runStatus", "run_status"], ""));
-      return ["running", "testing", "queued", "pending"].includes(status) || taskFailureLikeStatus(status);
+      return TASK_ACTIVE_STATUSES.has(status) || taskFailureLikeStatus(status);
     }
     function schedulerSourceRowIdentity(row, index) {
       if (!row || typeof row !== "object") return "row:" + index;

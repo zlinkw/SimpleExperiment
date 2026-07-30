@@ -31,6 +31,8 @@ test("task section drops progress cards and dense meta grid", () => {
 test("task workbench derives counts selections and render priority in one view model", () => {
   const sandbox = {
     TASK_RENDER_LIMIT: 80,
+    TASK_LIVE_STATUS_TOKENS: new Set(["running", "testing"]),
+    TASK_QUEUED_STATUSES: new Set(["queued", "pending"]),
     taskStatusToken: (status) => String(status || ""),
     taskFailureLikeStatus: (status) => ["failed", "error", "stalled", "stopped", "cancelled", "canceled"].includes(String(status || "")),
     isTaskRowSelected: (row, selected) => selected.has(row.uiKey),
@@ -51,6 +53,15 @@ test("task workbench derives counts selections and render priority in one view m
   assert.deepEqual(JSON.parse(JSON.stringify(model.counts)), { queued: 7, running: 1, testing: 0, completed: 91, failed: 1, stopped: 0 });
   assert.doesNotMatch(extractFunction("taskRowsViewModel"), /allRows\.filter\(/);
   assert.ok([...panelSource.matchAll(/taskRowsViewModel\(rows, selected\)/g)].length >= 2);
+});
+
+test("task rendering reuses fixed live queued and active status sets", () => {
+  assert.match(panelSource, /const TASK_LIVE_STATUS_TOKENS = new Set\(\["running", "testing"\]\)/);
+  assert.match(panelSource, /const TASK_QUEUED_STATUSES = new Set\(\["queued", "pending"\]\)/);
+  assert.match(panelSource, /const TASK_ACTIVE_STATUSES = new Set\(\[\.\.\.TASK_LIVE_STATUS_TOKENS, \.\.\.TASK_QUEUED_STATUSES\]\)/);
+  assert.doesNotMatch(panelSource, /\["running", "testing"\]\.includes/);
+  assert.doesNotMatch(panelSource, /\["queued", "pending"\]\.includes/);
+  assert.match(extractFunction("schedulerSourceRowNeedsAttention"), /TASK_ACTIVE_STATUSES\.has\(status\)/);
 });
 
 test("task views reuse cached selection sets and invalidate on changed sources", () => {
