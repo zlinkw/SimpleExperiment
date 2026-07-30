@@ -12614,12 +12614,13 @@ function chooseXshellForward(info, selectedIndex, currentLocalPort, currentRemot
     const byPorts = safeForwards.find((forward) => forward.localPort === currentLocalPort && forward.remotePort === currentRemotePort);
     return byPorts || (0, XshellSessionScanner_1.preferredZlkForward)({ ...info, forwards: safeForwards });
 }
+const XSHELL_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 function xshellForwardIsLoopback(forward) {
     return xshellForwardHostIsLoopback(forward.localHost) && xshellForwardHostIsLoopback(forward.remoteHost);
 }
 function xshellForwardHostIsLoopback(value) {
     const text = String(value || "").trim().toLowerCase();
-    return !text || text === "127.0.0.1" || text === "localhost" || text === "::1" || text === "[::1]";
+    return !text || XSHELL_LOOPBACK_HOSTS.has(text);
 }
 function unsafeXshellForwardMessages(info) {
     return (info?.forwards || [])

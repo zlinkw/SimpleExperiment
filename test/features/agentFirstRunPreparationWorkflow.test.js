@@ -86,6 +86,26 @@ test("Agent preparation blocks duplicate sessions and static port conflicts befo
   assert.match(panel, /修复服务器配置/);
 });
 
+test("Xshell forwarding accepts only local loopback hosts", () => {
+  const sandbox = {
+    XSHELL_LOOPBACK_HOSTS: new Set(["127.0.0.1", "localhost", "::1", "[::1]"]),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction("xshellForwardHostIsLoopback")}\nthis.isLoopback = xshellForwardHostIsLoopback;`, sandbox);
+
+  for (const value of [undefined, "", "  ", "127.0.0.1", "LOCALHOST", "::1", "[::1]"]) {
+    assert.equal(sandbox.isLoopback(value), true, String(value));
+  }
+  for (const value of ["127.0.0.2", "0.0.0.0", "::", "192.168.1.8", "gpu.example.com"]) {
+    assert.equal(sandbox.isLoopback(value), false, value);
+  }
+
+  assert.match(extension, /const XSHELL_LOOPBACK_HOSTS = new Set\(\["127\.0\.0\.1", "localhost", "::1", "\[::1\]"\]\)/);
+  const source = extractFunction("xshellForwardHostIsLoopback");
+  assert.match(source, /XSHELL_LOOPBACK_HOSTS\.has\(text\)/);
+  assert.doesNotMatch(source, /text === "127\.0\.0\.1"/);
+});
+
 test("quick setup and main UI expose preparation while connection keeps literal meaning", () => {
   const quickSetupStart = extension.indexOf("async quickSetup(showAgentCompletion = true)");
   const quickSetupEnd = extension.indexOf("async configureXshellSavedSessions()", quickSetupStart);
