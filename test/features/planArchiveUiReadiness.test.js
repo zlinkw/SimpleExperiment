@@ -146,7 +146,9 @@ test("plan archive readiness scans result and task sources once per state", () =
 });
 
 test("backend Plan archive gate shares complete scheduler terminal semantics", () => {
-  const sandbox = {};
+  const sandbox = {
+    SCHEDULER_TERMINAL_STATUSES: new Set(["failed", "stalled", "stopped", "cancelled", "canceled", "completed", "done", "archived", "error", "deleted"]),
+  };
   vm.createContext(sandbox);
   vm.runInContext(`${extractExtensionFunction("schedulerStatusToken")}\n${extractExtensionFunction("schedulerStatusTerminal")}\nthis.schedulerStatusTerminal = schedulerStatusTerminal;`, sandbox);
   for (const status of ["completed", "normal_completed", "done", "failed", "completed_with_errors", "error", "stalled", "stopped", "manual_interrupted_completed", "cancelled", "canceled", "archived", "deleted"]) {

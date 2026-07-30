@@ -8930,17 +8930,22 @@ function schedulerBucketLimit(bucket) {
         return SCHEDULER_TERMINAL_BUCKET_LIMIT;
     return SCHEDULER_ACTIVE_BUCKET_LIMIT;
 }
+const SCHEDULER_RUNNING_STATUSES = new Set(["running", "testing", "in_progress"]);
+const SCHEDULER_QUEUED_STATUSES = new Set(["queued", "pending"]);
+const SCHEDULER_FAILURE_STATUSES = new Set(["failed", "stalled", "stopped", "cancelled", "canceled"]);
+const SCHEDULER_COMPLETED_STATUSES = new Set(["completed", "done", "archived"]);
+const SCHEDULER_TERMINAL_STATUSES = new Set([...SCHEDULER_FAILURE_STATUSES, ...SCHEDULER_COMPLETED_STATUSES, "error", "deleted"]);
 function schedulerEntryPriority(row, bucket, protectedSet) {
     if (schedulerRowMatchesProtectedKey(row, protectedSet))
         return 0;
     const status = schedulerRowStatus(row) || bucketStatusFromSchedulerBucket(bucket);
-    if (["running", "testing", "in_progress"].includes(status))
+    if (SCHEDULER_RUNNING_STATUSES.has(status))
         return 1;
-    if (["failed", "stalled", "stopped", "cancelled", "canceled"].includes(status))
+    if (SCHEDULER_FAILURE_STATUSES.has(status))
         return 2;
-    if (["queued", "pending"].includes(status))
+    if (SCHEDULER_QUEUED_STATUSES.has(status))
         return 3;
-    if (["completed", "done", "archived"].includes(status))
+    if (SCHEDULER_COMPLETED_STATUSES.has(status))
         return 5;
     return 4;
 }
@@ -9027,18 +9032,18 @@ function schedulerStatusToken(status) {
 }
 function schedulerStatusRank(status) {
     const value = schedulerStatusToken(status);
-    if (["running", "testing", "in_progress"].includes(value))
+    if (SCHEDULER_RUNNING_STATUSES.has(value))
         return 0;
-    if (["queued", "pending"].includes(value))
+    if (SCHEDULER_QUEUED_STATUSES.has(value))
         return 1;
-    if (["failed", "stalled", "stopped", "cancelled", "canceled"].includes(value))
+    if (SCHEDULER_FAILURE_STATUSES.has(value))
         return 2;
-    if (["completed", "done", "archived"].includes(value))
+    if (SCHEDULER_COMPLETED_STATUSES.has(value))
         return 4;
     return 3;
 }
 function schedulerStatusTerminal(status) {
-    return ["completed", "done", "failed", "error", "stalled", "stopped", "cancelled", "archived", "deleted"].includes(schedulerStatusToken(status));
+    return SCHEDULER_TERMINAL_STATUSES.has(schedulerStatusToken(status));
 }
 function schedulerRowTime(row) {
     if (!row || typeof row !== "object")
