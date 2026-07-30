@@ -17,34 +17,33 @@
 - [已完成] 2/5 project-112：复用 GPU 历史服务器样式占用索引。
 - [已完成] 3/5 project-113：复用 Plan 命令与结果路径固定查找表。
 - [已完成] 4/5 project-114：复用前端动作 payload 字段与属性映射。
-- [待处理] 5/5 project-115：执行第五十三轮完整非服务器静态测试。
+- [已完成] 5/5 project-115：执行第五十三轮完整非服务器静态测试。
 
-## 当前批次：project-114（已完成）
+## 当前批次：project-115（已完成）
 ### 修复点
 
-- 将可保存动作 payload 字段和按钮 data 属性映射提升为前端固定常量。
-- 避免动作规范化和按钮 HTML 生成时重复创建字段数组与映射对象。
-- 增加 payload 过滤、属性顺序和未知字段排除回归。
+- 对 project-111 至 project-114 执行第五十三轮完整非服务器静态回归。
+- 覆盖 TypeScript 构建、全部 Node 测试、Lint、4 个 Node 入口和全部受控 Python 文件语法检查。
+- 仅修复完整回归明确检出的兼容问题，不扩大当前五批周期范围。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 保存动作仍只能保留允许字段，shellCommand 等未知字段不得进入布局状态。
-- 现有按钮 data 属性名称、值和 batchSelected 排除规则不得改变。
-- 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
+- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
+- 构建不得改变 Agent runtime 生成内容或写入历史 VSIX、`zlk_cluster/ui/`。
+- 任何失败必须保留为未完成，不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] 前端动作规范化与脚本语法定向 Node 测试，15/15。
+- [已通过] 安全 preload 下第五十三轮完整非服务器 `npm test`，1011/1011。
+- [已通过] TypeScript、Lint、4/4 个 Node 入口和 8/8 个 Python 文件语法。
 - [已通过] `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-111 至 project-115 五批静态优化周期；project-115 再执行完整测试。
-- project-111 至 project-113 已由提交 `72c25d7`、`eb82d17`、`0a42164` 同步至 `origin/master`。
-- 本批仅修改前端动作 payload 固定字段、按钮属性映射、对应定向测试和计划文档。
-- payload 过滤和 data 属性输出保持原语义；构建未改变 Agent runtime。
-- 下一批边界为 project-115，仅执行第五十三轮完整非服务器静态测试。
+- project-111 至 project-114 已由提交 `72c25d7`、`eb82d17`、`0a42164`、`2829686` 同步至 `origin/master`。
+- 完整回归未检出新增兼容问题，本批仅修改计划文档。
+- 构建未改变 Agent runtime；未连接服务器、未截图、未生成或安装 VSIX，真实服务器行为保持 `needs field verification`。
