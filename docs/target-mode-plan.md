@@ -13,36 +13,37 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-136：复用前端任务控制命令集合。
-- [已完成] 2/5 project-137：复用前端 Plan 前置命令集合。
-- [已完成] 3/5 project-138：复用后端动作路由命令集合。
-- [已完成] 4/5 project-139：复用后端 Plan 模式别名集合。
-- [已完成] 5/5 project-140：执行第五十八轮完整非服务器静态测试。
+- [已完成] 1/5 project-141：复用前端 Plan payload 命令集合。
+- [待处理] 2/5 project-142：复用前端 Hub 健康状态集合。
+- [待处理] 3/5 project-143：复用后端 Worker 产物命令集合。
+- [待处理] 4/5 project-144：复用后端布尔与 JSON 类型集合。
+- [待处理] 5/5 project-145：执行第五十九轮完整非服务器静态测试。
 
-## 当前批次：project-140（已完成）
+## 当前批次：project-141（已完成）
 ### 修复点
 
-- 执行第五十八轮完整非服务器静态回归。
-- 覆盖 project-136 至 project-139 的前端门禁、后端路由和 Plan 模式摘要。
-- 保持生产功能与用户数据不变，仅修复完整回归暴露的问题。
+- 将 Plan payload 基础命令和可恢复归档命令提升为前端固定集合。
+- 由基础集合派生包含恢复归档的 payload 集合，复用两个按钮 payload 构建路径。
+- 增加基础与恢复感知集合组成及使用回归。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整测试、lint、JavaScript 语法与 Python 内存编译必须全部通过。
-- 若发现测试夹具未同步固定集合，修复后必须重新执行完整回归。
+- 普通上下文刷新不得隐式接入恢复归档，完整按钮 payload 仍支持恢复归档 Plan。
+- planFile 输入回退与固定按钮显式上下文保护不得改变。
 - 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 安全预加载下完整 Node 测试，1034/1034。
-- [已通过] lint、4 个 JavaScript 文件语法检查和 8 个 Python 文件内存编译。
+- [已通过] TypeScript 构建。
+- [已通过] Plan payload 固定集合定向 Node 测试，15/15。
 - [已通过] `git diff --check`。
 
 ## 本批记录
-- 本轮建立 project-136 至 project-140 五批静态优化周期；project-140 再执行完整测试。
-- project-136 至 project-139 已由提交 `01bcb9b`、`d5933b3`、`f2482b1`、`e3227f8` 同步至 `origin/master`。
-- 本批完整静态回归直接通过；无视觉变化，不调用截图，真实服务器行为仍为 `needs field verification`。
+- 本轮建立 project-141 至 project-145 五批静态优化周期；project-145 再执行完整测试。
+- project-140 已由提交 `c7d65fe` 同步至 `origin/master`。
+- 本批仅处理前端 Plan payload 固定集合、对应测试和计划文档；无视觉变化，不调用截图。
+- project-141 构建与 15/15 定向测试通过；下一批仅处理 Hub 健康状态集合。

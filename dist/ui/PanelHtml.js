@@ -1642,6 +1642,8 @@ function renderPanelHtml() {
     const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
     const SELECTED_PLAN_RUN_COMMANDS = new Set(["runPlan", "reproducePlan"]);
     const SELECTED_PLAN_ACTION_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...SELECTED_PLAN_RUN_COMMANDS]);
+    const PLAN_FILE_PAYLOAD_COMMANDS = new Set([...SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "savePlan"]);
+    const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set([...PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"]);
     const SUBMITTED_RUN_COMMANDS = new Set([...SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"]);
     const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"]);
     const SAVED_ACTION_PAYLOAD_KEYS = Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]);
@@ -7383,7 +7385,7 @@ function renderPanelHtml() {
     function contextRefreshPayloadFromButton(button, command, options) {
       const payload = buttonDatasetActionPayload(button);
       if (button.dataset.configScope) payload.configScope = button.dataset.configScope;
-      const planCommand = ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan", "archivePlan", "savePlan"].includes(command);
+      const planCommand = PLAN_FILE_PAYLOAD_COMMANDS.has(command);
       const storedAction = Boolean((options || {}).actionId || (options || {}).actionSection || (options || {}).savedAction);
       const requiresExplicitSavedPlanPayload = storedAction && (explicitPlanFileCommands.has(command) || explicitSavePlanCommands.has(command));
       if (!payload.planFile && planCommand && !requiresExplicitSavedPlanPayload && el("planFileInput")) payload.planFile = el("planFileInput").value;
@@ -13295,7 +13297,7 @@ function renderPanelHtml() {
         });
         payload.patch = patch;
       }
-      const planCommand = ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan", "archivePlan", "restoreArchivedPlan", "savePlan"].includes(command);
+      const planCommand = RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS.has(command);
       if (button.dataset.planFile) payload.planFile = button.dataset.planFile;
       else if (planCommand && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
