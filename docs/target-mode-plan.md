@@ -17,32 +17,34 @@
 - [已完成] 2/5 project-182：合并前端 GPU 渲染预算计数遍历。
 - [已完成] 3/5 project-183：缓存后端当前 Plan 接入提示。
 - [已完成] 4/5 project-184：复用前端任务状态统计。
-- [待处理] 5/5 project-185：执行第六十七轮完整非服务器静态测试。
+- [已完成] 5/5 project-185：执行第六十七轮完整非服务器静态测试。
 
-## 当前批次：project-184（已完成）
+## 当前批次：project-185（已完成）
 ### 修复点
 
-- Plan 运行工作台复用已有任务状态统计缓存，不再对同一任务数组执行三次过滤。
-- 运行、排队和失败数量统一来自 `overviewTaskStats`，保持状态归类一致。
-- 保持调度队列文案、色调和静态容量回退逻辑不变。
+- 执行第六十七轮完整非服务器静态回归，覆盖 Node 测试、lint、JavaScript 语法和 Python UTF-8 内存编译。
+- 本批只更新验证状态与计划记录，不修改产品源代码或测试契约。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- Plan 工作台与首屏任务统计必须读取同一份当前 scheduler 行。
-- 任务数组替换后统计缓存必须失效，稳定数组必须复用同一结果对象。
-- running、testing、queued、pending 和失败类状态计数不得改变。
+- 完整构建会压缩目标计划文档，必须保留当前目标、固定边界和本批验证记录。
+- 全量测试不得写入或纳入历史 VSIX、运行态缓存及 `zlk_cluster/ui/`。
+- JavaScript 与 Python 分发文件必须保持可解析，且 Python 检查不得生成 `__pycache__`。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] Plan 工作台任务统计复用与状态分类定向 Node 测试，17/17。
-- [已通过] `git diff --check`。
+- [已通过] `npm test` 完整 Node 静态回归，1069/1069。
+- [已通过] `npm run lint`。
+- [已通过] `node --check dist/extension.js`、`dist/panel.js`、`dist/cli.js`、`dist/runCli.js`。
+- [已通过] 8 个 `dist/**/*.py` 的 UTF-8 内存编译，不生成 `__pycache__`。
+- [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-183 已由提交 `f77aa8d` 同步至 `origin/master`。
-- 本批仅处理前端 Plan 工作台任务状态统计复用、对应测试和计划文档；无视觉样式变化，不调用截图。
-- project-184 构建与 17/17 定向测试通过；下一批仅执行第六十七轮完整非服务器静态测试。
+- project-184 已由提交 `432248b` 同步至 `origin/master`。
+- 本批仅执行完整静态回归并更新计划文档；无视觉样式变化，不调用截图。
+- 第六十七轮完整回归通过：Node 测试 1069/1069、lint、4 个 JavaScript 入口语法、8 个 Python 分发文件内存编译及差异检查均通过。
+- 真实服务器行为仍为 `needs field verification`；下一轮从 project-186 开始审计新的前后端静态优化点。
