@@ -1630,6 +1630,7 @@ export function renderPanelHtml(): string {
     const TASK_TERMINAL_STATUSES = new Set(["completed", "done", "archived", "deleted"]);
     const TASK_ARCHIVABLE_STATUSES = new Set(["completed", "done"]);
     const PLAN_RUN_OPERATION_TYPES = new Set(["run-plan", "reproduce-plan"]);
+    const GPU_OWNER_MATCH_MODES = new Set(["username", "command_contains", "both"]);
     const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
     const PPT_CHART_TYPE_LABELS = Object.freeze({ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" });
     const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
@@ -8474,8 +8475,12 @@ export function renderPanelHtml(): string {
     }
 
     function computeGpuOwnerState(processes, config) {
-      const myCount = processes.filter((proc) => isMyGpuProcess(proc, config)).length;
-      return { isMine: myCount > 0, myCount, otherCount: Math.max(0, processes.length - myCount), shared: myCount > 0 && processes.length > myCount };
+      let myCount = 0;
+      for (const process of processes) {
+        if (isMyGpuProcess(process, config)) myCount += 1;
+      }
+      const processCount = processes.length;
+      return { isMine: myCount > 0, myCount, otherCount: Math.max(0, processCount - myCount), shared: myCount > 0 && processCount > myCount };
     }
 
     function gpuOwnerConfigSignature(config) {
@@ -8495,10 +8500,14 @@ export function renderPanelHtml(): string {
     function isMyGpuProcess(process, config) {
       const username = String(pick(process, ["username", "user", "owner"], "") || "");
       const command = String(pick(process, ["command", "cmd", "commandLine", "cmdline", "args"], "") || "");
-      const userCandidates = [config.currentUser].concat(config.currentUserAliases || []).map((item) => String(item || "").trim()).filter(Boolean);
-      const keywords = (config.myCommandKeywords || []).map((item) => String(item || "").trim()).filter(Boolean);
+      const userCandidates = Array.isArray(config.userCandidates)
+        ? config.userCandidates
+        : [config.currentUser].concat(config.currentUserAliases || []).map((item) => String(item || "").trim()).filter(Boolean);
+      const commandKeywords = Array.isArray(config.commandKeywords)
+        ? config.commandKeywords
+        : (config.myCommandKeywords || []).map((item) => String(item || "").trim()).filter(Boolean);
       const userMatched = userCandidates.some((name) => username === name);
-      const keywordMatched = keywords.some((keyword) => command.includes(keyword));
+      const keywordMatched = commandKeywords.some((keyword) => command.includes(keyword));
       if (config.myProcessMatchMode === "username") return userMatched;
       if (config.myProcessMatchMode === "command_contains") return keywordMatched;
       return userMatched || keywordMatched;
@@ -8506,17 +8515,20 @@ export function renderPanelHtml(): string {
 
     function normalizeGpuOwnerConfig(value) {
       const config = value && typeof value === "object" ? value : {};
-      const mode = ["username", "command_contains", "both"].includes(config.myProcessMatchMode) ? config.myProcessMatchMode : "both";
+      const mode = GPU_OWNER_MATCH_MODES.has(config.myProcessMatchMode) ? config.myProcessMatchMode : "both";
       const aliases = stringArray(config.currentUserAliases);
       const keywords = stringArray(config.myCommandKeywords);
       const currentUser = String(config.currentUser || "").trim();
+      const userCandidates = currentUser ? [currentUser, ...aliases] : aliases;
       return {
         currentUser,
         currentUserAliases: aliases,
         myProcessMatchMode: mode,
         myCommandKeywords: keywords,
+        userCandidates,
+        commandKeywords: keywords,
         localUserHint: String(config.localUserHint || "").trim(),
-        hasUserRule: Boolean(currentUser || aliases.length),
+        hasUserRule: Boolean(userCandidates.length),
         hasKeywordRule: Boolean(keywords.length)
       };
     }
