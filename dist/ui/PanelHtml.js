@@ -1636,6 +1636,18 @@ function renderPanelHtml() {
     const PPT_AUTOMATION_ACTION_COMMANDS = new Set(["refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide"]);
     const PPT_CHART_TYPE_LABELS = Object.freeze({ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" });
     const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
+    const PLAN_EXECUTION_PHASE_LABELS = Object.freeze({
+      select: "选择计划", ready: "可提交", validating: "校验中", validate: "校验待修复", "dry-running": "预演中", "dry-run": "预演待处理",
+      submitting: "提交中", run: "提交待处理", monitor: "运行中", "debug-review": "Debug 待复核", results: "结果待处理", review: "任务需处理"
+    });
+    const PROJECT_TASK_TYPE_LABELS = Object.freeze({
+      classification: "分类", segmentation: "分割", regression: "回归", detection: "目标检测",
+      object_detection: "目标检测", generation: "生成", retrieval: "检索", ranking: "排序"
+    });
+    const CONFIG_PARAM_KIND_LABELS = Object.freeze({
+      yaml: "YAML 配置", yml: "YAML 配置", json: "JSON 配置", python: "Python 配置", py: "Python 配置",
+      scalar: "单值", mapping: "对象", object: "对象", sequence: "列表", array: "列表"
+    });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
@@ -7530,11 +7542,7 @@ function renderPanelHtml() {
 
     function planExecutionPhaseLabel(phase) {
       const raw = String(phase || "").trim();
-      const labels = {
-        select: "选择计划", ready: "可提交", validating: "校验中", validate: "校验待修复", "dry-running": "预演中", "dry-run": "预演待处理",
-        submitting: "提交中", run: "提交待处理", monitor: "运行中", "debug-review": "Debug 待复核", results: "结果待处理", review: "任务需处理"
-      };
-      return labels[raw] || raw || "未知";
+      return PLAN_EXECUTION_PHASE_LABELS[raw] || raw || "未知";
     }
 
     function renderPlanRunActions(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage) {
@@ -10518,11 +10526,7 @@ function renderPanelHtml() {
     function projectTaskTypeLabel(taskType) {
       const raw = String(taskType || "").trim();
       const key = raw.toLowerCase().replace(/[\s-]+/g, "_");
-      const labels = {
-        classification: "分类", segmentation: "分割", regression: "回归", detection: "目标检测",
-        object_detection: "目标检测", generation: "生成", retrieval: "检索", ranking: "排序"
-      };
-      return labels[key] || raw || "未指定";
+      return PROJECT_TASK_TYPE_LABELS[key] || raw || "未指定";
     }
 
     function renderAdapterRules(rules) {
@@ -10677,11 +10681,7 @@ function renderPanelHtml() {
 
     function configParamKindLabel(kind) {
       const raw = String(kind || "").trim();
-      const labels = {
-        yaml: "YAML 配置", yml: "YAML 配置", json: "JSON 配置", python: "Python 配置", py: "Python 配置",
-        scalar: "单值", mapping: "对象", object: "对象", sequence: "列表", array: "列表"
-      };
-      return labels[raw.toLowerCase()] || raw || "参数";
+      return CONFIG_PARAM_KIND_LABELS[raw.toLowerCase()] || raw || "参数";
     }
 
     function configInspectorPlanConfigFile(plan) {

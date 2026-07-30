@@ -19,6 +19,14 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractFrozenObject(name) {
+  const start = panel.indexOf(`const ${name} = Object.freeze({`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = panel.indexOf("});", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return panel.slice(start, end + 3);
+}
+
 function loadRenderer() {
   const metadata = new Set([
     "jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json",
@@ -47,6 +55,7 @@ function loadRenderer() {
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFrozenObject("PROJECT_TASK_TYPE_LABELS"),
     extractFunction("adapterRuleCount"),
     extractFunction("adapterRuleText"),
     extractFunction("adapterRuleSignalCount"),
