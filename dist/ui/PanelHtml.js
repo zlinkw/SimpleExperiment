@@ -1762,6 +1762,7 @@ function renderPanelHtml() {
     const TASK_CONTROL_COMMANDS = new Set(["stopExperiment", "retryExperiment"]);
     const ARTIFACT_SCOPE_COMMANDS = new Set(["archiveArtifacts", "deleteArtifacts"]);
     const PLAN_WORKFLOW_BUSY_PHASES = new Set(["validating", "dry-running", "submitting"]);
+    const PLAN_WORKFLOW_RUNNING_PHASES = new Set([...PLAN_WORKFLOW_BUSY_PHASES, "monitor"]);
     const PLAN_WORKFLOW_TERMINAL_PHASES = new Set(["results", "debug-review", "review"]);
     const PLAN_WORKFLOW_TASK_PHASES = new Set(["monitor", ...PLAN_WORKFLOW_TERMINAL_PHASES]);
     const PLAN_WORKFLOW_READY_PHASES = new Set(["ready", "run"]);
@@ -6194,7 +6195,7 @@ function renderPanelHtml() {
       if (!endpointReadiness.ready) return result("Agent 待检测", endpointReadiness.summary || "检测 Hub 与全部启用 Worker 的当前项目状态。");
       const stage = terminalStage || planExecutionStage(state, planFile);
       const phase = String(stage.phase || "ready");
-      if (["validating", "dry-running", "submitting", "monitor"].includes(phase)) {
+      if (PLAN_WORKFLOW_RUNNING_PHASES.has(phase)) {
         const status = phase === "validating" ? "校验中" : phase === "dry-running" ? "预演中" : phase === "submitting" ? "提交中" : "运行中";
         return result(status, stage.status, { ready: true, blocking: false, tone: "info" });
       }

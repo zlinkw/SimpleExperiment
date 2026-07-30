@@ -22,6 +22,7 @@ function extractFunction(name) {
 function loadWorkflowHelpers() {
   const sandbox = {
     PLAN_WORKFLOW_BUSY_PHASES: new Set(["validating", "dry-running", "submitting"]),
+    PLAN_WORKFLOW_RUNNING_PHASES: new Set(["validating", "dry-running", "submitting", "monitor"]),
     PLAN_WORKFLOW_TERMINAL_PHASES: new Set(["results", "debug-review", "review"]),
     PLAN_WORKFLOW_TASK_PHASES: new Set(["monitor", "results", "debug-review", "review"]),
     PLAN_WORKFLOW_READY_PHASES: new Set(["ready", "run"]),
@@ -55,10 +56,13 @@ test("Plan workflow navigation preserves busy task and ready phase semantics", (
 });
 
 test("Plan workflow phase classifiers reuse fixed sets", () => {
-  for (const name of ["PLAN_WORKFLOW_BUSY_PHASES", "PLAN_WORKFLOW_TERMINAL_PHASES", "PLAN_WORKFLOW_TASK_PHASES", "PLAN_WORKFLOW_READY_PHASES"]) {
+  for (const name of ["PLAN_WORKFLOW_BUSY_PHASES", "PLAN_WORKFLOW_RUNNING_PHASES", "PLAN_WORKFLOW_TERMINAL_PHASES", "PLAN_WORKFLOW_TASK_PHASES", "PLAN_WORKFLOW_READY_PHASES"]) {
     assert.match(panel, new RegExp(`const ${name} = new Set\\(`));
   }
   assert.doesNotMatch(panel, /\["validating", "dry-running", "submitting"\]\.includes/);
+  assert.doesNotMatch(panel, /\["validating", "dry-running", "submitting", "monitor"\]\.includes/);
   assert.doesNotMatch(panel, /\["ready", "run"\]\.includes/);
+  assert.match(panel, /const PLAN_WORKFLOW_RUNNING_PHASES = new Set\(\[\.\.\.PLAN_WORKFLOW_BUSY_PHASES, "monitor"\]\);/);
+  assert.match(extractFunction("overviewProjectReadiness"), /PLAN_WORKFLOW_RUNNING_PHASES\.has/);
   assert.match(extractFunction("projectOnboardingExecutionTarget"), /PLAN_WORKFLOW_(?:BUSY|TASK)_PHASES\.has/);
 });
