@@ -461,6 +461,8 @@ class RealtimeTunnelPanelProvider {
     selectedArchiveKeys = new Set();
     selectedTaskUiKeys = new Set();
     hiddenLegacyTaskUiKeys = new Set();
+    taskSelectionRevision = 0;
+    taskSelectionDerivedCache;
     planSelectionPersistenceQueue = { dirty: false };
     taskSelectionPersistenceQueue = { dirty: false };
     projectStatePersistenceQueues = new Map();
@@ -808,6 +810,7 @@ class RealtimeTunnelPanelProvider {
         for (const queue of this.projectStatePersistenceQueues.values())
             queue.dirty = false;
         this.selectedLogRunKey = undefined;
+        this.markTaskSelectionChanged();
         this.offlineBundle = undefined;
         this.resultsSummary = undefined;
         this.auditTail = undefined;
@@ -1002,6 +1005,7 @@ class RealtimeTunnelPanelProvider {
             this.selectedRunKey = state.selectedRunKey;
         if (!this.selectedLogRunKey && state.selectedLogRunKey)
             this.selectedLogRunKey = state.selectedLogRunKey;
+        this.markTaskSelectionChanged();
         if (this.selectedRunKeys.size)
             this.client.setProtectedLogKeys(this.logProtectedKeys());
     }
@@ -2719,6 +2723,7 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "selectLogRunKey":
                 this.selectedLogRunKey = stringField(message, "runKey") || undefined;
+                this.markTaskSelectionChanged();
                 this.client.setProtectedLogKeys(this.logProtectedKeys());
                 await this.fetchSelectedLiveOutput(this.selectedLogRunKey, stringField(message, "workerId"));
                 this.postState();
@@ -6711,7 +6716,6 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             this.selectedLogRunKey = stringField(message, "selectLog") ? runKey : this.selectedLogRunKey;
-            this.client.setProtectedLogKeys(this.logProtectedKeys());
         }
         if (experimentId) {
             if (selected)
@@ -6725,6 +6729,9 @@ class RealtimeTunnelPanelProvider {
             else
                 this.selectedArchiveKeys.delete(archiveKey);
         }
+        this.markTaskSelectionChanged();
+        if (runKey)
+            this.client.setProtectedLogKeys(this.logProtectedKeys());
         void this.persistProjectTaskSelectionState().catch(() => undefined);
         this.postState();
     }
@@ -6743,6 +6750,7 @@ class RealtimeTunnelPanelProvider {
         this.selectedArchiveKeys.clear();
         for (const key of taskUiKeys)
             this.selectedTaskUiKeys.delete(key);
+        this.markTaskSelectionChanged();
         void this.persistProjectTaskSelectionState().catch(() => undefined);
         this.postState();
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
@@ -8118,6 +8126,7 @@ class RealtimeTunnelPanelProvider {
         const realtime = this.client.diagnostics();
         const runtimeEvidence = this.buildPlanRuntimeEvidenceState();
         const { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations } = runtimeEvidence;
+        const taskSelection = this.taskSelectionDerivedState();
         const gpu = compactMergedGpuForWebview(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu);
         const selectedPlanKeys = uniqueStrings([this.planFileInput || "", this.selectedPlanId || ""]);
         const selectedTracePlanFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
@@ -8212,13 +8221,13 @@ class RealtimeTunnelPanelProvider {
             uiLayout: this.currentUiLayoutState(),
             selection: {
                 selectedPlanId: this.selectedPlanId,
-                selectedExperimentIds: [...this.selectedExperimentIds],
-                selectedRunKeys: [...this.selectedRunKeys],
-                selectedRunKey: this.selectedRunKey,
-                selectedArchiveKeys: [...this.selectedArchiveKeys],
-                selectedTaskUiKeys: [...this.selectedTaskUiKeys],
-                hiddenLegacyTaskUiKeys: [...this.hiddenLegacyTaskUiKeys],
-                selectedLogRunKey: this.selectedLogRunKey,
+                selectedExperimentIds: taskSelection.selectedExperimentIds,
+                selectedRunKeys: taskSelection.selectedRunKeys,
+                selectedRunKey: taskSelection.selectedRunKey,
+                selectedArchiveKeys: taskSelection.selectedArchiveKeys,
+                selectedTaskUiKeys: taskSelection.selectedTaskUiKeys,
+                hiddenLegacyTaskUiKeys: taskSelection.hiddenLegacyTaskUiKeys,
+                selectedLogRunKey: taskSelection.selectedLogRunKey,
             },
             planFileInput: this.planFileInput,
             recentPlans: this.recentPlans,
@@ -8268,10 +8277,10 @@ class RealtimeTunnelPanelProvider {
                 integrations,
                 selection: {
                     selectedPlanId: this.selectedPlanId,
-                    selectedExperimentIds: [...this.selectedExperimentIds],
-                    selectedRunKeys: [...this.selectedRunKeys],
-                    selectedRunKey: this.selectedRunKey,
-                    selectedArchiveKeys: [...this.selectedArchiveKeys],
+                    selectedExperimentIds: taskSelection.selectedExperimentIds,
+                    selectedRunKeys: taskSelection.selectedRunKeys,
+                    selectedRunKey: taskSelection.selectedRunKey,
+                    selectedArchiveKeys: taskSelection.selectedArchiveKeys,
                 },
                 actionErrors: this.actionErrors,
                 lastSnapshotAt: this.lastSnapshotAt,
@@ -8322,31 +8331,46 @@ class RealtimeTunnelPanelProvider {
             bulkCounts,
         });
     }
+    markTaskSelectionChanged() {
+        this.taskSelectionRevision += 1;
+        this.taskSelectionDerivedCache = undefined;
+    }
+    taskSelectionDerivedState() {
+        const cached = this.taskSelectionDerivedCache;
+        if (cached && cached.revision === this.taskSelectionRevision)
+            return cached;
+        const selectedExperimentIds = [...this.selectedExperimentIds];
+        const selectedRunKeys = [...this.selectedRunKeys];
+        const selectedArchiveKeys = [...this.selectedArchiveKeys];
+        const selectedTaskUiKeys = [...this.selectedTaskUiKeys];
+        const hiddenLegacyTaskUiKeys = [...this.hiddenLegacyTaskUiKeys];
+        const selectedRunKey = this.selectedRunKey;
+        const selectedLogRunKey = this.selectedLogRunKey;
+        const cleanKeys = (values) => uniqueStrings(values.map((value) => String(value || "").trim()).filter(Boolean));
+        const value = {
+            revision: this.taskSelectionRevision,
+            selectedExperimentIds,
+            selectedRunKeys,
+            selectedRunKey,
+            selectedArchiveKeys,
+            selectedTaskUiKeys,
+            hiddenLegacyTaskUiKeys,
+            selectedLogRunKey,
+            schedulerProtectedKeys: cleanKeys([...selectedRunKeys, ...selectedExperimentIds, ...selectedArchiveKeys, ...selectedTaskUiKeys, selectedRunKey, selectedLogRunKey]),
+            traceProtectedKeys: cleanKeys([...selectedRunKeys, ...selectedExperimentIds, ...selectedArchiveKeys, selectedRunKey]),
+            logProtectedKeys: cleanKeys([selectedLogRunKey, selectedRunKey, ...selectedRunKeys, ...selectedTaskUiKeys]),
+        };
+        this.taskSelectionDerivedCache = value;
+        return value;
+    }
     schedulerProtectedKeys() {
-        return uniqueStrings([
-            ...this.selectedRunKeys,
-            ...this.selectedExperimentIds,
-            ...this.selectedArchiveKeys,
-            ...this.selectedTaskUiKeys,
-            this.selectedRunKey,
-            this.selectedLogRunKey,
-        ].map((value) => String(value || "").trim()).filter(Boolean));
+        return this.taskSelectionDerivedState().schedulerProtectedKeys;
     }
     traceProtectedKeys() {
-        return uniqueStrings([
-            ...this.selectedRunKeys,
-            ...this.selectedExperimentIds,
-            ...this.selectedArchiveKeys,
-            this.selectedRunKey,
-        ].map((value) => String(value || "").trim()).filter(Boolean));
+        return this.taskSelectionDerivedState().traceProtectedKeys;
     }
     logProtectedKeys() {
-        return uniqueStrings([
-            this.selectedLogRunKey,
-            this.selectedRunKey,
-            ...this.selectedRunKeys,
-            ...this.selectedTaskUiKeys,
-        ].map((value) => String(value || "").trim()).filter(Boolean));
+        return this.taskSelectionDerivedState().logProtectedKeys;
     }
     postState(immediate = false) {
         if (!this.view)
