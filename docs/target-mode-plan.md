@@ -16,32 +16,32 @@
 - [已完成] 1/5 project-186：合并后端 Worker 结果聚合分类。
 - [已完成] 2/5 project-187：合并前端 Plan trace 范围统计遍历。
 - [已完成] 3/5 project-188：合并后端文件传输 Webview 分类遍历。
-- [待处理] 4/5 project-189：复用前端布局分区固定查找表。
+- [已完成] 4/5 project-189：复用前端布局分区固定查找表。
 - [待处理] 5/5 project-190：执行第六十八轮完整非服务器静态测试。
 
-## 当前批次：project-188（已完成）
+## 当前批次：project-189（已完成）
 ### 修复点
 
-- 文件传输 Webview 压缩先单次划分 active/terminal，再分别排序和限额，避免对同一 entry 重复终态判断。
-- 保持 active 优先、组内时间倒序、独立数量上限、缓存复用和压缩字段不变。
+- 前端布局标准分区顺序提升为固定冻结数组，并由其构造共享 `Set`，避免每次归一化重建 defaults 和线性 `includes` 查找。
+- 保持自定义有效顺序、重复项、未知项过滤、缺失分区补齐顺序和其他布局字段不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- active 与 terminal 必须各自保持最新优先，最终对象仍先输出 active 再输出 terminal。
-- terminal 集合继续覆盖 completed、failed、cancelled、canceled，其他状态不得误归类。
-- 空输入共享不可变空对象，稳定 source 复用缓存，替换 source 后失效。
+- 默认布局顺序必须保持 overview、gpu、tasks、plans、results、sync、operations、servers、settings、diagnostics。
+- 有效自定义项和重复项顺序不得改变，未知项必须过滤，缺失默认项只能追加一次。
+- collapsed、resourceTreeChildren、columns、pinnedCommands、detailActions 和 pinnedActions 归一化不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] 文件传输单次分类、排序限额、缓存与空输入定向 Node 测试，5/5。
+- [已通过] 布局固定查找、顺序补齐、重复项与相邻字段定向 Node 测试，22/22。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-187 已由提交 `528d87f` 同步至 `origin/master`。
-- 本批仅处理后端文件传输 Webview 压缩、对应测试和计划文档；无视觉样式变化，不调用截图。
-- 每个传输 entry 只执行一次终态判断，再分别排序和应用 active/terminal 上限；5/5 定向测试通过。
+- project-188 已由提交 `41879e6` 同步至 `origin/master`。
+- 本批仅处理前端布局归一化固定查找、对应测试和计划文档；无视觉样式变化，不调用截图。
+- 布局顺序与合法分区改为共享冻结数组和 `Set`，归一化使用输入 `Set` 补齐缺失分区；22/22 定向测试通过。

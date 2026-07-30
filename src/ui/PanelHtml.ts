@@ -1655,7 +1655,8 @@ export function renderPanelHtml(): string {
       archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
     });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
-    const RESOURCE_TREE_SECTION_KEYS = new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]);
+    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "tasks", "plans", "results", "sync", "operations", "servers", "settings", "diagnostics"]);
+    const RESOURCE_TREE_SECTION_KEYS = new Set(RESOURCE_TREE_SECTION_ORDER);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
     const INSPECTOR_OPERATION_SECTIONS = new Set(["tasks", "operations"]);
     const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
@@ -4439,9 +4440,9 @@ export function renderPanelHtml(): string {
 
     function normalizeUiLayout(layout) {
       layout = layout || {};
-      const defaults = ["overview", "gpu", "tasks", "plans", "results", "sync", "operations", "servers", "settings", "diagnostics"];
       const incoming = Array.isArray(layout.order) ? layout.order.map(String) : [];
-      const order = incoming.filter((item) => defaults.includes(item)).concat(defaults.filter((item) => !incoming.includes(item)));
+      const incomingSet = new Set(incoming);
+      const order = incoming.filter((item) => RESOURCE_TREE_SECTION_KEYS.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet.has(item)));
       const collapsed = Object.assign({ servers: true, settings: true, diagnostics: true }, layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {});
       const resourceTreeChildren = normalizeResourceTreeChildOrders(layout.resourceTreeChildren || {});
       const columns = normalizeLayoutColumns(layout.columns || {});
