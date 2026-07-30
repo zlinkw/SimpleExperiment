@@ -16,6 +16,13 @@ function extractFunction(name) {
 test("local Plan gate checks explicit relative Python entries without blocking remote commands", () => {
   const sandbox = {
     path,
+    PLAN_TRAIN_MODE_TOKENS: new Set(["train", "training", "train_only"]),
+    PLAN_TEST_MODE_TOKENS: new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]),
+    PLAN_COMMAND_KEYS_BY_MODE: {
+      train: new Set(["train_command", "trainCommand", "command"]),
+      test: new Set(["test_command", "testCommand"]),
+      train_test: new Set(["train_command", "trainCommand", "test_command", "testCommand", "command"]),
+    },
     PYTHON_COMMAND_REFERENCE_CACHE_LIMIT: 256,
     pythonCommandEntryReferencesCache: new Map(),
     uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
@@ -49,6 +56,8 @@ test("local Plan gate checks explicit relative Python entries without blocking r
   ].join("\n");
   assert.deepEqual([...sandbox.api.planCommandValues(mixed, "train")], ["python tools/train.py", "python scripts/fit.py"]);
   assert.deepEqual([...sandbox.api.planCommandValues(mixed, "test")], ["python tools/test.py", "python scripts/eval.py"]);
+  assert.match(source, /const PLAN_COMMAND_KEYS_BY_MODE = \{/);
+  assert.match(source, /const acceptedKeys = PLAN_COMMAND_KEYS_BY_MODE\[normalizedMode\]/);
 
   assert.deepEqual([...sandbox.api.pythonCommandEntryReferences("python -u tools/train.py --config x")], ["tools/train.py"]);
   assert.deepEqual([...sandbox.api.pythonCommandEntryReferences("python3.11 'tools/test net.py' --config x")], ["tools/test net.py"]);

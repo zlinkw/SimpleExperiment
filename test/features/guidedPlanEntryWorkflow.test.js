@@ -20,7 +20,22 @@ function extractFunction(name) {
 }
 
 test("guided Plan requires confirmed real entry commands and keeps first run small", () => {
-  const sandbox = { path, localConfigSummaryLimit: 80, guidedPlanConfigPickerSummaryLimit: 24, configSummaryTargetsCache: new WeakMap(), uniqueStrings: (values) => [...new Set(values)] };
+  const sandbox = {
+    path,
+    localConfigSummaryLimit: 80,
+    guidedPlanConfigPickerSummaryLimit: 24,
+    configSummaryTargetsCache: new WeakMap(),
+    uniqueStrings: (values) => [...new Set(values)],
+    GUIDED_PLAN_RESULT_FLAG_EXTENSIONS: new Map([
+      ["result-csv", ".csv"], ["results-csv", ".csv"], ["metrics-csv", ".csv"], ["summary-csv", ".csv"], ["output-csv", ".csv"],
+      ["result-json", ".json"], ["metrics-json", ".json"], ["summary-txt", ".txt"], ["log-file", ".log"], ["stdout", ".log"], ["stderr", ".log"],
+    ]),
+    GUIDED_PLAN_OUTPUT_DIR_FLAGS: new Set([
+      "output", "out", "output-dir", "out-dir", "result-dir", "results-dir", "work-dir", "workdir", "save-dir", "log-dir",
+      "logging-dir", "loggingdir", "tensorboard-log-dir", "tensorboardlogdir", "tb-log-dir", "tblogdir", "run-dir", "rundir",
+      "default-root-dir", "defaultrootdir", "dirpath", "hydra.run.dir", "hydra.sweep.dir", "logger.save-dir", "trainer.default-root-dir",
+    ]),
+  };
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("experimentEntryFileName"),
@@ -121,6 +136,10 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
     sandbox.api.guidedPlanResultPath('python eval.py hydra.run.dir=work_dirs/{suite}/{case}', "smoke", ".csv"),
     "work_dirs/{suite}/{case}/metrics_summary.csv",
   );
+  assert.match(source, /const GUIDED_PLAN_RESULT_FLAG_EXTENSIONS = new Map\(/);
+  assert.match(source, /const GUIDED_PLAN_OUTPUT_DIR_FLAGS = new Set\(/);
+  assert.match(source, /GUIDED_PLAN_RESULT_FLAG_EXTENSIONS\.has\(flag\)/);
+  assert.match(source, /GUIDED_PLAN_OUTPUT_DIR_FLAGS\.has\(key\)/);
   assert.equal(sandbox.api.planResultPathValidationMessage("{output_dir}/metrics.json"), undefined);
   assert.match(sandbox.api.planResultPathValidationMessage("../metrics.csv"), /不能离开项目目录/);
   assert.match(sandbox.api.planResultPathValidationMessage("C:/tmp/metrics.csv"), /相对路径/);

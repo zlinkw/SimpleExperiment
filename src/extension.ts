@@ -347,6 +347,22 @@ const noHubWorkerResultActions = new Set([
     "sync-artifacts", "complete-three-way",
 ]);
 const workerPoolResultFanoutActions = new Set(["refresh-results", "rescan-results", "parse-results"]);
+const PLAN_TRAIN_MODE_TOKENS = new Set(["train", "training", "train_only"]);
+const PLAN_TEST_MODE_TOKENS = new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]);
+const PLAN_COMMAND_KEYS_BY_MODE = {
+    train: new Set(["train_command", "trainCommand", "command"]),
+    test: new Set(["test_command", "testCommand"]),
+    train_test: new Set(["train_command", "trainCommand", "test_command", "testCommand", "command"]),
+};
+const GUIDED_PLAN_RESULT_FLAG_EXTENSIONS = new Map([
+    ["result-csv", ".csv"], ["results-csv", ".csv"], ["metrics-csv", ".csv"], ["summary-csv", ".csv"], ["output-csv", ".csv"],
+    ["result-json", ".json"], ["metrics-json", ".json"], ["summary-txt", ".txt"], ["log-file", ".log"], ["stdout", ".log"], ["stderr", ".log"],
+]);
+const GUIDED_PLAN_OUTPUT_DIR_FLAGS = new Set([
+    "output", "out", "output-dir", "out-dir", "result-dir", "results-dir", "work-dir", "workdir", "save-dir", "log-dir",
+    "logging-dir", "loggingdir", "tensorboard-log-dir", "tensorboardlogdir", "tb-log-dir", "tblogdir", "run-dir", "rundir",
+    "default-root-dir", "defaultrootdir", "dirpath", "hydra.run.dir", "hydra.sweep.dir", "logger.save-dir", "trainer.default-root-dir",
+]);
 let provider;
 export function activate(context) {
     return activateExtension(context);
@@ -13567,8 +13583,8 @@ async function planArchiveParameterSnapshot(root, planText) {
 function planCommandValues(planText, mode = "train_test") {
     const out = [];
     const modeValue = String(mode || "train_test").trim().toLowerCase().replace(/[\s-]+/g, "_");
-    const normalizedMode = ["train", "training", "train_only"].includes(modeValue) ? "train" : ["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"].includes(modeValue) ? "test" : "train_test";
-    const acceptedKeys = normalizedMode === "train" ? new Set(["train_command", "trainCommand", "command"]) : normalizedMode === "test" ? new Set(["test_command", "testCommand"]) : new Set(["train_command", "trainCommand", "test_command", "testCommand", "command"]);
+    const normalizedMode = PLAN_TRAIN_MODE_TOKENS.has(modeValue) ? "train" : PLAN_TEST_MODE_TOKENS.has(modeValue) ? "test" : "train_test";
+    const acceptedKeys = PLAN_COMMAND_KEYS_BY_MODE[normalizedMode];
     const lines = String(planText || "").replace(/\r\n/g, "\n").split("\n");
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -15384,23 +15400,14 @@ function guidedPlanResultPathReview(command, suite, fallbackExtension = ".csv") 
     let outputDir = "";
     let resultAliasUsed = false;
     const explicitPaths = [];
-    const resultFlagExtensions = new Map([
-        ["result-csv", ".csv"], ["results-csv", ".csv"], ["metrics-csv", ".csv"], ["summary-csv", ".csv"], ["output-csv", ".csv"],
-        ["result-json", ".json"], ["metrics-json", ".json"], ["summary-txt", ".txt"], ["log-file", ".log"], ["stdout", ".log"], ["stderr", ".log"],
-    ]);
-    const outputDirFlags = new Set([
-        "output", "out", "output-dir", "out-dir", "result-dir", "results-dir", "work-dir", "workdir", "save-dir", "log-dir",
-        "logging-dir", "loggingdir", "tensorboard-log-dir", "tensorboardlogdir", "tb-log-dir", "tblogdir", "run-dir", "rundir",
-        "default-root-dir", "defaultrootdir", "dirpath", "hydra.run.dir", "hydra.sweep.dir", "logger.save-dir", "trainer.default-root-dir",
-    ]);
     const normalizeValue = (value) => String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
     const resultAlias = /^\{(?:result_csv|resultCsv|results_csv|resultsCsv|metrics_csv|metricsCsv|summary_csv|summaryCsv|output_csv|outputCsv|result_json|resultJson|metrics_json|metricsJson|summary_txt|summaryTxt|log_file|logFile)\}$/;
     const optionPattern = /(?:^|[\s;&|])--([A-Za-z][A-Za-z0-9_.-]*)(?:=(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))|[ \t]+(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+)))?/g;
     for (const match of text.matchAll(optionPattern)) {
         const flag = String(match[1] || "").replace(/_/g, "-").toLowerCase();
         const value = normalizeValue(match[2] || match[3] || match[4] || match[5] || match[6] || match[7] || "");
-        if (resultFlagExtensions.has(flag)) {
-            extension = resultFlagExtensions.get(flag);
+        if (GUIDED_PLAN_RESULT_FLAG_EXTENSIONS.has(flag)) {
+            extension = GUIDED_PLAN_RESULT_FLAG_EXTENSIONS.get(flag);
             const valueExtension = value.match(/\.(csv|json|txt|log|out)$/i);
             if (valueExtension)
                 extension = `.${valueExtension[1].toLowerCase()}`;
@@ -15410,15 +15417,15 @@ function guidedPlanResultPathReview(command, suite, fallbackExtension = ".csv") 
                 resultAliasUsed = true;
             continue;
         }
-        if (outputDirFlags.has(flag) && value && !outputDir)
+        if (GUIDED_PLAN_OUTPUT_DIR_FLAGS.has(flag) && value && !outputDir)
             outputDir = value;
     }
     const assignmentPattern = /(?:^|[\s;&|])([A-Za-z][A-Za-z0-9_.-]*)=(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))/g;
     for (const match of text.matchAll(assignmentPattern)) {
         const key = String(match[1] || "").replace(/_/g, "-").toLowerCase();
         const value = normalizeValue(match[2] || match[3] || match[4] || "");
-        if (resultFlagExtensions.has(key)) {
-            extension = resultFlagExtensions.get(key);
+        if (GUIDED_PLAN_RESULT_FLAG_EXTENSIONS.has(key)) {
+            extension = GUIDED_PLAN_RESULT_FLAG_EXTENSIONS.get(key);
             const valueExtension = value.match(/\.(csv|json|txt|log|out)$/i);
             if (valueExtension) {
                 extension = `.${valueExtension[1].toLowerCase()}`;
@@ -15429,7 +15436,7 @@ function guidedPlanResultPathReview(command, suite, fallbackExtension = ".csv") 
                 resultAliasUsed = true;
             continue;
         }
-        if (outputDirFlags.has(key) && value && !outputDir)
+        if (GUIDED_PLAN_OUTPUT_DIR_FLAGS.has(key) && value && !outputDir)
             outputDir = value;
     }
     const redirectPattern = /(?:^|[\s;&|])(?:1?>|2>)[ \t]*(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))/g;

@@ -422,7 +422,17 @@ test("plan archive keeps implicit defaults, destinations, duplicate declarations
 });
 
 test("plan archive discovers entry scripts from scalar, block, flow-map, and torchrun commands", () => {
-  const sandbox = { path, uniqueStrings: (values) => [...new Set(values)] };
+  const sandbox = {
+    path,
+    uniqueStrings: (values) => [...new Set(values)],
+    PLAN_TRAIN_MODE_TOKENS: new Set(["train", "training", "train_only"]),
+    PLAN_TEST_MODE_TOKENS: new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]),
+    PLAN_COMMAND_KEYS_BY_MODE: {
+      train: new Set(["train_command", "trainCommand", "command"]),
+      test: new Set(["test_command", "testCommand"]),
+      train_test: new Set(["train_command", "trainCommand", "test_command", "testCommand", "command"]),
+    },
+  };
   const entryStart = source.indexOf("const PYTHON_COMMAND_REFERENCE_CACHE_LIMIT");
   const entryEnd = source.indexOf("\nasync function planArchiveConfigMigration", entryStart);
   assert.ok(entryStart >= 0 && entryEnd > entryStart);
@@ -521,6 +531,13 @@ test("plan archive snapshot includes argparse declared in an imported module", a
       uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
       safeWorkspaceChildPath: (workspace, relative) => path.resolve(workspace, relative),
       sha256Text: (value) => crypto.createHash("sha256").update(value).digest("hex"),
+      PLAN_TRAIN_MODE_TOKENS: new Set(["train", "training", "train_only"]),
+      PLAN_TEST_MODE_TOKENS: new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]),
+      PLAN_COMMAND_KEYS_BY_MODE: {
+        train: new Set(["train_command", "trainCommand", "command"]),
+        test: new Set(["test_command", "testCommand"]),
+        train_test: new Set(["train_command", "trainCommand", "test_command", "testCommand", "command"]),
+      },
     };
     const snapshotStart = source.indexOf("async function planArchiveParameterSnapshot(");
     const snapshotEnd = source.indexOf("\nfunction planCommandValues(", snapshotStart);
