@@ -13924,11 +13924,18 @@ export function renderPanelHtml(): string {
       const plan = selectedPlanFile ? planFromContext(data, { planFile: selectedPlanFile }) || {} : {};
       const selectedPlanRevision = String(plan.revision || "");
       const planUpdatedAt = Date.parse(String(plan.updatedAt || ""));
-      const selectedRows = selectedPlanFile
-        ? allRows.filter((row) => meaningfulValue((row || {}).planFile)
-          && samePlanSelection((row || {}).planFile, selectedPlanFile)
-          && traceMatchesPlanVersion(row, selectedPlanRevision, planUpdatedAt))
-        : [];
+      const selectedRows = [];
+      let unscopedCount = 0;
+      allRows.forEach((row) => {
+        const planFile = (row || {}).planFile;
+        if (!meaningfulValue(planFile)) {
+          unscopedCount += 1;
+          return;
+        }
+        if (selectedPlanFile && samePlanSelection(planFile, selectedPlanFile) && traceMatchesPlanVersion(row, selectedPlanRevision, planUpdatedAt)) {
+          selectedRows.push(row);
+        }
+      });
       const scoped = scopeMode !== "all" && Boolean(selectedPlanFile);
       const value = {
         rows: scoped ? selectedRows : allRows,
@@ -13936,7 +13943,7 @@ export function renderPanelHtml(): string {
         selectedPlanFile,
         selectedPlanRevision,
         selectedCount: selectedRows.length,
-        unscopedCount: allRows.filter((row) => !meaningfulValue((row || {}).planFile)).length,
+        unscopedCount,
         totalCount: allRows.length
       };
       if (cacheableRows && cacheableState) {

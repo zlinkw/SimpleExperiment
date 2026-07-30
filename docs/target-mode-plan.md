@@ -14,35 +14,34 @@
 
 ## 后续优先级
 - [已完成] 1/5 project-186：合并后端 Worker 结果聚合分类。
-- [待处理] 2/5 project-187：合并前端 Plan trace 范围统计遍历。
+- [已完成] 2/5 project-187：合并前端 Plan trace 范围统计遍历。
 - [待处理] 3/5 project-188：合并后端文件传输 Webview 分类遍历。
 - [待处理] 4/5 project-189：复用前端布局分区固定查找表。
 - [待处理] 5/5 project-190：执行第六十八轮完整非服务器静态测试。
 
-## 当前批次：project-186（已完成）
+## 当前批次：project-187（已完成）
 ### 修复点
 
-- Worker 结果聚合在构造 submission 行时同步收集失败与成功候选，减少重复数组过滤和线性 `includes` 查找。
-- 保持 Worker 输出顺序、重复 Worker id、混合终态和用户可见汇总文案不变。
+- Plan trace 范围派生在一次遍历中同时收集当前 Plan 行并统计无 Plan 行，避免对同一 trace 数组重复过滤。
+- 保持 selected/all 模式、Plan revision 与更新时间匹配、缓存键和返回对象结构不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 同一 Worker 同时出现成功与失败 submission 时，成功列表仍必须排除该 Worker 的全部成功行。
-- 纯成功的重复 Worker id 必须保持原有重复项与顺序，失败和取消状态均归入失败列表。
-- 聚合状态、操作 id、原始 result、统计数量和中文文案不得改变。
+- 有 Plan、旧 revision、无 Plan 三类 trace 的分类和原始顺序不得改变。
+- `scopeMode=all` 仍返回原数组，selected 模式仅返回匹配当前 revision 或更新时间边界的行。
+- 稳定 rows/state/mode 必须复用同一缓存对象，替换 rows 或 state 后必须失效。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] Worker 结果聚合顺序、重复 id、混合终态与单次分类定向 Node 测试，修正后 7/7。
+- [已通过] Plan trace 单次遍历、范围匹配与缓存失效定向 Node 测试，5/5。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-185 已由提交 `bbd87eb` 同步至 `origin/master`。
-- 本批仅处理后端 Worker 结果聚合、对应测试和计划文档；无视觉样式变化，不调用截图。
-- 定向测试首次 6/7，原因是测试直接提取的函数含 TypeScript 数组注解；改用等价运行时初始化后构建与 7/7 复测通过。
-- Worker 结果分类改为构造 submission 时收集失败与成功候选，使用 `Set` 排除混合终态 Worker，保持原有顺序和重复项。
+- project-186 已由提交 `8cf8c24` 同步至 `origin/master`。
+- 本批仅处理前端 Plan trace 范围派生、对应测试和计划文档；无视觉样式变化，不调用截图。
+- Plan trace 每个缓存变体只遍历一次输入行，同时产出 selected 行与 unscoped 数量；5/5 定向测试通过。

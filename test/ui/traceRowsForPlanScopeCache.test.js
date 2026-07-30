@@ -24,6 +24,7 @@ function loadScopeDerivation() {
     traceRowsForPlanScopeCache: new WeakMap(),
     planLookups: 0,
     planMatches: 0,
+    meaningfulChecks: 0,
     asArray(value) {
       return Array.isArray(value) ? value : [];
     },
@@ -35,6 +36,7 @@ function loadScopeDerivation() {
       return (state.plans || {})[context.planFile];
     },
     meaningfulValue(value) {
+      sandbox.meaningfulChecks += 1;
       return String(value || "").trim();
     },
     samePlanSelection(left, right) {
@@ -70,11 +72,13 @@ function fixture() {
 test("Plan trace scope reuses one derivation per rows, state, and mode", () => {
   const sandbox = loadScopeDerivation();
   const { rows, state } = fixture();
+  assert.doesNotMatch(extractFunction("traceRowsForPlanScope"), /allRows\.filter\(/);
   const selected = sandbox.scopeRows(rows, state, "selected");
-  const calls = { lookups: sandbox.planLookups, matches: sandbox.planMatches };
+  const calls = { lookups: sandbox.planLookups, matches: sandbox.planMatches, meaningful: sandbox.meaningfulChecks };
 
   assert.strictEqual(sandbox.scopeRows(rows, state, "selected"), selected);
-  assert.deepEqual({ lookups: sandbox.planLookups, matches: sandbox.planMatches }, calls);
+  assert.deepEqual({ lookups: sandbox.planLookups, matches: sandbox.planMatches, meaningful: sandbox.meaningfulChecks }, calls);
+  assert.equal(sandbox.meaningfulChecks, rows.length);
   assert.deepEqual(Array.from(selected.rows, (row) => row.id), ["a-current"]);
   assert.equal(selected.scoped, true);
   assert.equal(selected.selectedCount, 1);
@@ -85,6 +89,7 @@ test("Plan trace scope reuses one derivation per rows, state, and mode", () => {
   assert.notStrictEqual(all, selected);
   assert.strictEqual(all.rows, rows);
   assert.equal(all.scoped, false);
+  assert.equal(sandbox.meaningfulChecks, rows.length * 2);
 });
 
 test("Plan trace scope invalidates when rows or state objects are replaced", () => {
