@@ -15,7 +15,7 @@ test("overview prioritizes an active Plan over newly introduced readiness blocke
   assert.ok(source.indexOf("if (activeRun.active)") < source.indexOf("if (!serverReadiness.ready)"));
   assert.ok(source.indexOf("if (activeRun.active)") < source.indexOf("if (!outputGate.ok)"));
   assert.ok(source.indexOf('const terminalPhase =') < source.indexOf("const simpleSftp = simpleSftpReadinessForState(state)"));
-  assert.ok(source.indexOf('["results", "debug-review", "review"]') < source.indexOf("const simpleSftp = simpleSftpReadinessForState(state)"));
+  assert.ok(source.indexOf("PLAN_WORKFLOW_TERMINAL_PHASES.has") < source.indexOf("const simpleSftp = simpleSftpReadinessForState(state)"));
 });
 
 function extractFunction(name) {
@@ -38,6 +38,7 @@ function loadReadiness() {
     overviewProjectReadinessCacheValue: null,
     EMPTY_SIMPLE_SFTP_INTEGRATION: {},
     DEFAULT_SIMPLE_SFTP_READINESS: { ready: true, message: "" },
+    PLAN_WORKFLOW_TERMINAL_PHASES: new Set(["results", "debug-review", "review"]),
     simpleSftpReadinessCacheSource: null,
     simpleSftpReadinessCacheValue: null,
     asArray(value) { return Array.isArray(value) ? value : []; },

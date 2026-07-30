@@ -1751,6 +1751,10 @@ function renderPanelHtml() {
     const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
     const TASK_QUEUED_STATUSES = new Set(["queued", "pending"]);
     const TASK_ACTIVE_STATUSES = new Set([...TASK_LIVE_STATUS_TOKENS, ...TASK_QUEUED_STATUSES]);
+    const PLAN_WORKFLOW_BUSY_PHASES = new Set(["validating", "dry-running", "submitting"]);
+    const PLAN_WORKFLOW_TERMINAL_PHASES = new Set(["results", "debug-review", "review"]);
+    const PLAN_WORKFLOW_TASK_PHASES = new Set(["monitor", ...PLAN_WORKFLOW_TERMINAL_PHASES]);
+    const PLAN_WORKFLOW_READY_PHASES = new Set(["ready", "run"]);
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
       running_experiments: "running",
@@ -6145,7 +6149,7 @@ function renderPanelHtml() {
       }
       const terminalStage = selectedPlan ? planExecutionStage(state, planFile) : undefined;
       const terminalPhase = String((terminalStage || {}).phase || "");
-      if (["results", "debug-review", "review"].includes(terminalPhase)) {
+      if (PLAN_WORKFLOW_TERMINAL_PHASES.has(terminalPhase)) {
         const terminalTone = terminalPhase === "review" ? "error" : terminalPhase === "results" ? "good" : "info";
         const terminalStatus = terminalPhase === "results"
           ? "结果待处理"
@@ -7437,7 +7441,7 @@ function renderPanelHtml() {
         planRunRow("当前计划", selectedPlan ? "good" : "warn", selectedPlan ? compactPath(selectedPlan) : "未选择", "计划 " + planCount + " / " + taskScale + (selectedPlan ? " / " + modeLabel : "")),
         planRunRow("运行前同步", syncReady ? "good" : "warn", "Hub " + labelStatus(sync.hub || "待同步") + " / Worker " + labelStatus(sync.workers || "待同步"), "代码指纹 " + compactIdentifier(sync.fingerprint || "-"), "原始 fingerprint：" + compactIdentifier(sync.fingerprint || "-")),
         planRunRow("校验与预演", preflight.tone, preflight.message, preflight.badge),
-        planRunRow("执行阶段", executionStage.phase === "monitor" ? "info" : executionStage.phase === "results" ? "good" : executionStage.phase === "review" ? "warn" : ["ready", "run"].includes(executionStage.phase) ? "good" : "", executionStage.status, planExecutionPhaseLabel(executionStage.phase), "原始阶段：" + String(executionStage.phase || "未知")),
+        planRunRow("执行阶段", executionStage.phase === "monitor" ? "info" : executionStage.phase === "results" ? "good" : executionStage.phase === "review" ? "warn" : PLAN_WORKFLOW_READY_PHASES.has(executionStage.phase) ? "good" : "", executionStage.status, planExecutionPhaseLabel(executionStage.phase), "原始阶段：" + String(executionStage.phase || "未知")),
         planRunRow("调度队列", failed ? "error" : (running ? "info" : (queued ? "warn" : "")), "运行 " + running + " / 排队 " + queued + " / 失败 " + failed, running ? (running + " 运行中") : queued ? (queued + " 排队") : failed ? (failed + " 需处理") : staticCapacity),
         planRunRow("输出闭环", outputTone, outputStatus, outputBadge)
       ].join("");
@@ -9316,7 +9320,7 @@ function renderPanelHtml() {
         return renderPlanExecutionNextAction(state, planFile);
       }
       const executionStage = planFile ? planExecutionStage(state, planFile) : undefined;
-      if (["results", "review", "debug-review"].includes(String((executionStage || {}).phase || ""))) {
+      if (PLAN_WORKFLOW_TERMINAL_PHASES.has(String((executionStage || {}).phase || ""))) {
         return renderPlanExecutionNextAction(state, planFile);
       }
       const simpleSftp = simpleSftpReadinessForState(state);
@@ -9966,10 +9970,10 @@ function renderPanelHtml() {
 
     function projectOnboardingExecutionTarget(stage) {
       const phase = String((stage || {}).phase || "");
-      if (["validating", "dry-running", "submitting"].includes(phase)) {
+      if (PLAN_WORKFLOW_BUSY_PHASES.has(phase)) {
         return { section: "operations", anchor: "operations-list", action: "查看运行进度" };
       }
-      if (["monitor", "review", "debug-review", "results"].includes(phase)) {
+      if (PLAN_WORKFLOW_TASK_PHASES.has(phase)) {
         return { section: "tasks", anchor: "tasks-list", action: "查看任务" };
       }
       return { section: "plans", anchor: "plans-actions", action: "查看运行入口" };
@@ -9978,7 +9982,7 @@ function renderPanelHtml() {
     function planFirstRunRecommended(state, planFile, plan, stage, readyToStart) {
       if (!readyToStart || !planFile) return false;
       const phase = String((stage || {}).phase || "");
-      if (!["ready", "run"].includes(phase)) return false;
+      if (!PLAN_WORKFLOW_READY_PHASES.has(phase)) return false;
       if (phase === "run" && /失败|异常|未完成/.test(String((stage || {}).status || ""))) return false;
       return !currentPlanRevisionRunEvidenceForState(state || {}, planFile, plan || {});
     }
@@ -9989,12 +9993,12 @@ function renderPanelHtml() {
       const detail = String(item.status || (readyToStart ? "可以提交当前 Plan" : "完成前置步骤后开始运行"));
       if (phase === "results") return { ok: true, status: "运行完成", detail };
       if (phase === "monitor") return { ok: false, status: "运行中", detail };
-      if (["validating", "dry-running", "submitting"].includes(phase)) return { ok: false, status: "处理中", detail };
+      if (PLAN_WORKFLOW_BUSY_PHASES.has(phase)) return { ok: false, status: "处理中", detail };
       if (phase === "debug-review") return { ok: false, status: "Debug 待复核", detail };
       if (phase === "review") return { ok: false, status: "任务需处理", detail };
       if (!readyToStart) return { ok: false, status: "待前置步骤", detail: "完成基础设施、Plan 输出和 Agent 检测后开始运行" };
       if (firstRunRecommended) return { ok: false, status: "建议 Debug 首跑", detail: "先验证首个任务、实时日志和结果输出，再提交完整 Plan" };
-      if (["ready", "run"].includes(phase)) return { ok: true, status: "可提交", detail };
+      if (PLAN_WORKFLOW_READY_PHASES.has(phase)) return { ok: true, status: "可提交", detail };
       return { ok: false, status: "待处理", detail };
     }
 
