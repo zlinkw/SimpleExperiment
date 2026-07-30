@@ -316,7 +316,9 @@ const directWorkerActionMap = {
 const WORKER_ARTIFACT_COMMANDS = new Set(["archiveArtifacts", "deleteArtifacts"]);
 const WORKER_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", ...WORKER_ARTIFACT_COMMANDS]);
 const NO_HUB_RESULT_CONFIRM_COMMANDS = new Set(["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"]);
-const PLAN_SCHEDULER_COMMANDS = new Set(["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]);
+const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
+const PLAN_SUBMISSION_COMMANDS = new Set(["runPlan", "reproducePlan"]);
+const PLAN_SCHEDULER_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...PLAN_SUBMISSION_COMMANDS]);
 const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"]);
 const noHubWorkerResultActions = new Set([
     "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
@@ -2878,9 +2880,9 @@ class RealtimeTunnelPanelProvider {
             const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));
             return Math.min(60 * 60_000, Math.max(180_000, planCount * 130_000 + 60_000));
         }
-        if (command === "runPlan" || command === "reproducePlan")
+        if (PLAN_SUBMISSION_COMMANDS.has(command))
             return 150_000;
-        if (command === "validatePlan" || command === "dryRunPlan")
+        if (PLAN_PREFLIGHT_COMMANDS.has(command))
             return 90_000;
         return 45_000;
     }
@@ -2992,14 +2994,14 @@ class RealtimeTunnelPanelProvider {
                 workerActionFallbackReason: missing.join(", "),
             };
         }
-        if (command === "validatePlan" || command === "dryRunPlan") {
+        if (PLAN_PREFLIGHT_COMMANDS.has(command)) {
             await this.refreshLocalPlanMetadataForAction(body);
             this.stampPlanRevision(body);
             await this.assertPlanLocalConfigFiles(body);
             this.assertPlanSchedulerAgentReady(command);
             await this.ensureHubCodeReadyForPlanCheck();
         }
-        if (command === "runPlan" || command === "reproducePlan") {
+        if (PLAN_SUBMISSION_COMMANDS.has(command)) {
             this.assertPlanTopologyReady(command);
             await this.refreshLocalPlanMetadataForAction(body);
             this.stampPlanRevision(body);
@@ -3041,7 +3043,7 @@ class RealtimeTunnelPanelProvider {
         const finalResult = actionAffectsResultsSummary(action)
             ? await this.waitForOperationTerminalResult(action, result, command, 45_000)
             : result;
-        if (command === "runPlan" || command === "reproducePlan")
+        if (PLAN_SUBMISSION_COMMANDS.has(command))
             await this.openPanelAt("tasks", "tasks-list");
         this.throwIfRemoteActionPending(command, action, finalResult);
         if (["parseResults", "refreshResults", "runQualityGate", "runStatistics", "exportPaperTable", "checkClaimEvidence", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults"].includes(command)) {

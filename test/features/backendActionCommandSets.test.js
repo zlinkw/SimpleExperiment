@@ -24,13 +24,20 @@ test("backend Worker action confirmation reuses one fixed command set", () => {
 test("backend action routing reuses composed confirmation and scheduler sets", () => {
   const body = methodBody("async runActionCommandCore(command, message)", "async runPlanPreflight(body, label, authority = {})");
   assert.match(source, /const NO_HUB_RESULT_CONFIRM_COMMANDS = new Set\(/);
-  assert.match(source, /const PLAN_SCHEDULER_COMMANDS = new Set\(/);
+  assert.match(source, /const PLAN_PREFLIGHT_COMMANDS = new Set\(\["validatePlan", "dryRunPlan"\]\)/);
+  assert.match(source, /const PLAN_SUBMISSION_COMMANDS = new Set\(\["runPlan", "reproducePlan"\]\)/);
+  assert.match(source, /const PLAN_SCHEDULER_COMMANDS = new Set\(\[\.\.\.PLAN_PREFLIGHT_COMMANDS, \.\.\.PLAN_SUBMISSION_COMMANDS\]\)/);
   assert.match(source, /const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set\(\["stopExperiment", "retryExperiment", \.\.\.NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"\]\)/);
-  for (const constant of ["NO_HUB_RESULT_CONFIRM_COMMANDS", "PLAN_SCHEDULER_COMMANDS", "TUNNEL_ACTION_CONFIRM_COMMANDS"]) {
+  for (const constant of ["NO_HUB_RESULT_CONFIRM_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "PLAN_SUBMISSION_COMMANDS", "PLAN_SCHEDULER_COMMANDS", "TUNNEL_ACTION_CONFIRM_COMMANDS"]) {
     assert.match(body, new RegExp(`${constant}\\.has\\(command\\)`), constant);
   }
+  const watchdog = methodBody("uiCommandWatchdogMs(command)", "private postUiCommandStatus(clientActionId, status, command, message)");
+  assert.match(watchdog, /PLAN_PREFLIGHT_COMMANDS\.has\(command\)/);
+  assert.match(watchdog, /PLAN_SUBMISSION_COMMANDS\.has\(command\)/);
   assert.doesNotMatch(body, /\["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"\]\.includes\(command\)/);
   assert.doesNotMatch(body, /\["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"\]\.includes\(command\)/);
+  assert.doesNotMatch(source, /command === "validatePlan" \|\| command === "dryRunPlan"/);
+  assert.doesNotMatch(source, /command === "runPlan" \|\| command === "reproducePlan"/);
 });
 
 test("backend primitive parsing reuses fixed value and type sets", () => {
