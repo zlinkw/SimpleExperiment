@@ -19,6 +19,14 @@ function extractFunction(name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function extractConst(name) {
+  const start = panelSource.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing const ${name}`);
+  const end = panelSource.indexOf(";", start);
+  assert.ok(end > start, `unterminated const ${name}`);
+  return panelSource.slice(start, end + 1);
+}
+
 test("project readiness reuses one derivation per Webview state object", () => {
   let planLookups = 0;
   const sandbox = {
@@ -34,7 +42,11 @@ test("project readiness reuses one derivation per Webview state object", () => {
     simpleSftpReadinessForState: () => ({ ready: true }),
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("overviewProjectReadiness")}\nthis.readiness = overviewProjectReadiness;`, sandbox);
+  vm.runInContext([
+    extractConst("PLAN_WORKFLOW_TERMINAL_PHASES"),
+    extractFunction("overviewProjectReadiness"),
+    "this.readiness = overviewProjectReadiness;",
+  ].join("\n"), sandbox);
 
   const firstState = { detectedProject: {}, plans: [] };
   const first = sandbox.readiness(firstState);

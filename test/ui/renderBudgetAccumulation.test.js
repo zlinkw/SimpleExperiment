@@ -19,6 +19,14 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractConst(name) {
+  const start = panel.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing const ${name}`);
+  const end = panel.indexOf(";", start);
+  assert.ok(end > start, `unterminated const ${name}`);
+  return panel.slice(start, end + 1);
+}
+
 const TASK_RENDER_LIMIT = 80;
 const TRACE_RENDER_LIMIT = 60;
 
@@ -30,7 +38,12 @@ function loadTaskBudget() {
     isTaskRowSelected: (row, selected) => Boolean(selected && selected.has(String((row || {}).uiKey || ""))),
   };
   vm.createContext(sandbox);
-  vm.runInContext(extractFunction("taskRowsViewModel") + "\nthis.viewModel = taskRowsViewModel;", sandbox);
+  vm.runInContext([
+    extractConst("TASK_LIVE_STATUS_TOKENS"),
+    extractConst("TASK_QUEUED_STATUSES"),
+    extractFunction("taskRowsViewModel"),
+    "this.viewModel = taskRowsViewModel;",
+  ].join("\n"), sandbox);
   return sandbox.viewModel;
 }
 
