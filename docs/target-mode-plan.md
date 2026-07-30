@@ -13,35 +13,36 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-171：复用前端通用状态中文标签表。
-- [已完成] 2/5 project-172：复用前端实时流与 Worker 可用状态判定。
-- [已完成] 3/5 project-173：复用后端项目接入规则压缩字段表。
-- [已完成] 4/5 project-174：复用后端调度回退 Worker 观测字段表。
-- [已完成] 5/5 project-175：执行第六十五轮完整非服务器静态测试。
+- [已完成] 1/5 project-176：减少后端当前 Plan 结果摘要过滤临时分配。
+- [待处理] 2/5 project-177：减少前端操作记录预算筛选临时数组。
+- [待处理] 3/5 project-178：缓存后端任务选择派生状态与保护键。
+- [待处理] 4/5 project-179：复用前端 GPU 归属匹配候选值。
+- [待处理] 5/5 project-180：执行第六十六轮完整非服务器静态测试。
 
-## 当前批次：project-175（已完成）
+## 当前批次：project-176（已完成）
 ### 修复点
 
-- 完成第五批后的 1051 项 Node 静态测试、lint、四个 JavaScript 入口语法检查和八个 Python 文件 UTF-8 内存编译。
-- 本批未改业务逻辑，仅记录完整回归结果并结束当前五批优化周期。
+- 复用结果摘要记录字段表，避免当前 Plan 过滤每次创建固定字段数组。
+- 将已归档与待审核记录改为单次遍历分组，保持计数和双命名字段一致。
+- 增加混合 Plan、归档状态和固定字段复用回归。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整 Node 测试必须使用回收站保护预加载，禁止测试清理永久删除本地文件。
-- lint、JavaScript 语法和 Python UTF-8 编译任一失败时不得提交或推送成功记录。
-- 本批不得生成、打包或安装 VSIX，不得触发真实服务器连接。
+- 当前 Plan 过滤必须继续覆盖 results、finalResults、final_results、pendingReviewRecords 和 pending_review_records。
+- 仅 finalEvidenceState 为 archived 的记录可进入最终结果，其余记录继续进入待审核结果。
+- 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] `npm test` 完整非服务器静态测试，1051/1051。
-- [已通过] lint、四个 JavaScript 入口和八个 Python 文件语法检查。
+- [已通过] TypeScript 构建。
+- [已通过] 结果摘要 Webview 缓存定向 Node 测试，6/6。
 - [已通过] `git diff --check`。
 
 ## 本批记录
-- project-174 已由提交 `f0f0c6e` 同步至 `origin/master`。
-- 本批仅执行完整非服务器静态回归并更新计划文档；无视觉变化，不调用截图。
-- project-175 完整静态回归全部通过；当前五批优化周期结束，后续目标须先修订本计划。
+- project-175 已由提交 `571feef` 同步至 `origin/master`。
+- 本批仅处理后端当前 Plan 结果摘要过滤、对应测试和计划文档；无视觉变化，不调用截图。
+- project-176 构建与 6/6 定向测试通过；下一批仅处理前端操作记录预算筛选。

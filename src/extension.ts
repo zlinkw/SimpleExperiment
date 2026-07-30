@@ -10611,7 +10611,7 @@ function filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision
     }
     const out = { ...summary };
     let filteredAny = false;
-    for (const key of ["results", "finalResults", "final_results", "pendingReviewRecords", "pending_review_records"]) {
+    for (const key of RESULT_SUMMARY_RECORD_ARRAY_FIELDS) {
         if (!Array.isArray(out[key]))
             continue;
         const before = out[key];
@@ -10628,8 +10628,14 @@ function filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision
     const fallbackFinalResults = Array.isArray(out.finalResults) ? out.finalResults : Array.isArray(out.final_results) ? out.final_results : [];
     const fallbackPendingResults = Array.isArray(out.pendingReviewRecords) ? out.pendingReviewRecords : Array.isArray(out.pending_review_records) ? out.pending_review_records : [];
     const results = Array.isArray(out.results) ? out.results : [...fallbackFinalResults, ...fallbackPendingResults];
-    const finalResults = results.filter((row) => String(row?.finalEvidenceState || row?.final_evidence_state || "").toLowerCase() === "archived");
-    const pendingReviewRecords = results.filter((row) => String(row?.finalEvidenceState || row?.final_evidence_state || "").toLowerCase() !== "archived");
+    const finalResults = [];
+    const pendingReviewRecords = [];
+    for (const row of results) {
+        if (String(row?.finalEvidenceState || row?.final_evidence_state || "").toLowerCase() === "archived")
+            finalResults.push(row);
+        else
+            pendingReviewRecords.push(row);
+    }
     return {
         schemaVersion: summary.schemaVersion || 1,
         planFile: plan,

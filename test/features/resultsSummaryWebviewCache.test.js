@@ -19,6 +19,14 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractDeclaration(name) {
+  const start = extension.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing declaration ${name}`);
+  const end = extension.indexOf(";\n", start);
+  assert.ok(end > start, `unterminated declaration ${name}`);
+  return extension.slice(start, end + 1);
+}
+
 function loadCache() {
   const sandbox = {
     RESULTS_SUMMARY_WEBVIEW_VARIANT_CACHE_LIMIT: 3,
@@ -60,6 +68,7 @@ function loadActualFilterCache() {
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractDeclaration("RESULT_SUMMARY_RECORD_ARRAY_FIELDS"),
     extractFunction("usableSelectionKey"),
     extractFunction("normalizePlanSelectionKey"),
     extractFunction("planFileEquivalenceKeys"),
@@ -125,17 +134,25 @@ test("cached result summaries preserve mixed-Plan isolation and archived counts"
     lastParsedAt: "2026-07-30T01:00:00Z",
     results: [
       { id: "a", planFile: "experiments/plans/a.yaml", finalEvidenceState: "archived" },
+      { id: "a-pending", planFile: "experiments/plans/a.yaml", final_evidence_state: "pending_review" },
       { id: "b", planFile: "experiments/plans/b.yaml", finalEvidenceState: "pending_review" },
     ],
   };
   const result = sandbox.compactForPlan(summary, "a.yaml", "", "2026-07-30T00:00:00Z");
 
-  assert.deepEqual(Array.from(result.results, (row) => row.id), ["a"]);
-  assert.equal(result.resultCount, 1);
+  assert.deepEqual(Array.from(result.results, (row) => row.id), ["a", "a-pending"]);
+  assert.deepEqual(Array.from(result.finalResults, (row) => row.id), ["a"]);
+  assert.deepEqual(Array.from(result.pendingReviewRecords, (row) => row.id), ["a-pending"]);
+  assert.equal(result.resultCount, 2);
   assert.equal(result.finalResultCount, 1);
-  assert.equal(result.pendingReviewCount, 0);
+  assert.equal(result.pendingReviewCount, 1);
   assert.equal(result.mixedSummaryAnalysisSuppressed, true);
   assert.strictEqual(sandbox.compactForPlan(summary, "a.yaml", "", "2026-07-30T00:00:00Z"), result);
+
+  const source = extractFunction("filterResultsSummaryForSelectedPlan");
+  assert.match(source, /for \(const key of RESULT_SUMMARY_RECORD_ARRAY_FIELDS\)/);
+  assert.doesNotMatch(source, /for \(const key of \[/);
+  assert.doesNotMatch(source, /results\.filter/);
 });
 
 test("cached result summaries still suppress stale Plan revisions", () => {
