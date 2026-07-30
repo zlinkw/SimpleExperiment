@@ -342,7 +342,8 @@ const directWorkerActionMap = {
     archiveArtifacts: "archive-worker-artifacts",
     deleteArtifacts: "delete-worker-artifacts",
 };
-const WORKER_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "archiveArtifacts", "deleteArtifacts"]);
+const WORKER_ARTIFACT_COMMANDS = new Set(["archiveArtifacts", "deleteArtifacts"]);
+const WORKER_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", ...WORKER_ARTIFACT_COMMANDS]);
 const NO_HUB_RESULT_CONFIRM_COMMANDS = new Set(["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"]);
 const PLAN_SCHEDULER_COMMANDS = new Set(["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]);
 const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"]);
@@ -3359,7 +3360,7 @@ class RealtimeTunnelPanelProvider {
         }
     }
     canFallbackTaskActionToHub(command, body, missingWorkerCapabilities) {
-        if (!["archiveArtifacts", "deleteArtifacts"].includes(command))
+        if (!WORKER_ARTIFACT_COMMANDS.has(command))
             return false;
         if (!missingWorkerCapabilities.length)
             return false;

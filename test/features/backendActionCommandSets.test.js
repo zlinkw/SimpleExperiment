@@ -14,9 +14,11 @@ function methodBody(startMarker, endMarker) {
 
 test("backend Worker action confirmation reuses one fixed command set", () => {
   const body = methodBody("async runActionCommandCore(command, message)", "async runPlanPreflight(body, label, authority = {})");
-  assert.match(source, /const WORKER_ACTION_CONFIRM_COMMANDS = new Set\(\["stopExperiment", "archiveArtifacts", "deleteArtifacts"\]\)/);
+  assert.match(source, /const WORKER_ARTIFACT_COMMANDS = new Set\(\["archiveArtifacts", "deleteArtifacts"\]\)/);
+  assert.match(source, /const WORKER_ACTION_CONFIRM_COMMANDS = new Set\(\["stopExperiment", \.\.\.WORKER_ARTIFACT_COMMANDS\]\)/);
   assert.equal((body.match(/WORKER_ACTION_CONFIRM_COMMANDS\.has\(command\)/g) || []).length, 2);
   assert.doesNotMatch(body, /\["stopExperiment", "archiveArtifacts", "deleteArtifacts"\]\.includes\(command\)/);
+  assert.match(methodBody("canFallbackTaskActionToHub(command, body, missingWorkerCapabilities)", "async postMultiWorkerTunnelAction(workerIds, action, body, options)"), /WORKER_ARTIFACT_COMMANDS\.has\(command\)/);
 });
 
 test("backend action routing reuses composed confirmation and scheduler sets", () => {
