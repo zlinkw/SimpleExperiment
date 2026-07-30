@@ -11773,38 +11773,38 @@ function hostOperationLeaseActionForUiCommand(command) {
         return command;
     return hostOperationUiCommands.has(command) ? command : "";
 }
+const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
+    quickSetup: "一键配置",
+    configureSessions: "配置 Xshell 会话",
+    configureAgentSessions: "配置 Agent 会话",
+    writeAgentCommands: "写入 Agent 启动命令",
+    startTunnelEndpoint: "启动隧道端点",
+    startAgentEndpoint: "启动 Agent 端点",
+    startHub: "启动 Hub 隧道",
+    startWorker: "启动 Worker 隧道",
+    start: "启动 Xshell 隧道",
+    startAll: "启动全部隧道",
+    startAgents: "启动 Agent 会话",
+    startAllConnections: "启动全部连接",
+    prepareAgents: "准备 Agent",
+    runPlan: "运行计划",
+    reproducePlan: "恢复并重新运行",
+    runAllPlans: "运行全部计划",
+    archivePlan: "归档计划",
+    restoreArchivedPlan: "恢复归档计划",
+    archiveArtifacts: "归档结果",
+    deleteArtifacts: "删除结果",
+    uploadProjectToHub: "上传项目到 Hub",
+    uploadProjectToWorkers: "上传项目到 Worker",
+    distributeCodeToWorkers: "分发代码到 Worker",
+    deployLatestAgent: "部署 Agent runtime",
+    configureSftpIgnores: "配置 SFTP 忽略规则",
+    downloadDebugBundle: "下载调试包",
+    downloadRemoteResult: "下载远端结果",
+    openResultArtifact: "打开或下载结果文件",
+});
 function hostOperationLeaseActionLabel(command) {
-    const labels = {
-        quickSetup: "一键配置",
-        configureSessions: "配置 Xshell 会话",
-        configureAgentSessions: "配置 Agent 会话",
-        writeAgentCommands: "写入 Agent 启动命令",
-        startTunnelEndpoint: "启动隧道端点",
-        startAgentEndpoint: "启动 Agent 端点",
-        startHub: "启动 Hub 隧道",
-        startWorker: "启动 Worker 隧道",
-        start: "启动 Xshell 隧道",
-        startAll: "启动全部隧道",
-        startAgents: "启动 Agent 会话",
-        startAllConnections: "启动全部连接",
-        prepareAgents: "准备 Agent",
-        runPlan: "运行计划",
-        reproducePlan: "恢复并重新运行",
-        runAllPlans: "运行全部计划",
-        archivePlan: "归档计划",
-        restoreArchivedPlan: "恢复归档计划",
-        archiveArtifacts: "归档结果",
-        deleteArtifacts: "删除结果",
-        uploadProjectToHub: "上传项目到 Hub",
-        uploadProjectToWorkers: "上传项目到 Worker",
-        distributeCodeToWorkers: "分发代码到 Worker",
-        deployLatestAgent: "部署 Agent runtime",
-        configureSftpIgnores: "配置 SFTP 忽略规则",
-        downloadDebugBundle: "下载调试包",
-        downloadRemoteResult: "下载远端结果",
-        openResultArtifact: "打开或下载结果文件",
-    };
-    return labels[command] || command;
+    return HOST_OPERATION_LEASE_ACTION_LABELS[command] || command;
 }
 function commandNeedsUiStatus(command) {
     return Boolean(command) && !COMMANDS_WITHOUT_UI_STATUS.has(command);
