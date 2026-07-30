@@ -19,6 +19,34 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractFrozenArray(name) {
+  const start = extension.indexOf(`const ${name} = Object.freeze([`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = extension.indexOf("]);", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return extension.slice(start, end + 3);
+}
+
+function loadAdapterCompaction() {
+  const sandbox = {
+    WEBVIEW_ADAPTER_RULE_LIST_LIMIT: 2,
+    WEBVIEW_ADAPTER_RULE_MAP_LIMIT: 2,
+    WEBVIEW_ADAPTER_INFERRED_SIGNAL_LIMIT: 1,
+    objectRecord(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : undefined; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFrozenArray("WEBVIEW_ADAPTER_RULE_HIDDEN_FIELDS"),
+    extractFrozenArray("WEBVIEW_ADAPTER_RULE_LIST_FIELDS"),
+    extractFrozenArray("WEBVIEW_ADAPTER_RULE_MAP_FIELDS"),
+    extractFunction("compactAdapterRuleListForWebview"),
+    extractFunction("compactAdapterRuleMapForWebview"),
+    extractFunction("compactAdapterRulesForWebview"),
+    "this.api = { compactAdapterRulesForWebview, hidden: WEBVIEW_ADAPTER_RULE_HIDDEN_FIELDS, lists: WEBVIEW_ADAPTER_RULE_LIST_FIELDS, maps: WEBVIEW_ADAPTER_RULE_MAP_FIELDS };",
+  ].join("\n"), sandbox);
+  return sandbox.api;
+}
+
 function loadCompaction() {
   const sandbox = {
     WEBVIEW_CONFIG_SUMMARY_LIMIT: 2,
@@ -95,4 +123,42 @@ test("dynamic onboarding suggestions are copied outside the cached project summa
   assert.match(extension, /const compactedDetectedProject = compactDetectedProjectForWebview/);
   assert.match(extension, /const webviewDetectedProject = \{[\s\S]{0,180}\.\.\.compactedDetectedProject,[\s\S]{0,180}missingOnboarding:/);
   assert.doesNotMatch(extension, /compactDetectedProjectForWebview\([^\n]+\);\s*webviewDetectedProject\.missingOnboarding\s*=/);
+});
+
+test("adapter rule Webview compaction reuses immutable field registries", () => {
+  const api = loadAdapterCompaction();
+  const rules = {
+    inferredPlanCandidateCsv: ["raw.csv"],
+    inferredPlanCandidateJson: ["raw.json"],
+    inferredPlanConsoleLogs: ["stdout.log"],
+    inferredPlanTextLogs: ["summary.txt"],
+    secondaryMetrics: ["AUC", "F1", "AUPRC"],
+    candidateCsv: ["a.csv", "b.csv", "c.csv"],
+    csvColumnMapping: { metric: "name", value: "score", extra: "ignored" },
+    inferredSignals: ["a", "b"],
+    customExtension: { keep: true },
+  };
+  const compacted = api.compactAdapterRulesForWebview(rules);
+
+  for (const key of api.hidden) assert.equal(key in compacted, false, key);
+  assert.deepEqual(Array.from(compacted.secondaryMetrics), ["AUC", "F1"]);
+  assert.equal(compacted.secondaryMetricsTotalCount, 3);
+  assert.equal(compacted.secondaryMetricsOmittedCount, 1);
+  assert.deepEqual(Array.from(compacted.candidateCsv), ["a.csv", "b.csv"]);
+  assert.deepEqual({ ...compacted.csvColumnMapping }, { metric: "name", value: "score" });
+  assert.equal(compacted.csvColumnMappingTotalCount, 3);
+  assert.equal(compacted.csvColumnMappingOmittedCount, 1);
+  assert.deepEqual(Array.from(compacted.inferredSignals), ["a"]);
+  assert.equal(compacted.inferredSignalsOmittedCount, 1);
+  assert.equal(compacted.adapterRulesPartial, true);
+  assert.deepEqual({ ...compacted.customExtension }, { keep: true });
+  assert.equal(Object.isFrozen(api.hidden), true);
+  assert.equal(Object.isFrozen(api.lists), true);
+  assert.equal(Object.isFrozen(api.maps), true);
+
+  const source = extractFunction("compactAdapterRulesForWebview");
+  assert.match(source, /WEBVIEW_ADAPTER_RULE_HIDDEN_FIELDS/);
+  assert.match(source, /WEBVIEW_ADAPTER_RULE_LIST_FIELDS/);
+  assert.match(source, /WEBVIEW_ADAPTER_RULE_MAP_FIELDS/);
+  assert.doesNotMatch(source, /for \(const key of \[/);
 });

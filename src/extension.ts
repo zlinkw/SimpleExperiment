@@ -187,6 +187,9 @@ const WEBVIEW_CONFIG_SUMMARY_PARAM_LIMIT = 16;
 const WEBVIEW_ADAPTER_INFERRED_SIGNAL_LIMIT = 12;
 const WEBVIEW_ADAPTER_RULE_LIST_LIMIT = 40;
 const WEBVIEW_ADAPTER_RULE_MAP_LIMIT = 80;
+const WEBVIEW_ADAPTER_RULE_HIDDEN_FIELDS = Object.freeze(["inferredPlanCandidateCsv", "inferredPlanCandidateJson", "inferredPlanConsoleLogs", "inferredPlanTextLogs"]);
+const WEBVIEW_ADAPTER_RULE_LIST_FIELDS = Object.freeze(["secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs"]);
+const WEBVIEW_ADAPTER_RULE_MAP_FIELDS = Object.freeze(["csvColumnMapping", "metricAliases"]);
 const SCHEDULER_STATE_RECORD_LIMIT = 240;
 const SCHEDULER_ACTIVE_BUCKET_LIMIT = 160;
 const SCHEDULER_TERMINAL_BUCKET_LIMIT = 80;
@@ -10423,10 +10426,10 @@ function compactAdapterRulesForWebview(rules) {
     if (!item)
         return rules;
     const out = { ...item };
-    for (const key of ["inferredPlanCandidateCsv", "inferredPlanCandidateJson", "inferredPlanConsoleLogs", "inferredPlanTextLogs"])
+    for (const key of WEBVIEW_ADAPTER_RULE_HIDDEN_FIELDS)
         delete out[key];
     let omittedFields = 0;
-    for (const key of ["secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs"]) {
+    for (const key of WEBVIEW_ADAPTER_RULE_LIST_FIELDS) {
         const compacted = compactAdapterRuleListForWebview(item[key], WEBVIEW_ADAPTER_RULE_LIST_LIMIT);
         if (!compacted)
             continue;
@@ -10437,7 +10440,7 @@ function compactAdapterRulesForWebview(rules) {
             omittedFields += 1;
         }
     }
-    for (const key of ["csvColumnMapping", "metricAliases"]) {
+    for (const key of WEBVIEW_ADAPTER_RULE_MAP_FIELDS) {
         const compacted = compactAdapterRuleMapForWebview(item[key], WEBVIEW_ADAPTER_RULE_MAP_LIMIT);
         if (!compacted)
             continue;
