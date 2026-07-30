@@ -1751,6 +1751,7 @@ function renderPanelHtml() {
     const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
     const TASK_QUEUED_STATUSES = new Set(["queued", "pending"]);
     const TASK_ACTIVE_STATUSES = new Set([...TASK_LIVE_STATUS_TOKENS, ...TASK_QUEUED_STATUSES]);
+    const ARTIFACT_SCOPE_COMMANDS = new Set(["archiveArtifacts", "deleteArtifacts"]);
     const PLAN_WORKFLOW_BUSY_PHASES = new Set(["validating", "dry-running", "submitting"]);
     const PLAN_WORKFLOW_TERMINAL_PHASES = new Set(["results", "debug-review", "review"]);
     const PLAN_WORKFLOW_TASK_PHASES = new Set(["monitor", ...PLAN_WORKFLOW_TERMINAL_PHASES]);
@@ -7389,7 +7390,7 @@ function renderPanelHtml() {
         payload.planFile = payload.planFile || button.dataset.file;
       }
       if (button.dataset.batchSelected === "true") Object.assign(payload, selectedTaskPayload());
-      if (["archiveArtifacts", "deleteArtifacts"].includes(command) && button.dataset.batchSelected === "true") {
+      if (ARTIFACT_SCOPE_COMMANDS.has(command) && button.dataset.batchSelected === "true") {
         payload.selectedRunKeys = [];
         payload.selectedExperimentIds = [];
       }
@@ -11633,7 +11634,7 @@ function renderPanelHtml() {
       if (!traceMatchesPlanVersion(context, String(plan.revision || ""), Date.parse(String(plan.updatedAt || "")))) return "记录属于旧 Plan 版本；可查看历史，但不能作为当前版本结果执行操作。";
       const reason = disableReason(state, command, context);
       if (reason) return reason;
-      if (["archiveArtifacts", "deleteArtifacts"].includes(command) && (!context.workerId || context.workerId === "-")) {
+      if (ARTIFACT_SCOPE_COMMANDS.has(command) && (!context.workerId || context.workerId === "-")) {
         return "缺少 Worker 标识，只能处理 Hub 索引；请优先在任务区选择带 Worker 的任务。";
       }
       return "";
@@ -12975,7 +12976,7 @@ function renderPanelHtml() {
     }
     function rowActionButton(label, command, row, visible, confirmFlag, dangerFlag) {
       if (!visible) return "";
-      const archiveScoped = ["archiveArtifacts", "deleteArtifacts"].includes(command);
+      const archiveScoped = ARTIFACT_SCOPE_COMMANDS.has(command);
       const runKey = command === "selectLogRunKey" ? taskLogActionKey(row) : (archiveScoped ? "" : taskActionKeyForCommand(row, command));
       const experimentId = archiveScoped ? "" : row.experimentId;
       const archiveKey = archiveScoped ? taskArchiveActionKey(row) : row.archiveKey;
@@ -13004,11 +13005,11 @@ function renderPanelHtml() {
         if (needsWorker) {
           if (!context.workerId || context.workerId === "-") return "该任务缺少 Worker 标识，不能直发 Worker Agent";
           const workerMissing = missingWorkerActionCapabilities(state, context.workerId, workerAction);
-          const canHubProjectFallback = ["archiveArtifacts", "deleteArtifacts"].includes(command) && Boolean(context.runKey || context.archiveKey);
+          const canHubProjectFallback = ARTIFACT_SCOPE_COMMANDS.has(command) && Boolean(context.runKey || context.archiveKey);
           if (workerMissing.length && !canHubProjectFallback) return "需要升级或检测 Worker Agent: " + workerMissing.join(", ");
         }
       }
-      if (["archiveArtifacts", "deleteArtifacts"].includes(command)) {
+      if (ARTIFACT_SCOPE_COMMANDS.has(command)) {
         if (!context.runKey && !context.archiveKey) return "旧任务缺少可操作标识";
       } else if (!context.runKey) {
         return "旧任务缺少可操作标识";
@@ -13068,7 +13069,7 @@ function renderPanelHtml() {
         if (hasBatchTargets && selectedPlanFiles.length === 0) return "批量重试需要任务带有所属 planFile；旧任务缺少 plan 时不能安全重试。";
       }
       if (["stopExperiment", "retryExperiment"].includes(command) && !contextRunKey && !hasSelectedExperiment(state)) return "请先在任务表勾选实验";
-      if (["archiveArtifacts", "deleteArtifacts"].includes(command) && !contextRunKey && !contextArchiveKey && !hasSelectedExperiment(state) && !hasSelectedArchive(state)) return "请先选择实验或归档项";
+      if (ARTIFACT_SCOPE_COMMANDS.has(command) && !contextRunKey && !contextArchiveKey && !hasSelectedExperiment(state) && !hasSelectedArchive(state)) return "请先选择实验或归档项";
       if (command === "downloadDebugBundle" && !state.debugBundlePath) return "请先生成调试包并等待完成";
       return "";
     }
@@ -13312,7 +13313,7 @@ function renderPanelHtml() {
       if (button.dataset.gpuId) payload.gpuId = button.dataset.gpuId;
       if (button.dataset.workerId) payload.workerId = button.dataset.workerId;
       if (button.dataset.batchSelected === "true") Object.assign(payload, selectedTaskPayload());
-      if (["archiveArtifacts", "deleteArtifacts"].includes(command) && button.dataset.batchSelected === "true") {
+      if (ARTIFACT_SCOPE_COMMANDS.has(command) && button.dataset.batchSelected === "true") {
         payload.selectedRunKeys = [];
         payload.selectedExperimentIds = [];
       }
@@ -13792,7 +13793,7 @@ function renderPanelHtml() {
       return taskKeyDerivations(row).logActionKey;
     }
     function taskActionKeyForCommand(row, command) {
-      return ["archiveArtifacts", "deleteArtifacts"].includes(command) ? taskArchiveActionKey(row) : taskActionKey(row);
+      return ARTIFACT_SCOPE_COMMANDS.has(command) ? taskArchiveActionKey(row) : taskActionKey(row);
     }
     function taskPlanFile(row) {
       return taskKeyDerivations(row).planFile;

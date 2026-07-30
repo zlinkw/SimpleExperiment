@@ -19,7 +19,7 @@ function extractFunction(name) {
 }
 
 test("frequent UI lookup paths reuse fixed command sets", () => {
-  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS"]) {
+  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "ARTIFACT_SCOPE_COMMANDS"]) {
     assert.equal((panel.match(new RegExp(`const ${constant} = new Set`, "g")) || []).length, 1, constant);
   }
   const expectations = new Map([
@@ -33,4 +33,11 @@ test("frequent UI lookup paths reuse fixed command sets", () => {
     assert.match(source, new RegExp(`${constant}\\.has\\(`), name);
     assert.doesNotMatch(source, /new Set\(/, name);
   }
+});
+
+test("artifact scoped UI actions reuse one command set", () => {
+  for (const name of ["contextRefreshPayloadFromButton", "traceActionDisableReason", "rowActionButton", "rowActionDisableReason", "disableReason", "payloadFromButton", "taskActionKeyForCommand"]) {
+    assert.match(extractFunction(name), /ARTIFACT_SCOPE_COMMANDS\.has\(command\)/, name);
+  }
+  assert.doesNotMatch(panel, /\["archiveArtifacts", "deleteArtifacts"\]\.includes\(command\)/);
 });
