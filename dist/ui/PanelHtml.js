@@ -7471,7 +7471,7 @@ function renderPanelHtml() {
       const project = state.detectedProject || {};
       const selection = state.selection || {};
       const selectedPlan = state.planFileInput || selection.selectedPlanId || "";
-      const rows = schedulerRowsForState(state);
+      const taskStats = overviewTaskStats(state);
       const planCount = plans.length;
       const selectedPlanMeta = planFromContext(state, { planFile: selectedPlan }) || {};
       const taskScale = planTaskScaleSummary(selectedPlanMeta);
@@ -7487,9 +7487,9 @@ function renderPanelHtml() {
       const runtimeContractStage = currentPlanRuntimeContractStage(state, selectedPlan);
       const effectiveOutputReady = outputReady && !runtimeContractStage;
       const validPreviewCount = validResultPreviewCount(previewScope.items);
-      const running = rows.filter((row) => TASK_LIVE_STATUS_TOKENS.has(row.status)).length;
-      const queued = rows.filter((row) => TASK_QUEUED_STATUSES.has(row.status)).length;
-      const failed = rows.filter((row) => taskFailureLikeStatus(row.status)).length;
+      const running = taskStats.running;
+      const queued = taskStats.queued;
+      const failed = taskStats.failed;
       const outputSummary = planEvidenceCandidates.length ? compactText(planEvidenceCandidates.join("、"), 44) : (planOutputSignals.length ? "命令/日志证据" : "未声明");
       const outputStatus = runtimeContractStage ? runtimeContractStageMessage(runtimeContractStage, project) : (outputReady ? "可运行 / " + outputSummary : "待规则 / " + outputSummary);
       const outputBadge = runtimeContractStage ? runtimeContractStageBadge(runtimeContractStage) : "预览 " + validPreviewCount;
