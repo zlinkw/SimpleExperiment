@@ -17,33 +17,33 @@
 - [已完成] 2/5 project-117：复用后端重目录识别集合。
 - [已完成] 3/5 project-118：复用 Python 配置证据字段集合。
 - [已完成] 4/5 project-119：复用 pending scope 键与 data 属性映射。
-- [待处理] 5/5 project-120：执行第五十四轮完整非服务器静态测试。
+- [已完成] 5/5 project-120：执行第五十四轮完整非服务器静态测试。
 
-## 当前批次：project-119（已完成）
+## 当前批次：project-120（已完成）
 ### 修复点
 
-- 将 pending action scope 键和对应 data 属性提升为前端固定定义。
-- 避免 scoped action 判断重复创建键数组，并跳过已知键的重复驼峰转换。
-- 增加固定定义复用、scoped selector 顺序及未知键回退回归。
+- 对 project-116 至 project-119 执行第五十四轮完整非服务器静态回归。
+- 覆盖 TypeScript 构建、全部 Node 测试、Lint、4 个 Node 入口和全部受控 Python 文件语法检查。
+- 仅修复完整回归明确检出的兼容问题，不扩大当前五批周期范围。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- pending action 与按钮 dataset 的 scope 判定必须继续覆盖全部现有键。
-- selector 属性顺序、转义和未知 data 键驼峰回退不得改变。
-- 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
+- 全部测试必须使用回收站保护预加载，避免测试清理永久删除临时路径。
+- 构建不得改变 Agent runtime 生成内容或写入历史 VSIX、`zlk_cluster/ui/`。
+- 任何失败必须保留为未完成，不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] 前端动作生命周期及脚本语法定向 Node 测试，11/11。
+- [已通过] 安全 preload 下第五十四轮完整非服务器 `npm test`，1014/1014。
+- [已通过] TypeScript、Lint、4/4 个 Node 入口和 8/8 个 Python 文件语法。
 - [已通过] `git diff --check`。
 
 ## 本批记录
 - 本轮建立 project-116 至 project-120 五批静态优化周期；project-120 再执行完整测试。
-- project-116 至 project-118 已由提交 `2fff7a5`、`d4d7403`、`0463218` 同步至 `origin/master`。
-- 本批仅处理 pending scope 固定键、data 属性映射、对应定向测试和计划文档。
-- 不触碰动作 pendingKey 生成、超时清理或 DOM 查询预算；构建确认 Agent runtime 保持不变；下一批仅执行第五十四轮完整静态测试。
+- project-116 至 project-119 已由提交 `2fff7a5`、`d4d7403`、`0463218`、`d7bce4c` 同步至 `origin/master`。
+- 完整回归未检出新增兼容问题，本批仅修改计划文档。
+- 构建未改变 Agent runtime；未连接服务器、未截图、未生成或安装 VSIX，真实服务器行为保持 `needs field verification`。
