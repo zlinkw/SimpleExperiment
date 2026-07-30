@@ -11,7 +11,11 @@ test("operation terminal and result actions refresh results with planFile", () =
   assert.match(source, /async refreshResultsSummary\(planHint = ""\)/);
   assert.match(source, /const planHint = operationResultPlanFile\(this\.localOperations\[opId\]\);[\s\S]{0,240}await this\.refreshResultsSummary\(planHint\)/);
   assert.match(source, /const planHint = operationResultPlanFile\(finalResult\) \|\| body\?\.options\?\.planFile \|\| body\?\.planFile \|\| "";[\s\S]{0,240}await this\.refreshResultsSummary\(planHint\)/);
-  assert.match(source, /\["parseResults", "refreshResults", "runQualityGate"/);
+  assert.match(source, /const RESULT_PARSE_COMMANDS = new Set\(\["parseResults", "refreshResults"\]\)/);
+  assert.match(source, /const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set\(\[\s*\.\.\.RESULT_PARSE_COMMANDS,/);
+  assert.match(source, /IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS\.has\(command\)/);
+  assert.match(source, /!RESULT_PARSE_COMMANDS\.has\(command\)/);
+  assert.doesNotMatch(source, /\["parseResults", "refreshResults", "runQualityGate"/);
   assert.match(source, /reconcileProjectPlanSelection\(plans\)/);
   assert.match(source, /const keys = new Set\(list\.flatMap\(\(plan\) => planIdentityKeys\(plan\)\)\)/);
   assert.match(source, /if \(this\.selectedPlanId && !keys\.has\(this\.selectedPlanId\)\)/);

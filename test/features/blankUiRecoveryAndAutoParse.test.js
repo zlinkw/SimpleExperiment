@@ -98,7 +98,7 @@ test("result-affecting ops auto-parse selected plan before summary refresh", () 
   assert.match(extension, /queueSelectedPlanResultParse\(command, planHint\)/);
   assert.match(extension, /queueSelectedPlanResultParse\("operation 完成"/);
   assert.match(extension, /queueSelectedPlanResultParse\(state\.resultSummaryDirtyType/);
-  assert.match(extension, /if \(command !== "parseResults" && command !== "refreshResults"\)/);
+  assert.match(extension, /if \(!RESULT_PARSE_COMMANDS\.has\(command\)\)/);
   // still keep selected-plan gate
   assert.match(extension, /shouldRefreshResultsSummaryForDirtyPlan\(fromHint\)/);
   assert.match(extension, /Only auto-parse the currently selected plan/);

@@ -319,6 +319,13 @@ const NO_HUB_RESULT_CONFIRM_COMMANDS = new Set(["archiveArtifacts", "excludeResu
 const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
 const PLAN_SUBMISSION_COMMANDS = new Set(["runPlan", "reproducePlan"]);
 const PLAN_SCHEDULER_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...PLAN_SUBMISSION_COMMANDS]);
+const RESULT_PARSE_COMMANDS = new Set(["parseResults", "refreshResults"]);
+const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set([
+    ...RESULT_PARSE_COMMANDS,
+    "runQualityGate", "runStatistics", "exportPaperTable", "checkClaimEvidence", "checkOutputContract", "parseCaseLevel",
+    "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset",
+    "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults",
+]);
 const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"]);
 const noHubWorkerResultActions = new Set([
     "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
@@ -3046,9 +3053,9 @@ class RealtimeTunnelPanelProvider {
         if (PLAN_SUBMISSION_COMMANDS.has(command))
             await this.openPanelAt("tasks", "tasks-list");
         this.throwIfRemoteActionPending(command, action, finalResult);
-        if (["parseResults", "refreshResults", "runQualityGate", "runStatistics", "exportPaperTable", "checkClaimEvidence", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults"].includes(command)) {
+        if (IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS.has(command)) {
             const planHint = operationResultPlanFile(finalResult) || body?.options?.planFile || body?.planFile || "";
-            if (command !== "parseResults" && command !== "refreshResults")
+            if (!RESULT_PARSE_COMMANDS.has(command))
                 this.queueSelectedPlanResultParse(command, planHint);
             await this.refreshResultsSummary(planHint);
         }
