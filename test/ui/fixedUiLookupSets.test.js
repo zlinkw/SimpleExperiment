@@ -19,6 +19,14 @@ function extractFunction(name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function extractFrozenArray(name) {
+  const start = panel.indexOf(`const ${name} = Object.freeze([`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = panel.indexOf("]);", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return panel.slice(start, end + 3);
+}
+
 test("frequent UI lookup paths reuse fixed command sets", () => {
   for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "HUB_HEALTHY_STATUS_TOKENS", "OVERVIEW_HEALTHY_STATUS_TOKENS", "HUB_OPERATION_READY_STATUS_TOKENS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS", "SELECTED_PLAN_ACTION_COMMANDS", "PLAN_FILE_PAYLOAD_COMMANDS", "RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS", "REALTIME_SIGNAL_STATUS_TOKENS", "REMOTE_ACTION_DISCONNECTED_HEALTH_STATES", "NO_HUB_TOPOLOGY_MODES"]) {
     assert.equal((panel.match(new RegExp(`const ${constant} = new Set`, "g")) || []).length, 1, constant);
@@ -124,6 +132,32 @@ test("realtime signal checks reuse one fixed status set", () => {
   }
   assert.equal(sandbox.hasRealtimeSignal({ realtime: { streamStatus: "disconnected" } }), false);
   assert.equal(sandbox.hasRealtimeSignal({ realtime: { streamStatus: "unknown" }, lastSnapshotAt: "2026-07-30T00:00:00Z" }), true);
+});
+
+test("overview status predicates reuse immutable substring tokens", () => {
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFrozenArray("REALTIME_CONNECTED_STATUS_PARTS"),
+    extractFrozenArray("WORKER_AVAILABLE_STATUS_PARTS"),
+    extractFunction("statusContainsAny"),
+    "this.api = { statusContainsAny, realtime: REALTIME_CONNECTED_STATUS_PARTS, worker: WORKER_AVAILABLE_STATUS_PARTS };",
+  ].join("\n"), sandbox);
+
+  assert.equal(Object.isFrozen(sandbox.api.realtime), true);
+  assert.equal(Object.isFrozen(sandbox.api.worker), true);
+  for (const value of ["websocket", "SSE_CONNECTED", "stream-connected"]) assert.equal(sandbox.api.statusContainsAny(value, sandbox.api.realtime), true, value);
+  assert.equal(sandbox.api.statusContainsAny("polling", sandbox.api.realtime), false);
+  for (const value of ["agent_ok", "ONLINE", "worker-online-stale"]) assert.equal(sandbox.api.statusContainsAny(value, sandbox.api.worker), true, value);
+  assert.equal(sandbox.api.statusContainsAny("offline", sandbox.api.worker), false);
+  assert.equal(sandbox.api.statusContainsAny("unreachable", sandbox.api.worker), false);
+
+  assert.match(extractFunction("renderWorkflowStageRail"), /statusContainsAny\(realtime\.streamStatus, REALTIME_CONNECTED_STATUS_PARTS\)/);
+  assert.match(extractFunction("renderClusterRuntimeOverview"), /statusContainsAny\(realtime\.streamStatus, REALTIME_CONNECTED_STATUS_PARTS\)/);
+  const overview = extractFunction("renderOverviewOpsWorkbench");
+  assert.match(overview, /statusContainsAny\(item\.status, WORKER_AVAILABLE_STATUS_PARTS\)/);
+  assert.match(overview, /statusContainsAny\(streamStatus, REALTIME_CONNECTED_STATUS_PARTS\)/);
+  assert.doesNotMatch([overview, extractFunction("renderWorkflowStageRail"), extractFunction("renderClusterRuntimeOverview")].join("\n"), /\["websocket", "sse", "connected"\]/);
 });
 
 test("remote action boundaries reuse fixed health and topology sets", () => {

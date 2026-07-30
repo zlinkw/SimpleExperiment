@@ -1818,6 +1818,8 @@ export function renderPanelHtml(): string {
     const PLAN_TEST_MODE_TOKENS = new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]);
     const SYNC_NOT_READY_STATUS_TOKENS = new Set(["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"]);
     const REALTIME_SIGNAL_STATUS_TOKENS = new Set(["websocket", "sse", "polling", "mixed"]);
+    const REALTIME_CONNECTED_STATUS_PARTS = Object.freeze(["websocket", "sse", "connected"]);
+    const WORKER_AVAILABLE_STATUS_PARTS = Object.freeze(["ok", "online"]);
     const REMOTE_ACTION_DISCONNECTED_HEALTH_STATES = new Set(["local_port_closed", "agent_unreachable", "not_configured"]);
     const NO_HUB_TOPOLOGY_MODES = new Set(["single_worker", "worker_pool"]);
     const TASK_STATUS_LABELS = Object.freeze({
@@ -5807,8 +5809,7 @@ export function renderPanelHtml(): string {
 
     function renderWorkflowStageRail(state, summary) {
       const realtime = state.realtime || {};
-      const stream = String(realtime.streamStatus || "").toLowerCase();
-      const streamOk = ["websocket", "sse", "connected"].some((part) => stream.includes(part));
+      const streamOk = statusContainsAny(realtime.streamStatus, REALTIME_CONNECTED_STATUS_PARTS);
       const sync = overviewSyncReadiness(state);
       const evidence = overviewResultEvidenceReadiness(state);
       const projectReadiness = summary.projectReadiness || overviewProjectReadiness(state);
@@ -5895,7 +5896,7 @@ export function renderPanelHtml(): string {
       const workers = asArray(setup.workerTunnels || []);
       const enabledWorkers = enabledWorkerTunnelsForState(state);
       const workerTelemetry = asArray(state.workerTelemetryStatus || []);
-      const workerOk = workerTelemetry.filter((item) => String(item.status || "").toLowerCase().includes("ok") || String(item.status || "").toLowerCase().includes("online")).length;
+      const workerOk = workerTelemetry.filter((item) => statusContainsAny(item.status, WORKER_AVAILABLE_STATUS_PARTS)).length;
       const gpuStats = overviewGpuStats(state);
       const taskStats = overviewTaskStats(state);
       const projectStats = overviewProjectStats(state);
@@ -5905,7 +5906,7 @@ export function renderPanelHtml(): string {
       const conflicts = asArray(state.tunnelPortConflicts || []);
       const hubOk = HUB_HEALTHY_STATUS_TOKENS.has(String(health.state || "").toLowerCase());
       const streamStatus = String(realtime.streamStatus || "disconnected");
-      const streamOk = ["websocket", "sse", "connected"].some((item) => streamStatus.toLowerCase().includes(item));
+      const streamOk = statusContainsAny(streamStatus, REALTIME_CONNECTED_STATUS_PARTS);
       const schedulerRange = overviewSchedulerRange(scheduler);
       const workflowSummary = {
         hubOk,
@@ -5970,8 +5971,7 @@ export function renderPanelHtml(): string {
 
     function renderClusterRuntimeOverview(state, summary, cards, risks) {
       const realtime = state.realtime || {};
-      const stream = String(realtime.streamStatus || "").toLowerCase();
-      const streamOk = ["websocket", "sse", "connected"].some((part) => stream.includes(part));
+      const streamOk = statusContainsAny(realtime.streamStatus, REALTIME_CONNECTED_STATUS_PARTS);
       const sync = overviewSyncReadiness(state);
       const chips = [
         overviewRuntimeChip("隧道", summary.hubOk && !summary.conflicts.length ? "good" : "warn", summary.hubOk ? "Hub 可达" : "待检测"),
@@ -5985,6 +5985,11 @@ export function renderPanelHtml(): string {
         '<div class="overviewStatusGrid">' + cards.join("") + '</div>' +
         '<div class="overviewRiskBand compact" data-anchor="overview-blockers">' + risks.join("") + '</div>' +
       '</section>';
+    }
+
+    function statusContainsAny(value, parts) {
+      const text = String(value || "").toLowerCase();
+      return parts.some((part) => text.includes(part));
     }
 
     function overviewRuntimeChip(label, tone, value) {
