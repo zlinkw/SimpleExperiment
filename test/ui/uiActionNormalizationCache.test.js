@@ -23,6 +23,9 @@ function loadNormalizers() {
   const sandbox = {
     activeResourceSection: "plans",
     RESOURCE_TREE_SECTION_KEYS: new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]),
+    SAVED_ACTION_PAYLOAD_KEYS: Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]),
+    BUTTON_PAYLOAD_ATTRIBUTE_NAMES: Object.freeze({ planFile: "plan-file", runKey: "run-key", sourcePath: "source-path" }),
+    BUTTON_PAYLOAD_ATTRIBUTE_KEYS: Object.freeze(["planFile", "runKey", "sourcePath"]),
     PINNED_COMMAND_VALUES: new Set(["runPlan", "parseResults", "publishGithub"]),
     webviewHandledCommands: new Set(["runPlan", "parseResults", "publishGithub"]),
     pinnedCommandsNormalizationCache: new WeakMap(),
@@ -36,6 +39,9 @@ function loadNormalizers() {
     compactText(value, limit) {
       return String(value || "").slice(0, limit);
     },
+    escAttr(value) {
+      return String(value || "");
+    },
   };
   vm.createContext(sandbox);
   vm.runInContext([
@@ -45,9 +51,11 @@ function loadNormalizers() {
     extractFunction("normalizeActionSection"),
     extractFunction("sanitizeActionPayload"),
     extractFunction("actionSpecId"),
+    extractFunction("buttonPayloadAttributes"),
     "this.normalizePinned = normalizePinnedCommands;",
     "this.normalizeActions = normalizeSavedButtonActions;",
     "this.normalizeSection = normalizeActionSection;",
+    "this.payloadAttributes = buttonPayloadAttributes;",
   ].join("\n"), sandbox);
   return sandbox;
 }
@@ -101,6 +109,17 @@ test("saved action normalization keeps only the newest bounded variants", () => 
   sandbox.activeResourceSection = "overview";
   assert.notStrictEqual(sandbox.normalizeActions(actions, 16), oldest);
   assert.equal(variants.size, 8);
+});
+
+test("saved action payload and button attributes reuse fixed field definitions", () => {
+  const sandbox = loadNormalizers();
+  const attrs = sandbox.payloadAttributes({ sourcePath: "results/a.csv", runKey: "run-1", planFile: "demo.yaml", batchSelected: true, shellCommand: "blocked" });
+  assert.equal(attrs, ' data-plan-file="demo.yaml" data-run-key="run-1" data-source-path="results/a.csv"');
+  assert.match(panel, /const SAVED_ACTION_PAYLOAD_KEYS = Object\.freeze\(\[/);
+  assert.match(panel, /const BUTTON_PAYLOAD_ATTRIBUTE_NAMES = Object\.freeze\(\{/);
+  assert.match(panel, /const BUTTON_PAYLOAD_ATTRIBUTE_KEYS = Object\.freeze\(Object\.keys\(BUTTON_PAYLOAD_ATTRIBUTE_NAMES\)\)/);
+  assert.match(panel, /SAVED_ACTION_PAYLOAD_KEYS\.forEach/);
+  assert.match(panel, /BUTTON_PAYLOAD_ATTRIBUTE_KEYS\.map/);
 });
 
 test("panel reuses fixed resource section tone and inspector lookups", () => {

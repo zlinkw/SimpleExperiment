@@ -1638,6 +1638,14 @@ export function renderPanelHtml(): string {
     const TERMINAL_UI_STATUSES = new Set(["completed", "submitted", "failed", "cancelled", "stalled"]);
     const SUBMITTED_RUN_COMMANDS = new Set(["runPlan", "reproducePlan", "runAllPlans"]);
     const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"]);
+    const SAVED_ACTION_PAYLOAD_KEYS = Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]);
+    const BUTTON_PAYLOAD_ATTRIBUTE_NAMES = Object.freeze({
+      endpointId: "endpoint-id", planFile: "plan-file", planRevision: "plan-revision", planId: "plan-id", file: "file", runKey: "run-key", taskUiKey: "task-ui-key", experimentId: "experiment-id",
+      archiveKey: "archive-key", experimentIndex: "experiment-index", gpuId: "gpu-id", workerId: "worker-id", remotePath: "remote-path", confirmationPath: "confirmation-path",
+      artifactPath: "artifact-path", resultPath: "result-path", logPath: "log-path", savePlan: "save-plan", sourcePath: "source-path", sourceLabel: "source-label",
+      presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode"
+    });
+    const BUTTON_PAYLOAD_ATTRIBUTE_KEYS = Object.freeze(Object.keys(BUTTON_PAYLOAD_ATTRIBUTE_NAMES));
     const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
@@ -4426,9 +4434,8 @@ export function renderPanelHtml(): string {
     }
 
     function sanitizeActionPayload(payload) {
-      const allowed = ["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"];
       const out = {};
-      allowed.forEach((key) => {
+      SAVED_ACTION_PAYLOAD_KEYS.forEach((key) => {
         const value = payload && payload[key];
         if (value === undefined || value === null || value === "") return;
         if (typeof value === "number" || typeof value === "boolean") out[key] = value;
@@ -12888,35 +12895,10 @@ export function renderPanelHtml(): string {
     }
 
     function buttonPayloadAttributes(payload) {
-      const nameMap = {
-        endpointId: "endpoint-id",
-        planFile: "plan-file",
-        planRevision: "plan-revision",
-        planId: "plan-id",
-        file: "file",
-        runKey: "run-key",
-        taskUiKey: "task-ui-key",
-        experimentId: "experiment-id",
-        archiveKey: "archive-key",
-        experimentIndex: "experiment-index",
-        gpuId: "gpu-id",
-        workerId: "worker-id",
-        remotePath: "remote-path",
-        confirmationPath: "confirmation-path",
-        artifactPath: "artifact-path",
-        resultPath: "result-path",
-        logPath: "log-path",
-        savePlan: "save-plan",
-        sourcePath: "source-path",
-        sourceLabel: "source-label",
-        presentationPath: "presentation-path",
-        chartType: "chart-type",
-        styleMode: "style-mode"
-      };
-      return Object.keys(payload || {}).map((key) => {
-        if (key === "batchSelected") return "";
-        const attr = nameMap[key];
-        if (!attr) return "";
+      return BUTTON_PAYLOAD_ATTRIBUTE_KEYS.map((key) => {
+        const value = payload && payload[key];
+        if (value === undefined || value === null || value === "") return "";
+        const attr = BUTTON_PAYLOAD_ATTRIBUTE_NAMES[key];
         return ' data-' + attr + '="' + escAttr(payload[key]) + '"';
       }).join("");
     }
