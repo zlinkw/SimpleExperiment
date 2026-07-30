@@ -82,3 +82,12 @@ test("Hub health summaries reuse composed status sets", () => {
   assert.match(extractFunction("renderOverviewOpsWorkbench"), /HUB_HEALTHY_STATUS_TOKENS\.has\(/);
   assert.match(extractFunction("projectEndpointReadiness"), /HUB_OPERATION_READY_STATUS_TOKENS\.has\(hubStatus\)/);
 });
+
+test("Plan mode labels reuse backend-aligned alias sets", () => {
+  assert.match(panel, /const PLAN_TRAIN_MODE_TOKENS = new Set\(\["train", "training", "train_only"\]\)/);
+  assert.match(panel, /const PLAN_TEST_MODE_TOKENS = new Set\(\["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"\]\)/);
+  const source = extractFunction("planModeLabel");
+  assert.match(source, /PLAN_TRAIN_MODE_TOKENS\.has\(value\)/);
+  assert.match(source, /PLAN_TEST_MODE_TOKENS\.has\(value\)/);
+  assert.doesNotMatch(source, /\.includes\(value\)/);
+});

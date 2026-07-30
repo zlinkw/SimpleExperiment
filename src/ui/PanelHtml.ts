@@ -1762,6 +1762,8 @@ export function renderPanelHtml(): string {
     const PLAN_WORKFLOW_TERMINAL_PHASES = new Set(["results", "debug-review", "review"]);
     const PLAN_WORKFLOW_TASK_PHASES = new Set(["monitor", ...PLAN_WORKFLOW_TERMINAL_PHASES]);
     const PLAN_WORKFLOW_READY_PHASES = new Set(["ready", "run"]);
+    const PLAN_TRAIN_MODE_TOKENS = new Set(["train", "training", "train_only"]);
+    const PLAN_TEST_MODE_TOKENS = new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]);
     const TASK_STATUS_RANKS = Object.freeze({ running: 0, testing: 1, queued: 2, pending: 2, failed: 3, error: 3, stalled: 3, stopped: 3, cancelled: 3, completed: 4, done: 4, archived: 4, deleted: 4 });
     const SCHEDULER_BUCKET_STATUSES = Object.freeze({
       running_experiments: "running",
@@ -7503,8 +7505,8 @@ export function renderPanelHtml(): string {
 
     function planModeLabel(mode) {
       const value = String(mode || "train_test").trim().toLowerCase().replace(/[\s-]+/g, "_");
-      if (["train", "training", "train_only"].includes(value)) return "仅训练";
-      if (["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"].includes(value)) return "仅评估";
+      if (PLAN_TRAIN_MODE_TOKENS.has(value)) return "仅训练";
+      if (PLAN_TEST_MODE_TOKENS.has(value)) return "仅评估";
       return "训练并评估";
     }
 

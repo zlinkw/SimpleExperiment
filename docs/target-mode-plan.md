@@ -13,36 +13,37 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-141：复用前端 Plan payload 命令集合。
-- [已完成] 2/5 project-142：复用前端 Hub 健康状态集合。
-- [已完成] 3/5 project-143：复用后端 Worker 产物命令集合。
-- [已完成] 4/5 project-144：复用后端布尔与 JSON 类型集合。
-- [已完成] 5/5 project-145：执行第五十九轮完整非服务器静态测试。
+- [已完成] 1/5 project-146：复用前端 Plan 模式别名集合。
+- [待处理] 2/5 project-147：复用前端同步未就绪状态集合。
+- [待处理] 3/5 project-148：拆分并复用后端 Plan 命令集合。
+- [待处理] 4/5 project-149：复用后端即时结果刷新命令集合。
+- [待处理] 5/5 project-150：执行第六十轮完整非服务器静态测试。
 
-## 当前批次：project-145（已完成）
+## 当前批次：project-146（已完成）
 ### 修复点
 
-- 执行第五十九轮完整非服务器静态回归。
-- 覆盖 project-141 至 project-144 的前端集合与后端路由、类型优化。
-- 保持生产功能与用户数据不变，仅修复完整回归暴露的问题。
+- 将前端 Plan 训练与评估模式别名提升为固定集合。
+- 与后端现有 Plan 模式别名保持同名、同值，复用计划卡片和运行摘要标签。
+- 增加前端固定集合组成与调用回归。
 - 保持历史 VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整测试、lint、JavaScript 语法与 Python 内存编译必须全部通过。
-- 若发现测试夹具未同步固定集合，修复后必须重新执行完整回归。
+- `train`、`training`、`train_only` 仍显示“仅训练”。
+- `test`、`eval`、`evaluate`、`evaluation`、`test_only`、`eval_only` 仍显示“仅评估”。
 - 定向测试必须使用回收站保护预加载；失败时不得提交或推送成功记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] 安全预加载下完整 Node 测试，1037/1037。
-- [已通过] lint、4 个 JavaScript 文件语法检查和 8 个 Python 文件内存编译。
+- [已通过] TypeScript 构建。
+- [已通过] 前端 Plan 模式固定集合与内联脚本定向 Node 测试，10/10。
 - [已通过] `git diff --check`。
 
 ## 本批记录
-- 本轮建立 project-141 至 project-145 五批静态优化周期；project-145 再执行完整测试。
-- project-141 至 project-144 已由提交 `1a3e96e`、`2157095`、`7c1682b`、`4b8822f` 同步至 `origin/master`。
-- 本批完整静态回归直接通过；无视觉变化，不调用截图，真实服务器行为仍为 `needs field verification`。
+- 本轮建立 project-146 至 project-150 五批静态优化周期；project-150 再执行完整测试。
+- project-145 已由提交 `aac5f86` 同步至 `origin/master`。
+- 本批仅处理前端 Plan 模式固定集合、对应测试和计划文档；无视觉变化，不调用截图。
+- project-146 构建与 10/10 定向测试通过；下一批仅处理前端同步未就绪状态集合。
