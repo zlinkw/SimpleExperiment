@@ -21,6 +21,7 @@ function extractFunction(name) {
 
 function loadProjectReadinessChecks() {
   const sandbox = {
+    HUB_OPERATION_READY_STATUS_TOKENS: new Set(["agent_ok", "ok", "file_api_unavailable"]),
     projectEndpointReadinessCacheState: null,
     projectEndpointReadinessCacheValue: null,
     projectCodeSyncReadinessCacheState: null,

@@ -19,7 +19,7 @@ function extractFunction(name) {
 }
 
 test("frequent UI lookup paths reuse fixed command sets", () => {
-  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS", "SELECTED_PLAN_ACTION_COMMANDS", "PLAN_FILE_PAYLOAD_COMMANDS", "RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS"]) {
+  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "HUB_HEALTHY_STATUS_TOKENS", "OVERVIEW_HEALTHY_STATUS_TOKENS", "HUB_OPERATION_READY_STATUS_TOKENS", "TASK_CONTROL_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS", "SELECTED_PLAN_ACTION_COMMANDS", "PLAN_FILE_PAYLOAD_COMMANDS", "RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS"]) {
     assert.equal((panel.match(new RegExp(`const ${constant} = new Set`, "g")) || []).length, 1, constant);
   }
   const expectations = new Map([
@@ -72,4 +72,13 @@ test("Plan payload builders reuse base and restore-aware command sets", () => {
   assert.match(panel, /const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set\(\[\.\.\.PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"\]\)/);
   assert.match(extractFunction("contextRefreshPayloadFromButton"), /PLAN_FILE_PAYLOAD_COMMANDS\.has\(command\)/);
   assert.match(extractFunction("payloadFromButton"), /RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS\.has\(command\)/);
+});
+
+test("Hub health summaries reuse composed status sets", () => {
+  assert.match(panel, /const OVERVIEW_HEALTHY_STATUS_TOKENS = new Set\(\[\.\.\.HUB_HEALTHY_STATUS_TOKENS, "online"\]\)/);
+  assert.match(panel, /const HUB_OPERATION_READY_STATUS_TOKENS = new Set\(\[\.\.\.HUB_HEALTHY_STATUS_TOKENS, "file_api_unavailable"\]\)/);
+  assert.match(extractFunction("overviewHealthText"), /OVERVIEW_HEALTHY_STATUS_TOKENS\.has\(health\)/);
+  assert.match(extractFunction("renderWorkbenchObjectStrip"), /HUB_HEALTHY_STATUS_TOKENS\.has\(/);
+  assert.match(extractFunction("renderOverviewOpsWorkbench"), /HUB_HEALTHY_STATUS_TOKENS\.has\(/);
+  assert.match(extractFunction("projectEndpointReadiness"), /HUB_OPERATION_READY_STATUS_TOKENS\.has\(hubStatus\)/);
 });

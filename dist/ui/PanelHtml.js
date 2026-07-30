@@ -1756,6 +1756,9 @@ function renderPanelHtml() {
     const TASK_LIVE_STATUS_TOKENS = new Set(["running", "testing"]);
     const TASK_QUEUED_STATUSES = new Set(["queued", "pending"]);
     const TASK_ACTIVE_STATUSES = new Set([...TASK_LIVE_STATUS_TOKENS, ...TASK_QUEUED_STATUSES]);
+    const HUB_HEALTHY_STATUS_TOKENS = new Set(["agent_ok", "ok"]);
+    const OVERVIEW_HEALTHY_STATUS_TOKENS = new Set([...HUB_HEALTHY_STATUS_TOKENS, "online"]);
+    const HUB_OPERATION_READY_STATUS_TOKENS = new Set([...HUB_HEALTHY_STATUS_TOKENS, "file_api_unavailable"]);
     const TASK_CONTROL_COMMANDS = new Set(["stopExperiment", "retryExperiment"]);
     const ARTIFACT_SCOPE_COMMANDS = new Set(["archiveArtifacts", "deleteArtifacts"]);
     const PLAN_WORKFLOW_BUSY_PHASES = new Set(["validating", "dry-running", "submitting"]);
@@ -5063,7 +5066,7 @@ function renderPanelHtml() {
 
     function overviewHealthText(state) {
       const health = String((state.health || {}).state || "").toLowerCase();
-      if (["agent_ok", "ok", "online"].includes(health)) return "正常";
+      if (OVERVIEW_HEALTHY_STATUS_TOKENS.has(health)) return "正常";
       if (health) return labelStatus(health);
       return "待检测";
     }
@@ -5825,7 +5828,7 @@ function renderPanelHtml() {
       const claims = asArray(((state.resultSummary || {}).claimEvidencePreview || {}).claims || []);
       const unsupportedClaims = claims.filter((row) => String(row.status || "").toLowerCase() !== "supported").length;
       const tiles = [
-        objectTile("Hub", "H", ["agent_ok", "ok"].includes(String(health.state || "").toLowerCase()) ? "good" : "warn", labelStatus(health.state || "待检测")),
+        objectTile("Hub", "H", HUB_HEALTHY_STATUS_TOKENS.has(String(health.state || "").toLowerCase()) ? "good" : "warn", labelStatus(health.state || "待检测")),
         objectTile("Worker", "W", workers.length ? "good" : "warn", String(workers.length)),
         objectTile("GPU", "G", gpuStats.mine ? "mine" : (gpuStats.total ? "good" : "warn"), gpuStats.total ? (gpuStats.free + "/" + gpuStats.total) : "待检测"),
         objectTile("任务", "T", taskStats.failed ? "error" : (taskStats.running ? "good" : taskStats.queued ? "warn" : "good"), taskStats.running ? (taskStats.running + " 运行") : taskStats.queued ? (taskStats.queued + " 排队") : "空闲"),
@@ -5860,7 +5863,7 @@ function renderPanelHtml() {
       const operationStats = overviewOperationStats(state);
       const paused = diagnostics.requests && diagnostics.requests.paused;
       const conflicts = asArray(state.tunnelPortConflicts || []);
-      const hubOk = String(health.state || "").toLowerCase() === "agent_ok" || String(health.state || "").toLowerCase() === "ok";
+      const hubOk = HUB_HEALTHY_STATUS_TOKENS.has(String(health.state || "").toLowerCase());
       const streamStatus = String(realtime.streamStatus || "disconnected");
       const streamOk = ["websocket", "sse", "connected"].some((item) => streamStatus.toLowerCase().includes(item));
       const schedulerRange = overviewSchedulerRange(scheduler);
@@ -9764,7 +9767,7 @@ function renderPanelHtml() {
       const restartRequired = hubStatus === "agent_restart_required";
       let versionMismatch = hubStatus === "agent_version_mismatch";
       let projectMismatch = hubStatus === "agent_project_mismatch";
-      const hubReady = ["ok", "agent_ok", "file_api_unavailable"].includes(hubStatus);
+      const hubReady = HUB_OPERATION_READY_STATUS_TOKENS.has(hubStatus);
       let workerReady = true;
       const hubProbe = data.probe || {};
       const hubMismatch = "Hub 当前 Agent 仍指向旧项目（" + String(hubProbe.projectRoot || "未返回") + "；期望 " + String(hubProbe.expectedProjectRoot || "未配置") + "）";

@@ -35,6 +35,7 @@ function loadAgentRootHelpers() {
 
 function loadEndpointReadiness() {
   const sandbox = {
+    HUB_OPERATION_READY_STATUS_TOKENS: new Set(["agent_ok", "ok", "file_api_unavailable"]),
     EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],
     enabledWorkerTunnelsCacheSource: null,
     enabledWorkerTunnelsCacheValue: [],
