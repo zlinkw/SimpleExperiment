@@ -17,31 +17,34 @@
 - [已完成] 2/5 project-187：合并前端 Plan trace 范围统计遍历。
 - [已完成] 3/5 project-188：合并后端文件传输 Webview 分类遍历。
 - [已完成] 4/5 project-189：复用前端布局分区固定查找表。
-- [待处理] 5/5 project-190：执行第六十八轮完整非服务器静态测试。
+- [已完成] 5/5 project-190：执行第六十八轮完整非服务器静态测试。
 
-## 当前批次：project-189（已完成）
+## 当前批次：project-190（已完成）
 ### 修复点
 
-- 前端布局标准分区顺序提升为固定冻结数组，并由其构造共享 `Set`，避免每次归一化重建 defaults 和线性 `includes` 查找。
-- 保持自定义有效顺序、重复项、未知项过滤、缺失分区补齐顺序和其他布局字段不变。
+- 执行第六十八轮完整非服务器静态回归，覆盖 Node 测试、lint、JavaScript 语法和 Python UTF-8 内存编译。
+- 本批只更新验证状态与计划记录，不修改产品源代码或测试契约。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 默认布局顺序必须保持 overview、gpu、tasks、plans、results、sync、operations、servers、settings、diagnostics。
-- 有效自定义项和重复项顺序不得改变，未知项必须过滤，缺失默认项只能追加一次。
-- collapsed、resourceTreeChildren、columns、pinnedCommands、detailActions 和 pinnedActions 归一化不得改变。
+- 完整构建会压缩目标计划文档，必须保留当前目标、固定边界和本批验证记录。
+- 全量测试不得写入或纳入历史 VSIX、运行态缓存及 `zlk_cluster/ui/`。
+- JavaScript 与 Python 分发文件必须保持可解析，且 Python 检查不得生成 `__pycache__`。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] 布局固定查找、顺序补齐、重复项与相邻字段定向 Node 测试，22/22。
+- [已通过] `npm test` 完整 Node 静态回归，1071/1071。
+- [已通过] `npm run lint`。
+- [已通过] `node --check dist/extension.js`、`dist/panel.js`、`dist/cli.js`、`dist/runCli.js`。
+- [已通过] 8 个 `dist/**/*.py` 的 UTF-8 内存编译，不生成 `__pycache__`。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-188 已由提交 `41879e6` 同步至 `origin/master`。
-- 本批仅处理前端布局归一化固定查找、对应测试和计划文档；无视觉样式变化，不调用截图。
-- 布局顺序与合法分区改为共享冻结数组和 `Set`，归一化使用输入 `Set` 补齐缺失分区；22/22 定向测试通过。
+- project-189 已由提交 `3a7e060` 同步至 `origin/master`。
+- 本批仅执行完整静态回归并更新计划文档；无视觉样式变化，不调用截图。
+- 第六十八轮完整回归通过：Node 测试 1071/1071、lint、4 个 JavaScript 入口语法、8 个 Python 分发文件内存编译及差异检查均通过。
+- 真实服务器行为仍为 `needs field verification`；下一轮静态优化目标待重新审计后登记。
