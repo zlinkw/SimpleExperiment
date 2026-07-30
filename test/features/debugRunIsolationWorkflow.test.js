@@ -35,7 +35,7 @@ function runModeActionLabel(mode, formalLabel) {
 }
 
 function runModeForButton(dataset, command, fallbackMode) {
-  const sandbox = {};
+  const sandbox = { SELECTED_PLAN_RUN_COMMANDS: new Set(["runPlan", "reproducePlan"]) };
   vm.createContext(sandbox);
   vm.runInContext(extractFunction(panelSource, "runModeForButton") + "\nthis.check = runModeForButton;", sandbox);
   return sandbox.check({ dataset }, command, fallbackMode);

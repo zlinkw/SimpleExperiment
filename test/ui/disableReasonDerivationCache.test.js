@@ -84,6 +84,9 @@ function loadDisableReason() {
   const sandbox = {
     runMode: "formal",
     DEBUG_MODE_BLOCKED_UI_COMMANDS: new Set(["clearLegacyTasks"]),
+    SELECTED_PLAN_RUN_COMMANDS: new Set(["runPlan", "reproducePlan"]),
+    SUBMITTED_RUN_COMMANDS: new Set(["runPlan", "reproducePlan", "runAllPlans"]),
+    ARTIFACT_SCOPE_COMMANDS: new Set(["archiveArtifacts", "deleteArtifacts"]),
     usableTaskKey: (value) => Boolean(value),
     isRemoteAction: () => false,
     simpleSftpCommandDisableReason: () => "",
