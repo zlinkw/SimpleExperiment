@@ -14852,17 +14852,17 @@ function remoteActionTargetPreview(body, limit = 12) {
         visibleIdentifiers: identifiers.slice(0, visibleLimit),
     };
 }
+const REMOTE_ACTION_DISPLAY_NAMES = Object.freeze({
+    stopExperiment: "停止任务",
+    retryExperiment: "重试任务",
+    archiveArtifacts: "准备归档",
+    excludeResults: "排除结果并保留预览",
+    syncArtifacts: "检查同步清单",
+    completeThreeWay: "校验三方一致",
+    deleteArtifacts: "删除产物",
+});
 function remoteActionDisplayName(command, action) {
-    const names = {
-        stopExperiment: "停止任务",
-        retryExperiment: "重试任务",
-        archiveArtifacts: "准备归档",
-        excludeResults: "排除结果并保留预览",
-        syncArtifacts: "检查同步清单",
-        completeThreeWay: "校验三方一致",
-        deleteArtifacts: "删除产物",
-    };
-    return names[String(command || "")] || String(action || command || "远端操作");
+    return REMOTE_ACTION_DISPLAY_NAMES[String(command || "")] || String(action || command || "远端操作");
 }
 function remoteActionConfirmationDetail(command, action, body) {
     const displayName = remoteActionDisplayName(command, action);

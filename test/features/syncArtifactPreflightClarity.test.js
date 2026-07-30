@@ -23,6 +23,14 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractFrozenObject(name) {
+  const start = extension.indexOf(`const ${name} = Object.freeze({`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = extension.indexOf("});", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return extension.slice(start, end + 3);
+}
+
 test("sync artifact action is presented as a manifest preflight, not a transfer", () => {
   assert.match(panel, /syncArtifacts: "检查同步清单"/);
   assert.match(panel, /traceActionButton\("检查同步清单", "syncArtifacts"/);
@@ -43,11 +51,15 @@ test("sync artifact action is presented as a manifest preflight, not a transfer"
   assert.match(extension, /logPath: logPath \|\| undefined/);
   assert.match(extension, /showWarningMessage\(workerRemoteActionConfirmationDetail\(options\.title, action, body, ids\), \{ modal: true \}/);
   assert.match(extension, /showWarningMessage\(workerRemoteActionConfirmationDetail\(command, action, body, \[workerId\]\), \{ modal: true \}/);
+  assert.match(extension, /const REMOTE_ACTION_DISPLAY_NAMES = Object\.freeze\(\{/);
+  assert.match(extractFunction("remoteActionDisplayName"), /REMOTE_ACTION_DISPLAY_NAMES\[String\(command \|\| ""\)\]/);
+  assert.doesNotMatch(extractFunction("remoteActionDisplayName"), /const names =/);
 });
 test("sync manifest modal lists expected paths and states every excluded side effect", () => {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFrozenObject("REMOTE_ACTION_DISPLAY_NAMES"),
     extractFunction("remoteActionTargetPreview"),
     extractFunction("remoteActionDisplayName"),
     extractFunction("remoteActionConfirmationDetail"),
@@ -79,6 +91,7 @@ test("all confirmed task actions show expected file locations", () => {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFrozenObject("REMOTE_ACTION_DISPLAY_NAMES"),
     extractFunction("remoteActionTargetPreview"),
     extractFunction("remoteActionDisplayName"),
     extractFunction("remoteActionConfirmationDetail"),
@@ -112,6 +125,7 @@ test("direct Worker strong confirmations retain file locations", () => {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext([
+    extractFrozenObject("REMOTE_ACTION_DISPLAY_NAMES"),
     extractFunction("remoteActionTargetPreview"),
     extractFunction("remoteActionDisplayName"),
     extractFunction("remoteActionConfirmationDetail"),
