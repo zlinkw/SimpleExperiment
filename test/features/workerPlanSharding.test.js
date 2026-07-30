@@ -79,17 +79,25 @@ test("no-Hub result fanout preserves every Worker outcome before reporting failu
     operationCancelledTerminalStatus: (status) => ["cancelled", "canceled"].includes(status),
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extensionFunction(source, "workerResultAggregateResult")}\nthis.aggregate = workerResultAggregateResult;`, sandbox);
+  const aggregateSource = extensionFunction(source, "workerResultAggregateResult");
+  assert.doesNotMatch(aggregateSource, /rows\.filter\(/);
+  assert.doesNotMatch(aggregateSource, /failedWorkerIds\.includes\(/);
+  assert.match(aggregateSource, /failedWorkerIdSet\.has\(workerId\)/);
+  vm.runInContext(`${aggregateSource}\nthis.aggregate = workerResultAggregateResult;`, sandbox);
   const aggregate = sandbox.aggregate("parse-results", [
     { workerId: "worker-a", result: { status: "completed" } },
     { workerId: "worker-b", result: { status: "failed", error: "timeout" } },
     { workerId: "worker-c", result: { status: "cancelled" } },
+    { workerId: "worker-d", result: { status: "completed" } },
+    { workerId: "worker-d", result: { status: "failed" } },
+    { workerId: "worker-e", result: { status: "completed" } },
+    { workerId: "worker-e", result: { status: "completed" } },
   ]);
   assert.equal(aggregate.status, "completed_with_errors");
-  assert.deepEqual([...aggregate.failedWorkerIds], ["worker-b", "worker-c"]);
-  assert.deepEqual([...aggregate.completedWorkerIds], ["worker-a"]);
-  assert.match(aggregate.message, /失败 Worker：worker-b、worker-c/);
-  assert.match(aggregate.message, /成功 Worker：worker-a/);
+  assert.deepEqual([...aggregate.failedWorkerIds], ["worker-b", "worker-c", "worker-d"]);
+  assert.deepEqual([...aggregate.completedWorkerIds], ["worker-a", "worker-e", "worker-e"]);
+  assert.match(aggregate.message, /失败 Worker：worker-b、worker-c、worker-d/);
+  assert.match(aggregate.message, /成功 Worker：worker-a、worker-e、worker-e/);
 
   const actionCoreStart = source.indexOf("async runActionCommandCore");
   const actionCore = source.slice(actionCoreStart, source.indexOf("async runPlanPreflight", actionCoreStart));

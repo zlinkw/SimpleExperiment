@@ -9309,24 +9309,35 @@ function workerPoolAggregateResult(action, submissions, shardSet) {
     };
 }
 function workerResultAggregateResult(action, submissions) {
-    const rows = (Array.isArray(submissions) ? submissions : []).map(({ workerId, result }) => ({
-        workerId,
-        status: resultStatus(result) || "completed",
-        operationId: stringFromRecord(result && typeof result === "object" ? result : {}, ["operationId", "opId", "id"]),
-        result,
-    }));
-    const failed = rows.filter((row) => operationFailureTerminalStatus(row.status) || operationCancelledTerminalStatus(row.status));
-    const failedWorkerIds = failed.map((row) => row.workerId);
-    const completedWorkerIds = rows.filter((row) => !failedWorkerIds.includes(row.workerId)).map((row) => row.workerId);
+    const failedWorkerIds = [];
+    const completedWorkerCandidates = [];
+    const failedWorkerIdSet = new Set();
+    const rows = (Array.isArray(submissions) ? submissions : []).map(({ workerId, result }) => {
+        const status = resultStatus(result) || "completed";
+        if (operationFailureTerminalStatus(status) || operationCancelledTerminalStatus(status)) {
+            failedWorkerIds.push(workerId);
+            failedWorkerIdSet.add(workerId);
+        }
+        else {
+            completedWorkerCandidates.push(workerId);
+        }
+        return {
+            workerId,
+            status,
+            operationId: stringFromRecord(result && typeof result === "object" ? result : {}, ["operationId", "opId", "id"]),
+            result,
+        };
+    });
+    const completedWorkerIds = completedWorkerCandidates.filter((workerId) => !failedWorkerIdSet.has(workerId));
     return {
         schemaVersion: 1,
         action,
-        status: failed.length ? "completed_with_errors" : "completed",
+        status: failedWorkerIds.length ? "completed_with_errors" : "completed",
         workerSubmissions: rows,
         failedWorkerIds,
         completedWorkerIds,
-        message: failed.length
-            ? `${failed.length}/${rows.length} 个 Worker 结果操作未完成；失败 Worker：${failedWorkerIds.join("、")}${completedWorkerIds.length ? `；成功 Worker：${completedWorkerIds.join("、")}` : ""}`
+        message: failedWorkerIds.length
+            ? `${failedWorkerIds.length}/${rows.length} 个 Worker 结果操作未完成；失败 Worker：${failedWorkerIds.join("、")}${completedWorkerIds.length ? `；成功 Worker：${completedWorkerIds.join("、")}` : ""}`
             : `${rows.length} 个 Worker 已完成各自的结果操作`,
     };
 }

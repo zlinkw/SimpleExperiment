@@ -13,38 +13,36 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-181：缓存后端 GPU 归属配置状态。
-- [已完成] 2/5 project-182：合并前端 GPU 渲染预算计数遍历。
-- [已完成] 3/5 project-183：缓存后端当前 Plan 接入提示。
-- [已完成] 4/5 project-184：复用前端任务状态统计。
-- [已完成] 5/5 project-185：执行第六十七轮完整非服务器静态测试。
+- [已完成] 1/5 project-186：合并后端 Worker 结果聚合分类。
+- [待处理] 2/5 project-187：合并前端 Plan trace 范围统计遍历。
+- [待处理] 3/5 project-188：合并后端文件传输 Webview 分类遍历。
+- [待处理] 4/5 project-189：复用前端布局分区固定查找表。
+- [待处理] 5/5 project-190：执行第六十八轮完整非服务器静态测试。
 
-## 当前批次：project-185（已完成）
+## 当前批次：project-186（已完成）
 ### 修复点
 
-- 执行第六十七轮完整非服务器静态回归，覆盖 Node 测试、lint、JavaScript 语法和 Python UTF-8 内存编译。
-- 本批只更新验证状态与计划记录，不修改产品源代码或测试契约。
+- Worker 结果聚合在构造 submission 行时同步收集失败与成功候选，减少重复数组过滤和线性 `includes` 查找。
+- 保持 Worker 输出顺序、重复 Worker id、混合终态和用户可见汇总文案不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整构建会压缩目标计划文档，必须保留当前目标、固定边界和本批验证记录。
-- 全量测试不得写入或纳入历史 VSIX、运行态缓存及 `zlk_cluster/ui/`。
-- JavaScript 与 Python 分发文件必须保持可解析，且 Python 检查不得生成 `__pycache__`。
+- 同一 Worker 同时出现成功与失败 submission 时，成功列表仍必须排除该 Worker 的全部成功行。
+- 纯成功的重复 Worker id 必须保持原有重复项与顺序，失败和取消状态均归入失败列表。
+- 聚合状态、操作 id、原始 result、统计数量和中文文案不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] `npm test` 完整 Node 静态回归，1069/1069。
-- [已通过] `npm run lint`。
-- [已通过] `node --check dist/extension.js`、`dist/panel.js`、`dist/cli.js`、`dist/runCli.js`。
-- [已通过] 8 个 `dist/**/*.py` 的 UTF-8 内存编译，不生成 `__pycache__`。
+- [已通过] TypeScript 构建。
+- [已通过] Worker 结果聚合顺序、重复 id、混合终态与单次分类定向 Node 测试，修正后 7/7。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-184 已由提交 `432248b` 同步至 `origin/master`。
-- 本批仅执行完整静态回归并更新计划文档；无视觉样式变化，不调用截图。
-- 第六十七轮完整回归通过：Node 测试 1069/1069、lint、4 个 JavaScript 入口语法、8 个 Python 分发文件内存编译及差异检查均通过。
-- 真实服务器行为仍为 `needs field verification`；下一轮从 project-186 开始审计新的前后端静态优化点。
+- project-185 已由提交 `bbd87eb` 同步至 `origin/master`。
+- 本批仅处理后端 Worker 结果聚合、对应测试和计划文档；无视觉样式变化，不调用截图。
+- 定向测试首次 6/7，原因是测试直接提取的函数含 TypeScript 数组注解；改用等价运行时初始化后构建与 7/7 复测通过。
+- Worker 结果分类改为构造 submission 时收集失败与成功候选，使用 `Set` 排除混合终态 Worker，保持原有顺序和重复项。
