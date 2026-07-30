@@ -19,7 +19,7 @@ function extractFunction(name) {
 }
 
 test("frequent UI lookup paths reuse fixed command sets", () => {
-  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "ARTIFACT_SCOPE_COMMANDS"]) {
+  for (const constant of ["BUTTON_AUDIT_ROW_ACTION_COMMANDS", "RESOURCE_TREE_SECTION_KEYS", "PINNED_COMMAND_VALUES", "SIMPLE_SFTP_GATED_COMMANDS", "ARTIFACT_SCOPE_COMMANDS", "SELECTED_PLAN_RUN_COMMANDS"]) {
     assert.equal((panel.match(new RegExp(`const ${constant} = new Set`, "g")) || []).length, 1, constant);
   }
   const expectations = new Map([
@@ -40,4 +40,14 @@ test("artifact scoped UI actions reuse one command set", () => {
     assert.match(extractFunction(name), /ARTIFACT_SCOPE_COMMANDS\.has\(command\)/, name);
   }
   assert.doesNotMatch(panel, /\["archiveArtifacts", "deleteArtifacts"\]\.includes\(command\)/);
+});
+
+test("Plan execution checks reuse selected and submitted run command sets", () => {
+  const disabled = extractFunction("disableReason");
+  assert.match(panel, /const SUBMITTED_RUN_COMMANDS = new Set\(\[\.\.\.SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"\]\)/);
+  assert.equal((disabled.match(/SELECTED_PLAN_RUN_COMMANDS\.has\(command\)/g) || []).length, 2);
+  assert.equal((disabled.match(/SUBMITTED_RUN_COMMANDS\.has\(command\)/g) || []).length, 2);
+  assert.match(extractFunction("runModeForButton"), /SELECTED_PLAN_RUN_COMMANDS\.has\(String\(command \|\| ""\)\)/);
+  assert.doesNotMatch(panel, /\["runPlan", "reproducePlan"\]\.includes\(/);
+  assert.doesNotMatch(panel, /\["runPlan", "reproducePlan", "runAllPlans"\]\.includes\(/);
 });

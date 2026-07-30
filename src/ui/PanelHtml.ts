@@ -1636,7 +1636,8 @@ export function renderPanelHtml(): string {
     const INSPECTOR_OPERATION_SECTIONS = new Set(["tasks", "operations"]);
     const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
     const TERMINAL_UI_STATUSES = new Set(["completed", "submitted", "failed", "cancelled", "stalled"]);
-    const SUBMITTED_RUN_COMMANDS = new Set(["runPlan", "reproducePlan", "runAllPlans"]);
+    const SELECTED_PLAN_RUN_COMMANDS = new Set(["runPlan", "reproducePlan"]);
+    const SUBMITTED_RUN_COMMANDS = new Set([...SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"]);
     const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"]);
     const SAVED_ACTION_PAYLOAD_KEYS = Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]);
     const BUTTON_PAYLOAD_ATTRIBUTE_NAMES = Object.freeze({
@@ -13042,7 +13043,7 @@ export function renderPanelHtml(): string {
       if (["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"].includes(command) && !hasSelectedPlan(state, context)) return "请先输入或选择 planFile";
       if (command === "archivePlan" && !hasSelectedPlan(state) && !(context && context.planFile)) return "请先输入或选择 planFile";
       if (command === "runAllPlans" && !asArray(state.plans || state.recentPlans || []).length) return "没有可运行的计划文件";
-      if (["runPlan", "reproducePlan"].includes(command)) {
+      if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
         const planFile = String(context.planFile || context.planId || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");
         const plan = typeof planFromContext === "function" ? planFromContext(state, { planFile }) || {} : {};
         const activity = planActiveRunEvidence(state, planFile, plan);
@@ -13051,11 +13052,11 @@ export function renderPanelHtml(): string {
           return "当前 Plan 已有 " + activity.taskCount + " 个任务和 " + activity.operationCount + " 个提交操作未结束，不能重复提交";
         }
       }
-      if (["runPlan", "reproducePlan", "runAllPlans"].includes(command) && !executionWorkerReadiness(state).ready) return "至少配置并启用一个执行 Worker";
+      if (SUBMITTED_RUN_COMMANDS.has(command) && !executionWorkerReadiness(state).ready) return "至少配置并启用一个执行 Worker";
       const endpointReadiness = projectEndpointReadiness(state);
       if (["validatePlan", "dryRunPlan"].includes(command) && !endpointReadiness.hubReady) return endpointReadiness.missing[0] || "Hub Agent 未通过当前项目检测";
-      if (["runPlan", "reproducePlan", "runAllPlans"].includes(command) && !endpointReadiness.ready) return endpointReadiness.summary;
-      if (["runPlan", "reproducePlan"].includes(command)) {
+      if (SUBMITTED_RUN_COMMANDS.has(command) && !endpointReadiness.ready) return endpointReadiness.summary;
+      if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
         const outputGateReason = projectOutputGateReason(state, context);
         if (outputGateReason) return outputGateReason;
       }
@@ -13269,7 +13270,7 @@ export function renderPanelHtml(): string {
     }
     function runModeForButton(button, command, fallbackMode) {
       const data = (button || {}).dataset || {};
-      if (["runPlan", "reproducePlan"].includes(String(command || ""))) {
+      if (SELECTED_PLAN_RUN_COMMANDS.has(String(command || ""))) {
         if (data.forceFormal === "true") return false;
         if (data.debugMode !== undefined) return data.debugMode === "true";
       }
