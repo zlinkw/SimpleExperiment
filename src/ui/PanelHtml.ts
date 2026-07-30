@@ -1669,6 +1669,21 @@ export function renderPanelHtml(): string {
       diagnoseResultAnomaly: "diagnose-result-anomaly", compareWithBestConfig: "compare-with-best-config", archiveArtifacts: "archive-artifacts", excludeResults: "exclude-results", syncArtifacts: "sync-artifacts",
       completeThreeWay: "complete-three-way", deleteArtifacts: "delete-artifacts", reconcileDeletions: "reconcile-deletions", selfCheck: "self-check", createDebugBundle: "create-debug-bundle"
     });
+    const PENDING_ACTION_LABELS = Object.freeze({
+      stopExperiment: "停止中", retryExperiment: "重试中", parseResults: "解析中",
+      archiveArtifacts: "归档中", syncArtifacts: "检查中", completeThreeWay: "校验中", deleteArtifacts: "删除中",
+      runPlan: "运行中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
+    });
+    const OPERATION_TYPE_LABELS = Object.freeze({
+      "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划",
+      "parse-results": "解析结果", "refresh-results": "刷新结果", "check-output-contract": "检查输出契约", "archive-plan": "归档计划", "restore-archived-plan": "恢复归档 Plan",
+      "archive-artifacts": "归档实验产物", "delete-artifacts": "删除实验产物", "sync-artifacts": "检查同步清单", "complete-three-way": "三方一致校验",
+      "run-quality-gate": "质量门禁", "run-statistics": "统计分析", "check-claim-evidence": "检查论文证据", "export-paper-table": "导出论文表格", "export-plotting-contract": "导出 PPT 绘图契约", "plot-results-to-ppt": "绘图到 PPT",
+      "parse-case-level": "样本级解析", "run-leakage-check": "泄漏检查", "run-subgroup-analysis": "子组分析", "export-case-analysis": "导出样本级报告", "inspect-dataset": "检查数据集",
+      "plan-checkpoint-retention": "检查点清理预案", "infer-config-from-run": "反推配置", "recover-plan-from-run": "恢复 Plan", "diagnose-result-anomaly": "异常诊断", "compare-with-best-config": "对比最优配置",
+      "publish-github": "发布 GitHub", "sync-github": "同步 GitHub", "overwrite-github": "覆盖 GitHub", "upload-project-to-hub": "上传到 Hub", "upload-project-to-workers": "上传到 Worker", "distribute-code-to-workers": "分发 Worker 代码", "deploy-latest-agent": "部署 Agent",
+      "configure-sftp-ignores": "配置 SFTP 忽略", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
+    });
     const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", plans: "校验/预演", tasks: "查看任务", results: "解析/统计", sync: "发布/同步", operations: "看终态", diagnostics: "看诊断" });
     const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ overview: "◌", servers: "▧", gpu: "◫", plans: "◇", tasks: "▣", results: "▤", sync: "⇅", operations: "◷", diagnostics: "⌁" });
     const RESOURCE_TREE_TONE_RANKS = Object.freeze({ error: 5, warn: 4, mine: 3, good: 2, info: 1 });
@@ -11377,12 +11392,7 @@ export function renderPanelHtml(): string {
 
     function pendingLabel(item) {
       const command = String((item && item.command) || "");
-      const labels = {
-        stopExperiment: "停止中", retryExperiment: "重试中", parseResults: "解析中",
-        archiveArtifacts: "归档中", syncArtifacts: "检查中", completeThreeWay: "校验中", deleteArtifacts: "删除中",
-        runPlan: "运行中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
-      };
-      return labels[command] || "执行中";
+      return PENDING_ACTION_LABELS[command] || "执行中";
     }
 
     function renderTaskLogDetails(state, row, colSpan) {
@@ -11982,17 +11992,7 @@ export function renderPanelHtml(): string {
       const raw = String(type || "").trim();
       if (!raw || raw === "-") return raw || "操作";
       const key = raw.replace(/([a-z])([A-Z])/g, "$1-$2").replace(/_/g, "-").replace(/\s+/g, "-").toLowerCase();
-      const labels = {
-        "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划",
-        "parse-results": "解析结果", "refresh-results": "刷新结果", "check-output-contract": "检查输出契约", "archive-plan": "归档计划", "restore-archived-plan": "恢复归档 Plan",
-        "archive-artifacts": "归档实验产物", "delete-artifacts": "删除实验产物", "sync-artifacts": "检查同步清单", "complete-three-way": "三方一致校验",
-        "run-quality-gate": "质量门禁", "run-statistics": "统计分析", "check-claim-evidence": "检查论文证据", "export-paper-table": "导出论文表格", "export-plotting-contract": "导出 PPT 绘图契约", "plot-results-to-ppt": "绘图到 PPT",
-        "parse-case-level": "样本级解析", "run-leakage-check": "泄漏检查", "run-subgroup-analysis": "子组分析", "export-case-analysis": "导出样本级报告", "inspect-dataset": "检查数据集",
-        "plan-checkpoint-retention": "检查点清理预案", "infer-config-from-run": "反推配置", "recover-plan-from-run": "恢复 Plan", "diagnose-result-anomaly": "异常诊断", "compare-with-best-config": "对比最优配置",
-        "publish-github": "发布 GitHub", "sync-github": "同步 GitHub", "overwrite-github": "覆盖 GitHub", "upload-project-to-hub": "上传到 Hub", "upload-project-to-workers": "上传到 Worker", "distribute-code-to-workers": "分发 Worker 代码", "deploy-latest-agent": "部署 Agent",
-        "configure-sftp-ignores": "配置 SFTP 忽略", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
-      };
-      return labels[key] || raw;
+      return OPERATION_TYPE_LABELS[key] || raw;
     }
 
     function renderResultSummary(state) {

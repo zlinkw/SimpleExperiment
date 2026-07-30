@@ -19,6 +19,14 @@ function extractFunction(name) {
   throw new Error(`unterminated ${name}`);
 }
 
+function extractFrozenObject(name) {
+  const start = panel.indexOf(`const ${name} = Object.freeze({`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = panel.indexOf("});", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return panel.slice(start, end + 3);
+}
+
 function stats(rows) {
   const sandbox = {
     OPERATION_ACTIVE_MATCH_TOKENS: Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]),
@@ -41,7 +49,7 @@ function stats(rows) {
 function typeLabel(type) {
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("operationTypeLabel")}\nthis.check = operationTypeLabel;`, sandbox);
+  vm.runInContext(`${extractFrozenObject("OPERATION_TYPE_LABELS")}\n${extractFunction("operationTypeLabel")}\nthis.check = operationTypeLabel;`, sandbox);
   return sandbox.check(type);
 }
 
@@ -61,6 +69,9 @@ test("operation types use clear Chinese labels with raw fallback", () => {
   assert.equal(statusLabel("submitted"), "已提交");
   assert.equal(statusLabel("completed_with_errors"), "部分失败");
   assert.equal(statusLabel("stopped"), "已停止");
+  assert.match(panel, /const OPERATION_TYPE_LABELS = Object\.freeze\(\{/);
+  assert.match(extractFunction("operationTypeLabel"), /OPERATION_TYPE_LABELS\[key\] \|\| raw/);
+  assert.doesNotMatch(extractFunction("operationTypeLabel"), /const labels =/);
 });
 
 test("overview operation stats cover active failure and completed statuses", () => {
