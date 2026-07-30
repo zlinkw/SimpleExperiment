@@ -22,6 +22,8 @@ function extractFunction(name) {
 function loadSummaries(cacheLimit = 3) {
   const sandbox = {
     PLAN_RUN_OUTPUT_LOCATION_VARIANT_CACHE_LIMIT: cacheLimit,
+    PLAN_TRAIN_MODE_TOKENS: new Set(["train", "training", "train_only"]),
+    PLAN_TEST_MODE_TOKENS: new Set(["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"]),
     planRunOutputLocationSummaryCache: new WeakMap(),
     planRunTargetLocationsCache: new WeakMap(),
     uniqueCalls: 0,
@@ -63,12 +65,25 @@ function loadSummaries(cacheLimit = 3) {
     extractFunction("planRunConfirmationDetail"),
     extractFunction("planBatchRunConfirmationDetail"),
     "this.outputSummary = planRunOutputLocationSummary;",
+    "this.commandSummary = planRunCommandSummary;",
     "this.targetLocations = planRunTargetLocations;",
     "this.confirmOne = planRunConfirmationDetail;",
     "this.confirmBatch = planBatchRunConfirmationDetail;",
   ].join("\n"), sandbox);
   return sandbox;
 }
+
+test("Plan command summaries reuse fixed mode aliases", () => {
+  const sandbox = loadSummaries();
+  const plan = { trainCommand: "python train.py", testCommand: "python test.py" };
+  assert.deepEqual(Array.from(sandbox.commandSummary({ ...plan, mode: "training" })), ["训练：python train.py"]);
+  assert.deepEqual(Array.from(sandbox.commandSummary({ ...plan, mode: "eval_only" })), ["评估：python test.py"]);
+  assert.deepEqual(Array.from(sandbox.commandSummary({ ...plan, mode: "train_test" })), ["训练：python train.py", "评估：python test.py"]);
+  const source = extractFunction("planRunCommandSummary");
+  assert.match(source, /PLAN_TRAIN_MODE_TOKENS\.has\(mode\)/);
+  assert.match(source, /PLAN_TEST_MODE_TOKENS\.has\(mode\)/);
+  assert.doesNotMatch(source, /\["train", "training", "train_only"\]\.includes/);
+});
 
 test("Plan output location summaries reuse normalized limits and evict old variants", () => {
   const sandbox = loadSummaries(3);

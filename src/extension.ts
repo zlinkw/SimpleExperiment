@@ -14983,8 +14983,8 @@ function planRunCommandSummary(plan, limit = 240) {
     const item = plan && typeof plan === "object" ? plan : {};
     const runner = item.runner && typeof item.runner === "object" ? item.runner : {};
     const mode = String(item.mode || "train_test").trim().toLowerCase().replace(/[\s-]+/g, "_");
-    const trainOnly = ["train", "training", "train_only"].includes(mode);
-    const testOnly = ["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"].includes(mode);
+    const trainOnly = PLAN_TRAIN_MODE_TOKENS.has(mode);
+    const testOnly = PLAN_TEST_MODE_TOKENS.has(mode);
     const train = item.trainCommand || item.train_command || runner.trainCommand || runner.train_command || item.command || "";
     const test = item.testCommand || item.test_command || runner.testCommand || runner.test_command || "";
     const summarize = (label, value) => `${label}：${guidedPlanSummaryValue(value || "未声明（运行前校验会阻断）", limit)}`;
