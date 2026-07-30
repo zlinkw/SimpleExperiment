@@ -12178,6 +12178,7 @@ function compactSchedulerDependenciesForWebview(value) {
         checkedAt: item.checkedAt,
     });
 }
+const BOOLEAN_TRUE_TEXTS = new Set(["1", "true", "yes", "on"]);
 function booleanField(message, key) {
     if (!message || typeof message !== "object")
         return false;
@@ -12187,7 +12188,7 @@ function booleanField(message, key) {
     if (typeof value === "number")
         return value !== 0;
     const text = String(value || "").trim().toLowerCase();
-    return ["1", "true", "yes", "on"].includes(text);
+    return BOOLEAN_TRUE_TEXTS.has(text);
 }
 function adapterRuleResultCandidates(rules) {
     const source = rules && typeof rules === "object" && !Array.isArray(rules) ? rules : null;
@@ -15870,6 +15871,7 @@ async function summarizeConfigFile(root, file) {
 const localTextReadBudgetBytes = 256 * 1024;
 const localConfigParamLimit = 80;
 const localConfigParamValueLimit = 180;
+const JSON_PRIMITIVE_TYPES = new Set(["string", "number", "boolean"]);
 async function readUtf8Preview(file, maxBytes = localTextReadBudgetBytes) {
     const handle = await fs.open(file, "r").catch(() => undefined);
     if (!handle)
@@ -15921,7 +15923,7 @@ function extractJsonParams(text) {
         if (params.length >= maxParams || depth > 10)
             return;
         if (Array.isArray(item)) {
-            if (item.every((entry) => entry === null || ["string", "number", "boolean"].includes(typeof entry))) {
+            if (item.every((entry) => entry === null || JSON_PRIMITIVE_TYPES.has(typeof entry))) {
                 const key = keys.join(".");
                 const textValue = JSON.stringify(item);
                 params.push({ key, value: textValue, important: isImportantParam(key, textValue), kind: paramKind(key, textValue) });

@@ -32,3 +32,10 @@ test("backend action routing reuses composed confirmation and scheduler sets", (
   assert.doesNotMatch(body, /\["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"\]\.includes\(command\)/);
   assert.doesNotMatch(body, /\["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"\]\.includes\(command\)/);
 });
+
+test("backend primitive parsing reuses fixed value and type sets", () => {
+  assert.match(source, /const BOOLEAN_TRUE_TEXTS = new Set\(\["1", "true", "yes", "on"\]\)/);
+  assert.match(methodBody("function booleanField(message, key)", "function adapterRuleResultCandidates(rules)"), /BOOLEAN_TRUE_TEXTS\.has\(text\)/);
+  assert.match(source, /const JSON_PRIMITIVE_TYPES = new Set\(\["string", "number", "boolean"\]\)/);
+  assert.match(methodBody("function extractJsonParams(text)", "function extractPythonConfigParams(text)"), /entry === null \|\| JSON_PRIMITIVE_TYPES\.has\(typeof entry\)/);
+});

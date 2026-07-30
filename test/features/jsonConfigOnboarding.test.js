@@ -22,6 +22,7 @@ test("JSON configs participate in discovery, summaries, and onboarding evidence"
     path,
     defaultYamlScanBudget: { maxFiles: 500, maxDirs: 800, maxDepth: 8 },
     localConfigParamLimit: 80,
+    JSON_PRIMITIVE_TYPES: new Set(["string", "number", "boolean"]),
     isHeavyProjectDir: () => false,
   };
   vm.createContext(sandbox);
