@@ -17303,11 +17303,13 @@ function sftpUploadSucceeded(result, fingerprint) {
 function sftpUploadFilesSucceeded(record) {
     return sftpUploadRecordSucceeded(record, "");
 }
+const SFTP_UPLOAD_FAILURE_STATUSES = new Set(["failed", "error", "cancelled", "stalled"]);
+const SFTP_UPLOAD_SUCCESS_STATUSES = new Set(["completed", "success", "succeeded", "done"]);
 function sftpUploadRecordSucceeded(record, fingerprint) {
     if (!record || typeof record !== "object")
         return false;
     const status = String(record.status || record.result || "").toLowerCase();
-    if (record.ok === false || ["failed", "error", "cancelled", "stalled"].includes(status))
+    if (record.ok === false || SFTP_UPLOAD_FAILURE_STATUSES.has(status))
         return false;
     const rows = Array.isArray(record.results) ? record.results : (Array.isArray(record.targets) ? record.targets : []);
     if (rows.length)
@@ -17315,7 +17317,7 @@ function sftpUploadRecordSucceeded(record, fingerprint) {
             const item = row && typeof row === "object" ? row : {};
             return sftpUploadRecordSucceeded(item, fingerprint);
         });
-    return (record.ok === true || ["completed", "success", "succeeded", "done"].includes(status)) && sftpFingerprintMatches(record, fingerprint);
+    return (record.ok === true || SFTP_UPLOAD_SUCCESS_STATUSES.has(status)) && sftpFingerprintMatches(record, fingerprint);
 }
 function sftpFingerprintMatches(record, fingerprint) {
     if (!fingerprint)
@@ -17326,6 +17328,7 @@ function sftpFingerprintMatches(record, fingerprint) {
 function resultError(result) {
     return result && typeof result === "object" ? String(result.error || "") : "";
 }
+const NON_SUCCESSFUL_SYNC_STATUSES = new Set(["-", "待同步", "pending", "unknown", "running", "已跳过", "未参与本次同步"]);
 function syncRoleStatus(targets, previous = {}, fingerprint = "") {
     const hubCount = targets.filter((target) => target.role === "hub").length;
     const workerCount = targets.filter((target) => target.role === "worker").length;
@@ -17341,7 +17344,7 @@ function syncRoleStatus(targets, previous = {}, fingerprint = "") {
 }
 function successfulSyncStatus(value) {
     const text = String(value || "").trim().toLowerCase();
-    return Boolean(text && !["-", "待同步", "pending", "unknown", "running", "已跳过", "未参与本次同步"].includes(text) && !text.includes("fail") && !text.includes("error") && !text.includes("未参与") && !text.includes("skip"));
+    return Boolean(text && !NON_SUCCESSFUL_SYNC_STATUSES.has(text) && !text.includes("fail") && !text.includes("error") && !text.includes("未参与") && !text.includes("skip"));
 }
 function persistedTunnelGatewayConfig(config) {
     return { ...config };

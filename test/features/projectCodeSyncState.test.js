@@ -32,7 +32,7 @@ function loadHelpers() {
 
 function loadSyncRoleStatus() {
   const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  const start = source.indexOf("function syncRoleStatus");
+  const start = source.indexOf("const NON_SUCCESSFUL_SYNC_STATUSES");
   const end = source.indexOf("function persistedTunnelGatewayConfig", start);
   assert.ok(start > 0 && end > start, "sync role status helper missing");
   const sandbox = {};
