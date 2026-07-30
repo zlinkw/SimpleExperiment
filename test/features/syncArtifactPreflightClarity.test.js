@@ -31,6 +31,23 @@ function extractFrozenObject(name) {
   return extension.slice(start, end + 3);
 }
 
+function extractFrozenArray(name) {
+  const start = extension.indexOf(`const ${name} = Object.freeze([`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = extension.indexOf("]);", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return extension.slice(start, end + 3);
+}
+
+function remoteActionTargetFieldSources() {
+  return [
+    "REMOTE_ACTION_PATH_FIELDS",
+    "REMOTE_ACTION_IDENTIFIER_FIELDS",
+    "REMOTE_ACTION_IDENTIFIER_LIST_FIELDS",
+    "REMOTE_ACTION_TASK_TARGET_PATH_FIELDS",
+  ].map(extractFrozenArray);
+}
+
 test("sync artifact action is presented as a manifest preflight, not a transfer", () => {
   assert.match(panel, /syncArtifacts: "检查同步清单"/);
   assert.match(panel, /traceActionButton\("检查同步清单", "syncArtifacts"/);
@@ -54,11 +71,27 @@ test("sync artifact action is presented as a manifest preflight, not a transfer"
   assert.match(extension, /const REMOTE_ACTION_DISPLAY_NAMES = Object\.freeze\(\{/);
   assert.match(extractFunction("remoteActionDisplayName"), /REMOTE_ACTION_DISPLAY_NAMES\[String\(command \|\| ""\)\]/);
   assert.doesNotMatch(extractFunction("remoteActionDisplayName"), /const names =/);
+  const previewSource = extractFunction("remoteActionTargetPreview");
+  assert.match(extension, /const REMOTE_ACTION_PATH_FIELDS = Object\.freeze\(\[/);
+  assert.match(extension, /const REMOTE_ACTION_IDENTIFIER_FIELDS = Object\.freeze\(\[/);
+  assert.match(extension, /const REMOTE_ACTION_IDENTIFIER_LIST_FIELDS = Object\.freeze\(\[/);
+  assert.match(extension, /const REMOTE_ACTION_TASK_TARGET_PATH_FIELDS = Object\.freeze\(\[/);
+  assert.match(previewSource, /for \(const key of REMOTE_ACTION_PATH_FIELDS\)/);
+  assert.match(previewSource, /for \(const key of REMOTE_ACTION_IDENTIFIER_FIELDS\)/);
+  assert.match(previewSource, /for \(const key of REMOTE_ACTION_IDENTIFIER_LIST_FIELDS\)/);
+  assert.match(previewSource, /for \(const key of REMOTE_ACTION_TASK_TARGET_PATH_FIELDS\)/);
+  assert.doesNotMatch(previewSource, /for \(const key of \[/);
+
+  const fieldSandbox = {};
+  vm.createContext(fieldSandbox);
+  vm.runInContext([...remoteActionTargetFieldSources(), "this.fields = [REMOTE_ACTION_PATH_FIELDS, REMOTE_ACTION_IDENTIFIER_FIELDS, REMOTE_ACTION_IDENTIFIER_LIST_FIELDS, REMOTE_ACTION_TASK_TARGET_PATH_FIELDS];"].join("\n"), fieldSandbox);
+  assert.equal(fieldSandbox.fields.every(Object.isFrozen), true);
 });
 test("sync manifest modal lists expected paths and states every excluded side effect", () => {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext([
+    ...remoteActionTargetFieldSources(),
     extractFrozenObject("REMOTE_ACTION_DISPLAY_NAMES"),
     extractFunction("remoteActionTargetPreview"),
     extractFunction("remoteActionDisplayName"),
@@ -91,6 +124,7 @@ test("all confirmed task actions show expected file locations", () => {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext([
+    ...remoteActionTargetFieldSources(),
     extractFrozenObject("REMOTE_ACTION_DISPLAY_NAMES"),
     extractFunction("remoteActionTargetPreview"),
     extractFunction("remoteActionDisplayName"),
@@ -125,6 +159,7 @@ test("direct Worker strong confirmations retain file locations", () => {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext([
+    ...remoteActionTargetFieldSources(),
     extractFrozenObject("REMOTE_ACTION_DISPLAY_NAMES"),
     extractFunction("remoteActionTargetPreview"),
     extractFunction("remoteActionDisplayName"),

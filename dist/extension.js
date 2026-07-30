@@ -14800,6 +14800,10 @@ function guidedPlanSummaryValue(value, limit = Number.MAX_SAFE_INTEGER) {
     const text = String(value || "未设置").replace(/\s+/g, " ").trim();
     return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
 }
+const REMOTE_ACTION_PATH_FIELDS = Object.freeze(["confirmationPath", "remotePath", "path", "artifactPath", "resultPath", "logPath"]);
+const REMOTE_ACTION_IDENTIFIER_FIELDS = Object.freeze(["archiveKey", "runKey", "experimentId"]);
+const REMOTE_ACTION_IDENTIFIER_LIST_FIELDS = Object.freeze(["selectedArchiveKeys", "selectedRunKeys", "selectedExperimentIds"]);
+const REMOTE_ACTION_TASK_TARGET_PATH_FIELDS = Object.freeze(["resultPath", "artifactPath", "remotePath", "path", "logPath"]);
 function remoteActionTargetPreview(body, limit = 12) {
     const item = body && typeof body === "object" ? body : {};
     const options = item.options && typeof item.options === "object" ? item.options : {};
@@ -14826,19 +14830,19 @@ function remoteActionTargetPreview(body, limit = 12) {
         identifiers.push(text);
     };
     for (const source of [item, options]) {
-        for (const key of ["confirmationPath", "remotePath", "path", "artifactPath", "resultPath", "logPath"])
+        for (const key of REMOTE_ACTION_PATH_FIELDS)
             addPath(source[key]);
         (Array.isArray(source.confirmationPaths) ? source.confirmationPaths : []).forEach(addPath);
-        for (const key of ["archiveKey", "runKey", "experimentId"])
+        for (const key of REMOTE_ACTION_IDENTIFIER_FIELDS)
             addIdentifier(source[key]);
-        for (const key of ["selectedArchiveKeys", "selectedRunKeys", "selectedExperimentIds"])
+        for (const key of REMOTE_ACTION_IDENTIFIER_LIST_FIELDS)
             (Array.isArray(source[key]) ? source[key] : []).forEach(addIdentifier);
         for (const target of Array.isArray(source.selectedTaskTargets) ? source.selectedTaskTargets : []) {
             if (!target || typeof target !== "object")
                 continue;
-            for (const key of ["resultPath", "artifactPath", "remotePath", "path", "logPath"])
+            for (const key of REMOTE_ACTION_TASK_TARGET_PATH_FIELDS)
                 addPath(target[key]);
-            for (const key of ["archiveKey", "runKey", "experimentId"])
+            for (const key of REMOTE_ACTION_IDENTIFIER_FIELDS)
                 addIdentifier(target[key]);
         }
     }
