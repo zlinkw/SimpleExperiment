@@ -88,8 +88,9 @@ test("Hub-only checks and execution checks use different endpoint scopes", () =>
   const actionStart = extension.indexOf("async runActionCommand(command, message)");
   const actionEnd = extension.indexOf("async runPlanPreflight(body, label, authority = {})", actionStart);
   const action = extension.slice(actionStart, actionEnd);
-  const validateStart = action.indexOf('if (command === "validatePlan"');
-  const runStart = action.indexOf('if (command === "runPlan"');
+  const validateStart = action.indexOf("if (PLAN_PREFLIGHT_COMMANDS.has(command))");
+  const runStart = action.indexOf("if (PLAN_SUBMISSION_COMMANDS.has(command))");
+  assert.ok(validateStart >= 0 && runStart > validateStart);
   const validateGuard = action.slice(validateStart, runStart);
   const runGuard = action.slice(runStart, action.indexOf("const danger = command", runStart));
   const runAll = extension.slice(extension.indexOf("async runAllPlansFromUi()"), extension.indexOf("async generatePlanGuideFromUi("));

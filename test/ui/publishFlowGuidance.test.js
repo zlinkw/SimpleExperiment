@@ -21,6 +21,7 @@ function extractFunction(name) {
 
 function loadFlow() {
   const sandbox = {
+    SYNC_NOT_READY_STATUS_TOKENS: new Set(["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"]),
     asArray: (value) => (Array.isArray(value) ? value : []),
     hasText: (value) => {
       const text = String(value || "").trim();

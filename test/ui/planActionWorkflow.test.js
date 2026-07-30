@@ -10,7 +10,7 @@ test("plan workflow exposes validate dry-run and run through tunnel actions", ()
   assert.match(source, /validatePlan: "validate-plan"/);
   assert.match(source, /dryRunPlan: "dry-run-plan"/);
   assert.match(source, /runPlan: "run-plan"/);
-  assert.match(source, /if \(command === "runPlan" \|\| command === "reproducePlan"\)[\s\S]*runPlanPreflight\(body/);
+  assert.match(source, /if \(PLAN_SUBMISSION_COMMANDS\.has\(command\)\)[\s\S]*runPlanPreflight\(body/);
   assert.match(source, /async runPlanPreflight\(body, label, authority = \{\}\)[\s\S]*postPlanSchedulerAction\("validate-plan"[\s\S]*\.\.\.authority[\s\S]*postPlanSchedulerAction\("dry-run-plan"[\s\S]*\.\.\.authority/);
   const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
   assert.match(html, /planFileInput/);

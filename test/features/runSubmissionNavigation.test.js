@@ -11,7 +11,7 @@ test("all accepted Plan submissions open the current task monitor", () => {
   assert.ok(start >= 0 && end > start);
   const source = extension.slice(start, end);
   const post = source.indexOf("const result = noHubResult !== undefined");
-  const navigate = source.indexOf('if (command === "runPlan" || command === "reproducePlan")', post);
+  const navigate = source.indexOf("if (PLAN_SUBMISSION_COMMANDS.has(command))", post);
   const throwPending = source.indexOf("this.throwIfRemoteActionPending(command, action, finalResult)");
 
   assert.ok(post >= 0);
