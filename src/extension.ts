@@ -14402,12 +14402,14 @@ function jsonConfigEvidenceText(value) {
     visit(value, 0);
     return lines.join("\n");
 }
+const pythonConfigScalarKeys = new Set(["task", "task_type", "metric", "primary_metric"]);
+const pythonConfigOutputKeys = new Set([
+    "result_csv", "results_csv", "metrics_csv", "summary_csv", "output_csv",
+    "result_json", "metrics_json", "summary_txt", "log_file", "output_dir",
+    "result_dir", "results_dir", "work_dir", "workdir", "save_dir", "log_dir",
+]);
+const pythonConfigListKeys = new Set(["metric", "metrics", "secondary_metrics", "classification_metrics", "segmentation_metrics"]);
 function pythonConfigEvidenceText(text) {
-    const outputKeys = new Set([
-        "result_csv", "results_csv", "metrics_csv", "summary_csv", "output_csv",
-        "result_json", "metrics_json", "summary_txt", "log_file", "output_dir",
-        "result_dir", "results_dir", "work_dir", "workdir", "save_dir", "log_dir",
-    ]);
     const lines = [];
     const seen = new Set();
     const addScalar = (key, value) => {
@@ -14432,9 +14434,9 @@ function pythonConfigEvidenceText(text) {
     };
     for (const assignment of pythonTopLevelAssignments(text)) {
         const scalar = pythonScalarLiteral(assignment.value);
-        if (scalar !== undefined && (["task", "task_type", "metric", "primary_metric"].includes(assignment.key) || outputKeys.has(assignment.key)))
+        if (scalar !== undefined && (pythonConfigScalarKeys.has(assignment.key) || pythonConfigOutputKeys.has(assignment.key)))
             addScalar(assignment.key, scalar);
-        if (["metric", "metrics", "secondary_metrics", "classification_metrics", "segmentation_metrics"].includes(assignment.key))
+        if (pythonConfigListKeys.has(assignment.key))
             addList(assignment.key === "metric" ? "metrics" : assignment.key, pythonStringList(assignment.value));
     }
     const staticText = String(text || "").split(/\r?\n/).map(stripPythonComment).join("\n");

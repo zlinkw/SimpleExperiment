@@ -16,6 +16,14 @@ function extractFunction(name) {
   return source.slice(start, next < 0 ? source.length : next).trim();
 }
 
+function extractConst(name) {
+  const start = source.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing const ${name}`);
+  const end = source.indexOf(";", start);
+  assert.ok(end > start, `unterminated const ${name}`);
+  return source.slice(start, end + 1);
+}
+
 test("Python configs are discovered and inspected without execution", async () => {
   const sandbox = {
     fs: fs.promises,
@@ -38,15 +46,19 @@ test("Python configs are discovered and inspected without execution", async () =
     extractFunction("pythonScalarLiteral"),
     extractFunction("pythonStringList"),
     extractFunction("pythonTopLevelAssignments"),
+    extractConst("pythonConfigScalarKeys"),
+    extractConst("pythonConfigOutputKeys"),
+    extractConst("pythonConfigListKeys"),
     extractFunction("pythonConfigEvidenceText"),
     extractFunction("extractPythonConfigParams"),
     extractFunction("walkYaml"),
-    "this.api = { pythonConfigEvidenceText, extractPythonConfigParams, pythonTopLevelAssignments, walkYaml };",
+    "this.api = { pythonConfigEvidenceText, extractPythonConfigParams, pythonTopLevelAssignments, walkYaml, pythonConfigScalarKeys, pythonConfigOutputKeys, pythonConfigListKeys };",
   ].join("\n"), sandbox);
 
   const config = [
     "_base_ = ['base_runtime.py']",
     "task = 'classification'",
+    "primary_metric = 'auc'",
     "metrics = [",
     "    'auc',",
     "    'accuracy',",
@@ -67,6 +79,7 @@ test("Python configs are discovered and inspected without execution", async () =
 
   const evidence = sandbox.api.pythonConfigEvidenceText(config);
   assert.match(evidence, /^task: classification$/m);
+  assert.match(evidence, /^metric: auc$/m);
   assert.match(evidence, /^metrics:\n  - auc\n  - accuracy$/m);
   assert.match(evidence, /^result_csv: experiments\/results\/demo\.csv$/m);
   assert.doesNotMatch(evidence, /ignored\/comment\.csv/);
@@ -90,4 +103,10 @@ test("Python configs are discovered and inspected without execution", async () =
   assert.match(source, /includeJson: true,[\s\S]{0,80}includePython: true/);
   assert.match(source, /configEvidenceText\(item\.file, item\.text\)/);
   assert.match(source, /if \(\/\\\.py\$\/i\.test\(name\)\)\s*return pythonConfigEvidenceText\(text\)/);
+  assert.equal(sandbox.api.pythonConfigScalarKeys.has("primary_metric"), true);
+  assert.equal(sandbox.api.pythonConfigOutputKeys.has("result_csv"), true);
+  assert.equal(sandbox.api.pythonConfigListKeys.has("metrics"), true);
+  const evidenceFunction = extractFunction("pythonConfigEvidenceText");
+  assert.doesNotMatch(evidenceFunction, /const outputKeys = new Set/);
+  assert.doesNotMatch(evidenceFunction, /\]\.includes\(assignment\.key\)/);
 });
