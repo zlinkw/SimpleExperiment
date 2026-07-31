@@ -22,6 +22,7 @@ function extractFunction(name) {
 test("guided Plan requires confirmed real entry commands and keeps first run small", () => {
   const sandbox = {
     path,
+    DEFAULT_RESULT_CSV_DIR: "experiments/results",
     localConfigSummaryLimit: 80,
     guidedPlanConfigPickerSummaryLimit: 24,
     configSummaryTargetsCache: new WeakMap(),
@@ -111,15 +112,15 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
 
   assert.equal(
     sandbox.api.guidedPlanResultPath('python eval.py --metrics-json {result_csv}', "smoke", ".csv"),
-    "{output_dir}/metrics.json",
+    "experiments/results/smoke/{case}_seed{seed}.json",
   );
   assert.equal(
     sandbox.api.guidedPlanResultPath('python eval.py --result-csv {result_csv}', "smoke", ".json"),
-    "{output_dir}/metrics_summary.csv",
+    "experiments/results/smoke/{case}_seed{seed}.csv",
   );
   assert.equal(
     sandbox.api.guidedPlanResultPath('python eval.py result_csv={result_csv}', "smoke", ".csv"),
-    "{output_dir}/metrics_summary.csv",
+    "experiments/results/smoke/{case}_seed{seed}.csv",
   );
   assert.equal(
     sandbox.api.guidedPlanResultPath('python eval.py --metrics-json "work_dirs/{suite}/{case}/scores.json"', "smoke", ".csv"),
@@ -178,7 +179,7 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
   assert.match(source, /walkProjectFiles\(dir, root, experimentEntryFileName, 20, 3/);
   assert.match(source, /guidedPlanCommandSuggestion\(root, trainEntry, trainCommandStage\)/);
   assert.match(source, /guidedPlanCommandSuggestion\(root, testEntry, "test"\)/);
-  assert.match(source, /guidedPlanResultPathReview\(resultCommand, suite, resultSuggestion\.resultExtension\)/);
+  assert.match(source, /guidedPlanResultPathReview\(resultCommand, suite, resultSuggestion\.resultExtension, resultCsvDirSafe\(\)\)/);
   assert.match(source, /title: "选择 Plan 运行模式"/);
   assert.match(source, /inputPlanResultPath\("确认最终结果文件"/);
   assert.match(source, /result_csv: \$\{JSON\.stringify\(resultPath\)\}/);

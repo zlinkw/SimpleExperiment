@@ -1185,7 +1185,7 @@ export function renderPanelHtml(): string {
       <div class="section-head">
         <div class="section-title">
           <h2>设置</h2>
-          <div class="section-desc">服务器、隧道与调度参数</div>
+          <div class="section-desc">结果目录、服务器、隧道与调度参数</div>
         </div>
         <div class="cardTools">
           <button type="button" class="secondary settingsBackButton" data-main-view="workspace" title="返回工作台">返回工作台</button>
@@ -1205,6 +1205,7 @@ export function renderPanelHtml(): string {
         </div>
         <button data-command="openAdvancedCommandsSetting" class="secondary" type="button">打开命令设置</button>
       </div>
+      <div id="resultCsvDirectorySettings" data-anchor="settings-result-csv"></div>
       <div id="serverSettingsCards" data-anchor="settings-servers"></div>
     </section>
 
@@ -1962,7 +1963,7 @@ export function renderPanelHtml(): string {
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
-      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
       ...Object.keys(uiCapabilityMap)
@@ -2608,7 +2609,7 @@ export function renderPanelHtml(): string {
 
     function sectionDependencyKey(data, section) {
       if (section === "overview") return refListKey(data.connectionMode, data.localEndpoint, data.lastError, data.extensionVersion, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.realtime, data.endpointRegistry, data.diagnostics, data.schedulerConfig, data.schedulerStates, data.operations, data.planFileInput, data.selection, data.plans, data.recentPlans, data.codeSync, data.gpu, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.tunnelPortConflicts, data.detectedProject, data.resultsSummary);
-      if (section === "servers" || section === "settings") return refListKey(data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
+      if (section === "servers" || section === "settings") return refListKey(data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation);
       if (section === "sync") return refListKey(data.codeSync, data.capabilities, data.setup, data.health, data.probe, data.workerProbes);
@@ -4952,7 +4953,7 @@ export function renderPanelHtml(): string {
       return {
         overview: { label: "总览", node: withResourceTreeChildren(item("overview", "总览", "总览", "⌘", "状态/摘要", "集群 概览 状态 实时 摘要"), overviewTreeObjects()) },
         servers: { label: "基础设施", node: withResourceTreeChildren(item("servers", "服务器管理", "服务器管理", "▦", "Hub/Worker/端口", "Hub Worker Xshell 端口 调度"), serverTreeObjects()) },
-        settings: { label: "基础设施", node: withResourceTreeChildren(item("settings", "设置", "服务器与调度设置", "⚙", "服务器、隧道与调度参数", "设置 服务器 Hub Worker Xshell 端口 调度 参数"), settingsTreeObjects()) },
+        settings: { label: "基础设施", node: withResourceTreeChildren(item("settings", "设置", "项目与服务器设置", "⚙", "结果目录、服务器、隧道与调度参数", "设置 结果 CSV 服务器 Hub Worker Xshell 端口 调度 参数"), settingsTreeObjects()) },
         gpu: { label: "资源", node: withResourceTreeChildren(item("gpu", "GPU 状态", "GPU 总览", "◫", "GPU 总览", "GPU 显卡 显存 温度 利用率 我的任务 进程"), gpuTreeObjects()) },
         plans: { label: "实验", node: withResourceTreeChildren(item("plans", "实验计划", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
         tasks: { label: "实验", node: withResourceTreeChildren(item("tasks", "任务运行状态", "任务状态", "▣", "任务/日志/操作", "任务 日志 停止 重试 删除 归档 排队 运行"), taskTreeObjects()) },
@@ -5168,6 +5169,7 @@ export function renderPanelHtml(): string {
     function settingsTreeObjects() {
       return [
         treeObjectItem("settings", "界面布局", "设置", "", "管理卡片顺序、折叠状态和默认布局。", "settings-layout", "", "布局 排序 折叠 展开 恢复默认"),
+        treeObjectItem("settings", "结果 CSV 目录", "设置", "", "配置新 Plan 和默认结果 CSV 的工作区相对目录。", "settings-result-csv", "", "结果 CSV 文件夹 路径 浏览 result_csv"),
         treeObjectItem("settings", "调度与上报", "设置", "", "配置 scheduler poll、jitter、TTL、可用性上报和 Worker 控制节流。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds workerActionMinIntervalMs workerActionMaxConcurrent"),
         treeObjectItem("settings", "Hub 设置", "设置", "", "配置 Hub 控制面、隧道、Agent 和项目父目录。", "servers-hub", "", "Hub 隧道 Agent 端口 项目父目录"),
         treeObjectItem("settings", "Worker 设置", "设置", "", "配置 Worker、GPU 上限、会话和端口。", "settings-servers", "", "Worker GPU 上限 allowedGpuIds localForwardPort")
@@ -6758,7 +6760,20 @@ export function renderPanelHtml(): string {
     }
 
     function renderServerSettings(state) {
+      renderResultCsvDirectorySettings(state);
       return renderServerCardsV2(state);
+    }
+
+    function renderResultCsvDirectorySettings(state) {
+      if (shouldKeepConfigDraftScope("resultOutput")) return;
+      const config = (state || {}).resultOutputConfig || {};
+      const value = String(configDraftValue("resultOutput", "csvDirectory", config.csvDirectory || "experiments/results"));
+      setHtmlIfChanged("resultCsvDirectorySettings",
+        '<div class="settingsLayoutTools" title="已有 Plan 的显式结果路径始终优先">' +
+          '<b>实验结果 CSV 目录</b>' +
+          '<div class="pptPathInputRow"><input class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="工作区相对目录：' + escAttr(value) + '"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button">保存</button></div>' +
+          '<span class="muted">新 Plan 与未显式声明结果路径的任务使用；已有 Plan 路径不变</span>' +
+        '</div>');
     }
 
     function updateConfigDraft(input) {
@@ -6793,7 +6808,7 @@ export function renderPanelHtml(): string {
 
     function isServerConfigScope(scope) {
       const key = String(scope || "");
-      return key === "topology" || key === "hub" || key === "scheduler" || key.startsWith("worker:");
+      return key === "topology" || key === "hub" || key === "scheduler" || key === "resultOutput" || key.startsWith("worker:");
     }
 
     function shouldKeepServerConfigDraft() {

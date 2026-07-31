@@ -2048,6 +2048,7 @@ def execute_worker_command(root, command, worker_id):
     debug_mode = any(action_bool(value) for value in (command.get("debugMode"), command.get("debug_mode"), options.get("debugMode"), options.get("debug_mode")))
     debug_run_id = str(command.get("debugRunId") or command.get("debug_run_id") or options.get("debugRunId") or options.get("debug_run_id") or "").strip()
     debug_output_dir = str(command.get("debugOutputDir") or command.get("debug_output_dir") or options.get("debugOutputDir") or options.get("debug_output_dir") or "").strip()
+    default_result_csv_dir = str(command.get("defaultResultCsvDir") or command.get("default_result_csv_dir") or options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results").strip()
     mode = worker_command_plan_mode(project_dir, plan, command.get("mode") or options.get("mode"))
     session = str(command.get("session") or f"zlk_{worker_id}_{experiment_index}_{int(time.time())}")
     rel_log = str(command.get("logPath") or f"zlk_cluster/tmux_logs/{session}.log").replace("\\", "/").lstrip("/")
@@ -2085,6 +2086,7 @@ def execute_worker_command(root, command, worker_id):
         "--only-index", str(experiment_index),
         "--gpu-ids", gpu_id,
         "--worker-id", worker_id,
+        "--default-result-csv-dir", default_result_csv_dir,
     ]
     if debug_mode:
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
@@ -2124,6 +2126,7 @@ def execute_worker_command(root, command, worker_id):
         "debugMode": debug_mode,
         "debugRunId": debug_run_id,
         "debugOutputDir": debug_output_dir,
+        "defaultResultCsvDir": default_result_csv_dir,
         "startedAt": now_iso(),
     }
     append_worker_task(root, task)
@@ -6700,9 +6703,9 @@ def require_scheduler_dependencies(root, scheduler, env=None):
         raise RuntimeError(str(status.get("message") or "Scheduler 依赖缺失，请检查当前 Python 环境。"))
     return status
 
-def scheduler_validate_json(root, scheduler, plan, env=None):
+def scheduler_validate_json(root, scheduler, plan, default_result_csv_dir="experiments/results", env=None):
     require_scheduler_dependencies(root, scheduler, env)
-    result = scheduler_capture(root, scheduler, ["--validate-plan", "--plan", plan], env=env)
+    result = scheduler_capture(root, scheduler, ["--validate-plan", "--plan", plan, "--default-result-csv-dir", default_result_csv_dir], env=env)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "计划校验失败").strip()[-1000:])
     try:
@@ -6710,7 +6713,7 @@ def scheduler_validate_json(root, scheduler, plan, env=None):
     except Exception:
         return {"ok": True, "plan": plan, "jobs": [], "raw": result.stdout}
 
-def dry_run_preview_action(root, plan, workers, assigned_indices=None):
+def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_result_csv_dir="experiments/results"):
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
         raise RuntimeError("Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。")
@@ -6724,6 +6727,7 @@ def dry_run_preview_action(root, plan, workers, assigned_indices=None):
         "--availability-path", availability_cache_path(root),
         "--worker-status-ttl-seconds", "180",
         "--agent-state-dir", agent_dir(root),
+        "--default-result-csv-dir", default_result_csv_dir,
     ]
     indices = normalized_experiment_indices(assigned_indices)
     if indices:
@@ -6867,6 +6871,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         return terminal_action(root, action, operation_id, op_id, "completed", f"解析完成：{summary.get('resultCount', 0)} 条结果，最终纳入 {summary.get('finalResultCount', 0)} 条，待审核 {summary.get('pendingReviewCount', 0)} 条，失败 {summary.get('parseFailed', 0)} 个文件", {"summaryPath": summary.get("summaryPath") or plan_results_summary_relpath(action_plan_file(payload) or summary.get("planFile") or ""), "resultCount": summary.get("resultCount", 0), "finalResultCount": summary.get("finalResultCount", 0), "pendingReviewCount": summary.get("pendingReviewCount", 0), "inclusionPolicy": summary.get("inclusionPolicy"), "parseFailed": summary.get("parseFailed", 0), "planFile": action_plan_file(payload) or summary.get("planFile") or ""}, request=payload)
     if action == "validate-plan":
         plan = action_plan_file(payload)
+        default_result_csv_dir = str(action_options(payload).get("defaultResultCsvDir") or action_options(payload).get("default_result_csv_dir") or "experiments/results")
         if not plan:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少 planFile，无法校验计划。", request=payload)
         try:
@@ -6877,7 +6882,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         if not scheduler:
             return terminal_action(root, action, operation_id, op_id, "failed", "调度节点缺少 cluster_scheduler.py，请先部署最新版 Agent。", request=payload)
         try:
-            validation = scheduler_validate_json(root, scheduler, plan)
+            validation = scheduler_validate_json(root, scheduler, plan, default_result_csv_dir)
             job_count = int(validation.get("job_count") or len(validation.get("jobs") or []))
             execution_mode = str(validation.get("execution_mode") or "train_test")
             return terminal_action(root, action, operation_id, op_id, "completed", f"计划校验通过：模式 {execution_mode}，任务 {job_count}", {"validation": validation, "jobCount": job_count, "executionMode": execution_mode}, request=payload)
@@ -6885,6 +6890,7 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
     if action == "dry-run-plan":
         plan = action_plan_file(payload)
+        default_result_csv_dir = str(action_options(payload).get("defaultResultCsvDir") or action_options(payload).get("default_result_csv_dir") or "experiments/results")
         if not plan:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少 planFile，无法执行 Dry-run。", request=payload)
         try:
@@ -6892,7 +6898,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         try:
-            preview = dry_run_preview_action(root, plan, action_options(payload).get("workers") if isinstance(action_options(payload).get("workers"), list) else [], action_operation_fields(payload).get("assignedExperimentIndices") or [])
+            preview = dry_run_preview_action(root, plan, action_options(payload).get("workers") if isinstance(action_options(payload).get("workers"), list) else [], action_operation_fields(payload).get("assignedExperimentIndices") or [], default_result_csv_dir)
             out_path = safe_project_path(root, f"zlk_cluster/tmp/cluster_scheduler/{op_id}_dry_run.json")
             atomic_write(out_path, preview)
             return terminal_action(root, action, operation_id, op_id, "completed", f"Dry-run 完成：可立即调度 {preview.get('dispatchableCount', 0)}，排队 {preview.get('queuedCount', 0)}", {"preview": preview, "previewPath": relpath(root, out_path)}, request=payload)
@@ -6900,6 +6906,8 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
     if action in ("run-plan", "reproduce-plan"):
         plan = action_plan_file(payload)
+        options = action_options(payload)
+        default_result_csv_dir = str(options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results")
         if not plan:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少 planFile，无法启动计划。", request=payload)
         try:
@@ -6916,7 +6924,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         if not isinstance(workers, list) or not workers:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少 Worker 配置，无法启动计划。", request=payload)
         try:
-            validation = scheduler_validate_json(root, scheduler, plan)
+            validation = scheduler_validate_json(root, scheduler, plan, default_result_csv_dir)
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", "计划校验失败，已阻止启动调度：" + str(exc), request=payload)
         workers_path = state_child_path(root, "actions", f"{op_id}-workers.json")
@@ -6924,7 +6932,6 @@ def handle_action(root, action, payload, operation_id, op_id):
         log_path = safe_project_path(root, f"zlk_cluster/tmp/cluster_scheduler/{op_id}.log")
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_rel = os.path.relpath(log_path, root).replace("\\", "/")
-        options = action_options(payload)
         debug_mode = action_debug_mode(payload)
         debug_run_id = action_debug_run_id(payload) or op_id
         debug_output_dir = f"zlk_cluster/debug_runs/{plan_summary_slug(plan)}/{safe_name(debug_run_id)}" if debug_mode else ""
@@ -6951,6 +6958,7 @@ def handle_action(root, action, payload, operation_id, op_id):
             "--operation-action", action,
             "--plan-revision", str(action_operation_fields(payload).get("planRevision") or ""),
             "--scheduler-log", log_rel,
+            "--default-result-csv-dir", default_result_csv_dir,
         ]
         operation_fields = action_operation_fields(payload)
         assigned_indices = operation_fields.get("assignedExperimentIndices") or []

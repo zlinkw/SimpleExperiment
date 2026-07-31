@@ -605,7 +605,18 @@ def runner_result_alias_fields(runner: dict[str, Any]) -> dict[str, str]:
     return out
 
 
-def build_jobs(plan: dict[str, Any]) -> tuple[dict[str, Any], list[Job]]:
+def normalize_default_result_csv_dir(value: Any) -> str:
+    text = str(value or "experiments/results").strip().replace("\\", "/")
+    if text.startswith("/") or re.match(r"^[A-Za-z]:", text):
+        raise SystemExit("--default-result-csv-dir 必须是项目内相对目录。")
+    text = text.strip("/")
+    parts = [part for part in text.split("/") if part and part != "."]
+    if not parts or any(part == ".." for part in parts):
+        raise SystemExit("--default-result-csv-dir 必须是项目内相对目录。")
+    return "/".join(parts)
+
+
+def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/results") -> tuple[dict[str, Any], list[Job]]:
     suite = str(plan.get("suite") or slug(Path(plan.get("_file", "plan")).stem, "suite"))
     seeds = [int(seed) for seed in (plan.get("seeds") or [42])]
     cases = normalize_case_items(plan)
@@ -684,7 +695,7 @@ def build_jobs(plan: dict[str, Any]) -> tuple[dict[str, Any], list[Job]]:
             result_alias_values = direct_result_alias_fields(case_item, case_paper, plan_paper, plan)
             runner_result_alias_values = runner_result_alias_fields(local_runner)
             runner_expected_results = list(runner_result_alias_values.values())
-            result_csv_tpl = direct_result_field(case_item, case_paper, plan_paper, plan) or (case_expected_results + plan_expected_results + runner_expected_results + [f"experiments/results/{suite}.csv"])[0]
+            result_csv_tpl = direct_result_field(case_item, case_paper, plan_paper, plan) or (case_expected_results + plan_expected_results + runner_expected_results + [f"{normalize_default_result_csv_dir(default_result_csv_dir)}/{suite}.csv"])[0]
             result_csv = render_template(result_csv_tpl, values)
             values.update({"result_csv": result_csv, "resultCsv": result_csv})
             for alias_key, alias_tpl in result_alias_values.items():
@@ -790,7 +801,7 @@ def isolate_debug_jobs(jobs: list[Job], plan_file: str, run_id: str, output_root
 
 
 def jobs_for_args(plan: dict[str, Any], args: argparse.Namespace) -> list[Job]:
-    _, jobs = build_jobs(plan)
+    _, jobs = build_jobs(plan, str(getattr(args, "default_result_csv_dir", "") or "experiments/results"))
     allowed_indices = only_indices_for_args(args)
     if allowed_indices:
         allowed = set(allowed_indices)
@@ -1047,7 +1058,7 @@ def run_job_mode(args: argparse.Namespace) -> None:
     chosen = [job for job in jobs if int(job.index) == int(args.only_index)]
     if not chosen:
         raise SystemExit(f"No job selected for index {args.only_index}.")
-    jobs_csv = Path(str(args.debug_output_dir)) / "jobs.csv" if args.debug_mode else Path("experiments/results/jobs.csv")
+    jobs_csv = Path(str(args.debug_output_dir)) / "jobs.csv" if args.debug_mode else Path(normalize_default_result_csv_dir(args.default_result_csv_dir)) / "jobs.csv"
     append_jobs_csv(chosen, jobs_csv, plan_file=str(args.plan or ""))
     for job in chosen:
         print(f"[zlk-runtime] start index={job.index} case={job.case} seed={job.seed} at {now()}", flush=True)
@@ -1056,7 +1067,7 @@ def run_job_mode(args: argparse.Namespace) -> None:
 
 
 def print_job_dir_mode(args: argparse.Namespace) -> None:
-    _, jobs = build_jobs(load_plan(args.plan))
+    _, jobs = build_jobs(load_plan(args.plan), args.default_result_csv_dir)
     for job in jobs:
         if int(job.index) == int(args.only_index):
             print(job.output_dir)
@@ -1066,7 +1077,7 @@ def print_job_dir_mode(args: argparse.Namespace) -> None:
 
 def validate_plan_mode(args: argparse.Namespace) -> None:
     project_root = Path.cwd()
-    plan, jobs = build_jobs(load_plan(args.plan))
+    plan, jobs = build_jobs(load_plan(args.plan), args.default_result_csv_dir)
     mode = plan_execution_mode(plan, args.mode)
     if not jobs:
         raise SystemExit("plan produced no jobs")
@@ -1952,7 +1963,7 @@ def write_state(path: Path, payload: dict[str, Any]) -> None:
     atomic_write_json(path, payload)
 
 
-def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "") -> str:
+def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "", default_result_csv_dir: str = "experiments/results") -> str:
     prefix = "simple_debug" if debug_mode else ("zlk_test" if mode == "test" else "zlk")
     session = f"{prefix}_{plan_runtime_key(plan)}_{experiment_index}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
     project_dir = str(worker["project_dir"])
@@ -1975,6 +1986,7 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
         "debugMode": bool(debug_mode),
         "debugRunId": str(debug_run_id or ""),
         "debugOutputDir": str(debug_output_dir or ""),
+        "defaultResultCsvDir": normalize_default_result_csv_dir(default_result_csv_dir),
     })
     return session
 
@@ -2150,7 +2162,7 @@ def sync_state_once(args: argparse.Namespace) -> None:
     workers_by_id = {str(worker.get("id") or ""): worker for worker in workers}
     plan = str(args.plan or state.get("plan") or "")
     apply_scheduler_deletions_to_state(state)
-    _, jobs = build_jobs(load_plan(plan))
+    _, jobs = build_jobs(load_plan(plan), args.default_result_csv_dir)
     jobs_by_index = {int(job.index): job for job in jobs}
     completed = state.setdefault("completed_experiments", [])
     failed = state.setdefault("failed_experiments", [])
@@ -2230,8 +2242,10 @@ def main() -> None:
     parser.add_argument("--debug-mode", action="store_true")
     parser.add_argument("--debug-run-id", default="")
     parser.add_argument("--debug-output-dir", default="")
+    parser.add_argument("--default-result-csv-dir", default="experiments/results")
     parser.add_argument("--check-dependencies-json", action="store_true")
     args = parser.parse_args()
+    args.default_result_csv_dir = normalize_default_result_csv_dir(args.default_result_csv_dir)
     if args.debug_mode:
         args.debug_run_id = str(args.debug_run_id or args.operation_id or f"debug-{int(time.time())}")
         args.debug_output_dir = str(args.debug_output_dir or debug_run_root(args.plan or "plan", args.debug_run_id))
@@ -2564,7 +2578,7 @@ def main() -> None:
                     continue
                 kill_session(worker, str(item.get("session") or ""), "manual_stop_converged", "user")
                 try:
-                    session = launch_experiment(worker, args.plan, int(item["experiment_index"]), str(item["gpu_id"]), log_dir, "test", args.debug_mode, args.debug_run_id, args.debug_output_dir)
+                    session = launch_experiment(worker, args.plan, int(item["experiment_index"]), str(item["gpu_id"]), log_dir, "test", args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir)
                     item["train_session"] = item.get("session", "")
                     item["session"] = session
                     item["testing_started_at"] = now()
@@ -2652,7 +2666,7 @@ def main() -> None:
                         break
                     experiment_index = queue.popleft()
                     try:
-                        session = launch_experiment(worker, args.plan, experiment_index, gpu_id, log_dir, execution_mode, args.debug_mode, args.debug_run_id, args.debug_output_dir)
+                        session = launch_experiment(worker, args.plan, experiment_index, gpu_id, log_dir, execution_mode, args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir)
                         item = {
                             "experiment_index": experiment_index,
                             "worker_id": worker["id"],

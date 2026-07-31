@@ -16,32 +16,35 @@
 - [已完成] 1/5 project-211：索引配置预览规范化文件路径。
 - [已完成] 2/5 project-212：合并比较统计配对值遍历。
 - [已完成] 3/5 project-213：索引输出能力缺失文件与列。
-- [待处理] 4/5 project-214：合并主面板布局顺序成员检查。
+- [已完成] 4/5 project-214：增加项目级实验结果 CSV 目录配置并接入 Plan 默认输出链路。
 - [待处理] 5/5 project-215：执行第七十三轮完整非服务器静态测试。
 
-## 当前批次：project-213（已完成）
+## 当前批次：project-214（已完成）
 ### 修复点
 
-- 输出能力矩阵单次预索引缺失文件 ID 和缺失列名，避免 11 个 capability 对 report 数组重复 some 扫描。
-- capability 仅对自身 requiredFiles 和 requiredColumns 做 Set 成员检查，保持返回顺序和状态判定不变。
+- 设置二级界面新增实验结果 CSV 目录，可直接填写工作区相对路径或浏览选择工作区内文件夹。
+- 配置作为新建 Plan 和 scheduler 未显式声明结果路径时的默认目录；Plan 已有 result_csv、expectedResults 或命令固定路径始终优先。
+- scheduler 的 jobs.csv 与 fallback result_csv 使用同一默认目录，并将配置经 Local -> Agent -> scheduler -> Worker 任务完整透传。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 仅 `status !== found` 的文件进入缺失索引，仅 `status === missing` 的列进入缺失索引。
-- missingFiles、missingColumns 顺序必须继续跟随各 capability 的 required 数组。
-- available、partial、unavailable 判定及 PPT、统计等 capability 契约不得改变。
+- 仅允许工作区内相对目录，拒绝绝对路径、`..` 越界和工作区根目录，浏览结果同样执行边界校验。
+- 旧 Plan 的显式结果文件声明不得被配置覆盖；Debug 继续使用隔离目录。
+- 配置变更必须触发设置区重绘；正在编辑的草稿不得被状态刷新覆盖。
+- 自定义目录必须随运行请求到达 Worker；否则 Hub 预演与 Worker 实际输出会不一致。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] 输出能力缺失索引、顺序和状态定向 Node 测试，10/10。
-- [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
+- [已通过] TypeScript 构建与 Agent runtime 生成。
+- [已通过] 结果 CSV 目录配置、路径边界、Plan 默认值、显式路径优先和 scheduler/Worker 透传定向测试，12/12。
+- [已通过] lint、Agent/Scheduler Python 语法与 `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-212 已由提交 `7942736` 同步至 `origin/master`。
-- 本批仅处理后端输出能力缺失索引、对应测试和计划文档；无视觉样式变化，不调用截图。
-- report 文件和列各单次遍历建立缺失 Set，11 个 capability 复用成员检查；10/10 定向测试通过。
+- project-213 已由提交 `f8ffaee` 同步至 `origin/master`。
+- 本批只处理结果 CSV 默认目录配置、设置页入口、运行透传、定向测试和计划文档；不修改旧 Plan 或旧结果。
+- 配置仅允许工作区相对目录；生成 Plan 使用每 case/seed 独立文件名，scheduler fallback 和 jobs.csv 使用同一目录；旧 Plan 显式路径保持优先。
+- 本批 12/12 定向测试通过；真实服务器透传标记 `needs field verification`，未截图、未连接服务器。

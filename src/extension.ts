@@ -265,7 +265,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
-    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
 ]);
@@ -296,7 +296,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
     "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "runAllPlans",
-    "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
+    "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "openAuditTail", "selectPlan", "selectExperiment",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
@@ -2831,6 +2831,12 @@ class RealtimeTunnelPanelProvider {
             case "saveProjectAdapterRules":
                 await this.saveProjectAdapterRulesFromUi(message);
                 break;
+            case "saveResultCsvDir":
+                await this.saveResultCsvDirFromUi(message);
+                break;
+            case "chooseResultCsvDir":
+                await this.chooseResultCsvDirFromUi();
+                break;
             case "savePptPlotConfig":
                 await this.savePptPlotConfigFromUi(message);
                 break;
@@ -5032,6 +5038,7 @@ class RealtimeTunnelPanelProvider {
                 operationEventMaxDelayMs: this.schedulerSettings().operationEventMaxDelayMs,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs,
                 workerActionMaxConcurrent: this.schedulerSettings().workerActionMaxConcurrent,
+                defaultResultCsvDir: resultCsvDirSafe(),
                 manualStopType: manualStopType || undefined,
                 stopReason: stopReason || undefined,
                 debugMode,
@@ -5824,7 +5831,7 @@ class RealtimeTunnelPanelProvider {
         const resultStage = mode === "train" ? "train" : "test";
         const resultCommand = resultStage === "train" ? trainCommand : testCommand;
         const resultSuggestion = resultStage === "train" ? trainSuggestion : testSuggestion;
-        const resultReview = guidedPlanResultPathReview(resultCommand, suite, resultSuggestion.resultExtension);
+        const resultReview = guidedPlanResultPathReview(resultCommand, suite, resultSuggestion.resultExtension, resultCsvDirSafe());
         const resultPath = await inputPlanResultPath("确认最终结果文件", resultReview.path, "例如 {output_dir}/metrics_summary.csv", `建议来源：${resultReview.source}。${resultReview.needsReview ? "当前文件名包含静态推断，必须核对命令真实写出的文件。" : "已从命令中识别到明确结果位置，仍需确认与实际实现一致。"} 必须填写${resultStage === "train" ? "训练" : "评估"}命令实际生成的项目内结果文件。使用 {result_csv} 时该路径会注入命令；固定输出路径必须与命令完全一致。CSV、JSON、TXT、LOG 均可解析，后续归档、统计和 PPT 只读取此结果链路。`);
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -6275,6 +6282,48 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         await vscode.window.showTextDocument(readmeDocument, { preview: false, viewColumn: vscode.ViewColumn.Active });
+    }
+    async saveResultCsvDirFromUi(message) {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder)
+            throw new Error("请先打开一个项目，再保存结果 CSV 目录。");
+        const projectContext = this.captureProjectContext();
+        const patch = recordField(message, "patch");
+        const resultCsvDir = normalizeResultCsvDir(stringPatch(patch, "csvDirectory", resultCsvDirSafe()));
+        safeWorkspaceChildPath(folder.uri.fsPath, resultCsvDir);
+        await vscode.workspace.getConfiguration("zlkCluster", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        this.postState(true);
+        void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
+    }
+    async chooseResultCsvDirFromUi() {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder)
+            throw new Error("请先打开一个项目，再选择结果 CSV 目录。");
+        const projectContext = this.captureProjectContext();
+        const current = path.join(folder.uri.fsPath, resultCsvDirSafe());
+        const currentStat = await fs.stat(current).catch(() => undefined);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        const selected = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            defaultUri: vscode.Uri.file(currentStat?.isDirectory() ? current : folder.uri.fsPath),
+            openLabel: "选择结果 CSV 文件夹",
+            title: "选择当前项目内的实验结果 CSV 文件夹",
+        });
+        if (!this.projectContextIsCurrent(projectContext) || !selected?.[0])
+            return;
+        const relative = path.relative(folder.uri.fsPath, selected[0].fsPath).replace(/\\/g, "/");
+        const resultCsvDir = normalizeResultCsvDir(relative);
+        safeWorkspaceChildPath(folder.uri.fsPath, resultCsvDir);
+        await vscode.workspace.getConfiguration("zlkCluster", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        this.postState(true);
+        void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
     }
     async savePptPlotConfigFromUi(message) {
         const projectContext = this.captureProjectContext();
@@ -8255,6 +8304,10 @@ class RealtimeTunnelPanelProvider {
             realtime: webviewRealtime,
             gpuOwnerConfig: this.gpuOwnerConfig(),
             planDir: this.localPlanMetadata.planDir,
+            resultOutputConfig: {
+                csvDirectory: resultCsvDirSafe(),
+                defaultDirectory: DEFAULT_RESULT_CSV_DIR,
+            },
             detectedProject: webviewDetectedProject,
             plans: webviewPlans.plans,
             plansTotalCount: webviewPlans.totalCount,
@@ -12819,6 +12872,27 @@ function planDirSafe() {
         return "experiments/plans";
     }
 }
+const DEFAULT_RESULT_CSV_DIR = "experiments/results";
+function normalizeResultCsvDir(value) {
+    const text = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+    if (!text)
+        throw new Error("结果 CSV 目录不能为空，也不能直接使用工作区根目录。");
+    if (path.posix.isAbsolute(text) || path.win32.isAbsolute(text))
+        throw new Error("结果 CSV 目录必须是当前工作区内的相对路径。");
+    const normalized = path.posix.normalize(text);
+    if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../"))
+        throw new Error("结果 CSV 目录不能离开工作区，也不能直接使用工作区根目录。");
+    return normalized;
+}
+function resultCsvDirSafe() {
+    try {
+        const configured = vscode.workspace.getConfiguration("zlkCluster").get("resultCsvDir", DEFAULT_RESULT_CSV_DIR);
+        return normalizeResultCsvDir(configured);
+    }
+    catch {
+        return DEFAULT_RESULT_CSV_DIR;
+    }
+}
 const localPlanSummaryReadBudgetBytes = 512 * 1024;
 const localPlanSummaryConcurrency = 8;
 async function readLocalPlans(root, planDir) {
@@ -15540,12 +15614,13 @@ function guidedPlanCommandPrompt(suggestion, stage) {
     messages.push(...guidedPlanCommandWarnings(suggestion, stage).map((message) => `${message}，请在确认命令时核对。`));
     return messages.join(" ");
 }
-function guidedPlanResultPath(command, suite, fallbackExtension = ".csv") {
-    return guidedPlanResultPathReview(command, suite, fallbackExtension).path;
+function guidedPlanResultPath(command, suite, fallbackExtension = ".csv", defaultResultCsvDir = DEFAULT_RESULT_CSV_DIR) {
+    return guidedPlanResultPathReview(command, suite, fallbackExtension, defaultResultCsvDir).path;
 }
-function guidedPlanResultPathReview(command, suite, fallbackExtension = ".csv") {
+function guidedPlanResultPathReview(command, suite, fallbackExtension = ".csv", defaultResultCsvDir = DEFAULT_RESULT_CSV_DIR) {
     const text = String(command || "").replace(/\\[ \t]*\r?\n[ \t]*/g, " ").replace(/\r?\n/g, " ");
     const safeSuite = String(suite || "experiment").trim() || "experiment";
+    const resultDir = String(defaultResultCsvDir || DEFAULT_RESULT_CSV_DIR).trim().replace(/\\/g, "/").replace(/\/+$/, "") || DEFAULT_RESULT_CSV_DIR;
     const fallbackMatch = String(fallbackExtension || "").match(/\.(csv|json|txt|log|out)$/i);
     let extension = fallbackMatch ? `.${fallbackMatch[1].toLowerCase()}` : ".csv";
     let outputDir = "";
@@ -15609,10 +15684,10 @@ function guidedPlanResultPathReview(command, suite, fallbackExtension = ".csv") 
         ".out": "output.out",
     }[extension] || "metrics_summary.csv";
     if (resultAliasUsed)
-        return { path: `{output_dir}/${defaultFile}`, source: "命令中的结果占位参数", needsReview: false };
+        return { path: `${resultDir}/${safeSuite}/{case}_seed{seed}${extension}`, source: "命令中的结果占位参数，使用设置中的 CSV 默认目录", needsReview: false };
     if (outputDir && !/\.(csv|json|txt|log|out)$/i.test(outputDir))
         return { path: `${outputDir}/${defaultFile}`.replace(/\/{2,}/g, "/"), source: "命令中的输出目录，文件名按标准结果名推断", needsReview: true };
-    return { path: `experiments/results/${safeSuite}${extension}`, source: "未识别结果或输出参数，使用项目级默认路径", needsReview: true };
+    return { path: `${resultDir}/${safeSuite}${extension}`, source: "未识别结果或输出参数，使用设置中的项目级默认目录", needsReview: true };
 }
 async function detectFactoryPatterns(root) {
     const candidates = [

@@ -329,6 +329,12 @@
 					"scope": "resource",
 					"description": "相对于工作区根目录的实验计划目录。"
 				},
+				"zlkCluster.resultCsvDir": {
+					"type": "string",
+					"default": "experiments/results",
+					"scope": "resource",
+					"description": "相对于工作区根目录的实验结果 CSV 默认目录。新 Plan 和未显式声明结果路径的任务使用此目录；已有 Plan 的显式结果路径优先。"
+				},
 				"zlkCluster.connectionMode": {
 					"type": "string",
 					"default": "xshell_tunnel_realtime",
