@@ -146,7 +146,9 @@ export function buildCompletenessMatrix(config: CompletenessMatrixConfig, input:
   const planKeys = new Map<string, typeof planned>();
   for (const item of planned) {
     const key = keyFor(config.axes, item);
-    planKeys.set(key, [...(planKeys.get(key) || []), item]);
+    const plannedItems = planKeys.get(key);
+    if (plannedItems) plannedItems.push(item);
+    else planKeys.set(key, [item]);
   }
   const resultKeys = new Map<string, ExperimentResultRecord[]>();
   for (const record of input.results || []) {

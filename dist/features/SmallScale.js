@@ -45,7 +45,11 @@ function buildCompletenessMatrix(config, input) {
     const planKeys = new Map();
     for (const item of planned) {
         const key = keyFor(config.axes, item);
-        planKeys.set(key, [...(planKeys.get(key) || []), item]);
+        const plannedItems = planKeys.get(key);
+        if (plannedItems)
+            plannedItems.push(item);
+        else
+            planKeys.set(key, [item]);
     }
     const resultKeys = new Map();
     for (const record of input.results || []) {

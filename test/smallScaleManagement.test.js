@@ -84,6 +84,9 @@ test("completeness matrix groups scoped results once and preserves result order"
   const source = fs.readFileSync(path.join(__dirname, "../src/features/SmallScale.ts"), "utf8");
   const body = source.match(/export function buildCompletenessMatrix[\s\S]*?\n}\n\nexport function completenessMatrixToMarkdown/)?.[0] || "";
   assert.match(body, /const resultKeys = new Map<string, ExperimentResultRecord\[\]>/);
+  assert.match(body, /const plannedItems = planKeys\.get\(key\)/);
+  assert.match(body, /if \(plannedItems\) plannedItems\.push\(item\)/);
+  assert.doesNotMatch(body, /planKeys\.set\(key, \[\.\.\.\(planKeys\.get\(key\)/);
   assert.match(body, /for \(const record of input\.results \|\| \[\]\)/);
   assert.match(body, /const records = resultKeys\.get\(key\) \|\| \[\]/);
   assert.doesNotMatch(body, /resultRows|\.filter\(\(row\) => row\.key === key\)/);
