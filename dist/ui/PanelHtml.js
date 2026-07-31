@@ -13608,14 +13608,15 @@ function renderPanelHtml() {
       const cacheKey = selectedTaskStateRowsCacheKey + "::payload::" + selectedTaskRowsSignature(rows);
       if (selectedTaskStatePayloadCache && selectedTaskStatePayloadCacheKey === cacheKey) return cloneSelectedTaskPayload(selectedTaskStatePayloadCache);
       const fallbackRunKeys = selection.selectedRunKeys && selection.selectedRunKeys.length ? selection.selectedRunKeys : (selection.selectedRunKey ? [selection.selectedRunKey] : []);
-      const selectedRunKeys = cleanSelectedValues(rows.map((row) => taskActionKey(row)), fallbackRunKeys);
+      const taskActionFields = selectedTaskActionFields(rows);
+      const selectedRunKeys = cleanSelectedValues(taskActionFields.runKeys, fallbackRunKeys);
       const selectedExperimentIds = cleanSelectedValues(rows.map((row) => row.experimentId), selection.selectedExperimentIds || []);
       const selectedArchiveKeys = cleanSelectedValues(rows.map((row) => taskArchiveActionKey(row)), selection.selectedArchiveKeys || []);
       const selectedWorkerIds = cleanSelectedValues(rows.map((row) => resolveWorkerId(row.serverId)), selection.selectedWorkerIds || []);
       const selectedTaskUiKeys = cleanSelectedValues(rows.map((row) => row.uiKey), selection.selectedTaskUiKeys || []);
       const selectedPlanFiles = cleanSelectedValues(rows.map((row) => taskPlanFile(row)), []);
       const selectedPlanRevisions = cleanSelectedValues(rows.map((row) => row.planRevision), []);
-      const selectedLegacyTaskUiKeys = cleanSelectedValues(rows.filter((row) => !usableTaskKey(taskActionKey(row))).map((row) => row.uiKey), []);
+      const selectedLegacyTaskUiKeys = cleanSelectedValues(taskActionFields.legacyUiKeys, []);
       const selectedTaskTargets = rows.map((row) => ({
         workerId: cleanSelectionValue(resolveWorkerId(row.serverId)),
         taskUiKey: cleanSelectionValue(row.uiKey),
@@ -13636,6 +13637,16 @@ function renderPanelHtml() {
       selectedTaskStatePayloadCacheKey = cacheKey;
       selectedTaskStatePayloadCache = payload;
       return cloneSelectedTaskPayload(payload);
+    }
+
+    function selectedTaskActionFields(rows) {
+      const fields = { runKeys: [], legacyUiKeys: [] };
+      asArray(rows).forEach((row) => {
+        const runKey = taskActionKey(row);
+        fields.runKeys.push(runKey);
+        if (!usableTaskKey(runKey)) fields.legacyUiKeys.push(row.uiKey);
+      });
+      return fields;
     }
 
     function selectedTaskRowsFromState(state) {

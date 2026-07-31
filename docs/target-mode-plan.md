@@ -16,32 +16,32 @@
 - [已完成] 1/5 project-196：合并完整性矩阵结果分组遍历。
 - [已完成] 2/5 project-197：合并前端 GPU 历史点统计遍历。
 - [已完成] 3/5 project-198：复用论文表格指标 schema 查找。
-- [待处理] 4/5 project-199：合并前端旧任务选择键分类遍历。
+- [已完成] 4/5 project-199：合并前端旧任务选择键分类遍历。
 - [待处理] 5/5 project-200：执行第七十轮完整非服务器静态测试。
 
-## 当前批次：project-198（已完成）
+## 当前批次：project-199（已完成）
 ### 修复点
 
-- 论文表格模板预先建立首项优先的 metric schema 索引，避免每个布局指标重复查找 label、方向和小数位。
-- 保持模板显式格式优先级、重复 schema key 的首项语义、最终归档结果过滤及全部导出格式不变。
+- 前端任务状态 payload 单次读取每行 action key，并同时收集全部 run key 与无稳定 key 的旧任务 UI key。
+- 保持 fallback、去重、空值清理、缓存克隆、Plan 选择和 task target 契约不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 模板 `metricLabels` 与 `decimals` 必须继续覆盖 schema 默认值，缺失 schema 指标仍回退到 key、higher-is-better 和 4 位小数。
-- 重复 metric key 必须保持 `Array.find` 的首项优先语义，不能因 Map 构造改为末项覆盖。
-- Markdown、CSV、LaTeX、JSON 和最终归档结果过滤不得改变。
+- 每行 `taskActionKey` 只能读取一次，旧任务判断必须继续使用 `usableTaskKey`。
+- run key 与 legacy UI key 的输入顺序、清洗和去重必须保持不变。
+- 无选择、单 Plan、多 Plan、debug mode 及缓存命中行为不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] 论文表格 schema 索引、首项优先、格式回退和结果行为定向 Node 测试，18/18。
+- [已通过] 任务 action key 单次读取、legacy 分类与 payload 接线定向 Node 测试，13/13。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-197 已由提交 `8e66d35` 同步至 `origin/master`。
-- 本批仅处理后端论文表格 metric schema 查找、对应测试和计划文档；无视觉样式变化，不调用截图。
-- metric schema 改为首项优先索引并在每个布局指标中复用，模板覆盖与最终结果过滤不变；18/18 定向测试通过。
+- project-198 已由提交 `8b4b66d` 同步至 `origin/master`。
+- 本批仅处理前端任务 action/legacy key 分类、对应测试和计划文档；无视觉样式变化，不调用截图。
+- action key 与 legacy UI key 改为单次行遍历收集，fallback、清洗、缓存及 target 行为不变；13/13 定向测试通过。

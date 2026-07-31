@@ -77,3 +77,26 @@ test("selected task payload consumes collector output without rescanning boxes",
   assert.doesNotMatch(payload, /boxes\.(?:map|filter|some)\(/);
   assert.match(payload, /debugMode: fields\.debugMode/);
 });
+
+test("selected task state classifies action and legacy keys in one traversal", () => {
+  let actionReads = 0;
+  const sandbox = {
+    asArray(value) { return Array.isArray(value) ? value : []; },
+    taskActionKey(row) { actionReads += 1; return row.runKey; },
+    usableTaskKey(value) { return Boolean(String(value || "").trim()); },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction("selectedTaskActionFields")}\nthis.collect = selectedTaskActionFields;`, sandbox);
+  const fields = sandbox.collect([
+    { runKey: "run-a", uiKey: "ui-a" },
+    { runKey: "", uiKey: "legacy-b" },
+    { runKey: "run-c", uiKey: "ui-c" },
+  ]);
+  assert.equal(actionReads, 3);
+  assert.deepEqual(Array.from(fields.runKeys), ["run-a", "", "run-c"]);
+  assert.deepEqual(Array.from(fields.legacyUiKeys), ["legacy-b"]);
+
+  const payload = extractFunction("selectedTaskPayloadFromState");
+  assert.match(payload, /const taskActionFields = selectedTaskActionFields\(rows\)/);
+  assert.doesNotMatch(payload, /rows\.filter\(\(row\) => !usableTaskKey\(taskActionKey\(row\)\)\)/);
+});
