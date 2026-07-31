@@ -179,7 +179,7 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
   assert.match(source, /walkProjectFiles\(dir, root, experimentEntryFileName, 20, 3/);
   assert.match(source, /guidedPlanCommandSuggestion\(root, trainEntry, trainCommandStage\)/);
   assert.match(source, /guidedPlanCommandSuggestion\(root, testEntry, "test"\)/);
-  assert.match(source, /guidedPlanResultPathReview\(resultCommand, suite, resultSuggestion\.resultExtension, resultCsvDirSafe\(\)\)/);
+  assert.match(source, /guidedPlanResultPathReview\(resultCommand, suite, resultSuggestion\.resultExtension, this\.resultCsvDirectory\)/);
   assert.match(source, /title: "选择 Plan 运行模式"/);
   assert.match(source, /inputPlanResultPath\("确认最终结果文件"/);
   assert.match(source, /result_csv: \$\{JSON\.stringify\(resultPath\)\}/);

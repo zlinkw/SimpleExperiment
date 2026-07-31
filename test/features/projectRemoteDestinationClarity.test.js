@@ -71,7 +71,8 @@ test("project quick access summarizes upload destinations and refreshes after pr
   assert.match(panel, /projectQuickRow\("上传位置", uploadDestination\.summary/);
   assert.match(panel, /Hub \+ " \+ enabledWorkers\.length \+ " 个 Worker/);
   assert.match(panel, /section === "plans"[\s\S]{0,500}data\.agentSessions/);
-  assert.match(panel, /section === "servers" \|\| section === "settings"[\s\S]{0,260}data\.agentSessions/);
+  assert.match(panel, /section === "servers"[\s\S]{0,320}data\.agentSessions/);
+  assert.match(panel, /section === "settings"[\s\S]{0,320}data\.agentSessions/);
   assert.match(panel, /agentDestinations: compactAgentDestinationsForSignature\(data\.agentSessions\)/);
   assert.match(readme, /设置 -> 服务器.*当前项目代码.*Agent runtime/);
   assert.match(guide, /项目关键入口.*上传位置/);
