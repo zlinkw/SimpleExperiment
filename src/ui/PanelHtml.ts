@@ -8005,8 +8005,11 @@ export function renderPanelHtml(): string {
         const index = gpuHistoryPointIndex(item && item.points);
         if (!index.times.length) return;
         stats.pointCount += index.rows.length;
-        stats.imputedCount += index.rows.reduce((count, point) => count + (point.imputed === true ? 1 : 0), 0);
-        stats.gapCount += historyGapCountFromIndex(index);
+        const expectedStep = Number(index.expectedStep || gpuHistoryMeta.bucketSeconds || 300);
+        index.rows.forEach((point, rowIndex) => {
+          if (point.imputed === true) stats.imputedCount += 1;
+          if (rowIndex && historyPointStartsGap(point, index.rows[rowIndex - 1], expectedStep)) stats.gapCount += 1;
+        });
         stats.min = Math.min(stats.min, index.times[0]);
         stats.max = Math.max(stats.max, index.times[index.times.length - 1]);
       });

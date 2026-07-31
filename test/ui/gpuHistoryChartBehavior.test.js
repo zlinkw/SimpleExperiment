@@ -145,6 +145,9 @@ test("GPU history gap detection distinguishes explicit gaps from regular downsam
 
 test("GPU history summary stats reuse per-series indexes across servers", () => {
   const context = chartContext(["historyExpectedStepFromSortedTimes", "gpuHistoryPointIndex", "historyPointStartsGap", "historyGapCountFromIndex", "gpuHistorySeriesStats"]);
+  const source = inlineFunction("gpuHistorySeriesStats");
+  assert.doesNotMatch(source, /\.reduce\(|historyGapCountFromIndex\(index\)/);
+  assert.match(source, /index\.rows\.forEach/);
   const first = [{ bucketEpoch: 600, imputed: true }, { bucketEpoch: 300, imputed: false }];
   const second = [{ bucketEpoch: 900, imputed: false }, { bucketEpoch: 1200, imputed: true, gapBefore: true }];
   const stats = context.gpuHistorySeriesStats([{ points: first }, { points: second }]);

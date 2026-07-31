@@ -14,35 +14,34 @@
 
 ## 后续优先级
 - [已完成] 1/5 project-196：合并完整性矩阵结果分组遍历。
-- [待处理] 2/5 project-197：合并前端 GPU 历史点统计遍历。
+- [已完成] 2/5 project-197：合并前端 GPU 历史点统计遍历。
 - [待处理] 3/5 project-198：复用论文表格指标 schema 查找。
 - [待处理] 4/5 project-199：合并前端旧任务选择键分类遍历。
 - [待处理] 5/5 project-200：执行第七十轮完整非服务器静态测试。
 
-## 当前批次：project-196（已完成）
+## 当前批次：project-197（已完成）
 ### 修复点
 
-- 完整性矩阵在读取结果时直接按 axis key 分组，避免生成中间行后再按每个 key 重扫全部结果。
-- 合并 Plan 的 `planId` 与 `suite` scope 判断，保持 study、质量门、生命周期和最终排序契约不变。
+- GPU 历史摘要在每条已排序 series 上单次统计补零点和异常缺口，避免分别 reduce 与重扫 gap。
+- 复用 point index 的 rows 与 expectedStep，保持缓存、范围、tooltip、二分查找和曲线绘制契约不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 相同 axis key 的结果顺序必须保持输入顺序，Plan-only 与 result-only key 均不得丢失。
-- suite scope 必须继续同时约束 Plan 与结果，planId scope 不得误过滤 study 派生实验。
-- 缺失指标、质量门、生命周期状态、CSV 与 Markdown 输出不得改变。
+- 空 series、乱序点、显式 `gapBefore`、推导缺口和补零点计数必须保持不变。
+- min/max 必须继续读取排序 index 边界，不能把无效时间点计入摘要。
+- GPU 卡片及服务器总览文字、曲线样式和交互不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] 完整性矩阵单次结果分组、scope、顺序及行为定向 Node 测试，9/9。
+- [已通过] GPU 历史摘要单次统计、补零、缺口、缓存与图表行为定向 Node 测试，18/18。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-195 已由提交 `22bd0ad` 同步至 `origin/master`。
-- 本批仅处理后端完整性矩阵结果分组、对应测试和计划文档；无视觉样式变化，不调用截图。
-- 首次定向测试的 fixture `runKey` 仍编码 `method-ours`，覆盖了显式 dimensions；已改为匹配 baseline 的 `runKey` 后复验。
-- 结果读取改为单次 scope 检查并按 axis key 就地分组，Plan scope 合并为单次判断；9/9 定向测试通过。
+- project-196 已由提交 `5c1d5f6` 同步至 `origin/master`。
+- 本批仅处理前端 GPU 历史摘要统计、对应测试和计划文档；无视觉样式变化，不调用截图。
+- 每条 series 的补零与缺口改为复用同一次 rows 遍历，缓存 index、范围与绘图行为不变；18/18 定向测试通过。
