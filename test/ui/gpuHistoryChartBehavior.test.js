@@ -135,6 +135,11 @@ test("GPU history OKLab conversion cache reuses colors and stays bounded", () =>
 
 test("GPU history gap detection distinguishes explicit gaps from regular downsampling", () => {
   const context = chartContext(["historyExpectedStepFromSortedTimes", "historyExpectedStep", "gpuHistoryPointIndex", "historyPointStartsGap", "historyGapCountFromIndex", "historyGapCount"]);
+  const source = inlineFunction("historyExpectedStepFromSortedTimes");
+  assert.match(source, /for \(let index = 1; index < values\.length; index \+= 1\)/);
+  assert.doesNotMatch(source, /\.slice\(|\.map\(|\.filter\(/);
+  assert.equal(context.historyExpectedStepFromSortedTimes([0, 0, 300, 900]), 600);
+  assert.equal(context.historyExpectedStepFromSortedTimes([300]), 300);
   context.GPU_HISTORY_GAP_FACTOR = 1.75;
   const sampled = [0, 2700, 5400].map((bucketEpoch) => ({ bucketEpoch }));
   assert.equal(context.historyGapCount(sampled), 0);

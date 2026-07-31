@@ -8123,7 +8123,12 @@ export function renderPanelHtml(): string {
 
     function historyExpectedStepFromSortedTimes(times) {
       const values = asArray(times);
-      const deltas = values.slice(1).map((value, index) => value - values[index]).filter((value) => value > 0).sort((a, b) => a - b);
+      const deltas = [];
+      for (let index = 1; index < values.length; index += 1) {
+        const delta = values[index] - values[index - 1];
+        if (delta > 0) deltas.push(delta);
+      }
+      deltas.sort((a, b) => a - b);
       if (!deltas.length) return Number(gpuHistoryMeta.bucketSeconds || 300);
       return deltas[Math.floor(deltas.length / 2)];
     }
