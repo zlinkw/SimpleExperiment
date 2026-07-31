@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const {
   applyResultRevision,
@@ -90,6 +92,32 @@ test("advanced leaderboard and paper template export use schema directions", () 
   assert.equal(rows.some((row) => row.values.DSC.mean > 0), true);
   const rendered = renderPaperTableTemplate(records, schema, builtInPaperTableTemplates[0], "markdown");
   assert.match(rendered, /Group | N | DSC/);
+});
+
+test("paper table template indexes schema metrics once with first definition priority", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/Results.ts"), "utf8");
+  const body = source.match(/export function renderPaperTableTemplate[\s\S]*?\n}\n\nexport function buildResultDashboard/)?.[0] || "";
+  assert.match(body, /const schemaMetricsByKey = new Map<string, ResultMetricDefinition>/);
+  assert.match(body, /if \(!schemaMetricsByKey\.has\(metric\.key\)\)/);
+  assert.doesNotMatch(body, /schema\.metrics\.find/);
+
+  const baseSchema = builtInResultSchemas[0];
+  const schema = {
+    ...baseSchema,
+    metrics: [
+      { ...baseSchema.metrics[0], key: "DSC", label: "First DSC", higherIsBetter: false, decimals: 1 },
+      { ...baseSchema.metrics[0], key: "DSC", label: "Second DSC", higherIsBetter: true, decimals: 4 },
+    ],
+  };
+  const template = {
+    ...builtInPaperTableTemplates[0],
+    layout: { ...builtInPaperTableTemplates[0].layout, metrics: ["DSC"] },
+    formatting: { ...builtInPaperTableTemplates[0].formatting, metricLabels: {}, decimals: {} },
+  };
+  const records = sampleRecords().map((record) => ({ ...applyResultSchema(record, baseSchema, { row: { method: record.runKey } }), eligibleForFinalAnalysis: true, finalEvidenceState: "archived" }));
+  const rendered = renderPaperTableTemplate(records, schema, template, "markdown");
+  assert.match(rendered, /First DSC/);
+  assert.doesNotMatch(rendered, /Second DSC/);
 });
 
 test("paper table template defaults to final archived results", () => {

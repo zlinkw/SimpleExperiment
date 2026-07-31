@@ -538,12 +538,20 @@ function buildAdvancedLeaderboard(records, config, issues = [], policy) {
     }).sort((a, b) => sortLeaderboard(a, b, config));
 }
 function renderPaperTableTemplate(records, schema, template, format = "markdown") {
+    const schemaMetricsByKey = new Map();
+    for (const metric of schema.metrics) {
+        if (!schemaMetricsByKey.has(metric.key))
+            schemaMetricsByKey.set(metric.key, metric);
+    }
     const leaderboard = {
         id: template.source.leaderboardId || `${template.id}_leaderboard`,
         name: template.name,
         filter: { includeWarnings: true },
         groupBy: template.layout.rows,
-        metrics: template.layout.metrics.map((key) => ({ key, label: template.formatting.metricLabels[key] || schema.metrics.find((metric) => metric.key === key)?.label || key, higherIsBetter: schema.metrics.find((metric) => metric.key === key)?.higherIsBetter !== false, decimals: template.formatting.decimals[key] ?? schema.metrics.find((metric) => metric.key === key)?.decimals ?? 4 })),
+        metrics: template.layout.metrics.map((key) => {
+            const metric = schemaMetricsByKey.get(key);
+            return { key, label: template.formatting.metricLabels[key] || metric?.label || key, higherIsBetter: metric?.higherIsBetter !== false, decimals: template.formatting.decimals[key] ?? metric?.decimals ?? 4 };
+        }),
         aggregate: template.formatting.valueFormat === "mean_ci" ? "mean_ci95" : template.formatting.valueFormat === "raw" ? "raw" : "mean_std",
         primarySortMetric: template.layout.metrics[0],
     };
