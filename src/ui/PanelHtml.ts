@@ -10762,6 +10762,15 @@ export function renderPanelHtml(): string {
       return String(value || "").trim().replace(/\\\\/g, "/").replace(/^\\.\\//, "").toLowerCase();
     }
 
+    function configParamsByKey(params) {
+      const indexed = new Map();
+      for (const param of asArray(params)) {
+        const key = String((param || {}).key || "");
+        if (key) indexed.set(key, param);
+      }
+      return indexed;
+    }
+
     function configParamDiffBase(selected, baseline) {
       const counts = { same: 0, changed: 0, added: 0, missing: 0, uncertain: 0 };
       if (!selected) return { rows: [], counts };
@@ -10778,8 +10787,8 @@ export function renderPanelHtml(): string {
       const hasBaseline = baselineSource !== EMPTY_CONFIG_PARAM_DIFF_SOURCE;
       const selectedOmitted = Number(selected.omittedParamCount || 0) > 0;
       const baselineOmitted = Number((baselineSource && baselineSource.omittedParamCount) || 0) > 0;
-      const currentByKey = new Map(asArray(selectedSource.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
-      const baselineByKey = new Map(asArray(hasBaseline && baselineSource.params).map((param) => [String((param || {}).key || ""), param]).filter((entry) => entry[0]));
+      const currentByKey = configParamsByKey(selectedSource.params);
+      const baselineByKey = configParamsByKey(hasBaseline && baselineSource.params);
       const keys = Array.from(new Set([...currentByKey.keys(), ...baselineByKey.keys()])).sort(naturalCompare);
       const rows = keys.map((key) => {
         const param = currentByKey.get(key);

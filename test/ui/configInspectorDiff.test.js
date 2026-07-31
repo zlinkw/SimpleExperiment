@@ -36,7 +36,7 @@ test("config inspector classifies selected values against the current Plan confi
     asArray(value) { return Array.isArray(value) ? value : []; },
     naturalCompare(left, right) { return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); },
   };
-  vm.runInNewContext([inlineFunction("configParamDiffBase"), inlineFunction("configParamDiffRows")].join("\n"), context);
+  vm.runInNewContext([inlineFunction("configParamsByKey"), inlineFunction("configParamDiffBase"), inlineFunction("configParamDiffRows")].join("\n"), context);
   const baseline = { file: "configs/base.yaml", params: [
     { key: "model.depth", value: "18", kind: "scalar" },
     { key: "seed", value: "7", kind: "scalar" },
@@ -70,7 +70,7 @@ test("config inspector reuses structural diffs while keeping each search current
     asArray(value) { return Array.isArray(value) ? value : []; },
     naturalCompare(left, right) { return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); },
   };
-  vm.runInNewContext([inlineFunction("configParamDiffBase"), inlineFunction("configParamDiffRows")].join("\n"), context);
+  vm.runInNewContext([inlineFunction("configParamsByKey"), inlineFunction("configParamDiffBase"), inlineFunction("configParamDiffRows")].join("\n"), context);
   const selected = { file: "configs/large.yaml", params: [
     { key: "model.depth", value: "50", kind: "scalar" },
     { key: "optimizer.lr", value: "0.001", kind: "scalar" },
@@ -86,6 +86,19 @@ test("config inspector reuses structural diffs while keeping each search current
   assert.deepEqual(Array.from(context.configParamDiffRows(selected, baseline, "trainer").rows, (row) => row.key), ["trainer.epochs"]);
   assert.equal(context.configParamDiffRows(selected, { ...baseline, params: [...baseline.params] }, "") === first, false);
   assert.equal(context.configParamDiffRows({ ...selected, params: [...selected.params] }, baseline, "") === first, false);
+});
+
+test("config inspector indexes params in one traversal with last duplicate winning", () => {
+  const context = { asArray(value) { return Array.isArray(value) ? value : []; } };
+  const source = inlineFunction("configParamsByKey");
+  assert.doesNotMatch(source, /\.map\(|\.filter\(/);
+  vm.runInNewContext(source, context);
+  const first = { key: "seed", value: "1" };
+  const last = { key: "seed", value: "2" };
+  const indexed = context.configParamsByKey([first, { key: "", value: "ignored" }, null, last]);
+  assert.deepEqual(Array.from(indexed.keys()), ["seed"]);
+  assert.equal(indexed.get("seed"), last);
+  assert.equal(context.configParamsByKey(undefined).size, 0);
 });
 
 test("config inspector accepts only concrete Plan config files as a comparison baseline", () => {
