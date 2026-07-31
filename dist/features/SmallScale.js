@@ -36,22 +36,32 @@ function normalizeSmallScaleSettings(input = {}) {
     };
 }
 function buildCompletenessMatrix(config, input) {
-    const plans = (input.plans || []).filter((plan) => !config.scope.planId || plan.planId === config.scope.planId).filter((plan) => !config.scope.suite || plan.suite === config.scope.suite);
+    const plans = (input.plans || []).filter((plan) => (!config.scope.planId || plan.planId === config.scope.planId) && (!config.scope.suite || plan.suite === config.scope.suite));
     const study = (input.studies || []).find((item) => item.studyId === config.scope.studyId);
     const planned = [
         ...plans.flatMap((plan) => plan.plannedExperiments.map((exp) => ({ ...dimsFromRun(exp.runKey), experimentId: exp.experimentKey, status: exp.status || "planned" }))),
         ...(study ? study.methods.flatMap((method) => study.datasets.flatMap((dataset) => study.splits.flatMap((split) => study.seeds.map((seed) => ({ method: method.methodId, dataset: dataset.name, split: split.name, seed, experimentId: `${study.studyId}:${method.methodId}:${dataset.name}:${split.name}:${seed}`, status: "planned" }))))) : []),
     ];
-    const resultRows = (input.results || []).filter((record) => !config.scope.suite || record.suite === config.scope.suite).map((record) => ({ record, key: keyFor(config.axes, { ...record.dimensions, ...dimsFromRun(record.runKey) }) }));
     const planKeys = new Map();
     for (const item of planned) {
         const key = keyFor(config.axes, item);
         planKeys.set(key, [...(planKeys.get(key) || []), item]);
     }
-    const allKeys = new Set([...planKeys.keys(), ...resultRows.map((item) => item.key)]);
+    const resultKeys = new Map();
+    for (const record of input.results || []) {
+        if (config.scope.suite && record.suite !== config.scope.suite)
+            continue;
+        const key = keyFor(config.axes, { ...record.dimensions, ...dimsFromRun(record.runKey) });
+        const records = resultKeys.get(key);
+        if (records)
+            records.push(record);
+        else
+            resultKeys.set(key, [record]);
+    }
+    const allKeys = new Set([...planKeys.keys(), ...resultKeys.keys()]);
     return Array.from(allKeys).map((key) => {
         const plannedItems = planKeys.get(key) || [];
-        const records = resultRows.filter((row) => row.key === key).map((row) => row.record);
+        const records = resultKeys.get(key) || [];
         const missingMetrics = Array.from(new Set(records.flatMap((record) => config.requiredMetrics.filter((metric) => !record.metrics[metric]))));
         const gates = (input.gateResults || []).filter((gate) => records.some((record) => record.experimentId === gate.experimentId));
         const lifecycle = (input.lifecycles || []).filter((item) => plannedItems.some((plan) => plan.experimentId === item.experimentId));

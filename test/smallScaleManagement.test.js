@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const { checkProjectOutputContract, builtInOutputContracts } = require("../dist/features/Quality.js");
 const { importLegacyPlanYamlToRegistry } = require("../dist/features/PlanBuilder.js");
@@ -76,6 +78,35 @@ test("completeness matrix finds missing results and quality failures", () => {
   assert.equal(cells.some((cell) => cell.status === "completed_no_result"), true);
   assert.match(completenessMatrixToMarkdown(cells), /ready_for_analysis/);
   assert.match(completenessMatrixToCsv(cells), /quality_failed/);
+});
+
+test("completeness matrix groups scoped results once and preserves result order", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/SmallScale.ts"), "utf8");
+  const body = source.match(/export function buildCompletenessMatrix[\s\S]*?\n}\n\nexport function completenessMatrixToMarkdown/)?.[0] || "";
+  assert.match(body, /const resultKeys = new Map<string, ExperimentResultRecord\[\]>/);
+  assert.match(body, /for \(const record of input\.results \|\| \[\]\)/);
+  assert.match(body, /const records = resultKeys\.get\(key\) \|\| \[\]/);
+  assert.doesNotMatch(body, /resultRows|\.filter\(\(row\) => row\.key === key\)/);
+
+  const cells = buildCompletenessMatrix({
+    id: "grouped",
+    name: "grouped",
+    scope: { suite: "keep" },
+    axes: ["method"],
+    requiredMetrics: [],
+    requireQualityGatePassed: false,
+  }, {
+    results: [
+      resultRecord("e2", {}, { resultId: "r2", suite: "keep", dimensions: { method: "ours" } }),
+      resultRecord("e1", {}, { resultId: "r1", suite: "keep", dimensions: { method: "ours" } }),
+      resultRecord("ignored", {}, { resultId: "ignored", suite: "drop", dimensions: { method: "ours" } }),
+      resultRecord("e3", {}, { resultId: "r3", suite: "keep", runKey: "method-baseline_dataset-VinDr_split-test_seed-42", dimensions: { method: "baseline" } }),
+    ],
+  });
+  assert.deepEqual(cells.map((cell) => [cell.key.method, cell.resultIds]), [
+    ["baseline", ["r3"]],
+    ["ours", ["r2", "r1"]],
+  ]);
 });
 
 test("pre-run and post-run checklists expose blocking and warning items", () => {
