@@ -14255,6 +14255,15 @@ function parseProjectAdapterRules(text) {
         metricAliases: Object.keys(outputMap("metricAliases")).length ? outputMap("metricAliases") : mapAfter("metricAliases", 0),
     };
 }
+const SEGMENTATION_PROJECT_METRIC_PATTERN = /dice|dsc|iou|hd95|asd|hausdorff/i;
+function partitionProjectMetrics(normalizedMetrics) {
+    const classification = [];
+    const segmentation = [];
+    for (const metric of normalizedMetrics) {
+        (SEGMENTATION_PROJECT_METRIC_PATTERN.test(metric) ? segmentation : classification).push(metric);
+    }
+    return { classification, segmentation };
+}
 async function inferProjectAdapterRules(root, configFiles, factory, planFiles = []) {
     const texts = await Promise.all(configFiles.slice(0, 80).map(async (file) => ({
         file,
@@ -14342,8 +14351,9 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
     const hasClassificationTask = [...taskSignals].some((item) => /classification|multimodal_classification/i.test(item));
     const taskType = hasSegmentationTask && !hasClassificationTask ? "segmentation" : "classification";
     const normalizedMetrics = uniqueStrings([...metrics].map(normalizeMetricName).filter(Boolean));
+    const metricGroups = partitionProjectMetrics(normalizedMetrics);
     const classification = uniqueStrings([
-        ...normalizedMetrics.filter((item) => !/dice|dsc|iou|hd95|asd|hausdorff/i.test(item)),
+        ...metricGroups.classification,
         "AUC",
         "accuracy",
         "F1",
@@ -14355,7 +14365,7 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
         "loss",
     ]);
     const segmentation = uniqueStrings([
-        ...normalizedMetrics.filter((item) => /dice|dsc|iou|hd95|asd|hausdorff/i.test(item)),
+        ...metricGroups.segmentation,
         "Dice",
         "DSC",
         "IoU",
