@@ -170,7 +170,7 @@ test("new-project UI and Hub/Worker chain preserve the selected mode", () => {
   assert.match(panelSource, /function planModeLabel\(mode\)/);
   assert.match(panelSource, /"仅训练"/);
   assert.match(panelSource, /"仅评估"/);
-  assert.match(schedulerSource, /launch_experiment\(worker, args\.plan, experiment_index, gpu_id, log_dir, execution_mode, args\.debug_mode, args\.debug_run_id, args\.debug_output_dir\)/);
+  assert.match(schedulerSource, /launch_experiment\(worker, args\.plan, experiment_index, gpu_id, log_dir, execution_mode, args\.debug_mode, args\.debug_run_id, args\.debug_output_dir, args\.default_result_csv_dir\)/);
   assert.match(schedulerSource, /"mode": execution_mode/);
   assert.match(schedulerSource, /testing\[f"\{worker\['id'\]\}:\{gpu_id\}"\] = item/);
   assert.match(agentSource, /"--mode", mode/);

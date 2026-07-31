@@ -13,38 +13,35 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-211：索引配置预览规范化文件路径。
-- [已完成] 2/5 project-212：合并比较统计配对值遍历。
-- [已完成] 3/5 project-213：索引输出能力缺失文件与列。
-- [已完成] 4/5 project-214：增加项目级实验结果 CSV 目录配置并接入 Plan 默认输出链路。
-- [待处理] 5/5 project-215：执行第七十三轮完整非服务器静态测试。
+- [待处理] 1/5 project-216：为设置页建立专用有界渲染模型，避免对完整 Webview state 哈希。
+- [待处理] 2/5 project-217：合并主面板布局顺序成员检查。
+- [待处理] 3/5 project-218：复用单次读取的结果 CSV 目录配置，减少状态与动作路径重复配置解析。
+- [待处理] 4/5 project-219：审计下一组前后端高频派生热点并实施一个有证据的有界优化。
+- [待处理] 5/5 project-220：执行第七十四轮完整非服务器静态测试。
 
-## 当前批次：project-214（已完成）
+## 当前批次：project-215（已完成）
 ### 修复点
 
-- 设置二级界面新增实验结果 CSV 目录，可直接填写工作区相对路径或浏览选择工作区内文件夹。
-- 配置作为新建 Plan 和 scheduler 未显式声明结果路径时的默认目录；Plan 已有 result_csv、expectedResults 或命令固定路径始终优先。
-- scheduler 的 jobs.csv 与 fallback result_csv 使用同一默认目录，并将配置经 Local -> Agent -> scheduler -> Worker 任务完整透传。
+- 执行第七十三轮完整非服务器静态回归，覆盖 build、全部 Node 测试、lint、生成 JavaScript 与 Agent Python runtime 语法。
+- 核对完整回归是否暴露 project-211 至 project-214 的跨模块回归；失败则在本批内修复并重跑。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 仅允许工作区内相对目录，拒绝绝对路径、`..` 越界和工作区根目录，浏览结果同样执行边界校验。
-- 旧 Plan 的显式结果文件声明不得被配置覆盖；Debug 继续使用隔离目录。
-- 配置变更必须触发设置区重绘；正在编辑的草稿不得被状态刷新覆盖。
-- 自定义目录必须随运行请求到达 Worker；否则 Hub 预演与 Worker 实际输出会不一致。
+- 完整测试不得触发真实 Xshell 隧道、服务器连接、VS Code 重载或 VSIX 安装。
+- 测试生成物不得混入提交；仅提交本批计划记录及必要修复。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建与 Agent runtime 生成。
-- [已通过] 结果 CSV 目录配置、路径边界、Plan 默认值、显式路径优先和 scheduler/Worker 透传定向测试，12/12。
-- [已通过] lint、Agent/Scheduler Python 语法与 `git diff --check`；仅有既有 Windows 行尾提示。
+- [已通过] `npm test` 完整 Node 回归，1092/1092。
+- [已通过] lint、115 个生成 JavaScript 与 8 个 Python 文件语法。
+- [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-213 已由提交 `f8ffaee` 同步至 `origin/master`。
-- 本批只处理结果 CSV 默认目录配置、设置页入口、运行透传、定向测试和计划文档；不修改旧 Plan 或旧结果。
-- 配置仅允许工作区相对目录；生成 Plan 使用每 case/seed 独立文件名，scheduler fallback 和 jobs.csv 使用同一目录；旧 Plan 显式路径保持优先。
-- 本批 12/12 定向测试通过；真实服务器透传标记 `needs field verification`，未截图、未连接服务器。
+- project-214 已由提交 `83add3d` 同步至 `origin/master`。
+- 本批只执行完整非服务器静态回归并记录结果；不截图、不打包、不安装、不连接服务器。
+- 首轮完整回归暴露新增结果目录按钮缺少命令帮助及 scheduler 透传断言未更新；已补齐后重跑全量通过。
+- 第七十三轮完整非服务器静态回归最终 1092/1092 通过；lint、115 个 JavaScript 与 8 个 Python 文件语法均通过。
