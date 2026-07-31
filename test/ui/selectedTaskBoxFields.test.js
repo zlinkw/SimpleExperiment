@@ -110,3 +110,15 @@ test("selected task state derives all payload fields in one traversal", () => {
   assert.doesNotMatch(payload, /rows\.(?:map|filter|some)\(/);
   assert.match(payload, /debugMode: fields\.debugMode/);
 });
+
+test("selected task values clean deduplicate and fallback in one traversal", () => {
+  const sandbox = { asArray(value) { return Array.isArray(value) ? value : []; } };
+  vm.createContext(sandbox);
+  const source = extractFunction("cleanSelectedValues");
+  assert.doesNotMatch(source, /\.map\(|\.filter\(|Array\.from\(new Set/);
+  vm.runInContext(`${source}\nthis.clean = cleanSelectedValues;`, sandbox);
+
+  assert.deepEqual(Array.from(sandbox.clean([" a ", "a", "-", "", 0, "b"], ["fallback"])), ["a", "b"]);
+  assert.deepEqual(Array.from(sandbox.clean(["-", "", null], [" c ", "c", "-", "d"])), ["c", "d"]);
+  assert.deepEqual(Array.from(sandbox.clean([], [])), []);
+});

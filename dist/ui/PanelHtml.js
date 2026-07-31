@@ -13700,9 +13700,17 @@ function renderPanelHtml() {
     }
 
     function cleanSelectedValues(values, fallback) {
-      const cleaned = values.map((value) => String(value || "").trim()).filter((value) => value && value !== "-");
-      const source = cleaned.length ? cleaned : asArray(fallback).map((value) => String(value || "").trim()).filter((value) => value && value !== "-");
-      return Array.from(new Set(source));
+      const cleaned = [];
+      const seen = new Set();
+      const append = (source) => asArray(source).forEach((value) => {
+        const text = String(value || "").trim();
+        if (!text || text === "-" || seen.has(text)) return;
+        seen.add(text);
+        cleaned.push(text);
+      });
+      append(values);
+      if (!cleaned.length) append(fallback);
+      return cleaned;
     }
 
     function normalizeServerGpu(serverId, rows) {
