@@ -4208,17 +4208,40 @@ function renderPanelHtml() {
       });
     }
 
+    function webviewCommandButtonFacts(buttons) {
+      const commandSet = new Set();
+      const helpByCommand = new Map();
+      const disabledWithoutReason = [];
+      let withoutTooltip = 0;
+      const hasHelp = (command) => {
+        const key = String(command || "");
+        if (!helpByCommand.has(key)) helpByCommand.set(key, Boolean(commandHelp(key)));
+        return helpByCommand.get(key);
+      };
+      for (const button of buttons) {
+        const command = String(button.dataset.command || "");
+        if (command) commandSet.add(command);
+        if (String(button.getAttribute("title") || "").trim() || hasHelp(command)) continue;
+        withoutTooltip += 1;
+        if (button.disabled) disabledWithoutReason.push(command || "unknown");
+      }
+      const commands = Array.from(commandSet).sort();
+      const missingHandler = [];
+      const missingHelp = [];
+      commands.forEach((command) => {
+        if (!webviewHandledCommands.has(command)) missingHandler.push(command);
+        if (!hasHelp(command)) missingHelp.push(command);
+      });
+      return { commands, missingHandler, missingHelp, withoutTooltip, disabledWithoutReason };
+    }
+
     function webviewDomCommandAudit() {
       const buttons = Array.from(document.querySelectorAll("button[data-command]"));
-      const commands = Array.from(new Set(buttons.map((button) => String(button.dataset.command || "")).filter(Boolean))).sort();
-      const missingHandler = commands.filter((command) => !webviewHandledCommands.has(command));
-      const missingHelp = commands.filter((command) => !commandHelp(command));
-      const withoutTooltip = buttons.filter((button) => !String(button.getAttribute("title") || "").trim() && !commandHelp(button.dataset.command)).length;
+      const facts = webviewCommandButtonFacts(buttons);
       const payloadWarnings = auditButtonPayloadWarnings(buttons);
       const directWorkerWarnings = payloadWarnings.filter((item) => /Worker/.test(item));
       const surfaceCounts = buttonSurfaceAudit(buttons);
-      const disabledWithoutReason = buttons.filter((button) => button.disabled && !String(button.getAttribute("title") || "").trim() && !commandHelp(button.dataset.command)).map((button) => button.dataset.command || "unknown");
-      return { buttonCount: buttons.length, commandCount: commands.length, missingHandler, missingHelp, withoutTooltip, payloadWarnings, directWorkerWarnings, surfaceCounts, disabledWithoutReason: uniqueText(disabledWithoutReason).slice(0, 12) };
+      return { buttonCount: buttons.length, commandCount: facts.commands.length, missingHandler: facts.missingHandler, missingHelp: facts.missingHelp, withoutTooltip: facts.withoutTooltip, payloadWarnings, directWorkerWarnings, surfaceCounts, disabledWithoutReason: uniqueText(facts.disabledWithoutReason).slice(0, 12) };
     }
 
     function cachedWebviewDomCommandAudit(_state) {

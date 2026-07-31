@@ -16,32 +16,32 @@
 - [已完成] 1/5 project-191：合并后端 Worker 已选任务字段派生。
 - [已完成] 2/5 project-192：合并前端复选任务 payload 派生。
 - [已完成] 3/5 project-193：合并后端项目指标类型划分。
-- [待处理] 4/5 project-194：合并前端 Webview 命令审计遍历。
+- [已完成] 4/5 project-194：合并前端 Webview 命令审计遍历。
 - [待处理] 5/5 project-195：执行第六十九轮完整非服务器静态测试。
 
-## 当前批次：project-193（已完成）
+## 当前批次：project-194（已完成）
 ### 修复点
 
-- 项目适配器指标只遍历一次，按分割指标 token 同时划分 classification 与 segmentation 候选。
-- 保持指标归一化、原始顺序、默认指标补齐、去重和 taskType 推断不变。
+- Webview 命令审计单次扫描按钮，同时收集命令、缺失 tooltip 和禁用无原因项，并缓存每个命令的 help 判断。
+- 命令排序后单次划分缺失 handler/help，保持 payload、Worker 和 surface 审计接线不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- Dice、DSC、IoU、HD95、ASD、Hausdorff 仍归入 segmentation，其他指标归入 classification。
-- 大小写匹配、输入顺序和别名归一化不得改变，默认 AUC/accuracy/F1 与 Dice/IoU 等补齐项必须保留。
-- 项目检测仅做静态文件推断，不生成实验结果声明。
+- 空命令仍不得计入 commandCount，但无标题且无 help 时仍计入 tooltip/disabled 诊断。
+- missingHandler、missingHelp 必须保持字典序，重复命令只输出一次，disabledWithoutReason 仍去重并限 12 项。
+- payloadWarnings、directWorkerWarnings、surfaceCounts 和缓存刷新字段不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] 指标单次划分、大小写、顺序、默认补齐与嵌套结果相邻定向 Node 测试，5/5。
+- [已通过] 命令审计单次按钮扫描、help 缓存、排序、缺失项与 handler 接线定向 Node 测试，4/4。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-192 已由提交 `239b799` 同步至 `origin/master`。
-- 本批仅处理后端项目指标划分、对应测试和计划文档；无视觉样式变化，不调用截图。
-- 归一化指标改为单次遍历划分 classification/segmentation，再接入原有默认指标补齐；5/5 定向测试通过。
+- project-193 已由提交 `630ef42` 同步至 `origin/master`。
+- 本批仅处理前端 Webview 命令审计派生、对应测试和计划文档；无视觉样式变化，不调用截图。
+- 命令按钮改为单次扫描并按命令缓存 help，排序后一次产出 missing handler/help；4/4 定向测试通过。
