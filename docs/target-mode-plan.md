@@ -16,32 +16,32 @@
 - [已完成] 1/5 project-201：改为就地分组完整性矩阵计划项。
 - [已完成] 2/5 project-202：合并 GPU 历史采样间隔差值收集。
 - [已完成] 3/5 project-203：合并结果仪表盘记录统计遍历。
-- [待处理] 4/5 project-204：合并前端任务状态 payload 行派生。
+- [已完成] 4/5 project-204：合并前端任务状态 payload 行派生。
 - [待处理] 5/5 project-205：执行第七十一轮完整非服务器静态测试。
 
-## 当前批次：project-203（已完成）
+## 当前批次：project-204（已完成）
 ### 修复点
 
-- 结果仪表盘单次遍历记录，同时收集实验数、状态计数、论文候选及每个 suite 的最佳结果。
-- 最佳结果改为在线比较，避免 suite 数组复制、过滤和排序，并复用一次 metric schema 查找。
+- 前端任务状态 payload 单次遍历已选行，同时收集全部选择字段、legacy key、目标对象和 debug 标记。
+- 复用每行 action、archive、worker 与 Plan 派生，避免各字段 map、target map/filter 和 debug some 重扫。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- suite 输出顺序、无有限主指标时的空结果、higher/lower 方向和并列首项必须保持不变。
-- parsed、parse_failed、paper-candidate 与唯一 experiment 计数必须保持不变。
-- validation warning 与 coverage 仍使用现有独立契约，不得混入记录遍历逻辑。
+- fallback、清洗、去重和各选择字段输入顺序必须保持不变。
+- 无稳定 action key 的任务仍按 UI key 标记 legacy，空 target 仍必须丢弃。
+- debug mode 只由保留的 target 派生，单 Plan、多 Plan 与缓存克隆行为不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] 仪表盘单次统计、suite 最优方向、并列、空指标与计数定向 Node 测试，19/19。
+- [已通过] 任务状态 payload 单次行派生、legacy、空 target、debug、fallback 与缓存接线定向 Node 测试，13/13。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-202 已由提交 `6d1c1fc` 同步至 `origin/master`。
-- 本批仅处理后端结果仪表盘记录统计、对应测试和计划文档；无视觉样式变化，不调用截图。
-- 记录计数与 suite 最优结果改为单次遍历在线聚合，方向、并列和空指标语义不变；19/19 定向测试通过。
+- project-203 已由提交 `3643fa0` 同步至 `origin/master`。
+- 本批仅处理前端任务状态 payload 行派生、对应测试和计划文档；无视觉样式变化，不调用截图。
+- 全部选择字段、legacy key、target 与 debug 改为单次行遍历派生，清洗、fallback 与缓存契约不变；13/13 定向测试通过。

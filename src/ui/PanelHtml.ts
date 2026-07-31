@@ -13610,29 +13610,17 @@ export function renderPanelHtml(): string {
       const cacheKey = selectedTaskStateRowsCacheKey + "::payload::" + selectedTaskRowsSignature(rows);
       if (selectedTaskStatePayloadCache && selectedTaskStatePayloadCacheKey === cacheKey) return cloneSelectedTaskPayload(selectedTaskStatePayloadCache);
       const fallbackRunKeys = selection.selectedRunKeys && selection.selectedRunKeys.length ? selection.selectedRunKeys : (selection.selectedRunKey ? [selection.selectedRunKey] : []);
-      const taskActionFields = selectedTaskActionFields(rows);
-      const selectedRunKeys = cleanSelectedValues(taskActionFields.runKeys, fallbackRunKeys);
-      const selectedExperimentIds = cleanSelectedValues(rows.map((row) => row.experimentId), selection.selectedExperimentIds || []);
-      const selectedArchiveKeys = cleanSelectedValues(rows.map((row) => taskArchiveActionKey(row)), selection.selectedArchiveKeys || []);
-      const selectedWorkerIds = cleanSelectedValues(rows.map((row) => resolveWorkerId(row.serverId)), selection.selectedWorkerIds || []);
-      const selectedTaskUiKeys = cleanSelectedValues(rows.map((row) => row.uiKey), selection.selectedTaskUiKeys || []);
-      const selectedPlanFiles = cleanSelectedValues(rows.map((row) => taskPlanFile(row)), []);
-      const selectedPlanRevisions = cleanSelectedValues(rows.map((row) => row.planRevision), []);
-      const selectedLegacyTaskUiKeys = cleanSelectedValues(taskActionFields.legacyUiKeys, []);
-      const selectedTaskTargets = rows.map((row) => ({
-        workerId: cleanSelectionValue(resolveWorkerId(row.serverId)),
-        taskUiKey: cleanSelectionValue(row.uiKey),
-        runKey: cleanSelectionValue(taskActionKey(row)),
-        experimentId: cleanSelectionValue(row.experimentId),
-        archiveKey: cleanSelectionValue(taskArchiveActionKey(row)),
-        planFile: cleanSelectionValue(taskPlanFile(row)),
-        planRevision: cleanSelectionValue(row.planRevision),
-        artifactPath: cleanSelectionValue(row.artifactPath),
-        resultPath: cleanSelectionValue(row.resultPath),
-        logPath: cleanSelectionValue(row.logPath),
-        debugMode: row.debugMode === true
-      })).filter((target) => target.workerId || target.runKey || target.experimentId || target.archiveKey || target.taskUiKey);
-      const payload = { selectedRunKeys, selectedExperimentIds, selectedArchiveKeys, selectedWorkerIds, selectedTaskUiKeys, selectedPlanFiles, selectedPlanRevisions, selectedLegacyTaskUiKeys, selectedTaskTargets, debugMode: selectedTaskTargets.some((target) => target.debugMode) };
+      const fields = selectedTaskRowFields(rows);
+      const selectedRunKeys = cleanSelectedValues(fields.runKeys, fallbackRunKeys);
+      const selectedExperimentIds = cleanSelectedValues(fields.experimentIds, selection.selectedExperimentIds || []);
+      const selectedArchiveKeys = cleanSelectedValues(fields.archiveKeys, selection.selectedArchiveKeys || []);
+      const selectedWorkerIds = cleanSelectedValues(fields.workerIds, selection.selectedWorkerIds || []);
+      const selectedTaskUiKeys = cleanSelectedValues(fields.taskUiKeys, selection.selectedTaskUiKeys || []);
+      const selectedPlanFiles = cleanSelectedValues(fields.planFiles, []);
+      const selectedPlanRevisions = cleanSelectedValues(fields.planRevisions, []);
+      const selectedLegacyTaskUiKeys = cleanSelectedValues(fields.legacyUiKeys, []);
+      const selectedTaskTargets = fields.targets;
+      const payload = { selectedRunKeys, selectedExperimentIds, selectedArchiveKeys, selectedWorkerIds, selectedTaskUiKeys, selectedPlanFiles, selectedPlanRevisions, selectedLegacyTaskUiKeys, selectedTaskTargets, debugMode: fields.debugMode };
       if (selectedPlanFiles.length === 1) payload.planFile = selectedPlanFiles[0];
       if (selectedPlanRevisions.length === 1) payload.planRevision = selectedPlanRevisions[0];
       else payload.suppressGlobalPlan = true;
@@ -13641,12 +13629,38 @@ export function renderPanelHtml(): string {
       return cloneSelectedTaskPayload(payload);
     }
 
-    function selectedTaskActionFields(rows) {
-      const fields = { runKeys: [], legacyUiKeys: [] };
+    function selectedTaskRowFields(rows) {
+      const fields = { runKeys: [], experimentIds: [], archiveKeys: [], workerIds: [], taskUiKeys: [], planFiles: [], planRevisions: [], legacyUiKeys: [], targets: [], debugMode: false };
       asArray(rows).forEach((row) => {
         const runKey = taskActionKey(row);
+        const archiveKey = taskArchiveActionKey(row);
+        const workerId = resolveWorkerId(row.serverId);
+        const planFile = taskPlanFile(row);
         fields.runKeys.push(runKey);
+        fields.experimentIds.push(row.experimentId);
+        fields.archiveKeys.push(archiveKey);
+        fields.workerIds.push(workerId);
+        fields.taskUiKeys.push(row.uiKey);
+        fields.planFiles.push(planFile);
+        fields.planRevisions.push(row.planRevision);
         if (!usableTaskKey(runKey)) fields.legacyUiKeys.push(row.uiKey);
+        const target = {
+          workerId: cleanSelectionValue(workerId),
+          taskUiKey: cleanSelectionValue(row.uiKey),
+          runKey: cleanSelectionValue(runKey),
+          experimentId: cleanSelectionValue(row.experimentId),
+          archiveKey: cleanSelectionValue(archiveKey),
+          planFile: cleanSelectionValue(planFile),
+          planRevision: cleanSelectionValue(row.planRevision),
+          artifactPath: cleanSelectionValue(row.artifactPath),
+          resultPath: cleanSelectionValue(row.resultPath),
+          logPath: cleanSelectionValue(row.logPath),
+          debugMode: row.debugMode === true
+        };
+        if (target.workerId || target.runKey || target.experimentId || target.archiveKey || target.taskUiKey) {
+          fields.targets.push(target);
+          if (target.debugMode) fields.debugMode = true;
+        }
       });
       return fields;
     }

@@ -78,25 +78,35 @@ test("selected task payload consumes collector output without rescanning boxes",
   assert.match(payload, /debugMode: fields\.debugMode/);
 });
 
-test("selected task state classifies action and legacy keys in one traversal", () => {
+test("selected task state derives all payload fields in one traversal", () => {
   let actionReads = 0;
   const sandbox = {
     asArray(value) { return Array.isArray(value) ? value : []; },
     taskActionKey(row) { actionReads += 1; return row.runKey; },
+    taskArchiveActionKey(row) { return row.archiveKey; },
+    resolveWorkerId(value) { return value; },
+    taskPlanFile(row) { return row.planFile; },
+    cleanSelectionValue(value) { const text = String(value || "").trim(); return text && text !== "-" ? text : ""; },
     usableTaskKey(value) { return Boolean(String(value || "").trim()); },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("selectedTaskActionFields")}\nthis.collect = selectedTaskActionFields;`, sandbox);
+  vm.runInContext(`${extractFunction("selectedTaskRowFields")}\nthis.collect = selectedTaskRowFields;`, sandbox);
   const fields = sandbox.collect([
-    { runKey: "run-a", uiKey: "ui-a" },
-    { runKey: "", uiKey: "legacy-b" },
-    { runKey: "run-c", uiKey: "ui-c" },
+    { runKey: "run-a", experimentId: "exp-a", archiveKey: "arc-a", serverId: "worker-a", uiKey: "ui-a", planFile: "plans/a.yaml", planRevision: "r1" },
+    { runKey: "", uiKey: "legacy-b", debugMode: true },
+    { runKey: "", uiKey: "", debugMode: true },
   ]);
   assert.equal(actionReads, 3);
-  assert.deepEqual(Array.from(fields.runKeys), ["run-a", "", "run-c"]);
-  assert.deepEqual(Array.from(fields.legacyUiKeys), ["legacy-b"]);
+  assert.deepEqual(Array.from(fields.runKeys), ["run-a", "", ""]);
+  assert.deepEqual(Array.from(fields.experimentIds), ["exp-a", undefined, undefined]);
+  assert.deepEqual(Array.from(fields.legacyUiKeys), ["legacy-b", ""]);
+  assert.equal(fields.targets.length, 2);
+  assert.equal(fields.targets[0].workerId, "worker-a");
+  assert.equal(fields.targets[1].taskUiKey, "legacy-b");
+  assert.equal(fields.debugMode, true);
 
   const payload = extractFunction("selectedTaskPayloadFromState");
-  assert.match(payload, /const taskActionFields = selectedTaskActionFields\(rows\)/);
-  assert.doesNotMatch(payload, /rows\.filter\(\(row\) => !usableTaskKey\(taskActionKey\(row\)\)\)/);
+  assert.match(payload, /const fields = selectedTaskRowFields\(rows\)/);
+  assert.doesNotMatch(payload, /rows\.(?:map|filter|some)\(/);
+  assert.match(payload, /debugMode: fields\.debugMode/);
 });
