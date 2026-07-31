@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const {
   COMPARISON_REGISTRY_PATH,
@@ -102,6 +104,16 @@ test("comparison analyzer computes baseline improvement, lower better, paired te
   assert.equal(analysis.baselineImprovements.some((item) => item.methodId === "ours" && item.metric === "ASD" && item.absoluteDiff < 0 && item.higherIsBetter === false), true);
   assert.equal(analysis.significance.some((item) => item.test === "paired_t_test"), true);
   assert.equal(analysis.reproductionGap[0].gap < 0, true);
+});
+
+test("comparison paired values build both method maps in one row traversal", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/Comparison.ts"), "utf8");
+  const body = source.match(/function pairedValues[\s\S]*?\n}\n\nfunction pairedTTest/)?.[0] || "";
+  assert.match(body, /for \(const row of rows\)/);
+  assert.match(body, /row\.methodId === a \? amap : row\.methodId === b \? bmap/);
+  assert.match(body, /for \(const \[key, value\] of amap\)/);
+  assert.doesNotMatch(body, /rows\.filter\(/);
+  assert.doesNotMatch(body, /Array\.from\(amap\.entries\(\)\)\.filter/);
 });
 
 test("manual paper result stays separate unless included and report exports all formats", () => {

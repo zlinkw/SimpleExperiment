@@ -609,9 +609,18 @@ function significanceRows(rows: ResultValueRow[], protocol: ComparisonProtocol, 
 
 function pairedValues(rows: ResultValueRow[], a: string, b: string, metric: string, pairedBy: Array<"seed" | "fold" | "dataset" | "case">): Array<[number, number]> {
   const keyOf = (row: ResultValueRow) => pairedBy.map((key) => key === "dataset" ? row.dataset : key === "seed" ? row.seed : row.split).join("|");
-  const amap = new Map(rows.filter((row) => row.methodId === a && row.metric === metric).map((row) => [keyOf(row), row.value]));
-  const bmap = new Map(rows.filter((row) => row.methodId === b && row.metric === metric).map((row) => [keyOf(row), row.value]));
-  return Array.from(amap.entries()).filter(([key]) => bmap.has(key)).map(([key, value]) => [value, bmap.get(key)!]);
+  const amap = new Map<string, number>();
+  const bmap = new Map<string, number>();
+  for (const row of rows) {
+    if (row.metric !== metric) continue;
+    const target = row.methodId === a ? amap : row.methodId === b ? bmap : undefined;
+    if (target) target.set(keyOf(row), row.value);
+  }
+  const pairs: Array<[number, number]> = [];
+  for (const [key, value] of amap) {
+    if (bmap.has(key)) pairs.push([value, bmap.get(key)!]);
+  }
+  return pairs;
 }
 
 function pairedTTest(diffs: number[]): number {
@@ -695,4 +704,3 @@ function csvEscape(value: unknown): string {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
-

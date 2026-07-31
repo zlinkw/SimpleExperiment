@@ -398,9 +398,21 @@ function significanceRows(rows, protocol, baselineMethodId) {
 }
 function pairedValues(rows, a, b, metric, pairedBy) {
     const keyOf = (row) => pairedBy.map((key) => key === "dataset" ? row.dataset : key === "seed" ? row.seed : row.split).join("|");
-    const amap = new Map(rows.filter((row) => row.methodId === a && row.metric === metric).map((row) => [keyOf(row), row.value]));
-    const bmap = new Map(rows.filter((row) => row.methodId === b && row.metric === metric).map((row) => [keyOf(row), row.value]));
-    return Array.from(amap.entries()).filter(([key]) => bmap.has(key)).map(([key, value]) => [value, bmap.get(key)]);
+    const amap = new Map();
+    const bmap = new Map();
+    for (const row of rows) {
+        if (row.metric !== metric)
+            continue;
+        const target = row.methodId === a ? amap : row.methodId === b ? bmap : undefined;
+        if (target)
+            target.set(keyOf(row), row.value);
+    }
+    const pairs = [];
+    for (const [key, value] of amap) {
+        if (bmap.has(key))
+            pairs.push([value, bmap.get(key)]);
+    }
+    return pairs;
 }
 function pairedTTest(diffs) {
     const n = diffs.length;
