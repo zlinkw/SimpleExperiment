@@ -46,3 +46,20 @@ test("backend primitive parsing reuses fixed value and type sets", () => {
   assert.match(source, /const JSON_PRIMITIVE_TYPES = new Set\(\["string", "number", "boolean"\]\)/);
   assert.match(methodBody("function extractJsonParams(text)", "function extractPythonConfigParams(text)"), /entry === null \|\| JSON_PRIMITIVE_TYPES\.has\(typeof entry\)/);
 });
+
+test("backend action payload reads one scheduler snapshot", () => {
+  const body = methodBody("    actionBody(message) {", "    actionPlanTarget(message) {");
+  const fields = [
+    "pollSeconds",
+    "jitterSeconds",
+    "workerStatusTtlSeconds",
+    "workerAvailabilityPushSeconds",
+    "operationEventMaxDelayMs",
+    "workerActionMinIntervalMs",
+    "workerActionMaxConcurrent",
+  ];
+
+  assert.equal((body.match(/this\.schedulerSettings\(\)/g) || []).length, 1);
+  assert.match(body, /const scheduler = this\.schedulerSettings\(\)/);
+  for (const field of fields) assert.match(body, new RegExp(`${field}: scheduler\\.${field}`));
+});

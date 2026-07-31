@@ -4947,6 +4947,7 @@ class RealtimeTunnelPanelProvider {
         const selectedArchiveKeys = archiveKey
             ? [archiveKey]
             : (messageArchiveKeys.length ? messageArchiveKeys : (!suppressGlobalTaskSelection ? [...this.selectedArchiveKeys] : []));
+        const scheduler = this.schedulerSettings();
         return {
             schemaVersion: 1,
             opId: "",
@@ -4978,13 +4979,13 @@ class RealtimeTunnelPanelProvider {
                 experimentIndex,
                 gpuId: gpuId || undefined,
                 confirmationPath: confirmationPath || undefined,
-                pollSeconds: this.schedulerSettings().pollSeconds,
-                jitterSeconds: this.schedulerSettings().jitterSeconds,
-                workerStatusTtlSeconds: this.schedulerSettings().workerStatusTtlSeconds,
-                workerAvailabilityPushSeconds: this.schedulerSettings().workerAvailabilityPushSeconds,
-                operationEventMaxDelayMs: this.schedulerSettings().operationEventMaxDelayMs,
-                workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs,
-                workerActionMaxConcurrent: this.schedulerSettings().workerActionMaxConcurrent,
+                pollSeconds: scheduler.pollSeconds,
+                jitterSeconds: scheduler.jitterSeconds,
+                workerStatusTtlSeconds: scheduler.workerStatusTtlSeconds,
+                workerAvailabilityPushSeconds: scheduler.workerAvailabilityPushSeconds,
+                operationEventMaxDelayMs: scheduler.operationEventMaxDelayMs,
+                workerActionMinIntervalMs: scheduler.workerActionMinIntervalMs,
+                workerActionMaxConcurrent: scheduler.workerActionMaxConcurrent,
                 defaultResultCsvDir: this.resultCsvDirectory,
                 manualStopType: manualStopType || undefined,
                 stopReason: stopReason || undefined,
