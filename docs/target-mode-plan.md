@@ -13,38 +13,35 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-201：改为就地分组完整性矩阵计划项。
-- [已完成] 2/5 project-202：合并 GPU 历史采样间隔差值收集。
-- [已完成] 3/5 project-203：合并结果仪表盘记录统计遍历。
-- [已完成] 4/5 project-204：合并前端任务状态 payload 行派生。
-- [已完成] 5/5 project-205：执行第七十一轮完整非服务器静态测试。
+- [已完成] 1/5 project-206：预分组高级排行榜结果记录。
+- [待处理] 2/5 project-207：合并前端选择值清洗与去重。
+- [待处理] 3/5 project-208：索引完整性矩阵质量门与生命周期。
+- [待处理] 4/5 project-209：合并配置参数差异索引遍历。
+- [待处理] 5/5 project-210：执行第七十二轮完整非服务器静态测试。
 
-## 当前批次：project-205（已完成）
+## 当前批次：project-206（已完成）
 ### 修复点
 
-- 执行第七十一轮完整非服务器静态回归，覆盖 Node 测试、lint、JavaScript 语法和 Python UTF-8 内存编译。
-- 本批只更新验证状态与计划记录，不修改产品源代码或测试契约。
+- 高级排行榜在聚合前按 group key 单次分组过滤后的记录，避免每个基础行重扫全部结果并重复生成 group key。
+- 保持 inclusion policy、基础排行榜、聚合方法、weight 处理、baseline 与最终排序契约不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整构建会压缩目标计划文档，必须保留当前目标、固定边界和本批验证记录。
-- 全量测试不得写入或纳入历史 VSIX、运行态缓存及 `zlk_cluster/ui/`。
-- JavaScript 与 Python 分发文件必须保持可解析，且 Python 检查不得生成 `__pycache__`。
+- group key 的维度回退、字符串化、分隔符和输入顺序必须与基础排行榜一致。
+- policy 过滤后的记录不得因预分组重新引入，空分组仍保持空数组回退。
+- relative improvement、paired diff、weighted mean、CI95 与排序不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] `npm test` 完整 Node 静态回归，1083/1083。
-- [已通过] `npm run lint`。
-- [已通过] `node --check dist/extension.js`、`dist/panel.js`、`dist/cli.js`、`dist/runCli.js`。
-- [已通过] 8 个 `dist/**/*.py` 的 UTF-8 内存编译，不生成 `__pycache__`。
+- [已通过] TypeScript 构建。
+- [已通过] 高级排行榜单次分组、policy、聚合与排序定向 Node 测试，20/20。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-204 已由提交 `786a306` 同步至 `origin/master`。
-- 本批仅执行完整静态回归并更新计划文档；无视觉样式变化，不调用截图。
-- 第七十一轮完整回归通过：Node 测试 1083/1083、lint、4 个 JavaScript 入口语法、8 个 Python 分发文件内存编译及差异检查均通过。
-- 真实服务器行为仍为 `needs field verification`；下一轮静态优化目标待重新审计后登记。
+- project-205 已由提交 `0822c53` 同步至 `origin/master`。
+- 本批仅处理后端高级排行榜结果预分组、对应测试和计划文档；无视觉样式变化，不调用截图。
+- policy 后的记录改为按 group key 单次就地分组，聚合、baseline 与排序语义不变；20/20 定向测试通过。

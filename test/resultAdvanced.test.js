@@ -85,6 +85,29 @@ test("advanced aggregation supports ci95, median, relative improvement, and lowe
   assert.equal(bestLower.best, 2);
 });
 
+test("advanced leaderboard partitions filtered records before row aggregation", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/Results.ts"), "utf8");
+  const body = source.match(/export function buildAdvancedLeaderboard[\s\S]*?\n}\n\nexport function renderPaperTableTemplate/)?.[0] || "";
+  assert.match(body, /const itemsByGroup = new Map<string, ExperimentResultRecord\[\]>/);
+  assert.match(body, /for \(const record of filtered\)/);
+  assert.match(body, /const items = itemsByGroup\.get\(row\.groupKey\) \|\| \[\]/);
+  assert.doesNotMatch(body, /filtered\.filter/);
+
+  const schema = builtInResultSchemas[0];
+  const records = sampleRecords().map((record) => ({ ...applyResultSchema(record, schema, { row: { method: record.runKey === "r1" ? "baseline" : "ours" } }), eligibleForFinalAnalysis: true, finalEvidenceState: "archived" }));
+  const rows = buildAdvancedLeaderboard(records, {
+    id: "partitioned",
+    name: "Partitioned",
+    filter: { includeWarnings: true },
+    groupBy: ["method"],
+    metrics: [{ key: "DSC", higherIsBetter: true, decimals: 3 }],
+    aggregate: "mean_std",
+    aggregation: { method: "relative_improvement", groupBy: ["method"], baselineFilter: { method: "baseline" } },
+  }, [], finalResultInclusionPolicy);
+  assert.deepEqual(rows.map((row) => row.groupKey).sort(), ["baseline", "ours"]);
+  assert.equal(rows.every((row) => Number.isFinite(row.values.DSC.mean)), true);
+});
+
 test("advanced leaderboard and paper template export use schema directions", () => {
   const schema = builtInResultSchemas[0];
   const records = sampleRecords().map((record) => ({ ...applyResultSchema(record, schema, { row: { method: record.runKey === "r1" ? "baseline" : "ours" } }), eligibleForFinalAnalysis: true, finalEvidenceState: "archived" }));

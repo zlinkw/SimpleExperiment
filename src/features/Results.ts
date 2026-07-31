@@ -816,8 +816,15 @@ export function buildAdvancedLeaderboard(records: ExperimentResultRecord[], conf
   const base = buildResultLeaderboard(filtered, { ...config, aggregate: config.aggregate === "mean_ci95" ? "mean_std" : config.aggregate }, []);
   if (!config.aggregation || !["relative_improvement", "paired_diff", "weighted_mean", "mean_ci95"].includes(config.aggregation.method)) return base;
   const baseline = findBaseline(records, config.aggregation.baselineFilter, config.metrics[0]?.key);
+  const itemsByGroup = new Map<string, ExperimentResultRecord[]>();
+  for (const record of filtered) {
+    const groupKey = config.groupBy.map((key) => String(record.dimensions[key] ?? record[key as keyof ExperimentResultRecord] ?? "")).join(" | ");
+    const items = itemsByGroup.get(groupKey);
+    if (items) items.push(record);
+    else itemsByGroup.set(groupKey, [record]);
+  }
   return base.map((row) => {
-    const items = filtered.filter((record) => config.groupBy.map((key) => String(record.dimensions[key] ?? record[key as keyof ExperimentResultRecord] ?? "")).join(" | ") === row.groupKey);
+    const items = itemsByGroup.get(row.groupKey) || [];
     const values: ResultLeaderboardRow["values"] = {};
     for (const metric of config.metrics) {
       const nums = items.map((item) => Number(item.metrics[metric.key]?.value)).filter(Number.isFinite);
