@@ -40,7 +40,7 @@ test("local path validation rejects roots, absolute paths, and traversal", () =>
 });
 
 test("configured default reaches Agent, scheduler, Worker, and keeps explicit Plan paths", () => {
-  assert.match(extension, /defaultResultCsvDir: resultCsvDirSafe\(\)/);
+  assert.match(extension, /defaultResultCsvDir: this\.resultCsvDirectory/);
   assert.match(agent, /--default-result-csv-dir", default_result_csv_dir/);
   assert.match(agent, /"defaultResultCsvDir": default_result_csv_dir/);
   assert.match(scheduler, /parser\.add_argument\("--default-result-csv-dir"/);
@@ -70,7 +70,18 @@ test("configured default reaches Agent, scheduler, Worker, and keeps explicit Pl
 });
 
 test("guided Plan uses the configured directory only for injectable defaults", () => {
-  assert.match(extension, /guidedPlanResultPathReview\(resultCommand, suite, resultSuggestion\.resultExtension, resultCsvDirSafe\(\)\)/);
+  assert.match(extension, /guidedPlanResultPathReview\(resultCommand, suite, resultSuggestion\.resultExtension, this\.resultCsvDirectory\)/);
   assert.match(extension, /\$\{resultDir\}\/\$\{safeSuite\}\/\{case\}_seed\{seed\}\$\{extension\}/);
   assert.match(extension, /explicitPaths\[0\]\.path/);
+});
+
+test("Provider reuses one normalized result directory until config or workspace changes", () => {
+  assert.match(extension, /resultCsvDirectory = resultCsvDirSafe\(\)/);
+  assert.match(extension, /refreshResultCsvDirectory\(\) \{\s*this\.resultCsvDirectory = resultCsvDirSafe\(\)/);
+  assert.match(extension, /affectsConfiguration\("zlkCluster\.resultCsvDir"\)[\s\S]{0,220}this\.refreshResultCsvDirectory\(\)/);
+  assert.match(extension, /resetProjectContextInMemory\(\)[\s\S]*this\.refreshResultCsvDirectory\(\)/);
+  assert.match(extension, /defaultResultCsvDir: this\.resultCsvDirectory/);
+  assert.match(extension, /csvDirectory: this\.resultCsvDirectory/);
+  assert.equal((extension.match(/resultCsvDirSafe\(\)/g) || []).length, 3);
+  assert.equal((extension.match(/this\.resultCsvDirectory = resultCsvDir;/g) || []).length, 2);
 });

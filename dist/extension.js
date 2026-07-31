@@ -574,6 +574,7 @@ class RealtimeTunnelPanelProvider {
     configurationSourceStateCacheKey = "";
     configurationSourceStateCacheValue;
     gpuOwnerConfigCache;
+    resultCsvDirectory = resultCsvDirSafe();
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
@@ -824,6 +825,7 @@ class RealtimeTunnelPanelProvider {
         this.lastCodeSyncState = {};
         this.confirmedRemotePaths = [];
         this.confirmedPptPaths = [];
+        this.refreshResultCsvDirectory();
         this.localPlanMetadata = { planDir: planDirSafe(), detectedProject: {}, plans: [], archivedPlans: [] };
         this.localPlanMetadataRefreshPromise = undefined;
         this.xshellLibraryRefreshPromise = undefined;
@@ -913,8 +915,11 @@ class RealtimeTunnelPanelProvider {
             return;
         const previousMode = this.effectiveConnectionMode();
         const topologyChanged = event.affectsConfiguration("zlkCluster.topologyMode");
+        const resultCsvDirChanged = event.affectsConfiguration("zlkCluster.resultCsvDir");
         const connectionChanged = event.affectsConfiguration("zlkCluster.connectionMode")
             || event.affectsConfiguration("zlkCluster.tunnel");
+        if (resultCsvDirChanged)
+            this.refreshResultCsvDirectory();
         if (event.affectsConfiguration("zlkCluster.gpu"))
             this.gpuOwnerConfigCache = undefined;
         if (connectionChanged) {
@@ -4980,7 +4985,7 @@ class RealtimeTunnelPanelProvider {
                 operationEventMaxDelayMs: this.schedulerSettings().operationEventMaxDelayMs,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs,
                 workerActionMaxConcurrent: this.schedulerSettings().workerActionMaxConcurrent,
-                defaultResultCsvDir: resultCsvDirSafe(),
+                defaultResultCsvDir: this.resultCsvDirectory,
                 manualStopType: manualStopType || undefined,
                 stopReason: stopReason || undefined,
                 debugMode,
@@ -5773,7 +5778,7 @@ class RealtimeTunnelPanelProvider {
         const resultStage = mode === "train" ? "train" : "test";
         const resultCommand = resultStage === "train" ? trainCommand : testCommand;
         const resultSuggestion = resultStage === "train" ? trainSuggestion : testSuggestion;
-        const resultReview = guidedPlanResultPathReview(resultCommand, suite, resultSuggestion.resultExtension, resultCsvDirSafe());
+        const resultReview = guidedPlanResultPathReview(resultCommand, suite, resultSuggestion.resultExtension, this.resultCsvDirectory);
         const resultPath = await inputPlanResultPath("确认最终结果文件", resultReview.path, "例如 {output_dir}/metrics_summary.csv", `建议来源：${resultReview.source}。${resultReview.needsReview ? "当前文件名包含静态推断，必须核对命令真实写出的文件。" : "已从命令中识别到明确结果位置，仍需确认与实际实现一致。"} 必须填写${resultStage === "train" ? "训练" : "评估"}命令实际生成的项目内结果文件。使用 {result_csv} 时该路径会注入命令；固定输出路径必须与命令完全一致。CSV、JSON、TXT、LOG 均可解析，后续归档、统计和 PPT 只读取此结果链路。`);
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -6231,11 +6236,12 @@ class RealtimeTunnelPanelProvider {
             throw new Error("请先打开一个项目，再保存结果 CSV 目录。");
         const projectContext = this.captureProjectContext();
         const patch = recordField(message, "patch");
-        const resultCsvDir = normalizeResultCsvDir(stringPatch(patch, "csvDirectory", resultCsvDirSafe()));
+        const resultCsvDir = normalizeResultCsvDir(stringPatch(patch, "csvDirectory", this.resultCsvDirectory));
         safeWorkspaceChildPath(folder.uri.fsPath, resultCsvDir);
         await vscode.workspace.getConfiguration("zlkCluster", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(projectContext))
             return;
+        this.resultCsvDirectory = resultCsvDir;
         this.postState(true);
         void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
     }
@@ -6244,7 +6250,7 @@ class RealtimeTunnelPanelProvider {
         if (!folder)
             throw new Error("请先打开一个项目，再选择结果 CSV 目录。");
         const projectContext = this.captureProjectContext();
-        const current = path.join(folder.uri.fsPath, resultCsvDirSafe());
+        const current = path.join(folder.uri.fsPath, this.resultCsvDirectory);
         const currentStat = await fs.stat(current).catch(() => undefined);
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -6264,6 +6270,7 @@ class RealtimeTunnelPanelProvider {
         await vscode.workspace.getConfiguration("zlkCluster", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(projectContext))
             return;
+        this.resultCsvDirectory = resultCsvDir;
         this.postState(true);
         void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
     }
@@ -7576,6 +7583,10 @@ class RealtimeTunnelPanelProvider {
             workerActionMaxConcurrent: Math.max(1, Number(config.get("scheduler.workerActionMaxConcurrent", 1)) || 1),
         };
     }
+    refreshResultCsvDirectory() {
+        this.resultCsvDirectory = resultCsvDirSafe();
+        return this.resultCsvDirectory;
+    }
     startAvailabilityPushLoop() {
         const loopGeneration = ++this.availabilityPushLoopGeneration;
         if (this.availabilityPushTimer)
@@ -8249,7 +8260,7 @@ class RealtimeTunnelPanelProvider {
             gpuOwnerConfig: this.gpuOwnerConfig(),
             planDir: this.localPlanMetadata.planDir,
             resultOutputConfig: {
-                csvDirectory: resultCsvDirSafe(),
+                csvDirectory: this.resultCsvDirectory,
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
             },
             detectedProject: webviewDetectedProject,
