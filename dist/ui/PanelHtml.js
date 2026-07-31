@@ -3987,8 +3987,9 @@ function renderPanelHtml() {
       lastAppliedUiLayoutKey = nextLayoutKey;
       const cards = Array.from(deck.querySelectorAll(":scope > [data-section]"));
       const byId = new Map(cards.map((card) => [card.dataset.section, card]));
+      const orderedSections = new Set(currentUiLayout.order);
       const ordered = currentUiLayout.order.map((section) => byId.get(section)).filter(Boolean)
-        .concat(cards.filter((card) => !currentUiLayout.order.includes(card.dataset.section)));
+        .concat(cards.filter((card) => !orderedSections.has(card.dataset.section)));
       const currentOrder = cards.map((card) => card.dataset.section).join("|");
       const nextOrder = ordered.map((card) => card.dataset.section).join("|");
       if (currentOrder !== nextOrder) {

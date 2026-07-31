@@ -41,3 +41,14 @@ test("drawer UI baseline keeps layout edit and tree inspector affordances", () =
   assert.match(html, /aria-pressed/);
   assertScriptParses(html);
 });
+
+test("main panel layout reuses one order membership index", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const start = source.indexOf("function applyUiLayout(");
+  const end = source.indexOf("function uiLayoutApplyKey(", start);
+  const applyLayout = source.slice(start, end);
+
+  assert.match(applyLayout, /const orderedSections = new Set\(currentUiLayout\.order\)/);
+  assert.match(applyLayout, /cards\.filter\(\(card\) => !orderedSections\.has\(card\.dataset\.section\)\)/);
+  assert.doesNotMatch(applyLayout, /currentUiLayout\.order\.includes/);
+});
