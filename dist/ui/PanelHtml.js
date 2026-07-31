@@ -2612,7 +2612,8 @@ function renderPanelHtml() {
 
     function sectionDependencyKey(data, section) {
       if (section === "overview") return refListKey(data.connectionMode, data.localEndpoint, data.lastError, data.extensionVersion, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.realtime, data.endpointRegistry, data.diagnostics, data.schedulerConfig, data.schedulerStates, data.operations, data.planFileInput, data.selection, data.plans, data.recentPlans, data.codeSync, data.gpu, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.tunnelPortConflicts, data.detectedProject, data.resultsSummary);
-      if (section === "servers" || section === "settings") return refListKey(data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig);
+      if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
+      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation);
       if (section === "sync") return refListKey(data.codeSync, data.capabilities, data.setup, data.health, data.probe, data.workerProbes);
@@ -2808,6 +2809,7 @@ function renderPanelHtml() {
       if (section === "servers") {
         return {
           topology: data.topology,
+          schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
           setup: compactSetupForSignature(data.setup),
           agentDestinations: compactAgentDestinationsForSignature(data.agentSessions),
           xshellSessions: compactXshellSessionsForSignature(data.xshellSessions),
@@ -2818,12 +2820,14 @@ function renderPanelHtml() {
           probe: compactRecordForSignature(data.probe || {}, ["status", "schedulerDependencies"]),
           workerProbes: compactObjectMapForSignature(data.workerProbes, SECTION_SIGNATURE_ROW_LIMIT, ["status", "schedulerDependencies"]),
           workerTelemetry: compactWorkerTelemetryForSignature(data.workerTelemetry),
+          workerTelemetryStatus: compactRowsForSignature(data.workerTelemetryStatus, SECTION_SIGNATURE_ROW_LIMIT, ["workerId", "status", "state"]),
           capabilities: compactCapabilitiesForSignature(data.capabilities),
           realtimeDiagnostics: compactRealtimeDiagnosticsForSignature(data.realtimeDiagnostics),
           remotePathConfirmations: data.remotePathConfirmations,
           pptPathConfirmations: data.pptPathConfirmations
         };
       }
+      if (section === "settings") return settingsRenderModel(data);
       if (section === "plans") {
         const selectedPlanFile = data.planFileInput || ((data.selection || {}).selectedPlanId) || "";
         return {
@@ -2907,6 +2911,41 @@ function renderPanelHtml() {
         };
       }
       return data;
+    }
+
+    function settingsRenderModel(data) {
+      return {
+        topology: compactSettingsTopologyForSignature(data.topology),
+        schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "localAvailabilityPushSeconds", "workerAvailabilityPushSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
+        setup: compactSetupForSignature(data.setup),
+        agentDestinations: compactAgentDestinationsForSignature(data.agentSessions),
+        xshellSessions: compactXshellSessionsForSignature(data.xshellSessions),
+        tunnelPortAssignments: compactRowsForSignature(data.tunnelPortAssignments, SECTION_SIGNATURE_ROW_LIMIT, ["id", "endpointId", "role", "localForwardPort", "remoteForwardPort", "remoteServicePort", "status", "message"]),
+        tunnelPortConflicts: compactRowsForSignature(data.tunnelPortConflicts, SECTION_SIGNATURE_ROW_LIMIT, ["id", "endpointId", "localForwardPort", "port", "message", "severity"]),
+        health: compactRecordForSignature(data.health || {}, ["state"]),
+        probe: compactRecordForSignature(data.probe || {}, ["status", "schedulerDependencies"]),
+        workerProbes: compactObjectMapForSignature(data.workerProbes, SECTION_SIGNATURE_ROW_LIMIT, ["status", "schedulerDependencies"]),
+        workerTelemetryStatus: compactRowsForSignature(data.workerTelemetryStatus, SECTION_SIGNATURE_ROW_LIMIT, ["workerId", "status", "state"]),
+        remotePathConfirmations: compactRecordForSignature(data.remotePathConfirmations || {}, ["count", "stateFile"]),
+        pptPathConfirmations: compactRecordForSignature(data.pptPathConfirmations || {}, ["count", "stateFile"]),
+        resultOutputConfig: compactRecordForSignature(data.resultOutputConfig || {}, ["csvDirectory"])
+      };
+    }
+
+    function compactSettingsTopologyForSignature(topology) {
+      const item = topology && typeof topology === "object" ? topology : {};
+      const issues = asArray(item.issues);
+      return {
+        mode: item.mode,
+        modeLabel: item.modeLabel,
+        valid: item.valid,
+        hubAllowed: item.hubAllowed,
+        schedulerOwner: item.schedulerOwner,
+        stateOwner: item.stateOwner,
+        workerCount: item.workerCount,
+        issueCount: issues.length,
+        issues: issues.slice(0, SECTION_SIGNATURE_ROW_LIMIT).map(String)
+      };
     }
 
     function compactRowsForSignature(rows, limit, keys) {
@@ -3125,8 +3164,19 @@ function renderPanelHtml() {
       return {
         mode: item.mode,
         configSource: item.configSource,
+        hubDisplayName: item.hubDisplayName,
+        hubHost: item.hubHost,
+        transferHost: item.transferHost,
+        hubUser: item.hubUser,
+        condaEnv: item.condaEnv,
+        sshConfigAlias: item.sshConfigAlias,
+        agentProjectDir: item.agentProjectDir,
+        savedSessionPath: item.savedSessionPath,
+        savedSessionForwardIndex: item.savedSessionForwardIndex,
+        localForwardPort: item.localForwardPort,
+        remoteAgentPort: item.remoteAgentPort,
         hub: compactRecordForSignature(item.hub || {}, ["enabled", "displayName", "host", "workerHost", "localForwardPort", "remoteForwardPort", "agentProjectDir", "savedSessionPath"]),
-        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "localForwardPort", "remoteForwardPort", "agentProjectDir", "savedSessionPath", "maxConcurrentGpus", "allowedGpuIds"])
+        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "hubHost", "transferHost", "workerUser", "hubUser", "condaEnv", "sshConfigAlias", "localForwardPort", "remoteForwardPort", "remoteAgentPort", "remoteTelemetryPort", "agentProjectDir", "savedSessionPath", "savedSessionForwardIndex", "maxConcurrentGpus", "allowedGpuIds"])
       };
     }
 
@@ -3149,7 +3199,23 @@ function renderPanelHtml() {
     }
 
     function compactXshellSessionsForSignature(sessions) {
-      return compactRowsForSignature(sessions, SECTION_SIGNATURE_ROW_LIMIT, ["id", "name", "filePath", "displayName", "localForwardPort", "remoteForwardPort", "role", "enabled", "status"]);
+      const item = sessions && typeof sessions === "object" && !Array.isArray(sessions) ? sessions : {};
+      const rows = Array.isArray(sessions) ? sessions : asArray(item.sessions);
+      return {
+        totalCount: item.totalCount === undefined ? rows.length : item.totalCount,
+        visibleCount: item.visibleCount === undefined ? rows.length : item.visibleCount,
+        omittedCount: item.omittedCount === undefined ? 0 : item.omittedCount,
+        sessions: {
+          count: rows.length,
+          rows: rows.slice(0, SECTION_SIGNATURE_ROW_LIMIT).map(compactXshellSessionForSignature)
+        }
+      };
+    }
+
+    function compactXshellSessionForSignature(session) {
+      const item = compactRecordForSignature(session, ["id", "name", "filePath", "relativePath", "displayName", "host", "userName", "port", "localForwardPort", "remoteForwardPort", "role", "enabled", "status"]);
+      item.forwards = compactRowsForSignature((session || {}).forwards, SECTION_SIGNATURE_ROW_LIMIT, ["index", "localHost", "localPort", "remoteHost", "remotePort"]);
+      return item;
     }
 
     function compactRealtimeDiagnosticsForSignature(value) {

@@ -13,35 +13,37 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [待处理] 1/5 project-216：为设置页建立专用有界渲染模型，避免对完整 Webview state 哈希。
+- [已完成] 1/5 project-216：为设置页建立专用有界渲染模型，避免对完整 Webview state 哈希。
 - [待处理] 2/5 project-217：合并主面板布局顺序成员检查。
 - [待处理] 3/5 project-218：复用单次读取的结果 CSV 目录配置，减少状态与动作路径重复配置解析。
 - [待处理] 4/5 project-219：审计下一组前后端高频派生热点并实施一个有证据的有界优化。
 - [待处理] 5/5 project-220：执行第七十四轮完整非服务器静态测试。
 
-## 当前批次：project-215（已完成）
+## 当前批次：project-216（已完成）
 ### 修复点
 
-- 执行第七十三轮完整非服务器静态回归，覆盖 build、全部 Node 测试、lint、生成 JavaScript 与 Agent Python runtime 语法。
-- 核对完整回归是否暴露 project-211 至 project-214 的跨模块回归；失败则在本批内修复并重跑。
+- 为设置页增加专用有界渲染模型，避免设置页签名遍历完整 Webview state。
+- 补齐设置页真实依赖的拓扑、调度、服务器字段、Worker 状态、Xshell 会话计数与转发端口签名。
+- 增加设置页渲染模型定向回归，证明大型任务、结果与日志字段不会进入设置页签名。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 完整测试不得触发真实 Xshell 隧道、服务器连接、VS Code 重载或 VSIX 安装。
-- 测试生成物不得混入提交；仅提交本批计划记录及必要修复。
+- 设置字段遗漏会导致已保存配置变化后界面不刷新；模型字段必须与 `renderServerSettings` 的读取范围对齐。
+- Xshell 会话状态是带计数的包装对象，压缩时必须保留可见会话、总数、省略数及有界转发端口。
+- 测试生成物不得混入提交；仅提交本批源码、定向测试、生成面板文件和计划记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] `npm test` 完整 Node 回归，1092/1092。
-- [已通过] lint、115 个生成 JavaScript 与 8 个 Python 文件语法。
-- [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
+- [已通过] 设置页渲染模型、设置二级页、Xshell 会话压缩及面板脚本定向测试，10/10。
+- [已通过] `npm run build`、`npm run lint` 与生成 JavaScript 语法检查。
+- [已通过] `git diff --check` 与提交范围检查；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-214 已由提交 `83add3d` 同步至 `origin/master`。
-- 本批只执行完整非服务器静态回归并记录结果；不截图、不打包、不安装、不连接服务器。
-- 首轮完整回归暴露新增结果目录按钮缺少命令帮助及 scheduler 透传断言未更新；已补齐后重跑全量通过。
-- 第七十三轮完整非服务器静态回归最终 1092/1092 通过；lint、115 个 JavaScript 与 8 个 Python 文件语法均通过。
+- 基线为 `9bc50fc`，本地 `HEAD` 与 `origin/master` 一致。
+- 本批限制为 `src/ui/PanelHtml.ts`、对应生成文件、一个定向测试及本计划文档。
+- 设置页不再哈希 `schedulerStates`、`experimentTraces`、日志、操作和结果摘要；配置字段、Xshell 包装计数及 FwdReq 均保留有界签名。
+- 真实 Xshell 隧道和服务器行为未验证，继续标记 `needs field verification`。
