@@ -564,21 +564,37 @@ function renderPaperTableTemplate(records, schema, template, format = "markdown"
     return exportPaperTable(rows, leaderboard, table, format === "latex_booktabs" ? "latex_booktabs" : format === "latex_tabular" ? "latex" : "markdown");
 }
 function buildResultDashboard(records, issues = [], schema) {
-    const bySuite = new Map();
-    for (const record of records)
-        bySuite.set(record.suite, [...(bySuite.get(record.suite) || []), record]);
     const primary = schema?.display?.defaultSortMetric || schema?.metrics.find((item) => item.primary)?.key || records[0]?.primaryMetric || "DSC";
+    const primaryDefinition = schema?.metrics.find((metric) => metric.key === primary);
+    const experimentIds = new Set();
+    const bestBySuite = new Map();
+    let parsedResults = 0;
+    let parseFailed = 0;
+    let paperCandidates = 0;
+    for (const record of records) {
+        experimentIds.add(record.experimentId);
+        if (record.status === "parsed" || record.status === "validated" || record.status === "warning" || record.status === "manual_verified")
+            parsedResults += 1;
+        if (record.status === "parse_failed")
+            parseFailed += 1;
+        if (record.paperCandidate || record.tags?.includes("paper-candidate"))
+            paperCandidates += 1;
+        if (!bestBySuite.has(record.suite))
+            bestBySuite.set(record.suite, null);
+        const value = Number(record.metrics[primary]?.value);
+        if (!Number.isFinite(value))
+            continue;
+        const current = bestBySuite.get(record.suite);
+        if (!current || (primaryDefinition?.higherIsBetter === false ? value < current.value : value > current.value))
+            bestBySuite.set(record.suite, { record, value });
+    }
     return {
-        totalExperiments: new Set(records.map((record) => record.experimentId)).size,
-        parsedResults: records.filter((record) => ["parsed", "validated", "warning", "manual_verified"].includes(record.status)).length,
-        parseFailed: records.filter((record) => record.status === "parse_failed").length,
+        totalExperiments: experimentIds.size,
+        parsedResults,
+        parseFailed,
         validationWarnings: issues.filter((issue) => issue.severity === "warning" && !issue.ignored).length,
-        paperCandidates: records.filter((record) => record.paperCandidate || record.tags?.includes("paper-candidate")).length,
-        bestBySuite: Array.from(bySuite.entries()).map(([suite, items]) => {
-            const def = schema?.metrics.find((metric) => metric.key === primary);
-            const best = [...items].filter((record) => Number.isFinite(Number(record.metrics[primary]?.value))).sort((a, b) => def?.higherIsBetter === false ? Number(a.metrics[primary].value) - Number(b.metrics[primary].value) : Number(b.metrics[primary].value) - Number(a.metrics[primary].value))[0];
-            return best ? { suite, metric: primary, resultId: best.resultId, value: Number(best.metrics[primary].value) } : { suite, metric: primary, resultId: "", value: NaN };
-        }),
+        paperCandidates,
+        bestBySuite: Array.from(bestBySuite.entries()).map(([suite, best]) => best ? { suite, metric: primary, resultId: best.record.resultId, value: best.value } : { suite, metric: primary, resultId: "", value: NaN }),
         coverage: coverageSummary(records, schema),
     };
 }

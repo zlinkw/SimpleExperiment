@@ -145,3 +145,29 @@ test("dashboard, search DSL, import/export, and consistency checker work", () =>
   assert.equal(consistency.some((item) => item.id.startsWith("duplicate_result")), true);
   assert.equal(consistency.some((item) => item.id.startsWith("leaderboard_metric")), true);
 });
+
+test("result dashboard derives counts and suite best records in one traversal", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/Results.ts"), "utf8");
+  const body = source.match(/export function buildResultDashboard[\s\S]*?\n}\n\nexport function filterResultsByDsl/)?.[0] || "";
+  assert.match(body, /for \(const record of records\)/);
+  assert.match(body, /const bestBySuite = new Map/);
+  assert.doesNotMatch(body, /records\.(?:map|filter)\(|items\.(?:filter|sort)\(/);
+
+  const base = sampleRecords()[0];
+  const records = [
+    { ...base, resultId: "r1", experimentId: "e1", suite: "a", status: "parsed", metrics: { HD95: { value: 5 } } },
+    { ...base, resultId: "r2", experimentId: "e2", suite: "a", status: "parse_failed", paperCandidate: true, metrics: { HD95: { value: 2 } } },
+    { ...base, resultId: "r3", experimentId: "e2", suite: "a", status: "manual_verified", tags: ["paper-candidate"], metrics: { HD95: { value: 2 } } },
+    { ...base, resultId: "r4", experimentId: "e3", suite: "b", status: "warning", metrics: { HD95: { value: "-" } } },
+  ];
+  const schema = { metrics: [{ key: "HD95", higherIsBetter: false }], display: { defaultSortMetric: "HD95" } };
+  const dashboard = buildResultDashboard(records, [], schema);
+  assert.equal(dashboard.totalExperiments, 3);
+  assert.equal(dashboard.parsedResults, 3);
+  assert.equal(dashboard.parseFailed, 1);
+  assert.equal(dashboard.paperCandidates, 2);
+  assert.deepEqual(dashboard.bestBySuite[0], { suite: "a", metric: "HD95", resultId: "r2", value: 2 });
+  assert.equal(dashboard.bestBySuite[1].suite, "b");
+  assert.equal(dashboard.bestBySuite[1].resultId, "");
+  assert.equal(Number.isNaN(dashboard.bestBySuite[1].value), true);
+});
