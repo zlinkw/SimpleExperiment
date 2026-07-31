@@ -3391,11 +3391,7 @@ class RealtimeTunnelPanelProvider {
         if (!scopedTargets.length) {
             throw new Error(`Worker ${workerId} 没有匹配的已选任务，已阻止跨 Worker 批量操作污染。`);
         }
-        const selectedRunKeys = uniqueStrings(scopedTargets.map((target) => usableSelectionKey(target.runKey || "")).filter(Boolean));
-        const selectedExperimentIds = uniqueStrings(scopedTargets.map((target) => usableSelectionKey(target.experimentId || "")).filter(Boolean));
-        const selectedArchiveKeys = uniqueStrings(scopedTargets.map((target) => usableSelectionKey(target.archiveKey || "")).filter(Boolean));
-        const selectedTaskUiKeys = uniqueStrings(scopedTargets.map((target) => usableSelectionKey(target.taskUiKey || "")).filter(Boolean));
-        const selectedPlanFiles = uniqueStrings(scopedTargets.map((target) => usableSelectionKey(target.planFile || "")).filter(Boolean));
+        const { selectedRunKeys, selectedExperimentIds, selectedArchiveKeys, selectedTaskUiKeys, selectedPlanFiles } = workerScopedSelectionLists(scopedTargets);
         return {
             ...body,
             runKey: selectedRunKeys.length === 1 ? selectedRunKeys[0] : undefined,
@@ -9306,6 +9302,37 @@ function workerPoolAggregateResult(action, submissions, shardSet) {
         workerPlanShardSet: shardSet,
         workerSubmissions: rows,
         message: `${rows.length} 个 Worker ${pending ? "已接收独立分片，等待终态" : "已完成本机操作"}`,
+    };
+}
+function workerScopedSelectionLists(scopedTargets) {
+    const runKeys = [];
+    const experimentIds = [];
+    const archiveKeys = [];
+    const taskUiKeys = [];
+    const planFiles = [];
+    for (const target of scopedTargets) {
+        const runKey = usableSelectionKey(target.runKey || "");
+        const experimentId = usableSelectionKey(target.experimentId || "");
+        const archiveKey = usableSelectionKey(target.archiveKey || "");
+        const taskUiKey = usableSelectionKey(target.taskUiKey || "");
+        const planFile = usableSelectionKey(target.planFile || "");
+        if (runKey)
+            runKeys.push(runKey);
+        if (experimentId)
+            experimentIds.push(experimentId);
+        if (archiveKey)
+            archiveKeys.push(archiveKey);
+        if (taskUiKey)
+            taskUiKeys.push(taskUiKey);
+        if (planFile)
+            planFiles.push(planFile);
+    }
+    return {
+        selectedRunKeys: uniqueStrings(runKeys),
+        selectedExperimentIds: uniqueStrings(experimentIds),
+        selectedArchiveKeys: uniqueStrings(archiveKeys),
+        selectedTaskUiKeys: uniqueStrings(taskUiKeys),
+        selectedPlanFiles: uniqueStrings(planFiles),
     };
 }
 function workerResultAggregateResult(action, submissions) {
