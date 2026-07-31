@@ -10835,7 +10835,7 @@ function renderPanelHtml() {
       const staticIndex = configInspectorIndex(configSummaries);
       const indexed = staticIndex.indexed;
       const planConfigKey = normalizeConfigInspectorFile(configInspectorPlanConfigFile(selectedPlan));
-      const planConfig = planConfigKey ? indexed.find((cfg) => normalizeConfigInspectorFile(cfg.file) === planConfigKey) : undefined;
+      const planConfig = planConfigKey ? staticIndex.byNormalizedFile.get(planConfigKey) : undefined;
       const level1Values = staticIndex.level1Values;
       if (configLevel1Filter !== "all" && !level1Values.includes(configLevel1Filter)) configLevel1Filter = "all";
       const level2Values = configLevel1Filter === "all"
@@ -11196,9 +11196,12 @@ function renderPanelHtml() {
       const level1Set = new Set();
       const level2Set = new Set();
       const level2SetsByLevel1 = new Map();
+      const byNormalizedFile = new Map();
       indexed.forEach((cfg) => {
         const level1 = cfg.pathParts.level1;
         const level2 = cfg.pathParts.level2;
+        const normalizedFile = normalizeConfigInspectorFile(cfg.file);
+        if (normalizedFile && !byNormalizedFile.has(normalizedFile)) byNormalizedFile.set(normalizedFile, cfg);
         if (level1) level1Set.add(level1);
         if (level2) level2Set.add(level2);
         if (!level1 || !level2) return;
@@ -11209,7 +11212,7 @@ function renderPanelHtml() {
       const level2Values = Array.from(level2Set).sort(naturalCompare);
       const level2ValuesByLevel1 = new Map(Array.from(level2SetsByLevel1.entries()).map(([level1, values]) => [level1, Array.from(values).sort(naturalCompare)]));
       configInspectorIndexCacheSource = source;
-      configInspectorIndexCacheValue = { indexed, level1Values, level2Values, level2ValuesByLevel1 };
+      configInspectorIndexCacheValue = { indexed, byNormalizedFile, level1Values, level2Values, level2ValuesByLevel1 };
       return configInspectorIndexCacheValue;
     }
 
