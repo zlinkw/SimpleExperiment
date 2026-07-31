@@ -14,34 +14,34 @@
 
 ## 后续优先级
 - [已完成] 1/5 project-191：合并后端 Worker 已选任务字段派生。
-- [待处理] 2/5 project-192：合并前端复选任务 payload 派生。
+- [已完成] 2/5 project-192：合并前端复选任务 payload 派生。
 - [待处理] 3/5 project-193：合并后端项目指标类型划分。
 - [待处理] 4/5 project-194：合并前端 Webview 命令审计遍历。
 - [待处理] 5/5 project-195：执行第六十九轮完整非服务器静态测试。
 
-## 当前批次：project-191（已完成）
+## 当前批次：project-192（已完成）
 ### 修复点
 
-- Worker 定向任务操作对 scoped target 只执行一次字段收集，再统一去重，替代五组重复 map/filter 派生。
-- 保持 run、experiment、archive、task UI、Plan 字段顺序、去重和单值回填规则不变。
+- 前端任务复选框只遍历一次，同时收集选择字段、Plan 信息、legacy key、target 与 Debug 标志。
+- 保持 selection fallback、唯一 Plan/revision 回填、无有效 target 过滤和 payload 克隆缓存契约不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- Worker 筛选仍必须先解析端点别名并阻止空匹配，不能跨 Worker 混入任务。
-- 各选择字段必须继续忽略不可用 key、保留首次顺序并去重；单值快捷字段仅在唯一值时写入。
-- options 中 Plan 与 selectedTaskTargets 回填契约不得改变。
+- 未勾选框不得进入任何字段；勾选但仅含 Plan 信息的框仍影响 Plan 字段但不得生成空 target。
+- legacy task key 仍只依据 actionKey 可用性判断，runKey fallback 不得改变该规则。
+- Debug 标志只能来自已纳入的有效 target，空选择仍返回原有 suppressGlobalPlan payload。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] Worker 字段单次收集、顺序去重、空值与相邻分片定向 Node 测试，9/9。
+- [已通过] 复选框单次收集、未选过滤、legacy/Plan/target/Debug 与确认路径定向 Node 测试，6/6。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-190 已由提交 `fe00afe` 同步至 `origin/master`。
-- 本批仅处理后端 Worker 已选任务字段派生、对应测试和计划文档；无视觉样式变化，不调用截图。
-- Worker scoped target 改为单次遍历收集五类选择字段，再分别保持首次顺序去重；9/9 定向测试通过。
+- project-191 已由提交 `87f76b0` 同步至 `origin/master`。
+- 本批仅处理前端任务复选 payload 派生、对应测试和计划文档；无视觉样式变化，不调用截图。
+- 复选框节点改为单次遍历，同时产出原始选择字段、有效 target、legacy key 和 Debug 状态；6/6 定向测试通过。

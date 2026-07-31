@@ -13460,40 +13460,74 @@ export function renderPanelHtml(): string {
       return input.value;
     }
 
+    function selectedTaskBoxFields(boxes) {
+      const fields = {
+        checkedCount: 0,
+        runKeys: [],
+        experimentIds: [],
+        archiveKeys: [],
+        workerIds: [],
+        taskUiKeys: [],
+        planFiles: [],
+        planRevisions: [],
+        legacyTaskUiKeys: [],
+        targets: [],
+        debugMode: false
+      };
+      for (const box of boxes) {
+        if (!box.checked) continue;
+        fields.checkedCount += 1;
+        const data = box.dataset || {};
+        fields.runKeys.push(data.actionKey || data.runKey);
+        fields.experimentIds.push(data.experimentId);
+        fields.archiveKeys.push(data.archiveKey);
+        fields.workerIds.push(data.workerId);
+        fields.taskUiKeys.push(data.taskUiKey);
+        fields.planFiles.push(data.planFile);
+        fields.planRevisions.push(data.planRevision);
+        if (!usableTaskKey(data.actionKey)) fields.legacyTaskUiKeys.push(data.taskUiKey);
+        const target = {
+          workerId: cleanSelectionValue(data.workerId),
+          taskUiKey: cleanSelectionValue(data.taskUiKey),
+          runKey: cleanSelectionValue(data.actionKey || data.runKey),
+          experimentId: cleanSelectionValue(data.experimentId),
+          archiveKey: cleanSelectionValue(data.archiveKey),
+          planFile: cleanSelectionValue(data.planFile),
+          planRevision: cleanSelectionValue(data.planRevision),
+          artifactPath: cleanSelectionValue(data.artifactPath),
+          resultPath: cleanSelectionValue(data.resultPath),
+          logPath: cleanSelectionValue(data.logPath),
+          debugMode: data.debugMode === "true"
+        };
+        if (target.workerId || target.runKey || target.experimentId || target.archiveKey || target.taskUiKey) {
+          fields.targets.push(target);
+          if (target.debugMode) fields.debugMode = true;
+        }
+      }
+      return fields;
+    }
+
     function selectedTaskPayload() {
       const selection = (lastState && lastState.selection) || {};
       const cacheKey = selectedTaskPayloadVersion + "::" + stableSectionSignature(selection);
       if (selectedTaskPayloadCache && selectedTaskPayloadCacheKey === cacheKey) return cloneSelectedTaskPayload(selectedTaskPayloadCache);
-      const allBoxes = Array.from(document.querySelectorAll('input[type="checkbox"][data-command="selectExperiment"]'));
-      const boxes = allBoxes.filter((box) => box.checked);
-      if (!boxes.length) {
+      const fields = selectedTaskBoxFields(document.querySelectorAll('input[type="checkbox"][data-command="selectExperiment"]'));
+      if (!fields.checkedCount) {
         selectedTaskPayloadCacheKey = cacheKey;
         selectedTaskPayloadCache = emptySelectedTaskPayload(true);
         return cloneSelectedTaskPayload(selectedTaskPayloadCache);
       }
       const fallbackRunKeys = selection.selectedRunKeys && selection.selectedRunKeys.length ? selection.selectedRunKeys : (selection.selectedRunKey ? [selection.selectedRunKey] : []);
-      const selectedRunKeys = cleanSelectedValues(boxes.map((box) => box.dataset.actionKey || box.dataset.runKey), fallbackRunKeys);
-      const selectedExperimentIds = cleanSelectedValues(boxes.map((box) => box.dataset.experimentId), selection.selectedExperimentIds || []);
-      const selectedArchiveKeys = cleanSelectedValues(boxes.map((box) => box.dataset.archiveKey), selection.selectedArchiveKeys || []);
-      const selectedWorkerIds = cleanSelectedValues(boxes.map((box) => box.dataset.workerId), selection.selectedWorkerIds || []);
-      const selectedTaskUiKeys = cleanSelectedValues(boxes.map((box) => box.dataset.taskUiKey), selection.selectedTaskUiKeys || []);
-      const selectedPlanFiles = cleanSelectedValues(boxes.map((box) => box.dataset.planFile), []);
-      const selectedLegacyTaskUiKeys = cleanSelectedValues(boxes.filter((box) => !usableTaskKey(box.dataset.actionKey)).map((box) => box.dataset.taskUiKey), []);
-      const selectedTaskTargets = boxes.map((box) => ({
-        workerId: cleanSelectionValue(box.dataset.workerId),
-        taskUiKey: cleanSelectionValue(box.dataset.taskUiKey),
-        runKey: cleanSelectionValue(box.dataset.actionKey || box.dataset.runKey),
-        experimentId: cleanSelectionValue(box.dataset.experimentId),
-        archiveKey: cleanSelectionValue(box.dataset.archiveKey),
-        planFile: cleanSelectionValue(box.dataset.planFile),
-        planRevision: cleanSelectionValue(box.dataset.planRevision),
-        artifactPath: cleanSelectionValue(box.dataset.artifactPath),
-        resultPath: cleanSelectionValue(box.dataset.resultPath),
-        logPath: cleanSelectionValue(box.dataset.logPath),
-        debugMode: box.dataset.debugMode === "true"
-      })).filter((target) => target.workerId || target.runKey || target.experimentId || target.archiveKey || target.taskUiKey);
-      const selectedPlanRevisions = cleanSelectedValues(boxes.map((box) => box.dataset.planRevision), []);
-      const payload = { selectedRunKeys, selectedExperimentIds, selectedArchiveKeys, selectedWorkerIds, selectedTaskUiKeys, selectedPlanFiles, selectedPlanRevisions, selectedLegacyTaskUiKeys, selectedTaskTargets, debugMode: selectedTaskTargets.some((target) => target.debugMode) };
+      const selectedRunKeys = cleanSelectedValues(fields.runKeys, fallbackRunKeys);
+      const selectedExperimentIds = cleanSelectedValues(fields.experimentIds, selection.selectedExperimentIds || []);
+      const selectedArchiveKeys = cleanSelectedValues(fields.archiveKeys, selection.selectedArchiveKeys || []);
+      const selectedWorkerIds = cleanSelectedValues(fields.workerIds, selection.selectedWorkerIds || []);
+      const selectedTaskUiKeys = cleanSelectedValues(fields.taskUiKeys, selection.selectedTaskUiKeys || []);
+      const selectedPlanFiles = cleanSelectedValues(fields.planFiles, []);
+      const selectedLegacyTaskUiKeys = cleanSelectedValues(fields.legacyTaskUiKeys, []);
+      const selectedTaskTargets = fields.targets;
+      const selectedPlanRevisions = cleanSelectedValues(fields.planRevisions, []);
+      const payload = { selectedRunKeys, selectedExperimentIds, selectedArchiveKeys, selectedWorkerIds, selectedTaskUiKeys, selectedPlanFiles, selectedPlanRevisions, selectedLegacyTaskUiKeys, selectedTaskTargets, debugMode: fields.debugMode };
       if (selectedPlanFiles.length === 1) payload.planFile = selectedPlanFiles[0];
       if (selectedPlanRevisions.length === 1) payload.planRevision = selectedPlanRevisions[0];
       else payload.suppressGlobalPlan = true;
