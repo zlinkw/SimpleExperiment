@@ -17,31 +17,34 @@
 - [已完成] 2/5 project-197：合并前端 GPU 历史点统计遍历。
 - [已完成] 3/5 project-198：复用论文表格指标 schema 查找。
 - [已完成] 4/5 project-199：合并前端旧任务选择键分类遍历。
-- [待处理] 5/5 project-200：执行第七十轮完整非服务器静态测试。
+- [已完成] 5/5 project-200：执行第七十轮完整非服务器静态测试。
 
-## 当前批次：project-199（已完成）
+## 当前批次：project-200（已完成）
 ### 修复点
 
-- 前端任务状态 payload 单次读取每行 action key，并同时收集全部 run key 与无稳定 key 的旧任务 UI key。
-- 保持 fallback、去重、空值清理、缓存克隆、Plan 选择和 task target 契约不变。
+- 执行第七十轮完整非服务器静态回归，覆盖 Node 测试、lint、JavaScript 语法和 Python UTF-8 内存编译。
+- 本批只更新验证状态与计划记录，不修改产品源代码或测试契约。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- 每行 `taskActionKey` 只能读取一次，旧任务判断必须继续使用 `usableTaskKey`。
-- run key 与 legacy UI key 的输入顺序、清洗和去重必须保持不变。
-- 无选择、单 Plan、多 Plan、debug mode 及缓存命中行为不得改变。
+- 完整构建会压缩目标计划文档，必须保留当前目标、固定边界和本批验证记录。
+- 全量测试不得写入或纳入历史 VSIX、运行态缓存及 `zlk_cluster/ui/`。
+- JavaScript 与 Python 分发文件必须保持可解析，且 Python 检查不得生成 `__pycache__`。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [已通过] TypeScript 构建。
-- [已通过] 任务 action key 单次读取、legacy 分类与 payload 接线定向 Node 测试，13/13。
+- [已通过] `npm test` 完整 Node 静态回归，1082/1082。
+- [已通过] `npm run lint`。
+- [已通过] `node --check dist/extension.js`、`dist/panel.js`、`dist/cli.js`、`dist/runCli.js`。
+- [已通过] 8 个 `dist/**/*.py` 的 UTF-8 内存编译，不生成 `__pycache__`。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-198 已由提交 `8b4b66d` 同步至 `origin/master`。
-- 本批仅处理前端任务 action/legacy key 分类、对应测试和计划文档；无视觉样式变化，不调用截图。
-- action key 与 legacy UI key 改为单次行遍历收集，fallback、清洗、缓存及 target 行为不变；13/13 定向测试通过。
+- project-199 已由提交 `39974a4` 同步至 `origin/master`。
+- 本批仅执行完整静态回归并更新计划文档；无视觉样式变化，不调用截图。
+- 第七十轮完整回归通过：Node 测试 1082/1082、lint、4 个 JavaScript 入口语法、8 个 Python 分发文件内存编译及差异检查均通过。
+- 真实服务器行为仍为 `needs field verification`；下一轮静态优化目标待重新审计后登记。
