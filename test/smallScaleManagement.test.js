@@ -112,6 +112,52 @@ test("completeness matrix groups scoped results once and preserves result order"
   ]);
 });
 
+test("completeness matrix indexes gates and lifecycles without duplicate cell matches", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/SmallScale.ts"), "utf8");
+  const body = source.match(/export function buildCompletenessMatrix[\s\S]*?\n}\n\nexport function completenessMatrixToMarkdown/)?.[0] || "";
+  assert.match(body, /const gateResultsByExperiment = new Map/);
+  assert.match(body, /const lifecyclesByExperiment = new Map/);
+  assert.doesNotMatch(body, /\(input\.gateResults \|\| \[\]\)\.filter/);
+  assert.doesNotMatch(body, /\(input\.lifecycles \|\| \[\]\)\.filter/);
+
+  const repeated = resultRecord("e1", {}, { resultId: "r1", suite: "keep", dimensions: { method: "ours" } });
+  const second = resultRecord("e2", {}, { resultId: "r2", suite: "keep", dimensions: { method: "ours" } });
+  const cells = buildCompletenessMatrix({
+    id: "indexed",
+    name: "indexed",
+    scope: { suite: "keep" },
+    axes: ["method"],
+    requiredMetrics: [],
+    requireQualityGatePassed: false,
+  }, {
+    results: [repeated, { ...repeated, resultId: "r1-repeat" }, second],
+    gateResults: [
+      { ...gate("e2", "warning"), gateId: "second" },
+      { ...gate("e1", "warning"), gateId: "first" },
+      { ...gate("ignored", "warning"), gateId: "ignored" },
+    ],
+  });
+  assert.deepEqual(cells[0].warnings, ["second: warning", "first: warning"]);
+
+  const plan = importLegacyPlanYamlToRegistry("indexed.yaml", "suite: indexed\ncases:\n  - name: method-ours_seed-1\n");
+  plan.plannedExperiments.push({ ...plan.plannedExperiments[0] });
+  const lifecycleCells = buildCompletenessMatrix({
+    id: "lifecycle-indexed",
+    name: "lifecycle-indexed",
+    scope: { planId: plan.planId },
+    axes: ["method"],
+    requiredMetrics: [],
+    requireQualityGatePassed: false,
+  }, {
+    plans: [plan],
+    lifecycles: [
+      { experimentId: "ignored", status: "completed" },
+      { experimentId: plan.plannedExperiments[0].experimentKey, status: "running" },
+    ],
+  });
+  assert.equal(lifecycleCells[0].status, "running");
+});
+
 test("pre-run and post-run checklists expose blocking and warning items", () => {
   const plan = importLegacyPlanYamlToRegistry("p.yaml", "suite: s\ncases:\n  - name: a\n");
   plan.experimentCount = 12;

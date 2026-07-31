@@ -158,13 +158,32 @@ export function buildCompletenessMatrix(config: CompletenessMatrixConfig, input:
     if (records) records.push(record);
     else resultKeys.set(key, [record]);
   }
+  const gateResultsByExperiment = new Map<string, Array<{ order: number; value: QualityGateResult }>>();
+  for (const [order, value] of (input.gateResults || []).entries()) {
+    const gates = gateResultsByExperiment.get(value.experimentId);
+    if (gates) gates.push({ order, value });
+    else gateResultsByExperiment.set(value.experimentId, [{ order, value }]);
+  }
+  type Lifecycle = NonNullable<typeof input.lifecycles>[number];
+  const lifecyclesByExperiment = new Map<string, Array<{ order: number; value: Lifecycle }>>();
+  for (const [order, value] of (input.lifecycles || []).entries()) {
+    const lifecycles = lifecyclesByExperiment.get(value.experimentId);
+    if (lifecycles) lifecycles.push({ order, value });
+    else lifecyclesByExperiment.set(value.experimentId, [{ order, value }]);
+  }
   const allKeys = new Set([...planKeys.keys(), ...resultKeys.keys()]);
   return Array.from(allKeys).map((key) => {
     const plannedItems = planKeys.get(key) || [];
     const records = resultKeys.get(key) || [];
     const missingMetrics = Array.from(new Set(records.flatMap((record) => config.requiredMetrics.filter((metric) => !record.metrics[metric]))));
-    const gates = (input.gateResults || []).filter((gate) => records.some((record) => record.experimentId === gate.experimentId));
-    const lifecycle = (input.lifecycles || []).filter((item) => plannedItems.some((plan) => plan.experimentId === item.experimentId));
+    const gates = Array.from(new Set(records.map((record) => record.experimentId)))
+      .flatMap((experimentId) => gateResultsByExperiment.get(experimentId) || [])
+      .sort((left, right) => left.order - right.order)
+      .map((entry) => entry.value);
+    const lifecycle = Array.from(new Set(plannedItems.map((item) => String(item.experimentId))))
+      .flatMap((experimentId) => lifecyclesByExperiment.get(experimentId) || [])
+      .sort((left, right) => left.order - right.order)
+      .map((entry) => entry.value);
     const status = completenessStatus(plannedItems, records, gates, lifecycle, missingMetrics, config.requireQualityGatePassed);
     return { key: parseKey(key), status, experimentIds: Array.from(new Set([...plannedItems.map((item) => String(item.experimentId)), ...records.map((record) => record.experimentId)])), resultIds: records.map((record) => record.resultId), missingMetrics, warnings: gates.filter((g) => g.status === "warning").map((g) => `${g.gateId}: warning`) };
   }).sort((a, b) => JSON.stringify(a.key).localeCompare(JSON.stringify(b.key)));
