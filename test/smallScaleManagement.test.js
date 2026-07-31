@@ -216,6 +216,14 @@ test("small-scale report summarizes missing actions", () => {
 });
 
 test("output capability matrix maps missing files and columns to disabled features", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/SmallScale.ts"), "utf8");
+  const body = source.match(/export function buildOutputCapabilityMatrix[\s\S]*?\n}\n\nfunction completenessStatus/)?.[0] || "";
+  assert.match(body, /const missingFileIds = new Set<string>\(\)/);
+  assert.match(body, /const missingColumnNames = new Set<string>\(\)/);
+  assert.match(body, /missingFileIds\.has\(id\)/);
+  assert.match(body, /missingColumnNames\.has\(column\)/);
+  assert.doesNotMatch(body, /report\.(?:files|columns)\.some\(/);
+
   const contract = builtInOutputContracts[0];
   const report = checkProjectOutputContract({ "metrics_summary.csv": "experiment_id,metric,value\nexp,DSC,0.9\n" }, contract);
   const caps = buildOutputCapabilityMatrix(report);

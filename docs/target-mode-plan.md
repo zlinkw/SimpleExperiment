@@ -15,33 +15,33 @@
 ## 后续优先级
 - [已完成] 1/5 project-211：索引配置预览规范化文件路径。
 - [已完成] 2/5 project-212：合并比较统计配对值遍历。
-- [待处理] 3/5 project-213：索引输出能力缺失文件与列。
+- [已完成] 3/5 project-213：索引输出能力缺失文件与列。
 - [待处理] 4/5 project-214：合并主面板布局顺序成员检查。
 - [待处理] 5/5 project-215：执行第七十三轮完整非服务器静态测试。
 
-## 当前批次：project-212（已完成）
+## 当前批次：project-213（已完成）
 ### 修复点
 
-- 比较统计配对值在一次 rows 遍历中同时建立 baseline 和 candidate Map，避免每个组合执行两次 filter、map。
-- 配对交集改为直接遍历 baseline Map，保持键顺序和重复键末项覆盖不变。
+- 输出能力矩阵单次预索引缺失文件 ID 和缺失列名，避免 11 个 capability 对 report 数组重复 some 扫描。
+- capability 仅对自身 requiredFiles 和 requiredColumns 做 Set 成员检查，保持返回顺序和状态判定不变。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
 
 ### 相邻回归风险
 
-- pairedBy 的 dataset、seed、fold/case 回退到 split 语义必须保持不变。
-- 同一 method、metric、配对键重复行必须继续由最后一项覆盖且不改变 Map 首次插入顺序。
-- 配对差值方向、最小配对数、p value 和 significance 判定不得改变。
+- 仅 `status !== found` 的文件进入缺失索引，仅 `status === missing` 的列进入缺失索引。
+- missingFiles、missingColumns 顺序必须继续跟随各 capability 的 required 数组。
+- available、partial、unavailable 判定及 PPT、统计等 capability 契约不得改变。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
 - [已通过] TypeScript 构建。
-- [已通过] 比较统计配对遍历、重复覆盖、顺序和统计结果定向 Node 测试，6/6。
+- [已通过] 输出能力缺失索引、顺序和状态定向 Node 测试，10/10。
 - [已通过] `git diff --check`；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- project-211 已由提交 `3b4a0a8` 同步至 `origin/master`。
-- 本批仅处理后端比较统计配对值遍历、对应测试和计划文档；无视觉样式变化，不调用截图。
-- baseline 与 candidate 配对 Map 改为同一次 rows 遍历建立，交集直接按 baseline Map 顺序收集；6/6 定向测试通过。
+- project-212 已由提交 `7942736` 同步至 `origin/master`。
+- 本批仅处理后端输出能力缺失索引、对应测试和计划文档；无视觉样式变化，不调用截图。
+- report 文件和列各单次遍历建立缺失 Set，11 个 capability 复用成员检查；10/10 定向测试通过。

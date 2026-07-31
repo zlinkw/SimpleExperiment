@@ -227,11 +227,19 @@ function buildSmallScaleReport(config, input) {
     return { markdown: lines.join("\n"), json: JSON.stringify({ config, summary, cells, preRun: input.preRun, postRun: input.postRun }, null, 2), csv };
 }
 function buildOutputCapabilityMatrix(report) {
-    const missingFiles = (ids) => ids.filter((id) => report.files.some((f) => f.specId === id && f.status !== "found"));
-    const missingColumns = (file, cols) => cols.filter((col) => report.columns.some((c) => c.fileSpecId === file && c.column === col && c.status === "missing"));
+    const missingFileIds = new Set();
+    for (const file of report.files) {
+        if (file.status !== "found")
+            missingFileIds.add(file.specId);
+    }
+    const missingColumnNames = new Set();
+    for (const column of report.columns) {
+        if (column.status === "missing")
+            missingColumnNames.add(column.column);
+    }
     const cap = (capability, requiredFiles, requiredColumns, message, suggestion) => {
-        const mf = missingFiles(requiredFiles);
-        const mc = requiredColumns.flatMap((col) => report.columns.some((c) => c.column === col && c.status === "missing") ? [col] : []);
+        const mf = requiredFiles.filter((id) => missingFileIds.has(id));
+        const mc = requiredColumns.filter((column) => missingColumnNames.has(column));
         return { capability, status: mf.length || mc.length ? mf.length === requiredFiles.length || mc.length === requiredColumns.length ? "unavailable" : "partial" : "available", requiredFiles, requiredColumns, missingFiles: mf, missingColumns: mc, message, suggestion };
     };
     return [
