@@ -1581,12 +1581,13 @@ class RealtimeTunnelPanelProvider {
             await this.configureXshellSavedSessions();
         if (choice.action === "manual")
             await this.configureXshellRealtimeTunnel();
-        let missingServerSetup = serverSetupMissingItems(this.setupConfig);
+        const hubRequired = this.projectTopologyAssessment().hubAllowed;
+        let missingServerSetup = serverSetupMissingItems(this.setupConfig, hubRequired);
         if (missingServerSetup.length) {
             const setupNext = await vscode.window.showWarningMessage(`服务器配置还不能用于 Agent 准备：缺少 ${missingServerSetup.join("、")}。正式接入必须先选择可登录且带本地端口转发的 Xshell 会话。`, "选择 Xshell 会话", "打开服务器设置", "稍后");
             if (setupNext === "选择 Xshell 会话") {
                 await this.configureXshellSavedSessions();
-                missingServerSetup = serverSetupMissingItems(this.setupConfig);
+                missingServerSetup = serverSetupMissingItems(this.setupConfig, hubRequired);
             }
             else if (setupNext === "打开服务器设置") {
                 await this.openPanelAt("settings", "settings-servers");
@@ -1611,7 +1612,7 @@ class RealtimeTunnelPanelProvider {
         assertSingleProjectWorkspace("一键配置");
         if (!await this.ensureSimpleSftpReadyForSetup("一键配置续接"))
             return false;
-        const missingServerSetup = serverSetupMissingItems(this.setupConfig);
+        const missingServerSetup = serverSetupMissingItems(this.setupConfig, this.projectTopologyAssessment().hubAllowed);
         if (missingServerSetup.length) {
             const open = await vscode.window.showWarningMessage(`一键配置续接已停止：服务器配置缺少 ${missingServerSetup.join("、")}。尚未生成当前项目 SimpleSFTP 目标或准备 Agent。`, "打开服务器设置", "稍后");
             if (open === "打开服务器设置")
@@ -6075,6 +6076,7 @@ class RealtimeTunnelPanelProvider {
         };
         const initialRunState = currentRunState();
         const endpointReadiness = projectBootstrapEndpointReadiness({
+            hubRequired: this.projectTopologyAssessment().hubAllowed,
             hubStatus: this.lastProbe?.status || this.lastHealth?.state,
             hubSchedulerDependencies: this.lastProbe?.schedulerDependencies,
             workers: enabledWorkers.map((worker) => ({
@@ -8311,11 +8313,12 @@ class RealtimeTunnelPanelProvider {
         const topology = this.projectTopologyAssessment();
         const projectOnboarding = projectOnboardingStateForWebview({
             workspace,
+            topology,
             setup: this.setupConfig,
             simpleSftp: integrations.simpleSftp,
             promptShown: this.context.workspaceState.get(keys.projectOnboardingPrompt, 0),
             completed: this.context.workspaceState.get(keys.projectOnboardingCompleted, false) === true
-                || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState),
+                || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, topology.hubAllowed),
         });
         return {
             extensionVersion: String(this.context.extension.packageJSON?.version || ""),
@@ -13065,9 +13068,9 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired
 function initialServerSetupComplete(setup, hubRequired = true) {
     return serverSetupMissingItems(setup, hubRequired).length === 0;
 }
-function projectOnboardingCompletedFromCodeSync(codeSync) {
+function projectOnboardingCompletedFromCodeSync(codeSync, hubRequired = true) {
     const item = codeSync && typeof codeSync === "object" ? codeSync : {};
-    return successfulSyncStatus(item.hub) && successfulSyncStatus(item.workers);
+    return (!hubRequired || successfulSyncStatus(item.hub)) && successfulSyncStatus(item.workers);
 }
 const EMPTY_PROJECT_ONBOARDING_SOURCE = Object.freeze({});
 const projectOnboardingStateForWebviewCache = new WeakMap();
@@ -13076,6 +13079,8 @@ function projectOnboardingStateForWebview(options) {
     const workspace = item.workspace && typeof item.workspace === "object" ? item.workspace : EMPTY_PROJECT_ONBOARDING_SOURCE;
     const setup = item.setup && typeof item.setup === "object" ? item.setup : EMPTY_PROJECT_ONBOARDING_SOURCE;
     const simpleSftp = item.simpleSftp && typeof item.simpleSftp === "object" ? item.simpleSftp : EMPTY_PROJECT_ONBOARDING_SOURCE;
+    const topology = item.topology && typeof item.topology === "object" ? item.topology : undefined;
+    const hubRequired = topology ? topology.mode === "hub_worker" : true;
     const promptShown = Number(item.promptShown || 0);
     const completedInput = item.completed === true;
     const cached = projectOnboardingStateForWebviewCache.get(workspace);
@@ -13083,7 +13088,8 @@ function projectOnboardingStateForWebview(options) {
         && cached.setup === setup
         && cached.simpleSftp === simpleSftp
         && cached.promptShown === promptShown
-        && cached.completedInput === completedInput) {
+        && cached.completedInput === completedInput
+        && cached.hubRequired === hubRequired) {
         return cached.value;
     }
     const enabledWorkerCount = Array.isArray(setup.workerTunnels)
@@ -13091,7 +13097,7 @@ function projectOnboardingStateForWebview(options) {
         : 0;
     const hasProject = Boolean(workspace.root) && workspace.singleProject === true;
     const missing = [
-        ...serverSetupMissingItems(setup),
+        ...serverSetupMissingItems(setup, hubRequired),
         ...(simpleSftp.ready === true ? [] : [String(simpleSftp.message || "配套 SimpleSFTP 未就绪")]),
         ...(enabledWorkerCount > 0 ? [] : ["至少一个启用的执行 Worker"]),
     ];
@@ -13116,7 +13122,7 @@ function projectOnboardingStateForWebview(options) {
         promptShown,
         detail,
     };
-    projectOnboardingStateForWebviewCache.set(workspace, { setup, simpleSftp, promptShown, completedInput, value });
+    projectOnboardingStateForWebviewCache.set(workspace, { setup, simpleSftp, promptShown, completedInput, hubRequired, value });
     return value;
 }
 function agentSessionReuseBlockers(targets) {
@@ -13224,11 +13230,13 @@ function projectBootstrapNewProjectPrerequisite(options) {
 }
 function projectBootstrapEndpointReadiness(options) {
     const item = options || {};
+    const hubRequired = item.hubRequired !== false;
     const hubStatus = String(item.hubStatus || "").toLowerCase();
-    const hubReady = HUB_READY_STATUSES.has(hubStatus);
+    const hubReady = !hubRequired || HUB_READY_STATUSES.has(hubStatus);
     const workers = Array.isArray(item.workers) ? item.workers : [];
     const unavailableWorkers = workers.filter((worker) => String(worker?.status || "").toLowerCase() !== "ok");
-    const dependencyIssues = [{ label: "Hub", dependency: item.hubSchedulerDependencies }, ...workers.map((worker) => ({ label: worker?.label, dependency: worker?.schedulerDependencies }))].flatMap((row) => {
+    const dependencyRows = hubRequired ? [{ label: "Hub", dependency: item.hubSchedulerDependencies }] : [];
+    const dependencyIssues = [...dependencyRows, ...workers.map((worker) => ({ label: worker?.label, dependency: worker?.schedulerDependencies }))].flatMap((row) => {
         const dependency = row?.dependency;
         if (!dependency || dependency.ok !== false)
             return [];
@@ -13236,12 +13244,13 @@ function projectBootstrapEndpointReadiness(options) {
         return [`${String(row.label || "端点")} Scheduler 依赖缺失${install ? `；安装命令：${install}` : ""}`];
     });
     return {
-        ready: hubReady && unavailableWorkers.length === 0 && dependencyIssues.length === 0,
+        ready: (!hubRequired || hubReady) && unavailableWorkers.length === 0 && dependencyIssues.length === 0,
+        hubRequired,
         hubReady,
         unavailableWorkers,
         dependencyIssues,
         missing: [
-            ...(!hubReady ? ["Hub"] : []),
+            ...(!hubReady && hubRequired ? ["Hub"] : []),
             ...unavailableWorkers.map((worker) => String(worker?.label || "Worker")),
             ...dependencyIssues,
         ],

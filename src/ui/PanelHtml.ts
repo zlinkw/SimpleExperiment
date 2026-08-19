@@ -9415,8 +9415,8 @@ export function renderPanelHtml(): string {
               ? '<button class="mini projectPathButton secondary" data-command="startAllConnections">启动会话</button><button class="mini projectPathButton secondary" data-command="testAll">检测全部</button>'
               : '<button class="mini projectPathButton" data-command="prepareAgents">准备 Agent</button><button class="mini projectPathButton secondary" data-command="testAll">检测全部</button>'
         ], endpointReadiness.ready ? "status-completed" : "status-warning"),
-        projectQuickRow("代码同步", codeSyncReadiness.ready ? codeSyncReadiness.summary : "校验时自动同步 Hub；提交运行时自动同步 Hub/Worker", [
-          !codeSyncReadiness.hubReady ? '<button class="mini projectPathButton secondary" data-command="uploadProjectToHub">上传 Hub</button>' : '',
+        projectQuickRow("代码同步", codeSyncReadiness.ready ? codeSyncReadiness.summary : (codeSyncReadiness.hubRequired ? "校验时自动同步 Hub；提交运行时自动同步 Hub/Worker" : "提交运行时自动同步 Worker"), [
+          codeSyncReadiness.hubRequired && !codeSyncReadiness.hubReady ? '<button class="mini projectPathButton secondary" data-command="uploadProjectToHub">上传 Hub</button>' : '',
           codeSyncReadiness.workerRequired && !codeSyncReadiness.workerReady ? '<button class="mini projectPathButton secondary" data-command="uploadProjectToWorkers">上传 Worker</button>' : ''
         ], codeSyncReadiness.ready ? "status-completed" : "status-warning")
       ].filter(Boolean);
@@ -9896,10 +9896,12 @@ export function renderPanelHtml(): string {
       const setupSource = (state || {}).setup;
       const setup = setupSource && typeof setupSource === "object" ? setupSource : EMPTY_SERVER_SETUP;
       const workers = enabledWorkerTunnelsForState(state);
-      if (setup === serverSetupReadinessCacheSetup && workers === serverSetupReadinessCacheWorkers && serverSetupReadinessCacheValue) return serverSetupReadinessCacheValue;
+      const topology = (state || {}).topology || {};
+      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
+      if (setup === serverSetupReadinessCacheSetup && workers === serverSetupReadinessCacheWorkers && serverSetupReadinessCacheValue && serverSetupReadinessCacheValue.hubRequired === hubRequired) return serverSetupReadinessCacheValue;
       const missing = [];
-      if (!meaningfulValue(setup.savedSessionPath)) missing.push("Hub Xshell 会话");
-      if (!meaningfulValue(setup.agentProjectDir)) missing.push("Hub 项目父目录");
+      if (hubRequired && !meaningfulValue(setup.savedSessionPath)) missing.push("Hub Xshell 会话");
+      if (hubRequired && !meaningfulValue(setup.agentProjectDir)) missing.push("Hub 项目父目录");
       workers.forEach((worker) => {
         const label = String(worker.displayName || worker.id || "Worker");
         if (!meaningfulValue(worker.savedSessionPath)) missing.push(label + " Xshell 会话");
@@ -9909,7 +9911,8 @@ export function renderPanelHtml(): string {
       const value = {
         ready: missing.length === 0,
         missing,
-        summary: missing.length ? "缺少：" + missing.join("、") : "Hub 已配置" + workerLabel
+        hubRequired,
+        summary: missing.length ? "缺少：" + missing.join("、") : (hubRequired ? "Hub 已配置" : "无 Hub 模式已配置") + workerLabel
       };
       serverSetupReadinessCacheSetup = setup;
       serverSetupReadinessCacheWorkers = workers;
@@ -9944,17 +9947,19 @@ export function renderPanelHtml(): string {
       const data = state || {};
       if (projectEndpointReadinessCacheState === data && projectEndpointReadinessCacheValue) return projectEndpointReadinessCacheValue;
       const workers = enabledWorkerTunnelsForState(state);
+      const topology = data.topology || {};
+      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
       const workerProbes = data.workerProbes || {};
       const hubStatus = String((data.probe || {}).status || (data.health || {}).state || "").toLowerCase();
       const restartRequired = hubStatus === "agent_restart_required";
       let versionMismatch = hubStatus === "agent_version_mismatch";
       let projectMismatch = hubStatus === "agent_project_mismatch";
-      const hubReady = HUB_OPERATION_READY_STATUS_TOKENS.has(hubStatus);
+      const hubReady = !hubRequired || HUB_OPERATION_READY_STATUS_TOKENS.has(hubStatus);
       let workerReady = true;
       const hubProbe = data.probe || {};
       const hubMismatch = "Hub 当前 Agent 仍指向旧项目（" + String(hubProbe.projectRoot || "未返回") + "；期望 " + String(hubProbe.expectedProjectRoot || "未配置") + "）";
       const missing = hubReady ? [] : [restartRequired ? "Agent 待重启" : versionMismatch ? "Hub Agent 版本不兼容" : projectMismatch ? hubMismatch : "Hub 未检测或不可达"];
-      const dependencyRows = [{ label: "Hub", dependency: hubProbe.schedulerDependencies }];
+      const dependencyRows = hubRequired ? [{ label: "Hub", dependency: hubProbe.schedulerDependencies }] : [];
       workers.forEach((worker) => dependencyRows.push({ label: worker.displayName || worker.id || "Worker", dependency: (workerProbes[worker.id] || {}).schedulerDependencies }));
       const dependencyIssues = dependencyRows.flatMap((row) => {
         const dependency = row.dependency;
@@ -9984,15 +9989,16 @@ export function renderPanelHtml(): string {
         dependencyReady: dependencyIssues.length === 0,
         dependencyIssues,
         missing,
-        summary: restartRequired
+        summary: restartRequired && hubRequired
           ? "Agent 已部署，需重启会话并检测"
           : projectMismatch
             ? "当前 Agent 仍指向旧项目，需准备 Agent"
           : versionMismatch
             ? "Agent 版本不兼容，需部署并重启"
             : dependencyIssues.length ? "Scheduler 依赖未就绪：" + dependencyIssues.join("、")
-            : missing.length ? "缺少：" + missing.join("、") : "Hub/Worker Agent 可达"
+            : missing.length ? "缺少：" + missing.join("、") : (hubRequired ? "Hub/Worker Agent 可达" : "Worker Agent 可达")
       };
+      value.hubRequired = hubRequired;
       projectEndpointReadinessCacheState = data;
       projectEndpointReadinessCacheValue = value;
       return value;
@@ -10002,17 +10008,20 @@ export function renderPanelHtml(): string {
       const data = state || {};
       if (projectCodeSyncReadinessCacheState === data && projectCodeSyncReadinessCacheValue) return projectCodeSyncReadinessCacheValue;
       const workerRequired = enabledWorkerTunnelsForState(state).length > 0;
+      const topology = data.topology || {};
+      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
       const sync = data.codeSync || {};
-      const hubReady = syncStatusOk(sync.hub);
+      const hubReady = !hubRequired || syncStatusOk(sync.hub);
       const workerReady = !workerRequired || syncStatusOk(sync.workers);
       const fingerprintReady = hasText(sync.fingerprint);
       const missing = [];
-      if (!hubReady) missing.push("Hub 代码");
+      if (hubRequired && !hubReady) missing.push("Hub 代码");
       if (!workerReady) missing.push("Worker 代码");
       if (!fingerprintReady) missing.push("代码指纹");
       const value = {
         ready: hubReady && workerReady && fingerprintReady,
         hubReady,
+        hubRequired,
         workerReady,
         workerRequired,
         fingerprintReady,

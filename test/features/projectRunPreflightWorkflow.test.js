@@ -56,7 +56,7 @@ test("project next action follows the real preflight order", () => {
   assert.match(panel, /return renderPlanExecutionNextAction\(state, planFile\)/);
   assert.match(panel, /projectQuickRow\("连接"/);
   assert.match(panel, /projectQuickRow\("代码同步"/);
-  assert.match(panel, /projectQuickRow\("代码同步", codeSyncReadiness\.ready \? codeSyncReadiness\.summary : "校验时自动同步 Hub；提交运行时自动同步 Hub\/Worker"/);
+  assert.match(panel, /projectQuickRow\("代码同步", codeSyncReadiness\.ready \? codeSyncReadiness\.summary : \(codeSyncReadiness\.hubRequired \?/);
   const preflightStart = extension.indexOf("async runPlanPreflight(body, label, authority = {})");
   const preflightEnd = extension.indexOf("async openSetupGuide()", preflightStart);
   assert.ok(preflightStart >= 0 && preflightEnd > preflightStart);

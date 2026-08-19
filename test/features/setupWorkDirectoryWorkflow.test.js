@@ -36,7 +36,7 @@ test("quick setup resolves Xshell and Worker blockers before Agent preparation",
   const end = source.indexOf("async configureXshellSavedSessions()", start);
   assert.ok(start >= 0 && end > start);
   const flow = source.slice(start, end);
-  const setupGate = flow.indexOf("serverSetupMissingItems(this.setupConfig)");
+  const setupGate = flow.indexOf("serverSetupMissingItems(this.setupConfig, hubRequired)");
   const workerGate = flow.indexOf("正式运行、复现或批量运行至少需要一个启用的 Worker");
   const workspaceGate = flow.indexOf("if (!workspaceRoot())");
   const profiles = flow.indexOf("const profileResult = await this.writeSftpManagerServerProfiles()");
