@@ -2049,6 +2049,10 @@ def execute_worker_command(root, command, worker_id):
     debug_run_id = str(command.get("debugRunId") or command.get("debug_run_id") or options.get("debugRunId") or options.get("debug_run_id") or "").strip()
     debug_output_dir = str(command.get("debugOutputDir") or command.get("debug_output_dir") or options.get("debugOutputDir") or options.get("debug_output_dir") or "").strip()
     default_result_csv_dir = str(command.get("defaultResultCsvDir") or command.get("default_result_csv_dir") or options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results").strip()
+    manual_reassignment = any(action_bool(value) for value in (command.get("manualReassignment"), command.get("manual_reassignment"), options.get("manualReassignment"), options.get("manual_reassignment")))
+    source_worker_id = str(command.get("sourceWorkerId") or command.get("source_worker_id") or options.get("sourceWorkerId") or options.get("source_worker_id") or "").strip()
+    original_run_key = str(command.get("originalRunKey") or command.get("original_run_key") or options.get("originalRunKey") or options.get("original_run_key") or "").strip()
+    reassignment_run_key = str(command.get("runKey") or options.get("reassignmentRunKey") or options.get("reassignment_run_key") or "").strip()
     mode = worker_command_plan_mode(project_dir, plan, command.get("mode") or options.get("mode"))
     session = str(command.get("session") or f"zlk_{worker_id}_{experiment_index}_{int(time.time())}")
     rel_log = str(command.get("logPath") or f"zlk_cluster/tmux_logs/{session}.log").replace("\\", "/").lstrip("/")
@@ -2112,6 +2116,7 @@ def execute_worker_command(root, command, worker_id):
         "operationId": command_id,
         "runKey": command.get("runKey") or command_id,
         "workerId": worker_id,
+        "resultOwnerWorkerId": worker_id,
         "status": "running",
         "pid": pid,
         "session": session,
@@ -2128,9 +2133,16 @@ def execute_worker_command(root, command, worker_id):
         "debugOutputDir": debug_output_dir,
         "defaultResultCsvDir": default_result_csv_dir,
         "startedAt": now_iso(),
+        **({
+            "manualReassignment": True,
+            "sourceWorkerId": source_worker_id,
+            "targetWorkerId": worker_id,
+            "originalRunKey": original_run_key,
+            "reassignmentRunKey": reassignment_run_key or command_id,
+        } if manual_reassignment else {}),
     }
     append_worker_task(root, task)
-    result = {"commandId": command_id, "status": "running", "pid": pid, "session": session, "tmuxSession": tmux_session if used_tmux else "", "logPath": rel_log, "debugMode": debug_mode, "debugRunId": debug_run_id, "debugOutputDir": debug_output_dir, "message": "Debug Worker 任务已启动" if debug_mode else "Worker 任务已启动"}
+    result = {"commandId": command_id, "status": "running", "pid": pid, "session": session, "tmuxSession": tmux_session if used_tmux else "", "logPath": rel_log, "debugMode": debug_mode, "debugRunId": debug_run_id, "debugOutputDir": debug_output_dir, "resultOwnerWorkerId": worker_id, **({"manualReassignment": True, "sourceWorkerId": source_worker_id, "targetWorkerId": worker_id, "originalRunKey": original_run_key, "reassignmentRunKey": reassignment_run_key or command_id} if manual_reassignment else {}), "message": "Debug Worker 任务已启动" if debug_mode else "Worker 任务已启动"}
     append_event(root, {"type": "worker_task_started", "workerId": worker_id, "operationId": command_id, "payload": {**task, **result}})
     def wait_task():
         try:

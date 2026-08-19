@@ -6,6 +6,7 @@ const test = require("node:test");
 const root = path.join(__dirname, "..", "..");
 const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
 const panel = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+const agent = fs.readFileSync(path.join(root, "src", "clusterAgentRuntime.ts"), "utf8");
 
 test("manual Worker reassignment is exposed only as a worker-pool task action", () => {
   assert.match(panel, /reassignWorkerTask/);
@@ -38,4 +39,14 @@ test("manual Worker reassignment crosses the webview and host command gates", ()
   assert.match(extension, /SAFE_WEBVIEW_COMMANDS = new Set\(\[[\s\S]*"reassignWorkerTask"/);
   assert.match(extension, /hostOperationUiCommands = new Set\(\[[\s\S]*"reassignWorkerTask"/);
   assert.match(extension, /reassignWorkerTask: "手动转移 Worker 任务"/);
+});
+
+test("Worker runtime retains manual reassignment provenance and target ownership", () => {
+  assert.match(agent, /manual_reassignment = any\(action_bool/);
+  assert.match(agent, /"resultOwnerWorkerId": worker_id/);
+  assert.match(agent, /"sourceWorkerId": source_worker_id/);
+  assert.match(agent, /"targetWorkerId": worker_id/);
+  assert.match(agent, /"originalRunKey": original_run_key/);
+  assert.match(agent, /"reassignmentRunKey": reassignment_run_key or command_id/);
+  assert.match(agent, /append_event\(root, \{"type": "worker_task_started"[\s\S]*\{\*\*task, \*\*result\}/);
 });
