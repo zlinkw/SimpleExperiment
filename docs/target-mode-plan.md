@@ -17,9 +17,9 @@
 - [已完成] 2/5 project-222：补齐 Hub 手动停用与恢复交互。
 - [已完成] 3/5 project-223：实现仅多 Worker 的离线任务手动转移。
 - [已完成] 4/5 project-224：审计服务器状态、启动、检测和归档门禁的一致性。
-- [进行中] 5/5 project-225：执行第七十五轮完整非服务器静态测试。
+- [已完成] 5/5 project-225：执行第七十五轮完整非服务器静态测试。
 
-## 当前批次：project-225（进行中）
+## 当前批次：project-225（已完成）
 ### 修复点
 
 - 执行第七十五轮完整非服务器静态回归，覆盖 build、全部 Node 测试、lint、生成 JavaScript 与 Agent Python runtime 语法。
@@ -32,20 +32,18 @@
 
 - 完整测试不得触发真实 Xshell 隧道、服务器连接、VS Code 重载或 VSIX 安装。
 - 测试生成物不得混入提交；仅提交计划记录及必要修复。
-- 测试生成物不得混入提交；仅提交本批源码、生成文件、测试和计划记录。
 - 真实服务器行为继续标记 `needs field verification`。
 - 当前仅执行静态验证，不连接服务器或重载、关闭 VS Code。
 
 ### 验证清单
 
-- [待执行] `npm test` 完整 Node 回归。
-- [待执行] lint、生成 JavaScript 与 Agent Python runtime 语法检查。
-- [待执行] `git diff --check` 与提交范围检查。
+- [已通过] `npm test` 完整 Node 回归，1106/1106。
+- [已通过] lint、115 个生成 JavaScript 与 7 个 Python 文件语法。
+- [已通过] `git diff --check` 与提交范围检查；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- 基线为 `5ea25b9`，本地 `HEAD` 与 `origin/master` 一致。
+- 基线为 `250ee55`，本地 `HEAD` 与 `origin/master` 一致。
 - 静态审计确认三种拓扑已存在；当前明确缺陷是 Hub 保留端口规则未随拓扑变化，以及端点缓存未包含拓扑成员。
 - 无 Hub 时本机 `18765` 可由一个 Worker 使用；不同本机端口映射到各服务器相同远端 `18765` 不再产生静态冲突。
 - project-222 增加服务器页“停用 Hub”“恢复 Hub”按钮，按钮仍调用项目拓扑保存和强确认流程。
-- project-223 增加“转移”任务按钮，仅显示于仅多 Worker；仅排队或 pending 任务可转移到已检测在线 Worker，原 runKey 保留并生成新的转移 runKey。
-- project-224 统一设置、项目接入、端点检测、代码同步和 bootstrap 预检的 Hub 必需条件；无 Hub 模式不再因离线 Hub 阻塞 Worker 运行。
+- project-223、project-224 的新命令、门禁和无 Hub 分支均通过完整回归；首轮唯一失败为旧静态断言，已更新为条件化依赖契约。

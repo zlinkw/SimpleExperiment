@@ -131,7 +131,7 @@ test("endpoint probes, onboarding, and UI retain scheduler dependency guidance",
   assert.match(extensionSource, /schedulerDependencies: compactSchedulerDependenciesForWebview\(probe\.schedulerDependencies\)/);
   assert.match(extensionSource, /const dependencyIssues = \[\{ label: "Hub", probe: hub \}, \.\.\.workers\]/);
   assert.match(extensionSource, /projectBootstrapEndpointReadiness\(\{[\s\S]*hubSchedulerDependencies/);
-  assert.match(panelSource, /const dependencyRows = \[\{ label: "Hub", dependency: hubProbe\.schedulerDependencies \}\]/);
+  assert.match(panelSource, /const dependencyRows = hubRequired \? \[\{ label: "Hub", dependency: hubProbe\.schedulerDependencies \}\] : \[\]/);
   assert.match(panelSource, /Scheduler 依赖缺失/);
   assert.match(panelSource, /installCommand/);
   assert.match(panelSource, /renderSchedulerDependencyStatus/);
