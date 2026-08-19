@@ -554,6 +554,7 @@ class RealtimeTunnelPanelProvider {
     enabledWorkerConfigsCacheSource;
     enabledWorkerConfigsCacheValue = [];
     currentAssignmentsCacheConfig;
+    currentAssignmentsCacheHubAllowed;
     currentAssignmentsCacheValue = [];
     currentPortConflictsCacheAssignments;
     currentPortConflictsCacheRangeKey = "";
@@ -8003,12 +8004,13 @@ class RealtimeTunnelPanelProvider {
         };
     }
     currentAssignments() {
-        if (this.currentAssignmentsCacheConfig === this.setupConfig)
+        const hubAllowed = this.projectTopologyAssessment().hubAllowed;
+        if (this.currentAssignmentsCacheConfig === this.setupConfig && this.currentAssignmentsCacheHubAllowed === hubAllowed)
             return this.currentAssignmentsCacheValue;
         const enabledWorkers = new Set(this.enabledWorkerConfigs().map((worker) => worker.id));
-        const hubAllowed = this.projectTopologyAssessment().hubAllowed;
         const assignments = (0, TunnelEndpointRegistry_1.endpointAssignmentsFromConfig)(this.setupConfig).filter((assignment) => (hubAllowed && assignment.role === "hub_control") || enabledWorkers.has(assignment.endpointId));
         this.currentAssignmentsCacheConfig = this.setupConfig;
+        this.currentAssignmentsCacheHubAllowed = hubAllowed;
         this.currentAssignmentsCacheValue = assignments;
         return assignments;
     }

@@ -42,12 +42,14 @@ test("Extension Host reuses endpoint assignments and port conflicts by config", 
   vm.runInContext(`
     class Subject {
       currentAssignmentsCacheConfig;
+      currentAssignmentsCacheHubAllowed;
       currentAssignmentsCacheValue = [];
       currentPortConflictsCacheAssignments;
       currentPortConflictsCacheRangeKey = "";
       currentPortConflictsCacheValue = [];
       enabledWorkerConfigs() { return this.setupConfig.workerTunnels.filter((worker) => worker.enabled !== false); }
-      projectTopologyAssessment() { return { hubAllowed: true }; }
+      hubAllowed = true;
+      projectTopologyAssessment() { return { hubAllowed: this.hubAllowed }; }
       ${methods}
     }
     this.Subject = Subject;
@@ -74,13 +76,19 @@ test("Extension Host reuses endpoint assignments and port conflicts by config", 
   assert.equal(assignmentCalls, 1);
   assert.equal(conflictCalls, 2);
 
+  subject.hubAllowed = false;
+  const workerOnlyAssignments = subject.currentAssignments();
+  assert.deepEqual(workerOnlyAssignments.map((item) => item.endpointId), ["a"]);
+  assert.equal(assignmentCalls, 2);
+  assert.notStrictEqual(workerOnlyAssignments, assignments);
+
   subject.setupConfig = {
     workerTunnels: [{ id: "b", enabled: true, localForwardPort: 18768 }],
     ports: { workerLocalPortRange: { start: 18000, end: 19000 } },
   };
   assert.notEqual(subject.currentAssignments(), assignments);
   subject.currentPortConflicts();
-  assert.equal(assignmentCalls, 2);
+  assert.equal(assignmentCalls, 3);
   assert.equal(conflictCalls, 3);
 });
 
@@ -115,6 +123,7 @@ test("endpoint registry state reuses stable inputs and invalidates on replacemen
   vm.runInContext(`
     class Subject {
       currentAssignmentsCacheConfig;
+      currentAssignmentsCacheHubAllowed;
       currentAssignmentsCacheValue = [];
       currentPortConflictsCacheAssignments;
       currentPortConflictsCacheRangeKey = "";

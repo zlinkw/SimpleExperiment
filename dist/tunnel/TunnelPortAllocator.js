@@ -116,6 +116,9 @@ function allocationRequestFromAssignments(assignments) {
 function detectStaticTunnelPortConflicts(assignments, range = TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange) {
     const conflicts = [];
     const seen = new Map();
+    const hubLocalPorts = new Set(assignments
+        .filter((assignment) => assignment.role === "hub_control")
+        .map((assignment) => assignment.localForwardPort));
     for (const assignment of assignments) {
         const port = assignment.localForwardPort;
         if (!(0, TunnelPortConflict_1.isValidTunnelPort)(port)) {
@@ -123,10 +126,11 @@ function detectStaticTunnelPortConflicts(assignments, range = TunnelPortConflict
             continue;
         }
         if (assignment.role === "worker_telemetry") {
-            if (port === TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort) {
-                conflicts.push((0, TunnelPortConflict_1.makeTunnelPortConflict)(assignment.endpointId, port, "reserved_for_hub", "error", `Worker ${assignment.endpointId} uses reserved Hub local port ${port}.`, "Use Repair Port Conflicts."));
+            const usesReleasedHubPort = hubLocalPorts.size === 0 && port === TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort;
+            if (hubLocalPorts.has(port)) {
+                conflicts.push((0, TunnelPortConflict_1.makeTunnelPortConflict)(assignment.endpointId, port, "reserved_for_hub", "error", `Worker ${assignment.endpointId} uses the active Hub local port ${port}.`, "Use Repair Port Conflicts."));
             }
-            if (!(0, TunnelPortConflict_1.isPortInRange)(port, range)) {
+            if (!usesReleasedHubPort && !(0, TunnelPortConflict_1.isPortInRange)(port, range)) {
                 conflicts.push((0, TunnelPortConflict_1.makeTunnelPortConflict)(assignment.endpointId, port, "outside_allowed_range", "warning", `Worker ${assignment.endpointId} local port ${port} is outside ${range.start}-${range.end}.`, "Expand the Worker local port range or repair assignments."));
             }
         }

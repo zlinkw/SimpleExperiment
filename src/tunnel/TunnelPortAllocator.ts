@@ -178,6 +178,9 @@ export function detectStaticTunnelPortConflicts(
 ): TunnelPortConflict[] {
   const conflicts: TunnelPortConflict[] = [];
   const seen = new Map<number, string>();
+  const hubLocalPorts = new Set(assignments
+    .filter((assignment) => assignment.role === "hub_control")
+    .map((assignment) => assignment.localForwardPort));
   for (const assignment of assignments) {
     const port = assignment.localForwardPort;
     if (!isValidTunnelPort(port)) {
@@ -192,17 +195,18 @@ export function detectStaticTunnelPortConflicts(
       continue;
     }
     if (assignment.role === "worker_telemetry") {
-      if (port === defaultTunnelPorts.hubLocalPort) {
+      const usesReleasedHubPort = hubLocalPorts.size === 0 && port === defaultTunnelPorts.hubLocalPort;
+      if (hubLocalPorts.has(port)) {
         conflicts.push(makeTunnelPortConflict(
           assignment.endpointId,
           port,
           "reserved_for_hub",
           "error",
-          `Worker ${assignment.endpointId} uses reserved Hub local port ${port}.`,
+          `Worker ${assignment.endpointId} uses the active Hub local port ${port}.`,
           "Use Repair Port Conflicts.",
         ));
       }
-      if (!isPortInRange(port, range)) {
+      if (!usesReleasedHubPort && !isPortInRange(port, range)) {
         conflicts.push(makeTunnelPortConflict(
           assignment.endpointId,
           port,
