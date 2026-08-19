@@ -6644,6 +6644,7 @@ export function renderPanelHtml(): string {
       const hubSession = sessionForPath(setup.savedSessionPath);
       const cards = [];
       const topologyIssues = asArray(topology.issues || []);
+      const noHubMode = topology.workerCount >= 2 ? "worker_pool" : "single_worker";
       cards.push(
         '<div class="server-card" data-anchor="settings-topology">' +
           '<div class="serverHead"><div class="serverTitle"><h3>服务器拓扑</h3><div class="muted">项目级模式；不会迁移已有任务或结果</div></div>' +
@@ -6713,6 +6714,7 @@ export function renderPanelHtml(): string {
             '<button data-command="saveHubConfig" data-config-scope="hub">保存 Hub</button>' +
             '<button data-command="configureSessions" class="secondary">扫描选择会话</button>' +
             '<button data-command="startTunnelEndpoint" data-endpoint-id="hub" data-confirm="true" class="secondary">启动隧道</button>' +
+            (topology.workerCount > 0 ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="' + escAttr(noHubMode) + '" data-confirm="true" class="secondary">停用 Hub</button>' : '') +
             '<button data-command="test" class="secondary">检测</button>' +
           '</div>' +
         '</div>'
@@ -6726,7 +6728,10 @@ export function renderPanelHtml(): string {
             taskDetailLine("Hub 请求", "禁用") +
             taskDetailLine("自动备份", "禁用") +
           '</div>' +
-          '<div class="muted">切换并保存为 Hub 可用模式后，原 Hub 字段和操作会重新显示。</div>' +
+          '<div class="toolbar">' +
+            (setup.savedSessionPath && setup.agentProjectDir ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="hub_worker" data-confirm="true">恢复 Hub</button>' : '') +
+          '</div>' +
+          '<div class="muted">切换并保存为 Hub 可用模式后，原 Hub 字段和操作会重新显示；当前 Hub 配置不会被清除。</div>' +
         '</div>'
       );
       (setup.workerTunnels || []).forEach((worker) => {
@@ -13467,6 +13472,7 @@ export function renderPanelHtml(): string {
         document.querySelectorAll('[data-config-input="' + button.dataset.configScope.replace(/"/g, '\\"') + '"]').forEach((input) => {
           patch[input.dataset.key] = configInputValue(input);
         });
+        if (button.dataset.topologyMode) patch.mode = button.dataset.topologyMode;
         payload.patch = patch;
       }
       const planCommand = RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS.has(command);

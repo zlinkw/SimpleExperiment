@@ -83,6 +83,9 @@ test("settings and overview render topology ownership without active Hub control
   assert.match(panel, /Hub 不参与当前模式/);
   assert.match(panel, /当前模式不访问 Hub/);
   assert.match(panel, /无自动备份/);
+  assert.match(panel, /data-topology-mode="' \+ escAttr\(noHubMode\) \+ '"[^>]*>停用 Hub/);
+  assert.match(panel, /data-topology-mode="hub_worker"[^>]*>恢复 Hub/);
+  assert.match(panel, /if \(button\.dataset\.topologyMode\) patch\.mode = button\.dataset\.topologyMode/);
 });
 
 test("topology command is registered on both sides of the webview boundary", () => {
