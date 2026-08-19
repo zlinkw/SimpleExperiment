@@ -6533,7 +6533,7 @@ export function renderPanelHtml(): string {
       const hubParticipates = topology.hubAllowed === true;
       const nodes = [topologyNode("local", "本机 VS Code", "127.0.0.1")];
       if (hubParticipates) nodes.push(topologyNode("hub", "Hub Agent", "全局调度/汇总"));
-      nodes.push(topologyNode("worker", "Worker Agent", topology.mode === "worker_pool" ? "独立分片调度" : topology.mode === "single_worker" ? "本机调度" : "GPU/任务"));
+      nodes.push(topologyNode("worker", "Worker Agent", topology.mode === "worker_pool" ? "人工选择 Plan 目标" : topology.mode === "single_worker" ? "本机调度" : "GPU/任务"));
       nodes.push(topologyNode("sftp", "SimpleSFTP", "显式文件传输"));
       const lanes = hubParticipates
         ? [
@@ -6545,7 +6545,7 @@ export function renderPanelHtml(): string {
           ]
         : [
             ["本机 -> Worker", workerPorts.length ? workerPorts.join(", ") : "未配置"],
-            ["Worker 调度", topology.mode === "worker_pool" ? "各 Worker 独立处理确定性任务分片" : "Worker 本机处理完整 Plan"],
+            ["Worker 调度", topology.mode === "worker_pool" ? "每个 Plan 人工选择一台 Worker，由该 Worker 独立调度完整 Plan" : "Worker 本机处理完整 Plan"],
             ["Worker -> 本机", "有界状态与事件；至少 60 秒采样"],
             ["SFTP 文件", "仅用户触发上传或下载；无自动备份"],
             ["Hub 链路", "当前模式不访问 Hub"]

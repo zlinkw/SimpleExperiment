@@ -90,6 +90,10 @@ test("settings and overview render topology ownership without active Hub control
   assert.match(panel, /hubParticipates \? "检测全部" : "检测 Worker"/);
   assert.match(panel, /\["模式", topology\.modeLabel \|\| topologyModeLabel\(topology\.mode\), schedulerOwner\]/);
   assert.match(panel, /\["活动端点", String\(enabledWorkers\.length\), "当前仅包含启用 Worker，不访问 Hub"\]/);
+  assert.match(panel, /topology\.mode === "worker_pool" \? "人工选择 Plan 目标"/);
+  assert.match(panel, /每个 Plan 人工选择一台 Worker，由该 Worker 独立调度完整 Plan/);
+  assert.doesNotMatch(panel, /独立分片调度/);
+  assert.doesNotMatch(panel, /确定性任务分片/);
 });
 
 test("topology command is registered on both sides of the webview boundary", () => {

@@ -3,7 +3,7 @@
 ## 状态
 
 - 目标 ID：`worker-topology-modes`。
-- 状态：静态实施已完成；`topology-001` 至 `topology-005` 已覆盖配置、UI、单 Worker 调度、多 Worker 确定性分片、结果归属和归档门禁。
+- 状态：静态实施已完成；三种拓扑已覆盖配置、UI、Worker 本机调度、Plan 级人工目标选择、结果归属和归档门禁。
 - 证据状态：第二十五轮完整非服务器静态测试通过 856/856；全部真实服务器行为仍为 `needs field verification`。
 
 ## 目标
@@ -11,7 +11,7 @@
 插件不再把 Hub 当作所有用户的必选前提。服务器模式固定划分为三类：
 
 1. **单 Worker 模式**：仅配置一台 Worker，不要求 Hub。Plan、调度状态、日志、结果和归档均由该 Worker 本机维护。
-2. **仅多 Worker 模式**：配置两台及以上 Worker，不要求 Hub。每台 Worker 独立调度自己的确定性任务分片，不选举临时 Hub，也不建立 Worker 间控制链路。
+2. **仅多 Worker 模式**：配置两台及以上 Worker，不要求 Hub。每次提交 Plan 时由用户人工选择一台 Worker，该 Worker 独立调度完整 Plan；不选举临时 Hub，也不建立 Worker 间控制链路。
 3. **Hub 可用模式**：配置 Hub 和至少一台 Worker，沿用 Hub 全局排队、Worker 执行、Hub 汇总索引的现有链路。
 
 三种模式共享同一套 Plan、结果、归档和 UI 对象契约。切换拓扑不能迁移、覆盖、删除或重新解释已有任务与结果。
@@ -36,9 +36,9 @@
 ### 仅多 Worker
 
 - 每台 Worker 都运行独立 scheduler，不允许某台 Worker 充当隐式 Hub，也不允许 Worker 之间直接控制或同步状态。
-- 提交运行时生成不可变的 `planRevision + workerSetRevision`，按稳定 Worker ID 和任务索引确定性分片；同一 revision 重试必须得到相同分片。
-- 每台 Worker 只接收并调度自己的任务分片，只探测本机 GPU，只保存本机任务及结果。
-- Worker 集合变化不得重分配已经提交的 revision。新增、移除或禁用 Worker 只影响下一次明确提交的新 revision，防止重复运行或任务遗失。
+- 提交运行前必须人工选择一个已检测在线的 Worker；选择结果写入 operation、任务和结果归属。
+- 目标 Worker 接收并调度完整 Plan，只探测本机 GPU，只保存本机任务及结果。
+- 本机 VS Code 只负责目标选择、低频控制和状态展示，不运行 scheduler、不自动分片、不汇总为权威 Hub 状态。
 - 跨 Worker 总览由插件合并各 Worker 经 Xshell 隧道返回的有界状态；该合并结果仅用于显示，不成为新的权威运行状态。
 
 ## 保存、归档与备份边界
@@ -61,7 +61,7 @@
 
 - 设置页先选择拓扑模式，再显示对应端点字段；无 Hub 模式隐藏 Hub 必填项和 Hub 专属操作，但保留旧入口的只读兼容说明。
 - 概览、资源树、运行确认和路径强确认窗口必须显示当前模式及调度所有者。
-- `single_worker` 显示“Worker 本机调度”；`worker_pool` 显示每台 Worker 的任务分片；`hub_worker` 显示“Hub 全局调度”。
+- `single_worker` 显示“Worker 本机调度”；`worker_pool` 显示“人工选择 Plan 调度 Worker”；`hub_worker` 显示“Hub 全局调度”。
 - 无 Hub 模式不显示“等待 Hub”“同步到 Hub”“Hub 备份”等阻塞或成功状态。
 - 归档详情必须显示唯一保存 Worker、项目目录和归档位置，并提示该结果没有自动远端副本。
 
@@ -87,12 +87,12 @@
 - 禁用 Hub 请求、Hub 同步和自动备份分支。
 - 静态验证已覆盖 Plan 路由、Worker 动作白名单、Hub 不回退、Xshell 启动目标和无 Hub 可用性上报门禁；真实服务器未连接。
 
-### topology-004a 多 Worker 确定性分片
+### topology-004a 多 Worker 人工 Plan 目标
 
-- 增加 `workerSetRevision`、稳定分片和每 Worker 提交清单。
-- 每台 Worker 请求只保留本机配置、owner、分片 revision 和任务索引，scheduler 仅建立对应索引队列。
-- 提交前校验全部 Worker capability 和 Plan 展开索引；任一 Worker 离线或展开不一致时不开始新运行。
-- 已静态覆盖重试一致性、Worker 集合变化、独立提交、Agent owner 门禁和 scheduler 索引过滤。
+- 每个 Plan 提交前显示 Worker 选择器，只允许选择已检测在线且具备 Plan action capability 的 Worker。
+- Worker 请求只保留目标 Worker 配置和 owner，并设置 `workerPoolDispatchPolicy=manual_plan_target`；scheduler 建立完整 Plan 队列。
+- Worker Agent 拒绝 owner 不匹配、包含多个 Worker 目标或未声明本机 scheduler 的请求。
+- 旧 `workerSetRevision` 和索引分片字段仅用于兼容历史任务，不再用于新 Plan 提交。
 
 ### topology-004b 多 Worker 结果与归档归属
 
@@ -111,7 +111,7 @@
 
 - 用户可明确配置并保存三种拓扑，UI、门禁和运行确认一致显示当前模式。
 - 两种无 Hub 模式不访问 Hub、不创建自动备份，调度和保存由 Worker 自己完成。
-- 多 Worker 分片稳定、可追踪，Worker 集合变化不会改写已提交 revision。
+- 多 Worker 模式下每个 Plan 的人工目标可追踪，Worker 集合变化不会自动迁移或重分配已提交任务。
 - 结果解析、有效 CSV、归档、恢复和 PPT 数据源不会跨拓扑或跨 Worker 混用。
 - 三种模式共享原有 Plan 和任务入口，旧任务及结果不被迁移、覆盖或删除。
 - 完成自动化静态验证；真实服务器行为在现场验证前不声明成立。
