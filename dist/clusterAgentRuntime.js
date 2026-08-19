@@ -6813,6 +6813,7 @@ def action_operation_fields(payload):
     selected_plan_id = str(body.get("selectedPlanId") or options.get("selectedPlanId") or plan_file or "").strip()
     plan_revision = str(body.get("planRevision") or body.get("plan_revision") or options.get("planRevision") or options.get("plan_revision") or "").strip()
     topology_mode = str(body.get("topologyMode") or options.get("topologyMode") or "").strip()
+    worker_pool_dispatch_policy = str(body.get("workerPoolDispatchPolicy") or options.get("workerPoolDispatchPolicy") or "").strip()
     worker_set_revision = str(body.get("workerSetRevision") or options.get("workerSetRevision") or "").strip()
     scheduler_owner_worker_id = str(body.get("schedulerOwnerWorkerId") or options.get("schedulerOwnerWorkerId") or "").strip()
     result_owner_worker_id = str(body.get("resultOwnerWorkerId") or options.get("resultOwnerWorkerId") or scheduler_owner_worker_id).strip()
@@ -6822,6 +6823,7 @@ def action_operation_fields(payload):
         **({"selectedPlanId": selected_plan_id} if selected_plan_id else {}),
         **({"planRevision": plan_revision} if plan_revision else {}),
         **({"topologyMode": topology_mode} if topology_mode else {}),
+        **({"workerPoolDispatchPolicy": worker_pool_dispatch_policy} if worker_pool_dispatch_policy else {}),
         **({"workerSetRevision": worker_set_revision} if worker_set_revision else {}),
         **({"schedulerOwnerWorkerId": scheduler_owner_worker_id, "workerId": scheduler_owner_worker_id} if scheduler_owner_worker_id else {}),
         **({"resultOwnerWorkerId": result_owner_worker_id, "workerId": result_owner_worker_id} if result_owner_worker_id else {}),
@@ -8051,12 +8053,13 @@ def serve_http(args):
                 options = payload.get("options") or {}
                 topology_mode = str(options.get("topologyMode") or payload.get("topologyMode") or "")
                 owner = str(options.get("schedulerOwnerWorkerId") or payload.get("schedulerOwnerWorkerId") or "").strip()
+                dispatch_policy = str(options.get("workerPoolDispatchPolicy") or payload.get("workerPoolDispatchPolicy") or "").strip()
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("ZLK_WORKER_ID") or "worker").strip()
                 workers = options.get("workers") if isinstance(options.get("workers"), list) else []
                 worker_ids = [str((worker or {}).get("id") or (worker or {}).get("worker_id") or "").strip() for worker in workers if isinstance(worker, dict)]
                 if (topology_mode != "single_worker" and topology_mode != "worker_pool") or options.get("localWorkerScheduler") is not True or not owner or owner != current_worker or worker_ids != [owner]:
                     return self.send_json({"error": "local worker scheduler identity mismatch"}, status=403)
-                if topology_mode == "worker_pool" and action in ("dry-run-plan", "run-plan", "reproduce-plan"):
+                if topology_mode == "worker_pool" and dispatch_policy != "manual_plan_target" and action in ("dry-run-plan", "run-plan", "reproduce-plan"):
                     assigned = normalized_experiment_indices(payload.get("assignedExperimentIndices") or options.get("assignedExperimentIndices") or [])
                     worker_set_revision = str(payload.get("workerSetRevision") or options.get("workerSetRevision") or "").strip()
                     if not assigned or not worker_set_revision:

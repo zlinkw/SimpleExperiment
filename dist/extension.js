@@ -3034,8 +3034,9 @@ class RealtimeTunnelPanelProvider {
             await this.refreshLocalPlanMetadataForAction(body);
             this.stampPlanRevision(body);
             await this.assertPlanLocalConfigFiles(body);
-            this.assertPlanSchedulerAgentReady(command);
-            await this.ensureHubCodeReadyForPlanCheck();
+            await this.ensureWorkerPoolPlanTarget(body, operationResultPlanFile(body) || command);
+            this.assertPlanSchedulerAgentReady(command, body);
+            await this.ensureHubCodeReadyForPlanCheck(body);
         }
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
             this.assertPlanTopologyReady(command);
@@ -3046,13 +3047,14 @@ class RealtimeTunnelPanelProvider {
             const outputGateReason = projectOutputGateReason(this.localPlanMetadata.detectedProject, plan);
             if (outputGateReason)
                 throw new Error(outputGateReason);
+            await this.ensureWorkerPoolPlanTarget(body, operationResultPlanFile(body) || plan?.planFile || command);
             this.assertExecutionWorkersReady(body.options?.workers);
-            this.assertExecutionAgentProjectsReady();
+            this.assertExecutionAgentProjectsReady(body);
             this.assertPlanNotAlreadyActive(operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "", plan);
             if (!await this.ensureSimpleSftpReadyForSetup(body.debugMode === true ? "Debug 首跑" : command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
-            await this.confirmPlanRunSubmission(command, plan, body.debugMode === true);
-            await this.ensureCodeReadyForRun();
+            await this.confirmPlanRunSubmission(command, plan, body.debugMode === true, body);
+            await this.ensureCodeReadyForRun(undefined, [body]);
             if (!await this.runPlanPreflight(body, "当前计划"))
                 return;
         }
@@ -3093,7 +3095,7 @@ class RealtimeTunnelPanelProvider {
     async runPlanPreflight(body, label, authority = {}) {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const prefix = String(label || "当前计划").trim() || "当前计划";
-        const workerId = this.planSchedulerWorkerId();
+        const workerId = this.planSchedulerWorkerId(body);
         const validate = await this.postPlanSchedulerAction("validate-plan", body, {
             title: `${prefix}：校验`,
             requiresCapability: ["endpoints.actions", "actions.validate-plan"],
@@ -3118,32 +3120,41 @@ class RealtimeTunnelPanelProvider {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         return Boolean(previewed);
     }
-    async confirmPlanRunSubmission(command, plan, debugMode = false) {
-        const remoteTargets = this.planRunRemoteTargets();
+    async confirmPlanRunSubmission(command, plan, debugMode = false, body) {
+        const remoteTargets = this.planRunRemoteTargets(body);
         const projectOutputCandidates = adapterRuleResultCandidates(this.localPlanMetadata.detectedProject?.adapterRules || {});
         const label = command === "reproducePlan" ? "确认复现" : "确认提交";
-        const answer = await vscode.window.showWarningMessage(planRunConfirmationDetail(command, { ...(plan || {}), debugMode, confirmationOutputCandidates: projectOutputCandidates }, remoteTargets), { modal: true }, label);
+        const answer = await vscode.window.showWarningMessage(planRunConfirmationDetail(command, { ...(plan || {}), debugMode, schedulerOwnerWorkerId: this.planSchedulerWorkerId(body), confirmationOutputCandidates: projectOutputCandidates }, remoteTargets), { modal: true }, label);
         if (answer !== label)
             throw new UiCommandCancelled(command === "reproducePlan" ? "复现实验已取消。" : "运行计划已取消。");
     }
-    async confirmPlanBatchRunSubmission(plans) {
-        const remoteTargets = this.planRunRemoteTargets();
+    async confirmPlanBatchRunSubmission(candidates) {
+        const rows = Array.isArray(candidates) ? candidates : [];
+        const targetMap = new Map();
+        rows.flatMap((candidate) => this.planRunRemoteTargets(candidate.body)).forEach((target) => {
+            const key = `${target.role}:${target.label}:${target.remotePath}`;
+            if (!targetMap.has(key))
+                targetMap.set(key, target);
+        });
+        const remoteTargets = [...targetMap.values()];
         const projectOutputCandidates = adapterRuleResultCandidates(this.localPlanMetadata.detectedProject?.adapterRules || {});
-        const confirmationPlans = (Array.isArray(plans) ? plans : []).map((plan) => ({ ...(plan || {}), confirmationOutputCandidates: projectOutputCandidates }));
+        const confirmationPlans = rows.map((candidate) => ({ ...(candidate.plan || {}), schedulerOwnerWorkerId: this.planSchedulerWorkerId(candidate.body), confirmationOutputCandidates: projectOutputCandidates }));
         const label = "确认批量运行";
         const answer = await vscode.window.showWarningMessage(planBatchRunConfirmationDetail(confirmationPlans, remoteTargets), { modal: true }, label);
         if (answer !== label)
             throw new UiCommandCancelled("运行全部计划已取消，未上传代码或提交任务。");
     }
-    planRunRemoteTargets() {
+    planRunRemoteTargets(body) {
         const topology = this.assertTopologyReady("显示 Plan 运行目标");
-        const workers = this.workerCodeSyncTargets();
+        const selectedWorkerId = this.planSchedulerWorkerId(body);
+        const workers = this.workerCodeSyncTargets().filter((worker) => topology.mode !== "worker_pool" || worker.id === selectedWorkerId);
         const workerConfigs = new Map(this.setupConfig.workerTunnels.map((worker) => [worker.id, worker]));
         return [
             ...(topology.hubAllowed ? [{ label: "Hub 汇总", role: "hub", remotePath: this.hubCodeSyncTarget().remotePath }] : []),
             ...workers.map((worker) => {
                 const config = workerConfigs.get(worker.id);
                 return {
+                    id: worker.id,
                     label: worker.label || worker.id,
                     role: "worker",
                     remotePath: worker.remotePath,
@@ -3161,21 +3172,29 @@ class RealtimeTunnelPanelProvider {
     assertHubAgentProjectReady() {
         assertAgentProjectProbeReady(this.lastProbe, this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir, "Hub");
     }
-    assertExecutionAgentProjectsReady() {
+    assertExecutionAgentProjectsReady(body) {
         const topology = this.assertPlanTopologyReady("运行实验");
         if (topology.hubAllowed)
             this.assertHubAgentProjectReady();
-        for (const worker of this.enabledWorkerConfigs()) {
+        const selectedWorkerId = this.planSchedulerWorkerId(body);
+        const workers = topology.mode === "worker_pool"
+            ? this.enabledWorkerConfigs().filter((worker) => worker.id === selectedWorkerId)
+            : this.enabledWorkerConfigs();
+        for (const worker of workers) {
             assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
         }
     }
-    assertPlanSchedulerAgentReady(operation = "Plan 操作") {
+    assertPlanSchedulerAgentReady(operation = "Plan 操作", body) {
         const topology = this.assertPlanTopologyReady(operation);
         if (topology.mode === "hub_worker") {
             this.assertHubAgentProjectReady();
             return;
         }
-        for (const worker of this.enabledWorkerConfigs())
+        const selectedWorkerId = this.planSchedulerWorkerId(body);
+        const workers = topology.mode === "worker_pool"
+            ? this.enabledWorkerConfigs().filter((worker) => worker.id === selectedWorkerId)
+            : this.enabledWorkerConfigs();
+        for (const worker of workers)
             assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
     }
     assertPlanNotAlreadyActive(planFile, plan) {
@@ -3594,19 +3613,26 @@ class RealtimeTunnelPanelProvider {
         if (record.ok === false)
             throw new Error(stringFromRecord(record, ["error", "message"]) || "SFTP 忽略规则配置失败。");
     }
-    async ensureCodeReadyForRun(projectContext = this.captureProjectContext()) {
+    async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
-        const targets = this.topologyCodeSyncTargets();
+        const topology = this.assertPlanTopologyReady("运行前代码同步");
+        const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).map((body) => this.planSchedulerWorkerId(body)).filter(Boolean));
+        const targets = topology.mode === "worker_pool" && selectedWorkerIds.length
+            ? this.workerCodeSyncTargets().filter((target) => selectedWorkerIds.includes(target.id))
+            : this.topologyCodeSyncTargets();
         await this.syncCodeTargets(targets, "run", { projectContext });
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
-    async ensureHubCodeReadyForPlanCheck() {
+    async ensureHubCodeReadyForPlanCheck(body) {
         await this.prepareSftpTargets("ensureHubCodeReadyForPlanCheck", "simpleSftp.uploadWorkspace");
         const topology = this.assertPlanTopologyReady("Plan 校验");
-        const targets = topology.mode === "hub_worker" ? [this.hubCodeSyncTarget()] : this.workerCodeSyncTargets();
+        const selectedWorkerId = this.planSchedulerWorkerId(body);
+        const targets = topology.mode === "hub_worker"
+            ? [this.hubCodeSyncTarget()]
+            : this.workerCodeSyncTargets().filter((target) => topology.mode !== "worker_pool" || target.id === selectedWorkerId);
         await this.syncCodeTargets(targets, "plan-check");
     }
     async syncCodeTargets(targets, scope, options = {}) {
@@ -4023,16 +4049,82 @@ class RealtimeTunnelPanelProvider {
     assertPlanTopologyReady(operation = "Plan 操作") {
         return this.assertTopologyReady(operation);
     }
-    planSchedulerWorkerId() {
+    planSchedulerWorkerId(body) {
         const topology = this.assertPlanTopologyReady("Plan 调度");
-        return topology.mode === "single_worker" ? this.enabledWorkerConfigs()[0]?.id : undefined;
+        if (topology.mode === "single_worker")
+            return this.enabledWorkerConfigs()[0]?.id;
+        if (topology.mode === "worker_pool")
+            return this.resolveWorkerEndpointId(body?.schedulerOwnerWorkerId || body?.options?.schedulerOwnerWorkerId || body?.options?.workerId || "") || undefined;
+        return undefined;
+    }
+    async ensureWorkerPoolPlanTarget(body, label = "当前 Plan") {
+        const topology = this.assertPlanTopologyReady(label);
+        if (topology.mode !== "worker_pool")
+            return this.planSchedulerWorkerId(body);
+        const existing = this.planSchedulerWorkerId(body);
+        const available = this.enabledWorkerConfigs().filter((worker) => {
+            const probe = this.lastWorkerProbes[worker.id] || {};
+            return probe.status === "ok" && this.missingWorkerActionCapabilities(worker.id, "validate-plan").length === 0;
+        });
+        if (existing && available.some((worker) => worker.id === existing)) {
+            this.stampWorkerPoolManualTarget(body, existing);
+            return existing;
+        }
+        if (!available.length)
+            throw new Error(`${label} 没有已检测在线且支持 Plan 校验的 Worker；请先启动并检测 Worker。`);
+        const candidates = available.map((worker) => {
+            const probe = this.lastWorkerProbes[worker.id] || {};
+            return {
+                label: worker.displayName || worker.id,
+                description: `${worker.id} · 已检测在线`,
+                detail: `项目父目录：${worker.agentProjectDir || "未配置"} · 并发占卡上限 ${worker.maxConcurrentGpus || 1}`,
+                workerId: worker.id,
+                picked: probe.status === "ok",
+            };
+        });
+        const picked = await vscode.window.showQuickPick(candidates, {
+            title: `${label}：选择调度 Worker`,
+            placeHolder: "该 Worker 将独立校验、预演并调度完整 Plan；本机不会自动分片",
+            ignoreFocusOut: true,
+        });
+        if (!picked)
+            throw new UiCommandCancelled(`${label} 未选择调度 Worker。`);
+        this.stampWorkerPoolManualTarget(body, picked.workerId);
+        return picked.workerId;
+    }
+    stampWorkerPoolManualTarget(body, workerId) {
+        const worker = this.enabledWorkerConfigs().find((item) => item.id === workerId);
+        if (!worker)
+            throw new Error(`未找到已启用的目标 Worker：${workerId}`);
+        const remoteAgentPort = worker.remoteTelemetryPort || worker.remoteAgentPort;
+        const workerTarget = this.workerActionTargets().find((item) => item.id === workerId);
+        if (!workerTarget)
+            throw new Error(`无法计算目标 Worker 项目路径：${workerId}`);
+        body.topologyMode = "worker_pool";
+        body.schedulerOwnerWorkerId = workerId;
+        body.selectedWorkerIds = [workerId];
+        body.options = {
+            ...(body.options || {}),
+            workers: [{
+                    ...workerTarget,
+                    local_agent_url: `http://127.0.0.1:${remoteAgentPort}`,
+                    topology_mode: "worker_pool",
+                    scheduler_owner_worker_id: workerId,
+                }],
+            topologyMode: "worker_pool",
+            schedulerOwnerWorkerId: workerId,
+            workerId,
+            localWorkerScheduler: true,
+            workerPoolDispatchPolicy: "manual_plan_target",
+            automaticBackup: false,
+        };
     }
     stampPlanTopology(body) {
         const topology = this.assertPlanTopologyReady("Plan 操作");
-        const workerId = topology.mode === "single_worker" ? this.enabledWorkerConfigs()[0]?.id : undefined;
+        const workerId = this.planSchedulerWorkerId(body);
         const worker = workerId ? this.enabledWorkerConfigs().find((item) => item.id === workerId) : undefined;
         const remoteAgentPort = worker ? worker.remoteTelemetryPort || worker.remoteAgentPort : undefined;
-        const workers = topology.mode === "single_worker"
+        const workers = topology.mode !== "hub_worker" && workerId
             ? this.workerActionTargets().filter((item) => item.id === workerId).map((item) => ({
                 ...item,
                 local_agent_url: `http://127.0.0.1:${remoteAgentPort}`,
@@ -4047,7 +4139,8 @@ class RealtimeTunnelPanelProvider {
             workers,
             topologyMode: topology.mode,
             schedulerOwnerWorkerId: workerId,
-            localWorkerScheduler: topology.mode === "single_worker",
+            localWorkerScheduler: topology.mode !== "hub_worker",
+            workerPoolDispatchPolicy: topology.mode === "worker_pool" ? "manual_plan_target" : undefined,
             automaticBackup: topology.mode === "hub_worker",
         };
         return { topology, workerId };
@@ -4086,12 +4179,13 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`Worker pool 无法计算目标项目路径：${workerId}`);
         const indices = uniqueNumbers(experimentIndices);
         const shard = shardSet?.shards?.find((item) => item.workerId === workerId);
+        const manualPlanTarget = body.options?.workerPoolDispatchPolicy === "manual_plan_target";
         return {
             ...body,
             topologyMode: "worker_pool",
             schedulerOwnerWorkerId: workerId,
-            workerSetRevision: shardSet?.workerSetRevision,
-            assignedExperimentIndices: indices,
+            workerSetRevision: manualPlanTarget ? undefined : shardSet?.workerSetRevision,
+            assignedExperimentIndices: manualPlanTarget ? undefined : indices,
             options: {
                 ...(body.options || {}),
                 workers: [{
@@ -4104,53 +4198,21 @@ class RealtimeTunnelPanelProvider {
                 schedulerOwnerWorkerId: workerId,
                 localWorkerScheduler: true,
                 automaticBackup: false,
-                workerSetRevision: shardSet?.workerSetRevision,
-                workerShardRevision: shard?.shardRevision,
-                assignedExperimentIndices: indices,
+                workerPoolDispatchPolicy: manualPlanTarget ? "manual_plan_target" : "deterministic_shard",
+                workerSetRevision: manualPlanTarget ? undefined : shardSet?.workerSetRevision,
+                workerShardRevision: manualPlanTarget ? undefined : shard?.shardRevision,
+                assignedExperimentIndices: manualPlanTarget ? undefined : indices,
             },
         };
     }
     async postWorkerPoolPlanAction(action, body, options = {}) {
-        const workerIds = this.enabledWorkerConfigs().map((worker) => worker.id).sort((a, b) => a.localeCompare(b));
+        const workerId = await this.ensureWorkerPoolPlanTarget(body, options.title || action);
         const command = options.title || action;
-        for (const workerId of workerIds) {
-            const missing = this.missingWorkerActionCapabilities(workerId, action);
-            if (missing.length)
-                throw new Error(`${command}已阻止：Worker ${workerId} capability 缺失: ${missing.join(", ")}`);
-        }
-        if (action === "validate-plan") {
-            const submissions = await Promise.all(workerIds.map(async (workerId) => {
-                const request = this.workerPoolActionBody(body, workerId, undefined);
-                const submitted = await this.postWorkerTunnelAction(workerId, action, request, { ...options, confirm: false, danger: false });
-                const result = remoteActionPendingStatus(resultStatus(submitted))
-                    ? await this.waitForOperationTerminalResult(action, submitted, command, 45_000, workerId, options)
-                    : submitted;
-                return { workerId, result };
-            }));
-            const indexSets = submissions.map(({ workerId, result }) => ({ workerId, indices: planValidationExperimentIndices(result) }));
-            const expected = indexSets[0]?.indices || [];
-            const inconsistent = indexSets.find((item) => !sameNumberArray(item.indices, expected));
-            if (!expected.length || inconsistent)
-                throw new Error(`${command}已阻止：各 Worker 的 Plan 展开结果不一致或为空。${indexSets.map((item) => `${item.workerId}=[${item.indices.join(",")}]`).join("；")}`);
-            const planRevision = String(body.planRevision || body.options?.planRevision || "").trim();
-            const shardSet = (0, WorkerPlanSharding_1.createWorkerPlanShardSet)(planRevision, workerIds, expected);
-            body.workerSetRevision = shardSet.workerSetRevision;
-            body.options = { ...(body.options || {}), workerSetRevision: shardSet.workerSetRevision, workerPlanShardSet: shardSet };
-            return workerPoolAggregateResult(action, submissions, shardSet);
-        }
-        let shardSet = body.options?.workerPlanShardSet;
-        const planRevision = String(body.planRevision || body.options?.planRevision || "").trim();
-        if (!(0, WorkerPlanSharding_1.workerPlanShardSetMatches)(shardSet, planRevision, workerIds)) {
-            await this.postWorkerPoolPlanAction("validate-plan", body, { title: `${command}：分片校验` });
-            shardSet = body.options?.workerPlanShardSet;
-        }
-        const activeShards = shardSet.shards.filter((shard) => shard.experimentIndices.length > 0);
-        const submissions = await Promise.all(activeShards.map(async (shard) => {
-            const request = this.workerPoolActionBody(body, shard.workerId, shardSet, shard.experimentIndices);
-            const result = await this.postWorkerTunnelAction(shard.workerId, action, request, { ...options, confirm: false, danger: false });
-            return { workerId: shard.workerId, result };
-        }));
-        return workerPoolAggregateResult(action, submissions, shardSet);
+        const missing = this.missingWorkerActionCapabilities(workerId, action);
+        if (missing.length)
+            throw new Error(`${command}已阻止：Worker ${workerId} capability 缺失: ${missing.join(", ")}`);
+        const request = this.workerPoolActionBody(body, workerId, undefined);
+        return this.postWorkerTunnelAction(workerId, action, request, { ...options, confirm: false, danger: false });
     }
     stampNoHubResultOwnership(body, workerId) {
         const topology = this.assertPlanTopologyReady("结果操作");
@@ -5731,12 +5793,14 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("计划元数据缺少 planFile，已停止批量运行；请刷新识别后重试。");
             const body = this.actionBody({ planFile, planId: plan.planId || planFile, selectedPlanId: plan.planId || planFile });
             this.stampPlanRevision(body, plan);
+            await this.ensureWorkerPoolPlanTarget(body, planFile);
             assertCurrent();
             await this.assertPlanLocalConfigFiles(body);
             assertCurrent();
             candidatePlans.push({ planFile, body, plan });
         }
-        this.assertExecutionAgentProjectsReady();
+        for (const candidate of candidatePlans)
+            this.assertExecutionAgentProjectsReady(candidate.body);
         const currentState = this.buildPlanRuntimeEvidenceState();
         const activePlans = candidatePlans
             .map((candidate) => ({ planFile: candidate.planFile, activity: activePlanRunEvidence(currentState, candidate.planFile, candidate.plan) }))
@@ -5748,9 +5812,9 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         assertCurrent();
-        await this.confirmPlanBatchRunSubmission(candidatePlans.map((candidate) => candidate.plan));
+        await this.confirmPlanBatchRunSubmission(candidatePlans);
         assertCurrent();
-        await this.ensureCodeReadyForRun(projectContext);
+        await this.ensureCodeReadyForRun(projectContext, candidatePlans.map((candidate) => candidate.body));
         assertCurrent();
         const preparedPlans = [];
         for (const candidate of candidatePlans) {
@@ -5781,7 +5845,7 @@ class RealtimeTunnelPanelProvider {
         const schedulerLabel = topology.mode === "single_worker"
             ? `Worker ${schedulerWorkerId} 本机调度队列`
             : topology.mode === "worker_pool"
-                ? "各 Worker 独立分片调度队列"
+                ? "人工选择的 Worker 独立调度队列"
                 : "Hub 调度队列";
         assertCurrent();
         void vscode.window.showInformationMessage(`全部 ${preparedPlans.length} 个计划已通过校验与预演，并提交 ${submitted}/${preparedPlans.length} 个到 ${schedulerLabel}；${pendingSubmitted} 个正在后台调度。`);
@@ -15276,7 +15340,7 @@ function planRunTargetLocations(values) {
         if (!label || seen.has(key))
             continue;
         seen.add(key);
-        out.push({ label, role, remotePath, maxConcurrentGpus, allowedGpuIds, condaEnv });
+        out.push({ id: String(item.id || "").trim(), label, role, remotePath, maxConcurrentGpus, allowedGpuIds, condaEnv });
     }
     if (source) {
         planRunTargetLocationsCache.set(source, out);
@@ -15359,6 +15423,8 @@ function planRunConfirmationDetail(command, plan, remoteTargets) {
     const output = planRunOutputLocationSummary(item);
     const expectedLocations = planRunExpectedRemoteLocations(output, targets);
     const debugMode = item.debugMode === true;
+    const schedulerOwnerWorkerId = String(item.schedulerOwnerWorkerId || "").trim();
+    const hasHubTarget = targets.some((target) => target.role === "hub");
     return [
         debugMode ? "Debug 运行" : (command === "reproducePlan" ? "复现实验" : "运行计划"),
         `Plan：${planFile}`,
@@ -15372,6 +15438,7 @@ function planRunConfirmationDetail(command, plan, remoteTargets) {
         ...planRunCommandSummary(item).map((value) => `- ${value}`),
         debugMode ? "Debug 输出：zlk_cluster/debug_runs/<plan>/<run>/" : `结果位置（${output.source}）：${output.text}`,
         `Worker：${workers.length ? workers.map((target) => target.label).join("、") : "未配置"}`,
+        ...(schedulerOwnerWorkerId ? [`人工调度目标：${schedulerOwnerWorkerId}（该 Worker 独立调度完整 Plan）`] : []),
         "Worker 调度配置：",
         ...(workers.length ? workers.map((target) => `- ${planRunWorkerCapacitySummary(target)}`) : ["- 未配置"]),
         "远端项目位置：",
@@ -15382,7 +15449,7 @@ function planRunConfirmationDetail(command, plan, remoteTargets) {
         "结果路径中的 {output_dir} 会按每个任务展开为实际任务输出目录；固定相对路径按 Plan 原样保留，并相对于远端项目执行目录解析。",
         "任务规模来自本地 Plan 的实验项（case）与随机种子（seed）展开；静态配置容量不代表当前空闲 GPU，实时分配和实际排队以预演和任务页为准。",
         "结果先在执行 Worker 的项目目录生成；Hub 行仅表示同步后的预期汇总位置。“检查同步清单”不会传输文件，是否已到达 Hub 须以实际文件同步流程和“三方一致校验”结果为准。",
-        debugMode ? "确认后将同步代码、校验并预演，只提交首个任务；调试产物不能归档、解析为有效结果或用于统计、论文和 PPT。" : "确认后将依次同步 Hub/Worker 代码、核验代码指纹、校验 Plan、预演调度，全部通过后才提交正式任务。",
+        debugMode ? "确认后将同步代码、校验并预演，只提交首个任务；调试产物不能归档、解析为有效结果或用于统计、论文和 PPT。" : `确认后将同步${hasHubTarget ? " Hub/Worker" : "目标 Worker"}代码、核验代码指纹、校验 Plan、预演调度，全部通过后才提交正式任务。`,
     ].join("\n");
 }
 function planBatchRunConfirmationDetail(plans, remoteTargets) {
@@ -15396,13 +15463,16 @@ function planBatchRunConfirmationDetail(plans, remoteTargets) {
         const config = String(plan.baseConfig || plan.base_config || plan.configSource || "未声明");
         const output = planRunOutputLocationSummary(plan, 2);
         const commands = planRunCommandSummary(plan, 120).join("；");
-        return `- ${planFile} | ${guidedPlanModeLabel(plan.mode)} | ${planRunScaleSummary(plan).replace(/^任务规模：/, "")} | ${config} | 命令 ${commands} | 结果(${output.source}) ${output.text}`;
+        const owner = String(plan.schedulerOwnerWorkerId || "未选择").trim();
+        return `- ${planFile} | Worker ${owner} | ${guidedPlanModeLabel(plan.mode)} | ${planRunScaleSummary(plan).replace(/^任务规模：/, "")} | ${config} | 命令 ${commands} | 结果(${output.source}) ${output.text}`;
     });
     const expectedLocations = [];
     for (const plan of rows.slice(0, 6)) {
         const planFile = String(plan.planFile || plan.file || plan.planId || "缺少 planFile");
         const output = planRunOutputLocationSummary(plan, 2);
-        for (const location of planRunExpectedRemoteLocations(output, targets, 4)) {
+        const owner = String(plan.schedulerOwnerWorkerId || "").trim();
+        const planTargets = owner ? targets.filter((target) => target.role === "hub" || target.id === owner) : targets;
+        for (const location of planRunExpectedRemoteLocations(output, planTargets, 4)) {
             expectedLocations.push(`${planFile} | ${location}`);
             if (expectedLocations.length >= 16)
                 break;

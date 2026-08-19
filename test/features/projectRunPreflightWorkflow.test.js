@@ -51,8 +51,8 @@ test("project next action follows the real preflight order", () => {
   assert.match(panel, /function projectEndpointReadiness\(state\)/);
   assert.match(panel, /function projectCodeSyncReadiness\(state\)/);
   assert.match(panel, /检测 Xshell 隧道与 Hub\/Worker Agent[\s\S]{0,120}"testAll"/);
-  assert.match(extension, /await this\.ensureHubCodeReadyForPlanCheck\(\)/);
-  assert.match(extension, /await this\.ensureCodeReadyForRun\(\)/);
+  assert.match(extension, /await this\.ensureHubCodeReadyForPlanCheck\(body\)/);
+  assert.match(extension, /await this\.ensureCodeReadyForRun\(undefined, \[body\]\)/);
   assert.match(panel, /return renderPlanExecutionNextAction\(state, planFile\)/);
   assert.match(panel, /projectQuickRow\("连接"/);
   assert.match(panel, /projectQuickRow\("代码同步"/);

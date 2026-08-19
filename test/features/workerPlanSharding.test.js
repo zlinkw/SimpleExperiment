@@ -45,20 +45,28 @@ test("Worker pool sharding rejects incomplete identity", () => {
   assert.throws(() => createWorkerPlanShardSet("rev", ["worker-a", "worker-b"], []), /no experiment/);
 });
 
-test("Extension submits one immutable shard to each Worker without using Hub actions", () => {
+test("Extension asks for one Plan target and submits the complete Plan to that Worker", () => {
   const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
   const methodStart = source.indexOf("async postWorkerPoolPlanAction");
   const method = source.slice(methodStart, source.indexOf("assertTopologyActualWorkRoots", methodStart));
-  assert.match(method, /createWorkerPlanShardSet\)\(planRevision, workerIds, expected\)/);
-  assert.match(method, /postWorkerTunnelAction\(shard\.workerId, action, request/);
-  assert.match(method, /shard\.experimentIndices\.length > 0/);
+  assert.match(method, /ensureWorkerPoolPlanTarget\(body, options\.title \|\| action\)/);
+  assert.match(method, /postWorkerTunnelAction\(workerId, action, request/);
+  assert.doesNotMatch(method, /createWorkerPlanShardSet/);
+  assert.doesNotMatch(method, /activeShards/);
   assert.doesNotMatch(method, /postTunnelAction\(/);
+
+  const selectionStart = source.indexOf("async ensureWorkerPoolPlanTarget");
+  const selection = source.slice(selectionStart, source.indexOf("    stampWorkerPoolManualTarget(body, workerId)", selectionStart));
+  assert.match(selection, /showQuickPick/);
+  assert.match(selection, /该 Worker 将独立校验、预演并调度完整 Plan；本机不会自动分片/);
+  assert.match(selection, /probe\.status === "ok"/);
 
   const requestStart = source.indexOf("workerPoolActionBody(body");
   const request = source.slice(requestStart, source.indexOf("async postWorkerPoolPlanAction", requestStart));
   assert.match(request, /workers: \[\{/);
   assert.match(request, /schedulerOwnerWorkerId: workerId/);
-  assert.match(request, /assignedExperimentIndices: indices/);
+  assert.match(request, /workerPoolDispatchPolicy: manualPlanTarget \? "manual_plan_target" : "deterministic_shard"/);
+  assert.match(request, /assignedExperimentIndices: manualPlanTarget \? undefined : indices/);
   assert.match(request, /automaticBackup: false/);
 });
 
@@ -104,12 +112,14 @@ test("no-Hub result fanout preserves every Worker outcome before reporting failu
   assert.ok(actionCore.indexOf("await this.refreshResultsSummary(planHint)") < actionCore.indexOf("this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult)"));
 });
 
-test("Worker Agent rejects incomplete or mismatched pool shard identity", () => {
+test("Worker Agent accepts manual full-Plan targets and gates legacy shard requests", () => {
   const source = fs.readFileSync(path.join(root, "src", "clusterAgentRuntime.ts"), "utf8");
   assert.match(source, /topology_mode != "single_worker" and topology_mode != "worker_pool"/);
   assert.match(source, /owner != current_worker or worker_ids != \[owner\]/);
-  assert.match(source, /topology_mode == "worker_pool" and action in \("dry-run-plan", "run-plan", "reproduce-plan"\)/);
+  assert.match(source, /dispatch_policy = str\(options\.get\("workerPoolDispatchPolicy"\)/);
+  assert.match(source, /topology_mode == "worker_pool" and dispatch_policy != "manual_plan_target" and action in \("dry-run-plan", "run-plan", "reproduce-plan"\)/);
   assert.match(source, /if not assigned or not worker_set_revision:/);
+  assert.match(source, /"workerPoolDispatchPolicy": worker_pool_dispatch_policy/);
   assert.match(source, /scheduler_args\.extend\(\["--only-indices"/);
   assert.match(source, /scheduler_args\.extend\(\["--worker-set-revision"/);
   assert.match(source, /scheduler_args\.extend\(\["--scheduler-owner-worker-id"/);

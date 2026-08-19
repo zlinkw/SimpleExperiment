@@ -69,5 +69,5 @@ test("local Plan gate checks explicit relative Python entries without blocking r
 
   assert.match(source, /commands\.flatMap\(pythonCommandEntryReferences\)/);
   assert.match(source, /当前 Plan 的 Python 入口文件不存在/);
-  assert.ok(source.indexOf("assertPlanLocalConfigFiles(body)") < source.indexOf("ensureCodeReadyForRun()"));
+  assert.ok(source.indexOf("assertPlanLocalConfigFiles(body)") < source.indexOf("ensureCodeReadyForRun(undefined, [body])"));
 });
