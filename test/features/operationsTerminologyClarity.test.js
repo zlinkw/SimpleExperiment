@@ -13,7 +13,7 @@ test("operations surfaces use readable Chinese terminology", () => {
   assert.match(panel, /确认耗时按钮在完成、失败、取消或超时后恢复可点击/);
   assert.match(panel, /等待可用性上报或 GPU 资源租约/);
   assert.match(panel, /\["代码指纹", compactText/);
-  assert.match(panel, /\["Hub 操作", hasCapability/);
+  assert.match(panel, /\[hubParticipates \? "Hub 操作" : "Worker 操作", hasCapability/);
   assert.match(panel, /\["运行器警告", row\.runnerWarningCount/);
 });
 

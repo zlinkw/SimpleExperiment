@@ -17,14 +17,13 @@
 - [已完成] 2/5 project-227：审计 Worker 状态失效与手动转移后的结果归属。
 - [已完成] 3/5 project-228：审计 Xshell 会话、端口和端点注册表的显示一致性。
 - [已完成] 4/5 project-229：优化服务器状态页的模式化操作提示。
-- [待处理] 5/5 project-230：执行第七十六轮完整非服务器静态测试。
+- [已完成] 5/5 project-230：执行第七十六轮完整非服务器静态测试。
 
-## 当前批次：project-229（已完成）
+## 当前批次：project-230（已完成）
 ### 修复点
 
-- 服务器页按钮、概览事实、任务与同步提示按当前拓扑显示 Hub 或 Worker 语义。
-- 无 Hub 模式不再显示“Hub 端口”“Hub scheduler”“Hub 最近解析”或“Hub 同步”等误导文本。
-- Hub 可用模式保持现有 Hub/Worker 文案和入口。
+- 执行第七十六轮完整非服务器静态回归，覆盖 build、全部 Node 测试、lint、生成 JavaScript 与 Agent Python runtime 语法。
+- 核对 project-226 至 project-229 的历史状态隔离、转移归属、注册表过滤和模式化 UI。
 - 保持真实服务器行为为 `needs field verification`，不连接服务器。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
@@ -38,13 +37,13 @@
 
 ### 验证清单
 
-- [已通过] 服务器模式化操作提示、概览密度和面板脚本定向测试，12/12。
-- [已通过] `npm run build`、`npm run lint` 与生成 JavaScript 语法检查。
+- [已通过] `npm test` 完整 Node 回归，1107/1107。
+- [已通过] lint、115 个生成 JavaScript 与 7 个 Python 文件语法。
 - [已通过] `git diff --check` 与提交范围检查；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- 基线为 `d58e0fa`，本地 `HEAD` 与 `origin/master` 一致。
+- 基线为 `8ca71a3`，本地 `HEAD` 与 `origin/master` 一致。
 - 静态审计确认三种拓扑已存在；当前明确缺陷是 Hub 保留端口规则未随拓扑变化，以及端点缓存未包含拓扑成员。
 - 无 Hub 时本机 `18765` 可由一个 Worker 使用；不同本机端口映射到各服务器相同远端 `18765` 不再产生静态冲突。
 - project-222 增加服务器页“停用 Hub”“恢复 Hub”按钮，按钮仍调用项目拓扑保存和强确认流程。
-- project-229 在无 Hub 模式将服务器按钮、概览事实、任务、结果、同步和诊断文案切换为 Worker 语义。
+- project-230 完整回归首轮只暴露一条写死“Hub 操作”的旧静态断言；更新为拓扑动态标签后全量通过。
