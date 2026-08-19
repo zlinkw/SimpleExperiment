@@ -9954,9 +9954,9 @@ function renderPanelHtml() {
       const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
       const workerProbes = data.workerProbes || {};
       const hubStatus = String((data.probe || {}).status || (data.health || {}).state || "").toLowerCase();
-      const restartRequired = hubStatus === "agent_restart_required";
-      let versionMismatch = hubStatus === "agent_version_mismatch";
-      let projectMismatch = hubStatus === "agent_project_mismatch";
+      const restartRequired = hubRequired && hubStatus === "agent_restart_required";
+      let versionMismatch = hubRequired && hubStatus === "agent_version_mismatch";
+      let projectMismatch = hubRequired && hubStatus === "agent_project_mismatch";
       const hubReady = !hubRequired || HUB_OPERATION_READY_STATUS_TOKENS.has(hubStatus);
       let workerReady = true;
       const hubProbe = data.probe || {};

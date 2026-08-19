@@ -47,6 +47,9 @@ test("worker-only bootstrap readiness ignores offline Hub and Hub dependency dat
 test("frontend readiness derives Hub requirements from the selected topology", () => {
   assert.match(panel, /const hubRequired = topology\.mode \? topology\.mode === "hub_worker" : true/);
   assert.match(panel, /const hubReady = !hubRequired \|\| HUB_OPERATION_READY_STATUS_TOKENS/);
+  assert.match(panel, /const restartRequired = hubRequired && hubStatus === "agent_restart_required"/);
+  assert.match(panel, /let versionMismatch = hubRequired && hubStatus === "agent_version_mismatch"/);
+  assert.match(panel, /let projectMismatch = hubRequired && hubStatus === "agent_project_mismatch"/);
   assert.match(panel, /const hubReady = !hubRequired \|\| syncStatusOk\(sync\.hub\)/);
   assert.match(extension, /serverSetupMissingItems\(this\.setupConfig, hubRequired\)/);
   assert.match(extension, /projectOnboardingCompletedFromCodeSync\(this\.lastCodeSyncState, topology\.hubAllowed\)/);

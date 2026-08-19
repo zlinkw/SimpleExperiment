@@ -13,17 +13,18 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
-- [已完成] 1/5 project-221：修复无 Hub 模式本机端口误报及拓扑端点缓存失效。
-- [已完成] 2/5 project-222：补齐 Hub 手动停用与恢复交互。
-- [已完成] 3/5 project-223：实现仅多 Worker 的离线任务手动转移。
-- [已完成] 4/5 project-224：审计服务器状态、启动、检测和归档门禁的一致性。
-- [已完成] 5/5 project-225：执行第七十五轮完整非服务器静态测试。
+- [已完成] 1/5 project-226：隔离无 Hub 模式的历史 Hub 状态提示。
+- [待处理] 2/5 project-227：审计 Worker 状态失效与手动转移后的结果归属。
+- [待处理] 3/5 project-228：审计 Xshell 会话、端口和端点注册表的显示一致性。
+- [待处理] 4/5 project-229：优化服务器状态页的模式化操作提示。
+- [待处理] 5/5 project-230：执行第七十六轮完整非服务器静态测试。
 
-## 当前批次：project-225（已完成）
+## 当前批次：project-226（已完成）
 ### 修复点
 
-- 执行第七十五轮完整非服务器静态回归，覆盖 build、全部 Node 测试、lint、生成 JavaScript 与 Agent Python runtime 语法。
-- 核对 project-221 至 project-224 的端口、Hub 控制、Worker 转移和无 Hub 门禁是否引入跨模块回归。
+- 无 Hub 模式不使用历史 Hub 探测结果触发版本不兼容、项目不匹配或重启提示。
+- Worker 自身的版本和项目状态仍保留正常门禁。
+- 保持三种拓扑的端点检测和用户手动切换语义不变。
 - 保持真实服务器行为为 `needs field verification`，不连接服务器。
 - 保持未跟踪历史安装包、VSIX、`zlk_cluster/ui/` 和真实服务器不变。
 - 不生成或安装 VSIX，不连接服务器，不重载或关闭 VS Code。
@@ -37,13 +38,13 @@
 
 ### 验证清单
 
-- [已通过] `npm test` 完整 Node 回归，1106/1106。
-- [已通过] lint、115 个生成 JavaScript 与 7 个 Python 文件语法。
+- [已通过] 无 Hub 历史状态提示和运行预检定向测试，15/15。
+- [已通过] `npm run build`、`npm run lint` 与生成 JavaScript 语法检查。
 - [已通过] `git diff --check` 与提交范围检查；仅有既有 Windows 行尾提示。
 
 ## 本批记录
-- 基线为 `250ee55`，本地 `HEAD` 与 `origin/master` 一致。
+- 基线为 `d58e0fa`，本地 `HEAD` 与 `origin/master` 一致。
 - 静态审计确认三种拓扑已存在；当前明确缺陷是 Hub 保留端口规则未随拓扑变化，以及端点缓存未包含拓扑成员。
 - 无 Hub 时本机 `18765` 可由一个 Worker 使用；不同本机端口映射到各服务器相同远端 `18765` 不再产生静态冲突。
 - project-222 增加服务器页“停用 Hub”“恢复 Hub”按钮，按钮仍调用项目拓扑保存和强确认流程。
-- project-223、project-224 的新命令、门禁和无 Hub 分支均通过完整回归；首轮唯一失败为旧静态断言，已更新为条件化依赖契约。
+- project-226 只在 Hub 参与当前拓扑时读取 Hub 的版本、项目和重启状态；Worker 自身异常仍正常汇总。
