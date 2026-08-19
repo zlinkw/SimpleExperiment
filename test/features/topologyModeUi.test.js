@@ -86,6 +86,10 @@ test("settings and overview render topology ownership without active Hub control
   assert.match(panel, /data-topology-mode="' \+ escAttr\(noHubMode\) \+ '"[^>]*>停用 Hub/);
   assert.match(panel, /data-topology-mode="hub_worker"[^>]*>恢复 Hub/);
   assert.match(panel, /if \(button\.dataset\.topologyMode\) patch\.mode = button\.dataset\.topologyMode/);
+  assert.match(panel, /hubParticipates \? "启动全部隧道" : "启动 Worker 隧道"/);
+  assert.match(panel, /hubParticipates \? "检测全部" : "检测 Worker"/);
+  assert.match(panel, /\["模式", topology\.modeLabel \|\| topologyModeLabel\(topology\.mode\), schedulerOwner\]/);
+  assert.match(panel, /\["活动端点", String\(enabledWorkers\.length\), "当前仅包含启用 Worker，不访问 Hub"\]/);
 });
 
 test("topology command is registered on both sides of the webview boundary", () => {

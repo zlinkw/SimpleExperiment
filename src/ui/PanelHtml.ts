@@ -5573,15 +5573,22 @@ export function renderPanelHtml(): string {
       const project = state.detectedProject || {};
       const summary = state.resultsSummary || {};
       const conflicts = asArray(state.tunnelPortConflicts || []);
+      const topology = state.topology || {};
+      const hubParticipates = topology.hubAllowed === true;
+      const schedulerOwner = topology.schedulerOwner || (hubParticipates ? "Hub 全局调度" : "Worker 本机调度");
       const facts = {
         overview: [
-          ["Hub", labelStatus((state.health || {}).state || "unknown"), "Hub Agent 健康状态"],
+          hubParticipates
+            ? ["Hub", labelStatus((state.health || {}).state || "unknown"), "Hub Agent 健康状态"]
+            : ["模式", topology.modeLabel || topologyModeLabel(topology.mode), schedulerOwner],
           ["实时流", labelStatus((state.realtime || {}).streamStatus || "disconnected"), "WebSocket、SSE 或快照备用状态"],
           ["Worker", String(enabledWorkers.length) + "/" + String(workers.length), "启用 Worker / 已配置 Worker"],
           ["风险", conflicts.length ? String(conflicts.length) + " 个" : "无阻塞", "端口冲突、暂停网络或最近错误"]
         ],
         servers: [
-          ["Hub 端口", String(setup.localForwardPort || "-"), "插件访问的 Hub 本地隧道端口"],
+          hubParticipates
+            ? ["Hub 端口", String(setup.localForwardPort || "-"), "插件访问的 Hub 本地隧道端口"]
+            : ["活动端点", String(enabledWorkers.length), "当前仅包含启用 Worker，不访问 Hub"],
           ["Worker", String(enabledWorkers.length), "启用后参与观测、同步和调度目标"],
           ["调度", overviewSchedulerRange(scheduler), "pollSeconds + random(0, jitterSeconds)"],
           ["端口冲突", String(conflicts.length), "必须先修复本机端口冲突"]
@@ -5599,19 +5606,21 @@ export function renderPanelHtml(): string {
           ["主指标", pick(project.adapterRules || {}, ["primaryMetric"], "AUC"), "默认分类任务主指标"]
         ],
         tasks: [
-          ["运行中", String(taskStats.running), "Hub scheduler 当前运行中任务"],
+          ["运行中", String(taskStats.running), schedulerOwner + "当前运行中任务"],
           ["排队", String(taskStats.queued), "等待可用性上报或 GPU 资源租约"],
           ["失败", String(taskStats.failed), "需要查看日志或重试的任务"],
           ["选中", String(asArray((state.selection || {}).selectedRunKeys || []).length || (state.selection || {}).selectedRunKey || "-"), "用于批量停止、归档或删除"]
         ],
         results: [
           ["结果文件", String(asArray(project.resultFiles || []).length), "识别到的轻量结果文件"],
-          ["最近解析", compactText(pick(summary, ["lastParsedAt", "last_parsed_at"], "-"), 18), "Hub 最近一次解析时间"],
+          ["最近解析", compactText(pick(summary, ["lastParsedAt", "last_parsed_at"], "-"), 18), (hubParticipates ? "Hub" : "Worker") + " 最近一次解析时间"],
           ["缺证据", String(pick(summary, ["claimUnsupportedCount", "claim_unsupported_count"], 0)), "缺少本地证据的论文声明数量（unsupported）"],
           ["需实验", String(pick(summary, ["claimNeedsExperimentCount", "claim_needs_experiment_count"], 0)), "仍需实验验证的论文声明数量（needs experiment）"]
         ],
         sync: [
-          ["Hub 同步", labelStatus((state.codeSync || {}).hub || "待同步"), "本地项目到 Hub 的轻量代码同步状态"],
+          hubParticipates
+            ? ["Hub 同步", labelStatus((state.codeSync || {}).hub || "待同步"), "本地项目到 Hub 的轻量代码同步状态"]
+            : ["运行模式", topology.modeLabel || topologyModeLabel(topology.mode), "当前只同步到启用 Worker"],
           ["Worker 同步", labelStatus((state.codeSync || {}).workers || "待同步"), "本地项目到启用 Worker 的轻量代码同步状态"],
           ["代码指纹", compactText((state.codeSync || {}).fingerprint || "-", 18), "提交运行前自动核验的代码指纹（fingerprint）"],
           ["Agent", labelStatus((state.health || {}).agentVersionStatus || "待检测"), "部署最新版 Agent 后需要重启会话生效"]
@@ -5624,7 +5633,7 @@ export function renderPanelHtml(): string {
         ],
         diagnostics: [
           ["插件版本", String(state.extensionVersion || "-"), "当前 Webview/Extension 版本"],
-          ["Hub 操作", hasCapability(state, "endpoints.actions") ? "可用" : "待升级", "Hub Agent 操作接口能力（action endpoint）"],
+          [hubParticipates ? "Hub 操作" : "Worker 操作", hasCapability(state, "endpoints.actions") ? "可用" : "待升级", (hubParticipates ? "Hub" : "Worker") + " Agent 操作接口能力（action endpoint）"],
           ["文件下载", hasCapability(state, "endpoints.fileDownload") ? "可用" : "待升级", "仅用于调试包或轻量文件"],
           ["错误", String(asArray(state.actionErrors || []).length), "最近 UI/action 错误数量"],
           ["目标矩阵", "可展开", "查看完成项、待验收项和真实集群烟测"]
@@ -6807,16 +6816,18 @@ export function renderPanelHtml(): string {
     }
 
     function renderServerCards(state) {
+      const topology = (state || {}).topology || {};
+      const hubParticipates = topology.hubAllowed === true;
       setHtmlIfChanged("serverCards",
         renderServerTopologyMap(state) +
         renderServerObjectOverview(state) +
         '<div class="toolbar">' +
           '<button type="button" data-section-target="settings" data-anchor-target="settings-servers">设置</button>' +
           '<button data-command="addWorkerConfig">新增服务器</button>' +
-          '<button data-command="startAll" class="secondary">启动全部隧道</button>' +
-          '<button data-command="prepareAgents">准备 Agent 并启动</button>' +
-          '<button data-command="startAllConnections" class="secondary">启动连接</button>' +
-          '<button data-command="testAll" class="secondary">检测全部</button>' +
+          '<button data-command="startAll" class="secondary">' + esc(hubParticipates ? "启动全部隧道" : "启动 Worker 隧道") + '</button>' +
+          '<button data-command="prepareAgents">' + esc(hubParticipates ? "准备 Agent 并启动" : "准备 Worker Agent") + '</button>' +
+          '<button data-command="startAllConnections" class="secondary">' + esc(hubParticipates ? "启动连接" : "启动 Worker 连接") + '</button>' +
+          '<button data-command="testAll" class="secondary">' + esc(hubParticipates ? "检测全部" : "检测 Worker") + '</button>' +
         '</div>');
     }
 
