@@ -235,7 +235,7 @@ const uiActionCommands = new Set([
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
-    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "openSetupGuide", "openAdvancedCommandsSetting",
+    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
@@ -2628,6 +2628,9 @@ class RealtimeTunnelPanelProvider {
             case "saveTopologyMode":
                 await this.saveTopologyModeFromUi(message);
                 break;
+            case "reassignWorkerTask":
+                await this.reassignWorkerTaskFromUi(message);
+                break;
             case "saveHubConfig":
                 await this.saveHubConfigFromUi(message);
                 break;
@@ -4266,6 +4269,74 @@ class RealtimeTunnelPanelProvider {
         await this.applyTopologyRuntimeMode(requestedMode, "topology saved from UI");
         this.postState();
         void vscode.window.showInformationMessage(`当前项目已保存为${next.modeLabel}。`);
+    }
+    async reassignWorkerTaskFromUi(message) {
+        const topology = this.assertTopologyReady("手动转移任务");
+        if (topology.mode !== "worker_pool")
+            throw new Error("手动转移任务仅适用于仅多 Worker模式；不会自动改变当前拓扑。");
+        const taskStatus = String(message?.taskStatus || "").trim().toLowerCase();
+        if (!new Set(["queued", "pending"]).has(taskStatus))
+            throw new Error("仅允许转移排队或未开始任务；运行中和终态任务不会自动迁移。");
+        const sourceWorkerId = this.resolveWorkerEndpointId(stringField(message, "workerId")) || usableSelectionKey(stringField(message, "workerId"));
+        const runKey = usableSelectionKey(stringField(message, "runKey"));
+        const planFile = usableSelectionKey(stringField(message, "planFile"));
+        const experimentIndex = Number(message?.experimentIndex);
+        if (!sourceWorkerId || !runKey || !planFile || !Number.isInteger(experimentIndex) || experimentIndex < 0)
+            throw new Error("任务缺少来源 Worker、runKey、planFile 或有效 experimentIndex，已阻止转移。");
+        const candidates = this.enabledWorkerConfigs()
+            .filter((worker) => worker.id !== sourceWorkerId)
+            .map((worker) => {
+            const probe = this.lastWorkerProbes[worker.id] || {};
+            const missing = this.missingWorkerActionCapabilities(worker.id, "retry-worker-task");
+            return { worker, probe, missing };
+        })
+            .filter((item) => item.probe.status === "ok" && item.missing.length === 0);
+        if (!candidates.length)
+            throw new Error("没有通过检测且支持任务转移的在线 Worker；请先启动并检测其他 Worker。");
+        const picked = await vscode.window.showQuickPick(candidates.map((item) => ({
+            label: item.worker.displayName || item.worker.id,
+            description: `${item.worker.id} · 在线 · 可接收新任务`,
+            detail: `目标项目：${item.worker.agentProjectDir || "未配置"}`,
+            workerId: item.worker.id,
+        })), { title: "选择接管 Worker", placeHolder: "仅显示已检测在线且支持重试的 Worker", ignoreFocusOut: true });
+        if (!picked)
+            return;
+        const reassignmentRunKey = `manual-reassign-${Date.now()}-${experimentIndex}`;
+        const detail = [
+            "将创建一次新的 Worker 任务尝试，不删除或改写原任务记录。",
+            `来源 Worker：${sourceWorkerId}`,
+            `目标 Worker：${picked.workerId}`,
+            `Plan：${planFile}`,
+            `experimentIndex：${experimentIndex}`,
+            `原 runKey：${runKey}`,
+            `新 runKey：${reassignmentRunKey}`,
+            "仅排队任务允许此操作；插件不会自动接管其他离线 Worker 任务。",
+        ].join("\n");
+        const answer = await vscode.window.showWarningMessage(detail, { modal: true }, "确认手动转移");
+        if (answer !== "确认手动转移")
+            throw new UiCommandCancelled("手动转移已取消。");
+        const nextMessage = { ...message, workerId: picked.workerId, selectedWorkerIds: [picked.workerId], planFile, runKey: reassignmentRunKey };
+        const body = this.actionBody(nextMessage);
+        await this.refreshLocalPlanMetadataForAction(body);
+        this.stampPlanRevision(body);
+        body.originalRunKey = runKey;
+        body.sourceWorkerId = sourceWorkerId;
+        body.targetWorkerId = picked.workerId;
+        body.manualReassignment = true;
+        body.runKey = reassignmentRunKey;
+        body.selectedRunKeys = [reassignmentRunKey];
+        body.options = {
+            ...(body.options || {}),
+            workerId: picked.workerId,
+            sourceWorkerId,
+            targetWorkerId: picked.workerId,
+            originalRunKey: runKey,
+            manualReassignment: true,
+            reassignmentRunKey,
+        };
+        const result = await this.postWorkerTunnelAction(picked.workerId, "retry-worker-task", body, { title: "手动转移 Worker 任务", confirm: false, danger: false });
+        this.throwIfRemoteActionPending("reassignWorkerTask", "retry-worker-task", result);
+        this.postState();
     }
     async saveHubConfigFromUi(message) {
         await this.refreshXshellSessionLibrary();
@@ -11904,7 +11975,7 @@ function getSafeCommand(message) {
     return SAFE_WEBVIEW_COMMANDS.has(command) || uiActionCommands.has(command) ? command : "";
 }
 const hostOperationUiCommands = new Set([
-    "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands",
+    "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "reassignWorkerTask",
     "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
     "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
     "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents",
@@ -11951,6 +12022,7 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     downloadDebugBundle: "下载调试包",
     downloadRemoteResult: "下载远端结果",
     openResultArtifact: "打开或下载结果文件",
+    reassignWorkerTask: "手动转移 Worker 任务",
 });
 function hostOperationLeaseActionLabel(command) {
     return HOST_OPERATION_LEASE_ACTION_LABELS[command] || command;

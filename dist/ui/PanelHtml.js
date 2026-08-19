@@ -1658,7 +1658,7 @@ function renderPanelHtml() {
       ready: "已就绪", online: "在线", offline: "离线", stale: "已过期", degraded: "降级", configured: "已配置", not_configured: "未配置", synced: "已同步", syncing: "同步中", uploaded: "已上传", uploading: "上传中",
       archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
     });
-    const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
+    const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
     const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "tasks", "plans", "results", "sync", "operations", "servers", "settings", "diagnostics"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(RESOURCE_TREE_SECTION_ORDER);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
@@ -1698,7 +1698,7 @@ function renderPanelHtml() {
       completeThreeWay: "complete-three-way", deleteArtifacts: "delete-artifacts", reconcileDeletions: "reconcile-deletions", selfCheck: "self-check", createDebugBundle: "create-debug-bundle"
     });
     const PENDING_ACTION_LABELS = Object.freeze({
-      stopExperiment: "停止中", retryExperiment: "重试中", parseResults: "解析中",
+      stopExperiment: "停止中", retryExperiment: "重试中", reassignWorkerTask: "转移中", parseResults: "解析中",
       archiveArtifacts: "归档中", syncArtifacts: "检查中", completeThreeWay: "校验中", deleteArtifacts: "删除中",
       runPlan: "运行中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
     });
@@ -1729,7 +1729,7 @@ function renderPanelHtml() {
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
       prepareAgents: "servers", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "servers", saveSchedulerConfig: "servers", startAll: "servers", testAll: "servers", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
-      stopExperiment: "tasks", retryExperiment: "tasks", archiveArtifacts: "tasks", excludeResults: "results", deleteArtifacts: "tasks", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
+      stopExperiment: "tasks", retryExperiment: "tasks", reassignWorkerTask: "tasks", archiveArtifacts: "tasks", excludeResults: "results", deleteArtifacts: "tasks", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
       inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
       parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
       exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
@@ -1742,7 +1742,7 @@ function renderPanelHtml() {
       servers: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["testAll", 4]]),
       gpu: new Map([["snapshot", 0], ["testAll", 1]]),
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
-      tasks: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["archiveArtifacts", 2], ["deleteArtifacts", 3]]),
+      tasks: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
       sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["uploadProjectToHub", 2], ["uploadProjectToWorkers", 3], ["distributeCodeToWorkers", 4], ["deployLatestAgent", 5], ["configureSftpIgnores", 6]]),
       operations: INSPECTOR_ACTION_PRIORITY_OPERATIONS,
@@ -1751,7 +1751,7 @@ function renderPanelHtml() {
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
       saveTopologyMode: "settings-servers", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
-      stopExperiment: "tasks-list", retryExperiment: "tasks-list", archiveArtifacts: "tasks-list", excludeResults: "results-traces", deleteArtifacts: "tasks-list", parseResults: "results-summary", refreshResults: "results-summary",
+      stopExperiment: "tasks-list", retryExperiment: "tasks-list", reassignWorkerTask: "tasks-list", archiveArtifacts: "tasks-list", excludeResults: "results-traces", deleteArtifacts: "tasks-list", parseResults: "results-summary", refreshResults: "results-summary",
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
       planCheckpointRetention: "results-checkpoints", inferConfigFromRun: "results-recovery", recoverPlanFromRun: "results-recovery", diagnoseResultAnomaly: "results-anomaly", compareWithBestConfig: "results-anomaly",
       parseCaseLevel: "results-traces", runLeakageCheck: "results-traces", runSubgroupAnalysis: "results-traces", exportCaseAnalysis: "results-traces", exportPlottingContract: "results-plotting",
@@ -1849,7 +1849,7 @@ function renderPanelHtml() {
     const FEATURE_READINESS_GROUPS = [
       ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
       ["计划运行链路", ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]],
-      ["Worker 手动控制", ["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts"]],
+      ["Worker 手动控制", ["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts"]],
       ["结果证据闭环", ["parseResults", "refreshResults", "excludeResults", "checkOutputContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "exportPlottingContract", "plotResultsToPpt"]],
       ["诊断与恢复", ["selfCheck", "createDebugBundle", "downloadDebugBundle", "openAuditTail", "reconcileDeletions"]]
     ];
@@ -1963,7 +1963,7 @@ function renderPanelHtml() {
     const explicitPlanFileCommands = new Set(["openPlan", "archivePlan", "restoreArchivedPlan"]);
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
-      "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "prepareAgents",
+      "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
@@ -4419,6 +4419,7 @@ function renderPanelHtml() {
         configureSftpIgnores: "配置 SFTP 忽略",
         resetRemotePathConfirmations: "恢复当前项目的上传路径确认提醒",
         saveTopologyMode: "保存项目拓扑模式",
+        reassignWorkerTask: "把排队任务手动转移到另一台在线 Worker",
         saveSchedulerConfig: "保存调度配置",
         saveHubConfig: "保存 Hub",
         saveWorkerConfig: "保存 Worker",
@@ -11322,6 +11323,7 @@ function renderPanelHtml() {
       const actions = [
         ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
+        ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
         ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
         ["删除", "deleteArtifacts", true, false, true],
@@ -11423,6 +11425,7 @@ function renderPanelHtml() {
       const actions = [
         ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
+        ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
         ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
         ["删除", "deleteArtifacts", true, false, true],
@@ -11478,6 +11481,7 @@ function renderPanelHtml() {
       const actions = [
         ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
+        ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
         ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
         ["删除", "deleteArtifacts", true, false, true],
@@ -13169,12 +13173,27 @@ function renderPanelHtml() {
       const workerId = resolveWorkerId(row.serverId);
       const planFile = taskPlanFile(row);
       const confirmationPath = firstPathLike(row.resultPath, row.artifactPath, row.logPath);
-      const context = { runKey, taskUiKey: row.uiKey, experimentId, archiveKey, workerId, experimentIndex: row.experimentIndex, gpuId: row.gpuIds, planFile, confirmationPath, debugMode: row.debugMode === true, rowAction: true };
+      const context = { runKey, taskUiKey: row.uiKey, experimentId, archiveKey, workerId, experimentIndex: row.experimentIndex, taskStatus: row.status, gpuId: row.gpuIds, planFile, confirmationPath, debugMode: row.debugMode === true, rowAction: true };
       const reason = rowActionDisableReason(lastState, command, context);
       const pendingKey = pendingKeyForAction(command, { runKey, taskUiKey: row.uiKey, experimentId, archiveKey, workerId, planFile, confirmationPath });
       const pending = pendingButtonKeys.has(pendingKey);
       const titleText = reason || (pending ? "执行中" : commandHelp(command));
-      return '<button class="taskActionButton" data-command="' + escAttr(command) + '" data-pending-key="' + escAttr(pendingKey) + '" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(runKey) + '" data-experiment-id="' + escAttr(experimentId) + '" data-archive-key="' + escAttr(archiveKey) + '" data-worker-id="' + escAttr(workerId) + '" data-experiment-index="' + escAttr(row.experimentIndex) + '" data-gpu-id="' + escAttr(arrayText(row.gpuIds)) + '" data-plan-file="' + escAttr(planFile) + '" data-confirmation-path="' + escAttr(confirmationPath) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (confirmFlag ? ' data-confirm="true"' : "") + (dangerFlag ? ' data-danger="true"' : "") + ((reason || pending) ? " disabled" : "") + (titleText ? ' title="' + escAttr(titleText) + '" aria-label="' + escAttr(label + "：" + titleText) + '"' : "") + '>' + loadingPrefix(pending) + esc(label) + '</button>';
+      return '<button class="taskActionButton" data-command="' + escAttr(command) + '" data-pending-key="' + escAttr(pendingKey) + '" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(runKey) + '" data-experiment-id="' + escAttr(experimentId) + '" data-archive-key="' + escAttr(archiveKey) + '" data-worker-id="' + escAttr(workerId) + '" data-experiment-index="' + escAttr(row.experimentIndex) + '" data-task-status="' + escAttr(row.status) + '" data-gpu-id="' + escAttr(arrayText(row.gpuIds)) + '" data-plan-file="' + escAttr(planFile) + '" data-confirmation-path="' + escAttr(confirmationPath) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (confirmFlag ? ' data-confirm="true"' : "") + (dangerFlag ? ' data-danger="true"' : "") + ((reason || pending) ? " disabled" : "") + (titleText ? ' title="' + escAttr(titleText) + '" aria-label="' + escAttr(label + "：" + titleText) + '"' : "") + '>' + loadingPrefix(pending) + esc(label) + '</button>';
+    }
+    function manualReassignSurfaceVisible(row) {
+      const topology = (lastState || {}).topology || {};
+      return topology.mode === "worker_pool" && Boolean(resolveWorkerId(row && row.serverId)) && usableTaskKey(taskActionKey(row));
+    }
+    function manualReassignDisableReason(state, context) {
+      const topology = (state || {}).topology || {};
+      if (topology.mode !== "worker_pool") return "仅多 Worker模式支持手动转移";
+      if (!context.workerId || context.workerId === "-") return "该任务缺少来源 Worker 标识";
+      if (!TASK_QUEUED_STATUSES.has(taskStatusToken(context.taskStatus || ""))) return "仅允许转移排队或未开始任务；运行中和终态任务不可转移";
+      if (!usableTaskKey(context.runKey)) return "该任务缺少可定位 runKey";
+      if (!String(context.planFile || "").trim()) return "该任务缺少 planFile，不能安全转移";
+      const index = Number(context.experimentIndex);
+      if (!Number.isInteger(index) || index < 0) return "该任务缺少有效 experimentIndex";
+      return "";
     }
     function rowActionDisableReason(state, command, context) {
       const base = context || {};
@@ -13183,6 +13202,7 @@ function renderPanelHtml() {
         archiveKey: usableTaskKey(base.archiveKey) ? base.archiveKey : "",
         experimentId: usableTaskKey(base.experimentId) ? base.experimentId : ""
       });
+      if (command === "reassignWorkerTask") return manualReassignDisableReason(state, context);
       if (command === "clearLegacyTasks") return context.taskUiKey ? "" : "该旧任务缺少本机 UI 标识，无法隐藏";
       if (command === "selectLogRunKey") return context.runKey ? "" : "该任务缺少可定位日志标识";
       const workerAction = directWorkerActionMap[command];
@@ -13468,6 +13488,7 @@ function renderPanelHtml() {
       const payload = {};
       const command = button.dataset.command || "";
       payload.debugMode = runModeForButton(button, command, runMode);
+      if (button.dataset.taskStatus) payload.taskStatus = button.dataset.taskStatus;
       if (button.dataset.endpointId) payload.endpointId = button.dataset.endpointId;
       if (button.dataset.configScope) {
         payload.configScope = button.dataset.configScope;
