@@ -53,4 +53,5 @@ test("frontend readiness derives Hub requirements from the selected topology", (
   assert.match(panel, /const hubReady = !hubRequired \|\| syncStatusOk\(sync\.hub\)/);
   assert.match(extension, /serverSetupMissingItems\(this\.setupConfig, hubRequired\)/);
   assert.match(extension, /projectOnboardingCompletedFromCodeSync\(this\.lastCodeSyncState, topology\.hubAllowed\)/);
+  assert.match(extension, /const scopedRegistry = hubAllowed \? registry : \{[\s\S]*endpoints: registry\.endpoints\.filter\(\(endpoint\) => endpoint\.role !== "hub_control"\)/);
 });

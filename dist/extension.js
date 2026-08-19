@@ -8139,12 +8139,19 @@ class RealtimeTunnelPanelProvider {
             && this.endpointRegistryStateCachePolicy === policy) {
             return this.endpointRegistryStateCacheValue;
         }
+        const hubAllowed = this.projectTopologyAssessment().hubAllowed;
+        const registry = (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(this.setupConfig, { hub: this.lastProbe, ...this.lastWorkerProbes });
+        const scopedRegistry = hubAllowed ? registry : {
+            ...registry,
+            hub: undefined,
+            endpoints: registry.endpoints.filter((endpoint) => endpoint.role !== "hub_control"),
+        };
         const state = {
-            registry: (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(this.setupConfig, { hub: this.lastProbe, ...this.lastWorkerProbes }),
+            registry: scopedRegistry,
             assignments,
             conflicts,
             policy,
-            note: `插件不内置 ${"S" + "SH"}，也不会执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。Hub 和 Worker 连接都由 Xshell 会话本地端口转发提供；插件只访问 127.0.0.1 端口。配置保存在 VS Code 全局扩展状态中。`,
+            note: `${hubAllowed ? "Hub 和 Worker" : "Worker"} 连接都由 Xshell 会话本地端口转发提供；插件只访问 127.0.0.1 端口。配置保存在 VS Code 全局扩展状态中。插件不内置 ${"S" + "SH"}，也不会执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。`,
         };
         this.endpointRegistryStateCacheConfig = this.setupConfig;
         this.endpointRegistryStateCacheHubProbe = this.lastProbe;
