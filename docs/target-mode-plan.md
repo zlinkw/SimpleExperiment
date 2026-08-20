@@ -62,17 +62,17 @@
 - [已通过] SimpleExperiment 的 `npm test`：1114/1114；lint、`node -c`、`git diff --check` 通过。
 - [已通过] 打包 `simple-experiment-0.3.0.vsix`（144 files, 977.61 KB），未覆盖历史 VSIX。
 - [已通过] SimpleSFTP 0.2.0 API 已在对应仓库完成验证并推送至 `origin/master`。
-- [已通过] 本批次提交及推送记录以各仓库 `origin/master` 实际 HEAD 为准。
+- [已通过] SimpleSFTP `origin/master` 为 `e0fdfc1`；SimpleExperiment `origin/master` 为 `795b4e1`。
 
 ### project-236 记录
 
 - SimpleSFTP 新增本地 JSON-RPC 服务、CLI、OpenAPI、health/capabilities/SSE 和 discovery 文件。
 - API 方法：`status`、`servers.list`、`servers.setActive`、`servers.importSshConfig`、`remote.listDirs`、`target.show`、`project.create`、`sync.fromRemote`、`upload.workspace`、`upload.files`、`handoff.markReady`、`ignores.configure`、`confirmations.reset`。
-- 验证与提交记录在 SimpleSFTP 仓库 `origin/master` 的对应提交中补充。
+- 验证与提交记录：SimpleSFTP 仓库 `origin/master` 提交 `e0fdfc1`。
 
 ### project-237 记录
 
 - SimpleExperiment 新增本机 JSON-RPC 服务、CLI 子命令、OpenAPI、health/capabilities/SSE 和 discovery 文件。
 - API 方法：`status`、`state`、`actions.list`、`plans.list`、`results.list`、`tasks.list`、`operations.list`、`gpu.list`、`gpu.history`、`live.output`、`invoke(command, params)`。
 - `invoke` 复用现有 webview action/safe command，`project-236` 的 SimpleSFTP API 负责文件传输桥接。
-- 验证与提交记录在 SimpleExperiment 仓库 `origin/master` 的对应提交中补充。
+- 验证与提交记录：SimpleExperiment 仓库 `origin/master` 提交 `795b4e1`。
