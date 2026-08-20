@@ -207,6 +207,14 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
     "gpu.list",
     "gpu.history",
     "live.output",
+    "config.list",
+    "config.get",
+    "config.set",
+    "config.reset",
+    "state.list",
+    "state.get",
+    "state.set",
+    "state.reset",
     "invoke",
   ];
   for (const method of methods) {
@@ -221,5 +229,9 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
   assert.match(extensionSource, /API_CONFIRM_COMMANDS\.has\(command\) && params\.confirm !== true/);
   assert.match(extensionSource, /throw confirmationRequired\(/);
   assert.match(extensionSource, /new LocalApiServerClass\(/);
+  assert.match(extensionSource, /"config\.set": async \(params\) => this\.apiConfigSet\(params\)/);
+  assert.match(extensionSource, /"state\.set": async \(params\) => this\.apiStateSet\(params\)/);
+  assert.match(extensionSource, /validateApiConfigValue\(/);
+  assert.match(extensionSource, /normalizeApiStateValue\(/);
   assert.doesNotMatch(apiServerSource, /\bscp\b|\brsync\b/);
 });

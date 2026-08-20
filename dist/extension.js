@@ -104,6 +104,81 @@ const keys = {
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
 };
+const API_CONFIG_NAMESPACE = "zlkCluster";
+const API_CONFIG_PREFIX = `${API_CONFIG_NAMESPACE}.`;
+const API_SECRET_CONFIG_KEYS = new Set([`${API_CONFIG_NAMESPACE}.tunnel.agentToken`]);
+const API_STATE_KEYS = {
+    tunnelConfig: { store: "global", label: "隧道网关配置", writable: true },
+    setupConfig: { store: "global", label: "Xshell 会话与服务器配置", writable: true },
+    pptPlotConfig: { store: "global", label: "PPT 绘图配置（项目优先）", writable: true },
+    uiLayout: { store: "global", label: "SimpleExperiment 面板布局", writable: true },
+    hiddenLegacyTaskUiKeys: { store: "global", label: "隐藏旧任务 UI 键", writable: true },
+    offlineBundle: { store: "workspace", label: "离线导入包", writable: false },
+    uiProjectLayout: { store: "workspace", label: "项目面板布局", writable: true },
+    uiProjectActions: { store: "workspace", label: "项目固定操作", writable: true },
+    firstRunSetupPrompt: { store: "global", label: "首次运行提示版本", writable: true },
+    projectOnboardingPrompt: { store: "workspace", label: "项目引导提示版本", writable: true },
+    projectOnboardingCompleted: { store: "workspace", label: "项目引导完成标记", writable: true },
+    legacySftpNoticeShown: { store: "global", label: "旧 SFTP 插件提示", writable: true },
+    pendingWorkspaceContinuation: { store: "global", label: "待续工作区操作", writable: false },
+    migrationShown: { store: "global", label: "旧配置迁移提示", writable: true },
+};
+function validateApiConfigValue(key, schema, value) {
+    const type = schema.type;
+    if (type === "string" && typeof value !== "string")
+        throw new Error(`配置 ${key} 需要 string：${typeof value}`);
+    if (type === "number" && (typeof value !== "number" || !Number.isFinite(value)))
+        throw new Error(`配置 ${key} 需要 number：${typeof value}`);
+    if (type === "integer" && !Number.isInteger(value))
+        throw new Error(`配置 ${key} 需要 integer：${typeof value}`);
+    if (type === "boolean" && typeof value !== "boolean")
+        throw new Error(`配置 ${key} 需要 boolean：${typeof value}`);
+    if (type === "array" && !Array.isArray(value))
+        throw new Error(`配置 ${key} 需要 array：${typeof value}`);
+    if (type === "object" && (!value || typeof value !== "object" || Array.isArray(value)))
+        throw new Error(`配置 ${key} 需要 object：${typeof value}`);
+    return value;
+}
+function apiStateRecord(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function normalizeApiStateValue(name, value) {
+    switch (name) {
+        case "tunnelConfig":
+            return TunnelGateway_1.normalizeTunnelGatewayConfig({ ...TunnelGateway_1.defaultTunnelGatewayConfig, ...apiStateRecord(value) });
+        case "setupConfig":
+            return XshellTunnelSetup_1.normalizeXshellSetupConfig({ ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig, ...apiStateRecord(value) });
+        case "pptPlotConfig":
+            return normalizePptPlotConfig(value);
+        case "uiLayout":
+        case "uiProjectLayout":
+            return normalizeUiLayout(apiStateRecord(value));
+        case "hiddenLegacyTaskUiKeys":
+        case "uiProjectActions":
+            return stringArrayConfig(value);
+        case "firstRunSetupPrompt":
+        case "projectOnboardingPrompt":
+            return Number.isFinite(Number(value)) ? Number(value) : String(value || "");
+        case "projectOnboardingCompleted":
+        case "legacySftpNoticeShown":
+            return Boolean(value);
+        default:
+            return value;
+    }
+}
+function redactApiStateValue(name, value) {
+    if (name === "tunnelConfig" || name === "setupConfig") {
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+            const next = { ...value };
+            for (const key of ["token", "agentToken", "password"]) {
+                if (key in next)
+                    next[key] = next[key] ? "***" : "";
+            }
+            return next;
+        }
+    }
+    return value;
+}
 const FIRST_RUN_SETUP_PROMPT_VERSION = 4;
 const WORKSPACE_CONTINUATION_MAX_AGE_MS = 10 * 60_000;
 const SIMPLE_SFTP_EXTENSION_ID = "simple-local.simple-sftp";
@@ -703,6 +778,14 @@ class RealtimeTunnelPanelProvider {
             },
             "gpu.history": async () => this.gpuHistoryState.snapshot() || {},
             "live.output": async (params) => this.apiLiveOutput(params),
+            "config.list": async () => this.apiConfigList(),
+            "config.get": async (params) => this.apiConfigGet(params),
+            "config.set": async (params) => this.apiConfigSet(params),
+            "config.reset": async (params) => this.apiConfigReset(params),
+            "state.list": async () => this.apiStateList(),
+            "state.get": async (params) => this.apiStateGet(params),
+            "state.set": async (params) => this.apiStateSet(params),
+            "state.reset": async (params) => this.apiStateReset(params),
             invoke: async (params) => this.invokeApi(params),
         };
     }
@@ -745,6 +828,202 @@ class RealtimeTunnelPanelProvider {
             logs: filtered,
             count: filtered.length,
         };
+    }
+    apiConfigSchema() {
+        const properties = this.context.extension.packageJSON?.contributes?.configuration?.properties || {};
+        return Object.entries(properties)
+            .filter(([key]) => key.startsWith(API_CONFIG_PREFIX))
+            .map(([key, schema]) => ({
+            key,
+            schema: schema && typeof schema === "object" ? schema : {},
+        }));
+    }
+    apiConfigDefinition(key) {
+        return this.apiConfigSchema().find((item) => item.key === key);
+    }
+    apiConfigValue(config, key, schema) {
+        const suffix = key.slice(API_CONFIG_PREFIX.length);
+        const raw = config.get(suffix, schema.default);
+        return API_SECRET_CONFIG_KEYS.has(key) && raw ? "***" : raw;
+    }
+    apiConfigUpdateTarget(schema, scope) {
+        if (scope === "workspace")
+            return vscode.ConfigurationTarget.Workspace;
+        if (scope === "workspaceFolder" || schema.scope === "resource")
+            return vscode.workspace.workspaceFolders?.length ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Workspace;
+        return vscode.ConfigurationTarget.Global;
+    }
+    async apiConfigList() {
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        return {
+            namespace: API_CONFIG_NAMESPACE,
+            secretKeys: [...API_SECRET_CONFIG_KEYS].sort(),
+            keys: this.apiConfigSchema().map(({ key, schema }) => ({
+                key,
+                type: schema.type || "",
+                scope: schema.scope || "",
+                default: schema.default,
+                value: this.apiConfigValue(config, key, schema),
+                secret: API_SECRET_CONFIG_KEYS.has(key),
+            })),
+        };
+    }
+    async apiConfigGet(params = {}) {
+        const key = stringField(params, "key");
+        const definition = this.apiConfigDefinition(key);
+        if (!definition)
+            throw new Error(`未知 SimpleExperiment 配置：${key}`);
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        return {
+            key,
+            type: definition.schema.type || "",
+            scope: definition.schema.scope || "",
+            default: definition.schema.default,
+            value: this.apiConfigValue(config, key, definition.schema),
+            secret: API_SECRET_CONFIG_KEYS.has(key),
+        };
+    }
+    async apiConfigSet(params = {}) {
+        const key = stringField(params, "key");
+        const definition = this.apiConfigDefinition(key);
+        if (!definition)
+            throw new Error(`未知 SimpleExperiment 配置：${key}`);
+        if (params.confirm !== true)
+            throw confirmationRequired({
+                operation: "config.set",
+                requires: ["confirm"],
+                key,
+                value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE), key, definition.schema),
+            });
+        validateApiConfigValue(key, definition.schema, params.value);
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
+        await config.update(key.slice(API_CONFIG_PREFIX.length), params.value, target);
+        this.postState();
+        return {
+            ok: true,
+            key,
+            scope: target === vscode.ConfigurationTarget.WorkspaceFolder
+                ? "workspaceFolder"
+                : target === vscode.ConfigurationTarget.Workspace
+                    ? "workspace"
+                    : "global",
+            value: this.apiConfigValue(config, key, definition.schema),
+            secret: API_SECRET_CONFIG_KEYS.has(key),
+        };
+    }
+    async apiConfigReset(params = {}) {
+        const key = stringField(params, "key");
+        const definition = this.apiConfigDefinition(key);
+        if (!definition)
+            throw new Error(`未知 SimpleExperiment 配置：${key}`);
+        if (params.confirm !== true)
+            throw confirmationRequired({
+                operation: "config.reset",
+                requires: ["confirm"],
+                key,
+                value: this.apiConfigValue(vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE), key, definition.schema),
+            });
+        const config = vscode.workspace.getConfiguration(API_CONFIG_NAMESPACE);
+        const target = this.apiConfigUpdateTarget(definition.schema, stringField(params, "scope"));
+        await config.update(key.slice(API_CONFIG_PREFIX.length), undefined, target);
+        this.postState();
+        return { ok: true, key, reset: true };
+    }
+    apiStateValue(name) {
+        const meta = API_STATE_KEYS[name];
+        const stateKey = keys[name];
+        if (!meta || !stateKey)
+            throw new Error(`未知 SimpleExperiment 状态：${name}`);
+        return meta.store === "global" ? this.context.globalState.get(stateKey) : this.context.workspaceState.get(stateKey);
+    }
+    async apiStateList() {
+        return {
+            keys: Object.entries(API_STATE_KEYS).map(([key, meta]) => ({
+                key,
+                label: meta.label,
+                store: meta.store,
+                writable: meta.writable,
+                value: key === "offlineBundle" || key === "pendingWorkspaceContinuation"
+                    ? { present: this.apiStateValue(key) !== undefined }
+                    : redactApiStateValue(key, this.apiStateValue(key)),
+            })),
+        };
+    }
+    async apiStateGet(params = {}) {
+        const key = stringField(params, "key");
+        const meta = API_STATE_KEYS[key];
+        if (!meta)
+            throw new Error(`未知 SimpleExperiment 状态：${key}`);
+        return {
+            key,
+            label: meta.label,
+            store: meta.store,
+            writable: meta.writable,
+            value: key === "offlineBundle" || key === "pendingWorkspaceContinuation"
+                ? { present: this.apiStateValue(key) !== undefined }
+                : redactApiStateValue(key, this.apiStateValue(key)),
+        };
+    }
+    async apiStateSet(params = {}) {
+        const key = stringField(params, "key");
+        const meta = API_STATE_KEYS[key];
+        if (!meta)
+            throw new Error(`未知 SimpleExperiment 状态：${key}`);
+        if (!meta.writable)
+            throw new Error(`SimpleExperiment 状态 ${key} 只读，请使用对应功能入口修改。`);
+        if (params.confirm !== true)
+            throw confirmationRequired({
+                operation: "state.set",
+                requires: ["confirm"],
+                key,
+                current: redactApiStateValue(key, this.apiStateValue(key)),
+            });
+        const value = normalizeApiStateValue(key, params.value);
+        const stateKey = keys[key];
+        if (meta.store === "global")
+            await this.context.globalState.update(stateKey, value);
+        else
+            await this.context.workspaceState.update(stateKey, value);
+        if (key === "tunnelConfig" || key === "setupConfig") {
+            this.tunnelConfig = this.loadTunnelConfig();
+            this.setupConfig = this.loadSetupConfig();
+            this.resetClient();
+        }
+        this.postState();
+        return {
+            ok: true,
+            key,
+            store: meta.store,
+            value: redactApiStateValue(key, this.apiStateValue(key)),
+        };
+    }
+    async apiStateReset(params = {}) {
+        const key = stringField(params, "key");
+        const meta = API_STATE_KEYS[key];
+        if (!meta)
+            throw new Error(`未知 SimpleExperiment 状态：${key}`);
+        if (!meta.writable)
+            throw new Error(`SimpleExperiment 状态 ${key} 只读，请使用对应功能入口修改。`);
+        if (params.confirm !== true)
+            throw confirmationRequired({
+                operation: "state.reset",
+                requires: ["confirm"],
+                key,
+                current: redactApiStateValue(key, this.apiStateValue(key)),
+            });
+        const stateKey = keys[key];
+        if (meta.store === "global")
+            await this.context.globalState.update(stateKey, undefined);
+        else
+            await this.context.workspaceState.update(stateKey, undefined);
+        if (key === "tunnelConfig" || key === "setupConfig") {
+            this.tunnelConfig = this.loadTunnelConfig();
+            this.setupConfig = this.loadSetupConfig();
+            this.resetClient();
+        }
+        this.postState();
+        return { ok: true, key, reset: true };
     }
     async invokeApi(params = {}) {
         const command = stringField(params, "command");
