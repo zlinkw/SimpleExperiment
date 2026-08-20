@@ -23,7 +23,7 @@ const API_DISCOVERY_PATH = () => process.env.SIMPLE_EXPERIMENT_API_FILE || path.
 export async function main(argv: string[]): Promise<number> {
   const [cmd, sub, ...rest] = argv;
   if (cmd === "run") return runRecordedCli([sub, ...rest].filter((item): item is string => item !== undefined));
-  if (cmd === "api") return runApiCommand([...rest].filter((item): item is string => item !== undefined));
+  if (cmd === "api") return runApiCommand([sub, ...rest].filter((item): item is string => item !== undefined));
   if (cmd === "status") {
     console.log(JSON.stringify({ ok: true, cwd: process.cwd(), command: "status" }, null, 2));
     return 0;
@@ -32,10 +32,7 @@ export async function main(argv: string[]): Promise<number> {
     console.log(JSON.stringify({ status: "unknown", hint: "Use VS Code command for live Hub Agent status." }, null, 2));
     return 0;
   }
-  if (cmd === "self-check") {
-    console.log(JSON.stringify({ status: "offline_cli_smoke", checks: [] }, null, 2));
-    return 0;
-  }
+  if (cmd === "self-check") return runSelfCheck();
   if (cmd === "experiments" && sub === "list") {
     const file = option(rest, "--file") || path.join(process.cwd(), "zlk_cluster", "experiment_index.json");
     const rows = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : [];
@@ -116,6 +113,77 @@ async function runApiCommand(argv: string[]): Promise<number> {
   }
   console.log(JSON.stringify({ ok: true, result: result.result === undefined ? null : result.result }, null, 2));
   return 0;
+}
+
+interface SelfCheckItem {
+  name: string;
+  ok: boolean;
+  detail?: string;
+}
+
+async function runSelfCheck(): Promise<number> {
+  const checks: SelfCheckItem[] = [
+    { name: "cli", ok: true, detail: process.execPath },
+  ];
+  const file = API_DISCOVERY_PATH();
+  if (!fs.existsSync(file)) {
+    checks.push({ name: "discovery", ok: false, detail: `missing discovery: ${file}` });
+    checks.push({ name: "listener", ok: false, detail: "missing listener: discovery file absent" });
+  } else {
+    let discovery: Record<string, unknown> | undefined;
+    try {
+      discovery = readApiDiscovery();
+      checks.push({ name: "discovery", ok: true, detail: file });
+    } catch (error) {
+      checks.push({
+        name: "discovery",
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (discovery) {
+      checks.push(await checkListener(discovery));
+    } else {
+      checks.push({ name: "listener", ok: false, detail: "missing listener: discovery invalid" });
+    }
+  }
+  const ok = checks.every((item) => item.ok);
+  console.log(JSON.stringify({ ok, status: ok ? "ok" : "missing", checks }, null, 2));
+  return ok ? 0 : 1;
+}
+
+function checkListener(discovery: Record<string, unknown>): Promise<SelfCheckItem> {
+  const url = new URL("/api/v1/health", String(discovery.baseUrl));
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname,
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${String(discovery.token)}`,
+      },
+      timeout: 3_000,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { ok?: unknown; name?: unknown; version?: unknown };
+          if (res.statusCode === 200 && body.ok === true) {
+            resolve({ name: "listener", ok: true, detail: `${String(body.name || discovery.name)} ${String(body.version || discovery.version)}` });
+          } else {
+            resolve({ name: "listener", ok: false, detail: `missing listener: HTTP ${res.statusCode}` });
+          }
+        } catch {
+          resolve({ name: "listener", ok: false, detail: `missing listener: invalid health response (HTTP ${res.statusCode})` });
+        }
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("health request timed out")));
+    req.on("error", (error) => resolve({ name: "listener", ok: false, detail: `missing listener: ${error.message}` }));
+    req.end();
+  });
 }
 
 export function readApiDiscovery(): Record<string, unknown> {

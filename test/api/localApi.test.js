@@ -1,10 +1,32 @@
 const assert = require("node:assert/strict");
+const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { promisify } = require("node:util");
+
+const execFileAsync = promisify(execFile);
+
+function runCli(args, extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, {
+      env: { ...process.env, ...extraEnv },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
 
 const root = path.resolve(__dirname, "../..");
 const { LocalApiServer, confirmationRequired, loopbackRequest, parseRemoteAddress } = require("../../dist/api/LocalApiServer.js");
@@ -192,6 +214,50 @@ test("simple-experiment CLI reads the discovery file", () => {
   } finally {
     delete process.env.SIMPLE_EXPERIMENT_API_FILE;
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("simple-experiment CLI forwards the api subcommand", async () => {
+  const f = await startServer({ status: async () => ({ ok: true, mode: "cli" }) });
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [path.join(root, "dist", "cli.js"), "api", "status"], {
+      encoding: "utf8",
+      env: { ...process.env, SIMPLE_EXPERIMENT_API_FILE: path.join(f.root, "api.json") },
+    });
+    const parsed = JSON.parse(stdout);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.result.ok, true);
+    assert.equal(parsed.result.mode, "cli");
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("simple-experiment self-check reports missing discovery and listener", async () => {
+  const missing = path.join(os.tmpdir(), `simple-experiment-self-check-${process.pid}-${Date.now()}.json`);
+  const result = await runCli([path.join(root, "dist", "cli.js"), "self-check"], {
+    SIMPLE_EXPERIMENT_API_FILE: missing,
+  });
+  assert.equal(result.code, 1, result.stderr || "");
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.status, "missing");
+  assert.ok(parsed.checks.some((item) => item.name === "discovery" && !item.ok && item.detail.includes("missing discovery")));
+  assert.ok(parsed.checks.some((item) => item.name === "listener" && !item.ok && item.detail.includes("missing listener")));
+});
+
+test("simple-experiment self-check passes with live listener", async () => {
+  const f = await startServer({ status: async () => ({ ok: true }) });
+  try {
+    const result = await runCli([path.join(root, "dist", "cli.js"), "self-check"], {
+      SIMPLE_EXPERIMENT_API_FILE: path.join(f.root, "api.json"),
+    });
+    assert.equal(result.code, 0, result.stderr || "");
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.ok, true);
+    assert.ok(parsed.checks.every((item) => item.ok));
+  } finally {
+    await f.cleanup();
   }
 });
 
