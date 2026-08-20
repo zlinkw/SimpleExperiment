@@ -17,7 +17,7 @@
 - [已完成] 7/7 project-237：SimpleExperiment 0.3.0 暴露本机 JSON-RPC/HTTP API（默认端口 19765）、simple-experiment api CLI、OpenAPI、SFTP API 桥接与确认门禁。
 - [已完成] 8/8 project-238：API 覆盖率补全：SimpleExperiment 配置与持久状态读写，SimpleSFTP 配置、服务器增删与目标更新。
 
-## 当前批次：project-239（进行中）
+## 当前批次：project-239（已完成）
 ### 边界
 
 - SimpleExperiment `0.3.2` 新增 CLI `self-check`，修复 `simple-experiment api status` 的 `api` 后第一个参数被丢弃问题；SimpleSFTP `0.2.2` 新增 `simple-sftp-api self-check`。
@@ -28,8 +28,10 @@
 - [已通过] SimpleExperiment `npm test` 1117/1117、lint、`node -c`、`git diff --check`；已打包 `simple-experiment-0.3.2.vsix`。
 - [已通过] SimpleSFTP `npm test` 30/30、`node --check`、`git diff --check`；已打包 `simple-sftp-0.2.2.vsix`。
 - [已通过] 两个新 VSIX 已安装；`simple-local-api` SKILL 与 references/agents 已同步为 `SimpleExperiment >= 0.3.2`、`SimpleSFTP >= 0.2.2` 并加入 `self-check` 启动自检。
-- [待用户] 执行 `Developer: Reload Window` 或重启 VS Code 后，复验 `simple-experiment self-check`、`simple-sftp-api self-check`、`simple-experiment api status`、`simple-sftp-api status`。
-- 下一批：用户 reload 后复验两个 `self-check` 与 `api status`；通过后把 `project-239` 标记完成并记录实际 discovery/health/capabilities/OpenAPI 结果。
+- [已通过] 用户已手动重启 VS Code；本地复验 `simple-experiment self-check`、`simple-sftp-api self-check`、`simple-experiment api status`、`simple-sftp-api status` 全部 `ok:true`。
+- [已通过] 两个 discovery 文件均存在，含 `schemaVersion`、`name`、`version`、`baseUrl`、`host`、`port`、`token`、`pid`、`startedAt`；`127.0.0.1:19765` 与 `127.0.0.1:19766` 可连通。
+- [已通过] 两个插件的 `/api/v1/health`、`/api/v1/capabilities`、`/api/v1/openapi.json` 均返回正常；SimpleExperiment capabilities 19 个方法，SimpleSFTP capabilities 20 个方法。
+- [已通过] 两个 discovery token 未出现在两个源码仓库中；CLI 从 discovery `baseUrl`/`token` 发起请求，无 CLI hardcode 端口。
 
 ## 当前批次：project-238（已完成）
 ### 边界
