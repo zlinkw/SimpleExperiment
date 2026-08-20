@@ -32,6 +32,7 @@
 ### 提交记录
 
 - SimpleSFTP `c692499`：增加 SFTP 上传超时与手动停止能力。
+- SimpleExperiment `e33c23a`：记录 project-240 文档批次。
 
 ## 当前批次：project-239（已完成）
 ### 边界
