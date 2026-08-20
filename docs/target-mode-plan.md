@@ -17,6 +17,22 @@
 - [已完成] 7/7 project-237：SimpleExperiment 0.3.0 暴露本机 JSON-RPC/HTTP API（默认端口 19765）、simple-experiment api CLI、OpenAPI、SFTP API 桥接与确认门禁。
 - [已完成] 8/8 project-238：API 覆盖率补全：SimpleExperiment 配置与持久状态读写，SimpleSFTP 配置、服务器增删与目标更新。
 
+## 当前批次：project-240（已完成）
+### 边界
+
+- SimpleSFTP `0.2.3` 为上传/下载增加 SSH `ConnectTimeout`（默认 15 秒）、整体传输超时（默认 600 秒，`0` 禁用）、可取消进度通知，以及 `transfers.list` / `transfers.cancel` API。
+- 不连接真实服务器，不验证真实 Xshell/SFTP 现场操作；不覆盖历史 VSIX，不修改 `zlk_cluster/ui/`。
+
+### 验证清单
+
+- [已通过] SimpleSFTP `npm test` 31/31，`node --check`、`git diff --check` 通过。
+- [已通过] 已打包 `simple-sftp-0.2.3.vsix`（10 files, 48.31 KB）并安装到 VS Code；当前 extension host 尚未重载，重启或 Reload Window 后才会运行 `0.2.3`。
+- [已通过] SimpleSFTP 仓库 `origin/master` 已推送 `c692499`。
+
+### 提交记录
+
+- SimpleSFTP `c692499`：增加 SFTP 上传超时与手动停止能力。
+
 ## 当前批次：project-239（已完成）
 ### 边界
 
