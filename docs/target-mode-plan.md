@@ -59,9 +59,9 @@
 
 ### 验证清单
 
-- [已通过] SimpleExperiment 的 `npm test`：1114/1114；lint、`node -c`、`git diff --check` 通过。
+- [已通过] SimpleExperiment 的 `npm test` 1114/1114；lint、`node -c`、`git diff --check` 通过；8 个 dist Python 文件 `ast.parse` 通过。
 - [已通过] 打包 `simple-experiment-0.3.0.vsix`（144 files, 977.61 KB），未覆盖历史 VSIX。
-- [已通过] SimpleSFTP 0.2.0 API 已在对应仓库完成验证并推送至 `origin/master`。
+- [已通过] SimpleSFTP 的 `npm test` 27/27；extension/api-server/CLI `node --check` 与 `git diff --check` 通过。
 - [已通过] SimpleSFTP `origin/master` 为 `e0fdfc1`；SimpleExperiment `origin/master` 为 `795b4e1`。
 
 ### project-236 记录
