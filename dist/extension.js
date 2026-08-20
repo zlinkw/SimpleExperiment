@@ -81,8 +81,13 @@ const PptPlotBridge_1 = require("./PptPlotBridge");
 const GpuHistoryState_1 = require("./features/GpuHistoryState");
 const TopologyMode_1 = require("./features/TopologyMode");
 const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
+const LocalApiServer_1 = require("./api/LocalApiServer");
+const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 const RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
 const viewId = "zlkCluster.panel";
+const LOCAL_API_PREFERRED_PORT = 19765;
+const API_DISCOVERY_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleExperiment");
+const API_DISCOVERY_PATH = path.join(API_DISCOVERY_DIR, "api.json");
 const keys = {
     tunnelConfig: "zlkCluster.tunnelGatewayConfig",
     setupConfig: "zlkCluster.xshellRealtimeTunnelConfig",
@@ -240,6 +245,13 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
 ]);
+const API_INTERNAL_COMMANDS = new Set([
+    "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
+]);
+const API_EXECUTABLE_COMMANDS = new Set([
+    ...uiActionCommands,
+    ...SAFE_WEBVIEW_COMMANDS,
+].filter((command) => !API_INTERNAL_COMMANDS.has(command)));
 const COMMANDS_WITHOUT_UI_STATUS = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
 const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
 const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
@@ -332,6 +344,25 @@ const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set([
     "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults",
 ]);
 const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"]);
+const API_CONFIRM_COMMANDS = new Set([
+    ...PLAN_SUBMISSION_COMMANDS,
+    ...WORKER_ACTION_CONFIRM_COMMANDS,
+    ...NO_HUB_RESULT_CONFIRM_COMMANDS,
+    "runAllPlans",
+    "archivePlan",
+    "restoreArchivedPlan",
+    "reconcileDeletions",
+    "publishGithub",
+    "syncGithub",
+    "overwriteGithub",
+    "uploadProjectToHub",
+    "uploadProjectToWorkers",
+    "distributeCodeToWorkers",
+    "deployLatestAgent",
+    "configureSftpIgnores",
+    "startAllConnections",
+    "prepareAgents",
+]);
 const noHubWorkerResultActions = new Set([
     "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
     "check-claim-evidence", "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis",
@@ -368,6 +399,7 @@ async function activateExtension(context) {
     context.subscriptions.push(hostCommand("zlkCluster.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("zlkCluster.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
+    provider.startLocalApiServer();
     void provider.runActivationOnboarding();
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
 }
@@ -532,6 +564,7 @@ class RealtimeTunnelPanelProvider {
     lastCodeSyncState = {};
     confirmedRemotePaths = [];
     confirmedPptPaths = [];
+    localApiServer;
     localPlanMetadata = { planDir: "experiments/plans", detectedProject: {}, plans: [] };
     localPlanMetadataRefreshPromise;
     workspaceChangePromise;
@@ -589,6 +622,147 @@ class RealtimeTunnelPanelProvider {
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
+    }
+    startLocalApiServer() {
+        if (this.localApiServer)
+            return this.localApiServer;
+        const server = new LocalApiServerClass({
+            name: "SimpleExperiment",
+            version: String(this.context.extension.packageJSON?.version || ""),
+            preferredPort: LOCAL_API_PREFERRED_PORT,
+            discoveryPath: API_DISCOVERY_PATH,
+            methods: this.createLocalApiMethods(),
+        });
+        this.localApiServer = server;
+        this.context.subscriptions.push({
+            dispose: () => {
+                void server.dispose().catch(() => undefined);
+            },
+        });
+        void server.start().catch((error) => {
+            console.warn(`SimpleExperiment local API failed to start: ${errorMessage(error)}`);
+        });
+        return server;
+    }
+    createLocalApiMethods() {
+        return {
+            status: async () => ({
+                ok: true,
+                name: "SimpleExperiment",
+                version: String(this.context.extension.packageJSON?.version || ""),
+                workspace: workspaceRoot() || "",
+                connectionMode: this.effectiveConnectionMode(),
+                topology: this.projectTopologyAssessment(),
+                pid: process.pid,
+                timestamp: new Date().toISOString(),
+            }),
+            state: async () => this.buildState(),
+            "actions.list": async () => {
+                const rows = [...API_EXECUTABLE_COMMANDS].sort();
+                return {
+                    actions: rows.map((command) => ({
+                        command,
+                        safe: !uiActionCommands.has(command),
+                        confirm: API_CONFIRM_COMMANDS.has(command),
+                        action: actionCommandMap[command] || "",
+                    })),
+                    count: rows.length,
+                };
+            },
+            "plans.list": async () => ({
+                planDir: this.localPlanMetadata.planDir || "",
+                detectedProject: this.localPlanMetadata.detectedProject || {},
+                plans: this.localPlanMetadata.plans || [],
+                archivedPlans: this.localPlanMetadata.archivedPlans || [],
+                error: this.localPlanMetadata.error || "",
+                source: "local_metadata",
+            }),
+            "results.list": async (params) => this.apiResultsList(params),
+            "tasks.list": async () => {
+                const state = this.buildState();
+                return {
+                    schedulerStates: state.schedulerStates || [],
+                    experimentTraces: state.experimentTraces || [],
+                    operations: state.operations || {},
+                };
+            },
+            "operations.list": async () => {
+                const runtime = this.buildPlanRuntimeEvidenceState();
+                return {
+                    operations: runtime.operations || {},
+                    source: this.effectiveConnectionMode(),
+                };
+            },
+            "gpu.list": async () => {
+                const state = this.buildState();
+                return {
+                    gpu: state.gpu || {},
+                    source: this.effectiveConnectionMode(),
+                    gpuHistory: state.gpuHistory || this.gpuHistoryState.snapshot() || {},
+                };
+            },
+            "gpu.history": async () => this.gpuHistoryState.snapshot() || {},
+            "live.output": async (params) => this.apiLiveOutput(params),
+            invoke: async (params) => this.invokeApi(params),
+        };
+    }
+    async apiResultsList(params = {}) {
+        const selectedPlan = stringField(params, "planFile") || stringField(params, "planId") || this.planFileInput || this.selectedPlanId || "";
+        if (selectedPlan)
+            await this.refreshResultsSummary(selectedPlan).catch(() => undefined);
+        const summary = this.resultsSummary;
+        const filtered = selectedPlan ? this.filterResultsSummaryForPlan(summary, selectedPlan) : compactResultsSummaryForWebview(summary);
+        const rows = Array.isArray(filtered?.results)
+            ? filtered.results
+            : Array.isArray(filtered?.finalResults)
+                ? filtered.finalResults
+                : Array.isArray(filtered?.final_results)
+                    ? filtered.final_results
+                    : [];
+        return {
+            source: summary ? "resultsSummary" : "none",
+            planFile: selectedPlan,
+            results: rows.slice(0, 200),
+            summary: filtered || null,
+        };
+    }
+    async apiLiveOutput(params = {}) {
+        const runKey = stringField(params, "runKey") || stringField(params, "run_key") || "";
+        const workerId = stringField(params, "workerId") || stringField(params, "worker_id") || "";
+        if (runKey)
+            await this.fetchSelectedLiveOutput(runKey, workerId).catch(() => undefined);
+        const logs = this.buildState().logs || {};
+        const rows = Object.entries(logs).map(([key, value]) => ({
+            key,
+            ...(value && typeof value === "object" ? value : { text: String(value || "") }),
+        }));
+        const filtered = runKey
+            ? rows.filter((row) => String(row.key || "").includes(runKey) || String((row && typeof row === "object" && row.runKey) || row.run_key || "").includes(runKey))
+            : rows;
+        return {
+            runKey: runKey || "",
+            workerId: workerId || "",
+            logs: filtered,
+            count: filtered.length,
+        };
+    }
+    async invokeApi(params = {}) {
+        const command = stringField(params, "command");
+        if (!command)
+            throw new Error("invoke.command is required");
+        if (!API_EXECUTABLE_COMMANDS.has(command))
+            throw new Error(`Command not exposed by SimpleExperiment API: ${command}`);
+        if (API_CONFIRM_COMMANDS.has(command) && params.confirm !== true)
+            throw confirmationRequired({
+                operation: command,
+                requires: ["confirm"],
+                command,
+                params: { ...params, confirm: undefined },
+            });
+        const message = { command, ...params };
+        if (uiActionCommands.has(command))
+            return await this.runActionCommand(command, message);
+        return await this.handleMessageCore(message, command);
     }
     enabledWorkerConfigs() {
         const source = this.setupConfig.workerTunnels;
@@ -1364,6 +1538,10 @@ class RealtimeTunnelPanelProvider {
     async dispose() {
         this.clearPanelReadyWatchdog();
         this.disposeSelectedPlanFileWatchers();
+        if (this.localApiServer) {
+            await this.localApiServer.dispose().catch(() => undefined);
+            this.localApiServer = undefined;
+        }
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
         this.planLocalChangeParseTimer = undefined;

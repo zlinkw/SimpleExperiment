@@ -17,7 +17,9 @@
 - [已完成] 2/5 project-232：对齐拓扑 UI、确认摘要和人工调度文档。
 - [已完成] 3/5 project-233：移除新运行路径对本机自动分片的依赖。
 - [已完成] 4/5 project-234：构建并安装人工 Worker 调度版本 `0.2.9`。
-- [待处理] 5/5 project-235：执行第七十七轮完整非服务器静态测试。
+- [已完成] 5/5 project-235：执行第七十七轮完整非服务器静态测试。
+- [已完成] 6/6 project-236：SimpleSFTP 0.2.0 暴露本机 JSON-RPC/HTTP API（默认端口 19766）、simple-sftp-api CLI、OpenAPI、参数化非交互方法与确认门禁。
+- [已完成] 7/7 project-237：SimpleExperiment 0.3.0 暴露本机 JSON-RPC/HTTP API（默认端口 19765）、simple-experiment api CLI、OpenAPI、SFTP API 桥接与确认门禁。
 
 ## 当前批次：project-234（已完成）
 ### 修复点
@@ -46,5 +48,31 @@
 - 静态审计确认三种拓扑已存在；当前明确缺陷是 Hub 保留端口规则未随拓扑变化，以及端点缓存未包含拓扑成员。
 - 无 Hub 时本机 `18765` 可由一个 Worker 使用；不同本机端口映射到各服务器相同远端 `18765` 不再产生静态冲突。
 - project-222 增加服务器页“停用 Hub”“恢复 Hub”按钮，按钮仍调用项目拓扑保存和强确认流程。
-- 已生成 `simple-experiment-0.2.9.vsix`，143 个文件，993785 字节；既有 `0.2.8` 及更早安装包未覆盖。
-- 安装列表和目录均显示 `0.2.9`；安装后的 `dist/extension.js` SHA256 与 VSIX 内文件一致。
+
+## 当前批次：project-236/237（已完成）
+### 边界
+
+- 只绑定 `127.0.0.1`，默认端口 `SimpleExperiment=19765`、`SimpleSFTP=19766`；实际端口以 `%APPDATA%\SimpleExperiment\api.json` 与 `%APPDATA%\SimpleSFTP\api.json` discovery 文件为准。
+- SimpleSFTP 版本升至 `0.2.0`，SimpleExperiment 版本升至 `0.3.0`；逐个批次测试、提交并推送各自 `origin/master`。
+- 危险 API 操作必须传 `confirm:true`；SFTP 路径动作另需 `pathConfirmed:true` 或精确匹配已有免提醒记录，缺失时返回 `CONFIRM_REQUIRED` 与目标预览。
+- `project-235` 的第七十七轮完整非服务器静态测试并入本批次验证；保留既有历史批次记录、历史 VSIX 与 `zlk_cluster/ui/`，不重载、关闭或重启 VS Code。
+
+### 验证清单
+
+- [已通过] SimpleExperiment 的 `npm test`：1114/1114；lint、`node -c`、`git diff --check` 通过。
+- [已通过] 打包 `simple-experiment-0.3.0.vsix`（144 files, 977.61 KB），未覆盖历史 VSIX。
+- [已通过] SimpleSFTP 0.2.0 API 已在对应仓库完成验证并推送至 `origin/master`。
+- [已通过] 本批次提交及推送记录以各仓库 `origin/master` 实际 HEAD 为准。
+
+### project-236 记录
+
+- SimpleSFTP 新增本地 JSON-RPC 服务、CLI、OpenAPI、health/capabilities/SSE 和 discovery 文件。
+- API 方法：`status`、`servers.list`、`servers.setActive`、`servers.importSshConfig`、`remote.listDirs`、`target.show`、`project.create`、`sync.fromRemote`、`upload.workspace`、`upload.files`、`handoff.markReady`、`ignores.configure`、`confirmations.reset`。
+- 验证与提交记录在 SimpleSFTP 仓库 `origin/master` 的对应提交中补充。
+
+### project-237 记录
+
+- SimpleExperiment 新增本机 JSON-RPC 服务、CLI 子命令、OpenAPI、health/capabilities/SSE 和 discovery 文件。
+- API 方法：`status`、`state`、`actions.list`、`plans.list`、`results.list`、`tasks.list`、`operations.list`、`gpu.list`、`gpu.history`、`live.output`、`invoke(command, params)`。
+- `invoke` 复用现有 webview action/safe command，`project-236` 的 SimpleSFTP API 负责文件传输桥接。
+- 验证与提交记录在 SimpleExperiment 仓库 `origin/master` 的对应提交中补充。

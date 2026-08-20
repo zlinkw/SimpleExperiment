@@ -72,18 +72,18 @@ function compactSection(section) {
   while (body.length && !body[0].trim()) body.shift();
   if (kind === "fixed" || kind === "priority") body = trimBullets(body, MAX_SECTION_BULLETS);
   if (kind === "record") body = trimBullets(body, MAX_BATCH_RECORD_BULLETS);
-  if (kind === "current") {
-    const kept = [];
-    let skip = false;
-    for (const line of body) {
-      if (/^###\s+/.test(line)) {
-        const subsection = line.replace(/^###\s+/, "").trim();
-        skip = !/^(修复点|(?:相邻)?回归风险|验证清单)$/.test(subsection);
-        if (skip) continue;
+    if (kind === "current") {
+      const kept = [];
+      let skip = false;
+      for (const line of body) {
+        if (/^###\s+/.test(line)) {
+          const subsection = line.replace(/^###\s+/, "").trim();
+          skip = !/^(修复点|(?:相邻)?回归风险|验证清单|边界)$/.test(subsection) && !/^project-\d+\s+记录$/.test(subsection);
+          if (skip) continue;
+        }
+        if (!skip) kept.push(line);
       }
-      if (!skip) kept.push(line);
-    }
-    body = trimBulletsPerSubsection(kept, MAX_SUBSECTION_BULLETS);
+      body = trimBulletsPerSubsection(kept, MAX_SUBSECTION_BULLETS);
   }
   return [head, ...body].join("\n").trimEnd();
 }

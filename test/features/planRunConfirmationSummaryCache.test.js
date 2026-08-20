@@ -127,8 +127,8 @@ test("Plan run targets reuse stable arrays and preserve normalized target order"
   const counts = { unique: sandbox.uniqueCalls, path: sandbox.pathCalls };
 
   assert.deepEqual(JSON.parse(JSON.stringify(first)), [
-    { label: "Worker B", role: "worker", remotePath: "/srv/demo", maxConcurrentGpus: 2, allowedGpuIds: ["1", "3"], condaEnv: "torch" },
-    { label: "Hub", role: "hub", remotePath: "/srv/hub", maxConcurrentGpus: 1, allowedGpuIds: [], condaEnv: "" },
+    { id: "", label: "Worker B", role: "worker", remotePath: "/srv/demo", maxConcurrentGpus: 2, allowedGpuIds: ["1", "3"], condaEnv: "torch" },
+    { id: "", label: "Hub", role: "hub", remotePath: "/srv/hub", maxConcurrentGpus: 1, allowedGpuIds: [], condaEnv: "" },
   ]);
   assert.strictEqual(sandbox.targetLocations(targets), first);
   assert.strictEqual(sandbox.targetLocations(first), first);
@@ -184,7 +184,7 @@ test("single and batch Plan confirmations keep path roles and section order", ()
 
   const batch = sandbox.confirmBatch([plan], targets);
   assert.match(batch, /【批量运行确认】运行全部计划/);
-  assert.match(batch, /experiments\/plans\/demo\.yaml \| 训练并评估/);
+  assert.match(batch, /experiments\/plans\/demo\.yaml \| Worker 未选择 \| 训练并评估/);
   assert.match(batch, /Worker A（运行生成）：\/srv\/demo\/metrics\.csv/);
   assert.match(batch, /Hub（同步后汇总）：\/srv\/hub\/metrics\.csv/);
   assert.equal(sandbox.planRunOutputLocationSummaryCache.get(plan).size, 2);

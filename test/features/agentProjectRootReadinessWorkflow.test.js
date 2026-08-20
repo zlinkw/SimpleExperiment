@@ -94,10 +94,10 @@ test("Hub-only checks and execution checks use different endpoint scopes", () =>
   const validateGuard = action.slice(validateStart, runStart);
   const runGuard = action.slice(runStart, action.indexOf("const danger = command", runStart));
   const runAll = extension.slice(extension.indexOf("async runAllPlansFromUi()"), extension.indexOf("async generatePlanGuideFromUi("));
-  assert.match(validateGuard, /assertPlanSchedulerAgentReady\(command\)/);
+  assert.match(validateGuard, /assertPlanSchedulerAgentReady\(command,\s*body\)/);
   assert.doesNotMatch(validateGuard, /assertExecutionAgentProjectsReady\(\)/);
-  assert.match(runGuard, /assertExecutionAgentProjectsReady\(\)/);
-  assert.match(runAll, /assertExecutionAgentProjectsReady\(\)/);
+  assert.match(runGuard, /assertExecutionAgentProjectsReady\(body\)/);
+  assert.match(runAll, /assertExecutionAgentProjectsReady\(candidate\.body\)/);
   assert.ok(runAll.indexOf("assertExecutionAgentProjectsReady()") < runAll.indexOf("confirmPlanBatchRunSubmission"));
   const applySetup = extension.slice(extension.indexOf("async applySetupDraft(patch, options = {})"), extension.indexOf("currentUiLayoutState()"));
   assert.match(applySetup, /enforceExpectedAgentProjectRoot\(this\.lastProbe/);

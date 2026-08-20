@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import * as fs from "fs";
+import * as http from "http";
+import * as os from "os";
 import * as path from "path";
 import { buildExperimentMatrix } from "./features/PlanBuilder";
 import { buildLeaderboard, leaderboardToMarkdown, parseMetricsFile } from "./features/Metrics";
@@ -15,9 +17,13 @@ import {
 } from "./features/Results";
 import { parseZlkRunArgs, runRecordedExperiment } from "./features/ExperimentRunner";
 
-export function main(argv: string[]): number {
+const APPDATA = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+const API_DISCOVERY_PATH = () => process.env.SIMPLE_EXPERIMENT_API_FILE || path.join(APPDATA, "SimpleExperiment", "api.json");
+
+export async function main(argv: string[]): Promise<number> {
   const [cmd, sub, ...rest] = argv;
   if (cmd === "run") return runRecordedCli([sub, ...rest].filter((item): item is string => item !== undefined));
+  if (cmd === "api") return runApiCommand([...rest].filter((item): item is string => item !== undefined));
   if (cmd === "status") {
     console.log(JSON.stringify({ ok: true, cwd: process.cwd(), command: "status" }, null, 2));
     return 0;
@@ -83,6 +89,84 @@ export function main(argv: string[]): number {
   return 2;
 }
 
+async function runApiCommand(argv: string[]): Promise<number> {
+  const [method, ...rest] = argv;
+  if (!method || method.startsWith("-")) {
+    console.error("Usage: simple-experiment api <method> --json <params.json>");
+    return 2;
+  }
+  const paramsFile = option(rest, "--json") || option(rest, "--params");
+  let params: Record<string, unknown> = {};
+  if (paramsFile) {
+    if (!fs.existsSync(paramsFile)) throw new Error(`params file not found: ${paramsFile}`);
+    params = JSON.parse(fs.readFileSync(paramsFile, "utf8"));
+  }
+  const discovery = readApiDiscovery();
+  const result = await apiRequest(discovery, method, params);
+  if (result.error) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: {
+        code: result.error.code,
+        message: result.error.message,
+        data: result.error.data || {},
+      },
+    }, null, 2));
+    return 1;
+  }
+  console.log(JSON.stringify({ ok: true, result: result.result === undefined ? null : result.result }, null, 2));
+  return 0;
+}
+
+export function readApiDiscovery(): Record<string, unknown> {
+  const file = API_DISCOVERY_PATH();
+  if (!fs.existsSync(file)) {
+    throw new Error(`SimpleExperiment API discovery not found: ${file}. Open VS Code once to start the extension host.`);
+  }
+  const discovery = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+  if (!discovery.baseUrl || !discovery.token) {
+    throw new Error(`SimpleExperiment API discovery is invalid: ${file}`);
+  }
+  return discovery;
+}
+
+export function apiRequest(discovery: Record<string, unknown>, method: string, params: Record<string, unknown> = {}): Promise<Record<string, any>> {
+  const url = new URL("/api/v1/rpc", String(discovery.baseUrl));
+  const body = Buffer.from(JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method,
+    params,
+  }), "utf8");
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": body.length,
+        Authorization: `Bearer ${String(discovery.token)}`,
+      },
+      timeout: 15_000,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        } catch (error) {
+          reject(new Error(`invalid API response: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("SimpleExperiment API request timed out")));
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
 export function runRecordedCli(argv: string[]): number {
   const result = runRecordedExperiment(parseZlkRunArgs(argv));
   console.log(JSON.stringify(result, null, 2));
@@ -110,10 +194,12 @@ function finalPaperTableRecords(input: unknown): ExperimentResultRecord[] {
 }
 
 if (require.main === module) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  }
+  main(process.argv.slice(2))
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
 }

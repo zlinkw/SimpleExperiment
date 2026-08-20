@@ -37,6 +37,10 @@ test("compactTargetModePlan drops history and keeps only active sections", () =>
     "",
     "- fix a",
     "",
+    "### 边界",
+    "",
+    "- keep boundary",
+    "",
     "### 相邻回归风险",
     "",
     "- keep risk",
@@ -44,6 +48,10 @@ test("compactTargetModePlan drops history and keeps only active sections", () =>
     "### 验证清单",
     "",
     "- npm run build",
+    "",
+    "### project-236 记录",
+    "",
+    "- API methods for SimpleSFTP",
     "",
     "### 额外流水",
     "",
@@ -73,8 +81,12 @@ test("compactTargetModePlan drops history and keeps only active sections", () =>
   assert.match(result.text, /打包\/清理时会自动压缩本文件/);
   assert.match(result.text, /## 固定边界/);
   assert.match(result.text, /## 当前批次：Batch 999/);
+  assert.match(result.text, /### 边界/);
+  assert.match(result.text, /keep boundary/);
   assert.match(result.text, /### 相邻回归风险/);
   assert.match(result.text, /keep risk/);
+  assert.match(result.text, /### project-236 记录/);
+  assert.match(result.text, /API methods for SimpleSFTP/);
   assert.match(result.text, /## 本批记录/);
   assert.doesNotMatch(result.text, /历史批次流水账/);
   assert.doesNotMatch(result.text, /已完成验证日志/);
@@ -118,4 +130,3 @@ test("compactTargetModePlanFile rewrites on disk", () => {
   assert.doesNotMatch(text, /## 历史批次/);
   assert.match(text, /禁止堆积流水账/);
 });
-
