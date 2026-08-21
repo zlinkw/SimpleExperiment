@@ -80,6 +80,7 @@ const ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates")
 const PptPlotBridge_1 = require("./PptPlotBridge");
 const GpuHistoryState_1 = require("./features/GpuHistoryState");
 const TopologyMode_1 = require("./features/TopologyMode");
+const ApiWorkflow_1 = require("./features/ApiWorkflow");
 const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 const LocalApiServer_1 = require("./api/LocalApiServer");
 const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
@@ -419,6 +420,7 @@ const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set([
     "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults",
 ]);
 const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"]);
+const API_PARAMETERIZED_CONNECTION_COMMANDS = new Set(["prepareAgents", "startAllConnections"]);
 const API_CONFIRM_COMMANDS = new Set([
     ...PLAN_SUBMISSION_COMMANDS,
     ...WORKER_ACTION_CONFIRM_COMMANDS,
@@ -640,6 +642,9 @@ class RealtimeTunnelPanelProvider {
     confirmedRemotePaths = [];
     confirmedPptPaths = [];
     localApiServer;
+    apiFlowState = ApiWorkflow_1.defaultFlowState();
+    apiFlowStateDirty = false;
+    apiFlowStatePersistPromise;
     localPlanMetadata = { planDir: "experiments/plans", detectedProject: {}, plans: [] };
     localPlanMetadataRefreshPromise;
     workspaceChangePromise;
@@ -786,6 +791,14 @@ class RealtimeTunnelPanelProvider {
             "state.get": async (params) => this.apiStateGet(params),
             "state.set": async (params) => this.apiStateSet(params),
             "state.reset": async (params) => this.apiStateReset(params),
+            "project.prepare": async (params) => this.apiProjectPrepare(params),
+            "project.bootstrap": async (params) => this.apiProjectBootstrap(params),
+            "project.bootstrap.operation": async (params) => this.apiProjectBootstrapOperation(params),
+            "flow.get": async () => this.apiFlowGet(),
+            "flow.update": async (params) => this.apiFlowUpdate(params),
+            "server.testAll": async (params) => this.apiServerTestAll(params),
+            "plans.filter": async (params) => this.apiPlansFilter(params),
+            "plan.validate": async (params) => this.apiPlanValidate(params),
             invoke: async (params) => this.invokeApi(params),
         };
     }
@@ -1025,12 +1038,689 @@ class RealtimeTunnelPanelProvider {
         this.postState();
         return { ok: true, key, reset: true };
     }
+    async apiProjectPrepare(params = {}) {
+        const root = String(params.workspace || workspaceRoot() || "").trim();
+        if (!root)
+            throw new Error("project.prepare 需要已打开工作区，或传入 workspace 参数。");
+        assertSingleProjectWorkspace("project.prepare");
+        const requestedMode = TopologyMode_1.normalizeTopologyMode(params.topologyMode || params.mode);
+        const serverIds = stringArrayField(params, "serverIds");
+        const setup = this.apiMergedSetupConfig(params);
+        const topology = this.apiPrepareTopology(requestedMode, serverIds, setup);
+        const targets = this.apiPrepareServerTargets(topology, serverIds, params.workerTunnels, setup);
+        const simpleSftp = simpleSftpIntegrationReadiness();
+        const missing = ApiWorkflow_1.structuredMissingInventory({
+            workspace: root,
+            setup,
+            topology,
+            simpleSftp,
+        });
+        const preview = {
+            operation: "project.prepare",
+            workspace: root,
+            topology: this.apiPublicTopology(topology),
+            servers: targets.map((target) => ({
+                serverId: target.id,
+                role: target.role,
+                host: target.host,
+                port: target.port,
+                user: target.user,
+                remoteRoot: target.remoteRoot,
+                enabled: true,
+                localForwardPort: target.localForwardPort,
+                remoteAgentPort: target.remoteAgentPort,
+                savedSessionPath: target.savedSessionPath,
+            })),
+            modifications: {
+                xshellSessions: params.applyXshell === false ? [] : targets.map((target) => target.savedSessionPath).filter(Boolean),
+                remoteRuntime: params.deployRuntime === false ? [] : targets.map((target) => ({ serverId: target.id, installDir: this.agentRuntimeDirs(target.remoteRoot).installDir, workDir: this.agentRuntimeDirs(target.remoteRoot).workDir })),
+            },
+        };
+        if (missing.length || params.confirm !== true)
+            throw confirmationRequired({
+                operation: "project.prepare",
+                requires: ["confirm"],
+                missing,
+                preview,
+                params: { ...params, confirm: undefined },
+            });
+        if (topology.configuredMode && params.applyTopology !== false)
+            await this.saveTopologyModeFromApi(topology.configuredMode);
+        if (this.apiSetupConfigChanged(setup))
+            await this.applySetupDraft(setup, { syncAssignmentsFromFields: true });
+        const profileResult = await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
+        if (profileResult.targetCount < targets.length)
+            throw new Error(`project.prepare 写入 SimpleSFTP 目标不完整：需要 ${targets.length} 个，当前 ${profileResult.targetCount} 个。`);
+        const commandResults = params.applyXshell === false ? [] : await this.writeXshellAgentStartupCommands(false, false);
+        const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
+        if (blocked.length)
+            throw new Error(`project.prepare 未修改 Xshell 自启动命令：${blocked.map((item) => item.summary).join("；")}`);
+        if (params.deployRuntime !== false)
+            await this.deployLatestAgentRuntime(false, true);
+        if (params.startSessions === true)
+            await this.startAllXshellConnections(false, false);
+        const test = params.autoTest === true
+            ? await this.apiServerTestAll({ refresh: true })
+            : await this.apiServerTestAll({ refresh: false });
+        await this.apiAdvanceFlow("select_servers", { completed: true });
+        if (topology.mode)
+            await this.apiAdvanceFlow("select_mode", { completed: true });
+        await this.apiAdvanceFlow("prepare_agents", { completed: true });
+        return {
+            ok: true,
+            operation: "project.prepare",
+            topology: this.apiPublicTopology(topology),
+            enabledServers: targets.filter((target) => target.enabled !== false).map((target) => target.id),
+            servers: targets,
+            test,
+            flow: this.apiFlowState,
+        };
+    }
+    apiMergedSetupConfig(params = {}) {
+        const hub = params.hub && typeof params.hub === "object" && !Array.isArray(params.hub)
+            ? params.hub
+            : params.hubConfig && typeof params.hubConfig === "object" && !Array.isArray(params.hubConfig)
+                ? params.hubConfig
+                : {};
+        const workers = Array.isArray(params.workerTunnels)
+            ? params.workerTunnels.map((worker) => {
+                const row = worker && typeof worker === "object" ? worker : {};
+                const id = String(row.id || row.serverId || row.host || "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || `worker-${Math.random().toString(16).slice(2, 8)}`;
+                const host = String(row.host || row.sshHost || row.workerHost || "").trim();
+                const user = String(row.user || row.username || row.workerUser || "").trim();
+                const port = Number(row.port || row.sshPort || row.hubSshPort || 22);
+                const localForwardPort = Number(row.localForwardPort || this.setupConfig.localForwardPort || 18765);
+                const remoteAgentPort = Number(row.remoteAgentPort || row.remoteTelemetryPort || this.setupConfig.remoteAgentPort || 18765);
+                return {
+                    id,
+                    displayName: String(row.displayName || row.label || row.name || id || host || "").trim() || id,
+                    hubHost: host,
+                    hubUser: user,
+                    hubSshPort: Number.isInteger(port) && port > 0 ? port : 22,
+                    workerHost: host,
+                    workerUser: user,
+                    workerSshPort: Number.isInteger(port) && port > 0 ? port : 22,
+                    localForwardHost: "127.0.0.1",
+                    localForwardPort: Number.isInteger(localForwardPort) && localForwardPort >= 1024 ? localForwardPort : 18765,
+                    remoteAgentHost: "127.0.0.1",
+                    remoteAgentPort: Number.isInteger(remoteAgentPort) && remoteAgentPort >= 1024 ? remoteAgentPort : 18765,
+                    remoteTelemetryPort: Number.isInteger(remoteAgentPort) && remoteAgentPort >= 1024 ? remoteAgentPort : 18765,
+                    savedSessionPath: String(row.savedSessionPath || row.xshPath || "").trim() || undefined,
+                    agentProjectDir: String(row.agentProjectDir || row.remoteRoot || row.remotePath || "").trim() || undefined,
+                    condaEnv: String(row.condaEnv || "").trim() || undefined,
+                    authMethod: row.authMethod === "key" ? "key" : "password",
+                    enabled: row.enabled !== false,
+                };
+            })
+            : this.setupConfig.workerTunnels;
+        const hubPatch = Object.keys(hub).length ? {
+            hubDisplayName: String(hub.displayName || hub.label || hub.name || "").trim() || undefined,
+            hubHost: String(hub.host || hub.sshHost || "").trim(),
+            hubUser: String(hub.user || hub.username || "").trim(),
+            hubSshPort: Number(hub.port || hub.sshPort || 22),
+            transferHost: String(hub.transferHost || hub.resolvedHost || hub.sftpHost || hub.sshHost || "").trim() || undefined,
+            resolvedHost: String(hub.resolvedHost || hub.host || "").trim() || undefined,
+            savedSessionPath: String(hub.savedSessionPath || hub.xshPath || "").trim() || undefined,
+            agentProjectDir: String(hub.agentProjectDir || hub.remoteRoot || hub.remotePath || "").trim() || undefined,
+            localForwardPort: Number(hub.localForwardPort || this.setupConfig.localForwardPort || 18765),
+            remoteAgentPort: Number(hub.remoteAgentPort || this.setupConfig.remoteAgentPort || 18765),
+        } : {};
+        return XshellTunnelSetup_1.normalizeXshellSetupConfig({
+            ...this.setupConfig,
+            ...hubPatch,
+            workerTunnels: workers,
+        });
+    }
+    apiSetupConfigChanged(config) {
+        return JSON.stringify(XshellTunnelSetup_1.publicXshellSetupSummary(config)) !== JSON.stringify(XshellTunnelSetup_1.publicXshellSetupSummary(this.setupConfig));
+    }
+    apiPrepareTopology(requestedMode, serverIds, setup = this.setupConfig) {
+        const workerCount = setup.workerTunnels.filter((worker) => worker.enabled !== false).length;
+        const hubConfigured = Boolean(String(setup.savedSessionPath || "").trim() && String(setup.agentProjectDir || "").trim());
+        const hubSelected = !serverIds.length || serverIds.some((id) => ["hub", setup.hubHost, setup.hubDisplayName].filter(Boolean).includes(String(id || "").trim()));
+        const current = this.projectTopologyAssessment();
+        const mode = requestedMode
+            || current.mode
+            || (hubSelected && hubConfigured
+                ? "hub_worker"
+                : workerCount === 1
+                    ? "single_worker"
+                    : "worker_pool");
+        const next = this.apiTopologyAssessmentForConfig(mode, hubSelected ? setup : {
+            ...setup,
+            savedSessionPath: "",
+            agentProjectDir: "",
+        });
+        if (mode === "hub_worker" && !hubSelected) {
+            const workerOnly = this.apiTopologyAssessmentForConfig("worker_pool", {
+                ...setup,
+                savedSessionPath: "",
+                agentProjectDir: "",
+            });
+            return {
+                ...workerOnly,
+                configuredMode: mode,
+                selectedServerIds: serverIds,
+                hubSelected: false,
+                valid: false,
+                hubAllowed: false,
+                issues: [...workerOnly.issues, "未选择 Hub 对应的服务器，只能选择仅 Worker 模式。"],
+            };
+        }
+        return { ...next, configuredMode: mode, selectedServerIds: serverIds, hubSelected };
+    }
+    apiTopologyAssessmentForConfig(mode, setup = this.setupConfig) {
+        const configuredMode = String(mode || "").trim();
+        const normalizedMode = TopologyMode_1.normalizeTopologyMode(configuredMode);
+        const workers = (setup.workerTunnels || []).filter((worker) => worker.enabled !== false);
+        const hubConfigured = Boolean(String(setup.savedSessionPath || "").trim() && String(setup.agentProjectDir || "").trim());
+        const assessment = TopologyMode_1.assessProjectTopology(configuredMode, {
+            hubConfigured,
+            enabledWorkerIds: workers.map((worker) => String(worker.id || worker.displayName || "").trim()).filter(Boolean),
+        });
+        return {
+            ...assessment,
+            configuredMode,
+            storedHubConfigured: hubConfigured,
+            modeLabel: topologyModeLabel(assessment.mode),
+        };
+    }
+    apiPrepareServerTargets(topology, serverIds, workerTunnels, setup = this.setupConfig) {
+        const selected = serverIds.length ? new Set(serverIds.map((id) => String(id || "").trim()).filter(Boolean)) : null;
+        const targets = [];
+        const errors = [];
+        if (topology.hubAllowed && topology.mode === "hub_worker" && (!selected || selected.has("hub") || selected.has(setup.hubHost))) {
+            try {
+                const hub = this.hubActualWorkRootTarget(setup);
+                const remoteRoot = ApiWorkflow_1.resolveApiRemoteRoot(hub.remotePath, { id: "hub", label: hub.label, host: hub.host });
+                targets.push({
+                    id: "hub",
+                    role: "hub",
+                    label: hub.label || "Hub",
+                    host: hub.host,
+                    port: Number(hub.port || 22),
+                    user: hub.user || "",
+                    remoteRoot: remoteRoot || "",
+                    enabled: true,
+                    topology: topology.mode,
+                    savedSessionPath: hub.savedSessionPath || "",
+                    localForwardPort: setup.localForwardPort,
+                    remoteAgentPort: setup.remoteAgentPort,
+                });
+            }
+            catch (error) {
+                errors.push({
+                    serverId: "hub",
+                    server: setup.hubDisplayName || "Hub",
+                    host: setup.hubHost || "",
+                    port: setup.hubSshPort || 22,
+                    reason: errorMessage(error),
+                    requiredConfirm: ["confirm"],
+                });
+            }
+        }
+        for (const worker of this.apiMergedWorkerConfigs(workerTunnels, setup)) {
+            const id = String(worker.id || worker.displayName || "").trim();
+            if (!id)
+                continue;
+            if (worker.enabled === false)
+                continue;
+            if (selected && !selected.has(id) && !selected.has(String(worker.displayName || "").trim()))
+                continue;
+            try {
+                const target = this.workerActualWorkRootTarget(worker, setup);
+                const remoteRoot = ApiWorkflow_1.resolveApiRemoteRoot(target.remotePath, worker);
+                targets.push({
+                    id,
+                    role: "worker",
+                    label: worker.displayName || id,
+                    host: target.host,
+                    port: Number(target.port || worker.port || worker.hubSshPort || 22),
+                    user: target.user || worker.user || "",
+                    remoteRoot: remoteRoot || "",
+                    enabled: worker.enabled !== false,
+                    topology: topology.mode,
+                    savedSessionPath: target.savedSessionPath || worker.savedSessionPath || "",
+                    localForwardPort: worker.localForwardPort || setup.localForwardPort,
+                    remoteAgentPort: worker.remoteTelemetryPort || worker.remoteAgentPort || setup.remoteAgentPort,
+                });
+            }
+            catch (error) {
+                errors.push({
+                    serverId: id,
+                    server: worker.displayName || id,
+                    host: worker.host || worker.workerHost || "",
+                    port: worker.port || worker.hubSshPort || 22,
+                    reason: errorMessage(error),
+                    requiredConfirm: ["confirm"],
+                });
+            }
+        }
+        if (errors.length)
+            throw confirmationRequired({
+                operation: "project.prepare",
+                requires: ["confirm"],
+                missing: errors.map((item) => ({
+                    step: "prepare_agents",
+                    reason: `${item.serverId}（${item.host || "host 未设置"}:${item.port || 22}）: ${item.reason}`,
+                    options: ["config.set", "server.addWorker"],
+                    requiredConfirm: item.requiredConfirm,
+                })),
+                preview: {
+                    operation: "project.prepare",
+                    errors,
+                    topology: this.apiPublicTopology(topology),
+                    servers: targets,
+                },
+            });
+        if (!targets.length)
+            throw new Error("project.prepare 没有可用的服务器目标；请先选择已配置并启用的 Hub/Worker。");
+        return targets;
+    }
+    apiMergedWorkerConfigs(workerTunnels, setup = this.setupConfig) {
+        const configured = (setup.workerTunnels || []).filter((worker) => worker.enabled !== false);
+        const incoming = Array.isArray(workerTunnels) ? workerTunnels.filter((item) => item && typeof item === "object") : [];
+        if (!incoming.length)
+            return configured;
+        const byId = new Map(configured.map((worker) => [String(worker.id || worker.displayName || "").trim(), worker]));
+        for (const worker of incoming) {
+            const id = String(worker.id || worker.displayName || "").trim();
+            if (!id)
+                continue;
+            const existing = byId.get(id) || {};
+            byId.set(id, {
+                ...existing,
+                ...worker,
+                workerHost: worker.host || worker.workerHost || existing.workerHost || existing.host || "",
+                workerUser: worker.user || worker.workerUser || existing.workerUser || existing.user || "",
+                hubSshPort: worker.port || worker.hubSshPort || existing.hubSshPort || existing.port || 22,
+                agentProjectDir: worker.agentProjectDir || worker.remoteRoot || existing.agentProjectDir || setup.agentProjectDir || "",
+                savedSessionPath: worker.savedSessionPath || existing.savedSessionPath || "",
+                enabled: worker.enabled !== false,
+            });
+        }
+        return [...byId.values()];
+    }
+    apiPublicTopology(topology) {
+        return {
+            mode: topology.mode,
+            configuredMode: topology.configuredMode || topology.mode || "",
+            valid: topology.valid,
+            hubAllowed: topology.hubAllowed,
+            workerCount: topology.workerCount,
+            selectedServerIds: topology.selectedServerIds || [],
+            issues: topology.issues || [],
+            schedulerOwner: topology.schedulerOwner,
+            stateOwner: topology.stateOwner,
+        };
+    }
+    async saveTopologyModeFromApi(mode) {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder)
+            throw new Error("保存拓扑模式需要先打开工作区。");
+        const config = vscode.workspace.getConfiguration("zlkCluster", folder.uri);
+        await config.update("topologyMode", mode, vscode.ConfigurationTarget.WorkspaceFolder);
+        this.topologyRuntimeMode = this.projectTopologyAssessment(mode).mode;
+        this.postState();
+    }
+    async apiStartAllConnections(params = {}) {
+        const topology = this.projectTopologyAssessment();
+        if (!topology.valid || !topology.mode)
+            throw confirmationRequired({
+                operation: "startAllConnections",
+                requires: ["confirm"],
+                missing: ApiWorkflow_1.structuredMissingInventory({
+                    workspace: workspaceRoot() || "",
+                    setup: this.setupConfig,
+                    topology,
+                    simpleSftp: simpleSftpIntegrationReadiness(),
+                }),
+                preview: { operation: "startAllConnections", topology: this.apiPublicTopology(topology) },
+            });
+        const targets = this.agentStartupTargets();
+        const tunnelItems = this.tunnelLaunchItems();
+        const modificationPreview = targets.map((target) => ({
+            serverId: target.id,
+            xshellSession: target.filePath,
+            command: target.command,
+        }));
+        const ports = tunnelItems.map((item) => ({
+            serverId: item.id,
+            displayName: item.config.savedSessionPath || item.id,
+            localForwardPort: item.config.localForwardPort,
+            remoteAgentPort: item.config.remoteAgentPort,
+        }));
+        if (params.confirm !== true)
+            throw confirmationRequired({
+                operation: "startAllConnections",
+                requires: ["confirm"],
+                preview: {
+                    operation: "startAllConnections",
+                    topology: this.apiPublicTopology(topology),
+                    servers: targets.map((target) => ({
+                        serverId: target.id,
+                        savedSessionPath: target.filePath,
+                        modification: "Xshell RemoteCommand / tmux Agent 启动",
+                    })),
+                    ports,
+                    remoteRoots: this.agentRuntimeUploadTargets().map((target) => ({
+                        serverId: target.id,
+                        remoteRoot: target.remotePath,
+                    })),
+                },
+            });
+        await this.startAllXshellConnections(false, false);
+        return { ok: true, started: true, topology: this.apiPublicTopology(topology), preview: modificationPreview, ports };
+    }
+    async apiServerTestAll(params = {}) {
+        const topology = this.projectTopologyAssessment();
+        try {
+            if (!topology.valid || !topology.mode)
+                throw new Error(topology.issues.join("；") || "拓扑模式未确认。");
+            if (params.refresh !== false)
+                await this.testTunnel(false);
+            const rows = [];
+            if (topology.hubAllowed) {
+                const hub = this.hubActualWorkRootTarget();
+                rows.push(ApiWorkflow_1.serverTestRow({
+                    id: "hub",
+                    host: hub.host,
+                    port: hub.port,
+                    user: hub.user,
+                    remotePath: hub.remotePath,
+                }, this.lastProbe, { message: this.lastHealth?.message }));
+            }
+            for (const worker of this.enabledWorkerConfigs()) {
+                const target = this.workerActualWorkRootTarget(worker);
+                rows.push(ApiWorkflow_1.serverTestRow({
+                    id: worker.id,
+                    host: target.host,
+                    port: target.port,
+                    user: target.user,
+                    remotePath: target.remotePath,
+                }, this.lastWorkerProbes[worker.id]));
+            }
+            return { ok: true, topology: this.apiPublicTopology(topology), rows };
+        }
+        catch (error) {
+            const message = errorMessage(error);
+            return {
+                ok: false,
+                error: message,
+                topology: this.apiPublicTopology(topology),
+                rows: topology.mode ? this.apiServerTestRowsFromConfig(topology) : [],
+            };
+        }
+    }
+    apiServerTestRowsFromConfig(topology) {
+        const rows = [];
+        if (topology.hubAllowed) {
+            const hub = this.hubActualWorkRootTarget();
+            rows.push(ApiWorkflow_1.serverTestRow({
+                id: "hub",
+                host: hub.host,
+                port: hub.port,
+                user: hub.user,
+                remotePath: hub.remotePath,
+            }, this.lastProbe));
+        }
+        for (const worker of this.enabledWorkerConfigs()) {
+            const target = this.workerActualWorkRootTarget(worker);
+            rows.push(ApiWorkflow_1.serverTestRow({
+                id: worker.id,
+                host: target.host,
+                port: target.port,
+                user: target.user,
+                remotePath: target.remotePath,
+            }, this.lastWorkerProbes[worker.id]));
+        }
+        return rows;
+    }
+    async apiPlanValidate(params = {}) {
+        await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
+            this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+        });
+        const plan = this.apiResolveSelectedPlan(params);
+        const topology = this.projectTopologyAssessment();
+        const missing = ApiWorkflow_1.structuredMissingInventory({
+            workspace: workspaceRoot() || "",
+            setup: this.setupConfig,
+            topology,
+            simpleSftp: simpleSftpIntegrationReadiness(),
+            project: this.localPlanMetadata.detectedProject,
+            plan,
+        });
+        if (plan) {
+            const diagnostics = projectOutputGateDiagnostics(this.localPlanMetadata.detectedProject || {}, plan);
+            for (const row of diagnostics.rows || []) {
+                if (row.ok)
+                    continue;
+                missing.push({
+                    step: row.label === "计划强契约" ? "validate_plan" : "dry_run",
+                    reason: `${row.label}：${row.fix || "当前配置未满足该检查"}`,
+                    options: [String(row.fix || "")].filter(Boolean),
+                    requiredConfirm: ["confirm"],
+                });
+            }
+        }
+        const expectedHubRoot = this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir;
+        const hubProbe = this.lastProbe
+            ? enforceExpectedAgentProjectRoot(this.lastProbe, expectedHubRoot, "Hub")
+            : undefined;
+        if (topology.hubAllowed && hubProbe?.status !== "ok") {
+            missing.push({
+                step: "prepare_agents",
+                reason: `Hub Agent 未通过当前项目检测：${String(hubProbe?.message || this.lastProbe?.message || this.lastHealth?.message || "未检测或不可达")}`,
+                options: ["project.prepare", "deployLatestAgent"],
+                requiredConfirm: ["confirm"],
+            });
+        }
+        for (const worker of this.enabledWorkerConfigs()) {
+            const rawProbe = this.lastWorkerProbes[worker.id];
+            const probe = rawProbe
+                ? enforceExpectedAgentProjectRoot(rawProbe, this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id)
+                : undefined;
+            if (probe?.status === "ok")
+                continue;
+            missing.push({
+                step: "prepare_agents",
+                reason: `Worker ${worker.displayName || worker.id} Agent 未通过检测：${String(probe?.message || probe?.suggestion || "未检测")}`,
+                options: ["project.prepare", "startAllConnections", "deployLatestAgent"],
+                requiredConfirm: ["confirm"],
+            });
+        }
+        const unique = new Map(missing.map((item) => [`${item.step}:${item.reason}`, item]));
+        const rows = [...unique.values()];
+        return {
+            ok: rows.length === 0,
+            missing: rows,
+            plan: plan ? { planId: plan.planId || plan.planFile || plan.file || "", planFile: plan.planFile || plan.file || "" } : null,
+            topology: this.apiPublicTopology(topology),
+            flow: this.apiFlowState,
+        };
+    }
+    apiResolveSelectedPlan(params) {
+        const planFile = String(params.planFile || params.file || "").trim();
+        const planId = String(params.planId || "").trim();
+        const plans = this.localPlanMetadata.plans || [];
+        if (planFile)
+            return plans.find((plan) => String(plan.planFile || plan.file || plan.planId || "") === planFile) || null;
+        if (planId)
+            return plans.find((plan) => String(plan.planId || plan.planFile || plan.file || "") === planId || String(plan.planFile || plan.file || "") === planId) || null;
+        return plans.length === 1 ? plans[0] : null;
+    }
+    async apiPrepareConfirmationPreview(params = {}) {
+        try {
+            await this.apiProjectPrepare({ ...params, confirm: false });
+        }
+        catch (error) {
+            const apiError = error;
+            if (Number(apiError?.apiCode) === 2001 && apiError.apiData && typeof apiError.apiData === "object")
+                return apiError.apiData;
+            throw error;
+        }
+        throw new Error("project.prepare 预览生成失败：未返回确认门禁。");
+    }
+    async apiProjectBootstrap(params = {}) {
+        const [preparePreview, validation] = await Promise.all([
+            this.apiPrepareConfirmationPreview(params),
+            this.apiPlanValidate(params),
+        ]);
+        if (params.confirm !== true)
+            throw confirmationRequired({
+                operation: "project.bootstrap",
+                requires: ["confirm"],
+                missing: [
+                    ...(preparePreview?.missing || []),
+                    ...validation.missing,
+                ],
+                preview: { prepare: preparePreview, validation },
+                params: { ...params, confirm: undefined },
+            });
+        const operationId = makeOpId("bootstrap-project");
+        this.localOperations[operationId] = {
+            operationId,
+            type: "bootstrap-project",
+            status: "pending",
+            message: "后台项目接入已排队",
+            startedAt: new Date().toISOString(),
+            selectedServerIds: stringArrayField(params, "serverIds"),
+            topologyMode: String(params.topologyMode || params.mode || "").trim(),
+            planFile: String(params.planFile || "").trim(),
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+        void this.runApiBootstrapOperation(operationId, params).catch((error) => {
+            const apiData = error?.apiData;
+            const message = apiData === undefined
+                ? errorMessage(error)
+                : `${errorMessage(error)} ${JSON.stringify(apiData)}`;
+            this.localOperations[operationId] = {
+                ...(this.localOperations[operationId] || {}),
+                operationId,
+                type: "bootstrap-project",
+                status: "failed",
+                error: message,
+                message,
+                finishedAt: new Date().toISOString(),
+            };
+            this.markLocalOperationsDirty();
+            this.postState();
+        });
+        return { ok: true, operationId, status: "started", startedAt: this.localOperations[operationId].startedAt };
+    }
+    async runApiBootstrapOperation(operationId, params) {
+        const startedAt = new Date().toISOString();
+        this.localOperations[operationId] = {
+            ...(this.localOperations[operationId] || {}),
+            operationId,
+            type: "bootstrap-project",
+            status: "running",
+            message: "后台项目接入正在执行",
+            startedAt,
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+        await this.apiProjectPrepare({
+            ...params,
+            applyTopology: true,
+            startSessions: params.startSessions !== false,
+            autoTest: params.autoTest !== false,
+            confirm: true,
+        });
+        const missing = await this.apiPlanValidate(params);
+        if (!missing.ok)
+            throw new Error(`project.bootstrap 前置检查未通过：${JSON.stringify(missing.missing)}`);
+        await this.apiAdvanceFlow("select_servers", { completed: true });
+        await this.apiAdvanceFlow("select_mode", { completed: true });
+        await this.apiAdvanceFlow("prepare_agents", { completed: true });
+        await this.apiAdvanceFlow("validate_plan", { completed: true });
+        this.localOperations[operationId] = {
+            ...(this.localOperations[operationId] || {}),
+            operationId,
+            type: "bootstrap-project",
+            status: "succeeded",
+            message: "项目接入、Agent 准备与 Plan 校验已完成。",
+            startedAt,
+            finishedAt: new Date().toISOString(),
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+    }
+    async apiProjectBootstrapOperation(params = {}) {
+        const operationId = String(params.operationId || params.opId || "").trim();
+        const record = this.localOperations[operationId];
+        if (!record)
+            throw new Error(`未找到 project.bootstrap 操作：${operationId || "-"}`);
+        return { ok: true, operation: record };
+    }
+    async apiFlowGet() {
+        return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
+    }
+    async apiFlowUpdate(params = {}) {
+        const step = String(params.step || "").trim();
+        const completed = params.completed === true;
+        const blocked = params.blocked === true;
+        if (completed && blocked)
+            throw new Error("flow.update 不能同时设置 completed 和 blocked。");
+        this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, {
+            ...(completed ? { completed: true } : {}),
+            ...(blocked ? { blocked: true } : {}),
+            appliedAt: String(params.appliedAt || ""),
+        });
+        this.apiFlowStateDirty = true;
+        void this.persistProjectFlowState().catch(() => undefined);
+        this.postState();
+        return { ok: true, flow: this.apiFlowState, nextStep: ApiWorkflow_1.nextFlowStep(this.apiFlowState) };
+    }
+    async apiPlansFilter(params = {}) {
+        const filtered = ApiWorkflow_1.filterPlans(this.localPlanMetadata.plans || [], params);
+        return {
+            ok: true,
+            source: "local_metadata",
+            planDir: this.localPlanMetadata.planDir || "",
+            ...filtered,
+        };
+    }
+    async apiAdvanceFlow(step, patch) {
+        this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, patch);
+        this.apiFlowStateDirty = true;
+        await this.persistProjectFlowState().catch(() => undefined);
+        return this.apiFlowState;
+    }
+    async persistProjectFlowState(force = false) {
+        if (force)
+            this.apiFlowStateDirty = true;
+        if (!this.apiFlowStateDirty)
+            return false;
+        const queue = this.projectStatePersistenceQueue("apiFlowState");
+        queue.dirty = true;
+        this.queueProjectStatePersistence(queue, () => this.apiFlowState, writeProjectFlowState);
+        if (queue.promise)
+            await queue.promise;
+        return true;
+    }
+    async loadProjectFlowState() {
+        const loaded = await this.readCurrentProjectState(readProjectFlowState);
+        if (!loaded.current)
+            return;
+        this.apiFlowState = ApiWorkflow_1.normalizeFlowState(loaded.value);
+    }
     async invokeApi(params = {}) {
         const command = stringField(params, "command");
         if (!command)
             throw new Error("invoke.command is required");
         if (!API_EXECUTABLE_COMMANDS.has(command))
             throw new Error(`Command not exposed by SimpleExperiment API: ${command}`);
+        if (command === "testAll" && params.uiMode !== true)
+            return await this.apiServerTestAll(params);
+        if (PLAN_PREFLIGHT_COMMANDS.has(command) && (params.uiMode !== true || params.structured === true || params.apiMode === true || params.returnMissing === true))
+            return await this.apiPlanValidate(params);
+        if (API_PARAMETERIZED_CONNECTION_COMMANDS.has(command) && (params.uiMode !== true || params.structured === true || params.apiMode === true || params.parameterized === true)) {
+            if (command === "prepareAgents")
+                return await this.apiProjectPrepare(params);
+            return await this.apiStartAllConnections(params);
+        }
         if (API_CONFIRM_COMMANDS.has(command) && params.confirm !== true)
             throw confirmationRequired({
                 operation: command,
@@ -1084,6 +1774,7 @@ class RealtimeTunnelPanelProvider {
             this.loadProjectPptPathConfirmationsState().catch(() => undefined),
             this.loadProjectLocalOperationsState().catch(() => undefined),
             this.loadProjectLocalPlanMetadataState().catch(() => undefined),
+            this.loadProjectFlowState().catch(() => undefined),
         ]);
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -1272,6 +1963,8 @@ class RealtimeTunnelPanelProvider {
         this.auditTail = undefined;
         this.debugBundlePath = undefined;
         this.actionErrors = [];
+        this.apiFlowState = ApiWorkflow_1.defaultFlowState();
+        this.apiFlowStateDirty = false;
         this.projectPptPlotConfig = undefined;
         this.projectUiLayout = undefined;
         this.localOperations = {};
@@ -2159,7 +2852,7 @@ class RealtimeTunnelPanelProvider {
         const hubDisplayName = await input("Hub 显示名称", defaultHubName, "例如 hub、nwpu213、调度节点");
         if (hubDisplayName === undefined)
             return;
-        const hubActualWorkDir = await inputActualWorkRoot("Hub 项目父目录", this.setupConfig.agentProjectDir || "", "Hub");
+        const hubActualWorkDir = await inputActualWorkRoot("Hub 项目父目录", this.setupConfig.agentProjectDir || "", "Hub", this.setupConfig);
         if (hubActualWorkDir === undefined)
             return;
         const hubLocalPort = hubForward?.localPort || await inputPort("Hub 本地端口", this.setupConfig.localForwardPort, { min: 1024, description: "Hub 本地端口", prompt: "未从 Xshell 会话解析到隧道端口，请手动填写。" });
@@ -2422,7 +3115,7 @@ class RealtimeTunnelPanelProvider {
         if (sshConfigAlias === undefined)
             return;
         await this.applySetupDraft({ sshConfigAlias: sshConfigAlias.trim() || undefined });
-        const hubActualWorkDir = await inputActualWorkRoot("Hub 项目父目录", this.setupConfig.agentProjectDir || "", "Hub");
+        const hubActualWorkDir = await inputActualWorkRoot("Hub 项目父目录", this.setupConfig.agentProjectDir || "", "Hub", this.setupConfig);
         if (hubActualWorkDir === undefined)
             return;
         await this.applySetupDraft({ agentProjectDir: hubActualWorkDir });
@@ -4333,26 +5026,26 @@ class RealtimeTunnelPanelProvider {
             throw new Error("Hub 项目父目录缺失，无法执行 SFTP 代码同步。");
         return { ...target, remotePath: dirs.workDir };
     }
-    hubActualWorkRootTarget() {
-        const remotePath = this.setupConfig.agentProjectDir;
+    hubActualWorkRootTarget(config = this.setupConfig) {
+        const remotePath = config.agentProjectDir;
         if (!remotePath)
             throw new Error("Hub 项目父目录缺失，无法执行 SFTP 代码同步。");
-        const info = this.sessionInfoForPath(this.setupConfig.savedSessionPath);
-        const transferHost = resolveSftpTransferHost(this.setupConfig.hubDisplayName || "Hub", [
-            this.setupConfig.transferHost,
-            this.setupConfig.resolvedHost,
-            this.setupConfig.sftpHost,
-            this.setupConfig.sshHost,
+        const info = this.sessionInfoForPath(config.savedSessionPath);
+        const transferHost = resolveSftpTransferHost(config.hubDisplayName || "Hub", [
+            config.transferHost,
+            config.resolvedHost,
+            config.sftpHost,
+            config.sshHost,
             info?.host,
-            this.setupConfig.hubHost,
+            config.hubHost,
         ]);
-        const host = firstNonEmpty(transferHost, info?.host, this.setupConfig.hubHost);
-        const user = this.setupConfig.hubUser || info?.userName || "";
-        const port = this.setupConfig.hubSshPort || info?.port || 22;
+        const host = firstNonEmpty(transferHost, info?.host, config.hubHost);
+        const user = config.hubUser || info?.userName || "";
+        const port = config.hubSshPort || info?.port || 22;
         return {
             id: "hub",
             role: "hub",
-            label: this.setupConfig.hubDisplayName || "Hub",
+            label: config.hubDisplayName || "Hub",
             host,
             user,
             port,
@@ -4360,8 +5053,8 @@ class RealtimeTunnelPanelProvider {
             sftpHost: transferHost,
             transferHost,
             resolvedHost: transferHost,
-            sshConfigHost: this.setupConfig.sshConfigAlias || this.setupConfig.hubHost,
-            savedSessionPath: this.setupConfig.savedSessionPath,
+            sshConfigHost: config.sshConfigAlias || config.hubHost,
+            savedSessionPath: config.savedSessionPath,
             remotePath,
         };
     }
@@ -4380,8 +5073,8 @@ class RealtimeTunnelPanelProvider {
         return this.enabledWorkerConfigs()
             .map((worker) => this.workerActualWorkRootTarget(worker));
     }
-    workerActualWorkRootTarget(worker) {
-        const remotePath = worker.agentProjectDir || this.setupConfig.agentProjectDir;
+    workerActualWorkRootTarget(worker, config = this.setupConfig) {
+        const remotePath = worker.agentProjectDir || config.agentProjectDir;
         if (!remotePath)
             throw new Error(`Worker ${worker.id} 项目父目录缺失，无法执行 SFTP 代码同步。`);
         const info = this.sessionInfoForPath(worker.savedSessionPath);
@@ -4756,9 +5449,9 @@ class RealtimeTunnelPanelProvider {
     assertTopologyActualWorkRoots(operation = "服务器操作") {
         const topology = this.assertTopologyReady(operation);
         if (topology.hubAllowed)
-            assertActualWorkRoot(this.setupConfig.agentProjectDir, "Hub");
+            assertActualWorkRoot(this.setupConfig.agentProjectDir, "Hub", this.setupConfig);
         for (const worker of this.enabledWorkerConfigs())
-            assertActualWorkRoot(worker.agentProjectDir, worker.displayName || worker.id || "Worker");
+            assertActualWorkRoot(worker.agentProjectDir, worker.displayName || worker.id || "Worker", worker);
         return topology;
     }
     async saveTopologyModeFromUi(message) {
@@ -4864,7 +5557,7 @@ class RealtimeTunnelPanelProvider {
         const savedSessionPath = preservedOptionalStringPatch(patch, "savedSessionPath", this.setupConfig.savedSessionPath);
         const sessionChanged = sessionPathChanged(this.setupConfig.savedSessionPath, savedSessionPath);
         let agentProjectDir = preservedOptionalStringPatch(patch, "agentProjectDir", this.setupConfig.agentProjectDir);
-        assertActualWorkRoot(agentProjectDir, "Hub");
+        assertActualWorkRoot(agentProjectDir, "Hub", this.setupConfig);
         if (normalizeRemoteWorkRoot(agentProjectDir) !== normalizeRemoteWorkRoot(this.setupConfig.agentProjectDir))
             agentProjectDir = await confirmActualWorkRootAmbiguity(agentProjectDir, "Hub", "仍按当前目录保存");
         const manual = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
@@ -4920,7 +5613,7 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         let targetAgentProjectDir = preservedOptionalStringPatch(patch, "agentProjectDir", currentWorker.agentProjectDir);
-        assertActualWorkRoot(targetAgentProjectDir, currentWorker.displayName || currentWorker.id);
+        assertActualWorkRoot(targetAgentProjectDir, currentWorker.displayName || currentWorker.id, currentWorker);
         if (normalizeRemoteWorkRoot(targetAgentProjectDir) !== normalizeRemoteWorkRoot(currentWorker.agentProjectDir))
             targetAgentProjectDir = await confirmActualWorkRootAmbiguity(targetAgentProjectDir, currentWorker.displayName || currentWorker.id, "仍按当前目录保存");
         const workers = this.setupConfig.workerTunnels.map((worker) => {
@@ -10144,6 +10837,28 @@ async function writeProjectPlanSelectionState(root, state) {
         recentPlans: mergeRecentPlans(state?.recentPlans || []),
         updatedAt: String(state?.updatedAt || new Date().toISOString()),
     };
+    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+}
+const PROJECT_FLOW_STATE_PATH = "zlk_cluster/ui/flow_state.json";
+async function readProjectFlowState(root) {
+    if (!root)
+        return undefined;
+    const fullPath = path.join(root, ...PROJECT_FLOW_STATE_PATH.split("/"));
+    try {
+        const text = await fs.readFile(fullPath, "utf8");
+        const data = JSON.parse(text);
+        return ApiWorkflow_1.normalizeFlowState(data);
+    }
+    catch {
+        return undefined;
+    }
+}
+async function writeProjectFlowState(root, state) {
+    if (!root)
+        return;
+    const fullPath = path.join(root, ...PROJECT_FLOW_STATE_PATH.split("/"));
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    const payload = ApiWorkflow_1.normalizeFlowState(state);
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
 const PROJECT_TASK_SELECTION_PATH = "zlk_cluster/ui/task_selection.json";
@@ -17632,7 +18347,7 @@ async function promptSavedSessionWorker(current, index, remoteTelemetryPortFallb
     const workerHost = sessionInfo?.host || current?.workerHost || current?.hubHost || "";
     const workerUser = sessionInfo?.userName || current?.workerUser || current?.hubUser || "";
     const workerSshPort = sessionInfo?.port || current?.workerSshPort || current?.hubSshPort || 22;
-    const agentProjectDir = await inputActualWorkRoot("Worker 项目父目录", current?.agentProjectDir || "", displayName || id);
+    const agentProjectDir = await inputActualWorkRoot("Worker 项目父目录", current?.agentProjectDir || "", displayName || id, current || {});
     if (agentProjectDir === undefined)
         return undefined;
     return {
@@ -17900,7 +18615,7 @@ async function inputRequired(title, value, placeHolder, prompt, validationMessag
     });
     return raw === undefined ? undefined : raw.trim();
 }
-async function inputActualWorkRoot(title, value, label) {
+async function inputActualWorkRoot(title, value, label, server = {}) {
     let current = String(value || "");
     for (;;) {
         const raw = await vscode.window.showInputBox({
@@ -17909,7 +18624,7 @@ async function inputActualWorkRoot(title, value, label) {
             placeHolder: "/home/your_name/projects",
             prompt: "填写项目父目录。SimpleSFTP 会自动追加当前项目名，Agent runtime 会写入同级 zlk_agent。",
             ignoreFocusOut: true,
-            validateInput: (text) => actualWorkRootValidationMessage(text, remoteProjectName(), label),
+            validateInput: (text) => actualWorkRootValidationMessage(text, remoteProjectName(), label, server),
         });
         if (raw === undefined)
             return undefined;
@@ -18321,7 +19036,7 @@ function remoteParentWorkRoot(value) {
         return undefined;
     return normalizeRemoteWorkRoot(root.slice(0, separator));
 }
-function actualWorkRootValidationMessage(value, projectName = remoteProjectName(), label = "服务器") {
+function actualWorkRootValidationMessage(value, projectName = remoteProjectName(), label = "服务器", server) {
     const root = normalizeRemoteWorkRoot(value);
     const displayLabel = String(label || "服务器").trim() || "服务器";
     if (!root)
@@ -18330,6 +19045,16 @@ function actualWorkRootValidationMessage(value, projectName = remoteProjectName(
     const lowerSegments = segments.map((item) => item.toLowerCase());
     if (lowerSegments.includes("zlk_agent"))
         return `${displayLabel} 项目父目录不能包含 zlk_agent；插件会自动管理同级 Agent runtime。`;
+    const serverRecord = server && typeof server === "object" ? server : {};
+    const serverId = String(serverRecord.id || serverRecord.serverId || "");
+    const serverLabel = String(serverRecord.displayName || serverRecord.label || serverRecord.name || "");
+    const serverHost = String(serverRecord.host || serverRecord.sshHost || serverRecord.resolvedHost || serverRecord.transferHost || "");
+    const isNwpu3 = [serverId, serverLabel, serverHost].some((item) => /(^|[^a-z0-9])(nwpu3|nwpu213|npu213)([^a-z0-9]|$)/i.test(item));
+    if (isNwpu3 && root !== "/data/qgking/zlk")
+        return `${displayLabel} 已固定使用 /data/qgking/zlk，禁止使用其他项目父目录。`;
+    const lowerRoot = root.toLowerCase();
+    if (lowerRoot === "/root/disk1/qgking/zlk" || lowerRoot.startsWith("/root/disk1/qgking/zlk/"))
+        return `${displayLabel} 已固定使用 /data/qgking/zlk，禁止使用 /root/disk1/qgking/zlk。`;
     return undefined;
 }
 function actualWorkRootAmbiguityMessage(value, projectName = remoteProjectName(), label = "服务器") {
@@ -18358,17 +19083,17 @@ async function confirmActualWorkRootAmbiguity(value, label, confirmLabel) {
         return normalizeRemoteWorkRoot(value);
     throw new UiCommandCancelled(`${label || "服务器"} 项目父目录保存已取消。`);
 }
-function assertActualWorkRoot(value, label) {
-    const issue = actualWorkRootValidationMessage(value, remoteProjectName(), label);
+function assertActualWorkRoot(value, label, server = {}) {
+    const issue = actualWorkRootValidationMessage(value, remoteProjectName(), label, server);
     if (issue)
         throw new Error(issue);
 }
 function assertConfiguredActualWorkRoots(config) {
-    assertActualWorkRoot(config?.agentProjectDir, "Hub");
+    assertActualWorkRoot(config?.agentProjectDir, "Hub", config || {});
     for (const worker of config?.workerTunnels || []) {
         if (worker.enabled === false)
             continue;
-        assertActualWorkRoot(worker.agentProjectDir, worker.displayName || worker.id || "Worker");
+        assertActualWorkRoot(worker.agentProjectDir, worker.displayName || worker.id || "Worker", worker);
     }
 }
 function normalizeAgentProjectRoot(value) {

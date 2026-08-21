@@ -1,5 +1,19 @@
 export const TOPOLOGY_MODES = ["single_worker", "worker_pool", "hub_worker"] as const;
 
+const TOPOLOGY_ALIASES: Record<string, TopologyMode> = {
+  standalone: "single_worker",
+  "single-worker": "single_worker",
+  single: "single_worker",
+  worker_only: "worker_pool",
+  workeronly: "worker_pool",
+  "worker-only": "worker_pool",
+  multi_worker: "worker_pool",
+  workers: "worker_pool",
+  hub_available: "hub_worker",
+  "hub-available": "hub_worker",
+  hub: "hub_worker",
+};
+
 export type TopologyMode = typeof TOPOLOGY_MODES[number];
 export type TopologyModeSource = "explicit" | "legacy_hub_worker" | "unconfirmed" | "invalid";
 
@@ -23,7 +37,8 @@ export interface TopologyAssessment {
 
 export function normalizeTopologyMode(value: unknown): TopologyMode | undefined {
   const mode = String(value || "").trim();
-  return (TOPOLOGY_MODES as readonly string[]).includes(mode) ? mode as TopologyMode : undefined;
+  if ((TOPOLOGY_MODES as readonly string[]).includes(mode)) return mode as TopologyMode;
+  return TOPOLOGY_ALIASES[mode.toLowerCase()];
 }
 
 export function assessProjectTopology(configuredMode: unknown, inventory: TopologyInventory): TopologyAssessment {

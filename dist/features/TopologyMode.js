@@ -5,9 +5,24 @@ exports.normalizeTopologyMode = normalizeTopologyMode;
 exports.assessProjectTopology = assessProjectTopology;
 exports.topologyIssues = topologyIssues;
 exports.TOPOLOGY_MODES = ["single_worker", "worker_pool", "hub_worker"];
+const TOPOLOGY_ALIASES = {
+    standalone: "single_worker",
+    "single-worker": "single_worker",
+    single: "single_worker",
+    worker_only: "worker_pool",
+    workeronly: "worker_pool",
+    "worker-only": "worker_pool",
+    multi_worker: "worker_pool",
+    workers: "worker_pool",
+    hub_available: "hub_worker",
+    "hub-available": "hub_worker",
+    hub: "hub_worker",
+};
 function normalizeTopologyMode(value) {
     const mode = String(value || "").trim();
-    return exports.TOPOLOGY_MODES.includes(mode) ? mode : undefined;
+    if (exports.TOPOLOGY_MODES.includes(mode))
+        return mode;
+    return TOPOLOGY_ALIASES[mode.toLowerCase()];
 }
 function assessProjectTopology(configuredMode, inventory) {
     const rawMode = String(configuredMode || "").trim();

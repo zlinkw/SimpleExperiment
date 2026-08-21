@@ -32,6 +32,8 @@ const root = path.resolve(__dirname, "../..");
 const { LocalApiServer, confirmationRequired, loopbackRequest, parseRemoteAddress } = require("../../dist/api/LocalApiServer.js");
 const extensionSource = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
 const apiServerSource = fs.readFileSync(path.join(root, "src/api/LocalApiServer.ts"), "utf8");
+const workflow = require("../../dist/features/ApiWorkflow.js");
+const topologyMode = require("../../dist/features/TopologyMode.js");
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -300,4 +302,107 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
   assert.match(extensionSource, /validateApiConfigValue\(/);
   assert.match(extensionSource, /normalizeApiStateValue\(/);
   assert.doesNotMatch(apiServerSource, /\bscp\b|\brsync\b/);
+});
+
+test("SimpleExperiment accepts topology aliases and enforces NWPU3 roots", () => {
+  assert.equal(topologyMode.normalizeTopologyMode("standalone"), "single_worker");
+  assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");
+  assert.equal(topologyMode.normalizeTopologyMode("hub_available"), "hub_worker");
+  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/zlk");
+  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { host: "10.0.0.2" }), "/data/other");
+  assert.throws(() => workflow.resolveApiRemoteRoot("/root/disk1/qgking/zlk", { id: "nwpu3" }), /\/data\/qgking\/zlk/);
+});
+
+test("SimpleExperiment workflow state persists every required stage", () => {
+  assert.deepEqual(workflow.FLOW_STEPS, [
+    "select_servers",
+    "select_mode",
+    "prepare_agents",
+    "validate_plan",
+    "dry_run",
+    "upload",
+    "run",
+    "parse_results",
+    "quality_gate",
+    "statistics",
+    "claims_export",
+  ]);
+  let state = workflow.defaultFlowState();
+  state = workflow.advanceFlowStep(state, "select_servers", { completed: true });
+  state = workflow.advanceFlowStep(state, "select_mode", { completed: true });
+  state = workflow.advanceFlowStep(state, "prepare_agents", { blocked: true });
+  assert.equal(state.currentStep, "validate_plan");
+  assert.equal(workflow.nextFlowStep(state), "prepare_agents");
+  assert.equal(state.steps.prepare_agents.blocked, true);
+  assert.match(String(state.steps.prepare_agents.appliedAt || ""), /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test("SimpleExperiment plan filter keeps review choices bounded and explicit", () => {
+  const plans = [
+    { planId: "active-a", planFile: "experiments/plans/a.yaml", status: "ready" },
+    { planId: "archived-b", planFile: "archive/b.yaml", status: "ready", archived: true },
+    { planId: "blocked-c", planFile: "experiments/plans/c.yaml", status: "blocked" },
+  ];
+  const ready = workflow.filterPlans(plans, { status: ["ready"], limit: 1 });
+  assert.equal(ready.count, 1);
+  assert.equal(ready.total, 3);
+  assert.equal(ready.plans[0].planId, "active-a");
+  const archived = workflow.filterPlans(plans, { archived: true, planId: "archived-b" });
+  assert.equal(archived.count, 1);
+  assert.equal(archived.plans[0].planId, "archived-b");
+});
+
+test("SimpleExperiment server test rows always expose the AI contract", () => {
+  const row = workflow.serverTestRow({
+    id: "nwpu3",
+    host: "127.0.0.1",
+    port: 22,
+    user: "qgking",
+    remoteRoot: "/data/qgking/zlk",
+  }, undefined);
+  assert.deepEqual(Object.keys(row).sort(), [
+    "host",
+    "message",
+    "nextAction",
+    "port",
+    "remoteRoot",
+    "serverId",
+    "status",
+    "user",
+  ]);
+  assert.equal(row.status, "unknown");
+  assert.equal(row.nextAction, "startAllConnections");
+});
+
+test("SimpleExperiment parameterized onboarding uses one structured confirmation gate", () => {
+  const methods = [
+    "project.prepare",
+    "project.bootstrap",
+    "project.bootstrap.operation",
+    "flow.get",
+    "flow.update",
+    "server.testAll",
+    "plans.filter",
+    "plan.validate",
+  ];
+  for (const method of methods) {
+    assert.match(extensionSource, new RegExp(`"${method.replace(/\./g, "\\.")}": async`), `missing API method ${method}`);
+  }
+  assert.match(extensionSource, /enabledServers: targets\.filter\(\(target\) => target\.enabled !== false\)/);
+  assert.match(extensionSource, /xshellSessions: params\.applyXshell === false \? \[\] : targets\.map/);
+  assert.match(extensionSource, /remoteRuntime: params\.deployRuntime === false \? \[\] : targets\.map/);
+  assert.match(extensionSource, /preview: \{\s*operation: "startAllConnections",\s*topology/s);
+  assert.match(extensionSource, /ports,\s*remoteRoots:/);
+  assert.match(extensionSource, /command === "testAll" && params\.uiMode !== true/);
+  assert.match(extensionSource, /PLAN_PREFLIGHT_COMMANDS\.has\(command\)/);
+  assert.match(extensionSource, /API_PARAMETERIZED_CONNECTION_COMMANDS\.has\(command\)/);
+  assert.match(extensionSource, /if \(command === "prepareAgents"\)/);
+  assert.match(extensionSource, /PROJECT_FLOW_STATE_PATH = "zlk_cluster\/ui\/flow_state\.json"/);
+  assert.match(extensionSource, /savedSessionPath: "",\s*agentProjectDir: "",/);
+
+  const start = extensionSource.indexOf("async runApiBootstrapOperation");
+  const end = extensionSource.indexOf("async apiProjectBootstrapOperation", start);
+  assert.ok(start >= 0 && end > start);
+  const bootstrapBody = extensionSource.slice(start, end);
+  assert.ok(bootstrapBody.indexOf("await this.apiProjectPrepare") < bootstrapBody.indexOf("const missing = await this.apiPlanValidate"));
 });

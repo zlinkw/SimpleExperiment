@@ -1,0 +1,302 @@
+export const FLOW_STEPS = [
+  "select_servers",
+  "select_mode",
+  "prepare_agents",
+  "validate_plan",
+  "dry_run",
+  "upload",
+  "run",
+  "parse_results",
+  "quality_gate",
+  "statistics",
+  "claims_export",
+] as const;
+
+export type FlowStepName = typeof FLOW_STEPS[number];
+
+export interface FlowStepRecord {
+  completed?: boolean;
+  blocked?: boolean;
+  appliedAt?: string;
+}
+
+export interface WorkflowFlowState {
+  schemaVersion: 1;
+  updatedAt?: string;
+  currentStep: FlowStepName;
+  steps: Record<FlowStepName, FlowStepRecord>;
+}
+
+export interface MissingInventoryOptions {
+  workspace?: string;
+  setup?: Record<string, unknown>;
+  topology?: Record<string, unknown>;
+  simpleSftp?: Record<string, unknown>;
+  project?: Record<string, unknown>;
+  plan?: Record<string, unknown>;
+}
+
+export interface MissingStep {
+  step: string;
+  reason: string;
+  options: string[];
+  requiredConfirm: string[];
+}
+
+export function defaultFlowState(): WorkflowFlowState {
+  return {
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    currentStep: FLOW_STEPS[0],
+    steps: Object.fromEntries(FLOW_STEPS.map((step) => [step, {}])) as Record<FlowStepName, FlowStepRecord>,
+  };
+}
+
+export function normalizeFlowState(input: unknown): WorkflowFlowState {
+  const fallback = defaultFlowState();
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const raw = input as Partial<WorkflowFlowState>;
+  const rawSteps = raw.steps && typeof raw.steps === "object" && !Array.isArray(raw.steps)
+    ? raw.steps as Partial<Record<FlowStepName, FlowStepRecord>>
+    : {};
+  const steps = Object.fromEntries(FLOW_STEPS.map((step) => {
+    const value = rawSteps[step];
+    return [step, value && typeof value === "object" && !Array.isArray(value) ? value : {}];
+  })) as Record<FlowStepName, FlowStepRecord>;
+  const firstIncomplete = FLOW_STEPS.find((step) => !steps[step].completed && !steps[step].blocked) || FLOW_STEPS[FLOW_STEPS.length - 1];
+  const currentStep = FLOW_STEPS.find((step) => step === raw.currentStep) || firstIncomplete;
+  return {
+    schemaVersion: 1,
+    updatedAt: String(raw.updatedAt || fallback.updatedAt || ""),
+    currentStep,
+    steps,
+  };
+}
+
+export function advanceFlowStep(state: WorkflowFlowState, step: string, patch: FlowStepRecord = {}): WorkflowFlowState {
+  const current = normalizeFlowState(state);
+  const name = FLOW_STEPS.find((item) => item === String(step || "").trim()) as FlowStepName | undefined;
+  if (!name) throw new Error(`未知流程步骤：${String(step || "")}。可用步骤：${FLOW_STEPS.join(", ")}`);
+  const nextRecord: FlowStepRecord = {
+    ...current.steps[name],
+    ...patch,
+    appliedAt: patch.appliedAt || new Date().toISOString(),
+  };
+  const nextSteps = { ...current.steps, [name]: nextRecord };
+  const firstIncomplete = FLOW_STEPS.find((item) => !nextSteps[item].completed && !nextSteps[item].blocked) || FLOW_STEPS[FLOW_STEPS.length - 1];
+  return {
+    schemaVersion: current.schemaVersion,
+    updatedAt: new Date().toISOString(),
+    currentStep: firstIncomplete,
+    steps: nextSteps,
+  };
+}
+
+export function nextFlowStep(state: WorkflowFlowState): string {
+  const current = normalizeFlowState(state);
+  const blocked = FLOW_STEPS.find((item) => current.steps[item].blocked);
+  if (blocked) return blocked;
+  const incomplete = FLOW_STEPS.find((item) => !current.steps[item].completed);
+  if (incomplete) return incomplete;
+  return FLOW_STEPS[FLOW_STEPS.length - 1];
+}
+
+export function filterPlans(plans: readonly Record<string, unknown>[], filter: Record<string, unknown> = {}): {
+  plans: Record<string, unknown>[];
+  count: number;
+  total: number;
+  needsChoice: boolean;
+} {
+  const list = Array.isArray(plans) ? plans.filter((item) => item && typeof item === "object") : [];
+  const status = new Set(
+    Array.isArray(filter.status)
+      ? filter.status.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
+      : String(filter.status || "").trim().toLowerCase() ? [String(filter.status || "").trim().toLowerCase()] : [],
+  );
+  const query = String(filter.query || "").trim().toLowerCase();
+  const planFile = String(filter.planFile || "").trim();
+  const planId = String(filter.planId || "").trim();
+  const includeArchived = filter.archived === true;
+  const candidates = list.filter((item) => {
+    if (!includeArchived && item.archived === true) return false;
+    const file = String(item.planFile || item.file || item.planId || "");
+    const id = String(item.planId || item.planFile || file || "");
+    if (planFile && file !== planFile) return false;
+    if (planId && id !== planId && file !== planId) return false;
+    if (status.size) {
+      const itemStatus = String(item.status || item.state || "").trim().toLowerCase();
+      if (!status.has(itemStatus)) return false;
+    }
+    if (query) {
+      const haystack = [String(item.name || ""), file, id, String(item.suite || ""), String(item.description || "")].join(" ").toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
+  const uniqueFiles = new Set(candidates.map((item) => String(item.planFile || item.file || item.planId || "").trim()).filter(Boolean));
+  const needsChoice = filter.needsChoice === true
+    ? uniqueFiles.size > 1
+    : candidates.some((item) => item.needsChoice === true || item.needsSelection === true || item.selectRequired === true);
+  const limit = Math.max(0, Number(filter.limit) || 0);
+  const output = limit > 0 ? candidates.slice(0, Math.floor(limit)) : candidates;
+  return { plans: output, count: candidates.length, total: list.length, needsChoice };
+}
+
+export function isNwpu3Server(server: unknown): boolean {
+  const item = server && typeof server === "object" ? server as Record<string, unknown> : {};
+  const id = String(item.id || item.serverId || "");
+  const label = String(item.label || item.name || item.displayName || "");
+  const host = String(item.host || item.sshHost || item.resolvedHost || "");
+  return [id, label, host].some((value) => /(^|[^a-z0-9])(nwpu3|nwpu213|npu213)([^a-z0-9]|$)/i.test(value));
+}
+
+export function normalizeApiRemotePath(value: unknown): string | undefined {
+  const text = String(value || "").trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (!text || text === "/" || text === "." || text === "..") return undefined;
+  return text.replace(/\/+$/, "");
+}
+
+export function resolveApiRemoteRoot(value: unknown, server: unknown = {}): string | undefined {
+  const root = normalizeApiRemotePath(value);
+  if (!root) return undefined;
+  const lower = root.toLowerCase();
+  if (lower === "/root/disk1/qgking/zlk" || lower.startsWith("/root/disk1/qgking/zlk/")) {
+    throw new Error("NWPU3 已固定使用 /data/qgking/zlk，禁止使用 /root/disk1/qgking/zlk。");
+  }
+  if (lower.split("/").includes("zlk_agent")) {
+    throw new Error("项目父目录不能包含 zlk_agent；插件会自动管理同级 Agent runtime。");
+  }
+  if (isNwpu3Server(server)) return "/data/qgking/zlk";
+  return root;
+}
+
+export function structuredMissingInventory(options: MissingInventoryOptions): MissingStep[] {
+  const missing: MissingStep[] = [];
+  const workspace = String(options.workspace || "").trim();
+  const setup = options.setup && typeof options.setup === "object" ? options.setup : {};
+  const topology = options.topology && typeof options.topology === "object" ? options.topology : {};
+  const simpleSftp = options.simpleSftp && typeof options.simpleSftp === "object" ? options.simpleSftp : {};
+  const project = options.project && typeof options.project === "object" ? options.project : {};
+  const plan = options.plan && typeof options.plan === "object" ? options.plan : {};
+  const workers = Array.isArray(setup.workerTunnels) ? setup.workerTunnels.filter((worker) => worker && typeof worker === "object" && worker.enabled !== false) : [];
+  const hubConfigured = Boolean(String(setup.savedSessionPath || "").trim() && String(setup.agentProjectDir || "").trim());
+
+  if (!workspace) {
+    missing.push({
+      step: "select_servers",
+      reason: "未打开工作区，无法确定本机上传路径和远端项目名。",
+      options: ["workspace"],
+      requiredConfirm: [],
+    });
+  }
+
+  const workerCount = new Set(workers.map((worker) => String(worker.id || "").trim()).filter(Boolean)).size;
+  const mode = String(topology.mode || topology.configuredMode || "").trim();
+  if (workerCount < 1 || (String(topology.hubAllowed || topology.mode || "") === "hub_worker" && !hubConfigured)) {
+    missing.push({
+      step: "select_servers",
+      reason: hubConfigured
+        ? "需要至少一台启用的 Worker，当前 0 台。"
+        : "需要先配置 Hub 会话和项目父目录，或至少一台启用的 Worker。",
+      options: hubConfigured ? ["server.addWorker"] : ["config.server", "server.addWorker"],
+      requiredConfirm: ["confirm"],
+    });
+  }
+
+  const valid = topology.valid !== false && Boolean(mode);
+  if (!valid) {
+    const issueText = Array.isArray(topology.issues) && topology.issues.length
+      ? topology.issues.join("；")
+      : "需要在单 Worker、仅多 Worker 或 Hub 可用模式中明确选择。";
+    missing.push({
+      step: "select_mode",
+      reason: issueText,
+      options: hubConfigured ? ["single_worker", "worker_pool", "hub_worker"] : ["single_worker", "worker_pool"],
+      requiredConfirm: ["confirm"],
+    });
+  }
+
+  if (simpleSftp.ready !== true) {
+    missing.push({
+      step: "prepare_agents",
+      reason: String(simpleSftp.message || "配套 SimpleSFTP 未就绪，无法完成正式上传或运行。"),
+      options: ["install_simple_sftp", "reload_vscode"],
+      requiredConfirm: ["confirm"],
+    });
+  } else {
+    const setupMissing = [];
+    if (mode === "hub_worker" && !hubConfigured) setupMissing.push("Hub Xshell 会话和项目父目录");
+    for (const worker of workers) {
+      if (!String(worker.savedSessionPath || "").trim()) setupMissing.push(`${String(worker.displayName || worker.id || "Worker")} Xshell 会话`);
+      if (!String(worker.agentProjectDir || "").trim()) setupMissing.push(`${String(worker.displayName || worker.id || "Worker")} 项目父目录`);
+    }
+    if (setupMissing.length) {
+      missing.push({
+        step: "prepare_agents",
+        reason: `服务器配置不完整：${setupMissing.join("、")}。`,
+        options: ["config.set", "server.addWorker"],
+        requiredConfirm: ["confirm"],
+      });
+    }
+  }
+
+  const planFile = String(plan.planFile || plan.file || plan.planId || "").trim();
+  if (!planFile) {
+    missing.push({
+      step: "validate_plan",
+      reason: "未选择需要验证的 Plan，且项目内没有可自动确定的唯一 Plan。",
+      options: ["plans.list", "plans.filter"],
+      requiredConfirm: ["confirm"],
+    });
+  } else {
+    const diagnosticsRows = Array.isArray(project.outputGateDiagnosticsRows) ? project.outputGateDiagnosticsRows : [];
+    const missingRows = Array.isArray(project.outputGateMissing) ? project.outputGateMissing : diagnosticsRows.filter((row) => row && row.ok === false);
+    if (missingRows.length) {
+      missing.push({
+        step: "validate_plan",
+        reason: `Plan 或项目输出契约未通过：${missingRows.map((row) => String(row.label || row.step || "") || "输出契约").join("、")}。`,
+        options: ["generateOutputAdapter", "config.set"],
+        requiredConfirm: ["confirm"],
+      });
+    }
+  }
+  return missing;
+}
+
+export function serverTestRow(target: Record<string, unknown>, probe: Record<string, unknown> | undefined, options: Record<string, unknown> = {}): Record<string, unknown> {
+  const id = String(target.id || options.id || "");
+  const statusMap = new Map<string, string>([
+    ["ok", "ok"],
+    ["agent_ok", "ok"],
+    ["ready", "ok"],
+    ["timeout", "timeout"],
+    ["failed", "failed"],
+    ["error", "failed"],
+  ]);
+  const probeStatus = String(probe?.status || probe?.state || options.status || "unknown").toLowerCase().trim();
+  const status = statusMap.get(probeStatus) || (probeStatus ? probeStatus : "unknown");
+  return {
+    serverId: id,
+    host: String(target.host || options.host || ""),
+    port: Number(target.port || options.port || 22),
+    user: String(target.user || target.username || target.userName || options.user || ""),
+    remoteRoot: String(target.remotePath || target.remoteRoot || options.remoteRoot || ""),
+    status,
+    message: String(probe?.message || probe?.suggestion || options.message || (status === "ok" ? "检测通过" : "未执行检测或端点不可达")),
+    nextAction: status === "ok"
+      ? "continue"
+      : status === "timeout"
+        ? "check_xshell_tunnel"
+        : status === "unknown"
+          ? "startAllConnections"
+          : "inspect_server",
+  };
+}
+
+export function formatServerTarget(target: Record<string, unknown>): string {
+  const user = String(target.user || target.username || target.userName || "");
+  const host = String(target.host || "");
+  const port = Number(target.port || 22);
+  const root = String(target.remotePath || target.remoteRoot || "");
+  return `${user ? `${user}@` : ""}${host}:${port}${root ? `:${root}` : ""}`;
+}
