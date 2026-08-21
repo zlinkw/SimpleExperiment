@@ -848,7 +848,7 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 
 入口命令使用 `{result_csv}` 但没有提供固定结果文件时，引导默认建议 `{output_dir}/metrics_summary.csv` 或对应 JSON/TXT/LOG 文件，而不是项目级共享 CSV。矩阵 Plan 生成器和预置项目模板也使用同一 per-job 路径。首个单任务行为不变；以后增加 case 或 seed 时，每个任务仍写入自己的 job 输出目录，避免并发覆盖和跨任务结果混合。命令已经明确固定文件时继续尊重原路径，并在最终确认窗口要求用户核对。
 
-运行实验前插件会执行“输出闭环门禁”。如果没有识别到 `experiments/zlk_project.yaml`、标准结果契约、候选 CSV / JSON、控制台日志规则、可解析结果预览或已有结果文件，`运行计划` 会被禁用，Extension 侧也会阻断直接触发的 `runPlan`。单独声明 `output_dir` 只会作为候选线索，不会被当作可解析结果证据；需要再声明 `paper.result_csv`、当前 `mode` 实际执行命令的结果参数、`expectedResults`、`metrics_summary.csv`、stdout/stderr 捕获或 `metricRegex`。错误提示会引导到“实验准备 > 项目接入”，并说明推荐格式：`metrics_summary.csv` 至少包含 `experiment_id,suite,method,dataset,split,seed,metric,value`。这样可以避免实验跑完后没有可解析结果、质量门禁和论文证据链。
+运行实验前插件会执行两级“输出接口预检”。Extension 侧先检查输出闭环声明；代码同步后，Scheduler 在 validate-plan 和 dry-run-plan 中再次用 Python AST 检查真实入口命令。只有以下至少一种接口通过验证才允许运行：`experiments/zlk_adapter/run_wrapper.py` 包裹命令、入口代码显式调用 `collect_outputs(...)` 或 `write_metrics_summary(...)`，或使用 TensorBoard `SummaryWriter` 且远端安装 `tensorboard`。单独声明 `result_csv` / `output_dir` / `expectedResults` 只能说明预期位置，不再被当作可执行捕获机制。这样可避免实验跑完后没有可解析结果、质量门禁和论文证据链。
 
 运行门禁在 UI 和 Extension 中使用同一组中文检查项，避免按钮看似可用但后台被阻断：
 
@@ -858,7 +858,7 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 - `标准结果契约`：推荐使用 `metrics_summary.csv`、`metrics_case.csv` 或输出接入模板；`artifact_manifest.json`、`env_snapshot.json`、`config_snapshot.yaml` 只作为运行与环境证据，不能单独充当实验结果。
 - `解析预览`：只表示已有结果是否能解析出指标。首次运行尚无结果时，只要当前 Plan 或接入规则已经声明可解析结果位置，就不会因缺少预览而阻断。
 
-硬阻断条件是：缺少 `接入配置 / 计划输出`，或 `候选结果规则 / 标准结果契约 / 解析预览` 三类输出捕获证据全部缺失。缺失项会继续在 UI 中显示为待补建议，并引导到 `生成输出接入模板`、`保存接入规则`、补充 `candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex`，或在 plan 中补充明确结果文件。直接从命令入口触发 `runPlan` 时也会执行同样门禁。
+硬阻断条件是：缺少 `接入配置 / 计划输出`，缺少候选或契约声明，或 Scheduler 输出接口报告未找到 wrapper / adapter call / TensorBoard scalar 任一验证通道。TensorBoard 路线要求远端 Python 能导入 `tensorboard`；任务结束后 Scheduler 会用其 EventAccumulator 读取每个 tag 的最终 scalar，写入 Plan 声明的标准 CSV，并补齐快照文件。Dry-run 成功后会删除本次 worker 临时输入；超过 24 小时的同名 runtime worker 临时文件也会按精确文件名清理，不会扫描或删除其他路径。
 
 如果门禁失败，错误会按缺失项给出中文修复动作：生成 `experiments/zlk_project.yaml`、补候选 CSV / JSON / 控制台日志 / 文本日志 / 正则规则、让测试代码输出 `metrics_summary.csv`，或保存规则后刷新识别并查看解析预览。
 

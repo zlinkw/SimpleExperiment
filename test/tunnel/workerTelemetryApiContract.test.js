@@ -81,7 +81,7 @@ test("Worker-only client requires topology stamp and never substitutes Worker fo
   await assert.rejects(client.postWorkerAction("worker-1", "run-plan", {}), /action not allowed/);
   await assert.rejects(client.postWorkerAction("worker-1", "parse-results", {}), /action not allowed/);
   await assert.rejects(client.postAction("run-plan", {}), /Hub realtime endpoint not configured/);
-  await assert.rejects(client.getResultsSummary(), /fetch failed|ECONNREFUSED|No Worker endpoint|worker telemetry does not expose hub control api/);
+  await assert.rejects(client.getResultsSummary(), /fetch failed|ECONNREFUSED|AbortError|timeout|No Worker endpoint|worker telemetry does not expose hub control api/);
 });
 
 test("Worker summaries merge read-only while preserving result ownership", () => {

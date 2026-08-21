@@ -19,14 +19,15 @@
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
 - [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
 - [已完成] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
+- [进行中] 6/6 project-245：运行前强制验证结果输出接口，支持 wrapper、显式 adapter 调用和 TensorBoard scalar，并清理 dry-run 临时文件。
 
-## 当前批次：project-244（已完成）
+## 当前批次：project-245（进行中）
 ### 边界
 
-- SimpleExperiment `0.3.6` 新增统一 SSH transport identity 解析；显式别名、已保存 SSH host、Xshell 会话名和 OpenSSH config 精确匹配优先于字面 IP。
-- Hub/Worker 目标和 SimpleSFTP 参数保留 `sshConfigHost`、`sshConfigAlias`、`networkHost`；传输主机使用可用别名，IP 只作诊断或回退。
-- SFTP 准备通过本地 `ssh -G <alias>` 验证别名；隧道健康检查继续只探测 127.0.0.1 本地端口，不用裸 IP TCP 否定别名连接。
-- `deployLatestAgentRuntime` 接受并尊重 `serverIds`；未选择的服务器不再部署或混入失败信息。
+- SimpleExperiment `0.3.7` 在 Scheduler validate-plan / dry-run-plan 中用 Python AST 验证真实输出接口；仅声明 result_csv 不再足以运行。
+- 通过通道限定为：已存在且启用的 run_wrapper、入口代码调用 collect_outputs/write_metrics_summary，或 SummaryWriter/TensorBoard scalar 且远端可导入 tensorboard。
+- TensorBoard 任务结束后用 EventAccumulator 读取最终 scalar，写入 Plan 声明的标准 CSV 并补齐快照；不引入 scp/rsync 或一次性 SSH。
+- Dry-run 成功后立即删除本次 worker 临时输入；后台只按精确文件名清理超过 24 小时的历史 worker 临时文件，不递归扫描或删除其他文件。
 - `workflow.plan` 返回唯一 nextAction、精确参数模板、结构化缺失和拓扑状态；AI 不再自行拼接 validate/dry-run/upload/run 调用链。
 - `workflow.run` 复用既有 runPlan 安全路线，立即返回 operationId；实际提交由 VS Code 模态弹窗人工确认，不靠 AI 传运行确认信号。
 - 基础设施准备只检查 workspace、服务器、拓扑、Xshell、SFTP 和 Agent runtime；PLAN 选择提示不阻塞 `confirm:true` 后的 prepare。
@@ -34,9 +35,9 @@
 
 ### 验证清单
 
-- [已通过] SimpleExperiment `npm test` 1138/1138、lint、`node -c`、`git diff --check`。
+- [待验证] SimpleExperiment `npm test`、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- [已通过] 本机 `ssh -G -- NWPU5` 解析到 `10.68.10.238`、`zlk` 和私钥；构建/安装 `simple-experiment-0.3.6.vsix`；推送 `baf41c6`，本地 HEAD 与 `origin/master` 一致。
+- 构建并安装 `simple-experiment-0.3.7.vsix`；提交后推送 `origin/master`。
 
 ### 相邻回归风险
 

@@ -1,0 +1,113 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const test = require("node:test");
+
+const root = path.join(__dirname, "../..");
+const schedulerRuntime = path.join(root, "dist/runtime/cluster_scheduler.py");
+
+function write(relative, content) {
+  return (project) => {
+    const target = path.join(project, ...relative.split("/"));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content, "utf8");
+  };
+}
+
+function baseProject(...writers) {
+  return (project) => {
+    write("configs/base.yaml", "{}\n")(project);
+    write("experiments/plans/smoke.yaml", [
+      "suite: smoke",
+      "mode: test",
+      "base_config: configs/base.yaml",
+      "seeds: [0]",
+      "paper:",
+      "  result_csv: work_dirs/smoke/metrics_summary.csv",
+      "runner:",
+      "  test_command: python test.py --output-dir work_dirs/smoke",
+      "cases:",
+      "  - case: baseline",
+    ].join("\n"))(project);
+    for (const item of writers) item(project);
+  };
+}
+
+function createProject(...writers) {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-output-interface-"));
+  baseProject(...writers)(project);
+  return project;
+}
+
+test("scheduler rejects an unverified output interface before dry-run", () => {
+  const project = createProject();
+  const result = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", "experiments/plans/smoke.yaml"], {
+    cwd: project,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr || result.stdout, /run_wrapper|collect_outputs|write_metrics_summary|TensorBoard/);
+  assert.match(result.stderr || result.stdout, /run_wrapper|collect_outputs|write_metrics_summary|TensorBoard/);
+});
+
+test("scheduler accepts a configured run wrapper", () => {
+  const project = createProject(
+    write("experiments/zlk_project.yaml", "adapter:\n  runWrapper: experiments/zlk_adapter/run_wrapper.py\n"),
+    write("experiments/zlk_adapter/run_wrapper.py", "print('wrapper')\n"),
+  );
+  const result = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", "experiments/plans/smoke.yaml"], {
+    cwd: project,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.outputInterface.ok, true);
+  assert.equal(payload.outputInterface.rows[0].channels[0].type, "run_wrapper");
+});
+
+test("scheduler accepts a direct AST-verified adapter call", () => {
+  const project = createProject(write("test.py", [
+    "from experiments.zlk_adapter import collect_outputs",
+    "",
+    "def main():",
+    "    collect_outputs('work_dirs/smoke')",
+    "",
+    "main()",
+  ].join("\n")));
+  const result = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", "experiments/plans/smoke.yaml"], {
+    cwd: project,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.outputInterface.ok, true);
+  assert.equal(payload.outputInterface.rows[0].channels[0].type, "adapter_call");
+});
+
+test("dry-run worker temp cleanup only removes exact runtime-generated files", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-temp-cleanup-"));
+  const script = [
+    "import importlib.util, json, os, sys, time",
+    `spec = importlib.util.spec_from_file_location('cluster_agent', ${JSON.stringify(path.join(root, "dist/runtime/cluster_agent.py"))})`,
+    "agent = importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(agent)",
+    `root = ${JSON.stringify(project)}`,
+    "actions = os.path.dirname(agent.state_child_path(root, 'actions', ''))",
+    "old = os.path.join(actions, f'dry-run-workers-{int(time.time())}-{\"a\" * 12}.json')",
+    "new = os.path.join(actions, f'dry-run-workers-{int(time.time())}-{\"b\" * 12}.json')",
+    "other = os.path.join(actions, 'important.json')",
+    "for path in (old, new, other): open(path, 'w', encoding='utf-8').write('{}')",
+    "os.utime(old, (time.time() - 86400 * 2, time.time() - 86400 * 2))",
+    "report = agent.cleanup_dry_run_worker_temp_files(root)",
+    "print(json.dumps({'report': report, 'old': os.path.exists(old), 'new': os.path.exists(new), 'other': os.path.exists(other)}))",
+  ].join("\n");
+  const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+  assert.equal(payload.report.removedCount, 1);
+  assert.equal(payload.old, false);
+  assert.equal(payload.new, true);
+  assert.equal(payload.other, true);
+});

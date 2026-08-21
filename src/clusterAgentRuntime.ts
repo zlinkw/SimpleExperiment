@@ -6729,19 +6729,25 @@ def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_r
     require_scheduler_dependencies(root, scheduler)
     workers_path = state_child_path(root, "actions", f"dry-run-workers-{int(time.time() * 1000)}.json")
     atomic_write(workers_path, workers if isinstance(workers, list) else [])
-    scheduler_args = [
-        "--dry-run-plan",
-        "--plan", plan,
-        "--workers-json", workers_path,
-        "--availability-path", availability_cache_path(root),
-        "--worker-status-ttl-seconds", "180",
-        "--agent-state-dir", agent_dir(root),
-        "--default-result-csv-dir", default_result_csv_dir,
-    ]
-    indices = normalized_experiment_indices(assigned_indices)
-    if indices:
-        scheduler_args.extend(["--only-indices", ",".join(str(index) for index in indices)])
-    result = scheduler_capture(root, scheduler, scheduler_args)
+    try:
+        scheduler_args = [
+            "--dry-run-plan",
+            "--plan", plan,
+            "--workers-json", workers_path,
+            "--availability-path", availability_cache_path(root),
+            "--worker-status-ttl-seconds", "180",
+            "--agent-state-dir", agent_dir(root),
+            "--default-result-csv-dir", default_result_csv_dir,
+        ]
+        indices = normalized_experiment_indices(assigned_indices)
+        if indices:
+            scheduler_args.extend(["--only-indices", ",".join(str(index) for index in indices)])
+        result = scheduler_capture(root, scheduler, scheduler_args)
+    finally:
+        try:
+            workers_path.unlink(missing_ok=True)
+        except Exception:
+            pass
     text = (result.stdout or result.stderr or "").strip()
     if result.returncode != 0:
         raise RuntimeError(text[-1200:] or "Dry-run 预演失败")
@@ -6749,6 +6755,35 @@ def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_r
     preview["dispatchableCount"] = int(preview.get("assignableNow") or preview.get("dispatchableCount") or 0)
     preview["queuedCount"] = int(preview.get("queued") if isinstance(preview.get("queued"), int) else preview.get("queuedCount") or 0)
     return preview
+
+
+def cleanup_dry_run_worker_temp_files(root, max_age_seconds=24 * 60 * 60):
+    roots = [
+        os.path.realpath(os.path.dirname(state_child_path(root, "actions", ""))),
+        os.path.realpath(safe_project_path(root, "zlk_cluster/tmp/cluster_scheduler")),
+    ]
+    cutoff = time.time() - max(0, int(max_age_seconds or 0))
+    removed = []
+    for base in roots:
+        if not os.path.isdir(base):
+            continue
+        for entry in os.scandir(base):
+            try:
+                name = entry.name
+                valid_name = bool(re.fullmatch(r"dry-run-workers-\d+-[0-9a-f]{12}\.json", name))
+                if not valid_name or not entry.is_file(follow_symlinks=False):
+                    continue
+                path = os.path.realpath(entry.path)
+                if os.path.commonpath([base, path]) != base or path == base:
+                    continue
+                if os.stat(path).st_mtime > cutoff:
+                    continue
+                rel = relpath(root, path)
+                os.unlink(path)
+                removed.append(rel.replace("\\", "/"))
+            except Exception:
+                continue
+    return {"removedCount": len(removed), "removed": removed[:50]}
 
 def selected_worker_id(payload):
     worker_id = action_payload_text(payload, "workerId")
@@ -6909,10 +6944,12 @@ def handle_action(root, action, payload, operation_id, op_id):
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         try:
+            temp_cleanup = cleanup_dry_run_worker_temp_files(root)
             preview = dry_run_preview_action(root, plan, action_options(payload).get("workers") if isinstance(action_options(payload).get("workers"), list) else [], action_operation_fields(payload).get("assignedExperimentIndices") or [], default_result_csv_dir)
-            out_path = safe_project_path(root, f"zlk_cluster/tmp/cluster_scheduler/{op_id}_dry_run.json")
-            atomic_write(out_path, preview)
-            return terminal_action(root, action, operation_id, op_id, "completed", f"Dry-run 完成：可立即调度 {preview.get('dispatchableCount', 0)}，排队 {preview.get('queuedCount', 0)}", {"preview": preview, "previewPath": relpath(root, out_path)}, request=payload)
+            if preview.get("ok") is False:
+                interface = preview.get("outputInterface") or {}
+                return terminal_action(root, action, operation_id, op_id, "failed", str(interface.get("message") or "输出接口预检失败，已阻止 Dry-run。"), {"preview": preview, "outputInterface": interface, "tempCleanup": temp_cleanup}, request=payload)
+            return terminal_action(root, action, operation_id, op_id, "completed", f"Dry-run 完成：可立即调度 {preview.get('dispatchableCount', 0)}，排队 {preview.get('queuedCount', 0)}", {"preview": preview, "tempCleanup": temp_cleanup}, request=payload)
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
     if action in ("run-plan", "reproduce-plan"):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import copy
 import csv
 import hashlib
@@ -490,6 +491,122 @@ def runner_wrapper(runner: dict[str, Any]) -> tuple[str, bool]:
     return (wrapper if enabled else ""), bool(wrapper and enabled)
 
 
+def safe_project_source_file(root: Path, value: object) -> Path | None:
+    text = str(value or "").strip().strip('"\'')
+    if not text or not text.lower().endswith(".py") or re.search(r"[<>|;&]", text):
+        return None
+    candidate = Path(text)
+    full = candidate if candidate.is_absolute() else root / candidate
+    try:
+        full = full.resolve()
+        full.relative_to(root.resolve())
+    except Exception:
+        return None
+    return full if full.is_file() else None
+
+
+def job_source_files(root: Path, job: Job) -> list[Path]:
+    files: list[Path] = []
+    for command in (job.train_command, job.test_command):
+        try:
+            parts = shlex.split(str(command or ""), posix=(os.name != "nt"))
+        except Exception:
+            parts = str(command or "").split()
+        for item in parts:
+            source = safe_project_source_file(root, item)
+            if source and source not in files:
+                files.append(source)
+    for name in ("train.py", "test.py"):
+        source = safe_project_source_file(root, name)
+        if source and source not in files:
+            files.append(source)
+    return files[:24]
+
+
+def python_call_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = python_call_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    return ""
+
+
+def python_output_writer_evidence(paths: list[Path]) -> dict[str, bool]:
+    evidence = {"adapter": False, "tensorboard": False}
+    for path in paths:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [alias.name for alias in getattr(node, "names", [])]
+                modules = names[:] + ([getattr(node, "module", "") or ""] if isinstance(node, ast.ImportFrom) else [])
+                if any(re.search(r"(?:^|\.)(?:tensorboard|tensorboardX)$|torch\.utils\.tensorboard", item, re.I) for item in modules):
+                    evidence["tensorboard"] = True
+                continue
+            if not isinstance(node, ast.Call):
+                continue
+            name = python_call_name(node.func).lower()
+            if name.rsplit(".", 1)[-1] in {"collect_outputs", "write_metrics_summary"}:
+                evidence["adapter"] = True
+            if name.rsplit(".", 1)[-1] in {"summarywriter", "eventfilewriter"} or name.endswith("add_scalar"):
+                evidence["tensorboard"] = True
+    return evidence
+
+
+def tensorboard_conversion_available() -> bool:
+    return importlib.util.find_spec("tensorboard") is not None
+
+
+def output_interface_report(root: Path, jobs: list[Job]) -> dict[str, Any]:
+    root = root.resolve()
+    rows: list[dict[str, Any]] = []
+    for job in jobs:
+        commands = [str(job.train_command or ""), str(job.test_command or "")]
+        command_text = "\n".join(commands)
+        wrapper_ready = bool(job.wrap_output and job.run_wrapper and existing_project_file_text(root, job.run_wrapper))
+        command_adapter = bool(re.search(r"(?:run_wrapper\.py|collect_outputs\s*\(|write_metrics_summary\s*\()", command_text, re.I))
+        sources = job_source_files(root, job)
+        code_evidence = python_output_writer_evidence(sources)
+        adapter_ready = command_adapter or code_evidence["adapter"]
+        tensorboard_evidence = bool(code_evidence["tensorboard"] or re.search(r"summarywriter|tensorboard", command_text, re.I))
+        tensorboard_ready = tensorboard_evidence and tensorboard_conversion_available()
+        channels = []
+        if wrapper_ready:
+            channels.append({"type": "run_wrapper", "path": job.run_wrapper})
+        if adapter_ready:
+            channels.append({"type": "adapter_call", "files": [path.relative_to(root).as_posix() for path in sources]})
+        if tensorboard_ready:
+            channels.append({"type": "tensorboard_scalars"})
+        missing: list[str] = []
+        if not channels:
+            if tensorboard_evidence and not tensorboard_conversion_available():
+                missing.append("TensorBoard 标量转换依赖 tensorboard；请在远端环境安装 tensorboard")
+            else:
+                missing.append("未验证的输出接口：请使用 zlk_adapter/run_wrapper 包裹命令，或在入口代码调用 collect_outputs/write_metrics_summary，或使用 TensorBoard SummaryWriter 并安装 tensorboard")
+        rows.append({
+            "index": job.index,
+            "case": job.case,
+            "seed": job.seed,
+            "ok": bool(channels),
+            "channels": channels,
+            "missing": missing,
+            "sourceFiles": [path.relative_to(root).as_posix() for path in sources],
+        })
+    failed = [row for row in rows if not row["ok"]]
+    return {
+        "schemaVersion": 1,
+        "ok": not failed,
+        "checkedAt": now(),
+        "rows": rows,
+        "failedIndexes": [row["index"] for row in failed],
+        "missing": list(dict.fromkeys(item for row in failed for item in row["missing"])),
+        "message": "" if not failed else f"{len(failed)} 个任务缺少可验证的结果输出接口",
+    }
+
+
 def expected_result_candidates(record: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for key in ("expectedResults", "expected_results", "resultFiles", "result_files", "outputFiles", "output_files"):
@@ -840,6 +957,107 @@ def write_job_config(job: Job) -> Path:
     return config_path
 
 
+def metric_prefers_lower(name: str) -> bool:
+    lower = str(name or "").lower()
+    return any(token in lower for token in ("loss", "error", "perplexity", "ece", "brier", "mae", "mse", "rmse", "hd95"))
+
+
+def write_env_snapshot(path: Path, job: Job) -> None:
+    payload = {
+        "schemaVersion": 1,
+        "python": sys.version.split()[0],
+        "command": f"scheduler index={job.index} case={job.case} seed={job.seed}",
+        "seed": job.seed,
+        "generatedAt": now(),
+        "source": "tensorboard_output_adapter",
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def merge_tensorboard_csv(path: Path, rows: list[dict[str, Any]]) -> int:
+    fieldnames = [
+        "experiment_id", "attempt_id", "study_id", "plan_id", "suite", "method", "dataset", "split",
+        "fold", "seed", "metric", "value", "unit", "higher_is_better", "epoch", "step", "timestamp",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing: list[dict[str, Any]] = []
+    if path.is_file():
+        with path.open("r", newline="", encoding="utf-8-sig") as f:
+            existing = [row for row in csv.DictReader(f) if row]
+    seen = {
+        tuple(str(row.get(key, "")) for key in ("experiment_id", "method", "dataset", "split", "seed", "metric", "step"))
+        for row in existing
+    }
+    added = 0
+    with path.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        if not existing:
+            writer.writeheader()
+        for row in rows:
+            key = tuple(str(row.get(key, "")) for key in ("experiment_id", "method", "dataset", "split", "seed", "metric", "step"))
+            if key in seen:
+                continue
+            writer.writerow(row)
+            seen.add(key)
+            added += 1
+    return added
+
+
+def collect_tensorboard_metrics(job: Job) -> dict[str, Any]:
+    output_dir = Path(job.output_dir)
+    if not output_dir.is_dir() or importlib.util.find_spec("tensorboard") is None:
+        return {"ok": False, "reason": "tensorboard_unavailable_or_no_dir"}
+    try:
+        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    except Exception as exc:
+        return {"ok": False, "reason": str(exc)}
+    values = {}
+    event_count = 0
+    for event_file in sorted(output_dir.rglob("events.out.tfevents.*")):
+        try:
+            accumulator = EventAccumulator(str(event_file.parent), size_guidance={"scalars": 0})
+            accumulator.Reload()
+            tags = accumulator.Tags().get("scalars") or []
+            for tag in tags:
+                scalars = accumulator.Scalars(tag)
+                if scalars:
+                    values[tag] = scalars[-1]
+                    event_count += len(scalars)
+        except Exception:
+            continue
+    context = job.template_values or {}
+    timestamp = now()
+    rows = []
+    for tag, scalar in sorted(values.items()):
+        rows.append({
+            "experiment_id": str(context.get("experiment_id") or context.get("experimentId") or f"{job.suite}/{job.case}/seed_{job.seed}"),
+            "attempt_id": "attempt-1",
+            "study_id": str(context.get("study_id") or ""),
+            "plan_id": str(context.get("plan_id") or ""),
+            "suite": job.suite,
+            "method": str(context.get("method") or job.case),
+            "dataset": str(context.get("dataset") or "unknown"),
+            "split": str(context.get("split") or "test"),
+            "fold": str(context.get("fold") or ""),
+            "seed": job.seed,
+            "metric": tag,
+            "value": float(scalar.value),
+            "unit": "",
+            "higher_is_better": not metric_prefers_lower(tag),
+            "epoch": "",
+            "step": int(scalar.step),
+            "timestamp": timestamp,
+        })
+    added = merge_tensorboard_csv(Path(job.result_csv), rows) if rows else 0
+    config_target = output_dir / "config_snapshot.yaml"
+    env_target = output_dir / "env_snapshot.json"
+    if not config_target.exists():
+        config_target.write_text(yaml.safe_dump(job.config, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    if not env_target.exists():
+        write_env_snapshot(env_target, job)
+    return {"ok": bool(rows), "eventCount": event_count, "metricCount": len(rows), "addedRows": added, "resultCsv": job.result_csv}
+
+
 def append_jobs_csv(jobs: list[Job], path: Path = Path("experiments/results/jobs.csv"), plan_file: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists()
@@ -1042,10 +1260,13 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
         command = render_command(job.train_command, job, config_path, args) if job.train_command else [runtime_python_command(env), "train.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--worker-id", str(args.worker_id or "local")]
         command = wrap_command(command, job, config_path, args, "train")
         run_command(command, env)
+        if args.mode == "train":
+            collect_tensorboard_metrics(job)
     if args.mode in {"test", "train_test"}:
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")
         run_command(command, env)
+        collect_tensorboard_metrics(job)
 
 
 def run_job_mode(args: argparse.Namespace) -> None:
@@ -1085,12 +1306,16 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         missing.append("test.py, runner.test_command 或 zlk_project.entrypoints.testCommandTemplate")
     if missing:
         raise SystemExit("缺少必要运行入口：" + ", ".join(missing))
+    output_interface = output_interface_report(project_root, jobs)
+    if not output_interface["ok"]:
+        raise SystemExit("输出接口预检失败：" + "；".join(output_interface["missing"]))
     payload = {
         "ok": True,
         "plan": args.plan,
         "suite": str(plan.get("suite") or ""),
         "execution_mode": mode,
         "job_count": len(jobs),
+        "outputInterface": output_interface,
         "jobs": [
             {
                 "index": job.index,
@@ -1154,9 +1379,10 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
         runner_missing.append("train.py, runner.train_command 或 zlk_project.entrypoints.trainCommandTemplate")
     if mode in {"test", "train_test"} and any(not job.test_command for job in jobs) and not (project_root / "test.py").is_file():
         runner_missing.append("test.py, runner.test_command 或 zlk_project.entrypoints.testCommandTemplate")
+    output_interface = output_interface_report(project_root, jobs)
     payload = {
         "schemaVersion": 1,
-        "ok": True,
+        "ok": bool(output_interface["ok"]),
         "mode": "dry-run-plan",
         "executionMode": mode,
         "plan": args.plan,
@@ -1170,6 +1396,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
         "queuedExperimentIndexes": list(queue),
         "blockedReasons": blocked_reasons,
         "runnerWarnings": runner_missing,
+        "outputInterface": output_interface,
         "availabilitySource": "hub_availability_cache",
         "workerStatusTtlSeconds": worker_status_ttl_seconds,
         "dispatchProbe": dispatch_probe,

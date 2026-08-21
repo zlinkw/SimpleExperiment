@@ -128,8 +128,33 @@ test("Hub output gate and Worker retry derive the same Plan mode", () => {
 test("scheduler derives train-only and test-only execution from Plan", () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-plan-mode-"));
   fs.mkdirSync(path.join(project, "configs"), { recursive: true });
+  fs.mkdirSync(path.join(project, "experiments", "zlk_adapter"), { recursive: true });
   fs.mkdirSync(path.join(project, "experiments", "plans"), { recursive: true });
   fs.writeFileSync(path.join(project, "configs", "base.yaml"), "{}\n", "utf8");
+  fs.writeFileSync(path.join(project, "experiments", "zlk_project.yaml"), [
+    "adapter:",
+    "  runWrapper: experiments/zlk_adapter/run_wrapper.py",
+  ].join("\n"), "utf8");
+  fs.writeFileSync(path.join(project, "experiments", "zlk_adapter", "run_wrapper.py"), [
+    "import argparse",
+    "import json",
+    "import subprocess",
+    "from pathlib import Path",
+    "",
+    "parser = argparse.ArgumentParser()",
+    "parser.add_argument('--output-dir', required=True)",
+    "parser.add_argument('--context-json', default='{}')",
+    "parser.add_argument('command', nargs=argparse.REMAINDER)",
+    "args = parser.parse_args()",
+    "command = args.command[1:] if args.command[:1] == ['--'] else args.command",
+    "output = Path(args.output_dir)",
+    "output.mkdir(parents=True, exist_ok=True)",
+    "result = subprocess.run(command)",
+    "(output / 'stdout.log').write_text('', encoding='utf-8')",
+    "(output / 'config_snapshot.yaml').write_text('seed: 0\\n', encoding='utf-8')",
+    "(output / 'env_snapshot.json').write_text('{}\\n', encoding='utf-8')",
+    "raise SystemExit(result.returncode)",
+  ].join("\n"), "utf8");
   fs.writeFileSync(path.join(project, "train_stage.py"), "from pathlib import Path\nPath('train.marker').write_text('train', encoding='utf-8')\n", "utf8");
   fs.writeFileSync(path.join(project, "test_stage.py"), "from pathlib import Path\nPath('test.marker').write_text('test', encoding='utf-8')\n", "utf8");
   const trainPlan = path.join(project, "experiments", "plans", "train.yaml");
