@@ -822,6 +822,8 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 
 ## 项目自动接入与实验输出捕获
 
+新建或修改研究项目前，先阅读 [docs/plugin-project-contract.md](docs/plugin-project-contract.md)。该文档定义工作区结构、Plan/config、输出接口、标准结果 schema、快照文件、Xshell/SFTP 路径边界、Debug 隔离和 API 使用的硬性要求。
+
 插件目标不是强制项目按固定代码结构重写，而是自动生成一层轻量接入模板，由用户把模型输出映射到统一结果契约。入口在“实验准备”卡片：
 
 多配置项目会扫描常见的 `configs/`、`config/`、`conf/`、`cfg/` 和 `experiments/config(s)/` 布局及根目录常见配置文件，并优先把文件名或子目录中明确包含 `smoke`、`sanity`、`debug`、`quick`、`tiny`、`mini`、`small` 或 `toy` 的配置标为“推荐首跑”，其次才考虑明确的 `base` 或 `default` 配置。配置选择器会直接展示静态读取到的 epoch、step、iteration 和训练样本限制，并区分“小规模参数”“需核对规模”和“未预读规模”；只预读前 24 个高优先级配置，选择后仍会在创建 Plan 前再次检查。普通配置目录名本身不构成推荐依据，避免按字母顺序把完整训练配置误标为推荐。

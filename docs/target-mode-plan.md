@@ -20,14 +20,13 @@
 - [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
 - [已完成] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
 - [已完成] 6/6 project-245：运行前强制验证结果输出接口，支持 wrapper、显式 adapter 调用和 TensorBoard scalar，并清理 dry-run 临时文件。
+- [进行中] 4/4 project-246：把 SimpleExperiment 和 SimpleSFTP 的项目硬性契约写入插件文档与 simple-local-api SKILL。
 
-## 当前批次：project-245（已完成）
+## 当前批次：project-246（进行中）
 ### 边界
 
-- SimpleExperiment `0.3.7` 在 Scheduler validate-plan / dry-run-plan 中用 Python AST 验证真实输出接口；仅声明 result_csv 不再足以运行。
-- 通过通道限定为：已存在且启用的 run_wrapper、入口代码调用 collect_outputs/write_metrics_summary，或 SummaryWriter/TensorBoard scalar 且远端可导入 tensorboard。
-- TensorBoard 任务结束后用 EventAccumulator 读取最终 scalar，写入 Plan 声明的标准 CSV 并补齐快照；不引入 scp/rsync 或一次性 SSH。
-- Dry-run 成功后立即删除本次 worker 临时输入；后台只按精确文件名清理超过 24 小时的历史 worker 临时文件，不递归扫描或删除其他文件。
+- 新增项目契约文档，覆盖工作区结构、Plan/config、输出接口、结果 schema、快照、SFTP/Xshell、路径边界、Debug 隔离和 API 使用。
+- 只修改 Markdown 与 simple-local-api SKILL reference，不改 runtime 行为。
 - `workflow.plan` 返回唯一 nextAction、精确参数模板、结构化缺失和拓扑状态；AI 不再自行拼接 validate/dry-run/upload/run 调用链。
 - `workflow.run` 复用既有 runPlan 安全路线，立即返回 operationId；实际提交由 VS Code 模态弹窗人工确认，不靠 AI 传运行确认信号。
 - 基础设施准备只检查 workspace、服务器、拓扑、Xshell、SFTP 和 Agent runtime；PLAN 选择提示不阻塞 `confirm:true` 后的 prepare。
@@ -35,9 +34,9 @@
 
 ### 验证清单
 
-- [已通过] SimpleExperiment `npm test` 1142/1142、lint、`node -c`、`git diff --check`。
+- [待验证] Markdown 链接、标题层级和 `git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- [已通过] 构建/安装 `simple-experiment-0.3.7.vsix`；推送 `edb6d28`，本地 HEAD 与 `origin/master` 一致。
+- 提交并推送契约文档与 SKILL reference 更新。
 
 ### 相邻回归风险
 

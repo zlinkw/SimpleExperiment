@@ -155,6 +155,8 @@ VS Code 重载或 operation 缓存暂时缺失时，插件会继续读取当前 
 
 已有运行结果但输出契约异常时，Plan 工作台会同步显示“待检查”“检查中”“运行缺失”或“待重新解析”，并使用与项目入口相同的检查契约、查看进度、打开接入配置、修复后重跑或重新解析操作，不再同时显示普通运行入口。
 
+新建或修改研究项目前，先阅读 [plugin-project-contract.md](plugin-project-contract.md)。它定义工作区结构、Plan/config、输出接口、标准结果 schema、快照文件、Xshell/SFTP 路径边界、Debug 隔离和 API 使用的硬性要求。
+
 运行前有两级检查。Extension 先检查输出声明；Scheduler 在 validate-plan 和 dry-run-plan 中用 Python AST 验证真实接口：优先使用 `experiments/zlk_adapter/run_wrapper.py` 包裹命令；直接入口必须显式调用 `collect_outputs(...)` 或 `write_metrics_summary(...)`；也可改用 TensorBoard SummaryWriter，但远端需安装 `tensorboard`，任务结束后会自动把最终 scalar 转成标准 CSV。只写 `result_csv` 或 `output_dir` 不代表代码真的会输出结果。运行后的契约检查仍会实际解析 CSV、JSON、TXT、LOG、OUT，并要求至少一个数值指标和 `env_snapshot.json` / `config_snapshot.yaml`。Dry-run 只清理精确命名的 runtime worker 临时文件，不扫描或删除其他路径。
 
 “不可解析”文件会逐项显示文件名与 Agent 返回的真实解析原因，并在同一行提供“查看文件”入口。入口仅允许当前 Plan 最近输出契约检查返回的项目内 CSV、JSON、TXT、LOG 或 OUT 文件。点击后会先显示当前 Plan、远端来源、项目内本地副本位置和 5 MB 上限；确认后通过 Hub 的 Xshell 本地隧道下载到 `zlk_cluster/downloads/result_inspection/` 并打开，只读查看不会修改远端文件，也不会调用 SFTP。
