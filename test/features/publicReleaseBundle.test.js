@@ -19,7 +19,7 @@ test("public release declares paired SimpleSFTP dependency", () => {
 });
 
 test("public UI uses SimpleExperiment and SimpleSFTP names", () => {
-  assert.match(extension, /title: "SimpleExperiment 一键配置向导"/);
+  assert.match(extension, /hostCommand\("simpleExperiment\.quickSetup", "quick-setup", "检查服务器配置"/);
   assert.match(extension, /# 由 SimpleExperiment 生成/);
   assert.match(panel, /<title>SimpleExperiment<\/title>/);
   assert.match(panel, /topologyNode\("sftp", "SimpleSFTP", "显式文件传输"\)/);
@@ -50,8 +50,9 @@ test("public VSIX excludes local assistant state and rendered scratch files", ()
   assert.match(vsixIgnore, /^dist\/runtime\/__pycache__\/\*\*$/m);
   assert.match(vsixIgnore, /^dist\/test\/\*\*$/m);
   assert.match(vsixIgnore, /^dist\/testing\/\*\*$/m);
+  assert.match(vsixIgnore, /^zlk_cluster\/\*\*$/m);
   for (const recoveredArtifact of ["-First", "-Path", "-Raw", ".vscodeignore}else{'NO", "package.json)"]) {
-    assert.match(vsixIgnore, new RegExp(`^${escapeRegExp(recoveredArtifact)}$`, "m"));
+    assert.doesNotMatch(vsixIgnore, new RegExp(`^${escapeRegExp(recoveredArtifact)}$`, "m"));
   }
 });
 

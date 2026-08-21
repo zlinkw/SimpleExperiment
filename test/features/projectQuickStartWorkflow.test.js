@@ -173,9 +173,9 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /activeRun,/);
   assert.match(extension, /await this\.testTunnel\(false\)/);
   assert.match(extension, /handleProjectBootstrapAction\(next, \{/);
-  assert.match(extension, /next === "开始一键配置"[\s\S]{0,100}this\.quickSetup\(false\)/);
   assert.match(extension, /next === "准备 Agent 并启动"[\s\S]{0,100}this\.prepareAgentsForFirstRun\(false\)/);
-  assert.match(extension, /next === "添加 Worker"[\s\S]{0,80}this\.addWorkerConfigFromUi\(false\)/);
+  assert.match(extension, /next === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers"\)/);
+  assert.doesNotMatch(extension, /next === "开始一键配置"/);
   assert.match(extension, /next === "打开连接设置"[\s\S]{0,140}workbench\.action\.openSettings/);
   assert.match(extension, /next === "恢复在线连接"[\s\S]{0,180}clearOfflineImport\(\)[\s\S]{0,180}ensureRealtimeConnected\("resume from project onboarding"\)/);
   assert.match(extension, /next === "打开当前 Plan" && context\.planFile\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.planFile, projectContext\)/);
@@ -246,10 +246,10 @@ test("quick project onboarding reports only the next action proven by current re
   assert.equal(bootstrapCompletion({ outputGateReason: "配置文件缺失", outputGateNextLabel: "配置文件", adapterConfig: "experiments/simple_project.yaml" }).action, "打开当前 Plan");
   assert.match(extension, /adapterReady \? "打开 experiments\/simple_project\.yaml 补充候选结果规则/);
   assert.match(panel, /adapterReady \? "打开 experiments\/simple_project\.yaml 补充候选结果规则/);
-  assert.equal(bootstrapCompletion({ setupComplete: false }).action, "开始一键配置");
+  assert.equal(bootstrapCompletion({ setupComplete: false }).action, "打开服务器设置");
   const workerRequired = bootstrapCompletion({ setupComplete: true, workers: [] });
   assert.equal(workerRequired.state, "worker_required");
-  assert.equal(workerRequired.action, "添加 Worker");
+  assert.equal(workerRequired.action, "打开服务器设置");
   const offline = bootstrapCompletion({ realtimeMode: false, setupComplete: true, workers: [{ status: "ok" }] });
   assert.equal(offline.state, "offline_import");
   assert.equal(offline.action, "打开连接设置");

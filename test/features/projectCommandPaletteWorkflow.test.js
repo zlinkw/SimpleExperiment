@@ -12,7 +12,7 @@ function command(command) {
 }
 
 test("command palette exposes the three primary new-project entry points", () => {
-  assert.equal(command("simpleExperiment.quickSetup").title, "SimpleExperiment：一键配置向导");
+  assert.equal(command("simpleExperiment.quickSetup").title, "SimpleExperiment：检查服务器配置");
   assert.equal(command("simpleExperiment.bootstrapProject").title, "SimpleExperiment：接入当前项目");
   assert.equal(command("simpleExperiment.prepareAgents").title, "SimpleExperiment：准备 Agent 并启动");
   assert.ok(packageJson.activationEvents.includes("onCommand:simpleExperiment.bootstrapProject"));

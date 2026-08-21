@@ -134,6 +134,7 @@ const keys = {
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
     projectOnboardingCompleted: "simpleExperiment.projectOnboardingCompleted",
+    projectSessionPrefixPrompt: "simpleExperiment.projectSessionPrefixPromptVersion",
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
 };
@@ -152,6 +153,7 @@ const API_STATE_KEYS = {
     firstRunSetupPrompt: { store: "global", label: "首次运行提示版本", writable: true },
     projectOnboardingPrompt: { store: "workspace", label: "项目引导提示版本", writable: true },
     projectOnboardingCompleted: { store: "workspace", label: "项目引导完成标记", writable: true },
+    projectSessionPrefixPrompt: { store: "workspace", label: "项目会话前缀提示版本", writable: true },
     legacySftpNoticeShown: { store: "global", label: "旧 SFTP 插件提示", writable: true },
     pendingWorkspaceContinuation: { store: "global", label: "待续工作区操作", writable: false },
     migrationShown: { store: "global", label: "旧配置迁移提示", writable: true },
@@ -507,7 +509,7 @@ async function activateExtension(context) {
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }),
         vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)),
-        hostCommand("simpleExperiment.quickSetup", "quick-setup", "一键配置", () => provider?.quickSetup()),
+        hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()),
         hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()),
         hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()),
         hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()),
@@ -585,8 +587,8 @@ function setupGuideNextStep(options) {
     }
     if (!item.setupComplete) {
         return {
-            message: "配置说明已打开。下一步：选择 Xshell 会话并填写 Hub/Worker 项目父目录。",
-            action: "开始一键配置",
+            message: "配置说明已打开。下一步：在“设置 > 服务器”手动填写 Hub/Worker 会话和项目父目录。",
+            action: "打开服务器设置",
         };
     }
     if (Number(item.workerCount || 0) < 1) {
@@ -2869,13 +2871,13 @@ class RealtimeTunnelPanelProvider {
         const message = needsSftp
             ? `首次使用 SimpleExperiment：配套 SimpleSFTP 未就绪。${simpleSftp.message} 安装并重载窗口后再接入项目。`
             : needsWorker
-                ? "首次使用 SimpleExperiment：Hub 已配置，但正式运行、复现和批量运行还缺少至少一个启用的执行 Worker。现在添加 Worker，之后即可继续准备 Agent。"
-                : "首次使用 SimpleExperiment：先配置 Xshell 会话，再填写 Hub/Worker 项目父目录；插件会自动追加当前项目名。打开项目后执行“接入当前项目”。";
+                ? "首次使用 SimpleExperiment：Hub 已配置，但正式运行、复现和批量运行还缺少至少一个启用的执行 Worker。请在“设置 > 服务器”手动添加。"
+                : "首次使用 SimpleExperiment：服务器相关配置不会通过弹窗从零填写。请前往“设置 > 服务器”配置 Xshell 会话和项目父目录；项目接入时只确认会话前缀等项目参数。";
         const choice = needsSftp
             ? await vscode.window.showInformationMessage(message, "打开配置说明", "打开扩展管理", "不再提示")
             : needsWorker
-                ? await vscode.window.showInformationMessage(message, "添加 Worker", "打开配置说明", "不再提示")
-                : await vscode.window.showInformationMessage(message, "打开配置说明", "开始一键配置", "不再提示");
+                ? await vscode.window.showInformationMessage(message, "打开服务器设置", "打开配置说明", "不再提示")
+                : await vscode.window.showInformationMessage(message, "打开服务器设置", "打开配置说明", "不再提示");
         if (choice === "不再提示") {
             await this.context.globalState.update(keys.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION);
             return;
@@ -2884,10 +2886,8 @@ class RealtimeTunnelPanelProvider {
             await this.openSetupGuide();
         if (choice === "打开扩展管理")
             await vscode.commands.executeCommand("workbench.extensions.search", `@id:${SIMPLE_SFTP_EXTENSION_ID}`);
-        if (choice === "添加 Worker")
-            await this.addWorkerConfigFromUi(false);
-        if (choice === "开始一键配置")
-            await this.quickSetup();
+        if (choice === "打开服务器设置")
+            await this.openPanelAt("settings", "settings-servers");
         const afterSftp = simpleSftpIntegrationReadiness();
         const afterWorkerCount = this.enabledWorkerConfigs().length;
         if (workspaceRoot() && initialServerSetupComplete(this.setupConfig, this.projectTopologyAssessment().hubAllowed) && afterSftp.ready && afterWorkerCount > 0)
@@ -2940,31 +2940,11 @@ class RealtimeTunnelPanelProvider {
     async quickSetup(showAgentCompletion = true) {
         if (!await this.ensureSimpleSftpReadyForSetup("一键配置"))
             return false;
-        const choice = await vscode.window.showQuickPick([
-            { label: "选择 Xshell 会话文件", description: "推荐。为 Hub 和 Worker 选择已保存的 .xsh 会话，并自动读取端口转发。", action: "sessions" },
-            { label: "仅填写 Hub 参数", description: "仅用于诊断或旧配置迁移；正式接入仍需选择带端口转发的 .xsh 会话。", action: "manual" },
-        ], {
-            title: "SimpleExperiment 一键配置向导",
-            placeHolder: "推荐流程：选择 Xshell 会话文件，启动隧道，再检测状态。",
-            ignoreFocusOut: true,
-        });
-        if (!choice)
-            return false;
-        if (choice.action === "sessions")
-            await this.configureXshellSavedSessions();
-        if (choice.action === "manual")
-            await this.configureXshellRealtimeTunnel();
         const hubRequired = this.projectTopologyAssessment().hubAllowed;
         let missingServerSetup = serverSetupMissingItems(this.setupConfig, hubRequired);
         if (missingServerSetup.length) {
-            const setupNext = await vscode.window.showWarningMessage(`服务器配置还不能用于 Agent 准备：缺少 ${missingServerSetup.join("、")}。正式接入必须先选择可登录且带本地端口转发的 Xshell 会话。`, "选择 Xshell 会话", "打开服务器设置", "稍后");
-            if (setupNext === "选择 Xshell 会话") {
-                await this.configureXshellSavedSessions();
-                missingServerSetup = serverSetupMissingItems(this.setupConfig, hubRequired);
-            }
-            else if (setupNext === "打开服务器设置") {
-                await this.openPanelAt("settings", "settings-servers");
-            }
+            void vscode.window.showWarningMessage(`请在“设置 > 服务器”手动补全后再继续：缺少 ${missingServerSetup.join("、")}。插件不会在这里从零初始化服务器配置。`);
+            await this.openPanelAt("settings", "settings-servers");
             if (missingServerSetup.length) {
                 this.postState();
                 return false;
@@ -2994,14 +2974,8 @@ class RealtimeTunnelPanelProvider {
         }
         let enabledWorkers = this.enabledWorkerConfigs();
         if (!enabledWorkers.length) {
-            const workerNext = await vscode.window.showWarningMessage("当前只配置了 Hub。正式运行、复现或批量运行至少需要一个启用的 Worker；现在添加可避免完成 Agent 部署后才发现无法提交实验。", "添加 Worker", "仅保存 Hub", "打开服务器设置");
-            if (workerNext === "添加 Worker") {
-                await this.addWorkerConfigFromUi(false);
-                enabledWorkers = this.enabledWorkerConfigs();
-            }
-            else if (workerNext === "打开服务器设置") {
-                await this.openPanelAt("settings", "settings-servers");
-            }
+            void vscode.window.showWarningMessage("当前只配置了 Hub。请在“设置 > 服务器”手动添加并启用执行 Worker；插件不会在接入弹窗中初始化服务器。");
+            await this.openPanelAt("settings", "settings-servers");
             if (!enabledWorkers.length) {
                 const hubProfileResult = await this.writeSftpManagerServerProfiles();
                 this.postState();
@@ -4610,9 +4584,8 @@ class RealtimeTunnelPanelProvider {
                 return;
             seen.add(key);
             const choice = await vscode.window.showInformationMessage(next.message, next.action, "打开面板");
-            if (choice === "开始一键配置") {
-                if (await this.quickSetup(false))
-                    continue;
+            if (choice === "打开服务器设置") {
+                await this.openPanelAt("settings", "settings-servers");
                 return;
             }
             if (choice === "打开扩展管理") {
@@ -5801,6 +5774,7 @@ class RealtimeTunnelPanelProvider {
             hubDisplayName: preservedStringPatch(patch, "hubDisplayName", this.setupConfig.hubDisplayName || this.hubDisplayName()),
             hubHost: preservedStringPatch(patch, "hubHost", this.setupConfig.hubHost),
             hubUser: preservedStringPatch(patch, "hubUser", this.setupConfig.hubUser),
+            remoteTmuxSessionPrefix: preservedStringPatch(patch, "remoteTmuxSessionPrefix", this.setupConfig.remoteTmuxSessionPrefix),
             transferHost: clearableOptionalStringPatch(patch, "transferHost", this.setupConfig.transferHost),
             resolvedHost: sessionScopedOptionalStringPatch(patch, "resolvedHost", this.setupConfig.resolvedHost, sessionChanged),
             sftpHost: sessionScopedOptionalStringPatch(patch, "sftpHost", this.setupConfig.sftpHost, sessionChanged),
@@ -7477,6 +7451,21 @@ class RealtimeTunnelPanelProvider {
                 await this.openPanelAt("settings", "settings-servers");
             return;
         }
+        if (Number(this.context.workspaceState.get(keys.projectSessionPrefixPrompt, 0)) < 1) {
+            const configurePrefix = await vscode.window.showInformationMessage(
+                `服务器配置已就绪。可为当前项目统一设置远端 tmux 会话前缀，便于区分不同用户；当前值：${this.setupConfig.remoteTmuxSessionPrefix || "simple"}。`,
+                "设置会话前缀",
+                "使用当前前缀",
+            );
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+            await this.context.workspaceState.update(keys.projectSessionPrefixPrompt, 1);
+            if (configurePrefix === "设置会话前缀") {
+                const prefix = await input("tmux 会话前缀", this.setupConfig.remoteTmuxSessionPrefix || "simple", "例如 simple、zlk 或用户名缩写", "仅允许小写字母、数字、点、下划线和连字符。");
+                if (prefix !== undefined && prefix.trim())
+                    await this.applySetupDraft({ remoteTmuxSessionPrefix: prefix.trim() });
+            }
+        }
         if (!plans.length) {
             await this.generatePlanGuideFromUi(false);
             if (!this.projectContextIsCurrent(projectContext))
@@ -7622,10 +7611,12 @@ class RealtimeTunnelPanelProvider {
         if (!isCurrent())
             return false;
         const next = String(action || "");
-        if (next === "开始一键配置")
-            return this.quickSetup(false);
         if (next === "准备 Agent 并启动")
             return this.prepareAgentsForFirstRun(false);
+        if (next === "打开服务器设置") {
+            await this.openPanelAt("settings", "settings-servers");
+            return false;
+        }
         if (next === "添加 Worker")
             return this.addWorkerConfigFromUi(false);
         if (next === "打开配置说明") {
@@ -13494,7 +13485,7 @@ function hostOperationLeaseActionForUiCommand(command) {
     return hostOperationUiCommands.has(command) ? command : "";
 }
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
-    quickSetup: "一键配置",
+    quickSetup: "检查服务器配置",
     configureSessions: "配置 Xshell 会话",
     configureAgentSessions: "配置 Agent 会话",
     writeAgentCommands: "写入 Agent 启动命令",
@@ -14712,15 +14703,15 @@ function projectBootstrapNewProjectPrerequisite(options) {
     if (item.setupComplete !== true) {
         return {
             state: "server_setup_required",
-            message: "当前项目还没有 Plan。生成任何 Plan 或接入模板前，先选择 Hub/Worker 的 Xshell 会话并填写服务器项目父目录。",
-            action: "开始一键配置",
+            message: "当前项目还没有 Plan。请先在“设置 > 服务器”手动配置 Hub/Worker 的 Xshell 会话和项目父目录。",
+            action: "打开服务器设置",
         };
     }
     if (Number(item.workerCount || 0) <= 0) {
         return {
             state: "worker_required",
-            message: "当前项目还没有 Plan，服务器目前只有 Hub。生成任何 Plan 或接入模板前，先添加至少一个执行 Worker。",
-            action: "添加 Worker",
+            message: "当前项目还没有 Plan，服务器目前只有 Hub。请在“设置 > 服务器”手动添加并启用至少一个执行 Worker。",
+            action: "打开服务器设置",
         };
     }
     return undefined;
@@ -14959,16 +14950,16 @@ function projectBootstrapCompletion(options) {
     if (!options.setupComplete) {
         return {
             state: "server_setup_required",
-            message: "Plan 与结果接入已完成。下一步：配置 Hub/Worker 的 Xshell 会话和项目父目录。",
-            action: "开始一键配置",
+            message: "Plan 与结果接入已完成。下一步：在“设置 > 服务器”手动配置 Hub/Worker 的 Xshell 会话和项目父目录。",
+            action: "打开服务器设置",
         };
     }
     const workers = Array.isArray(options.workers) ? options.workers : [];
     if (!workers.length) {
         return {
             state: "worker_required",
-            message: "Plan 与结果接入已完成，但还没有启用的执行 Worker。下一步：在“设置 > 服务器”添加 Worker。",
-            action: "添加 Worker",
+            message: "Plan 与结果接入已完成，但还没有启用的执行 Worker。请在“设置 > 服务器”手动添加并启用。",
+            action: "打开服务器设置",
         };
     }
     if (!options.realtimeMode) {

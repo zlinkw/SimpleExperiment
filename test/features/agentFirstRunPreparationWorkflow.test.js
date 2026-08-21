@@ -114,7 +114,8 @@ test("quick setup and main UI expose preparation while connection keeps literal 
   const readinessStart = extension.indexOf("async ensureSimpleSftpReadyForSetup(operation)");
   const readinessEnd = extension.indexOf("async quickSetup(showAgentCompletion = true)", readinessStart);
   const readiness = extension.slice(readinessStart, readinessEnd);
-  assert.ok(quickSetup.indexOf('ensureSimpleSftpReadyForSetup("一键配置")') < quickSetup.indexOf("vscode.window.showQuickPick"));
+  assert.ok(quickSetup.indexOf('ensureSimpleSftpReadyForSetup("一键配置")') < quickSetup.indexOf('openPanelAt("settings", "settings-servers")'));
+  assert.doesNotMatch(quickSetup, /showQuickPick/);
   assert.match(extension, /async ensureSimpleSftpReadyForSetup\(operation\)/);
   assert.match(extension, /\$\{operation\}暂不能开始/);
   assert.match(readiness, /next === "打开配置说明"[\s\S]{0,220}this\.openSetupGuide\(\)/);

@@ -15,6 +15,7 @@ test("public setup defaults to system Python without changing explicit Conda env
   const policy = require(path.join(root, "dist/tunnel/AgentTmuxPolicy.js"));
 
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.condaEnv"].default, "");
+  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.remoteTmuxSessionPrefix"].default, "simple");
   assert.equal(setup.defaultXshellTunnelSetupConfig.condaEnv, "");
   assert.equal(setup.normalizeXshellSetupConfig({ condaEnv: "" }).condaEnv, "");
   assert.equal(setup.normalizeXshellSetupConfig({ condaEnv: " torch2 " }).condaEnv, "torch2");
@@ -82,6 +83,8 @@ test("settings and confirmations explain the effective runtime environment", () 
   assert.match(extension, /function condaEnvPatch\(patch, key, fallback = ""\)/);
   assert.match(extension, /return condaEnv \? `Conda \$\{condaEnv\}` : "系统 Python（未指定 Conda）"/);
   assert.match(extension, /skipIfRemoteCommandIncludes: \[target\.command\]/);
+  assert.match(panel, /configInput\("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀"/);
+  assert.match(extension, /remoteTmuxSessionPrefix: preservedStringPatch\(patch, "remoteTmuxSessionPrefix"/);
   assert.match(agentSource, /conda_declared = any\(key in command/);
   assert.match(agentSource, /env\["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"\] = "1" if conda_env else "0"/);
   assert.match(panel, /Conda 环境（可选）/);

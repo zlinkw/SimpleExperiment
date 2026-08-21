@@ -9,7 +9,8 @@ test("setup guide explains project parent directory and upload destination", () 
   assert.match(guide, /```mermaid/);
   assert.match(guide, /## 最快接入路径/);
   assert.match(guide, /\| 阶段 \| 完成标准 \|/);
-  assert.match(guide, /开始一键配置/);
+  assert.match(guide, /打开服务器设置/);
+  assert.match(guide, /不会通过弹窗从零初始化/);
   assert.match(guide, /离线安装包中的 `simple-experiment-setup\.md`/);
   assert.ok((guide.match(/```mermaid/g) || []).length >= 2);
   assert.match(guide, /项目父目录.*不要填写当前项目名或 `simple_agent`/);

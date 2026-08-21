@@ -8,5 +8,5 @@ const root = path.join(__dirname, "../..");
 test("shared Windows and Linux worktrees normalize text before Git comparison", () => {
   const attributes = fs.readFileSync(path.join(root, ".gitattributes"), "utf8");
 
-  assert.match(attributes, /^\* text=auto\s*$/m);
+  assert.match(attributes, /^\* text=auto(?: eol=lf)?\s*$/m);
 });

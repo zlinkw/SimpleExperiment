@@ -34,7 +34,8 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /showFirstRunSetupPromptOnce\(\)[\s\S]{0,160}firstRunSetupPromptSingleFlight\(\(\) => this\.showFirstRunSetupPromptOnceCore\(\)\)/);
   assert.match(source, /shownVersion >= FIRST_RUN_SETUP_PROMPT_VERSION/);
   assert.match(source, /globalState\.update\(keys\.firstRunSetupPrompt, FIRST_RUN_SETUP_PROMPT_VERSION\)/);
-  assert.match(source, /首次使用 SimpleExperiment：先配置 Xshell 会话，再填写 Hub\/Worker 项目父目录；插件会自动追加当前项目名/);
+  assert.match(source, /服务器相关配置不会通过弹窗从零填写/);
+  assert.match(source, /请前往“设置 > 服务器”配置 Xshell 会话和项目父目录/);
   assert.match(source, /const simpleSftp = simpleSftpIntegrationReadiness\(\)/);
   assert.match(source, /const legacySftp = legacySftpInstallationState\(\)/);
   assert.match(source, /simpleSftp\.ready && legacySftp\.installed/);
@@ -61,8 +62,8 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /const enabledWorkerCount = this\.enabledWorkerConfigs\(\)\.length/);
   assert.match(source, /const needsWorker = !needsSftp && serverSetupComplete && enabledWorkerCount < 1/);
   assert.match(source, /正式运行、复现和批量运行还缺少至少一个启用的执行 Worker/);
-  assert.match(source, /needsWorker\s*\? await vscode\.window\.showInformationMessage\(message, "添加 Worker", "打开配置说明", "不再提示"\)/);
-  assert.match(source, /choice === "添加 Worker"\)\s*await this\.addWorkerConfigFromUi\(false\)/);
+  assert.match(source, /needsWorker\s*\? await vscode\.window\.showInformationMessage\(message, "打开服务器设置", "打开配置说明", "不再提示"\)/);
+  assert.match(source, /choice === "打开服务器设置"\)\s*await this\.openPanelAt\("settings", "settings-servers"\)/);
   assert.match(source, /const afterWorkerCount = this\.enabledWorkerConfigs\(\)\.length/);
   assert.match(source, /workspaceRoot\(\) && initialServerSetupComplete\(this\.setupConfig, this\.projectTopologyAssessment\(\)\.hubAllowed\) && afterSftp\.ready && afterWorkerCount > 0/);
   assert.match(source, /choice === "不再提示"[\s\S]{0,140}globalState\.update/);
@@ -72,10 +73,10 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /workspaceState\.update\(keys\.projectOnboardingCompleted, true\)/);
   assert.match(source, /await this\.markProjectOnboardingComplete\(projectContext\)/);
   assert.doesNotMatch(source, /needsSftpOnly/);
-  assert.match(source, /"打开配置说明", "开始一键配置", "不再提示"/);
+  assert.match(source, /"打开服务器设置", "打开配置说明", "不再提示"/);
   assert.match(source, /choice === "打开配置说明"[\s\S]{0,80}this\.openSetupGuide\(\)/);
   assert.match(source, /choice === "打开扩展管理"[\s\S]{0,140}workbench\.extensions\.search/);
-  assert.match(source, /choice === "开始一键配置"[\s\S]{0,80}this\.quickSetup\(\)/);
+  assert.doesNotMatch(promptFlow, /开始一键配置/);
 
   const sandbox = {};
   vm.createContext(sandbox);

@@ -40,7 +40,7 @@ test("read-only state commands are not included in the host side-effect set", ()
 test("host operation labels reuse one frozen lookup table", () => {
   for (const text of [source, compiled]) {
     assert.match(text, /const HOST_OPERATION_LEASE_ACTION_LABELS = Object\.freeze\(\{/);
-    assert.match(text, /quickSetup: "一键配置"/);
+    assert.match(text, /quickSetup: "检查服务器配置"/);
     assert.match(text, /openResultArtifact: "打开或下载结果文件"/);
     const start = text.indexOf("function hostOperationLeaseActionLabel(command)");
     const end = text.indexOf("function commandNeedsUiStatus", start);

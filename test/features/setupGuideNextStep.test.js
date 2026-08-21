@@ -28,8 +28,8 @@ function nextStep(options) {
 
 test("setup guide offers the only next action supported by current readiness", () => {
   assert.deepEqual(nextStep({ setupComplete: false }), {
-    message: "配置说明已打开。下一步：选择 Xshell 会话并填写 Hub/Worker 项目父目录。",
-    action: "开始一键配置",
+    message: "配置说明已打开。下一步：在“设置 > 服务器”手动填写 Hub/Worker 会话和项目父目录。",
+    action: "打开服务器设置",
   });
   assert.equal(nextStep({ setupComplete: true, workerCount: 0, workspaceOpen: true }).action, "添加 Worker");
   assert.equal(nextStep({ setupComplete: true, workerCount: 1, workspaceOpen: false }).action, "选择项目并继续");
@@ -44,7 +44,7 @@ test("setup guide offers the only next action supported by current readiness", (
   assert.match(handler, /const seen = new Set\(\)/);
   assert.match(handler, /seen\.has\(key\)[\s\S]{0,50}return/);
   assert.match(handler, /showInformationMessage\(next\.message, next\.action, "打开面板"\)/);
-  assert.match(handler, /choice === "开始一键配置"[\s\S]{0,100}if \(await this\.quickSetup\(false\)\)[\s\S]{0,40}continue;[\s\S]{0,30}return/);
+  assert.match(handler, /choice === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers"\)/);
   assert.match(handler, /choice === "添加 Worker"[\s\S]{0,100}this\.addWorkerConfigFromUi\(false\)[\s\S]{0,40}continue/);
   assert.match(handler, /choice === "选择项目并继续"[\s\S]{0,140}openWorkspaceFolderForContinuation\("配置说明", "setupGuide"\)/);
   assert.match(handler, /choice === "接入当前项目"[\s\S]{0,80}this\.bootstrapProjectFromUi\(\)/);

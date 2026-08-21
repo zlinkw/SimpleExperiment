@@ -2,7 +2,7 @@
 	"name": "simple-experiment",
 	"displayName": "SimpleExperiment",
 	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"publisher": "simple-local",
 	"extensionKind": [
 		"ui"
@@ -66,7 +66,7 @@
 			},
 			{
 				"command": "simpleExperiment.quickSetup",
-				"title": "SimpleExperiment：一键配置向导",
+				"title": "SimpleExperiment：检查服务器配置",
 				"icon": "$(wand)"
 			},
 			{

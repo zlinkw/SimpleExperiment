@@ -6715,6 +6715,7 @@ function renderPanelHtml() {
             configInput("hub", "hubHost", "服务器地址", setup.hubHost || "") +
             configInput("hub", "transferHost", "SFTP 传输地址", setup.transferHost || "", "text", "wide") +
             configInput("hub", "hubUser", "登录用户", setup.hubUser || "") +
+            configInput("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀", setup.remoteTmuxSessionPrefix || "simple") +
             configInput("hub", "condaEnv", "Conda 环境（可选）", setup.condaEnv || "") +
             configInput("hub", "sshConfigAlias", "登录别名", setup.sshConfigAlias || "") +
             configInput("hub", "agentProjectDir", "项目父目录", setup.agentProjectDir || "", "text", "wide") +
@@ -7186,6 +7187,7 @@ function renderPanelHtml() {
         hubHost: "Hub 地址",
         transferHost: "SFTP 地址",
         hubUser: "Hub 用户",
+        remoteTmuxSessionPrefix: "远端 tmux 会话名前缀；多用户共用服务器时建议用稳定用户名，旧 zlk 会话可填 zlk",
         condaEnv: "留空使用系统 Python，不执行 Conda 激活",
         sshConfigAlias: "登录别名",
         agentProjectDir: "服务器上存放项目的父目录；插件自动追加当前项目名",

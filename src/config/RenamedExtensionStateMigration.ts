@@ -2,10 +2,12 @@
 import * as path from "path";
 import { normalizeXshellSetupConfig } from "../tunnel/XshellTunnelSetup";
 
-export const RENAMED_EXTENSION_STATE_MIGRATION_VERSION = 1;
+export const RENAMED_EXTENSION_STATE_MIGRATION_VERSION = 2;
 export const RENAMED_EXTENSION_STATE_MIGRATION_KEY = "simpleExperiment.renamedExtensionStateMigrationVersion";
-export const LEGACY_EXTENSION_ID = "simple-local.simple-experiment";
-const SETUP_KEY = "simpleExperiment.xshellRealtimeTunnelConfig";
+export const LEGACY_EXTENSION_ID = "zlk-local.zlk-cluster-orchestrator";
+const CURRENT_SETUP_KEY = "simpleExperiment.xshellRealtimeTunnelConfig";
+const LEGACY_SETUP_KEY = "zlkCluster.xshellRealtimeTunnelConfig";
+const CURRENT_TUNNEL_KEY = "simpleExperiment.tunnelGatewayConfig";
 
 function record(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
@@ -83,7 +85,7 @@ export async function migrateRenamedExtensionState(context: any, options: { read
   if (Number(globalState.get(RENAMED_EXTENSION_STATE_MIGRATION_KEY, 0)) >= RENAMED_EXTENSION_STATE_MIGRATION_VERSION)
     return { migrated: false, reason: "already_checked" };
 
-  const current = record(globalState.get(SETUP_KEY, {}));
+  const current = record(globalState.get(CURRENT_SETUP_KEY, {}));
   if (hasCompletedXshellSetup(current)) {
     await globalState.update(RENAMED_EXTENSION_STATE_MIGRATION_KEY, RENAMED_EXTENSION_STATE_MIGRATION_VERSION);
     return { migrated: false, reason: "current_setup_complete" };
@@ -93,7 +95,13 @@ export async function migrateRenamedExtensionState(context: any, options: { read
   const legacyState = globalStoragePath
     ? (options.readState || readExtensionStateFromDatabase)(renamedExtensionStateSourcePath(globalStoragePath))
     : {};
-  const legacy = record(legacyState[SETUP_KEY]);
+  const legacyCandidates = [
+    record(legacyState[LEGACY_SETUP_KEY]),
+    record(globalState.get(LEGACY_SETUP_KEY, {})),
+  ].filter((item) => Object.keys(item).length);
+  const legacy = legacyCandidates.sort((left, right) =>
+    xshellConfigCompleteness(right) - xshellConfigCompleteness(left)
+  )[0] || {};
   if (!Object.keys(legacy).length || xshellConfigCompleteness(legacy) <= xshellConfigCompleteness(current)) {
     await globalState.update(RENAMED_EXTENSION_STATE_MIGRATION_KEY, RENAMED_EXTENSION_STATE_MIGRATION_VERSION);
     return { migrated: false, reason: "no_better_legacy_setup" };
@@ -112,8 +120,8 @@ export async function migrateRenamedExtensionState(context: any, options: { read
     allowStreaming: true,
     refreshProfile: "realtime",
   };
-  await globalState.update(SETUP_KEY, setup);
-  await globalState.update("simpleExperiment.tunnelGatewayConfig", tunnel);
+  await globalState.update(CURRENT_SETUP_KEY, setup);
+  await globalState.update(CURRENT_TUNNEL_KEY, tunnel);
   await globalState.update(RENAMED_EXTENSION_STATE_MIGRATION_KEY, RENAMED_EXTENSION_STATE_MIGRATION_VERSION);
   return { migrated: true, source: LEGACY_EXTENSION_ID, workerCount: setup.workerTunnels.length };
 }
