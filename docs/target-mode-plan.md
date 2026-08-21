@@ -22,7 +22,7 @@
 - [已完成] 6/6 project-245：运行前强制验证结果输出接口，支持 wrapper、显式 adapter 调用和 TensorBoard scalar，并清理 dry-run 临时文件。
 - [已完成] 4/4 project-246：把 SimpleExperiment 和 SimpleSFTP 的项目硬性契约写入插件文档与 simple-local-api SKILL。
 
-## 当前批次：project-247（进行中）
+## 当前批次：project-247（已完成）
 ### 边界
 
 - SimpleExperiment `0.3.8` 将 TensorBoard 转换前的依赖探测统一走 `tensorboard_conversion_available()`，避免异常 spec 导致崩溃。
@@ -34,9 +34,10 @@
 
 ### 验证清单
 
-- [待验证] SimpleExperiment `npm test`、lint、package 和安装检查。
+- [已通过] SimpleExperiment `npm test` 1143/1143、lint、package 和安装检查。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
 - [已通过] 推送 `6f05d52`，本地 HEAD 与 `origin/master` 一致。
+- [已通过] 推送 `bc188d5`，本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
