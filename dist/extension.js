@@ -55,6 +55,8 @@ const XshellTunnelPortProbe_1 = require("./tunnel/XshellTunnelPortProbe");
 const XshellSessionLauncher_1 = require("./tunnel/XshellSessionLauncher");
 const AgentTmuxPolicy_1 = require("./tunnel/AgentTmuxPolicy");
 const XshellSessionScanner_1 = require("./tunnel/XshellSessionScanner");
+const LocalSshConfig_1 = require("./tunnel/LocalSshConfig");
+const SshTransportIdentity_1 = require("./tunnel/SshTransportIdentity");
 const XshellSessionPatcher_1 = require("./tunnel/XshellSessionPatcher");
 const OfflineImport_1 = require("./tunnel/OfflineImport");
 const TunnelDiagnostics_1 = require("./tunnel/TunnelDiagnostics");
@@ -81,6 +83,7 @@ const PptPlotBridge_1 = require("./PptPlotBridge");
 const GpuHistoryState_1 = require("./features/GpuHistoryState");
 const TopologyMode_1 = require("./features/TopologyMode");
 const ApiWorkflow_1 = require("./features/ApiWorkflow");
+const AgentRuntimeScope_1 = require("./features/AgentRuntimeScope");
 const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 const LocalApiServer_1 = require("./api/LocalApiServer");
 const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
@@ -664,6 +667,9 @@ class RealtimeTunnelPanelProvider {
     xshellLibraryUpdatedAt = 0;
     xshellLibraryDirsKey = "";
     xshellLibraryRefreshMinIntervalMs = 15_000;
+    sshConfigServers = [];
+    sshConfigLoadedAt = 0;
+    sshConfigLoadPromise;
     enabledWorkerConfigsCacheSource;
     enabledWorkerConfigsCacheValue = [];
     currentAssignmentsCacheConfig;
@@ -1045,9 +1051,12 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             throw new Error("project.prepare 需要已打开工作区，或传入 workspace 参数。");
         assertSingleProjectWorkspace("project.prepare");
-        await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
-            this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
-        });
+        await Promise.all([
+            this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
+                this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+            }),
+            this.refreshLocalSshConfig().catch(() => undefined),
+        ]);
         const requestedMode = TopologyMode_1.normalizeTopologyMode(params.topologyMode || params.mode);
         const serverIds = stringArrayField(params, "serverIds");
         const setup = this.apiMergedSetupConfig(params);
@@ -1080,6 +1089,9 @@ class RealtimeTunnelPanelProvider {
                 localForwardPort: target.localForwardPort,
                 remoteAgentPort: target.remoteAgentPort,
                 savedSessionPath: target.savedSessionPath,
+                sshConfigHost: target.sshConfigHost || "",
+                sshConfigAlias: target.sshConfigAlias || "",
+                networkHost: target.networkHost || "",
             })),
             modifications: {
                 xshellSessions: params.applyXshell === false ? [] : targets.map((target) => target.savedSessionPath).filter(Boolean),
@@ -1106,7 +1118,7 @@ class RealtimeTunnelPanelProvider {
         if (blocked.length)
             throw new Error(`project.prepare 未修改 Xshell 自启动命令：${blocked.map((item) => item.summary).join("；")}`);
         if (params.deployRuntime !== false)
-            await this.deployLatestAgentRuntime(false, true);
+            await this.deployLatestAgentRuntime(false, true, serverIds);
         if (params.startSessions === true)
             await this.startAllXshellConnections(false, false);
         const test = params.autoTest === true
@@ -1928,6 +1940,7 @@ class RealtimeTunnelPanelProvider {
             this.loadProjectLocalOperationsState().catch(() => undefined),
             this.loadProjectLocalPlanMetadataState().catch(() => undefined),
             this.loadProjectFlowState().catch(() => undefined),
+            this.refreshLocalSshConfig().catch(() => undefined),
         ]);
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -4809,9 +4822,9 @@ class RealtimeTunnelPanelProvider {
             startedAction: { title: "分发代码到所有 Worker", detail: "正在把本地最新轻量代码同步到所有启用 Worker。" },
         });
     }
-    async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false) {
-        await this.prepareSftpTargets("deployLatestAgentRuntime", "simpleSftp.uploadFiles");
-        const targets = this.agentRuntimeUploadTargets();
+    async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = []) {
+        await this.prepareSftpTargets("deployLatestAgentRuntime", "simpleSftp.uploadFiles", serverIds);
+        const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), serverIds);
         if (!targets.length)
             throw new Error("没有可部署的 Hub/Worker 目标。");
         const runtimeDir = path.join(__dirname, "runtime");
@@ -4851,22 +4864,24 @@ class RealtimeTunnelPanelProvider {
             });
             const record = result && typeof result === "object" ? result : {};
             if (!sftpUploadFilesSucceeded(record))
-                failures.push(`${target.label}: ${stringFromRecord(record, ["error", "message", "status"]) || "上传失败"}`);
+                failures.push(`${target.label}（id=${target.id}, host=${target.host}, networkHost=${target.networkHost || target.displayHost || "-"}）: ${stringFromRecord(record, ["error", "message", "status"]) || "上传失败"}`);
         }
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
-        this.lastProbe = undefined;
-        this.lastWorkerProbes = {};
+        if (targets.some((target) => target.role === "hub"))
+            this.lastProbe = undefined;
+        for (const target of targets.filter((item) => item.role !== "hub"))
+            delete this.lastWorkerProbes[target.id];
         this.lastFullEndpointProbeAt = 0;
         this.lastHealth = {
             state: "agent_restart_required",
             status: "agent_restart_required",
             checkedAt: new Date().toISOString(),
-            message: "最新版 Agent runtime 已部署。请重启 Hub/Worker Xshell 会话后再次检测。",
+            message: `最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话后再次检测。`,
         };
         this.postState();
         if (showMessage)
-            void vscode.window.showInformationMessage("最新版 Agent runtime 已部署到全部服务器。请重启 Hub/Worker Xshell 会话，再点击“检测全部”。");
+            void vscode.window.showInformationMessage(`最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话，再点击“检测全部”。`);
     }
     agentRuntimeDeployTargets() {
         const topology = this.assertTopologyReady("部署 Agent runtime");
@@ -5045,7 +5060,7 @@ class RealtimeTunnelPanelProvider {
             assertCurrent();
         }
     }
-    async prepareSftpTargets(reason, requiredCommand) {
+    async prepareSftpTargets(reason, requiredCommand, serverIds = []) {
         assertSingleProjectWorkspace("SFTP 上传或目录配置");
         if (!await this.ensureSimpleSftpReadyForSetup("文件传输"))
             throw new UiCommandCancelled("文件传输已取消，SimpleSFTP 未就绪。");
@@ -5053,34 +5068,29 @@ class RealtimeTunnelPanelProvider {
             await this.ensureSftpManagerCommand(requiredCommand);
         await this.syncXshellConfigBeforeNetwork(reason);
         this.assertTopologyActualWorkRoots("SFTP 上传或目录配置");
+        const requestedIds = new Set((Array.isArray(serverIds) ? serverIds : []).map((item) => String(item || "").trim()).filter(Boolean));
+        const transportTargets = this.sftpSharedTargets().filter((target) => !requestedIds.size || requestedIds.has(target.id));
+        await this.assertSshTransportIdentities(transportTargets);
     }
     sftpServerOptions(target) {
         const sessionInfo = this.sessionInfoForPath(target.savedSessionPath);
-        const transferHost = resolveSftpTransferHost(target.label || target.id, [
-            target.transferHost,
-            target.resolvedHost,
-            target.sftpHost,
-            target.sshHost,
-            target.host,
-            sessionInfo?.host,
-        ]);
-        return {
-            id: target.id,
-            label: target.label,
-            host: transferHost,
-            sftpHost: transferHost,
-            sshHost: transferHost,
-            transferHost,
-            resolvedHost: transferHost,
-            user: target.user,
-            username: target.user,
-            port: target.port,
-            sshPort: target.port,
-            remotePath: target.remotePath,
-            sshConfigHost: transferHost,
-            savedSessionPath: target.savedSessionPath,
-            source: "simple-experiment",
-        };
+        return SshTransportIdentity_1.buildSftpServerOptions(target, this.sshTransportIdentity(target, sessionInfo));
+    }
+    sshTransportIdentity(target, sessionInfo = this.sessionInfoForPath(target.savedSessionPath)) {
+        return SshTransportIdentity_1.resolveSshTransportIdentity(target, {
+            sshServers: this.sshConfigServers,
+            session: sessionInfo,
+        });
+    }
+    async assertSshTransportIdentities(targets) {
+        for (const target of targets) {
+            const identity = this.sshTransportIdentity(target);
+            if (!identity.sshConfigAlias)
+                continue;
+            const inspection = await SshTransportIdentity_1.inspectOpenSshAlias(identity.sshConfigAlias);
+            if (!inspection.ok)
+                throw new Error(`${target.label || target.id}: ${inspection.message}`);
+        }
     }
     async writeSftpManagerServerProfiles(targetIds) {
         this.assertTopologyActualWorkRoots("写入 SimpleSFTP 服务器配置");
@@ -5114,7 +5124,9 @@ class RealtimeTunnelPanelProvider {
                 port: target.port,
                 sshPort: target.port,
                 remotePath: target.remotePath,
-                sshConfigHost: firstNonEmpty(target.transferHost, target.resolvedHost, target.sftpHost, target.sshHost, target.host),
+                sshConfigHost: firstNonEmpty(target.sshConfigHost, target.sshConfigAlias, target.transferHost, target.resolvedHost, target.sftpHost, target.sshHost, target.host),
+                sshConfigAlias: firstNonEmpty(target.sshConfigAlias, target.sshConfigHost),
+                networkHost: firstNonEmpty(target.networkHost, target.displayHost),
                 savedSessionPath: target.savedSessionPath,
                 authType: "password",
                 source: "simple-experiment",
@@ -5184,29 +5196,36 @@ class RealtimeTunnelPanelProvider {
         if (!remotePath)
             throw new Error("Hub 项目父目录缺失，无法执行 SFTP 代码同步。");
         const info = this.sessionInfoForPath(config.savedSessionPath);
-        const transferHost = resolveSftpTransferHost(config.hubDisplayName || "Hub", [
-            config.transferHost,
-            config.resolvedHost,
-            config.sftpHost,
-            config.sshHost,
-            info?.host,
-            config.hubHost,
-        ]);
-        const host = firstNonEmpty(transferHost, info?.host, config.hubHost);
+        const identity = this.sshTransportIdentity({
+            id: "hub",
+            label: config.hubDisplayName || "Hub",
+            host: firstNonEmpty(config.transferHost, config.resolvedHost, config.sftpHost, config.sshHost, info?.host, config.hubHost),
+            networkHost: firstNonEmpty(info?.host, config.hubHost),
+            transferHost: config.transferHost,
+            resolvedHost: config.resolvedHost,
+            sftpHost: config.sftpHost,
+            sshHost: config.sshHost,
+            sshConfigHost: config.sshConfigAlias,
+            sshConfigAlias: config.sshConfigAlias,
+            savedSessionPath: config.savedSessionPath,
+        }, info);
         const user = config.hubUser || info?.userName || "";
         const port = config.hubSshPort || info?.port || 22;
         return {
             id: "hub",
             role: "hub",
             label: config.hubDisplayName || "Hub",
-            host,
+            host: identity.transportHost,
             user,
             port,
-            sshHost: transferHost,
-            sftpHost: transferHost,
-            transferHost,
-            resolvedHost: transferHost,
-            sshConfigHost: config.sshConfigAlias || config.hubHost,
+            sshHost: identity.transportHost,
+            sftpHost: identity.transportHost,
+            transferHost: identity.transportHost,
+            resolvedHost: identity.transportHost,
+            sshConfigHost: identity.sshConfigHost,
+            sshConfigAlias: identity.sshConfigAlias,
+            networkHost: identity.networkHost,
+            displayHost: identity.networkHost,
             savedSessionPath: config.savedSessionPath,
             remotePath,
         };
@@ -5231,30 +5250,37 @@ class RealtimeTunnelPanelProvider {
         if (!remotePath)
             throw new Error(`Worker ${worker.id} 项目父目录缺失，无法执行 SFTP 代码同步。`);
         const info = this.sessionInfoForPath(worker.savedSessionPath);
-        const transferHost = resolveSftpTransferHost(worker.displayName || worker.id, [
-            worker.transferHost,
-            worker.resolvedHost,
-            worker.sftpHost,
-            worker.sshHost,
-            info?.host,
-            worker.workerHost,
-            worker.hubHost,
-        ]);
-        const host = firstNonEmpty(transferHost, info?.host, worker.workerHost, worker.hubHost);
+        const identity = this.sshTransportIdentity({
+            id: worker.id,
+            label: worker.displayName || worker.id,
+            displayName: worker.displayName,
+            host: firstNonEmpty(worker.transferHost, worker.resolvedHost, worker.sftpHost, worker.sshHost, info?.host, worker.workerHost, worker.hubHost),
+            networkHost: firstNonEmpty(info?.host, worker.workerHost, worker.hubHost),
+            transferHost: worker.transferHost,
+            resolvedHost: worker.resolvedHost,
+            sftpHost: worker.sftpHost,
+            sshHost: worker.sshHost,
+            sshConfigHost: worker.sshConfigAlias,
+            sshConfigAlias: worker.sshConfigAlias,
+            savedSessionPath: worker.savedSessionPath,
+        }, info);
         const user = worker.workerUser || worker.hubUser || info?.userName || "";
         const port = worker.workerSshPort || worker.hubSshPort || info?.port || 22;
         return {
             id: worker.id,
             role: "worker",
             label: worker.displayName || worker.id,
-            host,
+            host: identity.transportHost,
             user,
             port,
-            sshHost: transferHost,
-            sftpHost: transferHost,
-            transferHost,
-            resolvedHost: transferHost,
-            sshConfigHost: worker.sshConfigAlias || worker.workerHost || worker.hubHost,
+            sshHost: identity.transportHost,
+            sftpHost: identity.transportHost,
+            transferHost: identity.transportHost,
+            resolvedHost: identity.transportHost,
+            sshConfigHost: identity.sshConfigHost,
+            sshConfigAlias: identity.sshConfigAlias,
+            networkHost: identity.networkHost,
+            displayHost: identity.networkHost,
             savedSessionPath: worker.savedSessionPath,
             remotePath,
         };
@@ -8828,6 +8854,28 @@ class RealtimeTunnelPanelProvider {
         await this.context.globalState.update(keys.tunnelConfig, persistedTunnelGatewayConfig(this.tunnelConfig));
         await this.context.globalState.update(keys.setupConfig, persistedXshellSetupConfig(this.setupConfig));
     }
+    async refreshLocalSshConfig(force = false) {
+        const recent = this.sshConfigLoadedAt && Date.now() - this.sshConfigLoadedAt < 60_000;
+        if (!force && recent && this.sshConfigServers.length)
+            return;
+        if (this.sshConfigLoadPromise) {
+            await this.sshConfigLoadPromise;
+            if (this.sshConfigServers.length)
+                return;
+        }
+        const load = (async () => {
+            this.sshConfigServers = await LocalSshConfig_1.readLocalSshServers();
+            this.sshConfigLoadedAt = Date.now();
+        })();
+        this.sshConfigLoadPromise = load;
+        try {
+            await load;
+        }
+        finally {
+            if (this.sshConfigLoadPromise === load)
+                this.sshConfigLoadPromise = undefined;
+        }
+    }
     async refreshXshellSessionLibrary(options = {}) {
         const dirs = xshellScanDirs(this.setupConfig);
         const configuredPaths = this.configuredXshellSessionPaths();
@@ -8925,7 +8973,11 @@ class RealtimeTunnelPanelProvider {
         await this.applySetupDraft(synced, { syncAssignmentsFromFields: true });
     }
     async syncXshellConfigBeforeNetwork(reason) {
-        await this.refreshXshellSessionLibrary();
+        await Promise.all([
+            this.refreshXshellSessionLibrary(),
+            this.refreshLocalSshConfig(),
+        ]);
+        await this.assertSshTransportIdentities(this.sftpSharedTargets());
         await this.syncConfiguredXshellSessions(reason);
     }
     withXshellDerivedFields(config) {

@@ -18,24 +18,25 @@
 - [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
 - [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
+- [进行中] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
 
-## 当前批次：project-243（已完成）
+## 当前批次：project-244（进行中）
 ### 边界
 
-- SimpleExperiment `0.3.5` 新增 `workflow.plan` 只读路由和 `workflow.run` 标准运行入口。
+- SimpleExperiment `0.3.6` 新增统一 SSH transport identity 解析；显式别名、已保存 SSH host、Xshell 会话名和 OpenSSH config 精确匹配优先于字面 IP。
+- Hub/Worker 目标和 SimpleSFTP 参数保留 `sshConfigHost`、`sshConfigAlias`、`networkHost`；传输主机使用可用别名，IP 只作诊断或回退。
+- SFTP 准备通过本地 `ssh -G <alias>` 验证别名；隧道健康检查继续只探测 127.0.0.1 本地端口，不用裸 IP TCP 否定别名连接。
+- `deployLatestAgentRuntime` 接受并尊重 `serverIds`；未选择的服务器不再部署或混入失败信息。
 - `workflow.plan` 返回唯一 nextAction、精确参数模板、结构化缺失和拓扑状态；AI 不再自行拼接 validate/dry-run/upload/run 调用链。
 - `workflow.run` 复用既有 runPlan 安全路线，立即返回 operationId；实际提交由 VS Code 模态弹窗人工确认，不靠 AI 传运行确认信号。
 - 基础设施准备只检查 workspace、服务器、拓扑、Xshell、SFTP 和 Agent runtime；PLAN 选择提示不阻塞 `confirm:true` 后的 prepare。
 - 多 PLAN 未选择时返回 `validate_plan` 结构化提示；单 PLAN 自动选择；无 PLAN 返回结构化缺失。bootstrap 在 prepare 成功后单独执行 `plan.validate`。
-- 参数化入参覆盖 `serverIds`、拓扑别名、Hub 配置和 Worker 隧道；未选择 Hub 时只允许 Worker 模式。
-- NWPU3 固定 `/data/qgking/zlk`，禁止 `/root/disk1/qgking/zlk` 与 `zlk_agent` 项目父目录。
-- SimpleSFTP `0.2.4` 的 `target.show`、`upload.workspace`、`upload.files` 支持显式 server profile + remotePath，不依赖 `.vscode/sftp.json`。
 
 ### 验证清单
 
-- [已通过] SimpleExperiment `npm test` 1127/1127、lint、`node -c`、`git diff --check`。
+- [待验证] SimpleExperiment `npm test`、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- [已通过] 构建/安装 `simple-experiment-0.3.5.vsix`；推送 `fbc3a09`，本地 HEAD 与 `origin/master` 一致。
+- 构建并安装 `simple-experiment-0.3.6.vsix`；提交后推送 `origin/master`。
 
 ### 相邻回归风险
 

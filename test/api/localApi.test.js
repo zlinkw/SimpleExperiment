@@ -458,6 +458,20 @@ test("SimpleExperiment exposes a modal-confirmed standard experiment runner", ()
   assert.match(extensionSource, /status: "waiting_confirmation"/);
 });
 
+test("SimpleExperiment uses SSH aliases and scopes runtime deployment", () => {
+  assert.match(extensionSource, /buildSftpServerOptions\(target, this\.sshTransportIdentity\(target, sessionInfo\)\)/);
+  assert.match(extensionSource, /sshConfigHost: identity\.sshConfigHost/);
+  assert.match(extensionSource, /sshConfigAlias: identity\.sshConfigAlias/);
+  assert.match(extensionSource, /networkHost: identity\.networkHost/);
+  assert.match(extensionSource, /inspectOpenSshAlias\(identity\.sshConfigAlias\)/);
+  assert.match(extensionSource, /async deployLatestAgentRuntime\(showMessage = true, pathConfirmed = false, serverIds = \[\]\)/);
+  assert.match(extensionSource, /AgentRuntimeScope_1\.selectAgentRuntimeTargets\(this\.agentRuntimeUploadTargets\(\), serverIds\)/);
+  const prepareStart = extensionSource.indexOf("async apiProjectPrepare");
+  const prepareEnd = extensionSource.indexOf("apiMergedSetupConfig(params = {})", prepareStart);
+  const prepareBody = extensionSource.slice(prepareStart, prepareEnd);
+  assert.match(prepareBody, /deployLatestAgentRuntime\(false, true, serverIds\)/);
+});
+
 test("SimpleExperiment server test rows always expose the AI contract", () => {
   const row = workflow.serverTestRow({
     id: "nwpu3",
