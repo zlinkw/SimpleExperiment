@@ -2,7 +2,7 @@
 	"name": "simple-experiment",
 	"displayName": "SimpleExperiment",
 	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-	"version": "0.3.7",
+	"version": "0.3.8",
 	"publisher": "simple-local",
 	"extensionKind": [
 		"ui"
@@ -11,6 +11,10 @@
 		"simple-local.simple-sftp"
 	],
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/zlinkw/SimpleExperiment.git"
+	},
 	"engines": {
 		"vscode": "^1.100.0"
 	},

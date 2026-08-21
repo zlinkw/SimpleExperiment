@@ -22,11 +22,11 @@
 - [已完成] 6/6 project-245：运行前强制验证结果输出接口，支持 wrapper、显式 adapter 调用和 TensorBoard scalar，并清理 dry-run 临时文件。
 - [已完成] 4/4 project-246：把 SimpleExperiment 和 SimpleSFTP 的项目硬性契约写入插件文档与 simple-local-api SKILL。
 
-## 当前批次：project-246（已完成）
+## 当前批次：project-247（进行中）
 ### 边界
 
-- 新增项目契约文档，覆盖工作区结构、Plan/config、输出接口、结果 schema、快照、SFTP/Xshell、路径边界、Debug 隔离和 API 使用。
-- 只修改 Markdown 与 simple-local-api SKILL reference，不改 runtime 行为。
+- SimpleExperiment `0.3.8` 将 TensorBoard 转换前的依赖探测统一走 `tensorboard_conversion_available()`，避免异常 spec 导致崩溃。
+- 增加 fake EventAccumulator 回归测试，验证最终 scalar 写入标准 CSV并补齐快照。
 - `workflow.plan` 返回唯一 nextAction、精确参数模板、结构化缺失和拓扑状态；AI 不再自行拼接 validate/dry-run/upload/run 调用链。
 - `workflow.run` 复用既有 runPlan 安全路线，立即返回 operationId；实际提交由 VS Code 模态弹窗人工确认，不靠 AI 传运行确认信号。
 - 基础设施准备只检查 workspace、服务器、拓扑、Xshell、SFTP 和 Agent runtime；PLAN 选择提示不阻塞 `confirm:true` 后的 prepare。
@@ -34,7 +34,7 @@
 
 ### 验证清单
 
-- [已通过] Markdown 本地链接、标题层级和 `git diff --check` 检查；target-mode-plan guardrail 测试通过。
+- [待验证] SimpleExperiment `npm test`、lint、package 和安装检查。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
 - [已通过] 推送 `6f05d52`，本地 HEAD 与 `origin/master` 一致。
 

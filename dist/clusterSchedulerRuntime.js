@@ -1008,7 +1008,7 @@ def merge_tensorboard_csv(path: Path, rows: list[dict[str, Any]]) -> int:
 
 def collect_tensorboard_metrics(job: Job) -> dict[str, Any]:
     output_dir = Path(job.output_dir)
-    if not output_dir.is_dir() or importlib.util.find_spec("tensorboard") is None:
+    if not output_dir.is_dir() or not tensorboard_conversion_available():
         return {"ok": False, "reason": "tensorboard_unavailable_or_no_dir"}
     try:
         from tensorboard.backend.event_processing.event_accumulator import EventAccumulator

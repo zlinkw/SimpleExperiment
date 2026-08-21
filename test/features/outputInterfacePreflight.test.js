@@ -111,3 +111,54 @@ test("dry-run worker temp cleanup only removes exact runtime-generated files", (
   assert.equal(payload.new, true);
   assert.equal(payload.other, true);
 });
+
+test("TensorBoard final scalars are converted to the standard result contract", () => {
+  const project = createProject(write("test.py", [
+    "from torch.utils.tensorboard import SummaryWriter",
+    "",
+    "writer = SummaryWriter('work_dirs/smoke')",
+    "writer.add_scalar('AUC', 0.91, 0)",
+    "writer.close()",
+  ].join("\n")));
+  fs.mkdirSync(path.join(project, "work_dirs", "smoke"), { recursive: true });
+  fs.writeFileSync(path.join(project, "work_dirs", "smoke", "events.out.tfevents.test"), "", "utf8");
+  const script = [
+    "import importlib.util, json, os, sys, types",
+    `root = ${JSON.stringify(project)}`,
+    "os.chdir(root)",
+    "class Scalar:",
+    "    def __init__(self): self.value = 0.91; self.step = 7",
+    "class Accumulator:",
+    "    def __init__(self, path, size_guidance=None): pass",
+    "    def Reload(self): pass",
+    "    def Tags(self): return {'scalars': ['AUC']}",
+    "    def Scalars(self, tag): return [Scalar()]",
+    "fake = types.ModuleType('tensorboard')",
+    "backend = types.ModuleType('tensorboard.backend')",
+    "processing = types.ModuleType('tensorboard.backend.event_processing')",
+    "accumulator = types.ModuleType('tensorboard.backend.event_processing.event_accumulator')",
+    "accumulator.EventAccumulator = Accumulator",
+    "fake.backend = backend",
+    "backend.event_processing = processing",
+    "processing.event_accumulator = accumulator",
+    "sys.modules.update({'tensorboard': fake, 'tensorboard.backend': backend, 'tensorboard.backend.event_processing': processing, 'tensorboard.backend.event_processing.event_accumulator': accumulator})",
+    `spec = importlib.util.spec_from_file_location('cluster_scheduler', ${JSON.stringify(schedulerRuntime)})`,
+    "scheduler = importlib.util.module_from_spec(spec)",
+    "sys.modules['cluster_scheduler'] = scheduler",
+    "spec.loader.exec_module(scheduler)",
+    "scheduler.tensorboard_conversion_available = lambda: True",
+    "job = scheduler.Job(index=0, suite='smoke', case='baseline', seed=0, config={'seed': 0}, output_dir='work_dirs/smoke', result_csv='work_dirs/smoke/metrics_summary.csv', train_command='', test_command='python test.py --output-dir work_dirs/smoke', run_wrapper='', wrap_output=False, base_config_path='configs/base.yaml', template_values={'experiment_id':'smoke/baseline/seed_0','method':'baseline','dataset':'demo','split':'test'}, result_aliases={})",
+    "report = scheduler.collect_tensorboard_metrics(job)",
+    "csv_text = open('work_dirs/smoke/metrics_summary.csv', encoding='utf-8').read()",
+    "print(json.dumps({'report': report, 'csv': csv_text, 'env': os.path.exists('work_dirs/smoke/env_snapshot.json'), 'config': os.path.exists('work_dirs/smoke/config_snapshot.yaml')}))",
+  ].join("\n");
+  const result = spawnSync("python", ["-c", script], { cwd: project, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+  assert.equal(payload.report.ok, true);
+  assert.equal(payload.report.metricCount, 1);
+  assert.equal(payload.report.addedRows, 1);
+  assert.match(payload.csv, /AUC,0\.91,/);
+  assert.equal(payload.env, true);
+  assert.equal(payload.config, true);
+});
