@@ -406,6 +406,58 @@ test("SimpleExperiment NWPU3 worker targets resolve the exact project workDir", 
   assert.equal(workflow.remoteProjectWorkDir(workflow.resolveApiRemoteRoot("/data/qgking/zlk", { id: "nwpu3" }), "MultiModal"), "/data/qgking/zlk/MultiModal");
 });
 
+test("SimpleExperiment workflow router returns one deterministic next call", () => {
+  const plan = { planId: "alpha", planFile: "experiments/plans/alpha.yaml" };
+  const selection = workflow.selectWorkflowPlan([plan], {});
+  const prepareParams = { serverIds: ["nwpu3"], topologyMode: "worker_only", confirm: true };
+  const runParams = { planFile: plan.planFile, planId: plan.planId, debugMode: false };
+
+  const prepare = workflow.buildWorkflowRoute({
+    infrastructureMissing: [{ step: "select_servers", reason: "需要 Worker", options: [], requiredConfirm: [] }],
+    planSelection: selection,
+    validationMissing: [],
+    prepareParams,
+    runParams,
+  });
+  assert.equal(prepare.ready, false);
+  assert.equal(prepare.nextAction, "project.prepare");
+  assert.equal(prepare.calls[0].method, "project.prepare");
+
+  const choose = workflow.buildWorkflowRoute({
+    infrastructureMissing: [],
+    planSelection: workflow.selectWorkflowPlan([plan, { planId: "beta" }], {}),
+    validationMissing: [],
+  });
+  assert.equal(choose.nextAction, "plans.filter");
+  assert.equal(choose.calls[0].method, "plans.filter");
+
+  const validate = workflow.buildWorkflowRoute({
+    infrastructureMissing: [],
+    planSelection: selection,
+    validationMissing: [{ step: "validate_plan", reason: "输出契约未通过", options: [], requiredConfirm: [] }],
+  });
+  assert.equal(validate.nextAction, "plan.validate");
+  assert.equal(validate.calls[0].method, "plan.validate");
+
+  const run = workflow.buildWorkflowRoute({
+    infrastructureMissing: [],
+    planSelection: selection,
+    validationMissing: [],
+    runParams,
+  });
+  assert.equal(run.ready, true);
+  assert.equal(run.nextAction, "workflow.run");
+  assert.deepEqual(run.calls, [{ method: "workflow.run", params: runParams }]);
+});
+
+test("SimpleExperiment exposes a modal-confirmed standard experiment runner", () => {
+  assert.match(extensionSource, /"workflow\.plan": async \(params\) => this\.apiWorkflowPlan\(params\)/);
+  assert.match(extensionSource, /"workflow\.run": async \(params\) => this\.apiWorkflowRun\(params\)/);
+  assert.match(extensionSource, /confirmation: "vscode_modal"/);
+  assert.match(extensionSource, /await this\.runActionCommand\("runPlan", route\.calls\[0\]\.params\)/);
+  assert.match(extensionSource, /status: "waiting_confirmation"/);
+});
+
 test("SimpleExperiment server test rows always expose the AI contract", () => {
   const row = workflow.serverTestRow({
     id: "nwpu3",
@@ -438,6 +490,8 @@ test("SimpleExperiment parameterized onboarding uses one structured confirmation
     "server.testAll",
     "plans.filter",
     "plan.validate",
+    "workflow.plan",
+    "workflow.run",
   ];
   for (const method of methods) {
     assert.match(extensionSource, new RegExp(`"${method.replace(/\./g, "\\.")}": async`), `missing API method ${method}`);

@@ -17,11 +17,14 @@
 - [已完成] 7/7 project-237：SimpleExperiment 本机 JSON-RPC/HTTP API、CLI、OpenAPI、SFTP API 桥接与确认门禁。
 - [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
+- [进行中] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
 
-## 当前批次：project-242（已完成）
+## 当前批次：project-243（进行中）
 ### 边界
 
-- SimpleExperiment `0.3.4` 的 `project.prepare` / `project.bootstrap` 接受 `planFile` 和 `planId`，复用 `plans.filter` 的选择语义。
+- SimpleExperiment `0.3.5` 新增 `workflow.plan` 只读路由和 `workflow.run` 标准运行入口。
+- `workflow.plan` 返回唯一 nextAction、精确参数模板、结构化缺失和拓扑状态；AI 不再自行拼接 validate/dry-run/upload/run 调用链。
+- `workflow.run` 复用既有 runPlan 安全路线，立即返回 operationId；实际提交由 VS Code 模态弹窗人工确认，不靠 AI 传运行确认信号。
 - 基础设施准备只检查 workspace、服务器、拓扑、Xshell、SFTP 和 Agent runtime；PLAN 选择提示不阻塞 `confirm:true` 后的 prepare。
 - 多 PLAN 未选择时返回 `validate_plan` 结构化提示；单 PLAN 自动选择；无 PLAN 返回结构化缺失。bootstrap 在 prepare 成功后单独执行 `plan.validate`。
 - 参数化入参覆盖 `serverIds`、拓扑别名、Hub 配置和 Worker 隧道；未选择 Hub 时只允许 Worker 模式。
@@ -31,9 +34,9 @@
 
 ### 验证清单
 
-- [已通过] SimpleExperiment `npm test` 1125/1125、lint、`node -c`、`git diff --check`。
+- [待验证] SimpleExperiment `npm test`、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- [已通过] 构建/安装 `simple-experiment-0.3.4.vsix`；推送 `3202845`、`d539b70`、`283a0ac`，本地 HEAD 与 `origin/master` 一致。
+- 构建并安装 `simple-experiment-0.3.5.vsix`；提交后推送 `origin/master`。
 
 ### 相邻回归风险
 

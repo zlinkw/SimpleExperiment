@@ -216,6 +216,93 @@ export function remoteProjectWorkDir(remoteRoot: unknown, projectName: unknown):
   return root && name && name !== "." && name !== ".." ? `${root}/${name}` : undefined;
 }
 
+export interface WorkflowRouteOptions {
+  infrastructureMissing: MissingStep[];
+  planSelection: WorkflowPlanSelection;
+  validationMissing: MissingStep[];
+  prepareParams?: Record<string, unknown>;
+  runParams?: Record<string, unknown>;
+}
+
+export interface WorkflowCall {
+  method: string;
+  params: Record<string, unknown>;
+}
+
+export interface WorkflowRoute {
+  ready: boolean;
+  phase: "prepare_agents" | "select_plan" | "validate_plan" | "run";
+  nextAction: string;
+  calls: WorkflowCall[];
+  missing: MissingStep[];
+}
+
+function uniqueMissingSteps(rows: readonly MissingStep[]): MissingStep[] {
+  return [...new Map(rows.map((row) => [`${row.step}:${row.reason}`, row])).values()];
+}
+
+export function buildWorkflowRoute(options: WorkflowRouteOptions): WorkflowRoute {
+  const infrastructureMissing = Array.isArray(options.infrastructureMissing) ? options.infrastructureMissing : [];
+  const selection = options.planSelection;
+  const validationMissing = Array.isArray(options.validationMissing) ? options.validationMissing : [];
+  const prepareParams = options.prepareParams && typeof options.prepareParams === "object" ? options.prepareParams : {};
+  const runParams = options.runParams && typeof options.runParams === "object" ? options.runParams : {};
+
+  if (infrastructureMissing.length) {
+    return {
+      ready: false,
+      phase: "prepare_agents",
+      nextAction: "project.prepare",
+      calls: [{ method: "project.prepare", params: prepareParams }],
+      missing: uniqueMissingSteps([...infrastructureMissing, ...(selection?.missing || [])]),
+    };
+  }
+  if (!selection?.plan) {
+    return {
+      ready: false,
+      phase: "select_plan",
+      nextAction: "plans.filter",
+      calls: [{ method: "plans.filter", params: { limit: 50 } }],
+      missing: uniqueMissingSteps(selection?.missing || []),
+    };
+  }
+  if (validationMissing.length) {
+    const agentRows = validationMissing.filter((row) => row.step === "prepare_agents");
+    if (agentRows.length === validationMissing.length) {
+      return {
+        ready: false,
+        phase: "prepare_agents",
+        nextAction: "project.prepare",
+        calls: [
+          { method: "project.prepare", params: prepareParams },
+          { method: "server.testAll", params: { refresh: true } },
+        ],
+        missing: uniqueMissingSteps(validationMissing),
+      };
+    }
+    return {
+      ready: false,
+      phase: "validate_plan",
+      nextAction: "plan.validate",
+      calls: [{
+        method: "plan.validate",
+        params: {
+          planFile: String(selection.plan.planFile || selection.plan.file || ""),
+          planId: String(selection.plan.planId || selection.plan.planFile || selection.plan.file || ""),
+        },
+      }],
+      missing: uniqueMissingSteps(validationMissing),
+    };
+  }
+  return {
+    ready: true,
+    phase: "run",
+    nextAction: "workflow.run",
+    calls: [{ method: "workflow.run", params: runParams }],
+    missing: [],
+  };
+}
+
 export function isNwpu3Server(server: unknown): boolean {
   const item = server && typeof server === "object" ? server as Record<string, unknown> : {};
   const id = String(item.id || item.serverId || "");

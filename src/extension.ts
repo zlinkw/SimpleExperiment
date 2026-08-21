@@ -859,6 +859,8 @@ class RealtimeTunnelPanelProvider {
             "server.testAll": async (params) => this.apiServerTestAll(params),
             "plans.filter": async (params) => this.apiPlansFilter(params),
             "plan.validate": async (params) => this.apiPlanValidate(params),
+            "workflow.plan": async (params) => this.apiWorkflowPlan(params),
+            "workflow.run": async (params) => this.apiWorkflowRun(params),
             invoke: async (params) => this.invokeApi(params),
         };
     }
@@ -1763,6 +1765,134 @@ class RealtimeTunnelPanelProvider {
             planDir: this.localPlanMetadata.planDir || "",
             ...filtered,
         };
+    }
+    async apiWorkflowPlan(params = {}) {
+        const root = String(params.workspace || workspaceRoot() || "").trim();
+        if (!root)
+            throw new Error("workflow.plan 需要已打开工作区，或传入 workspace 参数。");
+        assertSingleProjectWorkspace("workflow.plan");
+        await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
+            this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+        });
+        const planSelection = ApiWorkflow_1.selectWorkflowPlan(this.localPlanMetadata.plans || [], params);
+        const topology = this.projectTopologyAssessment();
+        const infrastructureMissing = ApiWorkflow_1.structuredMissingInventory({
+            workspace: root,
+            setup: this.setupConfig,
+            topology,
+            simpleSftp: simpleSftpIntegrationReadiness(),
+            plan: planSelection.plan,
+            requirePlan: false,
+        });
+        const validation = await this.apiPlanValidate(planSelection.plan ? {
+            planFile: String(planSelection.plan.planFile || planSelection.plan.file || ""),
+            planId: String(planSelection.plan.planId || planSelection.plan.planFile || planSelection.plan.file || ""),
+        } : params);
+        const selectedPlanFile = planSelection.plan ? String(planSelection.plan.planFile || planSelection.plan.file || "") : "";
+        const selectedPlanId = planSelection.plan ? String(planSelection.plan.planId || selectedPlanFile) : "";
+        const prepareParams = { ...params, confirm: true };
+        const runParams = {
+            ...(selectedPlanFile ? { planFile: selectedPlanFile } : {}),
+            ...(selectedPlanId ? { planId: selectedPlanId } : {}),
+            debugMode: params.debugMode === true,
+            ...(Array.isArray(params.selectedWorkerIds) ? { selectedWorkerIds: params.selectedWorkerIds } : {}),
+        };
+        const route = ApiWorkflow_1.buildWorkflowRoute({
+            infrastructureMissing,
+            planSelection,
+            validationMissing: validation.missing,
+            prepareParams,
+            runParams,
+        });
+        return {
+            ok: route.ready,
+            workspace: root,
+            plan: planSelection.plan ? { planId: selectedPlanId, planFile: selectedPlanFile } : null,
+            planSelection: {
+                count: planSelection.count,
+                total: planSelection.total,
+                needsChoice: planSelection.needsChoice,
+            },
+            topology: this.apiPublicTopology(topology),
+            flow: this.apiFlowState,
+            ...route,
+        };
+    }
+    async apiWorkflowRun(params = {}) {
+        const route = await this.apiWorkflowPlan(params);
+        if (!route.ready) {
+            return {
+                ok: false,
+                started: false,
+                confirmation: "none",
+                ...route,
+            };
+        }
+        const operationId = makeOpId("workflow-run");
+        const startedAt = new Date().toISOString();
+        this.localOperations[operationId] = {
+            operationId,
+            type: "workflow-run",
+            status: "waiting_confirmation",
+            message: "请在 VS Code 弹窗中人工确认实验提交。",
+            startedAt,
+            planFile: String(route.calls[0]?.params?.planFile || route.plan?.planFile || ""),
+            planId: String(route.calls[0]?.params?.planId || route.plan?.planId || ""),
+            debugMode: params.debugMode === true,
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+        void this.runApiWorkflowOperation(operationId, route).catch(() => undefined);
+        return {
+            ok: true,
+            started: true,
+            operationId,
+            status: "waiting_confirmation",
+            confirmation: "vscode_modal",
+            plan: route.plan,
+            nextAction: "operations.list",
+            calls: [{ method: "operations.list", params: {} }],
+        };
+    }
+    async runApiWorkflowOperation(operationId, route) {
+        const finish = (patch = {}) => {
+            this.localOperations[operationId] = {
+                ...(this.localOperations[operationId] || {}),
+                operationId,
+                type: "workflow-run",
+                finishedAt: new Date().toISOString(),
+                ...patch,
+            };
+            this.markLocalOperationsDirty();
+            this.postState();
+        };
+        try {
+            this.localOperations[operationId] = {
+                ...(this.localOperations[operationId] || {}),
+                status: "running",
+                message: "正在执行标准 validate -> dry-run -> upload -> submit 路线。",
+            };
+            this.markLocalOperationsDirty();
+            this.postState();
+            await this.runActionCommand("runPlan", route.calls[0].params);
+            finish({ status: "succeeded", message: "实验已按标准路线提交。" });
+        }
+        catch (error) {
+            if (isUiCommandRemotePending(error)) {
+                const match = /operationId=([^\s；;]+)/.exec(errorMessage(error));
+                finish({
+                    status: "succeeded",
+                    message: errorMessage(error),
+                    remoteOperationId: match?.[1] || "",
+                });
+                return;
+            }
+            finish({
+                status: isUiCommandCancelled(error) ? "cancelled" : "failed",
+                error: errorMessage(error),
+                message: errorMessage(error),
+            });
+        }
     }
     async apiAdvanceFlow(step, patch) {
         this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, patch);
