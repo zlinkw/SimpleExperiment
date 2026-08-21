@@ -18,9 +18,9 @@
 - [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
 - [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
-- [进行中] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
+- [已完成] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
 
-## 当前批次：project-244（进行中）
+## 当前批次：project-244（已完成）
 ### 边界
 
 - SimpleExperiment `0.3.6` 新增统一 SSH transport identity 解析；显式别名、已保存 SSH host、Xshell 会话名和 OpenSSH config 精确匹配优先于字面 IP。
@@ -34,9 +34,9 @@
 
 ### 验证清单
 
-- [待验证] SimpleExperiment `npm test`、lint、`node -c`、`git diff --check`。
+- [已通过] SimpleExperiment `npm test` 1138/1138、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- 构建并安装 `simple-experiment-0.3.6.vsix`；提交后推送 `origin/master`。
+- [已通过] 本机 `ssh -G -- NWPU5` 解析到 `10.68.10.238`、`zlk` 和私钥；构建/安装 `simple-experiment-0.3.6.vsix`；推送 `baf41c6`，本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
