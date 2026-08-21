@@ -19,9 +19,9 @@
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
 - [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
 - [已完成] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
-- [进行中] 6/6 project-245：运行前强制验证结果输出接口，支持 wrapper、显式 adapter 调用和 TensorBoard scalar，并清理 dry-run 临时文件。
+- [已完成] 6/6 project-245：运行前强制验证结果输出接口，支持 wrapper、显式 adapter 调用和 TensorBoard scalar，并清理 dry-run 临时文件。
 
-## 当前批次：project-245（进行中）
+## 当前批次：project-245（已完成）
 ### 边界
 
 - SimpleExperiment `0.3.7` 在 Scheduler validate-plan / dry-run-plan 中用 Python AST 验证真实输出接口；仅声明 result_csv 不再足以运行。
@@ -35,9 +35,9 @@
 
 ### 验证清单
 
-- [待验证] SimpleExperiment `npm test`、lint、`node -c`、`git diff --check`。
+- [已通过] SimpleExperiment `npm test` 1142/1142、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- 构建并安装 `simple-experiment-0.3.7.vsix`；提交后推送 `origin/master`。
+- [已通过] 构建/安装 `simple-experiment-0.3.7.vsix`；推送 `edb6d28`，本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
