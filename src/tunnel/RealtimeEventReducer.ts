@@ -140,7 +140,7 @@ const resultTextNames = new Set([
 
 const resultRootPrefixes = [
   "experiments/results/", "results/", "outputs/", "runs/", "logs/", "test_results/", "lightning_logs/", "custom_results/",
-  "reports/", "artifacts/", "zlk_cluster/results/", "paper/tables/",
+  "reports/", "artifacts/", "simple_cluster/results/", "paper/tables/",
 ];
 
 const resultDirectorySegments = resultRootPrefixes.map((prefix) => `/${prefix}`);
@@ -344,7 +344,7 @@ function resultSummaryDirtyPlanFile(event: RealtimeEvent): string {
 
 function planFileFromResultPath(value: string): string {
   const normalized = normalizePlanPath(value);
-  const marker = "zlk_cluster/results/by_plan/";
+  const marker = "simple_cluster/results/by_plan/";
   const index = normalized.toLowerCase().indexOf(marker);
   if (index < 0) return "";
   const slug = (normalized.slice(index + marker.length).split("/")[0] || "").trim();

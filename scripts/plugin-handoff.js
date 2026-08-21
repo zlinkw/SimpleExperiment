@@ -7,8 +7,8 @@ const REQUIRED_EXTENSION_HOSTS = Object.freeze({
 });
 
 const REQUIRED_PATH_SETTINGS = Object.freeze({
-  clusterHostRoot: "zlkCluster.workspaceHostRoot",
-  clusterContainerRoot: "zlkCluster.workspaceContainerRoot",
+  clusterHostRoot: "simpleExperiment.workspaceHostRoot",
+  clusterContainerRoot: "simpleExperiment.workspaceContainerRoot",
   sftpHostRoot: "simpleSftp.workspaceHostRoot",
   sftpContainerRoot: "simpleSftp.workspaceContainerRoot",
 });

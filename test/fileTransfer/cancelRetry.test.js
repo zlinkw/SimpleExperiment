@@ -19,11 +19,11 @@ test("download retry succeeds after transient failure", async () => {
     res.end("ok");
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-retry-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-retry-"));
   const target = path.join(dir, "debug.zip");
   try {
     const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));
-    const task = await client.download("zlk_cluster/debug/debug.zip", target, { maxRetries: 1 });
+    const task = await client.download("simple_cluster/debug/debug.zip", target, { maxRetries: 1 });
     assert.equal(task.status, "completed");
     assert.equal(await fs.readFile(target, "utf8"), "ok");
     assert.equal(hits, 2);

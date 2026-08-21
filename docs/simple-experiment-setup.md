@@ -6,7 +6,7 @@
 
 从命令面板执行“接入当前项目”或“准备 Agent 并启动”时，如果尚未打开工作区，选择一个本地单项目文件夹后插件会等待工作区状态刷新并自动继续原流程，不需要再次点击命令。取消选择、仍未打开项目或选择多根工作区时会停止在当前步骤，不会写入项目文件、上传代码、部署 Agent 或提交实验。
 
-每个 VS Code 窗口只打开一个实验项目。多根工作区会在项目接入、Agent 路径写入、SFTP 上传和远端实验操作前被阻断；请把目标实验项目单独打开，避免上传目录、Plan 与项目状态指向不同文件夹。切换工作区目录后，插件会清空上一项目的 Plan、任务、结果、离线覆盖、同步和操作内存状态，并从新项目的 `zlk_cluster/ui/` 重新加载；Hub/Worker 与 Xshell 全局设置不会被清除，旧项目尚未完成的项目状态文件回读、检测、快照或实时回调不会写入新项目。
+每个 VS Code 窗口只打开一个实验项目。多根工作区会在项目接入、Agent 路径写入、SFTP 上传和远端实验操作前被阻断；请把目标实验项目单独打开，避免上传目录、Plan 与项目状态指向不同文件夹。切换工作区目录后，插件会清空上一项目的 Plan、任务、结果、离线覆盖、同步和操作内存状态，并从新项目的 `simple_cluster/ui/` 重新加载；Hub/Worker 与 Xshell 全局设置不会被清除，旧项目尚未完成的项目状态文件回读、检测、快照或实时回调不会写入新项目。
 
 ```text
 Xshell 会话 -> SimpleExperiment 服务器目录 -> SimpleSFTP 目标 -> 准备 Agent -> 运行 Plan
@@ -42,13 +42,13 @@ flowchart LR
 
 项目接入区的五个阶段按基础设施、Plan 与输出、Agent 连接、运行与监控、结果与归档显示当前 Plan 状态。第一个未完成阶段会标为当前步骤，后续阶段保持待处理样式；点击阶段卡可直接定位到对应区域，具体操作仍以“下一步”提示为准。
 
-安装 `SimpleSFTP` 与 `SimpleExperiment` 两个 VSIX。两者必须同时安装。推荐直接运行离线包中的 `install-public-release.ps1`：脚本会先安装并核验公开版，再移除旧的 `zlk-local.zlk-sftp-manager` 和 `zlk-local.zlk-cluster-orchestrator`，避免新旧插件同时注册相同命令或面板；不会卸载其它扩展，现有 `zlkCluster.*` 设置和项目内配置继续沿用。安装后先重载所有已打开的 VS Code 窗口，再开始配置。项目接入与首屏门禁会检查 SimpleSFTP 的 `uploadWorkspace`、`uploadFiles`、`configureIgnores` 编排 ABI；未安装、未启用或版本过旧时显示“待安装 SimpleSFTP”，并直接提供配置说明入口，不会在提交后才暴露上传命令缺失。
+安装 `SimpleSFTP` 与 `SimpleExperiment` 两个 VSIX。两者必须同时安装。推荐直接运行离线包中的 `install-public-release.ps1`：脚本会先安装并核验公开版，再移除旧的 `simple-local.simple-sftp-manager` 和 `simple-local.simple-experiment`，避免新旧插件同时注册相同命令或面板；不会卸载其它扩展，现有 `simpleExperiment.*` 设置和项目内配置继续沿用。安装后先重载所有已打开的 VS Code 窗口，再开始配置。项目接入与首屏门禁会检查 SimpleSFTP 的 `uploadWorkspace`、`uploadFiles`、`configureIgnores` 编排 ABI；未安装、未启用或版本过旧时显示“待安装 SimpleSFTP”，并直接提供配置说明入口，不会在提交后才暴露上传命令缺失。
 
-卸载旧版后，已经打开的 VS Code 窗口仍可能由旧 extension host 暂时保留 `ZLK` 状态栏按钮，同时显示新版 `SimpleSFTP` 按钮。此状态不代表旧版仍被安装，也不会生成两份任务；在命令面板执行 `Developer: Reload Window` 后，旧状态栏对象会释放。扩展列表应只保留 `simple-local.simple-sftp` 和 `simple-local.simple-experiment`。
+卸载旧版后，已经打开的 VS Code 窗口仍可能由旧 extension host 暂时保留旧私有版状态栏按钮，同时显示新版 `SimpleSFTP` 按钮。此状态不代表旧版仍被安装，也不会生成两份任务；在命令面板执行 `Developer: Reload Window` 后，旧状态栏对象会释放。扩展列表应只保留 `simple-local.simple-sftp` 和 `simple-local.simple-experiment`。多用户共用服务器时，把 `simpleExperiment.tunnel.remoteTmuxSessionPrefix` 设为稳定的用户名或短标识；该前缀用于 Agent 和任务 tmux 会话名，默认值为 `simple`。
 
 如果新版 SimpleSFTP 已可用但旧版扩展仍安装，SimpleExperiment 首次启动会单独提示旧版来源，并可直接打开旧版扩展管理；该提示不阻断新插件或已有任务。卸载旧版后重载窗口，界面只保留新版按钮。选择“不再提示”只关闭这条迁移提示，不会关闭运行、上传或路径确认门禁。
 
-SimpleExperiment 命令面板默认只显示新项目主流程和常用连接入口。旧自动隧道、单端点启动、实时流控制、诊断与离线恢复命令仍然存在，面板内原按钮和直接命令 ID 不变；需要从命令面板调用时，打开插件面板“设置 -> 高级命令 -> 打开命令设置”，再启用 `zlkCluster.showAdvancedCommands`。
+SimpleExperiment 命令面板默认只显示新项目主流程和常用连接入口。旧自动隧道、单端点启动、实时流控制、诊断与离线恢复命令仍然存在，面板内原按钮和直接命令 ID 不变；需要从命令面板调用时，打开插件面板“设置 -> 高级命令 -> 打开命令设置”，再启用 `simpleExperiment.showAdvancedCommands`。
 
 运行门禁、同步状态和发布流程会把 fingerprint 显示为“代码指纹”；未选择 Plan 时显示“需要选择计划”，悬停仍可查看原始 fingerprint。运行确认窗口同样显示“核验代码指纹”，不改变内部 fingerprint 字段。
 
@@ -65,7 +65,7 @@ SimpleExperiment 命令面板默认只显示新项目主流程和常用连接入
 | 项目 | 必填内容 |
 | --- | --- |
 | Xshell 会话 | 已保存 `.xsh` 会话，包含插件使用的本地端口转发 |
-| 项目父目录 | 服务器上用于存放多个项目的可写父目录，不要填写当前项目名或 `zlk_agent` |
+| 项目父目录 | 服务器上用于存放多个项目的可写父目录，不要填写当前项目名或 `simple_agent` |
 | 用户名和 SSH 端口 | 从 Xshell 会话读取；与服务器实际登录一致 |
 | 本地端口 | 不与其他 Xshell 隧道冲突 |
 
@@ -74,7 +74,7 @@ SimpleExperiment 命令面板默认只显示新项目主流程和常用连接入
 
 Hub 项目父目录：/remote/experiments
   - 代码上传到 /remote/experiments/my_project
-  - Agent runtime 位于 /remote/experiments/zlk_agent
+  - Agent runtime 位于 /remote/experiments/simple_agent
 
 Worker 项目父目录：/remote/experiments
   - 代码上传到 /remote/experiments/my_project
@@ -100,7 +100,7 @@ Worker 项目父目录：/remote/experiments
 
 “项目关键入口”的“环境”行会同时显示 Hub/Worker 使用的 Conda 环境和项目依赖清单，可直接打开 `environment.yml`、`requirements*.txt`、`pyproject.toml`、Pip/Poetry/uv 锁文件或 `requirements/` 子目录清单。缺少依赖清单不会阻止使用服务器上已有的 Conda 环境，但首次运行前应确认该环境已安装项目所需依赖。
 
-“项目关键入口”的“结果位置”优先显示当前选中 Plan 声明的可解析输出，其次显示 `experiments/zlk_project.yaml` 接入规则或已经发现的真实结果文件；不会在没有证据时用通用 `metrics_summary.csv` 占位。当前 Plan 已完整声明输出时，“接入”行会明确显示无需额外模板。首次运行尚无结果文件是正常状态，不会被误显示为必须先完成结果预览。
+“项目关键入口”的“结果位置”优先显示当前选中 Plan 声明的可解析输出，其次显示 `experiments/simple_project.yaml` 接入规则或已经发现的真实结果文件；不会在没有证据时用通用 `metrics_summary.csv` 占位。当前 Plan 已完整声明输出时，“接入”行会明确显示无需额外模板。首次运行尚无结果文件是正常状态，不会被误显示为必须先完成结果预览。
 
 项目配置识别同时覆盖 `configs/`、`config/`、`conf/`、`cfg/`、`experiments/configs/`、`experiments/config/` 和根目录常见 `config.*`、`hparams.*`、`params.*`、`settings.*`。生成 Plan 与项目关键入口使用同一组候选和首跑优先级，不再因为项目未采用 `configs/` 目录名而要求手动输入已经存在的配置。
 
@@ -129,13 +129,13 @@ flowchart TD
 
 首次配置使用“准备 Agent 并启动”，一次完成受管自启动命令、runtime 部署、Xshell 启动和连接检测；一键配置会先确认 Hub/Worker 均有 `.xsh` 会话和实际工作目录，并至少存在一个启用 Worker。准备 Agent 前必须打开要运行实验的本地项目，插件不会把 Agent 部署到通用占位项目目录；检测通过后可直接点击“快速接入当前项目”。明确选择“仅保存 Hub”时只保存 Hub 与 SimpleSFTP 目标，不会误导为可提交实验。独立的部署、写入、启动和检测按钮用于故障恢复。“启动连接”本身只打开已有 Xshell 会话。Hub 负责控制与调度，正式实验至少需要一个已启用的 Worker；仅配置 Hub 时仍可管理 Plan，但运行、复现和运行全部计划会在上传前阻断，并引导到“设置 > 服务器”添加 Worker。“快速接入”会沿用当前明确选中的 Plan；检测到多个 Plan 且尚未选择时会先要求选择本次目标，不会默认使用列表第一项。切换目标且 Agent 连接就绪后会立即请求新 Plan 的结果摘要；返回前不会显示上一 Plan 的结果、质量门禁、统计、论文证据或 PPT 契约。接入完成后会即时检测端点，并按结果输出门禁、服务器配置、Worker 和 Agent 的真实状态只给出一个下一步；仅当全部通过时才显示“校验并提交运行”。快速接入不会无条件打开 Plan；新生成的接入说明会保持可见，只有用户选择“打开当前 Plan”或“打开接入配置”时才切换编辑器。从该流程进入服务器配置或 Agent 准备时，检测通过后会继续提供“校验并提交运行”，无需返回面板重新寻找入口。单 Plan 确认框会列出 Plan、模式、任务数、基础配置和 Worker；批量运行会先完成本地输出门禁和配置检查，再用强制确认窗口列出计划总数、已知任务总数、Worker 及各 Plan 的模式和配置。确认后插件才同步 Hub 和 Worker，再校验、预演并提交后台调度；取消不会上传代码或执行远端预演，任一批量 Plan 未通过时整批停止提交，不必把手动上传当作首跑必经步骤。“单独校验”和“单独预演”保留给需要提前核对门禁的场景；校验或预演失败时，“下一步”会切换成对应的重新执行动作。工作台会显示最近校验任务数、预演可调度数、排队数和失败原因。提交后直接在“任务”页监控，不会提前解析旧结果；最后一个任务进入完成、失败、取消或停止终态后，Hub 会按该次 operation 的 `planFile` 自动检查输出契约并生成完整预览结果。多 Plan 同时运行时各自写入独立结果目录，不会因当前 UI 选择而串 Plan。完整预览先用于人工对比并选择归档；质量门禁只检查已归档结果，随后插件才提示生成最终统计、论文证据、论文表与 PPT 数据。未归档记录保留在完整预览中，不进入后续分析。复现实验和运行全部计划也会再次检查服务器目录、配置文件与结果输出门禁，并重新校验和预演后才提交。
 
-多 Plan 项目按当前 Plan 单独检查输出契约；其他 Plan 的结果路径只参与本地文件发现，不会错误放行当前 Plan。明确保存的 `experiments/zlk_project.yaml` 候选，以及由项目代码、配置或工厂模式证据推断出的通用候选，才作为项目级共享规则。
+多 Plan 项目按当前 Plan 单独检查输出契约；其他 Plan 的结果路径只参与本地文件发现，不会错误放行当前 Plan。明确保存的 `experiments/simple_project.yaml` 候选，以及由项目代码、配置或工厂模式证据推断出的通用候选，才作为项目级共享规则。
 
 本地“结果解析预览”只显示与当前 Plan 模板或项目级共享规则匹配的文件，并显示已隐藏的其他 Plan 候选数量。运行工作台的预览计数与输出门禁使用同一作用域，切换 Plan 后不会沿用上一 Plan 的本地预览数量。
 
 结果工作台将数据集、检查点、统计、论文表格和样本级分析入口显示为中文；悬停信息仍保留原始字段名，方便兼容排查。
 
-运行结束但输出契约缺少文件时，“项目关键入口”会列出具体缺失文件。尚无 `experiments/zlk_project.yaml` 时生成接入模板；已有接入配置时只打开现有配置，不重复覆盖模板。修改接入配置或项目输出后，可直接用同一行的“修复后重新运行”重新同步、校验、预演并提交当前 Plan。
+运行结束但输出契约缺少文件时，“项目关键入口”会列出具体缺失文件。尚无 `experiments/simple_project.yaml` 时生成接入模板；已有接入配置时只打开现有配置，不重复覆盖模板。修改接入配置或项目输出后，可直接用同一行的“修复后重新运行”重新同步、校验、预演并提交当前 Plan。
 
 同一 Plan 已有未结束的提交操作或排队、运行、测试任务时，运行按钮会改为任务或操作进度入口。后端也会在确认、上传和预演前阻止重复提交；批量运行发现任一活跃 Plan 时整批停止，避免同一配置重复占用 GPU。概览会显示真实进行中、失败、成功终态及最近 operation 状态，不再用静态说明代替运行进度。
 
@@ -151,23 +151,23 @@ VS Code 重载或 operation 缓存暂时缺失时，插件会继续读取当前 
 
 单 Plan 提交后，任务页默认聚焦当前 Plan revision。若调度状态尚未返回，会显示等待提示；可随时切换“全部任务”查看历史实验。运行全部计划提交后默认显示全部任务，停止、重试、解析、归档和删除入口保持不变。`failed`、`error`、`stalled`、`stopped`、`cancelled` 和 `canceled` 都按异常终态处理：保留在重点列表、显示失败样式、自动展开最终日志并允许重试；已经产生部分结果时仍可解析和归档，由用户决定是否纳入有效结果。Plan 归档也使用相同终态判断，不会把已经停滞或取消的任务误认为仍在运行。当前 Plan revision 的已知任务全部进入终态后，任务页会给出明确下一步：已有解析结果时显示结果数量并进入结果页；存在异常终态时直接提供“打开失败日志”，查看后再按需重试或保留部分结果；全部完成但结果尚未返回时进入结果页等待自动检查输出并解析。
 
-运行前输出门禁未通过时，快速接入提示、Plan 工作台和项目门禁使用同一修复逻辑：已有接入配置就打开 `experiments/zlk_project.yaml`，没有时才生成模板；Plan 本身缺少结果路径时仍保留“打开 Plan”。
+运行前输出门禁未通过时，快速接入提示、Plan 工作台和项目门禁使用同一修复逻辑：已有接入配置就打开 `experiments/simple_project.yaml`，没有时才生成模板；Plan 本身缺少结果路径时仍保留“打开 Plan”。
 
 已有运行结果但输出契约异常时，Plan 工作台会同步显示“待检查”“检查中”“运行缺失”或“待重新解析”，并使用与项目入口相同的检查契约、查看进度、打开接入配置、修复后重跑或重新解析操作，不再同时显示普通运行入口。
 
 新建或修改研究项目前，先阅读 [plugin-project-contract.md](plugin-project-contract.md)。它定义工作区结构、Plan/config、输出接口、标准结果 schema、快照文件、Xshell/SFTP 路径边界、Debug 隔离和 API 使用的硬性要求。
 
-运行前有两级检查。Extension 先检查输出声明；Scheduler 在 validate-plan 和 dry-run-plan 中用 Python AST 验证真实接口：优先使用 `experiments/zlk_adapter/run_wrapper.py` 包裹命令；直接入口必须显式调用 `collect_outputs(...)` 或 `write_metrics_summary(...)`；也可改用 TensorBoard SummaryWriter，但远端需安装 `tensorboard`，任务结束后会自动把最终 scalar 转成标准 CSV。只写 `result_csv` 或 `output_dir` 不代表代码真的会输出结果。运行后的契约检查仍会实际解析 CSV、JSON、TXT、LOG、OUT，并要求至少一个数值指标和 `env_snapshot.json` / `config_snapshot.yaml`。Dry-run 只清理精确命名的 runtime worker 临时文件，不扫描或删除其他路径。
+运行前有两级检查。Extension 先检查输出声明；Scheduler 在 validate-plan 和 dry-run-plan 中用 Python AST 验证真实接口：优先使用 `experiments/simple_adapter/run_wrapper.py` 包裹命令；直接入口必须显式调用 `collect_outputs(...)` 或 `write_metrics_summary(...)`；也可改用 TensorBoard SummaryWriter，但远端需安装 `tensorboard`，任务结束后会自动把最终 scalar 转成标准 CSV。只写 `result_csv` 或 `output_dir` 不代表代码真的会输出结果。运行后的契约检查仍会实际解析 CSV、JSON、TXT、LOG、OUT，并要求至少一个数值指标和 `env_snapshot.json` / `config_snapshot.yaml`。Dry-run 只清理精确命名的 runtime worker 临时文件，不扫描或删除其他路径。
 
-“不可解析”文件会逐项显示文件名与 Agent 返回的真实解析原因，并在同一行提供“查看文件”入口。入口仅允许当前 Plan 最近输出契约检查返回的项目内 CSV、JSON、TXT、LOG 或 OUT 文件。点击后会先显示当前 Plan、远端来源、项目内本地副本位置和 5 MB 上限；确认后通过 Hub 的 Xshell 本地隧道下载到 `zlk_cluster/downloads/result_inspection/` 并打开，只读查看不会修改远端文件，也不会调用 SFTP。
+“不可解析”文件会逐项显示文件名与 Agent 返回的真实解析原因，并在同一行提供“查看文件”入口。入口仅允许当前 Plan 最近输出契约检查返回的项目内 CSV、JSON、TXT、LOG 或 OUT 文件。点击后会先显示当前 Plan、远端来源、项目内本地副本位置和 5 MB 上限；确认后通过 Hub 的 Xshell 本地隧道下载到 `simple_cluster/downloads/result_inspection/` 并打开，只读查看不会修改远端文件，也不会调用 SFTP。
 
 结果页会监听当前 Plan 和 operation 变化。输出契约检查、异常诊断、恢复 Plan、Case 级解析或绘图契约进入终态后，对应报告和 PPT 按钮会立即刷新；切换 Plan 后不会因为结果页分区缓存仍显示上一 Plan 的检查状态或分析文件。
 
-PPT 绘图入口只在当前 Plan 的结果摘要或成功操作已经返回真实分析文件路径后启用。未生成统计、论文表格、绘图契约、case level、异常报告或恢复报告时，对应按钮会保持禁用，不会尝试固定占位路径；切换 Plan 后也不会复用上一 Plan 的文件。目标 PPT 路径只保存在当前项目的 `zlk_cluster/ui/ppt_plot_config.json`；新项目不会继承应用级路径或旧项目路径，留空时由 PPT 插件新建演示文稿。调用 PPT 插件前会显示强制确认窗口，列出当前 Plan/revision、最终结果源、绘图契约、完整目标 PPT、本地请求审计目录、图类型和样式。执行绘图请求时会在 `zlk_cluster/results/ppt_plot_requests/` 写入轻量 JSON 请求和响应审计；提交通知可直接打开当前项目内的请求审计或响应审计文件。取消不会调用 PPT automation、写请求审计或显示已提交。选择“不再提醒”只对当前项目中完全相同的 PPT 目标生效，路径变化后会重新询问；记录保存在 `zlk_cluster/ui/ppt_path_confirmations.json`，可在“设置 -> 服务器 -> PPT 路径提醒”中恢复，不会修改 PPT、结果或绘图配置。
+PPT 绘图入口只在当前 Plan 的结果摘要或成功操作已经返回真实分析文件路径后启用。未生成统计、论文表格、绘图契约、case level、异常报告或恢复报告时，对应按钮会保持禁用，不会尝试固定占位路径；切换 Plan 后也不会复用上一 Plan 的文件。目标 PPT 路径只保存在当前项目的 `simple_cluster/ui/ppt_plot_config.json`；新项目不会继承应用级路径或旧项目路径，留空时由 PPT 插件新建演示文稿。调用 PPT 插件前会显示强制确认窗口，列出当前 Plan/revision、最终结果源、绘图契约、完整目标 PPT、本地请求审计目录、图类型和样式。执行绘图请求时会在 `simple_cluster/results/ppt_plot_requests/` 写入轻量 JSON 请求和响应审计；提交通知可直接打开当前项目内的请求审计或响应审计文件。取消不会调用 PPT automation、写请求审计或显示已提交。选择“不再提醒”只对当前项目中完全相同的 PPT 目标生效，路径变化后会重新询问；记录保存在 `simple_cluster/ui/ppt_path_confirmations.json`，可在“设置 -> 服务器 -> PPT 路径提醒”中恢复，不会修改 PPT、结果或绘图配置。
 
 完成结果归档后，“下一步”会依次引导质量门禁、统计、论文证据、论文表格、绘图契约和 PPT。发现缺证据 claim 时会打开 `paper/claims.md`，而不是重复检查同一份未修改内容；保存修正后点击“检查论文证据”，所有证据通过后才继续导出论文表格与绘图契约。旧版或离线导入的混合摘要缺少可靠顶层 `planFile` 时，切换 Plan 只保留带当前 Plan 标记的结果行并重新计算数量；原摘要中的 CSV 与分析产物路径不会继续显示，必须重新解析当前 Plan，避免把其他 Plan 的质量门禁、统计、claim、论文表或 PPT 状态当作当前结果。
 
-SimpleExperiment 发起项目代码、Agent runtime 等任何 SFTP 上传前，都会先显示不可绕过的强制路径确认窗口。窗口逐个列出服务器账号、完整预期远端目录、预期远端文件位置和文件总数；Agent 准备及独立写入自启动命令的最终强确认窗口还会列出每个本地 `.xsh`、固定 `.zlk-backup` 备份、runtime 远端文件与 Agent 项目工作目录。即使远端路径已经选择过“不再提醒”，最终操作确认仍显示这些预期文件位置。操作前可先在“设置 -> 服务器”核对每台服务器的“当前项目代码”和“Agent runtime”完整位置；编辑“实际工作目录”时会实时显示最终展开位置并标记“未保存预览”，只有点击保存服务器后才会用于上传和 Agent 启动。没有工作区时只显示可确定的 runtime，必须先打开目标本地项目后才显示代码上传位置，不会把 VS Code 或扩展进程目录误当成项目名。实际工作目录应填写项目父目录；末级与当前项目名相同时会显示重复目录警告并要求再次确认，警告窗口可一键改为上一级父目录，也可仍按当前目录使用；包含 `zlk_agent` 会被阻止。向导、设置保存、共享 SFTP 配置、Agent 自启动和上传前共用这些规则。“项目关键入口”的“上传位置”会提供当前项目摘要。选择“确认位置并继续”只放行本次操作；选择“确认，此后不再提醒该路径/这些路径”会把服务器账号和完整路径记录在当前项目的 `zlk_cluster/ui/remote_path_confirmations.json`。只有当前项目、服务器、账号、端口和全部关联路径完全一致时才跳过后续询问，任一路径变化都会重新确认。需要再次核对时，进入“设置 -> 服务器”，在“上传路径提醒”中点击“恢复提醒”；只会删除当前项目的免提醒记录，不修改服务器配置、SimpleSFTP 配置或远端文件。上述上传和忽略规则操作确认前不会更新对应 SimpleSFTP 共享目标、修改 `.xsh` 或显示上传已开始；取消窗口不会上传远端文件，也不会留下运行中状态。配置 SFTP 忽略规则也通过同一路径门禁，避免规则作用到错误目录。
+SimpleExperiment 发起项目代码、Agent runtime 等任何 SFTP 上传前，都会先显示不可绕过的强制路径确认窗口。窗口逐个列出服务器账号、完整预期远端目录、预期远端文件位置和文件总数；Agent 准备及独立写入自启动命令的最终强确认窗口还会列出每个本地 `.xsh`、固定 `.simple-backup` 备份、runtime 远端文件与 Agent 项目工作目录。即使远端路径已经选择过“不再提醒”，最终操作确认仍显示这些预期文件位置。操作前可先在“设置 -> 服务器”核对每台服务器的“当前项目代码”和“Agent runtime”完整位置；编辑“实际工作目录”时会实时显示最终展开位置并标记“未保存预览”，只有点击保存服务器后才会用于上传和 Agent 启动。没有工作区时只显示可确定的 runtime，必须先打开目标本地项目后才显示代码上传位置，不会把 VS Code 或扩展进程目录误当成项目名。实际工作目录应填写项目父目录；末级与当前项目名相同时会显示重复目录警告并要求再次确认，警告窗口可一键改为上一级父目录，也可仍按当前目录使用；包含 `simple_agent` 会被阻止。向导、设置保存、共享 SFTP 配置、Agent 自启动和上传前共用这些规则。“项目关键入口”的“上传位置”会提供当前项目摘要。选择“确认位置并继续”只放行本次操作；选择“确认，此后不再提醒该路径/这些路径”会把服务器账号和完整路径记录在当前项目的 `simple_cluster/ui/remote_path_confirmations.json`。只有当前项目、服务器、账号、端口和全部关联路径完全一致时才跳过后续询问，任一路径变化都会重新确认。需要再次核对时，进入“设置 -> 服务器”，在“上传路径提醒”中点击“恢复提醒”；只会删除当前项目的免提醒记录，不修改服务器配置、SimpleSFTP 配置或远端文件。上述上传和忽略规则操作确认前不会更新对应 SimpleSFTP 共享目标、修改 `.xsh` 或显示上传已开始；取消窗口不会上传远端文件，也不会留下运行中状态。配置 SFTP 忽略规则也通过同一路径门禁，避免规则作用到错误目录。
 
 ## 6. 结果与归档
 

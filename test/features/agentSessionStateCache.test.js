@@ -45,7 +45,7 @@ function loadSubject() {
       currentPortConflicts() { return this.portConflicts; }
       projectTopologyAssessment() { return { mode: this.topologyMode, hubAllowed: this.topologyMode === "hub_worker" }; }
       agentRuntimeDirs(root) {
-        return root ? { workRoot: root, installDir: root + "/zlk_agent", workDir: root + "/demo", projectName: "demo" } : { projectName: "demo" };
+        return root ? { workRoot: root, installDir: root + "/simple_agent", workDir: root + "/demo", projectName: "demo" } : { projectName: "demo" };
       }
       agentStartupTargets() { this.startupCalls += 1; return this.setupConfig.savedSessionPath ? [{ id: "hub" }] : []; }
       currentAgentPreparationBlockers() { this.blockerCalls += 1; return this.blockers || []; }

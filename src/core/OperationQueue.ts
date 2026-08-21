@@ -1,4 +1,4 @@
-import { normalizeZlkError, ZlkError } from "./ErrorModel";
+import { normalizeSimpleError, SimpleError } from "./ErrorModel";
 
 export type OperationPriority = "user_blocking" | "manual" | "background" | "realtime";
 export type OperationStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timeout" | "coalesced";
@@ -26,7 +26,7 @@ export interface QueuedOperationRecord {
   targetServers: string[];
   targetKeys: string[];
   exclusiveKeys: string[];
-  error?: ZlkError;
+  error?: SimpleError;
 }
 
 const priorityRank: Record<OperationPriority, number> = {
@@ -140,7 +140,7 @@ export class OperationQueue {
     } catch (error) {
       const status: OperationStatus = execution.timedOut ? "timeout" : execution.cancelled ? "cancelled" : "failed";
       const patch: Partial<QueuedOperationRecord> = { finishedAt: new Date().toISOString() };
-      if (status !== "cancelled") patch.error = normalizeZlkError(error);
+      if (status !== "cancelled") patch.error = normalizeSimpleError(error);
       this.update(item.spec.id, status, patch);
       item.reject(error);
     } finally {

@@ -26,7 +26,7 @@ test("settings show computed code and Agent runtime destinations for every serve
   assert.match(panel, /function renderServerDestinationPreview\(agentState, scope\)/);
   assert.match(panel, /当前项目代码/);
   assert.match(panel, /Agent runtime/);
-  assert.match(panel, /installDir \+ "\/zlk_cluster\/runtime"/);
+  assert.match(panel, /installDir \+ "\/simple_cluster\/runtime"/);
   assert.match(panel, /renderServerDestinationPreview\(hubAgent, "hub"\)/);
   assert.match(panel, /renderServerDestinationPreview\(workerAgent, scope\)/);
   assert.match(panel, /\.serverDestinationPreview code/);
@@ -45,11 +45,11 @@ test("editing a project parent root updates unsaved destination preview without 
   assert.match(panel, /function remoteDestinationParentRoot\(value\)/);
   assert.match(panel, /input\.dataset\.key !== "agentProjectDir"/);
   assert.match(panel, /root \+ "\/" \+ projectName/);
-  assert.match(panel, /root \+ "\/zlk_agent\/zlk_cluster\/runtime"/);
+  assert.match(panel, /root \+ "\/simple_agent\/simple_cluster\/runtime"/);
   assert.match(panel, /未保存预览；点击保存服务器后生效/);
   assert.match(panel, /上传和 Agent 启动仍使用已保存配置/);
   assert.match(panel, /路径末级与项目名相同；[\s\S]{0,120}否则项目名会重复/);
-  assert.match(panel, /不要填写 zlk_agent；请填写它的父目录/);
+  assert.match(panel, /不要填写 simple_agent；请填写它的父目录/);
   assert.match(panel, /classList\.toggle\("error", Boolean\(issue\)\)/);
   assert.ok([...panel.matchAll(/updateServerDestinationPreview\(input\)/g)].length >= 4);
 

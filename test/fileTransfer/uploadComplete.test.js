@@ -20,7 +20,7 @@ test("upload complete rejects sha256 mismatch", async () => {
     });
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-complete-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-complete-"));
   const local = path.join(dir, "preset.json");
   await fs.writeFile(local, "abc");
   try {

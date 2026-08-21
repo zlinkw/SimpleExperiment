@@ -12,13 +12,13 @@ function command(command) {
 }
 
 test("command palette exposes the three primary new-project entry points", () => {
-  assert.equal(command("zlkCluster.quickSetup").title, "SimpleExperiment：一键配置向导");
-  assert.equal(command("zlkCluster.bootstrapProject").title, "SimpleExperiment：接入当前项目");
-  assert.equal(command("zlkCluster.prepareAgents").title, "SimpleExperiment：准备 Agent 并启动");
-  assert.ok(packageJson.activationEvents.includes("onCommand:zlkCluster.bootstrapProject"));
-  assert.ok(packageJson.activationEvents.includes("onCommand:zlkCluster.prepareAgents"));
-  assert.match(extension, /hostCommand\("zlkCluster\.bootstrapProject", "bootstrap-project", "接入当前项目", \(\) => provider\?\.bootstrapProjectFromUi\(\)\)/);
-  assert.match(extension, /hostCommand\("zlkCluster\.prepareAgents", "prepare-agents", "准备 Agent 并启动", \(\) => provider\?\.prepareAgentsForFirstRun\(\)\)/);
+  assert.equal(command("simpleExperiment.quickSetup").title, "SimpleExperiment：一键配置向导");
+  assert.equal(command("simpleExperiment.bootstrapProject").title, "SimpleExperiment：接入当前项目");
+  assert.equal(command("simpleExperiment.prepareAgents").title, "SimpleExperiment：准备 Agent 并启动");
+  assert.ok(packageJson.activationEvents.includes("onCommand:simpleExperiment.bootstrapProject"));
+  assert.ok(packageJson.activationEvents.includes("onCommand:simpleExperiment.prepareAgents"));
+  assert.match(extension, /hostCommand\("simpleExperiment\.bootstrapProject", "bootstrap-project", "接入当前项目", \(\) => provider\?\.bootstrapProjectFromUi\(\)\)/);
+  assert.match(extension, /hostCommand\("simpleExperiment\.prepareAgents", "prepare-agents", "准备 Agent 并启动", \(\) => provider\?\.prepareAgentsForFirstRun\(\)\)/);
   const bootstrapStart = extension.indexOf("async bootstrapProjectFromUi()");
   const bootstrapEnd = extension.indexOf("async generateOutputAdapterFromUi()", bootstrapStart);
   const bootstrap = extension.slice(bootstrapStart, bootstrapEnd);
@@ -40,7 +40,7 @@ test("command palette exposes the three primary new-project entry points", () =>
 });
 
 test("connection command keeps literal semantics in package metadata", () => {
-  assert.equal(command("zlkCluster.startAllXshellConnections").title, "SimpleExperiment：启动全部 Xshell 连接");
+  assert.equal(command("simpleExperiment.startAllXshellConnections").title, "SimpleExperiment：启动全部 Xshell 连接");
   assert.doesNotMatch(JSON.stringify(packageJson), /一键启动隧道和 Agent/);
 });
 

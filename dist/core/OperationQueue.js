@@ -105,7 +105,7 @@ class OperationQueue {
             const status = execution.timedOut ? "timeout" : execution.cancelled ? "cancelled" : "failed";
             const patch = { finishedAt: new Date().toISOString() };
             if (status !== "cancelled")
-                patch.error = (0, ErrorModel_1.normalizeZlkError)(error);
+                patch.error = (0, ErrorModel_1.normalizeSimpleError)(error);
             this.update(item.spec.id, status, patch);
             item.reject(error);
         }

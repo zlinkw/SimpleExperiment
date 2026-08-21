@@ -8,14 +8,14 @@ const path = require("node:path");
 const { XshellIntegration } = require("../../dist/tunnel/XshellTunnelIntegration.js");
 
 test("xshell integration check produces layered report", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-real-check-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-real-check-"));
   const exe = path.join(dir, "Xshell.exe");
   await fs.writeFile(exe, "");
   const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/api/health") return res.end(JSON.stringify({ schemaVersion: 1, agentVersion: "0.2.0", apiVersion: "1", mode: "realtime", startedAt: "x", serverTime: "x", uptimeSeconds: 1, projectRoot: "p", status: "ok" }));
     if (req.url === "/api/capabilities") return res.end(JSON.stringify({ schemaVersion: 1, apiVersion: "1", agentVersion: "0.2.0", endpoints: { health: true, snapshot: true, websocketEvents: false, sseEvents: true, logsTail: true, fileList: true, fileDownload: true, fileRangeDownload: true, fileUploadChunk: true, fileTransferStatus: true, actions: true }, limits: { maxUploadChunkBytes: 1024, maxConcurrentTransfers: 1 }, auth: { required: false, scheme: "none" } }));
-    if (req.url === "/api/files/capabilities") return res.end(JSON.stringify({ schemaVersion: 1, rootPolicy: "project_root_only", supportsList: true, supportsStat: true, supportsDownload: true, supportsRangeDownload: true, supportsUploadChunk: true, supportsSha256: true, supportsResume: true, maxUploadChunkBytes: 1024, safeRoots: ["zlk_cluster"] }));
+    if (req.url === "/api/files/capabilities") return res.end(JSON.stringify({ schemaVersion: 1, rootPolicy: "project_root_only", supportsList: true, supportsStat: true, supportsDownload: true, supportsRangeDownload: true, supportsUploadChunk: true, supportsSha256: true, supportsResume: true, maxUploadChunkBytes: 1024, safeRoots: ["simple_cluster"] }));
     res.statusCode = 404;
     res.end("{}");
   });
@@ -23,7 +23,7 @@ test("xshell integration check produces layered report", async () => {
   const config = {
     xshellExePath: exe,
     hubHost: "hub",
-    hubUser: "zlk",
+    hubUser: "simple",
     hubSshPort: 22,
     localForwardHost: "127.0.0.1",
     localForwardPort: server.address().port,

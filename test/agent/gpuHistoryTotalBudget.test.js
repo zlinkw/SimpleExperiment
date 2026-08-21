@@ -66,7 +66,7 @@ print(json.dumps({
 });
 
 test("recorded history survives a round trip through the compact writer", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-gpu-history-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-gpu-history-"));
   const script = String.raw`
 import importlib.util, json, os
 

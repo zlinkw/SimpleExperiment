@@ -72,7 +72,7 @@ const ROOT_RESULT_FILES: ReadonlySet<string> = new Set([
 ]);
 
 const ALLOWED_REMOTE_PATH_ROOTS: ReadonlySet<string> = new Set([
-  "zlk_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results",
+  "simple_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results",
   "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions",
 ]);
 

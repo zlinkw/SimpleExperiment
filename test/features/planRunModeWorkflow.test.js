@@ -128,14 +128,14 @@ test("Hub output gate and Worker retry derive the same Plan mode", () => {
 test("scheduler derives train-only and test-only execution from Plan", () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-plan-mode-"));
   fs.mkdirSync(path.join(project, "configs"), { recursive: true });
-  fs.mkdirSync(path.join(project, "experiments", "zlk_adapter"), { recursive: true });
+  fs.mkdirSync(path.join(project, "experiments", "simple_adapter"), { recursive: true });
   fs.mkdirSync(path.join(project, "experiments", "plans"), { recursive: true });
   fs.writeFileSync(path.join(project, "configs", "base.yaml"), "{}\n", "utf8");
-  fs.writeFileSync(path.join(project, "experiments", "zlk_project.yaml"), [
+  fs.writeFileSync(path.join(project, "experiments", "simple_project.yaml"), [
     "adapter:",
-    "  runWrapper: experiments/zlk_adapter/run_wrapper.py",
+    "  runWrapper: experiments/simple_adapter/run_wrapper.py",
   ].join("\n"), "utf8");
-  fs.writeFileSync(path.join(project, "experiments", "zlk_adapter", "run_wrapper.py"), [
+  fs.writeFileSync(path.join(project, "experiments", "simple_adapter", "run_wrapper.py"), [
     "import argparse",
     "import json",
     "import subprocess",

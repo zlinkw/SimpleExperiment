@@ -1,4 +1,4 @@
-# ZLK 输出到 PPT 绘图插件的稳定契约
+# SimpleExperiment 输出到 PPT 绘图插件的稳定契约
 
 目标消费端：`D:\GitRepo\my_ppt_app`
 
@@ -28,7 +28,7 @@
 
 ### Result Registry
 
-路径：`zlk_cluster/results/result_registry.json`
+路径：`simple_cluster/results/result_registry.json`
 
 用途：实验结果注册表，用于发现所有可绘图实验。
 
@@ -36,7 +36,7 @@
 
 ### Statistics
 
-路径：`zlk_cluster/results/statistics.json`
+路径：`simple_cluster/results/statistics.json`
 
 用途：聚合统计，用于绘制均值、标准差、置信区间和显著性标注。
 
@@ -44,7 +44,7 @@
 
 ### Paper Table
 
-路径：`paper/tables/zlk_results_table.csv`
+路径：`paper/tables/simple_results_table.csv`
 
 用途：论文表格 CSV，可直接生成表格图或柱状图。
 
@@ -52,7 +52,7 @@
 
 ### Case Level
 
-路径：`zlk_cluster/results/case_level_index.json`
+路径：`simple_cluster/results/case_level_index.json`
 
 用途：病例或样本级结果，用于错误案例、子组图和泄漏检查图。
 
@@ -60,7 +60,7 @@
 
 ### Dataset Profile
 
-路径：`zlk_cluster/datasets/profile.json`
+路径：`simple_cluster/datasets/profile.json`
 
 用途：轻量数据集画像，用于类别分布、split 分布和泄漏摘要图。
 

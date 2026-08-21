@@ -47,6 +47,7 @@ export interface XshellWorkerTunnelConfig {
 export interface XshellRealtimeTunnelConfig {
   xshellExePath: string;
   hubDisplayName?: string;
+  remoteTmuxSessionPrefix: string;
   hubHost: string;
   hubUser: string;
   hubSshPort: number;
@@ -93,6 +94,7 @@ export type XshellTunnelSetupConfig = XshellRealtimeTunnelConfig;
 
 export const defaultXshellTunnelSetupConfig: XshellTunnelSetupConfig = {
   xshellExePath: "",
+  remoteTmuxSessionPrefix: "simple",
   hubHost: "",
   hubUser: "",
   hubSshPort: 22,
@@ -135,6 +137,7 @@ export function normalizeXshellSetupConfig(input: Partial<XshellTunnelSetupConfi
     ...defaultXshellTunnelSetupConfig,
     xshellExePath,
     hubDisplayName: input.hubDisplayName?.trim() || undefined,
+    remoteTmuxSessionPrefix: normalizeRemoteTmuxSessionPrefix(input.remoteTmuxSessionPrefix),
     hubHost: input.hubHost || "",
     hubUser: input.hubUser || "",
     transferHost: input.transferHost?.trim() || undefined,
@@ -278,6 +281,11 @@ export function publicXshellSetupSummary(config: XshellTunnelSetupConfig): Recor
 
 function basename(value: string): string {
   return value.replace(/\\/g, "/").split("/").pop() || value;
+}
+
+function normalizeRemoteTmuxSessionPrefix(value: unknown): string {
+  const prefix = String(value ?? "simple").trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix) ? prefix : "simple";
 }
 
 function normalizeSshPort(value: unknown, fallback: number): number {

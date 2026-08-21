@@ -18,7 +18,7 @@ test("xshell launcher builds visible local forwarding command with custom ports"
   const config = normalizeXshellSetupConfig({
     xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "hub.example.edu",
-    hubUser: "zlk",
+    hubUser: "simple",
     hubSshPort: 2222,
     localForwardPort: 20001,
     remoteAgentPort: 20002,
@@ -34,7 +34,7 @@ test("xshell launcher builds visible local forwarding command with custom ports"
 });
 
 test("xshell executable validation only accepts Xshell.exe files", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-xshell-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-xshell-"));
   const exe = path.join(dir, "Xshell.exe");
   const other = path.join(dir, "other.exe");
   await fs.writeFile(exe, "");

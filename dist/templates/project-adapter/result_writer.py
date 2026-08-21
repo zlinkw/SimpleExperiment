@@ -62,10 +62,10 @@ METADATA_COLUMNS = {
 LOWER_IS_BETTER_METRICS = {"loss", "log_loss", "cross_entropy", "ce_loss", "asd", "hd95", "mae", "mse", "rmse", "error", "ece", "brier", "brier_score", "fpr", "fnr"}
 # 常见别名示例：val_auc、test_acc、best_f1、train_loss、macro_auc 会自动归一到分类指标。
 
-def load_zlk_project_context(project_root=None):
-    """读取 experiments/zlk_project.yaml 中的轻量结果捕获配置；不依赖 PyYAML。"""
+def load_simple_project_context(project_root=None):
+    """读取 experiments/simple_project.yaml 中的轻量结果捕获配置；不依赖 PyYAML。"""
     root = Path(project_root or Path.cwd())
-    config = root / "experiments" / "zlk_project.yaml"
+    config = root / "experiments" / "simple_project.yaml"
     if not config.exists():
         return {}
     lines = config.read_text(encoding="utf-8", errors="ignore").splitlines()
@@ -225,7 +225,7 @@ def summary_row(row, metric, value, context, source_path=""):
         "attempt_id": pick(row, "attempt_id", "run_id", default=context.get("attempt_id", "attempt-1")),
         "study_id": pick(row, "study_id", default=context.get("study_id", "")),
         "plan_id": pick(row, "plan_id", default=context.get("plan_id", "")),
-        "suite": pick(row, "suite", default=context.get("suite", "__ZLK_PROJECT_NAME__")),
+        "suite": pick(row, "suite", default=context.get("suite", "__SIMPLE_EXPERIMENT_PROJECT_NAME__")),
         "method": pick(row, "method", "case", default=context.get("method", "ours")),
         "dataset": pick(row, "dataset", default=context.get("dataset", "unknown")),
         "split": pick(row, "split", default=context.get("split", "test")),
@@ -381,7 +381,7 @@ def capture_console_metrics(text, context):
             "attempt_id": context.get("attempt_id", "attempt-1"),
             "study_id": context.get("study_id", ""),
             "plan_id": context.get("plan_id", ""),
-            "suite": context.get("suite", "__ZLK_PROJECT_NAME__"),
+            "suite": context.get("suite", "__SIMPLE_EXPERIMENT_PROJECT_NAME__"),
             "method": context.get("method", "ours"),
             "dataset": context.get("dataset", "unknown"),
             "split": context.get("split", "test"),
@@ -485,7 +485,7 @@ class DefaultDeepLearningAdapter:
         return manifest
 
 def collect_outputs(output_dir, context=None, stdout_text="", stderr_text="", adapter="default", extra_csv_paths=None):
-    config_context = load_zlk_project_context()
+    config_context = load_simple_project_context()
     context = {**config_context, **dict(context or {})}
     if extra_csv_paths is not None:
         context["extra_csv_paths"] = extra_csv_paths
@@ -493,4 +493,4 @@ def collect_outputs(output_dir, context=None, stdout_text="", stderr_text="", ad
 
 if __name__ == "__main__":
     demo = "AUC: 0.932 accuracy: 89.5% F1=0.88 loss=0.13"
-    collect_outputs("zlk_cluster/demo_output", {"experiment_id": "demo", "suite": "demo", "dataset": "demo", "split": "test", "seed": 42, "results_csv": "work_dirs/results.csv"}, demo)
+    collect_outputs("simple_cluster/demo_output", {"experiment_id": "demo", "suite": "demo", "dataset": "demo", "split": "test", "seed": 42, "results_csv": "work_dirs/results.csv"}, demo)

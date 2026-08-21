@@ -32,7 +32,7 @@ test("file transfer never invokes scp or rsync or ssh", async () => {
     });
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-noscp-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-noscp-"));
   const local = path.join(dir, "preset.json");
   await fs.writeFile(local, "abc");
   const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));

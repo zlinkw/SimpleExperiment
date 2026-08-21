@@ -265,14 +265,14 @@ function resolveApiRemoteRoot(value, server = {}) {
     if (!root)
         return undefined;
     const lower = root.toLowerCase();
-    if (lower === "/root/disk1/qgking/zlk" || lower.startsWith("/root/disk1/qgking/zlk/")) {
-        throw new Error("NWPU3 已固定使用 /data/qgking/zlk，禁止使用 /root/disk1/qgking/zlk。");
+    if (lower === "/root/disk1/qgking/simple" || lower.startsWith("/root/disk1/qgking/simple/")) {
+        throw new Error("NWPU3 已固定使用 /data/qgking/simple，禁止使用 /root/disk1/qgking/simple。");
     }
-    if (lower.split("/").includes("zlk_agent")) {
-        throw new Error("项目父目录不能包含 zlk_agent；插件会自动管理同级 Agent runtime。");
+    if (lower.split("/").includes("simple_agent")) {
+        throw new Error("项目父目录不能包含 simple_agent；插件会自动管理同级 Agent runtime。");
     }
     if (isNwpu3Server(server))
-        return "/data/qgking/zlk";
+        return "/data/qgking/simple";
     return root;
 }
 function structuredMissingInventory(options) {

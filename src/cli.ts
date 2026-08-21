@@ -15,7 +15,7 @@ import {
   leaderboardToCsv,
   parseResultFile,
 } from "./features/Results";
-import { parseZlkRunArgs, runRecordedExperiment } from "./features/ExperimentRunner";
+import { parseSimpleRunArgs, runRecordedExperiment } from "./features/ExperimentRunner";
 
 const APPDATA = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const API_DISCOVERY_PATH = () => process.env.SIMPLE_EXPERIMENT_API_FILE || path.join(APPDATA, "SimpleExperiment", "api.json");
@@ -34,7 +34,7 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (cmd === "self-check") return runSelfCheck();
   if (cmd === "experiments" && sub === "list") {
-    const file = option(rest, "--file") || path.join(process.cwd(), "zlk_cluster", "experiment_index.json");
+    const file = option(rest, "--file") || path.join(process.cwd(), "simple_cluster", "experiment_index.json");
     const rows = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : [];
     console.log(JSON.stringify(rows, null, 2));
     return 0;
@@ -236,7 +236,7 @@ export function apiRequest(discovery: Record<string, unknown>, method: string, p
 }
 
 export function runRecordedCli(argv: string[]): number {
-  const result = runRecordedExperiment(parseZlkRunArgs(argv));
+  const result = runRecordedExperiment(parseSimpleRunArgs(argv));
   console.log(JSON.stringify(result, null, 2));
   return result.exitCode;
 }

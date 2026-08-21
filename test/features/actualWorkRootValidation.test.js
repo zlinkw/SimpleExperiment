@@ -33,8 +33,8 @@ test("project parent roots reject reserved Agent directories and suggest the rea
   assert.equal(sandbox.parent("projects/demo"), "projects");
   assert.equal(sandbox.parent("/demo"), undefined);
   assert.equal(sandbox.warn("/srv/projects", "demo", "Hub"), undefined);
-  assert.match(sandbox.check("/srv/zlk_agent", "demo", "Hub"), /不能包含 zlk_agent/);
-  assert.match(sandbox.check("/srv/zlk_agent/archive", "demo", "Worker"), /不能包含 zlk_agent/);
+  assert.match(sandbox.check("/srv/simple_agent", "demo", "Hub"), /不能包含 simple_agent/);
+  assert.match(sandbox.check("/srv/simple_agent/archive", "demo", "Worker"), /不能包含 simple_agent/);
   assert.match(sandbox.check("/", "demo", "Hub"), /项目的父目录/);
 });
 

@@ -3,7 +3,7 @@ import * as path from "path";
 import { createHash } from "crypto";
 import { parsePlanSummary } from "./PlanBuilder";
 
-export const RECOVERED_PLAN_DIR = "zlk_cluster/plans/recovered";
+export const RECOVERED_PLAN_DIR = "simple_cluster/plans/recovered";
 
 export type RecoveryStatus = "observed" | "inferred" | "missing" | "low_confidence" | "needs_user_input";
 

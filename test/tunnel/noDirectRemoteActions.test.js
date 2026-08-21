@@ -54,7 +54,7 @@ test("Agent actions and file browsing use localhost clients without direct remot
     await client.getGpuHistory({ serverId: "worker-a", gpuId: "0" });
     await client.getScheduler();
     await client.getTraces();
-    await client.getLiveOutput("zlk_cluster/logs/train.log", 0);
+    await client.getLiveOutput("simple_cluster/logs/train.log", 0);
     await client.getDiagnostics();
     await client.getAuditTail();
     for (const action of tunnelActions) {

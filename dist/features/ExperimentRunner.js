@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseZlkRunArgs = parseZlkRunArgs;
+exports.parseSimpleRunArgs = parseSimpleRunArgs;
 exports.runRecordedExperiment = runRecordedExperiment;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -41,7 +41,7 @@ const os = __importStar(require("os"));
 const child_process_1 = require("child_process");
 const crypto_1 = require("crypto");
 const Results_1 = require("./Results");
-function parseZlkRunArgs(argv) {
+function parseSimpleRunArgs(argv) {
     const sep = argv.indexOf("--");
     const head = sep >= 0 ? argv.slice(0, sep) : argv;
     const command = sep >= 0 ? argv.slice(sep + 1) : [];
@@ -50,7 +50,7 @@ function parseZlkRunArgs(argv) {
         return index >= 0 ? head[index + 1] || fallback : fallback;
     };
     if (!command.length)
-        throw new Error("zlk-run 缺少 -- 后的真实命令。");
+        throw new Error("simple-experiment-run 缺少 -- 后的真实命令。");
     return {
         name: opt("--name", "manual"),
         seed: opt("--seed"),

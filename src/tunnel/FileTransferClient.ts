@@ -140,7 +140,7 @@ export class FileTransferClient {
       if (contentLength && Number.isFinite(maxBytes) && maxBytes > 0 && contentLength > maxBytes) {
         throw new Error(`remote file exceeds download limit: ${contentLength} > ${Math.trunc(maxBytes)} bytes`);
       }
-      const expected = options.expectedSha256 || response.headers.get("x-zlk-file-sha256") || undefined;
+      const expected = options.expectedSha256 || response.headers.get("x-simple-file-sha256") || undefined;
       record.expectedSha256 = expected;
       if (contentLength && options.confirmLargeFile && !(await options.confirmLargeFile(contentLength))) {
         throw new Error("TRANSFER_CANCELLED");
@@ -258,7 +258,7 @@ export class FileTransferClient {
   private headers(hasBody = false, contentType = "application/json"): Record<string, string> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (hasBody) headers["Content-Type"] = contentType;
-    if (this.config.token) headers["X-ZLK-Agent-Token"] = this.config.token;
+    if (this.config.token) headers["X-Simple-Agent-Token"] = this.config.token;
     return headers;
   }
 

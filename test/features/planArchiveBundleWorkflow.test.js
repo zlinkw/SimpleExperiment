@@ -105,19 +105,19 @@ test("plan archive evidence plan is Plan-scoped and requires preview plus effect
   ].join("\n"), sandbox);
   const summary = {
     planFile: "experiments/plans/smoke.yaml",
-    previewCsvPath: "zlk_cluster/results/by_plan/smoke/results_preview_all.csv",
-    effectiveResultsCsvPath: "zlk_cluster/results/by_plan/smoke/results_effective_archived.csv",
-    statisticsPath: "zlk_cluster/results/by_plan/smoke/statistics.json",
-    paperTablePath: "zlk_cluster/results/by_plan/smoke/paper_table.md",
-    plottingContractPath: "zlk_cluster/results/by_plan/smoke/plotting_contract.json",
+    previewCsvPath: "simple_cluster/results/by_plan/smoke/results_preview_all.csv",
+    effectiveResultsCsvPath: "simple_cluster/results/by_plan/smoke/results_effective_archived.csv",
+    statisticsPath: "simple_cluster/results/by_plan/smoke/statistics.json",
+    paperTablePath: "simple_cluster/results/by_plan/smoke/paper_table.md",
+    plottingContractPath: "simple_cluster/results/by_plan/smoke/plotting_contract.json",
   };
   const ready = sandbox.plan(summary, "experiments/plans/smoke.yaml");
   assert.deepEqual(Array.from(ready.files), [
-    "zlk_cluster/results/by_plan/smoke/statistics.json",
-    "zlk_cluster/results/by_plan/smoke/paper_table.md",
-    "zlk_cluster/results/by_plan/smoke/plotting_contract.json",
-    "zlk_cluster/results/by_plan/smoke/results_preview_all.csv",
-    "zlk_cluster/results/by_plan/smoke/results_effective_archived.csv",
+    "simple_cluster/results/by_plan/smoke/statistics.json",
+    "simple_cluster/results/by_plan/smoke/paper_table.md",
+    "simple_cluster/results/by_plan/smoke/plotting_contract.json",
+    "simple_cluster/results/by_plan/smoke/results_preview_all.csv",
+    "simple_cluster/results/by_plan/smoke/results_effective_archived.csv",
   ]);
   assert.deepEqual(Array.from(ready.missingRequired), []);
   assert.deepEqual(Array.from(ready.invalid), []);
@@ -151,7 +151,7 @@ test("Plan archive synchronizes evidence only after modal confirmation and befor
 test("Plan archive materializes local or Hub evidence inside the bundle", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-evidence-"));
   try {
-    const relative = "zlk_cluster/results/by_plan/smoke/results_effective_archived.csv";
+    const relative = "simple_cluster/results/by_plan/smoke/results_effective_archived.csv";
     const sourceFile = path.join(root, ...relative.split("/"));
     fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
     fs.writeFileSync(sourceFile, "metric,value\nAUC,0.9\n", "utf8");
@@ -194,7 +194,7 @@ test("Plan archive rollback restores migrated Plan, configs, and local evidence"
     const bundle = path.join(root, "bundle");
     const plan = path.join(root, "experiments", "plans", "smoke.yaml");
     const config = "configs/smoke.yaml";
-    const evidence = "zlk_cluster/results/by_plan/smoke/results_effective_archived.csv";
+    const evidence = "simple_cluster/results/by_plan/smoke/results_effective_archived.csv";
     fs.mkdirSync(path.join(bundle, "configs", path.dirname(config)), { recursive: true });
     fs.mkdirSync(path.join(bundle, "evidence", path.dirname(evidence)), { recursive: true });
     fs.writeFileSync(path.join(bundle, "plan.yaml"), "suite: smoke\n", "utf8");

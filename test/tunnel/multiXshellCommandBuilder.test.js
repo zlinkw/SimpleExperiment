@@ -9,9 +9,9 @@ test("multi endpoint command builder emits grouped Hub and Worker tunnel command
   const setup = normalizeXshellSetupConfig({
     xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "hub.local",
-    hubUser: "zlk",
+    hubUser: "simple",
     workerRealtimeMode: "hub_plus_workers",
-    workerTunnels: [{ id: "w1", workerHost: "w1.local", workerUser: "zlk", localForwardPort: 18766, enabled: true }],
+    workerTunnels: [{ id: "w1", workerHost: "w1.local", workerUser: "simple", localForwardPort: 18766, enabled: true }],
   });
   const endpoints = buildTunnelEndpointRegistry(setup).endpoints;
   const commands = buildMultiEndpointXshellTunnelCommands(setup, endpoints);

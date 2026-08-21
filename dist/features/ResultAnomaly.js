@@ -6,7 +6,7 @@ exports.detectResultAnomaly = detectResultAnomaly;
 exports.compareResultToBestConfig = compareResultToBestConfig;
 exports.rankAnomalyCauses = rankAnomalyCauses;
 exports.renderAnomalyDiagnosisReport = renderAnomalyDiagnosisReport;
-exports.RESULT_ANOMALY_DIR = "zlk_cluster/results/anomaly";
+exports.RESULT_ANOMALY_DIR = "simple_cluster/results/anomaly";
 function findBestComparableResult(current, records, metric = primaryMetricFor(current)) {
     const higher = metricHigherIsBetter(current.metrics[metric], metric);
     const sameGroup = records.filter((record) => record.resultId !== current.resultId && isComparableResult(current, record) && Number.isFinite(metricNumber(record.metrics[metric])));

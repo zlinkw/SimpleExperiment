@@ -48,9 +48,9 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.ok(blocked < deploy);
   assert.ok(deploy < launch);
   assert.ok(launch < detect);
-  assert.match(extension, /const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set\(\["non_zlk_remote_command", "different_zlk_agent_session"\]\)/);
+  assert.match(extension, /const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set\(\["non_simple_remote_command", "different_simple_agent_session"\]\)/);
   assert.match(flow, /AGENT_STARTUP_BLOCKED_SKIP_REASONS\.has\(item\.skippedReason\)/);
-  assert.doesNotMatch(flow, /\["non_zlk_remote_command", "different_zlk_agent_session"\]\.includes/);
+  assert.doesNotMatch(flow, /\["non_simple_remote_command", "different_simple_agent_session"\]\.includes/);
   assert.match(flow, /tunnelTestCompletion\(this\.setupConfig, this\.lastProbe, this\.lastHealth, this\.lastWorkerProbes, topology\.hubAllowed\)/);
   assert.match(flow, /当前拓扑端点健康检测未通过/);
   assert.match(flow, /if \(showMessage\) \{[\s\S]{0,420}"接入当前项目", "打开面板"/);

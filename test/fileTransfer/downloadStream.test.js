@@ -15,12 +15,12 @@ test("download streams to tmp then renames with progress", async () => {
   const server = http.createServer((req, res) => {
     assert.match(req.url, /^\/api\/files\/download\?path=results/);
     res.setHeader("Content-Length", String(body.length));
-    res.setHeader("X-ZLK-File-Sha256", sha);
+    res.setHeader("X-Simple-File-Sha256", sha);
     res.write(body.subarray(0, 5));
     setTimeout(() => res.end(body.subarray(5)), 5);
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-stream-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-stream-"));
   const target = path.join(dir, "metrics.csv");
   const progress = [];
   try {

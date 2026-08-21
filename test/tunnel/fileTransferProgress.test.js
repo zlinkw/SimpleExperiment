@@ -17,7 +17,7 @@ test("file upload reports progress", async () => {
     });
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-progress-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-progress-"));
   const local = path.join(dir, "in.txt");
   await fs.writeFile(local, "abcdef", "utf8");
   const progress = [];

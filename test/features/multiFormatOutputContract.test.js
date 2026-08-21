@@ -91,7 +91,7 @@ test("output contract accepts declared CSV, JSON, and text results without cross
     `root = ${JSON.stringify(root)}`,
     `plans = ${JSON.stringify(plans)}`,
     "reports = {name: agent.check_output_contract_action(root, 'experiments/plans/' + name + '.yaml') for name in plans}",
-    "reports['internalCandidate'] = agent.output_contract_result_candidate('zlk_cluster/results/by_plan/current/statistics.json')",
+    "reports['internalCandidate'] = agent.output_contract_result_candidate('simple_cluster/results/by_plan/current/statistics.json')",
     "print(json.dumps(reports))",
   ].join("\n"), "utf8");
   const result = spawnSync("python", [script], { encoding: "utf8" });

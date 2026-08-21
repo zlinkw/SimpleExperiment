@@ -61,7 +61,7 @@ print(json.dumps({
 
 test("concurrent event appends keep sequence numbers unique and lines intact", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-event-append-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-event-append-"));
   try {
     const run = spawnSync("python", ["-c", CONCURRENCY_SCRIPT(agentPath, root.replace(/\\/g, "/"))], { encoding: "utf8", timeout: 120000 });
     assert.equal(run.status, 0, run.stderr);
@@ -81,7 +81,7 @@ test("concurrent event appends keep sequence numbers unique and lines intact", (
 
 test("concurrent atomic writes to one target do not clobber each other", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-atomic-write-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-atomic-write-"));
   const script = String.raw`
 import importlib.util, json, os, threading, time
 

@@ -6,7 +6,7 @@
 
 - [ ] 安装离线包中的 `simple-sftp-<version>.vsix` 和 `simple-experiment-<version>.vsix`。
 - [ ] 打开一个包含 1 个 Hub 和至少 1 个 Worker 配置的工作区。
-- [ ] 如果工作区已有重要运行状态，先备份 `zlk_cluster/`。
+- [ ] 如果工作区已有重要运行状态，先备份 `simple_cluster/`。
 
 ## 启动与 Webview
 

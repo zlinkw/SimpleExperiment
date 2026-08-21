@@ -23,7 +23,7 @@ test("file transfer uploads chunks over local HTTP API", async () => {
     });
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-ul-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-ul-"));
   const local = path.join(dir, "in.txt");
   await fs.writeFile(local, "abcdef", "utf8");
   const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port, chunkSizeBytes: 3 }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));

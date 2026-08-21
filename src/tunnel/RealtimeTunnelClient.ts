@@ -374,7 +374,7 @@ export class RealtimeTunnelClient {
 
   private headers(): Record<string, string> {
     const headers: Record<string, string> = { Accept: "text/event-stream, application/json" };
-    if (this.endpoint.token) headers["X-ZLK-Agent-Token"] = this.endpoint.token;
+    if (this.endpoint.token) headers["X-Simple-Agent-Token"] = this.endpoint.token;
     return headers;
   }
 

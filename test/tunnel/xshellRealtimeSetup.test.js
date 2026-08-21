@@ -63,7 +63,7 @@ test("worker realtime tunnels are normalized for local aggregation", () => {
     workerTunnels: [{
       id: "NWPU 5",
       hubHost: "10.0.0.5",
-      hubUser: "zlk",
+      hubUser: "simple",
       hubSshPort: 22,
       localForwardHost: "127.0.0.1",
       localForwardPort: 18800,
@@ -84,9 +84,9 @@ test("duplicate worker aliases and stale assignments are removed", () => {
     workerRealtimeMode: "hub_plus_workers",
     workerTelemetryMode: "hub_plus_worker_telemetry",
     workerTunnels: [
-      { id: "5", displayName: "5", workerHost: "nwpu5", workerUser: "zlk", localForwardPort: 18765, remoteTelemetryPort: 18765, enabled: true },
-      { id: "nwpu5", displayName: "nwpu5", workerHost: "nwpu5", workerUser: "zlk", localForwardPort: 18766, remoteTelemetryPort: 18765, enabled: true },
-      { id: "nwpu2", displayName: "nwpu2", workerHost: "nwpu2", workerUser: "zlk", localForwardPort: 18768, remoteTelemetryPort: 18765, enabled: true },
+      { id: "5", displayName: "5", workerHost: "nwpu5", workerUser: "simple", localForwardPort: 18765, remoteTelemetryPort: 18765, enabled: true },
+      { id: "nwpu5", displayName: "nwpu5", workerHost: "nwpu5", workerUser: "simple", localForwardPort: 18766, remoteTelemetryPort: 18765, enabled: true },
+      { id: "nwpu2", displayName: "nwpu2", workerHost: "nwpu2", workerUser: "simple", localForwardPort: 18768, remoteTelemetryPort: 18765, enabled: true },
     ],
     ports: {
       workerLocalPortRange: { start: 18766, end: 18999 },
@@ -107,13 +107,13 @@ test("single endpoint launch configs clear worker telemetry mode", () => {
   const base = normalizeXshellSetupConfig({
     xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
     hubHost: "10.0.0.1",
-    hubUser: "zlk",
+    hubUser: "simple",
     workerRealtimeMode: "hub_plus_workers",
     workerTelemetryMode: "hub_plus_worker_telemetry",
     workerTunnels: [{
       id: "nwpu5",
       hubHost: "10.0.0.5",
-      hubUser: "zlk",
+      hubUser: "simple",
       localForwardHost: "127.0.0.1",
       localForwardPort: 18766,
       remoteAgentHost: "127.0.0.1",

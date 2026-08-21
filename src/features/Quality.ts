@@ -1,10 +1,10 @@
 import { ResultDimensionConfig, ResultMetricDefinition, ExperimentResultRecord } from "./Results";
 
-export const OUTPUT_CONTRACT_DIR = "zlk_cluster/contracts/output_contracts";
-export const OUTPUT_CONTRACT_LOCAL_PATH = "zlk_cluster/contracts/output_contracts.local.json";
-export const CONTRACT_CHECK_REPORT_DIR = "zlk_cluster/contracts/contract_check_reports";
-export const CASE_LEVEL_RESULT_DIR = "zlk_cluster/results/case_level";
-export const CASE_LEVEL_INDEX_PATH = "zlk_cluster/results/case_level_index.json";
+export const OUTPUT_CONTRACT_DIR = "simple_cluster/contracts/output_contracts";
+export const OUTPUT_CONTRACT_LOCAL_PATH = "simple_cluster/contracts/output_contracts.local.json";
+export const CONTRACT_CHECK_REPORT_DIR = "simple_cluster/contracts/contract_check_reports";
+export const CASE_LEVEL_RESULT_DIR = "simple_cluster/results/case_level";
+export const CASE_LEVEL_INDEX_PATH = "simple_cluster/results/case_level_index.json";
 
 export type OutputFileType = "summary_csv" | "case_csv" | "curve_csv" | "metrics_json" | "config_snapshot" | "env_snapshot" | "checkpoint_manifest" | "log" | "prediction_index" | "custom";
 
@@ -212,8 +212,8 @@ export const standardCaseColumns: ColumnSpec[] = [
 export const builtInOutputContracts: ProjectOutputContract[] = [
   {
     schemaVersion: 1,
-    id: "zlk_standard_ai_output",
-    name: "ZLK standard AI experiment output",
+    id: "simple_standard_ai_output",
+    name: "SimpleExperiment standard AI experiment output",
     description: "Summary, case-level, curve, checkpoint, env, prediction and log outputs for paper-grade analysis.",
     requiredFiles: [
       { id: "metrics_summary", pathPattern: "metrics_summary.csv", type: "summary_csv", required: true, minRows: 1 },

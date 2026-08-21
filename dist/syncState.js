@@ -18,9 +18,9 @@ exports.schedulerMatcherMatchesPlan = schedulerMatcherMatchesPlan;
 exports.schedulerMatcherMatchesPending = schedulerMatcherMatchesPending;
 exports.schedulerMatcherMatchesItem = schedulerMatcherMatchesItem;
 exports.dedupeJsonRecords = dedupeJsonRecords;
-exports.DELETED_EXPERIMENTS_PATH = "zlk_cluster/deleted_experiments.jsonl";
-exports.DELETED_SCHEDULER_ROWS_PATH = "zlk_cluster/deleted_scheduler_rows.jsonl";
-exports.ARTIFACT_REGISTRY_PATH = "zlk_cluster/artifact_registry.json";
+exports.DELETED_EXPERIMENTS_PATH = "simple_cluster/deleted_experiments.jsonl";
+exports.DELETED_SCHEDULER_ROWS_PATH = "simple_cluster/deleted_scheduler_rows.jsonl";
+exports.ARTIFACT_REGISTRY_PATH = "simple_cluster/artifact_registry.json";
 function normalizeComparablePath(value) {
     return String(value || "")
         .trim()
@@ -34,10 +34,10 @@ function comparablePathVariants(value) {
     if (!normalized)
         return [];
     const variants = new Set([normalized]);
-    const markerIndex = normalized.indexOf("/zlk_cluster/");
+    const markerIndex = normalized.indexOf("/simple_cluster/");
     if (markerIndex >= 0)
         variants.add(normalized.slice(markerIndex + 1));
-    if (/(?:^|\/)zlk_cluster\/archive\//.test(normalized))
+    if (/(?:^|\/)simple_cluster\/archive\//.test(normalized))
         return Array.from(variants).filter(Boolean);
     for (const prefix of ["/work_dirs/", "/cluster_runs/", "/experiments/"]) {
         const index = normalized.indexOf(prefix);
@@ -48,7 +48,7 @@ function comparablePathVariants(value) {
 }
 function isManagedArtifactPath(value) {
     const normalized = normalizeComparablePath(value);
-    if (!normalized || normalized.startsWith("[zlk]"))
+    if (!normalized || normalized.startsWith("[simple]"))
         return false;
     if (/^\[[^\]]+\]/.test(normalized))
         return false;
@@ -56,9 +56,9 @@ function isManagedArtifactPath(value) {
         || variant.startsWith("cluster_runs/")
         || variant.startsWith("experiments/runs/")
         || variant.startsWith("experiments/results/")
-        || variant.startsWith("zlk_cluster/console_logs/")
-        || variant.startsWith("zlk_cluster/tmux_logs/")
-        || variant.startsWith("zlk_cluster/tmp/cluster_scheduler/logs/"));
+        || variant.startsWith("simple_cluster/console_logs/")
+        || variant.startsWith("simple_cluster/tmux_logs/")
+        || variant.startsWith("simple_cluster/tmp/cluster_scheduler/logs/"));
 }
 function normalizedPathSet(paths) {
     const out = new Set();
@@ -71,8 +71,8 @@ function normalizedPathSet(paths) {
 function pathMatchesAny(value, candidates) {
     for (const variant of comparablePathVariants(value)) {
         for (const candidate of candidates) {
-            const variantArchived = /(?:^|\/)zlk_cluster\/archive\//.test(variant);
-            const candidateArchived = /(?:^|\/)zlk_cluster\/archive\//.test(candidate);
+            const variantArchived = /(?:^|\/)simple_cluster\/archive\//.test(variant);
+            const candidateArchived = /(?:^|\/)simple_cluster\/archive\//.test(candidate);
             if (variantArchived !== candidateArchived)
                 continue;
             if (variant === candidate)

@@ -65,7 +65,7 @@ async function main(argv) {
     if (cmd === "self-check")
         return runSelfCheck();
     if (cmd === "experiments" && sub === "list") {
-        const file = option(rest, "--file") || path.join(process.cwd(), "zlk_cluster", "experiment_index.json");
+        const file = option(rest, "--file") || path.join(process.cwd(), "simple_cluster", "experiment_index.json");
         const rows = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : [];
         console.log(JSON.stringify(rows, null, 2));
         return 0;
@@ -267,7 +267,7 @@ function apiRequest(discovery, method, params = {}) {
     });
 }
 function runRecordedCli(argv) {
-    const result = (0, ExperimentRunner_1.runRecordedExperiment)((0, ExperimentRunner_1.parseZlkRunArgs)(argv));
+    const result = (0, ExperimentRunner_1.runRecordedExperiment)((0, ExperimentRunner_1.parseSimpleRunArgs)(argv));
     console.log(JSON.stringify(result, null, 2));
     return result.exitCode;
 }

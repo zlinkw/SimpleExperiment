@@ -13,14 +13,14 @@ function safeRemoteProjectChild(projectDir, child) {
         throw new Error("invalid projectDir");
     if (full !== root && !full.startsWith(`${root}/`))
         throw new Error(`remote path escapes projectDir: ${child}`);
-    if (["/", "/home", "/data", "/mnt", "work_dirs", "zlk_cluster"].includes(full))
+    if (["/", "/home", "/data", "/mnt", "work_dirs", "simple_cluster"].includes(full))
         throw new Error(`unsafe remote path: ${full}`);
     return full;
 }
 function isSafeRuntimePath(projectDir, remotePath) {
     try {
         const full = safeRemoteProjectChild(projectDir, remotePath);
-        return /\/zlk_cluster\/runtime\/[^/]+$/.test(full) || /\/zlk_cluster\/runtime\/backups\/[^/]+\/[^/]+$/.test(full);
+        return /\/simple_cluster\/runtime\/[^/]+$/.test(full) || /\/simple_cluster\/runtime\/backups\/[^/]+\/[^/]+$/.test(full);
     }
     catch {
         return false;

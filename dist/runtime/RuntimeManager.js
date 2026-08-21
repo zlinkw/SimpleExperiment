@@ -16,7 +16,7 @@ class RuntimeManager {
         this.components = components;
     }
     manifestPath() {
-        return `${this.projectDir}/zlk_cluster/runtime/manifest.json`;
+        return `${this.projectDir}/simple_cluster/runtime/manifest.json`;
     }
     expectedManifest(installedAt) {
         return (0, RuntimeManifest_1.buildExpectedRuntimeManifest)(this.pluginVersion, this.runtimeVersion, this.components, installedAt);
@@ -73,11 +73,11 @@ class RuntimeManager {
         }
     }
     async rollback(backupId) {
-        const backupDir = `${this.projectDir}/zlk_cluster/runtime/backups/${backupId}`;
-        await this.remote.run(`if [ -d ${q(backupDir)} ]; then cp -a ${q(backupDir)}/. ${q(`${this.projectDir}/zlk_cluster/runtime`)}/; else exit 2; fi`);
+        const backupDir = `${this.projectDir}/simple_cluster/runtime/backups/${backupId}`;
+        await this.remote.run(`if [ -d ${q(backupDir)} ]; then cp -a ${q(backupDir)}/. ${q(`${this.projectDir}/simple_cluster/runtime`)}/; else exit 2; fi`);
     }
     async backup(backupId) {
-        const runtimeDir = `${this.projectDir}/zlk_cluster/runtime`;
+        const runtimeDir = `${this.projectDir}/simple_cluster/runtime`;
         const backupDir = `${runtimeDir}/backups/${backupId}`;
         await this.remote.run(`mkdir -p ${q(backupDir)} && for f in manifest.json cluster_scheduler.py cluster_agent.py worker_probe.py state_migrator.py; do [ ! -e ${q(runtimeDir)}/$f ] || cp -a ${q(runtimeDir)}/$f ${q(backupDir)}/$f; done`);
     }

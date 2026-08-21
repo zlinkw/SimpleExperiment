@@ -22,7 +22,7 @@ class RemoteExecutionService {
             run: async (signal) => {
                 result = await this.runner(serverId, command, { purpose: options.purpose || "manual", timeoutMs: options.timeoutMs || 30000, signal });
                 if (result.code !== 0)
-                    throw (0, ErrorModel_1.normalizeZlkError)(result.stderr || result.stdout || `remote command failed: ${result.code}`);
+                    throw (0, ErrorModel_1.normalizeSimpleError)(result.stderr || result.stdout || `remote command failed: ${result.code}`);
             },
         }).then(() => result);
     }

@@ -61,7 +61,7 @@ function result(methodId, seed, dsc, asd = 1) {
 test("comparison registry creates studies and methods", () => {
   const study = studyFixture();
   const merged = upsertComparisonStudies([], [study]);
-  assert.equal(COMPARISON_REGISTRY_PATH, "zlk_cluster/comparisons/comparison_registry.json");
+  assert.equal(COMPARISON_REGISTRY_PATH, "simple_cluster/comparisons/comparison_registry.json");
   assert.equal(merged[0].methods.length, 2);
   assert.equal(deprecateComparisonStudy(study).status, "deprecated");
   assert.equal(builtInComparisonTemplates.some((item) => item.id === "paper_reproduction_basic"), true);

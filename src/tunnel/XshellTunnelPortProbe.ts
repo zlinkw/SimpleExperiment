@@ -92,7 +92,7 @@ export async function probeLocalTunnel(
     };
   }
 
-  const headers = config.token ? { "X-ZLK-Agent-Token": config.token } : undefined;
+  const headers = config.token ? { "X-Simple-Agent-Token": config.token } : undefined;
   try {
     const healthResponse = await timedFetch(`${base}/api/health`, { headers }, timeoutMs);
     if (healthResponse.status === 401 || healthResponse.status === 403) return tokenInvalid(baseResult, config);
@@ -113,7 +113,7 @@ export async function probeLocalTunnel(
         tcpOpen: true,
         status: "local_port_occupied_by_unknown",
         latencyMs: Date.now() - started,
-        message: "/api/health 返回格式不兼容 ZLK Hub Agent。",
+        message: "/api/health 返回格式不兼容 SimpleExperiment Hub Agent。",
         suggestion: "请确认本地端口目标正确，并升级 Hub Agent runtime。",
       };
     }
@@ -293,7 +293,7 @@ export async function probeWorkerTelemetryTunnel(
       suggestion: "请启动该 Worker 的 Xshell 实时观测隧道，并确认 Worker Telemetry Agent 已启动。",
     };
   }
-  const headers = config.token ? { "X-ZLK-Agent-Token": config.token } : undefined;
+  const headers = config.token ? { "X-Simple-Agent-Token": config.token } : undefined;
   try {
     const healthResponse = await timedFetch(`${base}/api/health`, { headers }, timeoutMs);
     if (healthResponse.status === 401 || healthResponse.status === 403) {
@@ -388,6 +388,6 @@ function tokenInvalid(
     tcpOpen: true,
     status: "agent_token_invalid",
     message: "Hub Agent 拒绝了 token/session。",
-    suggestion: "请检查 zlkCluster.tunnel.agentToken，或用匹配 token 重启 Hub Agent。",
+    suggestion: "请检查 simpleExperiment.tunnel.agentToken，或用匹配 token 重启 Hub Agent。",
   };
 }

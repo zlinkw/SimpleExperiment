@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const TARGET_NAMES = new Set(["__pycache__", "zlk_agent", "zlk_cluster"]);
+const TARGET_NAMES = new Set(["__pycache__", "simple_agent", "simple_cluster"]);
 
 function isInside(root, candidate) {
   const rel = path.relative(root, candidate);

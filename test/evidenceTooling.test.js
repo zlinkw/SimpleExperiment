@@ -12,7 +12,7 @@ const {
   inspectDatasetCsvFiles,
 } = require("../dist/features/DatasetInspector.js");
 const {
-  parseZlkRunArgs,
+  parseSimpleRunArgs,
   runRecordedExperiment,
 } = require("../dist/features/ExperimentRunner.js");
 const {
@@ -117,9 +117,9 @@ test("dataset inspector profiles splits/classes and reports patient leakage", ()
   assert.match(leakageCsv, /patient_overlap/);
 });
 
-test("zlk-run creates standard run directory and metrics summary from stdout", () => {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-run-"));
-  const options = parseZlkRunArgs(["--name", "baseline", "--seed", "1", "--config", "configs/a.yaml", "--", "node", "-e", "console.log('AUC: 0.932 accuracy: 89.5% F1=0.88')"]);
+test("simple-experiment-run creates standard run directory and metrics summary from stdout", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-run-"));
+  const options = parseSimpleRunArgs(["--name", "baseline", "--seed", "1", "--config", "configs/a.yaml", "--", "node", "-e", "console.log('AUC: 0.932 accuracy: 89.5% F1=0.88')"]);
   const result = runRecordedExperiment({ ...options, cwd });
   assert.equal(result.exitCode, 0);
   assert.equal(fs.existsSync(path.join(result.runDir, "command.txt")), true);
@@ -136,7 +136,7 @@ test("plotting contract exposes stable fields for PPT plugin", () => {
   for (const field of ["method", "dataset", "split", "fold", "seed", "metric", "value", "mean", "std", "ci", "pValue", "adjustedPValue", "significant", "case_id", "patient_id", "subgroup", "error_type"]) {
     assert.equal(contract.requiredFields.includes(field), true);
   }
-  assert.equal(contract.files.resultRegistry.path, "zlk_cluster/results/result_registry.json");
+  assert.equal(contract.files.resultRegistry.path, "simple_cluster/results/result_registry.json");
   assert.match(plottingContractMarkdown(contract), /datasetProfile/);
 });
 

@@ -2,11 +2,11 @@
 
 Remote runtime lives under:
 
-- `zlk_cluster/runtime/manifest.json`
-- `zlk_cluster/runtime/cluster_scheduler.py`
-- `zlk_cluster/runtime/cluster_agent.py`
-- `zlk_cluster/runtime/worker_probe.py`
-- `zlk_cluster/runtime/backups/<timestamp>/`
+- `simple_cluster/runtime/manifest.json`
+- `simple_cluster/runtime/cluster_scheduler.py`
+- `simple_cluster/runtime/cluster_agent.py`
+- `simple_cluster/runtime/worker_probe.py`
+- `simple_cluster/runtime/backups/<timestamp>/`
 
 Deploy flow:
 

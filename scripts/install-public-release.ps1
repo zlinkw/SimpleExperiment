@@ -21,8 +21,8 @@ $publicExtensionIds = @(
     "simple-local.simple-experiment"
 )
 $legacyExtensionIds = @(
-    "zlk-local.zlk-sftp-manager",
-    "zlk-local.zlk-cluster-orchestrator"
+    "simple-local.simple-sftp-manager",
+    "simple-local.simple-experiment"
 )
 
 function Get-InstalledExtensionIds {

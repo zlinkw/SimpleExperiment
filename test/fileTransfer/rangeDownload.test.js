@@ -16,7 +16,7 @@ test("range download uses download-range endpoint", async () => {
     res.end("cde");
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-range-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-range-"));
   const target = path.join(dir, "part.log");
   try {
     const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));

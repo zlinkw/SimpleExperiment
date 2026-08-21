@@ -3,7 +3,7 @@
   "servers": ["hub"],
   "steps": [],
   "expect": {
-    "contract": "zlk_standard_ai_output",
+    "contract": "simple_standard_ai_output",
     "missing": "metrics_case.csv"
   }
 }

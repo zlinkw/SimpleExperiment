@@ -15,7 +15,7 @@ function functionSource(name) {
 
 test("file api safe path blocks traversal and allows project roots", () => {
   assert.equal(isSafeRemotePath("work_dirs/run/metrics.csv"), true);
-  assert.equal(isSafeRemotePath("zlk_cluster/debug/bundle.zip"), true);
+  assert.equal(isSafeRemotePath("simple_cluster/debug/bundle.zip"), true);
   assert.equal(isSafeRemotePath("../secret"), false);
   assert.equal(isSafeRemotePath("C:/Users/a/key"), false);
   assert.equal(isSafeRemotePath("/etc/passwd"), false);

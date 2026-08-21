@@ -30,9 +30,9 @@ exports.exportResultBundle = exportResultBundle;
 exports.importResultBundle = importResultBundle;
 exports.checkResultConsistency = checkResultConsistency;
 const crypto_1 = require("crypto");
-exports.RESULT_REGISTRY_PATH = "zlk_cluster/results/result_registry.json";
-exports.RESULT_REGISTRY_LOCAL_PATH = "zlk_cluster/results/result_registry.local.json";
-exports.RESULT_EXPORT_DIR = "zlk_cluster/results/exports";
+exports.RESULT_REGISTRY_PATH = "simple_cluster/results/result_registry.json";
+exports.RESULT_REGISTRY_LOCAL_PATH = "simple_cluster/results/result_registry.local.json";
+exports.RESULT_EXPORT_DIR = "simple_cluster/results/exports";
 exports.defaultTextMetricPattern = /\b(?<metric>(?:accuracy|acc|auc|auroc|roc_auc|auprc|f1|precision|recall|sensitivity|specificity|balanced_accuracy|loss|dice|dsc|iou|hd95|asd|mae|mse|rmse|r2))\b\s*[:=]\s*(?<value>-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)(?:\s*%)?/gi;
 exports.segmentationMetricDirections = {
     DSC: "higher",
@@ -966,7 +966,7 @@ function finalizeRecordSemantics(record) {
         record.schemaId = "medical_segmentation";
         record.primaryMetric = firstExistingMetric(record.metrics, ["DSC", "IoU", "HD95", "ASD", ...segmentation]) || record.primaryMetric;
         if (record.parserPresetId?.startsWith("classification"))
-            record.notes = appendNote(record.notes, "检测到分割指标，已按 medical_segmentation 语义处理；若这是分类实验，请在 zlk_project.yaml 配置 metricAliases。");
+            record.notes = appendNote(record.notes, "检测到分割指标，已按 medical_segmentation 语义处理；若这是分类实验，请在 simple_project.yaml 配置 metricAliases。");
     }
     if (record.primaryMetric)
         record.higherIsBetter = directionFor(record.primaryMetric, exports.builtInResultPresets.find((item) => item.id === record.parserPresetId) || exports.builtInResultPresets[0]) !== "lower";

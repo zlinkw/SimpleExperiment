@@ -15,11 +15,11 @@ exports.runDataLeakageCheck = runDataLeakageCheck;
 exports.generateOutputContractGuide = generateOutputContractGuide;
 exports.generatePythonCsvWriterSnippet = generatePythonCsvWriterSnippet;
 exports.generateEnvironmentSnapshotSnippet = generateEnvironmentSnapshotSnippet;
-exports.OUTPUT_CONTRACT_DIR = "zlk_cluster/contracts/output_contracts";
-exports.OUTPUT_CONTRACT_LOCAL_PATH = "zlk_cluster/contracts/output_contracts.local.json";
-exports.CONTRACT_CHECK_REPORT_DIR = "zlk_cluster/contracts/contract_check_reports";
-exports.CASE_LEVEL_RESULT_DIR = "zlk_cluster/results/case_level";
-exports.CASE_LEVEL_INDEX_PATH = "zlk_cluster/results/case_level_index.json";
+exports.OUTPUT_CONTRACT_DIR = "simple_cluster/contracts/output_contracts";
+exports.OUTPUT_CONTRACT_LOCAL_PATH = "simple_cluster/contracts/output_contracts.local.json";
+exports.CONTRACT_CHECK_REPORT_DIR = "simple_cluster/contracts/contract_check_reports";
+exports.CASE_LEVEL_RESULT_DIR = "simple_cluster/results/case_level";
+exports.CASE_LEVEL_INDEX_PATH = "simple_cluster/results/case_level_index.json";
 exports.standardSummaryColumns = [
     "experiment_id", "attempt_id", "study_id", "plan_id", "suite", "method", "dataset", "split", "fold", "seed", "metric", "value", "unit", "higher_is_better", "epoch", "step", "timestamp",
 ].map((name) => ({ name, type: ["value", "epoch"].includes(name) ? "number" : name === "higher_is_better" ? "boolean" : name === "timestamp" ? "datetime" : "string", required: ["experiment_id", "suite", "method", "dataset", "split", "seed", "metric", "value"].includes(name) }));
@@ -29,8 +29,8 @@ exports.standardCaseColumns = [
 exports.builtInOutputContracts = [
     {
         schemaVersion: 1,
-        id: "zlk_standard_ai_output",
-        name: "ZLK standard AI experiment output",
+        id: "simple_standard_ai_output",
+        name: "SimpleExperiment standard AI experiment output",
         description: "Summary, case-level, curve, checkpoint, env, prediction and log outputs for paper-grade analysis.",
         requiredFiles: [
             { id: "metrics_summary", pathPattern: "metrics_summary.csv", type: "summary_csv", required: true, minRows: 1 },

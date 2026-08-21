@@ -49,17 +49,17 @@ let powerPointLaunchInFlight;
 let lastPowerPointLaunchAt = 0;
 const PPT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const PPT_LIGHTWEIGHT_SOURCE_EXTENSIONS = new Set([".json", ".csv", ".md", ".tex"]);
-const PPT_FINAL_STATISTICS_PATH = "zlk_cluster/results/statistics.json";
-const PPT_FINAL_PAPER_TABLE_PATH = "paper/tables/zlk_results_table.csv";
+const PPT_FINAL_STATISTICS_PATH = "simple_cluster/results/statistics.json";
+const PPT_FINAL_PAPER_TABLE_PATH = "paper/tables/simple_results_table.csv";
 const PPT_BLOCKING_READINESS_STATES = new Set(["incompatible", "token_missing", "token_invalid"]);
 const PPT_LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 const PPT_NON_RAW_SOURCE_PATHS = new Set([
     PlottingContract_1.PLOTTING_CONTRACT_JSON_PATH,
     PPT_FINAL_STATISTICS_PATH,
     PPT_FINAL_PAPER_TABLE_PATH,
-    "paper/tables/zlk_results_table.md",
-    "zlk_cluster/results/case_level_index.json",
-    "zlk_cluster/datasets/profile.json",
+    "paper/tables/simple_results_table.md",
+    "simple_cluster/results/case_level_index.json",
+    "simple_cluster/datasets/profile.json",
 ].map((item) => item.toLowerCase()));
 class PptPlotBridge {
     fetchImpl;
@@ -215,7 +215,7 @@ class PptPlotBridge {
         }
     }
     async postPlotRequest(config, request) {
-        const response = await this.fetchTextWithTimeout(`${config.baseUrl}/api/zlk-cluster/plot`, {
+        const response = await this.fetchTextWithTimeout(`${config.baseUrl}/api/simple-experiment/plot`, {
             method: "POST",
             headers: automationHeaders(config, true),
             body: JSON.stringify(request),
@@ -437,13 +437,13 @@ function isRawSingleRunPlotSource(rel) {
         return true;
     if (PPT_NON_RAW_SOURCE_PATHS.has(text))
         return false;
-    if (text.startsWith("zlk_cluster/results/by_plan/") && /(statistics\.json|plotting_contract\.json|case_level_index\.json|result_registry\.json|output_contract_for_plotting\.md)$/.test(text))
+    if (text.startsWith("simple_cluster/results/by_plan/") && /(statistics\.json|plotting_contract\.json|case_level_index\.json|result_registry\.json|output_contract_for_plotting\.md)$/.test(text))
         return false;
-    if (/^paper\/tables\/zlk_results_table__.+\.csv$/.test(text))
+    if (/^paper\/tables\/simple_results_table__.+\.csv$/.test(text))
         return false;
-    if (text.startsWith("zlk_cluster/results/anomaly/") || text.startsWith("zlk_cluster/results/by_plan/") && text.includes("/anomaly/") || text.startsWith("zlk_cluster/plans/recovered/"))
+    if (text.startsWith("simple_cluster/results/anomaly/") || text.startsWith("simple_cluster/results/by_plan/") && text.includes("/anomaly/") || text.startsWith("simple_cluster/plans/recovered/"))
         return false;
-    if (text === "zlk_cluster/results/result_registry.json")
+    if (text === "simple_cluster/results/result_registry.json")
         return true;
     return /^(experiments\/results|work_dirs|results|outputs|runs|custom_results|reports|artifacts|evals|evaluation)\//.test(text) && /\.(csv|json)$/i.test(text);
 }
@@ -462,7 +462,7 @@ async function assertPptLightweightSource(fullPath, rel) {
     }
 }
 async function ensureAuditDir(projectRoot) {
-    const dir = safeProjectPath(projectRoot, "zlk_cluster/results/ppt_plot_requests");
+    const dir = safeProjectPath(projectRoot, "simple_cluster/results/ppt_plot_requests");
     await fs.mkdir(dir, { recursive: true });
     return dir;
 }

@@ -28,7 +28,7 @@ test("merge keeps completed/archive state over older unknown", () => {
 });
 
 test("state store corrupt json returns lastKnownGood and atomic write validates schema", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-state-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-state-"));
   const file = path.join(dir, "state.json");
   const validate = (value) => value && value.schemaVersion === 1 && Array.isArray(value.items);
   await writeJsonState(file, { items: [] }, 1, validate);

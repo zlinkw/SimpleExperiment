@@ -1,8 +1,8 @@
 import { createHash } from "crypto";
 
-export const RESULT_REGISTRY_PATH = "zlk_cluster/results/result_registry.json";
-export const RESULT_REGISTRY_LOCAL_PATH = "zlk_cluster/results/result_registry.local.json";
-export const RESULT_EXPORT_DIR = "zlk_cluster/results/exports";
+export const RESULT_REGISTRY_PATH = "simple_cluster/results/result_registry.json";
+export const RESULT_REGISTRY_LOCAL_PATH = "simple_cluster/results/result_registry.local.json";
+export const RESULT_EXPORT_DIR = "simple_cluster/results/exports";
 
 export type ResultEndpoint = "local" | "hub" | "worker" | "archive";
 export type ResultFileType = "csv" | "json" | "log" | "manual";
@@ -1231,7 +1231,7 @@ function finalizeRecordSemantics(record: ExperimentResultRecord): void {
   } else if (segmentation.length) {
     record.schemaId = "medical_segmentation";
     record.primaryMetric = firstExistingMetric(record.metrics, ["DSC", "IoU", "HD95", "ASD", ...segmentation]) || record.primaryMetric;
-    if (record.parserPresetId?.startsWith("classification")) record.notes = appendNote(record.notes, "检测到分割指标，已按 medical_segmentation 语义处理；若这是分类实验，请在 zlk_project.yaml 配置 metricAliases。");
+    if (record.parserPresetId?.startsWith("classification")) record.notes = appendNote(record.notes, "检测到分割指标，已按 medical_segmentation 语义处理；若这是分类实验，请在 simple_project.yaml 配置 metricAliases。");
   }
   if (record.primaryMetric) record.higherIsBetter = directionFor(record.primaryMetric, builtInResultPresets.find((item) => item.id === record.parserPresetId) || builtInResultPresets[0]) !== "lower";
   if (record.notes?.includes("experiment_id inferred")) record.notes = record.notes.replace("experiment_id inferred from path/runKey", "缺少 experiment_id (inferred)，已按路径、维度或行号生成临时记录；建议在 metrics_summary.csv 中补充 experiment_id，避免共享 CSV 合并。");

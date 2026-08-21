@@ -16,7 +16,7 @@ Scenario tests use `src/testing/FakeClusterRuntime.ts` and `src/testing/Scenario
 Final fake/mock acceptance:
 
 - `npm run acceptance` runs build, typecheck, lint, unit tests, scenario tests, JS syntax checks, CLI status, package, database dependency check, documentation check, and scenario coverage check.
-- It writes reports under `zlk_cluster/reports/acceptance/`.
+- It writes reports under `simple_cluster/reports/acceptance/`.
 - It does not require real SSH servers. Use `docs/manual-acceptance-checklist.md` for optional real cluster checks.
 
 Scenarios live under `scenarios/` and cover:

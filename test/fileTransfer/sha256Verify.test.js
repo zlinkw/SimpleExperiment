@@ -22,11 +22,11 @@ test("download verify uses sha256 header", async () => {
   const body = Buffer.from("metric,value\nacc,1\n");
   const sha = crypto.createHash("sha256").update(body).digest("hex");
   const server = http.createServer((req, res) => {
-    res.setHeader("X-ZLK-File-Sha256", sha.toUpperCase());
+    res.setHeader("X-Simple-File-Sha256", sha.toUpperCase());
     res.end(body);
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-sha-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-sha-"));
   const target = path.join(dir, "metrics.csv");
   try {
     const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));

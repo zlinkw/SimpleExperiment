@@ -43,7 +43,7 @@ function loadRenderer() {
       const text = String(value || "").trim().replace(/\\/g, "/");
       const lower = (text.split("/").pop() || "").toLowerCase();
       return Boolean(text)
-        && !text.toLowerCase().startsWith("zlk_cluster/results/")
+        && !text.toLowerCase().startsWith("simple_cluster/results/")
         && !metadata.has(lower)
         && !metadataSuffixes.some((suffix) => lower.endsWith(suffix))
         && /\.(csv|json|txt|log|out)$/i.test(text);
@@ -76,7 +76,7 @@ test("adapter rule renderer reuses stable rules and preserves candidate exclusio
     candidateCsv: ["status.json", "metrics.csv"],
     candidateJson: ["artifact_manifest.json", "metrics.json"],
     consoleLogs: ["run_status.json", "stdout.log"],
-    textLogs: ["zlk_cluster/results/internal.txt", "summary.txt"],
+    textLogs: ["simple_cluster/results/internal.txt", "summary.txt"],
     metricAliases: { auroc: "AUC", dsc: "Dice" },
     csvColumnMapping: { score: "value", name: "metric" },
   };

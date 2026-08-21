@@ -7,7 +7,7 @@ const { spawnSync } = require("node:child_process");
 
 test("agent writes invalidate cached read-only snapshots even under coarse file timestamps", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
-  const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-write-invalidation-"));
+  const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-write-invalidation-"));
   const script = String.raw`
 import importlib.util, json, os, types
 

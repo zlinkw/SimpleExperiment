@@ -45,8 +45,8 @@ const path = __importStar(require("path"));
 const XshellTunnelSetup_1 = require("../tunnel/XshellTunnelSetup");
 exports.RENAMED_EXTENSION_STATE_MIGRATION_VERSION = 1;
 exports.RENAMED_EXTENSION_STATE_MIGRATION_KEY = "simpleExperiment.renamedExtensionStateMigrationVersion";
-exports.LEGACY_EXTENSION_ID = "zlk-local.zlk-cluster-orchestrator";
-const SETUP_KEY = "zlkCluster.xshellRealtimeTunnelConfig";
+exports.LEGACY_EXTENSION_ID = "simple-local.simple-experiment";
+const SETUP_KEY = "simpleExperiment.xshellRealtimeTunnelConfig";
 function record(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -151,7 +151,7 @@ async function migrateRenamedExtensionState(context, options = {}) {
         refreshProfile: "realtime",
     };
     await globalState.update(SETUP_KEY, setup);
-    await globalState.update("zlkCluster.tunnelGatewayConfig", tunnel);
+    await globalState.update("simpleExperiment.tunnelGatewayConfig", tunnel);
     await globalState.update(exports.RENAMED_EXTENSION_STATE_MIGRATION_KEY, exports.RENAMED_EXTENSION_STATE_MIGRATION_VERSION);
     return { migrated: true, source: exports.LEGACY_EXTENSION_ID, workerCount: setup.workerTunnels.length };
 }

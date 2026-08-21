@@ -79,7 +79,7 @@ test("remote result inspection accepts only lightweight project files", () => {
     assert.equal(helpers.normalizeRemoteResultInspectionPath(file), "");
   }
   const local = helpers.remoteResultInspectionLocalRelativePath("work_dirs/smoke/metrics_summary.csv", "experiments/plans/smoke.yaml", "2026-07-17T12:34:56.000Z");
-  assert.match(local, /^zlk_cluster\/downloads\/result_inspection\/experiments_plans_smoke\.yaml\/metrics_summary__[a-f0-9]{10}__20260717123456\.csv$/);
+  assert.match(local, /^simple_cluster\/downloads\/result_inspection\/experiments_plans_smoke\.yaml\/metrics_summary__[a-f0-9]{10}__20260717123456\.csv$/);
 });
 
 test("remote result inspection is authorized by the matching Plan contract operation", () => {
@@ -136,19 +136,19 @@ test("generated result artifacts are authorized only by the matching Plan summar
   const helpers = loadHelpers();
   const summary = {
     planFile: "experiments/plans/smoke.yaml",
-    previewCsvPath: "zlk_cluster/results/by_plan/smoke/results_preview_all.csv",
-    effectiveResultsCsvPath: "zlk_cluster/results/by_plan/smoke/results_effective_archived.csv",
-    statisticsPath: "zlk_cluster/results/by_plan/smoke/statistics.json",
-    paperTableCsvPath: "zlk_cluster/results/by_plan/smoke/paper_table.csv",
-    claimEvidence: { path: "zlk_cluster/results/by_plan/smoke/claim_evidence.json" },
+    previewCsvPath: "simple_cluster/results/by_plan/smoke/results_preview_all.csv",
+    effectiveResultsCsvPath: "simple_cluster/results/by_plan/smoke/results_effective_archived.csv",
+    statisticsPath: "simple_cluster/results/by_plan/smoke/statistics.json",
+    paperTableCsvPath: "simple_cluster/results/by_plan/smoke/paper_table.csv",
+    claimEvidence: { path: "simple_cluster/results/by_plan/smoke/claim_evidence.json" },
     qualityGatePath: "../outside.json",
   };
   assert.deepEqual(Array.from(helpers.resultSummaryInspectionCandidates(summary, "experiments/plans/smoke.yaml")), [
-    "zlk_cluster/results/by_plan/smoke/results_preview_all.csv",
-    "zlk_cluster/results/by_plan/smoke/results_effective_archived.csv",
-    "zlk_cluster/results/by_plan/smoke/statistics.json",
-    "zlk_cluster/results/by_plan/smoke/paper_table.csv",
-    "zlk_cluster/results/by_plan/smoke/claim_evidence.json",
+    "simple_cluster/results/by_plan/smoke/results_preview_all.csv",
+    "simple_cluster/results/by_plan/smoke/results_effective_archived.csv",
+    "simple_cluster/results/by_plan/smoke/statistics.json",
+    "simple_cluster/results/by_plan/smoke/paper_table.csv",
+    "simple_cluster/results/by_plan/smoke/claim_evidence.json",
   ]);
   assert.deepEqual(Array.from(helpers.resultSummaryInspectionCandidates(summary, "experiments/plans/other.yaml")), []);
 });
@@ -236,7 +236,7 @@ test("file transfer sends maxBytes to the Hub file API", async () => {
     const budget = { run: async (_kind, work) => work() };
     const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: 18765 }, budget);
     await assert.rejects(
-      client.downloadFile("work_dirs/smoke/metrics_summary.csv", path.join(root, "zlk_cluster", "tmp", "unused.csv"), { maxBytes: 12345 }),
+      client.downloadFile("work_dirs/smoke/metrics_summary.csv", path.join(root, "simple_cluster", "tmp", "unused.csv"), { maxBytes: 12345 }),
       /HTTP 413/
     );
     assert.match(requestedUrl, /maxBytes=12345/);

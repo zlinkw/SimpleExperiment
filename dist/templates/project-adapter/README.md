@@ -1,10 +1,10 @@
-# ZLK 输出接入模板
+# SimpleExperiment 输出接入模板
 
 本目录由插件自动生成，用于把项目训练或测试输出接入结果解析、质量门禁、统计分析和论文表格流程。
 
-标准位置：`experiments/zlk_adapter/`。兼容副本：`zlk_cluster/templates/`。
+标准位置：`experiments/simple_adapter/`。兼容副本：`simple_cluster/templates/`。
 
-配套配置：`experiments/zlk_project.yaml`。它记录入口命令、结果文件、控制台解析和工厂模式 hook。
+配套配置：`experiments/simple_project.yaml`。它记录入口命令、结果文件、控制台解析和工厂模式 hook。
 
 ## 推荐接入方式
 
@@ -29,4 +29,4 @@
 - `config_snapshot.yaml`：配置快照。
 - `artifact_manifest.json`：产物清单。
 
-当前项目名提示：__ZLK_PROJECT_NAME__
+当前项目名提示：__SIMPLE_EXPERIMENT_PROJECT_NAME__

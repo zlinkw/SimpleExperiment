@@ -47,17 +47,17 @@ function loadHelpers() {
   return sandbox.exports;
 }
 
-test("project ui layout state persists under zlk_cluster/ui", async () => {
+test("project ui layout state persists under simple_cluster/ui", async () => {
   const helpers = loadHelpers();
-  assert.equal(helpers.PROJECT_UI_LAYOUT_PATH, "zlk_cluster/ui/ui_layout.json");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-ui-layout-"));
+  assert.equal(helpers.PROJECT_UI_LAYOUT_PATH, "simple_cluster/ui/ui_layout.json");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-ui-layout-"));
   const layout = helpers.projectUiLayoutState(helpers.normalizeUiLayout({
     ...helpers.defaultUiLayout,
     manual: true,
     order: ["plans", "results", "tasks"],
   }));
   await helpers.writeProjectUiLayoutState(root, layout);
-  const file = path.join(root, "zlk_cluster", "ui", "ui_layout.json");
+  const file = path.join(root, "simple_cluster", "ui", "ui_layout.json");
   assert.equal(fs.existsSync(file), true);
   const loaded = await helpers.readProjectUiLayoutState(root);
   assert.equal(loaded.manual, true);
@@ -69,7 +69,7 @@ test("project ui layout state persists under zlk_cluster/ui", async () => {
 
 test("extension wires project ui layout helpers", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  assert.match(source, /zlk_cluster\/ui\/ui_layout\.json/);
+  assert.match(source, /simple_cluster\/ui\/ui_layout\.json/);
   assert.match(source, /loadProjectUiLayoutState/);
   assert.match(source, /persistProjectUiLayoutState/);
   assert.match(source, /this\.projectUiLayout = projectUiLayoutState\(layout\)/);

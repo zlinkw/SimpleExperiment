@@ -12,7 +12,7 @@ test("worker telemetry endpoints receive only bounded worker actions and no file
     hubCalls.push(req.url);
     res.setHeader("Content-Type", "application/json");
     if (req.url.startsWith("/api/actions/")) return res.end(JSON.stringify({ accepted: true }));
-    if (req.url.startsWith("/api/files/list")) return res.end(JSON.stringify({ schemaVersion: 1, path: "zlk_cluster", entries: [] }));
+    if (req.url.startsWith("/api/files/list")) return res.end(JSON.stringify({ schemaVersion: 1, path: "simple_cluster", entries: [] }));
     res.end("{}");
   });
   const worker = http.createServer((req, res) => {
@@ -30,7 +30,7 @@ test("worker telemetry endpoints receive only bounded worker actions and no file
     await client.postAction("delete-artifacts", { opId: "op-delete" });
     await client.postWorkerAction("w1", "stop-worker-task", { opId: "op-stop" });
     await assert.rejects(client.postWorkerAction("w1", "run-plan", { opId: "op-invalid" }), /action not allowed/);
-    await client.listRemoteFiles("zlk_cluster/state.json");
+    await client.listRemoteFiles("simple_cluster/state.json");
     assert.ok(hubCalls.some((url) => url === "/api/actions/run-plan"));
     assert.ok(hubCalls.some((url) => url === "/api/actions/delete-artifacts"));
     assert.ok(hubCalls.some((url) => url.startsWith("/api/files/list")));

@@ -7,8 +7,8 @@ const { spawnSync } = require("node:child_process");
 
 test("audit tail reads a bounded window instead of the whole journal", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-audit-tail-"));
-  const logsDir = path.join(root, "zlk_cluster", "logs");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-audit-tail-"));
+  const logsDir = path.join(root, "simple_cluster", "logs");
   fs.mkdirSync(logsDir, { recursive: true });
   const auditPath = path.join(logsDir, "operation_audit.jsonl");
   const totalLines = 4000;
@@ -28,7 +28,7 @@ agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
 
 root = ${JSON.stringify(root.replace(/\\/g, "/"))}
-audit = os.path.join(root, "zlk_cluster", "logs", "operation_audit.jsonl")
+audit = os.path.join(root, "simple_cluster", "logs", "operation_audit.jsonl")
 
 reads = {"bytes": 0}
 real_open = open
@@ -94,5 +94,5 @@ test("audit tail falls back to the tmp journal and stays byte bounded", () => {
   assert.match(source, /AUDIT_TAIL_MAX_BYTES = 1024 \* 1024/);
   assert.match(source, /def audit_tail_byte_budget\(line_limit\)/);
   assert.doesNotMatch(source, /f\.readlines\(\)\[-lines:\]/);
-  assert.match(source, /os\.path\.join\(root, "zlk_cluster", "tmp", "operation_audit\.jsonl"\)/);
+  assert.match(source, /os\.path\.join\(root, "simple_cluster", "tmp", "operation_audit\.jsonl"\)/);
 });

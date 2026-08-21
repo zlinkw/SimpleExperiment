@@ -1,29 +1,41 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.zlkDefaultCondaEnv = exports.zlkAgentRuntimeRelativePath = exports.zlkAgentTmuxCommandVersion = exports.zlkTmuxSessionPrefix = void 0;
+exports.simpleDefaultCondaEnv = exports.simpleAgentRuntimeRelativePath = exports.simpleAgentTmuxCommandVersion = exports.simpleTmuxSessionPrefix = void 0;
+exports.normalizeRemoteTmuxSessionPrefix = normalizeRemoteTmuxSessionPrefix;
 exports.defaultAgentTmuxSessionName = defaultAgentTmuxSessionName;
-exports.isValidZlkTmuxSessionName = isValidZlkTmuxSessionName;
+exports.isValidRemoteTmuxSessionName = isValidRemoteTmuxSessionName;
 exports.agentTmuxStartupCommand = agentTmuxStartupCommand;
-exports.zlkTmuxSessionPrefix = "zlk-";
-exports.zlkAgentTmuxCommandVersion = "ZLK_AGENT_TMUX_V19=1";
-exports.zlkAgentRuntimeRelativePath = "zlk_cluster/runtime/cluster_agent.py";
-exports.zlkDefaultCondaEnv = "";
-function defaultAgentTmuxSessionName(role, endpointId) {
-    if (role === "hub")
-        return "zlk-hub-agent";
-    return `zlk-worker-${slug(endpointId || "worker")}-agent`;
+exports.simpleTmuxSessionPrefix = "simple";
+exports.simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V19=1";
+exports.simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
+exports.simpleDefaultCondaEnv = "";
+function normalizeRemoteTmuxSessionPrefix(value) {
+    const prefix = String(value || exports.simpleTmuxSessionPrefix)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 32);
+    return /^[a-z0-9]/.test(prefix) ? prefix : exports.simpleTmuxSessionPrefix;
 }
-function isValidZlkTmuxSessionName(value) {
-    return /^zlk-[a-z0-9][a-z0-9._-]*$/.test(value);
+function defaultAgentTmuxSessionName(role, endpointId, sessionPrefix) {
+    const prefix = normalizeRemoteTmuxSessionPrefix(sessionPrefix);
+    if (role === "hub")
+        return `${prefix}-hub-agent`;
+    return `${prefix}-worker-${slug(endpointId || "worker")}-agent`;
+}
+function isValidRemoteTmuxSessionName(value) {
+    return /^[a-z0-9][a-z0-9._-]{0,31}-[a-z0-9][a-z0-9._-]*$/.test(value);
 }
 function agentTmuxStartupCommand(options) {
     const role = options.role;
     const mode = role === "hub" ? "hub_control" : "worker_telemetry";
     const port = options.port || 18765;
-    const session = defaultAgentTmuxSessionName(role, options.endpointId);
+    const sessionPrefix = normalizeRemoteTmuxSessionPrefix(options.sessionPrefix);
+    const session = defaultAgentTmuxSessionName(role, options.endpointId, sessionPrefix);
     const condaEnv = normalizeCondaEnvName(options.condaEnv);
     const requireCondaEnv = condaEnv ? "1" : "0";
-    const command = agentRuntimeCommand({ session, mode, port, installDir: options.installDir, workDir: options.workDir, pythonCommand: options.pythonCommand, endpointId: options.endpointId, condaEnv });
+    const command = agentRuntimeCommand({ session, mode, port, installDir: options.installDir, workDir: options.workDir, pythonCommand: options.pythonCommand, endpointId: options.endpointId, condaEnv, sessionPrefix });
     const agentPids = `AGENT_PIDS=$(ps -eo pid=,comm=,args= | awk -v port="$PORT" -v mode="$MODE" '$2 ~ /python/ && index($0,"cluster_agent.py") && (index($0,"--port " port) || index($0,"--port=" port)) && (index($0,"--mode " mode) || index($0,"--mode=" mode)) { print $1 }')`;
     const portPids = `PORT_PIDS=$({ ss -ltnp "sport = :$PORT" 2>/dev/null | awk -F'pid=' '/pid=/ { split($2,a,","); print a[1] }'; if command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null; fi; } | sort -u)`;
     const mergePids = `PIDS=$(printf "%s\\n%s\\n" "$AGENT_PIDS" "$PORT_PIDS" | tr ' ' '\\n' | awk -v self="$$" 'NF && $1 != self { print $1 }' | sort -u)`;
@@ -31,22 +43,23 @@ function agentTmuxStartupCommand(options) {
     const stopPids = `if [ -n "$PIDS" ]; then kill $PIDS >/dev/null 2>&1 || true; sleep 1; for pid in $PIDS; do kill -0 "$pid" 2>/dev/null && kill -9 "$pid" >/dev/null 2>&1 || true; done; fi`;
     const startTmux = `tmux new-session -d -s "$SESSION" "$CMD" >/dev/null 2>&1 || true`;
     const openWorkShell = [
-        `export WORK_DIR ZLK_CONDA_ENV ZLK_REQUIRE_CONDA_ENV CONDA_CHANGEPS1=true`,
+        `export WORK_DIR SIMPLE_EXPERIMENT_CONDA_ENV SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX CONDA_CHANGEPS1=true`,
         `sleep 0.1`,
         foregroundBashShellCommand(condaEnv),
         `if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then cd "$WORK_DIR"; fi`,
         `sleep 0.1`,
-        zlkCondaActivationShell(false, { quietActivate: false, reportOptionalFailure: true, reportOptionalMissing: true }),
+        simpleCondaActivationShell(false, { quietActivate: false, reportOptionalFailure: true, reportOptionalMissing: true }),
         `exec "\${SHELL:-/bin/sh}" -i`,
     ].join("; ");
     return [
-        exports.zlkAgentTmuxCommandVersion,
+        exports.simpleAgentTmuxCommandVersion,
         "unset TMUX",
         `SESSION=${shellQuote(session)}`,
         `PORT=${shellQuote(String(port))}`,
         `MODE=${shellQuote(mode)}`,
-        `ZLK_CONDA_ENV=${shellQuote(condaEnv)}`,
-        `ZLK_REQUIRE_CONDA_ENV=${shellQuote(requireCondaEnv)}`,
+        `SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=${shellQuote(sessionPrefix)}`,
+        `SIMPLE_EXPERIMENT_CONDA_ENV=${shellQuote(condaEnv)}`,
+        `SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV=${shellQuote(requireCondaEnv)}`,
         `INSTALL_DIR=${shellQuote(options.installDir || "")}`,
         `WORK_DIR=${shellQuote((options.workDir || options.installDir || "").trim())}`,
         `CMD=${shellQuote(command)}`,
@@ -69,66 +82,67 @@ function agentRuntimeCommand(options) {
         `if [ -z "$INSTALL_DIR" ]; then exit 127; fi`,
         `if [ -z "$WORK_DIR" ]; then exit 127; fi`,
         `LOG="$INSTALL_DIR/logs/${options.session}.log"`,
-        `mkdir -p "$INSTALL_DIR/logs" "$INSTALL_DIR/zlk_cluster/runtime" "$WORK_DIR"`,
+        `mkdir -p "$INSTALL_DIR/logs" "$INSTALL_DIR/simple_cluster/runtime" "$WORK_DIR"`,
         `exec >> "$LOG" 2>&1`,
         `echo "[$(date -Is)] Starting ${options.session} mode=${options.mode} port=${options.port}"`,
         `echo "Install dir: $INSTALL_DIR"`,
         `echo "Work dir: $WORK_DIR"`,
         `echo "State dir: runtime namespaces state by work dir under $INSTALL_DIR/state/projects/<project-namespace>"`,
-        `AGENT_SCRIPT="$INSTALL_DIR/${exports.zlkAgentRuntimeRelativePath}"`,
+        `AGENT_SCRIPT="$INSTALL_DIR/${exports.simpleAgentRuntimeRelativePath}"`,
         `if [ ! -f "$AGENT_SCRIPT" ]; then echo "Runtime missing: $AGENT_SCRIPT"; echo "Deploy latest runtime from VS Code panel, then restart the Xshell tunnel session."; exit 127; fi`,
         `chmod +x "$AGENT_SCRIPT" 2>/dev/null || true`,
         `cd "$WORK_DIR" || exit 127`,
-        `export ZLK_CONDA_ENV="\${ZLK_CONDA_ENV:-${condaEnv}}"`,
-        `export ZLK_REQUIRE_CONDA_ENV="\${ZLK_REQUIRE_CONDA_ENV:-${requireCondaEnv}}"`,
-        zlkCondaActivationShell(false),
-        `export ZLK_AGENT_INSTALL_DIR="$INSTALL_DIR"`,
+        `export SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX="\${SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX:-${normalizeRemoteTmuxSessionPrefix(options.sessionPrefix)}}"`,
+        `export SIMPLE_EXPERIMENT_CONDA_ENV="\${SIMPLE_EXPERIMENT_CONDA_ENV:-${condaEnv}}"`,
+        `export SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV="\${SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-${requireCondaEnv}}"`,
+        simpleCondaActivationShell(false),
+        `export SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR="$INSTALL_DIR"`,
         `export PYTHONPATH="$INSTALL_DIR\${PYTHONPATH:+:$PYTHONPATH}"`,
-        `if command -v python3 >/dev/null 2>&1; then ZLK_PY=python3; elif command -v python >/dev/null 2>&1; then ZLK_PY=python; else echo "python3 or python is required."; exit 127; fi`,
+        `if command -v python3 >/dev/null 2>&1; then SIMPLE_EXPERIMENT_PY=python3; elif command -v python >/dev/null 2>&1; then SIMPLE_EXPERIMENT_PY=python; else echo "python3 or python is required."; exit 127; fi`,
         `echo "Runtime script: $AGENT_SCRIPT"`,
-        `exec "$ZLK_PY" "$AGENT_SCRIPT" serve --project-dir "$WORK_DIR" --host 127.0.0.1 --port "$PORT" --mode "$MODE"${workerIdArg}`,
+        `exec "$SIMPLE_EXPERIMENT_PY" "$AGENT_SCRIPT" serve --project-dir "$WORK_DIR" --host 127.0.0.1 --port "$PORT" --mode "$MODE"${workerIdArg}`,
     ].join("; ");
 }
 function shellQuote(value) {
     return `'${value.replace(/'/g, `'\\''`)}'`;
 }
-function foregroundBashShellCommand(condaEnv = exports.zlkDefaultCondaEnv) {
+function foregroundBashShellCommand(condaEnv = exports.simpleDefaultCondaEnv) {
     const envName = normalizeCondaEnvName(condaEnv);
     const bashRcLines = [
-        `for __ZLK_PROFILE in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do if [ -f "$__ZLK_PROFILE" ]; then . "$__ZLK_PROFILE"; fi; done`,
+        `for __SIMPLE_EXPERIMENT_PROFILE in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do if [ -f "$__SIMPLE_EXPERIMENT_PROFILE" ]; then . "$__SIMPLE_EXPERIMENT_PROFILE"; fi; done`,
         `if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi`,
-        `for __ZLK_CONDA_WAIT in 1 2 3 4 5 6 7 8 9 10; do command -v conda >/dev/null 2>&1 && break; sleep 0.2; done`,
-        `export ZLK_CONDA_ENV="\${ZLK_CONDA_ENV:-${envName}}"`,
-        `export ZLK_REQUIRE_CONDA_ENV="\${ZLK_REQUIRE_CONDA_ENV:-0}"`,
+        `for __SIMPLE_EXPERIMENT_CONDA_WAIT in 1 2 3 4 5 6 7 8 9 10; do command -v conda >/dev/null 2>&1 && break; sleep 0.2; done`,
+        `export SIMPLE_EXPERIMENT_CONDA_ENV="\${SIMPLE_EXPERIMENT_CONDA_ENV:-${envName}}"`,
+        `export SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV="\${SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}"`,
         `export CONDA_CHANGEPS1=true`,
         `sleep 0.1`,
-        zlkCondaActivationShell(false, { quietActivate: false, reportOptionalFailure: true, reportOptionalMissing: true, hookShell: "bash" }),
+        simpleCondaActivationShell(false, { quietActivate: false, reportOptionalFailure: true, reportOptionalMissing: true, hookShell: "bash" }),
         `sleep 0.1`,
         `if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then cd "$WORK_DIR"; fi`,
-        `rm -f "$__ZLK_BASHRC" >/dev/null 2>&1 || true`,
+        `rm -f "$__SIMPLE_EXPERIMENT_BASHRC" >/dev/null 2>&1 || true`,
     ];
-    return `if command -v bash >/dev/null 2>&1; then __ZLK_BASHRC="\${TMPDIR:-/tmp}/zlk-agent-shell-$$.bashrc"; export __ZLK_BASHRC WORK_DIR ZLK_CONDA_ENV ZLK_REQUIRE_CONDA_ENV CONDA_CHANGEPS1; if printf "%s\\n" ${bashRcLines.map(shellQuote).join(" ")} > "$__ZLK_BASHRC"; then exec bash --rcfile "$__ZLK_BASHRC" -i; fi; fi`;
+    return `if command -v bash >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_BASHRC="\${TMPDIR:-/tmp}/simple-agent-shell-$$.bashrc"; export __SIMPLE_EXPERIMENT_BASHRC WORK_DIR SIMPLE_EXPERIMENT_CONDA_ENV SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV CONDA_CHANGEPS1; if printf "%s\\n" ${bashRcLines.map(shellQuote).join(" ")} > "$__SIMPLE_EXPERIMENT_BASHRC"; then exec bash --rcfile "$__SIMPLE_EXPERIMENT_BASHRC" -i; fi; fi`;
 }
-function zlkCondaActivationShell(required, options = {}) {
+function simpleCondaActivationShell(required, options = {}) {
     const missing = required
-        ? `echo "Conda env $ZLK_CONDA_ENV is required."; exit 127`
-        : (options.reportOptionalMissing ? `echo "ZLK conda activation failed: conda command not found."; true` : "true");
+        ? `echo "Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required."; exit 127`
+        : (options.reportOptionalMissing ? `echo "SimpleExperiment conda activation failed: conda command not found."; true` : "true");
     const failed = required
-        ? `{ echo "Conda env $ZLK_CONDA_ENV is required."; exit 127; }`
-        : (options.reportOptionalFailure ? `{ __ZLK_CONDA_RC=$?; echo "ZLK conda activation failed: conda activate $ZLK_CONDA_ENV exited $__ZLK_CONDA_RC."; true; }` : "true");
-    const missingGuard = required ? `"\${ZLK_REQUIRE_CONDA_ENV:-1}" = "1"` : (options.reportOptionalMissing ? `"1" = "1"` : `"0" = "1"`);
+        ? `{ echo "Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required."; exit 127; }`
+        : (options.reportOptionalFailure ? `{ __SIMPLE_EXPERIMENT_CONDA_RC=$?; echo "SimpleExperiment conda activation failed: conda activate $SIMPLE_EXPERIMENT_CONDA_ENV exited $__SIMPLE_EXPERIMENT_CONDA_RC."; true; }` : "true");
+    const missingGuard = required ? `"\${SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-1}" = "1"` : (options.reportOptionalMissing ? `"1" = "1"` : `"0" = "1"`);
     const activateRedirect = options.quietActivate === false ? "" : " >/dev/null 2>&1";
     const hookShell = options.hookShell || "posix";
     return [
-        `if [ -n "$ZLK_CONDA_ENV" ]; then :`,
-        `for __ZLK_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__ZLK_CONDA_SH" ]; then . "$__ZLK_CONDA_SH"; fi; done`,
-        `if command -v conda >/dev/null 2>&1; then __ZLK_CONDA_SETUP="$(conda shell.${hookShell} hook 2>/dev/null)" && eval "$__ZLK_CONDA_SETUP" || true; fi`,
-        `if command -v conda >/dev/null 2>&1; then conda activate "$ZLK_CONDA_ENV"${activateRedirect} || ${failed}; elif [ ${missingGuard} ]; then ${missing}; fi`,
+        `if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then :`,
+        `for __SIMPLE_EXPERIMENT_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__SIMPLE_EXPERIMENT_CONDA_SH" ]; then . "$__SIMPLE_EXPERIMENT_CONDA_SH"; fi; done`,
+        `if command -v conda >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_CONDA_SETUP="$(conda shell.${hookShell} hook 2>/dev/null)" && eval "$__SIMPLE_EXPERIMENT_CONDA_SETUP" || true; fi`,
+        `if command -v conda >/dev/null 2>&1; then conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"${activateRedirect} || ${failed}; elif [ ${missingGuard} ]; then ${missing}; fi`,
         `fi`,
     ].join("; ");
 }
 function normalizeCondaEnvName(value) {
-    return String(value || exports.zlkDefaultCondaEnv).trim();
+    return String(value || exports.simpleDefaultCondaEnv).trim();
 }
 function slug(value) {
     return String(value || "worker").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "worker";

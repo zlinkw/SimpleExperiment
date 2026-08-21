@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateXshellSessionLoginCommand = updateXshellSessionLoginCommand;
 exports.setLoginCommand = setLoginCommand;
 exports.getLoginCommand = getLoginCommand;
-exports.isZlkManagedLoginCommand = isZlkManagedLoginCommand;
+exports.isSimpleManagedLoginCommand = isSimpleManagedLoginCommand;
 const fs = __importStar(require("fs/promises"));
 async function updateXshellSessionLoginCommand(filePath, command, options = {}) {
     const original = await fs.readFile(filePath);
@@ -44,17 +44,17 @@ async function updateXshellSessionLoginCommand(filePath, command, options = {}) 
     const text = decodeText(original, encoding);
     const existingCommand = getLoginCommand(text);
     if (existingCommand && options.skipIfRemoteCommandIncludes?.some((marker) => marker && existingCommand.includes(marker))) {
-        return { filePath, command, changed: false, skippedReason: "existing_zlk_command" };
+        return { filePath, command, changed: false, skippedReason: "existing_simple_command" };
     }
     const existing = String(existingCommand || "").trim();
     if (existing) {
-        const targetSession = zlkAgentSessionName(command);
-        const existingSession = zlkAgentSessionName(existing);
-        if (!isZlkManagedLoginCommand(existing)) {
-            return { filePath, command, changed: false, skippedReason: "non_zlk_remote_command" };
+        const targetSession = simpleAgentSessionName(command);
+        const existingSession = simpleAgentSessionName(existing);
+        if (!isSimpleManagedLoginCommand(existing)) {
+            return { filePath, command, changed: false, skippedReason: "non_simple_remote_command" };
         }
         if (existingSession && targetSession && existingSession !== targetSession) {
-            return { filePath, command, changed: false, skippedReason: "different_zlk_agent_session" };
+            return { filePath, command, changed: false, skippedReason: "different_simple_agent_session" };
         }
     }
     const nextText = setLoginCommand(text, command);
@@ -62,7 +62,7 @@ async function updateXshellSessionLoginCommand(filePath, command, options = {}) 
         return { filePath, command, changed: false };
     let backupPath;
     if (options.backup !== false) {
-        backupPath = `${filePath}.zlk-backup`;
+        backupPath = `${filePath}.simple-backup`;
         await fs.copyFile(filePath, backupPath);
     }
     await fs.writeFile(filePath, encodeText(nextText, encoding));
@@ -93,22 +93,22 @@ function getLoginCommand(text) {
     }
     return undefined;
 }
-function isZlkManagedLoginCommand(command) {
+function isSimpleManagedLoginCommand(command) {
     const text = String(command || "");
     if (!text.trim())
         return false;
-    if (/ZLK_AGENT_TMUX_V\d+=1/.test(text))
+    if (/SIMPLE_EXPERIMENT_AGENT_TMUX_V\d+=1/.test(text))
         return true;
     if (/\bcluster_agent\.py\b/.test(text) && /\bSESSION=/.test(text))
         return true;
-    return Boolean(zlkAgentSessionName(text) && /\btmux\b/.test(text));
+    return Boolean(simpleAgentSessionName(text) && /\btmux\b/.test(text));
 }
-function zlkAgentSessionName(command) {
+function simpleAgentSessionName(command) {
     const text = String(command || "");
     const patterns = [
-        /\bSESSION=(['"])(zlk-[A-Za-z0-9._-]*-agent)\1/,
-        /\bSESSION=(zlk-[A-Za-z0-9._-]*-agent)\b/,
-        /\btmux\s+(?:new-session|attach(?:-session)?|has-session|kill-session)[^;\r\n]*\s(?:-s|-t)\s+(['"]?)(zlk-[A-Za-z0-9._-]*-agent)\1/,
+        /\bSESSION=(['"])([a-z0-9][a-z0-9._-]*-agent)\1/,
+        /\bSESSION=([a-z0-9][a-z0-9._-]*-agent)\b/,
+        /\btmux\s+(?:new-session|attach(?:-session)?|has-session|kill-session)[^;\r\n]*\s(?:-s|-t)\s+(['"]?)([a-z0-9][a-z0-9._-]*-agent)\1/,
     ];
     for (const pattern of patterns) {
         const match = text.match(pattern);

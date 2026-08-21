@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TunnelPortPersistence = exports.tunnelPortAssignmentsKey = void 0;
 exports.mergePersistedAssignments = mergePersistedAssignments;
-exports.tunnelPortAssignmentsKey = "zlkCluster.tunnel.portAssignments";
+exports.tunnelPortAssignmentsKey = "simpleExperiment.tunnel.portAssignments";
 class TunnelPortPersistence {
     store;
     key;

@@ -41,10 +41,10 @@ function loadSyncRoleStatus() {
   return sandbox.exports.syncRoleStatus;
 }
 
-test("project code sync state persists under zlk_cluster/ui", async () => {
+test("project code sync state persists under simple_cluster/ui", async () => {
   const helpers = loadHelpers();
-  assert.equal(helpers.PROJECT_CODE_SYNC_PATH, "zlk_cluster/ui/code_sync.json");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-code-sync-"));
+  assert.equal(helpers.PROJECT_CODE_SYNC_PATH, "simple_cluster/ui/code_sync.json");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-code-sync-"));
   await helpers.writeProjectCodeSyncState(root, {
     fingerprint: "abc123",
     scope: "plan-check",
@@ -52,7 +52,7 @@ test("project code sync state persists under zlk_cluster/ui", async () => {
     workers: "已同步 2 台",
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
-  const file = path.join(root, "zlk_cluster", "ui", "code_sync.json");
+  const file = path.join(root, "simple_cluster", "ui", "code_sync.json");
   assert.equal(fs.existsSync(file), true);
   const payload = JSON.parse(fs.readFileSync(file, "utf8"));
   assert.equal(payload.schemaVersion, 1);
@@ -82,7 +82,7 @@ test("project code sync normalize keeps error and drops empty rows", () => {
 
 test("extension wires project code sync load/persist helpers", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  assert.match(source, /zlk_cluster\/ui\/code_sync\.json/);
+  assert.match(source, /simple_cluster\/ui\/code_sync\.json/);
   assert.match(source, /loadProjectCodeSyncState/);
   assert.match(source, /persistProjectCodeSyncState/);
   assert.match(source, /this\.lastCodeSyncState = \{[\s\S]*persistProjectCodeSyncState/);

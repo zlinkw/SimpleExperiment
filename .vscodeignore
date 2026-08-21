@@ -22,11 +22,7 @@ dist/test/**
 dist/testing/**
 dist/tunnel/[M][o][b][a][X][t][e][r][m]*.js
 dist/tunnel/LegacyTunnelCompat.js
--First
--Path
--Raw
-.vscodeignore}else{'NO
-package.json)
+simple_cluster/**
 zlk_cluster/**
 _*.md
 _*.html
@@ -37,5 +33,5 @@ dist/services/RuntimeService.js
 docs/target-mode-plan.md
 docs/manual-cleanup-candidates.md
 docs/ssh-transport.md
-docs/[m][o][b][a][x][t][e][r][m]-real-integration-checklist.md
-docs/[m][o][b][a][x][t][e][r][m]-tunnel-full-feature-acceptance.md
+docs/[m][o][b][a][X][t][e][r][m]-real-integration-checklist.md
+docs/[m][o][b][a][X][t][e][r][m]-tunnel-full-feature-acceptance.md

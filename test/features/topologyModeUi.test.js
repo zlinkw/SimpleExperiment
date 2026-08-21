@@ -39,7 +39,7 @@ test("topology switch invalidates authority caches without deleting project reco
   assert.doesNotMatch(invalidation, /selectedRunKeys\.clear/);
 
   const configFlow = extension.slice(extension.indexOf("async handleConfigurationChanged"), extension.indexOf("async showFirstRunSetupPromptOnce"));
-  assert.match(configFlow, /affectsConfiguration\("zlkCluster\.topologyMode"\)/);
+  assert.match(configFlow, /affectsConfiguration\("simpleExperiment\.topologyMode"\)/);
   assert.match(configFlow, /applyTopologyRuntimeMode\(this\.projectTopologyAssessment\(\)\.mode/);
 });
 

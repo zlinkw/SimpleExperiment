@@ -19,7 +19,7 @@ test("agent upload respects overwrite policies and protects existing project fil
     return;
   }
 
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-agent-upload-policy-"));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-agent-upload-policy-"));
   fs.mkdirSync(path.join(project, "experiments", "plans"), { recursive: true });
   const port = await freePort();
   const agent = await startAgent(python, project, port);

@@ -18,7 +18,7 @@ test("agent capabilities schema and compatibility pass for realtime file gateway
     limits: { maxUploadChunkBytes: 1024, maxConcurrentTransfers: 1 },
     auth: { required: false, scheme: "none" },
   };
-  const fileCaps = { schemaVersion: 1, rootPolicy: "project_root_only", supportsList: true, supportsStat: true, supportsDownload: true, supportsRangeDownload: true, supportsUploadChunk: true, supportsSha256: true, supportsResume: true, maxUploadChunkBytes: 1024, safeRoots: ["zlk_cluster"] };
+  const fileCaps = { schemaVersion: 1, rootPolicy: "project_root_only", supportsList: true, supportsStat: true, supportsDownload: true, supportsRangeDownload: true, supportsUploadChunk: true, supportsSha256: true, supportsResume: true, maxUploadChunkBytes: 1024, safeRoots: ["simple_cluster"] };
   assert.equal(validateAgentHealth(health), true);
   assert.equal(validateAgentCapabilities(caps), true);
   assert.equal(validateFileCapabilities(fileCaps), true);

@@ -263,7 +263,7 @@ test("output adapter generation cannot continue in a replacement workspace", () 
   assert.match(generate, /const plannedWrites = await previewAndConfirmWorkspaceWrites[\s\S]{0,180}if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
   assert.match(generate, /for \(const write of changedWrites\) \{\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;[\s\S]{0,180}await writeWorkspaceTextWithBackup[\s\S]{0,180}if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
   assert.match(generate, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
-  assert.match(generate, /const readmeUri = workspaceEditorUriForFile\("experiments\/zlk_adapter\/README\.md"\);\s*const readmeDocument = await vscode\.workspace\.openTextDocument\(readmeUri\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await vscode\.window\.showTextDocument\(readmeDocument/);
+  assert.match(generate, /const readmeUri = workspaceEditorUriForFile\("experiments\/simple_adapter\/README\.md"\);\s*const readmeDocument = await vscode\.workspace\.openTextDocument\(readmeUri\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await vscode\.window\.showTextDocument\(readmeDocument/);
 });
 
 test("project adapter rule saves cannot continue in a replacement workspace", () => {

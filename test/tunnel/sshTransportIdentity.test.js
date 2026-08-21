@@ -10,8 +10,8 @@ const {
 const servers = parseLocalSshConfig(`
 Host NWPU5
   HostName 10.68.10.238
-  User zlk
-  IdentityFile C:/Users/ZLK/.ssh/zlk
+  User simple
+  IdentityFile C:/Users/ZLK/.ssh/simple
 
 Host campus
   HostName 10.12.34.56
@@ -74,9 +74,9 @@ test("SimpleSFTP options preserve the alias and retain the network diagnostic", 
     id: "nwpu5",
     label: "NWPU5",
     host: "10.68.10.238",
-    user: "zlk",
+    user: "simple",
     port: 22,
-    remotePath: "/data/qgking/zlk",
+    remotePath: "/data/qgking/simple",
   };
   const identity = resolveSshTransportIdentity(target, { sshServers: servers });
   const options = buildSftpServerOptions(target, identity);

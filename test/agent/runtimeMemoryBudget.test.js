@@ -14,7 +14,7 @@ test("agent runtime prunes terminal in-memory records while keeping active recor
     t.skip("python unavailable");
     return;
   }
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-agent-memory-budget-"));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-agent-memory-budget-"));
   const script = path.join(project, "memory-budget.py");
   fs.writeFileSync(script, `
 import importlib.util, json, pathlib

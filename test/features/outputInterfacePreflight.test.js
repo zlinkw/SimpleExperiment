@@ -54,8 +54,8 @@ test("scheduler rejects an unverified output interface before dry-run", () => {
 
 test("scheduler accepts a configured run wrapper", () => {
   const project = createProject(
-    write("experiments/zlk_project.yaml", "adapter:\n  runWrapper: experiments/zlk_adapter/run_wrapper.py\n"),
-    write("experiments/zlk_adapter/run_wrapper.py", "print('wrapper')\n"),
+    write("experiments/simple_project.yaml", "adapter:\n  runWrapper: experiments/simple_adapter/run_wrapper.py\n"),
+    write("experiments/simple_adapter/run_wrapper.py", "print('wrapper')\n"),
   );
   const result = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", "experiments/plans/smoke.yaml"], {
     cwd: project,
@@ -69,7 +69,7 @@ test("scheduler accepts a configured run wrapper", () => {
 
 test("scheduler accepts a direct AST-verified adapter call", () => {
   const project = createProject(write("test.py", [
-    "from experiments.zlk_adapter import collect_outputs",
+    "from experiments.simple_adapter import collect_outputs",
     "",
     "def main():",
     "    collect_outputs('work_dirs/smoke')",

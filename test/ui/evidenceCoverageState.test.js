@@ -33,7 +33,7 @@ function loadCoverage() {
 
 test("an artifact covering every archived result reads as generated", () => {
   const coverage = loadCoverage();
-  const state = coverage("zlk_cluster/results/statistics.json", 18, 18);
+  const state = coverage("simple_cluster/results/statistics.json", 18, 18);
   assert.equal(state.tone, "good");
   assert.equal(state.label, "已生成");
   assert.equal(state.detail, "覆盖全部 18 条已归档结果");
@@ -41,7 +41,7 @@ test("an artifact covering every archived result reads as generated", () => {
 
 test("a stale artifact is named as needing a rerun rather than as missing", () => {
   const coverage = loadCoverage();
-  const state = coverage("zlk_cluster/results/statistics.json", 12, 18);
+  const state = coverage("simple_cluster/results/statistics.json", 12, 18);
   assert.equal(state.tone, "warn");
   assert.equal(state.label, "需重跑");
   assert.equal(state.detail, "产物覆盖 12 条，已归档 18 条；6 条未纳入");
@@ -49,7 +49,7 @@ test("a stale artifact is named as needing a rerun rather than as missing", () =
 
 test("an artifact wider than the current archive also demands a rerun", () => {
   const coverage = loadCoverage();
-  const state = coverage("zlk_cluster/results/paper_table.md", 20, 18);
+  const state = coverage("simple_cluster/results/paper_table.md", 20, 18);
   assert.equal(state.label, "需重跑");
   assert.match(state.detail, /多于当前已归档 18 条；归档已变更$/);
 });
@@ -64,7 +64,7 @@ test("missing artifacts and empty archives stay distinguishable", () => {
     assert.equal(coverage(artifact, 0, 5).label, "待运行");
   }
   for (const archived of [0, "", null, undefined, "-"]) {
-    const empty = coverage("zlk_cluster/results/statistics.json", 0, archived);
+    const empty = coverage("simple_cluster/results/statistics.json", 0, archived);
     assert.equal(empty.label, "等待归档");
     assert.equal(empty.detail, "尚无已归档结果");
   }

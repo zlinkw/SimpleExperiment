@@ -7,7 +7,7 @@ const path = require("node:path");
 const { XshellIntegration } = require("../../dist/tunnel/XshellTunnelIntegration.js");
 
 test("xshell executable detection accepts configured Xshell.exe", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-xshell-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-xshell-"));
   const exe = path.join(dir, "Xshell.exe");
   await fs.writeFile(exe, "");
   const integration = new XshellIntegration({ configuredPath: exe });
@@ -19,7 +19,7 @@ test("xshell executable detection accepts configured Xshell.exe", async () => {
 });
 
 test("xshell executable detection rejects wrong basename", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-xshell-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-xshell-"));
   const exe = path.join(dir, "ssh.exe");
   await fs.writeFile(exe, "");
   const validation = await new XshellIntegration().validateExecutable(exe);

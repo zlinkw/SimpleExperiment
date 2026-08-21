@@ -12,7 +12,7 @@ except Exception:
     from result_writer import collect_outputs
 
 def main():
-    parser = argparse.ArgumentParser(description="收集 ZLK 实验输出")
+    parser = argparse.ArgumentParser(description="收集 SimpleExperiment 实验输出")
     parser.add_argument("output_dir")
     parser.add_argument("--experiment-id", default="manual")
     parser.add_argument("--suite", default="manual")

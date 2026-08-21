@@ -9,7 +9,7 @@ const ROOT_RESULT_FILES = new Set([
     "train.log", "test.log", "console.log", "output.out",
 ]);
 const ALLOWED_REMOTE_PATH_ROOTS = new Set([
-    "zlk_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results",
+    "simple_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results",
     "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions",
 ]);
 function isSafeRemotePath(remotePath) {

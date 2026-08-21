@@ -8,7 +8,7 @@
 - Hub Agent 已启动：
 
 ```bash
-python zlk_cluster/runtime/cluster_agent.py serve --host 127.0.0.1 --port 18765 --mode realtime
+python simple_cluster/runtime/cluster_agent.py serve --host 127.0.0.1 --port 18765 --mode realtime
 ```
 
 ## 步骤

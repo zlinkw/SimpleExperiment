@@ -16,7 +16,7 @@ except Exception:
     from result_writer import collect_outputs
 
 def main():
-    parser = argparse.ArgumentParser(description="ZLK 实验运行包装器")
+    parser = argparse.ArgumentParser(description="SimpleExperiment 实验运行包装器")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--context-json", default="{}")
     parser.add_argument("command", nargs=argparse.REMAINDER)

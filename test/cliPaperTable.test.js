@@ -28,7 +28,7 @@ function record(method, final = false) {
 }
 
 test("cli results paper-table uses final records only", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-cli-paper-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-paper-"));
   const draftPath = path.join(dir, "draft.json");
   const summaryPath = path.join(dir, "summary.json");
   fs.writeFileSync(draftPath, JSON.stringify([record("draft", false)], null, 2), "utf8");

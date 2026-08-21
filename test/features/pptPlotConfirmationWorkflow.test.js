@@ -36,15 +36,15 @@ test("PPT target confirmations are project-local, path-specific, and resettable"
   const first = helpers.normalizePptPathConfirmationTarget("slides/results.pptx", root);
   const same = helpers.normalizePptPathConfirmationTarget("slides/results.pptx", root);
   const changed = helpers.normalizePptPathConfirmationTarget("slides/other.pptx", root);
-  assert.equal(helpers.PROJECT_PPT_PATH_CONFIRMATIONS_PATH, "zlk_cluster/ui/ppt_path_confirmations.json");
-  assert.equal(helpers.PPT_PLOT_REQUEST_AUDIT_DIR, "zlk_cluster/results/ppt_plot_requests");
+  assert.equal(helpers.PROJECT_PPT_PATH_CONFIRMATIONS_PATH, "simple_cluster/ui/ppt_path_confirmations.json");
+  assert.equal(helpers.PPT_PLOT_REQUEST_AUDIT_DIR, "simple_cluster/results/ppt_plot_requests");
   assert.equal(first.key, same.key);
   assert.notEqual(first.key, changed.key);
   assert.equal(helpers.pptPathTargetConfirmed([first], same), true);
   assert.equal(helpers.pptPathTargetConfirmed([first], changed), false);
 
   await helpers.writeProjectPptPathConfirmationsState(root, [{ ...first, confirmedAt: "2026-07-19T00:00:00.000Z" }]);
-  const file = path.join(root, "zlk_cluster", "ui", "ppt_path_confirmations.json");
+  const file = path.join(root, "simple_cluster", "ui", "ppt_path_confirmations.json");
   assert.equal(fs.existsSync(file), true);
   const loaded = await helpers.readProjectPptPathConfirmationsState(root);
   assert.equal(loaded.length, 1);
@@ -59,18 +59,18 @@ test("PPT confirmation shows plan revision, final sources, contract, and target"
     projectRoot: "D:/projects/demo",
     planFile: "experiments/plans/smoke.yaml",
     planRevision: "rev-7",
-    sourcePaths: ["zlk_cluster/results/by_plan/smoke/statistics.json"],
-    plottingContractPath: "zlk_cluster/results/by_plan/smoke/plotting_contract.json",
+    sourcePaths: ["simple_cluster/results/by_plan/smoke/statistics.json"],
+    plottingContractPath: "simple_cluster/results/by_plan/smoke/plotting_contract.json",
     chartType: "meanStdErrorBar",
     styleMode: "activePpt",
   }, helpers.normalizePptPathConfirmationTarget("D:/slides/results.pptx", "D:/projects/demo"));
   assert.match(detail, /【强制确认】绘图到 PPT/);
   assert.match(detail, /当前 Plan：experiments\/plans\/smoke\.yaml/);
   assert.match(detail, /Plan revision：rev-7/);
-  assert.match(detail, /zlk_cluster\/results\/by_plan\/smoke\/statistics\.json/);
-  assert.match(detail, /PPT 绘图契约：zlk_cluster\/results\/by_plan\/smoke\/plotting_contract\.json/);
+  assert.match(detail, /simple_cluster\/results\/by_plan\/smoke\/statistics\.json/);
+  assert.match(detail, /PPT 绘图契约：simple_cluster\/results\/by_plan\/smoke\/plotting_contract\.json/);
   assert.match(detail, /目标 PPT：/);
-  assert.match(detail, /本地请求审计目录：.*zlk_cluster[\\/]results[\\/]ppt_plot_requests/);
+  assert.match(detail, /本地请求审计目录：.*simple_cluster[\\/]results[\\/]ppt_plot_requests/);
   assert.match(detail, /执行绘图请求时会在上述目录写入轻量 JSON 请求和响应审计/);
   assert.match(detail, /取消不会创建请求审计或调用 PPT 插件/);
   assert.match(detail, /误差图/);
@@ -80,14 +80,14 @@ test("PPT confirmation shows plan revision, final sources, contract, and target"
   assert.match(source, /PPT_STYLE_MODE_LABELS\[styleMode\] \|\| styleMode/);
   assert.match(panel, /PPT_CHART_TYPE_LABELS\[String\(value \|\| ""\)\]/);
   assert.match(panel, /PPT_STYLE_MODE_LABELS\[String\(value \|\| ""\)\]/);
-  assert.match(bridge, /safeProjectPath\(projectRoot, "zlk_cluster\/results\/ppt_plot_requests"\)/);
+  assert.match(bridge, /safeProjectPath\(projectRoot, "simple_cluster\/results\/ppt_plot_requests"\)/);
 });
 
 test("PPT success audit paths stay inside the current project", () => {
   const helpers = loadHelpers();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-ppt-audit-"));
-  const request = path.join(root, "zlk_cluster", "results", "ppt_plot_requests", "ppt-1.json");
-  assert.equal(helpers.pptPlotAuditRelativePath(root, request), "zlk_cluster/results/ppt_plot_requests/ppt-1.json");
+  const request = path.join(root, "simple_cluster", "results", "ppt_plot_requests", "ppt-1.json");
+  assert.equal(helpers.pptPlotAuditRelativePath(root, request), "simple_cluster/results/ppt_plot_requests/ppt-1.json");
   assert.throws(() => helpers.pptPlotAuditRelativePath(root, path.join(root, "..", "outside.json")), /不在当前项目内/);
 });
 

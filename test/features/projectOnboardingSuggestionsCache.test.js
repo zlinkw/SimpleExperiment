@@ -56,7 +56,7 @@ function loadSuggestions() {
 function fixtures() {
   return {
     project: {
-      adapterConfig: "experiments/zlk_project.yaml",
+      adapterConfig: "experiments/simple_project.yaml",
       adapterRules: { actionable: false },
       resultParsePreviews: [
         { planFile: "a.yaml", records: 2 },

@@ -86,7 +86,7 @@ function buildPreviewState() {
     projectName: "MiniMultiModal",
     connection: { status: "connected" },
     gpu,
-    gpuOwnerConfig: { currentUser: "zlk" },
+    gpuOwnerConfig: { currentUser: "simple" },
     gpuHistory: {
       status: "ready",
       query: {},

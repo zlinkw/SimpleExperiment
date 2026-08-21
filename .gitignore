@@ -16,5 +16,5 @@ _*.html
 _run_test_full.txt
 
 # Old build vsix
-zlk-cluster-orchestrator-0.1.5*.vsix
+simple-experiment-0.1.5*.vsix
 dist/runtime/__pycache__/

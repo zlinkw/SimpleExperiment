@@ -1,4 +1,4 @@
-# ZLK standard AI experiment output
+# SimpleExperiment standard AI experiment output
 Summary, case-level, curve, checkpoint, env, prediction and log outputs for paper-grade analysis.
 ## Required Files
 - metrics_summary.csv: summary_csv

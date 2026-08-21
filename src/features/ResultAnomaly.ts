@@ -1,6 +1,6 @@
 import { ExperimentResultRecord, ResultMetricValue } from "./Results";
 
-export const RESULT_ANOMALY_DIR = "zlk_cluster/results/anomaly";
+export const RESULT_ANOMALY_DIR = "simple_cluster/results/anomaly";
 
 export interface MetricAnomalySummary {
   metric: string;

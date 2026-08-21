@@ -17,7 +17,7 @@ samples = [
     "experiments/results.csv",
     "experiments\\results.csv",
     "  'experiments/results.csv'  ",
-    "zlk_cluster/results/{plan}/metrics_summary.csv",
+    "simple_cluster/results/{plan}/metrics_summary.csv",
     "experiments/results/**/results.csv",
     "../escape/results.csv",
     "/absolute/results.csv",
@@ -65,7 +65,7 @@ print(json.dumps({
     "rejectedAbsolute": agent.normalize_result_candidate("/absolute/results.csv"),
     "nonResultSuffix": agent.normalize_result_candidate("src/extension.ts"),
     "rejectedSourceCsv": agent.normalize_result_candidate("src/extension.csv"),
-    "placeholderWildcard": agent.normalize_result_candidate("zlk_cluster/results/{plan}/metrics_summary.csv"),
+    "placeholderWildcard": agent.normalize_result_candidate("simple_cluster/results/{plan}/metrics_summary.csv"),
     "nonStringValues": non_string,
 }))
 `;
@@ -84,7 +84,7 @@ print(json.dumps({
   assert.equal(result.rejectedAbsolute, "");
   assert.equal(result.nonResultSuffix, "src/extension.ts");
   assert.equal(result.rejectedSourceCsv, "");
-  assert.equal(result.placeholderWildcard, "zlk_cluster/results/*/metrics_summary.csv");
+  assert.equal(result.placeholderWildcard, "simple_cluster/results/*/metrics_summary.csv");
   assert.equal(result.nonStringValues.join("|"), "||['x']");
 });
 

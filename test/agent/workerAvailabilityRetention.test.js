@@ -7,7 +7,7 @@ const { spawnSync } = require("node:child_process");
 
 test("worker availability entries expire by TTL and stay bounded", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-availability-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-availability-"));
   const script = String.raw`
 import importlib.util, json, os, time
 

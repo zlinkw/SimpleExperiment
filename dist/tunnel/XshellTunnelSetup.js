@@ -12,6 +12,7 @@ const TunnelPortConflict_1 = require("./TunnelPortConflict");
 const WorkerTelemetryApi_1 = require("./WorkerTelemetryApi");
 exports.defaultXshellTunnelSetupConfig = {
     xshellExePath: "",
+    remoteTmuxSessionPrefix: "simple",
     hubHost: "",
     hubUser: "",
     hubSshPort: 22,
@@ -53,6 +54,7 @@ function normalizeXshellSetupConfig(input = {}) {
         ...exports.defaultXshellTunnelSetupConfig,
         xshellExePath,
         hubDisplayName: input.hubDisplayName?.trim() || undefined,
+        remoteTmuxSessionPrefix: normalizeRemoteTmuxSessionPrefix(input.remoteTmuxSessionPrefix),
         hubHost: input.hubHost || "",
         hubUser: input.hubUser || "",
         transferHost: input.transferHost?.trim() || undefined,
@@ -200,6 +202,10 @@ function publicXshellSetupSummary(config) {
 }
 function basename(value) {
     return value.replace(/\\/g, "/").split("/").pop() || value;
+}
+function normalizeRemoteTmuxSessionPrefix(value) {
+    const prefix = String(value ?? "simple").trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix) ? prefix : "simple";
 }
 function normalizeSshPort(value, fallback) {
     const port = Number(value);

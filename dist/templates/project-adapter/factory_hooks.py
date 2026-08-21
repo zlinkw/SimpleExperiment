@@ -12,7 +12,7 @@ except Exception:
 class MultiModalOutputAdapter(DefaultDeepLearningAdapter):
     def collect(self, output_dir, context=None, stdout_text="", stderr_text=""):
         context = dict(context or {})
-        context.setdefault("suite", "__ZLK_PROJECT_NAME__")
+        context.setdefault("suite", "__SIMPLE_EXPERIMENT_PROJECT_NAME__")
         context.setdefault("results_csv", "work_dirs/results.csv")
         return super().collect(output_dir, context=context, stdout_text=stdout_text, stderr_text=stderr_text)
 

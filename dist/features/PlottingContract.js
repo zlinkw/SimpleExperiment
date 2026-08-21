@@ -14,7 +14,7 @@ exports.buildPlottingOutputContract = buildPlottingOutputContract;
 exports.plottingContractMarkdown = plottingContractMarkdown;
 // @ts-nocheck
 exports.PLOTTING_CONTRACT_DOC_PATH = "docs/output-contract-for-plotting.md";
-exports.PLOTTING_CONTRACT_JSON_PATH = "zlk_cluster/results/plotting_contract.json";
+exports.PLOTTING_CONTRACT_JSON_PATH = "simple_cluster/results/plotting_contract.json";
 exports.plottingContractRequiredFields = [
     "method",
     "dataset",
@@ -48,8 +48,8 @@ function planResultsArtifactRelPath(planFile, filename) {
     if (!name)
         throw new Error("artifact filename required");
     if (!slug)
-        return `zlk_cluster/results/${name}`;
-    return `zlk_cluster/results/by_plan/${slug}/${name}`;
+        return `simple_cluster/results/${name}`;
+    return `simple_cluster/results/by_plan/${slug}/${name}`;
 }
 function plottingContractJsonPath(planFile) {
     return planResultsArtifactRelPath(planFile, "plotting_contract.json");
@@ -68,13 +68,13 @@ function caseLevelIndexJsonPath(planFile) {
 }
 function paperTableCsvPath(planFile) {
     const slug = planSlugFromPlanFile(planFile);
-    return slug ? `paper/tables/zlk_results_table__${slug}.csv` : "paper/tables/zlk_results_table.csv";
+    return slug ? `paper/tables/simple_results_table__${slug}.csv` : "paper/tables/simple_results_table.csv";
 }
 function datasetProfileJsonPath(planFile) {
     const slug = planSlugFromPlanFile(planFile);
     if (!slug)
-        return "zlk_cluster/datasets/profile.json";
-    return `zlk_cluster/datasets/by_plan/${slug}/profile.json`;
+        return "simple_cluster/datasets/profile.json";
+    return `simple_cluster/datasets/by_plan/${slug}/profile.json`;
 }
 function buildPlottingOutputContract(generatedAt = new Date().toISOString(), planFile = "") {
     const plan = String(planFile || "").trim();
@@ -115,8 +115,8 @@ function buildPlottingOutputContract(generatedAt = new Date().toISOString(), pla
             "字段使用 camelCase 或 snake_case 时，PPT 插件应优先按本文档稳定语义归一化。",
             "大文件、原始数据集和 checkpoint 不通过绘图契约传输，只引用 manifest 或统计摘要。",
             "集群插件只做结果文件发现、轻量请求和审计落盘；不在 VS Code 内绘图，不连接 Zotero，不读取 Zotero DB。",
-            "PPT automation discovery 固定为 %LOCALAPPDATA%/RoughPptAddin/automation.json 和 automation.token；调用顺序固定为 GET /health 后 POST /api/zlk-cluster/plot。",
-            "automation endpoint 固定归一化为根地址后访问 /health 和 /api/zlk-cluster/plot；不得把 discovery 中的其它 path 拼进协议路由。",
+            "PPT automation discovery 固定为 %LOCALAPPDATA%/RoughPptAddin/automation.json 和 automation.token；调用顺序固定为 GET /health 后 POST /api/simple-experiment/plot。",
+            "automation endpoint 固定归一化为根地址后访问 /health 和 /api/simple-experiment/plot；不得把 discovery 中的其它 path 拼进协议路由。",
             "绘图请求字段冻结为 schemaVersion/requestId/projectRoot/sourcePaths/plottingContractPath/selectedResultId/runKey/archiveKey/chartType/target/styleMode/sourceLabel/markdownSummary；新增字段只能 additive，优先放 optional extensions。",
             "sourcePaths 只能指向已存在的轻量 JSON、CSV、Markdown 或 TeX 文件；不得传目录、raw dataset、checkpoint 或大文件。",
             "SCI 数值绘图默认以 statistics.json 或 paper table 的 mean/std/ci 为准；result_registry.json 和单个结果 CSV 只用于发现、追踪和审计，不作为默认图表数值源。",
@@ -126,7 +126,7 @@ function buildPlottingOutputContract(generatedAt = new Date().toISOString(), pla
 }
 function plottingContractMarkdown(contract = buildPlottingOutputContract()) {
     const lines = [
-        "# ZLK 输出到 PPT 绘图插件的稳定契约",
+        "# SimpleExperiment 输出到 PPT 绘图插件的稳定契约",
         "",
         `目标消费端：\`${contract.consumer}\``,
         "",

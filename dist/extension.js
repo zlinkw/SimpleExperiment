@@ -88,27 +88,27 @@ const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 const LocalApiServer_1 = require("./api/LocalApiServer");
 const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 const RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
-const viewId = "zlkCluster.panel";
+const viewId = "simpleExperiment.panel";
 const LOCAL_API_PREFERRED_PORT = 19765;
 const API_DISCOVERY_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleExperiment");
 const API_DISCOVERY_PATH = path.join(API_DISCOVERY_DIR, "api.json");
 const keys = {
-    tunnelConfig: "zlkCluster.tunnelGatewayConfig",
-    setupConfig: "zlkCluster.xshellRealtimeTunnelConfig",
-    migrationShown: "zlkCluster.legacyRemoteMigrationShown",
-    offlineBundle: "zlkCluster.offlineBundle",
-    uiLayout: "zlkCluster.uiLayout",
-    uiProjectActions: "zlkCluster.uiProjectActions",
-    uiProjectLayout: "zlkCluster.uiProjectLayout",
-    hiddenLegacyTaskUiKeys: "zlkCluster.hiddenLegacyTaskUiKeys",
-    pptPlotConfig: "zlkCluster.pptPlotConfig",
+    tunnelConfig: "simpleExperiment.tunnelGatewayConfig",
+    setupConfig: "simpleExperiment.xshellRealtimeTunnelConfig",
+    migrationShown: "simpleExperiment.legacyRemoteMigrationShown",
+    offlineBundle: "simpleExperiment.offlineBundle",
+    uiLayout: "simpleExperiment.uiLayout",
+    uiProjectActions: "simpleExperiment.uiProjectActions",
+    uiProjectLayout: "simpleExperiment.uiProjectLayout",
+    hiddenLegacyTaskUiKeys: "simpleExperiment.hiddenLegacyTaskUiKeys",
+    pptPlotConfig: "simpleExperiment.pptPlotConfig",
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
     projectOnboardingCompleted: "simpleExperiment.projectOnboardingCompleted",
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
 };
-const API_CONFIG_NAMESPACE = "zlkCluster";
+const API_CONFIG_NAMESPACE = "simpleExperiment";
 const API_CONFIG_PREFIX = `${API_CONFIG_NAMESPACE}.`;
 const API_SECRET_CONFIG_KEYS = new Set([`${API_CONFIG_NAMESPACE}.tunnel.agentToken`]);
 const API_STATE_KEYS = {
@@ -186,7 +186,7 @@ function redactApiStateValue(name, value) {
 const FIRST_RUN_SETUP_PROMPT_VERSION = 4;
 const WORKSPACE_CONTINUATION_MAX_AGE_MS = 10 * 60_000;
 const SIMPLE_SFTP_EXTENSION_ID = "simple-local.simple-sftp";
-const LEGACY_SFTP_EXTENSION_ID = "zlk-local.zlk-sftp-manager";
+const LEGACY_SFTP_EXTENSION_ID = "simple-local.simple-sftp-manager";
 const SIMPLE_SFTP_REQUIRED_COMMANDS = [
     "simpleSftp.uploadWorkspace",
     "simpleSftp.uploadFiles",
@@ -195,7 +195,7 @@ const SIMPLE_SFTP_REQUIRED_COMMANDS = [
 const AGENT_READY_HEALTH_STATES = new Set(["agent_ok", "file_api_unavailable"]);
 const ENDPOINT_READY_PROBE_STATUSES = new Set(["ok", "file_api_unavailable"]);
 const HUB_READY_STATUSES = new Set([...ENDPOINT_READY_PROBE_STATUSES, "agent_ok"]);
-const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set(["non_zlk_remote_command", "different_zlk_agent_session"]);
+const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set(["non_simple_remote_command", "different_simple_agent_session"]);
 let simpleSftpIntegrationReadinessCacheRegistry = null;
 let simpleSftpIntegrationReadinessCacheExtension = null;
 let simpleSftpIntegrationReadinessCacheLegacyExtension = null;
@@ -475,8 +475,8 @@ async function activateExtension(context) {
     await (0, RenamedExtensionStateMigration_1.migrateRenamedExtensionState)(context).catch(() => undefined);
     provider = new RealtimeTunnelPanelProvider(context);
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("zlkCluster.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("zlkCluster.quickSetup", "quick-setup", "一键配置", () => provider?.quickSetup()), hostCommand("zlkCluster.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("zlkCluster.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("zlkCluster.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("zlkCluster.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("zlkCluster.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("zlkCluster.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("zlkCluster.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("zlkCluster.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("zlkCluster.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("zlkCluster.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("zlkCluster.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("zlkCluster.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("zlkCluster.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("zlkCluster.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("zlkCluster.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("zlkCluster.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("zlkCluster.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("zlkCluster.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("zlkCluster.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("zlkCluster.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("zlkCluster.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("zlkCluster.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("zlkCluster.manualRefresh", () => provider?.manualSnapshot()), hostCommand("zlkCluster.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()));
-    context.subscriptions.push(hostCommand("zlkCluster.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("zlkCluster.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("simpleExperiment.quickSetup", "quick-setup", "一键配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()));
+    context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
     provider.startLocalApiServer();
@@ -1394,7 +1394,7 @@ class RealtimeTunnelPanelProvider {
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (!folder)
             throw new Error("保存拓扑模式需要先打开工作区。");
-        const config = vscode.workspace.getConfiguration("zlkCluster", folder.uri);
+        const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
         await config.update("topologyMode", mode, vscode.ConfigurationTarget.WorkspaceFolder);
         this.topologyRuntimeMode = this.projectTopologyAssessment(mode).mode;
         this.postState();
@@ -2224,16 +2224,16 @@ class RealtimeTunnelPanelProvider {
         return (0, TunnelGateway_1.isRealtimeConnectionMode)(this.effectiveConnectionMode());
     }
     async handleConfigurationChanged(event) {
-        if (!event?.affectsConfiguration?.("zlkCluster"))
+        if (!event?.affectsConfiguration?.("simpleExperiment"))
             return;
         const previousMode = this.effectiveConnectionMode();
-        const topologyChanged = event.affectsConfiguration("zlkCluster.topologyMode");
-        const resultCsvDirChanged = event.affectsConfiguration("zlkCluster.resultCsvDir");
-        const connectionChanged = event.affectsConfiguration("zlkCluster.connectionMode")
-            || event.affectsConfiguration("zlkCluster.tunnel");
+        const topologyChanged = event.affectsConfiguration("simpleExperiment.topologyMode");
+        const resultCsvDirChanged = event.affectsConfiguration("simpleExperiment.resultCsvDir");
+        const connectionChanged = event.affectsConfiguration("simpleExperiment.connectionMode")
+            || event.affectsConfiguration("simpleExperiment.tunnel");
         if (resultCsvDirChanged)
             this.refreshResultCsvDirectory();
-        if (event.affectsConfiguration("zlkCluster.gpu"))
+        if (event.affectsConfiguration("simpleExperiment.gpu"))
             this.gpuOwnerConfigCache = undefined;
         if (connectionChanged) {
             this.tunnelConfig = this.loadTunnelConfig();
@@ -2767,7 +2767,7 @@ class RealtimeTunnelPanelProvider {
     async migrateLegacyConfigOnce() {
         if (this.context.globalState.get(keys.migrationShown))
             return;
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         const legacy = (0, TunnelOnlyPolicy_1.migrateLegacyRemoteConfig)({ ...config });
         await this.context.globalState.update(keys.migrationShown, true);
         if (legacy.removedFields.length)
@@ -3223,7 +3223,7 @@ class RealtimeTunnelPanelProvider {
             if (next === "接入当前项目")
                 await this.bootstrapProjectFromUi();
             else if (next === "打开面板")
-                await vscode.commands.executeCommand("zlkCluster.openPanel");
+                await vscode.commands.executeCommand("simpleExperiment.openPanel");
         }
         return true;
     }
@@ -3251,7 +3251,7 @@ class RealtimeTunnelPanelProvider {
         if (hubDisplayName === undefined)
             return;
         await this.applySetupDraft({ hubDisplayName: hubDisplayName.trim() || undefined });
-        const hubUser = await input("登录用户名", this.setupConfig.hubUser, "例如 zlk、student、your_name", "这是你平时 SSH 登录服务器时输入的用户名。插件不会保存密码。");
+        const hubUser = await input("登录用户名", this.setupConfig.hubUser, "例如 simple、student、your_name", "这是你平时 SSH 登录服务器时输入的用户名。插件不会保存密码。");
         if (hubUser === undefined)
             return;
         await this.applySetupDraft({ hubUser });
@@ -3833,7 +3833,7 @@ class RealtimeTunnelPanelProvider {
         }
         const target = await vscode.window.showSaveDialog({
             title: "保存 Xshell 会话启动脚本",
-            defaultUri: vscode.Uri.file(path.join(workspaceRoot() || process.cwd(), "start-zlk-xshell-tunnels.bat")),
+            defaultUri: vscode.Uri.file(path.join(workspaceRoot() || process.cwd(), "start-simple-xshell-tunnels.bat")),
             filters: { "Batch script": ["bat"], "PowerShell script": ["ps1"] },
         });
         if (!target)
@@ -3979,7 +3979,7 @@ class RealtimeTunnelPanelProvider {
                 await this.openSetupGuide();
                 break;
             case "openAdvancedCommandsSetting":
-                await vscode.commands.executeCommand("workbench.action.openSettings", "zlkCluster.showAdvancedCommands");
+                await vscode.commands.executeCommand("workbench.action.openSettings", "simpleExperiment.showAdvancedCommands");
                 break;
             case "configurePorts":
                 await this.configureTunnelPorts();
@@ -4576,7 +4576,7 @@ class RealtimeTunnelPanelProvider {
                 return;
             }
             if (choice === "打开面板")
-                await vscode.commands.executeCommand("zlkCluster.openPanel");
+                await vscode.commands.executeCommand("simpleExperiment.openPanel");
             return;
         }
     }
@@ -4587,7 +4587,7 @@ class RealtimeTunnelPanelProvider {
             ...(String(options.taskPlanScope || "") === "all" ? { taskPlanScope: "all" } : {}),
         };
         this.pendingPanelNavigation = target;
-        await vscode.commands.executeCommand("zlkCluster.openPanel");
+        await vscode.commands.executeCommand("simpleExperiment.openPanel");
         await this.flushPendingPanelNavigation();
     }
     async flushPendingPanelNavigation() {
@@ -4609,7 +4609,7 @@ class RealtimeTunnelPanelProvider {
         const summary = (0, PlanBuilder_1.parsePlanSummary)(text);
         const missing = [];
         const configReferences = (0, PlanArchive_1.planRuntimeConfigReferences)(text, summary.mode);
-        const legacyRestoredConfigs = configReferences.filter((relative) => /^zlk_cluster\/restored_configs\//i.test(relative));
+        const legacyRestoredConfigs = configReferences.filter((relative) => /^simple_cluster\/restored_configs\//i.test(relative));
         if (legacyRestoredConfigs.length) {
             throw new Error(`旧恢复 Plan 的配置位于本地状态目录，不会上传到服务器：${legacyRestoredConfigs.join("、")}。请从已归档计划卡再次点击“恢复”，生成可同步的新版本。`);
         }
@@ -4888,13 +4888,13 @@ class RealtimeTunnelPanelProvider {
         return [...(topology.hubAllowed ? [this.hubActualWorkRootTarget()] : []), ...this.workerActualWorkRootTargets()].map((target) => {
             const dirs = this.agentRuntimeDirs(target.remotePath);
             if (!dirs.installDir)
-                throw new Error(`${target.label} 缺少项目父目录，无法计算 zlk_agent 安装目录。`);
+                throw new Error(`${target.label} 缺少项目父目录，无法计算 simple_agent 安装目录。`);
             return { ...target, remotePath: dirs.installDir, projectWorkDir: dirs.workDir };
         });
     }
     agentRuntimeUploadTargets() {
         return this.agentRuntimeDeployTargets().map((target) => {
-            const remotePath = `${target.remotePath.replace(/\/+$/, "")}/zlk_cluster/runtime`;
+            const remotePath = `${target.remotePath.replace(/\/+$/, "")}/simple_cluster/runtime`;
             return {
                 ...target,
                 remotePath,
@@ -5306,9 +5306,9 @@ class RealtimeTunnelPanelProvider {
     serverConfigSavedMessage(label, actualWorkRoot) {
         const dirs = this.agentRuntimeDirs(actualWorkRoot);
         if (dirs.workDir && dirs.installDir)
-            return `${label} 配置已全局保存。当前项目代码：${dirs.workDir}；Agent runtime：${dirs.installDir}/zlk_cluster/runtime。`;
+            return `${label} 配置已全局保存。当前项目代码：${dirs.workDir}；Agent runtime：${dirs.installDir}/simple_cluster/runtime。`;
         if (dirs.installDir)
-            return `${label} 配置已全局保存。Agent runtime：${dirs.installDir}/zlk_cluster/runtime；打开目标本地项目后再计算代码上传位置。`;
+            return `${label} 配置已全局保存。Agent runtime：${dirs.installDir}/simple_cluster/runtime；打开目标本地项目后再计算代码上传位置。`;
         return `${label} 配置已全局保存。请补充项目父目录后再准备 Agent。`;
     }
     async showServerConfigSavedNextStep(label, actualWorkRoot) {
@@ -5350,7 +5350,7 @@ class RealtimeTunnelPanelProvider {
     }
     projectTopologyAssessment(configuredModeOverride) {
         const folder = vscode.workspace.workspaceFolders?.[0];
-        const config = vscode.workspace.getConfiguration("zlkCluster", folder?.uri);
+        const config = vscode.workspace.getConfiguration("simpleExperiment", folder?.uri);
         const configuredMode = configuredModeOverride === undefined
             ? String(config.get("topologyMode", "") || "").trim()
             : String(configuredModeOverride || "").trim();
@@ -5656,7 +5656,7 @@ class RealtimeTunnelPanelProvider {
         ].join("\n"), { modal: true }, "保存拓扑");
         if (answer !== "保存拓扑")
             throw new UiCommandCancelled("拓扑模式修改已取消。");
-        const config = vscode.workspace.getConfiguration("zlkCluster", folder.uri);
+        const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
         await config.update("topologyMode", requestedMode, vscode.ConfigurationTarget.WorkspaceFolder);
         await this.applyTopologyRuntimeMode(requestedMode, "topology saved from UI");
         this.postState();
@@ -5765,7 +5765,7 @@ class RealtimeTunnelPanelProvider {
     }
     async saveSchedulerConfigFromUi(message) {
         const patch = recordField(message, "patch");
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         const settings = this.schedulerSettings();
         const updates = [
             config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 60, 3600), vscode.ConfigurationTarget.Global),
@@ -7064,7 +7064,7 @@ class RealtimeTunnelPanelProvider {
         assertCurrent();
         await fs.writeFile(target, (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }), "utf8");
         assertCurrent();
-        const restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("zlk_cluster", "plan_restores", `${safePlanToken(restoredFile)}.json`));
+        const restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("simple_cluster", "plan_restores", `${safePlanToken(restoredFile)}.json`));
         await fs.mkdir(path.dirname(restoreRecordFile), { recursive: true });
         assertCurrent();
         await fs.writeFile(restoreRecordFile, JSON.stringify({
@@ -7576,7 +7576,7 @@ class RealtimeTunnelPanelProvider {
             return false;
         }
         if (next === "打开连接设置") {
-            await vscode.commands.executeCommand("workbench.action.openSettings", "zlkCluster.connectionMode");
+            await vscode.commands.executeCommand("workbench.action.openSettings", "simpleExperiment.connectionMode");
             return false;
         }
         if (next === "恢复在线连接") {
@@ -7644,14 +7644,14 @@ class RealtimeTunnelPanelProvider {
                 throw new Error(`VSIX 项目接入模板缺少文件：${relativePath}`);
             return found.text;
         };
-        const adapterDir = path.join(root, "experiments", "zlk_adapter");
+        const adapterDir = path.join(root, "experiments", "simple_adapter");
         const experimentsDir = path.join(root, "experiments");
         const paperDir = path.join(root, "paper");
-        const legacyTemplateDir = path.join(root, "zlk_cluster", "templates");
-        const contractDir = path.join(root, "zlk_cluster", "contracts");
+        const legacyTemplateDir = path.join(root, "simple_cluster", "templates");
+        const contractDir = path.join(root, "simple_cluster", "contracts");
         const adapterPath = path.join(adapterDir, "result_writer.py");
         const readmePath = path.join(adapterDir, "README.md");
-        const projectConfigPath = path.join(experimentsDir, "zlk_project.yaml");
+        const projectConfigPath = path.join(experimentsDir, "simple_project.yaml");
         const claimsPath = path.join(paperDir, "claims.md");
         const guidePath = path.join(contractDir, "output_contract_guide.md");
         const writes = [
@@ -7662,9 +7662,9 @@ class RealtimeTunnelPanelProvider {
             { fullPath: path.join(adapterDir, "factory_hooks.py"), text: templateText("factory_hooks.py") },
             { fullPath: path.join(adapterDir, "run_wrapper.py"), text: templateText("run_wrapper.py") },
             { fullPath: readmePath, text: templateText("README.md") },
-            { fullPath: projectConfigPath, text: templateText("zlk_project.yaml") },
+            { fullPath: projectConfigPath, text: templateText("simple_project.yaml") },
             { fullPath: claimsPath, text: templateText("claims.md") },
-            { fullPath: path.join(legacyTemplateDir, "zlk_output_adapter.py"), text: templateText("result_writer.py") },
+            { fullPath: path.join(legacyTemplateDir, "simple_output_adapter.py"), text: templateText("result_writer.py") },
             { fullPath: path.join(legacyTemplateDir, "README.md"), text: templateText("README.md") },
             { fullPath: guidePath, text: templateText("output_contract_guide.md") },
         ];
@@ -7687,12 +7687,12 @@ class RealtimeTunnelPanelProvider {
         this.postState();
         const summary = summarizeWorkspaceWriteResults(writeResults);
         void vscode.window.showInformationMessage(summary
-            ? `输出接入模板已更新：${summary}。入口：experiments/zlk_adapter/result_writer.py。`
-            : "输出接入模板已是最新，无需写入。入口：experiments/zlk_adapter/result_writer.py。");
+            ? `输出接入模板已更新：${summary}。入口：experiments/simple_adapter/result_writer.py。`
+            : "输出接入模板已是最新，无需写入。入口：experiments/simple_adapter/result_writer.py。");
         this.queueResultParseAfterProjectChange("生成输出接入模板", this.planFileInput || this.selectedPlanId, this.selectedPlanId || this.planFileInput);
         if (!this.projectContextIsCurrent(projectContext))
             return;
-        const readmeUri = workspaceEditorUriForFile("experiments/zlk_adapter/README.md");
+        const readmeUri = workspaceEditorUriForFile("experiments/simple_adapter/README.md");
         const readmeDocument = await vscode.workspace.openTextDocument(readmeUri);
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -7706,7 +7706,7 @@ class RealtimeTunnelPanelProvider {
         const patch = recordField(message, "patch");
         const resultCsvDir = normalizeResultCsvDir(stringPatch(patch, "csvDirectory", this.resultCsvDirectory));
         safeWorkspaceChildPath(folder.uri.fsPath, resultCsvDir);
-        await vscode.workspace.getConfiguration("zlkCluster", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
+        await vscode.workspace.getConfiguration("simpleExperiment", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.resultCsvDirectory = resultCsvDir;
@@ -7735,7 +7735,7 @@ class RealtimeTunnelPanelProvider {
         const relative = path.relative(folder.uri.fsPath, selected[0].fsPath).replace(/\\/g, "/");
         const resultCsvDir = normalizeResultCsvDir(relative);
         safeWorkspaceChildPath(folder.uri.fsPath, resultCsvDir);
-        await vscode.workspace.getConfiguration("zlkCluster", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
+        await vscode.workspace.getConfiguration("simpleExperiment", folder.uri).update("resultCsvDir", resultCsvDir, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.resultCsvDirectory = resultCsvDir;
@@ -7972,17 +7972,17 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             throw new Error("需要先打开工作区。");
         const patch = normalizeProjectAdapterRulesPatch(recordField(message, "patch"));
-        const relative = "experiments/zlk_project.yaml";
+        const relative = "experiments/simple_project.yaml";
         const fullPath = path.join(root, relative);
         const projectName = safePlanToken(path.basename(root) || "experiment");
         let text = await fs.readFile(fullPath, "utf8").catch(async () => {
             const templateFiles = await this.loadProjectAdapterTemplateFiles(projectName);
-            return templateFiles.find((file) => file.relativePath === "zlk_project.yaml")?.text || (0, ProjectAdapterTemplates_1.projectAdapterTemplateFiles)(projectName).find((file) => file.relativePath === "zlk_project.yaml")?.text || "";
+            return templateFiles.find((file) => file.relativePath === "simple_project.yaml")?.text || (0, ProjectAdapterTemplates_1.projectAdapterTemplateFiles)(projectName).find((file) => file.relativePath === "simple_project.yaml")?.text || "";
         });
         if (!this.projectContextIsCurrent(projectContext))
             return;
         if (!text.trim())
-            throw new Error("VSIX 缺少 zlk_project.yaml 接入模板，无法保存规则。");
+            throw new Error("VSIX 缺少 simple_project.yaml 接入模板，无法保存规则。");
         text = applyProjectAdapterRulesPatch(text, patch);
         const result = await writeWorkspaceTextWithBackup(fullPath, text);
         if (!this.projectContextIsCurrent(projectContext))
@@ -7992,17 +7992,17 @@ class RealtimeTunnelPanelProvider {
             return;
         this.postState();
         void vscode.window.showInformationMessage(result.status === "unchanged"
-            ? "项目接入规则已是最新：experiments/zlk_project.yaml。"
-            : `项目接入规则已保存到 experiments/zlk_project.yaml（${workspaceWriteStatusText(result.status)}）。`);
+            ? "项目接入规则已是最新：experiments/simple_project.yaml。"
+            : `项目接入规则已保存到 experiments/simple_project.yaml（${workspaceWriteStatusText(result.status)}）。`);
         this.queueResultParseAfterProjectChange("保存接入规则", this.planFileInput || this.selectedPlanId, this.selectedPlanId || this.planFileInput);
     }
     async loadProjectAdapterTemplateFiles(projectName) {
         const templateDir = path.join(this.context.extensionPath, "dist", "templates", "project-adapter");
-        const expected = (0, ProjectAdapterTemplates_1.projectAdapterTemplateFiles)("__ZLK_PROJECT_NAME__").map((file) => file.relativePath);
+        const expected = (0, ProjectAdapterTemplates_1.projectAdapterTemplateFiles)("__SIMPLE_EXPERIMENT_PROJECT_NAME__").map((file) => file.relativePath);
         try {
             const files = await Promise.all(expected.map(async (relativePath) => ({
                 relativePath,
-                text: (await fs.readFile(path.join(templateDir, relativePath), "utf8")).replace(/__ZLK_PROJECT_NAME__/g, projectName),
+                text: (await fs.readFile(path.join(templateDir, relativePath), "utf8")).replace(/__SIMPLE_EXPERIMENT_PROJECT_NAME__/g, projectName),
             })));
             return files;
         }
@@ -8767,7 +8767,7 @@ class RealtimeTunnelPanelProvider {
     }
     loadTunnelConfig() {
         const saved = this.context.globalState.get(keys.tunnelConfig) || {};
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         return (0, TunnelGateway_1.normalizeTunnelGatewayConfig)({
             ...TunnelGateway_1.defaultTunnelGatewayConfig,
             ...saved,
@@ -8779,7 +8779,7 @@ class RealtimeTunnelPanelProvider {
     }
     loadSetupConfig() {
         const saved = this.context.globalState.get(keys.setupConfig) || {};
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         return (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig,
             ...saved,
@@ -8787,6 +8787,7 @@ class RealtimeTunnelPanelProvider {
             remoteAgentPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remoteAgentPort || this.tunnelConfig.remotePort),
             xshellExePath: saved.xshellExePath || this.tunnelConfig.xshellExePath || "",
             hubDisplayName: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
+            remoteTmuxSessionPrefix: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteTmuxSessionPrefix", saved.remoteTmuxSessionPrefix || XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix),
             condaEnv: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.condaEnv", saved.condaEnv === undefined ? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv : saved.condaEnv),
             workerRealtimeMode: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.workerRealtimeMode", saved.workerRealtimeMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_workers" : "hub_only")),
             workerTelemetryMode: saved.workerTelemetryMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_worker_telemetry" : "hub_only"),
@@ -8798,7 +8799,7 @@ class RealtimeTunnelPanelProvider {
     gpuOwnerConfig() {
         if (this.gpuOwnerConfigCache)
             return this.gpuOwnerConfigCache;
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         const mode = config.get("gpu.myProcessMatchMode", "both");
         const value = {
             currentUser: config.get("gpu.currentUser", ""),
@@ -8814,7 +8815,7 @@ class RealtimeTunnelPanelProvider {
         if (this.projectPptPlotConfig)
             return normalizePptPlotConfig(this.projectPptPlotConfig);
         // Target presentation is project-local. Global preferences may only seed non-path defaults.
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         return normalizePptPlotConfig({
             presentationPath: "",
             chartType: config.get("ppt.chartType", "auto") || "auto",
@@ -9065,7 +9066,7 @@ class RealtimeTunnelPanelProvider {
         });
     }
     schedulerSettings() {
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
             pollSeconds: Math.max(60, Number(config.get("scheduler.pollSeconds", 60)) || 60),
             jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 30)) || 0),
@@ -9389,8 +9390,8 @@ class RealtimeTunnelPanelProvider {
             targets.push({
                 id: "hub",
                 filePath: hubPath,
-                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub"),
-                command: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: this.setupConfig.condaEnv }),
+                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub", undefined, this.setupConfig.remoteTmuxSessionPrefix),
+                command: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
             });
         }
         for (const worker of this.enabledWorkerConfigs()) {
@@ -9398,12 +9399,12 @@ class RealtimeTunnelPanelProvider {
             if (!filePath)
                 continue;
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir);
-            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv) });
+            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
                 filePath,
-                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id),
-                command: this.projectTopologyAssessment().hubAllowed ? workerCommand : `unset ZLK_HUB_UPLINK_URL; ${workerCommand}`,
+                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
+                command: this.projectTopologyAssessment().hubAllowed ? workerCommand : `unset SIMPLE_EXPERIMENT_HUB_UPLINK_URL; ${workerCommand}`,
             });
         }
         return targets;
@@ -9448,13 +9449,13 @@ class RealtimeTunnelPanelProvider {
                 displayName: this.hubDisplayName(),
                 configured: Boolean(this.setupConfig.savedSessionPath),
                 sessionPath: this.setupConfig.savedSessionPath,
-                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub"),
+                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub", undefined, this.setupConfig.remoteTmuxSessionPrefix),
                 actualWorkRoot: hubDirs.workRoot,
                 installDir: hubDirs.installDir,
                 workDir: hubDirs.workDir,
                 projectName: hubDirs.projectName,
                 condaEnv: this.setupConfig.condaEnv,
-                startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: hubDirs.installDir, workDir: hubDirs.workDir, condaEnv: this.setupConfig.condaEnv }),
+                startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: hubDirs.installDir, workDir: hubDirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
             },
             workers: this.setupConfig.workerTunnels.map((worker) => {
                 const dirs = this.agentRuntimeDirs(worker.agentProjectDir);
@@ -9464,13 +9465,13 @@ class RealtimeTunnelPanelProvider {
                     enabled: worker.enabled !== false,
                     configured: Boolean(worker.savedSessionPath),
                     sessionPath: worker.savedSessionPath,
-                    tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id),
+                    tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
                     actualWorkRoot: dirs.workRoot,
                     installDir: dirs.installDir,
                     workDir: dirs.workDir,
                     projectName: dirs.projectName,
                     condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv),
-                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv) }),
+                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
             note: "Agent 跟随 Xshell 隧道会话启动。插件只打开 .xsh 会话文件，不直接执行远端命令。",
@@ -9490,7 +9491,7 @@ class RealtimeTunnelPanelProvider {
             return { projectName };
         return {
             workRoot: root,
-            installDir: `${root}/zlk_agent`,
+            installDir: `${root}/simple_agent`,
             ...(projectName ? { workDir: `${root}/${projectName}` } : {}),
             projectName,
         };
@@ -9582,7 +9583,7 @@ class RealtimeTunnelPanelProvider {
         return state;
     }
     configurationSourceState() {
-        const config = vscode.workspace.getConfiguration("zlkCluster");
+        const config = vscode.workspace.getConfiguration("simpleExperiment");
         const saved = this.context.globalState.get(keys.setupConfig) || {};
         const inspectedWorkers = config.inspect("tunnel.workerTunnels");
         const workspaceWorkers = inspectedWorkers?.workspaceFolderValue ?? inspectedWorkers?.workspaceValue ?? inspectedWorkers?.globalValue;
@@ -10954,7 +10955,7 @@ function debugModeFromRecord(record) {
         if (mode === true || String(mode || "").trim().toLowerCase() === "true")
             return true;
         const output = String(row.debugOutputDir || row.debug_output_dir || "").replace(/\\/g, "/").replace(/^\/+/, "");
-        return output.startsWith("zlk_cluster/debug_runs/");
+        return output.startsWith("simple_cluster/debug_runs/");
     });
 }
 function operationDebugMode(record, payloads) {
@@ -11009,7 +11010,7 @@ function mergeRecentPlans(...groups) {
     }
     return [...map.values()].slice(-20).reverse();
 }
-const PROJECT_PLAN_SELECTION_PATH = "zlk_cluster/ui/plan_selection.json";
+const PROJECT_PLAN_SELECTION_PATH = "simple_cluster/ui/plan_selection.json";
 async function readProjectPlanSelectionState(root) {
     if (!root)
         return undefined;
@@ -11044,7 +11045,7 @@ async function writeProjectPlanSelectionState(root, state) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_FLOW_STATE_PATH = "zlk_cluster/ui/flow_state.json";
+const PROJECT_FLOW_STATE_PATH = "simple_cluster/ui/flow_state.json";
 async function readProjectFlowState(root) {
     if (!root)
         return undefined;
@@ -11066,7 +11067,7 @@ async function writeProjectFlowState(root, state) {
     const payload = ApiWorkflow_1.normalizeFlowState(state);
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_TASK_SELECTION_PATH = "zlk_cluster/ui/task_selection.json";
+const PROJECT_TASK_SELECTION_PATH = "simple_cluster/ui/task_selection.json";
 function normalizeSelectionList(values, limit = 200) {
     return uniqueStrings((Array.isArray(values) ? values : []).map((item) => usableSelectionKey(String(item || ""))).filter(Boolean)).slice(0, limit);
 }
@@ -11114,7 +11115,7 @@ async function writeProjectTaskSelectionState(root, state) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_OFFLINE_BUNDLE_PATH = "zlk_cluster/ui/offline_bundle.json";
+const PROJECT_OFFLINE_BUNDLE_PATH = "simple_cluster/ui/offline_bundle.json";
 async function readProjectOfflineBundleState(root) {
     if (!root)
         return undefined;
@@ -11155,7 +11156,7 @@ async function writeProjectOfflineBundleState(root, bundle) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_ACTION_ERRORS_PATH = "zlk_cluster/ui/action_errors.json";
+const PROJECT_ACTION_ERRORS_PATH = "simple_cluster/ui/action_errors.json";
 function normalizeActionErrorRow(value) {
     const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     const command = String(row.command || "").trim();
@@ -11216,7 +11217,7 @@ async function writeProjectActionErrorsState(root, errors) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_PPT_PLOT_CONFIG_PATH = "zlk_cluster/ui/ppt_plot_config.json";
+const PROJECT_PPT_PLOT_CONFIG_PATH = "simple_cluster/ui/ppt_plot_config.json";
 function normalizePptPlotConfig(value) {
     const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     const chartType = String(row.chartType || row.chart_type || "auto").trim() || "auto";
@@ -11264,8 +11265,8 @@ async function writeProjectPptPlotConfigState(root, config) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_PPT_PATH_CONFIRMATIONS_PATH = "zlk_cluster/ui/ppt_path_confirmations.json";
-const PPT_PLOT_REQUEST_AUDIT_DIR = "zlk_cluster/results/ppt_plot_requests";
+const PROJECT_PPT_PATH_CONFIRMATIONS_PATH = "simple_cluster/ui/ppt_path_confirmations.json";
+const PPT_PLOT_REQUEST_AUDIT_DIR = "simple_cluster/results/ppt_plot_requests";
 const PPT_CHART_TYPE_LABELS = Object.freeze({ auto: "自动", leaderboardBar: "柱状", meanStdErrorBar: "误差图", genericTable: "表格" });
 const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
 function normalizePptPathConfirmationTarget(presentationPath, projectRoot = "") {
@@ -11383,7 +11384,7 @@ async function writeProjectPptPathConfirmationsState(root, confirmations) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_UI_LAYOUT_PATH = "zlk_cluster/ui/ui_layout.json";
+const PROJECT_UI_LAYOUT_PATH = "simple_cluster/ui/ui_layout.json";
 async function readProjectUiLayoutState(root) {
     if (!root)
         return undefined;
@@ -11421,7 +11422,7 @@ async function writeProjectUiLayoutState(root, layout) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_DEBUG_BUNDLE_PATH = "zlk_cluster/ui/debug_bundle.json";
+const PROJECT_DEBUG_BUNDLE_PATH = "simple_cluster/ui/debug_bundle.json";
 function normalizeDebugBundlePath(value) {
     const text = String(value || "").trim().replace(/\\/g, "/");
     return text && text !== "-" ? text : "";
@@ -11465,10 +11466,10 @@ async function writeProjectDebugBundleState(root, debugBundlePath) {
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 }
-const PROJECT_CODE_SYNC_PATH = "zlk_cluster/ui/code_sync.json";
-const PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH = "zlk_cluster/ui/remote_path_confirmations.json";
-const PROJECT_LOCAL_OPERATIONS_PATH = "zlk_cluster/ui/local_operations.json";
-const PROJECT_LOCAL_PLAN_METADATA_PATH = "zlk_cluster/ui/local_plan_metadata.json";
+const PROJECT_CODE_SYNC_PATH = "simple_cluster/ui/code_sync.json";
+const PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH = "simple_cluster/ui/remote_path_confirmations.json";
+const PROJECT_LOCAL_OPERATIONS_PATH = "simple_cluster/ui/local_operations.json";
+const PROJECT_LOCAL_PLAN_METADATA_PATH = "simple_cluster/ui/local_plan_metadata.json";
 const normalizeRemoteWriteTargetsCache = new WeakMap();
 function normalizeRemoteWriteTargets(targets) {
     if (!Array.isArray(targets))
@@ -11571,7 +11572,7 @@ function agentStartupWriteConfirmationDetail(startupTargets, runtimeTargets, inc
         ...(sessions.length ? sessions.flatMap((item) => {
             const id = String(item.id || "Agent").trim() || "Agent";
             const filePath = String(item.filePath || "").trim();
-            return [`- ${id} 会话：${filePath}`, `- ${id} 固定备份：${filePath}.zlk-backup`];
+            return [`- ${id} 会话：${filePath}`, `- ${id} 固定备份：${filePath}.simple-backup`];
         }) : ["- 未配置"]),
         "",
         includeRuntimeUpload ? "预期上传的远端文件位置：" : "Agent 启动后使用的预期远端文件位置（本操作不上传）：",
@@ -12074,7 +12075,7 @@ function compactAdapterRulesForWebview(rules) {
     if (omittedFields > 0) {
         out.adapterRulesPartial = true;
         out.adapterRulesOmittedFieldCount = omittedFields;
-        out.adapterRulesPartialReason = "规则较多，Webview 只显示摘要；请打开 experiments/zlk_project.yaml 编辑完整规则。";
+        out.adapterRulesPartialReason = "规则较多，Webview 只显示摘要；请打开 experiments/simple_project.yaml 编辑完整规则。";
     }
     return out;
 }
@@ -13820,7 +13821,7 @@ function projectOutputGateDiagnostics(project, plan) {
     const checks = [
         { label: "计划强契约", ok: contractReady, fix: planContractFixText(plan) },
         { label: "配置文件", ok: configReady, fix: `在工作区创建或在 Plan 中改为可用配置：${configFile || "configs/*.yaml"}` },
-        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: adapterReady ? "打开 experiments/zlk_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/zlk_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" },
+        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置" },
         { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果" },
         { label: "标准结果契约", ok: planContractCount > 0 || ruleCandidateCount > 0 || (projectContractCount > 0 && planReady), fix: "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化" },
@@ -13904,7 +13905,7 @@ function projectOutputGateFixes(missing, plan, project) {
     const fixes = {
         计划强契约: planContractFixText(plan),
         配置文件: `在工作区创建或在 Plan 中改为可用配置：${String(plan?.baseConfig || plan?.base_config || "configs/*.yaml")}`,
-        接入配置: adapterReady ? "打开 experiments/zlk_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/zlk_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
+        接入配置: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
         计划输出: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置",
         候选结果规则: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
         标准结果契约: "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",
@@ -14080,7 +14081,7 @@ function planOutputEvidenceSignals(plan) {
 function isParseableResultCandidate(value) {
     const text = String(value || "").trim().replace(/\\/g, "/");
     const base = text.split("/").pop() || "";
-    if (!text || /^zlk_cluster\/results\//i.test(text)
+    if (!text || /^simple_cluster\/results\//i.test(text)
         || /^(?:jobs\.csv|artifact_manifest\.json|checkpoint_manifest\.json|manifest\.json|metadata\.json|status\.json|state\.json|progress\.json|job\.json|jobs\.json|env_snapshot\.json|config_snapshot\.(?:json|ya?ml))$/i.test(base)
         || /(?:_snapshot|_manifest|_status|_state|_progress)\.json$/i.test(base))
         return false;
@@ -14285,7 +14286,7 @@ function chooseXshellForward(info, selectedIndex, currentLocalPort, currentRemot
             return byIndex;
     }
     const byPorts = safeForwards.find((forward) => forward.localPort === currentLocalPort && forward.remotePort === currentRemotePort);
-    return byPorts || (0, XshellSessionScanner_1.preferredZlkForward)({ ...info, forwards: safeForwards });
+    return byPorts || (0, XshellSessionScanner_1.preferredSimpleForward)({ ...info, forwards: safeForwards });
 }
 const XSHELL_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 function xshellForwardIsLoopback(forward) {
@@ -14355,7 +14356,7 @@ function stringFromRecord(item, keys) {
 }
 function planDirSafe() {
     try {
-        return vscode.workspace.getConfiguration("zlkCluster").get("planDir", "experiments/plans").replace(/\\/g, "/");
+        return vscode.workspace.getConfiguration("simpleExperiment").get("planDir", "experiments/plans").replace(/\\/g, "/");
     }
     catch {
         return "experiments/plans";
@@ -14375,7 +14376,7 @@ function normalizeResultCsvDir(value) {
 }
 function resultCsvDirSafe() {
     try {
-        const configured = vscode.workspace.getConfiguration("zlkCluster").get("resultCsvDir", DEFAULT_RESULT_CSV_DIR);
+        const configured = vscode.workspace.getConfiguration("simpleExperiment").get("resultCsvDir", DEFAULT_RESULT_CSV_DIR);
         return normalizeResultCsvDir(configured);
     }
     catch {
@@ -14423,7 +14424,7 @@ function sameProjectRelativePath(left, right) {
 }
 function isFinalStatisticsOrPaperPath(value) {
     const pathValue = String(value || "").trim().replace(/\\/g, "/").toLowerCase();
-    return /(^|\/)statistics\.json$/.test(pathValue) || /(^|\/)zlk_results_table(?:__[^/]+)?\.(?:csv|md)$/.test(pathValue);
+    return /(^|\/)statistics\.json$/.test(pathValue) || /(^|\/)simple_results_table(?:__[^/]+)?\.(?:csv|md)$/.test(pathValue);
 }
 function finalPlotSourcesFromSummary(summary) {
     const item = summary && typeof summary === "object" ? summary : {};
@@ -15398,7 +15399,7 @@ async function planArchiveConfigMigration(root, planDir, sourcePlan, configFiles
     return { migrated, retainedShared: configFiles.filter((file) => shared.has(file)) };
 }
 function planArchiveMovableEvidenceFiles(files) {
-    return files.filter((file) => /^zlk_cluster\/results\/by_plan\/[^/]+\//.test(String(file || "").replace(/\\/g, "/")));
+    return files.filter((file) => /^simple_cluster\/results\/by_plan\/[^/]+\//.test(String(file || "").replace(/\\/g, "/")));
 }
 const PLAN_ARCHIVE_EVIDENCE_MAX_BYTES = 4 * 1024 * 1024;
 function normalizePlanArchiveEvidencePath(value) {
@@ -15570,7 +15571,7 @@ function projectOnboardingSuggestions(options) {
         return ["在 experiments/plans 下创建或放入 YAML Plan；也可点击“新建模板”。"];
     if (!hasActionableOutput) {
         return [adapterConfig
-                ? "当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或完善 experiments/zlk_project.yaml。"
+                ? "当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或完善 experiments/simple_project.yaml。"
                 : "当前 Plan 尚未声明可解析结果位置；请补充 Plan 输出，或点击“生成模板”创建接入配置。"];
     }
     if (resultFileCount > 0 && parseableResultCount === 0)
@@ -15653,7 +15654,7 @@ async function detectLocalProject(root, planDir) {
     const exists = async (relative) => (await existsAt(path.join(root, relative))) ? relative : "";
     const configs = [
         ...await discoverProjectConfigFiles(root),
-        ...await walkYaml(path.join(root, "zlk_cluster", "restored_configs"), { includeJson: true, includePython: true }).catch(() => []),
+        ...await walkYaml(path.join(root, "simple_cluster", "restored_configs"), { includeJson: true, includePython: true }).catch(() => []),
     ];
     const plans = (await walkYaml(path.join(root, planDir)).catch(() => [])).filter((file) => !isArchivedPlanFile(root, planDir, file));
     const configFiles = configs.map((file) => path.relative(root, file).replace(/\\/g, "/"));
@@ -15665,7 +15666,7 @@ async function detectLocalProject(root, planDir) {
     ]);
     const configSummaryFiles = configSummaryTargets(configFiles);
     const configSummaries = await Promise.all(configSummaryFiles.map((file) => summarizeConfigFile(root, file)));
-    const adapterConfig = await exists("experiments/zlk_project.yaml");
+    const adapterConfig = await exists("experiments/simple_project.yaml");
     const inferredRules = await inferProjectAdapterRules(root, configFiles, factory, planFiles);
     const adapterRules = adapterConfig ? mergeProjectAdapterRules(await readProjectAdapterRules(root, adapterConfig), inferredRules) : inferredRules;
     const resultOutputs = await detectResultOutputs(root, adapterRules);
@@ -15701,7 +15702,7 @@ async function detectLocalProject(root, planDir) {
     };
 }
 async function detectLocalProjectForActionGate(root, planDir, previous = {}) {
-    const adapterConfig = await existsAt(path.join(root, "experiments", "zlk_project.yaml")) ? "experiments/zlk_project.yaml" : "";
+    const adapterConfig = await existsAt(path.join(root, "experiments", "simple_project.yaml")) ? "experiments/simple_project.yaml" : "";
     const previousRules = objectRecord(previous.adapterRules);
     const explicitRules = adapterConfig ? await readProjectAdapterRules(root, adapterConfig) : undefined;
     const adapterRules = explicitRules || previousRules || emptyProjectAdapterRules();
@@ -15943,7 +15944,7 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
         textLogs.add("work_dirs/*/test_results/summary.txt");
         csv.add("work_dirs/results.csv");
     }
-    if (factory.files.includes("experiments/zlk_adapter/factory_hooks.py") || factory.symbols.includes("DefaultDeepLearningAdapter")) {
+    if (factory.files.includes("experiments/simple_adapter/factory_hooks.py") || factory.symbols.includes("DefaultDeepLearningAdapter")) {
         csv.add("metrics_summary.csv");
         csv.add("work_dirs/*/metrics_summary.csv");
         csv.add("work_dirs/results.csv");
@@ -16813,7 +16814,7 @@ function planRunConfirmationDetail(command, plan, remoteTargets) {
         `配置：${baseConfig}`,
         "实际执行命令：",
         ...planRunCommandSummary(item).map((value) => `- ${value}`),
-        debugMode ? "Debug 输出：zlk_cluster/debug_runs/<plan>/<run>/" : `结果位置（${output.source}）：${output.text}`,
+        debugMode ? "Debug 输出：simple_cluster/debug_runs/<plan>/<run>/" : `结果位置（${output.source}）：${output.text}`,
         `Worker：${workers.length ? workers.map((target) => target.label).join("、") : "未配置"}`,
         ...(schedulerOwnerWorkerId ? [`人工调度目标：${schedulerOwnerWorkerId}（该 Worker 独立调度完整 Plan）`] : []),
         "Worker 调度配置：",
@@ -17195,8 +17196,8 @@ async function detectFactoryPatterns(root) {
         "experiments/common.py",
         "experiments/collect_results.py",
         "experiments/run_plan.py",
-        "experiments/zlk_adapter/factory_hooks.py",
-        "experiments/zlk_adapter/result_writer.py",
+        "experiments/simple_adapter/factory_hooks.py",
+        "experiments/simple_adapter/result_writer.py",
         "models/builder.py",
         "models/registry.py",
         "models/__init__.py",
@@ -17262,8 +17263,8 @@ async function detectFactoryPatterns(root) {
         hints.add("experiments/run_plan.py");
     if (files.includes("comparison_methods/registry.py"))
         hints.add("comparison_methods/registry.py");
-    if (files.includes("experiments/zlk_adapter/factory_hooks.py"))
-        hints.add("experiments/zlk_adapter/factory_hooks.py");
+    if (files.includes("experiments/simple_adapter/factory_hooks.py"))
+        hints.add("experiments/simple_adapter/factory_hooks.py");
     if (symbols.has("RESULT_COLUMNS"))
         hints.add("RESULT_COLUMNS");
     if (symbols.has("append_results"))
@@ -17905,11 +17906,11 @@ function parseLocalPlanText(file, text) {
     const testCommand = summary.testCommand || "";
     const outputCandidates = summary.outputCandidates;
     const outputSignals = summary.outputSignals;
-    const restoreVersion = String(text || "").match(/^# ZLK restore version:\s*(v\d+)\s*$/m)?.[1] || "";
-    const restoreSource = String(text || "").match(/^# ZLK archived source:\s*(.+?)\s*$/m)?.[1] || "";
-    const restoreOutputNamespace = String(text || "").match(/^# ZLK restored output namespace:\s*(.+?)\s*$/m)?.[1] || "";
-    const restoreEnvironmentDir = String(text || "").match(/^# ZLK restored environment:\s*(.+?)\s*$/m)?.[1] || "";
-    const restoreParameterDir = String(text || "").match(/^# ZLK restored parameters:\s*(.+?)\s*$/m)?.[1] || "";
+    const restoreVersion = String(text || "").match(/^# (?:SimpleExperiment|ZLK) restore version:\s*(v\d+)\s*$/m)?.[1] || "";
+    const restoreSource = String(text || "").match(/^# (?:SimpleExperiment|ZLK) archived source:\s*(.+?)\s*$/m)?.[1] || "";
+    const restoreOutputNamespace = String(text || "").match(/^# (?:SimpleExperiment|ZLK) restored output namespace:\s*(.+?)\s*$/m)?.[1] || "";
+    const restoreEnvironmentDir = String(text || "").match(/^# (?:SimpleExperiment|ZLK) restored environment:\s*(.+?)\s*$/m)?.[1] || "";
+    const restoreParameterDir = String(text || "").match(/^# (?:SimpleExperiment|ZLK) restored parameters:\s*(.+?)\s*$/m)?.[1] || "";
     const parseError = contract.ok
         ? undefined
         : contract.missing.includes("suite") || contract.missing.includes("base_config/config")
@@ -18194,7 +18195,7 @@ function remoteResultInspectionLocalRelativePath(remotePath, planFile, timestamp
     const name = path.posix.basename(normalized, extension).replace(/[^\w.-]+/g, "_").slice(0, 64) || "result";
     const remoteKey = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 10);
     const stamp = String(timestamp || "").replace(/[^0-9]/g, "").slice(0, 14) || String(Date.now());
-    return path.posix.join("zlk_cluster", "downloads", "result_inspection", safePlanToken(planFile), `${name}__${remoteKey}__${stamp}${extension}`);
+    return path.posix.join("simple_cluster", "downloads", "result_inspection", safePlanToken(planFile), `${name}__${remoteKey}__${stamp}${extension}`);
 }
 function remoteResultInspectionCandidates(operationGroups, planFile, planRevision = "", planUpdatedAt = "") {
     const selectedPlan = normalizePlanSelectionKey(planFile);
@@ -18484,7 +18485,7 @@ async function promptWorkerTunnel(current, index, base) {
     const host = await input("Worker 地址", seed?.workerHost || seed?.hubHost || "", "IP 或域名，例如 10.0.0.5");
     if (host === undefined)
         return undefined;
-    const user = await input("登录用户名", seed?.workerUser || seed?.hubUser || base.hubUser, "例如 zlk");
+    const user = await input("登录用户名", seed?.workerUser || seed?.hubUser || base.hubUser, "例如 simple");
     if (user === undefined)
         return undefined;
     const sshPort = await inputPort("登录端口", seed?.workerSshPort || seed?.hubSshPort || 22, { min: 1, description: "登录端口" });
@@ -18827,7 +18828,7 @@ async function inputActualWorkRoot(title, value, label, server = {}) {
             title,
             value: current,
             placeHolder: "/home/your_name/projects",
-            prompt: "填写项目父目录。SimpleSFTP 会自动追加当前项目名，Agent runtime 会写入同级 zlk_agent。",
+            prompt: "填写项目父目录。SimpleSFTP 会自动追加当前项目名，Agent runtime 会写入同级 simple_agent。",
             ignoreFocusOut: true,
             validateInput: (text) => actualWorkRootValidationMessage(text, remoteProjectName(), label, server),
         });
@@ -18890,7 +18891,7 @@ async function inputPort(title, value, options = {}) {
     return raw === undefined ? undefined : Number(raw);
 }
 async function runVsCodeShellTask(name, command, cwd) {
-    const task = new vscode.Task({ type: "shell", task: name }, vscode.TaskScope.Workspace, name, "zlkCluster", new vscode.ShellExecution(command, { cwd }));
+    const task = new vscode.Task({ type: "shell", task: name }, vscode.TaskScope.Workspace, name, "simpleExperiment", new vscode.ShellExecution(command, { cwd }));
     const execution = await vscode.tasks.executeTask(task);
     await new Promise((resolve, reject) => {
         const disposable = vscode.tasks.onDidEndTaskProcess((event) => {
@@ -18913,7 +18914,7 @@ function gitRepositoryHasRemote(repo) {
     return remotes.some((remote) => String(remote?.name || "").trim() || String(remote?.fetchUrl || remote?.pushUrl || "").trim());
 }
 function timestampCommitMessage() {
-    return `zlk sync ${new Date().toISOString()}`;
+    return `simple sync ${new Date().toISOString()}`;
 }
 function samePath(a, b) {
     if (!a || !b)
@@ -18967,7 +18968,7 @@ const protectedCodeSyncTopLevelDirs = new Set([
     ".runtime",
     ".local-gpt",
     ".codex",
-    "zlk_cluster",
+    "simple_cluster",
     "node_modules",
     "dist",
     "build",
@@ -19077,7 +19078,7 @@ function persistedXshellSetupConfig(config) {
     };
 }
 function workspaceMappingConfig() {
-    const config = vscode.workspace.getConfiguration?.("zlkCluster");
+    const config = vscode.workspace.getConfiguration?.("simpleExperiment");
     return {
         hostRoot: config?.get?.("workspaceHostRoot", "") || "",
         containerRoot: config?.get?.("workspaceContainerRoot", "") || "",
@@ -19248,18 +19249,18 @@ function actualWorkRootValidationMessage(value, projectName = remoteProjectName(
         return `请填写 ${displayLabel} 上用于存放项目的父目录。`;
     const segments = root.split("/").filter(Boolean);
     const lowerSegments = segments.map((item) => item.toLowerCase());
-    if (lowerSegments.includes("zlk_agent"))
-        return `${displayLabel} 项目父目录不能包含 zlk_agent；插件会自动管理同级 Agent runtime。`;
+    if (lowerSegments.includes("simple_agent"))
+        return `${displayLabel} 项目父目录不能包含 simple_agent；插件会自动管理同级 Agent runtime。`;
     const serverRecord = server && typeof server === "object" ? server : {};
     const serverId = String(serverRecord.id || serverRecord.serverId || "");
     const serverLabel = String(serverRecord.displayName || serverRecord.label || serverRecord.name || "");
     const serverHost = String(serverRecord.host || serverRecord.sshHost || serverRecord.resolvedHost || serverRecord.transferHost || "");
     const isNwpu3 = [serverId, serverLabel, serverHost].some((item) => /(^|[^a-z0-9])(nwpu3|nwpu213|npu213)([^a-z0-9]|$)/i.test(item));
-    if (isNwpu3 && root !== "/data/qgking/zlk")
-        return `${displayLabel} 已固定使用 /data/qgking/zlk，禁止使用其他项目父目录。`;
+    if (isNwpu3 && root !== "/data/qgking/simple")
+        return `${displayLabel} 已固定使用 /data/qgking/simple，禁止使用其他项目父目录。`;
     const lowerRoot = root.toLowerCase();
-    if (lowerRoot === "/root/disk1/qgking/zlk" || lowerRoot.startsWith("/root/disk1/qgking/zlk/"))
-        return `${displayLabel} 已固定使用 /data/qgking/zlk，禁止使用 /root/disk1/qgking/zlk。`;
+    if (lowerRoot === "/root/disk1/qgking/simple" || lowerRoot.startsWith("/root/disk1/qgking/simple/"))
+        return `${displayLabel} 已固定使用 /data/qgking/simple，禁止使用 /root/disk1/qgking/simple。`;
     return undefined;
 }
 function actualWorkRootAmbiguityMessage(value, projectName = remoteProjectName(), label = "服务器") {
@@ -19349,11 +19350,11 @@ function errorMessage(error) {
 }
 function xshellLoginCommandUpdateLabel(skippedReason, changed) {
     switch (skippedReason) {
-        case "existing_zlk_command":
+        case "existing_simple_command":
             return "已存在当前 SimpleExperiment Agent 命令，跳过";
-        case "non_zlk_remote_command":
+        case "non_simple_remote_command":
             return "检测到已有非 SimpleExperiment 登录后命令，已跳过，未覆盖用户自定义命令";
-        case "different_zlk_agent_session":
+        case "different_simple_agent_session":
             return "检测到其它 SimpleExperiment Agent 会话命令，已跳过，避免覆盖";
         default:
             return changed ? "已写入" : "无需变更";

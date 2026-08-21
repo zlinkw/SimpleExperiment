@@ -16,12 +16,12 @@ test("agent file transfer status is project-scoped and sanitized", (t) => {
     return;
   }
   assert.match(CLUSTER_AGENT_RUNTIME, /def transfer_status_path\(root, transfer_id\):/);
-  assert.match(CLUSTER_AGENT_RUNTIME, /safe_project_path\(root, "zlk_cluster\/file_transfers\/" \+ safe_record_name\(transfer_id\)\)/);
+  assert.match(CLUSTER_AGENT_RUNTIME, /safe_project_path\(root, "simple_cluster\/file_transfers\/" \+ safe_record_name\(transfer_id\)\)/);
   assert.match(CLUSTER_AGENT_RUNTIME, /return self\.send_json\(read_transfer_status\(root, transfer_id\)\)/);
   assert.match(CLUSTER_AGENT_RUNTIME, /write_transfer_status\(root, item\)/);
   assert.doesNotMatch(CLUSTER_AGENT_RUNTIME, /"schemaVersion": SCHEMA_VERSION, \*\*UPLOADS\.get\(transfer_id/);
 
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-agent-transfer-ledger-"));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-agent-transfer-ledger-"));
   const script = path.join(project, "transfer-ledger.py");
   fs.writeFileSync(script, `
 import importlib.util, json, pathlib, os
@@ -34,7 +34,7 @@ item = {"schemaVersion": 1, "transferId": "tx-1", "status": "completed", "direct
 public = agent.write_transfer_status(str(root), item)
 agent.UPLOADS.clear()
 restored = agent.read_transfer_status(str(root), "tx-1")
-files = list((root / "zlk_cluster" / "file_transfers").glob("*.json"))
+files = list((root / "simple_cluster" / "file_transfers").glob("*.json"))
 ledger = json.loads(files[0].read_text(encoding="utf-8"))
 print(json.dumps({"public": public, "restored": restored, "ledger": ledger, "fileCount": len(files)}, ensure_ascii=False))
 `, "utf8");

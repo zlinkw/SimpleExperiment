@@ -69,7 +69,7 @@ function loadDiagnostics() {
 
 function fixture() {
   const project = {
-    adapterConfig: "experiments/zlk_project.yaml",
+    adapterConfig: "experiments/simple_project.yaml",
     adapterRules: { candidateCsv: ["metrics_summary.csv"] },
     configs: [{ file: "configs/base.yaml" }],
     outputContractFiles: ["metrics_summary.csv"],

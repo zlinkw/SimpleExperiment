@@ -95,7 +95,7 @@ test("Debug worker execution rewrites outputs under debug_runs", () => {
 
   const result = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", plan, "--only-index", "0", "--debug-mode", "--debug-run-id", "debug-1"], { cwd: project, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const debugRoot = path.join(project, "zlk_cluster", "debug_runs");
+  const debugRoot = path.join(project, "simple_cluster", "debug_runs");
   const markers = fs.readdirSync(debugRoot, { recursive: true }).filter((item) => String(item).endsWith("debug.marker"));
   assert.equal(markers.length, 1);
   assert.equal(fs.existsSync(path.join(project, "work_dirs")), false);
@@ -179,9 +179,9 @@ test("Debug completion skips the formal automatic result pipeline", () => {
 test("Formal result discovery excludes debug_runs files", () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-debug-discovery-"));
   fs.mkdirSync(path.join(project, "results"), { recursive: true });
-  fs.mkdirSync(path.join(project, "zlk_cluster", "debug_runs", "plan", "run", "artifacts"), { recursive: true });
+  fs.mkdirSync(path.join(project, "simple_cluster", "debug_runs", "plan", "run", "artifacts"), { recursive: true });
   fs.writeFileSync(path.join(project, "results", "formal.csv"), "metric,value\nAUC,0.9\n", "utf8");
-  fs.writeFileSync(path.join(project, "zlk_cluster", "debug_runs", "plan", "run", "artifacts", "results.csv"), "metric,value\nAUC,0.1\n", "utf8");
+  fs.writeFileSync(path.join(project, "simple_cluster", "debug_runs", "plan", "run", "artifacts", "results.csv"), "metric,value\nAUC,0.1\n", "utf8");
   const script = [
     "import importlib.util, json",
     `spec = importlib.util.spec_from_file_location('agent', r'${agentRuntime.replace(/\\/g, "/")}')`,

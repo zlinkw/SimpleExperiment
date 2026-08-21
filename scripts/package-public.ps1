@@ -80,8 +80,8 @@ $readme = @(
     "4. Configure Xshell sessions, then set Hub/Worker project parent directories in SimpleExperiment.",
     "",
     "This bundle installs SimpleSFTP and SimpleExperiment together.",
-    "The installer removes legacy zlk-local extension IDs after the public extensions are verified.",
-    "Before reload, an already-running legacy extension host can temporarily leave old ZLK status-bar items beside the new UI."
+    "The installer removes legacy simple-local extension IDs after the public extensions are verified.",
+    "Before reload, an already-running legacy extension host can temporarily leave old private status-bar items beside the new UI."
 ) -join [Environment]::NewLine
 
 $readmePath = Join-Path $bundle "README.md"

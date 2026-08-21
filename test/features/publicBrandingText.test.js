@@ -10,8 +10,8 @@ const ppt = fs.readFileSync(path.join(root, "src/PptPlotBridge.ts"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 
 test("public user-facing labels use SimpleExperiment branding", () => {
-  assert.doesNotMatch(extension, /ZLK GitHub|ZLK 结果|zlk-results\.pptx|非 ZLK 登录后命令|当前 ZLK Agent|其它 ZLK Agent/);
-  assert.doesNotMatch(panel, /写入 zlk-\* RemoteCommand/);
+  assert.doesNotMatch(extension, /ZLK GitHub|ZLK 结果|simple-results\.pptx|非 ZLK 登录后命令|当前 ZLK Agent|其它 ZLK Agent/);
+  assert.doesNotMatch(panel, /写入 simple-\* RemoteCommand/);
   assert.doesNotMatch(ppt, /ZLK 结果/);
   assert.match(extension, /SimpleExperiment GitHub publish/);
   assert.match(extension, /SimpleExperiment 结果/);
@@ -21,8 +21,8 @@ test("public user-facing labels use SimpleExperiment branding", () => {
 });
 
 test("legacy technical identifiers remain compatible", () => {
-  assert.match(extension, /\.zlk-backup/);
-  assert.match(extension, /__ZLK_PROJECT_NAME__/);
-  assert.match(readme, /旧 `zlk-run` 作为兼容别名继续可用/);
-  assert.match(readme, /`ZLK_AGENT_STATE_DIR`/);
+  assert.match(extension, /\.simple-backup/);
+  assert.match(extension, /__SIMPLE_EXPERIMENT_PROJECT_NAME__/);
+  assert.match(readme, /旧 `simple-experiment-run` 作为兼容别名继续可用/);
+  assert.match(readme, /`SIMPLE_EXPERIMENT_AGENT_STATE_DIR`/);
 });

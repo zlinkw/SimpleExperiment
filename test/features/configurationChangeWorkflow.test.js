@@ -11,9 +11,9 @@ test("connection setting changes refresh the live client without reloading VS Co
   const end = source.indexOf("async clearOfflineImport()", start);
   assert.ok(start > 0 && end > start, "configuration change handler missing");
   const flow = source.slice(start, end);
-  assert.match(flow, /affectsConfiguration\?\.\("zlkCluster"\)/);
-  assert.match(flow, /affectsConfiguration\("zlkCluster\.connectionMode"\)/);
-  assert.match(flow, /affectsConfiguration\("zlkCluster\.tunnel"\)/);
+  assert.match(flow, /affectsConfiguration\?\.\("simpleExperiment"\)/);
+  assert.match(flow, /affectsConfiguration\("simpleExperiment\.connectionMode"\)/);
+  assert.match(flow, /affectsConfiguration\("simpleExperiment\.tunnel"\)/);
   assert.match(flow, /this\.tunnelConfig = this\.loadTunnelConfig\(\)/);
   assert.match(flow, /this\.setupConfig = this\.loadSetupConfig\(\)/);
   assert.match(flow, /this\.resetClient\(\)/);

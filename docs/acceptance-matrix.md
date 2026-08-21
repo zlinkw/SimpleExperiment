@@ -1,6 +1,6 @@
 # Acceptance Matrix
 
-This matrix defines the repeatable fake/mock acceptance gate for the ZLK Cluster Orchestrator extension. It is the source of truth for final release checks. Real SSH cluster checks are optional and live in `docs/manual-acceptance-checklist.md`.
+This matrix defines the repeatable fake/mock acceptance gate for the SimpleExperiment extension. It is the source of truth for final release checks. Real SSH cluster checks are optional and live in `docs/manual-acceptance-checklist.md`.
 
 Run:
 
@@ -8,7 +8,7 @@ Run:
 npm run acceptance
 ```
 
-The command writes JSON and Markdown reports to `zlk_cluster/reports/acceptance/`.
+The command writes JSON and Markdown reports to `simple_cluster/reports/acceptance/`.
 
 | Area | Required behavior | Automated evidence | Fake/mock only |
 | --- | --- | --- | --- |

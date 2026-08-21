@@ -4,7 +4,7 @@ const { spawnSync } = require("child_process");
 const { npmCommand } = require("./npm-command");
 
 const root = path.resolve(__dirname, "..");
-const reportDir = path.join(root, "zlk_cluster", "reports", "acceptance");
+const reportDir = path.join(root, "simple_cluster", "reports", "acceptance");
 function run(name, command, args) {
   const startedAt = new Date().toISOString();
   const result = spawnSync(command, args, {

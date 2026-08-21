@@ -13,8 +13,8 @@ const mapping = {
 test("SimpleExperiment declares a Windows UI host and optional mapping settings", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8"));
   assert.deepEqual(packageJson.extensionKind, ["ui"]);
-  assert.equal(packageJson.contributes.configuration.properties["zlkCluster.workspaceHostRoot"].default, "");
-  assert.equal(packageJson.contributes.configuration.properties["zlkCluster.workspaceContainerRoot"].default, "");
+  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.workspaceHostRoot"].default, "");
+  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.workspaceContainerRoot"].default, "");
 });
 
 test("workspace path mapping preserves Windows file workspaces", () => {
@@ -36,13 +36,13 @@ test("workspace path mapping preserves Windows file workspaces", () => {
 test("workspace path mapping keeps the remote editor URI and maps nested host paths", () => {
   const result = resolveWorkspaceLocation({
     scheme: "vscode-remote",
-    path: "/workspaces/MCP/zlk-cluster-orchestrator",
-    fsPath: "/workspaces/MCP/zlk-cluster-orchestrator",
-    external: "vscode-remote://dev-container+abc/workspaces/MCP/zlk-cluster-orchestrator",
+    path: "/workspaces/MCP/simple-experiment",
+    fsPath: "/workspaces/MCP/simple-experiment",
+    external: "vscode-remote://dev-container+abc/workspaces/MCP/simple-experiment",
   }, mapping);
-  assert.equal(result.editorUri, "vscode-remote://dev-container+abc/workspaces/MCP/zlk-cluster-orchestrator");
-  assert.equal(result.hostPath, "D:\\GitRepo\\MCP\\zlk-cluster-orchestrator");
-  assert.equal(result.relativePath, "MCP/zlk-cluster-orchestrator");
+  assert.equal(result.editorUri, "vscode-remote://dev-container+abc/workspaces/MCP/simple-experiment");
+  assert.equal(result.hostPath, "D:\\GitRepo\\MCP\\simple-experiment");
+  assert.equal(result.relativePath, "MCP/simple-experiment");
   assert.equal(result.remote, true);
 });
 
@@ -58,8 +58,8 @@ test("workspace path mapping accepts the configured container root itself", () =
 
 test("workspace path mapping requires explicit remote root settings", () => {
   const uri = { scheme: "vscode-remote", path: "/workspaces/demo", fsPath: "/workspaces/demo" };
-  assert.throws(() => resolveWorkspaceLocation(uri, {}), /zlkCluster\.workspaceHostRoot/);
-  assert.throws(() => resolveWorkspaceLocation(uri, { hostRoot: "D:\\GitRepo" }), /zlkCluster\.workspaceContainerRoot/);
+  assert.throws(() => resolveWorkspaceLocation(uri, {}), /simpleExperiment\.workspaceHostRoot/);
+  assert.throws(() => resolveWorkspaceLocation(uri, { hostRoot: "D:\\GitRepo" }), /simpleExperiment\.workspaceContainerRoot/);
   assert.throws(() => resolveWorkspaceLocation({ ...uri, scheme: "untitled" }, mapping), /不支持的工作区 URI scheme/);
 });
 

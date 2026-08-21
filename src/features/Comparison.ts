@@ -2,10 +2,10 @@ import { createHash } from "crypto";
 import { ExperimentResultRecord } from "./Results";
 import { ExperimentPlanRecord, PlanBuildResult, expandPlanMatrix, importLegacyPlanYamlToRegistry } from "./PlanBuilder";
 
-export const COMPARISON_REGISTRY_PATH = "zlk_cluster/comparisons/comparison_registry.json";
-export const COMPARISON_STUDY_DIR = "zlk_cluster/comparisons/studies";
-export const COMPARISON_PROTOCOL_DIR = "zlk_cluster/comparisons/protocols";
-export const COMPARISON_EXPORT_DIR = "zlk_cluster/comparisons/exports";
+export const COMPARISON_REGISTRY_PATH = "simple_cluster/comparisons/comparison_registry.json";
+export const COMPARISON_STUDY_DIR = "simple_cluster/comparisons/studies";
+export const COMPARISON_PROTOCOL_DIR = "simple_cluster/comparisons/protocols";
+export const COMPARISON_EXPORT_DIR = "simple_cluster/comparisons/exports";
 
 export interface ExperimentComparisonReport {
   comparedExperimentIds: string[];
@@ -379,7 +379,7 @@ export function generateComparisonPlans(study: ComparisonStudyRecord, options: C
   const groups = groupGeneratedExperiments(dryRun, options);
   const plans = groups.map(([name, experiments]) => {
     const yaml = renderComparisonPlanYaml(study, name, experiments);
-    return importLegacyPlanYamlToRegistry(`zlk_cluster/plans/generated/${name}.yaml`, yaml);
+    return importLegacyPlanYamlToRegistry(`simple_cluster/plans/generated/${name}.yaml`, yaml);
   });
   return { dryRun, plans, protocolIssues: [] };
 }

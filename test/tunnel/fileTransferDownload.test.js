@@ -15,7 +15,7 @@ test("file transfer downloads over local HTTP API", async () => {
     res.end("hello");
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-dl-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-dl-"));
   const target = path.join(dir, "out.txt");
   const progress = [];
   const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }), (event) => progress.push(event));

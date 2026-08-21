@@ -28,15 +28,15 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 TAIL_BYTES = 16 * 1024
-ARCHIVE_STATE_PATH = Path("zlk_cluster/archive_state.json")
-DELETED_EXPERIMENTS_PATH = Path("zlk_cluster/deleted_experiments.jsonl")
-DELETED_SCHEDULER_ROWS_PATH = Path("zlk_cluster/deleted_scheduler_rows.jsonl")
+ARCHIVE_STATE_PATH = Path("simple_cluster/archive_state.json")
+DELETED_EXPERIMENTS_PATH = Path("simple_cluster/deleted_experiments.jsonl")
+DELETED_SCHEDULER_ROWS_PATH = Path("simple_cluster/deleted_scheduler_rows.jsonl")
 MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
 AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
 
 
 def scheduler_dependency_status() -> dict[str, Any]:
-    conda_env = str(os.environ.get("ZLK_CONDA_ENV") or "").strip()
+    conda_env = str(os.environ.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
     environment = {
         "kind": "conda" if conda_env else "system_python",
         "name": conda_env,
@@ -225,7 +225,7 @@ def plan_execution_mode(plan: dict[str, Any], requested: str = "") -> str:
 
 
 def load_project_adapter_config(root: Path | None = None) -> dict[str, Any]:
-    config_path = (root or Path.cwd()) / "experiments" / "zlk_project.yaml"
+    config_path = (root or Path.cwd()) / "experiments" / "simple_project.yaml"
     if not config_path.is_file():
         return {}
     try:
@@ -348,8 +348,8 @@ RESULT_TOP_DIRS = {
 
 RESULT_PREFIX_PAIRS = {
     ("experiments", "results"), ("experiments", "runs"),
-    ("zlk_cluster", "results"), ("zlk_cluster", "logs"),
-    ("zlk_cluster", "tmux_logs"), ("zlk_cluster", "archive"),
+    ("simple_cluster", "results"), ("simple_cluster", "logs"),
+    ("simple_cluster", "tmux_logs"), ("simple_cluster", "archive"),
 }
 
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
@@ -585,7 +585,7 @@ def output_interface_report(root: Path, jobs: list[Job]) -> dict[str, Any]:
             if tensorboard_evidence and not tensorboard_conversion_available():
                 missing.append("TensorBoard 标量转换依赖 tensorboard；请在远端环境安装 tensorboard")
             else:
-                missing.append("未验证的输出接口：请使用 zlk_adapter/run_wrapper 包裹命令，或在入口代码调用 collect_outputs/write_metrics_summary，或使用 TensorBoard SummaryWriter 并安装 tensorboard")
+                missing.append("未验证的输出接口：请使用 simple_adapter/run_wrapper 包裹命令，或在入口代码调用 collect_outputs/write_metrics_summary，或使用 TensorBoard SummaryWriter 并安装 tensorboard")
         rows.append({
             "index": job.index,
             "case": job.case,
@@ -861,7 +861,7 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
 
 
 def debug_run_root(plan_file: str, run_id: str) -> str:
-    return f"zlk_cluster/debug_runs/{plan_runtime_key(plan_file)}/{slug(run_id, 'debug', 64)}"
+    return f"simple_cluster/debug_runs/{plan_runtime_key(plan_file)}/{slug(run_id, 'debug', 64)}"
 
 
 def rewrite_debug_config_paths(value: Any, job_dir: str, result_csv: str, formal_output_dir: str, formal_aliases: dict[str, str], key: str = "") -> Any:
@@ -1079,48 +1079,48 @@ def append_jobs_csv(jobs: list[Job], path: Path = Path("experiments/results/jobs
             })
 
 
-def zlk_conda_env_name(env: dict[str, str] | None = None) -> str:
+def simple_conda_env_name(env: dict[str, str] | None = None) -> str:
     source = os.environ if env is None else env
-    return str(source.get("ZLK_CONDA_ENV") or "").strip()
+    return str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
 
 
-def zlk_conda_required(env: dict[str, str] | None = None) -> bool:
+def simple_conda_required(env: dict[str, str] | None = None) -> bool:
     source = os.environ if env is None else env
-    return str(source.get("ZLK_REQUIRE_CONDA_ENV") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def zlk_conda_activation_script(env: dict[str, str] | None = None) -> str:
-    raw_env_name = zlk_conda_env_name(env)
+def simple_conda_activation_script(env: dict[str, str] | None = None) -> str:
+    raw_env_name = simple_conda_env_name(env)
     if not raw_env_name:
         return "true"
     env_name = shlex.quote(raw_env_name)
-    missing = "echo \"Conda env $ZLK_CONDA_ENV is required.\"; exit 127" if zlk_conda_required(env) else "true"
-    failed = "{ echo \"Conda env $ZLK_CONDA_ENV is required.\"; exit 127; }" if zlk_conda_required(env) else "true"
-    missing_guard = "\"$" + "{ZLK_REQUIRE_CONDA_ENV:-0}\" = \"1\"" if zlk_conda_required(env) else "\"0\" = \"1\""
+    missing = "echo \"Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required.\"; exit 127" if simple_conda_required(env) else "true"
+    failed = "{ echo \"Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required.\"; exit 127; }" if simple_conda_required(env) else "true"
+    missing_guard = "\"$" + "{SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}\" = \"1\"" if simple_conda_required(env) else "\"0\" = \"1\""
     return "; ".join([
-        "ZLK_CONDA_ENV=\"$" + "{ZLK_CONDA_ENV:-" + env_name + "}\"",
-        "for __ZLK_CONDA_SH in \"$HOME/miniconda3/etc/profile.d/conda.sh\" \"$HOME/anaconda3/etc/profile.d/conda.sh\" \"$HOME/miniforge3/etc/profile.d/conda.sh\" \"$HOME/mambaforge/etc/profile.d/conda.sh\" \"/opt/conda/etc/profile.d/conda.sh\" \"/opt/anaconda3/etc/profile.d/conda.sh\" \"/usr/local/anaconda3/etc/profile.d/conda.sh\"; do if ! command -v conda >/dev/null 2>&1 && [ -f \"$__ZLK_CONDA_SH\" ]; then . \"$__ZLK_CONDA_SH\"; fi; done",
-        "if command -v conda >/dev/null 2>&1; then __ZLK_CONDA_SETUP=\"$(conda shell.posix hook 2>/dev/null)\" && eval \"$__ZLK_CONDA_SETUP\" || true; fi",
-        f"if command -v conda >/dev/null 2>&1; then conda activate \"$ZLK_CONDA_ENV\" >/dev/null 2>&1 || {failed}; elif [ {missing_guard} ]; then {missing}; fi",
+        "SIMPLE_EXPERIMENT_CONDA_ENV=\"$" + "{SIMPLE_EXPERIMENT_CONDA_ENV:-" + env_name + "}\"",
+        "for __SIMPLE_EXPERIMENT_CONDA_SH in \"$HOME/miniconda3/etc/profile.d/conda.sh\" \"$HOME/anaconda3/etc/profile.d/conda.sh\" \"$HOME/miniforge3/etc/profile.d/conda.sh\" \"$HOME/mambaforge/etc/profile.d/conda.sh\" \"/opt/conda/etc/profile.d/conda.sh\" \"/opt/anaconda3/etc/profile.d/conda.sh\" \"/usr/local/anaconda3/etc/profile.d/conda.sh\"; do if ! command -v conda >/dev/null 2>&1 && [ -f \"$__SIMPLE_EXPERIMENT_CONDA_SH\" ]; then . \"$__SIMPLE_EXPERIMENT_CONDA_SH\"; fi; done",
+        "if command -v conda >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_CONDA_SETUP=\"$(conda shell.posix hook 2>/dev/null)\" && eval \"$__SIMPLE_EXPERIMENT_CONDA_SETUP\" || true; fi",
+        f"if command -v conda >/dev/null 2>&1; then conda activate \"$SIMPLE_EXPERIMENT_CONDA_ENV\" >/dev/null 2>&1 || {failed}; elif [ {missing_guard} ]; then {missing}; fi",
     ])
 
 
-def zlk_conda_wrapped_args(args: list[str], env: dict[str, str]) -> list[str]:
-    if os.name == "nt" or not (zlk_conda_required(env) or str(env.get("ZLK_CONDA_ENV") or "").strip()):
+def simple_conda_wrapped_args(args: list[str], env: dict[str, str]) -> list[str]:
+    if os.name == "nt" or not (simple_conda_required(env) or str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()):
         return args
-    return shell_command_args(f"{zlk_conda_activation_script(env)} && exec {shlex.join(args)}")
+    return shell_command_args(f"{simple_conda_activation_script(env)} && exec {shlex.join(args)}")
 
 
 def runtime_python_command(env: dict[str, str] | None = None) -> str:
     source = os.environ if env is None else env
-    if os.name != "nt" and (zlk_conda_required(source) or str(source.get("ZLK_CONDA_ENV") or "").strip()):
+    if os.name != "nt" and (simple_conda_required(source) or str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()):
         return "python"
     return sys.executable
 
 
 def run_command(args: list[str], env: dict[str, str]) -> None:
-    print("[zlk-runtime]", " ".join(args), flush=True)
-    subprocess.run(zlk_conda_wrapped_args(args, env), check=True, env=env)
+    print("[simple-experiment-runtime]", " ".join(args), flush=True)
+    subprocess.run(simple_conda_wrapped_args(args, env), check=True, env=env)
 
 
 def normalize_command_text(command: str) -> str:
@@ -1237,7 +1237,7 @@ def wrap_command(command: list[str], job: Job, config_path: Path, args: argparse
         return command
     wrapper_path = existing_project_file_text(Path.cwd(), job.run_wrapper)
     if not wrapper_path:
-        print(f"[zlk-runtime] adapter run wrapper missing, command runs without wrapper: {job.run_wrapper}", flush=True)
+        print(f"[simple-experiment-runtime] adapter run wrapper missing, command runs without wrapper: {job.run_wrapper}", flush=True)
         return command
     context_json = json.dumps(wrapper_context(job, config_path, args, stage), ensure_ascii=False, separators=(",", ":"))
     return [runtime_python_command(), wrapper_path, "--output-dir", job.output_dir, "--context-json", context_json, "--", *command]
@@ -1246,7 +1246,7 @@ def wrap_command(command: list[str], job: Job, config_path: Path, args: argparse
 def run_job(job: Job, args: argparse.Namespace) -> None:
     manifest = Path(job.output_dir) / "artifact_manifest.json"
     if args.resume and manifest.exists() and args.mode != "test":
-        print(f"[zlk-runtime] skip existing job index={job.index} output={job.output_dir}", flush=True)
+        print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir}", flush=True)
         return
     config_path = write_job_config(job)
     env = os.environ.copy()
@@ -1279,9 +1279,9 @@ def run_job_mode(args: argparse.Namespace) -> None:
     jobs_csv = Path(str(args.debug_output_dir)) / "jobs.csv" if args.debug_mode else Path(normalize_default_result_csv_dir(args.default_result_csv_dir)) / "jobs.csv"
     append_jobs_csv(chosen, jobs_csv, plan_file=str(args.plan or ""))
     for job in chosen:
-        print(f"[zlk-runtime] start index={job.index} case={job.case} seed={job.seed} at {now()}", flush=True)
+        print(f"[simple-experiment-runtime] start index={job.index} case={job.case} seed={job.seed} at {now()}", flush=True)
         run_job(job, args)
-        print(f"[zlk-runtime] done index={job.index} at {now()}", flush=True)
+        print(f"[simple-experiment-runtime] done index={job.index} at {now()}", flush=True)
 
 
 def print_job_dir_mode(args: argparse.Namespace) -> None:
@@ -1301,9 +1301,9 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         raise SystemExit("plan produced no jobs")
     missing: list[str] = []
     if mode in {"train", "train_test"} and any(not job.train_command for job in jobs) and not (project_root / "train.py").is_file():
-        missing.append("train.py, runner.train_command 或 zlk_project.entrypoints.trainCommandTemplate")
+        missing.append("train.py, runner.train_command 或 simple_project.entrypoints.trainCommandTemplate")
     if mode in {"test", "train_test"} and any(not job.test_command for job in jobs) and not (project_root / "test.py").is_file():
-        missing.append("test.py, runner.test_command 或 zlk_project.entrypoints.testCommandTemplate")
+        missing.append("test.py, runner.test_command 或 simple_project.entrypoints.testCommandTemplate")
     if missing:
         raise SystemExit("缺少必要运行入口：" + ", ".join(missing))
     output_interface = output_interface_report(project_root, jobs)
@@ -1376,9 +1376,9 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
                 blocked_reasons.append(f"{probe.get('worker_id') or probe.get('worker_name')}: no_idle_gpu")
     runner_missing: list[str] = []
     if mode in {"train", "train_test"} and any(not job.train_command for job in jobs) and not (project_root / "train.py").is_file():
-        runner_missing.append("train.py, runner.train_command 或 zlk_project.entrypoints.trainCommandTemplate")
+        runner_missing.append("train.py, runner.train_command 或 simple_project.entrypoints.trainCommandTemplate")
     if mode in {"test", "train_test"} and any(not job.test_command for job in jobs) and not (project_root / "test.py").is_file():
-        runner_missing.append("test.py, runner.test_command 或 zlk_project.entrypoints.testCommandTemplate")
+        runner_missing.append("test.py, runner.test_command 或 simple_project.entrypoints.testCommandTemplate")
     output_interface = output_interface_report(project_root, jobs)
     payload = {
         "schemaVersion": 1,
@@ -1449,7 +1449,7 @@ def scheduler_project_state_namespace(root: Path) -> str:
 
 
 def scheduler_default_agent_state_dir() -> Path:
-    return Path("zlk_agent/state/projects") / scheduler_project_state_namespace(Path.cwd())
+    return Path("simple_agent/state/projects") / scheduler_project_state_namespace(Path.cwd())
 
 
 def compute_scheduler_agent_state_dir(project_dir: str | Path = ".", configured: str = "") -> Path:
@@ -1461,7 +1461,7 @@ def compute_scheduler_agent_state_dir(project_dir: str | Path = ".", configured:
     namespace = scheduler_project_state_namespace(root)
     text = str(configured or "").strip()
     if not text:
-        return Path("zlk_agent/state/projects") / namespace
+        return Path("simple_agent/state/projects") / namespace
     base = Path(text).expanduser()
     try:
         base = base.resolve()
@@ -1495,7 +1495,7 @@ def resolve_scheduler_agent_state_dir(project_dir: str | Path = ".", configured:
 
 
 def scheduler_agent_state_dir() -> Path:
-    configured = AGENT_STATE_DIR or os.environ.get("ZLK_AGENT_STATE_DIR", "")
+    configured = AGENT_STATE_DIR or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")
     return resolve_scheduler_agent_state_dir(Path.cwd(), configured)
 
 def scheduler_seq_path() -> Path:
@@ -1543,7 +1543,7 @@ def run_agent_completion_pipeline(project_dir: str | Path, event: dict[str, Any]
     if not agent_path.is_file():
         return
     try:
-        spec = importlib.util.spec_from_file_location("zlk_cluster_agent_runtime_for_scheduler", agent_path)
+        spec = importlib.util.spec_from_file_location("simple_cluster_agent_runtime_for_scheduler", agent_path)
         if not spec or not spec.loader:
             return
         module = importlib.util.module_from_spec(spec)
@@ -1552,7 +1552,7 @@ def run_agent_completion_pipeline(project_dir: str | Path, event: dict[str, Any]
         if callable(hook):
             hook(str(project_dir), event)
     except Exception as exc:
-        append_log(Path(project_dir) / "zlk_cluster" / "logs" / "scheduler_auto_completion.log", f"[{now()}] auto_completion_skipped {exc}")
+        append_log(Path(project_dir) / "simple_cluster" / "logs" / "scheduler_auto_completion.log", f"[{now()}] auto_completion_skipped {exc}")
 
 
 def append_scheduler_operation_event(args: argparse.Namespace, status: str, message: str, extra: dict[str, Any] | None = None) -> None:
@@ -1854,7 +1854,7 @@ def console_path(plan: str, item: dict[str, Any], worker: dict[str, Any] | None,
         digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
         name = f"exp-{index}__worker-{worker_slug}__status-{state}__session-{session}__{digest}.log"
     debug_root = str(item.get("debugOutputDir") or item.get("debug_output_dir") or "").strip().strip("/")
-    return f"{debug_root}/console/{name}" if item.get("debugMode") and debug_root else f"zlk_cluster/console_logs/{plan_slug}/{name}"
+    return f"{debug_root}/console/{name}" if item.get("debugMode") and debug_root else f"simple_cluster/console_logs/{plan_slug}/{name}"
 
 
 def set_console_fields(plan: str, item: dict[str, Any], worker: dict[str, Any] | None, job: Any | None, status: str) -> None:
@@ -1910,10 +1910,10 @@ def comparable_path_variants(value: Any) -> set[str]:
     if not normalized:
         return set()
     variants = {normalized}
-    marker_index = normalized.find("/zlk_cluster/")
+    marker_index = normalized.find("/simple_cluster/")
     if marker_index >= 0:
         variants.add(normalized[marker_index + 1:])
-    legacy_archive = "zlk_cluster/archive/"
+    legacy_archive = "simple_cluster/archive/"
     legacy_index = normalized.find(legacy_archive)
     if legacy_index >= 0:
         variants.add(normalized[legacy_index + len(legacy_archive):])
@@ -1926,7 +1926,7 @@ def comparable_path_variants(value: Any) -> set[str]:
 
 def is_managed_artifact_path(value: Any) -> bool:
     normalized = normalize_comparable_path(value)
-    if not normalized or normalized.startswith("[zlk]") or re.match(r"^\[[^\]]+\]", normalized):
+    if not normalized or normalized.startswith("[simple]") or re.match(r"^\[[^\]]+\]", normalized):
         return False
     return any(
         variant.startswith(prefix)
@@ -1936,9 +1936,9 @@ def is_managed_artifact_path(value: Any) -> bool:
             "cluster_runs/",
             "experiments/runs/",
             "experiments/results/",
-            "zlk_cluster/console_logs/",
-            "zlk_cluster/tmux_logs/",
-            "zlk_cluster/tmp/cluster_scheduler/logs/",
+            "simple_cluster/console_logs/",
+            "simple_cluster/tmux_logs/",
+            "simple_cluster/tmp/cluster_scheduler/logs/",
         ]
     )
 
@@ -2052,7 +2052,7 @@ def upsert_experiment_index(entries: list[dict[str, Any]]) -> None:
     entries = filter_deleted_experiment_entries(entries)
     if not entries:
         return
-    index_path = Path("zlk_cluster/experiment_index.json")
+    index_path = Path("simple_cluster/experiment_index.json")
     current = safe_read_json(index_path, [])
     if not isinstance(current, list):
         current = []
@@ -2067,7 +2067,7 @@ def archived_entry_exists(job: Any, worker: dict[str, Any]) -> bool:
     job_dir = Path(str(job.output_dir))
     if (job_dir / "artifact_manifest.json").exists():
         return True
-    index_path = Path("zlk_cluster/experiment_index.json")
+    index_path = Path("simple_cluster/experiment_index.json")
     current = safe_read_json(index_path, [])
     if not isinstance(current, list):
         return False
@@ -2176,10 +2176,10 @@ def sync_running_console_logs(plan: str, items: list[dict[str, Any]], workers_by
 def ensure_worker_runtime(worker: dict[str, Any]) -> str:
     install_dir = str(worker.get("agent_runtime_dir") or worker.get("agentRuntimeDir") or "").strip().rstrip("/")
     if install_dir:
-        return f"{install_dir}/zlk_cluster/runtime/cluster_scheduler.py"
+        return f"{install_dir}/simple_cluster/runtime/cluster_scheduler.py"
     if worker.get("_runtime_uploaded"):
-        return "zlk_cluster/runtime/cluster_scheduler.py"
-    return "zlk_agent/zlk_cluster/runtime/cluster_scheduler.py"
+        return "simple_cluster/runtime/cluster_scheduler.py"
+    return "simple_agent/simple_cluster/runtime/cluster_scheduler.py"
 
 
 def write_state(path: Path, payload: dict[str, Any]) -> None:
@@ -2188,7 +2188,7 @@ def write_state(path: Path, payload: dict[str, Any]) -> None:
 
 
 def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "", default_result_csv_dir: str = "experiments/results") -> str:
-    prefix = "simple_debug" if debug_mode else ("zlk_test" if mode == "test" else "zlk")
+    prefix = "simple_debug" if debug_mode else ("simple_test" if mode == "test" else "simple")
     session = f"{prefix}_{plan_runtime_key(plan)}_{experiment_index}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
     project_dir = str(worker["project_dir"])
     runtime_path = ensure_worker_runtime(worker)
@@ -2432,7 +2432,7 @@ def sync_state_once(args: argparse.Namespace) -> None:
 
 def main() -> None:
     global AGENT_STATE_DIR
-    parser = argparse.ArgumentParser(description="ZLK Hub-side scheduler runtime.")
+    parser = argparse.ArgumentParser(description="SimpleExperiment Hub-side scheduler runtime.")
     parser.add_argument("--plan", default="")
     parser.add_argument("--workers-json", default="")
     parser.add_argument("--poll-seconds", type=int, default=600)
@@ -2473,7 +2473,7 @@ def main() -> None:
     if args.debug_mode:
         args.debug_run_id = str(args.debug_run_id or args.operation_id or f"debug-{int(time.time())}")
         args.debug_output_dir = str(args.debug_output_dir or debug_run_root(args.plan or "plan", args.debug_run_id))
-    AGENT_STATE_DIR = str(args.agent_state_dir or os.environ.get("ZLK_AGENT_STATE_DIR", "")).strip()
+    AGENT_STATE_DIR = str(args.agent_state_dir or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")).strip()
     if args.check_dependencies_json:
         print(json.dumps(scheduler_dependency_status(), ensure_ascii=False))
         return
@@ -2535,7 +2535,7 @@ def main() -> None:
     last_session_check: dict[str, float] = {}
     passive_retry_counts: dict[int, int] = {}
     passive_backoff_until = 0.0
-    tmp_dir = Path("zlk_cluster/tmp/cluster_scheduler")
+    tmp_dir = Path("simple_cluster/tmp/cluster_scheduler")
     log_dir = Path(args.debug_output_dir) / "worker_logs" if args.debug_mode else tmp_dir / "logs"
     plan_key = plan_runtime_key(args.plan)
     state_key = f"{plan_key}__debug__{slug(args.debug_run_id, 'debug', 64)}" if args.debug_mode else plan_key

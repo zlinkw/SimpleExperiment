@@ -320,7 +320,7 @@ def prune_runtime_memory_state():
         prune_operation_journal_cache()
 
 def agent_install_dir(root):
-    configured = os.environ.get("ZLK_AGENT_INSTALL_DIR", "").strip()
+    configured = os.environ.get("SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR", "").strip()
     if configured:
         return os.path.abspath(configured)
     try:
@@ -328,11 +328,11 @@ def agent_install_dir(root):
         runtime_dir = os.path.dirname(script)
         cluster_dir = os.path.dirname(runtime_dir)
         install_dir = os.path.dirname(cluster_dir)
-        if os.path.basename(runtime_dir) == "runtime" and os.path.basename(cluster_dir) == "zlk_cluster":
+        if os.path.basename(runtime_dir) == "runtime" and os.path.basename(cluster_dir) == "simple_cluster":
             return install_dir
     except Exception:
         pass
-    return os.path.join(os.path.abspath(root), "zlk_agent")
+    return os.path.join(os.path.abspath(root), "simple_agent")
 
 def project_state_namespace(root):
     root_abs = os.path.abspath(root)
@@ -366,7 +366,7 @@ def resolve_agent_state_dir(root, configured=""):
     return os.path.join(base, "projects", namespace)
 
 def agent_dir(root):
-    configured = AGENT_STATE_DIR or os.environ.get("ZLK_AGENT_STATE_DIR", "")
+    configured = AGENT_STATE_DIR or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")
     return resolve_agent_state_dir(root, configured)
 
 def path_for(root, name):
@@ -386,7 +386,7 @@ def safe_record_name(value):
     return f"{safe or 'item'}.{digest}.json"
 
 def transfer_status_path(root, transfer_id):
-    return safe_project_path(root, "zlk_cluster/file_transfers/" + safe_record_name(transfer_id))
+    return safe_project_path(root, "simple_cluster/file_transfers/" + safe_record_name(transfer_id))
 
 def public_transfer_record(item):
     source = item if isinstance(item, dict) else {}
@@ -617,7 +617,7 @@ def runtime_directory_signature(path):
         return None
 
 def scheduler_state_paths(root):
-    base = os.path.abspath(os.path.join(root, "zlk_cluster", "tmp", "cluster_scheduler"))
+    base = os.path.abspath(os.path.join(root, "simple_cluster", "tmp", "cluster_scheduler"))
     key = base + "|*_state.json"
     signature = runtime_directory_signature(base)
     if signature is None:
@@ -646,7 +646,7 @@ def safe_project_path(root, value):
     root_result_files = ("metrics_summary.csv", "metrics_case.csv", "results.csv", "result.csv", "metrics.csv", "summary.csv", "scores.csv", "score.csv", "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv", "checkpoint_manifest.json", "artifact_manifest.json", "metrics.json", "summary.json", "result.json", "results.json", "classification_report.json", "summary.txt", "result.txt", "results.txt", "classification_report.txt", "stdout.log", "stderr.log", "train.log", "test.log", "console.log", "output.out")
     if len(parts) == 1 and parts[0] in root_result_files:
         pass
-    elif parts[0] not in ("zlk_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions"):
+    elif parts[0] not in ("simple_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions"):
         raise ValueError("path outside allowed project roots")
     target = os.path.abspath(os.path.join(root, *parts))
     root_abs = os.path.abspath(root)
@@ -677,8 +677,8 @@ RESULT_TOP_DIRS = {
 
 RESULT_PREFIX_PAIRS = {
     ("experiments", "results"), ("experiments", "runs"),
-    ("zlk_cluster", "results"), ("zlk_cluster", "logs"),
-    ("zlk_cluster", "tmux_logs"), ("zlk_cluster", "archive"),
+    ("simple_cluster", "results"), ("simple_cluster", "logs"),
+    ("simple_cluster", "tmux_logs"), ("simple_cluster", "archive"),
 }
 
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
@@ -716,7 +716,7 @@ def parseable_result_candidate(value):
         return ""
     lower = text.lower()
     base = os.path.basename(lower)
-    if lower in IGNORED_RESULT_FILES or lower.startswith("zlk_cluster/results/") or base in NON_RESULT_METADATA_FILES:
+    if lower in IGNORED_RESULT_FILES or lower.startswith("simple_cluster/results/") or base in NON_RESULT_METADATA_FILES:
         return ""
     if re.search(r"(?:_snapshot|_manifest|_status|_state|_progress)\.json$", base):
         return ""
@@ -726,18 +726,18 @@ DELETE_ALLOWED_TOP_DIRS = ("work_dirs", "exports", "results")
 DELETE_ALLOWED_PREFIXES = (
     ("experiments", "runs"),
     ("experiments", "results"),
-    ("zlk_cluster", "archive"),
-    ("zlk_cluster", "archive_manifests"),
-    ("zlk_cluster", "results"),
-    ("zlk_cluster", "logs"),
-    ("zlk_cluster", "debug"),
-    ("zlk_cluster", "tmp"),
+    ("simple_cluster", "archive"),
+    ("simple_cluster", "archive_manifests"),
+    ("simple_cluster", "results"),
+    ("simple_cluster", "logs"),
+    ("simple_cluster", "debug"),
+    ("simple_cluster", "tmp"),
     ("paper", "tables"),
 )
 DELETE_ALLOWED_EXACT_FILES = (("experiments", "results.csv"),)
 DELETE_DENY_NAMES = ("id_rsa", "id_ed25519", ".ssh", "known_hosts", ".env", ".env.local", ".env.production")
 DELETE_DENY_TOP_DIRS = (".git", ".svn", ".hg", ".vscode", ".idea", "node_modules", "__pycache__", ".venv", "venv", "env")
-LEGACY_DELETE_SEARCH_ROOTS = ("work_dirs", "experiments/runs", "zlk_cluster/archive", "zlk_cluster/results", "results", "exports")
+LEGACY_DELETE_SEARCH_ROOTS = ("work_dirs", "experiments/runs", "simple_cluster/archive", "simple_cluster/results", "results", "exports")
 LEGACY_DELETE_MAX_SCAN = 20000
 LEGACY_DELETE_MAX_DEPTH = 8
 
@@ -1175,7 +1175,7 @@ def trace_path_variants(value):
     if not normalized:
         return set()
     variants = {normalized}
-    for marker in ("/work_dirs/", "/experiments/", "/results/", "/zlk_cluster/"):
+    for marker in ("/work_dirs/", "/experiments/", "/results/", "/simple_cluster/"):
         index = ("/" + normalized).find(marker)
         if index >= 0:
             variants.add(("/" + normalized)[index + 1:])
@@ -1213,7 +1213,7 @@ def trace_plan_provenance_index(root, scheduler=None):
             revision = row.get("planRevision") or row.get("plan_revision") or parent_revision
             for field in TRACE_PLAN_PATH_FIELDS:
                 add_trace_plan_provenance(index, row.get(field), plan, revision)
-    archive_pattern = os.path.join(root, "zlk_cluster", "archive_state", "by_plan", "*.json")
+    archive_pattern = os.path.join(root, "simple_cluster", "archive_state", "by_plan", "*.json")
     for archive_path in glob.glob(archive_pattern):
         state = read_json(archive_path, {})
         if not isinstance(state, dict):
@@ -1281,7 +1281,7 @@ def enrich_trace_review_state(root, rows):
     return out
 
 def collect_traces(root, scheduler=None):
-    data = read_json(os.path.join(root, "zlk_cluster", "experiment_index.json"), [])
+    data = read_json(os.path.join(root, "simple_cluster", "experiment_index.json"), [])
     if not isinstance(data, list):
         return []
     data = enrich_trace_plan_provenance(root, data, scheduler)
@@ -1780,7 +1780,7 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
             available.append(gpu_id)
     reason = "ok" if available else ("all_busy" if busy else "no_gpu_snapshot")
     return {
-        "workerId": str(worker_id or os.environ.get("ZLK_WORKER_ID") or "worker"),
+        "workerId": str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
         "available": bool(available),
         "availableGpuIds": available,
         "busyGpuIds": busy,
@@ -1793,7 +1793,7 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
 
 def api_worker_availability(root):
     gpu_payload = api_worker_gpu(root)
-    return {"schemaVersion": SCHEMA_VERSION, "workers": [availability_from_gpu(os.environ.get("ZLK_WORKER_ID") or "worker", gpu_payload)]}
+    return {"schemaVersion": SCHEMA_VERSION, "workers": [availability_from_gpu(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", gpu_payload)]}
 
 def availability_cache_path(root):
     return path_for(root, "worker_availability.json")
@@ -1891,39 +1891,42 @@ def append_worker_task(root, task):
     kept.append(task)
     atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": kept[-200:], "generatedAt": now_iso()})
 
-def zlk_runtime_env(base=None):
+def simple_runtime_env(base=None):
     env = dict(os.environ if base is None else base)
-    env.setdefault("ZLK_CONDA_ENV", "")
-    env.setdefault("ZLK_REQUIRE_CONDA_ENV", "1" if str(env.get("ZLK_CONDA_ENV") or "").strip() else "0")
+    env.setdefault("SIMPLE_EXPERIMENT_CONDA_ENV", "")
+    env.setdefault("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "1" if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() else "0")
     return env
 
-def zlk_runtime_python(env=None):
+def simple_runtime_python(env=None):
     source = os.environ if env is None else env
-    if str(source.get("ZLK_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on") or str(source.get("ZLK_CONDA_ENV") or "").strip():
+    if str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on") or str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip():
         return "python"
     return sys.executable
 
-def zlk_conda_activation_script():
+def simple_conda_activation_script():
     return "; ".join([
-        'ZLK_CONDA_ENV="$' + '{ZLK_CONDA_ENV:-}"',
-        '__zlk_conda_required(){ echo "Conda env $ZLK_CONDA_ENV is required."; return 127; }',
-        'if [ -n "$ZLK_CONDA_ENV" ]; then :',
-        'for __ZLK_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__ZLK_CONDA_SH" ]; then . "$__ZLK_CONDA_SH"; fi; done',
-        'if command -v conda >/dev/null 2>&1; then __ZLK_CONDA_SETUP="$(conda shell.posix hook 2>/dev/null)" && eval "$__ZLK_CONDA_SETUP" || true; fi',
-        'if command -v conda >/dev/null 2>&1; then conda activate "$ZLK_CONDA_ENV" >/dev/null 2>&1 || __zlk_conda_required; elif [ "$' + '{ZLK_REQUIRE_CONDA_ENV:-0}" = "1" ]; then __zlk_conda_required; fi',
+        'SIMPLE_EXPERIMENT_CONDA_ENV="$' + '{SIMPLE_EXPERIMENT_CONDA_ENV:-}"',
+        '__simple_conda_required(){ echo "Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required."; return 127; }',
+        'if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then :',
+        'for __SIMPLE_EXPERIMENT_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__SIMPLE_EXPERIMENT_CONDA_SH" ]; then . "$__SIMPLE_EXPERIMENT_CONDA_SH"; fi; done',
+        'if command -v conda >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_CONDA_SETUP="$(conda shell.posix hook 2>/dev/null)" && eval "$__SIMPLE_EXPERIMENT_CONDA_SETUP" || true; fi',
+        'if command -v conda >/dev/null 2>&1; then conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" >/dev/null 2>&1 || __simple_conda_required; elif [ "$' + '{SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}" = "1" ]; then __simple_conda_required; fi',
         'fi',
     ])
 
-def zlk_conda_wrapped_args(args, env):
-    source = zlk_runtime_env(env)
-    if os.name == "nt" or not (str(source.get("ZLK_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on") or str(source.get("ZLK_CONDA_ENV") or "").strip()):
+def simple_conda_wrapped_args(args, env):
+    source = simple_runtime_env(env)
+    if os.name == "nt" or not (str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on") or str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()):
         return args
     shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
-    return [shell, "-lc", f"{zlk_conda_activation_script()} && exec {shlex.join([str(item) for item in args])}"]
+    return [shell, "-lc", f"{simple_conda_activation_script()} && exec {shlex.join([str(item) for item in args])}"]
 
-def zlk_tmux_name(value):
+def simple_tmux_name(value):
     text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "task")).strip("-").lower()
-    return ("zlk-" + (text or "task"))[:96]
+    prefix = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple")).strip("-").lower()[:32]
+    if not prefix or not re.match(r"^[a-z0-9]", prefix):
+        prefix = "simple"
+    return ((prefix + "-" + (text or "task"))[:96])
 
 def tmux_available():
     return os.name != "nt" and bool(shutil.which("tmux"))
@@ -1940,7 +1943,7 @@ def tmux_pane_pid(session, cwd=None, env=None):
     except Exception:
         return 0
 
-def start_zlk_tmux_command(session, args, cwd, log_path, env, exit_code_path=None):
+def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=None):
     shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
     command = shlex.join([str(item) for item in args])
     exit_write = ""
@@ -1948,7 +1951,7 @@ def start_zlk_tmux_command(session, args, cwd, log_path, env, exit_code_path=Non
         exit_write = f"; printf '%s' \"$rc\" > {shlex.quote(str(exit_code_path))}"
     cleanup = f"; tmux kill-session -t {shlex.quote(str(session))} >/dev/null 2>&1 || true"
     quoted_cwd = shlex.quote(str(cwd))
-    script = f"rc=0; {zlk_conda_activation_script()} || rc=$?; if [ \"$rc\" -eq 0 ]; then cd {quoted_cwd} || rc=$?; fi; if [ \"$rc\" -eq 0 ]; then {command}; rc=$?; fi; echo exit_code=$rc{exit_write}{cleanup}; exit $rc"
+    script = f"rc=0; {simple_conda_activation_script()} || rc=$?; if [ \"$rc\" -eq 0 ]; then cd {quoted_cwd} || rc=$?; fi; if [ \"$rc\" -eq 0 ]; then {command}; rc=$?; fi; echo exit_code=$rc{exit_write}{cleanup}; exit $rc"
     tmux_args = ["tmux", "new-session", "-d", "-s", session, shell, "-lc", f"{script} >> {shlex.quote(str(log_path))} 2>&1"]
     proc = subprocess.Popen(tmux_args, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     rc = proc.wait(timeout=10)
@@ -2037,7 +2040,7 @@ def execute_worker_command(root, command, worker_id):
         return result
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
     project_dir = str(command.get("projectDir") or options.get("projectDir") or root).strip()
-    scheduler_path = str(command.get("schedulerPath") or options.get("schedulerPath") or os.path.join(agent_install_dir(root), "zlk_cluster", "runtime", "cluster_scheduler.py"))
+    scheduler_path = str(command.get("schedulerPath") or options.get("schedulerPath") or os.path.join(agent_install_dir(root), "simple_cluster", "runtime", "cluster_scheduler.py"))
     plan = str(command.get("plan") or command.get("planFile") or options.get("plan") or options.get("planFile") or "").strip()
     if not plan:
         result = {"commandId": command_id, "status": "failed", "message": "启动或重试 Worker 任务时必须提供 plan。"}
@@ -2054,16 +2057,16 @@ def execute_worker_command(root, command, worker_id):
     original_run_key = str(command.get("originalRunKey") or command.get("original_run_key") or options.get("originalRunKey") or options.get("original_run_key") or "").strip()
     reassignment_run_key = str(command.get("runKey") or options.get("reassignmentRunKey") or options.get("reassignment_run_key") or "").strip()
     mode = worker_command_plan_mode(project_dir, plan, command.get("mode") or options.get("mode"))
-    session = str(command.get("session") or f"zlk_{worker_id}_{experiment_index}_{int(time.time())}")
-    rel_log = str(command.get("logPath") or f"zlk_cluster/tmux_logs/{session}.log").replace("\\", "/").lstrip("/")
+    session = str(command.get("session") or f"simple_{worker_id}_{experiment_index}_{int(time.time())}")
+    rel_log = str(command.get("logPath") or f"simple_cluster/tmux_logs/{session}.log").replace("\\", "/").lstrip("/")
     log_path = safe_project_path(project_dir, rel_log)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    env = zlk_runtime_env(os.environ.copy())
+    env = simple_runtime_env(os.environ.copy())
     conda_declared = any(key in command for key in ("condaEnv", "conda_env")) or any(key in options for key in ("condaEnv", "conda_env"))
     conda_env = str(command.get("condaEnv") or command.get("conda_env") or options.get("condaEnv") or options.get("conda_env") or "").strip()
     if conda_declared:
-        env["ZLK_CONDA_ENV"] = conda_env
-        env["ZLK_REQUIRE_CONDA_ENV"] = "1" if conda_env else "0"
+        env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
+        env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1" if conda_env else "0"
     if gpu_id:
         env["CUDA_VISIBLE_DEVICES"] = gpu_id
     if debug_mode:
@@ -2081,7 +2084,7 @@ def execute_worker_command(root, command, worker_id):
         append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
         return result
     args = [
-        zlk_runtime_python(env),
+        simple_runtime_python(env),
         scheduler_path,
         "--run-job",
         "--plan", plan,
@@ -2094,21 +2097,21 @@ def execute_worker_command(root, command, worker_id):
     ]
     if debug_mode:
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
-    tmux_session = zlk_tmux_name(session)
-    exit_code_path = safe_project_path(project_dir, f"zlk_cluster/tmux_logs/{tmux_session}.exit_code")
+    tmux_session = simple_tmux_name(session)
+    exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}.exit_code")
     used_tmux = False
     proc = None
     pid = 0
     if tmux_available():
         try:
-            pid = start_zlk_tmux_command(tmux_session, args, project_dir, log_path, env, exit_code_path)
+            pid = start_simple_tmux_command(tmux_session, args, project_dir, log_path, env, exit_code_path)
             used_tmux = True
         except Exception as exc:
             with open(log_path, "ab") as log:
-                log.write((f"[zlk-agent] tmux launch failed, fallback to direct Popen: {exc}\n").encode("utf-8", errors="replace"))
+                log.write((f"[simple-agent] tmux launch failed, fallback to direct Popen: {exc}\n").encode("utf-8", errors="replace"))
     if not used_tmux:
         with open(log_path, "ab") as log:
-            proc = subprocess.Popen(zlk_conda_wrapped_args(args, env), cwd=project_dir, stdout=log, stderr=subprocess.STDOUT, env=env)
+            proc = subprocess.Popen(simple_conda_wrapped_args(args, env), cwd=project_dir, stdout=log, stderr=subprocess.STDOUT, env=env)
             pid = int(proc.pid or 0)
     task = {
         "schemaVersion": SCHEMA_VERSION,
@@ -2124,7 +2127,7 @@ def execute_worker_command(root, command, worker_id):
         "exitCodePath": os.path.relpath(exit_code_path, project_dir).replace("\\", "/") if used_tmux else "",
         "experimentIndex": experiment_index,
         "gpuId": gpu_id,
-        "condaEnv": str(env.get("ZLK_CONDA_ENV") or ""),
+        "condaEnv": str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or ""),
         "logPath": rel_log,
         "plan": plan,
         "planFile": plan,
@@ -2238,10 +2241,10 @@ def post_json(url, payload, timeout=5):
         return json.loads(body or "{}")
 
 def start_worker_hub_uplink(root, hub_uplink_url="", worker_id="", availability_seconds=60, jitter_seconds=30, event_delay_ms=1000):
-    url = str(hub_uplink_url or os.environ.get("ZLK_HUB_UPLINK_URL") or "").strip()
+    url = str(hub_uplink_url or os.environ.get("SIMPLE_EXPERIMENT_HUB_UPLINK_URL") or "").strip()
     if not url:
         return
-    worker_id = str(worker_id or os.environ.get("ZLK_WORKER_ID") or "worker").strip() or "worker"
+    worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     availability_base = max(60.0, float(availability_seconds or 60))
     jitter = max(0.0, float(jitter_seconds or 0))
     event_delay = max(0.1, float(event_delay_ms or 1000) / 1000.0)
@@ -2298,7 +2301,7 @@ def write_worker_gpu_snapshot(root):
         "status": "ok" if not err else "degraded",
         "error": err,
     }
-    worker_id = str(os.environ.get("ZLK_WORKER_ID") or "worker").strip() or "worker"
+    worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     try:
         record_gpu_history(root, {worker_id: gpus}, payload["generatedAt"])
     except Exception as exc:
@@ -2346,7 +2349,7 @@ def start_worker_telemetry_sampler(root, poll_seconds=60, jitter_seconds=30):
                 except Exception:
                     pass
             time.sleep(sampler_sleep_seconds(interval, jitter_seconds))
-    thread = threading.Thread(target=loop, name="zlk-worker-telemetry-sampler", daemon=True)
+    thread = threading.Thread(target=loop, name="simple-worker-telemetry-sampler", daemon=True)
     thread.start()
     return thread
 
@@ -2382,7 +2385,7 @@ def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
                 except Exception:
                     pass
             time.sleep(sampler_sleep_seconds(interval, jitter_seconds))
-    thread = threading.Thread(target=loop, name="zlk-hub-control-sampler", daemon=True)
+    thread = threading.Thread(target=loop, name="simple-hub-control-sampler", daemon=True)
     thread.start()
     return thread
 
@@ -2663,7 +2666,7 @@ def api_file_capabilities():
         "supportsSha256": True,
         "supportsResume": True,
         "maxUploadChunkBytes": 1024 * 1024,
-        "safeRoots": ["zlk_cluster", "work_dirs", "experiments", "exports", "results", "paper"],
+        "safeRoots": ["simple_cluster", "work_dirs", "experiments", "exports", "results", "paper"],
     }
 
 def cluster_scheduler_path(root):
@@ -2671,7 +2674,7 @@ def cluster_scheduler_path(root):
     sibling = os.path.join(os.path.dirname(here), "cluster_scheduler.py")
     if os.path.exists(sibling):
         return sibling
-    project = os.path.join(os.path.abspath(root), "zlk_cluster", "runtime", "cluster_scheduler.py")
+    project = os.path.join(os.path.abspath(root), "simple_cluster", "runtime", "cluster_scheduler.py")
     return project if os.path.exists(project) else ""
 
 def action_payload_text(payload, *keys):
@@ -2713,7 +2716,7 @@ DEBUG_BLOCKED_ACTIONS = {
 
 def action_targets_debug_run(payload):
     values = action_values(payload, "selectedArchiveKeys", "selectedRunKeys", "archiveKey", "runKey", "artifactPath", "resultPath", "logPath", "path", "remotePath") + action_task_target_values(payload)
-    return any(str(value or "").replace("\\", "/").lstrip("/").startswith("zlk_cluster/debug_runs/") for value in values)
+    return any(str(value or "").replace("\\", "/").lstrip("/").startswith("simple_cluster/debug_runs/") for value in values)
 
 def action_plan_file(payload):
     options = action_options(payload)
@@ -2775,7 +2778,7 @@ def scheduler_plan_runtime_key(root, plan=""):
     return f"{safe}-{digest}"
 
 def scheduler_control_paths(root, plan=""):
-    base = os.path.join(root, "zlk_cluster", "tmp", "cluster_scheduler")
+    base = os.path.join(root, "simple_cluster", "tmp", "cluster_scheduler")
     if plan:
         safe = scheduler_plan_runtime_key(root, plan)
         return [os.path.join(base, f"{safe}_control.json")] if safe else []
@@ -2784,7 +2787,7 @@ def scheduler_control_paths(root, plan=""):
 def write_scheduler_control(root, action, plan="", reason="manual_action", extra=None):
     paths = scheduler_control_paths(root, plan)
     if not paths:
-        base = os.path.join(root, "zlk_cluster", "tmp", "cluster_scheduler")
+        base = os.path.join(root, "simple_cluster", "tmp", "cluster_scheduler")
         os.makedirs(base, exist_ok=True)
         paths = [os.path.join(base, "manual_control.json")]
     payload = {"action": action, "reason": reason, "updated_at": now_iso()}
@@ -2798,8 +2801,8 @@ def archive_state_relpath(plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     slug = plan_summary_slug(plan_norm)
     if slug:
-        return f"zlk_cluster/archive_state/by_plan/{slug}.json"
-    return "zlk_cluster/archive_state.json"
+        return f"simple_cluster/archive_state/by_plan/{slug}.json"
+    return "simple_cluster/archive_state.json"
 
 def archive_ownership_fields(ownership=None):
     fields = ownership if isinstance(ownership, dict) else {}
@@ -2841,7 +2844,7 @@ def mark_archive_state(root, keys, status, plan=None, plan_revision="", ownershi
     atomic_write(path, data)
     # Keep project-level latest alias for unscoped consumers.
     if plan_norm:
-        atomic_write(safe_project_path(root, "zlk_cluster/archive_state.json"), data)
+        atomic_write(safe_project_path(root, "simple_cluster/archive_state.json"), data)
 
 def mark_result_review_state(root, keys, status, plan=None, plan_revision="", ownership=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
@@ -2882,7 +2885,7 @@ def mark_result_review_state(root, keys, status, plan=None, plan_revision="", ow
     data.update(owner_fields)
     data["entries"] = entries
     atomic_write(path, data)
-    atomic_write(safe_project_path(root, "zlk_cluster/archive_state.json"), data)
+    atomic_write(safe_project_path(root, "simple_cluster/archive_state.json"), data)
 
 def archive_manifest_entry(root, target):
     item = {"path": str(target), "exists": False, "files": [], "fileCount": 0, "totalBytes": 0}
@@ -2933,7 +2936,7 @@ def prepare_archive_manifest(root, keys, action, op_id, plan=None, ownership=Non
     resolved_keys, legacy_resolved = resolve_archive_target_keys(root, keys)
     plan_norm = normalize_result_candidate(plan) if plan else ""
     slug = plan_summary_slug(plan_norm)
-    rel_dir = f"zlk_cluster/archive_manifests/by_plan/{slug}" if slug else "zlk_cluster/archive_manifests"
+    rel_dir = f"simple_cluster/archive_manifests/by_plan/{slug}" if slug else "simple_cluster/archive_manifests"
     manifest = {
         "schemaVersion": SCHEMA_VERSION,
         "action": action,
@@ -2952,7 +2955,7 @@ def prepare_archive_manifest(root, keys, action, op_id, plan=None, ownership=Non
     manifest["missingCount"] = len([item for item in manifest["targets"] if not item.get("exists")])
     out = safe_project_path(root, f"{rel_dir}/{op_id}.json")
     atomic_write(out, manifest)
-    atomic_write(safe_project_path(root, "zlk_cluster/archive_manifests/latest.json"), manifest)
+    atomic_write(safe_project_path(root, "simple_cluster/archive_manifests/latest.json"), manifest)
     if slug:
         atomic_write(safe_project_path(root, f"{rel_dir}/latest.json"), manifest)
     append_event(root, {"type": "archive_manifest_prepared", "operationId": op_id, "payload": {"action": action, "path": relpath(root, out), "targetCount": manifest["targetCount"], "fileCount": manifest["fileCount"], "missingCount": manifest["missingCount"], "planFile": plan_norm or ""}})
@@ -2996,7 +2999,7 @@ def complete_three_way_report(root, keys, op_id, plan=None, ownership=None):
     keys, legacy_resolved = resolve_archive_target_keys(root, keys)
     plan_norm = normalize_result_candidate(plan) if plan else ""
     slug = plan_summary_slug(plan_norm)
-    rel_dir = f"zlk_cluster/archive_manifests/by_plan/{slug}" if slug else "zlk_cluster/archive_manifests"
+    rel_dir = f"simple_cluster/archive_manifests/by_plan/{slug}" if slug else "simple_cluster/archive_manifests"
     entries = read_archive_entries(root, plan_norm or None)
     targets = []
     missing_count = 0
@@ -3029,7 +3032,7 @@ def complete_three_way_report(root, keys, op_id, plan=None, ownership=None):
     atomic_write(out, report)
     if slug:
         atomic_write(safe_project_path(root, f"{rel_dir}/latest_three_way.json"), report)
-        atomic_write(safe_project_path(root, f"zlk_cluster/archive_manifests/{op_id}_three_way.json"), report)
+        atomic_write(safe_project_path(root, f"simple_cluster/archive_manifests/{op_id}_three_way.json"), report)
     append_event(root, {"type": "three_way_checked", "operationId": op_id, "payload": {"opId": op_id, "path": relpath(root, out), "status": report["status"], "targetCount": report["targetCount"], "missingCount": missing_count, "unarchivedCount": unarchived_count, "planFile": plan_norm or ""}})
     return report, relpath(root, out)
 
@@ -3136,15 +3139,15 @@ TEXT_RESULT_NAMES = {"summary.txt", "result.txt", "results.txt", "classification
 IGNORED_RESULT_FILES = {
     "experiments/results/jobs.csv",
     "jobs.csv",
-    "zlk_cluster/results/summary.json",
-    "zlk_cluster/results_summary.json",
-    "zlk_cluster/results/result_registry.json",
-    "zlk_cluster/results/statistics.json",
-    "zlk_cluster/results/quality_gate.json",
-    "zlk_cluster/results/claim_evidence.json",
-    "zlk_cluster/results/case_level_index.json",
-    "zlk_cluster/results/leakage_check.json",
-    "zlk_cluster/results/subgroup_analysis.json",
+    "simple_cluster/results/summary.json",
+    "simple_cluster/results_summary.json",
+    "simple_cluster/results/result_registry.json",
+    "simple_cluster/results/statistics.json",
+    "simple_cluster/results/quality_gate.json",
+    "simple_cluster/results/claim_evidence.json",
+    "simple_cluster/results/case_level_index.json",
+    "simple_cluster/results/leakage_check.json",
+    "simple_cluster/results/subgroup_analysis.json",
 }
 
 def metric_name(value, aliases=None):
@@ -3201,7 +3204,7 @@ def safe_small_file(path, max_bytes=5 * 1024 * 1024):
         return False
 
 def discover_result_files(root, limit=240, max_dirs=4000, max_depth=8, deadline_seconds=6.0):
-    roots = ["experiments", "work_dirs", "results", "zlk_cluster", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions"]
+    roots = ["experiments", "work_dirs", "results", "simple_cluster", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions"]
     out = []
     started = time.time()
     visited_dirs = 0
@@ -3226,7 +3229,7 @@ def discover_result_files(root, limit=240, max_dirs=4000, max_depth=8, deadline_
             for name in files:
                 lower = name.lower()
                 rel = relpath(root, os.path.join(current, name))
-                if rel.replace("\\", "/").lstrip("/").startswith("zlk_cluster/debug_runs/"):
+                if rel.replace("\\", "/").lstrip("/").startswith("simple_cluster/debug_runs/"):
                     continue
                 if rel.lower() in IGNORED_RESULT_FILES or os.path.basename(rel).lower() == "jobs.csv":
                     continue
@@ -3720,14 +3723,14 @@ def plan_summary_slug(plan):
 def plan_results_summary_relpath(plan):
     slug = plan_summary_slug(plan)
     if not slug:
-        return "zlk_cluster/results/summary.json"
-    return f"zlk_cluster/results/by_plan/{slug}/summary.json"
+        return "simple_cluster/results/summary.json"
+    return f"simple_cluster/results/by_plan/{slug}/summary.json"
 
 def plan_results_registry_relpath(plan):
     slug = plan_summary_slug(plan)
     if not slug:
-        return "zlk_cluster/results/result_registry.json"
-    return f"zlk_cluster/results/by_plan/{slug}/result_registry.json"
+        return "simple_cluster/results/result_registry.json"
+    return f"simple_cluster/results/by_plan/{slug}/result_registry.json"
 
 def plan_results_artifact_relpath(plan, filename):
     slug = plan_summary_slug(plan)
@@ -3735,8 +3738,8 @@ def plan_results_artifact_relpath(plan, filename):
     if not name:
         raise ValueError("artifact filename required")
     if not slug:
-        return f"zlk_cluster/results/{name}"
-    return f"zlk_cluster/results/by_plan/{slug}/{name}"
+        return f"simple_cluster/results/{name}"
+    return f"simple_cluster/results/by_plan/{slug}/{name}"
 
 def plan_datasets_artifact_relpath(plan, filename):
     slug = plan_summary_slug(plan)
@@ -3744,8 +3747,8 @@ def plan_datasets_artifact_relpath(plan, filename):
     if not name:
         raise ValueError("artifact filename required")
     if not slug:
-        return f"zlk_cluster/datasets/{name}"
-    return f"zlk_cluster/datasets/by_plan/{slug}/{name}"
+        return f"simple_cluster/datasets/{name}"
+    return f"simple_cluster/datasets/by_plan/{slug}/{name}"
 
 def plan_checkpoints_artifact_relpath(plan, filename):
     slug = plan_summary_slug(plan)
@@ -3753,8 +3756,8 @@ def plan_checkpoints_artifact_relpath(plan, filename):
     if not name:
         raise ValueError("artifact filename required")
     if not slug:
-        return f"zlk_cluster/checkpoints/{name}"
-    return f"zlk_cluster/checkpoints/by_plan/{slug}/{name}"
+        return f"simple_cluster/checkpoints/{name}"
+    return f"simple_cluster/checkpoints/by_plan/{slug}/{name}"
 
 def write_atomic_csv(path, header, rows):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -3801,8 +3804,8 @@ def write_result_csv_views(root, summary, plan):
     write_atomic_csv(safe_project_path(root, preview_rel), header, result_csv_rows(records))
     write_atomic_csv(safe_project_path(root, effective_rel), header, result_csv_rows(effective))
     if plan_norm:
-        write_atomic_csv(safe_project_path(root, "zlk_cluster/results/results_preview_all.csv"), header, result_csv_rows(records))
-        write_atomic_csv(safe_project_path(root, "zlk_cluster/results/results_effective_archived.csv"), header, result_csv_rows(effective))
+        write_atomic_csv(safe_project_path(root, "simple_cluster/results/results_preview_all.csv"), header, result_csv_rows(records))
+        write_atomic_csv(safe_project_path(root, "simple_cluster/results/results_effective_archived.csv"), header, result_csv_rows(effective))
     summary["previewCsvPath"] = preview_rel
     summary["effectiveResultsCsvPath"] = effective_rel
     summary["effectiveArchivedResultCount"] = len(effective)
@@ -3810,7 +3813,7 @@ def write_result_csv_views(root, summary, plan):
 
 def write_results_summary_v2(root, summary):
     plan = normalize_result_candidate((summary or {}).get("planFile") or "")
-    summary_rel = plan_results_summary_relpath(plan) if plan else "zlk_cluster/results/summary.json"
+    summary_rel = plan_results_summary_relpath(plan) if plan else "simple_cluster/results/summary.json"
     if isinstance(summary, dict):
         summary["summaryPath"] = summary_rel
         if plan and not summary.get("planFile"):
@@ -3820,14 +3823,14 @@ def write_results_summary_v2(root, summary):
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, summary)
     # Keep a project-latest copy for unscoped consumers / offline diagnostics.
-    atomic_write(safe_project_path(root, "zlk_cluster/results/summary.json"), summary)
-    atomic_write(safe_project_path(root, "zlk_cluster/results_summary.json"), summary)
-    registry = safe_project_path(root, plan_results_registry_relpath(plan) if plan else "zlk_cluster/results/result_registry.json")
+    atomic_write(safe_project_path(root, "simple_cluster/results/summary.json"), summary)
+    atomic_write(safe_project_path(root, "simple_cluster/results_summary.json"), summary)
+    registry = safe_project_path(root, plan_results_registry_relpath(plan) if plan else "simple_cluster/results/result_registry.json")
     os.makedirs(os.path.dirname(registry), exist_ok=True)
     final_records = final_analysis_results(root, summary)
     atomic_write(registry, {"schemaVersion": 1, "records": final_records, "pendingReviewRecords": [record for record in (summary.get("results") or []) if isinstance(record, dict) and not record.get("eligibleForFinalAnalysis")], "inclusionPolicy": summary.get("inclusionPolicy") or "archived_or_manual_verified", "updatedAt": summary.get("generatedAt"), "planFile": plan or ""})
     if plan:
-        atomic_write(safe_project_path(root, "zlk_cluster/results/result_registry.json"), {"schemaVersion": 1, "records": final_records, "pendingReviewRecords": [record for record in (summary.get("results") or []) if isinstance(record, dict) and not record.get("eligibleForFinalAnalysis")], "inclusionPolicy": summary.get("inclusionPolicy") or "archived_or_manual_verified", "updatedAt": summary.get("generatedAt"), "planFile": plan or ""})
+        atomic_write(safe_project_path(root, "simple_cluster/results/result_registry.json"), {"schemaVersion": 1, "records": final_records, "pendingReviewRecords": [record for record in (summary.get("results") or []) if isinstance(record, dict) and not record.get("eligibleForFinalAnalysis")], "inclusionPolicy": summary.get("inclusionPolicy") or "archived_or_manual_verified", "updatedAt": summary.get("generatedAt"), "planFile": plan or ""})
     return target
 
 def read_archive_entries(root, plan=None, plan_revision=""):
@@ -3835,7 +3838,7 @@ def read_archive_entries(root, plan=None, plan_revision=""):
     state = read_json(safe_project_path(root, archive_state_relpath(plan_norm or None)), {})
     if (not isinstance(state, dict) or not state.get("entries")) and plan_norm:
         # Fall back to project-level archive state only when plan-scoped state is absent.
-        state = read_json(safe_project_path(root, "zlk_cluster/archive_state.json"), {})
+        state = read_json(safe_project_path(root, "simple_cluster/archive_state.json"), {})
     entries = state.get("entries") if isinstance(state, dict) and isinstance(state.get("entries"), dict) else {}
     revision = str(plan_revision or "").strip()
     if not isinstance(entries, dict) or not revision:
@@ -4062,7 +4065,7 @@ def evaluate_claim_evidence(root, summary=None):
             "evidenceSources": catalog.get("sources") or [],
         }
         atomic_write(target, report)
-        atomic_write(safe_project_path(root, "zlk_cluster/results/claim_evidence.json"), report)
+        atomic_write(safe_project_path(root, "simple_cluster/results/claim_evidence.json"), report)
         report = {**report, "path": relpath(root, target), "planFile": plan_norm or ""}
         return report
     text = open(claims_path, "r", encoding="utf-8", errors="replace").read()
@@ -4110,13 +4113,13 @@ def evaluate_claim_evidence(root, summary=None):
         "evidenceSources": catalog.get("sources") or [],
     }
     atomic_write(target, report)
-    atomic_write(safe_project_path(root, "zlk_cluster/results/claim_evidence.json"), report)
+    atomic_write(safe_project_path(root, "simple_cluster/results/claim_evidence.json"), report)
     report = {**report, "path": relpath(root, target), "planFile": plan_norm or report.get("planFile") or ""}
     return report
 
 def apply_claim_evidence_summary(summary, report):
     summary["claimEvidenceStatus"] = report.get("status")
-    summary["claimEvidencePath"] = (report or {}).get("path") or "zlk_cluster/results/claim_evidence.json"
+    summary["claimEvidencePath"] = (report or {}).get("path") or "simple_cluster/results/claim_evidence.json"
     summary["claimEvidenceCheckedAt"] = report.get("generatedAt")
     summary["claimCount"] = report.get("claimCount", 0)
     summary["claimSupportedCount"] = report.get("supportedCount", 0)
@@ -4130,7 +4133,7 @@ def apply_claim_evidence_summary(summary, report):
         "supportedCount": report.get("supportedCount", 0),
         "unsupportedCount": report.get("unsupportedCount", 0),
         "needsExperimentCount": report.get("needsExperimentCount", 0),
-        "path": "zlk_cluster/results/claim_evidence.json",
+        "path": "simple_cluster/results/claim_evidence.json",
         "preview": (report.get("claims") or [])[:12],
     }
     return summary
@@ -4307,7 +4310,7 @@ def discover_result_files_under(root, relative, limit=80, max_dirs=400, max_dept
         for name in files:
             path = os.path.join(current, name)
             candidate = relpath(root, path)
-            if candidate.replace("\\", "/").lstrip("/").startswith("zlk_cluster/debug_runs/"):
+            if candidate.replace("\\", "/").lstrip("/").startswith("simple_cluster/debug_runs/"):
                 continue
             if parseable_result_candidate(candidate) and safe_small_file(path):
                 out.append(candidate)
@@ -4680,7 +4683,7 @@ def plan_output_capture_evidence(root, plan):
         signals.append("runner_command_paths")
     if any(re.search(r"(^|/)(metrics_summary\.csv|metrics_case\.csv|classification_report\.csv|scores\.csv|results?\.csv|summary\.txt|stdout\.log|stderr\.log|output\.out)$", candidate, re.I) for candidate in [*expected, *direct_candidates, *command_candidates]):
         signals.append("standard_result_file")
-    adapter = os.path.join(root, "experiments", "zlk_project.yaml")
+    adapter = os.path.join(root, "experiments", "simple_project.yaml")
     if os.path.isfile(adapter):
         policy = read_project_metric_policy(root)
         if policy_explicit_result_candidates(policy):
@@ -4691,7 +4694,7 @@ def plan_output_capture_evidence(root, plan):
         "signals": unique_values(signals),
         "expectedResults": unique_values([*declared_candidates, *expected, *command_candidates])[:20],
         "missing": [] if ok else ["接入配置", "计划输出", "候选结果规则"],
-        "message": "" if ok else "未识别到可用的结果捕获规则，已阻止运行实验。请在 plan 中声明 paper.result_csv、当前 mode 实际执行命令的结果参数、expectedResults、stdout/stderr 捕获，或生成 experiments/zlk_project.yaml。",
+        "message": "" if ok else "未识别到可用的结果捕获规则，已阻止运行实验。请在 plan 中声明 paper.result_csv、当前 mode 实际执行命令的结果参数、expectedResults、stdout/stderr 捕获，或生成 experiments/simple_project.yaml。",
     }
 
 def read_project_metric_policy(root):
@@ -4712,7 +4715,7 @@ def read_project_metric_policy(root):
         "caseCsv": "metrics_case.csv",
         "explicitResultCandidates": [],
     }
-    config = os.path.join(root, "experiments", "zlk_project.yaml")
+    config = os.path.join(root, "experiments", "simple_project.yaml")
     if os.path.isfile(config):
         try:
             text = open(config, "r", encoding="utf-8", errors="replace").read()
@@ -4772,7 +4775,7 @@ def ordered_metric_list(metrics, policy):
 def apply_result_ownership(summary, ownership=None):
     fields = ownership if isinstance(ownership, dict) else {}
     topology_mode = str(fields.get("topologyMode") or os.environ.get("SIMPLE_EXPERIMENT_TOPOLOGY_MODE") or "").strip()
-    owner = str(fields.get("resultOwnerWorkerId") or fields.get("schedulerOwnerWorkerId") or (os.environ.get("ZLK_WORKER_ID") if topology_mode in ("single_worker", "worker_pool") else "") or "").strip()
+    owner = str(fields.get("resultOwnerWorkerId") or fields.get("schedulerOwnerWorkerId") or (os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") if topology_mode in ("single_worker", "worker_pool") else "") or "").strip()
     worker_set_revision = str(fields.get("workerSetRevision") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_SET_REVISION") or "").strip()
     if topology_mode:
         summary["topologyMode"] = topology_mode
@@ -4911,7 +4914,7 @@ def run_quality_gate_action(root, plan=None, plan_revision=""):
     target = safe_project_path(root, rel_target)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, report)
-    atomic_write(safe_project_path(root, "zlk_cluster/results/quality_gate.json"), report)
+    atomic_write(safe_project_path(root, "simple_cluster/results/quality_gate.json"), report)
     summary["qualityWarnings"] = len(issues)
     summary["qualityGateStatus"] = report["status"]
     summary["qualityGatePath"] = relpath(root, target)
@@ -5062,7 +5065,7 @@ def compute_statistics_action(root, plan=None, plan_revision=""):
     target = safe_project_path(root, rel_target)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, report)
-    atomic_write(safe_project_path(root, "zlk_cluster/results/statistics.json"), report)
+    atomic_write(safe_project_path(root, "simple_cluster/results/statistics.json"), report)
     summary["statisticsUpdatedAt"] = report["generatedAt"]
     summary["statisticsPath"] = relpath(root, target)
     summary["statisticsResultCount"] = report["resultCount"]
@@ -5079,7 +5082,7 @@ def auto_completion_state_path(root, plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     if plan_norm:
         return safe_project_path(root, plan_results_artifact_relpath(plan_norm, "run_completion_automation.json"))
-    return safe_project_path(root, "zlk_cluster/results/run_completion_automation.json")
+    return safe_project_path(root, "simple_cluster/results/run_completion_automation.json")
 
 def read_auto_completion_state(root, plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
@@ -5087,7 +5090,7 @@ def read_auto_completion_state(root, plan=None):
     if not isinstance(state, dict) or not state:
         # Fall back to legacy project-global automation state only when reading unscoped or migrating.
         if plan_norm:
-            legacy = read_json(safe_project_path(root, "zlk_cluster/results/run_completion_automation.json"), {})
+            legacy = read_json(safe_project_path(root, "simple_cluster/results/run_completion_automation.json"), {})
             legacy_plan = normalize_result_candidate(legacy.get("planFile") or "") if isinstance(legacy, dict) else ""
             if isinstance(legacy, dict) and legacy and legacy_plan in ("", plan_norm):
                 state = legacy
@@ -5111,7 +5114,7 @@ def write_auto_completion_state(root, state, plan=None):
     atomic_write(auto_completion_state_path(root, plan_norm or None), state)
     # Keep latest alias for unscoped diagnostics.
     if plan_norm:
-        atomic_write(safe_project_path(root, "zlk_cluster/results/run_completion_automation.json"), state)
+        atomic_write(safe_project_path(root, "simple_cluster/results/run_completion_automation.json"), state)
 
 def policy_result_like_path(root, path):
     text = str(path or "").replace("\\", "/").strip().lstrip("/")
@@ -5236,7 +5239,7 @@ def plan_from_result_path(path, root=None):
     text = normalize_result_candidate(path)
     if not text:
         return ""
-    marker = "zlk_cluster/results/by_plan/"
+    marker = "simple_cluster/results/by_plan/"
     lower = text.lower()
     idx = lower.find(marker)
     if idx < 0:
@@ -5245,7 +5248,7 @@ def plan_from_result_path(path, root=None):
     slug = rest.split("/", 1)[0].strip()
     if not slug:
         return ""
-    summary_rel = f"zlk_cluster/results/by_plan/{slug}/summary.json"
+    summary_rel = f"simple_cluster/results/by_plan/{slug}/summary.json"
     try:
         base = root or os.getcwd()
         data = read_json(safe_project_path(base, summary_rel), {})
@@ -5330,7 +5333,7 @@ def event_is_debug_run(event):
     body = event if isinstance(event, dict) else {}
     payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
     paths = action_values(payload, "path", "relPath", "remotePath", "file", "relativePath")
-    return bool(any(action_bool(value) for value in (body.get("debugMode"), body.get("debug_mode"), payload.get("debugMode"), payload.get("debug_mode"))) or any(str(item).replace("\\", "/").lstrip("/").startswith("zlk_cluster/debug_runs/") for item in paths))
+    return bool(any(action_bool(value) for value in (body.get("debugMode"), body.get("debug_mode"), payload.get("debugMode"), payload.get("debug_mode"))) or any(str(item).replace("\\", "/").lstrip("/").startswith("simple_cluster/debug_runs/") for item in paths))
 
 def maybe_auto_run_completion_pipeline(root, event):
     if event_is_debug_run(event):
@@ -5377,7 +5380,7 @@ def maybe_auto_run_completion_pipeline(root, event):
                     "planFile": plan or summary.get("planFile") or "",
                     "summaryPath": summary.get("summaryPath") or plan_results_summary_relpath(plan or summary.get("planFile") or ""),
                     "statisticsPath": statistics_report.get("path") or "",
-                    "contractReportPath": contract.get("path") or "zlk_cluster/contracts/contract_check_reports/latest.json",
+                    "contractReportPath": contract.get("path") or "simple_cluster/contracts/contract_check_reports/latest.json",
                 })
                 if not result["resultCount"]:
                     result["status"] = "failed"
@@ -5458,18 +5461,18 @@ def export_paper_table_action(root, plan=None, plan_revision=""):
             ])
     plan_norm = normalize_result_candidate(plan) if plan else ""
     slug = plan_summary_slug(plan_norm)
-    md = "# ZLK experiment results\n\n" + "\n".join(lines) + "\n"
+    md = "# SimpleExperiment results\n\n" + "\n".join(lines) + "\n"
     out_dir = safe_project_path(root, "paper/tables")
     os.makedirs(out_dir, exist_ok=True)
-    md_name = f"zlk_results_table__{slug}.md" if slug else "zlk_results_table.md"
-    csv_name = f"zlk_results_table__{slug}.csv" if slug else "zlk_results_table.csv"
+    md_name = f"simple_results_table__{slug}.md" if slug else "simple_results_table.md"
+    csv_name = f"simple_results_table__{slug}.csv" if slug else "simple_results_table.csv"
     md_path = os.path.join(out_dir, md_name)
     csv_path = os.path.join(out_dir, csv_name)
     open(md_path, "w", encoding="utf-8").write(md)
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
         csv.writer(f).writerows(csv_rows)
-    latest_md = os.path.join(out_dir, "zlk_results_table.md")
-    latest_csv = os.path.join(out_dir, "zlk_results_table.csv")
+    latest_md = os.path.join(out_dir, "simple_results_table.md")
+    latest_csv = os.path.join(out_dir, "simple_results_table.csv")
     if os.path.abspath(md_path) != os.path.abspath(latest_md):
         open(latest_md, "w", encoding="utf-8").write(md)
     if os.path.abspath(csv_path) != os.path.abspath(latest_csv):
@@ -5536,7 +5539,7 @@ def discover_case_files(root, plan=None, limit=120):
                         if len(out) >= limit:
                             return sorted(dict.fromkeys(out))
         return sorted(dict.fromkeys(out))[:limit]
-    for top in ("experiments", "work_dirs", "results", "zlk_cluster"):
+    for top in ("experiments", "work_dirs", "results", "simple_cluster"):
         base = os.path.join(root, top)
         if not os.path.isdir(base):
             continue
@@ -5588,7 +5591,7 @@ def parse_case_level_action(root, plan=None):
     target = safe_project_path(root, rel_target)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, index)
-    atomic_write(safe_project_path(root, "zlk_cluster/results/case_level_index.json"), index)
+    atomic_write(safe_project_path(root, "simple_cluster/results/case_level_index.json"), index)
     index = {**index, "path": relpath(root, target)}
     return index
 
@@ -5598,7 +5601,7 @@ def run_leakage_check_action(root, plan=None):
     if plan_norm:
         index = read_json(safe_project_path(root, plan_results_artifact_relpath(plan_norm, "case_level_index.json")), {})
     if not index.get("cases"):
-        index = read_json(safe_project_path(root, "zlk_cluster/results/case_level_index.json"), {})
+        index = read_json(safe_project_path(root, "simple_cluster/results/case_level_index.json"), {})
     if (not index.get("cases")) or (plan_norm and normalize_result_candidate(index.get("planFile") or "") != plan_norm):
         index = parse_case_level_action(root, plan_norm or None)
     issues = []
@@ -5618,7 +5621,7 @@ def run_leakage_check_action(root, plan=None):
     target = safe_project_path(root, rel_target)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, report)
-    atomic_write(safe_project_path(root, "zlk_cluster/results/leakage_check.json"), report)
+    atomic_write(safe_project_path(root, "simple_cluster/results/leakage_check.json"), report)
     report = {**report, "path": relpath(root, target)}
     return report
 
@@ -5628,7 +5631,7 @@ def run_subgroup_analysis_action(root, plan=None):
     if plan_norm:
         index = read_json(safe_project_path(root, plan_results_artifact_relpath(plan_norm, "case_level_index.json")), {})
     if not index.get("cases"):
-        index = read_json(safe_project_path(root, "zlk_cluster/results/case_level_index.json"), {})
+        index = read_json(safe_project_path(root, "simple_cluster/results/case_level_index.json"), {})
     if (not index.get("cases")) or (plan_norm and normalize_result_candidate(index.get("planFile") or "") != plan_norm):
         index = parse_case_level_action(root, plan_norm or None)
     groups = {}
@@ -5651,7 +5654,7 @@ def run_subgroup_analysis_action(root, plan=None):
     target = safe_project_path(root, rel_target)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, report)
-    atomic_write(safe_project_path(root, "zlk_cluster/results/subgroup_analysis.json"), report)
+    atomic_write(safe_project_path(root, "simple_cluster/results/subgroup_analysis.json"), report)
     report = {**report, "path": relpath(root, target)}
     return report
 
@@ -5661,7 +5664,7 @@ def export_case_analysis_action(root, plan=None):
     out_dir = safe_project_path(root, "paper/tables")
     os.makedirs(out_dir, exist_ok=True)
     slug = plan_summary_slug(plan_norm)
-    csv_name = f"zlk_case_analysis__{slug}.csv" if slug else "zlk_case_analysis.csv"
+    csv_name = f"simple_case_analysis__{slug}.csv" if slug else "simple_case_analysis.csv"
     csv_path = os.path.join(out_dir, csv_name)
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
@@ -5669,18 +5672,18 @@ def export_case_analysis_action(root, plan=None):
         for row in subgroup.get("rows") or []:
             writer.writerow([row.get("group"), row.get("count"), json.dumps(row.get("metrics") or {}, ensure_ascii=False)])
     # Keep stable latest alias for unscoped consumers.
-    latest = os.path.join(out_dir, "zlk_case_analysis.csv")
+    latest = os.path.join(out_dir, "simple_case_analysis.csv")
     if os.path.abspath(csv_path) != os.path.abspath(latest):
         open(latest, "w", encoding="utf-8", newline="").write(open(csv_path, "r", encoding="utf-8").read())
     return {"schemaVersion": 1, "path": relpath(root, csv_path), "rows": len(subgroup.get("rows") or []), "planFile": plan_norm or ""}
 
 def checkpoint_manifest_files(root):
     candidates = []
-    for rel in ("checkpoint_manifest.json", "artifact_manifest.json", "zlk_cluster/checkpoints/checkpoint_manifest.json", "zlk_cluster/checkpoints/artifact_manifest.json"):
+    for rel in ("checkpoint_manifest.json", "artifact_manifest.json", "simple_cluster/checkpoints/checkpoint_manifest.json", "simple_cluster/checkpoints/artifact_manifest.json"):
         path = os.path.join(root, rel)
         if safe_small_file(path, 20 * 1024 * 1024):
             candidates.append(rel)
-    for top in ("work_dirs", "experiments/runs", "zlk_cluster/archive_manifests", "results", "outputs"):
+    for top in ("work_dirs", "experiments/runs", "simple_cluster/archive_manifests", "results", "outputs"):
         base = os.path.join(root, top)
         if not os.path.isdir(base):
             continue
@@ -5744,7 +5747,7 @@ def normalize_checkpoint_path(value):
     lowered = [p.lower() for p in parts]
     if any(p in (".git", ".ssh", "node_modules", ".venv", "venv") for p in lowered):
         return ""
-    if lowered[0] not in ("work_dirs", "experiments", "zlk_cluster", "outputs", "runs", "checkpoints", "weights", "results"):
+    if lowered[0] not in ("work_dirs", "experiments", "simple_cluster", "outputs", "runs", "checkpoints", "weights", "results"):
         return ""
     if not re.search(r"\.(pt|pth|ckpt|bin|safetensors|onnx|pkl|pickle)$", parts[-1], re.I):
         return ""
@@ -5836,7 +5839,7 @@ def checkpoint_retention_action(root, payload=None):
     out = safe_project_path(root, delete_rel)
     atomic_write(out, plan)
     if plan_norm:
-        atomic_write(safe_project_path(root, "zlk_cluster/checkpoints/delete_plan.json"), plan)
+        atomic_write(safe_project_path(root, "simple_cluster/checkpoints/delete_plan.json"), plan)
     report = ["# Checkpoint 保留报告", "", f"生成时间：{plan['generatedAt']}", "模式：dry-run，不会删除文件。", "", f"总数：{plan['total']}，保留：{plan['keepCount']}，计划删除：{plan['deleteCount']}，跳过：{plan['skipCount']}", "", "## 删除候选"]
     report.extend([f"- {i.get('normalizedPath')}: {'；'.join(i.get('reasons') or [])}" for i in items if i.get("action") == "delete"] or ["- 无"])
     report.extend(["", "## 保留或跳过"])
@@ -5845,7 +5848,7 @@ def checkpoint_retention_action(root, payload=None):
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     open(report_path, "w", encoding="utf-8").write("\n".join(report) + "\n")
     if plan_norm:
-        latest_report = safe_project_path(root, "zlk_cluster/checkpoints/retention_report.md")
+        latest_report = safe_project_path(root, "simple_cluster/checkpoints/retention_report.md")
         os.makedirs(os.path.dirname(latest_report), exist_ok=True)
         open(latest_report, "w", encoding="utf-8").write("\n".join(report) + "\n")
     return plan
@@ -5855,7 +5858,7 @@ def safe_dataset_path(root, value):
     parts = [p for p in rel.split("/") if p and p != "."]
     if not parts or ".." in parts or parts[0].lower() in (".git", ".ssh", "node_modules"):
         raise ValueError("unsafe dataset path")
-    if parts[0] not in ("datasets", "dataset", "data", "splits", "experiments", "configs", "zlk_cluster"):
+    if parts[0] not in ("datasets", "dataset", "data", "splits", "experiments", "configs", "simple_cluster"):
         raise ValueError("dataset inspector only reads dataset/split/config paths")
     target = os.path.realpath(os.path.join(root, *parts))
     real_root = os.path.realpath(root)
@@ -5957,7 +5960,7 @@ def inspect_dataset_action(root, payload=None):
     profile_path = safe_project_path(root, profile_rel)
     atomic_write(profile_path, profile)
     if plan_norm:
-        atomic_write(safe_project_path(root, "zlk_cluster/datasets/profile.json"), profile)
+        atomic_write(safe_project_path(root, "simple_cluster/datasets/profile.json"), profile)
     md = ["# Dataset Inspector", "", f"生成时间：{profile['generatedAt']}", f"样本数：{profile['totalRows']}", f"泄漏状态：{leakage['status']}", "", "## Split 分布"]
     md.extend([f"- {k}: {v}" for k, v in split_dist.items()] or ["- 无"])
     md.extend(["", "## Class 分布"])
@@ -5968,7 +5971,7 @@ def inspect_dataset_action(root, payload=None):
     os.makedirs(os.path.dirname(md_path), exist_ok=True)
     open(md_path, "w", encoding="utf-8").write("\n".join(md) + "\n")
     if plan_norm:
-        latest_md = safe_project_path(root, "zlk_cluster/datasets/profile.md")
+        latest_md = safe_project_path(root, "simple_cluster/datasets/profile.md")
         os.makedirs(os.path.dirname(latest_md), exist_ok=True)
         open(latest_md, "w", encoding="utf-8").write("\n".join(md) + "\n")
     leak_path = safe_project_path(root, leak_rel)
@@ -5981,18 +5984,18 @@ def inspect_dataset_action(root, payload=None):
                 writer.writerow([issue.get("severity"), issue.get("type"), issue.get("message"), ";".join(issue.get("affectedIds") or [])])
     _write_leak_csv(leak_path)
     if plan_norm:
-        _write_leak_csv(safe_project_path(root, "zlk_cluster/datasets/leakage_report.csv"))
+        _write_leak_csv(safe_project_path(root, "simple_cluster/datasets/leakage_report.csv"))
     return profile
 
 PLOTTING_REQUIRED_FIELDS = ["method", "dataset", "split", "fold", "seed", "metric", "value", "mean", "std", "ci", "pValue", "adjustedPValue", "significant", "case_id", "patient_id", "subgroup", "error_type"]
 
 def plotting_contract_payload(plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
-    registry_path = plan_results_registry_relpath(plan_norm) if plan_norm else "zlk_cluster/results/result_registry.json"
-    statistics_path = plan_results_artifact_relpath(plan_norm, "statistics.json") if plan_norm else "zlk_cluster/results/statistics.json"
-    case_path = plan_results_artifact_relpath(plan_norm, "case_level_index.json") if plan_norm else "zlk_cluster/results/case_level_index.json"
+    registry_path = plan_results_registry_relpath(plan_norm) if plan_norm else "simple_cluster/results/result_registry.json"
+    statistics_path = plan_results_artifact_relpath(plan_norm, "statistics.json") if plan_norm else "simple_cluster/results/statistics.json"
+    case_path = plan_results_artifact_relpath(plan_norm, "case_level_index.json") if plan_norm else "simple_cluster/results/case_level_index.json"
     paper_slug = plan_summary_slug(plan_norm)
-    paper_path = f"paper/tables/zlk_results_table__{paper_slug}.csv" if paper_slug else "paper/tables/zlk_results_table.csv"
+    paper_path = f"paper/tables/simple_results_table__{paper_slug}.csv" if paper_slug else "paper/tables/simple_results_table.csv"
     return {
         "schemaVersion": 1,
         "generatedAt": now_iso(),
@@ -6004,13 +6007,13 @@ def plotting_contract_payload(plan=None):
             "statistics": {"path": statistics_path, "fields": ["suite", "group", "method", "dataset", "split", "metric", "value", "mean", "std", "ci", "n", "pValue", "adjustedPValue", "significant", "aggregationPolicy"]},
             "paperTable": {"path": paper_path, "fields": ["method", "dataset", "split", "suite", "group", "metric", "mean", "std", "ci", "n", "direction", "pValue", "adjustedPValue", "significant"]},
             "caseLevel": {"path": case_path, "fields": ["case_id", "patient_id", "method", "dataset", "split", "metric", "value", "subgroup", "error_type"]},
-            "datasetProfile": {"path": plan_datasets_artifact_relpath(plan_norm, "profile.json") if plan_norm else "zlk_cluster/datasets/profile.json", "fields": ["dataset", "split", "class", "case_id", "patient_id", "classDistribution", "splitDistribution"]},
+            "datasetProfile": {"path": plan_datasets_artifact_relpath(plan_norm, "profile.json") if plan_norm else "simple_cluster/datasets/profile.json", "fields": ["dataset", "split", "class", "case_id", "patient_id", "classDistribution", "splitDistribution"]},
         },
         "notes": [
             "不传输原始数据集、权重或 checkpoint 大文件。",
             "集群插件只做结果文件发现、轻量请求和审计落盘；不在 VS Code 内绘图，不连接 Zotero，不读取 Zotero DB。",
-            "PPT automation discovery 固定为 %LOCALAPPDATA%/RoughPptAddin/automation.json 和 automation.token；调用顺序固定为 GET /health 后 POST /api/zlk-cluster/plot。",
-            "automation endpoint 固定归一化为根地址后访问 /health 和 /api/zlk-cluster/plot；不得把 discovery 中的其它 path 拼进协议路由。",
+            "PPT automation discovery 固定为 %LOCALAPPDATA%/RoughPptAddin/automation.json 和 automation.token；调用顺序固定为 GET /health 后 POST /api/simple-experiment/plot。",
+            "automation endpoint 固定归一化为根地址后访问 /health 和 /api/simple-experiment/plot；不得把 discovery 中的其它 path 拼进协议路由。",
             "绘图请求字段冻结为 schemaVersion/requestId/projectRoot/sourcePaths/plottingContractPath/selectedResultId/runKey/archiveKey/chartType/target/styleMode/sourceLabel/markdownSummary；新增字段只能 additive，优先放 optional extensions。",
             "sourcePaths 只能指向已存在的轻量 JSON、CSV、Markdown 或 TeX 文件；不得传目录、raw dataset、checkpoint 或大文件。",
             "SCI 数值绘图默认以 statistics.json 或 paper table 的 mean/std/ci 为准；result_registry.json 和单个结果 CSV 只用于发现、追踪和审计，不作为默认图表数值源。",
@@ -6021,11 +6024,11 @@ def plotting_contract_payload(plan=None):
 def export_plotting_contract_action(root, plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     payload = plotting_contract_payload(plan_norm or None)
-    rel = plan_results_artifact_relpath(plan_norm, "plotting_contract.json") if plan_norm else "zlk_cluster/results/plotting_contract.json"
+    rel = plan_results_artifact_relpath(plan_norm, "plotting_contract.json") if plan_norm else "simple_cluster/results/plotting_contract.json"
     target = safe_project_path(root, rel)
     atomic_write(target, payload)
     if plan_norm:
-        atomic_write(safe_project_path(root, "zlk_cluster/results/plotting_contract.json"), payload)
+        atomic_write(safe_project_path(root, "simple_cluster/results/plotting_contract.json"), payload)
     try:
         summary = read_results_summary(root, plan_norm or None)
         if isinstance(summary, dict) and summary:
@@ -6035,7 +6038,7 @@ def export_plotting_contract_action(root, plan=None):
             write_results_summary_v2(root, summary)
     except Exception:
         pass
-    doc = ["# ZLK 输出到 PPT 绘图插件的稳定契约", "", "目标消费端：D:/GitRepo/my_ppt_app", "", "## 必备语义字段", ""]
+    doc = ["# SimpleExperiment 输出到 PPT 绘图插件的稳定契约", "", "目标消费端：D:/GitRepo/my_ppt_app", "", "## 必备语义字段", ""]
     doc.extend([f"- {field}" for field in PLOTTING_REQUIRED_FIELDS])
     doc.extend(["", "## 文件契约"])
     for key, item in payload["files"].items():
@@ -6043,7 +6046,7 @@ def export_plotting_contract_action(root, plan=None):
         doc.extend([f"- {field}" for field in item["fields"]])
     doc.extend(["", "## 兼容说明", ""])
     doc.extend([f"- {note}" for note in payload.get("notes") or []])
-    md_rel = plan_results_artifact_relpath(plan_norm, "output_contract_for_plotting.md") if plan_norm else "zlk_cluster/results/output_contract_for_plotting.md"
+    md_rel = plan_results_artifact_relpath(plan_norm, "output_contract_for_plotting.md") if plan_norm else "simple_cluster/results/output_contract_for_plotting.md"
     md_path = safe_project_path(root, md_rel)
     os.makedirs(os.path.dirname(md_path), exist_ok=True)
     open(md_path, "w", encoding="utf-8").write("\n".join(doc) + "\n")
@@ -6293,7 +6296,7 @@ def recover_plan_from_run_action(root, payload=None):
         recovered = {**recovered, "planFile": plan_norm}
     run_name = safe_name((recovered or {}).get("runId") or "manual")
     slug = plan_summary_slug(plan_norm)
-    rel_base = f"zlk_cluster/plans/recovered/by_plan/{slug}/{run_name}" if slug else f"zlk_cluster/plans/recovered/{run_name}"
+    rel_base = f"simple_cluster/plans/recovered/by_plan/{slug}/{run_name}" if slug else f"simple_cluster/plans/recovered/{run_name}"
     base = safe_project_path(root, rel_base)
     yaml_path = base + ".yaml"
     json_path = base + ".json"
@@ -6306,7 +6309,7 @@ def recover_plan_from_run_action(root, payload=None):
     open(report_path, "w", encoding="utf-8").write(report_text)
     # Keep unscoped latest aliases for unscoped consumers.
     if slug:
-        latest_base = safe_project_path(root, f"zlk_cluster/plans/recovered/{run_name}")
+        latest_base = safe_project_path(root, f"simple_cluster/plans/recovered/{run_name}")
         os.makedirs(os.path.dirname(latest_base), exist_ok=True)
         open(latest_base + ".yaml", "w", encoding="utf-8").write(yaml_text)
         atomic_write(latest_base + ".json", recovered)
@@ -6470,7 +6473,7 @@ def diagnose_result_anomaly_action(root, payload=None):
     causes = sorted(causes, key=lambda item: (severity_order.get(item.get("severity"), 9), str(item.get("category")), str(item.get("code"))))
     safe = safe_name(str(current.get("resultId") or current.get("experimentId") or "result"))
     plan_norm = normalize_result_candidate(plan) if plan else ""
-    anomaly_rel = plan_results_artifact_relpath(plan_norm, f"anomaly/{safe}") if plan_norm else f"zlk_cluster/results/anomaly/{safe}"
+    anomaly_rel = plan_results_artifact_relpath(plan_norm, f"anomaly/{safe}") if plan_norm else f"simple_cluster/results/anomaly/{safe}"
     out_dir = safe_project_path(root, "/".join(anomaly_rel.split("/")[:-1]))
     os.makedirs(out_dir, exist_ok=True)
     metric_summary = {"metric": metric, "currentValue": current_value, "bestValue": best_value, "delta": (current_value - best_value) if current_value is not None and best_value is not None else None, "relativeDelta": ((current_value - best_value) / abs(best_value)) if current_value is not None and best_value not in (None, 0) else None, "mean": mean, "std": std, "zScore": z, "higherIsBetter": metric_direction(metric) != "lower"}
@@ -6524,7 +6527,7 @@ def check_output_contract_action(root, plan=None):
         search_roots = output_contract_search_roots([*declared, *jobs, *files])
     else:
         files = discover_result_files(root)
-        search_roots = [".", "experiments", "work_dirs", "results", "zlk_cluster"]
+        search_roots = [".", "experiments", "work_dirs", "results", "simple_cluster"]
     present = {os.path.basename(path).lower() for path in files if os.path.basename(path).lower() in required}
     for top in search_roots:
         base = root if top == "." else (safe_project_path(root, top) if plan_norm else os.path.join(root, top))
@@ -6592,12 +6595,12 @@ def check_output_contract_action(root, plan=None):
     else:
         message = f"输出契约完整：已确认 {len(required)} 个快照文件，并从 {len(parseable_files)} 个结果文件解析到 {parseable_result_count} 条结果"
     report = {"schemaVersion": 1, "status": "failed" if issue_type else "ok", "issueType": issue_type, "files": files, "missing": missing, "missingCount": len(missing), "requiredSnapshots": required, "resultFiles": result_files, "metricFiles": metric_files, "parseableResultFiles": parseable_files, "parseableResultCount": parseable_result_count, "unparseable": unparseable, "unparseableFiles": unparseable_files, "unparseableCount": len(unparseable_files), "checkedAt": now_iso(), "planFile": plan_norm or "", "message": message}
-    report_rel = f"zlk_cluster/contracts/contract_check_reports/by_plan/{plan_summary_slug(plan_norm)}/latest.json" if plan_norm else "zlk_cluster/contracts/contract_check_reports/latest.json"
+    report_rel = f"simple_cluster/contracts/contract_check_reports/by_plan/{plan_summary_slug(plan_norm)}/latest.json" if plan_norm else "simple_cluster/contracts/contract_check_reports/latest.json"
     report["path"] = report_rel
     target = safe_project_path(root, report_rel)
     atomic_write(target, report)
     if plan_norm:
-        atomic_write(safe_project_path(root, "zlk_cluster/contracts/contract_check_reports/latest.json"), report)
+        atomic_write(safe_project_path(root, "simple_cluster/contracts/contract_check_reports/latest.json"), report)
     return report
 
 def redact_text(text):
@@ -6610,16 +6613,16 @@ def redact_text(text):
 def create_debug_bundle_action(root, include_results=False, plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     slug = plan_summary_slug(plan_norm)
-    rel_dir = f"zlk_cluster/debug/by_plan/{slug}" if slug else "zlk_cluster/debug"
+    rel_dir = f"simple_cluster/debug/by_plan/{slug}" if slug else "simple_cluster/debug"
     out_dir = safe_project_path(root, rel_dir)
     os.makedirs(out_dir, exist_ok=True)
     stamp = int(time.time())
     bundle = os.path.join(out_dir, f"debug_bundle_{stamp}.zip")
     summary = read_results_summary(root, plan_norm or None)
-    claim_path = plan_results_artifact_relpath(plan_norm, "claim_evidence.json") if plan_norm else "zlk_cluster/results/claim_evidence.json"
-    registry_path = plan_results_registry_relpath(plan_norm) if plan_norm else "zlk_cluster/results/result_registry.json"
-    quality_path = plan_results_artifact_relpath(plan_norm, "quality_gate.json") if plan_norm else "zlk_cluster/results/quality_gate.json"
-    statistics_path = plan_results_artifact_relpath(plan_norm, "statistics.json") if plan_norm else "zlk_cluster/results/statistics.json"
+    claim_path = plan_results_artifact_relpath(plan_norm, "claim_evidence.json") if plan_norm else "simple_cluster/results/claim_evidence.json"
+    registry_path = plan_results_registry_relpath(plan_norm) if plan_norm else "simple_cluster/results/result_registry.json"
+    quality_path = plan_results_artifact_relpath(plan_norm, "quality_gate.json") if plan_norm else "simple_cluster/results/quality_gate.json"
+    statistics_path = plan_results_artifact_relpath(plan_norm, "statistics.json") if plan_norm else "simple_cluster/results/statistics.json"
     items = {
         "diagnostics.json": api_diagnostics(root),
         "capabilities.json": api_capabilities(root, False, "hub_control"),
@@ -6642,9 +6645,9 @@ def create_debug_bundle_action(root, include_results=False, plan=None):
         if include_results:
             zf.writestr("result_registry.json", redact_text(json.dumps(read_json(safe_project_path(root, registry_path), {}), ensure_ascii=False, indent=2)))
     rel_bundle = relpath(root, bundle)
-    # Keep a latest alias under zlk_cluster/debug for unscoped consumers.
+    # Keep a latest alias under simple_cluster/debug for unscoped consumers.
     if slug:
-        latest_dir = safe_project_path(root, "zlk_cluster/debug")
+        latest_dir = safe_project_path(root, "simple_cluster/debug")
         os.makedirs(latest_dir, exist_ok=True)
         latest = os.path.join(latest_dir, "debug_bundle_latest.zip")
         try:
@@ -6667,9 +6670,9 @@ def create_debug_bundle_action(root, include_results=False, plan=None):
     }
 
 def scheduler_capture(root, scheduler, scheduler_args, timeout=60, env=None):
-    runtime_env = zlk_runtime_env(os.environ.copy() if env is None else env)
-    command = [zlk_runtime_python(runtime_env), scheduler, *scheduler_args]
-    return subprocess.run(zlk_conda_wrapped_args(command, runtime_env), cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+    runtime_env = simple_runtime_env(os.environ.copy() if env is None else env)
+    command = [simple_runtime_python(runtime_env), scheduler, *scheduler_args]
+    return subprocess.run(simple_conda_wrapped_args(command, runtime_env), cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
 
 def scheduler_dependency_status(root, scheduler, env=None):
     result = scheduler_capture(root, scheduler, ["--check-dependencies-json"], env=env)
@@ -6690,8 +6693,8 @@ def scheduler_dependency_health(root, max_age_seconds=30):
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
         return {"ok": False, "missingRuntime": True, "missingModules": [], "installCommand": "", "message": "缺少 cluster_scheduler.py，请先部署最新版 Agent。", "checkedAt": now_iso()}
-    env = zlk_runtime_env(os.environ.copy())
-    key = "|".join([os.path.abspath(root), os.path.abspath(scheduler), str(env.get("ZLK_CONDA_ENV") or ""), str(zlk_runtime_python(env) or "")])
+    env = simple_runtime_env(os.environ.copy())
+    key = "|".join([os.path.abspath(root), os.path.abspath(scheduler), str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or ""), str(simple_runtime_python(env) or "")])
     checked_at = time.time()
     with SCHEDULER_DEPENDENCY_CACHE_LOCK:
         prune_scheduler_dependency_cache(checked_at, key)
@@ -6763,7 +6766,7 @@ def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_r
 def cleanup_dry_run_worker_temp_files(root, max_age_seconds=24 * 60 * 60):
     roots = [
         os.path.realpath(os.path.dirname(state_child_path(root, "actions", ""))),
-        os.path.realpath(safe_project_path(root, "zlk_cluster/tmp/cluster_scheduler")),
+        os.path.realpath(safe_project_path(root, "simple_cluster/tmp/cluster_scheduler")),
     ]
     cutoff = time.time() - max(0, int(max_age_seconds or 0))
     removed = []
@@ -6805,7 +6808,7 @@ def acquire_worker_action_slot(root, worker_id, payload):
     options = action_options(payload)
     min_interval_ms = max(500, int(options.get("workerActionMinIntervalMs") or options.get("worker_action_min_interval_ms") or 1500))
     max_concurrent = max(1, int(options.get("workerActionMaxConcurrent") or options.get("worker_action_max_concurrent") or 1))
-    worker_id = str(worker_id or os.environ.get("ZLK_WORKER_ID") or "worker").strip() or "worker"
+    worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     key = worker_id
     # release() refreshes the last-action stamp, so a steady stream of actions on one worker can
     # starve a waiter forever; without a deadline that waiter is a permanently blocked HTTP thread.
@@ -6908,7 +6911,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         command = dict(payload)
         command["action"] = action
         command["commandId"] = op_id
-        result = execute_worker_command(root, command, str((payload.get("options") or {}).get("workerId") or payload.get("workerId") or os.environ.get("ZLK_WORKER_ID") or "worker"))
+        result = execute_worker_command(root, command, str((payload.get("options") or {}).get("workerId") or payload.get("workerId") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"))
         status = "completed" if result.get("status") in ("running", "completed") else "failed"
         return terminal_action(root, action, operation_id, op_id, status, str(result.get("message") or result.get("status") or ""), result)
     if action == "self-check":
@@ -6980,12 +6983,12 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", "计划校验失败，已阻止启动调度：" + str(exc), request=payload)
         workers_path = state_child_path(root, "actions", f"{op_id}-workers.json")
         atomic_write(workers_path, workers)
-        log_path = safe_project_path(root, f"zlk_cluster/tmp/cluster_scheduler/{op_id}.log")
+        log_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.log")
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_rel = os.path.relpath(log_path, root).replace("\\", "/")
         debug_mode = action_debug_mode(payload)
         debug_run_id = action_debug_run_id(payload) or op_id
-        debug_output_dir = f"zlk_cluster/debug_runs/{plan_summary_slug(plan)}/{safe_name(debug_run_id)}" if debug_mode else ""
+        debug_output_dir = f"simple_cluster/debug_runs/{plan_summary_slug(plan)}/{safe_name(debug_run_id)}" if debug_mode else ""
         if debug_mode:
             log_path = safe_project_path(root, f"{debug_output_dir}/hub_scheduler.log")
             os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -6993,9 +6996,9 @@ def handle_action(root, action, payload, operation_id, op_id):
         poll_seconds = max(60, int(options.get("pollSeconds") or options.get("poll_seconds") or 60))
         jitter_seconds = max(0, int(options.get("jitterSeconds") or options.get("jitter_seconds") or 30))
         ttl_seconds = max(60, int(options.get("workerStatusTtlSeconds") or options.get("worker_status_ttl_seconds") or 180))
-        env = zlk_runtime_env(os.environ.copy())
+        env = simple_runtime_env(os.environ.copy())
         scheduler_args = [
-            zlk_runtime_python(env),
+            simple_runtime_python(env),
             scheduler,
             "--plan", plan,
             "--workers-json", workers_path,
@@ -7025,16 +7028,16 @@ def handle_action(root, action, payload, operation_id, op_id):
             env["SIMPLE_EXPERIMENT_WORKER_SET_REVISION"] = str(operation_fields.get("workerSetRevision"))
         if debug_mode:
             scheduler_args.extend(["--debug-mode", "--debug-run-id", debug_run_id, "--debug-output-dir", debug_output_dir])
-        tmux_session = zlk_tmux_name(f"scheduler-{op_id}")
+        tmux_session = simple_tmux_name(f"scheduler-{op_id}")
         pid = 0
         used_tmux = False
         if tmux_available():
             try:
-                pid = start_zlk_tmux_command(tmux_session, scheduler_args, root, log_path, env)
+                pid = start_simple_tmux_command(tmux_session, scheduler_args, root, log_path, env)
                 used_tmux = True
             except Exception as exc:
                 with open(log_path, "a", encoding="utf-8") as out:
-                    out.write(f"[zlk-agent] scheduler tmux launch failed, fallback to direct Popen: {exc}\n")
+                    out.write(f"[simple-agent] scheduler tmux launch failed, fallback to direct Popen: {exc}\n")
         if not used_tmux:
             out = open(log_path, "a", encoding="utf-8")
             proc = subprocess.Popen(scheduler_args, cwd=root, stdout=out, stderr=subprocess.STDOUT, env=env)
@@ -7108,8 +7111,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         plan_file = action_plan_file(payload)
         plan_norm = normalize_result_candidate(plan_file) if plan_file else ""
         slug = plan_summary_slug(plan_norm)
-        deleted_rel = f"zlk_cluster/deletions/by_plan/{slug}/deleted_experiments.jsonl" if slug else "zlk_cluster/deleted_experiments.jsonl"
-        scheduler_rel = f"zlk_cluster/deletions/by_plan/{slug}/deleted_scheduler_rows.jsonl" if slug else "zlk_cluster/deleted_scheduler_rows.jsonl"
+        deleted_rel = f"simple_cluster/deletions/by_plan/{slug}/deleted_experiments.jsonl" if slug else "simple_cluster/deleted_experiments.jsonl"
+        scheduler_rel = f"simple_cluster/deletions/by_plan/{slug}/deleted_scheduler_rows.jsonl" if slug else "simple_cluster/deleted_scheduler_rows.jsonl"
         rows = [{
             "schemaVersion": 1,
             "deleted_at": now_iso(),
@@ -7129,8 +7132,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         append_project_jsonl(root, scheduler_rel, [{**row, "deleteMode": "row", "reason": action} for row in rows])
         # Keep project-level latest aliases for unscoped consumers.
         if slug:
-            append_project_jsonl(root, "zlk_cluster/deleted_experiments.jsonl", rows)
-            append_project_jsonl(root, "zlk_cluster/deleted_scheduler_rows.jsonl", [{**row, "deleteMode": "row", "reason": action} for row in rows])
+            append_project_jsonl(root, "simple_cluster/deleted_experiments.jsonl", rows)
+            append_project_jsonl(root, "simple_cluster/deleted_scheduler_rows.jsonl", [{**row, "deleteMode": "row", "reason": action} for row in rows])
         status = "failed" if residues or skipped else "completed"
         summary = {
             "targetCount": len(keys),
@@ -7153,10 +7156,10 @@ def handle_action(root, action, payload, operation_id, op_id):
         return terminal_action(root, action, operation_id, op_id, "completed", "Worker 操作终态已确认")
     if action == "run-quality-gate":
         report = run_quality_gate_action(root, action_plan_file(payload), action_operation_fields(payload).get("planRevision") or "")
-        return terminal_action(root, action, operation_id, op_id, "completed", f"质量门禁完成：{report.get('status')}，问题 {len(report.get('issues') or [])} 个", {"qualityGate": report, "qualityGatePath": report.get("path") or report.get("qualityGatePath") or "zlk_cluster/results/quality_gate.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, "completed", f"质量门禁完成：{report.get('status')}，问题 {len(report.get('issues') or [])} 个", {"qualityGate": report, "qualityGatePath": report.get("path") or report.get("qualityGatePath") or "simple_cluster/results/quality_gate.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "run-statistics":
         report = compute_statistics_action(root, action_plan_file(payload), action_operation_fields(payload).get("planRevision") or "")
-        return terminal_action(root, action, operation_id, op_id, "completed", f"统计完成：{len(report.get('rows') or [])} 组", {"statistics": report, "statisticsPath": report.get("path") or report.get("statisticsPath") or "zlk_cluster/results/statistics.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, "completed", f"统计完成：{len(report.get('rows') or [])} 组", {"statistics": report, "statisticsPath": report.get("path") or report.get("statisticsPath") or "simple_cluster/results/statistics.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "export-paper-table":
         report = export_paper_table_action(root, action_plan_file(payload), action_operation_fields(payload).get("planRevision") or "")
         return terminal_action(root, action, operation_id, op_id, "completed", f"论文表格已导出：{report.get('path')}", {"paperTable": report, "paperTablePath": report.get("path"), "exportPath": report.get("path")}, request=payload)
@@ -7169,7 +7172,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         apply_claim_evidence_summary(summary, report)
         write_results_summary_v2(root, summary)
         status = "completed" if report.get("status") == "passed" else "failed"
-        return terminal_action(root, action, operation_id, op_id, status, f"论文证据检查：{report.get('status')}，unsupported {report.get('unsupportedCount', 0)}，needs experiment {report.get('needsExperimentCount', 0)}", {"claimEvidence": report, "claimEvidencePath": report.get("path") or "zlk_cluster/results/claim_evidence.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, status, f"论文证据检查：{report.get('status')}，unsupported {report.get('unsupportedCount', 0)}，needs experiment {report.get('needsExperimentCount', 0)}", {"claimEvidence": report, "claimEvidencePath": report.get("path") or "simple_cluster/results/claim_evidence.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "create-debug-bundle":
         plan = action_plan_file(payload)
         bundle = create_debug_bundle_action(root, False, plan)
@@ -7181,28 +7184,28 @@ def handle_action(root, action, payload, operation_id, op_id):
     if action == "check-output-contract":
         report = check_output_contract_action(root, action_plan_file(payload))
         status = "failed" if report.get("status") == "failed" else "completed"
-        return terminal_action(root, action, operation_id, op_id, status, report.get("message") or report.get("status"), {"contractReport": report, "contractReportPath": report.get("path") or "zlk_cluster/contracts/contract_check_reports/latest.json", "contractIssueType": report.get("issueType") or "", "missingCount": len(report.get("missing") or []), "missingFiles": report.get("missing") or [], "unparseableCount": len(report.get("unparseableFiles") or []), "unparseableFiles": report.get("unparseableFiles") or [], "unparseable": report.get("unparseable") or [], "parseableResultCount": int(report.get("parseableResultCount") or 0), "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, status, report.get("message") or report.get("status"), {"contractReport": report, "contractReportPath": report.get("path") or "simple_cluster/contracts/contract_check_reports/latest.json", "contractIssueType": report.get("issueType") or "", "missingCount": len(report.get("missing") or []), "missingFiles": report.get("missing") or [], "unparseableCount": len(report.get("unparseableFiles") or []), "unparseableFiles": report.get("unparseableFiles") or [], "unparseable": report.get("unparseable") or [], "parseableResultCount": int(report.get("parseableResultCount") or 0), "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "parse-case-level":
         report = parse_case_level_action(root, action_plan_file(payload))
-        return terminal_action(root, action, operation_id, op_id, "completed", f"Case-level 解析完成：{report.get('caseCount', 0)} 条", {"caseLevel": report, "caseLevelPath": report.get("path") or "zlk_cluster/results/case_level_index.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, "completed", f"Case-level 解析完成：{report.get('caseCount', 0)} 条", {"caseLevel": report, "caseLevelPath": report.get("path") or "simple_cluster/results/case_level_index.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "run-leakage-check":
         report = run_leakage_check_action(root, action_plan_file(payload))
         status = "failed" if report.get("status") == "failed" else "completed"
-        return terminal_action(root, action, operation_id, op_id, status, f"泄漏检查：{report.get('status')}，问题 {len(report.get('issues') or [])} 个", {"leakageCheck": report, "leakageCheckPath": report.get("path") or "zlk_cluster/results/leakage_check.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, status, f"泄漏检查：{report.get('status')}，问题 {len(report.get('issues') or [])} 个", {"leakageCheck": report, "leakageCheckPath": report.get("path") or "simple_cluster/results/leakage_check.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "run-subgroup-analysis":
         report = run_subgroup_analysis_action(root, action_plan_file(payload))
-        return terminal_action(root, action, operation_id, op_id, "completed", f"亚组分析完成：{len(report.get('rows') or [])} 组", {"subgroupAnalysis": report, "subgroupAnalysisPath": report.get("path") or "zlk_cluster/results/subgroup_analysis.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, "completed", f"亚组分析完成：{len(report.get('rows') or [])} 组", {"subgroupAnalysis": report, "subgroupAnalysisPath": report.get("path") or "simple_cluster/results/subgroup_analysis.json", "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "export-case-analysis":
         report = export_case_analysis_action(root, action_plan_file(payload))
         return terminal_action(root, action, operation_id, op_id, "completed", f"Case 分析已导出：{report.get('path')}", {"caseAnalysis": report, "caseAnalysisPath": report.get("path"), "planFile": report.get("planFile") or action_plan_file(payload)}, request=payload)
     if action == "plan-checkpoint-retention":
         report = checkpoint_retention_action(root, payload)
-        return terminal_action(root, action, operation_id, op_id, "completed", f"Checkpoint dry-run 完成：计划删除 {report.get('deleteCount', 0)}，保留 {report.get('keepCount', 0)}，跳过 {report.get('skipCount', 0)}", {"checkpointPlan": report, "planFile": report.get("planFile") or action_plan_file(payload) or "", "deletePlanPath": report.get("deletePlanPath") or "zlk_cluster/checkpoints/delete_plan.json", "retentionReportPath": report.get("retentionReportPath") or "zlk_cluster/checkpoints/retention_report.md"}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, "completed", f"Checkpoint dry-run 完成：计划删除 {report.get('deleteCount', 0)}，保留 {report.get('keepCount', 0)}，跳过 {report.get('skipCount', 0)}", {"checkpointPlan": report, "planFile": report.get("planFile") or action_plan_file(payload) or "", "deletePlanPath": report.get("deletePlanPath") or "simple_cluster/checkpoints/delete_plan.json", "retentionReportPath": report.get("retentionReportPath") or "simple_cluster/checkpoints/retention_report.md"}, request=payload)
     if action == "inspect-dataset":
         report = inspect_dataset_action(root, payload)
         status = "failed" if (report.get("leakage") or {}).get("status") == "failed" else "completed"
         outputs = (report.get("outputFiles") or {}) if isinstance(report, dict) else {}
-        return terminal_action(root, action, operation_id, op_id, status, f"Dataset 画像完成：{report.get('totalRows', 0)} 行，泄漏状态 {(report.get('leakage') or {}).get('status')}", {"datasetProfile": report, "planFile": report.get("planFile") or action_plan_file(payload) or "", "datasetProfilePath": outputs.get("profileJson") or "zlk_cluster/datasets/profile.json", "datasetProfileMarkdownPath": outputs.get("profileMarkdown") or "zlk_cluster/datasets/profile.md", "leakageReportCsvPath": outputs.get("leakageReportCsv") or "zlk_cluster/datasets/leakage_report.csv"}, request=payload)
+        return terminal_action(root, action, operation_id, op_id, status, f"Dataset 画像完成：{report.get('totalRows', 0)} 行，泄漏状态 {(report.get('leakage') or {}).get('status')}", {"datasetProfile": report, "planFile": report.get("planFile") or action_plan_file(payload) or "", "datasetProfilePath": outputs.get("profileJson") or "simple_cluster/datasets/profile.json", "datasetProfileMarkdownPath": outputs.get("profileMarkdown") or "simple_cluster/datasets/profile.md", "leakageReportCsvPath": outputs.get("leakageReportCsv") or "simple_cluster/datasets/leakage_report.csv"}, request=payload)
     if action == "export-plotting-contract":
         report = export_plotting_contract_action(root, action_plan_file(payload))
         return terminal_action(root, action, operation_id, op_id, "completed", f"PPT 绘图契约已导出：{report.get('path')}", {"plottingContract": report.get("contract"), "plottingContractPath": report.get("path"), "plottingContractMarkdownPath": report.get("markdownPath")}, request=payload)
@@ -7263,13 +7266,13 @@ def api_openapi(root, token_required=False, mode="hub_control"):
         ]
         return {
             "openapi": "3.0.0",
-            "info": {"title": "ZLK Worker Telemetry API", "version": API_VERSION},
+            "info": {"title": "SimpleExperiment Worker Telemetry API", "version": API_VERSION},
             "paths": {path: {} for path in paths},
-            "x-zlk-capabilities": api_capabilities(root, token_required, mode),
+            "x-simple-capabilities": api_capabilities(root, token_required, mode),
         }
     return {
         "openapi": "3.0.0",
-        "info": {"title": "ZLK Hub Agent Realtime Gateway", "version": API_VERSION},
+        "info": {"title": "SimpleExperiment Hub Agent Realtime Gateway", "version": API_VERSION},
         "paths": {path: {} for path in [
             "/api/health",
             "/api/capabilities",
@@ -7299,7 +7302,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/files/transfer-status",
             "/api/workers/uplink/events",
         ] + ACTION_PATHS},
-        "x-zlk-capabilities": api_capabilities(root, token_required, mode),
+        "x-simple-capabilities": api_capabilities(root, token_required, mode),
     }
 
 def api_diagnostics(root, include_token=False):
@@ -7328,8 +7331,8 @@ def read_audit_tail(root, lines=100):
     line_limit = max(1, int(lines or 100))
     byte_limit = audit_tail_byte_budget(line_limit)
     candidates = [
-        os.path.join(root, "zlk_cluster", "logs", "operation_audit.jsonl"),
-        os.path.join(root, "zlk_cluster", "tmp", "operation_audit.jsonl"),
+        os.path.join(root, "simple_cluster", "logs", "operation_audit.jsonl"),
+        os.path.join(root, "simple_cluster", "tmp", "operation_audit.jsonl"),
     ]
     for p in candidates:
         if not os.path.isfile(p):
@@ -7358,8 +7361,8 @@ def read_results_summary(root, plan=None, cached=False):
             return data
         return {"schemaVersion": SCHEMA_VERSION, "results": [], "planFile": plan_norm}
     candidates = [
-        os.path.join(root, "zlk_cluster", "results_summary.json"),
-        os.path.join(root, "zlk_cluster", "results", "summary.json"),
+        os.path.join(root, "simple_cluster", "results_summary.json"),
+        os.path.join(root, "simple_cluster", "results", "summary.json"),
     ]
     existing = [p for p in candidates if os.path.isfile(p)]
     existing.sort(key=lambda p: os.path.getmtime(p), reverse=True)
@@ -7692,8 +7695,8 @@ def serve_http(args):
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 60), getattr(args, "jitter_seconds", 30))
         start_worker_hub_uplink(
             root,
-            getattr(args, "hub_uplink_url", "") or os.environ.get("ZLK_HUB_UPLINK_URL", ""),
-            getattr(args, "worker_id", "") or os.environ.get("ZLK_WORKER_ID", ""),
+            getattr(args, "hub_uplink_url", "") or os.environ.get("SIMPLE_EXPERIMENT_HUB_UPLINK_URL", ""),
+            getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
             getattr(args, "worker_availability_push_seconds", 60),
             getattr(args, "jitter_seconds", 30),
             getattr(args, "operation_event_max_delay_ms", 1000),
@@ -7702,7 +7705,7 @@ def serve_http(args):
         start_hub_control_sampler(root, getattr(args, "poll_seconds", 60), getattr(args, "jitter_seconds", 30))
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "ZLKClusterAgent/" + AGENT_VERSION
+        server_version = "SimpleExperimentAgent/" + AGENT_VERSION
 
         def log_message(self, fmt, *items):
             return
@@ -7714,7 +7717,7 @@ def serve_http(args):
         def authorized(self):
             if not token:
                 return True
-            supplied = self.headers.get("X-ZLK-Agent-Token") or ""
+            supplied = self.headers.get("X-Simple-Agent-Token") or ""
             auth = self.headers.get("Authorization") or ""
             if auth.startswith("Bearer "):
                 supplied = auth[len("Bearer "):]
@@ -7735,7 +7738,7 @@ def serve_http(args):
             self.send_header("Content-Disposition", f"attachment; filename={json.dumps(name)}")
             self.send_header("Content-Length", str(len(data)))
             if sha256:
-                self.send_header("X-ZLK-File-Sha256", sha256)
+                self.send_header("X-Simple-File-Sha256", sha256)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
@@ -7752,7 +7755,7 @@ def serve_http(args):
             self.send_header("Content-Disposition", f"attachment; filename={json.dumps(os.path.basename(target))}")
             self.send_header("Content-Length", str(length))
             self.send_header("Accept-Ranges", "bytes")
-            self.send_header("X-ZLK-File-Sha256", sha256_file(target))
+            self.send_header("X-Simple-File-Sha256", sha256_file(target))
             if partial:
                 self.send_header("Content-Range", f"bytes {safe_start}-{safe_end}/{size}")
             self.send_header("Cache-Control", "no-store")
@@ -7780,7 +7783,7 @@ def serve_http(args):
             parsed = urlparse(self.path)
             route = parsed.path
             params = parse_qs(parsed.query)
-            worker_id = (params.get("workerId") or [os.environ.get("ZLK_WORKER_ID") or "worker"])[0]
+            worker_id = (params.get("workerId") or [os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"])[0]
             command_since = int((params.get("commandsSince") or ["0"])[0] or 0)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -7885,7 +7888,7 @@ def serve_http(args):
                 return self.send_json(api_worker_tasks(root))
             if route == "/api/worker/commands":
                 params = parse_qs(parsed.query)
-                worker_id = (params.get("workerId") or [os.environ.get("ZLK_WORKER_ID") or "worker"])[0]
+                worker_id = (params.get("workerId") or [os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"])[0]
                 since = int((params.get("since") or ["0"])[0] or 0)
                 return self.send_json({"schemaVersion": SCHEMA_VERSION, "commands": read_worker_commands(root, worker_id, since)})
             if route == "/api/scheduler":
@@ -7942,7 +7945,7 @@ def serve_http(args):
                 return self.send_sse([payload])
             if route == "/api/files/list":
                 try:
-                    path_value = (parse_qs(parsed.query).get("path") or ["zlk_cluster"])[0]
+                    path_value = (parse_qs(parsed.query).get("path") or ["simple_cluster"])[0]
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "path": path_value, "entries": list_files(root, path_value)})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=400)
@@ -8091,7 +8094,7 @@ def serve_http(args):
                 topology_mode = str(options.get("topologyMode") or payload.get("topologyMode") or "")
                 owner = str(options.get("schedulerOwnerWorkerId") or payload.get("schedulerOwnerWorkerId") or "").strip()
                 dispatch_policy = str(options.get("workerPoolDispatchPolicy") or payload.get("workerPoolDispatchPolicy") or "").strip()
-                current_worker = str(getattr(args, "worker_id", "") or os.environ.get("ZLK_WORKER_ID") or "worker").strip()
+                current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 workers = options.get("workers") if isinstance(options.get("workers"), list) else []
                 worker_ids = [str((worker or {}).get("id") or (worker or {}).get("worker_id") or "").strip() for worker in workers if isinstance(worker, dict)]
                 if (topology_mode != "single_worker" and topology_mode != "worker_pool") or options.get("localWorkerScheduler") is not True or not owner or owner != current_worker or worker_ids != [owner]:
@@ -8105,14 +8108,14 @@ def serve_http(args):
                 options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
                 topology_mode = str(options.get("topologyMode") or payload.get("topologyMode") or "")
                 owner = str(options.get("resultOwnerWorkerId") or payload.get("resultOwnerWorkerId") or options.get("schedulerOwnerWorkerId") or payload.get("schedulerOwnerWorkerId") or "").strip()
-                current_worker = str(getattr(args, "worker_id", "") or os.environ.get("ZLK_WORKER_ID") or "worker").strip()
+                current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 if topology_mode not in ("single_worker", "worker_pool") or not owner or owner != current_worker or options.get("automaticBackup") is not False:
                     return self.send_json({"error": "worker result ownership mismatch"}, status=403)
             append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:
                 if mode == "worker_telemetry" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
-                    release_worker_action = acquire_worker_action_slot(root, selected_worker_id(payload) or os.environ.get("ZLK_WORKER_ID") or "worker", payload)
+                    release_worker_action = acquire_worker_action_slot(root, selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", payload)
                 return self.send_json(handle_action(root, action, payload, operation_id, op_id))
             except Exception as exc:
                 message = f"action failed: {exc}"

@@ -7,9 +7,9 @@ const { buildTunnelEndpointRegistry } = require("../../dist/tunnel/TunnelEndpoin
 test("endpoint registry represents Hub and Workers with stable roles", () => {
   const setup = normalizeXshellSetupConfig({
     hubHost: "hub.local",
-    hubUser: "zlk",
+    hubUser: "simple",
     workerRealtimeMode: "hub_plus_workers",
-    workerTunnels: [{ id: "w1", workerHost: "w1.local", workerUser: "zlk", localForwardPort: 18766, remoteTelemetryPort: 18765, enabled: true }],
+    workerTunnels: [{ id: "w1", workerHost: "w1.local", workerUser: "simple", localForwardPort: 18766, remoteTelemetryPort: 18765, enabled: true }],
   });
   const registry = buildTunnelEndpointRegistry(setup);
   assert.equal(registry.hub.role, "hub_control");

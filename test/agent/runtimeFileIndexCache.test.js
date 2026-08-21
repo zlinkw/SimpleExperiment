@@ -24,7 +24,7 @@ agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)
 
 root = pathlib.Path(${JSON.stringify(project)})
-state_dir = root / "zlk_cluster" / "tmp" / "cluster_scheduler"
+state_dir = root / "simple_cluster" / "tmp" / "cluster_scheduler"
 state_dir.mkdir(parents=True)
 agent.atomic_write(state_dir / "a_state.json", {"planFile": "a.yaml"})
 

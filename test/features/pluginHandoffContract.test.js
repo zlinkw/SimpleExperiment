@@ -26,8 +26,8 @@ function createConfig(containerUser = "codex") {
       "simple-local.simple-sftp": "ui",
     },
     pathSettings: {
-      clusterHostRoot: "zlkCluster.workspaceHostRoot",
-      clusterContainerRoot: "zlkCluster.workspaceContainerRoot",
+      clusterHostRoot: "simpleExperiment.workspaceHostRoot",
+      clusterContainerRoot: "simpleExperiment.workspaceContainerRoot",
       sftpHostRoot: "simpleSftp.workspaceHostRoot",
       sftpContainerRoot: "simpleSftp.workspaceContainerRoot",
     },

@@ -996,13 +996,13 @@ function planRestoreResultListTokens(planText, planVersion) {
 function restorePlanText(planText, context) {
     const outputNamespace = restoreOutputNamespace(context.planVersion);
     const header = [
-        `# ZLK restore version: v${context.planVersion}`,
-        `# ZLK original plan: ${context.originalPlanFile}`,
-        `# ZLK archived source: ${context.archivedPlanFile}`,
-        `# ZLK result scope: ${context.restoredFile}`,
-        `# ZLK restored output namespace: ${outputNamespace}`,
-        ...(context.restoredEnvironmentDir ? [`# ZLK restored environment: ${context.restoredEnvironmentDir}`] : []),
-        ...(context.restoredParameterDir ? [`# ZLK restored parameters: ${context.restoredParameterDir}`] : []),
+        `# SimpleExperiment restore version: v${context.planVersion}`,
+        `# SimpleExperiment original plan: ${context.originalPlanFile}`,
+        `# SimpleExperiment archived source: ${context.archivedPlanFile}`,
+        `# SimpleExperiment result scope: ${context.restoredFile}`,
+        `# SimpleExperiment restored output namespace: ${outputNamespace}`,
+        ...(context.restoredEnvironmentDir ? [`# SimpleExperiment restored environment: ${context.restoredEnvironmentDir}`] : []),
+        ...(context.restoredParameterDir ? [`# SimpleExperiment restored parameters: ${context.restoredParameterDir}`] : []),
     ].join("\n") + "\n";
     let rewritten = String(planText || "");
     const configReplacements = [...planConfigScalarTokens(rewritten), ...planCommandConfigTokens(rewritten)]

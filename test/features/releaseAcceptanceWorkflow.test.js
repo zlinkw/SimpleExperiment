@@ -15,5 +15,5 @@ test("release acceptance command has an executable report workflow", () => {
   assert.match(acceptance, /runNpm\("feature regression tests", \["run", "test:features"\]\)/);
   assert.doesNotMatch(acceptance, /shell\s*:/);
   assert.match(acceptance, /overall=\$\{overall\}/);
-  assert.match(acceptance, /path\.join\(root, "zlk_cluster", "reports", "acceptance"\)/);
+  assert.match(acceptance, /path\.join\(root, "simple_cluster", "reports", "acceptance"\)/);
 });

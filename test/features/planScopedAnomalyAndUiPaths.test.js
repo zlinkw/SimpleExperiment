@@ -24,7 +24,7 @@ test("anomaly diagnosis writes under plan-scoped anomaly dir", () => {
     assert.match(source, /"planFile": plan_norm or ""/);
   }
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-anomaly-plan-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-anomaly-plan-"));
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(agent), "utf8");
   const root = path.join(tmp, "project");
@@ -85,6 +85,6 @@ test("result evidence workbench keeps ppt plot buttons with artifact paths", () 
   assert.match(source, /const statisticsSourcePath = statisticsReady \? meaningfulValue\(statisticsPath\) : "";/);
   assert.match(source, /pptPlotButton\("均值绘图", statisticsSourcePath, "SCI 聚合统计"\)/);
   assert.match(source, /pptPlotButton\("契约页", analysisArtifacts\.plottingContractPath, "PPT 绘图契约"/);
-  assert.doesNotMatch(source, /pptPlotButton\("(?:均值绘图|契约页)", "zlk_cluster\/results\//);
+  assert.doesNotMatch(source, /pptPlotButton\("(?:均值绘图|契约页)", "simple_cluster\/results\//);
   assert.match(source, /function renderResultEvidenceWorkbench\(state, summary\)/);
 });

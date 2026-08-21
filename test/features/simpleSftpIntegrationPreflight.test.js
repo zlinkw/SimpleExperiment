@@ -92,7 +92,7 @@ test("SimpleSFTP integration readiness reuses ABI derivation and invalidates on 
   const registry = {
     getExtension(id) {
       if (id === "simple-local.simple-sftp") return extension;
-      if (id === "zlk-local.zlk-sftp-manager") return legacyExtension;
+      if (id === "simple-local.simple-sftp-manager") return legacyExtension;
       return undefined;
     },
   };
@@ -113,7 +113,7 @@ test("SimpleSFTP integration readiness reuses ABI derivation and invalidates on 
   const upgradedRegistry = {
     getExtension(id) {
       if (id === "simple-local.simple-sftp") return upgraded;
-      if (id === "zlk-local.zlk-sftp-manager") return legacyExtension;
+      if (id === "simple-local.simple-sftp-manager") return legacyExtension;
       return undefined;
     },
   };

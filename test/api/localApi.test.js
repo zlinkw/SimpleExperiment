@@ -308,9 +308,9 @@ test("SimpleExperiment accepts topology aliases and enforces NWPU3 roots", () =>
   assert.equal(topologyMode.normalizeTopologyMode("standalone"), "single_worker");
   assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");
   assert.equal(topologyMode.normalizeTopologyMode("hub_available"), "hub_worker");
-  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/zlk");
+  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/simple");
   assert.equal(workflow.resolveApiRemoteRoot("/data/other", { host: "10.0.0.2" }), "/data/other");
-  assert.throws(() => workflow.resolveApiRemoteRoot("/root/disk1/qgking/zlk", { id: "nwpu3" }), /\/data\/qgking\/zlk/);
+  assert.throws(() => workflow.resolveApiRemoteRoot("/root/disk1/qgking/simple", { id: "nwpu3" }), /\/data\/qgking\/simple/);
 });
 
 test("SimpleExperiment workflow state persists every required stage", () => {
@@ -402,8 +402,8 @@ test("SimpleExperiment prepare decouples infrastructure from PLAN validation", (
 
 test("SimpleExperiment NWPU3 worker targets resolve the exact project workDir", () => {
   assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");
-  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/zlk");
-  assert.equal(workflow.remoteProjectWorkDir(workflow.resolveApiRemoteRoot("/data/qgking/zlk", { id: "nwpu3" }), "MultiModal"), "/data/qgking/zlk/MultiModal");
+  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/simple");
+  assert.equal(workflow.remoteProjectWorkDir(workflow.resolveApiRemoteRoot("/data/qgking/simple", { id: "nwpu3" }), "MultiModal"), "/data/qgking/simple/MultiModal");
 });
 
 test("SimpleExperiment workflow router returns one deterministic next call", () => {
@@ -478,7 +478,7 @@ test("SimpleExperiment server test rows always expose the AI contract", () => {
     host: "127.0.0.1",
     port: 22,
     user: "qgking",
-    remoteRoot: "/data/qgking/zlk",
+    remoteRoot: "/data/qgking/simple",
   }, undefined);
   assert.deepEqual(Object.keys(row).sort(), [
     "host",
@@ -519,7 +519,7 @@ test("SimpleExperiment parameterized onboarding uses one structured confirmation
   assert.match(extensionSource, /PLAN_PREFLIGHT_COMMANDS\.has\(command\)/);
   assert.match(extensionSource, /API_PARAMETERIZED_CONNECTION_COMMANDS\.has\(command\)/);
   assert.match(extensionSource, /if \(command === "prepareAgents"\)/);
-  assert.match(extensionSource, /PROJECT_FLOW_STATE_PATH = "zlk_cluster\/ui\/flow_state\.json"/);
+  assert.match(extensionSource, /PROJECT_FLOW_STATE_PATH = "simple_cluster\/ui\/flow_state\.json"/);
   assert.match(extensionSource, /savedSessionPath: "",\s*agentProjectDir: "",/);
 
   const start = extensionSource.indexOf("async runApiBootstrapOperation");

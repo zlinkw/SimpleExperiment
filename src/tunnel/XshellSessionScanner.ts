@@ -150,7 +150,7 @@ export function parseXshellSessionContent(input: Buffer | string, filePath: stri
   };
 }
 
-export function preferredZlkForward(session: XshellSessionInfo | undefined): XshellTunnelForward | undefined {
+export function preferredSimpleForward(session: XshellSessionInfo | undefined): XshellTunnelForward | undefined {
   if (!session) return undefined;
   return session.forwards.find((item) => item.remotePort === 18765)
     || session.forwards.find((item) => item.localPort >= 18765 && item.localPort <= 18999)

@@ -14,13 +14,13 @@ test("hub agent evidence actions write checkpoint dataset recovery anomaly and p
     t.skip("python unavailable");
     return;
   }
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-agent-evidence-"));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-agent-evidence-"));
   fs.mkdirSync(path.join(project, "work_dirs", "run_old"), { recursive: true });
   fs.mkdirSync(path.join(project, "work_dirs", "run_best"), { recursive: true });
   fs.mkdirSync(path.join(project, "experiments", "runs", "current"), { recursive: true });
   fs.mkdirSync(path.join(project, "experiments", "runs", "best"), { recursive: true });
   fs.mkdirSync(path.join(project, "datasets"), { recursive: true });
-  fs.mkdirSync(path.join(project, "zlk_cluster", "results"), { recursive: true });
+  fs.mkdirSync(path.join(project, "simple_cluster", "results"), { recursive: true });
   fs.writeFileSync(path.join(project, "work_dirs", "run_old", "old.ckpt"), "old", "utf8");
   fs.writeFileSync(path.join(project, "work_dirs", "run_best", "best.ckpt"), "best", "utf8");
   fs.writeFileSync(path.join(project, "checkpoint_manifest.json"), JSON.stringify({
@@ -67,12 +67,12 @@ for action, payload in [
 ]:
     outputs[action] = agent.handle_action(str(root), action, payload, payload["opId"], payload["opId"])
 exists = {rel: os.path.exists(root / rel) for rel in [
-  "zlk_cluster/checkpoints/delete_plan.json",
-  "zlk_cluster/checkpoints/retention_report.md",
-  "zlk_cluster/datasets/profile.json",
-  "zlk_cluster/datasets/leakage_report.csv",
-  "zlk_cluster/results/plotting_contract.json",
-  "zlk_cluster/plans/recovered/current.yaml",
+  "simple_cluster/checkpoints/delete_plan.json",
+  "simple_cluster/checkpoints/retention_report.md",
+  "simple_cluster/datasets/profile.json",
+  "simple_cluster/datasets/leakage_report.csv",
+  "simple_cluster/results/plotting_contract.json",
+  "simple_cluster/plans/recovered/current.yaml",
 ]}
 print(json.dumps({"outputs": outputs, "exists": exists}, ensure_ascii=False))
 `, "utf8");
@@ -86,13 +86,13 @@ print(json.dumps({"outputs": outputs, "exists": exists}, ensure_ascii=False))
   assert.equal(result.outputs["plan-checkpoint-retention"].status, "completed");
   assert.equal(result.outputs["inspect-dataset"].status, "failed");
   assert.equal(result.outputs["export-plotting-contract"].status, "completed");
-  assert.match(result.outputs["recover-plan-from-run"].recoveredPlanYamlPath, /zlk_cluster\/plans\/recovered\/current\.yaml/);
+  assert.match(result.outputs["recover-plan-from-run"].recoveredPlanYamlPath, /simple_cluster\/plans\/recovered\/current\.yaml/);
   assert.equal(result.outputs["diagnose-result-anomaly"].status, "failed");
   assert.equal(result.outputs["compare-with-best-config"].status, "failed");
   for (const [file, ok] of Object.entries(result.exists)) assert.equal(ok, true, file);
   for (const key of ["anomalyPath", "configDiffPath"]) {
     const relativePath = result.outputs["diagnose-result-anomaly"][key];
-    assert.match(relativePath, /^zlk_cluster\/results\/anomaly\/[a-f0-9]{16}(?:\.config_diff)?\.json$/);
+    assert.match(relativePath, /^simple_cluster\/results\/anomaly\/[a-f0-9]{16}(?:\.config_diff)?\.json$/);
     assert.equal(fs.existsSync(path.join(project, relativePath)), true, relativePath);
   }
 });

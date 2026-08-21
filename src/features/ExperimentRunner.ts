@@ -5,7 +5,7 @@ import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import { previewTextMetricParse } from "./Results";
 
-export interface ZlkRunOptions {
+export interface SimpleRunOptions {
   name: string;
   seed?: string;
   config?: string;
@@ -17,7 +17,7 @@ export interface ZlkRunOptions {
   command: string[];
 }
 
-export interface ZlkRunResult {
+export interface SimpleRunResult {
   runId: string;
   runDir: string;
   exitCode: number;
@@ -43,7 +43,7 @@ interface ArtifactManifest {
   generatedAt: string;
 }
 
-export function parseZlkRunArgs(argv: string[]): ZlkRunOptions {
+export function parseSimpleRunArgs(argv: string[]): SimpleRunOptions {
   const sep = argv.indexOf("--");
   const head = sep >= 0 ? argv.slice(0, sep) : argv;
   const command = sep >= 0 ? argv.slice(sep + 1) : [];
@@ -51,7 +51,7 @@ export function parseZlkRunArgs(argv: string[]): ZlkRunOptions {
     const index = head.indexOf(name);
     return index >= 0 ? head[index + 1] || fallback : fallback;
   };
-  if (!command.length) throw new Error("zlk-run 缺少 -- 后的真实命令。");
+  if (!command.length) throw new Error("simple-experiment-run 缺少 -- 后的真实命令。");
   return {
     name: opt("--name", "manual"),
     seed: opt("--seed"),
@@ -65,7 +65,7 @@ export function parseZlkRunArgs(argv: string[]): ZlkRunOptions {
   };
 }
 
-export function runRecordedExperiment(options: ZlkRunOptions): ZlkRunResult {
+export function runRecordedExperiment(options: SimpleRunOptions): SimpleRunResult {
   const cwd = path.resolve(options.cwd || process.cwd());
   const runId = buildRunId(options);
   const runDir = path.join(cwd, "experiments", "runs", runId);
@@ -84,13 +84,13 @@ export function runRecordedExperiment(options: ZlkRunOptions): ZlkRunResult {
   return { runId, runDir, exitCode: result.status ?? 1, files: manifest.files.map((item) => item.path), metricsRows };
 }
 
-function buildRunId(options: ZlkRunOptions): string {
+function buildRunId(options: SimpleRunOptions): string {
   const seed = options.seed ? `_seed${safeToken(options.seed)}` : "";
   const digest = createHash("sha1").update(JSON.stringify({ name: options.name, seed: options.seed, config: options.config, command: options.command, at: Date.now() })).digest("hex").slice(0, 8);
   return `${safeToken(options.name || "manual")}${seed}_${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}_${digest}`;
 }
 
-function writeMetricsSummary(runDir: string, options: ZlkRunOptions, stdout: string, stderr: string): number {
+function writeMetricsSummary(runDir: string, options: SimpleRunOptions, stdout: string, stderr: string): number {
   const parsed = previewTextMetricParse([stdout, stderr].join("\n"), "stdout.log");
   if (!parsed.records) return 0;
   const headers = ["experiment_id", "attempt_id", "suite", "method", "dataset", "split", "fold", "seed", "metric", "value", "unit", "higher_is_better", "epoch", "step", "timestamp"];
@@ -115,7 +115,7 @@ function writeMetricsSummary(runDir: string, options: ZlkRunOptions, stdout: str
   return rows.length;
 }
 
-function envSnapshot(options: ZlkRunOptions, commandLine: string, startedAt: string): Record<string, unknown> {
+function envSnapshot(options: SimpleRunOptions, commandLine: string, startedAt: string): Record<string, unknown> {
   return {
     schemaVersion: 1,
     startedAt,
@@ -133,7 +133,7 @@ function envSnapshot(options: ZlkRunOptions, commandLine: string, startedAt: str
   };
 }
 
-function configSnapshot(cwd: string, options: ZlkRunOptions): string {
+function configSnapshot(cwd: string, options: SimpleRunOptions): string {
   if (options.config) {
     const target = path.resolve(cwd, options.config);
     if (fs.existsSync(target) && fs.statSync(target).isFile()) return fs.readFileSync(target, "utf8");
@@ -141,7 +141,7 @@ function configSnapshot(cwd: string, options: ZlkRunOptions): string {
   return [`name: ${JSON.stringify(options.name)}`, `seed: ${JSON.stringify(options.seed || "")}`, `config: ${JSON.stringify(options.config || "")}`].join("\n") + "\n";
 }
 
-function buildArtifactManifest(runDir: string, options: ZlkRunOptions, exitCode: number, metricsRows: number): ArtifactManifest {
+function buildArtifactManifest(runDir: string, options: SimpleRunOptions, exitCode: number, metricsRows: number): ArtifactManifest {
   const files = fs.readdirSync(runDir).filter((name) => fs.statSync(path.join(runDir, name)).isFile()).map((name) => {
     const full = path.join(runDir, name);
     return { path: name, size: fs.statSync(full).size, sha256: createHash("sha256").update(fs.readFileSync(full)).digest("hex") };

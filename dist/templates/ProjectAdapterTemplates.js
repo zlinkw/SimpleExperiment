@@ -45,7 +45,7 @@ exports.projectOnboardingConfigTemplate = projectOnboardingConfigTemplate;
 exports.outputAdapterReadme = outputAdapterReadme;
 // @ts-nocheck
 const Quality_1 = __importStar(require("../features/Quality"));
-function projectAdapterTemplateFiles(projectName = "__ZLK_PROJECT_NAME__") {
+function projectAdapterTemplateFiles(projectName = "__SIMPLE_EXPERIMENT_PROJECT_NAME__") {
     return [
         { relativePath: "result_writer.py", text: outputAdapterTemplate(projectName) },
         { relativePath: "__init__.py", text: outputAdapterInitTemplate() },
@@ -54,7 +54,7 @@ function projectAdapterTemplateFiles(projectName = "__ZLK_PROJECT_NAME__") {
         { relativePath: "factory_hooks.py", text: factoryHooksTemplate(projectName) },
         { relativePath: "run_wrapper.py", text: runWrapperTemplate() },
         { relativePath: "README.md", text: outputAdapterReadme(projectName) },
-        { relativePath: "zlk_project.yaml", text: projectOnboardingConfigTemplate(projectName) },
+        { relativePath: "simple_project.yaml", text: projectOnboardingConfigTemplate(projectName) },
         { relativePath: "claims.md", text: paperClaimsTemplate(projectName) },
         { relativePath: "output_contract_guide.md", text: (0, Quality_1.generateOutputContractGuide)(Quality_1.builtInOutputContracts[0]) },
     ];
@@ -131,10 +131,10 @@ function outputAdapterTemplate(projectName) {
         "LOWER_IS_BETTER_METRICS = {\"loss\", \"log_loss\", \"cross_entropy\", \"ce_loss\", \"asd\", \"hd95\", \"mae\", \"mse\", \"rmse\", \"error\", \"ece\", \"brier\", \"brier_score\", \"fpr\", \"fnr\"}",
         "# 常见别名示例：val_auc、test_acc、best_f1、train_loss、macro_auc 会自动归一到分类指标。",
         "",
-        "def load_zlk_project_context(project_root=None):",
-        "    \"\"\"读取 experiments/zlk_project.yaml 中的轻量结果捕获配置；不依赖 PyYAML。\"\"\"",
+        "def load_simple_project_context(project_root=None):",
+        "    \"\"\"读取 experiments/simple_project.yaml 中的轻量结果捕获配置；不依赖 PyYAML。\"\"\"",
         "    root = Path(project_root or Path.cwd())",
-        "    config = root / \"experiments\" / \"zlk_project.yaml\"",
+        "    config = root / \"experiments\" / \"simple_project.yaml\"",
         "    if not config.exists():",
         "        return {}",
         "    lines = config.read_text(encoding=\"utf-8\", errors=\"ignore\").splitlines()",
@@ -554,7 +554,7 @@ function outputAdapterTemplate(projectName) {
         "        return manifest",
         "",
         "def collect_outputs(output_dir, context=None, stdout_text=\"\", stderr_text=\"\", adapter=\"default\", extra_csv_paths=None):",
-        "    config_context = load_zlk_project_context()",
+        "    config_context = load_simple_project_context()",
         "    context = {**config_context, **dict(context or {})}",
         "    if extra_csv_paths is not None:",
         "        context[\"extra_csv_paths\"] = extra_csv_paths",
@@ -562,13 +562,13 @@ function outputAdapterTemplate(projectName) {
         "",
         "if __name__ == \"__main__\":",
         "    demo = \"AUC: 0.932 accuracy: 89.5% F1=0.88 loss=0.13\"",
-        "    collect_outputs(\"zlk_cluster/demo_output\", {\"experiment_id\": \"demo\", \"suite\": \"demo\", \"dataset\": \"demo\", \"split\": \"test\", \"seed\": 42, \"results_csv\": \"work_dirs/results.csv\"}, demo)",
+        "    collect_outputs(\"simple_cluster/demo_output\", {\"experiment_id\": \"demo\", \"suite\": \"demo\", \"dataset\": \"demo\", \"split\": \"test\", \"seed\": 42, \"results_csv\": \"work_dirs/results.csv\"}, demo)",
         "",
     ].join("\n");
 }
 function outputAdapterInitTemplate() {
     return [
-        "\"\"\"ZLK 实验输出接入包。\"\"\"",
+        "\"\"\"SimpleExperiment 实验输出接入包。\"\"\"",
         "",
         "from .result_writer import DefaultDeepLearningAdapter, collect_outputs, register_adapter",
         "",
@@ -592,7 +592,7 @@ function collectResultsTemplate() {
         "    from result_writer import collect_outputs",
         "",
         "def main():",
-        "    parser = argparse.ArgumentParser(description=\"收集 ZLK 实验输出\")",
+        "    parser = argparse.ArgumentParser(description=\"收集 SimpleExperiment 实验输出\")",
         "    parser.add_argument(\"output_dir\")",
         "    parser.add_argument(\"--experiment-id\", default=\"manual\")",
         "    parser.add_argument(\"--suite\", default=\"manual\")",
@@ -683,7 +683,7 @@ function runWrapperTemplate() {
         "    from result_writer import collect_outputs",
         "",
         "def main():",
-        "    parser = argparse.ArgumentParser(description=\"ZLK 实验运行包装器\")",
+        "    parser = argparse.ArgumentParser(description=\"SimpleExperiment 实验运行包装器\")",
         "    parser.add_argument(\"--output-dir\", required=True)",
         "    parser.add_argument(\"--context-json\", default=\"{}\")",
         "    parser.add_argument(\"command\", nargs=argparse.REMAINDER)",
@@ -748,9 +748,9 @@ function projectOnboardingConfigTemplate(projectName) {
         "  - HD95",
         "  - ASD",
         "adapter:",
-        "  package: experiments.zlk_adapter",
-        "  resultWriter: experiments/zlk_adapter/result_writer.py",
-        "  runWrapper: experiments/zlk_adapter/run_wrapper.py",
+        "  package: experiments.simple_adapter",
+        "  resultWriter: experiments/simple_adapter/result_writer.py",
+        "  runWrapper: experiments/simple_adapter/run_wrapper.py",
         "entrypoints:",
         "  trainCommandTemplate: \"python train.py --config {config} --output_dir {output_dir}\"",
         "  testCommandTemplate: \"python test.py --config {config} --checkpoint {checkpoint} --output_dir {output_dir}\"",
@@ -854,13 +854,13 @@ function projectOnboardingConfigTemplate(projectName) {
 }
 function outputAdapterReadme(projectName) {
     return [
-        "# ZLK 输出接入模板",
+        "# SimpleExperiment 输出接入模板",
         "",
         "本目录由插件自动生成，用于把项目训练或测试输出接入结果解析、质量门禁、统计分析和论文表格流程。",
         "",
-        "标准位置：`experiments/zlk_adapter/`。兼容副本：`zlk_cluster/templates/`。",
+        "标准位置：`experiments/simple_adapter/`。兼容副本：`simple_cluster/templates/`。",
         "",
-        "配套配置：`experiments/zlk_project.yaml`。它记录入口命令、结果文件、控制台解析和工厂模式 hook。",
+        "配套配置：`experiments/simple_project.yaml`。它记录入口命令、结果文件、控制台解析和工厂模式 hook。",
         "",
         "## 推荐接入方式",
         "",

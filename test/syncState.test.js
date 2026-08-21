@@ -53,11 +53,11 @@ test("session and log path tombstone deletes only exact scheduler row", () => {
     plan: "experiments/plans/demo.yaml",
     scheduler_session: "sched-new",
     running_experiments: [
-      { experiment_index: 1, worker_id: "w1", session: "old", log_path: "zlk_cluster/tmp/cluster_scheduler/logs/old.log" },
-      { experiment_index: 1, worker_id: "w1", session: "new", log_path: "zlk_cluster/tmp/cluster_scheduler/logs/new.log" },
+      { experiment_index: 1, worker_id: "w1", session: "old", log_path: "simple_cluster/tmp/cluster_scheduler/logs/old.log" },
+      { experiment_index: 1, worker_id: "w1", session: "new", log_path: "simple_cluster/tmp/cluster_scheduler/logs/new.log" },
     ],
   };
-  const { state: next } = sync.filterSchedulerState(state, [{ experimentIndex: "1", workerId: "w1", schedulerSession: "sched-new", session: "new", logPath: "zlk_cluster/tmp/cluster_scheduler/logs/new.log", deleteMode: "row" }]);
+  const { state: next } = sync.filterSchedulerState(state, [{ experimentIndex: "1", workerId: "w1", schedulerSession: "sched-new", session: "new", logPath: "simple_cluster/tmp/cluster_scheduler/logs/new.log", deleteMode: "row" }]);
   assert.deepEqual(next.running_experiments.map((row) => row.session), ["old"]);
 });
 
@@ -93,7 +93,7 @@ test("cleanup pending tombstone only affects the matching scheduler session", ()
 test("scheduler log deletion only clears log fields", () => {
   const state = {
     plan: "demo",
-    completed_experiments: [{ experiment_index: 3, worker_id: "w1", hub_console_log: "zlk_cluster/console_logs/a.log", console_tail: "tail", sync_error: "x" }],
+    completed_experiments: [{ experiment_index: 3, worker_id: "w1", hub_console_log: "simple_cluster/console_logs/a.log", console_tail: "tail", sync_error: "x" }],
   };
   const { state: next } = sync.filterSchedulerState(state, [{ experimentIndex: "3", workerId: "w1", deleteMode: "log_fields" }]);
   assert.equal(next.completed_experiments.length, 1);
@@ -106,13 +106,13 @@ test("path matching covers relative, hub absolute, worker absolute, and legacy a
   const candidates = sync.normalizedPathSet(["/hub/MiniMultiModal/work_dirs/4_case"]);
   assert.equal(sync.pathMatchesAny("work_dirs/4_case", candidates), true);
   assert.equal(sync.pathMatchesAny("/worker/MiniMultiModal/work_dirs/4_case/checkpoint.pth", candidates), true);
-  assert.equal(sync.pathMatchesAny("zlk_cluster/archive/work_dirs/4_case", candidates), false);
+  assert.equal(sync.pathMatchesAny("simple_cluster/archive/work_dirs/4_case", candidates), false);
   assert.equal(sync.pathMatchesAny("experiments/results/demo.csv", sync.normalizedPathSet(["/hub/MiniMultiModal/experiments/results/demo.csv"])), true);
 });
 
 test("managed artifact path cleanup filters polluted stdout lines", () => {
   assert.deepEqual(sync.cleanManagedArtifactPaths([
-    "[zlk] worker_conda_env=zlk python=/env/bin/python",
+    "[simple] worker_conda_env=simple python=/env/bin/python",
     "work_dirs/multirun/demo/1_case",
     "/srv/project/work_dirs/multirun/demo/2_case",
   ]), [

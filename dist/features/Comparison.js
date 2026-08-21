@@ -18,10 +18,10 @@ exports.exportComparisonReport = exportComparisonReport;
 exports.manualResultToRecord = manualResultToRecord;
 const crypto_1 = require("crypto");
 const PlanBuilder_1 = require("./PlanBuilder");
-exports.COMPARISON_REGISTRY_PATH = "zlk_cluster/comparisons/comparison_registry.json";
-exports.COMPARISON_STUDY_DIR = "zlk_cluster/comparisons/studies";
-exports.COMPARISON_PROTOCOL_DIR = "zlk_cluster/comparisons/protocols";
-exports.COMPARISON_EXPORT_DIR = "zlk_cluster/comparisons/exports";
+exports.COMPARISON_REGISTRY_PATH = "simple_cluster/comparisons/comparison_registry.json";
+exports.COMPARISON_STUDY_DIR = "simple_cluster/comparisons/studies";
+exports.COMPARISON_PROTOCOL_DIR = "simple_cluster/comparisons/protocols";
+exports.COMPARISON_EXPORT_DIR = "simple_cluster/comparisons/exports";
 exports.builtInComparisonProtocols = [
     protocol("medical_segmentation_fair", "Medical segmentation fair comparison", "segmentation", ["DSC", "ASD", "HD95"]),
     protocol("classification_fair", "Classification fair comparison", "classification", ["accuracy", "AUC", "F1"]),
@@ -162,7 +162,7 @@ function generateComparisonPlans(study, options, existing = []) {
     const groups = groupGeneratedExperiments(dryRun, options);
     const plans = groups.map(([name, experiments]) => {
         const yaml = renderComparisonPlanYaml(study, name, experiments);
-        return (0, PlanBuilder_1.importLegacyPlanYamlToRegistry)(`zlk_cluster/plans/generated/${name}.yaml`, yaml);
+        return (0, PlanBuilder_1.importLegacyPlanYamlToRegistry)(`simple_cluster/plans/generated/${name}.yaml`, yaml);
     });
     return { dryRun, plans, protocolIssues: [] };
 }

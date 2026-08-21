@@ -32,7 +32,7 @@ test("chunk upload sends init binary chunks and complete", async () => {
     });
   });
   await listen(server);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "zlk-upload-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-upload-"));
   const local = path.join(dir, "a.json");
   await fs.writeFile(local, "abcdef");
   try {

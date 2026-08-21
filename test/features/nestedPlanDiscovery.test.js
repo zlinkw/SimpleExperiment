@@ -22,7 +22,7 @@ test("agent discover_plan_files walks nested plan subfolders", () => {
     assert.match(source, /discover_plan_files\(root, "experiments\/plans"/);
   }
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-nested-plans-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-nested-plans-"));
   write(path.join(root, "experiments", "plans", "top.yaml"), "suite: top\nbase_config: configs/base.yaml\n");
   write(path.join(root, "experiments", "plans", "suite_a", "nested.yaml"), "suite: nested\nbase_config: configs/base.yaml\n");
   write(path.join(root, "experiments", "plans", "suite_a", "deep", "leaf.yaml"), "suite: leaf\nbase_config: configs/base.yaml\n");

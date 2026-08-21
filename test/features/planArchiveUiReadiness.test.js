@@ -86,8 +86,8 @@ test("plan archive UI mirrors result and active-task backend gates", () => {
   assert.equal(planArchiveUiReadiness(pending, planFile).ready, false);
   assert.match(planArchiveUiReadiness(pending, planFile).reason, /至少归档一条记录/);
   const ready = { resultsSummary: {
-    previewCsvPath: "zlk_cluster/results/by_plan/demo/results_preview_all.csv",
-    effectiveResultsCsvPath: "zlk_cluster/results/by_plan/demo/results_effective_archived.csv",
+    previewCsvPath: "simple_cluster/results/by_plan/demo/results_preview_all.csv",
+    effectiveResultsCsvPath: "simple_cluster/results/by_plan/demo/results_effective_archived.csv",
     results: [
       { planFile, finalEvidenceState: "archived" },
       { planFile, finalEvidenceState: "excluded" },

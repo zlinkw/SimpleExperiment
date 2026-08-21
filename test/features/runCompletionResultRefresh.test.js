@@ -34,7 +34,7 @@ test("scheduler terminal parses completed, failed, and cancelled plans without c
       `${name}-run,${name},ours,demo,test,0,AUC,0.9`,
     ].join("\n") + "\n");
   }
-  write(path.join(root, "experiments", "zlk_project.yaml"), [
+  write(path.join(root, "experiments", "simple_project.yaml"), [
     "project: multi-plan",
     "taskType: classification",
     "primaryMetric: AUC",

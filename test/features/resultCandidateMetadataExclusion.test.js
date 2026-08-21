@@ -77,7 +77,7 @@ test("Hub Agent output gate and adapter policy reject metadata-only candidates",
   const root = path.join(tmp, "project");
   fs.mkdirSync(path.join(root, "experiments", "plans"), { recursive: true });
   fs.writeFileSync(path.join(root, "experiments", "plans", "metadata.yaml"), metadataPlan(), "utf8");
-  fs.writeFileSync(path.join(root, "experiments", "zlk_project.yaml"), [
+  fs.writeFileSync(path.join(root, "experiments", "simple_project.yaml"), [
     "outputs:",
     "  candidateJson:",
     "    - work_dirs/metadata_only/status.json",
@@ -102,7 +102,7 @@ test("Hub Agent output gate and adapter policy reject metadata-only candidates",
     "  'policy': agent.policy_explicit_result_candidates(policy),",
     "  'status': agent.parseable_result_candidate('work_dirs/metadata_only/status.json'),",
     "  'manifest': agent.parseable_result_candidate('work_dirs/metadata_only/artifact_manifest.json'),",
-    "  'internal': agent.parseable_result_candidate('zlk_cluster/results/by_plan/metadata/statistics.json'),",
+    "  'internal': agent.parseable_result_candidate('simple_cluster/results/by_plan/metadata/statistics.json'),",
     "}))",
   ].join("\n"), "utf8");
   const result = spawnSync("python", [script], { encoding: "utf8" });

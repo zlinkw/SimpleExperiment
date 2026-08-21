@@ -31,7 +31,7 @@ test("extension dist has no direct remote command fallback", () => {
 test("package UI does not expose direct fallback commands", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   const commandIds = pkg.contributes.commands.map((item) => item.command);
-  for (const forbidden of ["zlkCluster.scanGpu", "zlkCluster.deployRuntime", "zlkCluster.verifyRuntime"]) {
+  for (const forbidden of ["simpleExperiment.scanGpu", "simpleExperiment.deployRuntime", "simpleExperiment.verifyRuntime"]) {
     assert.equal(commandIds.includes(forbidden), false, forbidden);
   }
   assert.equal(commandIds.filter((id) => /Tunnel/i.test(id)).every((id) => !/configure.*RealtimeTunnel/i.test(id) || /Xshell/i.test(id)), true);
@@ -43,6 +43,6 @@ test("extension command registration exposes only Xshell tunnel command ids", ()
   const registered = Array.from(text.matchAll(/(?:registerCommand|hostCommand)\("([^"]+)"/g)).map((match) => match[1]);
   assert.equal(registered.filter((id) => /Tunnel/i.test(id)).every((id) => !/configure.*RealtimeTunnel/i.test(id) || /Xshell/i.test(id)), true);
   assert.equal(registered.some((id) => /LegacySsh|legacySsh/i.test(id)), false);
-  assert.equal(registered.includes("zlkCluster.configureXshellSavedSessions"), true);
-  assert.equal(registered.includes("zlkCluster.startAllXshellRealtimeTunnels"), true);
+  assert.equal(registered.includes("simpleExperiment.configureXshellSavedSessions"), true);
+  assert.equal(registered.includes("simpleExperiment.startAllXshellRealtimeTunnels"), true);
 });

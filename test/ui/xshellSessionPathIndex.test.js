@@ -47,7 +47,7 @@ test("session lookup resolves case-insensitively across separator styles", () =>
   const sandbox = loadSessionIndex([hub, worker]);
 
   assert.equal(sandbox.forPath("C:/Users/ZLK/Documents/NetSarang/Xshell/Sessions/hub.xsh"), hub);
-  assert.equal(sandbox.forPath("c:\\users\\zlk\\documents\\netsarang\\xshell\\sessions\\HUB.xsh"), hub);
+  assert.equal(sandbox.forPath("c:\\users\\ZLK\\documents\\netsarang\\xshell\\sessions\\HUB.xsh"), hub);
   assert.equal(sandbox.forPath("C:\\Users\\ZLK\\Documents\\NetSarang\\Xshell\\Sessions\\worker-a.xsh"), worker);
   assert.equal(sandbox.forPath("C:/missing.xsh"), undefined);
 });

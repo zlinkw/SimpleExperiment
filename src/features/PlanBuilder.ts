@@ -233,9 +233,9 @@ export interface PlanResultCoverage {
 
 import { createHash } from "crypto";
 
-export const PLAN_REGISTRY_PATH = "zlk_cluster/plans/plan_registry.json";
-export const PLAN_REGISTRY_LOCAL_PATH = "zlk_cluster/plans/plan_registry.local.json";
-export const PLAN_EXPORT_DIR = "zlk_cluster/plans/exports";
+export const PLAN_REGISTRY_PATH = "simple_cluster/plans/plan_registry.json";
+export const PLAN_REGISTRY_LOCAL_PATH = "simple_cluster/plans/plan_registry.local.json";
+export const PLAN_EXPORT_DIR = "simple_cluster/plans/exports";
 export const builtInPlanSchemas: PlanSchema[] = [
     {
         schemaVersion: 1,
@@ -615,10 +615,10 @@ const planResultTopDirs = new Set([
 const planResultPrefixPairs = new Set([
     "experiments/results",
     "experiments/runs",
-    "zlk_cluster/results",
-    "zlk_cluster/logs",
-    "zlk_cluster/tmux_logs",
-    "zlk_cluster/archive",
+    "simple_cluster/results",
+    "simple_cluster/logs",
+    "simple_cluster/tmux_logs",
+    "simple_cluster/archive",
 ]);
 const planResultExactPairs = new Set(["experiments/results.csv"]);
 export function parsePlanOutputEvidence(yaml, commands = {}) {
@@ -1290,7 +1290,7 @@ function isPlanParseableResultCandidate(value) {
 function isNonResultMetadataPath(value) {
     const text = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
     const base = text.split("/").pop() || "";
-    return /^zlk_cluster\/results\//i.test(text)
+    return /^simple_cluster\/results\//i.test(text)
         || /^(?:jobs\.csv|artifact_manifest\.json|checkpoint_manifest\.json|manifest\.json|metadata\.json|status\.json|state\.json|progress\.json|job\.json|jobs\.json|env_snapshot\.json|config_snapshot\.(?:json|ya?ml))$/i.test(base)
         || /(?:_snapshot|_manifest|_status|_state|_progress)\.json$/i.test(base);
 }
@@ -1649,7 +1649,7 @@ function template(id, name, schemaId, relativePath) {
             { key: "seed", label: "Seed", type: "string", mode: "grid", values: ["1", "2", "3"] },
         ],
         files: [{
-                relativePath: `zlk_cluster/plans/generated/${relativePath}`,
+                relativePath: `simple_cluster/plans/generated/${relativePath}`,
                 contentTemplate: [
                     "suite: {{suite}}",
                     "mode: train_test",

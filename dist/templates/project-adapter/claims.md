@@ -5,8 +5,8 @@
 
 ## 模板
 
-- __ZLK_PROJECT_NAME__ 的主指标达到预期，证据 experiments/results/metrics.csv
-- __ZLK_PROJECT_NAME__ 的消融实验结论，证据 experiments/runs/ablation_example
+- __SIMPLE_EXPERIMENT_PROJECT_NAME__ 的主指标达到预期，证据 experiments/results/metrics.csv
+- __SIMPLE_EXPERIMENT_PROJECT_NAME__ 的消融实验结论，证据 experiments/runs/ablation_example
 - 外部数据集泛化结论，needs experiment
 
 ## 状态规则

@@ -14,7 +14,7 @@ test("hub agent runtime performs real result actions", (t) => {
     t.skip("python unavailable");
     return;
   }
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-agent-results-"));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-agent-results-"));
   fs.mkdirSync(path.join(project, "experiments", "results"), { recursive: true });
   fs.writeFileSync(
     path.join(project, "experiments", "results", "metrics.csv"),
@@ -59,19 +59,19 @@ print(json.dumps(out, ensure_ascii=False))
   const result = JSON.parse(run.stdout.trim());
   assert.equal(result["parse-results"].status, "completed");
   assert.equal(result["parse-results"].resultCount, 1);
-  const summary = JSON.parse(fs.readFileSync(path.join(project, "zlk_cluster", "results", "summary.json"), "utf8"));
+  const summary = JSON.parse(fs.readFileSync(path.join(project, "simple_cluster", "results", "summary.json"), "utf8"));
   assert.equal(summary.results[0].experimentId, "e1");
   assert.equal(result["duplicate-pairs"][0].pairedN, 0);
   assert.deepEqual(result["duplicate-pairs"][0].duplicateKeys, ["d|test||1|"]);
   assert.equal(result["archive-artifacts"].status, "completed");
   assert.equal(result["run-quality-gate"].qualityGate.status, "passed");
   assert.equal(result["run-statistics"].statistics.rows.length, 1);
-  assert.match(result["export-paper-table"].paperTablePath, /paper\/tables\/zlk_results_table\.md/);
-  assert.match(result["create-debug-bundle"].debugBundlePath, /zlk_cluster\/debug\/debug_bundle_/);
-  assert.equal(fs.existsSync(path.join(project, "zlk_cluster", "results", "summary.json")), true);
+  assert.match(result["export-paper-table"].paperTablePath, /paper\/tables\/simple_results_table\.md/);
+  assert.match(result["create-debug-bundle"].debugBundlePath, /simple_cluster\/debug\/debug_bundle_/);
+  assert.equal(fs.existsSync(path.join(project, "simple_cluster", "results", "summary.json")), true);
   assert.match(
-    fs.readFileSync(path.join(project, "zlk_cluster", "results", "results_effective_archived.csv"), "utf8"),
+    fs.readFileSync(path.join(project, "simple_cluster", "results", "results_effective_archived.csv"), "utf8"),
     /,archived,True/,
   );
-  assert.equal(fs.existsSync(path.join(project, "paper", "tables", "zlk_results_table.md")), true);
+  assert.equal(fs.existsSync(path.join(project, "paper", "tables", "simple_results_table.md")), true);
 });

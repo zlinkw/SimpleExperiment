@@ -12,7 +12,7 @@ test("server worker port adapter keeps project rule editors and openPlan", () =>
   assert.match(panel, /当前会话文件未解析到 FwdReq，才需要手动填写。/);
   assert.match(panel, /function projectRuleInput\(key, label, value, title, cls\)/);
   assert.match(panel, /function projectRuleTextarea\(key, label, value, title, cls\)/);
-  assert.match(panel, /data-command="openPlan" data-file="experiments\/zlk_project\.yaml"/);
+  assert.match(panel, /data-command="openPlan" data-file="experiments\/simple_project\.yaml"/);
   assert.match(panel, /\.empty-state \{/);
   assert.match(panel, /function helpBadge\(help\)/);
 });

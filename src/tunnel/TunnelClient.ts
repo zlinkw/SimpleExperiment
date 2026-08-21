@@ -268,7 +268,7 @@ export class HttpTunnelClient implements TunnelClient {
   private headers(hasBody: boolean): Record<string, string> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (hasBody) headers["Content-Type"] = "application/json";
-    if (this.endpoint.token) headers["X-ZLK-Agent-Token"] = this.endpoint.token;
+    if (this.endpoint.token) headers["X-Simple-Agent-Token"] = this.endpoint.token;
     return headers;
   }
 }

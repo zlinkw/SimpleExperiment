@@ -25,20 +25,20 @@ export function renderPanelHtml(): string {
       --gpu-progress-busy: #037CD5;
       --gpu-progress-hot: #d29922;
       --gpu-progress-danger: #f85149;
-      --zlk-font-xs: 10px;
-      --zlk-font-sm: 11px;
-      --zlk-font-md: 12px;
-      --zlk-font-lg: 13px;
-      --zlk-font-status: 13px;
-      --zlk-font-section: 15px;
-      --zlk-font-title: 18px;
+      --simple-font-xs: 10px;
+      --simple-font-sm: 11px;
+      --simple-font-md: 12px;
+      --simple-font-lg: 13px;
+      --simple-font-status: 13px;
+      --simple-font-section: 15px;
+      --simple-font-title: 18px;
       --radius: 8px;
       --radius-sm: 6px;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
-    body { margin: 0; padding: 0; overflow: hidden; font-family: var(--vscode-font-family); font-size: var(--zlk-font-md); line-height: 1.45; color: var(--text); background: #EEF2F7; }
-    h2 { margin: 0 0 12px; font-size: var(--zlk-font-section); font-weight: 650; }
+    body { margin: 0; padding: 0; overflow: hidden; font-family: var(--vscode-font-family); font-size: var(--simple-font-md); line-height: 1.45; color: var(--text); background: #EEF2F7; }
+    h2 { margin: 0 0 12px; font-size: var(--simple-font-section); font-weight: 650; }
     h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; }
     input, select, textarea { min-height: 28px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--border)); border-radius: var(--radius-sm); padding: 4px 7px; }
     textarea { width: 100%; min-height: 180px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.45; resize: vertical; }
@@ -58,8 +58,8 @@ export function renderPanelHtml(): string {
     button.secondary { color: var(--vscode-button-secondaryForeground); background: transparent; border-color: var(--border); }
     button:disabled { opacity: .45; cursor: not-allowed; }
     button.is-loading { opacity: .72; cursor: wait; }
-    .loading-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 999px; display: inline-block; flex: 0 0 auto; animation: zlk-spin .75s linear infinite; }
-    @keyframes zlk-spin { to { transform: rotate(360deg); } }
+    .loading-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 999px; display: inline-block; flex: 0 0 auto; animation: simple-spin .75s linear infinite; }
+    @keyframes simple-spin { to { transform: rotate(360deg); } }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 4px; max-height: 240px; overflow: auto; }
     .cardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
     .gpuServerStack { display: grid; grid-template-columns: 1fr; gap: 10px; }
@@ -500,8 +500,8 @@ export function renderPanelHtml(): string {
     .operationStatusCard.cancelled { border-left-color: #64748B; }
     .operationStatusCard.failed { border-left-color: #DC2626; background: #FEF2F2; color: #0F172A; }
     .operationStatusCard.accepted { border-left-color: #D97706; background: #FFFBEB; color: #0F172A; }
-    .operationStatusCard span { color: var(--muted); font-size: var(--zlk-font-sm); }
-    .operationStatusCard b { font-size: var(--zlk-font-status); font-weight: 850; font-variant-numeric: tabular-nums; }
+    .operationStatusCard span { color: var(--muted); font-size: var(--simple-font-sm); }
+    .operationStatusCard b { font-size: var(--simple-font-status); font-weight: 850; font-variant-numeric: tabular-nums; }
     .tree-inspector-facts { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 4px; }
     .tree-inspector-fact { display: grid; gap: 2px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-input-background); }
     .tree-inspector-fact span { color: var(--muted); font-size: 10px; }
@@ -523,9 +523,9 @@ export function renderPanelHtml(): string {
     .clusterRuntimeOverview { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-left: 4px solid #CBD5E1; border-radius: 10px; background: rgba(255,255,255,.90); color: #0F172A; }
     .runtimeOverviewHead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
     .runtimeOverviewTitle { display: block; min-width: 0; }
-    .runtimeOverviewTitle b { color: #111827; font-size: var(--zlk-font-lg); font-weight: 850; }
+    .runtimeOverviewTitle b { color: #111827; font-size: var(--simple-font-lg); font-weight: 850; }
     .runtimeOverviewChips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; min-width: 0; }
-    .runtimeOverviewChip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid #CBD5E1; border-radius: 999px; background: #F8FAFC; color: #475569; font-size: var(--zlk-font-sm); font-weight: 750; overflow-wrap: anywhere; }
+    .runtimeOverviewChip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid #CBD5E1; border-radius: 999px; background: #F8FAFC; color: #475569; font-size: var(--simple-font-sm); font-weight: 750; overflow-wrap: anywhere; }
     .runtimeOverviewChip.good { border-color: #BBF7D0; background: #F0FDF4; color: #15803D; }
     .runtimeOverviewChip.warn { border-color: #FDE68A; background: #FFFBEB; color: #B45309; }
     .runtimeOverviewChip.error { border-color: #FCA5A5; background: #FEF2F2; color: #DC2626; }
@@ -554,16 +554,16 @@ export function renderPanelHtml(): string {
     .overviewStatusCard.mine { border-left-color: #7C3AED; background: #F5F3FF; border-color: #C4B5FD; }
     .overviewCardHead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(4.5em, auto) auto; gap: 6px; align-items: center; min-width: 0; }
     .overviewCardTitle { display: grid; gap: 0; min-width: 0; }
-    .overviewCardTitle b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #111827; font-size: var(--zlk-font-md); font-weight: 800; }
-    .overviewCardValue { max-width: none; min-width: 0; overflow-wrap: anywhere; text-align: right; color: #0F172A; font-size: var(--zlk-font-status); font-weight: 850; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: normal; }
+    .overviewCardTitle b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #111827; font-size: var(--simple-font-md); font-weight: 800; }
+    .overviewCardValue { max-width: none; min-width: 0; overflow-wrap: anywhere; text-align: right; color: #0F172A; font-size: var(--simple-font-status); font-weight: 850; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: normal; }
     .overviewStatusCard.good .overviewCardValue { color: #15803D; }
     .overviewStatusCard.warn .overviewCardValue { color: #B45309; }
     .overviewStatusCard.error .overviewCardValue { color: #DC2626; }
     .overviewStatusCard.mine .overviewCardValue { color: #6D28D9; }
     .overviewMiniGrid { display: flex; flex-wrap: wrap; gap: 4px; }
     .overviewMini { display: inline-grid; grid-template-columns: auto auto; gap: 4px; min-width: 0; max-width: 100%; padding: 3px 6px; border: 1px solid #E2E8F0; border-radius: 999px; background: #FFFFFF; align-items: baseline; }
-    .overviewMini span { color: #64748B; font-size: var(--zlk-font-sm); }
-    .overviewMini b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0F172A; font-size: var(--zlk-font-md); font-weight: 800; }
+    .overviewMini span { color: #64748B; font-size: var(--simple-font-sm); }
+    .overviewMini b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0F172A; font-size: var(--simple-font-md); font-weight: 800; }
     .statusInfoPopover { position: relative; justify-self: end; align-self: center; }
     .statusInfoPopover summary { list-style: none; cursor: pointer; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #CBD5E1; border-radius: 999px; background: #F8FAFC; color: #475569; font-size: 11px; font-weight: 850; user-select: none; }
     .statusInfoPopover summary::-webkit-details-marker { display: none; }
@@ -902,8 +902,8 @@ export function renderPanelHtml(): string {
     .serverObjectWorkbench { display: grid; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--card-bg) 92%, var(--vscode-input-background) 8%); }
     .serverObjectSummary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
     .serverObjectSummaryItem { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-input-background); }
-    .serverObjectSummaryItem b { color: var(--vscode-foreground); font-size: var(--zlk-font-status); line-height: 1.2; }
-    .serverObjectSummaryItem span { color: var(--vscode-descriptionForeground); font-size: var(--zlk-font-sm); }
+    .serverObjectSummaryItem b { color: var(--vscode-foreground); font-size: var(--simple-font-status); line-height: 1.2; }
+    .serverObjectSummaryItem span { color: var(--vscode-descriptionForeground); font-size: var(--simple-font-sm); }
     .serverObjectGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
     .serverObjectCard { position: relative; display: grid; gap: 8px; min-width: 0; padding: 10px 11px 10px 14px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: #FAFBFC; color: #0F172A; }
     .serverObjectCard.hub { border-left-color: #CBD5E1; }
@@ -968,8 +968,8 @@ export function renderPanelHtml(): string {
     .schedulerGlossaryItem b { color: var(--vscode-foreground); font-size: 12px; }
     .schedulerGlossaryItem span { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.4; }
     .field { display: grid; gap: 3px; min-width: 0; }
-    .configBoundsHint { margin-left: 6px; color: var(--muted); font-size: var(--zlk-font-xs); font-weight: 500; }
-    .configBoundsError { color: var(--danger); font-size: var(--zlk-font-sm); overflow-wrap: anywhere; }
+    .configBoundsHint { margin-left: 6px; color: var(--muted); font-size: var(--simple-font-xs); font-weight: 500; }
+    .configBoundsError { color: var(--danger); font-size: var(--simple-font-sm); overflow-wrap: anywhere; }
     .field.is-invalid > input { border-color: var(--danger); }
     .field.wide { grid-column: 1 / -1; }
     .field label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
@@ -4400,7 +4400,7 @@ export function renderPanelHtml(): string {
         bootstrapProject: "识别当前项目；缺少计划时生成 Plan 模板，输出门禁缺失时生成接入模板，已有配置不会重复写入",
         generatePlanGuide: "生成 Plan 模板",
         generateOutputAdapter: "生成输出接入模板",
-        saveProjectAdapterRules: "保存 experiments/zlk_project.yaml",
+        saveProjectAdapterRules: "保存 experiments/simple_project.yaml",
         validatePlan: "校验计划",
         dryRunPlan: "预演计划",
         runPlan: "校验并提交运行",
@@ -5290,7 +5290,7 @@ export function renderPanelHtml(): string {
         treeObjectItem("sync", "首次上传到 Hub", "入口", "", "通过 SimpleSFTP 上传轻量项目代码到 Hub 项目父目录下自动追加项目名的目录。", "sync-upload-hub", "", "uploadProjectToHub SFTP Hub fingerprint"),
         treeObjectItem("sync", "首次上传到 Worker", "入口", "", "通过 SimpleSFTP 上传轻量项目代码到一个或多个 Worker。", "sync-upload-workers", "", "uploadProjectToWorkers SFTP Worker"),
         treeObjectItem("sync", "分发代码到所有 Worker", "入口", "", "把当前项目轻量代码包同步到所有启用 Worker。", "sync-distribute-workers", "", "distributeCodeToWorkers 所有 Worker"),
-        treeObjectItem("sync", "部署最新版 Agent", "runtime", "", "上传 VSIX 内置 cluster_agent.py 和 cluster_scheduler.py 到 Hub/Worker 的 zlk_agent runtime。", "sync-deploy-agent", "", "deployLatestAgent runtime agent_version_mismatch"),
+        treeObjectItem("sync", "部署最新版 Agent", "runtime", "", "上传 VSIX 内置 cluster_agent.py 和 cluster_scheduler.py 到 Hub/Worker 的 simple_agent runtime。", "sync-deploy-agent", "", "deployLatestAgent runtime agent_version_mismatch"),
         treeObjectItem("sync", "配置 SFTP 忽略", "入口", "", "配置代码同步忽略规则，避免上传权重、数据集、checkpoint 和大产物。", "sync-sftp-ignore", "", "configureSftpIgnores ignore checkpoint weights datasets")
       ];
     }
@@ -6579,7 +6579,7 @@ export function renderPanelHtml(): string {
       if (!root) return "请填写项目父目录";
       const segments = root.split("/").filter(Boolean);
       const lowerSegments = segments.map((item) => item.toLowerCase());
-      if (lowerSegments.includes("zlk_agent")) return "不要填写 zlk_agent；请填写它的父目录";
+      if (lowerSegments.includes("simple_agent")) return "不要填写 simple_agent；请填写它的父目录";
       return "";
     }
 
@@ -6608,7 +6608,7 @@ export function renderPanelHtml(): string {
       const issue = remoteDestinationRootIssue(root, projectName);
       const warning = remoteDestinationRootWarning(root, projectName);
       const codePath = root && projectName ? root + "/" + projectName : root ? "打开本地项目后显示" : "保存项目父目录后显示";
-      const runtimePath = root ? root + "/zlk_agent/zlk_cluster/runtime" : "保存项目父目录后显示";
+      const runtimePath = root ? root + "/simple_agent/simple_cluster/runtime" : "保存项目父目录后显示";
       const code = preview.querySelector('[data-destination-kind="code"]');
       const runtime = preview.querySelector('[data-destination-kind="runtime"]');
       const status = preview.querySelector("[data-destination-status]");
@@ -6624,7 +6624,7 @@ export function renderPanelHtml(): string {
       const item = agentState && typeof agentState === "object" ? agentState : {};
       const codePath = meaningfulValue(item.workDir);
       const installDir = meaningfulValue(item.installDir).replace(/\\/+$/, "");
-      const runtimePath = installDir ? installDir + "/zlk_cluster/runtime" : "";
+      const runtimePath = installDir ? installDir + "/simple_cluster/runtime" : "";
       const projectName = meaningfulValue(item.projectName);
       const hasRoot = Boolean(meaningfulValue(item.actualWorkRoot));
       const codeMissing = hasRoot && !projectName ? "打开本地项目后显示" : "保存项目父目录后显示";
@@ -6784,7 +6784,7 @@ export function renderPanelHtml(): string {
       });
       const pathConfirmationState = state.remotePathConfirmations || {};
       const pathConfirmationCount = Math.max(0, Number(pathConfirmationState.count || 0));
-      const pathConfirmationStateFile = String(pathConfirmationState.stateFile || "zlk_cluster/ui/remote_path_confirmations.json");
+      const pathConfirmationStateFile = String(pathConfirmationState.stateFile || "simple_cluster/ui/remote_path_confirmations.json");
       const pathConfirmationTools = '<div class="settingsLayoutTools" data-anchor="settings-path-confirmations" title="' + escAttr("当前项目状态文件：" + pathConfirmationStateFile) + '">' +
         '<b>上传路径提醒</b>' +
         '<span class="muted">' + (pathConfirmationCount
@@ -6794,7 +6794,7 @@ export function renderPanelHtml(): string {
       '</div>';
       const pptPathConfirmationState = state.pptPathConfirmations || {};
       const pptPathConfirmationCount = Math.max(0, Number(pptPathConfirmationState.count || 0));
-      const pptPathConfirmationStateFile = String(pptPathConfirmationState.stateFile || "zlk_cluster/ui/ppt_path_confirmations.json");
+      const pptPathConfirmationStateFile = String(pptPathConfirmationState.stateFile || "simple_cluster/ui/ppt_path_confirmations.json");
       const pptPathConfirmationTools = '<div class="settingsLayoutTools" data-anchor="settings-ppt-path-confirmations" title="' + escAttr("当前项目状态文件：" + pptPathConfirmationStateFile) + '">' +
         '<b>PPT 路径提醒</b>' +
         '<span class="muted">' + (pptPathConfirmationCount
@@ -7338,7 +7338,7 @@ export function renderPanelHtml(): string {
       const hub = agent.hub || {};
       const workers = agent.workers || [];
       const visibleWorkers = workers.slice(0, DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT);
-      const cards = [agentSessionCard("Hub", "hub", hub, "zlk-hub-agent")].concat(visibleWorkers.map((worker) => agentSessionCard("Worker", worker.displayName || worker.id, worker, "-")));
+      const cards = [agentSessionCard("Hub", "hub", hub, "simple-hub-agent")].concat(visibleWorkers.map((worker) => agentSessionCard("Worker", worker.displayName || worker.id, worker, "-")));
       setHtmlIfChanged("agentSessions", '<div class="toolbar">' +
         '<button data-command="prepareAgents">准备 Agent 并启动</button>' +
         '<button data-command="writeAgentCommands" class="secondary">写入自动启动命令</button>' +
@@ -9346,7 +9346,7 @@ export function renderPanelHtml(): string {
       const configAvailable = projectConfigAvailable(firstConfig, project, meta);
       const trainEntry = project.trainEntry || firstProjectPath((meta.entries || {}).trainEntries);
       const testEntry = project.testEntry || firstProjectPath((meta.entries || {}).testEntries);
-      const adapterConfig = project.adapterConfig || "experiments/zlk_project.yaml";
+      const adapterConfig = project.adapterConfig || "experiments/simple_project.yaml";
       const outputGate = meta.outputGate || projectOutputGateDiagnostics(project, meta, meta.selectedPlan);
       const resultLocation = projectResultLocation(project, meta, meta.selectedPlan);
       const uploadDestination = projectUploadDestinationSummary(state);
@@ -9361,7 +9361,7 @@ export function renderPanelHtml(): string {
           ? "当前 Plan 已声明输出，无需额外模板"
           : outputGate.ok && resultLocation.source
             ? "已识别" + resultLocation.source + "，可按需保存接入模板"
-            : "未生成 experiments/zlk_project.yaml";
+            : "未生成 experiments/simple_project.yaml";
       const serverReadiness = meta.serverReadiness || serverSetupReadiness(state);
       const workerReadiness = meta.executionWorkerReadiness || executionWorkerReadiness(state);
       const endpointReadiness = meta.endpointReadiness || projectEndpointReadiness(state);
@@ -9807,7 +9807,7 @@ export function renderPanelHtml(): string {
       const mode = item.debugMode ?? item.debug_mode;
       if (mode === true || String(mode || "").trim().toLowerCase() === "true") return true;
       const output = String(item.debugOutputDir || item.debug_output_dir || "").replace(/\\\\/g, "/").replace(new RegExp("^/+", "g"), "");
-      return output.startsWith("zlk_cluster/debug_runs/");
+      return output.startsWith("simple_cluster/debug_runs/");
     }
 
     function planPreflightSummary(state, planFile) {
@@ -10367,7 +10367,7 @@ export function renderPanelHtml(): string {
       const rows = [
         { label: "计划强契约", ok: contractReady, fix: planContractFixText(plan) },
         { label: "配置文件", ok: configReady, fix: "在工作区创建或在当前 Plan 中改为可用配置。" },
-        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: adapterReady ? "打开 experiments/zlk_project.yaml 补充候选结果规则；或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获。" : "点击“生成输出接入模板”，生成 experiments/zlk_project.yaml；或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获。" },
+        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则；或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获。" : "点击“生成输出接入模板”，生成 experiments/simple_project.yaml；或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获。" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置。" },
         { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "在候选 CSV/JSON/控制台日志/文本 summary 中至少填写一类，或配置 metricRegex。" },
         { label: "标准结果契约", ok: planContractCount > 0 || ruleCandidateCount > 0 || (projectContractCount > 0 && planReady), fix: "推荐让测试代码输出 metrics_summary.csv，列为 experiment_id,suite,method,dataset,split,seed,metric,value。" },
@@ -10539,11 +10539,11 @@ export function renderPanelHtml(): string {
       const open = detailIsOpen("project-rule-editor", false);
       const summary = renderAdapterRuleSummary(Object.assign({}, rules, { classificationMetrics, segmentationMetrics, candidateCsv, candidateJson, consoleLogs, textLogs }));
       const partialNotice = partial
-        ? '<div class="notice warning" title="规则摘要">规则较多，已启用摘要模式；打开 experiments/zlk_project.yaml 编辑完整规则。</div>'
+        ? '<div class="notice warning" title="规则摘要">规则较多，已启用摘要模式；打开 experiments/simple_project.yaml 编辑完整规则。</div>'
         : "";
       return '<details class="projectRuleEditor" data-details-key="project-rule-editor"' + detailsOpenAttr("project-rule-editor", false) + ' title="接入规则">' +
         '<summary>分类指标与输出捕获配置<span class="muted">' + esc(summary) + '</span></summary>' +
-        (open && partial ? partialNotice + '<div class="toolbar"><button class="secondary" data-command="openPlan" data-file="experiments/zlk_project.yaml" title="experiments/zlk_project.yaml">打开完整接入配置</button></div>' :
+        (open && partial ? partialNotice + '<div class="toolbar"><button class="secondary" data-command="openPlan" data-file="experiments/simple_project.yaml" title="experiments/simple_project.yaml">打开完整接入配置</button></div>' :
         open ? '<div class="projectRuleGrid">' +
           projectRuleInput("taskType", "任务类型", rules.taskType || "classification", "默认分类任务；分割只保留兼容入口。") +
           projectRuleInput("primaryMetric", "主指标", rules.primaryMetric || "AUC", "质量门禁、统计、论文表格默认围绕主指标组织。") +
@@ -10560,8 +10560,8 @@ export function renderPanelHtml(): string {
           projectRuleTextarea("inferredSignalsReadonly", "自动推断线索", asEditorList(rules.inferredSignals || []), "只读参考：从配置、工厂模式、结果脚本和指标名推断出的线索。", "wide readonly") +
         '</div>' +
         '<div class="projectRuleActions">' +
-          '<span class="muted">本地接入配置：experiments/zlk_project.yaml</span>' +
-          '<button data-command="saveProjectAdapterRules" data-config-scope="projectAdapterRules" title="experiments/zlk_project.yaml">保存接入规则</button>' +
+          '<span class="muted">本地接入配置：experiments/simple_project.yaml</span>' +
+          '<button data-command="saveProjectAdapterRules" data-config-scope="projectAdapterRules" title="experiments/simple_project.yaml">保存接入规则</button>' +
         '</div>' : '<div class="muted">接入规则按需展开。</div>') +
       '</details>';
     }
@@ -12409,7 +12409,7 @@ export function renderPanelHtml(): string {
       const pptReady = Boolean(statisticsSourcePath || paperTableSourcePath || analysisArtifacts.plottingContractPath || analysisArtifacts.caseLevelPath || analysisArtifacts.recoveredPlanReportPath || analysisArtifacts.anomalyPath);
       const claimEvidence = summary.claimEvidence || summary.claim_evidence || {};
       const claimStatus = pick(summary, ["claimEvidenceStatus", "claim_evidence_status"], pick(claimEvidence, ["status"], "待检查"));
-      const claimPath = pick(summary, ["claimEvidencePath", "claim_evidence_path"], pick(claimEvidence, ["path"], "zlk_cluster/results/claim_evidence.json"));
+      const claimPath = pick(summary, ["claimEvidencePath", "claim_evidence_path"], pick(claimEvidence, ["path"], "simple_cluster/results/claim_evidence.json"));
       const claimCount = pick(summary, ["claimCount", "claim_count"], pick(claimEvidence, ["claimCount", "claim_count"], 0));
       const claimSupported = pick(summary, ["claimSupportedCount", "claim_supported_count"], pick(claimEvidence, ["supportedCount", "supported_count"], 0));
       const claimPreview = asArray(summary.claimEvidencePreview || summary.claim_evidence_preview || claimEvidence.preview || claimEvidence.claims);
@@ -13381,7 +13381,7 @@ export function renderPanelHtml(): string {
       const text = String(value || "").trim().replace(/\\\\/g, "/");
       const base = text.split("/").pop() || "";
       const lower = base.toLowerCase();
-      if (!text || text.toLowerCase().startsWith("zlk_cluster/results/") || RESULT_METADATA_FILENAMES.has(lower) || RESULT_METADATA_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return false;
+      if (!text || text.toLowerCase().startsWith("simple_cluster/results/") || RESULT_METADATA_FILENAMES.has(lower) || RESULT_METADATA_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return false;
       return /\\.(csv|json|txt|log|out)$/i.test(text);
     }
     function projectOutputGateReason(state, context) {
@@ -13395,7 +13395,7 @@ export function renderPanelHtml(): string {
     function projectOutputGateFixes(missing, project) {
       const adapterReady = Boolean((project || {}).adapterConfig);
       const fixes = {
-        "接入配置": adapterReady ? "打开 experiments/zlk_project.yaml 补充候选结果规则，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/zlk_project.yaml，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
+        "接入配置": adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
         "计划输出": "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置",
         "候选结果规则": "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
         "标准结果契约": "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",
@@ -14478,8 +14478,8 @@ export function renderPanelHtml(): string {
       return raw;
     }
     function parentPath(value) {
-      const parts = String(value || "zlk_cluster").replace(/\\\\/g, "/").split("/").filter(Boolean);
-      if (parts.length <= 1) return parts[0] || "zlk_cluster";
+      const parts = String(value || "simple_cluster").replace(/\\\\/g, "/").split("/").filter(Boolean);
+      if (parts.length <= 1) return parts[0] || "simple_cluster";
       parts.pop();
       return parts.join("/");
     }

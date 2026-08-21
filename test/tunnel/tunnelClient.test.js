@@ -8,7 +8,7 @@ const { HttpTunnelClient } = require("../../dist/tunnel/TunnelClient.js");
 test("tunnel client only talks to localhost API with token and coalesces snapshot", async () => {
   const calls = [];
   const server = http.createServer((req, res) => {
-    calls.push({ url: req.url, token: req.headers["x-zlk-agent-token"] });
+    calls.push({ url: req.url, token: req.headers["x-simple-agent-token"] });
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/api/health") return res.end(JSON.stringify({ state: "agent_ok", agentVersion: "t", checkedAt: new Date().toISOString() }));
     if (req.url === "/api/snapshot") {

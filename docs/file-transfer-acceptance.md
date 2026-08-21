@@ -5,7 +5,7 @@
 - `SimpleExperiment` 不直接执行 SSH、SCP 或 RSYNC，也不使用 SFTP 传输实时状态。
 - `SimpleSFTP` 负责代码、Plan、配置、Agent runtime 和用户主动选择的真实文件传输。
 - GPU、日志尾部、任务状态和操作进度只通过 Xshell 本地隧道后的 Hub/Worker Agent 获取。
-- 上传目标由 Hub/Worker 的“项目父目录”派生为 `<项目父目录>/<当前项目名>`，Agent runtime 位于 `<项目父目录>/zlk_agent`。
+- 上传目标由 Hub/Worker 的“项目父目录”派生为 `<项目父目录>/<当前项目名>`，Agent runtime 位于 `<项目父目录>/simple_agent`。
 
 ## 发布前检查
 
@@ -13,7 +13,7 @@
 2. SimpleExperiment 的“项目关键入口”显示服务器与运行门禁通过。
 3. SimpleSFTP 已安装且可在命令面板看到 `SimpleSFTP：上传工作区到目标`。
 4. 目标服务器目录由当前用户写入，不使用管理员账户或共享凭据。
-5. `%APPDATA%/SimpleSFTP/server-profiles/servers.json` 中的 Hub/Worker 目标指向 `<项目父目录>/<当前项目名>`，不再写入旧 `ZLK/server-profiles` 路径。
+5. `%APPDATA%/SimpleSFTP/server-profiles/servers.json` 中的 Hub/Worker 目标指向 `<项目父目录>/<当前项目名>`，不再写入旧私有扩展的 server-profiles 路径。
 
 ## 手动验收
 
@@ -27,7 +27,7 @@
 
 3. 部署 Agent runtime。
    操作：点击“部署最新版 Agent”。
-   预期：`cluster_agent.py` 和 `cluster_scheduler.py` 写入每台服务器的 `zlk_agent/runtime`，不覆盖项目代码目录。
+   预期：`cluster_agent.py` 和 `cluster_scheduler.py` 写入每台服务器的 `simple_agent/runtime`，不覆盖项目代码目录。
 
 4. 忽略规则。
    操作：点击“配置 SFTP 忽略”。

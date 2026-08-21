@@ -242,10 +242,10 @@ test("quick project onboarding reports only the next action proven by current re
   const outputIncomplete = bootstrapCompletion({ outputGateReason: "缺少结果路径", realtimeMode: true, setupComplete: true, workers: [{ status: "ok" }], hubStatus: "ok" });
   assert.equal(outputIncomplete.state, "output_incomplete");
   assert.equal(outputIncomplete.action, "打开当前 Plan");
-  assert.equal(bootstrapCompletion({ outputGateReason: "缺少结果路径", outputGateNextLabel: "接入配置", adapterConfig: "experiments/zlk_project.yaml" }).action, "打开接入配置");
-  assert.equal(bootstrapCompletion({ outputGateReason: "配置文件缺失", outputGateNextLabel: "配置文件", adapterConfig: "experiments/zlk_project.yaml" }).action, "打开当前 Plan");
-  assert.match(extension, /adapterReady \? "打开 experiments\/zlk_project\.yaml 补充候选结果规则/);
-  assert.match(panel, /adapterReady \? "打开 experiments\/zlk_project\.yaml 补充候选结果规则/);
+  assert.equal(bootstrapCompletion({ outputGateReason: "缺少结果路径", outputGateNextLabel: "接入配置", adapterConfig: "experiments/simple_project.yaml" }).action, "打开接入配置");
+  assert.equal(bootstrapCompletion({ outputGateReason: "配置文件缺失", outputGateNextLabel: "配置文件", adapterConfig: "experiments/simple_project.yaml" }).action, "打开当前 Plan");
+  assert.match(extension, /adapterReady \? "打开 experiments\/simple_project\.yaml 补充候选结果规则/);
+  assert.match(panel, /adapterReady \? "打开 experiments\/simple_project\.yaml 补充候选结果规则/);
   assert.equal(bootstrapCompletion({ setupComplete: false }).action, "开始一键配置");
   const workerRequired = bootstrapCompletion({ setupComplete: true, workers: [] });
   assert.equal(workerRequired.state, "worker_required");

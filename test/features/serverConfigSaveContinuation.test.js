@@ -10,7 +10,7 @@ const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment
 test("manual server saves show computed destinations before offering one next step", () => {
   const helper = source.slice(source.indexOf("serverConfigSavedMessage(label, actualWorkRoot)"), source.indexOf("async saveHubConfigFromUi"));
   assert.match(helper, /当前项目代码：\$\{dirs\.workDir\}/);
-  assert.match(helper, /Agent runtime：\$\{dirs\.installDir\}\/zlk_cluster\/runtime/);
+  assert.match(helper, /Agent runtime：\$\{dirs\.installDir\}\/simple_cluster\/runtime/);
   assert.match(helper, /打开目标本地项目后再计算代码上传位置/);
   assert.match(helper, /if \(!workspaceRoot\(\)\)[\s\S]{0,320}"选择项目并继续"/);
   assert.match(helper, /next === "选择项目并继续"[\s\S]{0,140}openWorkspaceFolderForContinuation\(`\$\{label\} 配置`, "quickSetup"/);

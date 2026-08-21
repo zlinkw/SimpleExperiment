@@ -15,30 +15,30 @@ function mkdirp(dir) {
 }
 
 test("cleanup targets only exact generated directory names", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-clean-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-clean-"));
   mkdirp(path.join(root, "src", "ui"));
-  mkdirp(path.join(root, "src", "zlk_agent_backup"));
+  mkdirp(path.join(root, "src", "simple_agent_backup"));
   mkdirp(path.join(root, "runs", "__pycache__"));
-  mkdirp(path.join(root, "runs", "zlk_agent"));
-  mkdirp(path.join(root, "runs", "nested", "zlk_cluster"));
+  mkdirp(path.join(root, "runs", "simple_agent"));
+  mkdirp(path.join(root, "runs", "nested", "simple_cluster"));
 
   const targets = collectCleanupTargets(root).map((target) => path.basename(target));
-  assert.deepEqual(targets.sort(), ["__pycache__", "zlk_agent", "zlk_cluster"]);
+  assert.deepEqual(targets.sort(), ["__pycache__", "simple_agent", "simple_cluster"]);
 
   cleanGeneratedDirs({ rootDir: root });
   assert.equal(fs.existsSync(path.join(root, "src", "ui")), true);
-  assert.equal(fs.existsSync(path.join(root, "src", "zlk_agent_backup")), true);
+  assert.equal(fs.existsSync(path.join(root, "src", "simple_agent_backup")), true);
   assert.equal(fs.existsSync(path.join(root, "runs", "__pycache__")), false);
-  assert.equal(fs.existsSync(path.join(root, "runs", "zlk_agent")), false);
-  assert.equal(fs.existsSync(path.join(root, "runs", "nested", "zlk_cluster")), false);
+  assert.equal(fs.existsSync(path.join(root, "runs", "simple_agent")), false);
+  assert.equal(fs.existsSync(path.join(root, "runs", "nested", "simple_cluster")), false);
 });
 
 test("cleanup dry-run keeps targets and rejects root equality as inside", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-clean-"));
-  mkdirp(path.join(root, "zlk_cluster"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-clean-"));
+  mkdirp(path.join(root, "simple_cluster"));
 
   const result = cleanGeneratedDirs({ rootDir: root, dryRun: true });
   assert.equal(result.targets.length, 1);
-  assert.equal(fs.existsSync(path.join(root, "zlk_cluster")), true);
+  assert.equal(fs.existsSync(path.join(root, "simple_cluster")), true);
   assert.equal(isInside(fs.realpathSync(root), fs.realpathSync(root)), false);
 });

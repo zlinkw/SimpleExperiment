@@ -1,8 +1,8 @@
 import { CaseLevelResultRecord, runDataLeakageCheck } from "./Quality";
 
-export const DATASET_PROFILE_JSON_PATH = "zlk_cluster/datasets/profile.json";
-export const DATASET_PROFILE_MARKDOWN_PATH = "zlk_cluster/datasets/profile.md";
-export const DATASET_LEAKAGE_REPORT_CSV_PATH = "zlk_cluster/datasets/leakage_report.csv";
+export const DATASET_PROFILE_JSON_PATH = "simple_cluster/datasets/profile.json";
+export const DATASET_PROFILE_MARKDOWN_PATH = "simple_cluster/datasets/profile.md";
+export const DATASET_LEAKAGE_REPORT_CSV_PATH = "simple_cluster/datasets/leakage_report.csv";
 
 export interface DatasetInspectorFile {
   path: string;

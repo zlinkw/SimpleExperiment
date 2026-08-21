@@ -23,7 +23,7 @@ test("ppt plot config buttons bind a statistics source path", () => {
   assert.match(source, /function pptPlotButton\(label, sourcePath, sourceLabel, extra\)/);
   assert.match(source, /const statisticsSourcePath = finalStatisticsSourcePath\(resultSummary\)/);
   assert.match(source, /data-source-path="' \+ escAttr\(statisticsSourcePath\)/);
-  assert.doesNotMatch(source, /data-source-path="zlk_cluster\/results\/statistics\.json"/);
+  assert.doesNotMatch(source, /data-source-path="simple_cluster\/results\/statistics\.json"/);
 });
 
 test("export plotting contract stamps summary plottingContractPath", () => {
@@ -33,7 +33,7 @@ test("export plotting contract stamps summary plottingContractPath", () => {
     assert.match(source, /summary\["plottingContractPath"\] = rel/);
   }
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-plot-stamp-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-plot-stamp-"));
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(agent), "utf8");
   const root = path.join(tmp, "project");

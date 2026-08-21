@@ -252,7 +252,7 @@ export function generateMissingOnlyRerunPlan(cells: CompletenessCell[], options:
       `      attempt_id: ${JSON.stringify(options.generateNewAttemptId ? `rerun-${Date.now()}-${index}` : "")}`,
     ].join("\n")),
   ].join("\n") + "\n";
-  const record = importLegacyPlanYamlToRegistry(`zlk_cluster/plans/generated/${suite}.yaml`, yaml);
+  const record = importLegacyPlanYamlToRegistry(`simple_cluster/plans/generated/${suite}.yaml`, yaml);
   record.source = { type: "cloned", generatedFrom: options.sourcePlanId || options.sourceStudyId };
   record.provenance.parentPlanId = options.sourcePlanId;
   record.provenance.parentRevisionId = options.completenessMatrixId;

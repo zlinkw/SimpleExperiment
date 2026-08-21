@@ -64,7 +64,7 @@ export function generateXshellStartAllBatScript(
   const commands = buildMultiEndpointXshellTunnelCommands(baseConfig, endpoints);
   return [
     "@echo off",
-    `REM ZLK multi tunnel start script. Plugin itself does not run ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}.`,
+    `REM SimpleExperiment multi tunnel start script. Plugin itself does not run ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}.`,
     ...commands.flatMap((command) => [
       "",
       `REM ${command.role === "hub_control" ? "Hub control tunnel" : "Worker telemetry tunnel"}: ${command.endpointId}`,
@@ -80,7 +80,7 @@ export function generateXshellStartAllPs1Script(
 ): string {
   const commands = buildMultiEndpointXshellTunnelCommands(baseConfig, endpoints);
   return [
-    `# ZLK multi tunnel start script. Plugin itself does not run ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}.`,
+    `# SimpleExperiment multi tunnel start script. Plugin itself does not run ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}.`,
     ...commands.flatMap((command) => [
       "",
       `# ${command.role === "hub_control" ? "Hub control tunnel" : "Worker telemetry tunnel"}: ${command.endpointId}`,

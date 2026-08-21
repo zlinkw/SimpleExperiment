@@ -4,7 +4,7 @@
 
 ## 版本与运行边界
 
-- SimpleExperiment 必须 `>= 0.3.7`，SimpleSFTP 必须 `>= 0.2.4`。
+- SimpleExperiment 必须 `>= 0.4.0`，SimpleSFTP 必须 `>= 0.2.4`。
 - 所有实验提交、文件传输和远端操作必须通过本机插件 API；禁止用 `scp`、`rsync`、临时 SSH 或手写脚本绕过插件。
 - 一个 VS Code 窗口只打开一个研究项目根目录。多根工作区会阻断项目接入、路径确认和远端副作用。
 - 项目根目录名会作为远端项目名参与路径拼接，应使用稳定、不含空格的名称。
@@ -29,8 +29,8 @@ project/
     plans/
       smoke.yaml
       main.yaml
-    zlk_project.yaml
-    zlk_adapter/
+    simple_project.yaml
+    simple_adapter/
       result_writer.py
       run_wrapper.py
       collect_results.py
@@ -48,7 +48,7 @@ project/
 
 - 核心逻辑放入 `configs/`、`data/`、`models/`、`trainers/`、`metrics/`、`losses/`、`optimizers/`、`utils/`、`comparison_methods/`、`experiments/`、`tools/` 等模块目录。
 - 顶层只保留轻量入口，例如 `train.py`、`test.py`；不要新增一次性脚本作为正式训练入口。
-- 新项目的适配器固定放在 `experiments/zlk_adapter/`；旧项目中已有 `zlk_adapter/` 只作兼容，不应继续扩散。
+- 新项目的适配器固定放在 `experiments/simple_adapter/`；旧项目中的 `experiments/zlk_adapter/` 必须先等价迁移到 `experiments/simple_adapter/`，不要继续扩散旧目录。
 - 大型数据集、checkpoint、权重、缓存、虚拟环境和日志不应依赖代码同步上传；应加入 Git 和 SimpleSFTP 忽略范围。
 - 项目内不得写入明文密码、token、私钥或内网地址清单。
 
@@ -104,7 +104,7 @@ Scheduler 会在 validate-plan 和 dry-run-plan 阶段检查“代码真的会�
 
 ### 通道 A：run_wrapper（推荐）
 
-- `experiments/zlk_project.yaml` 配置 `adapter.runWrapper` 指向已存在的 `experiments/zlk_adapter/run_wrapper.py`。
+- `experiments/simple_project.yaml` 配置 `adapter.runWrapper` 指向已存在的 `experiments/simple_adapter/run_wrapper.py`。
 - 使用插件生成的 wrapper 包裹训练/测试命令，捕获 stdout/stderr，并生成标准结果和快照。
 - 自定义 wrapper 也必须在命令结束后生成 `metrics_summary.csv`、`env_snapshot.json` 和 `config_snapshot.yaml`。
 
@@ -150,9 +150,9 @@ experiment_id,suite,method,dataset,split,seed,metric,value
 - 每个任务目录必须有 `env_snapshot.json` 和 `config_snapshot.yaml`。
 - `artifact_manifest.json` 推荐提供；大权重和数据集只记录路径，不默认同步回本机。
 
-## zlk_project.yaml
+## simple_project.yaml
 
-`experiments/zlk_project.yaml` 是项目级接口契约，必须随 Git 提交。推荐字段：
+`experiments/simple_project.yaml` 是项目级接口契约，必须随 Git 提交。推荐字段：
 
 ```yaml
 projectName: my_project
@@ -162,9 +162,9 @@ secondaryMetrics:
   - accuracy
   - F1
 adapter:
-  package: experiments.zlk_adapter
-  resultWriter: experiments/zlk_adapter/result_writer.py
-  runWrapper: experiments/zlk_adapter/run_wrapper.py
+  package: experiments.simple_adapter
+  resultWriter: experiments/simple_adapter/result_writer.py
+  runWrapper: experiments/simple_adapter/run_wrapper.py
 entrypoints:
   trainCommandTemplate: "python train.py --config {config} --output-dir {output_dir}"
   testCommandTemplate: "python test.py --config {config} --output-dir {output_dir} --result-csv {result_csv}"
@@ -197,14 +197,15 @@ outputs:
 - `candidateCsv`、`candidateJson`、`consoleLogs`、`textLogs` 的扩展名必须可解析。
 - 指标别名最终应映射到项目声明的主指标或次指标。
 
-允许的结果根包括 `work_dirs/`、`outputs/`、`runs/`、`logs/`、`results/`、`test_results/`、`lightning_logs/`、`custom_results/`、`reports/`、`artifacts/`、`evals/`、`evaluation/`、`predictions/`、`submissions/`、`experiments/results/`、`experiments/runs/`，以及 `zlk_cluster/results/`、`zlk_cluster/logs/` 等受管目录。新实验优先使用 `work_dirs/<suite>/<case>_seed<seed>/`。
+允许的结果根包括 `work_dirs/`、`outputs/`、`runs/`、`logs/`、`results/`、`test_results/`、`lightning_logs/`、`custom_results/`、`reports/`、`artifacts/`、`evals/`、`evaluation/`、`predictions/`、`submissions/`、`experiments/results/`、`experiments/runs/`，以及 `simple_cluster/results/`、`simple_cluster/logs/` 等受管目录。新实验优先使用 `work_dirs/<suite>/<case>_seed<seed>/`。
 
 ## Xshell 与 SimpleSFTP
 
 - 先在 Xshell 中创建并验证会话；如使用 OpenSSH 别名，也必须在 `%USERPROFILE%\.ssh\config` 中配置正确。
+- 多用户共用服务器时设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`；推荐用稳定用户名或短项目标识。默认值是 `simple`，旧 `zlk-` 会话可在升级后继续保留该值作为前缀。
 - 插件优先使用已验证的 SSH/Xshell 别名；字面 IP 只作为 `networkHost` 诊断或无别名时回退。
 - 本地转发 Source 和目标必须都是 `127.0.0.1`；插件不建立裸 IP 直连。
-- NWPU3 的项目父目录固定为 `/data/qgking/zlk`；禁止 `/root/disk1/qgking/zlk`。
+- NWPU3 的项目父目录固定为 `/data/qgking/simple`；禁止 `/root/disk1/qgking/simple`。
 - 所有服务器通信和文件传输必须通过 SimpleExperiment/SimpleSFTP API。
 - 上传、下载、删除和远端写入前必须向用户展示精确本地路径、服务器、端口和远端路径；只有人工确认后才传 `confirm: true` 或 `pathConfirmed: true`。
 - 显式 `server` profile 加 `remotePath` 是稳定调用方式；不应要求项目依赖 `.vscode/sftp.json`。
@@ -222,7 +223,7 @@ Hub 是否可用始终由用户配置决定；不可用时必须手动切换到 
 ## Debug 与正式运行
 
 - 首次接入或调试用 `debugMode: true`。
-- Debug 输出隔离在 `zlk_cluster/debug_runs/`，不能归档，也不能进入质量门禁、统计、论文证据或 PPT。
+- Debug 输出隔离在 `simple_cluster/debug_runs/`，不能归档，也不能进入质量门禁、统计、论文证据或 PPT。
 - 正式运行必须经过人工审核的精确预览，然后由 `workflow.run` 或既有 `runPlan` 路线提交。
 - 运行后先解析完整预览，人工筛除不良结果并归档；质量门禁、统计、论文表、claim 证据和 PPT 只读最终归档结果。
 
@@ -234,7 +235,7 @@ Hub 是否可用始终由用户配置决定；不可用时必须手动切换到 
 4. 已有真实 `configs/*.yaml` 和 `experiments/plans/*.yaml`。
 5. 已选择 wrapper、显式 adapter 调用或 TensorBoard 三者之一，并在代码中落实。
 6. Plan 的 mode、seeds、cases、commands 和 per-job 结果路径完整。
-7. `experiments/zlk_project.yaml` 与实际代码一致。
+7. `experiments/simple_project.yaml` 与实际代码一致。
 8. 数据、权重、缓存和密钥不会进入 Git 或默认代码同步。
 9. `plan.validate` 和 dry-run 通过；所有结构化 `missing` 已修复。
 10. 正式提交目标、拓扑和远端路径已经过人工确认。

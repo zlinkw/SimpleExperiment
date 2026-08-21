@@ -5,10 +5,10 @@ exports.defaultCheckpointRetentionPolicy = defaultCheckpointRetentionPolicy;
 exports.checkpointRecordsFromManifest = checkpointRecordsFromManifest;
 exports.buildCheckpointRetentionPlan = buildCheckpointRetentionPlan;
 exports.checkpointRetentionReportMarkdown = checkpointRetentionReportMarkdown;
-exports.CHECKPOINT_DELETE_PLAN_PATH = "zlk_cluster/checkpoints/delete_plan.json";
-exports.CHECKPOINT_RETENTION_REPORT_PATH = "zlk_cluster/checkpoints/retention_report.md";
+exports.CHECKPOINT_DELETE_PLAN_PATH = "simple_cluster/checkpoints/delete_plan.json";
+exports.CHECKPOINT_RETENTION_REPORT_PATH = "simple_cluster/checkpoints/retention_report.md";
 const CHECKPOINT_FORBIDDEN_PATH_SEGMENTS = new Set([".git", ".ssh", "node_modules", ".venv", "venv"]);
-const CHECKPOINT_ALLOWED_ROOTS = new Set(["work_dirs", "experiments", "zlk_cluster", "outputs", "runs", "checkpoints", "weights", "results"]);
+const CHECKPOINT_ALLOWED_ROOTS = new Set(["work_dirs", "experiments", "simple_cluster", "outputs", "runs", "checkpoints", "weights", "results"]);
 const CHECKPOINT_TRUE_TOKENS = new Set(["1", "true", "yes", "on", "paper_ready"]);
 function defaultCheckpointRetentionPolicy(input = {}) {
     return {

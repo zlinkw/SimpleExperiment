@@ -17,4 +17,4 @@ function agentSnapshotFreshness(snapshot, defaultTtlSeconds) { if (!snapshot)
     return { fresh: false, ageMs: Number.POSITIVE_INFINITY, reason: "bad_generatedAt" }; const ageMs = Date.now() - generated; const expires = Date.parse(String(snapshot.expiresAt || "")); if (Number.isFinite(expires) && Date.now() > expires)
     return { fresh: false, ageMs, reason: "expired" }; const ttlMs = Math.max(1, Number(snapshot.ttlSeconds || defaultTtlSeconds || 10)) * 1000; if (ageMs > ttlMs)
     return { fresh: false, ageMs, reason: "ttl_expired" }; return { fresh: true, ageMs }; }
-function snapshotPath(kind) { const file = kind === "cluster" ? "cluster_snapshot.json" : kind === "gpu" ? "gpu_snapshot.json" : kind === "traces" ? "experiment_traces_snapshot.json" : "health_snapshot.json"; return `zlk_cluster/tmp/cluster_agent/${file}`; }
+function snapshotPath(kind) { const file = kind === "cluster" ? "cluster_snapshot.json" : kind === "gpu" ? "gpu_snapshot.json" : kind === "traces" ? "experiment_traces_snapshot.json" : "health_snapshot.json"; return `simple_cluster/tmp/cluster_agent/${file}`; }

@@ -44,7 +44,7 @@ test("scheduler reports actionable PyYAML guidance without a traceback", () => {
 test("dependency guidance targets an explicitly configured Conda environment", () => {
   const check = spawnSync("python", ["-S", schedulerPath, "--check-dependencies-json"], {
     encoding: "utf8",
-    env: { ...utf8PythonEnv, ZLK_CONDA_ENV: "research", ZLK_REQUIRE_CONDA_ENV: "1" },
+    env: { ...utf8PythonEnv, SIMPLE_EXPERIMENT_CONDA_ENV: "research", SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV: "1" },
   });
   assert.equal(check.status, 0, check.stderr || check.stdout);
   const status = JSON.parse(check.stdout.trim());
@@ -93,10 +93,10 @@ test("Agent propagates dependency failures before validation, preview, or Worker
   const worker = agentSource.slice(agentSource.indexOf("def execute_worker_command"), agentSource.indexOf("def worker_command_plan_mode"));
   assert.match(validate, /require_scheduler_dependencies\(root, scheduler, env\)/);
   assert.match(preview, /require_scheduler_dependencies\(root, scheduler\)/);
-  assert.ok(worker.indexOf("require_scheduler_dependencies") < worker.indexOf("start_zlk_tmux_command"));
+  assert.ok(worker.indexOf("require_scheduler_dependencies") < worker.indexOf("start_simple_tmux_command"));
   assert.ok(worker.indexOf("require_scheduler_dependencies") < worker.indexOf("subprocess.Popen"));
-  assert.match(agentSource, /zlk_conda_activation_script\(\)\} && exec/);
-  assert.match(schedulerSource, /zlk_conda_activation_script\(env\)\} && exec/);
+  assert.match(agentSource, /simple_conda_activation_script\(\)\} && exec/);
+  assert.match(schedulerSource, /simple_conda_activation_script\(env\)\} && exec/);
 });
 
 test("Agent health reports scheduler dependency readiness before plan actions", () => {

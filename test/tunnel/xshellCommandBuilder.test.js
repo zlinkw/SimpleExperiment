@@ -6,7 +6,7 @@ const { buildXshellTunnelCommand } = require("../../dist/tunnel/XshellTunnelComm
 const base = {
   xshellExePath: "C:\\Program Files\\NetSarang\\Xshell 8\\Xshell.exe",
   hubHost: "hub.example.edu",
-  hubUser: "zlk user",
+  hubUser: "simple user",
   hubSshPort: 2222,
   localForwardHost: "127.0.0.1",
   localForwardPort: 18766,
@@ -26,7 +26,7 @@ test("xshell command builder defaults to password login even when key path is kn
   const preview = buildXshellTunnelCommand({ ...base, privateKeyPath: "C:\\Users\\ZLK\\keys\\id_ed25519" });
   assert.match(preview.sshCommand, /-L 127\.0\.0\.1:18766:127\.0\.0\.1:18767/);
   assert.match(preview.sshCommand, /-p 2222/);
-  assert.match(preview.sshCommand, /"zlk user@hub\.example\.edu"/);
+  assert.match(preview.sshCommand, /"simple user@hub\.example\.edu"/);
   assert.doesNotMatch(preview.sshCommand, / -i /);
   assert.doesNotMatch(preview.sshCommand, /id_ed25519/);
   assert.doesNotMatch(preview.sshCommand, /StrictHostKeyChecking=no|UserKnownHostsFile=\/dev\/null/);
@@ -51,9 +51,9 @@ test("xshell command builder uses ssh alias when host fields are missing", () =>
 });
 
 test("xshell command builder can launch saved Xshell session file only", () => {
-  const preview = buildXshellTunnelCommand({ ...base, launchMode: "open_saved_session", savedSessionRunner: "xshell", savedSessionPath: "D:\\sessions\\zlk-hub.xsh" });
-  assert.deepEqual(preview.args, ["D:\\sessions\\zlk-hub.xsh"]);
-  assert.match(preview.shellCommand, /zlk-hub\.xsh/);
+  const preview = buildXshellTunnelCommand({ ...base, launchMode: "open_saved_session", savedSessionRunner: "xshell", savedSessionPath: "D:\\sessions\\simple-hub.xsh" });
+  assert.deepEqual(preview.args, ["D:\\sessions\\simple-hub.xsh"]);
+  assert.match(preview.shellCommand, /simple-hub\.xsh/);
   assert.doesNotMatch(preview.shellCommand, / -L | -i | -p /);
 });
 

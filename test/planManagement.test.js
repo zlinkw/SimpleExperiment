@@ -32,7 +32,7 @@ test("legacy plan yaml imports into stable plan registry record", () => {
     "  - name: b",
   ].join("\n");
   const record = importLegacyPlanYamlToRegistry("experiments/plans/smoke.yaml", yaml);
-  assert.equal(PLAN_REGISTRY_LOCAL_PATH, "zlk_cluster/plans/plan_registry.local.json");
+  assert.equal(PLAN_REGISTRY_LOCAL_PATH, "simple_cluster/plans/plan_registry.local.json");
   assert.equal(record.schemaVersion, 1);
   assert.equal(record.suite, "smoke");
   assert.equal(record.experimentCount, 2);

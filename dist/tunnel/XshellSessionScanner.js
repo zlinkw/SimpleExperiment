@@ -37,7 +37,7 @@ exports.defaultXshellSessionDirs = defaultXshellSessionDirs;
 exports.scanXshellSessions = scanXshellSessions;
 exports.readXshellSessionFile = readXshellSessionFile;
 exports.parseXshellSessionContent = parseXshellSessionContent;
-exports.preferredZlkForward = preferredZlkForward;
+exports.preferredSimpleForward = preferredSimpleForward;
 const fs = __importStar(require("fs/promises"));
 const os = __importStar(require("os"));
 const path = __importStar(require("path"));
@@ -151,7 +151,7 @@ function parseXshellSessionContent(input, filePath, rootDir) {
         forwards,
     };
 }
-function preferredZlkForward(session) {
+function preferredSimpleForward(session) {
     if (!session)
         return undefined;
     return session.forwards.find((item) => item.remotePort === 18765)

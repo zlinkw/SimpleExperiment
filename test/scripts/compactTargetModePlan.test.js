@@ -96,7 +96,7 @@ test("compactTargetModePlan drops history and keeps only active sections", () =>
 });
 
 test("compactTargetModePlanFile rewrites on disk", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-plan-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-plan-"));
   const filePath = path.join(dir, "docs", "target-mode-plan.md");
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, [

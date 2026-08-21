@@ -6,7 +6,7 @@ export function fakeServer(id: string, role = "gpu_worker") {
     role,
     loginStatus: "ok",
     remoteWorkspaceDir: "/srv",
-    condaEnv: "zlk",
+    condaEnv: "simple",
     gpuCount: 1,
     maxGpus: 1,
     tags: [],

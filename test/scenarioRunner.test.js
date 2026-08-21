@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { OperationQueue } = require("../dist/core/OperationQueue.js");
-const { normalizeZlkError } = require("../dist/core/ErrorModel.js");
+const { normalizeSimpleError } = require("../dist/core/ErrorModel.js");
 const { ClusterStore } = require("../dist/state/ClusterStore.js");
 const { selectOperationLoading } = require("../dist/state/StateSelectors.js");
 const { redactForDebugBundle } = require("../dist/ui/UiStateMapper.js");
@@ -48,7 +48,7 @@ test("scenario runner covers five cluster recovery scenarios", async () => {
 });
 
 test("error model and debug bundle redaction are stable", () => {
-  assert.equal(normalizeZlkError(new Error("ssh timeout")).code, "TUNNEL_TIMEOUT");
+  assert.equal(normalizeSimpleError(new Error("ssh timeout")).code, "TUNNEL_TIMEOUT");
   const redacted = redactForDebugBundle({ token: "abc", identityFile: "C:/Users/a/.ssh/id_rsa", nested: { password: "secret" } });
   assert.equal(redacted.token, "<redacted>");
   assert.equal(redacted.identityFile, "id_rsa");

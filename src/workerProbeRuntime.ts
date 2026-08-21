@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-dir", required=True)
     args = parser.parse_args()
-    out_dir = os.path.join(args.project_dir, "zlk_cluster", "tmp", "worker_probe")
+    out_dir = os.path.join(args.project_dir, "simple_cluster", "tmp", "worker_probe")
     gpus, err = collect_gpu()
     atomic_write(os.path.join(out_dir, "gpu_snapshot.json"), {"schemaVersion": 1, "generatedAt": now_iso(), "gpu": gpus, "error": err})
     atomic_write(os.path.join(out_dir, "health.json"), {"schemaVersion": 1, "generatedAt": now_iso(), "status": "degraded" if err else "ok", "error": err})

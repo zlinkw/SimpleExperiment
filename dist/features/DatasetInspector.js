@@ -5,9 +5,9 @@ exports.inspectDatasetCsvFiles = inspectDatasetCsvFiles;
 exports.datasetProfileMarkdown = datasetProfileMarkdown;
 exports.datasetLeakageCsv = datasetLeakageCsv;
 const Quality_1 = require("./Quality");
-exports.DATASET_PROFILE_JSON_PATH = "zlk_cluster/datasets/profile.json";
-exports.DATASET_PROFILE_MARKDOWN_PATH = "zlk_cluster/datasets/profile.md";
-exports.DATASET_LEAKAGE_REPORT_CSV_PATH = "zlk_cluster/datasets/leakage_report.csv";
+exports.DATASET_PROFILE_JSON_PATH = "simple_cluster/datasets/profile.json";
+exports.DATASET_PROFILE_MARKDOWN_PATH = "simple_cluster/datasets/profile.md";
+exports.DATASET_LEAKAGE_REPORT_CSV_PATH = "simple_cluster/datasets/leakage_report.csv";
 function inspectDatasetCsvFiles(files, options = {}, now = new Date()) {
     const existing = new Set((options.existingFiles || []).map(normalizePath));
     const required = options.requiredColumns || [];

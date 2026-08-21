@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const {
   defaultXshellSessionDirs,
   parseXshellSessionContent,
-  preferredZlkForward,
+  preferredSimpleForward,
 } = require("../../dist/tunnel/XshellSessionScanner.js");
 
 test("xshell session dirs use dynamic user prefix and fixed NetSarang suffix", () => {
@@ -18,7 +18,7 @@ test("xshell session parser extracts local forward ports", () => {
   const text = [
     "[CONNECTION]",
     "Host=nwpu5",
-    "UserName=zlk",
+    "UserName=simple",
     "Port=22",
     "RemoteCommand=",
     "FwdReq_1_Source=localhost",
@@ -30,5 +30,5 @@ test("xshell session parser extracts local forward ports", () => {
   assert.equal(info.host, "nwpu5");
   assert.equal(info.forwards[0].localPort, 18766);
   assert.equal(info.forwards[0].remotePort, 18765);
-  assert.equal(preferredZlkForward(info).localPort, 18766);
+  assert.equal(preferredSimpleForward(info).localPort, 18766);
 });

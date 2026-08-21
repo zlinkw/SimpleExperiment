@@ -14,7 +14,7 @@ function extractAgent(source) {
 
 test("preview CSV keeps all parsed records while effective CSV keeps archived records only", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zlk-csv-views-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-csv-views-"));
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(source), "utf8");
   const root = path.join(tmp, "project");

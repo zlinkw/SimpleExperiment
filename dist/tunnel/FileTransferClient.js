@@ -146,7 +146,7 @@ class FileTransferClient {
             if (contentLength && Number.isFinite(maxBytes) && maxBytes > 0 && contentLength > maxBytes) {
                 throw new Error(`remote file exceeds download limit: ${contentLength} > ${Math.trunc(maxBytes)} bytes`);
             }
-            const expected = options.expectedSha256 || response.headers.get("x-zlk-file-sha256") || undefined;
+            const expected = options.expectedSha256 || response.headers.get("x-simple-file-sha256") || undefined;
             record.expectedSha256 = expected;
             if (contentLength && options.confirmLargeFile && !(await options.confirmLargeFile(contentLength))) {
                 throw new Error("TRANSFER_CANCELLED");
@@ -250,7 +250,7 @@ class FileTransferClient {
         if (hasBody)
             headers["Content-Type"] = contentType;
         if (this.config.token)
-            headers["X-ZLK-Agent-Token"] = this.config.token;
+            headers["X-Simple-Agent-Token"] = this.config.token;
         return headers;
     }
     async writeDownloadWithProgress(response, localPath, transferId, totalBytes, append = false) {

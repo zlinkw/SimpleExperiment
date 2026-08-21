@@ -37,7 +37,7 @@ function loadHelpers() {
 
 test("remote path confirmation state is project-local and keyed by all expected locations", async () => {
   const helpers = loadHelpers();
-  assert.equal(helpers.PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH, "zlk_cluster/ui/remote_path_confirmations.json");
+  assert.equal(helpers.PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH, "simple_cluster/ui/remote_path_confirmations.json");
   const base = {
     id: "hub",
     role: "hub",
@@ -45,8 +45,8 @@ test("remote path confirmation state is project-local and keyed by all expected 
     host: "EXAMPLE.COM",
     user: "alice",
     port: 22,
-    remotePath: "/srv/zlk_agent/zlk_cluster/runtime/",
-    expectedFiles: ["/srv/zlk_agent/zlk_cluster/runtime/cluster_agent.py"],
+    remotePath: "/srv/simple_agent/simple_cluster/runtime/",
+    expectedFiles: ["/srv/simple_agent/simple_cluster/runtime/cluster_agent.py"],
     relatedLocations: [{ label: "Agent 项目工作目录", path: "/srv/projects/demo" }],
     confirmedAt: "2026-07-17T00:00:00.000Z",
   };
@@ -67,11 +67,11 @@ test("remote path confirmation state is project-local and keyed by all expected 
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-path-confirm-"));
   await helpers.writeProjectRemotePathConfirmationsState(root, [base]);
-  const file = path.join(root, "zlk_cluster", "ui", "remote_path_confirmations.json");
+  const file = path.join(root, "simple_cluster", "ui", "remote_path_confirmations.json");
   assert.equal(fs.existsSync(file), true);
   const loaded = await helpers.readProjectRemotePathConfirmationsState(root);
   assert.equal(loaded.length, 1);
-  assert.equal(loaded[0].remotePath, "/srv/zlk_agent/zlk_cluster/runtime");
+  assert.equal(loaded[0].remotePath, "/srv/simple_agent/simple_cluster/runtime");
   assert.equal(loaded[0].relatedLocations[0].path, "/srv/projects/demo");
   await helpers.writeProjectRemotePathConfirmationsState(root, []);
   assert.equal(fs.existsSync(file), false);
@@ -86,17 +86,17 @@ test("strong confirmation text shows expected directories and files", () => {
     host: "10.0.0.8",
     user: "alice",
     port: 22,
-    remotePath: "/srv/zlk_agent/zlk_cluster/runtime",
-    expectedFiles: ["/srv/zlk_agent/zlk_cluster/runtime/cluster_agent.py"],
+    remotePath: "/srv/simple_agent/simple_cluster/runtime",
+    expectedFiles: ["/srv/simple_agent/simple_cluster/runtime/cluster_agent.py"],
     expectedFileCount: 3,
     relatedLocations: [{ label: "Agent 项目工作目录", path: "/srv/projects/demo" }],
   }], "D:/projects/demo");
   assert.match(detail, /【强制路径确认】上传 Agent runtime/);
   assert.match(detail, /本地项目目录：D:\/projects\/demo/);
   assert.match(detail, /alice@10\.0\.0\.8:22/);
-  assert.match(detail, /预期远端目录：\/srv\/zlk_agent\/zlk_cluster\/runtime/);
+  assert.match(detail, /预期远端目录：\/srv\/simple_agent\/simple_cluster\/runtime/);
   assert.match(detail, /预期远端文件位置（已列 1 \/ 共 3）：/);
-  assert.match(detail, /- \/srv\/zlk_agent\/zlk_cluster\/runtime\/cluster_agent\.py/);
+  assert.match(detail, /- \/srv\/simple_agent\/simple_cluster\/runtime\/cluster_agent\.py/);
   assert.match(detail, /Agent 项目工作目录：\/srv\/projects\/demo/);
   assert.match(detail, /其余 2 个预期文件均位于上述远端目录内/);
   assert.equal(helpers.codeSyncConfirmationLabel("run"), "提交实验前上传 Hub/Worker 项目代码");
@@ -112,16 +112,16 @@ test("Agent startup strong confirmation always shows local and remote file locat
     host: "10.0.0.7",
     user: "alice",
     port: 22,
-    remotePath: "/srv/zlk_agent/zlk_cluster/runtime",
-    expectedFiles: ["/srv/zlk_agent/zlk_cluster/runtime/cluster_agent.py"],
+    remotePath: "/srv/simple_agent/simple_cluster/runtime",
+    expectedFiles: ["/srv/simple_agent/simple_cluster/runtime/cluster_agent.py"],
     relatedLocations: [{ label: "Agent 项目工作目录", path: "/srv/projects/demo" }],
   }];
   const prepare = helpers.agentStartupWriteConfirmationDetail(startupTargets, runtimeTargets, true);
   assert.match(prepare, /【强制确认】准备 Agent 并启动/);
   assert.match(prepare, /hub 会话：C:\/Sessions\/hub\.xsh/);
-  assert.match(prepare, /hub 固定备份：C:\/Sessions\/hub\.xsh\.zlk-backup/);
+  assert.match(prepare, /hub 固定备份：C:\/Sessions\/hub\.xsh\.simple-backup/);
   assert.match(prepare, /预期上传的远端文件位置：/);
-  assert.match(prepare, /\/srv\/zlk_agent\/zlk_cluster\/runtime\/cluster_agent\.py/);
+  assert.match(prepare, /\/srv\/simple_agent\/simple_cluster\/runtime\/cluster_agent\.py/);
   assert.match(prepare, /Agent 项目工作目录：\/srv\/projects\/demo/);
 
   const writeOnly = helpers.agentStartupWriteConfirmationDetail(startupTargets, runtimeTargets, false);
@@ -159,7 +159,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 2);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureIgnores"/g)].length, 1);
   assert.match(readme, /所有由 SimpleExperiment 发起的项目代码和 Agent runtime SFTP 上传都会先经过强制路径确认窗口/);
-  assert.match(guide, /zlk_cluster\/ui\/remote_path_confirmations\.json/);
+  assert.match(guide, /simple_cluster\/ui\/remote_path_confirmations\.json/);
   assert.match(guide, /取消窗口不会上传远端文件，也不会留下运行中状态/);
 });
 
