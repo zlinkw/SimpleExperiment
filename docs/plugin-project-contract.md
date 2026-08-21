@@ -4,7 +4,7 @@
 
 ## 版本与运行边界
 
-- SimpleExperiment 必须 `>= 0.4.1`，SimpleSFTP 必须 `>= 0.2.4`。
+- SimpleExperiment 必须 `>= 0.4.2`，SimpleSFTP 必须 `>= 0.2.4`。
 - 所有实验提交、文件传输和远端操作必须通过本机插件 API；禁止用 `scp`、`rsync`、临时 SSH 或手写脚本绕过插件。
 - 一个 VS Code 窗口只打开一个研究项目根目录。多根工作区会阻断项目接入、路径确认和远端副作用。
 - 项目根目录名会作为远端项目名参与路径拼接，应使用稳定、不含空格的名称。
@@ -205,7 +205,9 @@ outputs:
 - 多用户共用服务器时设置 `simpleExperiment.tunnel.remoteTmuxSessionPrefix`；推荐用稳定用户名或短项目标识。默认值是 `simple`，旧 `zlk-` 会话可在升级后继续保留该值作为前缀。
 - 插件优先使用已验证的 SSH/Xshell 别名；字面 IP 只作为 `networkHost` 诊断或无别名时回退。
 - 本地转发 Source 和目标必须都是 `127.0.0.1`；插件不建立裸 IP 直连。
-- NWPU3 的项目父目录固定为 `/data/qgking/simple`；禁止 `/root/disk1/qgking/simple`。
+- 远端项目父目录只来自用户配置：API 请求中的 `remoteRoot` / `agentProjectDir` 优先，其次是“设置 > 服务器”中保存的 Hub/Worker 配置。插件不得按服务器名改写该路径。
+- 可用 `simpleExperiment.remote.allowedRoots` 和 `simpleExperiment.remote.deniedRoots` 配置额外安全边界。两个列表留空时不注入任何默认服务器路径。运行时仍会用真实路径检查项目内写入，拒绝符号链接逃逸。
+- 历史缺陷记录：0.4.1 的全局命名迁移曾把部分用户的真实存储路径误当作插件品牌迁移。0.4.2 起删除这类服务器名到路径的硬编码映射。
 - 所有服务器通信和文件传输必须通过 SimpleExperiment/SimpleSFTP API。
 - 上传、下载、删除和远端写入前必须向用户展示精确本地路径、服务器、端口和远端路径；只有人工确认后才传 `confirm: true` 或 `pathConfirmed: true`。
 - 显式 `server` profile 加 `remotePath` 是稳定调用方式；不应要求项目依赖 `.vscode/sftp.json`。

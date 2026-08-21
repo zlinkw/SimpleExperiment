@@ -1262,13 +1262,14 @@ class RealtimeTunnelPanelProvider {
         };
     }
     apiPrepareServerTargets(topology, serverIds, workerTunnels, setup = this.setupConfig) {
+        const remoteRootPolicy = remoteRootPolicyConfig();
         const selected = serverIds.length ? new Set(serverIds.map((id) => String(id || "").trim()).filter(Boolean)) : null;
         const targets = [];
         const errors = [];
         if (topology.hubAllowed && topology.mode === "hub_worker" && (!selected || selected.has("hub") || selected.has(setup.hubHost))) {
             try {
                 const hub = this.hubActualWorkRootTarget(setup);
-                const remoteRoot = ApiWorkflow_1.resolveApiRemoteRoot(hub.remotePath, { id: "hub", label: hub.label, host: hub.host });
+                const remoteRoot = ApiWorkflow_1.resolveApiRemoteRootWithPolicy(hub.remotePath, { id: "hub", label: hub.label, host: hub.host }, remoteRootPolicy);
                 targets.push({
                     id: "hub",
                     role: "hub",
@@ -1306,7 +1307,7 @@ class RealtimeTunnelPanelProvider {
                 continue;
             try {
                 const target = this.workerActualWorkRootTarget(worker, setup);
-                const remoteRoot = ApiWorkflow_1.resolveApiRemoteRoot(target.remotePath, worker);
+                const remoteRoot = ApiWorkflow_1.resolveApiRemoteRootWithPolicy(target.remotePath, worker, remoteRootPolicy);
                 targets.push({
                     id,
                     role: "worker",
@@ -18809,6 +18810,7 @@ async function inputRequired(title, value, placeHolder, prompt, validationMessag
     return raw === undefined ? undefined : raw.trim();
 }
 async function inputActualWorkRoot(title, value, label, server = {}) {
+    const policy = remoteRootPolicyConfig();
     let current = String(value || "");
     for (;;) {
         const raw = await vscode.window.showInputBox({
@@ -18817,7 +18819,7 @@ async function inputActualWorkRoot(title, value, label, server = {}) {
             placeHolder: "/home/your_name/projects",
             prompt: "填写项目父目录。SimpleSFTP 会自动追加当前项目名，Agent runtime 会写入同级 simple_agent。",
             ignoreFocusOut: true,
-            validateInput: (text) => actualWorkRootValidationMessage(text, remoteProjectName(), label, server),
+            validateInput: (text) => actualWorkRootValidationMessage(text, remoteProjectName(), label, server, policy),
         });
         if (raw === undefined)
             return undefined;
@@ -19229,25 +19231,31 @@ function remoteParentWorkRoot(value) {
         return undefined;
     return normalizeRemoteWorkRoot(root.slice(0, separator));
 }
-function actualWorkRootValidationMessage(value, projectName = remoteProjectName(), label = "服务器", server) {
+function remoteRootPolicyConfig() {
+    const config = vscode.workspace.getConfiguration("simpleExperiment");
+    return {
+        allowedRoots: stringArrayConfig(config.get("remote.allowedRoots", [])),
+        deniedRoots: stringArrayConfig(config.get("remote.deniedRoots", [])),
+    };
+}
+function actualWorkRootValidationMessage(value, projectName = remoteProjectName(), label = "服务器", server, policy) {
+    const activePolicy = policy || {};
     const root = normalizeRemoteWorkRoot(value);
     const displayLabel = String(label || "服务器").trim() || "服务器";
     if (!root)
         return `请填写 ${displayLabel} 上用于存放项目的父目录。`;
     const segments = root.split("/").filter(Boolean);
     const lowerSegments = segments.map((item) => item.toLowerCase());
-    if (lowerSegments.includes("simple_agent"))
-        return `${displayLabel} 项目父目录不能包含 simple_agent；插件会自动管理同级 Agent runtime。`;
-    const serverRecord = server && typeof server === "object" ? server : {};
-    const serverId = String(serverRecord.id || serverRecord.serverId || "");
-    const serverLabel = String(serverRecord.displayName || serverRecord.label || serverRecord.name || "");
-    const serverHost = String(serverRecord.host || serverRecord.sshHost || serverRecord.resolvedHost || serverRecord.transferHost || "");
-    const isNwpu3 = [serverId, serverLabel, serverHost].some((item) => /(^|[^a-z0-9])(nwpu3|nwpu213|npu213)([^a-z0-9]|$)/i.test(item));
-    if (isNwpu3 && root !== "/data/qgking/simple")
-        return `${displayLabel} 已固定使用 /data/qgking/simple，禁止使用其他项目父目录。`;
-    const lowerRoot = root.toLowerCase();
-    if (lowerRoot === "/root/disk1/qgking/simple" || lowerRoot.startsWith("/root/disk1/qgking/simple/"))
-        return `${displayLabel} 已固定使用 /data/qgking/simple，禁止使用 /root/disk1/qgking/simple。`;
+    if (lowerSegments.includes("simple_agent") || lowerSegments.includes("zlk_agent"))
+        return `${displayLabel} 项目父目录不能包含 simple_agent 或 zlk_agent；插件会自动管理同级 Agent runtime。`;
+    if (segments.includes(".."))
+        return `${displayLabel} 项目父目录不能包含 ..。`;
+    try {
+        ApiWorkflow_1.resolveApiRemoteRootWithPolicy(root, server, activePolicy);
+    }
+    catch (error) {
+        return errorMessage(error);
+    }
     return undefined;
 }
 function actualWorkRootAmbiguityMessage(value, projectName = remoteProjectName(), label = "服务器") {
@@ -19277,7 +19285,7 @@ async function confirmActualWorkRootAmbiguity(value, label, confirmLabel) {
     throw new UiCommandCancelled(`${label || "服务器"} 项目父目录保存已取消。`);
 }
 function assertActualWorkRoot(value, label, server = {}) {
-    const issue = actualWorkRootValidationMessage(value, remoteProjectName(), label, server);
+    const issue = actualWorkRootValidationMessage(value, remoteProjectName(), label, server, remoteRootPolicyConfig());
     if (issue)
         throw new Error(issue);
 }

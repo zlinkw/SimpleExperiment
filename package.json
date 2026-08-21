@@ -2,7 +2,7 @@
 	"name": "simple-experiment",
 	"displayName": "SimpleExperiment",
 	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-	"version": "0.4.1",
+	"version": "0.4.2",
 	"publisher": "simple-local",
 	"extensionKind": [
 		"ui"
@@ -330,6 +330,24 @@
 					"default": "experiments/plans",
 					"scope": "resource",
 					"description": "相对于工作区根目录的实验计划目录。"
+				},
+				"simpleExperiment.remote.allowedRoots": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"scope": "resource",
+					"description": "可选的远端项目父目录允许前缀。留空表示不按服务器名限制；配置后每个 Hub/Worker 必须使用列表内根目录或其子目录。"
+				},
+				"simpleExperiment.remote.deniedRoots": {
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					},
+					"scope": "resource",
+					"description": "禁止用作远端项目父目录的前缀。用户配置优先于内置推断；此列表只做额外安全边界，不提供任何默认服务器路径。"
 				},
 				"simpleExperiment.resultCsvDir": {
 					"type": "string",

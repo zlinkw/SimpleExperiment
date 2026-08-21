@@ -23,6 +23,9 @@ function extractFunction(name) {
 
 test("project parent roots reject reserved Agent directories and suggest the real parent", () => {
   const sandbox = {};
+  const { resolveApiRemoteRootWithPolicy } = require("../../dist/features/ApiWorkflow.js");
+  sandbox.ApiWorkflow_1 = { resolveApiRemoteRootWithPolicy };
+  sandbox.errorMessage = (error) => String(error?.message || error);
   vm.createContext(sandbox);
   vm.runInContext(`${extractFunction("normalizeRemoteWorkRoot")}\n${extractFunction("remoteParentWorkRoot")}\n${extractFunction("actualWorkRootValidationMessage")}\n${extractFunction("actualWorkRootAmbiguityMessage")}\nthis.check = actualWorkRootValidationMessage; this.parent = remoteParentWorkRoot; this.warn = actualWorkRootAmbiguityMessage;`, sandbox);
   assert.equal(sandbox.check("/srv/projects", "demo", "Hub"), undefined);
@@ -35,6 +38,7 @@ test("project parent roots reject reserved Agent directories and suggest the rea
   assert.equal(sandbox.warn("/srv/projects", "demo", "Hub"), undefined);
   assert.match(sandbox.check("/srv/simple_agent", "demo", "Hub"), /不能包含 simple_agent/);
   assert.match(sandbox.check("/srv/simple_agent/archive", "demo", "Worker"), /不能包含 simple_agent/);
+  assert.equal(sandbox.check("/data/custom-root", "demo", "Hub", {}, {}), undefined);
   assert.match(sandbox.check("/", "demo", "Hub"), /项目的父目录/);
 });
 
@@ -44,7 +48,7 @@ test("setup saves and remote side effects share the same work-root gate", () => 
   const sftpPrepare = source.slice(source.indexOf("async prepareSftpTargets"), source.indexOf("    sftpServerOptions"));
   const agentWrite = source.slice(source.indexOf("async writeXshellAgentStartupCommands"), source.indexOf("async startAllXshellAgentSessions"));
 
-  assert.match(source, /async function inputActualWorkRoot[\s\S]{0,420}actualWorkRootValidationMessage/);
+  assert.match(source, /async function inputActualWorkRoot[\s\S]{0,700}actualWorkRootValidationMessage/);
   assert.match(source, /inputActualWorkRoot[\s\S]{0,1500}"自动改为上一级"[\s\S]{0,180}"仍按当前目录使用"/);
   assert.equal([...source.matchAll(/await inputActualWorkRoot\(/g)].length, 3);
   assert.ok(hubSave.indexOf("assertActualWorkRoot") < hubSave.indexOf("applySetupDraft"));

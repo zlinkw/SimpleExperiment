@@ -304,13 +304,24 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
   assert.doesNotMatch(apiServerSource, /\bscp\b|\brsync\b/);
 });
 
-test("SimpleExperiment accepts topology aliases and enforces NWPU3 roots", () => {
+test("SimpleExperiment accepts topology aliases and keeps configured remote roots authoritative", () => {
   assert.equal(topologyMode.normalizeTopologyMode("standalone"), "single_worker");
   assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");
   assert.equal(topologyMode.normalizeTopologyMode("hub_available"), "hub_worker");
-  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/simple");
+  assert.equal(workflow.resolveApiRemoteRoot("/data/qgking/zlk", { id: "nwpu3" }), "/data/qgking/zlk");
+  assert.equal(workflow.resolveApiRemoteRoot("/data/custom", { id: "nwpu3" }), "/data/custom");
   assert.equal(workflow.resolveApiRemoteRoot("/data/other", { host: "10.0.0.2" }), "/data/other");
-  assert.throws(() => workflow.resolveApiRemoteRoot("/root/disk1/qgking/simple", { id: "nwpu3" }), /\/data\/qgking\/simple/);
+  assert.throws(
+    () => workflow.resolveApiRemoteRootWithPolicy("/root/disk1/qgking/zlk", { id: "nwpu3" }, { deniedRoots: ["/root/disk1/qgking/zlk"] }),
+    /remote\.deniedRoots/,
+  );
+  assert.throws(
+    () => workflow.resolveApiRemoteRootWithPolicy("/data/qgking/simple", { id: "nwpu3" }, { allowedRoots: ["/data/qgking/zlk"] }),
+    /remote\.allowedRoots/,
+  );
+  assert.throws(() => workflow.resolveApiRemoteRoot("/srv/simple_agent/projects", {}), /simple_agent/);
+  assert.throws(() => workflow.resolveApiRemoteRoot("/srv/zlk_agent/projects", {}), /zlk_agent/);
+  assert.throws(() => workflow.resolveApiRemoteRoot("/data/../secret", {}), /\.\./);
 });
 
 test("SimpleExperiment workflow state persists every required stage", () => {
@@ -402,8 +413,9 @@ test("SimpleExperiment prepare decouples infrastructure from PLAN validation", (
 
 test("SimpleExperiment NWPU3 worker targets resolve the exact project workDir", () => {
   assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");
-  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/simple");
-  assert.equal(workflow.remoteProjectWorkDir(workflow.resolveApiRemoteRoot("/data/qgking/simple", { id: "nwpu3" }), "MultiModal"), "/data/qgking/simple/MultiModal");
+  const remoteRoot = workflow.resolveApiRemoteRoot("/data/qgking/zlk", { id: "nwpu3" });
+  assert.equal(remoteRoot, "/data/qgking/zlk");
+  assert.equal(workflow.remoteProjectWorkDir(remoteRoot, "MultiModal"), "/data/qgking/zlk/MultiModal");
 });
 
 test("SimpleExperiment workflow router returns one deterministic next call", () => {
@@ -450,6 +462,33 @@ test("SimpleExperiment workflow router returns one deterministic next call", () 
   assert.deepEqual(run.calls, [{ method: "workflow.run", params: runParams }]);
 });
 
+test("SimpleExperiment uses one configured root across workflow, runtime and SFTP targets", () => {
+  const remoteRoot = workflow.resolveApiRemoteRootWithPolicy(
+    "/data/qgking/zlk",
+    { id: "nwpu3" },
+    { allowedRoots: ["/data/qgking/zlk"], deniedRoots: ["/root/disk1/qgking/zlk"] },
+  );
+  assert.equal(remoteRoot, "/data/qgking/zlk");
+  assert.equal(workflow.remoteProjectWorkDir(remoteRoot, "MultiModal"), "/data/qgking/zlk/MultiModal");
+
+  const prepareStart = extensionSource.indexOf("async apiProjectPrepare");
+  const prepareEnd = extensionSource.indexOf("apiMergedSetupConfig(params = {})", prepareStart);
+  const prepareBody = extensionSource.slice(prepareStart, prepareEnd);
+  assert.match(prepareBody, /writeSftpManagerServerProfiles\(targets\.map\(\(target\) => target\.id\)\)/);
+
+  const targetStart = extensionSource.indexOf("apiPrepareServerTargets(topology, serverIds, workerTunnels, setup = this.setupConfig)");
+  const targetEnd = extensionSource.indexOf("apiMergedWorkerConfigs(workerTunnels, setup = this.setupConfig)", targetStart);
+  const targetBody = extensionSource.slice(targetStart, targetEnd);
+  assert.match(targetBody, /resolveApiRemoteRootWithPolicy\(hub\.remotePath/);
+  assert.match(targetBody, /resolveApiRemoteRootWithPolicy\(target\.remotePath, worker/);
+  assert.match(targetBody, /workDir: this\.agentRuntimeDirs\(remoteRoot\)\.workDir \|\| ""/);
+
+  const mergedStart = extensionSource.indexOf("apiMergedWorkerConfigs(workerTunnels, setup = this.setupConfig)");
+  const mergedEnd = extensionSource.indexOf("apiPublicTopology(topology)", mergedStart);
+  const mergedBody = extensionSource.slice(mergedStart, mergedEnd);
+  assert.match(mergedBody, /agentProjectDir: worker\.agentProjectDir \|\| worker\.remoteRoot \|\| existing\.agentProjectDir/);
+});
+
 test("SimpleExperiment exposes a modal-confirmed standard experiment runner", () => {
   assert.match(extensionSource, /"workflow\.plan": async \(params\) => this\.apiWorkflowPlan\(params\)/);
   assert.match(extensionSource, /"workflow\.run": async \(params\) => this\.apiWorkflowRun\(params\)/);
@@ -478,7 +517,7 @@ test("SimpleExperiment server test rows always expose the AI contract", () => {
     host: "127.0.0.1",
     port: 22,
     user: "qgking",
-    remoteRoot: "/data/qgking/simple",
+    remoteRoot: "/data/qgking/zlk",
   }, undefined);
   assert.deepEqual(Object.keys(row).sort(), [
     "host",

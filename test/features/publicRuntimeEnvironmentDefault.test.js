@@ -16,6 +16,8 @@ test("public setup defaults to system Python without changing explicit Conda env
 
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.condaEnv"].default, "");
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.remoteTmuxSessionPrefix"].default, "simple");
+  assert.deepEqual(packageJson.contributes.configuration.properties["simpleExperiment.remote.allowedRoots"].default, []);
+  assert.deepEqual(packageJson.contributes.configuration.properties["simpleExperiment.remote.deniedRoots"].default, []);
   assert.equal(setup.defaultXshellTunnelSetupConfig.condaEnv, "");
   assert.equal(setup.normalizeXshellSetupConfig({ condaEnv: "" }).condaEnv, "");
   assert.equal(setup.normalizeXshellSetupConfig({ condaEnv: " torch2 " }).condaEnv, "torch2");

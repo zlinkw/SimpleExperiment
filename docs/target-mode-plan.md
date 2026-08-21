@@ -13,6 +13,7 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
+- [已完成] 6/6 project-249：恢复命名迁移丢失的服务器配置、tmux 前缀设置和手动服务器配置流程。
 - [已完成] 8/8 project-248：公共 simple 命名迁移、旧归档/Xshell 兼容和远端 tmux 前缀配置。
 - [已完成] 8/8 project-247：TensorBoard 依赖探测、workflow.plan/run 标准路由和基础设施准备解耦。
 - [已完成] 6/6 project-236：SimpleSFTP 本机 JSON-RPC/HTTP API、CLI、OpenAPI、参数化非交互方法与确认门禁。
@@ -20,25 +21,22 @@
 - [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
 - [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
-- [已完成] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
 
-## 当前批次：project-249（已完成）
+## 当前批次：project-250（已完成）
 ### 边界
 
-- 修复公共命名迁移把 legacy extension ID 和 legacy globalState key 误替换成当前值的问题；迁移版本升到 2 并重新检查。
-- 支持从旧扩展数据库和当前扩展的旧 public key 中选择更完整服务器配置，恢复到新的 simple key。
-- 在服务器设置 Hub 卡片显示并保存 tmux 会话前缀。
-- 首次接入和配置检查不再弹出从零初始化服务器向导；Hub/Worker/Xshell/父目录统一在“设置 > 服务器”手动维护。
-- 项目接入在服务器就绪后只提示一次 tmux 会话前缀，并可跳过使用当前值。
-- 不直接改写 VS Code 状态数据库；迁移仍由插件启动时通过 VS Code globalState 执行。
+- 删除 NWPU3 到固定远程根目录的映射；用户 API 配置优先于已保存 Hub/Worker 配置。
+- 新增 `remote.allowedRoots` 和 `remote.deniedRoots` 用户配置作为通用安全边界，不注入默认存储路径。
+- 保持 `..`、受管 Agent 目录、允许/禁止根策略和远端真实路径符号链接检查。
+- 保证 workflow 解析、Agent runtime 和 SimpleSFTP target 使用同一用户配置根目录。
 
 ### 验证清单
-- [已通过] 迁移单测、真实状态只读演练（识别 3 个 Worker）、build/typecheck、`npm test` 1144/1144、lint、8 个 Python AST、`git diff --check`。
-- [已通过] `simple-experiment-0.4.1.vsix` 打包、runtime closure 校验并安装；未重载 VS Code。
+- [已通过] 远程根解析回归、配置优先级回归、build/typecheck、`npm test` 1145/1145、lint、8 个 Python AST、残留路径审计和 `git diff --check`。
+- [已通过] `simple-experiment-0.4.2.vsix` 打包、runtime closure 校验并安装；未重载 VS Code。
 
 ### 相邻回归风险
 
-- 只在当前 simple 配置不完整时恢复更完整的旧配置；已完整的新配置不会被覆盖。
+- 不再提供任何服务器名到存储路径的内置映射；未配置路径会明确缺失，而不是被静默改写。
 
 ## 本批记录
-- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.1.vsix` 为准。
+- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.2.vsix` 为准。

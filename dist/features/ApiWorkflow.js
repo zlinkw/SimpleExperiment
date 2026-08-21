@@ -12,6 +12,7 @@ exports.buildWorkflowRoute = buildWorkflowRoute;
 exports.isNwpu3Server = isNwpu3Server;
 exports.normalizeApiRemotePath = normalizeApiRemotePath;
 exports.resolveApiRemoteRoot = resolveApiRemoteRoot;
+exports.resolveApiRemoteRootWithPolicy = resolveApiRemoteRootWithPolicy;
 exports.structuredMissingInventory = structuredMissingInventory;
 exports.serverTestRow = serverTestRow;
 exports.formatServerTarget = formatServerTarget;
@@ -261,18 +262,39 @@ function normalizeApiRemotePath(value) {
     return text.replace(/\/+$/, "");
 }
 function resolveApiRemoteRoot(value, server = {}) {
+    return resolveApiRemoteRootWithPolicy(value, server, {});
+}
+function normalizedRemoteRootList(value) {
+    if (!Array.isArray(value))
+        return [];
+    return value.map((item) => normalizeApiRemotePath(item)).filter((item) => Boolean(item));
+}
+function containsRootOrDescendant(root, roots) {
+    const lower = root.toLowerCase();
+    return roots.some((item) => {
+        const candidate = item.toLowerCase();
+        return lower === candidate || lower.startsWith(`${candidate}/`);
+    });
+}
+function resolveApiRemoteRootWithPolicy(value, server = {}, policy = {}) {
     const root = normalizeApiRemotePath(value);
     if (!root)
         return undefined;
-    const lower = root.toLowerCase();
-    if (lower === "/root/disk1/qgking/simple" || lower.startsWith("/root/disk1/qgking/simple/")) {
-        throw new Error("NWPU3 已固定使用 /data/qgking/simple，禁止使用 /root/disk1/qgking/simple。");
+    // User configuration always supplies the root. These are generic safety
+    // policies; server-specific storage paths must not be substituted here.
+    if (root.split("/").includes(".."))
+        throw new Error("项目父目录不能包含 ..。");
+    const deniedRoots = normalizedRemoteRootList(policy.deniedRoots);
+    if (containsRootOrDescendant(root, deniedRoots)) {
+        throw new Error(`项目父目录被 remote.deniedRoots 禁止：${root}`);
     }
-    if (lower.split("/").includes("simple_agent")) {
-        throw new Error("项目父目录不能包含 simple_agent；插件会自动管理同级 Agent runtime。");
+    const allowedRoots = normalizedRemoteRootList(policy.allowedRoots);
+    if (allowedRoots.length && !containsRootOrDescendant(root, allowedRoots)) {
+        throw new Error(`项目父目录必须匹配 remote.allowedRoots 中的配置：${root}`);
     }
-    if (isNwpu3Server(server))
-        return "/data/qgking/simple";
+    if (["simple_agent", "zlk_agent"].some((segment) => root.toLowerCase().split("/").includes(segment))) {
+        throw new Error("项目父目录不能包含 simple_agent 或 zlk_agent；插件会自动管理同级 Agent runtime。");
+    }
     return root;
 }
 function structuredMissingInventory(options) {

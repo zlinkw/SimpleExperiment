@@ -59,6 +59,7 @@ SimpleExperiment 命令面板默认只显示新项目主流程和常用连接入
 ## 3. 配置服务器目录
 
 打开 SimpleExperiment 面板，在“设置 -> 服务器”手动为 Hub 和每台 Worker 选择 Xshell 会话并填写“项目父目录”。随后可运行“检查服务器配置”确认缺口。
+远端项目父目录始终以用户配置为准；API 请求中的 `remoteRoot` 或 `agentProjectDir` 优先于已保存配置。可用 `simpleExperiment.remote.allowedRoots` 和 `simpleExperiment.remote.deniedRoots` 配置安全边界，但插件不会按服务器名注入默认路径。运行时仍会检查真实路径和符号链接逃逸。
 
 向导完成后会把当前项目的 Hub/Worker 上传目标写入 SimpleSFTP。共享目标路径是 `<项目父目录>/<当前项目名>`；项目父目录本身不是代码目录，插件会自动追加当前项目名。切换到另一个本地项目后重新运行向导或首次上传，会更新为该项目对应的路径。切换项目后还必须点击“准备 Agent 并启动”，使 Xshell 自启动命令和 Agent `projectRoot` 同步切换到新项目。
 

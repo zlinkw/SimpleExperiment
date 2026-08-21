@@ -76,7 +76,7 @@ test("SimpleSFTP options preserve the alias and retain the network diagnostic", 
     host: "10.68.10.238",
     user: "simple",
     port: 22,
-    remotePath: "/data/qgking/simple",
+    remotePath: "/data/custom-root",
   };
   const identity = resolveSshTransportIdentity(target, { sshServers: servers });
   const options = buildSftpServerOptions(target, identity);
