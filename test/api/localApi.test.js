@@ -391,6 +391,7 @@ test("SimpleExperiment prepare decouples infrastructure from PLAN validation", (
   assert.match(body, /if \(infrastructureMissing\.length \|\| params\.confirm !== true\)/);
   assert.doesNotMatch(body, /if \(missing\.length \|\| params\.confirm !== true\)/);
   assert.match(body, /workDir: this\.agentRuntimeDirs\(target\.remoteRoot\)\.workDir \|\| ""/);
+  assert.match(body, /missing,\s*plan: planSelection\.plan/s);
   assert.match(body, /deferredValidation: true/);
 
   const bootstrapStart = extensionSource.indexOf("async runApiBootstrapOperation");

@@ -1120,6 +1120,7 @@ class RealtimeTunnelPanelProvider {
             topology: this.apiPublicTopology(topology),
             enabledServers: targets.filter((target) => target.enabled !== false).map((target) => target.id),
             servers: targets,
+            missing,
             plan: planSelection.plan ? {
                 planId: String(planSelection.plan.planId || planSelection.plan.planFile || planSelection.plan.file || ""),
                 planFile: String(planSelection.plan.planFile || planSelection.plan.file || ""),
