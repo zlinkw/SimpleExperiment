@@ -34,6 +34,7 @@ export interface MissingInventoryOptions {
   simpleSftp?: Record<string, unknown>;
   project?: Record<string, unknown>;
   plan?: Record<string, unknown>;
+  requirePlan?: boolean;
 }
 
 export interface MissingStep {
@@ -142,6 +143,79 @@ export function filterPlans(plans: readonly Record<string, unknown>[], filter: R
   return { plans: output, count: candidates.length, total: list.length, needsChoice };
 }
 
+export interface WorkflowPlanSelection {
+  plan?: Record<string, unknown>;
+  plans: Record<string, unknown>[];
+  count: number;
+  total: number;
+  needsChoice: boolean;
+  missing: MissingStep[];
+}
+
+function planIdentityValues(plan: Record<string, unknown>): string[] {
+  return [plan.planFile, plan.file, plan.planId]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+export function selectWorkflowPlan(
+  plans: readonly Record<string, unknown>[],
+  selection: Record<string, unknown> = {},
+): WorkflowPlanSelection {
+  const list = Array.isArray(plans) ? plans.filter((item) => item && typeof item === "object") : [];
+  const requestedFile = String(selection.planFile || selection.file || "").trim();
+  const requestedId = String(selection.planId || "").trim();
+  let plan: Record<string, unknown> | undefined;
+  if (requestedFile) {
+    plan = list.find((item) => planIdentityValues(item).includes(requestedFile));
+  } else if (requestedId) {
+    plan = list.find((item) => planIdentityValues(item).includes(requestedId));
+  } else if (list.length === 1) {
+    plan = list[0];
+  }
+
+  const missing: MissingStep[] = [];
+  if (!plan) {
+    if (list.length > 1) {
+      missing.push({
+        step: "validate_plan",
+        reason: "需要选择 PLAN",
+        options: ["plans.filter"],
+        requiredConfirm: [],
+      });
+    } else if (requestedFile || requestedId) {
+      missing.push({
+        step: "validate_plan",
+        reason: `未找到指定 PLAN：${requestedFile || requestedId}`,
+        options: ["plans.filter"],
+        requiredConfirm: [],
+      });
+    } else {
+      missing.push({
+        step: "validate_plan",
+        reason: "未找到可自动选择的 PLAN",
+        options: ["plans.list", "plans.filter"],
+        requiredConfirm: [],
+      });
+    }
+  }
+
+  return {
+    plan,
+    plans: list,
+    count: list.length,
+    total: list.length,
+    needsChoice: !plan && list.length > 1,
+    missing,
+  };
+}
+
+export function remoteProjectWorkDir(remoteRoot: unknown, projectName: unknown): string | undefined {
+  const root = normalizeApiRemotePath(remoteRoot);
+  const name = String(projectName || "").trim();
+  return root && name && name !== "." && name !== ".." ? `${root}/${name}` : undefined;
+}
+
 export function isNwpu3Server(server: unknown): boolean {
   const item = server && typeof server === "object" ? server as Record<string, unknown> : {};
   const id = String(item.id || item.serverId || "");
@@ -180,6 +254,7 @@ export function structuredMissingInventory(options: MissingInventoryOptions): Mi
   const plan = options.plan && typeof options.plan === "object" ? options.plan : {};
   const workers = Array.isArray(setup.workerTunnels) ? setup.workerTunnels.filter((worker) => worker && typeof worker === "object" && worker.enabled !== false) : [];
   const hubConfigured = Boolean(String(setup.savedSessionPath || "").trim() && String(setup.agentProjectDir || "").trim());
+  const requirePlan = options.requirePlan !== false;
 
   if (!workspace) {
     missing.push({
@@ -240,24 +315,26 @@ export function structuredMissingInventory(options: MissingInventoryOptions): Mi
     }
   }
 
-  const planFile = String(plan.planFile || plan.file || plan.planId || "").trim();
-  if (!planFile) {
-    missing.push({
-      step: "validate_plan",
-      reason: "未选择需要验证的 Plan，且项目内没有可自动确定的唯一 Plan。",
-      options: ["plans.list", "plans.filter"],
-      requiredConfirm: ["confirm"],
-    });
-  } else {
-    const diagnosticsRows = Array.isArray(project.outputGateDiagnosticsRows) ? project.outputGateDiagnosticsRows : [];
-    const missingRows = Array.isArray(project.outputGateMissing) ? project.outputGateMissing : diagnosticsRows.filter((row) => row && row.ok === false);
-    if (missingRows.length) {
+  if (requirePlan) {
+    const planFile = String(plan.planFile || plan.file || plan.planId || "").trim();
+    if (!planFile) {
       missing.push({
         step: "validate_plan",
-        reason: `Plan 或项目输出契约未通过：${missingRows.map((row) => String(row.label || row.step || "") || "输出契约").join("、")}。`,
-        options: ["generateOutputAdapter", "config.set"],
+        reason: "未选择需要验证的 Plan，且项目内没有可自动确定的唯一 Plan。",
+        options: ["plans.list", "plans.filter"],
         requiredConfirm: ["confirm"],
       });
+    } else {
+      const diagnosticsRows = Array.isArray(project.outputGateDiagnosticsRows) ? project.outputGateDiagnosticsRows : [];
+      const missingRows = Array.isArray(project.outputGateMissing) ? project.outputGateMissing : diagnosticsRows.filter((row) => row && row.ok === false);
+      if (missingRows.length) {
+        missing.push({
+          step: "validate_plan",
+          reason: `Plan 或项目输出契约未通过：${missingRows.map((row) => String(row.label || row.step || "") || "输出契约").join("、")}。`,
+          options: ["generateOutputAdapter", "config.set"],
+          requiredConfirm: ["confirm"],
+        });
+      }
     }
   }
   return missing;

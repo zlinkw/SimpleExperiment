@@ -1043,18 +1043,24 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             throw new Error("project.prepare 需要已打开工作区，或传入 workspace 参数。");
         assertSingleProjectWorkspace("project.prepare");
+        await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
+            this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+        });
         const requestedMode = TopologyMode_1.normalizeTopologyMode(params.topologyMode || params.mode);
         const serverIds = stringArrayField(params, "serverIds");
         const setup = this.apiMergedSetupConfig(params);
         const topology = this.apiPrepareTopology(requestedMode, serverIds, setup);
         const targets = this.apiPrepareServerTargets(topology, serverIds, params.workerTunnels, setup);
         const simpleSftp = simpleSftpIntegrationReadiness();
-        const missing = ApiWorkflow_1.structuredMissingInventory({
+        const planSelection = ApiWorkflow_1.selectWorkflowPlan(this.localPlanMetadata.plans || [], params);
+        const infrastructureMissing = ApiWorkflow_1.structuredMissingInventory({
             workspace: root,
             setup,
             topology,
             simpleSftp,
+            requirePlan: false,
         });
+        const missing = [...infrastructureMissing, ...planSelection.missing];
         const preview = {
             operation: "project.prepare",
             workspace: root,
@@ -1066,6 +1072,7 @@ class RealtimeTunnelPanelProvider {
                 port: target.port,
                 user: target.user,
                 remoteRoot: target.remoteRoot,
+                workDir: this.agentRuntimeDirs(target.remoteRoot).workDir || "",
                 enabled: true,
                 localForwardPort: target.localForwardPort,
                 remoteAgentPort: target.remoteAgentPort,
@@ -1076,7 +1083,7 @@ class RealtimeTunnelPanelProvider {
                 remoteRuntime: params.deployRuntime === false ? [] : targets.map((target) => ({ serverId: target.id, installDir: this.agentRuntimeDirs(target.remoteRoot).installDir, workDir: this.agentRuntimeDirs(target.remoteRoot).workDir })),
             },
         };
-        if (missing.length || params.confirm !== true)
+        if (infrastructureMissing.length || params.confirm !== true)
             throw confirmationRequired({
                 operation: "project.prepare",
                 requires: ["confirm"],
@@ -1112,6 +1119,17 @@ class RealtimeTunnelPanelProvider {
             topology: this.apiPublicTopology(topology),
             enabledServers: targets.filter((target) => target.enabled !== false).map((target) => target.id),
             servers: targets,
+            plan: planSelection.plan ? {
+                planId: String(planSelection.plan.planId || planSelection.plan.planFile || planSelection.plan.file || ""),
+                planFile: String(planSelection.plan.planFile || planSelection.plan.file || ""),
+            } : null,
+            planSelection: {
+                count: planSelection.count,
+                total: planSelection.total,
+                needsChoice: planSelection.needsChoice,
+                missing: planSelection.missing,
+            },
+            deferredValidation: true,
             test,
             flow: this.apiFlowState,
         };
@@ -1246,6 +1264,7 @@ class RealtimeTunnelPanelProvider {
                     savedSessionPath: hub.savedSessionPath || "",
                     localForwardPort: setup.localForwardPort,
                     remoteAgentPort: setup.remoteAgentPort,
+                    workDir: this.agentRuntimeDirs(remoteRoot).workDir || "",
                 });
             }
             catch (error) {
@@ -1283,6 +1302,7 @@ class RealtimeTunnelPanelProvider {
                     savedSessionPath: target.savedSessionPath || worker.savedSessionPath || "",
                     localForwardPort: worker.localForwardPort || setup.localForwardPort,
                     remoteAgentPort: worker.remoteTelemetryPort || worker.remoteAgentPort || setup.remoteAgentPort,
+                    workDir: this.agentRuntimeDirs(remoteRoot).workDir || "",
                 });
             }
             catch (error) {
@@ -1374,6 +1394,7 @@ class RealtimeTunnelPanelProvider {
                     setup: this.setupConfig,
                     topology,
                     simpleSftp: simpleSftpIntegrationReadiness(),
+                    requirePlan: false,
                 }),
                 preview: { operation: "startAllConnections", topology: this.apiPublicTopology(topology) },
             });

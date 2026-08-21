@@ -352,6 +352,58 @@ test("SimpleExperiment plan filter keeps review choices bounded and explicit", (
   assert.equal(archived.plans[0].planId, "archived-b");
 });
 
+test("SimpleExperiment preparation selects plans without blocking infrastructure", () => {
+  const plans = [
+    { planId: "alpha", planFile: "experiments/plans/alpha.yaml" },
+    { planId: "beta", planFile: "experiments/plans/beta.yaml" },
+  ];
+  const explicit = workflow.selectWorkflowPlan(plans, { planFile: "experiments/plans/beta.yaml" });
+  assert.equal(explicit.plan.planId, "beta");
+  assert.equal(explicit.needsChoice, false);
+  assert.deepEqual(explicit.missing, []);
+
+  const choice = workflow.selectWorkflowPlan(plans, {});
+  assert.equal(choice.needsChoice, true);
+  assert.equal(choice.missing.length, 1);
+  assert.equal(choice.missing[0].step, "validate_plan");
+  assert.equal(choice.missing[0].reason, "需要选择 PLAN");
+  assert.deepEqual(choice.missing[0].options, ["plans.filter"]);
+  assert.deepEqual(choice.missing[0].requiredConfirm, []);
+
+  const automatic = workflow.selectWorkflowPlan([plans[0]], {});
+  assert.equal(automatic.plan.planId, "alpha");
+  assert.deepEqual(automatic.missing, []);
+
+  const absent = workflow.selectWorkflowPlan([], {});
+  assert.equal(absent.plan, undefined);
+  assert.match(absent.missing[0].reason, /未找到可自动选择的 PLAN/);
+});
+
+test("SimpleExperiment prepare decouples infrastructure from PLAN validation", () => {
+  const start = extensionSource.indexOf("async apiProjectPrepare");
+  const end = extensionSource.indexOf("apiMergedSetupConfig(params = {})", start);
+  assert.ok(start >= 0 && end > start);
+  const body = extensionSource.slice(start, end);
+  assert.match(body, /refreshLocalPlanMetadata\(\{ post: false, force: true \}\)/);
+  assert.match(body, /selectWorkflowPlan\(this\.localPlanMetadata\.plans \|\| \[\], params\)/);
+  assert.match(body, /requirePlan: false/);
+  assert.match(body, /if \(infrastructureMissing\.length \|\| params\.confirm !== true\)/);
+  assert.doesNotMatch(body, /if \(missing\.length \|\| params\.confirm !== true\)/);
+  assert.match(body, /workDir: this\.agentRuntimeDirs\(target\.remoteRoot\)\.workDir \|\| ""/);
+  assert.match(body, /deferredValidation: true/);
+
+  const bootstrapStart = extensionSource.indexOf("async runApiBootstrapOperation");
+  const bootstrapEnd = extensionSource.indexOf("async apiProjectBootstrapOperation", bootstrapStart);
+  const bootstrapBody = extensionSource.slice(bootstrapStart, bootstrapEnd);
+  assert.ok(bootstrapBody.indexOf("await this.apiProjectPrepare") < bootstrapBody.indexOf("const missing = await this.apiPlanValidate"));
+});
+
+test("SimpleExperiment NWPU3 worker targets resolve the exact project workDir", () => {
+  assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");
+  assert.equal(workflow.resolveApiRemoteRoot("/data/other", { id: "nwpu3" }), "/data/qgking/zlk");
+  assert.equal(workflow.remoteProjectWorkDir(workflow.resolveApiRemoteRoot("/data/qgking/zlk", { id: "nwpu3" }), "MultiModal"), "/data/qgking/zlk/MultiModal");
+});
+
 test("SimpleExperiment server test rows always expose the AI contract", () => {
   const row = workflow.serverTestRow({
     id: "nwpu3",
