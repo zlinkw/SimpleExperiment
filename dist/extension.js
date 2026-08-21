@@ -1058,6 +1058,7 @@ class RealtimeTunnelPanelProvider {
             setup,
             topology,
             simpleSftp,
+            plan: planSelection.plan,
             requirePlan: false,
         });
         const missing = [...infrastructureMissing, ...planSelection.missing];

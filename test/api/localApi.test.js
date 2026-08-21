@@ -386,6 +386,7 @@ test("SimpleExperiment prepare decouples infrastructure from PLAN validation", (
   const body = extensionSource.slice(start, end);
   assert.match(body, /refreshLocalPlanMetadata\(\{ post: false, force: true \}\)/);
   assert.match(body, /selectWorkflowPlan\(this\.localPlanMetadata\.plans \|\| \[\], params\)/);
+  assert.match(body, /plan: planSelection\.plan,/);
   assert.match(body, /requirePlan: false/);
   assert.match(body, /if \(infrastructureMissing\.length \|\| params\.confirm !== true\)/);
   assert.doesNotMatch(body, /if \(missing\.length \|\| params\.confirm !== true\)/);
