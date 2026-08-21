@@ -15,9 +15,9 @@
 ## 后续优先级
 - [已完成] 6/6 project-236：SimpleSFTP 本机 JSON-RPC/HTTP API、CLI、OpenAPI、参数化非交互方法与确认门禁。
 - [已完成] 7/7 project-237：SimpleExperiment 本机 JSON-RPC/HTTP API、CLI、OpenAPI、SFTP API 桥接与确认门禁。
-- [进行中] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
+- [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 
-## 当前批次：project-241（进行中）
+## 当前批次：project-241（已完成）
 ### 边界
 
 - SimpleExperiment `0.3.3` 提供 `project.prepare`、`project.bootstrap`、`server.testAll`、`plan.validate`、`plans.filter` 和 flow API。
@@ -31,6 +31,7 @@
 - [已通过] SimpleExperiment `npm test` 1122/1122、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
 - [已通过] 构建 `simple-experiment-0.3.3.vsix` 与 `simple-sftp-0.2.4.vsix`，均已安装；重启 VS Code 后生效。
+- [已通过] SimpleExperiment 推送 `2be939d`；SimpleSFTP 推送 `828b063`；本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
