@@ -20,9 +20,9 @@
 - [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
 - [已完成] 5/5 project-244：SSH/SFTP 目标优先使用 OpenSSH/Xshell 别名，并按 serverIds 约束 runtime 部署范围。
 - [已完成] 6/6 project-245：运行前强制验证结果输出接口，支持 wrapper、显式 adapter 调用和 TensorBoard scalar，并清理 dry-run 临时文件。
-- [进行中] 4/4 project-246：把 SimpleExperiment 和 SimpleSFTP 的项目硬性契约写入插件文档与 simple-local-api SKILL。
+- [已完成] 4/4 project-246：把 SimpleExperiment 和 SimpleSFTP 的项目硬性契约写入插件文档与 simple-local-api SKILL。
 
-## 当前批次：project-246（进行中）
+## 当前批次：project-246（已完成）
 ### 边界
 
 - 新增项目契约文档，覆盖工作区结构、Plan/config、输出接口、结果 schema、快照、SFTP/Xshell、路径边界、Debug 隔离和 API 使用。
@@ -34,9 +34,9 @@
 
 ### 验证清单
 
-- [待验证] Markdown 链接、标题层级和 `git diff --check`。
+- [已通过] Markdown 本地链接、标题层级和 `git diff --check` 检查；target-mode-plan guardrail 测试通过。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- 提交并推送契约文档与 SKILL reference 更新。
+- [已通过] 推送 `6f05d52`，本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
