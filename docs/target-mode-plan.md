@@ -33,7 +33,7 @@
 
 - [已通过] SimpleExperiment `npm test` 1125/1125、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- [已通过] 构建/安装 `simple-experiment-0.3.4.vsix`；推送 `3202845`，本地 HEAD 与 `origin/master` 一致。
+- [已通过] 构建/安装 `simple-experiment-0.3.4.vsix`；推送 `3202845`、`d539b70`，本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
