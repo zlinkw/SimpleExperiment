@@ -16,9 +16,9 @@
 - [已完成] 6/6 project-236：SimpleSFTP 本机 JSON-RPC/HTTP API、CLI、OpenAPI、参数化非交互方法与确认门禁。
 - [已完成] 7/7 project-237：SimpleExperiment 本机 JSON-RPC/HTTP API、CLI、OpenAPI、SFTP API 桥接与确认门禁。
 - [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
-- [进行中] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
+- [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
 
-## 当前批次：project-242（进行中）
+## 当前批次：project-242（已完成）
 ### 边界
 
 - SimpleExperiment `0.3.4` 的 `project.prepare` / `project.bootstrap` 接受 `planFile` 和 `planId`，复用 `plans.filter` 的选择语义。
@@ -31,9 +31,9 @@
 
 ### 验证清单
 
-- [待验证] SimpleExperiment `npm test`、lint、`node -c`、`git diff --check`。
+- [已通过] SimpleExperiment `npm test` 1125/1125、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- 构建并安装 `simple-experiment-0.3.4.vsix`；提交后推送 `origin/master`。
+- [已通过] 构建/安装 `simple-experiment-0.3.4.vsix`；推送 `3202845`，本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
