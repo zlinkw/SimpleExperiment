@@ -17,9 +17,9 @@
 - [已完成] 7/7 project-237：SimpleExperiment 本机 JSON-RPC/HTTP API、CLI、OpenAPI、SFTP API 桥接与确认门禁。
 - [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
-- [进行中] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
+- [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
 
-## 当前批次：project-243（进行中）
+## 当前批次：project-243（已完成）
 ### 边界
 
 - SimpleExperiment `0.3.5` 新增 `workflow.plan` 只读路由和 `workflow.run` 标准运行入口。
@@ -30,13 +30,12 @@
 - 参数化入参覆盖 `serverIds`、拓扑别名、Hub 配置和 Worker 隧道；未选择 Hub 时只允许 Worker 模式。
 - NWPU3 固定 `/data/qgking/zlk`，禁止 `/root/disk1/qgking/zlk` 与 `zlk_agent` 项目父目录。
 - SimpleSFTP `0.2.4` 的 `target.show`、`upload.workspace`、`upload.files` 支持显式 server profile + remotePath，不依赖 `.vscode/sftp.json`。
-- 不连接真实服务器，不验证真实 Xshell/SFTP 现场操作；不覆盖历史 VSIX，不修改 `zlk_cluster/ui/`。
 
 ### 验证清单
 
-- [待验证] SimpleExperiment `npm test`、lint、`node -c`、`git diff --check`。
+- [已通过] SimpleExperiment `npm test` 1127/1127、lint、`node -c`、`git diff --check`。
 - [已通过] SimpleSFTP `npm test` 33/33、`node --check`、`git diff --check`。
-- 构建并安装 `simple-experiment-0.3.5.vsix`；提交后推送 `origin/master`。
+- [已通过] 构建/安装 `simple-experiment-0.3.5.vsix`；推送 `fbc3a09`，本地 HEAD 与 `origin/master` 一致。
 
 ### 相邻回归风险
 
