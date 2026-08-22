@@ -510,6 +510,38 @@ test("SimpleExperiment prepare previews expose the resolved final project path",
   }
 });
 
+test("SimpleExperiment records local and GitHub versions before run submission", () => {
+  assert.match(extensionSource, /async collectRunGitProvenance\(root\)/);
+  assert.match(extensionSource, /const repo = await this\.primaryGitRepository\(\)/);
+  assert.match(extensionSource, /localCommit = String\(head\.commit \|\| ""\)\.trim\(\)/);
+  assert.match(extensionSource, /await repo\.getCommit\(branch \? `\$\{remote\?\.name\}\/\$\{branch\}` : "origin\/HEAD"\)/);
+  assert.match(extensionSource, /body\.gitProvenance = await this\.recordRunGitProvenance\(/);
+  const record = extensionSource.slice(
+    extensionSource.indexOf("async recordRunGitProvenance(planFile"),
+    extensionSource.indexOf("async confirmPlanBatchRunSubmission"),
+  );
+  assert.match(record, /localCommit/);
+  assert.match(record, /githubCommit/);
+  assert.match(record, /simple_cluster\/runs\/git_provenance/);
+  assert.match(record, /await fs\.rename\(tempPath, targetPath\)/);
+  assert.doesNotMatch(record, /child_process|execFile|spawn/);
+});
+
+test("workflow blockers distinguish stale local submissions from active plan runs", () => {
+  assert.match(extensionSource, /code: activeEvidence \? "ACTIVE_PLAN_RUN_EXISTS" : "STALE_LOCAL_RUN_OPERATION"/);
+  assert.match(extensionSource, /new LocalApiError\(2002,[\s\S]{0,220}\{ blocker \}\)/);
+  for (const field of ["operationIds", "checkedServerIds", "evidenceCounts", "recommendedAction"]) {
+    assert.match(extensionSource, new RegExp(`${field}:`));
+  }
+});
+
+test("one-shot workflow can auto prepare only after explicit confirmation", () => {
+  assert.match(extensionSource, /params\.autoPrepare === true && infrastructureMissing\.length/);
+  assert.match(extensionSource, /code: "AUTO_PREPARE_CONFIRM_REQUIRED"/);
+  assert.match(extensionSource, /核对 project\.prepare 预览后，使用 confirm:true 重新调用 workflow\.run。/);
+  assert.match(extensionSource, /await this\.apiProjectPrepare\(\{ \.\.\.params, confirm: true \}\)/);
+});
+
 test("SimpleExperiment exposes a modal-confirmed standard experiment runner", () => {
   assert.match(extensionSource, /"workflow\.plan": async \(params\) => this\.apiWorkflowPlan\(params\)/);
   assert.match(extensionSource, /"workflow\.run": async \(params\) => this\.apiWorkflowRun\(params\)/);

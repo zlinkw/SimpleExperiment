@@ -88,7 +88,7 @@ const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 const ExtensionUpdates_1 = require("./features/ExtensionUpdates");
 const RunOperations_1 = require("./features/RunOperations");
 const LocalApiServer_1 = require("./api/LocalApiServer");
-const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
+const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 const RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
 const RemoteRootPolicyPrefill_1 = require("./config/RemoteRootPolicyPrefill");
 // Update commands are intentionally local-only and do not enter the remote action map.
@@ -1794,6 +1794,30 @@ class RealtimeTunnelPanelProvider {
             plan: planSelection.plan,
             requirePlan: false,
         });
+        if (params.autoPrepare === true && infrastructureMissing.length) {
+            if (params.confirm !== true) {
+                return {
+                    ok: false,
+                    workspace: root,
+                    topology: this.apiPublicTopology(topology),
+                    flow: this.apiFlowState,
+                    ready: false,
+                    phase: "prepare_agents",
+                    nextAction: "project.prepare",
+                    calls: [{ method: "project.prepare", params: { ...params, confirm: true } }],
+                    blocker: {
+                        code: "AUTO_PREPARE_CONFIRM_REQUIRED",
+                        planFile: String(planSelection.plan?.planFile || planSelection.plan?.file || ""),
+                        operationIds: [],
+                        checkedServerIds: uniqueStrings(stringArrayField(params, "serverIds")),
+                        evidenceCounts: { missing: infrastructureMissing.length },
+                        recommendedAction: "核对 project.prepare 预览后，使用 confirm:true 重新调用 workflow.run。",
+                    },
+                    missing: infrastructureMissing,
+                };
+            }
+            await this.apiProjectPrepare({ ...params, confirm: true });
+        }
         const validation = await this.apiPlanValidate(planSelection.plan ? {
             planFile: String(planSelection.plan.planFile || planSelection.plan.file || ""),
             planId: String(planSelection.plan.planId || planSelection.plan.planFile || planSelection.plan.file || ""),
@@ -1814,6 +1838,25 @@ class RealtimeTunnelPanelProvider {
             prepareParams,
             runParams,
         });
+        const blocker = {
+            code: route.phase === "prepare_agents"
+                ? "INFRASTRUCTURE_NOT_READY"
+                : route.phase === "select_plan"
+                    ? "PLAN_NOT_SELECTED"
+                    : "VALIDATION_REQUIRED",
+            planFile: selectedPlanFile,
+            operationIds: this.longRunningPlanRunOperations()
+                .filter((row) => samePlanSelection(operationResultPlanFile(row), selectedPlanFile))
+                .map((row) => String(row.operationId || row.opId || ""))
+                .filter(Boolean),
+            checkedServerIds: uniqueStrings(stringArrayField(params, "serverIds")),
+            evidenceCounts: {
+                missing: (route.missing || []).length,
+                schedulerStates: (this.buildPlanRuntimeEvidenceState().schedulerStates || []).length,
+                operations: Object.keys(this.buildPlanRuntimeEvidenceState().operations || {}).length,
+            },
+            recommendedAction: route.nextAction,
+        };
         return {
             ok: route.ready,
             workspace: root,
@@ -1825,6 +1868,7 @@ class RealtimeTunnelPanelProvider {
             },
             topology: this.apiPublicTopology(topology),
             flow: this.apiFlowState,
+            blocker,
             ...route,
         };
     }
@@ -4449,6 +4493,9 @@ class RealtimeTunnelPanelProvider {
             if (!await this.ensureSimpleSftpReadyForSetup(body.debugMode === true ? "Debug 首跑" : command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
             await this.confirmPlanRunSubmission(command, plan, body.debugMode === true, body);
+            const planFileForProvenance = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
+            body.gitProvenance = await this.recordRunGitProvenance(planFileForProvenance, String(body.planRevision || plan?.revision || ""), makeOpId(command));
+            body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
             await this.ensureCodeReadyForRun(undefined, [body]);
             if (!await this.runPlanPreflight(body, "当前计划"))
                 return;
@@ -4523,6 +4570,61 @@ class RealtimeTunnelPanelProvider {
         const answer = await vscode.window.showWarningMessage(planRunConfirmationDetail(command, { ...(plan || {}), debugMode, schedulerOwnerWorkerId: this.planSchedulerWorkerId(body), confirmationOutputCandidates: projectOutputCandidates }, remoteTargets), { modal: true }, label);
         if (answer !== label)
             throw new UiCommandCancelled(command === "reproducePlan" ? "复现实验已取消。" : "运行计划已取消。");
+    }
+    async collectRunGitProvenance(root) {
+        const repo = await this.primaryGitRepository();
+        if (!samePath(repo.rootUri?.fsPath || "", root))
+            throw new Error(`Git 仓库 ${repo.rootUri?.fsPath || "未知"} 不是当前实验工作区。`);
+        const head = repo.state?.HEAD || {};
+        const branch = String(head.name || "").trim();
+        const localCommit = String(head.commit || "").trim();
+        if (!localCommit)
+            throw new Error("当前 Git 分支没有可记录的本地 commit。");
+        const remote = repo.state?.remotes?.find((item) => item.name === "origin") || repo.state?.remotes?.[0];
+        let githubCommit = "";
+        try {
+            const tracked = await repo.getCommit(branch ? `${remote?.name}/${branch}` : "origin/HEAD");
+            githubCommit = String(tracked?.hash || "");
+        }
+        catch {
+            githubCommit = "";
+        }
+        return {
+            repositoryRoot: repo.rootUri.fsPath,
+            branch,
+            localCommit,
+            githubCommit,
+            originUrl: String(remote?.pushUrl || remote?.fetchUrl || ""),
+        };
+    }
+    async recordRunGitProvenance(planFile, planRevision = "", operationId = "") {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("记录 Git 版本前需要打开实验项目工作区。");
+        const git = await this.collectRunGitProvenance(root);
+        const provenance = {
+            schemaVersion: 1,
+            recordedAt: new Date().toISOString(),
+            planFile,
+            planRevision,
+            ...(operationId ? { localOperationId: operationId } : {}),
+            repositoryRoot: git.repositoryRoot,
+            branch: git.branch,
+            localCommit: git.localCommit,
+            githubCommit: git.githubCommit,
+            originUrl: git.originUrl,
+        };
+        const shortCommit = String(provenance.localCommit || "").slice(0, 12) || "unknown";
+        const relativeDir = `simple_cluster/runs/git_provenance/${new Date().toISOString().slice(0, 10)}`;
+        const targetPath = path.join(root, relativeDir, `${Date.now()}-${shortCommit}.json`);
+        await fs.mkdir(path.dirname(targetPath), { recursive: true });
+        const tempPath = `${targetPath}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
+        await fs.writeFile(tempPath, `${JSON.stringify(provenance, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+        await fs.rename(tempPath, targetPath);
+        return {
+            ...provenance,
+            provenancePath: relativeDir + "/" + path.basename(targetPath),
+        };
     }
     async confirmPlanBatchRunSubmission(candidates) {
         const rows = Array.isArray(candidates) ? candidates : [];
@@ -4607,10 +4709,28 @@ class RealtimeTunnelPanelProvider {
         const activity = activePlanRunEvidence(this.buildPlanRuntimeEvidenceState(), planFile, selectedPlan);
         if (!activity.active)
             return;
+        const operationRows = this.longRunningPlanRunOperations().filter((row) => samePlanSelection(operationResultPlanFile(row) || row.plan, planFile));
+        const hasUnknownRemoteEvidence = operationRows.some((row) => row.reconcileEvidenceActive !== false);
+        const activeEvidence = activity.taskCount > 0 || hasUnknownRemoteEvidence;
+        const blocker = {
+            code: activeEvidence ? "ACTIVE_PLAN_RUN_EXISTS" : "STALE_LOCAL_RUN_OPERATION",
+            planFile: String(planFile || ""),
+            operationIds: operationRows.map((row) => String(row.operationId || row.opId || "")).filter(Boolean),
+            checkedServerIds: uniqueStrings(operationRows.map((row) => String(row.checkedWorkerId || row.workerId || "")).filter(Boolean)),
+            evidenceCounts: {
+                schedulerStates: Number(activity.taskCount || 0),
+                experimentTraces: 0,
+                operations: Number(activity.operationCount || 0),
+                confirmedInactiveOperations: operationRows.filter((row) => row.reconcileEvidenceActive === false).length,
+            },
+            recommendedAction: activeEvidence
+                ? "先查看 tasks.list 与 operations.list；确需停止时使用 stopExperiment。"
+                : "重新调用 workflow.plan；本地孤儿操作已完成对账，不会再阻塞新提交。",
+        };
         if (activity.historicalOnly) {
-            throw new Error(`同一路径的旧 Plan revision 仍有 ${activity.taskCount} 个任务和 ${activity.operationCount} 个提交操作未结束。为保护旧任务，已阻止当前版本提交；请先在“全部任务”查看并处理旧版本运行。`);
+            throw new LocalApiError(2002, `同一路径的旧 Plan revision 仍有 ${activity.taskCount} 个任务和 ${activity.operationCount} 个提交操作未结束。为保护旧任务，已阻止当前版本提交；请先在“全部任务”查看并处理旧版本运行。`, { blocker });
         }
-        throw new Error(`当前 Plan 已有未结束的运行：${activity.taskCount} 个任务、${activity.operationCount} 个提交操作。已阻止重复提交；请先在“任务运行状态”查看排队、运行或停止结果。`);
+        throw new LocalApiError(2002, `当前 Plan 已有未结束的运行：${activity.taskCount} 个任务、${activity.operationCount} 个提交操作。已阻止重复提交；请先在“任务运行状态”查看排队、运行或停止结果。`, { blocker });
     }
     expectedWorkerAgentProjectRoot(workerId) {
         const worker = this.setupConfig.workerTunnels.find((item) => item.id === workerId);

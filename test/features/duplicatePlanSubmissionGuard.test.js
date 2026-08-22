@@ -218,7 +218,7 @@ test("webview disables duplicate submission using the same Plan-scoped activity 
   assert.match(planActivity, /for \(const row of schedulerRowsForState/);
   assert.doesNotMatch(planActivity, /\.filter\(/);
   assert.match(panel, /当前 Plan 已有 [\s\S]{0,160}不能重复提交/);
-  assert.match(extension, /assertPlanNotAlreadyActive[\s\S]{0,1000}已阻止重复提交/);
+  assert.match(extension, /assertPlanNotAlreadyActive[\s\S]{0,2600}已阻止重复提交/);
 });
 
 test("webview explains old revision activity and opens all tasks", () => {

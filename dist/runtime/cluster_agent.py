@@ -6863,6 +6863,7 @@ def action_operation_fields(payload):
     scheduler_owner_worker_id = str(body.get("schedulerOwnerWorkerId") or options.get("schedulerOwnerWorkerId") or "").strip()
     result_owner_worker_id = str(body.get("resultOwnerWorkerId") or options.get("resultOwnerWorkerId") or scheduler_owner_worker_id).strip()
     assigned_experiment_indices = normalized_experiment_indices(body.get("assignedExperimentIndices") or options.get("assignedExperimentIndices") or [])
+    git_provenance = body.get("gitProvenance") or body.get("git_provenance") or options.get("gitProvenance") or options.get("git_provenance")
     return {
         **({"planFile": plan_file} if plan_file else {}),
         **({"selectedPlanId": selected_plan_id} if selected_plan_id else {}),
@@ -6874,6 +6875,7 @@ def action_operation_fields(payload):
         **({"resultOwnerWorkerId": result_owner_worker_id, "workerId": result_owner_worker_id} if result_owner_worker_id else {}),
         **({"assignedExperimentIndices": assigned_experiment_indices} if assigned_experiment_indices else {}),
         "debugMode": action_debug_mode(body),
+        **({"gitProvenance": git_provenance} if isinstance(git_provenance, dict) else {}),
         **({"debugRunId": action_debug_run_id(body)} if action_debug_run_id(body) else {}),
     }
 
