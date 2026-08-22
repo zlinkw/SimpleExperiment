@@ -88,6 +88,7 @@ const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 const LocalApiServer_1 = require("./api/LocalApiServer");
 const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 const RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
+const RemoteRootPolicyPrefill_1 = require("./config/RemoteRootPolicyPrefill");
 const viewId = "simpleExperiment.panel";
 const LOCAL_API_PREFERRED_PORT = 19765;
 const API_DISCOVERY_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleExperiment");
@@ -481,6 +482,7 @@ async function activateExtension(context) {
     context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
+    void RemoteRootPolicyPrefill_1.prefillRemoteRootPolicy(context, context.globalState.get(keys.setupConfig), vscode).catch(() => undefined);
     provider.startLocalApiServer();
     void provider.runActivationOnboarding();
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));

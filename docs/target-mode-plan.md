@@ -13,6 +13,7 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
+- [已完成] 5/5 project-250：删除固定远程根映射并改用用户配置根目录和安全边界。
 - [已完成] 6/6 project-249：恢复命名迁移丢失的服务器配置、tmux 前缀设置和手动服务器配置流程。
 - [已完成] 8/8 project-248：公共 simple 命名迁移、旧归档/Xshell 兼容和远端 tmux 前缀配置。
 - [已完成] 8/8 project-247：TensorBoard 依赖探测、workflow.plan/run 标准路由和基础设施准备解耦。
@@ -20,23 +21,21 @@
 - [已完成] 7/7 project-237：SimpleExperiment 本机 JSON-RPC/HTTP API、CLI、OpenAPI、SFTP API 桥接与确认门禁。
 - [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 - [已完成] 5/5 project-242：解耦基础设施准备与 PLAN 校验，支持显式 Plan 选择和非阻塞多 PLAN 提示。
-- [已完成] 4/4 project-243：新增 workflow.plan / workflow.run 标准路由，减少 AI 反复读代码和误选接口。
 
-## 当前批次：project-250（已完成）
+## 当前批次：project-251（已完成）
 ### 边界
 
-- 删除 NWPU3 到固定远程根目录的映射；用户 API 配置优先于已保存 Hub/Worker 配置。
-- 新增 `remote.allowedRoots` 和 `remote.deniedRoots` 用户配置作为通用安全边界，不注入默认存储路径。
-- 保持 `..`、受管 Agent 目录、允许/禁止根策略和远端真实路径符号链接检查。
-- 保证 workflow 解析、Agent runtime 和 SimpleSFTP target 使用同一用户配置根目录。
+- 从既有 Hub/Worker 根目录、SimpleSFTP 共享服务器配置和 Remote SSH 安装路径推导候选远程根。
+- 仅当 `remote.allowedRoots` 或 `remote.deniedRoots` 尚无显式值时写入对应数组；用户决策优先。
+- 预填 `/root/**` 不安全候选和旧命名迁移产生的 `zlk -> simple` 同级路径防护。
 
 ### 验证清单
-- [已通过] 远程根解析回归、配置优先级回归、build/typecheck、`npm test` 1145/1145、lint、8 个 Python AST、残留路径审计和 `git diff --check`。
-- [已通过] `simple-experiment-0.4.2.vsix` 打包、runtime closure 校验并安装；未重载 VS Code。
+- [已通过] 预填推导、显式配置保护、一次性执行、build/typecheck、`npm test` 1148/1148、lint、8 个 Python AST、`git diff --check`。
+- [已通过] `simple-experiment-0.4.3.vsix` 打包、runtime closure 校验并安装；未重载 VS Code。
 
 ### 相邻回归风险
 
 - 不再提供任何服务器名到存储路径的内置映射；未配置路径会明确缺失，而不是被静默改写。
 
 ## 本批记录
-- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.2.vsix` 为准。
+- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.3.vsix` 为准。

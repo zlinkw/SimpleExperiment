@@ -207,6 +207,7 @@ outputs:
 - 本地转发 Source 和目标必须都是 `127.0.0.1`；插件不建立裸 IP 直连。
 - 远端项目父目录只来自用户配置：API 请求中的 `remoteRoot` / `agentProjectDir` 优先，其次是“设置 > 服务器”中保存的 Hub/Worker 配置。插件不得按服务器名改写该路径。
 - 可用 `simpleExperiment.remote.allowedRoots` 和 `simpleExperiment.remote.deniedRoots` 配置额外安全边界。两个列表留空时不注入任何默认服务器路径。运行时仍会用真实路径检查项目内写入，拒绝符号链接逃逸。
+- 首次升级到 `0.4.3` 时，插件可从未设置状态的旧服务器配置预填这两个数组；用户已显式设置的数组不会被覆盖。
 - 历史缺陷记录：0.4.1 的全局命名迁移曾把部分用户的真实存储路径误当作插件品牌迁移。0.4.2 起删除这类服务器名到路径的硬编码映射。
 - 所有服务器通信和文件传输必须通过 SimpleExperiment/SimpleSFTP API。
 - 上传、下载、删除和远端写入前必须向用户展示精确本地路径、服务器、端口和远端路径；只有人工确认后才传 `confirm: true` 或 `pathConfirmed: true`。

@@ -51,6 +51,7 @@ import WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 import LocalApiServer_1 = require("./api/LocalApiServer");
 const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 import RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
+import RemoteRootPolicyPrefill_1 = require("./config/RemoteRootPolicyPrefill");
 type TunnelAction = string;
 type UiActionError = {
     command: string;
@@ -541,6 +542,11 @@ async function activateExtension(context) {
     );
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
+    void RemoteRootPolicyPrefill_1.prefillRemoteRootPolicy(
+        context,
+        context.globalState.get(keys.setupConfig),
+        vscode,
+    ).catch(() => undefined);
     provider.startLocalApiServer();
     void provider.runActivationOnboarding();
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
