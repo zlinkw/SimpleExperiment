@@ -1020,6 +1020,10 @@ function renderPanelHtml() {
     .settingsCommandTools > div { display: grid; gap: 2px; margin-right: auto; min-width: min(100%, 280px); }
     .settingsCommandTools b { font-size: 12px; }
     .remoteRootPolicy { display: grid; gap: 11px; margin: 10px 0 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card-bg) 90%, var(--vscode-input-background) 10%); }
+    .pluginUpdate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; margin: 10px 0 14px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card-bg) 90%, var(--vscode-input-background) 10%); }
+    .pluginUpdateMain { min-width: min(100%, 260px); flex: 1; display: grid; gap: 3px; }
+    .pluginUpdateMain b { font-size: 13px; font-weight: 800; }
+    .pluginUpdateMain span { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
     .remoteRootPolicyHeader { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 12px; }
     .remoteRootPolicyHeading { display: grid; gap: 3px; min-width: min(100%, 280px); }
     .remoteRootPolicyHeading b { color: var(--vscode-foreground); font-size: 13px; font-weight: 800; }
@@ -1226,6 +1230,7 @@ function renderPanelHtml() {
         <button data-command="openAdvancedCommandsSetting" class="secondary" type="button">打开命令设置</button>
       </div>
       <div id="remoteRootPolicySettings" data-anchor="settings-remote-root-policy"></div>
+      <div id="pluginUpdateSettings" data-anchor="settings-plugin-update"></div>
       <div id="resultCsvDirectorySettings" data-anchor="settings-result-csv"></div>
       <div id="serverSettingsCards" data-anchor="settings-servers"></div>
     </section>
@@ -1984,7 +1989,7 @@ function renderPanelHtml() {
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
-      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
       ...Object.keys(uiCapabilityMap)
@@ -4475,6 +4480,8 @@ function renderPanelHtml() {
         openPptAutomationGuide: "查看 PPT 修复说明",
         chooseResultCsvDir: "浏览项目内结果 CSV 文件夹",
         saveRemoteRootPolicy: "保存远端根目录安全边界",
+        checkPluginUpdates: "检查配套插件更新",
+        installPluginUpdates: "安装配套插件更新",
         saveResultCsvDir: "保存项目级结果 CSV 默认目录",
         choosePptPath: "选择 PPT",
         chooseNewPptPath: "新建 PPT 路径",
@@ -6869,9 +6876,41 @@ function renderPanelHtml() {
     }
 
     function renderServerSettings(state) {
+      renderPluginUpdateSettings(state);
       renderRemoteRootPolicySettings(state);
       renderResultCsvDirectorySettings(state);
       return renderServerCardsV2(state);
+    }
+
+    function pluginUpdateStatusLabel(status) {
+      return ({
+        unknown: "未检查", checking: "检查中", up_to_date: "已是最新",
+        update_available: "有配套更新", installing: "安装中",
+        reload_required: "重载生效", error: "检查失败"
+      })[String(status || "unknown")] || "未知";
+    }
+
+    function renderPluginUpdateSettings(state) {
+      const plan = (state || {}).pluginUpdate || {};
+      const status = String(plan.status || "unknown");
+      const checkedAt = Date.parse(String(plan.checkedAt || ""));
+      const rows = [plan.experiment, plan.sftp].filter(Boolean).map((item) => {
+        const target = item.updateAvailable ? item.latestVersion : item.currentVersion;
+        return '<span>' + esc(item.label + ': ' + (item.currentVersion || "-") + ' → ' + (target || "-")) + '</span>';
+      }).join("");
+      const canInstall = status === "update_available";
+      const busy = status === "checking" || status === "installing";
+      setHtmlIfChanged("pluginUpdateSettings",
+        '<div class="pluginUpdate">' +
+          '<div class="pluginUpdateMain">' +
+            '<b>插件配套更新 · ' + esc(pluginUpdateStatusLabel(status)) + '</b>' +
+            '<span>' + esc(plan.message || "同时检查 SimpleExperiment 和 SimpleSFTP 的 GitHub Latest Release。") + '</span>' +
+            (rows ? rows : '') +
+            (Number.isFinite(checkedAt) ? '<span class="muted">检查时间：' + esc(new Date(checkedAt).toLocaleString()) + '</span>' : '') +
+          '</div>' +
+          '<button data-command="checkPluginUpdates" class="secondary" type="button" title="查询两个插件的最新 Release"' + (busy ? ' disabled' : '') + '>检查更新</button>' +
+          '<button data-command="installPluginUpdates" class="secondary" type="button" title="下载并按 SimpleSFTP、SimpleExperiment 顺序安装"' + (!canInstall || busy ? ' disabled' : '') + '>安装更新</button>' +
+        '</div>');
     }
 
     function remoteRootPolicyText(value) {

@@ -8,6 +8,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), 
 const cli = fs.readFileSync(path.join(root, "src/cli.ts"), "utf8");
 const runCli = fs.readFileSync(path.join(root, "src/runCli.ts"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(root, "docs/technical-notes.md"), "utf8");
 
 test("public CLI names use SimpleExperiment while legacy aliases remain", () => {
   assert.equal(packageJson.bin["simple-experiment"], "./dist/cli.js");
@@ -19,7 +20,7 @@ test("public CLI names use SimpleExperiment while legacy aliases remain", () => 
   assert.match(runCli, /import \{ runRecordedCli \} from "\.\/cli"/);
   assert.match(runCli, /runRecordedCli\(process\.argv\.slice\(2\)\)/);
   assert.match(cli, /Usage: simple-experiment status/);
-  assert.match(readme, /公开命令使用 `simple-experiment-run`/);
-  assert.match(readme, /旧 `simple-experiment-run` 作为兼容别名继续可用/);
-  assert.match(readme, /simple-experiment-run --name baseline/);
+  assert.match(legacyNotes, /公开命令使用 `simple-experiment-run`/);
+  assert.match(legacyNotes, /旧 `simple-experiment-run` 作为兼容别名继续可用/);
+  assert.match(legacyNotes, /simple-experiment-run --name baseline/);
 });

@@ -7,7 +7,6 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-const plan = fs.readFileSync(path.join(__dirname, "../../docs/target-mode-plan.md"), "utf8");
 const bridge = fs.readFileSync(path.join(__dirname, "../../src/PptPlotBridge.ts"), "utf8");
 
 function loadHelpers() {
@@ -120,8 +119,6 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
   assert.match(panel, /section === "settings"[\s\S]*data\.remotePathConfirmations[\s\S]*data\.pptPathConfirmations/);
   assert.match(panel, /const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set\([^;]*plotResultsToPpt/);
   assert.match(panel, /function debugModeBlockedUiCommand\(command\) \{\s*return DEBUG_MODE_BLOCKED_UI_COMMANDS\.has/);
-  assert.match(plan, /PPT 绘图目标确认/);
-  assert.match(plan, /不迁移、删除或重写旧任务和结果/);
 });
 
 test("PPT path dialogs cannot write stale project state", () => {

@@ -6,6 +6,7 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
 
 function extractFunction(name) {
@@ -60,6 +61,6 @@ test("setup saves and remote side effects share the same work-root gate", () => 
   assert.match(sftpPrepare, /assertTopologyActualWorkRoots\("SFTP 上传或目录配置"\)/);
   assert.match(agentWrite, /assertTopologyActualWorkRoots\("写入 Agent 自启动路径"\)/);
   assert.match(source, /async writeSftpManagerServerProfiles\(targetIds\) \{\s*this\.assertTopologyActualWorkRoots\("写入 SimpleSFTP 服务器配置"\)/);
-  assert.match(readme, /一键改为上一级父目录/);
-  assert.match(guide, /警告窗口可一键改为上一级父目录/);
+  assert.match(legacyNotes, /一键改为上一级父目录/);
+  assert.match(legacyNotes, /警告窗口可一键改为上一级父目录/);
 });

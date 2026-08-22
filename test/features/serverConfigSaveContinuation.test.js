@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
 
 test("manual server saves show computed destinations before offering one next step", () => {
@@ -30,6 +31,6 @@ test("Hub and Worker save handlers continue only after state persistence", () =>
   assert.ok(worker.indexOf("applySetupDraft") < worker.indexOf("showServerConfigSavedNextStep"));
   assert.match(worker, /savedWorker\?\.displayName \|\| endpointId/);
   assert.match(source, /addWorkerConfigFromUi\(false\)[\s\S]{0,260}showServerConfigSavedNextStep/);
-  assert.match(readme, /手动保存 Hub 或 Worker 后会显示最终代码与 runtime 位置/);
-  assert.match(guide, /配置完整后可直接继续“准备 Agent 并启动”/);
+  assert.match(legacyNotes, /手动保存 Hub 或 Worker 后会显示最终代码与 runtime 位置/);
+  assert.match(legacyNotes, /配置完整后可直接继续“准备 Agent 并启动”/);
 });

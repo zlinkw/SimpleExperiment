@@ -162,12 +162,7 @@ function compactTargetModePlanFile(options = {}) {
   const filePath = path.resolve(root, options.filePath || DEFAULT_PATH);
   const dryRun = Boolean(options.dryRun);
   if (!fs.existsSync(filePath)) {
-    const created = ensureSkeleton(options.versionHint || readPackageVersion(root));
-    if (!dryRun) {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, created, "utf8");
-    }
-    return { root, filePath, dryRun, changed: true, reason: "created", lineCount: created.split("\n").length };
+    return { root, filePath, dryRun, changed: false, reason: "missing-local-development-document", lineCount: 0 };
   }
   const original = fs.readFileSync(filePath, "utf8");
   const result = compactTargetModePlan(original, { maxLines: options.maxLines, versionHint: options.versionHint || readPackageVersion(root) });

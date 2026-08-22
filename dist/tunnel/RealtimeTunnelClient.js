@@ -155,6 +155,9 @@ class RealtimeTunnelClient {
     getOperation(operationId) {
         return this.http.getOperation(operationId);
     }
+    getRunEvidence(params) {
+        return this.http.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
+    }
     listRemoteFiles(remotePath) {
         return this.files.list(remotePath);
     }

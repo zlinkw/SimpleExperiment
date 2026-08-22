@@ -40,6 +40,7 @@ export const workerLocalSchedulerActionNames = [
   "dry-run-plan",
   "run-plan",
   "reproduce-plan",
+  "stop-scheduler-operation",
 ] as const;
 
 export const workerResultActionNames = [

@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
 
 function methodBody(name, nextName) {
@@ -103,8 +104,8 @@ test("workspace reset precedes project loaders and stale scans cannot win", () =
   assert.match(source, /const client = this\.client;[\s\S]{0,260}const summary = await client\.getResultsSummary\(planFile\);\s*if \(generation !== this\.projectContextGeneration \|\| client !== this\.client\)\s*return;\s*this\.resultsSummary = summary/);
   assert.match(source, /client\.postAction\(action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration \|\| client !== this\.client/);
   assert.match(source, /client\.postWorkerAction\(workerId, action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration \|\| client !== this\.client/);
-  assert.match(readme, /切换工作区目录.*清空上一项目/);
-  assert.match(guide, /切换工作区目录.*重新加载/);
+  assert.match(legacyNotes, /切换工作区目录.*清空上一项目/);
+  assert.match(legacyNotes, /切换工作区目录.*重新加载/);
 });
 
 test("stale plan watcher and debounce callbacks cannot cross workspace context", () => {
@@ -305,8 +306,8 @@ test("stale network probes and realtime callbacks cannot overwrite the new proje
   assert.match(snapshot, /generation !== this\.projectContextGeneration/);
   assert.match(connect, /client !== this\.client/);
   assert.match(client, /generation !== this\.projectContextGeneration \|\| client !== this\.client/);
-  assert.match(readme, /旧项目尚未完成的项目状态文件回读、检测或实时回调都会被丢弃/);
-  assert.match(guide, /旧项目尚未完成的项目状态文件回读、检测、快照或实时回调不会写入新项目/);
+  assert.match(legacyNotes, /旧项目尚未完成的项目状态文件回读、检测或实时回调都会被丢弃/);
+  assert.match(legacyNotes, /旧项目尚未完成的项目状态文件回读、检测、快照或实时回调不会写入新项目/);
 });
 
 test("stale Xshell library scans cannot overwrite a new project or request key", () => {

@@ -8,6 +8,7 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
 const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
 
 function loadHelpers() {
@@ -158,9 +159,9 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(source, /loadProjectRemotePathConfirmationsState\(\)\.catch\(\(\) => undefined\)/);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 2);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureIgnores"/g)].length, 1);
-  assert.match(readme, /所有由 SimpleExperiment 发起的项目代码和 Agent runtime SFTP 上传都会先经过强制路径确认窗口/);
-  assert.match(guide, /simple_cluster\/ui\/remote_path_confirmations\.json/);
-  assert.match(guide, /取消窗口不会上传远端文件，也不会留下运行中状态/);
+  assert.match(legacyNotes, /所有由 SimpleExperiment 发起的项目代码和 Agent runtime SFTP 上传都会先经过强制路径确认窗口/);
+  assert.match(legacyNotes, /simple_cluster\/ui\/remote_path_confirmations\.json/);
+  assert.match(legacyNotes, /取消窗口不会上传远端文件，也不会留下运行中状态/);
 });
 
 test("path confirmation precedes profile writes and upload-start state", () => {
@@ -182,8 +183,8 @@ test("path confirmation precedes profile writes and upload-start state", () => {
   assert.ok(prepareSftp.indexOf('ensureSimpleSftpReadyForSetup("文件传输")') < prepareSftp.indexOf("ensureSftpManagerCommand"));
   assert.ok(prepareSftp.indexOf("ensureSftpManagerCommand") < prepareSftp.indexOf("syncXshellConfigBeforeNetwork"));
   assert.match(source, /writeSftpManagerServerProfiles\(targetIds\)[\s\S]{0,300}requestedIds\.has\(target\.id\)/);
-  assert.match(readme, /操作确认前不会更新对应 SimpleSFTP 共享目标或显示上传已开始/);
-  assert.match(guide, /操作确认前不会更新对应 SimpleSFTP 共享目标、修改 `\.xsh` 或显示上传已开始/);
+  assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标或显示上传已开始/);
+  assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标、修改 `\.xsh` 或显示上传已开始/);
 });
 
 test("remembered remote paths can be reset from project settings", () => {
@@ -202,6 +203,6 @@ test("remembered remote paths can be reset from project settings", () => {
   assert.match(panel, /data-command="resetRemotePathConfirmations"/);
   assert.match(panel, /当前项目已记住/);
   assert.match(panel, />恢复提醒<\/button>/);
-  assert.match(readme, /上传路径提醒.*恢复提醒/);
-  assert.match(guide, /设置 -> 服务器.*恢复提醒/);
+  assert.match(legacyNotes, /上传路径提醒.*恢复提醒/);
+  assert.match(legacyNotes, /设置 -> 服务器.*恢复提醒/);
 });

@@ -18,3 +18,6 @@ _run_test_full.txt
 # Old build vsix
 simple-experiment-0.1.5*.vsix
 dist/runtime/__pycache__/
+
+# Local development workflow only; never publish batch planning notes.
+docs/target-mode-plan.md

@@ -1,0 +1,145 @@
+export const LONG_RUNNING_PLAN_ACTIONS = new Set(["run-plan", "reproduce-plan"]);
+export const RUN_OPERATION_RECONCILE_GRACE_MS = 90_000;
+export const RUN_OPERATION_CLOCK_SKEW_SECONDS = 300;
+
+export interface RunOperationRecord {
+  operationId?: unknown;
+  type?: unknown;
+  status?: unknown;
+  state?: unknown;
+  startedAt?: unknown;
+  updatedAt?: unknown;
+  reconciledAt?: unknown;
+  reconcileCheckedAt?: unknown;
+}
+
+export interface RemoteRunEvidence {
+  operation?: {
+    status?: unknown;
+    state?: unknown;
+    message?: unknown;
+    startedAt?: unknown;
+    updatedAt?: unknown;
+  };
+  pidAlive?: unknown;
+  tmuxSessionAlive?: unknown;
+  checkedPid?: unknown;
+  checkedTmuxSession?: unknown;
+  schedulerStatesCount?: unknown;
+  experimentTracesCount?: unknown;
+  liveLogCount?: unknown;
+}
+
+export function isLongRunningPlanOperation(record: RunOperationRecord): boolean {
+  return LONG_RUNNING_PLAN_ACTIONS.has(String(record?.type || "").toLowerCase())
+    && !operationTerminalStatus(record?.status || record?.state);
+}
+
+export function operationTerminalStatus(value: unknown): boolean {
+  return new Set([
+    "completed", "operation_completed", "completed_with_errors", "failed", "operation_failed",
+    "cancelled", "canceled", "stalled", "unsupported", "error", "stale",
+  ]).has(String(value || "").trim().toLowerCase());
+}
+
+export function hasRemoteRunActivity(evidence: RemoteRunEvidence): boolean {
+  return Boolean(
+    evidence.pidAlive || evidence.tmuxSessionAlive
+    || Number(evidence.schedulerStatesCount) > 0
+    || Number(evidence.experimentTracesCount) > 0
+    || Number(evidence.liveLogCount) > 0,
+  );
+}
+
+export function reconcileRunOperation(
+  record: RunOperationRecord,
+  evidence: RemoteRunEvidence,
+  reason: string,
+  nowMs = Date.now(),
+) {
+  const remote = evidence.operation || {};
+  const remoteStatus = String(remote.status || remote.state || "").trim().toLowerCase();
+  const checkedAt = new Date(nowMs).toISOString();
+  const counts = {
+    checkedWorkerId: "",
+    checkedPid: Number(evidence.checkedPid ?? 0),
+    checkedTmuxSession: String(evidence.checkedTmuxSession || ""),
+    schedulerStatesCount: Number(evidence.schedulerStatesCount || 0),
+    experimentTracesCount: Number(evidence.experimentTracesCount || 0),
+    liveLogCount: Number(evidence.liveLogCount || 0),
+  };
+  const base = { ...record, ...counts, reconcileEvidenceActive: hasRemoteRunActivity(evidence), lastReconciledAt: checkedAt };
+  if (operationTerminalStatus(remoteStatus)) {
+    return {
+      terminal: true,
+      patch: {
+        ...base,
+        status: remoteStatus,
+        message: String(remote.message || "远端操作已终态。"),
+        finishedAt: checkedAt,
+        reconciledAt: checkedAt,
+        reconcileReason: `${reason}:remote_terminal`,
+        startedAt: record.startedAt || remote.startedAt || "",
+        updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+      },
+    };
+  }
+  if (hasRemoteRunActivity(evidence)) {
+    return { terminal: false, patch: { ...base, status: remoteStatus || "running" } };
+  }
+  const referenceRaw = String(record.reconcileCheckedAt || record.startedAt || "");
+  const reference = Date.parse(referenceRaw);
+  const age = Number.isFinite(reference) ? nowMs - reference : nowMs - (Date.parse(String(record.startedAt || "")) || 0);
+  if (age > RUN_OPERATION_RECONCILE_GRACE_MS) {
+    return {
+      terminal: true,
+      patch: {
+        ...base,
+        status: "stale",
+        message: "远端无 pid、tmux、调度状态、trace 或日志证据；本地提交操作已标记 stale。",
+        finishedAt: checkedAt,
+        reconciledAt: checkedAt,
+        reconcileReason: `${reason}:no_remote_activity`,
+        startedAt: record.startedAt || remote.startedAt || "",
+        updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+      },
+    };
+  }
+  return {
+    terminal: false,
+    patch: {
+      ...base,
+      reconcileCheckedAt: checkedAt,
+      reconcileGraceExpiresAt: new Date(nowMs + RUN_OPERATION_RECONCILE_GRACE_MS).toISOString(),
+    },
+  };
+}
+
+export function runOperationMatchesTarget(record: Record<string, unknown>, target: Record<string, string>): boolean {
+  const selectors: Array<[string, string]> = [
+    ["planFile", String(operationPlanFile(record))],
+    ["planId", String(record.planId || record.selectedPlanId || "")],
+    ["operationId", String(record.operationId || record.opId || "")],
+    ["runKey", String(record.runKey || record.operationId || record.opId || "")],
+    ["remoteOperationId", String(record.remoteOperationId || record.operationId || "")],
+    ["pid", String(record.pid || record.checkedPid || "")],
+    ["tmuxSession", String(record.tmuxSession || record.session || record.checkedTmuxSession || "")],
+  ];
+  let matched = false;
+  for (const [key, value] of selectors) {
+    const wanted = String(target[key] || "").trim();
+    if (!wanted) continue;
+    matched = true;
+    if ((key === "planFile" || key === "planId") ? !samePlanSelection(value, wanted) : value !== wanted) return false;
+  }
+  return matched && isLongRunningPlanOperation(record as RunOperationRecord);
+}
+
+function operationPlanFile(record: Record<string, unknown>): string {
+  return String(record.planFile || record.plan || record.options && (record.options as any).planFile || "");
+}
+
+function samePlanSelection(left: string, right: string): boolean {
+  const normalize = (value: string) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  return Boolean(left && right && normalize(left) === normalize(right));
+}

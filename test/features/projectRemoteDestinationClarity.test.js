@@ -6,6 +6,7 @@ const vm = require("node:vm");
 
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
 const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
 const packageScript = fs.readFileSync(path.join(__dirname, "../../scripts/package-public.ps1"), "utf8");
 
@@ -74,8 +75,8 @@ test("project quick access summarizes upload destinations and refreshes after pr
   assert.match(panel, /section === "servers"[\s\S]{0,320}data\.agentSessions/);
   assert.match(panel, /section === "settings"[\s\S]{0,320}data\.agentSessions/);
   assert.match(panel, /agentDestinations: compactAgentDestinationsForSignature\(data\.agentSessions\)/);
-  assert.match(readme, /设置 -> 服务器.*当前项目代码.*Agent runtime/);
-  assert.match(guide, /项目关键入口.*上传位置/);
+  assert.match(legacyNotes, /设置 -> 服务器.*当前项目代码.*Agent runtime/);
+  assert.match(legacyNotes, /项目关键入口.*上传位置/);
   assert.match(panel, /workspace: data\.workspace/);
   assert.match(panel, /projectQuickRow\("本地项目", workspace\.summary/);
 });

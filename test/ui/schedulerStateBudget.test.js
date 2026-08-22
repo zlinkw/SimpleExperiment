@@ -23,8 +23,8 @@ test("extension compacts scheduler state payload for all-day webview runs", () =
   assert.doesNotMatch(compact, /rest = rows\.filter\(\(row\) => !active\.includes\(row\)\)/);
 });
 
-test("target mode plan records all-day scheduler payload budget", () => {
-  const plan = fs.readFileSync(path.join(root, "docs", "target-mode-plan.md"), "utf8");
-  assert.match(plan, /长时间 Webview payload 预算/);
-  assert.match(plan, /`schedulerStates`/);
+test("architecture records the all-day scheduler payload budget", () => {
+  const architecture = fs.readFileSync(path.join(root, "docs", "architecture.md"), "utf8");
+  assert.match(architecture, /Long-lived Webview payloads stay bounded/);
+  assert.match(architecture, /Scheduler states/);
 });

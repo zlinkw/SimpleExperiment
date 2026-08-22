@@ -4,18 +4,15 @@ const path = require("node:path");
 const test = require("node:test");
 
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
+const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
 
 test("setup guide explains project parent directory and upload destination", () => {
-  assert.match(guide, /```mermaid/);
-  assert.match(guide, /## 最快接入路径/);
-  assert.match(guide, /\| 阶段 \| 完成标准 \|/);
+  assert.match(guide, /## 配置总览/);
+  assert.match(guide, /## 3. 创建 Xshell 隧道/);
   assert.match(guide, /打开服务器设置/);
-  assert.match(guide, /不会通过弹窗从零初始化/);
-  assert.match(guide, /离线安装包中的 `simple-experiment-setup\.md`/);
-  assert.ok((guide.match(/```mermaid/g) || []).length >= 2);
-  assert.match(guide, /项目父目录.*不要填写当前项目名或 `simple_agent`/);
-  assert.match(guide, /插件会自动追加当前项目名/);
-  assert.match(guide, /代码上传到 \/remote\/experiments\/my_project/);
-  assert.match(guide, /Agent runtime 位于 \/remote\/experiments\/simple_agent/);
-  assert.match(guide, /检测全部隧道/);
+  assert.match(guide, /不要把 `\/root`、`\/tmp`、数据集目录或当前项目名填成项目父目录/);
+  assert.match(readme, /最终项目路径由插件计算为/);
+  assert.match(readme, /<项目父目录>\/<本地工作区名称>/);
+  assert.match(readme, /Agent runtime 位于 `<项目父目录>\/simple_agent\/runtime`/);
+  assert.match(readme, /检测全部/);
 });

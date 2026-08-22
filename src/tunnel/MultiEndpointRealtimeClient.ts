@@ -177,6 +177,13 @@ export class MultiEndpointRealtimeClient {
     return client.getOperation(operationId);
   }
 
+  async getRunEvidence(workerId: string | undefined, params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {
+    const client = workerId ? this.clients.get(workerId) : this.hubClient();
+    const endpoint = workerId ? this.endpointById.get(workerId) : undefined;
+    if (!client || (workerId && endpoint?.role !== "worker")) throw new Error(`Agent endpoint not configured: ${workerId || "hub"}`);
+    return client.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
+  }
+
   async getLiveOutput(runKey: string, since = 0, workerId?: string): Promise<unknown> {
     const client = workerId ? this.clients.get(workerId) : this.hubClient();
     const endpoint = workerId ? this.endpointById.get(workerId) : undefined;

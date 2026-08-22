@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
 const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
 
 function extractFunction(name) {
@@ -40,6 +41,6 @@ test("UI keeps runtime visible but waits for a workspace before showing code des
   assert.match(panel, /打开本地项目后显示上传位置/);
   assert.match(panel, /data-project-name="' \+ escAttr\(projectName\)/);
   assert.doesNotMatch(panel, /data-project-name="' \+ escAttr\(item\.projectName \|\| "simple_project"\)/);
-  assert.match(readme, /未打开本地项目时不会使用扩展进程目录生成伪项目名/);
-  assert.match(guide, /先打开目标本地项目后才显示代码上传位置/);
+  assert.match(legacyNotes, /未打开本地项目时不会使用扩展进程目录生成伪项目名/);
+  assert.match(legacyNotes, /先打开目标本地项目后才显示代码上传位置/);
 });

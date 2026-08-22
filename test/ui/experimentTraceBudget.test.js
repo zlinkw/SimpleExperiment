@@ -34,8 +34,8 @@ test("extension compacts experiment trace payload for all-day webview runs", () 
   assert.match(source, /experimentTracePayloadBudget: EXPERIMENT_TRACE_RECORD_LIMIT/);
 });
 
-test("target mode plan records experiment trace payload budget", () => {
-  const plan = fs.readFileSync(path.join(root, "docs", "target-mode-plan.md"), "utf8");
-  assert.match(plan, /长时间 Webview payload 预算/);
-  assert.match(plan, /`experimentTraces`/);
+test("architecture records the experiment trace payload budget", () => {
+  const architecture = fs.readFileSync(path.join(root, "docs", "architecture.md"), "utf8");
+  assert.match(architecture, /Long-lived Webview payloads stay bounded/);
+  assert.match(architecture, /experiment traces/);
 });

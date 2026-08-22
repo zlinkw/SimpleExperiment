@@ -5,11 +5,12 @@ const test = require("node:test");
 
 const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(__dirname, "../../docs/technical-notes.md"), "utf8");
 
 test("run confirmations explain code fingerprint without renaming the internal field", () => {
   assert.match(extension, /核验代码指纹、校验 Plan、预演调度/);
   assert.match(extension, /同步 Hub\/Worker 代码并核验代码指纹/);
   assert.match(extension, /const fingerprint = fingerprintFromManifest\(manifest\)/);
   assert.match(extension, /sftpFingerprintMatches\(record, fingerprint\)/);
-  assert.match(guide, /运行确认窗口同样显示“核验代码指纹”/);
+  assert.match(legacyNotes, /运行确认窗口同样显示“核验代码指纹”/);
 });

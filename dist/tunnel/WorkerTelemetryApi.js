@@ -36,6 +36,7 @@ exports.workerLocalSchedulerActionNames = [
     "dry-run-plan",
     "run-plan",
     "reproduce-plan",
+    "stop-scheduler-operation",
 ];
 exports.workerResultActionNames = [
     "refresh-results",

@@ -43,6 +43,7 @@ AGENT_STATE_DIR = ""
 AUTO_COMPLETION_RUNNING = set()
 ACTION_NAMES = [
     "run-plan",
+    "stop-scheduler-operation",
     "stop-experiment",
     "retry-experiment",
     "reproduce-plan",
@@ -96,6 +97,7 @@ WORKER_RESULT_ACTIONS = {
 }
 ACTION_PATHS = [
     "/api/actions/run-plan",
+    "/api/actions/stop-scheduler-operation",
     "/api/actions/stop-experiment",
     "/api/actions/retry-experiment",
     "/api/actions/reproduce-plan",
@@ -6963,6 +6965,8 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "completed", f"Dry-run 完成：可立即调度 {preview.get('dispatchableCount', 0)}，排队 {preview.get('queuedCount', 0)}", {"preview": preview, "tempCleanup": temp_cleanup}, request=payload)
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
+    if action == "stop-scheduler-operation":
+        return stop_scheduler_operation(root, payload)
     if action in ("run-plan", "reproduce-plan"):
         plan = action_plan_file(payload)
         options = action_options(payload)
@@ -7608,6 +7612,137 @@ def api_operation(root, operation_id):
     result["events"] = events[-50:]
     return result
 
+
+def process_alive(pid):
+    try:
+        pid_value = int(pid or 0)
+        if pid_value <= 0:
+            return False
+        os.kill(pid_value, 0)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def scheduler_process_evidence(root, pid=None, tmux_session=None):
+    checked_pid = int(pid or 0) if str(pid or "").strip().lstrip("-").isdigit() else 0
+    checked_session = str(tmux_session or "").strip()
+    session_alive = False
+    try:
+        session_alive = tmux_session_alive(checked_session, cwd=root)
+    except Exception:
+        session_alive = False
+    pid_alive = process_alive(checked_pid)
+    return {
+        "checkedPid": checked_pid,
+        "checkedTmuxSession": checked_session,
+        "pidAlive": pid_alive,
+        "tmuxSessionAlive": session_alive,
+    }
+
+
+def matching_plan_rows(rows, plan_file):
+    wanted = normalize_result_candidate(plan_file)
+    if not wanted:
+        return list(rows or [])
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        candidates = [row.get("planFile"), row.get("plan_file"), row.get("plan")]
+        for key in ("running_experiments", "testing_experiments", "queued_experiments", "pending_experiments"):
+            if any(isinstance(item, dict) and normalize_result_candidate(item.get("planFile") or item.get("plan") or wanted) == wanted for item in (row.get(key) or [])):
+                candidates.append(wanted)
+                break
+        if any(normalize_result_candidate(item) == wanted for item in candidates):
+            out.append(row)
+    return out
+
+
+def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, tmux_session=None):
+    operation = operation_summary_from_events(operation_id, read_operation_events(root, operation_id, 200))
+    payload = operation.get("latestEvent", {}).get("payload") if isinstance(operation.get("latestEvent"), dict) else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    scheduler_snapshot = read_runtime_json_cached(path_for(root, "cluster_snapshot.json"), {})
+    trace_snapshot = read_runtime_json_cached(path_for(root, "experiment_traces_snapshot.json"), {})
+    scheduler_rows = matching_plan_rows(scheduler_snapshot.get("schedulerStates") or [], plan_file or payload.get("planFile") or payload.get("plan"))
+    traces = matching_plan_rows(trace_snapshot.get("experimentTraces") or [], plan_file or payload.get("planFile") or payload.get("plan"))
+    log_rel = str(payload.get("logPath") or payload.get("log_path") or "")
+    log_path = safe_project_path(root, log_rel) if log_rel else ""
+    live_log_count = 0
+    live_log_tail = ""
+    live_log_updated_at = ""
+    if log_path and os.path.isfile(log_path):
+        stat = os.stat(log_path)
+        with open(log_path, "rb") as handle:
+            handle.seek(max(0, stat.st_size - 16 * 1024))
+            raw_tail = handle.read()
+        text = raw_tail.decode("utf-8", errors="replace")
+        live_log_count = len([line for line in text.splitlines() if line.strip()])
+        live_log_tail = text[-4000:]
+        live_log_updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
+    process = scheduler_process_evidence(root, pid if pid is not None else payload.get("pid"), tmux_session or payload.get("tmuxSession") or payload.get("session"))
+    evidence_counts = {
+        "schedulerStatesCount": len(scheduler_rows),
+        "experimentTracesCount": len(traces),
+        "liveLogCount": live_log_count,
+    }
+    active_evidence = bool(process["pidAlive"] or process["tmuxSessionAlive"] or any(evidence_counts.values()))
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "checkedAt": now_iso(),
+        "operation": operation,
+        **process,
+        **evidence_counts,
+        "activeEvidence": active_evidence,
+        "liveLogUpdatedAt": live_log_updated_at,
+        "liveLogTail": live_log_tail,
+    }
+
+
+def stop_scheduler_operation(root, payload):
+    wanted = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
+    plan = action_plan_file(payload)
+    events = read_operation_events(root, wanted, 100) if wanted else []
+    latest_payload = next((event.get("payload") for event in reversed(events) if isinstance(event.get("payload"), dict)), {})
+    target_pid = payload.get("pid") or latest_payload.get("pid")
+    target_session = payload.get("tmuxSession") or latest_payload.get("tmuxSession") or latest_payload.get("session")
+    before = scheduler_process_evidence(root, target_pid, target_session)
+    terminated_sessions, terminated_pids = [], []
+    errors = []
+    if before["tmuxSessionAlive"]:
+        result = subprocess.run(["tmux", "kill-session", "-t", str(before["checkedTmuxSession"])], cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, check=False)
+        if result.returncode == 0:
+            terminated_sessions.append(before["checkedTmuxSession"])
+        else:
+            errors.append((result.stderr or b"tmux kill failed").decode("utf-8", errors="replace").strip())
+    if before["pidAlive"]:
+        try:
+            os.kill(int(before["checkedPid"]), signal.SIGTERM)
+            terminated_pids.append(before["checkedPid"])
+        except Exception as exc:
+            errors.append(str(exc))
+    time.sleep(0.2)
+    after = scheduler_process_evidence(root, target_pid, target_session)
+    remaining_active = []
+    if after["pidAlive"]: remaining_active.append({"kind": "pid", "value": after["checkedPid"]})
+    if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
+    matched = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"])
+    message = "已终止匹配的调度进程" if matched else ("未找到活动调度进程" if not errors else "停止调度进程失败")
+    status = "completed" if matched and not remaining_active and not errors else ("failed" if remaining_active or (errors and not matched) else "completed")
+    return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), str(payload.get("opId") or payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), status, message, {
+        "matchedOperations": [wanted] if wanted else [],
+        "terminatedSessions": terminated_sessions,
+        "terminatedPids": terminated_pids,
+        "remainingActiveEvidence": remaining_active,
+        "checkedPid": after["checkedPid"],
+        "checkedTmuxSession": after["checkedTmuxSession"],
+        "planFile": plan,
+        **({"errors": errors} if errors else {}),
+    }, request=payload)
+
+
 def recent_operations(root, limit=100):
     rows = operation_journal_index(root)["rows"]
     return rows[:max(1, int(limit or 100))]
@@ -7869,7 +8004,7 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/gpu", "/api/gpu/history", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse") and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse") and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
@@ -7910,6 +8045,15 @@ def serve_http(args):
                 params = parse_qs(parsed.query)
                 plan = (params.get("planFile") or params.get("plan") or params.get("selectedPlanId") or [""])[0]
                 return self.send_json(read_results_summary(root, plan or None, True))
+            if route == "/api/runtime/evidence":
+                params = parse_qs(parsed.query)
+                return self.send_json(api_runtime_operation_evidence(
+                    root,
+                    (params.get("operationId") or params.get("opId") or [""])[0],
+                    (params.get("planFile") or [""])[0],
+                    (params.get("pid") or [None])[0],
+                    (params.get("tmuxSession") or [""])[0],
+                ))
             if route == "/api/diagnostics":
                 return self.send_json(api_diagnostics(root))
             if route == "/api/audit/tail":
@@ -7989,7 +8133,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan") and worker_action not in WORKER_RESULT_ACTIONS:
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation") and worker_action not in WORKER_RESULT_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             allowed = ACTION_ROUTES | {
                 "/api/worker/availability/batch",

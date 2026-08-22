@@ -41,7 +41,7 @@ test("worker telemetry permits bounded worker controls plus local scheduler acti
     "POST /api/actions/delete-worker-artifacts",
     "POST /api/actions/archive-worker-artifacts",
   ].sort());
-  assert.deepEqual([...workerLocalSchedulerActionNames], ["validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"]);
+  assert.deepEqual([...workerLocalSchedulerActionNames], ["validate-plan", "dry-run-plan", "run-plan", "reproduce-plan", "stop-scheduler-operation"]);
   assert.ok(workerResultActionNames.includes("parse-results"));
   assert.ok(workerResultActionNames.includes("archive-artifacts"));
   assert.equal(workerTelemetryForbiddenEndpoints.includes("POST /api/actions/parse-results"), false);

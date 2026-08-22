@@ -5,6 +5,7 @@ const RequestBudget_1 = require("./RequestBudget");
 const TunnelGateway_1 = require("./TunnelGateway");
 exports.tunnelActions = [
     "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
+    "stop-scheduler-operation",
     "archive-artifacts", "exclude-results", "sync-artifacts", "complete-three-way", "delete-artifacts", "reconcile-deletions",
     "parse-results", "refresh-results", "self-check", "rescan-results", "run-quality-gate", "run-statistics", "export-paper-table",
     "check-claim-evidence", "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
@@ -22,11 +23,13 @@ const getPurposeByPath = new Map([
     ["/api/results/summary", "snapshot"],
     ["/api/diagnostics", "diagnostics"],
     ["/api/audit/tail", "diagnostics"],
+    ["/api/runtime/evidence", "manual_refresh"],
 ]);
 const actionPurpose = {
     "validate-plan": "run_plan",
     "dry-run-plan": "run_plan",
     "run-plan": "run_plan",
+    "stop-scheduler-operation": "stop",
     "stop-experiment": "stop",
     "retry-experiment": "run_plan",
     "reproduce-plan": "run_plan",
@@ -119,6 +122,18 @@ class HttpTunnelClient {
         if (!id)
             throw new Error("operationId is required.");
         return this.requestJson(`/api/operations/${encodeURIComponent(id)}`, "diagnostics", undefined, {
+            method: "GET",
+            userInitiated: true,
+        });
+    }
+    getRunEvidence(params = {}) {
+        const query = new URLSearchParams();
+        for (const [key, value] of Object.entries(params)) {
+            const text = String(value || "").trim();
+            if (text)
+                query.set(key, text);
+        }
+        return this.requestJson(`/api/runtime/evidence?${query.toString()}`, "manual_refresh", undefined, {
             method: "GET",
             userInitiated: true,
         });

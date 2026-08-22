@@ -8,6 +8,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), 
 const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
 const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+const legacyNotes = fs.readFileSync(path.join(root, "docs/technical-notes.md"), "utf8");
 const guide = fs.readFileSync(path.join(root, "docs/simple-experiment-setup.md"), "utf8");
 
 const advancedCommands = [
@@ -63,8 +64,8 @@ test("command palette defaults to the new-project main workflow without removing
   }
 
   assert.match(readme, /simpleExperiment\.showAdvancedCommands/);
-  assert.match(readme, /旧自动隧道、单端点启动、实时流和诊断恢复命令仍保持注册/);
-  assert.match(guide, /面板内原按钮和直接命令 ID 不变/);
+  assert.match(legacyNotes, /旧自动隧道、单端点启动、实时流和诊断恢复命令仍保持注册/);
+  assert.match(legacyNotes, /面板内原按钮和直接命令 ID 不变/);
 });
 
 test("settings links directly to the advanced command visibility setting", () => {

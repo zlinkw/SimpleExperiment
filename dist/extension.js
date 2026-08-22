@@ -85,10 +85,13 @@ const TopologyMode_1 = require("./features/TopologyMode");
 const ApiWorkflow_1 = require("./features/ApiWorkflow");
 const AgentRuntimeScope_1 = require("./features/AgentRuntimeScope");
 const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
+const ExtensionUpdates_1 = require("./features/ExtensionUpdates");
+const RunOperations_1 = require("./features/RunOperations");
 const LocalApiServer_1 = require("./api/LocalApiServer");
 const { LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 const RenamedExtensionStateMigration_1 = require("./config/RenamedExtensionStateMigration");
 const RemoteRootPolicyPrefill_1 = require("./config/RemoteRootPolicyPrefill");
+// Update commands are intentionally local-only and do not enter the remote action map.
 const viewId = "simpleExperiment.panel";
 const LOCAL_API_PREFERRED_PORT = 19765;
 const API_DISCOVERY_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleExperiment");
@@ -109,6 +112,7 @@ const keys = {
     projectSessionPrefixPrompt: "simpleExperiment.projectSessionPrefixPromptVersion",
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
+    pluginUpdateStatus: "simpleExperiment.pluginUpdateStatus",
 };
 const API_CONFIG_NAMESPACE = "simpleExperiment";
 const API_CONFIG_PREFIX = `${API_CONFIG_NAMESPACE}.`;
@@ -319,6 +323,8 @@ const uiActionCommands = new Set([
     "clearLegacyTasks",
     "selectExperiment",
     "selectPlan",
+    "checkPluginUpdates",
+    "installPluginUpdates",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
@@ -484,6 +490,7 @@ async function activateExtension(context) {
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
     void RemoteRootPolicyPrefill_1.prefillRemoteRootPolicy(context, context.globalState.get(keys.setupConfig), vscode).catch(() => undefined);
     provider.startLocalApiServer();
+    void provider.reconcileStalePlanRunOperations({ reason: "activation" }).catch(() => undefined);
     void provider.runActivationOnboarding();
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
 }
@@ -628,11 +635,13 @@ class RealtimeTunnelPanelProvider {
     pptAutomationReadiness = (0, PptPlotBridge_1.defaultPptAutomationReadiness)();
     pptAutomationRefreshPromise;
     projectUiLayout;
+    pluginUpdateStatus;
     localOperations = {};
     localOperationsDirty = false;
     localOperationsRevision = 0;
     planRuntimeEvidenceCache;
     localOperationsPersistPromise;
+    runOperationReconcilePromise;
     operationTimers = new Map();
     operationProbeTimers = new Map();
     postLaunchAutoTestTimer;
@@ -702,6 +711,7 @@ class RealtimeTunnelPanelProvider {
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
+        this.pluginUpdateStatus = this.context.globalState.get(keys.pluginUpdateStatus);
         this.tunnelConfig = this.loadTunnelConfig();
         this.projectBootstrapPromise = this.bootstrapProjectLocalUiState()
             .catch(() => undefined)
@@ -776,10 +786,40 @@ class RealtimeTunnelPanelProvider {
                     operations: state.operations || {},
                 };
             },
-            "operations.list": async () => {
+            "operations.list": async (params = {}) => {
                 const runtime = this.buildPlanRuntimeEvidenceState();
+                const rows = Object.entries(runtime.operations || {}).map(([operationId, operation]) => ({
+                    operationId,
+                    ...(operation && typeof operation === "object" ? operation : { value: operation }),
+                }));
+                const filters = {
+                    operationId: stringField(params, "operationId") || stringField(params, "id"),
+                    type: stringField(params, "type"),
+                    status: stringField(params, "status"),
+                    planFile: usableSelectionKey(stringField(params, "planFile")),
+                    planId: usableSelectionKey(stringField(params, "planId")),
+                    startedAfter: stringField(params, "startedAfter"),
+                    startedBefore: stringField(params, "startedBefore"),
+                };
+                let filtered = rows.filter((row) => ((!filters.operationId || row.operationId === filters.operationId || String(row.remoteOperationId || "") === filters.operationId)
+                    && (!filters.type || String(row.type || "").toLowerCase() === filters.type.toLowerCase())
+                    && (!filters.status || operationStatusToken(row.status || row.state) === operationStatusToken(filters.status))
+                    && (!filters.planFile || samePlanSelection(operationResultPlanFile(row), filters.planFile))
+                    && (!filters.planId || samePlanSelection(String(row.planId || row.selectedPlanId || ""), filters.planId))
+                    && (!filters.startedAfter || Date.parse(String(row.startedAt || "")) >= Date.parse(filters.startedAfter))
+                    && (!filters.startedBefore || Date.parse(String(row.startedAt || "")) <= Date.parse(filters.startedBefore))));
+                filtered.sort((left, right) => operationTime(right) - operationTime(left));
+                const total = filtered.length;
+                const offset = Math.max(0, Number(params.offset) || 0);
+                const limit = Math.max(1, Math.min(1000, Number(params.limit) || 200));
+                const page = filtered.slice(offset, offset + limit);
+                const structured = params.filtered === true || Object.values(filters).some(Boolean);
                 return {
-                    operations: runtime.operations || {},
+                    operations: structured ? page : runtime.operations || {},
+                    records: page,
+                    total,
+                    offset,
+                    limit,
                     source: this.effectiveConnectionMode(),
                 };
             },
@@ -1740,6 +1780,7 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             throw new Error("workflow.plan 需要已打开工作区，或传入 workspace 参数。");
         assertSingleProjectWorkspace("workflow.plan");
+        await this.reconcileStalePlanRunOperations({ reason: "workflow.plan" });
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
             this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
         });
@@ -4094,6 +4135,12 @@ class RealtimeTunnelPanelProvider {
             case "saveRemoteRootPolicy":
                 await this.saveRemoteRootPolicyFromUi(message);
                 break;
+            case "checkPluginUpdates":
+                await this.checkPluginUpdates(true);
+                break;
+            case "installPluginUpdates":
+                await this.installPluginUpdates();
+                break;
             case "chooseResultCsvDir":
                 await this.chooseResultCsvDirFromUi();
                 break;
@@ -4274,7 +4321,42 @@ class RealtimeTunnelPanelProvider {
             return;
         this.postState();
     }
+    resultParseIdempotencyKey(command, message) {
+        const planFile = usableSelectionKey(operationResultPlanFile(message) || stringField(message, "planFile") || stringField(message, "selectedPlanId"));
+        const plan = this.localPlanForActionBody({ options: { planFile } });
+        const revision = String(message.planRevision || message.planRevision || plan?.revision || "").trim();
+        const workers = uniqueStrings(stringArrayField(message, "selectedWorkerIds").map((value) => this.resolveWorkerEndpointId(value) || value));
+        const worker = workers.join(",") || this.planSchedulerWorkerId({ options: { planFile, selectedWorkerIds: workers } }) || "default";
+        return sha256Text([workspaceRoot() || "", command, planFile, revision, worker].join("\n"));
+    }
+    activeResultParseOperation(key) {
+        for (const record of Object.values(this.localOperations || {})) {
+            if (record && typeof record === "object" && String(record.resultParseKey || "") === key && !operationTerminal(record))
+                return record;
+        }
+        return undefined;
+    }
     async runActionCommand(command, message) {
+        if (RESULT_PARSE_COMMANDS.has(command)) {
+            const key = this.resultParseIdempotencyKey(command, message);
+            message.resultParseKey = key;
+            const active = this.activeResultParseOperation(key) || this.resultParseInFlight.get(key);
+            if (active) {
+                const record = active && typeof active === "object" && active.operationId ? active : {};
+                return { ...record, ok: true, merged: true, operationId: String(record.operationId || ""), resultParseKey: key };
+            }
+            const execution = (async () => await this.runActionCommandLeased(command, message))();
+            this.resultParseInFlight.set(key, execution);
+            try {
+                return await execution;
+            }
+            finally {
+                if (this.resultParseInFlight.get(key) === execution)
+                    this.resultParseInFlight.delete(key);
+            }
+        }
+    }
+    async runActionCommandLeased(command, message) {
         if (actionCommandMap[command]) {
             return this.withHostOperationLease(command, hostOperationLeaseActionLabel(command), () => this.runActionCommandCore(command, message));
         }
@@ -4293,6 +4375,11 @@ class RealtimeTunnelPanelProvider {
             this.stampPlanRevision(body);
         }
         await this.ensureManualStopReason(command, body);
+        if (command === "stopExperiment") {
+            const routed = await this.stopExperimentRouted(body);
+            if (routed !== undefined)
+                return routed;
+        }
         const workerAction = directWorkerActionMap[command];
         const messageWorkerIds = stringArrayField(message, "selectedWorkerIds").map((id) => this.resolveWorkerEndpointId(id) || id);
         const uniqueMessageWorkerIds = uniqueStrings(messageWorkerIds);
@@ -4358,7 +4445,7 @@ class RealtimeTunnelPanelProvider {
             await this.ensureWorkerPoolPlanTarget(body, operationResultPlanFile(body) || plan?.planFile || command);
             this.assertExecutionWorkersReady(body.options?.workers);
             this.assertExecutionAgentProjectsReady(body);
-            this.assertPlanNotAlreadyActive(operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "", plan);
+            await this.assertPlanNotAlreadyActive(operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "", plan);
             if (!await this.ensureSimpleSftpReadyForSetup(body.debugMode === true ? "Debug 首跑" : command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
             await this.confirmPlanRunSubmission(command, plan, body.debugMode === true, body);
@@ -4514,7 +4601,8 @@ class RealtimeTunnelPanelProvider {
         for (const worker of workers)
             assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
     }
-    assertPlanNotAlreadyActive(planFile, plan) {
+    async assertPlanNotAlreadyActive(planFile, plan) {
+        await this.reconcileStalePlanRunOperations({ reason: "duplicate_guard" });
         const selectedPlan = plan || (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item?.planFile || item?.file || item?.planId || "", planFile));
         const activity = activePlanRunEvidence(this.buildPlanRuntimeEvidenceState(), planFile, selectedPlan);
         if (!activity.active)
@@ -4761,6 +4849,132 @@ class RealtimeTunnelPanelProvider {
                 selectedTaskTargets: scopedTargets,
             },
         };
+    }
+    async setPluginUpdateStatus(status) {
+        this.pluginUpdateStatus = { ...(this.pluginUpdateStatus || {}), ...status };
+        await this.context.globalState.update(keys.pluginUpdateStatus, this.pluginUpdateStatus);
+        this.postState();
+    }
+    async githubUpdateToken(createIfNone) {
+        try {
+            const session = await vscode.authentication.getSession("github", ["repo"], { createIfNone });
+            return session?.accessToken || "";
+        }
+        catch {
+            return "";
+        }
+    }
+    async fetchLatestRelease(repo, token) {
+        const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+            headers: {
+                Accept: "application/vnd.github+json",
+                "User-Agent": "SimpleExperiment-VSCode",
+                "X-GitHub-Api-Version": "2022-11-28",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+        });
+        const value = await response.json().catch(() => undefined);
+        if (!response.ok)
+            throw new Error(`${repo} Release 查询失败：HTTP ${response.status}${value?.message ? ` ${value.message}` : ""}`);
+        return value;
+    }
+    async checkPluginUpdates(manual = false) {
+        await this.setPluginUpdateStatus({ status: "checking", message: "正在检查 SimpleExperiment 与 SimpleSFTP 的配套 Release。", checkedAt: new Date().toISOString() });
+        try {
+            const token = await this.githubUpdateToken(manual);
+            const [experimentRelease, sftpRelease] = await Promise.all([
+                this.fetchLatestRelease(ExtensionUpdates_1.EXPERIMENT_UPDATE_REPO, token),
+                this.fetchLatestRelease(ExtensionUpdates_1.SFTP_UPDATE_REPO, token),
+            ]);
+            const currentVersion = (id) => String(vscode.extensions.getExtension(id)?.packageJSON?.version || "0");
+            const experiment = ExtensionUpdates_1.componentUpdate(ExtensionUpdates_1.EXPERIMENT_EXTENSION_ID, ExtensionUpdates_1.EXPERIMENT_UPDATE_REPO, "SimpleExperiment", currentVersion(ExtensionUpdates_1.EXPERIMENT_EXTENSION_ID), experimentRelease, "simple-experiment");
+            const sftp = ExtensionUpdates_1.componentUpdate(ExtensionUpdates_1.SFTP_EXTENSION_ID, ExtensionUpdates_1.SFTP_UPDATE_REPO, "SimpleSFTP", currentVersion(ExtensionUpdates_1.SFTP_EXTENSION_ID), sftpRelease, "simple-sftp");
+            const plan = ExtensionUpdates_1.planPairedUpdates(experiment, sftp);
+            await this.setPluginUpdateStatus(plan);
+            return plan;
+        }
+        catch (error) {
+            const plan = { status: "error", message: errorMessage(error), checkedAt: new Date().toISOString() };
+            await this.setPluginUpdateStatus(plan);
+            throw error;
+        }
+    }
+    async downloadUpdateAsset(asset, directory, token, checksumAsset) {
+        const response = await fetch(asset.url, {
+            headers: {
+                Accept: "application/octet-stream",
+                "User-Agent": "SimpleExperiment-VSCode",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+        });
+        if (!response.ok)
+            throw new Error(`${asset.name} 下载失败：HTTP ${response.status}`);
+        const bytes = Buffer.from(await response.arrayBuffer());
+        const target = path.join(directory, asset.name);
+        const temp = `${target}.tmp-${process.pid}`;
+        await fs.writeFile(temp, bytes, { mode: 0o600 });
+        await fs.rename(temp, target);
+        if (asset.size && bytes.length !== asset.size)
+            throw new Error(`${asset.name} 大小校验失败：期望 ${asset.size}，实际 ${bytes.length}。`);
+        if (checksumAsset) {
+            const checksumResponse = await fetch(checksumAsset.url, {
+                headers: { "User-Agent": "SimpleExperiment-VSCode", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            });
+            if (!checksumResponse.ok)
+                throw new Error(`${checksumAsset.name} 下载失败：HTTP ${checksumResponse.status}`);
+            const expected = /([a-f0-9]{64})/i.exec(String(await checksumResponse.text()))?.[1] || "";
+            const actual = crypto.createHash("sha256").update(bytes).digest("hex");
+            if (!expected || expected.toLowerCase() !== actual.toLowerCase())
+                throw new Error(`${asset.name} SHA-256 校验失败。`);
+        }
+        return target;
+    }
+    async installPluginUpdates() {
+        let plan = this.pluginUpdateStatus;
+        if (!plan || ["unknown", "error"].includes(String(plan.status)))
+            plan = await this.checkPluginUpdates(true);
+        if (plan.status !== "update_available") {
+            void vscode.window.showInformationMessage(plan.message || "当前插件已是最新版本。");
+            return plan;
+        }
+        const detail = [
+            `SimpleExperiment ${plan.experiment.currentVersion} -> ${plan.experiment.latestVersion}`,
+            `SimpleSFTP ${plan.sftp.currentVersion} -> ${plan.sftp.latestVersion}`,
+            `来源：${ExtensionUpdates_1.EXPERIMENT_UPDATE_REPO} 与 ${ExtensionUpdates_1.SFTP_UPDATE_REPO} Latest Releases`,
+        ].join("\n");
+        const answer = await vscode.window.showWarningMessage(`安装配套插件更新？\n\n${detail}`, { modal: true }, "下载并安装");
+        if (answer !== "下载并安装")
+            return plan;
+        await this.setPluginUpdateStatus({ status: "installing", message: "正在下载并按依赖顺序安装更新。" });
+        const token = await this.githubUpdateToken(false);
+        const directory = path.join(this.context.globalStorageUri.fsPath, "updates", `${Date.now()}`);
+        await fs.mkdir(directory, { recursive: true });
+        const downloads = [
+            { label: "SimpleSFTP", component: plan.sftp },
+            { label: "SimpleExperiment", component: plan.experiment },
+        ];
+        const installed = [];
+        try {
+            for (const item of downloads) {
+                const file = await this.downloadUpdateAsset(item.component.vsix, directory, token, item.component.checksum);
+                await vscode.commands.executeCommand("workbench.extensions.installExtension", vscode.Uri.file(file));
+                installed.push(item.label);
+            }
+            const complete = {
+                status: "reload_required",
+                message: "配套更新已安装；重载窗口后生效。",
+                installedAt: new Date().toISOString(),
+            };
+            await this.setPluginUpdateStatus(complete);
+            const reload = await vscode.window.showInformationMessage("SimpleExperiment 和 SimpleSFTP 已更新。立即重载窗口？", "重载窗口");
+            if (reload === "重载窗口")
+                await vscode.commands.executeCommand("workbench.action.reloadWindow");
+            return { ...this.pluginUpdateStatus };
+        }
+        catch (error) {
+            await this.setPluginUpdateStatus({ status: "error", message: `更新失败（已完成 ${installed.join("、") || "无"}）：${errorMessage(error)}` });
+            throw error;
+        }
     }
     async syncToGitHub(confirm = true) {
         if (confirm)
@@ -5937,6 +6151,7 @@ class RealtimeTunnelPanelProvider {
             type: action,
             status: "pending",
             message: "等待 Hub Agent 接受操作",
+            resultParseKey: request.resultParseKey,
             startedAt: new Date().toISOString(),
             ...operationPlanFields(request),
         };
@@ -6063,6 +6278,7 @@ class RealtimeTunnelPanelProvider {
             status: "pending",
             workerId,
             workerActionKey,
+            resultParseKey: request.resultParseKey,
             message: `等待 Worker Agent ${workerId} 接受操作`,
             startedAt: new Date().toISOString(),
             ...operationPlanFields(request),
@@ -6358,6 +6574,184 @@ class RealtimeTunnelPanelProvider {
             clearTimeout(timer);
         this.operationTimers.delete(opId);
     }
+    longRunningPlanRunOperations() {
+        return Object.values(this.localOperations || {}).filter((item) => (item && typeof item === "object"
+            && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
+            && !operationTerminal(item)));
+    }
+    runOperationWorkerId(record) {
+        const explicit = String(record?.schedulerOwnerWorkerId || record?.resultOwnerWorkerId || "").trim();
+        if (explicit)
+            return this.resolveWorkerEndpointId(explicit) || explicit;
+        const selected = stringArrayField(record, ["selectedWorkerIds", "selectedWorkerId"]).map((value) => this.resolveWorkerEndpointId(value) || value).filter(Boolean);
+        if (selected.length === 1)
+            return selected[0];
+        const workers = this.enabledWorkerConfigs();
+        return workers.length === 1 ? String(workers[0].id || "") : "";
+    }
+    async collectRunOperationEvidence(record) {
+        const operationId = String(record.operationId || record.remoteOperationId || "").trim();
+        const workerId = this.runOperationWorkerId(record);
+        const params = {
+            operationId,
+            planFile: operationResultPlanFile(record),
+            pid: record.pid || "",
+            tmuxSession: record.tmuxSession || record.session || "",
+        };
+        try {
+            const evidence = await this.client.getRunEvidence(workerId, params);
+            return { ok: true, evidence: evidence && typeof evidence === "object" ? evidence : {}, workerId };
+        }
+        catch (error) {
+            return { ok: false, error: errorMessage(error), workerId };
+        }
+    }
+    async reconcileStalePlanRunOperations(options = {}) {
+        if (this.runOperationReconcilePromise)
+            return await this.runOperationReconcilePromise;
+        if (!this.isRealtimeMode())
+            return { reconciled: [], checked: [] };
+        const reason = String(options.reason || "manual").slice(0, 80);
+        const operation = (async () => {
+            const candidates = this.longRunningPlanRunOperations();
+            const reconciled = [];
+            const checked = [];
+            for (const record of candidates) {
+                const operationId = String(record.operationId || "").trim();
+                if (!operationId)
+                    continue;
+                const result = await this.collectRunOperationEvidence(record);
+                if (!result.ok) {
+                    this.localOperations[operationId] = { ...record, lastReconcileError: result.error, lastReconciledAt: new Date().toISOString() };
+                    continue;
+                }
+                checked.push(operationId);
+                const evidence = result.evidence;
+                const decision = RunOperations_1.reconcileRunOperation(record, evidence, reason);
+                const patch = {
+                    ...decision.patch,
+                    checkedWorkerId: result.workerId,
+                    checkedPid: evidence.checkedPid ?? record.checkedPid ?? record.pid ?? 0,
+                    checkedTmuxSession: evidence.checkedTmuxSession || record.checkedTmuxSession || record.tmuxSession || "",
+                };
+                delete patch.lastReconcileError;
+                this.localOperations[operationId] = patch;
+                if (decision.terminal)
+                    reconciled.push(operationId);
+            }
+            if (checked.length || reconciled.length) {
+                this.markLocalOperationsDirty();
+                this.postState();
+            }
+            return { reconciled, checked };
+        })();
+        this.runOperationReconcilePromise = operation;
+        try {
+            return await operation;
+        }
+        finally {
+            if (this.runOperationReconcilePromise === operation)
+                this.runOperationReconcilePromise = undefined;
+        }
+    }
+    stopExperimentMatchesTarget(record, target) {
+        return RunOperations_1.runOperationMatchesTarget(record, target);
+    }
+    async stopExperimentRouted(body) {
+        const topology = this.projectTopologyAssessment();
+        const explicitWorker = this.resolveWorkerEndpointId(stringField(body, "workerId"))
+            || uniqueStrings(stringArrayField(body, "selectedWorkerIds").map((value) => this.resolveWorkerEndpointId(value) || value)).join(",");
+        const target = {
+            planFile: operationResultPlanFile(body),
+            planId: stringField(body, "planId") || stringField(body, "selectedPlanId"),
+            operationId: stringField(body, "operationId") || stringField(body, "remoteOperationId") || usableSelectionKey(stringField(body, "runKey")),
+            runKey: usableSelectionKey(stringField(body, "runKey")) || usableSelectionKey(stringField(body, "experimentId")),
+            remoteOperationId: stringField(body, "remoteOperationId"),
+            pid: numberField(body, "pid") ? String(numberField(body, "pid")) : "",
+            tmuxSession: stringField(body, "tmuxSession") || stringField(body, "session"),
+        };
+        let candidates = Object.values(this.localOperations || {}).filter((item) => (item && typeof item === "object" && !operationTerminal(item)
+            && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
+            && this.stopExperimentMatchesTarget(item, target)));
+        if (!candidates.length && !Object.values(target).some(Boolean))
+            candidates = this.longRunningPlanRunOperations();
+        if (!candidates.length)
+            return undefined;
+        const byOwner = new Map();
+        for (const record of candidates) {
+            const owner = explicitWorker
+                || this.runOperationWorkerId(record)
+                || (topology.hubAllowed ? "" : String(this.enabledWorkerConfigs()[0]?.id || ""));
+            if (!owner)
+                return undefined;
+            if (!byOwner.has(owner))
+                byOwner.set(owner, []);
+            byOwner.get(owner).push(record);
+        }
+        const matchedOperations = [];
+        const terminatedSessions = [];
+        const terminatedPids = [];
+        const reconciledOperations = [];
+        const remainingActiveEvidence = [];
+        for (const [workerId, rows] of byOwner) {
+            const request = {
+                opId: makeOpId("stop-scheduler-operation"),
+                operationId: makeOpId("stop-scheduler-operation"),
+                planFile: operationResultPlanFile(rows[0]) || target.planFile,
+                selectedWorkerIds: [workerId],
+                workerId,
+                manualStopType: body.manualStopType || body.stopReason,
+                stopReason: body.stopReason || body.manualStopType,
+                stopSource: "user",
+            };
+            for (const row of rows) {
+                request.targetOperationId ||= String(row.operationId || "");
+                request.remoteOperationId ||= String(row.remoteOperationId || row.operationId || "");
+                request.pid ||= Number(row.pid || row.checkedPid || 0);
+                request.tmuxSession ||= String(row.tmuxSession || row.session || row.checkedTmuxSession || "");
+            }
+            const result = await this.postWorkerTunnelAction(workerId, "stop-scheduler-operation", request, {
+                title: "stopExperiment",
+                confirm: false,
+            });
+            const record = result && typeof result === "object" ? result : {};
+            terminatedSessions.push(...stringArrayField(record, ["terminatedSessions", "terminated_sessions"]));
+            terminatedPids.push(...stringArrayField(record, ["terminatedPids", "terminated_pids"]));
+            remainingActiveEvidence.push(...(Array.isArray(record.remainingActiveEvidence) ? record.remainingActiveEvidence : []));
+            for (const row of rows) {
+                const operationId = String(row.operationId || "");
+                matchedOperations.push(operationId);
+                if (!operationTerminal(this.localOperations[operationId])) {
+                    const now = new Date().toISOString();
+                    const orphan = !terminatedSessions.length && !terminatedPids.length;
+                    this.localOperations[operationId] = {
+                        ...row,
+                        status: orphan ? "stale" : resultStatus(record) === "failed" ? "failed" : "completed",
+                        message: orphan
+                            ? "停止对账未发现活动 pid/tmux；本地提交操作已标记 stale。"
+                            : stringFromRecord(record, ["message"]) || "已请求终止对应调度进程。",
+                        finishedAt: now,
+                        reconciledAt: now,
+                        reconcileReason: orphan ? "stop:no_remote_activity" : "stop:terminated",
+                        checkedWorkerId: workerId,
+                        updatedAt: now,
+                    };
+                    reconciledOperations.push(operationId);
+                }
+            }
+        }
+        this.markLocalOperationsDirty();
+        this.postState();
+        return {
+            ok: !remainingActiveEvidence.length,
+            stopped: terminatedSessions.length + terminatedPids.length,
+            matchedOperations,
+            terminatedSessions: uniqueStrings(terminatedSessions),
+            terminatedPids: uniqueStrings(terminatedPids),
+            reconciledOperations,
+            remainingActiveEvidence,
+        };
+    }
     clearOperationStatusProbe(opId) {
         const timer = this.operationProbeTimers.get(opId);
         if (timer)
@@ -6436,6 +6830,7 @@ class RealtimeTunnelPanelProvider {
             manualStopType: manualStopType || undefined,
             stopReason: stopReason || undefined,
             debugMode,
+            resultParseKey: stringField(message, "resultParseKey") || undefined,
             options: {
                 planFile,
                 planId: selectedPlanId || undefined,
@@ -6455,6 +6850,7 @@ class RealtimeTunnelPanelProvider {
                 manualStopType: manualStopType || undefined,
                 stopReason: stopReason || undefined,
                 debugMode,
+                resultParseKey: stringField(message, "resultParseKey") || undefined,
                 remotePath: stringField(message, "remotePath"),
                 workers: this.workerActionTargets(),
             },
@@ -9793,6 +10189,7 @@ class RealtimeTunnelPanelProvider {
             setup: compactXshellSetupForWebview(this.setupConfig),
             schedulerConfig,
             remoteRootPolicy: remoteRootPolicyConfig(),
+            pluginUpdate: this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
             pptPlotConfig: this.pptPlotConfig(),
             pptAutomation: this.pptAutomationReadiness,
             integrations,
@@ -10786,6 +11183,7 @@ const OPERATION_FAILURE_TERMINAL_STATUSES = new Set(["completed_with_errors", "f
 const OPERATION_CANCELLED_TERMINAL_STATUSES = new Set(["cancelled", "canceled"]);
 const REMOTE_ACTION_PENDING_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "progress", "in_progress", "operation_started"]);
 const LONG_RUNNING_OPERATION_ACTIONS = new Set(["run-plan", "reproduce-plan"]);
+const RUN_OPERATION_RECONCILE_GRACE_MS = 90_000;
 const PROJECT_BOOTSTRAP_SUCCEEDED_STATUSES = new Set(["completed", "operation_completed", "done", "success", "succeeded"]);
 const RESULT_SUMMARY_RECORD_ARRAY_FIELDS = new Set(["results", "finalResults", "final_results", "pendingReviewRecords", "pending_review_records"]);
 const RESULT_REPARSE_ACTIONS = new Set(["archive-artifacts", "exclude-results", "delete-artifacts", "archive-worker-artifacts", "delete-worker-artifacts"]);
