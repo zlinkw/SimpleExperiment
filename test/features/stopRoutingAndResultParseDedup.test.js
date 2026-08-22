@@ -14,7 +14,15 @@ const operationTerminal = (row) => terminalStatuses.has(String(row?.status || ""
 function extractMethod(source, signature) {
   const start = source.indexOf(signature);
   assert.ok(start >= 0, `missing method ${signature}`);
-  const bodyStart = source.indexOf("{", start);
+  let parentheses = 0;
+  let cursor = start + signature.length;
+  while (cursor < source.length) {
+    if (source[cursor] === "(") parentheses += 1;
+    if (source[cursor] === ")") parentheses -= 1;
+    if (parentheses === 0 && source[cursor] === "{") break;
+    cursor += 1;
+  }
+  const bodyStart = cursor;
   assert.ok(bodyStart > start, `missing body for ${signature}`);
   let depth = 0;
   for (let index = bodyStart; index < source.length; index += 1) {
@@ -217,4 +225,150 @@ test("concurrent result parses merge into one active operation", async () => {
   assert.equal(second.merged, true);
   assert.equal(firstResult.operationId, "operation");
   assert.equal(second.operationId, "operation");
+});
+
+test("runActionCommand executes the default action branch and returns its result", async () => {
+  const context = createContext({ RESULT_PARSE_COMMANDS: new Set(["parseResults"]) });
+  const method = extractMethod(extensionSource, "async runActionCommand(command, message)");
+  vm.runInContext(`const methods = { ${method} };\nthis.runActionCommand = methods.runActionCommand;`, context);
+  let leased = 0;
+  const provider = {
+    async runActionCommandLeased(command, message) {
+      leased += 1;
+      return { ok: true, command, message };
+    },
+  };
+
+  const result = await context.runActionCommand.call(provider, "stopExperiment", { planFile: "plans/demo.yaml" });
+
+  assert.equal(leased, 1);
+  assert.equal(result.ok, true);
+  assert.equal(result.command, "stopExperiment");
+});
+
+test("single-worker evidence uses the configured Worker endpoint and never falls back to Hub", async () => {
+  const selectorContext = createContext({});
+  const selectorMethod = extractMethod(extensionSource, "runOperationEvidenceWorkerId(record)");
+  vm.runInContext(`const methods = { ${selectorMethod} };\nthis.select = methods.runOperationEvidenceWorkerId;`, selectorContext);
+  const context = createContext({});
+  const collectMethod = extractMethod(extensionSource, "async collectRunOperationEvidence(record)");
+  vm.runInContext(`const methods = { ${collectMethod} };\nthis.collect = methods.collectRunOperationEvidence;`, context);
+  let requestedWorkerId = "";
+  const provider = {
+    projectTopologyAssessment: () => ({ mode: "single_worker", hubAllowed: false }),
+    enabledWorkerConfigs: () => [{ id: "nwpu3" }],
+    resolveWorkerEndpointId: (value) => value === "nwpu3" ? value : "",
+    runOperationWorkerId: (record) => String(record.schedulerOwnerWorkerId || ""),
+    runOperationEvidenceWorkerId(record) {
+      return selectorContext.select.call(this, record);
+    },
+    client: {
+      async getRunEvidence(workerId) {
+        requestedWorkerId = workerId;
+        return { checkedPid: 2402941, checkedTmuxSession: "zlk-scheduler-old", schedulerStatesCount: 0, liveLogCount: 0 };
+      },
+    },
+  };
+  const record = {
+    operationId: "old",
+    planFile: "plans/demo.yaml",
+    pid: 2402941,
+    tmuxSession: "zlk-scheduler-old",
+    schedulerOwnerWorkerId: "nwpu3",
+  };
+
+  assert.equal(selectorContext.select.call(provider, record), "nwpu3");
+  const result = await context.collect.call(provider, record);
+  assert.equal(requestedWorkerId, "nwpu3");
+  assert.equal(result.ok, true);
+  assert.equal(result.workerId, "nwpu3");
+});
+
+test("project.prepare merges partial Worker rows without resetting concurrency", () => {
+  const context = createContext({
+    normalizeCondaEnvSetting: (value) => String(value ?? "").trim(),
+    uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
+  });
+  const method = extractMethod(extensionSource, "apiMergedWorkerConfigs(workerTunnels, setup = this.setupConfig)");
+  vm.runInContext(`const methods = { ${method} };\nthis.merge = methods.apiMergedWorkerConfigs;`, context);
+  const provider = {};
+  const merged = context.merge.call(provider, [{ id: "nwpu3", condaEnv: "zlk" }], {
+    agentProjectDir: "/data/qgking/zlk",
+    condaEnv: "fallback",
+    workerTunnels: [{
+      id: "nwpu3",
+      displayName: "NWPU3",
+      maxConcurrentGpus: 4,
+      allowedGpuIds: ["0", "1", "1"],
+      condaEnv: "old",
+      agentProjectDir: "/data/qgking/zlk",
+    }],
+  });
+  const worker = merged.find((row) => row.id === "nwpu3");
+
+  assert.equal(worker.maxConcurrentGpus, 4);
+  assert.deepEqual([...worker.allowedGpuIds], ["0", "1", "1"]);
+  assert.equal(worker.condaEnv, "zlk");
+});
+
+test("project.prepare setup merge preserves an existing Worker concurrency value", () => {
+  const context = createContext({
+    uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
+    normalizeCondaEnvSetting: (value) => String(value ?? "").trim(),
+    XshellTunnelSetup_1: {
+      normalizeXshellSetupConfig: (input) => ({ ...input }),
+    },
+  });
+  const method = extractMethod(extensionSource, "apiMergedSetupConfig(params = {})");
+  vm.runInContext(`const methods = { ${method} };\nthis.mergeSetup = methods.apiMergedSetupConfig;`, context);
+  const provider = {
+    setupConfig: {
+      localForwardPort: 18765,
+      remoteAgentPort: 18765,
+      workerTunnels: [{
+        id: "nwpu3",
+        displayName: "NWPU3",
+        host: "gpu.example",
+        user: "researcher",
+        port: 22,
+        maxConcurrentGpus: 4,
+        allowedGpuIds: ["0", "1"],
+        condaEnv: "zlk",
+        agentProjectDir: "/data/qgking/zlk",
+      }],
+    },
+  };
+  const merged = context.mergeSetup.call(provider, { workerTunnels: [{ id: "nwpu3", condaEnv: "zlk" }] });
+  const worker = merged.workerTunnels.find((row) => row.id === "nwpu3");
+
+  assert.equal(worker.maxConcurrentGpus, 4);
+  assert.deepEqual([...worker.allowedGpuIds], ["0", "1"]);
+  assert.equal(worker.agentProjectDir, "/data/qgking/zlk");
+});
+
+test("formal run evidence excludes old operations and accepts a new active submission", () => {
+  const context = createContext({});
+  const method = extractMethod(extensionSource, "runSubmissionEvidence(record, knownOperationIds)");
+  vm.runInContext(`const methods = { ${method} };\nthis.evidence = methods.runSubmissionEvidence;`, context);
+  const provider = {
+    localOperations: {
+      newRun: { operationId: "newRun", type: "run-plan", status: "accepted" },
+      oldRun: { operationId: "oldRun", type: "run-plan", status: "running" },
+    },
+  };
+  const known = new Set(["workflow-run", "oldRun"]);
+
+  assert.equal(context.evidence.call(provider, provider.localOperations.oldRun, known), null);
+  assert.match(JSON.stringify(context.evidence.call(provider, provider.localOperations.newRun, known)), /"submissionOperationId":"newRun"/);
+});
+
+test("run workflow gates duplicate blockers and requires submission evidence", () => {
+  const start = extensionSource.indexOf("async apiWorkflowRun(params = {})");
+  const end = extensionSource.indexOf("async runApiWorkflowOperation", start);
+  const runWorkflow = extensionSource.slice(start, end);
+  assert.match(runWorkflow, /STALE_LOCAL_RUN_OPERATION/);
+  assert.match(runWorkflow, /ACTIVE_PLAN_RUN_EXISTS/);
+  assert.match(extensionSource, /RUN_SUBMISSION_EVIDENCE_MISSING/);
+  assert.match(extensionSource, /apiMergedWorkerConfigs\(workerTunnels, setup\)/);
+  assert.match(extensionSource, /maxConcurrentGpus: Number\(worker\.maxConcurrentGpus \|\| 1\)/);
 });

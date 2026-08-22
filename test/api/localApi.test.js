@@ -491,7 +491,7 @@ test("SimpleExperiment uses one configured root across workflow, runtime and SFT
 
 test("SimpleExperiment blocks unconfigured placeholder conda environments before workflow submission", () => {
   assert.match(extensionSource, /assertExecutionCondaEnvReady\(this\.workerActionTargets\(\)\)/);
-  assert.match(extensionSource, /condaEnv: normalizeCondaEnvSetting\(row\.condaEnv\) \|\| undefined/);
+  assert.match(extensionSource, /condaEnv: normalizeCondaEnvSetting\(row\.condaEnv \?\? existing\?\.condaEnv\) \|\| undefined/);
   const start = extensionSource.indexOf("assertExecutionCondaEnvReady(workers = this.workerActionTargets())");
   const end = extensionSource.indexOf("assertHubAgentProjectReady()", start);
   assert.ok(start >= 0 && end > start);
@@ -505,7 +505,7 @@ test("SimpleExperiment prepare previews expose the resolved final project path",
   const end = extensionSource.indexOf("apiMergedSetupConfig(params = {})", start);
   assert.ok(start >= 0 && end > start);
   const method = extensionSource.slice(start, end);
-  for (const field of ["serverId", "role", "sshConfigAlias", "remoteRoot", "projectPath"]) {
+  for (const field of ["serverId", "role", "sshConfigAlias", "remoteRoot", "projectPath", "agentProjectDir", "condaEnv", "maxConcurrentGpus"]) {
     assert.match(method, new RegExp(`${field}:`));
   }
 });

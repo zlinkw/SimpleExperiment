@@ -1128,6 +1128,9 @@ class RealtimeTunnelPanelProvider {
                 port: target.port,
                 user: target.user,
                 remoteRoot: target.remoteRoot,
+                agentProjectDir: target.agentProjectDir || this.agentRuntimeDirs(target.remoteRoot).workDir || "",
+                condaEnv: target.condaEnv || "",
+                maxConcurrentGpus: Number(target.maxConcurrentGpus || (target.role === "worker" ? 1 : 0)),
                 workDir: this.agentRuntimeDirs(target.remoteRoot).workDir || "",
                 projectPath: this.agentRuntimeDirs(target.remoteRoot).workDir || "",
                 enabled: true,
@@ -1203,7 +1206,11 @@ class RealtimeTunnelPanelProvider {
                 : {};
         const workers = Array.isArray(params.workerTunnels)
             ? params.workerTunnels.map((worker) => {
-                const row = worker && typeof worker === "object" ? worker : {};
+                const incoming = worker && typeof worker === "object" ? worker : {};
+                const existingId = String(incoming.id || incoming.serverId || incoming.host || "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+                const existing = this.setupConfig.workerTunnels.find((item) => item.id === existingId)
+                    || this.setupConfig.workerTunnels.find((item) => item.displayName === incoming.displayName);
+                const row = { ...existing, ...incoming };
                 const id = String(row.id || row.serverId || row.host || "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || `worker-${Math.random().toString(16).slice(2, 8)}`;
                 const host = String(row.host || row.sshHost || row.workerHost || "").trim();
                 const user = String(row.user || row.username || row.workerUser || "").trim();
@@ -1226,7 +1233,13 @@ class RealtimeTunnelPanelProvider {
                     remoteTelemetryPort: Number.isInteger(remoteAgentPort) && remoteAgentPort >= 1024 ? remoteAgentPort : 18765,
                     savedSessionPath: String(row.savedSessionPath || row.xshPath || "").trim() || undefined,
                     agentProjectDir: String(row.agentProjectDir || row.remoteRoot || row.remotePath || "").trim() || undefined,
-                    condaEnv: normalizeCondaEnvSetting(row.condaEnv) || undefined,
+                    condaEnv: normalizeCondaEnvSetting(row.condaEnv ?? existing?.condaEnv) || undefined,
+                    maxConcurrentGpus: row.maxConcurrentGpus === undefined
+                        ? Number(existing?.maxConcurrentGpus || 1)
+                        : Math.max(1, Math.trunc(Number(row.maxConcurrentGpus) || 1)),
+                    allowedGpuIds: Array.isArray(row.allowedGpuIds)
+                        ? uniqueStrings(row.allowedGpuIds.map((item) => String(item || "").trim()).filter(Boolean))
+                        : existing?.allowedGpuIds || [],
                     authMethod: row.authMethod === "key" ? "key" : "password",
                     enabled: row.enabled !== false,
                 };
@@ -1321,6 +1334,8 @@ class RealtimeTunnelPanelProvider {
                     port: Number(hub.port || 22),
                     user: hub.user || "",
                     remoteRoot: remoteRoot || "",
+                    agentProjectDir: remoteRoot ? this.agentRuntimeDirs(remoteRoot).workDir : "",
+                    condaEnv: normalizeCondaEnvSetting(setup.condaEnv),
                     enabled: true,
                     topology: topology.mode,
                     savedSessionPath: hub.savedSessionPath || "",
@@ -1362,6 +1377,9 @@ class RealtimeTunnelPanelProvider {
                     port: Number(target.port || worker.port || worker.hubSshPort || 22),
                     user: target.user || worker.user || "",
                     remoteRoot: remoteRoot || "",
+                    agentProjectDir: remoteRoot ? this.agentRuntimeDirs(remoteRoot).workDir : "",
+                    condaEnv: effectiveWorkerCondaEnv(worker, setup.condaEnv),
+                    maxConcurrentGpus: Number(worker.maxConcurrentGpus || 1),
                     enabled: worker.enabled !== false,
                     topology: topology.mode,
                     savedSessionPath: target.savedSessionPath || worker.savedSessionPath || "",
@@ -1404,7 +1422,7 @@ class RealtimeTunnelPanelProvider {
         if (!targets.length)
             throw new Error("project.prepare 没有可用的服务器目标；请先选择已配置并启用的 Hub/Worker。");
         const selectedWorkerIds = new Set(targets.filter((target) => target.role === "worker").map((target) => String(target.id)));
-        this.assertExecutionCondaEnvReady(this.apiMergedWorkerConfigs(params.workerTunnels, setup)
+        this.assertExecutionCondaEnvReady(this.apiMergedWorkerConfigs(workerTunnels, setup)
             .filter((worker) => selectedWorkerIds.has(String(worker.id)))
             .map((worker) => ({ id: worker.id, condaEnv: effectiveWorkerCondaEnv(worker, setup.condaEnv) })));
         return targets;
@@ -1429,6 +1447,13 @@ class RealtimeTunnelPanelProvider {
                 agentProjectDir: worker.agentProjectDir || worker.remoteRoot || existing.agentProjectDir || setup.agentProjectDir || "",
                 savedSessionPath: worker.savedSessionPath || existing.savedSessionPath || "",
                 enabled: worker.enabled !== false,
+                condaEnv: worker.condaEnv === undefined ? existing.condaEnv : normalizeCondaEnvSetting(worker.condaEnv),
+                maxConcurrentGpus: worker.maxConcurrentGpus === undefined
+                    ? Number(existing.maxConcurrentGpus || 1)
+                    : Math.max(1, Math.trunc(Number(worker.maxConcurrentGpus) || 1)),
+                allowedGpuIds: Array.isArray(worker.allowedGpuIds)
+                    ? uniqueStrings(worker.allowedGpuIds.map((item) => String(item || "").trim()).filter(Boolean))
+                    : existing.allowedGpuIds || [],
             });
         }
         return [...byId.values()];
@@ -1896,6 +1921,29 @@ class RealtimeTunnelPanelProvider {
         };
         this.markLocalOperationsDirty();
         this.postState();
+        const submittedPlanFile = String(route.calls[0]?.params?.planFile || route.plan?.planFile || "");
+        const submittedPlanId = String(route.calls[0]?.params?.planId || route.plan?.planId || "");
+        try {
+            await this.assertPlanNotAlreadyActive(submittedPlanFile || submittedPlanId);
+        }
+        catch (error) {
+            const blocker = error instanceof LocalApiError && error.apiData && typeof error.apiData === "object"
+                ? error.apiData.blocker
+                : undefined;
+            if (blocker && ["ACTIVE_PLAN_RUN_EXISTS", "STALE_LOCAL_RUN_OPERATION"].includes(String(blocker.code))) {
+                return {
+                    ok: false,
+                    started: false,
+                    confirmation: "none",
+                    workspace: workspaceRoot() || "",
+                    plan: route.plan,
+                    nextAction: "operations.list",
+                    calls: [{ method: "operations.list", params: {} }],
+                    blocker,
+                };
+            }
+            throw error;
+        }
         void this.runApiWorkflowOperation(operationId, route).catch(() => undefined);
         return {
             ok: true,
@@ -1909,6 +1957,7 @@ class RealtimeTunnelPanelProvider {
         };
     }
     async runApiWorkflowOperation(operationId, route) {
+        const knownOperationIds = new Set(Object.keys(this.localOperations || {}));
         const finish = (patch = {}) => {
             this.localOperations[operationId] = {
                 ...(this.localOperations[operationId] || {}),
@@ -1928,16 +1977,43 @@ class RealtimeTunnelPanelProvider {
             };
             this.markLocalOperationsDirty();
             this.postState();
-            await this.runActionCommand("runPlan", route.calls[0].params);
-            finish({ status: "succeeded", message: "实验已按标准路线提交。" });
+            const submitted = await this.runActionCommand("runPlan", route.calls[0].params);
+            let evidence = this.runSubmissionEvidence(submitted, knownOperationIds);
+            if (!evidence)
+                evidence = await this.waitForRunSubmissionEvidence({ knownOperationIds, timeoutMs: 20_000 });
+            if (!evidence) {
+                finish({
+                    status: "failed",
+                    error: "RUN_SUBMISSION_EVIDENCE_MISSING",
+                    message: "标准路线已执行，但未找到新的 run-plan/reproduce-plan operation 或远端 accepted/submitted/running 证据。",
+                });
+                return;
+            }
+            finish({
+                status: "succeeded",
+                message: "实验已按标准路线提交，并确认新的运行操作进入 accepted/submitted/running 状态。",
+                ...evidence,
+            });
         }
         catch (error) {
             if (isUiCommandRemotePending(error)) {
                 const match = /operationId=([^\s；;]+)/.exec(errorMessage(error));
+                const evidence = match?.[1]
+                    ? this.runSubmissionEvidence(this.localOperations[match[1]], knownOperationIds)
+                        || await this.waitForRunSubmissionEvidence({
+                            operationId: match[1],
+                            knownOperationIds,
+                            timeoutMs: 20_000,
+                        })
+                    : null;
+                if (evidence) {
+                    finish({ status: "succeeded", message: errorMessage(error), ...evidence });
+                    return;
+                }
                 finish({
-                    status: "succeeded",
-                    message: errorMessage(error),
-                    remoteOperationId: match?.[1] || "",
+                    status: "failed",
+                    error: "RUN_SUBMISSION_EVIDENCE_MISSING",
+                    message: "Agent 已返回提交中状态，但未找到对应的新 run-plan/reproduce-plan operation 或活动证据。",
                 });
                 return;
             }
@@ -1947,6 +2023,45 @@ class RealtimeTunnelPanelProvider {
                 message: errorMessage(error),
             });
         }
+    }
+    runSubmissionEvidence(record, knownOperationIds) {
+        const row = record && typeof record === "object" ? record : {};
+        const type = String(row.type || "").toLowerCase();
+        const status = String(row.status || resultStatus(row)).toLowerCase();
+        const operationId = String(row.operationId || row.opId || "").trim();
+        const activeStatuses = new Set(["accepted", "submitted", "operation_started", "queued", "running", "progress", "in_progress"]);
+        const localRow = operationId ? this.localOperations?.[operationId] : undefined;
+        const localType = String(localRow?.type || type).toLowerCase();
+        if (!operationId || !activeStatuses.has(status))
+            return null;
+        if (knownOperationIds?.has(operationId))
+            return null;
+        if (localRow && !["run-plan", "reproduce-plan"].includes(localType))
+            return null;
+        if (!localRow && !["run-plan", "reproduce-plan"].includes(type))
+            return null;
+        return {
+            submissionOperationId: operationId,
+            submissionStatus: status,
+            submissionType: localType || type,
+            submissionEvidenceAt: new Date().toISOString(),
+        };
+    }
+    async waitForRunSubmissionEvidence(options = {}) {
+        const { operationId = "", knownOperationIds, timeoutMs = 20_000 } = options;
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            const candidates = operationId
+                ? [this.localOperations?.[operationId]].filter(Boolean)
+                : Object.values(this.localOperations || {});
+            for (const record of candidates) {
+                const evidence = this.runSubmissionEvidence(record, knownOperationIds);
+                if (evidence)
+                    return evidence;
+            }
+            await sleep(250);
+        }
+        return null;
     }
     async apiAdvanceFlow(step, patch) {
         this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, patch);
@@ -4411,6 +4526,7 @@ class RealtimeTunnelPanelProvider {
                     this.resultParseInFlight.delete(key);
             }
         }
+        return await this.runActionCommandLeased(command, message);
     }
     async runActionCommandLeased(command, message, options = {}) {
         if (actionCommandMap[command]) {
@@ -6721,9 +6837,24 @@ class RealtimeTunnelPanelProvider {
         const workers = this.enabledWorkerConfigs();
         return workers.length === 1 ? String(workers[0].id || "") : "";
     }
+    runOperationEvidenceWorkerId(record) {
+        const topology = this.projectTopologyAssessment();
+        const owner = this.runOperationWorkerId(record);
+        if (topology.mode === "single_worker") {
+            if (owner && this.resolveWorkerEndpointId(owner))
+                return owner;
+            const soleWorker = String(this.enabledWorkerConfigs()[0]?.id || "");
+            if (!soleWorker)
+                throw new Error("single_worker 运行对账缺少 Worker Agent endpoint；请配置并启用唯一 Worker。");
+            return soleWorker;
+        }
+        if (!owner)
+            throw new Error("运行对账缺少 schedulerOwnerWorkerId 或 resultOwnerWorkerId。");
+        return owner;
+    }
     async collectRunOperationEvidence(record) {
         const operationId = String(record.operationId || record.remoteOperationId || "").trim();
-        const workerId = this.runOperationWorkerId(record);
+        const workerId = this.runOperationEvidenceWorkerId(record);
         const params = {
             operationId,
             planFile: operationResultPlanFile(record),
