@@ -13,9 +13,13 @@ test("remote root policies are exposed in the plugin settings page", () => {
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.remote.deniedRoots"].scope, "resource");
   assert.match(panel, /<div id="remoteRootPolicySettings" data-anchor="settings-remote-root-policy"><\/div>/);
   assert.match(panel, /function renderRemoteRootPolicySettings\(state\)/);
+  assert.doesNotMatch(panel, /settingsLayoutTools"[^>]*>\s*<b>远端根目录安全边界/);
+  assert.match(panel, /class="remoteRootPolicy"/);
+  assert.match(panel, /class="remoteRootPolicyFields"/);
   assert.match(panel, /data-key="allowedRoots"/);
   assert.match(panel, /data-key="deniedRoots"/);
-  assert.match(panel, /data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy"/);
+  assert.match(panel, /<button class="secondary" data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy">保存<\/button>/);
+  assert.match(panel, /textarea\.remoteRootPolicyInput \{ width: 100%; height: 100%; min-height: 0;/);
   assert.match(extension, /remoteRootPolicy: remoteRootPolicyConfig\(\)/);
 });
 

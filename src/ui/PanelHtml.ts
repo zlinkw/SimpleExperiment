@@ -1016,6 +1016,23 @@ export function renderPanelHtml(): string {
     .settingsCommandTools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .settingsCommandTools > div { display: grid; gap: 2px; margin-right: auto; min-width: min(100%, 280px); }
     .settingsCommandTools b { font-size: 12px; }
+    .remoteRootPolicy { display: grid; gap: 11px; margin: 10px 0 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card-bg) 90%, var(--vscode-input-background) 10%); }
+    .remoteRootPolicyHeader { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 12px; }
+    .remoteRootPolicyHeading { display: grid; gap: 3px; min-width: min(100%, 280px); }
+    .remoteRootPolicyHeading b { color: var(--vscode-foreground); font-size: 13px; font-weight: 800; }
+    .remoteRootPolicyHeading span { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.45; }
+    .remoteRootPolicyFields { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+    .remoteRootPolicyField { display: grid; grid-template-rows: auto minmax(118px, 132px) auto; gap: 6px; min-width: 0; padding: 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--vscode-input-background); }
+    .remoteRootPolicyField.is-denied { border-left: 3px solid #DC2626; }
+    .remoteRootPolicyField.is-allowed { border-left: 3px solid #16A34A; }
+    .remoteRootPolicyFieldHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+    .remoteRootPolicyFieldHead label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-foreground); font-size: 12px; font-weight: 700; }
+    .remoteRootPolicyHint { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.4; }
+    textarea.remoteRootPolicyInput { width: 100%; height: 100%; min-height: 0; padding: 7px 8px; resize: vertical; font-family: var(--vscode-editor-font-family, ui-monospace, monospace); font-size: 12px; line-height: 1.5; }
+    textarea.remoteRootPolicyInput:focus { outline: 1px solid var(--vscode-focusBorder); }
+    .remoteRootPolicyFooter { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; padding-top: 2px; }
+    .remoteRootPolicyFooter > span { flex: 1 1 220px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.4; }
+    .remoteRootPolicyFooter button { white-space: nowrap; }
     .resourceTree { grid-column: 1; grid-row: 1; position: relative; width: var(--tree-col); max-height: none; min-height: 0; overflow: hidden; overscroll-behavior: contain; justify-self: start; padding: 10px; border-color: rgba(148, 163, 184, .30); border-radius: 12px; background: rgba(255, 255, 255, .84); backdrop-filter: blur(18px); box-shadow: 0 12px 30px rgba(15, 23, 42, .08); contain: layout paint; display: grid; grid-template-rows: auto auto minmax(0, 1fr) 34px; transform: translateX(calc(-1 * (var(--tree-col) - var(--tree-peek)))); transition: transform 180ms ease, box-shadow 140ms ease, opacity 140ms ease; z-index: 14; }
     .resourceTree::after { content: "导航"; position: absolute; top: 12px; right: 0; bottom: 12px; width: var(--tree-peek); display: grid; place-items: center; padding: 8px 0; border-left: 1px solid rgba(148, 163, 184, .26); background: linear-gradient(180deg, rgba(248, 250, 252, .96), rgba(226, 232, 240, .92)); color: #475569; font-size: 11px; font-weight: 800; writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0; opacity: 1; transition: opacity 120ms ease; pointer-events: none; }
     .resourceTree:hover, .resourceTree:focus-within, body.layout-edit .resourceTree, body.resizing-layout .resourceTree { transform: translateX(0); box-shadow: 0 16px 34px rgba(15, 23, 42, .12); }
@@ -6858,20 +6875,40 @@ export function renderPanelHtml(): string {
       return Array.isArray(value) ? value.filter(Boolean).join("\\n") : "";
     }
 
+    function remoteRootPolicyCount(value) {
+      return String(value || "").split(/\\r?\\n/).map((item) => item.trim()).filter(Boolean).length;
+    }
+
     function renderRemoteRootPolicySettings(state) {
       if (shouldKeepConfigDraftScope("remotePolicy")) return;
       const config = (state || {}).remoteRootPolicy || {};
       const allowed = configDraftValue("remotePolicy", "allowedRoots", remoteRootPolicyText(config.allowedRoots));
       const denied = configDraftValue("remotePolicy", "deniedRoots", remoteRootPolicyText(config.deniedRoots));
       setHtmlIfChanged("remoteRootPolicySettings",
-        '<div class="settingsLayoutTools" title="用户配置优先；这些列表只做额外路径边界">' +
-          '<b>远端根目录安全边界</b>' +
-          '<div class="configGrid">' +
-            '<div class="field wide"><label>允许的项目父目录前缀</label><textarea class="wide" rows="3" data-config-input="remotePolicy" data-key="allowedRoots" placeholder="/data/projects">' + esc(allowed) + '</textarea></div>' +
-            '<div class="field wide"><label>禁止的项目父目录前缀</label><textarea class="wide" rows="3" data-config-input="remotePolicy" data-key="deniedRoots" placeholder="/root/unsafe-root">' + esc(denied) + '</textarea></div>' +
+        '<div class="remoteRootPolicy">' +
+          '<div class="remoteRootPolicyHeader">' +
+            '<div class="remoteRootPolicyHeading">' +
+              '<b>远端根目录安全边界</b>' +
+              '<span>为 Hub 和 Worker 的项目父目录增加可选路径边界；用户配置始终优先。</span>' +
+            '</div>' +
+            '<span class="pill">允许 ' + esc(remoteRootPolicyCount(allowed)) + ' · 禁止 ' + esc(remoteRootPolicyCount(denied)) + '</span>' +
           '</div>' +
-          '<div class="toolbar"><button data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy">保存安全边界</button></div>' +
-          '<span class="muted">每行一个绝对 POSIX 路径。允许列表留空表示不限制；禁止列表优先于允许列表。</span>' +
+          '<div class="remoteRootPolicyFields">' +
+            '<section class="remoteRootPolicyField is-allowed">' +
+              '<div class="remoteRootPolicyFieldHead"><label for="remoteAllowedRootsInput">允许的项目父目录前缀</label><span class="muted">' + esc(remoteRootPolicyCount(allowed)) + ' 项</span></div>' +
+              '<textarea id="remoteAllowedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="allowedRoots" placeholder="/data/projects">' + esc(allowed) + '</textarea>' +
+              '<small class="remoteRootPolicyHint">留空表示不做允许范围限制。</small>' +
+            '</section>' +
+            '<section class="remoteRootPolicyField is-denied">' +
+              '<div class="remoteRootPolicyFieldHead"><label for="remoteDeniedRootsInput">禁止的项目父目录前缀</label><span class="muted">' + esc(remoteRootPolicyCount(denied)) + ' 项</span></div>' +
+              '<textarea id="remoteDeniedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="deniedRoots" placeholder="/root/unsafe-root">' + esc(denied) + '</textarea>' +
+              '<small class="remoteRootPolicyHint">命中禁止规则时优先拒绝。</small>' +
+            '</section>' +
+          '</div>' +
+          '<div class="remoteRootPolicyFooter">' +
+            '<span>每行一个绝对 POSIX 路径。保存后作用于当前工作区。</span>' +
+            '<button class="secondary" data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy">保存</button>' +
+          '</div>' +
         '</div>');
     }
 

@@ -13,6 +13,7 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
+- [已完成] 4/4 project-252：在插件设置页显示并保存远端根目录安全边界。
 - [已完成] 4/4 project-251：从旧服务器配置预填远程根安全边界。
 - [已完成] 5/5 project-250：删除固定远程根映射并改用用户配置根目录和安全边界。
 - [已完成] 6/6 project-249：恢复命名迁移丢失的服务器配置、tmux 前缀设置和手动服务器配置流程。
@@ -20,22 +21,21 @@
 - [已完成] 8/8 project-247：TensorBoard 依赖探测、workflow.plan/run 标准路由和基础设施准备解耦。
 - [已完成] 6/6 project-236：SimpleSFTP 本机 JSON-RPC/HTTP API、CLI、OpenAPI、参数化非交互方法与确认门禁。
 - [已完成] 7/7 project-237：SimpleExperiment 本机 JSON-RPC/HTTP API、CLI、OpenAPI、SFTP API 桥接与确认门禁。
-- [已完成] 9/9 project-241：参数化首次接入、结构化校验、可轮询 bootstrap、流程状态持久化和 Plan 过滤。
 
-## 当前批次：project-252（已完成）
+## 当前批次：project-253（已完成）
 ### 边界
 
-- 在插件设置页显示并保存 `remote.allowedRoots` 和 `remote.deniedRoots`。
-- 每行接受一个绝对 POSIX 路径；保存到当前工作区配置。
-- 保持 VS Code 原生设置页同步可用，用户显式配置优先。
+- 将远端根目录安全边界从横向工具行改为独立设置卡片。
+- 允许/禁止输入框在宽屏并排、窄屏堆叠；固定可视高度并支持纵向拉伸。
+- 显示条数摘要和逐项说明；保存按钮降为次要视觉权重。
 
 ### 验证清单
-- [已通过] 设置页渲染、工作区保存回归、build/typecheck、`npm test` 1150/1150、lint、`git diff --check`。
-- [已通过] `simple-experiment-0.4.4.vsix` 打包、runtime closure 校验并安装；未重载 VS Code。
+- [已通过] 设置页布局静态回归、Webview JS 语法、build/typecheck、`npm test` 1150/1150、lint、`git diff --check`。
+- [已通过] `simple-experiment-0.4.5.vsix` 打包、runtime closure 校验并安装；未重载 VS Code。
 
 ### 相邻回归风险
 
 - 不再提供任何服务器名到存储路径的内置映射；未配置路径会明确缺失，而不是被静默改写。
 
 ## 本批记录
-- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.4.vsix` 为准。
+- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.5.vsix` 为准。
