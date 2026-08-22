@@ -23,6 +23,7 @@ function hasRemoteRunActivity(evidence) {
     return Boolean(evidence.pidAlive || evidence.tmuxSessionAlive
         || Number(evidence.schedulerStatesCount) > 0
         || Number(evidence.experimentTracesCount) > 0
+        || Number(evidence.workerTasksCount) > 0
         || Number(evidence.liveLogCount) > 0);
 }
 function reconcileRunOperation(record, evidence, reason, nowMs = Date.now()) {

@@ -7668,8 +7668,10 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         payload = {}
     scheduler_snapshot = read_runtime_json_cached(path_for(root, "cluster_snapshot.json"), {})
     trace_snapshot = read_runtime_json_cached(path_for(root, "experiment_traces_snapshot.json"), {})
+    task_snapshot = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), {})
     scheduler_rows = matching_plan_rows(scheduler_snapshot.get("schedulerStates") or [], plan_file or payload.get("planFile") or payload.get("plan"))
     traces = matching_plan_rows(trace_snapshot.get("experimentTraces") or [], plan_file or payload.get("planFile") or payload.get("plan"))
+    worker_tasks = matching_plan_rows(task_snapshot.get("tasks") or [], plan_file or payload.get("planFile") or payload.get("plan"))
     log_rel = str(payload.get("logPath") or payload.get("log_path") or "")
     log_path = safe_project_path(root, log_rel) if log_rel else ""
     live_log_count = 0
@@ -7688,6 +7690,7 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     evidence_counts = {
         "schedulerStatesCount": len(scheduler_rows),
         "experimentTracesCount": len(traces),
+        "workerTasksCount": len(worker_tasks),
         "liveLogCount": live_log_count,
     }
     active_evidence = bool(process["pidAlive"] or process["tmuxSessionAlive"] or any(evidence_counts.values()))
@@ -7727,6 +7730,13 @@ def stop_scheduler_operation(root, payload):
             errors.append(str(exc))
     time.sleep(0.2)
     after = scheduler_process_evidence(root, target_pid, target_session)
+    if after["pidAlive"] and before["pidAlive"] and int(before["checkedPid"]) == int(after["checkedPid"]):
+        try:
+            os.kill(int(after["checkedPid"]), signal.SIGKILL)
+            time.sleep(0.1)
+        except Exception:
+            pass
+        after = scheduler_process_evidence(root, target_pid, target_session)
     remaining_active = []
     if after["pidAlive"]: remaining_active.append({"kind": "pid", "value": after["checkedPid"]})
     if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})

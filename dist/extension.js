@@ -2817,7 +2817,7 @@ class RealtimeTunnelPanelProvider {
         await this.client.disconnect("deactivate").catch(() => undefined);
         this.view = undefined;
     }
-    async withHostOperationLease(actionType, actionLabel, operation) {
+    async withHostOperationLease(actionType, actionLabel, operation, options = {}) {
         const leaseContext = currentHostOperationLeaseContext();
         try {
             return await this.hostOperationLease.run({
@@ -2829,7 +2829,7 @@ class RealtimeTunnelPanelProvider {
             }, operation);
         }
         catch (error) {
-            if (error instanceof HostOperationLease_1.HostOperationLeaseConflictError)
+            if (error instanceof HostOperationLease_1.HostOperationLeaseConflictError && !options.suppressConflictUi)
                 await vscode.window.showErrorMessage(error.message, { modal: true }, "知道了");
             throw error;
         }
@@ -4389,10 +4389,22 @@ class RealtimeTunnelPanelProvider {
                 const record = active && typeof active === "object" && active.operationId ? active : {};
                 return { ...record, ok: true, merged: true, operationId: String(record.operationId || ""), resultParseKey: key };
             }
-            const execution = (async () => await this.runActionCommandLeased(command, message))();
+            const execution = (async () => await this.runActionCommandLeased(command, message, { suppressConflictUi: true }))();
             this.resultParseInFlight.set(key, execution);
             try {
                 return await execution;
+            }
+            catch (error) {
+                if (!(error instanceof HostOperationLease_1.HostOperationLeaseConflictError))
+                    throw error;
+                for (let attempt = 0; attempt < 12; attempt += 1) {
+                    await sleep(250);
+                    await this.loadProjectLocalOperationsState().catch(() => undefined);
+                    const merged = this.activeResultParseOperation(key);
+                    if (merged)
+                        return { ...merged, ok: true, merged: true, resultParseKey: key };
+                }
+                throw new Error("相同结果解析仍在其他窗口执行；已等待 3 秒仍未合并。");
             }
             finally {
                 if (this.resultParseInFlight.get(key) === execution)
@@ -4400,9 +4412,9 @@ class RealtimeTunnelPanelProvider {
             }
         }
     }
-    async runActionCommandLeased(command, message) {
+    async runActionCommandLeased(command, message, options = {}) {
         if (actionCommandMap[command]) {
-            return this.withHostOperationLease(command, hostOperationLeaseActionLabel(command), () => this.runActionCommandCore(command, message));
+            return this.withHostOperationLease(command, hostOperationLeaseActionLabel(command), () => this.runActionCommandCore(command, message), options);
         }
         return this.runActionCommandCore(command, message);
     }
@@ -6779,8 +6791,13 @@ class RealtimeTunnelPanelProvider {
     }
     async stopExperimentRouted(body) {
         const topology = this.projectTopologyAssessment();
-        const explicitWorker = this.resolveWorkerEndpointId(stringField(body, "workerId"))
-            || uniqueStrings(stringArrayField(body, "selectedWorkerIds").map((value) => this.resolveWorkerEndpointId(value) || value)).join(",");
+        const explicitWorkers = uniqueStrings([
+            this.resolveWorkerEndpointId(stringField(body, "workerId")),
+            ...stringArrayField(body, "selectedWorkerIds").map((value) => this.resolveWorkerEndpointId(value) || value),
+        ].filter(Boolean));
+        if (explicitWorkers.length > 1)
+            return undefined;
+        const explicitWorker = explicitWorkers[0] || "";
         const target = {
             planFile: operationResultPlanFile(body),
             planId: stringField(body, "planId") || stringField(body, "selectedPlanId"),
@@ -6795,9 +6812,15 @@ class RealtimeTunnelPanelProvider {
             && this.stopExperimentMatchesTarget(item, target)));
         if (!candidates.length && !Object.values(target).some(Boolean))
             candidates = this.longRunningPlanRunOperations();
-        if (!candidates.length)
+        const mustUseWorker = Boolean(explicitWorker) || !topology.hubAllowed;
+        if (!candidates.length && !mustUseWorker)
             return undefined;
         const byOwner = new Map();
+        if (!candidates.length && mustUseWorker) {
+            const owner = explicitWorker || String(this.enabledWorkerConfigs()[0]?.id || "");
+            if (owner)
+                byOwner.set(owner, []);
+        }
         for (const record of candidates) {
             const owner = explicitWorker
                 || this.runOperationWorkerId(record)
@@ -6817,7 +6840,11 @@ class RealtimeTunnelPanelProvider {
             const request = {
                 opId: makeOpId("stop-scheduler-operation"),
                 operationId: makeOpId("stop-scheduler-operation"),
-                planFile: operationResultPlanFile(rows[0]) || target.planFile,
+                planFile: (rows[0] ? operationResultPlanFile(rows[0]) : "") || target.planFile,
+                targetOperationId: target.operationId || undefined,
+                remoteOperationId: target.remoteOperationId || undefined,
+                pid: Number(target.pid || 0) || undefined,
+                tmuxSession: target.tmuxSession || undefined,
                 selectedWorkerIds: [workerId],
                 workerId,
                 manualStopType: body.manualStopType || body.stopReason,
@@ -6825,7 +6852,7 @@ class RealtimeTunnelPanelProvider {
                 stopSource: "user",
             };
             for (const row of rows) {
-                request.targetOperationId ||= String(row.operationId || "");
+                request.targetOperationId ||= String(row.operationId || "") || String(row.remoteOperationId || "");
                 request.remoteOperationId ||= String(row.remoteOperationId || row.operationId || "");
                 request.pid ||= Number(row.pid || row.checkedPid || 0);
                 request.tmuxSession ||= String(row.tmuxSession || row.session || row.checkedTmuxSession || "");

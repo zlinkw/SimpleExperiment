@@ -27,6 +27,7 @@ export interface RemoteRunEvidence {
   checkedTmuxSession?: unknown;
   schedulerStatesCount?: unknown;
   experimentTracesCount?: unknown;
+  workerTasksCount?: unknown;
   liveLogCount?: unknown;
 }
 
@@ -47,6 +48,7 @@ export function hasRemoteRunActivity(evidence: RemoteRunEvidence): boolean {
     evidence.pidAlive || evidence.tmuxSessionAlive
     || Number(evidence.schedulerStatesCount) > 0
     || Number(evidence.experimentTracesCount) > 0
+    || Number(evidence.workerTasksCount) > 0
     || Number(evidence.liveLogCount) > 0,
   );
 }
