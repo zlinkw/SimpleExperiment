@@ -6980,9 +6980,17 @@ class RealtimeTunnelPanelProvider {
                 tmuxSession: target.tmuxSession || undefined,
                 selectedWorkerIds: [workerId],
                 workerId,
+                schedulerOwnerWorkerId: workerId,
                 manualStopType: body.manualStopType || body.stopReason,
                 stopReason: body.stopReason || body.manualStopType,
                 stopSource: "user",
+                options: {
+                    topologyMode: topology.mode,
+                    localWorkerScheduler: topology.mode !== "hub_worker",
+                    schedulerOwnerWorkerId: workerId,
+                    workerId,
+                    automaticBackup: false,
+                },
             };
             for (const row of rows) {
                 request.targetOperationId ||= String(row.operationId || "") || String(row.remoteOperationId || "");

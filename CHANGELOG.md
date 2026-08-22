@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.10
+
+- Tagged single-Worker scheduler stop requests as local Worker scheduler operations so the telemetry client routes them to the owning Worker instead of rejecting them as Hub-only actions.
+
 ## 0.4.9
 
 - Declared Worker support for `stop-scheduler-operation` and accepted the existing real-action capability on compatible deployed Agents so stale single-Worker runs can be stopped without a second runtime deployment.

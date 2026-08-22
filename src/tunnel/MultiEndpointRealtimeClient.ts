@@ -330,7 +330,7 @@ function isWorkerLocalSchedulerRequest(action: TunnelAction, body: unknown): boo
   const options = request.options && typeof request.options === "object" ? request.options as Record<string, unknown> : {};
   return ["single_worker", "worker_pool"].includes(String(options.topologyMode || ""))
     && options.localWorkerScheduler === true
-    && Boolean(String(options.schedulerOwnerWorkerId || "").trim());
+    && Boolean(String(options.schedulerOwnerWorkerId || request.schedulerOwnerWorkerId || "").trim());
 }
 
 export function createBudget(config: RequestBudgetConfig): RequestBudget {
