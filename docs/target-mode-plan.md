@@ -13,6 +13,7 @@
 - 连接边界固定为 Xshell 本地隧道 + 可选 Hub/Worker Agent + SimpleSFTP；插件不内置 SSH/SCP/rsync。
 
 ## 后续优先级
+- [已完成] 5/5 project-254：修复 Worker 可用性刷新、远端根目录预览、conda 环境门禁、上传清单打包和旧托管路径提醒。
 - [已完成] 4/4 project-252：在插件设置页显示并保存远端根目录安全边界。
 - [已完成] 4/4 project-251：从旧服务器配置预填远程根安全边界。
 - [已完成] 5/5 project-250：删除固定远程根映射并改用用户配置根目录和安全边界。
@@ -20,22 +21,26 @@
 - [已完成] 8/8 project-248：公共 simple 命名迁移、旧归档/Xshell 兼容和远端 tmux 前缀配置。
 - [已完成] 8/8 project-247：TensorBoard 依赖探测、workflow.plan/run 标准路由和基础设施准备解耦。
 - [已完成] 6/6 project-236：SimpleSFTP 本机 JSON-RPC/HTTP API、CLI、OpenAPI、参数化非交互方法与确认门禁。
-- [已完成] 7/7 project-237：SimpleExperiment 本机 JSON-RPC/HTTP API、CLI、OpenAPI、SFTP API 桥接与确认门禁。
 
-## 当前批次：project-253（已完成）
+## 当前批次：project-254（已完成）
 ### 边界
 
-- 将远端根目录安全边界从横向工具行改为独立设置卡片。
-- 允许/禁止输入框在宽屏并排、窄屏堆叠；固定可视高度并支持纵向拉伸。
-- 显示条数摘要和逐项说明；保存按钮降为次要视觉权重。
+- single_worker 调度先做有界 Agent 可用性刷新；失败时返回 workerId、state key、lastSeenAt、TTL、agentStatus 和建议动作。
+- 可用性时效用本机接收时钟计算，拒绝超过 300 秒的未来时钟偏差，快照合并使用临时文件原子替换。
+- project.prepare、Agent 配置、上传确认和调度目标继续共用用户配置根目录与 allowed/denied 检查；预览补充最终 projectPath。
+- 空、null 和占位符 condaEnv 视为未配置；project.prepare、Agent 启动、workflow.run、scheduler launch 与 Worker command 均拦截。
+- 全量和 manifest 上传先生成文件计划，通过 NUL 分隔临时清单传给 tar，分块记录 SHA-256，返回数量、字节、排除命中、耗时和校验方式。
+- 新状态固定使用 simple_cluster；遇到 zlk_cluster 时只提示人工核对删除，不自动删除，也不改写归档或结果路径。
 
 ### 验证清单
-- [已通过] 设置页布局静态回归、Webview JS 语法、build/typecheck、`npm test` 1150/1150、lint、`git diff --check`。
-- [已通过] `simple-experiment-0.4.5.vsix` 打包、runtime closure 校验并安装；未重载 VS Code。
+- [已通过] SimpleExperiment build/typecheck、`npm test` 1158/1158、lint、`git diff --check`。
+- [已通过] SimpleSFTP `node --check`、`npm test` 37/37、`git diff --check`。
+- [已通过] 两插件分别打包 VSIX；未连接真实服务器，未执行真实 Xshell/SFTP 现场传输。
 
 ### 相邻回归风险
 
-- 不再提供任何服务器名到存储路径的内置映射；未配置路径会明确缺失，而不是被静默改写。
+- Worker Agent availability GET 在 loopback 内免 token；非 loopback 仍拒绝。部署新 runtime 前旧 Agent 不具备直接刷新路由。
+- 已有本地/远端 `zlk_cluster` 目录必须人工核对后手动删除；插件不会代删。
 
 ## 本批记录
-- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.5.vsix` 为准。
+- 批次提交后以本仓库提交、推送记录和 `simple-experiment-0.4.6.vsix` 为准。

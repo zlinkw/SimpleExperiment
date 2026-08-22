@@ -302,7 +302,8 @@ function normalizeSavedSessionRunner(_value: unknown): SavedSessionRunner {
 }
 
 function normalizeCondaEnvName(value: unknown): string {
-  return String(value || "").trim();
+  const normalized = String(value || "").trim();
+  return normalized === "-" || normalized === "--" ? "" : normalized;
 }
 
 function normalizeLaunchMode(value: unknown): XshellLaunchMode {

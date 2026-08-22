@@ -218,7 +218,8 @@ function normalizeSavedSessionRunner(_value) {
     return "xshell";
 }
 function normalizeCondaEnvName(value) {
-    return String(value || "").trim();
+    const normalized = String(value || "").trim();
+    return normalized === "-" || normalized === "--" ? "" : normalized;
 }
 function normalizeLaunchMode(value) {
     return value === "open_saved_session" || value === "generate_bat" || value === "generate_ps1" || value === "manual_guide" ? value : "open_xshell_exec";

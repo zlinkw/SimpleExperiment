@@ -1089,6 +1089,7 @@ class RealtimeTunnelPanelProvider {
                 user: target.user,
                 remoteRoot: target.remoteRoot,
                 workDir: this.agentRuntimeDirs(target.remoteRoot).workDir || "",
+                projectPath: this.agentRuntimeDirs(target.remoteRoot).workDir || "",
                 enabled: true,
                 localForwardPort: target.localForwardPort,
                 remoteAgentPort: target.remoteAgentPort,
@@ -1185,7 +1186,7 @@ class RealtimeTunnelPanelProvider {
                     remoteTelemetryPort: Number.isInteger(remoteAgentPort) && remoteAgentPort >= 1024 ? remoteAgentPort : 18765,
                     savedSessionPath: String(row.savedSessionPath || row.xshPath || "").trim() || undefined,
                     agentProjectDir: String(row.agentProjectDir || row.remoteRoot || row.remotePath || "").trim() || undefined,
-                    condaEnv: String(row.condaEnv || "").trim() || undefined,
+                    condaEnv: normalizeCondaEnvSetting(row.condaEnv) || undefined,
                     authMethod: row.authMethod === "key" ? "key" : "password",
                     enabled: row.enabled !== false,
                 };
@@ -1283,9 +1284,12 @@ class RealtimeTunnelPanelProvider {
                     enabled: true,
                     topology: topology.mode,
                     savedSessionPath: hub.savedSessionPath || "",
+                    sshConfigHost: hub.sshConfigHost || "",
+                    sshConfigAlias: hub.sshConfigAlias || "",
                     localForwardPort: setup.localForwardPort,
                     remoteAgentPort: setup.remoteAgentPort,
                     workDir: this.agentRuntimeDirs(remoteRoot).workDir || "",
+                    projectPath: this.agentRuntimeDirs(remoteRoot).workDir || "",
                 });
             }
             catch (error) {
@@ -1321,9 +1325,12 @@ class RealtimeTunnelPanelProvider {
                     enabled: worker.enabled !== false,
                     topology: topology.mode,
                     savedSessionPath: target.savedSessionPath || worker.savedSessionPath || "",
+                    sshConfigHost: target.sshConfigHost || "",
+                    sshConfigAlias: firstNonEmpty(target.sshConfigAlias, worker.sshConfigAlias),
                     localForwardPort: worker.localForwardPort || setup.localForwardPort,
                     remoteAgentPort: worker.remoteTelemetryPort || worker.remoteAgentPort || setup.remoteAgentPort,
                     workDir: this.agentRuntimeDirs(remoteRoot).workDir || "",
+                    projectPath: this.agentRuntimeDirs(remoteRoot).workDir || "",
                 });
             }
             catch (error) {
@@ -1356,6 +1363,10 @@ class RealtimeTunnelPanelProvider {
             });
         if (!targets.length)
             throw new Error("project.prepare 没有可用的服务器目标；请先选择已配置并启用的 Hub/Worker。");
+        const selectedWorkerIds = new Set(targets.filter((target) => target.role === "worker").map((target) => String(target.id)));
+        this.assertExecutionCondaEnvReady(this.apiMergedWorkerConfigs(params.workerTunnels, setup)
+            .filter((worker) => selectedWorkerIds.has(String(worker.id)))
+            .map((worker) => ({ id: worker.id, condaEnv: effectiveWorkerCondaEnv(worker, setup.condaEnv) })));
         return targets;
     }
     apiMergedWorkerConfigs(workerTunnels, setup = this.setupConfig) {
@@ -3172,6 +3183,7 @@ class RealtimeTunnelPanelProvider {
         const expectedTargets = topology.hubAllowed ? 1 + this.enabledWorkerConfigs().length : this.enabledWorkerConfigs().length;
         if (targets.length !== expectedTargets)
             throw new Error(`Agent 准备目标不完整：需要 ${expectedTargets} 个，当前 ${targets.length} 个。请检查当前拓扑内所有服务器的 Xshell 会话和项目父目录。`);
+        this.assertExecutionCondaEnvReady(this.workerActionTargets());
         const availableProfileTargets = this.sftpSharedTargets().length;
         if (availableProfileTargets < expectedTargets)
             throw new Error(`当前项目 SimpleSFTP 目标不完整：需要 ${expectedTargets} 个，当前 ${availableProfileTargets} 个。请检查当前拓扑内服务器的真实传输地址、用户名和项目父目录。`);
@@ -4353,6 +4365,7 @@ class RealtimeTunnelPanelProvider {
             await this.ensureCodeReadyForRun(undefined, [body]);
             if (!await this.runPlanPreflight(body, "当前计划"))
                 return;
+            this.assertExecutionCondaEnvReady(this.workerActionTargets());
         }
         const danger = command === "deleteArtifacts";
         const noHubResult = await this.postNoHubResultAction(command, action, body, {
@@ -4464,6 +4477,14 @@ class RealtimeTunnelPanelProvider {
     assertExecutionWorkersReady(workers = this.workerActionTargets()) {
         if (!Array.isArray(workers) || !workers.length)
             throw new Error("至少需要配置并启用一个 Worker 才能运行实验。请在“设置 > 服务器”添加 Worker 的 Xshell 会话和项目父目录。");
+    }
+    assertExecutionCondaEnvReady(workers = this.workerActionTargets()) {
+        const missing = (Array.isArray(workers) ? workers : [])
+            .filter((worker) => !normalizeCondaEnvSetting(worker?.condaEnv))
+            .map((worker) => String(worker?.workerId || worker?.id || worker?.label || "未命名 Worker"));
+        if (missing.length) {
+            throw new Error(`${missing.join("、")} 未配置 condaEnv。请在“设置 > 服务器”的 Worker Conda 环境中填写，或在 project.prepare 参数 workerTunnels[].condaEnv 中传入。`);
+        }
     }
     assertHubAgentProjectReady() {
         assertAgentProjectProbeReady(this.lastProbe, this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir, "Hub");
@@ -7131,6 +7152,7 @@ class RealtimeTunnelPanelProvider {
             assertCurrent();
             if (!await this.runPlanPreflight(body, `计划 ${planFile}`, authority))
                 throw new Error(`计划 ${planFile} 的校验或预演未返回有效结果，已停止整批提交。`);
+            this.assertExecutionCondaEnvReady(this.workerActionTargets());
             assertCurrent();
             preparedPlans.push({ planFile, body });
         }
@@ -11525,6 +11547,7 @@ function normalizeRemoteWriteTargets(targets) {
             id: String(raw.id || raw.targetId || "").trim(),
             role: String(raw.role || raw.targetRole || "").trim(),
             label: String(raw.label || raw.displayName || raw.id || raw.targetId || host).trim(),
+            sshConfigAlias: String(raw.sshConfigHost || raw.sshConfigAlias || "").trim(),
             host,
             user,
             port,
@@ -11564,7 +11587,8 @@ function remoteWriteConfirmationDetail(operation, targets, localProjectRoot = ""
     ];
     for (const target of normalized) {
         const role = target.role ? ` / ${target.role}` : "";
-        lines.push("", `${target.label}${role}  ${target.user}@${target.host}:${target.port}`, `预期远端目录：${target.remotePath}`);
+        const alias = target.sshConfigAlias ? `（别名 ${target.sshConfigAlias}）` : "";
+        lines.push("", `${target.label}${role}  ${target.user}@${target.host}:${target.port}${alias}`, `预期远端目录：${target.remotePath}`);
         for (const location of target.relatedLocations)
             lines.push(`${location.label}：${location.path}`);
         if (target.expectedFiles.length)
@@ -14166,15 +14190,20 @@ function condaEnvPatch(patch, key, fallback = "") {
     if (!Object.prototype.hasOwnProperty.call(patch, key))
         return String(fallback || "").trim();
     const value = patch[key];
-    return typeof value === "string" ? value.trim() : String(fallback || "").trim();
+    const normalized = typeof value === "string" ? value.trim() : String(fallback || "").trim();
+    return normalized === "-" || normalized === "--" ? "" : normalized;
 }
 function effectiveWorkerCondaEnv(worker, fallback = "") {
     if (worker && worker.condaEnv !== undefined)
-        return String(worker.condaEnv || "").trim();
-    return String(fallback || "").trim();
+        return normalizeCondaEnvSetting(worker.condaEnv);
+    return normalizeCondaEnvSetting(fallback);
+}
+function normalizeCondaEnvSetting(value) {
+    const normalized = String(value || "").trim();
+    return normalized === "-" || normalized === "--" ? "" : normalized;
 }
 function executionEnvironmentLabel(value) {
-    const condaEnv = String(value || "").trim();
+    const condaEnv = normalizeCondaEnvSetting(value);
     return condaEnv ? `Conda ${condaEnv}` : "系统 Python（未指定 Conda）";
 }
 function clearableOptionalStringPatch(patch, key, fallback) {
@@ -16729,7 +16758,8 @@ function planRunTargetLocations(values) {
         const maxConcurrentGpus = Number.isFinite(capacityValue) && capacityValue > 0 ? Math.trunc(capacityValue) : 1;
         const allowedGpuIds = uniqueStrings((Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : [])
             .map((value) => String(value || "").trim()).filter(Boolean));
-        const condaEnv = String(item.condaEnv || item.conda_env || "").trim();
+        const rawCondaEnv = String(item.condaEnv || item.conda_env || "").trim();
+        const condaEnv = rawCondaEnv === "-" || rawCondaEnv === "--" ? "" : rawCondaEnv;
         const key = `${role}:${label.toLowerCase()}:${remotePath}`;
         if (!label || seen.has(key))
             continue;
@@ -16747,7 +16777,8 @@ function planRunWorkerCapacitySummary(target) {
     const limit = Math.max(1, Math.trunc(Number(item.maxConcurrentGpus || item.max_concurrent_gpus || 1) || 1));
     const allowed = uniqueStrings((Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : [])
         .map((value) => String(value || "").trim()).filter(Boolean));
-    const condaEnv = String(item.condaEnv || item.conda_env || "").trim();
+    const rawCondaEnv = String(item.condaEnv || item.conda_env || "").trim();
+    const condaEnv = rawCondaEnv === "-" || rawCondaEnv === "--" ? "" : rawCondaEnv;
     return `${String(item.label || item.id || "Worker")}：执行环境 ${executionEnvironmentLabel(condaEnv)}；并发占卡上限 ${limit}；允许 GPU ${allowed.length ? allowed.join("、") : "不限"}`;
 }
 function planRunKnownJobCount(plan) {

@@ -350,11 +350,13 @@ export function resolveApiRemoteRootWithPolicy(
   // User configuration always supplies the root. These are generic safety
   // policies; server-specific storage paths must not be substituted here.
   if (root.split("/").includes("..")) throw new Error("项目父目录不能包含 ..。");
+  const allowedRoots = normalizedRemoteRootList(policy.allowedRoots);
+  const migrationHint = remoteRootMigrationHint(root, allowedRoots.concat(normalizedRemoteRootList(policy.deniedRoots)));
+  if (migrationHint) throw new Error(migrationHint);
   const deniedRoots = normalizedRemoteRootList(policy.deniedRoots);
   if (containsRootOrDescendant(root, deniedRoots)) {
     throw new Error(`项目父目录被 remote.deniedRoots 禁止：${root}`);
   }
-  const allowedRoots = normalizedRemoteRootList(policy.allowedRoots);
   if (allowedRoots.length && !containsRootOrDescendant(root, allowedRoots)) {
     throw new Error(`项目父目录必须匹配 remote.allowedRoots 中的配置：${root}`);
   }
@@ -362,6 +364,23 @@ export function resolveApiRemoteRootWithPolicy(
     throw new Error("项目父目录不能包含 simple_agent 或 zlk_agent；插件会自动管理同级 Agent runtime。");
   }
   return root;
+}
+
+export function remoteRootMigrationHint(root: string, knownRoots: string[]): string | undefined {
+  const lowerSegments = String(root || "").toLowerCase().split("/").filter(Boolean);
+  if (!lowerSegments.includes("simple")) return undefined;
+  const canonicalSegments = lowerSegments.map((segment) => segment === "simple" ? "zlk" : segment);
+  const canonicalCandidate = `${root.startsWith("/") ? "/" : ""}${canonicalSegments.join("/")}`;
+  const hasKnownRealCounterpart = knownRoots.some((knownRoot) => (
+    knownRoot.toLowerCase() === canonicalCandidate
+      || canonicalCandidate.startsWith(`${knownRoot.toLowerCase()}/`)
+  ));
+  if (!hasKnownRealCounterpart) return undefined;
+  return [
+    "检测到历史命名迁移缺陷生成的项目父目录；不要继续使用该路径。",
+    "请在“设置 > 服务器”改回当前服务器保存的真实根目录。",
+    "此校验不会改写已有归档、结果或上传路径。",
+  ].join("");
 }
 
 export function structuredMissingInventory(options: MissingInventoryOptions): MissingStep[] {

@@ -142,7 +142,8 @@ function simpleCondaActivationShell(required, options = {}) {
     ].join("; ");
 }
 function normalizeCondaEnvName(value) {
-    return String(value || exports.simpleDefaultCondaEnv).trim();
+    const normalized = String(value || exports.simpleDefaultCondaEnv).trim();
+    return normalized === "-" || normalized === "--" ? "" : normalized;
 }
 function slug(value) {
     return String(value || "worker").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "worker";

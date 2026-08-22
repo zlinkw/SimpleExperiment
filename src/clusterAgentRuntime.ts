@@ -1890,6 +1890,8 @@ def append_worker_task(root, task):
 
 def simple_runtime_env(base=None):
     env = dict(os.environ if base is None else base)
+    if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() in {"-", "--"}:
+        env["SIMPLE_EXPERIMENT_CONDA_ENV"] = ""
     env.setdefault("SIMPLE_EXPERIMENT_CONDA_ENV", "")
     env.setdefault("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "1" if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() else "0")
     return env
@@ -2061,9 +2063,15 @@ def execute_worker_command(root, command, worker_id):
     env = simple_runtime_env(os.environ.copy())
     conda_declared = any(key in command for key in ("condaEnv", "conda_env")) or any(key in options for key in ("condaEnv", "conda_env"))
     conda_env = str(command.get("condaEnv") or command.get("conda_env") or options.get("condaEnv") or options.get("conda_env") or "").strip()
+    if conda_env in {"-", "--"}:
+        conda_env = ""
     if conda_declared:
         env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
         env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1" if conda_env else "0"
+    if action in {"start-worker-task", "retry-worker-task"} and not conda_env:
+        result = {"commandId": command_id, "status": "failed", "message": f"Worker {worker_id} 未配置 condaEnv；请在设置 > 服务器 或 project.prepare 的 workerTunnels[].condaEnv 中配置。"}
+        append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+        return result
     if gpu_id:
         env["CUDA_VISIBLE_DEVICES"] = gpu_id
     if debug_mode:
@@ -7844,10 +7852,16 @@ def serve_http(args):
             return False
 
         def do_GET(self):
-            if self.reject_if_needed():
-                return
             parsed = urlparse(self.path)
             route = parsed.path
+            # Availability is a non-sensitive readiness signal used by the local scheduler.
+            # Keep it loopback-only, but do not require the bearer token inside that tunnel.
+            if route == "/api/worker/availability":
+                if not self.localhost_only():
+                    self.send_json({"error": "localhost only"}, status=403)
+                    return
+            elif self.reject_if_needed():
+                return
             if route == "/api/health":
                 return self.send_json(api_health(root, mode))
             if route == "/api/capabilities":

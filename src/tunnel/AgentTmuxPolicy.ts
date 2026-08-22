@@ -174,7 +174,8 @@ function simpleCondaActivationShell(required: boolean, options: SimpleCondaActiv
 }
 
 function normalizeCondaEnvName(value: string | undefined): string {
-  return String(value || simpleDefaultCondaEnv).trim();
+  const normalized = String(value || simpleDefaultCondaEnv).trim();
+  return normalized === "-" || normalized === "--" ? "" : normalized;
 }
 
 function slug(value: string): string {

@@ -77,7 +77,7 @@ test("Agent propagates dependency failures before validation, preview, or Worker
     `    agent.require_scheduler_dependencies(${JSON.stringify(directory)}, ${JSON.stringify(fixture)})`,
     "except Exception as exc:",
     "    dependency_error = str(exc)",
-    `worker = agent.execute_worker_command(${JSON.stringify(directory)}, {'action': 'start-worker-task', 'commandId': 'cmd-1', 'projectDir': ${JSON.stringify(directory)}, 'schedulerPath': ${JSON.stringify(fixture)}, 'planFile': 'plan.yaml', 'mode': 'train'}, 'worker-1')`,
+    `worker = agent.execute_worker_command(${JSON.stringify(directory)}, {'action': 'start-worker-task', 'commandId': 'cmd-1', 'projectDir': ${JSON.stringify(directory)}, 'schedulerPath': ${JSON.stringify(fixture)}, 'planFile': 'plan.yaml', 'mode': 'train', 'condaEnv': 'research'}, 'worker-1')`,
     "print(json.dumps({'error': dependency_error, 'worker': worker}, ensure_ascii=False))",
   ].join("\n");
   const result = spawnSync("python", ["-c", script], { encoding: "utf8" });

@@ -315,13 +315,13 @@ test("SimpleExperiment accepts topology aliases and keeps configured remote root
     () => workflow.resolveApiRemoteRootWithPolicy("/root/disk1/qgking/zlk", { id: "nwpu3" }, { deniedRoots: ["/root/disk1/qgking/zlk"] }),
     /remote\.deniedRoots/,
   );
-  assert.throws(
-    () => workflow.resolveApiRemoteRootWithPolicy("/data/qgking/simple", { id: "nwpu3" }, { allowedRoots: ["/data/qgking/zlk"] }),
-    /remote\.allowedRoots/,
-  );
   assert.throws(() => workflow.resolveApiRemoteRoot("/srv/simple_agent/projects", {}), /simple_agent/);
   assert.throws(() => workflow.resolveApiRemoteRoot("/srv/zlk_agent/projects", {}), /zlk_agent/);
   assert.throws(() => workflow.resolveApiRemoteRoot("/data/../secret", {}), /\.\./);
+  assert.throws(
+    () => workflow.resolveApiRemoteRootWithPolicy("/data/qgking/simple", { id: "nwpu3" }, { allowedRoots: ["/data/qgking/zlk"] }),
+    /历史命名迁移缺陷/,
+  );
 });
 
 test("SimpleExperiment workflow state persists every required stage", () => {
@@ -487,6 +487,27 @@ test("SimpleExperiment uses one configured root across workflow, runtime and SFT
   const mergedEnd = extensionSource.indexOf("apiPublicTopology(topology)", mergedStart);
   const mergedBody = extensionSource.slice(mergedStart, mergedEnd);
   assert.match(mergedBody, /agentProjectDir: worker\.agentProjectDir \|\| worker\.remoteRoot \|\| existing\.agentProjectDir/);
+});
+
+test("SimpleExperiment blocks unconfigured placeholder conda environments before workflow submission", () => {
+  assert.match(extensionSource, /assertExecutionCondaEnvReady\(this\.workerActionTargets\(\)\)/);
+  assert.match(extensionSource, /condaEnv: normalizeCondaEnvSetting\(row\.condaEnv\) \|\| undefined/);
+  const start = extensionSource.indexOf("assertExecutionCondaEnvReady(workers = this.workerActionTargets())");
+  const end = extensionSource.indexOf("assertHubAgentProjectReady()", start);
+  assert.ok(start >= 0 && end > start);
+  const method = extensionSource.slice(start, end);
+  assert.match(method, /未配置 condaEnv/);
+  assert.match(method, /workerTunnels\[\]\.condaEnv/);
+});
+
+test("SimpleExperiment prepare previews expose the resolved final project path", () => {
+  const start = extensionSource.indexOf("async apiProjectPrepare(params = {})");
+  const end = extensionSource.indexOf("apiMergedSetupConfig(params = {})", start);
+  assert.ok(start >= 0 && end > start);
+  const method = extensionSource.slice(start, end);
+  for (const field of ["serverId", "role", "sshConfigAlias", "remoteRoot", "projectPath"]) {
+    assert.match(method, new RegExp(`${field}:`));
+  }
 });
 
 test("SimpleExperiment exposes a modal-confirmed standard experiment runner", () => {

@@ -14,7 +14,9 @@ import shlex
 import subprocess
 import sys
 import time
+import urllib.request
 from collections import deque
+from concurrent import futures
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +30,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 TAIL_BYTES = 16 * 1024
+WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 1.5
+WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS = 3.0
+WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS = 300
 ARCHIVE_STATE_PATH = Path("simple_cluster/archive_state.json")
 DELETED_EXPERIMENTS_PATH = Path("simple_cluster/deleted_experiments.jsonl")
 DELETED_SCHEDULER_ROWS_PATH = Path("simple_cluster/deleted_scheduler_rows.jsonl")
@@ -36,7 +41,7 @@ AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
 
 
 def scheduler_dependency_status() -> dict[str, Any]:
-    conda_env = str(os.environ.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    conda_env = simple_conda_env_name(os.environ)
     environment = {
         "kind": "conda" if conda_env else "system_python",
         "name": conda_env,
@@ -114,15 +119,20 @@ def now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def iso_age_seconds(value: object) -> float | None:
+def raw_iso_age_seconds(value: object) -> float | None:
     text = str(value or "").strip()
     if not text:
         return None
     try:
         stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        return max(0.0, (datetime.now().astimezone() - stamp).total_seconds())
+        return (datetime.now().astimezone() - stamp).total_seconds()
     except Exception:
         return None
+
+
+def iso_age_seconds(value: object) -> float | None:
+    age = raw_iso_age_seconds(value)
+    return None if age is None else max(0.0, age)
 
 
 def load_yaml_file(path: str | Path) -> dict[str, Any]:
@@ -1081,7 +1091,8 @@ def append_jobs_csv(jobs: list[Job], path: Path = Path("experiments/results/jobs
 
 def simple_conda_env_name(env: dict[str, str] | None = None) -> str:
     source = os.environ if env is None else env
-    return str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    value = str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    return "" if value in {"-", "--"} else value
 
 
 def simple_conda_required(env: dict[str, str] | None = None) -> bool:
@@ -1338,6 +1349,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8")) if args.workers_json else []
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+    refresh_missing_worker_availability(workers, args.availability_path)
     simulated_active: dict[str, dict[str, Any]] = {}
     queue = deque(job.index for job in jobs)
     jobs_by_index = {int(job.index): job for job in jobs}
@@ -1750,12 +1762,28 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
     availability = worker.get("_availability") if isinstance(worker.get("_availability"), dict) else {}
     if not availability:
         probe["error"] = "Worker 可用性缓存缺失"
+        probe["structuredError"] = {
+            "workerId": str(worker.get("id") or ""),
+            "expectedStateKey": str(worker.get("_availability_state_key") or ""),
+            "lastSeenAt": None,
+            "ttlSeconds": int(worker.get("worker_status_ttl_seconds") or 45),
+            "agentStatus": str(worker.get("_agent_status") or "unknown"),
+            "suggestedAction": "确认 Agent 在线后点击检测全部；调度器会自动刷新；仍失败时检查 Xshell 隧道与 localForwardPort。",
+        }
         return probe
     updated_at = str(availability.get("updatedAt") or "")
     ttl = int(availability.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 45)
-    age = iso_age_seconds(updated_at)
+    age = availability_age_seconds(worker)
     if age is None or age > ttl:
         probe["error"] = f"worker availability stale age={age if age is not None else 'unknown'} ttl={ttl}"
+        probe["structuredError"] = {
+            "workerId": str(worker.get("id") or ""),
+            "expectedStateKey": str(worker.get("_availability_state_key") or ""),
+            "lastSeenAt": updated_at,
+            "ttlSeconds": ttl,
+            "agentStatus": str(worker.get("_agent_status") or "stale"),
+            "suggestedAction": "确认 Agent 在线并等待一次有界刷新；若持续过期，检查本机时钟和 Xshell 隧道。",
+        }
         return probe
     if availability.get("available") is False:
         probe["error"] = str(availability.get("reason") or "worker unavailable")
@@ -1827,10 +1855,113 @@ def read_availability_cache(path: str, workers: list[dict[str, Any]], ttl_second
         entries = {}
     for worker in workers:
         worker_id = str(worker.get("id") or "")
+        worker["_availability_state_key"] = f"{path}#workers/{worker_id}"
         availability = entries.get(worker_id)
         if isinstance(availability, dict):
-            worker["_availability"] = availability
+            note_availability_receipt(worker, dict(availability))
             worker["worker_status_ttl_seconds"] = int(availability.get("ttlSeconds") or ttl_seconds)
+
+
+def availability_age_seconds(worker: dict[str, Any]) -> float | None:
+    availability = worker.get("_availability")
+    if not isinstance(availability, dict):
+        return None
+    receipt_monotonic = float(worker.get("_availability_received_monotonic") or 0)
+    if receipt_monotonic > 0:
+        age = time.monotonic() - receipt_monotonic
+    else:
+        age = raw_iso_age_seconds(availability.get("updatedAt"))
+        if age is not None and age < -WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS:
+            return None
+        age = None if age is None else max(0.0, age)
+    return age
+
+
+def availability_is_fresh(worker: dict[str, Any]) -> bool:
+    availability = worker.get("_availability")
+    if not isinstance(availability, dict):
+        return False
+    age = availability_age_seconds(worker)
+    try:
+        ttl = max(1, int(availability.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 45))
+    except Exception:
+        ttl = 45
+    return age is not None and age <= ttl
+
+
+def note_availability_receipt(worker: dict[str, Any], row: dict[str, Any]) -> None:
+    previous = worker.get("_availability")
+    previous_updated_at = str(previous.get("updatedAt") or "") if isinstance(previous, dict) else ""
+    receipt = float(worker.get("_availability_received_monotonic") or 0)
+    if previous_updated_at != str(row.get("updatedAt") or "") or receipt <= 0:
+        receipt = time.monotonic()
+    worker["_availability"] = row
+    worker["_availability_received_monotonic"] = receipt
+
+
+def fetch_worker_availability(worker: dict[str, Any]) -> dict[str, Any]:
+    base_url = str(worker.get("local_agent_url") or "").rstrip("/")
+    if not base_url:
+        raise RuntimeError("local_agent_url 未配置")
+    with urllib.request.urlopen(f"{base_url}/api/worker/availability", timeout=WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS) as response:
+        payload = json.loads(response.read(1024 * 1024).decode("utf-8"))
+    rows = payload.get("workers") if isinstance(payload, dict) and isinstance(payload.get("workers"), list) else []
+    worker_id = str(worker.get("id") or "")
+    row = next((item for item in rows if isinstance(item, dict) and str(item.get("workerId") or item.get("worker_id") or "") == worker_id), None)
+    if not isinstance(row, dict):
+        raise RuntimeError("Worker Agent 未返回可用性快照")
+    row["workerId"] = worker_id
+    row["source"] = str(row.get("source") or "worker_agent_direct_refresh")
+    row["receivedAt"] = now()
+    row["ttlSeconds"] = max(30, int(row.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 180))
+    return row
+
+
+def persist_worker_availability(path: str, row: dict[str, Any]) -> None:
+    if not path:
+        return
+    state_path = Path(path)
+    data = safe_read_json(state_path, {})
+    entries = data.get("workers") if isinstance(data, dict) else {}
+    if isinstance(entries, list):
+        entries = {str(item.get("workerId") or ""): item for item in entries if isinstance(item, dict)}
+    if not isinstance(entries, dict):
+        entries = {}
+    worker_id = str(row.get("workerId") or "")
+    if worker_id:
+        entries[worker_id] = row
+    atomic_write_json(state_path, {
+        "schemaVersion": 1,
+        "generatedAt": now(),
+        "workers": entries,
+    })
+
+
+def refresh_missing_worker_availability(workers: list[dict[str, Any]], availability_path: str = "") -> None:
+    """Boundedly refresh missing or expired snapshots directly from online Agents."""
+    stale_workers = [worker for worker in workers if not availability_is_fresh(worker)]
+    if not stale_workers:
+        return
+
+    def refresh(worker: dict[str, Any]) -> None:
+        try:
+            row = fetch_worker_availability(worker)
+            note_availability_receipt(worker, row)
+            worker["_agent_status"] = "online"
+            worker["worker_status_ttl_seconds"] = int(row.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 180)
+            persist_worker_availability(availability_path, row)
+        except Exception as exc:
+            worker["_agent_status"] = f"offline: {exc}"
+
+    with futures.ThreadPoolExecutor(max_workers=min(4, len(stale_workers))) as pool:
+        pending = {pool.submit(refresh, worker): worker for worker in stale_workers}
+        deadline = time.monotonic() + WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS
+        for pending_item in pending:
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                pending_item.result(timeout=remaining)
+            except Exception:
+                pass
 
 
 def job_for(item: dict[str, Any], jobs_by_index: dict[int, Any]) -> Any | None:
@@ -2188,6 +2319,11 @@ def write_state(path: Path, payload: dict[str, Any]) -> None:
 
 
 def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "", default_result_csv_dir: str = "experiments/results") -> str:
+    conda_env = simple_conda_env_name({
+        "SIMPLE_EXPERIMENT_CONDA_ENV": str(worker.get("conda_env") or worker.get("condaEnv") or ""),
+    })
+    if not conda_env:
+        raise RuntimeError(f"Worker {worker.get('id') or worker.get('name') or '-'} 未配置 condaEnv；请在设置 > 服务器 或 project.prepare 的 workerTunnels[].condaEnv 中配置。")
     prefix = "simple_debug" if debug_mode else ("simple_test" if mode == "test" else "simple")
     session = f"{prefix}_{plan_runtime_key(plan)}_{experiment_index}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
     project_dir = str(worker["project_dir"])
@@ -2205,7 +2341,7 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
         "experimentIndex": experiment_index,
         "gpuId": gpu_id,
         "mode": mode,
-        "condaEnv": str(worker.get("conda_env") or worker.get("condaEnv") or "").strip(),
+        "condaEnv": conda_env,
         "logPath": raw_log.as_posix(),
         "debugMode": bool(debug_mode),
         "debugRunId": str(debug_run_id or ""),
@@ -2518,6 +2654,7 @@ def main() -> None:
     passive_interrupt_max_retries = max(0, int(args.passive_interrupt_max_retries or 0))
     passive_interrupt_base_backoff = max(60, int(args.passive_interrupt_backoff_seconds or poll_seconds))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+    refresh_missing_worker_availability(workers, args.availability_path)
     workers_by_id = {str(worker.get("id") or ""): worker for worker in workers}
     plan = load_plan(args.plan)
     jobs = jobs_for_args(plan, args)
@@ -2877,6 +3014,7 @@ def main() -> None:
             if reap_finished_items():
                 write_current_state()
             read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+            refresh_missing_worker_availability(workers, args.availability_path)
             for worker in ordered_workers_for_dispatch(workers):
                 busy_slots = {**active, **testing}
                 probe = probe_idle_gpus(worker, busy_slots)
