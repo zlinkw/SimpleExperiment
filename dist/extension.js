@@ -6613,6 +6613,8 @@ class RealtimeTunnelPanelProvider {
         const actions = caps?.actionEndpoints;
         if (!endpoints?.actions)
             return ["endpoints.actions"];
+        if (action === "stop-scheduler-operation" && caps?.realActionRuntime === true)
+            return [];
         return actions?.[action] === true ? [] : [`actions.${action}`];
     }
     async enterWorkerActionSlot(workerId) {

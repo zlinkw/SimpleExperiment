@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.9
+
+- Declared Worker support for `stop-scheduler-operation` and accepted the existing real-action capability on compatible deployed Agents so stale single-Worker runs can be stopped without a second runtime deployment.
+
 ## 0.4.8
 
 - Restored the default `invoke` execution branch so commands such as `stopExperiment` return structured results instead of silently returning null.

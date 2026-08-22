@@ -2611,6 +2611,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "dry-run-plan": True,
                 "run-plan": True,
                 "reproduce-plan": True,
+                "stop-scheduler-operation": True,
                 **{name: True for name in WORKER_RESULT_ACTIONS},
             },
         }
