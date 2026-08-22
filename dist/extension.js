@@ -323,7 +323,7 @@ const uiActionCommands = new Set([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
-    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
 ]);
@@ -361,7 +361,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
     "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "runAllPlans",
-    "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
+    "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "openAuditTail", "selectPlan", "selectExperiment",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
@@ -4079,6 +4079,9 @@ class RealtimeTunnelPanelProvider {
             case "saveResultCsvDir":
                 await this.saveResultCsvDirFromUi(message);
                 break;
+            case "saveRemoteRootPolicy":
+                await this.saveRemoteRootPolicyFromUi(message);
+                break;
             case "chooseResultCsvDir":
                 await this.chooseResultCsvDirFromUi();
                 break;
@@ -7703,6 +7706,28 @@ class RealtimeTunnelPanelProvider {
         this.postState(true);
         void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
     }
+    async saveRemoteRootPolicyFromUi(message) {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder)
+            throw new Error("请先打开一个项目，再保存远端根目录安全边界。");
+        const projectContext = this.captureProjectContext();
+        const patch = recordField(message, "patch");
+        const parseRootList = (value) => String(value || "")
+            .split(/\r?\n/)
+            .map((item) => ApiWorkflow_1.normalizeApiRemotePath(item))
+            .filter((item) => Boolean(item));
+        const allowedRoots = parseRootList(patch.allowedRoots);
+        const deniedRoots = parseRootList(patch.deniedRoots);
+        const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
+        await Promise.all([
+            config.update("remote.allowedRoots", allowedRoots, vscode.ConfigurationTarget.WorkspaceFolder),
+            config.update("remote.deniedRoots", deniedRoots, vscode.ConfigurationTarget.WorkspaceFolder),
+        ]);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        this.postState(true);
+        void vscode.window.showInformationMessage(`远端根目录安全边界已保存：允许 ${allowedRoots.length} 项，禁止 ${deniedRoots.length} 项。`);
+    }
     async chooseResultCsvDirFromUi() {
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (!folder)
@@ -9745,6 +9770,7 @@ class RealtimeTunnelPanelProvider {
             topology,
             setup: compactXshellSetupForWebview(this.setupConfig),
             schedulerConfig,
+            remoteRootPolicy: remoteRootPolicyConfig(),
             pptPlotConfig: this.pptPlotConfig(),
             pptAutomation: this.pptAutomationReadiness,
             integrations,

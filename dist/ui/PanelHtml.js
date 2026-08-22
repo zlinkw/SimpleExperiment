@@ -1208,6 +1208,7 @@ function renderPanelHtml() {
         </div>
         <button data-command="openAdvancedCommandsSetting" class="secondary" type="button">打开命令设置</button>
       </div>
+      <div id="remoteRootPolicySettings" data-anchor="settings-remote-root-policy"></div>
       <div id="resultCsvDirectorySettings" data-anchor="settings-result-csv"></div>
       <div id="serverSettingsCards" data-anchor="settings-servers"></div>
     </section>
@@ -1671,7 +1672,7 @@ function renderPanelHtml() {
     const PLAN_FILE_PAYLOAD_COMMANDS = new Set([...SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "savePlan"]);
     const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set([...PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"]);
     const SUBMITTED_RUN_COMMANDS = new Set([...SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"]);
-    const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules"]);
+    const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules", "saveRemoteRootPolicy"]);
     const SAVED_ACTION_PAYLOAD_KEYS = Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]);
     const BUTTON_PAYLOAD_ATTRIBUTE_NAMES = Object.freeze({
       endpointId: "endpoint-id", planFile: "plan-file", planRevision: "plan-revision", planId: "plan-id", file: "file", runKey: "run-key", taskUiKey: "task-ui-key", experimentId: "experiment-id",
@@ -1749,7 +1750,7 @@ function renderPanelHtml() {
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
-      saveTopologyMode: "settings-servers", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
+      saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
       stopExperiment: "tasks-list", retryExperiment: "tasks-list", reassignWorkerTask: "tasks-list", archiveArtifacts: "tasks-list", excludeResults: "results-traces", deleteArtifacts: "tasks-list", parseResults: "results-summary", refreshResults: "results-summary",
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
@@ -1966,7 +1967,7 @@ function renderPanelHtml() {
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
-      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
       ...Object.keys(uiCapabilityMap)
@@ -4456,6 +4457,7 @@ function renderPanelHtml() {
         startPptAutomation: "启动 PowerPoint",
         openPptAutomationGuide: "查看 PPT 修复说明",
         chooseResultCsvDir: "浏览项目内结果 CSV 文件夹",
+        saveRemoteRootPolicy: "保存远端根目录安全边界",
         saveResultCsvDir: "保存项目级结果 CSV 默认目录",
         choosePptPath: "选择 PPT",
         chooseNewPptPath: "新建 PPT 路径",
@@ -6850,8 +6852,30 @@ function renderPanelHtml() {
     }
 
     function renderServerSettings(state) {
+      renderRemoteRootPolicySettings(state);
       renderResultCsvDirectorySettings(state);
       return renderServerCardsV2(state);
+    }
+
+    function remoteRootPolicyText(value) {
+      return Array.isArray(value) ? value.filter(Boolean).join("\\n") : "";
+    }
+
+    function renderRemoteRootPolicySettings(state) {
+      if (shouldKeepConfigDraftScope("remotePolicy")) return;
+      const config = (state || {}).remoteRootPolicy || {};
+      const allowed = configDraftValue("remotePolicy", "allowedRoots", remoteRootPolicyText(config.allowedRoots));
+      const denied = configDraftValue("remotePolicy", "deniedRoots", remoteRootPolicyText(config.deniedRoots));
+      setHtmlIfChanged("remoteRootPolicySettings",
+        '<div class="settingsLayoutTools" title="用户配置优先；这些列表只做额外路径边界">' +
+          '<b>远端根目录安全边界</b>' +
+          '<div class="configGrid">' +
+            '<div class="field wide"><label>允许的项目父目录前缀</label><textarea class="wide" rows="3" data-config-input="remotePolicy" data-key="allowedRoots" placeholder="/data/projects">' + esc(allowed) + '</textarea></div>' +
+            '<div class="field wide"><label>禁止的项目父目录前缀</label><textarea class="wide" rows="3" data-config-input="remotePolicy" data-key="deniedRoots" placeholder="/root/unsafe-root">' + esc(denied) + '</textarea></div>' +
+          '</div>' +
+          '<div class="toolbar"><button data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy">保存安全边界</button></div>' +
+          '<span class="muted">每行一个绝对 POSIX 路径。允许列表留空表示不限制；禁止列表优先于允许列表。</span>' +
+        '</div>');
     }
 
     function renderResultCsvDirectorySettings(state) {
@@ -6898,7 +6922,7 @@ function renderPanelHtml() {
 
     function isServerConfigScope(scope) {
       const key = String(scope || "");
-      return key === "topology" || key === "hub" || key === "scheduler" || key === "resultOutput" || key.startsWith("worker:");
+      return key === "topology" || key === "hub" || key === "scheduler" || key === "resultOutput" || key === "remotePolicy" || key.startsWith("worker:");
     }
 
     function shouldKeepServerConfigDraft() {
@@ -6939,6 +6963,7 @@ function renderPanelHtml() {
       if (value === "saveHubConfig") delete configDrafts.hub;
       if (value === "saveTopologyMode") delete configDrafts.topology;
       if (value === "saveSchedulerConfig") delete configDrafts.scheduler;
+      if (value === "saveRemoteRootPolicy") delete configDrafts.remotePolicy;
       if (value === "saveProjectAdapterRules") delete configDrafts.projectAdapterRules;
       if (value === "savePptPlotConfig" || value === "choosePptPath" || value === "chooseNewPptPath") delete configDrafts.ppt;
       if (value === "saveWorkerConfig" && endpointId) delete configDrafts["worker:" + endpointId];
@@ -13062,6 +13087,7 @@ function renderPanelHtml() {
         selectExperiment: "选择任务",
         selectLogRunKey: "查看日志",
         saveTopologyMode: "保存拓扑",
+        saveRemoteRootPolicy: "保存安全边界",
         saveSchedulerConfig: "保存策略",
         saveHubConfig: "保存 Hub",
         saveWorkerConfig: "保存服务器",
