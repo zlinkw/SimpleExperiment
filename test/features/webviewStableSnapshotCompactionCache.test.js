@@ -131,7 +131,7 @@ test("WeakMap caches share the non-null object and function key guard", () => {
 
 test("stable setup and probe snapshots reuse compacted Webview objects", () => {
   const sandbox = loadCompactors();
-  const setup = { hubHost: "hub", workerTunnels: [{ id: "a", enabled: true }] };
+  const setup = { hubHost: "hub", remoteTmuxSessionPrefix: "zlk", condaEnv: "zlk", workerTunnels: [{ id: "a", enabled: true }] };
   const probe = {
     status: "ok",
     schedulerDependencies: { ok: true },
@@ -147,6 +147,8 @@ test("stable setup and probe snapshots reuse compacted Webview objects", () => {
   assert.strictEqual(sandbox.compactSetup(setup), compactedSetup);
   assert.strictEqual(sandbox.compactProbe(probe), compactedProbe);
   assert.deepEqual({ workers: sandbox.workerSetupCalls, nested: sandbox.probeNestedCalls, sensitive: sandbox.sensitiveCalls }, calls);
+  assert.equal(compactedSetup.remoteTmuxSessionPrefix, "zlk");
+  assert.equal(compactedSetup.condaEnv, "zlk");
   assert.notStrictEqual(sandbox.compactSetup({ ...setup, workerTunnels: [...setup.workerTunnels] }), compactedSetup);
   assert.notStrictEqual(sandbox.compactProbe({ ...probe }), compactedProbe);
 });

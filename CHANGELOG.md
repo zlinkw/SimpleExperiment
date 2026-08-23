@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.13
+
+- Kept the configured tmux session prefix in compacted panel state so Agent session defaults render and persist the user's value instead of falling back to simple.
+
 ## 0.4.12
 
 - Mirrored panel-saved tmux prefixes and Conda defaults into global settings, preserved them across restarts when settings are unchanged, and let changed VS Code settings take precedence.

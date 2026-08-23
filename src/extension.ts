@@ -13318,6 +13318,7 @@ function compactXshellSetupForWebview(config) {
         hubHost: config.hubHost,
         hubUser: config.hubUser,
         hubSshPort: config.hubSshPort,
+        remoteTmuxSessionPrefix: config.remoteTmuxSessionPrefix,
         transferHost: config.transferHost,
         resolvedHost: config.resolvedHost,
         sftpHost: config.sftpHost,
