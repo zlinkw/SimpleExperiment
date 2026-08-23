@@ -117,6 +117,27 @@ export function componentUpdate(
   };
 }
 
+export function componentUpdateForInstalledVersion(component: ComponentUpdate, currentVersion: string): ComponentUpdate {
+  return {
+    ...component,
+    currentVersion: normalizeReleaseVersion(currentVersion),
+    updateAvailable: Boolean(component.latestVersion && component.vsix && compareSemanticVersions(component.latestVersion, currentVersion) > 0),
+  };
+}
+
+export function refreshStoredPluginUpdatePlan(
+  plan: PluginUpdatePlan,
+  currentVersion: (id: string) => string,
+): PluginUpdatePlan {
+  if (!plan?.experiment || !plan.sftp || !["update_available", "reload_required"].includes(String(plan.status)))
+    return plan;
+  const refreshed = planPairedUpdates(
+    componentUpdateForInstalledVersion(plan.experiment, currentVersion(plan.experiment.id)),
+    componentUpdateForInstalledVersion(plan.sftp, currentVersion(plan.sftp.id)),
+  );
+  return { ...refreshed, checkedAt: text(plan.checkedAt) || refreshed.checkedAt };
+}
+
 export function planPairedUpdates(experiment: ComponentUpdate, sftp: ComponentUpdate): PluginUpdatePlan {
   for (const component of [experiment, sftp]) {
     if (!component.latestVersion || !component.vsix) {

@@ -4,6 +4,8 @@ exports.SFTP_EXTENSION_ID = exports.EXPERIMENT_EXTENSION_ID = exports.SFTP_UPDAT
 exports.normalizeReleaseVersion = normalizeReleaseVersion;
 exports.compareSemanticVersions = compareSemanticVersions;
 exports.componentUpdate = componentUpdate;
+exports.componentUpdateForInstalledVersion = componentUpdateForInstalledVersion;
+exports.refreshStoredPluginUpdatePlan = refreshStoredPluginUpdatePlan;
 exports.planPairedUpdates = planPairedUpdates;
 exports.EXPERIMENT_UPDATE_REPO = "zlinkw/SimpleExperiment";
 exports.SFTP_UPDATE_REPO = "zlinkw/SimpleSFTP";
@@ -74,6 +76,19 @@ function componentUpdate(id, repo, label, currentVersion, release, extensionName
         vsix,
         checksum: checksumFor(vsix, assets),
     };
+}
+function componentUpdateForInstalledVersion(component, currentVersion) {
+    return {
+        ...component,
+        currentVersion: normalizeReleaseVersion(currentVersion),
+        updateAvailable: Boolean(component.latestVersion && component.vsix && compareSemanticVersions(component.latestVersion, currentVersion) > 0),
+    };
+}
+function refreshStoredPluginUpdatePlan(plan, currentVersion) {
+    if (!plan?.experiment || !plan.sftp || !["update_available", "reload_required"].includes(String(plan.status)))
+        return plan;
+    const refreshed = planPairedUpdates(componentUpdateForInstalledVersion(plan.experiment, currentVersion(plan.experiment.id)), componentUpdateForInstalledVersion(plan.sftp, currentVersion(plan.sftp.id)));
+    return { ...refreshed, checkedAt: text(plan.checkedAt) || refreshed.checkedAt };
 }
 function planPairedUpdates(experiment, sftp) {
     for (const component of [experiment, sftp]) {

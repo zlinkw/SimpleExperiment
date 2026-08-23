@@ -711,7 +711,7 @@ class RealtimeTunnelPanelProvider {
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
-        this.pluginUpdateStatus = this.context.globalState.get(keys.pluginUpdateStatus);
+        this.pluginUpdateStatus = this.refreshStoredPluginUpdateStatus(this.context.globalState.get(keys.pluginUpdateStatus));
         this.tunnelConfig = this.loadTunnelConfig();
         this.projectBootstrapPromise = this.bootstrapProjectLocalUiState()
             .catch(() => undefined)
@@ -722,6 +722,16 @@ class RealtimeTunnelPanelProvider {
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
+    }
+    refreshStoredPluginUpdateStatus(plan) {
+        if (!plan || typeof plan !== "object" || !["update_available", "reload_required"].includes(String(plan.status)))
+            return plan;
+        const currentVersion = (id) => String(vscode.extensions.getExtension(id)?.packageJSON?.version || "0");
+        const refreshed = ExtensionUpdates_1.refreshStoredPluginUpdatePlan(plan, currentVersion);
+        if (JSON.stringify(refreshed) === JSON.stringify(plan))
+            return plan;
+        void Promise.resolve(this.context.globalState.update(keys.pluginUpdateStatus, refreshed)).catch(() => undefined);
+        return refreshed;
     }
     startLocalApiServer() {
         if (this.localApiServer)
@@ -4297,11 +4307,9 @@ class RealtimeTunnelPanelProvider {
                 await this.saveRemoteRootPolicyFromUi(message);
                 break;
             case "checkPluginUpdates":
-                await this.checkPluginUpdates(true);
-                break;
+                return await this.checkPluginUpdates(true);
             case "installPluginUpdates":
-                await this.installPluginUpdates();
-                break;
+                return await this.installPluginUpdates();
             case "chooseResultCsvDir":
                 await this.chooseResultCsvDirFromUi();
                 break;

@@ -6892,24 +6892,29 @@ function renderPanelHtml() {
 
     function renderPluginUpdateSettings(state) {
       const plan = (state || {}).pluginUpdate || {};
-      const status = String(plan.status || "unknown");
+      const storedStatus = String(plan.status || "unknown");
+      const hasStoredUpdate = [plan.experiment, plan.sftp].some((item) => item && item.updateAvailable === true);
+      const status = storedStatus === "update_available" && !hasStoredUpdate ? "up_to_date" : storedStatus;
       const checkedAt = Date.parse(String(plan.checkedAt || ""));
       const rows = [plan.experiment, plan.sftp].filter(Boolean).map((item) => {
-        const target = item.updateAvailable ? item.latestVersion : item.currentVersion;
-        return '<span>' + esc(item.label + ': ' + (item.currentVersion || "-") + ' → ' + (target || "-")) + '</span>';
+        return item.updateAvailable
+          ? '<span>' + esc(item.label + ': ' + (item.currentVersion || "-") + ' → ' + (item.latestVersion || "-")) + '</span>'
+          : '<span>' + esc(item.label + ': ' + (item.currentVersion || "-") + '（已是最新）') + '</span>';
       }).join("");
-      const canInstall = status === "update_available";
+      const canInstall = status === "update_available" && hasStoredUpdate;
       const busy = status === "checking" || status === "installing";
       setHtmlIfChanged("pluginUpdateSettings",
         '<div class="pluginUpdate">' +
           '<div class="pluginUpdateMain">' +
             '<b>插件配套更新 · ' + esc(pluginUpdateStatusLabel(status)) + '</b>' +
-            '<span>' + esc(plan.message || "同时检查 SimpleExperiment 和 SimpleSFTP 的 GitHub Latest Release。") + '</span>' +
+            '<span>' + esc(status === "up_to_date"
+              ? "当前已是最新版本；更新来源为两个仓库的 GitHub Latest Release。"
+              : (plan.message || "同时检查 SimpleExperiment 和 SimpleSFTP 的 GitHub Latest Release。")) + '</span>' +
             (rows ? rows : '') +
             (Number.isFinite(checkedAt) ? '<span class="muted">检查时间：' + esc(new Date(checkedAt).toLocaleString()) + '</span>' : '') +
           '</div>' +
           '<button data-command="checkPluginUpdates" class="secondary" type="button" title="查询两个插件的最新 Release"' + (busy ? ' disabled' : '') + '>检查更新</button>' +
-          '<button data-command="installPluginUpdates" class="secondary" type="button" title="下载并按 SimpleSFTP、SimpleExperiment 顺序安装"' + (!canInstall || busy ? ' disabled' : '') + '>安装更新</button>' +
+          (canInstall ? '<button data-command="installPluginUpdates" class="secondary" type="button" title="下载并按 SimpleSFTP、SimpleExperiment 顺序安装">安装更新</button>' : '') +
         '</div>');
     }
 

@@ -3,6 +3,7 @@
 ## 0.4.11
 
 - Backed upload path confirmations with per-workspace VS Code state in addition to the project-local file, so remembered paths survive extension updates, window restarts, and cleanup of generated UI state.
+- Rechecked stored update plans against installed versions, hid the install action when both plugins are current, and made update commands return structured results to the local API.
 
 ## 0.4.10
 
