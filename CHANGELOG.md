@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.12
+
+- Preserved panel-saved tmux session prefixes and Conda defaults across restarts when public settings still contain only default values, while keeping non-default VS Code settings authoritative.
+
 ## 0.4.11
 
 - Backed upload path confirmations with per-workspace VS Code state in addition to the project-local file, so remembered paths survive extension updates, window restarts, and cleanup of generated UI state.

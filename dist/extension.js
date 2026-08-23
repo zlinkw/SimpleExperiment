@@ -113,6 +113,7 @@ const keys = {
     legacySftpNoticeShown: "simpleExperiment.legacySftpNoticeShown",
     pendingWorkspaceContinuation: "simpleExperiment.pendingWorkspaceContinuation",
     pluginUpdateStatus: "simpleExperiment.pluginUpdateStatus",
+    setupConfigurationSignature: "simpleExperiment.setupConfigurationSignature",
 };
 const API_CONFIG_NAMESPACE = "simpleExperiment";
 const API_CONFIG_PREFIX = `${API_CONFIG_NAMESPACE}.`;
@@ -9516,6 +9517,8 @@ class RealtimeTunnelPanelProvider {
     loadSetupConfig() {
         const saved = this.context.globalState.get(keys.setupConfig) || {};
         const config = vscode.workspace.getConfiguration("simpleExperiment");
+        const sessionDefaults = this.sessionDefaultInspections(config);
+        const savedDefaultsWin = this.context.globalState.get(keys.setupConfigurationSignature) === this.sessionDefaultConfigurationSignature(sessionDefaults);
         return (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig,
             ...saved,
@@ -9523,14 +9526,40 @@ class RealtimeTunnelPanelProvider {
             remoteAgentPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remoteAgentPort || this.tunnelConfig.remotePort),
             xshellExePath: saved.xshellExePath || this.tunnelConfig.xshellExePath || "",
             hubDisplayName: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
-            remoteTmuxSessionPrefix: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteTmuxSessionPrefix", saved.remoteTmuxSessionPrefix || XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix),
-            condaEnv: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.condaEnv", saved.condaEnv === undefined ? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv : saved.condaEnv),
+            remoteTmuxSessionPrefix: savedDefaultsWin
+                ? saved.remoteTmuxSessionPrefix || XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix
+                : (0, ConfigurationSettings_1.nonDefaultConfigurationValue)(config, "tunnel.remoteTmuxSessionPrefix", saved.remoteTmuxSessionPrefix || XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix),
+            condaEnv: savedDefaultsWin
+                ? saved.condaEnv === undefined ? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv : saved.condaEnv
+                : (0, ConfigurationSettings_1.nonDefaultConfigurationValue)(config, "tunnel.condaEnv", saved.condaEnv === undefined ? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv : saved.condaEnv),
             workerRealtimeMode: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.workerRealtimeMode", saved.workerRealtimeMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_workers" : "hub_only")),
             workerTelemetryMode: saved.workerTelemetryMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_worker_telemetry" : "hub_only"),
             workerTunnels: saved.workerTunnels?.length
                 ? saved.workerTunnels
                 : nonEmptyWorkerTunnelConfig((0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.workerTunnels", undefined)),
         });
+    }
+    sessionDefaultInspections(config = vscode.workspace.getConfiguration("simpleExperiment")) {
+        return {
+            remoteTmuxSessionPrefix: config.inspect("tunnel.remoteTmuxSessionPrefix"),
+            condaEnv: config.inspect("tunnel.condaEnv"),
+        };
+    }
+    sessionDefaultConfigurationSignature(inspections = this.sessionDefaultInspections()) {
+        return JSON.stringify([
+            inspections.remoteTmuxSessionPrefix && [
+                inspections.remoteTmuxSessionPrefix.defaultValue,
+                inspections.remoteTmuxSessionPrefix.workspaceFolderValue,
+                inspections.remoteTmuxSessionPrefix.workspaceValue,
+                inspections.remoteTmuxSessionPrefix.globalValue,
+            ],
+            inspections.condaEnv && [
+                inspections.condaEnv.defaultValue,
+                inspections.condaEnv.workspaceFolderValue,
+                inspections.condaEnv.workspaceValue,
+                inspections.condaEnv.globalValue,
+            ],
+        ]);
     }
     gpuOwnerConfig() {
         if (this.gpuOwnerConfigCache)
@@ -9584,6 +9613,7 @@ class RealtimeTunnelPanelProvider {
             refreshProfile: "realtime",
         });
         await this.saveState();
+        await this.context.globalState.update(keys.setupConfigurationSignature, this.sessionDefaultConfigurationSignature());
         this.resetClient();
         this.postState();
     }

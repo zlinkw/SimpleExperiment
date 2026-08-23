@@ -21,3 +21,16 @@ export function explicitConfigurationValue<T>(
   if (inspected.globalValue !== undefined) return inspected.globalValue;
   return fallback;
 }
+
+export function nonDefaultConfigurationValue<T>(
+  config: InspectableConfiguration,
+  section: string,
+  fallback: T,
+): T {
+  const inspected = config.inspect<T>(section);
+  if (!inspected) return fallback;
+  for (const value of [inspected.workspaceFolderValue, inspected.workspaceValue, inspected.globalValue]) {
+    if (value !== undefined && value !== inspected.defaultValue) return value;
+  }
+  return fallback;
+}
