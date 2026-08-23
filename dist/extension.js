@@ -2710,10 +2710,11 @@ class RealtimeTunnelPanelProvider {
     async loadProjectRemotePathConfirmationsState() {
         const loaded = await this.readCurrentProjectState(readProjectRemotePathConfirmationsState);
         if (loaded.current)
-            this.confirmedRemotePaths = mergeRemotePathConfirmations(loaded.value);
+            this.confirmedRemotePaths = mergeRemotePathConfirmations(loaded.value, this.context.workspaceState.get(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, []));
     }
     async persistProjectRemotePathConfirmationsState() {
         await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("remotePathConfirmations"), () => this.confirmedRemotePaths, writeProjectRemotePathConfirmationsState);
+        await this.context.workspaceState.update(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, mergeRemotePathConfirmations(this.confirmedRemotePaths));
     }
     async loadProjectPptPathConfirmationsState() {
         const loaded = await this.readCurrentProjectState(readProjectPptPathConfirmationsState);
@@ -2760,6 +2761,7 @@ class RealtimeTunnelPanelProvider {
             return;
         this.confirmedRemotePaths = [];
         await this.persistProjectRemotePathConfirmationsState();
+        await this.context.workspaceState.update(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         this.postState(true);
@@ -12192,6 +12194,7 @@ async function writeProjectDebugBundleState(root, debugBundlePath) {
 }
 const PROJECT_CODE_SYNC_PATH = "simple_cluster/ui/code_sync.json";
 const PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH = "simple_cluster/ui/remote_path_confirmations.json";
+const REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY = "simpleExperiment.remotePathConfirmations";
 const PROJECT_LOCAL_OPERATIONS_PATH = "simple_cluster/ui/local_operations.json";
 const PROJECT_LOCAL_PLAN_METADATA_PATH = "simple_cluster/ui/local_plan_metadata.json";
 const normalizeRemoteWriteTargetsCache = new WeakMap();

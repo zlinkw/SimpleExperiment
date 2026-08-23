@@ -188,7 +188,10 @@ test("path confirmation precedes profile writes and upload-start state", () => {
 });
 
 test("remembered remote paths can be reset from project settings", () => {
-  assert.match(source, /this\.confirmedRemotePaths = mergeRemotePathConfirmations\(loaded\.value\)/);
+  assert.match(source, /this\.confirmedRemotePaths = mergeRemotePathConfirmations\(/);
+  assert.match(source, /REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY = "simpleExperiment\.remotePathConfirmations"/);
+  assert.match(source, /mergeRemotePathConfirmations\(\s*loaded\.value,\s*this\.context\.workspaceState\.get\(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, \[\]\),\s*\)/);
+  assert.match(source, /await this\.context\.workspaceState\.update\(\s*REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY,\s*mergeRemotePathConfirmations\(this\.confirmedRemotePaths\),\s*\)/);
   assert.match(source, /remotePathConfirmations: \{\s*count: this\.confirmedRemotePaths\.length/);
   assert.match(source, /case "resetRemotePathConfirmations":\s*await this\.resetRemotePathConfirmationsFromUi\(\)/);
   assert.match(source, /async resetRemotePathConfirmationsFromUi\(\)/);
@@ -196,7 +199,7 @@ test("remembered remote paths can be reset from project settings", () => {
   assert.match(reset, /const root = assertSingleProjectWorkspace\("恢复上传路径提醒"\)/);
   assert.match(reset, /const generation = this\.projectContextGeneration/);
   assert.ok([...reset.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 3);
-  assert.match(source, /this\.confirmedRemotePaths = \[\];\s*await this\.persistProjectRemotePathConfirmationsState\(\)/);
+  assert.match(source, /this\.confirmedRemotePaths = \[\];\s*await this\.persistProjectRemotePathConfirmationsState\(\);\s*await this\.context\.workspaceState\.update\(REMOTE_PATH_CONFIRMATIONS_WORKSPACE_KEY, undefined\)/);
   assert.match(source, /服务器配置、SimpleSFTP 配置和远端文件不会改变/);
   assert.match(panel, /data-anchor="settings-path-confirmations"/);
   assert.match(panel, /当前项目状态文件/);

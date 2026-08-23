@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.11
+
+- Backed upload path confirmations with per-workspace VS Code state in addition to the project-local file, so remembered paths survive extension updates, window restarts, and cleanup of generated UI state.
+
 ## 0.4.10
 
 - Tagged single-Worker scheduler stop requests as local Worker scheduler operations so the telemetry client routes them to the owning Worker instead of rejecting them as Hub-only actions.
