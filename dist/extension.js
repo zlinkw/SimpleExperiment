@@ -6954,7 +6954,8 @@ class RealtimeTunnelPanelProvider {
             pid: numberField(body, "pid") ? String(numberField(body, "pid")) : "",
             tmuxSession: stringField(body, "tmuxSession") || stringField(body, "session"),
         };
-        let candidates = Object.values(this.localOperations || {}).filter((item) => (item && typeof item === "object" && !operationTerminal(item)
+        let candidates = Object.values(this.localOperations || {}).filter((item) => (item && typeof item === "object"
+            && (!operationTerminal(item) || String(item.status || "").trim().toLowerCase() === "stale")
             && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
             && this.stopExperimentMatchesTarget(item, target)));
         if (!candidates.length && !Object.values(target).some(Boolean))

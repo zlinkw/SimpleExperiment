@@ -135,6 +135,41 @@ test("single-worker orphan stop marks the submission stale when no process is te
   assert.equal(provider.localOperations["run-plan-orphan"].reconcileReason, "stop:no_remote_activity");
 });
 
+test("single-worker stop still matches a reconciled stale submission", async () => {
+  const calls = [];
+  const operation = {
+    operationId: "run-plan-stale",
+    type: "run-plan",
+    status: "stale",
+    planFile: "experiments/plans/stale.yaml",
+    schedulerOwnerWorkerId: "nwpu3",
+  };
+  const provider = {
+    resolveWorkerEndpointId: (value) => String(value || "").trim(),
+    localOperations: { [operation.operationId]: { ...operation } },
+    projectTopologyAssessment: () => ({ mode: "single_worker", hubAllowed: false }),
+    enabledWorkerConfigs: () => [{ id: "nwpu3" }],
+    longRunningPlanRunOperations() {
+      return [];
+    },
+    runOperationWorkerId: (row) => String(row.schedulerOwnerWorkerId || ""),
+    stopExperimentMatchesTarget: (row, target) => runOperationMatchesTarget(row, target),
+    async postWorkerTunnelAction(workerId, action, request) {
+      calls.push({ workerId, action, request });
+      return { status: "completed" };
+    },
+    markLocalOperationsDirty() {},
+    postState() {},
+  };
+
+  const result = await contextStop(provider, { planFile: operation.planFile });
+
+  assert.deepEqual(calls.map((call) => call.action), ["stop-scheduler-operation"]);
+  assert.equal(result.stopped, 0);
+  assert.deepEqual([...result.matchedOperations], ["run-plan-stale"]);
+  assert.equal(provider.localOperations["run-plan-stale"].status, "stale");
+});
+
 async function contextStop(provider, body) {
   const context = createContext({
     resolveWorkerEndpointId: (value) => String(value || "").trim(),
