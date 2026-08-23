@@ -56,7 +56,9 @@ function releaseAssets(release: UpdateRelease): UpdateAsset[] {
 }
 
 export function normalizeReleaseVersion(value: string): string {
-  return text(value).replace(/^v/i, "");
+  const normalized = text(value).replace(/^v/i, "");
+  const semantic = /(?:^|[^\d])v?(\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z.-]+)?)(?:$|[^\d])/.exec(normalized);
+  return semantic ? semantic[1] : normalized;
 }
 
 export function compareSemanticVersions(left: string, right: string): number {

@@ -26,6 +26,13 @@ test("release versions use semantic comparison and ignore the optional v prefix"
   assert.equal(compareSemanticVersions("0.4.7", "0.4.6"), 1);
   assert.equal(compareSemanticVersions("v0.4.7", "0.4.7"), 0);
   assert.equal(compareSemanticVersions("0.4.10", "0.4.9"), 1);
+  assert.equal(
+    compareSemanticVersions(
+      componentUpdate("id", "repo", "SimpleExperiment", "0.4.11", release("SimpleExperiment 0.4.10"), "simple-experiment").latestVersion,
+      "0.4.11",
+    ),
+    -1,
+  );
 });
 
 test("paired update plan requires VSIX assets from both releases", () => {

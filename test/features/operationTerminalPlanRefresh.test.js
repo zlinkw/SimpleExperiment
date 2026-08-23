@@ -6,6 +6,7 @@ const test = require("node:test");
 test("operation terminal and result actions refresh results with planFile", () => {
   const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
   const statusHelpers = source.match(/const OPERATION_TERMINAL_STATUSES[\s\S]*?function operationSubmissionAccepted/)?.[0] || "";
+  assert.match(statusHelpers, /"stale"/);
   const resultActions = source.match(/const RESULT_SUMMARY_AFFECTING_ACTIONS[\s\S]*?\]\);/)?.[0] || "";
   assert.match(source, /function operationResultPlanFile\(record\)/);
   assert.match(source, /async refreshResultsSummary\(planHint = ""\)/);

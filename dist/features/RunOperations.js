@@ -103,7 +103,8 @@ function runOperationMatchesTarget(record, target) {
         if ((key === "planFile" || key === "planId") ? !samePlanSelection(value, wanted) : value !== wanted)
             return false;
     }
-    return matched && isLongRunningPlanOperation(record);
+    const status = String(record.status || record.state || "").trim().toLowerCase();
+    return matched && (isLongRunningPlanOperation(record) || status === "stale");
 }
 function operationPlanFile(record) {
     return String(record.planFile || record.plan || record.options && record.options.planFile || "");

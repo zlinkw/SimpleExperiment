@@ -134,7 +134,8 @@ export function runOperationMatchesTarget(record: Record<string, unknown>, targe
     matched = true;
     if ((key === "planFile" || key === "planId") ? !samePlanSelection(value, wanted) : value !== wanted) return false;
   }
-  return matched && isLongRunningPlanOperation(record as RunOperationRecord);
+  const status = String(record.status || record.state || "").trim().toLowerCase();
+  return matched && (isLongRunningPlanOperation(record as RunOperationRecord) || status === "stale");
 }
 
 function operationPlanFile(record: Record<string, unknown>): string {

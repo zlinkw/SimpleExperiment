@@ -11480,7 +11480,7 @@ function operationStatusOf(value) {
     const item = value;
     return String(item.status || item.state || item.type || "");
 }
-const OPERATION_TERMINAL_STATUSES = new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stalled", "unsupported", "error"]);
+const OPERATION_TERMINAL_STATUSES = new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stale", "stalled", "unsupported", "error"]);
 const OPERATION_FAILURE_TERMINAL_STATUSES = new Set(["completed_with_errors", "failed", "operation_failed", "stalled", "unsupported", "error"]);
 const OPERATION_CANCELLED_TERMINAL_STATUSES = new Set(["cancelled", "canceled"]);
 const REMOTE_ACTION_PENDING_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "progress", "in_progress", "operation_started"]);

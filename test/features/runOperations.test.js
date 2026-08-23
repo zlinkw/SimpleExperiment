@@ -59,3 +59,10 @@ test("stop targets match plan, operation, run key, pid, or tmux identity", () =>
   assert.equal(runOperationMatchesTarget({ ...running, tmuxSession: "simple-scheduler" }, { tmuxSession: "simple-scheduler" }), true);
   assert.equal(runOperationMatchesTarget(running, { planFile: "other.yaml" }), false);
 });
+
+test("stop targets still match reconciled stale submissions", () => {
+  const stale = { ...running, status: "stale" };
+  assert.equal(isLongRunningPlanOperation(stale), false);
+  assert.equal(runOperationMatchesTarget(stale, { planFile: running.planFile }), true);
+  assert.equal(runOperationMatchesTarget(stale, { operationId: running.operationId }), true);
+});
