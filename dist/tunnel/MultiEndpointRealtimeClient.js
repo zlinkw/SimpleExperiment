@@ -284,7 +284,7 @@ function isWorkerLocalSchedulerRequest(action, body) {
     const options = request.options && typeof request.options === "object" ? request.options : {};
     return ["single_worker", "worker_pool"].includes(String(options.topologyMode || ""))
         && options.localWorkerScheduler === true
-        && Boolean(String(options.schedulerOwnerWorkerId || "").trim());
+        && Boolean(String(options.schedulerOwnerWorkerId || request.schedulerOwnerWorkerId || "").trim());
 }
 function createBudget(config) {
     return new RequestBudget_1.RequestBudget(config);
