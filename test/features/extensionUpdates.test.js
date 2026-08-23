@@ -12,6 +12,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const extensionSource = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
 
 function release(version, names = [`simple-${version}.vsix`, `simple-${version}.vsix.sha256`]) {
   return {
@@ -63,4 +64,9 @@ test("update card hides installation when the installed versions are current", (
   assert.match(panelSource, /canInstall = status === "update_available" && hasStoredUpdate/);
   assert.match(panelSource, /\(canInstall \? '<button data-command="installPluginUpdates"/);
   assert.match(panelSource, /当前已是最新版本；更新来源为两个仓库的 GitHub Latest Release。/);
+});
+
+test("local API update commands return their plans directly", () => {
+  assert.match(extensionSource, /if \(command === "checkPluginUpdates"\)\s*return await this\.checkPluginUpdates\(params\.manual !== false\);/);
+  assert.match(extensionSource, /if \(command === "installPluginUpdates"\)\s*return await this\.installPluginUpdates\(\);/);
 });

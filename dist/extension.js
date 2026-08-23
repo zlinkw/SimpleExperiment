@@ -2119,6 +2119,10 @@ class RealtimeTunnelPanelProvider {
                 command,
                 params: { ...params, confirm: undefined },
             });
+        if (command === "checkPluginUpdates")
+            return await this.checkPluginUpdates(params.manual !== false);
+        if (command === "installPluginUpdates")
+            return await this.installPluginUpdates();
         const message = { command, ...params };
         if (uiActionCommands.has(command))
             return await this.runActionCommand(command, message);
