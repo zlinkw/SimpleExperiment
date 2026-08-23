@@ -67,6 +67,6 @@ test("update card hides installation when the installed versions are current", (
 });
 
 test("local API update commands return their plans directly", () => {
-  assert.match(extensionSource, /if \(command === "checkPluginUpdates"\)\s*return await this\.checkPluginUpdates\(params\.manual !== false\);/);
+  assert.match(extensionSource, /if \(command === "checkPluginUpdates"\)\s*return await this\.checkPluginUpdates\(params\.manual === true\);/);
   assert.match(extensionSource, /if \(command === "installPluginUpdates"\)\s*return await this\.installPluginUpdates\(\);/);
 });
