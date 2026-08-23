@@ -12,8 +12,10 @@ test("tunnel setup is persisted globally instead of per workspace", () => {
 test("session defaults keep the last panel save unless a non-default user setting changes", () => {
   const source = fs.readFileSync("src/extension.ts", "utf8");
   assert.match(source, /setupConfigurationSignature: "simpleExperiment\.setupConfigurationSignature"/);
-  assert.match(source, /savedDefaultsWin = .*sessionDefaultConfigurationSignature\(sessionDefaults\)/);
-  assert.match(source, /nonDefaultConfigurationValue\)\(config, "tunnel\.remoteTmuxSessionPrefix"/);
-  assert.match(source, /nonDefaultConfigurationValue\)\(config, "tunnel\.condaEnv"/);
+  assert.match(source, /hasStoredSignature && storedSignature === this\.sessionDefaultConfigurationSignature\(sessionDefaults\)/);
+  assert.match(source, /const explicit = \(0, ConfigurationSettings_1\.explicitConfigurationValue\)\(config, key, savedValue === undefined \? fallback : savedValue\)/);
+  assert.match(source, /!hasStoredSignature && explicit === fallback && savedValue !== undefined && savedValue !== fallback\s*\?\s*savedValue\s*:\s*explicit/);
+  assert.match(source, /configuration\.update\("tunnel\.remoteTmuxSessionPrefix", next\.remoteTmuxSessionPrefix, vscode\.ConfigurationTarget\.Global\)/);
+  assert.match(source, /configuration\.update\("tunnel\.condaEnv", next\.condaEnv, vscode\.ConfigurationTarget\.Global\)/);
   assert.match(source, /await this\.saveState\(\);\s*await this\.context\.globalState\.update\(keys\.setupConfigurationSignature, this\.sessionDefaultConfigurationSignature\(\)\)/);
 });

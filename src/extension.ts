@@ -9617,7 +9617,17 @@ class RealtimeTunnelPanelProvider {
         const saved = this.context.globalState.get(keys.setupConfig) || {};
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const sessionDefaults = this.sessionDefaultInspections(config);
-        const savedDefaultsWin = this.context.globalState.get(keys.setupConfigurationSignature) === this.sessionDefaultConfigurationSignature(sessionDefaults);
+        const storedSignature = this.context.globalState.get(keys.setupConfigurationSignature);
+        const hasStoredSignature = typeof storedSignature === "string";
+        const savedDefaultsWin = hasStoredSignature && storedSignature === this.sessionDefaultConfigurationSignature(sessionDefaults);
+        const sessionDefaultValue = (key, savedValue, fallback) => {
+            if (savedDefaultsWin)
+                return savedValue === undefined ? fallback : savedValue;
+            const explicit = (0, ConfigurationSettings_1.explicitConfigurationValue)(config, key, savedValue === undefined ? fallback : savedValue);
+            return !hasStoredSignature && explicit === fallback && savedValue !== undefined && savedValue !== fallback
+                ? savedValue
+                : explicit;
+        };
         return (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...XshellTunnelSetup_1.defaultXshellTunnelSetupConfig,
             ...saved,
@@ -9625,12 +9635,16 @@ class RealtimeTunnelPanelProvider {
             remoteAgentPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remoteAgentPort || this.tunnelConfig.remotePort),
             xshellExePath: saved.xshellExePath || this.tunnelConfig.xshellExePath || "",
             hubDisplayName: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
-            remoteTmuxSessionPrefix: savedDefaultsWin
-                ? saved.remoteTmuxSessionPrefix || XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix
-                : (0, ConfigurationSettings_1.nonDefaultConfigurationValue)(config, "tunnel.remoteTmuxSessionPrefix", saved.remoteTmuxSessionPrefix || XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix),
-            condaEnv: savedDefaultsWin
-                ? saved.condaEnv === undefined ? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv : saved.condaEnv
-                : (0, ConfigurationSettings_1.nonDefaultConfigurationValue)(config, "tunnel.condaEnv", saved.condaEnv === undefined ? XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv : saved.condaEnv),
+            remoteTmuxSessionPrefix: sessionDefaultValue(
+                "tunnel.remoteTmuxSessionPrefix",
+                saved.remoteTmuxSessionPrefix,
+                XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.remoteTmuxSessionPrefix,
+            ),
+            condaEnv: sessionDefaultValue(
+                "tunnel.condaEnv",
+                saved.condaEnv,
+                XshellTunnelSetup_1.defaultXshellTunnelSetupConfig.condaEnv,
+            ),
             workerRealtimeMode: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.workerRealtimeMode", saved.workerRealtimeMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_workers" : "hub_only")),
             workerTelemetryMode: saved.workerTelemetryMode || (saved.workerTunnels?.some((worker) => worker.enabled !== false) ? "hub_plus_worker_telemetry" : "hub_only"),
             workerTunnels: saved.workerTunnels?.length
@@ -9711,6 +9725,11 @@ class RealtimeTunnelPanelProvider {
             allowStreaming: true,
             refreshProfile: "realtime",
         });
+        const configuration = vscode.workspace.getConfiguration("simpleExperiment");
+        await Promise.all([
+            configuration.update("tunnel.remoteTmuxSessionPrefix", next.remoteTmuxSessionPrefix, vscode.ConfigurationTarget.Global),
+            configuration.update("tunnel.condaEnv", next.condaEnv, vscode.ConfigurationTarget.Global),
+        ]);
         await this.saveState();
         await this.context.globalState.update(keys.setupConfigurationSignature, this.sessionDefaultConfigurationSignature());
         this.resetClient();

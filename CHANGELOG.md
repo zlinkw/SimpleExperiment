@@ -2,7 +2,7 @@
 
 ## 0.4.12
 
-- Preserved panel-saved tmux session prefixes and Conda defaults across restarts when public settings still contain only default values, while keeping non-default VS Code settings authoritative.
+- Mirrored panel-saved tmux prefixes and Conda defaults into global settings, preserved them across restarts when settings are unchanged, and let changed VS Code settings take precedence.
 
 ## 0.4.11
 
