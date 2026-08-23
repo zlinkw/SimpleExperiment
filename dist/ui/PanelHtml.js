@@ -6702,6 +6702,18 @@ function renderPanelHtml() {
           '<div class="muted">模式变更会显示强确认。仅 Worker 旧项目必须明确选择；旧 Hub 配置在无 Hub 模式下保留但不参与运行。</div>' +
         '</div>'
       );
+      if (!hubParticipates) cards.push(
+        '<div class="server-card" data-anchor="servers-session-defaults">' +
+          '<div class="serverHead"><div class="serverTitle"><h3>Agent 会话默认值</h3><div class="muted">仅 Worker 模式共用的远端会话设置</div></div>' +
+          '<div class="serverBadges"><span class="pill">tmux ' + esc(setup.remoteTmuxSessionPrefix || "simple") + '</span></div></div>' +
+          '<div class="configGrid">' +
+            configInput("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀", setup.remoteTmuxSessionPrefix || "simple") +
+            configInput("hub", "condaEnv", "Conda 环境（可选）", setup.condaEnv || "") +
+          '</div>' +
+          '<div class="toolbar"><button data-command="saveHubConfig" data-config-scope="hub">保存默认值</button></div>' +
+          '<div class="muted">前缀应用于新生成的 Agent tmux 会话；已有会话需重新写入启动命令或重新准备 Agent。</div>' +
+        '</div>'
+      );
       cards.push(
         '<div class="server-card" data-anchor="servers-scheduler">' +
           '<div class="serverHead"><div class="serverTitle"><h3>调度与上报策略</h3><div class="muted">低频稳态、随机抖动与实时事件边界</div></div>' +

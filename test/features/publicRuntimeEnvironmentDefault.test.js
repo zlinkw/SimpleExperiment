@@ -86,6 +86,7 @@ test("settings and confirmations explain the effective runtime environment", () 
   assert.match(extension, /return condaEnv \? `Conda \$\{condaEnv\}` : "系统 Python（未指定 Conda）"/);
   assert.match(extension, /skipIfRemoteCommandIncludes: \[target\.command\]/);
   assert.match(panel, /configInput\("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀"/);
+  assert.match(panel, /if \(!hubParticipates\) cards\.push\([\s\S]{0,500}data-anchor="servers-session-defaults"[\s\S]{0,700}remoteTmuxSessionPrefix/);
   assert.match(extension, /remoteTmuxSessionPrefix: preservedStringPatch\(patch, "remoteTmuxSessionPrefix"/);
   assert.match(agentSource, /conda_declared = any\(key in command/);
   assert.match(agentSource, /env\["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"\] = "1" if conda_env else "0"/);
