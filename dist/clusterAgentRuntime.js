@@ -648,7 +648,7 @@ def safe_project_path(root, value):
     root_result_files = ("metrics_summary.csv", "metrics_case.csv", "results.csv", "result.csv", "metrics.csv", "summary.csv", "scores.csv", "score.csv", "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv", "checkpoint_manifest.json", "artifact_manifest.json", "metrics.json", "summary.json", "result.json", "results.json", "classification_report.json", "summary.txt", "result.txt", "results.txt", "classification_report.txt", "stdout.log", "stderr.log", "train.log", "test.log", "console.log", "output.out")
     if len(parts) == 1 and parts[0] in root_result_files:
         pass
-    elif parts[0] not in ("simple_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions"):
+    elif parts[0] not in ("simple_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions", "tmp"):
         raise ValueError("path outside allowed project roots")
     target = os.path.abspath(os.path.join(root, *parts))
     root_abs = os.path.abspath(root)
@@ -5340,6 +5340,87 @@ def auto_completion_should_run(previous, trigger_type):
         return not status
     return True
 
+
+def draft_config_reference_values(text):
+    values = []
+    for line in str(text or "").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        scalar = re.match(r"^\s*-?\s*(?:base_config|base-config|config_file|config-file|config_path|config-path|cfg|config)\s*:\s*(.+?)\s*(?:#.*)?$", line, re.I)
+        if scalar and not str(scalar.group(1)).lstrip().startswith("{"):
+            values.append((line.strip(), str(scalar.group(1)).strip()))
+        for match in re.finditer(r"(?:^|[\s;&|(])(?:--)?(?:base[-_]config|config[-_]file|config[-_]path|cfg|config)(?:=|\s*=\s*|\s+)(\"[^\"]+\"|'[^']+'|[^\s;&|]+)", line, re.I):
+            values.append((line.strip(), match.group(1)))
+    out = []
+    seen = set()
+    for _, raw in values:
+        value = str(raw or "").strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        value = value.split()[0] if value else ""
+        value = value.replace("\\", "/").lstrip("/")
+        if value.startswith("tmp/config/") and re.search(r"\.ya?ml$", value, re.I) and value not in seen:
+            out.append(value)
+            seen.add(value)
+    return out
+
+
+def atomic_write_draft_text(path, text):
+    tmp = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    replace_with_retry(tmp, path)
+
+
+def materialize_draft_snapshot(root, plan):
+    plan_text = open(safe_project_path(root, plan), "r", encoding="utf-8").read()
+    refs = draft_config_reference_values(plan_text)
+    if not refs:
+        raise RuntimeError("草稿 Plan 必须引用 tmp/config/ 下的配置。")
+    copied = []
+    hash_parts = []
+    for ref in refs:
+        source = safe_project_path(root, ref)
+        text = open(source, "r", encoding="utf-8").read()
+        rel = os.path.relpath(source, safe_project_path(root, "tmp/config")).replace("\\", "/")
+        target_rel = f"simple_cluster/drafts/snapshots/{sha256_text(ref + '\n' + text)[:24]}/configs/{rel}"
+        target = safe_project_path(root, target_rel)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if not os.path.exists(target):
+            atomic_write_draft_text(target, text)
+        copied.append({"source": ref, "snapshot": target_rel})
+        hash_parts.append(f"{ref}\n{sha256_text(text)}")
+    snapshot_id = sha256_text("\n".join([f"{plan}\n{sha256_text(plan_text)}", *hash_parts]))[:24]
+    rewritten = plan_text
+    for ref in reversed(refs):
+        matching = next((item for item in copied if item["source"] == ref), None)
+        if matching:
+            rewritten = rewritten.replace(ref, matching["snapshot"])
+    execution_plan_rel = f"simple_cluster/drafts/snapshots/{snapshot_id}/plan.yaml"
+    execution_plan = safe_project_path(root, execution_plan_rel)
+    os.makedirs(os.path.dirname(execution_plan), exist_ok=True)
+    atomic_write_draft_text(execution_plan, rewritten)
+    atomic_write(safe_project_path(root, f"simple_cluster/drafts/snapshots/{snapshot_id}/snapshot.json"), {
+        "schemaVersion": 1,
+        "draftPlanPath": plan.replace("\\", "/"),
+        "configRefs": refs,
+        "copiedConfigs": copied,
+        "executionPlanPath": execution_plan_rel,
+        "contentHash": sha256_text("\n".join([f"{plan}\n{sha256_text(plan_text)}", *hash_parts])),
+        "createdAt": now_iso(),
+    })
+    return {"executionPlan": execution_plan_rel, "snapshotId": snapshot_id, "refs": refs}
+
+
+def prepare_draft_run_plan(root, plan, debug_mode):
+    normalized = str(plan or "").replace("\\", "/").lstrip("/")
+    if normalized.startswith("tmp/plan/"):
+        if not debug_mode:
+            raise RuntimeError("tmp/plan 只能使用 Debug 隔离运行；正式 PLAN 必须位于 experiments/plans/。")
+        return materialize_draft_snapshot(root, plan)["executionPlan"]
+    return plan
+
+
 def event_is_debug_run(event):
     body = event if isinstance(event, dict) else {}
     payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
@@ -6943,6 +7024,11 @@ def handle_action(root, action, payload, operation_id, op_id):
             safe_project_path(root, plan)
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
+        debug_mode = action_debug_mode(payload)
+        try:
+            plan = prepare_draft_run_plan(root, plan, debug_mode)
+        except Exception as exc:
+            return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         scheduler = cluster_scheduler_path(root)
         if not scheduler:
             return terminal_action(root, action, operation_id, op_id, "failed", "调度节点缺少 cluster_scheduler.py，请先部署最新版 Agent。", request=payload)
@@ -7001,7 +7087,6 @@ def handle_action(root, action, payload, operation_id, op_id):
         log_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.log")
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         log_rel = os.path.relpath(log_path, root).replace("\\", "/")
-        debug_mode = action_debug_mode(payload)
         debug_run_id = action_debug_run_id(payload) or op_id
         debug_output_dir = f"simple_cluster/debug_runs/{plan_summary_slug(plan)}/{safe_name(debug_run_id)}" if debug_mode else ""
         if debug_mode:

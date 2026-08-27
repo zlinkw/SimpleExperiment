@@ -1266,6 +1266,7 @@ function renderPanelHtml() {
           <button data-command="runAllPlans" data-confirm="true" class="secondary">运行全部计划</button>
         </div>
         <div id="recentPlans" data-anchor="plans-list"></div>
+        <div id="draftPlans" data-anchor="draft-list"></div>
         <h3>实验操作</h3>
         <div id="experimentActions" class="actionGrid"></div>
       </section>
@@ -4530,7 +4531,12 @@ function renderPanelHtml() {
         savePlan: "保存计划",
         selectPlan: "选择计划",
         selectExperiment: "选择任务",
-        selectLogRunKey: "查看日志"
+        selectLogRunKey: "查看日志",
+        runDraftDebug: "草稿 Debug 隔离运行（输出至 simple_cluster/debug_runs）",
+        promoteDraft: "转正草稿：将 tmp/plan 与 tmp/config 复制到 experiments/plans 与 configs（需确认 diff 与冲突）",
+        rejectDraft: "拒绝草稿：标记为 rejected",
+        reviewDraft: "标记草稿已审阅：进入 ready_for_review",
+        cleanupDrafts: "清理已拒绝或过期且未被引用的草稿文件"
       });
 
     function commandHelp(command, context) {
@@ -7503,6 +7509,44 @@ function renderPanelHtml() {
       const recentPlansChanged = shouldKeepPlanPreviewDraft(state) ? false : setHtmlIfChanged("recentPlans", renderPlanCards(state, plans));
       if (planProjectChanged) bindPlanInspectControls();
       if (recentPlansChanged) bindPlanSelectionControls();
+      renderDraftPlanSection(state);
+    }
+    function renderDraftPlanSection(state) {
+      const draftState = state.draftPlans || { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: "" };
+      if (!draftState.enabled) {
+        setHtmlIfChanged("draftPlans", "");
+        return;
+      }
+      setHtmlIfChanged("draftPlans", renderDraftCards(draftState));
+    }
+    function renderDraftCards(draftState) {
+      const drafts = Array.isArray(draftState.drafts) ? draftState.drafts : [];
+      if (!drafts.length) return '<div class="muted">暂无草稿 PLAN（tmp/plan/**/*.yaml）。草稿仅用于 Debug 预览，转正后进入正式流程。</div>';
+      const rows = drafts.map(function(draft) {
+        const file = draft.draftPlanPath || "";
+        const status = draft.status || "draft";
+        const configList = (draft.draftConfigPaths || []).map(function(c){return esc(c);}).join(", ") || "-";
+        const hash = esc((draft.contentHash || "").slice(0, 8));
+        const debugInfo = draft.lastDebugRunId ? '<span class="pill">' + esc(draft.lastDebugRunId.slice(0,8)) + '</span>' : "";
+        const badge = '<span class="pill" title="草稿标记">Draft</span><span class="pill">' + esc(status) + '</span>';
+        return '<div class="task-card is-completed" data-draft-plan="' + escAttr(file) + '">' +
+          '<div class="planCardHead"><div class="taskTitle"><b>' + esc(file) + '</b>' + badge + debugInfo + '</div>' +
+          '<div class="planCardActions">' +
+            '<button class="taskActionButton secondary" data-command="runDraftDebug" data-draft-plan-path="' + escAttr(file) + '">Debug 运行</button>' +
+            '<button class="taskActionButton secondary" data-command="reviewDraft" data-draft-plan-path="' + escAttr(file) + '">标记已审阅</button>' +
+            '<button class="taskActionButton secondary" data-command="promoteDraft" data-draft-plan-path="' + escAttr(file) + '">Promote Draft</button>' +
+            '<button class="taskActionButton secondary" data-command="rejectDraft" data-draft-plan-path="' + escAttr(file) + '">Reject</button>' +
+          '</div></div>' +
+          '<div class="taskFacts">' +
+            taskMetric("配置", configList) +
+            taskMetric("hash", hash) +
+            taskMetric("目标", (draft.promotionTargetPaths||[]).map(function(v){return esc(v);}).join(", ")||"-") +
+            taskMetric("套件", draft.suite || "-") +
+            (draft.issues && draft.issues.length ? '<div class="muted">问题: ' + esc(draft.issues.map(function(i){return i.message;}).join("; ")) + '</div>' : "") +
+          '</div></div>';
+      }).join("");
+      const cleanup = (draftState.cleanupCandidates||[]).length ? '<div class="muted">清理候选 ' + draftState.cleanupCandidates.length + ' 个：' + esc(draftState.cleanupCandidates.map(function(c){return c.path;}).join(", ")) + '</div><button class="taskActionButton secondary" data-command="cleanupDrafts">清理 Rejected/Stale</button>' : "";
+      return '<div class="section-card" style="margin-top:10px"><h3>草稿 PLAN（Draft）<span class="pill">独立发现</span></h3><div class="muted">草稿仅支持 Debug 隔离运行，输出位于 simple_cluster/debug_runs/，不进入归档/统计/论文/PPT。</div><div class="taskCardList">' + rows + '</div>' + cleanup + (draftState.error ? '<pre>' + esc(draftState.error) + '</pre>' : "") + '</div>';
     }
 
     function bindPlanSelectionControls() {

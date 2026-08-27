@@ -157,7 +157,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(confirm, /persistProjectRemotePathConfirmationsState\(\)/);
   assert.match(prepareSftp, /assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)[\s\S]{0,180}ensureSimpleSftpReadyForSetup\("文件传输"\)/);
   assert.match(source, /loadProjectRemotePathConfirmationsState\(\)\.catch\(\(\) => undefined\)/);
-  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 2);
+  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 3);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureIgnores"/g)].length, 1);
   assert.match(legacyNotes, /所有由 SimpleExperiment 发起的项目代码和 Agent runtime SFTP 上传都会先经过强制路径确认窗口/);
   assert.match(legacyNotes, /simple_cluster\/ui\/remote_path_confirmations\.json/);

@@ -39,6 +39,7 @@ import WorkspacePathMapper_1 = require("./core/WorkspacePathMapper");
 import HostOperationLease_1 = require("./core/HostOperationLease");
 import BoundedTimestampMap_1 = require("./core/BoundedTimestampMap");
 import Results_1 = require("./features/Results");
+import DraftPlans_1 = require("./features/DraftPlans");
 import PlanBuilder_1 = require("./features/PlanBuilder");
 import { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParameterAudit, pythonLocalImportReferences, restorePlanText } from "./features/PlanArchive";
 import ProjectAdapterTemplates_1 = require("./templates/ProjectAdapterTemplates");
@@ -122,7 +123,12 @@ type WebviewActionCommand =
     | "selectExperiment"
     | "selectPlan"
     | "checkPluginUpdates"
-    | "installPluginUpdates";
+    | "installPluginUpdates"
+    | "runDraftDebug"
+    | "promoteDraft"
+    | "rejectDraft"
+    | "reviewDraft"
+    | "cleanupDrafts";
     // Update commands are intentionally local-only and do not enter the remote action map.
 const viewId = "simpleExperiment.panel";
 const LOCAL_API_PREFERRED_PORT = 19765;
@@ -365,6 +371,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
+    "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -402,11 +409,13 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "runAllPlans",
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "openAuditTail", "selectPlan", "selectExperiment",
+    "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "endpointId", "planFile", "planId", "file", "runKey", "taskUiKey", "experimentId",
     "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
     "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
+    "conflictMode",
 ]);
 const normalizePinnedCommandsCache = new WeakMap();
 const normalizeUiButtonActionsCache = new WeakMap();
@@ -484,6 +493,9 @@ const API_CONFIRM_COMMANDS = new Set([
     "configureSftpIgnores",
     "startAllConnections",
     "prepareAgents",
+    "runDraftDebug",
+    "promoteDraft",
+    "cleanupDrafts",
 ]);
 const noHubWorkerResultActions = new Set([
     "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics", "export-paper-table",
@@ -741,6 +753,10 @@ class RealtimeTunnelPanelProvider {
     projectContextGeneration = 0;
     localPlanMetadataRefreshMinIntervalMs = 5_000;
     localPlanMetadataActionRefreshMaxAgeMs = 60_000;
+    draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: "" };
+    draftPlansRefreshPromise;
+    draftPlansUpdatedAt = 0;
+    draftPlansRefreshMinIntervalMs = 5_000;
     xshellLibrary = { searchedDirs: [], existingDirs: [], sessions: [] };
     xshellLibraryError;
     xshellLibraryRefreshPromise;
@@ -928,6 +944,26 @@ class RealtimeTunnelPanelProvider {
             "flow.update": async (params) => this.apiFlowUpdate(params),
             "server.testAll": async (params) => this.apiServerTestAll(params),
             "plans.filter": async (params) => this.apiPlansFilter(params),
+            "drafts.list": async (params = {}) => {
+                await this.refreshDraftPlans(params?.force === true);
+                return { ...this.draftPlanState };
+            },
+            "drafts.validate": async (params = {}) => await this.apiDraftValidate(params),
+            "drafts.promotionPreview": async (params = {}) => await this.apiDraftPromotionPreview(params),
+            "drafts.promote": async (params = {}) => {
+                if (params?.confirm !== true) throw confirmationRequired("转正草稿会写入正式 experiments/plans 或 configs 文件。", params);
+                return await this.apiDraftPromote(params);
+            },
+            "drafts.reject": async (params = {}) => await this.apiDraftReject(params),
+            "drafts.review": async (params = {}) => await this.apiDraftReview(params),
+            "drafts.cleanupCandidates": async (params = {}) => {
+                await this.refreshDraftPlans(params?.force === true);
+                return { candidates: this.draftPlanState.cleanupCandidates };
+            },
+            "drafts.cleanup": async (params = {}) => {
+                if (params?.confirm !== true) throw confirmationRequired("清理将永久删除 rejected/stale 草稿文件。", params);
+                return await this.apiDraftCleanup(params);
+            },
             "plan.validate": async (params) => this.apiPlanValidate(params),
             "workflow.plan": async (params) => this.apiWorkflowPlan(params),
             "workflow.run": async (params) => this.apiWorkflowRun(params),
@@ -4367,6 +4403,21 @@ class RealtimeTunnelPanelProvider {
             case "runAllPlans":
                 await this.runAllPlansFromUi();
                 break;
+            case "runDraftDebug":
+                await this.runDraftDebugFromUi(message);
+                break;
+            case "promoteDraft":
+                await this.promoteDraftFromUi(message);
+                break;
+            case "rejectDraft":
+                await this.rejectDraftFromUi(message);
+                break;
+            case "reviewDraft":
+                await this.reviewDraftFromUi(message);
+                break;
+            case "cleanupDrafts":
+                await this.cleanupDraftsFromUi(message);
+                break;
             case "generatePlanGuide":
                 await this.generatePlanGuideFromUi();
                 break;
@@ -7405,6 +7456,7 @@ class RealtimeTunnelPanelProvider {
                 this.localPlanMetadataActionUpdatedAt = Date.now();
                 this.localPlanMetadataKey = key;
                 this.localPlanMetadataFullRefresh = true;
+                void this.refreshDraftPlans().catch(() => undefined);
                 void this.persistProjectPlanSelectionState().catch(() => undefined);
                 void this.persistProjectLocalPlanMetadataState().catch(() => undefined);
             }
@@ -7475,6 +7527,350 @@ class RealtimeTunnelPanelProvider {
             return;
         // Opening a workspace plan should also become the active selected plan for closed-loop parse/run.
         this.selectPlanFromUi({ planFile: file, planId: file });
+    }
+
+    async refreshDraftPlans(force = false) {
+        const root = workspaceRoot();
+        if (!root) {
+            this.draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: new Date().toISOString() };
+            return;
+        }
+        const planDirExists = await fs.stat(path.join(root, "tmp", "plan")).then((item) => item.isDirectory()).catch(() => false);
+        if (!planDirExists) {
+            this.draftPlanState = { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: new Date().toISOString() };
+            return;
+        }
+        if (!force && this.draftPlansRefreshPromise)
+            await this.draftPlansRefreshPromise;
+        if (!force && this.draftPlansUpdatedAt && Date.now() - this.draftPlansUpdatedAt < this.draftPlansRefreshMinIntervalMs)
+            return;
+        const generation = this.projectContextGeneration;
+        const refresh = (async () => {
+            try {
+                const activity = this.draftRunActivity();
+                const reconciled = await DraftPlans_1.reconcileDraftPlans(root, activity);
+                const candidates = await DraftPlans_1.listCleanupCandidates(root, reconciled.drafts);
+                if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+                    return;
+                this.draftPlanState = {
+                    ...reconciled,
+                    cleanupCandidates: candidates,
+                    error: "",
+                    updatedAt: new Date().toISOString(),
+                };
+                this.draftPlansUpdatedAt = Date.now();
+            } catch (error) {
+                if (generation === this.projectContextGeneration && root === workspaceRoot()) {
+                    this.draftPlanState = { ...this.draftPlanState, enabled: true, error: errorMessage(error), updatedAt: new Date().toISOString() };
+                }
+            } finally {
+                if (this.draftPlansRefreshPromise === refresh)
+                    this.draftPlansRefreshPromise = undefined;
+            }
+        })();
+        this.draftPlansRefreshPromise = refresh;
+        await refresh;
+    }
+
+    draftRunActivity() {
+        const runtime = this.buildPlanRuntimeEvidenceState();
+        return Object.values(runtime.operations || {})
+            .filter((row) => {
+                const planFile = String(operationResultPlanFile(row) || row?.options?.planFile || "");
+                return DraftPlans_1.isDraftPlanPath(planFile) && !operationTerminal(row);
+            })
+            .map((row) => ({
+                draftPlanPath: String(operationResultPlanFile(row) || row?.options?.planFile || ""),
+                debugRunId: String(row.debugRunId || row.remoteOperationId || row.operationId || ""),
+                debugStatus: String(row.status || row.state || ""),
+            }));
+    }
+
+    async requireDraftRecord(planFile) {
+        await this.refreshDraftPlans(true);
+        const normalized = String(planFile || "").replace(/\\/g, "/");
+        const record = (this.draftPlanState.drafts || []).find((item) => sameProjectRelativePath(item.draftPlanPath, normalized));
+        if (!record)
+            throw new Error(`未找到草稿 PLAN：${planFile}`);
+        return record;
+    }
+
+    async apiDraftValidate(params = {}) {
+        const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const text = await fs.readFile(safeWorkspaceChildPath(root, record.draftPlanPath), "utf8");
+        const validation = DraftPlans_1.validateDraftReferences(record.draftPlanPath, text);
+        return { ok: validation.ok, status: validation.status, configRefs: validation.configRefs, issues: validation.issues };
+    }
+
+    async draftMetricsSummary(record) {
+        const root = workspaceRoot();
+        if (!root || !record.lastDebugRunId)
+            return { source: "unavailable" };
+        const identity = String(record.draftPlanPath).replace(/\\/g, "/");
+        const stem = path.posix.basename(identity, path.posix.extname(identity)) || "plan";
+        const digest = crypto.createHash("sha1").update(identity, "utf8").digest("hex").slice(0, 10);
+        const base = path.join(root, "simple_cluster", "debug_runs", `${stem}-${digest}`, String(record.lastDebugRunId));
+        const files = ["results.csv", "jobs.csv", "scheduler.log"];
+        for (const file of files) {
+            const text = await fs.readFile(path.join(base, file), "utf8").catch(() => "");
+            if (!text)
+                continue;
+            const lines = text.trim().split(/\r?\n/).slice(0, 101);
+            return { source: file, previewLines: lines, truncated: lines.length >= 101 };
+        }
+        return { source: "remote_debug_bundle", debugRunId: record.lastDebugRunId };
+    }
+
+    async apiDraftPromotionPreview(params = {}) {
+        const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        if (!["debug_completed", "ready_for_review"].includes(record.status))
+            throw new Error(`只有 debug_completed 或 ready_for_review 草稿可转正，当前状态：${record.status}`);
+        const debugStatus = String(record.lastDebugStatus || "").toLowerCase();
+        if (!["completed", "success", "succeeded"].includes(debugStatus))
+            throw new Error(`Debug 未成功结束，禁止转正：${debugStatus || "unknown"}`);
+        return await DraftPlans_1.buildPromotionPreview(root, record.draftPlanPath, {
+            debugRunId: record.lastDebugRunId || "",
+            debugStatus: record.lastDebugStatus || "",
+            metricsSummary: await this.draftMetricsSummary(record),
+        });
+    }
+
+    async apiDraftPromote(params = {}) {
+        const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const preview = params?.preview && typeof params.preview === "object"
+            ? params.preview
+            : await this.apiDraftPromotionPreview(params);
+        if (String(preview.contentHash || "") !== record.contentHash)
+            throw new Error("转正预览与当前草稿 hash 不一致，请重新生成预览。");
+        const mode = stringField(params, "conflictMode") || "cancel";
+        if (!["rename", "replace", "cancel"].includes(mode))
+            throw new Error(`冲突处理只允许 rename、replace 或 cancel：${mode}`);
+        const result = await DraftPlans_1.promoteDraft(root, preview, {
+            conflictMode: mode,
+            reviewedBy: stringField(params, "reviewedBy") || "local-user",
+        });
+        await this.refreshDraftPlans(true);
+        return result;
+    }
+
+    async apiDraftReject(params = {}) {
+        const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        await DraftPlans_1.rejectDraft(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user");
+        await this.refreshDraftPlans(true);
+        return { ok: true, status: "rejected", draftPlanPath: record.draftPlanPath };
+    }
+
+    async apiDraftReview(params = {}) {
+        const record = await this.requireDraftRecord(stringField(params, "draftPlanPath") || stringField(params, "planFile"));
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        await DraftPlans_1.markDraftReviewed(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user");
+        await this.refreshDraftPlans(true);
+        return { ok: true, status: "ready_for_review", draftPlanPath: record.draftPlanPath };
+    }
+
+    async apiDraftCleanup(params = {}) {
+        await this.refreshDraftPlans(true);
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const requested = stringArrayField(params, "paths");
+        if (!requested.length)
+            throw new Error("清理必须提供精确文件路径列表。");
+        const result = await DraftPlans_1.cleanupApprovedDrafts(root, this.draftPlanState.drafts || [], requested);
+        await this.refreshDraftPlans(true);
+        return { ok: true, deleted: result.deleted };
+    }
+
+    async syncDraftFilesForRun(body, record) {
+        await this.prepareSftpTargets("runDraftDebug", "simpleSftp.uploadFiles");
+        const topology = this.assertPlanTopologyReady("草稿 Debug 运行");
+        const selectedWorkerId = this.planSchedulerWorkerId(body);
+        const targets = topology.mode === "hub_worker"
+            ? [this.hubCodeSyncTarget()]
+            : topology.mode === "worker_pool" && selectedWorkerId
+                ? this.workerCodeSyncTargets().filter((target) => target.id === selectedWorkerId)
+                : this.workerCodeSyncTargets();
+        const enabledTargets = targets.filter(Boolean);
+        if (!enabledTargets.length)
+            throw new Error("没有可用于草稿同步的 Worker 目标。");
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const relativeFiles = uniqueStrings([record.draftPlanPath, ...(record.draftConfigPaths || [])]);
+        const files = [];
+        for (const relative of relativeFiles) {
+            const full = safeDraftWorkspaceChild(root, relative);
+            const stat = await fs.stat(full);
+            if (!stat.isFile())
+                throw new Error(`草稿同步文件不是普通文件：${relative}`);
+            files.push({ localPath: full, remoteName: relative });
+        }
+        await this.confirmRemoteWriteTargets("同步草稿 PLAN/config", enabledTargets.map((target) => ({
+            ...target,
+            expectedFiles: relativeFiles.map((file) => `${target.remotePath.replace(/\/+$/, "")}/${file}`),
+            expectedFileCount: relativeFiles.length,
+        })));
+        await this.writeSftpManagerServerProfiles(enabledTargets.map((target) => target.id));
+        const failures = [];
+        for (const target of enabledTargets) {
+            const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
+                localBase: root,
+                targetId: `${target.id}-draft-run`,
+                targetRole: target.role,
+                server: this.sftpServerOptions(target),
+                files,
+                manifest: { schemaVersion: 1, kind: "simple-experiment-draft", files: relativeFiles },
+            });
+            const item = result && typeof result === "object" ? result : {};
+            if (!sftpUploadFilesSucceeded(item))
+                failures.push(`${target.label}: ${stringFromRecord(item, ["error", "message"]) || "上传失败"}`);
+        }
+        if (failures.length)
+            throw new Error(`草稿文件同步失败：${failures.join("; ")}`);
+        return { targets: enabledTargets.map((target) => target.id), files: relativeFiles };
+    }
+
+    async updateDraftDebugState(planFile, debugRunId, status, lifecycleStatus) {
+        try {
+            await DraftPlans_1.updateDraftMetadata(workspaceRoot(), planFile, (item) => ({
+                ...item,
+                lastDebugRunId: debugRunId || item.lastDebugRunId,
+                lastDebugStatus: status || item.lastDebugStatus,
+                status: lifecycleStatus || item.status,
+            }));
+            await this.refreshDraftPlans(true);
+        } catch {
+            // Run evidence remains authoritative even when project-local metadata persistence fails.
+        }
+    }
+
+    async runDraftDebugFromUi(message) {
+        const projectContext = this.captureProjectContext();
+        const client = this.client;
+        const authority = { projectContext, authorityClient: client };
+        const assertCurrent = () => this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，草稿 Debug 已取消。");
+        assertCurrent();
+        const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile") || stringField(message, "file");
+        const record = await this.requireDraftRecord(planFile);
+        if (!["validated", "debug_completed", "ready_for_review"].includes(record.status))
+            throw new Error(`当前草稿状态不能启动 Debug：${record.status}`);
+        const body = this.actionBody({
+            ...message,
+            planFile: record.draftPlanPath,
+            planId: record.draftPlanPath,
+            selectedPlanId: record.draftPlanPath,
+            debugMode: true,
+        });
+        const topology = this.assertPlanTopologyReady("草稿 Debug 运行");
+        this.assertExecutionWorkersReady(body.options?.workers);
+        this.assertExecutionAgentProjectsReady(body);
+        if (!await this.ensureSimpleSftpReadyForSetup("草稿 Debug 首跑"))
+            return;
+        assertCurrent();
+        const answer = await vscode.window.showWarningMessage(
+            `确认运行草稿 Debug？\nPLAN：${record.draftPlanPath}\n配置：${record.draftConfigPaths.join(", ") || "-"}\n输出：simple_cluster/debug_runs/<plan>/<debug-run>\n目标：${topology.mode}`,
+            { modal: true },
+            "运行 Debug",
+        );
+        if (answer !== "运行 Debug")
+            throw new UiCommandCancelled("草稿 Debug 已取消。");
+        assertCurrent();
+        await this.ensureCodeReadyForRun(projectContext, [body]);
+        assertCurrent();
+        await this.syncDraftFilesForRun(body, record);
+        assertCurrent();
+        this.stampPlanRevision(body, { revision: record.contentHash, updatedAt: record.updatedAt });
+        if (!await this.runPlanPreflight(body, `草稿 ${record.draftPlanPath}`, authority))
+            throw new Error("草稿校验或预演未返回有效结果，已阻止 Debug 提交。");
+        assertCurrent();
+        const opId = makeOpId("runDraftDebug");
+        body.opId = opId;
+        const submitted = await this.postPlanSchedulerAction("run-plan", body, {
+            title: `草稿 Debug ${record.draftPlanPath}`,
+            confirm: false,
+            danger: false,
+            requiresCapability: capabilityForAction("run-plan"),
+            ...authority,
+        });
+        const debugRunId = String(submitted?.debugRunId || opId);
+        await this.updateDraftDebugState(record.draftPlanPath, debugRunId, String(resultStatus(submitted) || "submitted"), "debug_running");
+        let finalResult = submitted;
+        if (remoteActionPendingStatus(resultStatus(submitted)))
+            finalResult = await this.waitForOperationTerminalResult("run-plan", submitted, `草稿 Debug ${record.draftPlanPath}`, 45_000, this.planSchedulerWorkerId(body), authority);
+        const finalStatus = String(resultStatus(finalResult) || "").toLowerCase();
+        const completed = ["completed", "success", "succeeded"].includes(finalStatus);
+        await this.updateDraftDebugState(record.draftPlanPath, debugRunId, finalStatus || "unknown", completed ? "debug_completed" : "debug_running");
+        this.throwIfRemoteActionPending("runDraftDebug", "run-plan", finalResult);
+        this.throwIfTerminalActionFailure("runDraftDebug", "run-plan", resultStatus(finalResult), finalResult);
+    }
+
+    async promoteDraftFromUi(message) {
+        const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile");
+        const record = await this.requireDraftRecord(planFile);
+        const preview = await this.apiDraftPromotionPreview({ draftPlanPath: record.draftPlanPath });
+        const detail = [
+            `源 hash：${preview.contentHash}`,
+            `Debug：${preview.debugRunId || "-"}（${preview.debugStatus || "-"}）`,
+            ...preview.targets.map((target) => `${target.sourcePath} -> ${target.targetPath}${target.exists ? "（已存在）" : ""}\nhash=${target.sourceHash} diff=+${target.diff.added.length}/-${target.diff.removed.length}`),
+        ].join("\n");
+        const buttons = preview.conflicts.length ? ["rename", "replace"] : ["promote"];
+        const picked = await vscode.window.showWarningMessage(`确认转正草稿？\n${detail}`, { modal: true }, ...buttons);
+        if (!picked)
+            throw new UiCommandCancelled("草稿转正已取消。");
+        const conflictMode = picked === "promote" ? "rename" : picked;
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const result = await DraftPlans_1.promoteDraft(root, preview, { conflictMode, reviewedBy: "local-user" });
+        await this.refreshDraftPlans(true);
+        void vscode.window.showInformationMessage(`草稿已转正：${result.planPath}; 配置 ${result.configPaths.length} 个；记录 ${result.ledgerPath}`);
+    }
+
+    async rejectDraftFromUi(message) {
+        const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile");
+        const record = await this.requireDraftRecord(planFile);
+        await DraftPlans_1.rejectDraft(workspaceRoot(), record.draftPlanPath);
+        await this.refreshDraftPlans(true);
+    }
+
+    async reviewDraftFromUi(message) {
+        const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile");
+        const record = await this.requireDraftRecord(planFile);
+        await DraftPlans_1.markDraftReviewed(workspaceRoot(), record.draftPlanPath);
+        await this.refreshDraftPlans(true);
+    }
+
+    async cleanupDraftsFromUi(message) {
+        await this.refreshDraftPlans(true);
+        const requested = stringArrayField(message, "paths");
+        const candidates = this.draftPlanState.cleanupCandidates || [];
+        const selected = requested.length ? candidates.filter((item) => requested.includes(item.path)) : candidates;
+        if (!selected.length)
+            throw new Error("没有 rejected/stale 且未被引用的草稿清理候选。");
+        const answer = await vscode.window.showWarningMessage(
+            `将永久删除以下普通文件：\n${selected.map((item) => `${item.path}（${item.reason}）`).join("\n")}`,
+            { modal: true },
+            `删除 ${selected.length} 个文件`,
+        );
+        if (!answer)
+            throw new UiCommandCancelled("草稿清理已取消。");
+        const result = await DraftPlans_1.cleanupApprovedDrafts(workspaceRoot(), this.draftPlanState.drafts || [], selected.map((item) => item.path));
+        await this.refreshDraftPlans(true);
+        void vscode.window.showInformationMessage(`已清理 ${result.deleted.length} 个草稿文件。`);
     }
     async savePlanFromUi(message) {
         const generation = this.projectContextGeneration;
@@ -10658,6 +11054,7 @@ class RealtimeTunnelPanelProvider {
             plansOmittedCount: webviewPlans.omittedCount,
             planArchive: { plans: webviewArchivedPlans.plans, totalCount: webviewArchivedPlans.totalCount, omittedCount: webviewArchivedPlans.omittedCount },
             planScanError: webviewPlanScanError,
+            draftPlans: this.draftPlanState,
             gpu,
             gpuHistory: this.gpuHistoryState.snapshot(),
             schedulerStates,
