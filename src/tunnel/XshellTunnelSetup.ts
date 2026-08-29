@@ -37,6 +37,7 @@ export interface XshellWorkerTunnelConfig {
   savedSessionForwardIndex?: number;
   agentSessionPath?: string;
   agentProjectDir?: string;
+  agentInstallDir?: string;
   condaEnv?: string;
   maxConcurrentGpus: number;
   allowedGpuIds: string[];
@@ -67,6 +68,7 @@ export interface XshellRealtimeTunnelConfig {
   savedSessionForwardIndex?: number;
   agentSessionPath?: string;
   agentProjectDir?: string;
+  agentInstallDir?: string;
   condaEnv: string;
   authMethod: XshellAuthMethod;
   launchMode: XshellLaunchMode;
@@ -155,6 +157,7 @@ export function normalizeXshellSetupConfig(input: Partial<XshellTunnelSetupConfi
     savedSessionForwardIndex: normalizeForwardIndex(input.savedSessionForwardIndex),
     agentSessionPath: input.agentSessionPath?.trim() || undefined,
     agentProjectDir: input.agentProjectDir?.trim() || undefined,
+    agentInstallDir: input.agentInstallDir?.trim() || undefined,
     condaEnv: normalizeCondaEnvName(input.condaEnv),
     authMethod: normalizeAuthMethod(input.authMethod),
     launchMode: normalizeLaunchMode(input.launchMode),
@@ -209,6 +212,7 @@ export function normalizeXshellWorkerTunnelConfig(
     savedSessionForwardIndex: normalizeForwardIndex(input.savedSessionForwardIndex),
     agentSessionPath: input.agentSessionPath?.trim() || undefined,
     agentProjectDir: input.agentProjectDir?.trim() || undefined,
+    agentInstallDir: input.agentInstallDir?.trim() || undefined,
     condaEnv: input.condaEnv === undefined ? undefined : normalizeCondaEnvName(input.condaEnv),
     maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1),
     allowedGpuIds: Array.isArray(input.allowedGpuIds) ? Array.from(new Set(input.allowedGpuIds.map((item) => String(item || "").trim()).filter(Boolean))) : [],
@@ -233,6 +237,7 @@ export function workerTunnelToXshellSetupConfig(base: XshellTunnelSetupConfig, w
     savedSessionForwardIndex: worker.savedSessionForwardIndex,
     agentSessionPath: worker.agentSessionPath,
     agentProjectDir: worker.agentProjectDir,
+    agentInstallDir: worker.agentInstallDir,
     condaEnv: worker.condaEnv === undefined ? base.condaEnv : worker.condaEnv,
     authMethod: worker.authMethod || base.authMethod,
     workerRealtimeMode: "hub_only",
@@ -397,6 +402,7 @@ function mergeWorker(first: XshellWorkerTunnelConfig, second: XshellWorkerTunnel
     savedSessionPath: preferred.savedSessionPath || other.savedSessionPath,
     agentSessionPath: preferred.agentSessionPath || other.agentSessionPath,
     agentProjectDir: preferred.agentProjectDir || other.agentProjectDir,
+    agentInstallDir: preferred.agentInstallDir || other.agentInstallDir,
     enabled: preferred.enabled !== false || other.enabled !== false,
   };
 }

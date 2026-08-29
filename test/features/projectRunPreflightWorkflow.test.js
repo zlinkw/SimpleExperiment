@@ -105,7 +105,7 @@ test("Plan next action starts with one-click run and preserves manual recovery s
   assert.match(panel, /command: "validatePlan"/);
   assert.match(panel, /command: "dryRunPlan"/);
   assert.match(panel, /command: "runPlan"/);
-  assert.match(panel, /section: "tasks"/);
+  assert.match(panel, /section: "execution"/);
   assert.match(panel, /planFile: pick\(row, \["planFile", "plan_file", "plan"\]/);
   assert.match(panel, /data\.codeSync, data\.operations, data\.resultsSummary, data\.schedulerStates, data\.capabilities/);
 });
@@ -113,7 +113,7 @@ test("Plan next action starts with one-click run and preserves manual recovery s
 test("submitted Plan runs navigate directly to the task list", () => {
   assert.match(panel, /function submittedCommandTarget\(command, status\)/);
   assert.match(extractFunction(panel, "submittedCommandTarget"), /SUBMITTED_RUN_COMMANDS\.has\(normalizedCommand\)/);
-  assert.match(panel, /return \{ section: "tasks", anchor: "tasks-list" \}/);
+  assert.match(panel, /return \{ section: "execution", anchor: "execution" \}/);
   assert.match(panel, /submittedTarget = submittedCommandTarget\(data\.command, data\.status\)/);
   assert.match(panel, /navigateToResourceTarget\(submittedTarget\.section, submittedTarget\.anchor, \{ force: true \}\)/);
   assert.match(panel, /navigateToResourceTarget\(treeTarget\.dataset\.sectionTarget, treeTarget\.dataset\.anchorTarget\)/);
@@ -216,7 +216,7 @@ test("Plan next action advances from validation to dry-run, run, and monitoring"
   assert.match(panel, /command: "validatePlan"/);
   assert.match(panel, /command: "dryRunPlan"/);
   assert.match(panel, /command: "runPlan"/);
-  assert.match(panel, /section: "tasks"/);
+  assert.match(panel, /section: "execution"/);
   assert.match(panel, /planFile: pick\(row, \["planFile", "plan_file", "plan"\]/);
 });
 

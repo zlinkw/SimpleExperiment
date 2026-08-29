@@ -86,6 +86,7 @@ async function probeLocalTunnel(config, options = {}) {
             };
         }
         const projectRoot = String(health.projectRoot || "").trim();
+        const agentInstallDir = String(health.agentInstallDir || "").trim();
         const schedulerDependencies = health.schedulerDependencies;
         const capsResponse = await timedFetch(`${base}/api/capabilities`, { headers }, timeoutMs);
         if (capsResponse.status === 401 || capsResponse.status === 403)
@@ -132,6 +133,7 @@ async function probeLocalTunnel(config, options = {}) {
                 agentVersion: health.agentVersion,
                 apiVersion: capabilities.apiVersion,
                 projectRoot,
+                agentInstallDir,
                 schedulerDependencies,
                 capabilities,
                 missingCapabilities: compatibility.missingEndpoints,
@@ -215,6 +217,7 @@ async function probeLocalTunnel(config, options = {}) {
             agentVersion: health.agentVersion,
             apiVersion: capabilities.apiVersion,
             projectRoot,
+            agentInstallDir,
             schedulerDependencies: health.schedulerDependencies,
             capabilities,
             fileCapabilities,
@@ -267,6 +270,7 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
         }
         const health = await healthResponse.json().catch(() => ({}));
         const projectRoot = String(health.projectRoot || "").trim();
+        const agentInstallDir = String(health.agentInstallDir || "").trim();
         const capsResponse = await timedFetch(`${base}/api/capabilities`, { headers }, timeoutMs);
         if (capsResponse.status === 401 || capsResponse.status === 403) {
             return { ...baseResult, tcpOpen: true, healthOk: true, projectRoot, status: "agent_token_invalid", message: "Worker Telemetry token 被拒绝。" };
@@ -296,6 +300,7 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
             status: ok ? "ok" : "worker_api_invalid",
             latencyMs: Date.now() - started,
             projectRoot,
+            agentInstallDir,
             schedulerDependencies: health.schedulerDependencies,
             capabilities,
             warnings: validation.warnings,

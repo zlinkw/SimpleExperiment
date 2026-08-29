@@ -73,8 +73,8 @@ test("out-of-range values are named precisely", () => {
 test("scheduler ranges match the documented policy bounds", () => {
   const config = loadBounds();
   const poll = config.boundsFor("scheduler", "pollSeconds");
-  assert.equal(config.violation(poll, 5), "不得小于 60");
-  assert.equal(config.violation(poll, 60), "");
+  assert.equal(config.violation(poll, 4), "不得小于 5");
+  assert.equal(config.violation(poll, 5), "");
 
   const jitter = config.boundsFor("scheduler", "jitterSeconds");
   assert.equal(config.violation(jitter, 0), "", "zero jitter is allowed");

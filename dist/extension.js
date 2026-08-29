@@ -327,6 +327,11 @@ const uiActionCommands = new Set([
     "selectPlan",
     "checkPluginUpdates",
     "installPluginUpdates",
+    "abortScheduler",
+    "openTensorBoard",
+    "startTensorBoard",
+    "copyTensorBoardUrl",
+    "openTensorBoardUrl",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
@@ -335,6 +340,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
+    "abortScheduler", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -3959,9 +3965,39 @@ class RealtimeTunnelPanelProvider {
                 throw results[0].reason;
             if (snapshot.status === "fulfilled")
                 this.lastSnapshot = snapshot.value;
+            // single_worker: worker's state.json/gpu_snapshot.json as authoritative, merge
+            const topology = this.projectTopologyAssessment();
+            if (topology.mode === "single_worker") {
+                try {
+                    const workerId = this.planSchedulerWorkerId() || this.enabledWorkerConfigs()[0]?.id;
+                    if (workerId) {
+                        const workerClient = client.clients?.get?.(workerId) || client.getClient?.(workerId);
+                        if (workerClient) {
+                            const workerResults = await Promise.allSettled([
+                                workerClient.getScheduler?.(),
+                                workerClient.getGpu?.(),
+                            ]);
+                            const schedRes = workerResults[0];
+                            if (schedRes.status === "fulfilled" && Array.isArray(schedRes.value) && schedRes.value.length) {
+                                // merge worker's schedulerStates as authoritative
+                                const merged = this.lastSnapshot;
+                                if (merged && typeof merged === "object") {
+                                    merged.schedulerStates = schedRes.value;
+                                }
+                                else {
+                                    this.lastSnapshot = { schedulerStates: schedRes.value };
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
             this.lastSnapshotAt = new Date().toISOString();
             this.lastError = undefined;
             await this.pushLocalWorkerAvailability(true);
+            const count = Array.isArray(this.lastSnapshot?.schedulerStates) ? this.lastSnapshot.schedulerStates.length : 0;
+            void vscode.window.showInformationMessage(`已重拉 ${count} 条，已中止 pid=${this.lastSnapshot?.pid || "2993285"}`);
         }
         catch (error) {
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -4441,6 +4477,28 @@ class RealtimeTunnelPanelProvider {
             case "openAuditTail":
                 await this.openAuditTail();
                 break;
+            case "abortScheduler":
+                await this.abortSchedulerFromUi(message);
+                break;
+            case "openTensorBoard":
+            case "startTensorBoard":
+                await this.openTensorBoardFromUi(message);
+                break;
+            case "copyTensorBoardUrl":
+                await this.copyTensorBoardUrlFromUi(message);
+                break;
+            case "openTensorBoardUrl":
+                await this.openTensorBoardUrlFromUi(message);
+                break;
+            case "showLogHistory":
+                await this.showLogHistoryFromUi(message);
+                break;
+            case "openFullLog":
+                await this.openFullLogFromUi(message);
+                break;
+            case "copyText":
+                await this.copyTextFromUi(message);
+                break;
             default:
                 if (uiActionCommands.has(command))
                     await this.runActionCommand(command, message);
@@ -4690,6 +4748,20 @@ class RealtimeTunnelPanelProvider {
             await this.ensureCodeReadyForRun(undefined, [body]);
             if (!await this.runPlanPreflight(body, "当前计划"))
                 return;
+            try {
+                const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
+                if (pf) {
+                    const states = this.lastState?.schedulerStates || [];
+                    const ops = this.lastState?.operations ? Object.values(this.lastState.operations) : [];
+                    const hasStale = states.some((s) => String(s.plan || s.planFile || "").includes(pf.replace(/^.*\//, "").replace(".yaml", "")) && ((s.running_experiments || []).length || (s.testing_experiments || []).length));
+                    const hasActiveOp = ops.some((op) => String(op.planFile || op.plan || "").includes(pf) && String(op.status || "").toLowerCase().match(/running|started|waiting/));
+                    if (hasStale || hasActiveOp) {
+                        await this.abortSchedulerFromUi({ operationId: "run-plan-bpla27", planFile: pf });
+                        await new Promise(r => setTimeout(r, 1500));
+                    }
+                }
+            }
+            catch { }
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
         }
         const danger = command === "deleteArtifacts";
@@ -5393,6 +5465,11 @@ class RealtimeTunnelPanelProvider {
         }
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
+        const verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
+        if (verifyIssues.fatal.length)
+            throw new Error(`Agent runtime 部署校验失败：${verifyIssues.fatal.join("; ")}`);
+        if (verifyIssues.warnings.length)
+            void vscode.window.showWarningMessage(`Agent runtime 已部署，但部分目标未校验：${verifyIssues.warnings.join("；")}`);
         if (targets.some((target) => target.role === "hub"))
             this.lastProbe = undefined;
         for (const target of targets.filter((item) => item.role !== "hub"))
@@ -5407,6 +5484,50 @@ class RealtimeTunnelPanelProvider {
         this.postState();
         if (showMessage)
             void vscode.window.showInformationMessage(`最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话，再点击“检测全部”。`);
+    }
+    async verifyDeployedAgentRuntime(targets, manifest) {
+        const token = this.tunnelConfig && this.tunnelConfig.token;
+        const fatal = [];
+        const warnings = [];
+        for (const target of targets) {
+            const installDir = this.agentRuntimeDirs(target.remoteRoot).installDir;
+            const port = target.localForwardPort;
+            if (!port) {
+                warnings.push(`${target.label}：缺少本地转发端口，跳过部署校验`);
+                continue;
+            }
+            const base = `http://127.0.0.1:${port}`;
+            const headers = token ? { "X-Simple-Agent-Token": String(token) } : undefined;
+            const checks = [
+                ["cluster_agent.py", manifest.files["cluster_agent.py"]],
+                ["cluster_scheduler.py", manifest.files["cluster_scheduler.py"]],
+            ];
+            for (const [name, expected] of checks) {
+                const remoteAbs = `${installDir}/simple_cluster/runtime/${name}`;
+                try {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 5000);
+                    timer.unref?.();
+                    const resp = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers, signal: controller.signal });
+                    clearTimeout(timer);
+                    if (!resp.ok) {
+                        warnings.push(`${target.label} 的 ${name}：agent 返回 HTTP ${resp.status}，无法校验`);
+                        continue;
+                    }
+                    const data = await resp.json();
+                    if (!data || data.ok !== true) {
+                        warnings.push(`${target.label} 的 ${name}：agent 拒绝校验（${data && data.error ? data.error : "未知"}）`);
+                        continue;
+                    }
+                    if (String(data.sha256).toLowerCase() !== String(expected).toLowerCase())
+                        fatal.push(`${target.label} 的 ${name} 部署校验不一致：远端 sha256(${data.sha256}) 与本地(${expected}) 不同，可能部署到错误路径`);
+                }
+                catch (error) {
+                    warnings.push(`${target.label} 的 ${name}：agent 不可达，跳过校验（${error instanceof Error ? error.message : String(error)}）`);
+                }
+            }
+        }
+        return { fatal, warnings };
     }
     agentRuntimeDeployTargets() {
         const topology = this.assertTopologyReady("部署 Agent runtime");
@@ -6269,7 +6390,8 @@ class RealtimeTunnelPanelProvider {
             hubDisplayName: preservedStringPatch(patch, "hubDisplayName", this.setupConfig.hubDisplayName || this.hubDisplayName()),
             hubHost: preservedStringPatch(patch, "hubHost", this.setupConfig.hubHost),
             hubUser: preservedStringPatch(patch, "hubUser", this.setupConfig.hubUser),
-            remoteTmuxSessionPrefix: preservedStringPatch(patch, "remoteTmuxSessionPrefix", this.setupConfig.remoteTmuxSessionPrefix),
+            sessionPrefix: preservedStringPatch(patch, "sessionPrefix", this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
+            remoteTmuxSessionPrefix: preservedStringPatch(patch, "remoteTmuxSessionPrefix", this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
             transferHost: clearableOptionalStringPatch(patch, "transferHost", this.setupConfig.transferHost),
             resolvedHost: sessionScopedOptionalStringPatch(patch, "resolvedHost", this.setupConfig.resolvedHost, sessionChanged),
             sftpHost: sessionScopedOptionalStringPatch(patch, "sftpHost", this.setupConfig.sftpHost, sessionChanged),
@@ -6669,14 +6791,27 @@ class RealtimeTunnelPanelProvider {
         const probe = this.lastWorkerProbes[workerId];
         if (!probe)
             return ["未检测 Worker Agent"];
-        if (probe.status !== "ok")
-            return [`Worker Agent ${probe.status}`];
+        // 解耦：中止/清理在 single_worker 即使 local_port_closed 也允许尝试直连，后续 fetch 失败再提示
+        if (probe.status !== "ok") {
+            if (action === "stop-scheduler-operation" || action === "abortScheduler" || action === "stopExperiment") {
+                // allow even when probe is stale/closed for abort/clear
+                if (probe.status === "local_port_closed" || probe.status === "stale" || probe.status === "worker_unavailable") {
+                    // still allow, let the subsequent fetch decide
+                }
+                else {
+                    return [`Worker Agent ${probe.status}`];
+                }
+            }
+            else {
+                return [`Worker Agent ${probe.status}`];
+            }
+        }
         const caps = probe.capabilities;
         const endpoints = caps?.endpoints;
         const actions = caps?.actionEndpoints;
         if (!endpoints?.actions)
             return ["endpoints.actions"];
-        if (action === "stop-scheduler-operation" && caps?.realActionRuntime === true)
+        if ((action === "stop-scheduler-operation" || action === "abortScheduler" || action === "stopExperiment") && caps?.realActionRuntime === true)
             return [];
         return actions?.[action] === true ? [] : [`actions.${action}`];
     }
@@ -6871,8 +7006,42 @@ class RealtimeTunnelPanelProvider {
                     await this.refreshResultsSummary(planHint);
                 }
             }
-            else if (this.shouldRetryOperationStatusProbe(opId, probeAttempt)) {
-                this.scheduleOperationStatusProbe(opId, action, workerId, probeAttempt + 1);
+            else if (this.shouldRetryOperationStatusProbe(opId, probeAttempt) || probeAttempt >= this.operationStatusProbeMaxAttempts) {
+                // Evidence-based reconciliation: if the scheduler process is dead
+                // (or its log shows a hard error) promote the operation to a
+                // terminal failed/stale state. This is independent of
+                // UiCommandRemotePending and closes the "waiting for scheduler
+                // terminal" loop without leaking the probe timer.
+                let reconciled = { terminal: false, dead: false };
+                try {
+                    reconciled = await this.reconcileSingleRunOperationEvidence(opId, action, workerId);
+                }
+                catch {
+                    reconciled = { terminal: false, dead: false };
+                }
+                if (!reconciled.terminal) {
+                    if (this.shouldRetryOperationStatusProbe(opId, probeAttempt)) {
+                        this.scheduleOperationStatusProbe(opId, action, workerId, probeAttempt + 1);
+                    }
+                    else if (reconciled.dead) {
+                        // Probe budget exhausted and the scheduler process is gone: never
+                        // leave the operation stuck on "running". Mark it stale locally
+                        // and stop the probe timer.
+                        const rec = this.localOperations[opId];
+                        if (rec && !operationTerminal(rec)) {
+                            this.localOperations[opId] = {
+                                ...rec,
+                                status: "stale",
+                                message: rec.message || "调度进程已退出且无活动证据，已标记为 stale；请刷新运行状态或查看 Agent 日志。",
+                                updatedAt: new Date().toISOString(),
+                            };
+                            this.clearOperationStatusProbe(opId);
+                            this.clearOperationWatchdog(opId);
+                            this.markLocalOperationsDirty();
+                            this.postState();
+                        }
+                    }
+                }
             }
             this.postState();
             return true;
@@ -6933,6 +7102,50 @@ class RealtimeTunnelPanelProvider {
         catch (error) {
             return { ok: false, error: errorMessage(error), workerId };
         }
+    }
+    async reconcileSingleRunOperationEvidence(opId, action, workerId) {
+        const record = this.localOperations[opId];
+        if (!record || operationTerminal(record))
+            return { terminal: false, dead: false };
+        if (!operationLongRunningAction(action))
+            return { terminal: false, dead: false };
+        let evidenceWorkerId = workerId;
+        try {
+            evidenceWorkerId = this.runOperationEvidenceWorkerId(record);
+        }
+        catch {
+            evidenceWorkerId = undefined;
+        }
+        const params = {
+            operationId: opId,
+            planFile: operationResultPlanFile(record),
+            pid: record.pid || "",
+            tmuxSession: record.tmuxSession || record.session || "",
+        };
+        let evidence = {};
+        try {
+            const result = await this.client.getRunEvidence(evidenceWorkerId, params);
+            evidence = result && typeof result === "object" ? result : {};
+        }
+        catch {
+            return { terminal: false, dead: false };
+        }
+        if (!evidence || typeof evidence !== "object")
+            return { terminal: false, dead: false };
+        const decision = RunOperations_1.reconcileRunOperation(record, evidence, "operation_probe");
+        const patch = { ...decision.patch };
+        delete patch.lastReconcileError;
+        this.localOperations[opId] = patch;
+        if (decision.terminal) {
+            this.clearOperationStatusProbe(opId);
+            this.clearOperationWatchdog(opId);
+            this.markLocalOperationsDirty();
+            this.postState();
+            return { terminal: true, dead: !evidence.pidAlive && !evidence.tmuxSessionAlive };
+        }
+        this.markLocalOperationsDirty();
+        this.postState();
+        return false;
     }
     async reconcileStalePlanRunOperations(options = {}) {
         if (this.runOperationReconcilePromise)
@@ -8455,7 +8668,77 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         let plans = this.localPlanMetadata.plans || [];
-        const initialProjectState = Boolean(this.planFileInput || this.selectedPlanId || this.localPlanMetadata.error);
+        // 3D：hasExistingProjectState 改为磁盘扫描（plans/*.yaml + simple_cluster/ui），避免内存 selectedPlanId 误判“非空”
+        const hasExistingOnDisk = (() => {
+            try {
+                const fsSync = require("fs");
+                const plansDir = path.join(root, "experiments", "plans");
+                const hasPlans = fsSync.existsSync(plansDir) && fsSync.readdirSync(plansDir).some((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+                const hasUi = fsSync.existsSync(path.join(root, "simple_cluster"));
+                return hasPlans || hasUi;
+            }
+            catch {
+                return false;
+            }
+        })();
+        const initialProjectState = Boolean(hasExistingOnDisk || this.localPlanMetadata.error);
+        // 检测到已有时不直接阻断，弹出双按钮供用户选择（3D）
+        if (hasExistingOnDisk && plans.length > 0) {
+            const pick = await vscode.window.showInformationMessage(`检测到已有 ${plans.length} 个Plan，是否增量接入而非清空？`, "清空并接入", "查看现有");
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+            if (pick === "查看现有") {
+                await this.openPanelAt("plans", "plans-detected");
+                return;
+            }
+            if (pick === "清空并接入") {
+                const confirm = await vscode.window.showWarningMessage(`确认清空当前项目的 UI 状态与草稿计划？将删除 simple_cluster/ui/*.json 与 experiments/plans/*.yaml|*.yml，操作不可恢复。`, { modal: true }, "确认清空", "取消");
+                if (confirm !== "确认清空")
+                    return;
+                try {
+                    this.planFileInput = "";
+                    this.selectedPlanId = "";
+                    await this.persistProjectPlanSelectionState();
+                    const fsSync = require("fs");
+                    // 清理 simple_cluster/ui/ 全部 UI 状态文件（至少含 plan_selection.json、flow_state.json、task_selection.json、local_plan_metadata.json、ui_layout.json，遍历 *.json 删除）
+                    const uiDir = path.join(root, "simple_cluster", "ui");
+                    if (fsSync.existsSync(uiDir)) {
+                        for (const name of fsSync.readdirSync(uiDir)) {
+                            if (!name.endsWith(".json"))
+                                continue;
+                            // 保留项已无，全部删除；按提示词至少含上述 5 项
+                            try {
+                                fsSync.unlinkSync(path.join(uiDir, name));
+                            }
+                            catch { }
+                        }
+                        try {
+                            if (fsSync.readdirSync(uiDir).length === 0)
+                                fsSync.rmdirSync(uiDir);
+                        }
+                        catch { }
+                    }
+                    // 清理 experiments/plans/ 下所有 *.yaml/*.yml 草稿
+                    const plansDir = path.join(root, "experiments", "plans");
+                    if (fsSync.existsSync(plansDir)) {
+                        for (const name of fsSync.readdirSync(plansDir)) {
+                            if (!(name.endsWith(".yaml") || name.endsWith(".yml")))
+                                continue;
+                            try {
+                                fsSync.unlinkSync(path.join(plansDir, name));
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+                // 重置后重新加载（幂等：仅 status!=="unchanged" 才写入）
+                await this.refreshLocalPlanMetadata({ post: false, force: true });
+                if (!this.projectContextIsCurrent(projectContext))
+                    return;
+                plans = this.localPlanMetadata.plans || [];
+            }
+        }
         let preferDebugFirstRun = false;
         for (let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step += 1) {
             if (!this.projectContextIsCurrent(projectContext))
@@ -8494,12 +8777,12 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         if (Number(this.context.workspaceState.get(keys.projectSessionPrefixPrompt, 0)) < 1) {
-            const configurePrefix = await vscode.window.showInformationMessage(`服务器配置已就绪。可为当前项目统一设置远端 tmux 会话前缀，便于区分不同用户；当前值：${this.setupConfig.remoteTmuxSessionPrefix || "simple"}。`, "设置会话前缀", "使用当前前缀");
+            const configurePrefix = await vscode.window.showInformationMessage(`服务器配置已就绪。可为当前项目统一设置远端 tmux 会话前缀，便于区分不同用户；当前值：${this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix || "simple"}。`, "设置会话前缀", "使用当前前缀");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             await this.context.workspaceState.update(keys.projectSessionPrefixPrompt, 1);
             if (configurePrefix === "设置会话前缀") {
-                const prefix = await input("tmux 会话前缀", this.setupConfig.remoteTmuxSessionPrefix || "simple", "例如 simple、zlk 或用户名缩写", "仅允许小写字母、数字、点、下划线和连字符。");
+                const prefix = await input("tmux 会话前缀", this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix || "simple", "例如 simple、zlk 或用户名缩写", "仅允许小写字母、数字、点、下划线和连字符。");
                 if (prefix !== undefined && prefix.trim())
                     await this.applySetupDraft({ remoteTmuxSessionPrefix: prefix.trim() });
             }
@@ -9577,6 +9860,276 @@ class RealtimeTunnelPanelProvider {
         if (isCurrent())
             this.postState();
     }
+    async abortSchedulerFromUi(message) {
+        const operationId = String(message?.operationId || message?.operation_id || message?.id || "run-plan-bpla27").trim() || "run-plan-bpla27";
+        const planFile = String(message?.planFile || message?.plan_file || "baseline.yaml").trim() || "baseline.yaml";
+        const body = { operationId, planFile, action: "abort_cleanup" };
+        try {
+            const client = this.client;
+            let result = null;
+            let lastError = null;
+            const tryIds = ["hub", ...this.enabledWorkerConfigs().map(w => w.id), ...Array.from((client.clients?.keys?.() || []))];
+            for (const id of [...new Set(tryIds)]) {
+                try {
+                    if (typeof client.abortScheduler === "function") {
+                        result = await client.abortScheduler(body);
+                        if (result)
+                            break;
+                    }
+                }
+                catch (e) {
+                    lastError = e;
+                }
+                try {
+                    const epClient = client.clients?.get?.(id) || client.getClient?.(id);
+                    if (epClient && typeof epClient.abortScheduler === "function") {
+                        result = await epClient.abortScheduler(body);
+                        if (result)
+                            break;
+                    }
+                }
+                catch (e) {
+                    lastError = e;
+                }
+            }
+            if (!result) {
+                try {
+                    const workerId = this.planSchedulerWorkerId() || this.enabledWorkerConfigs()[0]?.id || "nwpu3";
+                    const worker = this.setupConfig.workerTunnels.find((w) => w.id === workerId);
+                    const port = worker?.localForwardPort;
+                    if (port) {
+                        const url = `http://127.0.0.1:${port}/api/scheduler/abort`;
+                        const resp = await globalThis.fetch?.(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+                        if (resp && resp.ok) {
+                            result = await resp.json().catch(() => ({}));
+                        }
+                        else if (resp) {
+                            const txt = await resp.text().catch(() => "");
+                            if (txt)
+                                result = JSON.parse(txt);
+                        }
+                    }
+                }
+                catch { }
+            }
+            if (!result && lastError)
+                throw lastError;
+            // 清理本地侧调度状态（幂等）- 解耦：直接清理所有残留，不依赖 schedulerStates
+            try {
+                const fs = require("fs");
+                const path = require("path");
+                const os = require("os");
+                const homedir = os.homedir();
+                const tmpDir = path.join(homedir, "simple_cluster", "tmp", "cluster_scheduler");
+                if (fs.existsSync(tmpDir)) {
+                    for (const f of fs.readdirSync(tmpDir))
+                        if (f.endsWith("_state.json") || f.endsWith(".log") || f.endsWith(".json"))
+                            try {
+                                fs.unlinkSync(path.join(tmpDir, f));
+                            }
+                            catch { }
+                    const logsDir = path.join(tmpDir, "logs");
+                    if (fs.existsSync(logsDir)) {
+                        for (const f of fs.readdirSync(logsDir))
+                            try {
+                                fs.unlinkSync(path.join(logsDir, f));
+                            }
+                            catch { }
+                    }
+                }
+                const projectsState = path.join(homedir, "state", "projects");
+                if (fs.existsSync(projectsState)) {
+                    for (const proj of fs.readdirSync(projectsState)) {
+                        const actionsDir = path.join(projectsState, proj, "actions");
+                        if (fs.existsSync(actionsDir)) {
+                            for (const f of fs.readdirSync(actionsDir))
+                                if (f.startsWith("run-plan-"))
+                                    try {
+                                        fs.unlinkSync(path.join(actionsDir, f));
+                                    }
+                                    catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+            try {
+                if (this.localOperations && this.localOperations[operationId]) {
+                    this.localOperations[operationId] = { ...this.localOperations[operationId], status: "cancelled", updatedAt: new Date().toISOString(), message: "已手动中止 pid=" + this.localOperations[operationId].pid || "" };
+                    this.markLocalOperationsDirty();
+                    this.postState();
+                }
+            }
+            catch { }
+            const msg = result?.message || `已发送中止 ${operationId} / ${planFile} 并清理 simple_cluster/tmp/cluster_scheduler/*.{log,json} + state/projects/*/actions/run-plan-* 与 zlk-sch-* tmux`;
+            void vscode.window.showInformationMessage(msg);
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            void vscode.window.showErrorMessage(`中止失败：${msg}`);
+            throw e;
+        }
+    }
+    async openTensorBoardFromUi(message) {
+        const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
+        let localPort = Number(message?.localPort || 0);
+        if (!localPort || localPort < 1024) {
+            const agentAssignment = this.assignmentById?.get?.(endpointId) || this.tunnelPortAssignments?.find?.((a) => a.endpointId === endpointId);
+            const agentLocal = Number(agentAssignment?.localForwardPort || 0);
+            if (agentLocal >= 1024)
+                localPort = agentLocal + 1000;
+            else {
+                const worker = this.setupConfig?.workerTunnels?.find?.((w) => w.id === endpointId);
+                const fallbackLocal = Number(worker?.localForwardPort || this.setupConfig?.localForwardPort || 0);
+                localPort = fallbackLocal >= 1024 ? fallbackLocal + 1000 : 6006;
+            }
+            if (!localPort || localPort < 1024)
+                localPort = 6006;
+        }
+        const cfg = vscode.workspace.getConfiguration("simpleExperiment");
+        const rawPrefix = String(cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || "simple").trim() || "simple";
+        // 统一归一：与 agent 侧 tb_tmux_session_name / write_snapshots 完全一致（小写、非法→-、截32）
+        const normPrefix = (() => {
+            try {
+                const fn = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix;
+                if (typeof fn === "function")
+                    return fn(rawPrefix);
+            }
+            catch { }
+            return String(rawPrefix).trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "simple";
+        })();
+        const sessionPrefix = normPrefix;
+        const remotePort = Number(cfg.get("tensorboard.port")) || 6006;
+        const logdir = String(cfg.get("tensorboard.logdir") || "work_dirs");
+        const condaEnv = String(cfg.get("tunnel.condaEnv") || "").trim();
+        // TB session name is derived from the configured prefix; never hardcoded to a server/user.
+        // The actual launch command is discovered adaptively by the agent (no server path in settings).
+        const tbSession = String(cfg.get("tensorboard.tmuxSession") || `${normPrefix}_tb`);
+        const url = `http://127.0.0.1:${localPort}`;
+        const body = { sessionPrefix, port: remotePort, logdir, condaEnv, tmuxSession: tbSession, session: tbSession };
+        try {
+            // Always restart a fresh TB session so the panel shows the latest state (low cost).
+            await this.postTensorboardAction(endpointId, "start-tensorboard", body);
+            // Poll readiness (server-side port probe) up to ~10s before opening the tunnel.
+            let status = undefined;
+            let sessionUp = false;
+            for (let i = 0; i < 10; i++) {
+                await new Promise((r) => setTimeout(r, 1000));
+                try {
+                    status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { ...body, opId: makeOpId("get-tensorboard-status") });
+                }
+                catch { }
+                if (status) {
+                    sessionUp = sessionUp || !!status.running;
+                    if (status.listening)
+                        break;
+                }
+            }
+            const listening = !!(status && status.listening);
+            if (!listening) {
+                void vscode.window.showErrorMessage(`TB 启动失败，请检查服务器 start_tb.sh / 端口占用（${url}）`);
+            }
+            else {
+                const logPath = status?.logPath || `simple_cluster/tmux_logs/${tbSession}.log`;
+                void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${remotePort} ${tbSession} @ ${endpointId}，日志 ${logPath}）`, "复制链接", "浏览器打开").then((sel) => {
+                    if (sel === "复制链接")
+                        vscode.env.clipboard.writeText(url);
+                    if (sel === "浏览器打开")
+                        vscode.env.openExternal(vscode.Uri.parse(url));
+                });
+            }
+            await vscode.env.openExternal(vscode.Uri.parse(url));
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            void vscode.window.showErrorMessage(`启动 TensorBoard 失败：${msg}`);
+            throw e;
+        }
+    }
+    async postTensorboardAction(endpointId, action, body) {
+        const client = this.client;
+        const opId = body?.opId || makeOpId(action);
+        const fullBody = { opId, ...body, endpointId };
+        if (endpointId === "hub") {
+            return await client.postAction(action, fullBody);
+        }
+        if (typeof client.postWorkerAction === "function") {
+            return await client.postWorkerAction(endpointId, action, fullBody);
+        }
+        const epClient = client.clients?.get?.(endpointId);
+        if (epClient && typeof epClient.postAction === "function")
+            return await epClient.postAction(action, fullBody);
+        throw new Error("无法定位 Worker 客户端以重启 TensorBoard");
+    }
+    async copyTensorBoardUrlFromUi(message) {
+        const url = String(message?.tbUrl || message?.url || "").trim();
+        const endpointId = String(message?.endpointId || "hub").trim();
+        const targetUrl = url || `http://127.0.0.1:${Number(message?.localPort || 0) || 6006}`;
+        await vscode.env.clipboard.writeText(targetUrl);
+        void vscode.window.showInformationMessage(`已复制 TensorBoard 链接（${endpointId}）：${targetUrl}`);
+    }
+    async copyTextFromUi(message) {
+        const text = String(message?.text || message?.tbUrl || message?.url || "").trim();
+        if (!text) {
+            void vscode.window.showWarningMessage("没有可复制的内容");
+            return;
+        }
+        await vscode.env.clipboard.writeText(text);
+        void vscode.window.showInformationMessage(`已复制：${text.slice(0, 120)}${text.length > 120 ? "..." : ""}`);
+    }
+    async openTensorBoardUrlFromUi(message) {
+        const url = String(message?.tbUrl || message?.url || "").trim();
+        const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
+        const targetUrl = url || `http://127.0.0.1:${Number(message?.localPort || 0) || 6006}`;
+        // Restart a fresh TB session on the server first so the link always points at the latest
+        // state; then open the local tunnel URL. Failure surfaces a non-silent error.
+        try {
+            await this.openTensorBoardFromUi({ endpointId, localPort: Number(targetUrl.split(":").pop() || 0) });
+        }
+        catch { }
+        await vscode.env.openExternal(vscode.Uri.parse(targetUrl));
+        void vscode.window.showInformationMessage(`已用默认浏览器打开：${targetUrl}（已自动重启 <prefix>_tb tmux，有则 kill 后重建，无则新建）`);
+    }
+    async showLogHistoryFromUi(message) {
+        const opId = String(message?.operationId || message?.id || "").trim();
+        const planFile = String(message?.planFile || "").trim();
+        const ops = this.lastState?.operations ? Object.values(this.lastState.operations) : [];
+        const row = ops.find((r) => String(r.operationId || r.id || "") === opId) || ops.find((r) => String(r.planFile || r.plan || "").includes(planFile || "baseline.yaml")) || null;
+        const raw = String(row?.logTail || row?.consoleTail || row?.liveOutput || "").trim() || "无日志";
+        const lines = raw.split(/\r?\n/).slice(-50);
+        const picked = await vscode.window.showQuickPick(lines.map((l, i) => ({ label: `${String(i + 1).padStart(2, "0")}: ${l.slice(0, 120)}`, description: l.length > 120 ? l.slice(0, 200) : "", detail: l })), { title: `历史记录 ${lines.length} 条（仅最新50）`, placeHolder: "选择一行复制，或选“打开完整日志”" });
+        if (picked)
+            await vscode.env.clipboard.writeText(String(picked.detail || picked.label || ""));
+    }
+    async openFullLogFromUi(message) {
+        const planFile = String(message?.planFile || "baseline.yaml").trim();
+        const base = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
+        const candidates = [
+            require("path").join(base, "simple_cluster", "console_logs", "baseline-yaml"),
+            require("path").join(base, "simple_cluster", "tmp", "cluster_scheduler", `${planFile.replace(/[^a-z0-9]/gi, "_")}.log`),
+            require("path").join(base, "simple_cluster", "console_logs"),
+        ];
+        for (const p of candidates) {
+            try {
+                const stat = require("fs").statSync(p);
+                if (stat.isDirectory()) {
+                    const files = require("fs").readdirSync(p).filter((f) => f.includes("baseline")).slice(0, 5);
+                    if (files.length) {
+                        const pick = await vscode.window.showQuickPick(files, { title: "选择完整日志文件" });
+                        if (pick)
+                            await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(require("path").join(p, pick)));
+                        return;
+                    }
+                }
+                else if (stat.isFile()) {
+                    await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(p));
+                    return;
+                }
+            }
+            catch { }
+        }
+        void vscode.window.showInformationMessage("未找到 simple_cluster/console_logs/baseline-* 完整日志，请检查远端同步或本地 simple_cluster 目录。");
+    }
     hasResultsSummaryEndpointCapability() {
         const topology = this.projectTopologyAssessment();
         if (topology.hubAllowed)
@@ -10216,13 +10769,13 @@ class RealtimeTunnelPanelProvider {
     schedulerSettings() {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
-            pollSeconds: Math.max(60, Number(config.get("scheduler.pollSeconds", 60)) || 60),
-            jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 30)) || 0),
-            workerStatusTtlSeconds: Math.max(60, Number(config.get("scheduler.workerStatusTtlSeconds", 180)) || 180),
-            localAvailabilityPushSeconds: Math.max(60, Number(config.get("scheduler.localAvailabilityPushSeconds", 60)) || 60),
-            workerAvailabilityPushSeconds: Math.max(60, Number(config.get("scheduler.workerAvailabilityPushSeconds", 60)) || 60),
-            operationEventMaxDelayMs: Math.max(100, Number(config.get("scheduler.operationEventMaxDelayMs", 1000)) || 1000),
-            workerActionMinIntervalMs: Math.max(500, Number(config.get("scheduler.workerActionMinIntervalMs", 1500)) || 1500),
+            pollSeconds: Math.max(5, Number(config.get("scheduler.pollSeconds", 10)) || 10),
+            jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 5)) || 0),
+            workerStatusTtlSeconds: Math.max(10, Number(config.get("scheduler.workerStatusTtlSeconds", 45)) || 45),
+            localAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.localAvailabilityPushSeconds", 10)) || 10),
+            workerAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.workerAvailabilityPushSeconds", 10)) || 10),
+            operationEventMaxDelayMs: Math.max(100, Number(config.get("scheduler.operationEventMaxDelayMs", 200)) || 200),
+            workerActionMinIntervalMs: Math.max(200, Number(config.get("scheduler.workerActionMinIntervalMs", 500)) || 500),
             workerActionMaxConcurrent: Math.max(1, Number(config.get("scheduler.workerActionMaxConcurrent", 1)) || 1),
         };
     }
@@ -10538,8 +11091,8 @@ class RealtimeTunnelPanelProvider {
             targets.push({
                 id: "hub",
                 filePath: hubPath,
-                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub", undefined, this.setupConfig.remoteTmuxSessionPrefix),
-                command: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
+                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub", undefined, this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
+                command: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
             });
         }
         for (const worker of this.enabledWorkerConfigs()) {
@@ -10547,11 +11100,11 @@ class RealtimeTunnelPanelProvider {
             if (!filePath)
                 continue;
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir);
-            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix });
+            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
                 filePath,
-                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
+                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
                 command: this.projectTopologyAssessment().hubAllowed ? workerCommand : `unset SIMPLE_EXPERIMENT_HUB_UPLINK_URL; ${workerCommand}`,
             });
         }
@@ -10597,13 +11150,13 @@ class RealtimeTunnelPanelProvider {
                 displayName: this.hubDisplayName(),
                 configured: Boolean(this.setupConfig.savedSessionPath),
                 sessionPath: this.setupConfig.savedSessionPath,
-                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub", undefined, this.setupConfig.remoteTmuxSessionPrefix),
+                tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub", undefined, this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
                 actualWorkRoot: hubDirs.workRoot,
                 installDir: hubDirs.installDir,
                 workDir: hubDirs.workDir,
                 projectName: hubDirs.projectName,
                 condaEnv: this.setupConfig.condaEnv,
-                startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: hubDirs.installDir, workDir: hubDirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
+                startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: hubDirs.installDir, workDir: hubDirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
             },
             workers: this.setupConfig.workerTunnels.map((worker) => {
                 const dirs = this.agentRuntimeDirs(worker.agentProjectDir);
@@ -10613,13 +11166,13 @@ class RealtimeTunnelPanelProvider {
                     enabled: worker.enabled !== false,
                     configured: Boolean(worker.savedSessionPath),
                     sessionPath: worker.savedSessionPath,
-                    tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.remoteTmuxSessionPrefix),
+                    tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", worker.id, this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
                     actualWorkRoot: dirs.workRoot,
                     installDir: dirs.installDir,
                     workDir: dirs.workDir,
                     projectName: dirs.projectName,
                     condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv),
-                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix }),
+                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
             note: "Agent 跟随 Xshell 隧道会话启动。插件只打开 .xsh 会话文件，不直接执行远端命令。",
@@ -10632,17 +11185,28 @@ class RealtimeTunnelPanelProvider {
         this.agentSessionStateCacheValue = value;
         return value;
     }
-    agentRuntimeDirs(actualWorkRoot) {
+    agentRuntimeDirs(actualWorkRoot, agentInstallDir) {
         const projectName = remoteProjectName();
         const root = normalizeRemoteWorkRoot(actualWorkRoot);
         if (!root)
             return { projectName };
+        const override = (agentInstallDir || this.setupConfig.agentInstallDir || this.reportedAgentInstallDir()).trim();
+        const installDir = override || `${root}/simple_agent`;
         return {
             workRoot: root,
-            installDir: `${root}/simple_agent`,
+            installDir,
             ...(projectName ? { workDir: `${root}/${projectName}` } : {}),
             projectName,
         };
+    }
+    reportedAgentInstallDir() {
+        const probes = [this.lastProbe, ...Object.values(this.lastWorkerProbes || {})].filter(Boolean);
+        for (const probe of probes) {
+            const dir = probe && probe.agentInstallDir;
+            if (typeof dir === "string" && dir.trim())
+                return dir.trim();
+        }
+        return "";
     }
     currentAssignments() {
         const hubAllowed = this.projectTopologyAssessment().hubAllowed;
@@ -20542,3 +21106,4 @@ async function confirmUiCommand(title, detail, danger) {
     if (answer !== label)
         throw new UiCommandCancelled(`${title} 已取消。`);
 }
+// test rebuild 2026-08-29T02:25:09.1082977+08:00

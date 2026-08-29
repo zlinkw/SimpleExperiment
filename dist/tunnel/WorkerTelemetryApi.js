@@ -30,6 +30,8 @@ exports.workerTelemetryActionNames = [
     "stop-worker-task",
     "delete-worker-artifacts",
     "archive-worker-artifacts",
+    "start-tensorboard",
+    "get-tensorboard-status",
 ];
 exports.workerLocalSchedulerActionNames = [
     "validate-plan",

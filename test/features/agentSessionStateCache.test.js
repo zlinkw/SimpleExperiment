@@ -28,6 +28,8 @@ function loadSubject() {
     effectiveWorkerCondaEnv(worker, hubEnv) { return worker.condaEnv === undefined ? hubEnv : worker.condaEnv; },
   };
   vm.createContext(sandbox);
+  const raw = extractMethod("agentSessionState");
+  const cleaned = raw.replace(/\s+as\s+any/g, "").replace(/\s+as\s+unknown/g, "");
   vm.runInContext(`
     class Subject {
       agentSessionStateCacheSetup;
@@ -50,7 +52,7 @@ function loadSubject() {
       agentStartupTargets() { this.startupCalls += 1; return this.setupConfig.savedSessionPath ? [{ id: "hub" }] : []; }
       currentAgentPreparationBlockers() { this.blockerCalls += 1; return this.blockers || []; }
       hubDisplayName() { return this.setupConfig.hubDisplayName || "Hub"; }
-      ${extractMethod("agentSessionState")}
+      ${cleaned}
     }
     this.Subject = Subject;
   `, sandbox);

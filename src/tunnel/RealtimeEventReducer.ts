@@ -384,6 +384,50 @@ function isTerminalOperationType(type: RealtimeEventType): boolean {
   return type === "operation_completed" || type === "operation_failed";
 }
 
+// A running operation that has exceeded the stale grace window (and whose plan no
+// longer has any scheduler snapshot state) can be promoted to a terminal "stale"
+// state by a watchdog. Terminal operations are never touched (no regression).
+export function isStaleRunningOperation(operation: unknown, options: { startedAtMs?: number; staleAfterMs?: number; nowMs?: number } = {}): boolean {
+  if (isTerminalOperation(operation)) return false;
+  const item = (operation && typeof operation === "object" ? operation : {}) as Record<string, unknown>;
+  const status = String(item.status || item.state || "").trim().toLowerCase();
+  if (status && status !== "running" && status !== "accepted" && status !== "queued" && status !== "submitted") return false;
+  const nowMs = options.nowMs ?? Date.now();
+  const staleAfterMs = options.staleAfterMs ?? 15 * 60 * 1000;
+  const startedAtMs = options.startedAtMs ?? Date.parse(String(item.startedAt || item.createdAt || item.updatedAt || ""));
+  if (!Number.isFinite(startedAtMs)) return false;
+  return nowMs - startedAtMs > staleAfterMs;
+}
+
+// Apply the stale-running watchdog to a map of operations, preserving terminal
+// states. `snapshotSchedulerPlanFiles` lets callers additionally flag operations
+// whose plan has no scheduler state in the latest snapshot.
+export function reconcileStaleRunningOperations(
+  operations: Record<string, unknown>,
+  options: { snapshotSchedulerPlanFiles?: Set<string>; staleAfterMs?: number; nowMs?: number } = {},
+): Record<string, unknown> {
+  const nowMs = options.nowMs ?? Date.now();
+  const staleAfterMs = options.staleAfterMs ?? 15 * 60 * 1000;
+  const planFiles = options.snapshotSchedulerPlanFiles;
+  const out: Record<string, unknown> = {};
+  for (const [id, op] of Object.entries(operations || {})) {
+    if (isTerminalOperation(op) || !isStaleRunningOperation(op, { staleAfterMs, nowMs })) {
+      out[id] = op;
+      continue;
+    }
+    const item = (op && typeof op === "object" ? op : {}) as Record<string, unknown>;
+    const planFile = String(item.planFile || item.plan || "");
+    const noSchedulerState = !!planFiles && planFiles.size > 0 && !!planFile && !planFiles.has(planFile);
+    out[id] = {
+      ...item,
+      status: "stale",
+      staleReason: noSchedulerState ? "no_scheduler_state_in_snapshot" : "running_exceeded_grace",
+      reconciledAt: new Date(nowMs).toISOString(),
+    };
+  }
+  return out;
+}
+
 export function compactRealtimeState(state: RealtimeState, options: { protectedLogKeys?: string[] } = {}): RealtimeState {
   return {
     ...state,

@@ -484,6 +484,20 @@ function renderPanelHtml() {
     .operationDetailPill b { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-variant-numeric: tabular-nums; }
     .operationDetailPill.warn { border-color: #F59E0B; background: #FFFBEB; color: #92400E; }
     .operationDetailPill.error { border-color: #FCA5A5; background: #FEF2F2; color: #991B1B; }
+    .section-head-actions { display: flex; gap: 6px; align-items: center; }
+    .sectionMergeNote { margin: 6px 0 2px; font-size: 11px; line-height: 1.5; }
+    .operationLogTail { margin-top: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle-bg); }
+    .operationLogTail > summary { cursor: pointer; padding: 4px 8px; font-size: 11px; color: var(--muted); }
+    .operationLogTail > pre { max-height: 280px; overflow: auto; margin: 0; padding: 8px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+    .operationLogTail > .mini { margin: 0 8px 8px; }
+    .schedulerPlaceholderNotice { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, var(--vscode-editor-background)); font-size: 12px; line-height: 1.5; }
+    .schedulerPlaceholderNotice.is-failed { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--vscode-editor-background)); }
+    .schedulerPlaceholderNotice b { display: block; margin-bottom: 4px; }
+    .schedulerPlaceholderNotice .operationMessage { margin: 4px 0; overflow-wrap: anywhere; }
+    .taskPlaceholderDeck { display: grid; gap: 10px; margin-top: 6px; }
+    .taskCard.schedulerPlaceholder { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; background: var(--subtle-bg); }
+    .taskCard.schedulerPlaceholder .taskCardHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .taskCard.schedulerPlaceholder .taskTitle { font-weight: 600; }
     .operationFileActions { display: grid; gap: 5px; margin-top: 7px; min-width: 0; }
     .operationFileActions > span { color: var(--muted); font-size: 11px; }
     .operationFileEntry { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--border); }
@@ -1326,31 +1340,29 @@ function renderPanelHtml() {
       <div id="gpuGrid" class="gpuServerStack" data-anchor="gpu-grid"></div>
     </section>
 
-    <section class="section-card" data-section="tasks" data-anchor="tasks" data-title="任务运行状态">
+    <section class="section-card" data-section="execution" data-anchor="execution" data-title="运行进度">
       <div class="section-head">
-        <div class="section-title">
-          <h2>任务运行状态</h2>
-          <div class="section-desc">Hub 调度、Worker 观测</div>
-        </div>
+          <div class="section-title">
+            <h2>运行进度</h2>
+            <div class="section-desc">调度操作与实验任务统一视图（关联字段：planFile / revision / opId）· 调度报错自动透传并转为终态</div>
+          </div>
+          <div class="section-head-actions">
+            <span class="pill" title="原“操作进度”与“任务运行状态”已原生合并为单一卡片">已合并</span>
+          </div>
       </div>
-      <div id="taskSummary" data-anchor="tasks-summary"></div>
+      <div id="operationList" data-anchor="execution-operations"></div>
+      <div id="taskSummary" data-anchor="execution-tasks"></div>
       <div id="taskBatchActions" class="actionGrid"></div>
       <div id="taskProgressCards" data-anchor="tasks-progress"></div>
       <div class="taskWorkbench">
         <div id="taskTable" data-anchor="tasks-list"></div>
         <aside id="taskDetailPane" class="taskDetailPane" aria-live="polite"></aside>
       </div>
+      <div hidden data-anchor="tasks"></div>
+      <div hidden data-anchor="operations"></div>
+      <div hidden data-anchor="tasks-summary"></div>
+      <div hidden data-anchor="operations-list"></div>
     </section>
-
-      <section class="section-card" data-section="operations" data-anchor="operations" data-title="操作进度">
-        <div class="section-head">
-          <div class="section-title">
-            <h2>操作进度</h2>
-            <div class="section-desc">界面操作、Agent 返回状态</div>
-          </div>
-        </div>
-        <div id="operationList" data-anchor="operations-list"></div>
-      </section>
 
     <section class="section-card" data-section="diagnostics" data-anchor="diagnostics" data-title="诊断与自检">
       <div class="section-head">
@@ -1683,11 +1695,11 @@ function renderPanelHtml() {
       archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
     });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
-    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "tasks", "plans", "results", "sync", "operations", "servers", "settings", "diagnostics"]);
+    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(RESOURCE_TREE_SECTION_ORDER);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
-    const INSPECTOR_OPERATION_SECTIONS = new Set(["tasks", "operations"]);
-    const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
+    const INSPECTOR_OPERATION_SECTIONS = new Set(["execution"]);
+    const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status", "copyTensorBoardUrl", "openTensorBoardUrl", "openTensorBoard", "showLogHistory", "openFullLog", "copyText"]);
     const TERMINAL_UI_STATUSES = new Set(["completed", "submitted", "failed", "cancelled", "stalled"]);
     const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
     const SELECTED_PLAN_RUN_COMMANDS = new Set(["runPlan", "reproducePlan"]);
@@ -1736,8 +1748,8 @@ function renderPanelHtml() {
       "publish-github": "发布 GitHub", "sync-github": "同步 GitHub", "overwrite-github": "覆盖 GitHub", "upload-project-to-hub": "上传到 Hub", "upload-project-to-workers": "上传到 Worker", "distribute-code-to-workers": "分发 Worker 代码", "deploy-latest-agent": "部署 Agent",
       "configure-sftp-ignores": "配置 SFTP 忽略", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
     });
-    const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", plans: "校验/预演", tasks: "查看任务", results: "解析/统计", sync: "发布/同步", operations: "看终态", diagnostics: "看诊断" });
-    const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ overview: "◌", servers: "▧", gpu: "◫", plans: "◇", tasks: "▣", results: "▤", sync: "⇅", operations: "◷", diagnostics: "⌁" });
+    const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", plans: "校验/预演", execution: "查看运行与操作", results: "解析/统计", sync: "发布/同步", diagnostics: "看诊断" });
+    const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ overview: "◌", servers: "▧", gpu: "◫", plans: "◇", execution: "▣", results: "▤", sync: "⇅", diagnostics: "⌁" });
     const RESOURCE_TREE_TONE_RANKS = Object.freeze({ error: 5, warn: 4, mine: 3, good: 2, info: 1 });
     const RESOURCE_TREE_TONE_HELP = Object.freeze({
       good: "绿色：当前区域状态正常或数据新鲜。",
@@ -1748,12 +1760,12 @@ function renderPanelHtml() {
     });
     const INSPECTOR_ACTION_GROUP_LABELS = Object.freeze({
       overview: "总览", servers: "服务器", settings: "设置", gpu: "GPU", plans: "计划",
-      tasks: "任务", results: "结果", sync: "发布同步", operations: "操作进度", diagnostics: "诊断"
+      execution: "运行进度", results: "结果", sync: "发布同步", diagnostics: "诊断"
     });
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
       prepareAgents: "servers", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "servers", saveSchedulerConfig: "servers", startAll: "servers", testAll: "servers", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
-      stopExperiment: "tasks", retryExperiment: "tasks", reassignWorkerTask: "tasks", archiveArtifacts: "tasks", excludeResults: "results", deleteArtifacts: "tasks", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
+      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results", deleteArtifacts: "execution", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
       inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
       parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
       exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
@@ -1766,16 +1778,15 @@ function renderPanelHtml() {
       servers: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["testAll", 4]]),
       gpu: new Map([["snapshot", 0], ["testAll", 1]]),
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
-      tasks: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4]]),
+      execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
       sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["uploadProjectToHub", 2], ["uploadProjectToWorkers", 3], ["distributeCodeToWorkers", 4], ["deployLatestAgent", 5], ["configureSftpIgnores", 6]]),
-      operations: INSPECTOR_ACTION_PRIORITY_OPERATIONS,
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
       saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
-      stopExperiment: "tasks-list", retryExperiment: "tasks-list", reassignWorkerTask: "tasks-list", archiveArtifacts: "tasks-list", excludeResults: "results-traces", deleteArtifacts: "tasks-list", parseResults: "results-summary", refreshResults: "results-summary",
+      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results-traces", deleteArtifacts: "execution", parseResults: "results-summary", refreshResults: "results-summary",
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
       planCheckpointRetention: "results-checkpoints", inferConfigFromRun: "results-recovery", recoverPlanFromRun: "results-recovery", diagnoseResultAnomaly: "results-anomaly", compareWithBestConfig: "results-anomaly",
       parseCaseLevel: "results-traces", runLeakageCheck: "results-traces", runSubgroupAnalysis: "results-traces", exportCaseAnalysis: "results-traces", exportPlottingContract: "results-plotting",
@@ -1798,7 +1809,7 @@ function renderPanelHtml() {
     const OPERATION_INFRASTRUCTURE_PATTERN = /self|debug|audit|diagnostic|agent|tunnel|port/;
     const OPERATION_SECTION_MATCH_PATTERNS = new Map([
       ["sync", /publish|github|upload|deploy|sftp|sync|distribute/],
-      ["tasks", /stop|retry|archive|delete|worker|task|experiment|run/],
+      ["execution", /stop|retry|archive|delete|worker|task|experiment|run|operation|failed|stalled|accepted|running|completed/],
       ["results", /parse|result|quality|statistics|paper|claim|archive|sync/],
       ["plans", /plan|validate|dry-run|run-plan|reproduce/],
       ["servers", OPERATION_INFRASTRUCTURE_PATTERN],
@@ -1813,7 +1824,7 @@ function renderPanelHtml() {
     const TASK_LOG_RENDER_LIMIT = 8000;
     const PLAN_RENDER_LIMIT = 30;
     const TRACE_RENDER_LIMIT = 60;
-    const OPERATION_RENDER_LIMIT = 24;
+    const OPERATION_RENDER_LIMIT = 50;
     const ARCHIVED_PLAN_RENDER_LIMIT = 24;
     const EMPTY_WORKER_TUNNELS_FOR_ALIAS = [];
     const EMPTY_XSHELL_SESSIONS = [];
@@ -1821,13 +1832,13 @@ function renderPanelHtml() {
     const CONFIG_PORT_BOUNDS = Object.freeze({ min: 1024, max: 65535, step: 1 });
     const CONFIG_GPU_CONCURRENCY_BOUNDS = Object.freeze({ min: 1, max: 16, step: 1 });
     const CONFIG_SCHEDULER_BOUNDS = Object.freeze({
-      pollSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
+      pollSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
       jitterSeconds: Object.freeze({ min: 0, max: 1800, step: 1 }),
-      workerStatusTtlSeconds: Object.freeze({ min: 60, max: 7200, step: 1 }),
-      localAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
-      workerAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
+      workerStatusTtlSeconds: Object.freeze({ min: 10, max: 7200, step: 1 }),
+      localAvailabilityPushSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
+      workerAvailabilityPushSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
       operationEventMaxDelayMs: Object.freeze({ min: 100, max: 10000, step: 100 }),
-      workerActionMinIntervalMs: Object.freeze({ min: 500, max: 60000, step: 100 }),
+      workerActionMinIntervalMs: Object.freeze({ min: 200, max: 60000, step: 100 }),
       workerActionMaxConcurrent: CONFIG_GPU_CONCURRENCY_BOUNDS
     });
     const EMPTY_CONFIG_INPUT_BOUNDS = Object.freeze({});
@@ -1993,6 +2004,7 @@ function renderPanelHtml() {
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
+      "abortScheduler", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
@@ -2127,34 +2139,50 @@ function renderPanelHtml() {
         return;
       }
       const button = event.target.closest("button[data-command]");
-      if (!button || button.disabled) return;
-      const command = button.dataset.command;
-      const payload = payloadFromButton(button);
-      const pendingKey = pendingKeyForButton(button, command, payload);
-      if (pendingButtonKeys.has(pendingKey)) return;
-      if (commandNeedsLoading(command)) {
-        const clientActionId = createClientActionId(command, pendingKey);
-        payload.clientActionId = clientActionId;
-        pendingButtonKeys.add(pendingKey);
-        const pendingItem = Object.assign({ command, pendingKey, clientActionId, actionSection: button.dataset.actionSection || "", startedAt: Date.now(), label: button.textContent.trim(), status: "running" }, payload);
-        pendingActions[pendingKey] = pendingItem;
-        pendingActionsById[clientActionId] = pendingItem;
-        setButtonLoading(button, pendingKey);
-        pendingActionTimeouts[clientActionId] = setTimeout(() => {
-          const item = pendingActionsById[clientActionId];
-          if (item && Date.now() - Number(item.startedAt || 0) >= 45000) {
-            item.status = "stalled";
-            item.message = "UI command timed out waiting for terminal status";
-            delete pendingActions[pendingKey];
-            delete pendingActionsById[clientActionId];
-            clearPendingActionTimeout(clientActionId);
-            pendingButtonKeys.delete(pendingKey);
-            clearButtonsForPending(clientActionId, pendingKey, command);
-            refreshTerminalUi(command);
+      if (button && !button.disabled) {
+        const command = button.dataset.command;
+        const payload = payloadFromButton(button);
+        const pendingKey = pendingKeyForButton(button, command, payload);
+        if (!pendingButtonKeys.has(pendingKey)) {
+          if (commandNeedsLoading(command)) {
+            const clientActionId = createClientActionId(command, pendingKey);
+            payload.clientActionId = clientActionId;
+            pendingButtonKeys.add(pendingKey);
+            const pendingItem = Object.assign({ command, pendingKey, clientActionId, actionSection: button.dataset.actionSection || "", startedAt: Date.now(), label: button.textContent.trim(), status: "running" }, payload);
+            pendingActions[pendingKey] = pendingItem;
+            pendingActionsById[clientActionId] = pendingItem;
+            setButtonLoading(button, pendingKey);
+            pendingActionTimeouts[clientActionId] = setTimeout(() => {
+              const item = pendingActionsById[clientActionId];
+              if (item && Date.now() - Number(item.startedAt || 0) >= 45000) {
+                item.status = "stalled";
+                item.message = "UI command timed out waiting for terminal status";
+                delete pendingActions[pendingKey];
+                delete pendingActionsById[clientActionId];
+                clearPendingActionTimeout(clientActionId);
+                pendingButtonKeys.delete(pendingKey);
+                clearButtonsForPending(clientActionId, pendingKey, command);
+                refreshTerminalUi(command);
+              }
+            }, 45500);
           }
-        }, 45500);
+          vscode.postMessage(Object.assign({ command }, payload));
+        }
+        return;
       }
-      vscode.postMessage(Object.assign({ command }, payload));
+      const codeTrigger = event.target.closest("code[data-command], [data-command].tbUrl");
+      if (codeTrigger) {
+        const command = codeTrigger.dataset.command;
+        if (!command || !webviewHandledCommands.has(command)) return;
+        const payload = payloadFromButton(codeTrigger);
+        if (codeTrigger.dataset.tbUrl) {
+          payload.tbUrl = codeTrigger.dataset.tbUrl;
+          payload.url = codeTrigger.dataset.tbUrl;
+        }
+        vscode.postMessage(Object.assign({ command }, payload));
+        return;
+      }
+      if (!button || button.disabled) return;
     });
     document.addEventListener("contextmenu", (event) => {
       const button = event.target.closest("#workbenchInspector button[data-command], #mainColumn button[data-command]");
@@ -2586,7 +2614,7 @@ function renderPanelHtml() {
 
     function renderVisibleSections(state) {
       preserveMainColumnAnchor(() => {
-        ["overview", "servers", "settings", "plans", "results", "sync", "gpu", "tasks", "operations", "diagnostics"].forEach((section) => renderSectionIfVisible(state, section));
+        ["overview", "servers", "settings", "plans", "results", "sync", "gpu", "execution", "diagnostics"].forEach((section) => renderSectionIfVisible(state, section));
       });
     }
 
@@ -2617,10 +2645,8 @@ function renderPanelHtml() {
         renderResultSummary(state);
       } else if (section === "gpu") {
         renderGpuSection(state);
-      } else if (section === "tasks") {
-        renderTaskSection(state);
-      } else if (section === "operations") {
-        renderOperationSection(state);
+      } else if (section === "execution" || section === "tasks" || section === "operations") {
+        renderExecutionSection(state);
       } else if (section === "diagnostics") {
         renderDiagnosticSection(state);
       }
@@ -2642,6 +2668,7 @@ function renderPanelHtml() {
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation);
       if (section === "sync") return refListKey(data.codeSync, data.capabilities, data.setup, data.health, data.probe, data.workerProbes);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
+      if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
       if (section === "tasks") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary);
       if (section === "operations") return refListKey(data.operations);
       if (section === "diagnostics") return refListKey(data.diagnostics, data.capabilities, data.actionErrors, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.realtimeDiagnostics, data.health);
@@ -2651,7 +2678,7 @@ function renderPanelHtml() {
     function sectionLocalPreKey(section) {
       if (section === "plans") return stableSectionJson({ configParamFilter, configLevel1Filter, configLevel2Filter, selectedConfigIndex, detailsOpenState });
       if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
-      if (section === "tasks") return stableSectionJson({ expandedTaskLogs, taskPlanScope });
+      if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs, taskPlanScope });
       if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
@@ -2774,7 +2801,7 @@ function renderPanelHtml() {
         });
       }
       if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
-      if (section === "tasks") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}), taskPlanScope });
+      if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}), taskPlanScope });
       if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
@@ -2901,25 +2928,21 @@ function renderPanelHtml() {
           gpuOwnerConfig: data.gpuOwnerConfig
         };
       }
-      if (section === "tasks") {
+      if (section === "execution" || section === "tasks" || section === "operations") {
         return {
           minuteBucket: Math.floor(Date.now() / 60000),
           scheduler: compactSchedulerForSignature(data),
           selection: data.selection,
           selectedLogRunKey: data.selectedLogRunKey,
           capabilities: compactCapabilitiesForSignature(data.capabilities),
-          workerTelemetry: compactWorkerTelemetryForSignature(data.workerTelemetry)
+          workerTelemetry: compactWorkerTelemetryForSignature(data.workerTelemetry),
+          operations: compactOperationSectionForSignature(data)
         };
       }
       if (section === "sync") {
         return {
           codeSync: data.codeSync,
           capabilities: compactCapabilitiesForSignature(data.capabilities)
-        };
-      }
-      if (section === "operations") {
-        return {
-          operations: compactOperationSectionForSignature(data)
         };
       }
       if (section === "diagnostics") {
@@ -3723,7 +3746,7 @@ function renderPanelHtml() {
       const normalizedCommand = String(command || "");
       const normalizedStatus = String(status || "").toLowerCase();
       if (normalizedStatus === "submitted" && SUBMITTED_RUN_COMMANDS.has(normalizedCommand)) {
-        return { section: "tasks", anchor: "tasks-list" };
+        return { section: "execution", anchor: "execution" };
       }
       if (normalizedStatus === "completed" && normalizedCommand === "restoreArchivedPlan") {
         return { section: "plans", anchor: "plans-list" };
@@ -3754,7 +3777,7 @@ function renderPanelHtml() {
       refreshContextualActionButtons(state, el("workbenchInspector"));
       refreshContextualActionButtons(state, el("pinnedActionsHost"));
       refreshContextualActionButtons(state, el("taskBatchActions"));
-      renderSectionIfVisible(state, "operations", { force: true });
+      renderSectionIfVisible(state, "execution", { force: true });
       refreshWorkbenchInspectorAfterTerminal(state);
       schedulePostRenderMaintenance(false);
     }
@@ -4516,6 +4539,13 @@ function renderPanelHtml() {
         configure: "配置 Hub 隧道",
         startHub: "启动 Hub",
         startWorker: "启动 Worker",
+        abortScheduler: "中止调度器",
+        openTensorBoard: "打开 TensorBoard",
+        copyTensorBoardUrl: "复制 TensorBoard 链接",
+        openTensorBoardUrl: "打开 TensorBoard 链接",
+        showLogHistory: "查看历史日志",
+        openFullLog: "打开完整日志",
+        copyText: "复制文本",
         start: "启动 Hub",
         startAll: "启动全部",
         showRegistry: "端点清单",
@@ -4678,6 +4708,7 @@ function renderPanelHtml() {
 
     function normalizeActionSection(section) {
       const value = String(section || "overview");
+      if (value === "tasks" || value === "operations") return "execution";
       if (RESOURCE_TREE_SECTION_KEYS.has(value)) return value;
       if (value.startsWith("server")) return "servers";
       return "overview";
@@ -5061,10 +5092,9 @@ function renderPanelHtml() {
         settings: { label: "基础设施", node: withResourceTreeChildren(item("settings", "设置", "项目与服务器设置", "⚙", "结果目录、服务器、隧道与调度参数", "设置 结果 CSV 服务器 Hub Worker Xshell 端口 调度 参数"), settingsTreeObjects()) },
         gpu: { label: "资源", node: withResourceTreeChildren(item("gpu", "GPU 状态", "GPU 总览", "◫", "GPU 总览", "GPU 显卡 显存 温度 利用率 我的任务 进程"), gpuTreeObjects()) },
         plans: { label: "实验", node: withResourceTreeChildren(item("plans", "实验计划", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
-        tasks: { label: "实验", node: withResourceTreeChildren(item("tasks", "任务运行状态", "任务状态", "▣", "任务/日志/操作", "任务 日志 停止 重试 删除 归档 排队 运行"), taskTreeObjects()) },
+        execution: { label: "执行", node: withResourceTreeChildren(item("execution", "运行进度", "调度操作与实验任务统一视图", "▣", "操作+任务/日志/终态", "任务 日志 停止 重试 删除 归档 排队 运行 操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), executionTreeObjects()) },
         results: { label: "实验", node: withResourceTreeChildren(item("results", "结果分析", "结果分析", "▤", "结果/统计/论文", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
         sync: { label: "发布", node: withResourceTreeChildren(item("sync", "发布与同步", "发布同步", "⇅", "GitHub/SFTP/Agent", "Git GitHub SFTP 上传 分发 Agent 部署 发布 同步"), syncTreeObjects()) },
-        operations: { label: "运维", node: withResourceTreeChildren(item("operations", "操作进度", "操作进度", "◷", "操作终态", "操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), operationTreeObjects()) },
         diagnostics: { label: "运维", node: withResourceTreeChildren(item("diagnostics", "诊断", "诊断", "⌁", "能力/端口/审计", "诊断 自检 调试 审计 能力 端口"), diagnosticTreeObjects()) }
       };
     }
@@ -5297,10 +5327,19 @@ function renderPanelHtml() {
 
     function taskTreeObjects() {
       return [
-        treeObjectItem("tasks", "任务摘要", "入口", "", "任务运行状态汇总。", "tasks-summary", "", "任务 运行 排队 失败"),
-        treeObjectItem("tasks", "操作进度", "入口", "", "查看任务对应的操作状态和 loading 终态。", "tasks-progress", "", "按钮 loading 终态"),
-        treeObjectItem("tasks", "任务列表", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "tasks-list", "", "running testing queued pending failed stalled stopped cancelled completed"),
-        treeObjectItem("tasks", "任务日志", "入口", "", "展开任务行查看最新日志摘要，完整日志按任务详情入口查看。", "tasks-logs", "", "日志 tail openLog")
+        treeObjectItem("execution", "任务摘要", "入口", "", "任务运行状态汇总。", "execution-tasks", "", "任务 运行 排队 失败"),
+        treeObjectItem("execution", "操作进度", "入口", "", "查看调度操作状态和 loading 终态。", "execution-operations", "", "操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed 按钮 loading 终态"),
+        treeObjectItem("execution", "任务列表", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "tasks-list", "", "running testing queued pending failed stalled stopped cancelled completed"),
+        treeObjectItem("execution", "任务日志", "入口", "", "展开任务行查看最新日志摘要，完整日志按任务详情入口查看。", "tasks-logs", "", "日志 tail openLog")
+      ];
+    }
+    function executionTreeObjects() {
+      return [
+        treeObjectItem("execution", "操作列表", "入口", "", "查看已提交、执行中、已完成和异常操作。", "execution-operations", "", "已提交 执行中 已完成 异常 accepted running completed failed stalled"),
+        treeObjectItem("execution", "异常操作", "入口", "", "失败或卡住的操作需要查看错误和残留。", "execution-failed", "", "失败 卡住 failed stalled"),
+        treeObjectItem("execution", "任务摘要", "入口", "", "任务运行状态汇总。", "execution-tasks", "", "任务 运行 排队 失败"),
+        treeObjectItem("execution", "任务列表", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "tasks-list", "", "running testing queued pending failed stalled stopped cancelled completed"),
+        treeObjectItem("execution", "按钮终态", "入口", "", "确认耗时按钮在完成、失败、取消或超时后恢复可点击。", "execution-terminal", "", "按钮 加载 终态 loading terminal uiCommandStatus completed failed cancelled stalled")
       ];
     }
 
@@ -5345,11 +5384,7 @@ function renderPanelHtml() {
     }
 
     function operationTreeObjects() {
-      return [
-        treeObjectItem("operations", "操作列表", "入口", "", "查看已提交、执行中、已完成和异常操作。", "operations-list", "", "已提交 执行中 已完成 异常 accepted running completed failed stalled"),
-        treeObjectItem("operations", "异常操作", "入口", "", "失败或卡住的操作需要查看错误和残留。", "operations-failed", "", "失败 卡住 failed stalled"),
-        treeObjectItem("operations", "按钮终态", "入口", "", "确认耗时按钮在完成、失败、取消或超时后恢复可点击。", "operations-terminal", "", "按钮 加载 终态 loading terminal uiCommandStatus completed failed cancelled stalled")
-      ];
+      return executionTreeObjects();
     }
 
     function updateResourceTreeActiveSection(section, anchor) {
@@ -5515,7 +5550,7 @@ function renderPanelHtml() {
     function workbenchInspectorOperationSignatureRows(state, section, meta) {
       const actionSection = inspectorActionSection(section, meta);
       if (!INSPECTOR_OPERATION_SECTIONS.has(section) && !INSPECTOR_OPERATION_SECTIONS.has(actionSection)) return [];
-      return operationRowsForState(state).slice(0, section === "operations" || actionSection === "operations" ? 12 : 6)
+      return operationRowsForState(state).slice(0, section === "execution" || actionSection === "execution" || section === "operations" || actionSection === "operations" ? 12 : 6)
         .map((op) => compactRecordForSignature(op || {}, ["operationId", "type", "status", "message", "error", "updatedAt", "workerId"]));
     }
 
@@ -5535,7 +5570,7 @@ function renderPanelHtml() {
       if (section === "servers") return [object, setup.localForwardPort || "", enabledWorkers.length, workers.length, overviewSchedulerRange(scheduler), conflicts.length];
       if (section === "gpu") return [object, overviewGpuStats(state)];
       if (section === "plans") return [object, overviewProjectStats(state), overviewProjectReadiness(state), pick(project.adapterRules || {}, ["primaryMetric"], "AUC")];
-      if (section === "tasks") return [object, overviewTaskStats(state), asArray((state.selection || {}).selectedRunKeys || []).length, (state.selection || {}).selectedRunKey || ""];
+      if (section === "execution" || section === "tasks" || section === "operations") return [object, overviewTaskStats(state), overviewOperationStats(state), asArray((state.selection || {}).selectedRunKeys || []).length, (state.selection || {}).selectedRunKey || ""];
       if (section === "results") return [object, asArray(project.resultFiles || []).length, pick(summary, ["lastParsedAt", "last_parsed_at"], "-"), pick(summary, ["claimUnsupportedCount", "claim_unsupported_count"], 0), pick(summary, ["claimNeedsExperimentCount", "claim_needs_experiment_count"], 0)];
       if (section === "sync") return [object, (state.codeSync || {}).hub || "", (state.codeSync || {}).workers || "", (state.codeSync || {}).fingerprint || "", (state.health || {}).agentVersionStatus || ""];
       if (section === "operations") return [object, overviewOperationStats(state)];
@@ -5640,10 +5675,12 @@ function renderPanelHtml() {
           ["结果线索", String(projectStats.resultSignals), "CSV、JSON、summary 或 stdout 等结果线索"],
           ["主指标", pick(project.adapterRules || {}, ["primaryMetric"], "AUC"), "默认分类任务主指标"]
         ],
-        tasks: [
-          ["运行中", String(taskStats.running), schedulerOwner + "当前运行中任务"],
-          ["排队", String(taskStats.queued), "等待可用性上报或 GPU 资源租约"],
-          ["失败", String(taskStats.failed), "需要查看日志或重试的任务"],
+        execution: [
+          ["运行中任务", String(taskStats.running), schedulerOwner + "当前运行中任务"],
+          ["排队任务", String(taskStats.queued), "等待可用性上报或 GPU 资源租约"],
+          ["失败任务", String(taskStats.failed), "需要查看日志或重试的任务"],
+          ["进行中操作", String(operationStats.running), "已提交、排队、执行中等非终态操作"],
+          ["失败操作", String(operationStats.failed), "失败、卡住、不支持或错误等终态"],
           ["选中", String(asArray((state.selection || {}).selectedRunKeys || []).length || (state.selection || {}).selectedRunKey || "-"), "用于批量停止、归档或删除"]
         ],
         results: [
@@ -5659,12 +5696,6 @@ function renderPanelHtml() {
           ["Worker 同步", labelStatus((state.codeSync || {}).workers || "待同步"), "本地项目到启用 Worker 的轻量代码同步状态"],
           ["代码指纹", compactText((state.codeSync || {}).fingerprint || "-", 18), "提交运行前自动核验的代码指纹（fingerprint）"],
           ["Agent", labelStatus((state.health || {}).agentVersionStatus || "待检测"), "部署最新版 Agent 后需要重启会话生效"]
-        ],
-        operations: [
-          ["进行中", String(operationStats.running), "已提交、排队、执行中等非终态操作（accepted/submitted/queued/running）"],
-          ["失败", String(operationStats.failed), "失败、卡住、不支持或错误等终态（failed/stalled/unsupported/error）"],
-          ["已完成", String(operationStats.completed), "已成功进入终态的操作"],
-          ["最近状态", operationStatusLabel(operationStats.latestStatus), operationTypeLabel(operationStats.latestType || "暂无操作")]
         ],
         diagnostics: [
           ["插件版本", String(state.extensionVersion || "-"), "当前 Webview/Extension 版本"],
@@ -5695,17 +5726,18 @@ function renderPanelHtml() {
       if (section === "settings") return "settings";
       const anchor = String((meta || {}).anchor || "");
       if (anchor.startsWith("sync-")) return "sync";
-      if (anchor.startsWith("task-") || anchor.startsWith("tasks-")) return "tasks";
-      if (anchor.startsWith("operation-") || anchor.startsWith("operations-")) return "operations";
+      if (anchor.startsWith("task-") || anchor.startsWith("tasks-") || anchor.startsWith("execution")) return "execution";
+      if (anchor.startsWith("operation-") || anchor.startsWith("operations-")) return "execution";
       if (anchor.startsWith("result") || anchor.startsWith("results-")) return "results";
       if (anchor.startsWith("plan") || anchor.startsWith("plans-")) return "plans";
       if (anchor.startsWith("server") || anchor.startsWith("servers-")) return "servers";
       if (anchor.startsWith("diagnostic") || anchor.startsWith("diagnostics-")) return "diagnostics";
       if (anchor.startsWith("gpu")) return "gpu";
+      if (section === "tasks" || section === "operations") return "execution";
       return section || "overview";
     }
 
-    function workbenchInspectorActions(section, meta) {
+     function workbenchInspectorActions(section, meta) {
       const actionSection = inspectorActionSection(section, meta);
       const actions = {
         overview: [["准备 Agent 并启动", "prepareAgents"], ["启动连接", "startAllConnections"], ["检测全部", "testAll"], ["刷新数据", "snapshot"], ["暂停网络", "pauseAll"]],
@@ -5713,10 +5745,9 @@ function renderPanelHtml() {
         settings: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["准备 Agent 并启动", "prepareAgents"], ["启动全部隧道", "startAll"], ["启动连接", "startAllConnections"], ["检测全部", "testAll"]],
         gpu: [["刷新数据", "snapshot"], ["检测全部", "testAll"]],
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
-        tasks: [["停止选中", "stopExperiment", { confirm: true, batch: true }], ["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }]],
+        execution: [["停止选中", "stopExperiment", { confirm: true, batch: true }], ["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
         sync: [["一键发布当前项目", "publishGithub", { confirm: true }], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
-        operations: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
       if (actions[actionSection]) actions[actionSection] = orderInspectorActionsByResourceTree(actionSection, actions[actionSection]);
@@ -5865,7 +5896,7 @@ function renderPanelHtml() {
     function operationResourceMatcher(meta, section) {
       const anchor = String((meta || {}).anchor || "");
       if (!anchor || anchor === section) {
-        if (section === "operations") return MATCH_EVERY_OPERATION;
+        if (section === "execution" || section === "operations") return MATCH_EVERY_OPERATION;
         const pattern = OPERATION_SECTION_MATCH_PATTERNS.get(section);
         return pattern ? (haystack) => pattern.test(haystack) : MATCH_NO_OPERATION;
       }
@@ -5894,8 +5925,7 @@ function renderPanelHtml() {
 
     function inspectorToneForSection(state, section) {
       if (section === "gpu" && overviewGpuStats(state).mine) return "mine";
-      if (section === "tasks" && overviewTaskStats(state).failed) return "error";
-      if (section === "operations" && overviewOperationStats(state).failed) return "error";
+      if (section === "execution" && (overviewTaskStats(state).failed || overviewOperationStats(state).failed)) return "error";
       if (section === "servers" && asArray(state.tunnelPortConflicts || []).length) return "warn";
       if (section === "plans") return overviewProjectReadiness(state).tone || "good";
       if (section === "results" && !asArray((state.detectedProject || {}).resultFiles || []).length) return "warn";
@@ -6364,7 +6394,7 @@ function renderPanelHtml() {
       }
       const contractStage = currentPlanRuntimeContractStage(state, planFile);
       if (contractStage) {
-        const tone = contractStage.section === "operations" ? "info" : "warn";
+        const tone = contractStage.section === "execution" || contractStage.section === "operations" ? "info" : "warn";
         return result(runtimeContractStageBadge(contractStage), runtimeContractStageMessage(contractStage, project), { tone });
       }
       if (!outputGate.ok) return result("待补输出", "当前 Plan 输出门禁缺少：" + outputGate.missing.join("、") + "。");
@@ -6453,6 +6483,7 @@ function renderPanelHtml() {
           stats: [
             ["本地隧道", "127.0.0.1:" + (setup.localForwardPort || hubAssignment.localForwardPort || "-"), "插件访问的本机端口"],
             ["远端 Agent", "127.0.0.1:" + (setup.remoteAgentPort || hubAssignment.remoteServicePort || "-"), "Hub 服务器本机 Agent 端口"],
+            ["TensorBoard", tensorBoardOverviewStatValue("hub", setup.localForwardPort || hubAssignment.localForwardPort), "复用 xshell 隧道 local+1000，可直接复制/打开"],
             ["项目父目录", compactPath(setup.agentProjectDir || "-"), setup.agentProjectDir || "未配置"],
             ["会话来源", setup.savedSessionPath ? "Xshell .xsh" : "未选择", setup.savedSessionPath || "未选择 Xshell 隧道会话"]
           ]
@@ -6481,6 +6512,7 @@ function renderPanelHtml() {
           stats: [
             ["本地隧道", "127.0.0.1:" + localPort, "插件访问的 Worker 本机端口"],
             ["远端 Agent", "127.0.0.1:" + remotePort, "Worker 服务器本机 Agent 端口"],
+            ["TensorBoard", tensorBoardOverviewStatValue(String(worker.id), localPort), "复用 xshell 隧道 local+1000，可直接复制/打开"],
             ["GPU 上限", worker.maxConcurrentGpus || 1, "只限制并发占卡，不限制排队总量"],
             ["允许 GPU", compactText(allowed, 28), allowed]
           ]
@@ -6525,7 +6557,14 @@ function renderPanelHtml() {
     function serverObjectCard(options) {
       const klass = "serverObjectCard " + (options.kind || "") + " " + (options.statusClass || "warn");
       const meta = (options.meta || []).map((item) => '<span class="pill">' + esc(item) + '</span>').join("");
-      const stats = (options.stats || []).map((item) => '<div class="serverObjectStat" title="' + escAttr(item[2] || item[1] || "") + '"><span>' + esc(item[0]) + '</span><b>' + esc(item[1]) + '</b></div>').join("");
+      const stats = (options.stats || []).map((item) => {
+        const isTB = String(item[0] || "").toLowerCase().includes("tensorboard");
+        const valueHtml = isTB ? String(item[1] || "") : esc(item[1]);
+        const valueWrap = isTB
+          ? '<div style="min-width:0;white-space:normal;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">' + valueHtml + '</div>'
+          : '<b>' + valueHtml + '</b>';
+        return '<div class="serverObjectStat" title="' + escAttr(item[2] || item[1] || "") + '"><span>' + esc(item[0]) + '</span>' + valueWrap + '</div>';
+      }).join("");
       return '<article class="' + escAttr(klass) + '" title="' + escAttr(options.detail || "") + '">' +
         '<div class="serverObjectHead"><div><div class="serverObjectRole">' + esc(options.role || "端点") + '</div><h4 title="' + escAttr(options.name || options.id || "-") + '">' + esc(options.name || options.id || "-") + '</h4></div>' +
         '<span class="' + statusClass(options.status) + '">' + esc(serverObjectStatusLabel(options.status, options.statusClass)) + '</span></div>' +
@@ -6788,7 +6827,9 @@ function renderPanelHtml() {
           '</div>' +
           '<div class="toolbar">' +
             (setup.savedSessionPath && setup.agentProjectDir ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="hub_worker" data-confirm="true">恢复 Hub</button>' : '') +
+            '<button data-command="openTensorBoard" data-endpoint-id="hub" class="secondary" title="单 Worker 模式下仍可为 Hub 打开 TensorBoard（复用 Worker 隧道的本地端口+1000）">打开 TensorBoard</button>' +
           '</div>' +
+          renderTensorBoardLinkRow("hub", (setup.workerTunnels && setup.workerTunnels[0] ? setup.workerTunnels[0].localForwardPort : 0) || setup.localForwardPort) +
           '<div class="muted">切换并保存为 Hub 可用模式后，原 Hub 字段和操作会重新显示；当前 Hub 配置不会被清除。</div>' +
         '</div>'
       );
@@ -6877,6 +6918,77 @@ function renderPanelHtml() {
           '<button data-command="startAllConnections" class="secondary">' + esc(hubParticipates ? "启动连接" : "启动 Worker 连接") + '</button>' +
           '<button data-command="testAll" class="secondary">' + esc(hubParticipates ? "检测全部" : "检测 Worker") + '</button>' +
         '</div>');
+    }
+
+    function renderTensorBoardLinkRow(endpointId, agentLocalPort) {
+      const local = Number(agentLocalPort || 0);
+      const tbLocal = local >= 1024 ? local + 1000 : 0;
+      const tbUrl = tbLocal ? 'http://127.0.0.1:' + tbLocal : 'http://127.0.0.1:6006(待启动)';
+      const hasLink = tbLocal >= 1024;
+      return '<div class="tensorBoardLinkRow" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<span class="muted">TensorBoard:</span>' +
+        '<code class="tbUrl" style="user-select:all;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;cursor:pointer;" title="点击/ Ctrl+左键 直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code>' +
+        (hasLink ? '<button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" title="一键复制链接">复制</button>' : '') +
+        (hasLink ? '<button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" title="用默认浏览器打开">打开</button>' : '') +
+        '<span class="muted" style="font-size:12px;">复用 xshell 隧道 ' + esc(String(local || "-")) + '→' + esc(String(tbLocal || "-")) + '</span>' +
+      '</div>';
+    }
+    function tensorBoardOverviewStatValue(endpointId, agentLocalPort) {
+      const local = Number(agentLocalPort || 0);
+      const tbLocal = local >= 1024 ? local + 1000 : 0;
+      const tbUrl = tbLocal ? 'http://127.0.0.1:' + tbLocal : '';
+      if (!tbUrl) return '待启动';
+      return '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;white-space:normal;"><code class="tbUrl" style="cursor:pointer;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;user-select:all;" title="点击直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code><button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" style="padding:3px 8px;">打开</button></span>';
+    }
+    function renderTensorBoardLinksForRunning() {
+      try {
+        const st = (typeof lastState !== 'undefined' ? lastState : null) || {};
+        const assignments = st.tunnelPortAssignments || [];
+        const setupAny = st.setup || {};
+        const hubLocal = Number((assignments.find((a) => a.endpointId === 'hub')?.localForwardPort) || setupAny.localForwardPort || 0);
+        const workers = (setupAny.workerTunnels || []);
+        const links = [];
+        if (hubLocal >= 1024) {
+          const hubTb = hubLocal + 1000;
+          const hubUrl = 'http://127.0.0.1:' + hubTb;
+          links.push('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">打开</button></span>');
+        }
+        for (const w of workers) {
+          const wid = String(w.id || '');
+          const wLocal = Number((assignments.find((a) => a.endpointId === wid)?.localForwardPort) || w.localForwardPort || 0);
+          if (wLocal >= 1024) {
+            const wTb = wLocal + 1000;
+            const wUrl = 'http://127.0.0.1:' + wTb;
+            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">打开</button></span>');
+          }
+        }
+        if (!links.length) {
+          const fbLocal = Number(setupAny.localForwardPort || (workers[0] && workers[0].localForwardPort) || 0);
+          if (fbLocal >= 1024) {
+            const fbTb = fbLocal + 1000;
+            const fbUrl = 'http://127.0.0.1:' + fbTb;
+            links.push('<span class="pill">TB ' + esc(fbUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '">打开</button></span>');
+          }
+        }
+        // TB 按当前设置自动识别：Hub/Worker 各自按 localForwardPort+1000 生成，始终可点（不写死服务器名/端口）
+        const hubLocalForTB = Number(setupAny.localForwardPort || 0);
+        const workerLocalForTB = Number((workers[0] && workers[0].localForwardPort) || 0);
+        const hasHubNow = links.some((l) => l.includes("Hub TB"));
+        const hasWorkerNow = links.some((l) => l.includes(" TB ") && !l.includes("Hub TB"));
+        if (!hasHubNow && hubLocalForTB >= 1024) {
+          const hubUrl = 'http://127.0.0.1:' + (hubLocalForTB + 1000);
+          links.unshift('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">打开</button></span>');
+        }
+        if (!hasWorkerNow && workerLocalForTB >= 1024) {
+          const wUrl = 'http://127.0.0.1:' + (workerLocalForTB + 1000);
+          const wid = String(workers[0].id || "worker");
+          if (!links.some((l) => l.includes(wUrl))) {
+            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">打开</button></span>');
+          }
+        }
+        if (!links.length) return '';
+        return '<div class="tensorBoardRunningLinks" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span class="muted">TensorBoard（任务运行中，点击复制/打开，无需进设置）：</span>' + links.join('') + '</div>';
+      } catch (e) { return ''; }
     }
 
     function renderSchedulerDependencyStatus(dependency, label) {
@@ -7782,7 +7894,7 @@ function renderPanelHtml() {
       const outputSummary = planEvidenceCandidates.length ? compactText(planEvidenceCandidates.join("、"), 44) : (planOutputSignals.length ? "命令/日志证据" : "未声明");
       const outputStatus = runtimeContractStage ? runtimeContractStageMessage(runtimeContractStage, project) : (outputReady ? "可运行 / " + outputSummary : "待规则 / " + outputSummary);
       const outputBadge = runtimeContractStage ? runtimeContractStageBadge(runtimeContractStage) : "预览 " + validPreviewCount;
-      const outputTone = runtimeContractStage ? (runtimeContractStage.section === "operations" || runtimeContractStage.command === "parseResults" ? "info" : "warn") : (outputReady ? "good" : "warn");
+      const outputTone = runtimeContractStage ? (runtimeContractStage.section === "execution" || runtimeContractStage.section === "operations" || runtimeContractStage.command === "parseResults" ? "info" : "warn") : (outputReady ? "good" : "warn");
       const executionStage = selectedPlan ? planExecutionStage(state, selectedPlan) : { phase: "select", status: "未选择计划" };
       const preflight = selectedPlan ? planPreflightSummary(state, selectedPlan) : { ready: false, tone: "warn", message: "未选择计划", badge: "待选择" };
       const rowsHtml = [
@@ -7869,14 +7981,14 @@ function renderPanelHtml() {
       }
       const executionStage = planExecutionStage(state || {}, selectedPlan);
       if (executionStage.phase === "debug-review") {
-        return '<div class="planRunActions"><button class="mini secondary" type="button" data-section-target="tasks" data-anchor-target="tasks-list">查看 Debug 任务</button><button class="mini" data-command="runPlan" data-force-formal="true" data-debug-mode="false" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="确认 Debug 日志和配置后，重新同步、校验、预演并提交正式 Plan">正式运行</button></div>';
+        return '<div class="planRunActions"><button class="mini secondary" type="button" data-section-target="execution" data-anchor-target="execution">查看 Debug 任务</button><button class="mini" data-command="runPlan" data-force-formal="true" data-debug-mode="false" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="确认 Debug 日志和配置后，重新同步、校验、预演并提交正式 Plan">正式运行</button></div>';
       }
       const plan = planFromContext(state || {}, { planFile: selectedPlan }) || {};
       const activity = planActiveRunEvidence(state || {}, selectedPlan, plan);
       if (activity.active) {
         const historicalOnly = activity.historicalOnly === true;
-        const target = activity.taskCount ? "tasks" : "operations";
-        const anchor = activity.taskCount ? "tasks-list" : "operations-list";
+        const target = "execution";
+        const anchor = "execution";
         const label = historicalOnly ? (activity.taskCount ? "查看全部任务" : "查看提交进度") : activity.taskCount ? "查看任务" : "查看提交进度";
         const summary = activity.taskCount
           ? (historicalOnly ? "旧 revision 的 " : "") + activity.taskCount + " 个任务仍在排队或运行"
@@ -7907,7 +8019,7 @@ function renderPanelHtml() {
     }
 
     function renderPlanGateList(selectedPlan, syncReady, outputReady, preflight, runtimeContractStage) {
-      const runtimeOutputTone = runtimeContractStage && (runtimeContractStage.section === "operations" || runtimeContractStage.command === "parseResults") ? "info" : "warn";
+      const runtimeOutputTone = runtimeContractStage && (runtimeContractStage.section === "execution" || runtimeContractStage.section === "operations" || runtimeContractStage.command === "parseResults") ? "info" : "warn";
       const gates = [
         ["选择计划", selectedPlan ? "good" : "warn", selectedPlan ? "已选择" : "需要选择计划"],
         ["同步代码", syncReady ? "good" : "info", syncReady ? "代码指纹已确认" : "运行时自动同步"],
@@ -9363,6 +9475,39 @@ function renderPanelHtml() {
       return taskSectionViewCacheValue;
     }
 
+    // Part 3/4: when the scheduler has not written any task snapshot yet but a
+    // run-plan operation exists (running or failed), derive placeholder scheduler
+    // task rows so the task view is never empty and the operation error is visible.
+    function computeSchedulerPlaceholderOps(state, scope) {
+      const ops = (state && state.operations) ? Object.values(state.operations) : [];
+      const currentKey = scope && scope.selectedPlanFile ? normalizePlanSelectionKey(scope.selectedPlanFile) : "";
+      return ops.filter((op) => {
+        if (!op || typeof op !== "object") return false;
+        const st = String(op.status || op.state || "").toLowerCase();
+        const isActive = operationIsActive(st) || ["accepted", "submitted", "queued", "waiting", "started"].some((s) => st === s || st.includes(s));
+        const isFailed = operationIsFailureLike(st) || st === "stale";
+        if (!(isActive || isFailed)) return false;
+        const pf = normalizePlanSelectionKey(op.planFile || op.plan || "");
+        return !currentKey || !pf || samePlanSelection(pf, currentKey);
+      });
+    }
+
+    function renderSchedulerPlaceholderCard(op) {
+      const st = String(op.status || op.state || "running").toLowerCase();
+      const cls = operationIsActive(st) ? "is-running" : (operationIsFailureLike(st) || st === "stale" ? "is-failed" : "");
+      const message = operationDisplayMessage(op);
+      const errorLine = operationErrorLine(op, message);
+      const logPath = String(op.logPath || ((op.payload || {}) && op.payload.logPath) || "").trim();
+      const opId = String(op.operationId || op.id || "");
+      const openLog = logPath ? '<button class="mini secondary" data-command="copyText" data-text="' + escAttr(logPath) + '" title="复制调度器完整日志路径">复制日志路径</button>' : '';
+      const openOps = '<button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳转到操作进度查看该操作终态与日志">查看操作进度</button>';
+      return '<div class="taskCard schedulerPlaceholder ' + cls + '" data-anchor="task-placeholder-' + escAttr(opId || st) + '">' +
+        '<div class="taskCardHead"><span class="taskTitle">调度占位（来自操作进度）</span><span class="' + statusClass(op.status) + '">' + esc(operationStatusLabel(op.status)) + '</span></div>' +
+        '<div class="taskCardBody"><div class="muted">调度器尚未回传任务快照，以下状态来自操作进度事件。</div>' +
+        '<div class="operationMessage">' + esc(message) + '</div>' + errorLine +
+        '<div class="operationActions">' + openOps + openLog + '</div></div></div>';
+    }
+
     function renderTaskSection(state) {
       const view = taskSectionViewModelForState(state);
       const selected = view.selected;
@@ -9370,15 +9515,36 @@ function renderPanelHtml() {
       const rows = view.rows;
       const taskView = view.taskView;
       const counts = taskView.counts;
+      // Part 3/4: derive placeholder scheduler task rows from run-plan operations so
+      // the task view is never empty while a scheduler operation is active/failed.
+      const placeholderOps = scope.scoped ? computeSchedulerPlaceholderOps(state, scope) : [];
+      const showPlaceholder = scope.scoped && rows.length === 0 && placeholderOps.length > 0;
+      const versionCount = scope.selectedCount + (showPlaceholder ? placeholderOps.length : 0);
       const scopeBar = scope.selectedPlanFile
         ? '<div class="taskScopeBar"><span class="muted">任务范围</span><div class="taskScopeSwitch" role="group" aria-label="任务范围">' +
-            '<button type="button" data-task-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + scope.selectedCount + '</button>' +
+            '<button type="button" data-task-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + versionCount + '</button>' +
             '<button type="button" data-task-plan-scope="all" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
           '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
+      let placeholderSummary = "";
+      if (showPlaceholder) {
+        const top = placeholderOps[0];
+        const topMsg = operationDisplayMessage(top);
+        const topErr = operationErrorLine(top, topMsg);
+        const topStatus = String(top.status || top.state || "running").toLowerCase();
+        const topFailed = operationIsFailureLike(topStatus) || topStatus === "stale";
+        placeholderSummary = '<div class="schedulerPlaceholderNotice ' + (topFailed ? "is-failed" : "is-running") + '">' +
+          '<b>' + (topFailed ? "调度已结束，但任务快照未回传；详情见操作进度。" : "调度已启动，任务状态回传中…") + '</b>' +
+          '<div class="operationMessage">' + esc(topMsg) + '</div>' + topErr +
+          '<div class="operationActions">' +
+            '<button class="mini" data-command="snapshot" title="手动刷新运行状态（重拉 schedulerStates / operations）">刷新运行状态</button>' +
+            '<button class="mini secondary" data-task-plan-scope="all" title="切换到全部任务查看历史记录">切换到全部任务</button>' +
+            '<button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="在操作进度查看该操作终态与日志">打开操作进度</button>' +
+          '</div></div>';
+      }
       let taskSummaryHtml = scopeBar + renderTaskPlanCompletionNext(state, scope) + (rows.length
         ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
-        : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>');
+        : (showPlaceholder ? placeholderSummary : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>'));
       setHtmlIfChanged("taskSummary", taskSummaryHtml);
       const selectedRows = taskView.selectedRows;
       renderTaskBatchActions(state, rows, selectedRows);
@@ -9386,15 +9552,21 @@ function renderPanelHtml() {
       const visibleRows = taskView.visibleRows;
       const taskTableChanged = setHtmlIfChanged("taskTable", rows.length
         ? renderTaskCards(state, visibleRows, selected, rows.length)
-        : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换“全部任务”查看历史记录。" : "暂无任务数据。") + '</div>');
+        : (showPlaceholder
+          ? '<div class="taskPlaceholderDeck">' + placeholderOps.map(renderSchedulerPlaceholderCard).join("") + '</div>'
+          : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换“全部任务”查看历史记录。" : "暂无任务数据。") + '</div>'));
       renderTaskDetailPane(state, rows, selectedRows, taskView.detailRow);
       if (taskTableChanged) invalidateSelectedTaskPayload();
     }
 
+    function renderExecutionSection(state) {
+      renderOperationSection(state);
+      renderTaskSection(state);
+    }
     function handleTaskPlanScopeClick(button) {
       const next = button.dataset.taskPlanScope === "all" ? "all" : "selected";
       if (!setTaskPlanScope(next)) return;
-      renderTaskSection(lastState || {});
+      renderExecutionSection(lastState || {});
     }
 
     function handleTaskSelectionChange(box) {
@@ -9684,8 +9856,8 @@ function renderPanelHtml() {
       if (activeRun.active) {
         if (activeRun.historicalOnly) {
           return activeRun.taskCount
-            ? projectSectionNextAction("旧 revision 仍有未结束任务；为保护旧任务，当前版本暂不能提交", "查看全部任务", "tasks", "tasks-list", { taskPlanScope: "all" })
-            : projectSectionNextAction("旧 revision 仍有未结束提交；为保护旧任务，当前版本暂不能提交", "查看提交进度", "operations", "operations-list");
+            ? projectSectionNextAction("旧 revision 仍有未结束任务；为保护旧任务，当前版本暂不能提交", "查看全部任务", "execution", "execution", { taskPlanScope: "all" })
+            : projectSectionNextAction("旧 revision 仍有未结束提交；为保护旧任务，当前版本暂不能提交", "查看提交进度", "execution", "execution");
         }
         return renderPlanExecutionNextAction(state, planFile);
       }
@@ -9707,8 +9879,8 @@ function renderPanelHtml() {
       }
       const contractStage = (meta || {}).outputContractStage;
       if (contractStage) {
-        if (contractStage.section === "operations") {
-          return projectSectionNextAction(contractStage.message, contractStage.label, contractStage.section, contractStage.anchor);
+        if (contractStage.section === "execution" || contractStage.section === "operations") {
+          return projectSectionNextAction(contractStage.message, contractStage.label, contractStage.section === "execution" ? "execution" : contractStage.section, contractStage.anchor === "operations" ? "execution" : contractStage.anchor);
         }
         if (contractStage.section === "plans") {
           if (project.adapterConfig) {
@@ -9754,7 +9926,7 @@ function renderPanelHtml() {
 
     function renderProjectRuntimeContractRow(stage, project, planFile) {
       if (!stage) return "";
-      return projectQuickRow("运行时契约", runtimeContractStageMessage(stage, project), [renderRuntimeContractRecoveryActions(stage, project, planFile)], stage.section === "plans" ? "status-warning" : stage.section === "operations" ? "status-running" : "status-completed");
+      return projectQuickRow("运行时契约", runtimeContractStageMessage(stage, project), [renderRuntimeContractRecoveryActions(stage, project, planFile)], stage.section === "plans" ? "status-warning" : stage.section === "execution" || stage.section === "operations" ? "status-running" : "status-completed");
     }
 
     function runtimeContractStageMessage(stage, project) {
@@ -9766,15 +9938,15 @@ function renderPanelHtml() {
 
     function runtimeContractStageBadge(stage) {
       if (!stage) return "";
-      if (stage.section === "operations") return "检查中";
+      if (stage.section === "execution" || stage.section === "operations") return "检查中";
       if (stage.section === "plans") return "运行缺失";
       return stage.command === "checkOutputContract" ? "待检查" : "待重新解析";
     }
 
     function renderRuntimeContractRecoveryActions(stage, project, planFile) {
       if (!stage) return "";
-      if (stage.section === "operations") {
-        return '<button class="mini projectPathButton secondary" type="button" data-section-target="operations" data-anchor-target="operations-list">查看进度</button>';
+      if (stage.section === "execution" || stage.section === "operations") {
+        return '<button class="mini projectPathButton secondary" type="button" data-section-target="execution" data-anchor-target="execution">查看进度</button>';
       }
       if (stage.section === "plans") {
         const inspectActions = renderRemoteResultInspectionActions(stage.unparseableFileList, planFile, 2, stage.unparseableDetails);
@@ -9881,7 +10053,7 @@ function renderPanelHtml() {
         });
       }
       if (operationPending(latestValidate)) {
-        return cachePlanExecutionStage(cacheKey, { phase: "validating", status: "计划校验执行中，等待操作终态", label: "查看进度", section: "operations", anchor: "operations" });
+        return cachePlanExecutionStage(cacheKey, { phase: "validating", status: "计划校验执行中，等待操作终态", label: "查看进度", section: "execution", anchor: "execution" });
       }
       if (!operationSucceeded(latestValidate)) {
         return cachePlanExecutionStage(cacheKey, {
@@ -9893,7 +10065,7 @@ function renderPanelHtml() {
       }
       const latestDryRun = rows.find((row) => String(row.type || "").toLowerCase() === "dry-run-plan" && operationAtOrAfter(row, latestValidate));
       if (operationPending(latestDryRun)) {
-        return cachePlanExecutionStage(cacheKey, { phase: "dry-running", status: "计划预演执行中，等待调度预览", label: "查看进度", section: "operations", anchor: "operations" });
+        return cachePlanExecutionStage(cacheKey, { phase: "dry-running", status: "计划预演执行中，等待调度预览", label: "查看进度", section: "execution", anchor: "execution" });
       }
       if (!operationSucceeded(latestDryRun)) {
         return cachePlanExecutionStage(cacheKey, {
@@ -9907,13 +10079,13 @@ function renderPanelHtml() {
       const runAccepted = Boolean(latestRun && (latestRun.submissionAccepted || latestRun.schedulerStarted));
       if (operationPending(latestRun)) {
         if (runAccepted) {
-          return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "计划已提交，调度器正在排队或运行任务", label: "查看任务", section: "tasks", anchor: "tasks" });
+          return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "计划已提交，调度器正在排队或运行任务", label: "查看任务", section: "execution", anchor: "execution" });
         }
-        return cachePlanExecutionStage(cacheKey, { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "operations", anchor: "operations" });
+        return cachePlanExecutionStage(cacheKey, { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "execution", anchor: "execution" });
       }
       if (operationSucceeded(latestRun)) {
         if (debugRunRecord(latestRun)) {
-          return cachePlanExecutionStage(cacheKey, { phase: "debug-review", status: "Debug 已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "tasks", anchor: "tasks" });
+          return cachePlanExecutionStage(cacheKey, { phase: "debug-review", status: "Debug 已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" });
         }
         return cachePlanExecutionStage(cacheKey, { phase: "results", status: "调度已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" });
       }
@@ -9922,8 +10094,8 @@ function renderPanelHtml() {
           phase: "review",
           status: latestRun.schedulerFinished ? "调度已结束且存在失败任务；先查看任务并按需重试" : "调度状态异常；先查看任务与日志，避免重复提交整个 Plan",
           label: "查看任务",
-          section: "tasks",
-          anchor: "tasks"
+          section: "execution",
+          anchor: "execution"
         });
       }
       return cachePlanExecutionStage(cacheKey, {
@@ -9961,10 +10133,10 @@ function renderPanelHtml() {
       const matching = planVersionTaskRows(state, planFile, planRevision, planUpdatedAt);
       if (!matching.length || matching.some((row) => !taskTerminalStatus((row || {}).status))) return undefined;
       if (matching.some((row) => taskFailureLikeStatus((row || {}).status))) {
-        return { phase: "review", status: "调度任务均已结束且存在失败、停止或取消记录；先查看任务并按需重试", label: "查看任务", section: "tasks", anchor: "tasks" };
+        return { phase: "review", status: "调度任务均已结束且存在失败、停止或取消记录；先查看任务并按需重试", label: "查看任务", section: "execution", anchor: "execution" };
       }
       if (matching.some((row) => debugRunRecord(row))) {
-        return { phase: "debug-review", status: "Debug 任务已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "tasks", anchor: "tasks" };
+        return { phase: "debug-review", status: "Debug 任务已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" };
       }
       return { phase: "results", status: "调度任务均已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" };
     }
@@ -10349,11 +10521,8 @@ function renderPanelHtml() {
 
     function projectOnboardingExecutionTarget(stage) {
       const phase = String((stage || {}).phase || "");
-      if (PLAN_WORKFLOW_BUSY_PHASES.has(phase)) {
-        return { section: "operations", anchor: "operations-list", action: "查看运行进度" };
-      }
-      if (PLAN_WORKFLOW_TASK_PHASES.has(phase)) {
-        return { section: "tasks", anchor: "tasks-list", action: "查看任务" };
+      if (PLAN_WORKFLOW_BUSY_PHASES.has(phase) || PLAN_WORKFLOW_TASK_PHASES.has(phase)) {
+        return { section: "execution", anchor: "execution", action: "查看运行进度" };
       }
       return { section: "plans", anchor: "plans-actions", action: "查看运行入口" };
     }
@@ -12080,23 +12249,56 @@ function renderPanelHtml() {
 
     function renderOperationSection(state) {
       const view = operationViewModelForState(state);
-      setHtmlIfChanged("operationList", view.rows.length
+      const ops = (state && state.operations) ? Object.values(state.operations) : [];
+      const currentPlan = String(state && (state.planFileInput || (state.selection && state.selection.selectedPlanId) || "") || "");
+      const currentPlanKey = currentPlan.replace(/^.*\\//,"").replace(".yaml","").replace(".yml","").trim();
+      const hasActiveOp = ops.some((op) => {
+        const st = String(op.status || op.state || "").toLowerCase();
+        const tp = String(op.type || op.action || "").toLowerCase();
+        const pf = String(op.planFile || op.plan || "");
+        const isRunPlan = tp.includes("run-plan") || tp.includes("runplan") || tp.includes("workflow");
+        const isActiveStatus = ["running","started","waiting_confirmation"].some(s => st === s || st.includes(s)) || /waiting/.test(st);
+        const planMatch = !currentPlan || !currentPlanKey || pf.includes(currentPlanKey) || pf === currentPlan || pf.includes(currentPlan);
+        return isRunPlan && isActiveStatus && planMatch;
+      });
+      const schedStates = (state && state.schedulerStates) || [];
+      const hasRunningSched = schedStates.some((s) => ((s.running_experiments||[]).length + (s.testing_experiments||[]).length + (s.pending_experiments||[]).length) > 0);
+      const abortEnabled = hasRunningSched || hasActiveOp;
+      const activeOp = ops.find((op) => {
+        const st = String(op.status || op.state || "").toLowerCase();
+        const tp = String(op.type || op.action || "").toLowerCase();
+        const pf = String(op.planFile || op.plan || "");
+        const isRunPlan = tp.includes("run-plan") || tp.includes("runplan") || tp.includes("workflow");
+        const isActiveStatus = ["running","started","waiting_confirmation"].some(s => st === s || st.includes(s)) || /waiting/.test(st);
+        const planMatch = !currentPlan || !currentPlanKey || pf.includes(currentPlanKey) || pf === currentPlan || pf.includes(currentPlan);
+        return isRunPlan && isActiveStatus && planMatch;
+      }) || ops.find((op) => /running|started|waiting/.test(String(op.status||"").toLowerCase())) || ops[0] || {};
+      const abortOpId = String(activeOp.operationId || activeOp.id || "run-plan-bpla27");
+      const abortPlan = String(activeOp.planFile || activeOp.plan || currentPlan || "");
+      const globalAbort = '<div class="operationActions" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+        + '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="与运行状态解耦：' + (abortEnabled ? '可点' : '当前无运行中调度') + '，直调 stopExperiment {operationId, planFile} 经 worker_telemetry，无需选中行；成功后 rm tmp/cluster_scheduler/*.log/state.json + tmux kill -t zlk-sch-*">中止/清理</button>'
+        + '<button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" title="备用：kill *-sch-* 并清理 simple_cluster/tmp/cluster_scheduler/*_state.json（自动匹配当前 prefix）">备用清理</button>'
+        + '<button class="mini secondary" data-command="snapshot" title="手动刷新运行状态（重拉 schedulerStates/operations）">刷新运行状态</button>'
+        + '<span class="muted" style="font-size:11px;">' + (abortEnabled ? '与运行状态解耦，可中止' : '暂无可中止调度') + ' · 点击刷新可重拉状态</span></div>';
+      setHtmlIfChanged("operationList", globalAbort + (view.rows.length
         ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + (view.visibleRows.length
           ? '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'
           : '<div class="empty-state">当前筛选下没有操作记录。</div>')
-        : '<div class="empty-state">尚无操作记录。</div>');
+        : '<div class="empty-state">尚无操作记录。</div>'));
     }
 
     function operationViewModelForState(state) {
       const rows = operationRowsForState(state || {});
       if (rows === operationViewCacheRows && operationStatusFilter === operationViewCacheFilter && operationViewCacheValue) return operationViewCacheValue;
       const filteredRows = rows.filter((row) => operationMatchesStatusFilter(row, operationStatusFilter));
-      const visibleRows = operationRowsForRender(filteredRows);
+      const windowedRows = operationRowsForRender(filteredRows);
+      const visibleRows = windowedRows.slice(0, 20);
       operationViewCacheRows = rows;
       operationViewCacheFilter = operationStatusFilter;
       operationViewCacheValue = {
         rows,
         visibleRows,
+        windowedRows,
         hiddenCount: Math.max(0, filteredRows.length - visibleRows.length),
         statusCounts: operationStatusCounts(rows)
       };
@@ -12224,6 +12426,14 @@ function renderPanelHtml() {
       const rawType = row.type || row.action || "operation";
       const itemTitle = operationTypeLabel(rawType) + "（原始：" + rawType + "）：" + operationStatusLabel(row.status);
       const timestamp = operationTimestampView(row);
+      const isAbortable = PLAN_RUN_OPERATION_TYPES.has(rawType) || String(rawType).toLowerCase().includes("run-plan") || String(rawType).toLowerCase() === "runplan" || String(rawType).toLowerCase().includes("workflow") || Boolean(row.planFile);
+      const abortButton = isAbortable ? '<div class="operationActions"><button class="mini danger" data-command="abortScheduler" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" data-confirm="true" title="与运行状态解耦：一键 kill *-sch-* 并清理 simple_cluster/tmp/cluster_scheduler/*_state.json（自动匹配当前 prefix）">中止/清理</button></div>' : '';
+      const tbLinkForRunning = renderTensorBoardLinksForRunning();
+      const logWindow = renderOperationLogsWindowed(row);
+      const tmuxSession = String(row.tmuxSession || row.tmux_session || row.session || (row.payload && (row.payload.tmuxSession || row.payload.tmux_session || row.payload.session)) || "").trim();
+      const tmuxAttachCmd = tmuxSession ? "tmux attach -t " + tmuxSession : "";
+      const tmuxCaptureCmd = tmuxSession ? "tmux capture-pane -p -t " + tmuxSession : "";
+      const tmuxPill = tmuxSession ? '<div class="operationDetails" style="margin-top:4px;"><span class="operationDetailPill" title="tmux 会话：' + escAttr(tmuxSession) + '，点击复制进入/查看指令"><span>tmux</span><b>' + esc(tmuxSession) + '</b><button class="mini secondary" data-command="copyText" data-text="' + escAttr(tmuxAttachCmd) + '" title="复制 tmux attach 进入窗口指令">复制进入指令</button><button class="mini secondary" data-command="copyText" data-text="' + escAttr(tmuxCaptureCmd) + '" title="复制查看 pane 内容指令">复制查看指令</button></span></div>' : "";
       return '<div class="operationItem ' + cls + '" data-anchor="' + escAttr(treeAnchorId("operation", row.operationId || row.id || row.type || row.updatedAt)) + '" title="' + escAttr(itemTitle) + '">' +
         '<span class="operationDot" aria-hidden="true"></span>' +
         '<div class="operationBody">' +
@@ -12234,8 +12444,12 @@ function renderPanelHtml() {
           '<div class="operationMessage">' + esc(message) + '</div>' +
           errorLine +
           details +
+          tmuxPill +
           fileActions +
+          logWindow +
           '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
+          abortButton +
+          tbLinkForRunning +
         '</div>' +
       '</div>';
     }
@@ -12244,10 +12458,21 @@ function renderPanelHtml() {
     // less actionable message occupied the visible line; promote it whenever it adds information.
     function operationErrorLine(row, message) {
       const error = String((row || {}).error || "").trim();
-      if (!error || error === "-") return "";
+      const logTail = String((row || {}).logTail || ((row || {}).payload && (row.payload || {}).logTail) || "").trim();
+      const parts = [];
       const shown = String(message || "").trim();
-      if (shown && (shown === error || shown.includes(error))) return "";
-      return '<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 220)) + '</span></div>';
+      if (error && error !== "-" && (!shown || (shown !== error && !shown.includes(error)))) {
+        parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span></div>');
+      }
+      if (logTail) {
+        const tailPreview = logTail.slice(-1500);
+        const logPath = String((row || {}).logPath || ((row || {}).payload && (row.payload || {}).logPath) || "").trim();
+        const actions = logPath
+          ? '<button class="mini secondary" data-command="copyText" data-text="' + escAttr(logPath) + '" title="复制调度器完整日志路径，用于在远程/本地打开">复制日志路径</button>'
+          : '';
+        parts.push('<details class="operationLogTail"><summary>调度日志尾部（' + esc(String(logTail.length)) + ' 字符）</summary><pre>' + esc(tailPreview) + '</pre>' + actions + '</details>');
+      }
+      return parts.join("");
     }
 
     function operationTimestampView(row) {
@@ -12307,6 +12532,22 @@ function renderPanelHtml() {
 
     function operationDetailPill(label, value, title, tone) {
       return '<span class="operationDetailPill ' + escAttr(tone || "") + '" title="' + escAttr(label + "：" + (value || "-")) + '">' + esc(label) + '<b>' + esc(compactText(value, 36)) + '</b></span>';
+    }
+
+    function renderOperationLogsWindowed(row) {
+      try {
+        const raw = String(row.logTail || row.consoleTail || row.liveOutput || row.hubConsoleLog || row.console_log || row.log || row.output || row.console_tail || row.log_tail || "").trim();
+        const schedLog = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
+        const combined = [raw, schedLog].filter(Boolean).join("\\n");
+        const lines = combined ? combined.split(/\\r?\\n/) : [];
+        const windowed = lines.slice(-50);
+        const preview = windowed.slice(-20);
+        const total = windowed.length;
+        const more = Math.max(0, total - 20);
+        const previewHtml = total ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(preview.join("\\n")) + '</pre>' : '<div class="muted" style="font-size:11px;">暂无日志，将显示最新 20/50 条</div>';
+        const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条及打开 simple_cluster/console_logs/baseline-*">历史记录' + (more ? ' +' + more : total ? ' (' + total + ')' : '') + '</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志">打开完整日志</button>';
+        return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;">' + previewHtml + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + historyBtn + '</div></div>';
+      } catch (e) { return '<div class="operationLogWindow" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">打开完整日志</button></div>'; }
     }
 
     function renderRemoteResultInspectionActions(files, planFile, limit, details) {
@@ -12764,7 +13005,7 @@ function renderPanelHtml() {
     function zeroResultOutputContractStage(status) {
       const contractStatus = String(status.outputContractStatus || "").toLowerCase();
       if (/accepted|pending|queued|running|in_progress|started|progress/.test(contractStatus)) {
-        return { kind: "section", message: "正在检查输出契约", label: "查看检查进度", section: "operations", anchor: "operations-list" };
+        return { kind: "section", message: "正在检查输出契约", label: "查看检查进度", section: "execution", anchor: "execution" };
       }
       if (/failed|failure|error|stalled|unsupported/.test(contractStatus)) {
         const missingFiles = meaningfulValue(status.outputContractMissingFiles);
@@ -13724,6 +13965,13 @@ function renderPanelHtml() {
       if (button.dataset.presentationPath) payload.presentationPath = button.dataset.presentationPath;
       if (button.dataset.chartType) payload.chartType = button.dataset.chartType;
       if (button.dataset.styleMode) payload.styleMode = button.dataset.styleMode;
+      if (button.dataset.tbUrl) { payload.tbUrl = button.dataset.tbUrl; payload.url = button.dataset.tbUrl; }
+      if (button.dataset.tburl) { payload.tbUrl = button.dataset.tburl; payload.url = button.dataset.tburl; }
+      if (button.dataset.url) payload.url = button.dataset.url;
+      if (button.dataset.text) payload.text = button.dataset.text;
+      if (button.dataset.operationId) payload.operationId = button.dataset.operationId;
+      if (button.dataset.id && !payload.operationId) payload.operationId = button.dataset.id;
+      if (button.dataset.localPort) payload.localPort = button.dataset.localPort;
       if (command === "selectLogRunKey") payload.runKey = button.dataset.runKey;
       return payload;
     }
@@ -14077,7 +14325,16 @@ function renderPanelHtml() {
     let schedulerRowsCacheSignature = "";
     let schedulerRowsCacheRows = [];
     function schedulerRowsForState(state) {
-      const source = (state && state.schedulerStates) || EMPTY_SCHEDULER_STATES;
+      let source = (state && state.schedulerStates) || EMPTY_SCHEDULER_STATES;
+      if ((!source || source.length === 0) && state && state.topology && state.topology.mode === "single_worker") {
+        const alt = (state && state.workerTasks) || (state && state.gpu && state.gpu.worker) || null;
+        if (alt && Array.isArray(alt) && alt.length) source = alt;
+        else if (state && state.schedulerStates && state.schedulerStates.length) source = state.schedulerStates;
+        if ((!source || source.length === 0) && state.schedulerStates === undefined) {
+          const snap = state.lastSnapshot && state.lastSnapshot.schedulerStates;
+          if (snap && snap.length) source = snap;
+        }
+      }
       if (schedulerRowsCacheState === state && schedulerRowsCacheSource === source) return schedulerRowsCacheRows;
       const sourceModel = schedulerRowsSourceModel(source);
       const signature = sourceModel.signature;
@@ -14450,6 +14707,7 @@ function renderPanelHtml() {
           unarchivedCount: pick(row, ["unarchivedCount", "unarchived_count"], pick(payload, ["unarchivedCount", "unarchived_count"], pick(threeWay, ["unarchivedCount", "unarchived_count"], "-"))),
           workerId: resolveWorkerId(pick(row, ["workerId", "worker_id"], pick(payload, ["workerId", "worker_id"], "-"))),
           manifestPath: pick(row, ["manifestPath", "archiveManifestPath", "syncManifestPath", "threeWayPath", "path"], pick(payload, ["manifestPath", "archiveManifestPath", "syncManifestPath", "threeWayPath", "path"], "-")),
+          tmuxSession: pick(row, ["tmuxSession", "tmux_session", "session"], pick(payload, ["tmuxSession", "tmux_session", "session"], "-")),
           searchText: operationSearchText(row, payload, manifest, threeWay)
         };
       }).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)) || b.seq - a.seq);

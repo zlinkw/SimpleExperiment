@@ -83,7 +83,7 @@ test("result workbench follows preview, archive, and final-analysis order", () =
   assert.equal(stage({ autoParseStatus: "no-plan" }).section, "plans");
   assert.equal(stage({ parsed: true, previewResultCount: 0 }).command, "checkOutputContract");
   assert.match(stage({ parsed: true, previewResultCount: 0 }).message, /未发现结果记录/);
-  assert.equal(stage({ parsed: true, outputContractStatus: "running" }).section, "operations");
+  assert.equal(stage({ parsed: true, outputContractStatus: "running" }).section, "execution");
   const missing = stage({ parsed: true, outputContractStatus: "failed", outputContractMissingFiles: "metrics_summary.csv、env_snapshot.json" });
   assert.equal(missing.section, "plans");
   assert.match(missing.message, /metrics_summary\.csv/);
@@ -108,7 +108,7 @@ test("result workbench follows preview, archive, and final-analysis order", () =
   assert.match(panel, /function renderResultNextAction\(/);
   assert.match(panel, /尚未生成结果摘要[\s\S]{0,100}"parseResults"/);
   assert.match(panel, /解析已完成，但未发现结果记录[\s\S]{0,120}"checkOutputContract"/);
-  assert.match(panel, /正在检查输出契约[\s\S]{0,180}"operations"/);
+  assert.match(panel, /正在检查输出契约[\s\S]{0,180}"execution"/);
   assert.match(panel, /输出契约缺失：[\s\S]{0,220}"plans"/);
   assert.match(panel, /输出契约完整，重新读取结果文件[\s\S]{0,160}"parseResults"/);
   assert.match(panel, /previewResultCount: pick\(item, \["previewResultCount", "preview_result_count", "resultCount", "result_count"\]/);
@@ -166,6 +166,6 @@ test("runtime contract repair disappears after results become available", () => 
 test("zero-result Plan workbench starts contract diagnosis before a check operation exists", () => {
   const stage = loadOutputContractStageForCheck();
   assert.equal(stage({}).command, "checkOutputContract");
-  assert.equal(stage({ status: "running" }).section, "operations");
+  assert.equal(stage({ status: "running" }).section, "execution");
   assert.equal(stage({ status: "failed", missingFiles: "metrics_summary.csv" }).section, "plans");
 });

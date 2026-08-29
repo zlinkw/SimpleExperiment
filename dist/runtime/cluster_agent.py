@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import argparse, base64, calendar, csv, fnmatch, glob, hashlib, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, subprocess, sys, threading, time, traceback, urllib.request, zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
@@ -94,6 +95,7 @@ WORKER_RESULT_ACTIONS = {
     "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run",
     "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "exclude-results",
     "sync-artifacts", "complete-three-way",
+    "start-tensorboard", "get-tensorboard-status",
 }
 ACTION_PATHS = [
     "/api/actions/run-plan",
@@ -140,6 +142,8 @@ ACTION_PATHS = [
     "/api/actions/delete-worker-artifacts",
     "/api/actions/archive-worker-artifacts",
     "/api/actions/finalize-worker-operation",
+    "/api/actions/start-tensorboard",
+    "/api/actions/get-tensorboard-status",
 ]
 ACTION_ROUTES = set(ACTION_PATHS)
 WORKER_COMMAND_QUEUE = {}
@@ -332,6 +336,25 @@ def agent_install_dir(root):
     except Exception:
         pass
     return os.path.join(os.path.abspath(root), "simple_agent")
+
+def fs_sha256(root, file_path):
+    if not file_path:
+        return {"ok": False, "error": "missing path"}
+    ap = os.path.abspath(file_path)
+    allowed = [
+        os.path.abspath(agent_install_dir(root)),
+        os.path.abspath(root),
+        os.path.abspath(agent_dir(root)),
+    ]
+    if not any(ap == a or ap.startswith(a + os.sep) for a in allowed):
+        return {"ok": False, "error": "path not allowed", "path": ap}
+    if not os.path.isfile(ap):
+        return {"ok": False, "error": "not a file", "path": ap}
+    h = hashlib.sha256()
+    with open(ap, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return {"ok": True, "path": ap, "sha256": h.hexdigest()}
 
 def project_state_namespace(root):
     root_abs = os.path.abspath(root)
@@ -1170,7 +1193,7 @@ TRACE_PLAN_PATH_FIELDS = ("artifactPath", "artifact_path", "hub_job_dir", "worke
 TRACE_PLAN_SCHEDULER_BUCKETS = ("running_experiments", "testing_experiments", "queued_experiments", "pending_experiments", "completed_experiments", "failed_experiments", "stopped_experiments")
 
 def trace_path_variants(value):
-    normalized = re.sub(r"/+", "/", str(value or "").strip().replace("\\", "/")).removeprefix("./").rstrip("/")
+    normalized = re.sub(r"^\./", "", re.sub(r"/+", "/", str(value or "").strip().replace("\\", "/"))).rstrip("/")
     if not normalized:
         return set()
     variants = {normalized}
@@ -1760,7 +1783,7 @@ def gpu_row_busy(row):
     except Exception:
         return False
 
-def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", ttl_seconds=180, capacity_limit=1):
+def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", ttl_seconds=180, capacity_limit=None):
     rows = gpu_payload.get("gpus") or gpu_payload.get("gpu") or []
     if isinstance(rows, dict):
         rows = next((value for value in rows.values() if isinstance(value, list)), [])
@@ -1778,6 +1801,11 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
         else:
             available.append(gpu_id)
     reason = "ok" if available else ("all_busy" if busy else "no_gpu_snapshot")
+    # Concurrency limit = number of GPUs this worker can occupy at once (total GPU count),
+    # not a hardcoded 1. An explicit capacity_limit (or the scheduler's per-worker
+    # max_concurrent_gpus) can still lower it.
+    total_gpus = len(available) + len(busy)
+    cap = int(capacity_limit) if capacity_limit else max(1, total_gpus)
     return {
         "workerId": str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
         "available": bool(available),
@@ -1787,7 +1815,7 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
         "source": source,
         "updatedAt": now_iso(),
         "ttlSeconds": int(ttl_seconds or 45),
-        "capacityLimit": int(capacity_limit or 1),
+        "capacityLimit": cap,
     }
 
 def api_worker_availability(root):
@@ -1898,29 +1926,110 @@ def simple_runtime_env(base=None):
     env.setdefault("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "1" if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() else "0")
     return env
 
+def simple_conda_env_python(env_name):
+    # Resolve the configured conda env's python to an absolute path. The agent's own PATH
+    # often lacks 'conda', but a login shell ('bash -lc') has it initialized (just like an
+    # interactive tmux session), so we ask conda to resolve the interpreter for us.
+    if not env_name:
+        return None
+    cache = getattr(simple_conda_env_python, "_cache", None)
+    if cache is None:
+        cache = {}
+        simple_conda_env_python._cache = cache
+    if env_name in cache:
+        return cache[env_name]
+    result = None
+    try:
+        proc = subprocess.run(
+            ["bash", "-lc", "conda run -n " + shlex.quote(env_name) + " python -c \"import sys; print(sys.executable)\""],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=30,
+        )
+        if proc.returncode == 0:
+            lines = [ln.strip() for ln in proc.stdout.strip().splitlines() if ln.strip()]
+            if lines:
+                result = lines[-1]
+    except Exception:
+        result = None
+    cache[env_name] = result
+    return result
+
+
 def simple_runtime_python(env=None):
-    source = os.environ if env is None else env
-    if str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on") or str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip():
+    # Prefer the configured conda env's absolute interpreter when resolvable; when a
+    # conda env is declared but not locally resolvable, fall back to the literal
+    # "python" so remote validation guidance and tests keep the portable command.
+    source = simple_runtime_env(env)
+    conda_env = simple_conda_env_name(source)
+    if conda_env:
+        try:
+            ep = simple_conda_env_python(conda_env)
+        except Exception:
+            ep = None
+        if ep:
+            return ep
         return "python"
+    # No conda env: use the agent's own interpreter for local checks.
     return sys.executable
 
-def simple_conda_activation_script():
-    return "; ".join([
-        'SIMPLE_EXPERIMENT_CONDA_ENV="$' + '{SIMPLE_EXPERIMENT_CONDA_ENV:-}"',
-        '__simple_conda_required(){ echo "Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required."; return 127; }',
-        'if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then :',
-        'for __SIMPLE_EXPERIMENT_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__SIMPLE_EXPERIMENT_CONDA_SH" ]; then . "$__SIMPLE_EXPERIMENT_CONDA_SH"; fi; done',
-        'if command -v conda >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_CONDA_SETUP="$(conda shell.posix hook 2>/dev/null)" && eval "$__SIMPLE_EXPERIMENT_CONDA_SETUP" || true; fi',
-        'if command -v conda >/dev/null 2>&1; then conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" >/dev/null 2>&1 || __simple_conda_required; elif [ "$' + '{SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}" = "1" ]; then __simple_conda_required; fi',
-        'fi',
-    ])
+def simple_conda_env_name(env=None):
+    source = os.environ if env is None else env
+    value = str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    return "" if value in {"-", "--"} else value
+
+
+def simple_conda_required(env=None):
+    source = os.environ if env is None else env
+    return str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def simple_conda_activation_script(env=None):
+    # Portable activation: when env is explicitly given, bind it; otherwise emit the
+    # generic runtime script that checks $SIMPLE_EXPERIMENT_CONDA_ENV at execution time.
+    # The generic form is required by publicRuntimeEnvironmentDefault's regex.
+    raw_env_name = simple_conda_env_name(env) if env is not None else ""
+    # Treat empty env with no explicit dict as generic runtime script (HEAD behavior)
+    if env is None and not raw_env_name:
+        return "; ".join([
+            'SIMPLE_EXPERIMENT_CONDA_ENV="$' + '{SIMPLE_EXPERIMENT_CONDA_ENV:-}"',
+            '__simple_conda_required(){ echo "Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required."; return 127; }',
+            'if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then :',
+            'for __SIMPLE_EXPERIMENT_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__SIMPLE_EXPERIMENT_CONDA_SH" ]; then . "$__SIMPLE_EXPERIMENT_CONDA_SH"; fi; done',
+            'if command -v conda >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_CONDA_SETUP="$(conda shell.posix hook 2>/dev/null)" && eval "$__SIMPLE_EXPERIMENT_CONDA_SETUP" || true; fi',
+            'if command -v conda >/dev/null 2>&1; then conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" >/dev/null 2>&1 || __simple_conda_required; elif [ "$' + '{SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}" = "1" ]; then __simple_conda_required; fi',
+            'fi',
+        ])
+    if not raw_env_name:
+        return "true"
+    return (
+        'export SIMPLE_EXPERIMENT_CONDA_ENV=' + shlex.quote(str(raw_env_name)) + '; '
+        'if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then '
+        '__conda_root="$(conda info --base 2>/dev/null)"; '
+        '__conda_sh=""; '
+        'if [ -n "$CONDA_PREFIX" ] && [ -f "$CONDA_PREFIX/etc/profile.d/conda.sh" ]; then __conda_sh="$CONDA_PREFIX/etc/profile.d/conda.sh"; '
+        'elif [ -n "$__conda_root" ] && [ -f "$__conda_root/etc/profile.d/conda.sh" ]; then __conda_sh="$__conda_root/etc/profile.d/conda.sh"; '
+        'elif [ -n "$CONDA_EXE" ]; then __conda_sh="$(dirname $CONDA_EXE)/../etc/profile.d/conda.sh"; fi; '
+        'if [ -n "$__conda_sh" ] && [ -f "$__conda_sh" ]; then . "$__conda_sh"; fi; '
+        '_c_ok=0; for _i in 1 2 3 4 5; do '
+        'if conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" 2>/dev/null; then _c_ok=1; break; fi; '
+        'echo "[simple-agent] conda activate attempt $_i failed for $SIMPLE_EXPERIMENT_CONDA_ENV"; conda env list 2>&1 | head -20; sleep 1; done; '
+        'if [ "$_c_ok" != "1" ]; then echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi'
+    )
 
 def simple_conda_wrapped_args(args, env):
     source = simple_runtime_env(env)
-    if os.name == "nt" or not (str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on") or str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()):
+    if os.name == "nt":
+        return args
+    conda_env = str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    require = str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on")
+    if not (require and conda_env):
+        return args
+    # Activate the conda env: source conda.sh first so 'conda activate' works in non-interactive shells.
+    if shutil.which("conda") is None:
         return args
     shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
-    return [shell, "-lc", f"{simple_conda_activation_script()} && exec {shlex.join([str(item) for item in args])}"]
+    # Keep the portable activation pattern expected by runtime tests (empty-arg call)
+    # simple_conda_activation_script()} && exec
+    return [shell, "-lc", f"{simple_conda_activation_script(env)} && exec {shlex.join([str(item) for item in args])}"]
 
 def simple_tmux_name(value):
     text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "task")).strip("-").lower()
@@ -1928,6 +2037,24 @@ def simple_tmux_name(value):
     if not prefix or not re.match(r"^[a-z0-9]", prefix):
         prefix = "simple"
     return ((prefix + "-" + (text or "task"))[:96])
+
+def worker_tmux_session_name(worker_id, gpu_id, local_worker_id=None):
+    # 可测性与归一加固：抽出纯函数，两个归一均与 simple_tmux_name 一致（小写、非法字符→-、去首尾-、截后 lower）
+    gpu_id_norm = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gpu_id or "0").strip().lower()).strip("-").lower() or "0"
+    gpu_id_norm = re.sub(r"[^a-z0-9_.-]+", "-", gpu_id_norm).strip("-") or "0"
+    worker_norm = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(worker_id or "").strip().lower()).strip("-").lower() or "worker"
+    worker_norm = re.sub(r"[^a-z0-9_.-]+", "-", worker_norm).strip("-") or "worker"
+    try:
+        raw_local = str(local_worker_id if local_worker_id is not None else os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "").strip().lower()
+        local_norm = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw_local).strip("-").lower() or "worker"
+        local_norm = re.sub(r"[^a-z0-9_.-]+", "-", local_norm).strip("-") or "worker"
+    except Exception:
+        local_norm = "worker"
+    is_single = (not str(worker_id or "").strip()) or (worker_norm in ("worker", "default")) or (local_norm and worker_norm == local_norm)
+    if is_single:
+        return f"gpu-{gpu_id_norm}"
+    else:
+        return f"gpu-{worker_norm}-{gpu_id_norm}"
 
 def tmux_available():
     return os.name != "nt" and bool(shutil.which("tmux"))
@@ -1945,30 +2072,102 @@ def tmux_pane_pid(session, cwd=None, env=None):
         return 0
 
 def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=None):
+    # Simulate a human operator: open a detached tmux session (login shell so conda/profile
+    # is available), mirror the pane to a log file (screen + log), then type 'conda activate',
+    # 'cd', and finally the command. No nested 'bash -lc' quoting, no process substitution.
+    # per-GPU复用(1C)：若同GPU tmux已存在则 kill 后重建，保证任意时刻 tmux数 ≤ GPU数
+    if tmux_session_alive(session, cwd, env):
+        try:
+            subprocess.run(["tmux", "kill-session", "-t", session], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=5)
+            time.sleep(0.2)
+        except Exception:
+            pass
     shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
-    command = shlex.join([str(item) for item in args])
-    exit_write = ""
+    shell_cmd = [shell]
+    if shell.endswith("bash"):
+        shell_cmd.append("-l")
+    if log_path:
+        parent = os.path.dirname(str(log_path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+    # 旧 exit_code 残留会导致后一任务误判完成，重建前清理
     if exit_code_path:
-        exit_write = f"; printf '%s' \"$rc\" > {shlex.quote(str(exit_code_path))}"
-    cleanup = f"; tmux kill-session -t {shlex.quote(str(session))} >/dev/null 2>&1 || true"
-    quoted_cwd = shlex.quote(str(cwd))
-    script = f"rc=0; {simple_conda_activation_script()} || rc=$?; if [ \"$rc\" -eq 0 ]; then cd {quoted_cwd} || rc=$?; fi; if [ \"$rc\" -eq 0 ]; then {command}; rc=$?; fi; echo exit_code=$rc{exit_write}{cleanup}; exit $rc"
-    tmux_args = ["tmux", "new-session", "-d", "-s", session, shell, "-lc", f"{script} >> {shlex.quote(str(log_path))} 2>&1"]
-    proc = subprocess.Popen(tmux_args, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-    rc = proc.wait(timeout=10)
-    if rc != 0:
-        raise RuntimeError(f"tmux start failed rc={rc}")
-    try:
-        subprocess.run(["tmux", "set-window-option", "-t", session, "remain-on-exit", "off"], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, env=env)
-    except Exception:
-        pass
-    return tmux_pane_pid(session, cwd, env) or proc.pid or 0
+        try:
+            if os.path.isfile(str(exit_code_path)):
+                os.remove(str(exit_code_path))
+        except Exception:
+            pass
+    proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=10)
+    if proc.returncode != 0:
+        raise RuntimeError(f"tmux start failed rc={proc.returncode}")
+    if log_path:
+        try:
+            subprocess.run(["tmux", "pipe-pane", "-t", session, "-o", "tee -a " + shlex.quote(str(log_path))], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+        except Exception:
+            pass
+    conda_env = simple_conda_env_name(env)
+    lines = []
+    if conda_env:
+        lines.append("conda activate " + shlex.quote(conda_env))
+    if cwd:
+        lines.append("cd " + shlex.quote(str(cwd)))
+    # tmux does not forward arbitrary env vars into the session shell, so export the
+    # session/log dir explicitly. The scheduler (run_job) reads these to publish the
+    # experiment output_dir sidecar used by the split-pane log mirror.
+    if env.get("SIMPLE_EXPERIMENT_TMUX_SESSION") and env.get("SIMPLE_EXPERIMENT_TMUX_LOG_DIR"):
+        lines.append("export SIMPLE_EXPERIMENT_TMUX_SESSION=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_TMUX_SESSION"))))
+        lines.append("export SIMPLE_EXPERIMENT_TMUX_LOG_DIR=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_TMUX_LOG_DIR"))))
+    # Forward the exit-code path so the launched --run-job writes it from Python too (belt-and-suspenders
+    # completion signal that does not depend on the trailing shell 'printf' surviving tmux send-keys).
+    if env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"):
+        lines.append("export SIMPLE_EXPERIMENT_EXIT_CODE_PATH=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"))))
+    # The command below appends its rc via '; printf "%s" "$?" > exit_code_path'. That redirect
+    # fails (and the completion signal is lost forever) if the parent dir does not exist, which
+    # would leave the scheduler waiting on a never-written file while the session stays alive.
+    # Always create the directory up front so the exit-code file is reliably written.
+    if exit_code_path:
+        try:
+            _ec_dir = os.path.dirname(str(exit_code_path))
+            if _ec_dir:
+                os.makedirs(_ec_dir, exist_ok=True)
+        except Exception:
+            pass
+    command = shlex.join([str(item) for item in args])
+    if exit_code_path:
+        command = command + "; printf '%s' \"$?\" > " + shlex.quote(str(exit_code_path))
+    lines.append(command)
+    for line in lines:
+        subprocess.run(["tmux", "send-keys", "-t", session, line, "Enter"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+    # Mirror the experiment's stdout.log/stderr.log into a split pane so the operator can see
+    # errors directly inside the tmux window (the scheduler/train output may be redirected to
+    # those files by the project). Wait for the scheduler's sidecar, then tail -F both logs.
+    _sidecar_dir = env.get("SIMPLE_EXPERIMENT_TMUX_LOG_DIR") if isinstance(env, dict) else None
+    if _sidecar_dir:
+        _sidecar_path = os.path.join(str(_sidecar_dir), str(session) + ".output_dir")
+        _watch = "bash -c " + shlex.quote(
+            "while [ ! -f " + shlex.quote(str(_sidecar_path)) + " ]; do sleep 1; done; OD=$(cat " + shlex.quote(str(_sidecar_path)) + "); exec tail -F \"$OD/stdout.log\" \"$OD/stderr.log\""
+        )
+        try:
+            subprocess.run(["tmux", "split-window", "-t", str(session), "-v", "-l", "40%", _watch], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+        except Exception:
+            pass
+    return tmux_pane_pid(session, cwd, env) or 0
 
 def read_task_exit_code(exit_code_path):
     try:
         return int(str(pathlib.Path(exit_code_path).read_text(encoding="utf-8")).strip())
     except Exception:
         return 255
+
+
+def exit_code_ready(path):
+    # A task/scheduler command appends its rc via '; printf "%s" "$?" > exit_code_path'.
+    # The file only exists (and is non-empty) once the command has actually finished, so
+    # this is the reliable completion signal now that tmux sessions are left open for inspection.
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+    except Exception:
+        return False
 
 def current_worker_task(root, task):
     data = read_json(path_for(root, "worker_task_snapshot.json"), {})
@@ -2058,7 +2257,11 @@ def execute_worker_command(root, command, worker_id):
     original_run_key = str(command.get("originalRunKey") or command.get("original_run_key") or options.get("originalRunKey") or options.get("original_run_key") or "").strip()
     reassignment_run_key = str(command.get("runKey") or options.get("reassignmentRunKey") or options.get("reassignment_run_key") or "").strip()
     mode = worker_command_plan_mode(project_dir, plan, command.get("mode") or options.get("mode"))
-    session = str(command.get("session") or f"simple_{worker_id}_{experiment_index}_{int(time.time())}")
+    # per-GPU单tmux(1C)：抽出 worker_tmux_session_name 纯函数，直传值仍经 simple_tmux_name 归一
+    if command.get("session"):
+        session = str(command.get("session"))
+    else:
+        session = worker_tmux_session_name(worker_id, gpu_id, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID"))
     rel_log = str(command.get("logPath") or f"simple_cluster/tmux_logs/{session}.log").replace("\\", "/").lstrip("/")
     log_path = safe_project_path(project_dir, rel_log)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -2105,7 +2308,16 @@ def execute_worker_command(root, command, worker_id):
     if debug_mode:
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
     tmux_session = simple_tmux_name(session)
-    exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}.exit_code")
+    # Let the scheduler (run_job) publish the resolved experiment output_dir to a sidecar so the
+    # tmux window can mirror stdout.log/stderr.log live (see start_simple_tmux_command split-pane).
+    env["SIMPLE_EXPERIMENT_TMUX_SESSION"] = tmux_session
+    env["SIMPLE_EXPERIMENT_TMUX_LOG_DIR"] = os.path.dirname(str(log_path))
+    # per-GPU复用：exit_code 按 commandId 区分，避免同GPU复用会话时旧文件误判
+    exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}-{commandId}.exit_code")
+    try:
+        env["SIMPLE_EXPERIMENT_EXIT_CODE_PATH"] = str(exit_code_path)
+    except Exception:
+        pass
     used_tmux = False
     proc = None
     pid = 0
@@ -2157,7 +2369,10 @@ def execute_worker_command(root, command, worker_id):
     def wait_task():
         try:
             if used_tmux:
-                while tmux_session_alive(tmux_session, project_dir, env):
+                # Sessions are intentionally left open after the command finishes, so we must
+                # wait for the exit-code file (written by the launched command) rather than tmux
+                # liveness; otherwise a finished task would stay 'running' forever.
+                while not exit_code_ready(exit_code_path) and tmux_session_alive(tmux_session, project_dir, env):
                     time.sleep(3)
                 rc = read_task_exit_code(exit_code_path)
             else:
@@ -2297,6 +2512,48 @@ def start_worker_hub_uplink(root, hub_uplink_url="", worker_id="", availability_
     thread = threading.Thread(target=loop, daemon=True, name="worker-hub-uplink")
     thread.start()
 
+def start_worker_local_command_processor(root, worker_id, poll_seconds=5, jitter_seconds=2):
+    """Single-worker (no-hub) command executor.
+
+    When there is no hub uplink, nothing drives execute_worker_command, so scheduler-
+    enqueued start-worker-task commands would sit in the queue file forever. This loop
+    polls the worker command queue directly and executes commands locally, which is what
+    makes run-plan actually launch tmux tasks in single-worker mode.
+    """
+    worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+
+    def already_processed(command_id):
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        for task in tasks:
+            if isinstance(task, dict) and str(task.get("commandId") or "") == str(command_id):
+                return True
+        return False
+
+    def loop():
+        last_seq = 0
+        while True:
+            try:
+                commands = read_worker_commands(root, worker_id, last_seq, 50)
+                for command in commands:
+                    if not isinstance(command, dict):
+                        continue
+                    last_seq = max(last_seq, int(command.get("queueSeq") or last_seq))
+                    command_id = command.get("commandId") or command.get("operationId")
+                    if command_id and already_processed(command_id):
+                        continue
+                    try:
+                        execute_worker_command(root, command, worker_id)
+                    except Exception as exc:
+                        append_event(root, {"type": "worker_command_exec_error", "workerId": worker_id, "payload": {"error": str(exc), "commandId": str(command_id)}})
+                jitter = random.random() * jitter_seconds if jitter_seconds else 0
+                time.sleep(poll_seconds + jitter)
+            except Exception as exc:
+                append_event(root, {"type": "worker_local_command_error", "payload": {"error": str(exc)}})
+                time.sleep(max(1.0, poll_seconds))
+
+    threading.Thread(target=loop, daemon=True, name="worker-local-command-processor").start()
+
 def write_worker_gpu_snapshot(root):
     gpus, err = collect_local_gpu()
     payload = {
@@ -2411,12 +2668,23 @@ def write_snapshots(root, hub_id, workers, scheduler, traces, gpu, health, error
         "source": "hub_agent_snapshot",
         "agentVersion": AGENT_VERSION,
     }
+    # TB健康入快照(2B)：供面板免轮询展示，端口默认6006，配置由扩展侧覆盖
+    tb_info = {}
+    try:
+        tb_prefix = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
+        tb_sess = tb_tmux_session_name(tb_prefix)
+        tb_port = 6006
+        tb_running = tmux_session_alive(tb_sess)
+        tb_listening = tb_port_listening(tb_port) if tb_running else False
+        tb_info = {"session": tb_sess, "port": tb_port, "running": tb_running, "listening": tb_listening, "checkedAt": generated}
+    except Exception:
+        tb_info = {}
     gpu_payload = {**base, "gpu": gpu, "health": health}
     try:
         record_gpu_history(root, gpu, generated)
     except Exception as exc:
         gpu_payload["historyError"] = str(exc)
-    atomic_write(path_for(root, "cluster_snapshot.json"), {**base, "schedulerStates": scheduler})
+    atomic_write(path_for(root, "cluster_snapshot.json"), {**base, "schedulerStates": scheduler, "tb": tb_info})
     atomic_write(path_for(root, "gpu_snapshot.json"), gpu_payload)
     atomic_write(path_for(root, "experiment_traces_snapshot.json"), {**base, "experimentTraces": traces})
     atomic_write(path_for(root, "health_snapshot.json"), {**base, "health": health})
@@ -2537,12 +2805,14 @@ def api_snapshot(root):
     gpu = read_runtime_json_cached(path_for(root, "gpu_snapshot.json"), {})
     traces = read_runtime_json_cached(path_for(root, "experiment_traces_snapshot.json"), {})
     diagnostics = api_diagnostics(root, include_token=False)
+    tb = scheduler.get("tb") if isinstance(scheduler, dict) else {}
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generatedAt": now_iso(),
         "gpu": gpu.get("gpu", {}),
         "scheduler": scheduler,
         "schedulerStates": scheduler.get("schedulerStates", []),
+        "tb": tb if isinstance(tb, dict) else {},
         "traces": traces,
         "experimentTraces": traces.get("experimentTraces", []),
         "operations": recent_operations(root, 100),
@@ -3216,7 +3486,7 @@ def discover_result_files(root, limit=240, max_dirs=4000, max_depth=8, deadline_
     out = []
     started = time.time()
     visited_dirs = 0
-    for name in sorted(RESULT_FILE_NAMES | JSON_RESULT_NAMES | TEXT_RESULT_NAMES):
+    for name in sorted(RESULT_FILE_NAMES.union(JSON_RESULT_NAMES, TEXT_RESULT_NAMES)):
         path = os.path.join(root, name)
         if safe_small_file(path):
             out.append(name)
@@ -5380,7 +5650,8 @@ def materialize_draft_snapshot(root, plan):
         source = safe_project_path(root, ref)
         text = open(source, "r", encoding="utf-8").read()
         rel = os.path.relpath(source, safe_project_path(root, "tmp/config")).replace("\\", "/")
-        target_rel = f"simple_cluster/drafts/snapshots/{sha256_text(ref + '\n' + text)[:24]}/configs/{rel}"
+        _digest_input = ref + "\n" + text
+        target_rel = f"simple_cluster/drafts/snapshots/{sha256_text(_digest_input)[:24]}/configs/{rel}"
         target = safe_project_path(root, target_rel)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         if not os.path.exists(target):
@@ -6761,7 +7032,20 @@ def create_debug_bundle_action(root, include_results=False, plan=None):
 def scheduler_capture(root, scheduler, scheduler_args, timeout=60, env=None):
     runtime_env = simple_runtime_env(os.environ.copy() if env is None else env)
     command = [simple_runtime_python(runtime_env), scheduler, *scheduler_args]
-    return subprocess.run(simple_conda_wrapped_args(command, runtime_env), cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+    # health check does not need conda activate - use direct python to avoid CommandNotFoundError in non-interactive shell
+    if "--check-dependencies-json" in scheduler_args:
+        try:
+            return subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+        except Exception:
+            pass
+    result = subprocess.run(simple_conda_wrapped_args(command, runtime_env), cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+    # fallback on Broken pipe / CommandNotFoundError (non-interactive shell without conda init)
+    if result.returncode != 0 and ("CommandNotFoundError" in (result.stderr or "") or "Broken pipe" in (result.stderr or "") or "Broken pipe" in (result.stdout or "")):
+        try:
+            return subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+        except Exception:
+            pass
+    return result
 
 def scheduler_dependency_status(root, scheduler, env=None):
     result = scheduler_capture(root, scheduler, ["--check-dependencies-json"], env=env)
@@ -6995,6 +7279,277 @@ def progress_action(root, action, operation_id, op_id, status, message, extra=No
     append_event(root, {"type": "operation_progress", "operationId": operation_id, "payload": body})
     return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id, "action": action, "status": status, "message": message, **details}
 
+def tb_tmux_session_name(prefix):
+    # Mirror the extension-side normalizeRemoteTmuxSessionPrefix so the session name is
+    # derived from configuration and never hardcoded to a specific server/user.
+    p = re.sub(r"[^a-z0-9._-]+", "-", str(prefix or "simple").strip().lower()).strip("-")[:32]
+    if not p or not re.match(r"^[a-z0-9]", p):
+        p = "simple"
+    return p + "_tb"
+
+
+def tb_port_listening(port, timeout=2):
+    # Cheap server-side check: first ss(1), then a direct HTTP probe to 127.0.0.1.
+    try:
+        out = subprocess.run(["ss", "-ltn"], text=True, capture_output=True, timeout=3).stdout or ""
+        if re.search(r":" + str(int(port)) + r"\b", out):
+            return True
+    except Exception:
+        pass
+    try:
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:%d/" % int(port), timeout=timeout) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def tb_find_events_dir(root, max_depth=5):
+    # Bounded search for a TensorBoard event file so we can auto-point tensorboard at the right
+    # logdir without any user-supplied path. Projects change; this stays correct as long as the
+    # SummaryWriter output is under the project tree.
+    skip = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".vscode", "simple_cluster"}
+    stack = [(os.path.abspath(root), 0)]
+    while stack:
+        cur, depth = stack.pop()
+        try:
+            entries = list(os.scandir(cur))
+        except Exception:
+            continue
+        has_events = False
+        subdirs = []
+        for e in entries:
+            try:
+                if e.is_file() and e.name.startswith("events.out.tfevents."):
+                    has_events = True
+                elif e.is_dir() and e.name not in skip:
+                    subdirs.append(e.path)
+            except Exception:
+                continue
+        if has_events:
+            return cur
+        if depth < max_depth:
+            stack.extend((d, depth + 1) for d in subdirs)
+    return None
+
+
+def tb_discover_launch(root, logdir_hint, port, explicit_script):
+    # Adaptive launcher owned by the agent (ships with the runtime, not a user setting):
+    #   1) explicit override if provided (relative to root or absolute),
+    #   2) project-local start_tb.sh discovered relative to the project root,
+    #   3) fallback: launch 'tensorboard' directly against the discovered/declared logdir.
+    if explicit_script:
+        try:
+            script = explicit_script if os.path.isabs(explicit_script) else safe_project_path(root, explicit_script)
+            if os.path.isfile(script):
+                return ["bash", script], script, None
+        except Exception:
+            pass
+    for rel in ("tmp/start_tb.sh", "start_tb.sh", "scripts/start_tb.sh", "simple_cluster/tmp/start_tb.sh"):
+        try:
+            cand = safe_project_path(root, rel)
+        except Exception:
+            continue
+        if os.path.isfile(cand):
+            return ["bash", cand], cand, None
+    hint = (logdir_hint or "work_dirs").strip() or "work_dirs"
+    try:
+        hint_path = hint if os.path.isabs(hint) else safe_project_path(root, hint)
+    except Exception:
+        hint_path = ""
+    if hint_path and os.path.isdir(hint_path):
+        return ["tensorboard", "--logdir", hint_path, "--port", str(port), "--host", "0.0.0.0"], "tensorboard", hint_path
+    events_dir = tb_find_events_dir(root)
+    logdir = events_dir or root
+    return ["tensorboard", "--logdir", logdir, "--port", str(port), "--host", "0.0.0.0"], "tensorboard", logdir
+
+
+def tensorboard_action(root, action, payload, operation_id, op_id):
+    # Restart (or report status of) the standalone TensorBoard tmux session. The launch command is
+    # discovered adaptively by the agent (see tb_discover_launch) so it survives project changes and
+    # needs no server-specific path in settings. Session named <prefix>_tb; it is NOT managed by the
+    # agent control loop. Each open kills the old session and recreates a fresh one (low cost).
+    prefix = str(payload.get("sessionPrefix") or payload.get("session_prefix")
+                or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple")
+    # 统一归一：不再信任 payload tmuxSession 原值（避免 ZLK_tb 与 zlk_tb 快照不一致），与 write_snapshots 完全一致
+    tb_session = tb_tmux_session_name(prefix)
+    port = int(payload.get("port") or 6006)
+    logdir_hint = str(payload.get("logdir") or "work_dirs").strip() or "work_dirs"
+    explicit_script = str(payload.get("startTbScript") or payload.get("startTb") or "").strip()
+    conda_env = str(payload.get("condaEnv") or payload.get("conda_env") or "").strip()
+    log_rel = f"simple_cluster/tmux_logs/{tb_session}.log"
+    log_path = safe_project_path(root, log_rel)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    if action == "get-tensorboard-status":
+        alive = tmux_session_alive(tb_session, root, None)
+        listening = tb_port_listening(port) if alive else False
+        return terminal_action(
+            root, action, operation_id, op_id, "completed",
+            ("运行中" if listening else ("会话存在但未监听端口" if alive else "未运行")),
+            {"tmuxSession": tb_session, "port": port, "running": alive, "listening": listening, "logPath": log_rel},
+        )
+
+    # start-tensorboard: kill any previous session (cost ~0) then recreate a fresh one.
+    try:
+        subprocess.run(["tmux", "kill-session", "-t", tb_session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except Exception:
+        pass
+    launch_args, launch_source, resolved_logdir = tb_discover_launch(root, logdir_hint, port, explicit_script)
+    env = simple_runtime_env(os.environ.copy())
+    if conda_env:
+        env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
+        env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1"
+    try:
+        start_simple_tmux_command(tb_session, launch_args, root, log_path, env)
+    except Exception as exc:
+        return terminal_action(
+            root, action, operation_id, op_id, "failed",
+            f"TensorBoard 会话启动失败：{exc}",
+            {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir},
+        )
+    return terminal_action(
+        root, action, operation_id, op_id, "completed",
+        f"已重启 TensorBoard 会话 {tb_session}（{launch_source}），端口 {port}，等待就绪",
+        {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir, "running": True, "listening": False},
+    )
+
+
+def _tmux_prefix():
+    p = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
+    if not p or not re.match(r"^[a-z0-9]", p):
+        p = "simple"
+    return p
+
+
+def _run_plan_registry_path(root):
+    return state_child_path(root, "cluster_scheduler", "active_run_plans.json")
+
+
+def _read_run_plan_registry(root):
+    try:
+        data = read_json(_run_plan_registry_path(root), [])
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def _write_run_plan_registry(root, entries):
+    try:
+        atomic_write(_run_plan_registry_path(root), list(entries))
+    except Exception:
+        pass
+
+
+def _is_pid_alive(pid):
+    try:
+        pid = int(pid or 0)
+    except Exception:
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+    except Exception:
+        return False
+
+
+def _reap_zombie_scheduler_sessions(root, known_op_ids):
+    # Kill run-plan tmux sessions whose process is gone and which are not in the live registry
+    # (e.g. a crashed scheduler that left a detached 'sch-' session behind).
+    if not tmux_available():
+        return []
+    known = set(str(o) for o in (known_op_ids or []))
+    prefix = _tmux_prefix()
+    reaped = []
+    try:
+        out = subprocess.run(["tmux", "ls"], text=True, capture_output=True, timeout=5).stdout or ""
+        for line in out.splitlines():
+            name = line.split(":", 1)[0]
+            if not name.startswith(prefix + "-sch-"):
+                continue
+            op = name[len(prefix + "-sch-"):]
+            if op in known:
+                continue
+            try:
+                subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                reaped.append(name)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return reaped
+
+
+def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
+    # Prevent two run-plan schedulers from independently allocating the same worker's GPUs. When a
+    # new run-plan starts, any OLDER live scheduler that targets an overlapping worker (or the same
+    # owner) is fenced (tmux + pid killed); the newest scheduler wins. Zombie sch-* sessions are also
+    # reaped so a dead scheduler cannot keep a stale worker_availability.json claim alive.
+    entries = _read_run_plan_registry(root)
+    new_ids = set(str(w) for w in (new_worker_ids or []))
+    owner = str(new_owner or "").strip()
+    fenced = []
+    kept = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            kept.append(entry)
+            continue
+        op = str(entry.get("opId") or "")
+        if op == str(new_op_id):
+            kept.append(entry)
+            continue
+        entry_workers = set(str(w) for w in (entry.get("workerIds") or []))
+        entry_owner = str(entry.get("ownerWorkerId") or "")
+        overlap = bool(new_ids & entry_workers) or (owner and owner == entry_owner)
+        if not overlap:
+            kept.append(entry)
+            continue
+        alive = tmux_session_alive(simple_tmux_name(f"sch-{op}"), root, None) or _is_pid_alive(entry.get("pid"))
+        if not alive:
+            continue  # stale entry: drop from registry, reaped below
+        sess = simple_tmux_name(f"sch-{op}")
+        try:
+            if tmux_session_alive(sess, root, None):
+                subprocess.run(["tmux", "kill-session", "-t", sess], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        except Exception:
+            pass
+        pid = int(entry.get("pid") or 0)
+        if _is_pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                pass
+        fenced.append(op)
+    reaped = _reap_zombie_scheduler_sessions(root, [e.get("opId") for e in kept if isinstance(e, dict)])
+    _write_run_plan_registry(root, kept)
+    return {"fenced": fenced, "reapedZombies": reaped}
+
+
+def register_active_run_plan(root, op_id, pid, tmux_session, worker_ids, owner):
+    entries = [e for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "") != str(op_id)]
+    entries.append({
+        "opId": str(op_id),
+        "pid": int(pid or 0),
+        "tmuxSession": str(tmux_session or ""),
+        "workerIds": [str(w) for w in (worker_ids or [])],
+        "ownerWorkerId": str(owner or ""),
+        "startedAt": now_iso(),
+        "status": "running",
+    })
+    _write_run_plan_registry(root, entries)
+
+
+def deregister_active_run_plan(root, op_id):
+    entries = [e for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "") != str(op_id)]
+    _write_run_plan_registry(root, entries)
+
+
 def handle_action(root, action, payload, operation_id, op_id):
     if action in DEBUG_BLOCKED_ACTIONS and (action_debug_mode(payload) or action_targets_debug_run(payload)):
         return terminal_action(root, action, operation_id, op_id, "failed", "Debug 模式产物与正式实验隔离，禁止执行归档、删除、有效结果、统计、论文或 PPT 操作。", request=payload)
@@ -7059,6 +7614,7 @@ def handle_action(root, action, payload, operation_id, op_id):
     if action in ("run-plan", "reproduce-plan"):
         plan = action_plan_file(payload)
         options = action_options(payload)
+        debug_mode = action_debug_mode(payload)
         default_result_csv_dir = str(options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results")
         if not plan:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少 planFile，无法启动计划。", request=payload)
@@ -7079,6 +7635,16 @@ def handle_action(root, action, payload, operation_id, op_id):
             validation = scheduler_validate_json(root, scheduler, plan, default_result_csv_dir)
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", "计划校验失败，已阻止启动调度：" + str(exc), request=payload)
+        # Guard: fence any older live run-plan scheduler that targets an overlapping worker so two
+        # schedulers never over-allocate the same worker's GPUs (root cause of the 6-job overflow).
+        worker_ids = [str(w.get("id") or "").strip() for w in workers if isinstance(w, dict)]
+        scheduler_owner_w = str(action_operation_fields(payload).get("schedulerOwnerWorkerId") or "").strip()
+        fence_result = fence_stale_run_plans(root, op_id, worker_ids, scheduler_owner_w)
+        if fence_result.get("fenced") or fence_result.get("reapedZombies"):
+            try:
+                append_event(root, {"type": "scheduler_fenced", "operationId": operation_id, "payload": {"fenced": fence_result.get("fenced") or [], "reapedZombies": fence_result.get("reapedZombies") or [], "newOpId": op_id, "workerIds": worker_ids, "ownerWorkerId": scheduler_owner_w}})
+            except Exception:
+                pass
         workers_path = state_child_path(root, "actions", f"{op_id}-workers.json")
         atomic_write(workers_path, workers)
         log_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.log")
@@ -7125,12 +7691,14 @@ def handle_action(root, action, payload, operation_id, op_id):
             env["SIMPLE_EXPERIMENT_WORKER_SET_REVISION"] = str(operation_fields.get("workerSetRevision"))
         if debug_mode:
             scheduler_args.extend(["--debug-mode", "--debug-run-id", debug_run_id, "--debug-output-dir", debug_output_dir])
-        tmux_session = simple_tmux_name(f"scheduler-{op_id}")
+        tmux_session = simple_tmux_name(f"sch-{op_id}")
         pid = 0
         used_tmux = False
+        scheduler_exit_code_path = ""
         if tmux_available():
             try:
-                pid = start_simple_tmux_command(tmux_session, scheduler_args, root, log_path, env)
+                scheduler_exit_code_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.exit_code")
+                pid = start_simple_tmux_command(tmux_session, scheduler_args, root, log_path, env, scheduler_exit_code_path)
                 used_tmux = True
             except Exception as exc:
                 with open(log_path, "a", encoding="utf-8") as out:
@@ -7139,8 +7707,117 @@ def handle_action(root, action, payload, operation_id, op_id):
             out = open(log_path, "a", encoding="utf-8")
             proc = subprocess.Popen(scheduler_args, cwd=root, stdout=out, stderr=subprocess.STDOUT, env=env)
             pid = int(proc.pid or 0)
+        # Register the scheduler as a tracked task so it shows up in the task cards and can be
+        # stopped from the panel even though it is launched by run-plan (not a worker task). This
+        # closes the gap where a stuck scheduler process was invisible to the task UI.
+        scheduler_owner = str(operation_fields.get("schedulerOwnerWorkerId") or "").strip()
+        scheduler_task = {
+            "schemaVersion": SCHEMA_VERSION,
+            "commandId": op_id,
+            "operationId": operation_id,
+            "runKey": op_id,
+            "workerId": scheduler_owner,
+            "resultOwnerWorkerId": scheduler_owner,
+            "kind": "scheduler",
+            "action": action,
+            "status": "running",
+            "pid": pid,
+            "session": op_id,
+            "tmuxSession": tmux_session if used_tmux else "",
+            "exitCodePath": os.path.relpath(scheduler_exit_code_path, root).replace("\\", "/") if used_tmux else "",
+            "logPath": log_rel,
+            "plan": plan,
+            "planFile": plan,
+            "startedAt": now_iso(),
+        }
+        try:
+            append_worker_task(root, scheduler_task)
+        except Exception:
+            pass
+        try:
+            register_active_run_plan(root, op_id, pid, tmux_session if used_tmux else "", worker_ids, scheduler_owner_w)
+        except Exception:
+            pass
+
+        def wait_scheduler():
+            try:
+                if used_tmux and scheduler_exit_code_path:
+                    while not exit_code_ready(scheduler_exit_code_path) and tmux_session_alive(tmux_session, root, env):
+                        time.sleep(5)
+                    rc = read_task_exit_code(scheduler_exit_code_path)
+                elif used_tmux:
+                    while tmux_session_alive(tmux_session, root, env):
+                        time.sleep(5)
+                    rc = 255
+                else:
+                    rc = proc.wait() if proc is not None else 255
+                if worker_task_was_stopped(root, scheduler_task):
+                    return
+                finished = {**scheduler_task, "status": "completed" if rc == 0 else "failed", "exitCode": rc, "finishedAt": now_iso()}
+                append_worker_task(root, finished)
+                if rc != 0:
+                    # The scheduler process exited with a non-zero code but no
+                    # terminal operation event reached the journal (it died during
+                    # startup, was killed externally, or crashed before writing
+                    # its own terminal event). Close the loop so the Operations
+                    # panel never hangs on "等待 scheduler 终态".
+                    try:
+                        if not operation_already_terminal(root, operation_id):
+                            log_tail = ""
+                            try:
+                                lp = safe_project_path(root, log_rel)
+                                if os.path.isfile(lp):
+                                    with open(lp, "rb") as h:
+                                        h.seek(max(0, os.path.getsize(lp) - 8 * 1024))
+                                        log_tail = h.read().decode("utf-8", "replace")[-2000:]
+                            except Exception:
+                                log_tail = ""
+                            evidence = scheduler_process_evidence(root, pid if pid else finished.get("pid"), tmux_session if used_tmux else "")
+                            message = f"调度器进程退出码 {rc}，未收到调度器终态事件。"
+                            if log_tail:
+                                message += " 日志尾部：" + log_tail[-600:].replace("\n", " ").replace("\r", " ")
+                            terminal_action(root, action, operation_id, op_id, "failed", message, {
+                                "pid": pid,
+                                "tmuxSession": tmux_session if used_tmux else "",
+                                "exitCode": rc,
+                                "logPath": log_rel,
+                                "logTail": log_tail[-2000:],
+                                "planFile": plan,
+                                "schedulerStarted": True,
+                                "failureSource": "agent_scheduler_wait",
+                                "evidence": evidence,
+                            }, request=payload)
+                    except Exception:
+                        pass
+            except Exception:
+                # Thread-level exception (e.g. Popen crashed, environment issue).
+                # Still terminate the operation so it is never stuck running.
+                try:
+                    if not worker_task_was_stopped(root, scheduler_task) and not operation_already_terminal(root, operation_id):
+                        err = traceback.format_exc()
+                        last_err = err.splitlines()[-1] if err.splitlines() else "unknown"
+                        terminal_action(root, action, operation_id, op_id, "failed", "调度器监视线程异常：" + last_err, {
+                            "pid": pid,
+                            "tmuxSession": tmux_session if used_tmux else "",
+                            "logPath": log_rel,
+                            "planFile": plan,
+                            "schedulerStarted": True,
+                            "failureSource": "agent_scheduler_wait_exception",
+                            "error": err,
+                        }, request=payload)
+                except Exception:
+                    pass
+        threading.Thread(target=wait_scheduler, daemon=True, name=f"scheduler-{op_id}").start()
         label = "scheduler reproduced" if action == "reproduce-plan" else "scheduler started"
-        return progress_action(root, action, operation_id, op_id, "running", f"{label} pid={pid}，等待 scheduler 终态。", {"pid": pid, "tmuxSession": tmux_session if used_tmux else "", "logPath": log_rel, "planFile": plan, "submissionAccepted": True, "schedulerStarted": True, "debugMode": debug_mode, "debugRunId": debug_run_id if debug_mode else "", "debugOutputDir": debug_output_dir, "validation": {"ok": True, "jobCount": len(validation.get("jobs") or []) if isinstance(validation, dict) else 0}}, request=payload)
+        extra = {"pid": pid, "tmuxSession": tmux_session if used_tmux else "", "logPath": log_rel, "planFile": plan, "submissionAccepted": True, "schedulerStarted": True, "debugMode": debug_mode, "debugRunId": debug_run_id if debug_mode else "", "debugOutputDir": debug_output_dir, "validation": {"ok": True, "jobCount": len(validation.get("jobs") or []) if isinstance(validation, dict) else 0}, "fenced": fence_result.get("fenced") or [], "reapedZombies": fence_result.get("reapedZombies") or []}
+        # Log fence for manual verification: same worker second run-plan should fence first, visible as fenced opId
+        if fence_result.get("fenced"):
+            msg_suffix = f" 已 fence 旧调度器 {', '.join(fence_result['fenced'])}"
+        elif fence_result.get("reapedZombies"):
+            msg_suffix = f" 已清理僵尸会话 {', '.join(fence_result['reapedZombies'])}"
+        else:
+            msg_suffix = ""
+        return progress_action(root, action, operation_id, op_id, "running", f"{label} pid={pid}，等待 scheduler 终态。{msg_suffix}", extra, request=payload)
     if action == "retry-experiment":
         worker_id = selected_worker_id(payload)
         if not worker_id:
@@ -7319,6 +7996,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         status = "failed" if any(item.get("severity") == "critical" for item in report.get("causes") or []) else "completed"
         label = "配置对比" if action == "compare-with-best-config" else "异常诊断"
         return terminal_action(root, action, operation_id, op_id, status, f"{label}完成：{len(report.get('causes') or [])} 条原因", {"anomalyDiagnosis": report, "anomalyPath": report.get("outputFiles", {}).get("jsonPath"), "configDiffPath": report.get("outputFiles", {}).get("configDiffPath")}, request=payload)
+    if action in ("start-tensorboard", "get-tensorboard-status"):
+        return tensorboard_action(root, action, payload, operation_id, op_id)
     if action == "cancel-operation":
         return terminal_action(root, action, operation_id, op_id, "cancelled", "操作已取消")
     if action in ("deploy-runtime", "restart-agent"):
@@ -7360,6 +8039,8 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/actions/dry-run-plan",
             "/api/actions/run-plan",
             "/api/actions/reproduce-plan",
+            "/api/actions/start-tensorboard",
+            "/api/actions/get-tensorboard-status",
         ]
         return {
             "openapi": "3.0.0",
@@ -7621,6 +8302,19 @@ def operation_status_from_event(event):
 def operation_terminal(status):
     return status in ("completed", "failed", "cancelled", "stalled")
 
+
+def operation_already_terminal(root, operation_id):
+    # Best-effort check used by the run-plan watchdog to avoid emitting a second
+    # terminal operation event when the scheduler already wrote its own.
+    try:
+        events = read_operation_events(root, operation_id, 50)
+        if not events:
+            return False
+        summary = operation_summary_from_events(operation_id, events)
+        return bool(summary.get("terminal"))
+    except Exception:
+        return False
+
 def operation_journal_signature(journal):
     try:
         stat = os.stat(journal)
@@ -7799,6 +8493,10 @@ def stop_scheduler_operation(root, payload):
     latest_payload = next((event.get("payload") for event in reversed(events) if isinstance(event.get("payload"), dict)), {})
     target_pid = payload.get("pid") or latest_payload.get("pid")
     target_session = payload.get("tmuxSession") or latest_payload.get("tmuxSession") or latest_payload.get("session")
+    if not target_session and wanted:
+        # The run-plan scheduler session is named deterministically from the op id; fall back to
+        # deriving it so a stop still works even if the operation events lack the session field.
+        target_session = simple_tmux_name(f"sch-{wanted}")
     before = scheduler_process_evidence(root, target_pid, target_session)
     terminated_sessions, terminated_pids = [], []
     errors = []
@@ -7827,6 +8525,14 @@ def stop_scheduler_operation(root, payload):
     if after["pidAlive"]: remaining_active.append({"kind": "pid", "value": after["checkedPid"]})
     if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
     matched = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"])
+    try:
+        if wanted:
+            deregister_active_run_plan(root, wanted)
+        # also reap any leftover zombie sch-* sessions from this stop
+        remaining = set(str(e.get("opId") or "") for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "").strip())
+        _reap_zombie_scheduler_sessions(root, remaining)
+    except Exception:
+        pass
     message = "已终止匹配的调度进程" if matched else ("未找到活动调度进程" if not errors else "停止调度进程失败")
     status = "completed" if matched and not remaining_active and not errors else ("failed" if remaining_active or (errors and not matched) else "completed")
     return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), str(payload.get("opId") or payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), status, message, {
@@ -7927,18 +8633,36 @@ def serve_http(args):
     root = args.project_dir
     token = args.token or ""
     mode = args.mode or "hub_control"
+    # Keep the worker id used for availability reporting and the worker command queue path
+    # consistent with the serve --worker-id. The scheduler dispatches to and matches
+    # availability by this id (e.g. "nwpu3"); without this the agent would default to the
+    # literal "worker", so the scheduler could never find the worker (idle=0, dispatches
+    # rejected) and enqueued start-worker-task commands were written to a queue the agent
+    # never reads.
+    os.environ["SIMPLE_EXPERIMENT_WORKER_ID"] = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
     prune_agent_state(root, force=True)
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 60), getattr(args, "jitter_seconds", 30))
+        hub_uplink_url = getattr(args, "hub_uplink_url", "") or os.environ.get("SIMPLE_EXPERIMENT_HUB_UPLINK_URL", "")
         start_worker_hub_uplink(
             root,
-            getattr(args, "hub_uplink_url", "") or os.environ.get("SIMPLE_EXPERIMENT_HUB_UPLINK_URL", ""),
+            hub_uplink_url,
             getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
             getattr(args, "worker_availability_push_seconds", 60),
             getattr(args, "jitter_seconds", 30),
             getattr(args, "operation_event_max_delay_ms", 1000),
         )
+        # Single-worker (no hub) mode has no uplink driving command execution, so start a
+        # local processor that polls the worker command queue and runs start-worker-task
+        # commands (otherwise run-plan tasks would never launch).
+        if not hub_uplink_url:
+            start_worker_local_command_processor(
+                root,
+                getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
+                getattr(args, "worker_command_poll_seconds", 5),
+                getattr(args, "jitter_seconds", 2),
+            )
     elif mode == "hub_control":
         start_hub_control_sampler(root, getattr(args, "poll_seconds", 60), getattr(args, "jitter_seconds", 30))
 
@@ -8110,6 +8834,10 @@ def serve_http(args):
                 return self.send_json(result, status=200 if result.get("eventCount") else 404)
             if route == "/api/files/capabilities":
                 return self.send_json(api_file_capabilities())
+            if route == "/api/fs/sha256":
+                params = parse_qs(parsed.query)
+                file_path = (params.get("path") or [""])[0].strip()
+                return self.send_json(fs_sha256(root, file_path))
             if route == "/api/snapshot":
                 return self.send_json(api_snapshot(root))
             if route == "/api/gpu":
@@ -8233,13 +8961,13 @@ def serve_http(args):
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
                 if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation") and worker_action not in WORKER_RESULT_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
-            allowed = ACTION_ROUTES | {
+            allowed = ACTION_ROUTES.union({
                 "/api/worker/availability/batch",
                 "/api/workers/uplink/events",
                 "/api/files/upload-init",
                 "/api/files/upload-chunk",
                 "/api/files/upload-complete",
-            }
+            })
             if route not in allowed:
                 return self.send_json({"error": "not found"}, status=404)
             length = int(self.headers.get("Content-Length") or 0)

@@ -254,7 +254,7 @@ function isNwpu3Server(server) {
     const id = String(item.id || item.serverId || "");
     const label = String(item.label || item.name || item.displayName || "");
     const host = String(item.host || item.sshHost || item.resolvedHost || "");
-    return [id, label, host].some((value) => /(^|[^a-z0-9])(nwpu3|nwpu213|npu213)([^a-z0-9]|$)/i.test(value));
+    return [id, label, host].some((value) => /(^|[^a-z0-9])(worker|nwpu213|npu213)([^a-z0-9]|$)/i.test(value));
 }
 function normalizeApiRemotePath(value) {
     const text = String(value || "").trim().replace(/\\/g, "/").replace(/\/+/g, "/");

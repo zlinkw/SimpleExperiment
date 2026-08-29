@@ -29,6 +29,32 @@ export interface RemoteRunEvidence {
   experimentTracesCount?: unknown;
   workerTasksCount?: unknown;
   liveLogCount?: unknown;
+  liveLogTail?: unknown;
+  logTail?: unknown;
+}
+
+// Hard error markers that, once present in a dead scheduler's log tail, should
+// immediately move the operation to a terminal failed state instead of waiting
+// out the reconciliation grace period.
+export const RUN_OPERATION_ERROR_LOG_PATTERNS: RegExp[] = [
+  /Traceback \(most recent call last\)/i,
+  /调度器异常/i,
+  /psutil\.AccessDenied/i,
+  /No such file/i,
+  /ModuleNotFoundError/i,
+  /CondaValueError/i,
+  /EnvironmentNotFound/i,
+  /SyntaxError/i,
+  /subprocess\.CalledProcessError/i,
+  /returned non-zero exit status/i,
+  /\bError\b/i,
+  /\bException\b/i,
+];
+
+export function runOperationLogShowsError(evidence: RemoteRunEvidence): boolean {
+  const tail = String((evidence as any).liveLogTail || (evidence as any).logTail || "");
+  if (!tail) return false;
+  return RUN_OPERATION_ERROR_LOG_PATTERNS.some((re) => re.test(tail));
 }
 
 export function isLongRunningPlanOperation(record: RunOperationRecord): boolean {
@@ -70,7 +96,7 @@ export function reconcileRunOperation(
     experimentTracesCount: Number(evidence.experimentTracesCount || 0),
     liveLogCount: Number(evidence.liveLogCount || 0),
   };
-  const base = { ...record, ...counts, reconcileEvidenceActive: hasRemoteRunActivity(evidence), lastReconciledAt: checkedAt };
+  const base = { ...record, ...counts, reconcileEvidenceActive: Boolean(evidence.pidAlive || evidence.tmuxSessionAlive || Number(evidence.schedulerStatesCount || 0) > 0 || Number(evidence.experimentTracesCount || 0) > 0), lastReconciledAt: checkedAt };
   if (operationTerminalStatus(remoteStatus)) {
     return {
       terminal: true,
@@ -86,8 +112,28 @@ export function reconcileRunOperation(
       },
     };
   }
-  if (hasRemoteRunActivity(evidence)) {
+  const processAlive = Boolean(evidence.pidAlive || evidence.tmuxSessionAlive);
+  if (processAlive) {
     return { terminal: false, patch: { ...base, status: remoteStatus || "running" } };
+  }
+  // Process is dead (no pid / no tmux session). If the log already shows a hard
+  // error, promote to a terminal failed state immediately so the Operations panel
+  // never stays stuck on "waiting for scheduler terminal".
+  const logTail = String((evidence as any).liveLogTail || (evidence as any).logTail || "");
+  if (runOperationLogShowsError(evidence)) {
+    return {
+      terminal: true,
+      patch: {
+        ...base,
+        status: "failed",
+        message: `远端调度进程已退出且日志含错误：${logTail.slice(-500).replace(/\n/g, " ").replace(/\r/g, " ")}`,
+        finishedAt: checkedAt,
+        reconciledAt: checkedAt,
+        reconcileReason: `${reason}:dead_process_with_error_log`,
+        startedAt: record.startedAt || remote.startedAt || "",
+        updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+      },
+    };
   }
   const referenceRaw = String(record.reconcileCheckedAt || record.startedAt || "");
   const reference = Date.parse(referenceRaw);
@@ -98,7 +144,7 @@ export function reconcileRunOperation(
       patch: {
         ...base,
         status: "stale",
-        message: "远端无 pid、tmux、调度状态、trace 或日志证据；本地提交操作已标记 stale。",
+        message: "远端调度进程已退出（pid/tmux 均不可见）且无活动证据；本地提交操作已标记 stale。",
         finishedAt: checkedAt,
         reconciledAt: checkedAt,
         reconcileReason: `${reason}:no_remote_activity`,

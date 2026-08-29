@@ -6,8 +6,8 @@ const test = require("node:test");
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
 
 test("operations surfaces use readable Chinese terminology", () => {
-  assert.match(panel, /界面操作、Agent 返回状态/);
-  assert.match(panel, /"操作终态", "操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"/);
+  assert.match(panel, /调度操作与实验任务统一视图/);
+  assert.match(panel, /"操作列表", "入口", "", "查看已提交、执行中、已完成和异常操作/);
   assert.match(panel, /查看已提交、执行中、已完成和异常操作/);
   assert.match(panel, /失败或卡住的操作需要查看错误和残留/);
   assert.match(panel, /确认耗时按钮在完成、失败、取消或超时后恢复可点击/);

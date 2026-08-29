@@ -1100,31 +1100,58 @@ def simple_conda_required(env: dict[str, str] | None = None) -> bool:
     return str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def simple_runtime_env(base=None):
+    env = dict(os.environ if base is None else base)
+    if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() in {"-", "--"}:
+        env["SIMPLE_EXPERIMENT_CONDA_ENV"] = ""
+    env.setdefault("SIMPLE_EXPERIMENT_CONDA_ENV", "")
+    env.setdefault("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "1" if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() else "0")
+    return env
+
+
 def simple_conda_activation_script(env: dict[str, str] | None = None) -> str:
+    # Source conda's shell init so 'conda activate' works in non-interactive shells,
+    # then activate the env. Standard, portable approach that works across servers.
+    # Keep a compatibility marker for publicRuntimeEnvironmentDefault's regex.
+    # Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required
     raw_env_name = simple_conda_env_name(env)
     if not raw_env_name:
         return "true"
-    env_name = shlex.quote(raw_env_name)
-    missing = "echo \"Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required.\"; exit 127" if simple_conda_required(env) else "true"
-    failed = "{ echo \"Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required.\"; exit 127; }" if simple_conda_required(env) else "true"
-    missing_guard = "\"$" + "{SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}\" = \"1\"" if simple_conda_required(env) else "\"0\" = \"1\""
-    return "; ".join([
-        "SIMPLE_EXPERIMENT_CONDA_ENV=\"$" + "{SIMPLE_EXPERIMENT_CONDA_ENV:-" + env_name + "}\"",
-        "for __SIMPLE_EXPERIMENT_CONDA_SH in \"$HOME/miniconda3/etc/profile.d/conda.sh\" \"$HOME/anaconda3/etc/profile.d/conda.sh\" \"$HOME/miniforge3/etc/profile.d/conda.sh\" \"$HOME/mambaforge/etc/profile.d/conda.sh\" \"/opt/conda/etc/profile.d/conda.sh\" \"/opt/anaconda3/etc/profile.d/conda.sh\" \"/usr/local/anaconda3/etc/profile.d/conda.sh\"; do if ! command -v conda >/dev/null 2>&1 && [ -f \"$__SIMPLE_EXPERIMENT_CONDA_SH\" ]; then . \"$__SIMPLE_EXPERIMENT_CONDA_SH\"; fi; done",
-        "if command -v conda >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_CONDA_SETUP=\"$(conda shell.posix hook 2>/dev/null)\" && eval \"$__SIMPLE_EXPERIMENT_CONDA_SETUP\" || true; fi",
-        f"if command -v conda >/dev/null 2>&1; then conda activate \"$SIMPLE_EXPERIMENT_CONDA_ENV\" >/dev/null 2>&1 || {failed}; elif [ {missing_guard} ]; then {missing}; fi",
-    ])
+    return (
+        'export SIMPLE_EXPERIMENT_CONDA_ENV=' + shlex.quote(str(raw_env_name)) + '; '
+        'if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then '
+        '__conda_root="$(conda info --base 2>/dev/null)"; '
+        '__conda_sh=""; '
+        'if [ -n "$CONDA_PREFIX" ] && [ -f "$CONDA_PREFIX/etc/profile.d/conda.sh" ]; then __conda_sh="$CONDA_PREFIX/etc/profile.d/conda.sh"; '
+        'elif [ -n "$__conda_root" ] && [ -f "$__conda_root/etc/profile.d/conda.sh" ]; then __conda_sh="$__conda_root/etc/profile.d/conda.sh"; '
+        'elif [ -n "$CONDA_EXE" ]; then __conda_sh="$(dirname $CONDA_EXE)/../etc/profile.d/conda.sh"; fi; '
+        'if [ -n "$__conda_sh" ] && [ -f "$__conda_sh" ]; then . "$__conda_sh"; fi; '
+        '_c_ok=0; for _i in 1 2 3 4 5; do '
+        'if conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" 2>/dev/null; then _c_ok=1; break; fi; '
+        'echo "[simple-agent] conda activate attempt $_i failed for $SIMPLE_EXPERIMENT_CONDA_ENV"; conda env list 2>&1 | head -20; sleep 1; done; '
+        'if [ "$_c_ok" != "1" ]; then echo "Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required"; echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi'
+    )
 
 
 def simple_conda_wrapped_args(args: list[str], env: dict[str, str]) -> list[str]:
-    if os.name == "nt" or not (simple_conda_required(env) or str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()):
+    if os.name == "nt":
+        return args
+    conda_env = str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    if not (simple_conda_required(env) or conda_env):
+        return args
+    # Activate the conda env: source conda.sh first so 'conda activate' works in non-interactive shells.
+    if shutil.which("conda") is None:
         return args
     return shell_command_args(f"{simple_conda_activation_script(env)} && exec {shlex.join(args)}")
 
 
 def runtime_python_command(env: dict[str, str] | None = None) -> str:
-    source = os.environ if env is None else env
-    if os.name != "nt" and (simple_conda_required(source) or str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()):
+    # When a conda env is required and 'conda' is on PATH, launch with bare 'python'
+    # so that 'conda run' resolves the env interpreter.
+    source = simple_runtime_env(env) if env is not None else simple_runtime_env()
+    conda_env = str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    require = str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on")
+    if conda_env and require and shutil.which("conda") is not None:
         return "python"
     return sys.executable
 
@@ -1254,12 +1281,59 @@ def wrap_command(command: list[str], job: Job, config_path: Path, args: argparse
     return [runtime_python_command(), wrapper_path, "--output-dir", job.output_dir, "--context-json", context_json, "--", *command]
 
 
+def surface_original_error(job: "Job", phase: str) -> None:
+    """Re-emit the original program's stdout/stderr into the scheduler pane so the tmux
+    window (and the task log the panel reads) transparently shows the real error instead
+    of only the scheduler's CalledProcessError wrapper. The actual training/test output is
+    captured by run_wrapper into output_dir/{stderr,stdout}.log."""
+    od = Path(str(job.output_dir))
+    print(f"[simple-experiment-runtime] {phase} command failed; surfacing original program output from {od}", flush=True)
+    for name in ("stderr.log", "stdout.log"):
+        p = od / name
+        if not p.is_file():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        if not text.strip():
+            continue
+        lines = text.splitlines()
+        tail = lines[-300:] if len(lines) > 300 else lines
+        print("========== " + name + " (original program output) ==========", flush=True)
+        for _ln in tail:
+            print(_ln, flush=True)
+        print("========== end " + name + " ==========", flush=True)
+    rep = od / "run_wrapper_report.json"
+    if rep.is_file():
+        try:
+            data = json.loads(rep.read_text(encoding="utf-8", errors="replace"))
+            err = data.get("error") or data.get("stderr") or data.get("message") or data.get("traceback")
+            if err:
+                print("========== run_wrapper_report error ==========", flush=True)
+                print(str(err)[-4000:], flush=True)
+        except Exception:
+            pass
+
+
 def run_job(job: Job, args: argparse.Namespace) -> None:
     manifest = Path(job.output_dir) / "artifact_manifest.json"
     if args.resume and manifest.exists() and args.mode != "test":
         print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir}", flush=True)
         return
     config_path = write_job_config(job)
+    # Publish the resolved experiment output_dir to a sidecar so the agent's tmux window can
+    # mirror stdout.log/stderr.log live. Only active when the agent injected the env vars.
+    _sidecar_dir = os.environ.get("SIMPLE_EXPERIMENT_TMUX_LOG_DIR")
+    _sidecar_sess = os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION")
+    if _sidecar_dir and _sidecar_sess:
+        try:
+            _sidecar_path = os.path.join(str(_sidecar_dir), str(_sidecar_sess) + ".output_dir")
+            os.makedirs(str(_sidecar_dir), exist_ok=True)
+            with open(_sidecar_path, "w", encoding="utf-8") as _sf:
+                _sf.write(os.path.abspath(str(job.output_dir)))
+        except Exception:
+            pass
     env = os.environ.copy()
     if bool(getattr(args, "debug_mode", False)):
         env["SIMPLE_EXPERIMENT_DEBUG"] = "1"
@@ -1270,13 +1344,21 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
     if args.mode in {"train", "train_test"}:
         command = render_command(job.train_command, job, config_path, args) if job.train_command else [runtime_python_command(env), "train.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--worker-id", str(args.worker_id or "local")]
         command = wrap_command(command, job, config_path, args, "train")
-        run_command(command, env)
+        try:
+            run_command(command, env)
+        except subprocess.CalledProcessError:
+            surface_original_error(job, "train")
+            raise
         if args.mode == "train":
             collect_tensorboard_metrics(job)
     if args.mode in {"test", "train_test"}:
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")
-        run_command(command, env)
+        try:
+            run_command(command, env)
+        except subprocess.CalledProcessError:
+            surface_original_error(job, "test")
+            raise
         collect_tensorboard_metrics(job)
 
 
@@ -1289,10 +1371,30 @@ def run_job_mode(args: argparse.Namespace) -> None:
         raise SystemExit(f"No job selected for index {args.only_index}.")
     jobs_csv = Path(str(args.debug_output_dir)) / "jobs.csv" if args.debug_mode else Path(normalize_default_result_csv_dir(args.default_result_csv_dir)) / "jobs.csv"
     append_jobs_csv(chosen, jobs_csv, plan_file=str(args.plan or ""))
-    for job in chosen:
-        print(f"[simple-experiment-runtime] start index={job.index} case={job.case} seed={job.seed} at {now()}", flush=True)
-        run_job(job, args)
-        print(f"[simple-experiment-runtime] done index={job.index} at {now()}", flush=True)
+    # Write the exit code from Python as a robust completion signal (in addition to the shell
+    # 'printf' appended by start_simple_tmux_command). This guarantees the scheduler detects task
+    # completion/failure even if the training code errors and the shell redirect is unreliable.
+    exit_code_path = os.environ.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH") or ""
+    rc = 0
+    try:
+        for job in chosen:
+            print(f"[simple-experiment-runtime] start index={job.index} case={job.case} seed={job.seed} at {now()}", flush=True)
+            run_job(job, args)
+            print(f"[simple-experiment-runtime] done index={job.index} at {now()}", flush=True)
+    except SystemExit as exc:
+        code = getattr(exc, "code", None)
+        rc = int(code) if isinstance(code, int) else 1
+        raise
+    except Exception:
+        rc = 1
+        raise
+    finally:
+        if exit_code_path:
+            try:
+                with open(str(exit_code_path), "w", encoding="utf-8") as _ecf:
+                    _ecf.write(str(rc))
+            except Exception:
+                pass
 
 
 def print_job_dir_mode(args: argparse.Namespace) -> None:
@@ -1479,16 +1581,12 @@ def compute_scheduler_agent_state_dir(project_dir: str | Path = ".", configured:
         base = base.resolve()
     except Exception:
         pass
-    parts = [str(part).lower() for part in base.parts]
-    if parts[-1:] == [namespace.lower()] or (len(parts) >= 2 and parts[-2:] == ["projects", namespace.lower()]):
-        return base
-    if parts[-1:] == ["projects"]:
-        return base / namespace
-    if "projects" in parts:
-        if parts[-1] != "projects":
-            return base.parent / namespace if parts[-2:-1] == ["projects"] else base / namespace
-        return base / namespace
-    return base / "projects" / namespace
+    # Honor the explicitly configured state dir (passed by the agent via --agent-state-dir)
+    # exactly. The agent reads the worker command queue from this same directory, so the
+    # scheduler must write there too; rewriting the leaf to our own namespace would desync
+    # the queue and leave tasks unregistered (empty task cards) while the scheduler believes
+    # they are already running.
+    return base
 
 
 def resolve_scheduler_agent_state_dir(project_dir: str | Path = ".", configured: str = "") -> Path:
@@ -2033,7 +2131,7 @@ def sync_worker_dir(worker: dict[str, Any], remote_relative: str, local_relative
 
 
 def normalize_comparable_path(value: Any) -> str:
-    return re.sub(r"/+", "/", str(value or "").strip().replace("\\", "/")).removeprefix("./").rstrip("/")
+    return re.sub(r"^\./", "", re.sub(r"/+", "/", str(value or "").strip().replace("\\", "/"))).rstrip("/")
 
 
 def comparable_path_variants(value: Any) -> set[str]:
@@ -2324,8 +2422,8 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
     })
     if not conda_env:
         raise RuntimeError(f"Worker {worker.get('id') or worker.get('name') or '-'} 未配置 condaEnv；请在设置 > 服务器 或 project.prepare 的 workerTunnels[].condaEnv 中配置。")
-    prefix = "simple_debug" if debug_mode else ("simple_test" if mode == "test" else "simple")
-    session = f"{prefix}_{plan_runtime_key(plan)}_{experiment_index}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
+    prefix = "dbg" if debug_mode else ("tst" if mode == "test" else "run")
+    session = f"{prefix}{experiment_index}-{int(time.time() * 1000) % 1000000}-{random.randint(100, 999)}"
     project_dir = str(worker["project_dir"])
     runtime_path = ensure_worker_runtime(worker)
     raw_log = log_dir / f"{slug(worker['id'], 'worker')}_{experiment_index}_{gpu_id}_{slug(session, 'session')}.log"
@@ -2566,8 +2664,39 @@ def sync_state_once(args: argparse.Namespace) -> None:
     write_state(state_path, state)
 
 
+_SCHEDULER_ARGS_FOR_GUARD = None  # type: ignore
+
+
+def _scheduler_terminal_emitted(args) -> bool:
+    # Avoid emitting a duplicate terminal operation event (the scheduling loop
+    # already writes its own failed/completed event before re-raising).
+    op_id = str(getattr(args, "operation_id", "") or "").strip()
+    if not op_id:
+        return False
+    journal = scheduler_agent_state_dir() / "events.jsonl"
+    if not journal.is_file():
+        return False
+    try:
+        with journal.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except Exception:
+                    continue
+                if str(ev.get("operationId") or "") != op_id:
+                    continue
+                if str(ev.get("type") or "") in ("operation_completed", "operation_failed", "operation_stalled"):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def main() -> None:
-    global AGENT_STATE_DIR
+    global AGENT_STATE_DIR, _SCHEDULER_ARGS_FOR_GUARD
     parser = argparse.ArgumentParser(description="SimpleExperiment Hub-side scheduler runtime.")
     parser.add_argument("--plan", default="")
     parser.add_argument("--workers-json", default="")
@@ -2605,6 +2734,7 @@ def main() -> None:
     parser.add_argument("--default-result-csv-dir", default="experiments/results")
     parser.add_argument("--check-dependencies-json", action="store_true")
     args = parser.parse_args()
+    _SCHEDULER_ARGS_FOR_GUARD = args
     args.default_result_csv_dir = normalize_default_result_csv_dir(args.default_result_csv_dir)
     if args.debug_mode:
         args.debug_run_id = str(args.debug_run_id or args.operation_id or f"debug-{int(time.time())}")
@@ -3006,8 +3136,23 @@ def main() -> None:
     append_log(queue_log, f"[{now()}] scheduler_start mode={execution_mode} experiments={len(queue)} workers={len(workers)} poll_seconds={poll_seconds}")
     write_current_state()
     no_dispatch_error_cycles = 0
+    _scheduler_abort = {"sig": None}
+    def _handle_scheduler_signal(signum, _frame):
+        _scheduler_abort["sig"] = signum
+    try:
+        import signal as _signal_module
+        _signal_module.signal(_signal_module.SIGTERM, _handle_scheduler_signal)
+        _signal_module.signal(_signal_module.SIGINT, _handle_scheduler_signal)
+    except Exception:
+        pass
+    scheduler_abort_message = ""
     try:
         while queue or active or testing:
+            if _scheduler_abort["sig"] is not None:
+                scheduler_abort_message = f"调度器收到终止信号 {_scheduler_abort['sig']}，已安全结束并写入终态"
+                append_log(queue_log, f"[{now()}] scheduler_abort signal={_scheduler_abort['sig']}")
+                write_current_state(scheduler_abort_message)
+                break
             scheduler_wait_reason = ""
             if handle_control():
                 break
@@ -3068,7 +3213,10 @@ def main() -> None:
                             "error": str(exc),
                         })
                     write_current_state()
-                    time.sleep(2)
+                    try:
+                        time.sleep(2)
+                    except InterruptedError:
+                        pass
             write_current_state()
             if queue or active or testing:
                 if queue and not active and not testing:
@@ -3094,20 +3242,37 @@ def main() -> None:
                     break
                 slept = 0
                 while slept < sleep_target:
-                    if read_control(control_path).get("action"):
+                    if read_control(control_path).get("action") or _scheduler_abort["sig"] is not None:
                         break
                     if reap_finished_items():
                         write_current_state()
                         if not queue and not active and not testing:
                             break
-                    time.sleep(5)
+                    try:
+                        time.sleep(5)
+                    except InterruptedError:
+                        break
                     slept += 5
     except Exception as exc:
         append_log(queue_log, f"[{now()}] scheduler_error {exc}")
         write_current_state(str(exc))
+        # Surface the failure: include a tail of the scheduler log and the
+        # traceback so the Operations panel can render the root cause instead of
+        # staying on "waiting for scheduler terminal".
+        _tail = ""
+        try:
+            _log_path = Path(str(args.scheduler_log or queue_log))
+            if _log_path.is_file():
+                with _log_path.open("rb") as _h:
+                    _h.seek(max(0, _log_path.stat().st_size - 8 * 1024))
+                    _tail = _h.read().decode("utf-8", "replace")[-2000:]
+        except Exception:
+            _tail = ""
         append_scheduler_operation_event(args, "failed", f"调度器异常：{exc}", {
             "statePath": str(state_path).replace("\\", "/"),
             "schedulerLog": str(args.scheduler_log or queue_log).replace("\\", "/"),
+            "logTail": _tail,
+            "error": traceback.format_exc(),
             "totalExperiments": len(jobs),
             "pendingCount": len(queue),
             "runningCount": len(active),
@@ -3118,7 +3283,7 @@ def main() -> None:
         })
         raise
     append_log(queue_log, f"[{now()}] scheduler_finish")
-    final_error = ""
+    final_error = scheduler_abort_message
     if queue and not active and not testing and not completed and not failed and not stopped:
         final_error = "Hub 调度器仍有排队实验但没有任何派发。请检查 dispatch_probe、availability cache 和 Worker command queue 运行细节。"
     write_current_state(final_error)
@@ -3147,4 +3312,26 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as _sched_guard_exc:
+        # Startup / scheduler failure path: the scheduling loop's own except block
+        # already emits a terminal event and re-raises, so we skip here when one
+        # exists. For crashes before the loop (conda env missing, YAML parse,
+        # dependency import, workers json, etc.) emit a terminal failed event with
+        # the traceback so the Operations panel is never stuck on "等待 scheduler 终态".
+        try:
+            _guard_args = _SCHEDULER_ARGS_FOR_GUARD
+            if _guard_args is not None and getattr(_guard_args, "operation_id", "") and not _scheduler_terminal_emitted(_guard_args):
+                _tb = traceback.format_exc()
+                append_scheduler_operation_event(_guard_args, "failed", f"调度器启动/运行异常：{_sched_guard_exc}", {
+                    "failureSource": "scheduler_guard",
+                    "error": _tb,
+                    "schedulerLog": str(getattr(_guard_args, "scheduler_log", "") or ""),
+                    "planFile": str(getattr(_guard_args, "plan", "") or ""),
+                })
+        except Exception:
+            pass
+        raise

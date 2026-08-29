@@ -138,7 +138,7 @@ test("webview command lifecycle reuses fixed status and command sets", () => {
   assert.equal(sandbox.api.commandNeedsLoading("runPlan"), true);
   assert.equal(sandbox.api.isTerminalUiStatus("STALLED"), true);
   assert.equal(sandbox.api.isTerminalUiStatus("running"), false);
-  assert.equal(sandbox.api.submittedCommandTarget("runAllPlans", "submitted").section, "tasks");
+  assert.equal(sandbox.api.submittedCommandTarget("runAllPlans", "submitted").section, "execution");
   assert.equal(sandbox.api.submittedCommandTarget("restoreArchivedPlan", "completed").section, "plans");
   assert.equal(sandbox.api.submittedCommandTarget("runPlan", "running"), null);
   assert.equal(sandbox.api.isConfigSaveCommand("saveSchedulerConfig"), true);

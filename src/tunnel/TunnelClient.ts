@@ -11,6 +11,7 @@ export const tunnelActions = [
   "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",
   "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config",
   "start-worker-task", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
+  "start-tensorboard", "get-tensorboard-status",
 ] as const;
 
 export type TunnelAction = typeof tunnelActions[number];

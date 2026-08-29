@@ -4,7 +4,7 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const runtimes = [
-  ["dist/clusterAgentRuntime.js", "CLUSTER_AGENT_RUNTIME", "dist/runtime/cluster_agent.py", "#!/usr/bin/env python3\n"],
+  ["dist/clusterAgentRuntime.js", "CLUSTER_AGENT_RUNTIME", "dist/runtime/cluster_agent.py", "#!/usr/bin/env python3\nfrom __future__ import annotations\n"],
   ["dist/clusterSchedulerRuntime.js", "CLUSTER_SCHEDULER_RUNTIME", "dist/runtime/cluster_scheduler.py", "from __future__ import annotations\n"],
 ];
 

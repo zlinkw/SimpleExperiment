@@ -40,9 +40,9 @@ function loadWorkflowHelpers() {
 
 test("Plan workflow navigation preserves busy task and ready phase semantics", () => {
   const api = loadWorkflowHelpers();
-  assert.equal(api.projectOnboardingExecutionTarget({ phase: "validating" }).section, "operations");
-  assert.equal(api.projectOnboardingExecutionTarget({ phase: "monitor" }).section, "tasks");
-  assert.equal(api.projectOnboardingExecutionTarget({ phase: "review" }).section, "tasks");
+  assert.equal(api.projectOnboardingExecutionTarget({ phase: "validating" }).section, "execution");
+  assert.equal(api.projectOnboardingExecutionTarget({ phase: "monitor" }).section, "execution");
+  assert.equal(api.projectOnboardingExecutionTarget({ phase: "review" }).section, "execution");
   assert.equal(api.projectOnboardingExecutionTarget({ phase: "ready" }).section, "plans");
 
   assert.equal(api.planFirstRunRecommended({}, "plan.yaml", {}, { phase: "ready" }, true), true);

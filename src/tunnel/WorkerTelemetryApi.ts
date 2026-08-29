@@ -33,6 +33,8 @@ export const workerTelemetryActionNames = [
   "stop-worker-task",
   "delete-worker-artifacts",
   "archive-worker-artifacts",
+  "start-tensorboard",
+  "get-tensorboard-status",
 ] as const;
 
 export const workerLocalSchedulerActionNames = [

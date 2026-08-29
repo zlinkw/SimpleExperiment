@@ -11,3 +11,9 @@
 - `Direct fallback disabled`：插件已禁用直接远端回退路径，所有访问必须走本机 Xshell 隧道。
 
 需要定位问题时，运行“生成脱敏调试包”。调试包包含脱敏后的配置、诊断、操作记录、错误、审计日志尾部、runtime 状态、Agent 状态和自检结果，不包含实验产物或大日志。
+
+## 远端执行（tmux / bash -lc / conda）专项坑
+
+Agent、Scheduler、Worker 任务都通过 `tmux ... bash -lc "<script>"` 在远端运行。下列坑专门记录在此：
+[bash -lc 远程执行踩坑记录](bash-lc-pitfalls.md)（conda 激活失败致会话自毁、嵌套双引号吞掉日志重定向、
+tmux 继承 SERVER 环境、`>> log` 只重定向末条命令、Python 3.8 运行时兼容等）。改运行时模板前必读第 7 节自检清单。

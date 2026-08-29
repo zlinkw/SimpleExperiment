@@ -5,6 +5,8 @@ exports.createRealtimeState = createRealtimeState;
 exports.validateRealtimeEvent = validateRealtimeEvent;
 exports.applyRealtimeEvent = applyRealtimeEvent;
 exports.compactRealtimeLogs = compactRealtimeLogs;
+exports.isStaleRunningOperation = isStaleRunningOperation;
+exports.reconcileStaleRunningOperations = reconcileStaleRunningOperations;
 exports.compactRealtimeState = compactRealtimeState;
 exports.compactClusterSnapshot = compactClusterSnapshot;
 exports.applySnapshot = applySnapshot;
@@ -304,6 +306,48 @@ function isTerminalOperation(value) {
 }
 function isTerminalOperationType(type) {
     return type === "operation_completed" || type === "operation_failed";
+}
+// A running operation that has exceeded the stale grace window (and whose plan no
+// longer has any scheduler snapshot state) can be promoted to a terminal "stale"
+// state by a watchdog. Terminal operations are never touched (no regression).
+function isStaleRunningOperation(operation, options = {}) {
+    if (isTerminalOperation(operation))
+        return false;
+    const item = (operation && typeof operation === "object" ? operation : {});
+    const status = String(item.status || item.state || "").trim().toLowerCase();
+    if (status && status !== "running" && status !== "accepted" && status !== "queued" && status !== "submitted")
+        return false;
+    const nowMs = options.nowMs ?? Date.now();
+    const staleAfterMs = options.staleAfterMs ?? 15 * 60 * 1000;
+    const startedAtMs = options.startedAtMs ?? Date.parse(String(item.startedAt || item.createdAt || item.updatedAt || ""));
+    if (!Number.isFinite(startedAtMs))
+        return false;
+    return nowMs - startedAtMs > staleAfterMs;
+}
+// Apply the stale-running watchdog to a map of operations, preserving terminal
+// states. `snapshotSchedulerPlanFiles` lets callers additionally flag operations
+// whose plan has no scheduler state in the latest snapshot.
+function reconcileStaleRunningOperations(operations, options = {}) {
+    const nowMs = options.nowMs ?? Date.now();
+    const staleAfterMs = options.staleAfterMs ?? 15 * 60 * 1000;
+    const planFiles = options.snapshotSchedulerPlanFiles;
+    const out = {};
+    for (const [id, op] of Object.entries(operations || {})) {
+        if (isTerminalOperation(op) || !isStaleRunningOperation(op, { staleAfterMs, nowMs })) {
+            out[id] = op;
+            continue;
+        }
+        const item = (op && typeof op === "object" ? op : {});
+        const planFile = String(item.planFile || item.plan || "");
+        const noSchedulerState = !!planFiles && planFiles.size > 0 && !!planFile && !planFiles.has(planFile);
+        out[id] = {
+            ...item,
+            status: "stale",
+            staleReason: noSchedulerState ? "no_scheduler_state_in_snapshot" : "running_exceeded_grace",
+            reconciledAt: new Date(nowMs).toISOString(),
+        };
+    }
+    return out;
 }
 function compactRealtimeState(state, options = {}) {
     return {

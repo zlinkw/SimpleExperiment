@@ -22,7 +22,7 @@ function extractFunction(name) {
 function loadNormalizers() {
   const sandbox = {
     activeResourceSection: "plans",
-    RESOURCE_TREE_SECTION_KEYS: new Set(["overview", "servers", "settings", "gpu", "tasks", "plans", "results", "sync", "operations", "diagnostics"]),
+    RESOURCE_TREE_SECTION_KEYS: new Set(["overview", "servers", "settings", "gpu", "execution", "plans", "results", "sync", "diagnostics"]),
     SAVED_ACTION_PAYLOAD_KEYS: Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]),
     BUTTON_PAYLOAD_ATTRIBUTE_NAMES: Object.freeze({ planFile: "plan-file", runKey: "run-key", sourcePath: "source-path" }),
     BUTTON_PAYLOAD_ATTRIBUTE_KEYS: Object.freeze(["planFile", "runKey", "sourcePath"]),
@@ -98,7 +98,7 @@ test("saved action normalization caches by source, limit, and active section", (
 test("saved action normalization keeps only the newest bounded variants", () => {
   const sandbox = loadNormalizers();
   const actions = [{ command: "runPlan", payload: { planFile: "demo.yaml" } }];
-  const sections = ["overview", "servers", "settings", "gpu", "plans", "tasks", "results", "sync", "operations", "diagnostics"];
+  const sections = ["overview", "servers", "settings", "gpu", "plans", "execution", "results", "sync", "diagnostics"];
   const oldest = sandbox.normalizeActions(actions, 16);
   for (const section of sections.slice(1)) {
     sandbox.activeResourceSection = section;
@@ -137,7 +137,7 @@ test("panel reuses fixed resource section tone and inspector lookups", () => {
   assert.equal(toneSandbox.normalizeTone("unknown"), "");
 
   assert.match(panel, /const RESOURCE_TREE_TONE_VALUES = new Set\(\["good", "info", "warn", "error", "mine"\]\)/);
-  assert.match(panel, /const INSPECTOR_OPERATION_SECTIONS = new Set\(\["tasks", "operations"\]\)/);
+  assert.match(panel, /const INSPECTOR_OPERATION_SECTIONS = new Set\(\["execution"\]\)/);
   assert.match(panel, /RESOURCE_TREE_SECTION_KEYS\.has\(value\)/);
   assert.match(panel, /RESOURCE_TREE_TONE_VALUES\.has\(value\)/);
   assert.equal((panel.match(/INSPECTOR_OPERATION_SECTIONS\.has/g) || []).length, 4);

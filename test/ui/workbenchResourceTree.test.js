@@ -176,7 +176,7 @@ test("resource tree active state does not rewrite inspector during realtime refr
 test("resource tree includes stable semantic sections including publish sync", () => {
   const source = panelSource();
 
-  for (const section of ["overview", "servers", "gpu", "tasks", "plans", "results", "operations", "diagnostics", "sync"]) {
+  for (const section of ["overview", "servers", "gpu", "execution", "plans", "results", "diagnostics", "sync"]) {
     assert.match(source, new RegExp(`item\\("${section}"`));
   }
   assert.match(source, /normalizeUiLayout\(currentUiLayout\)\.order\.concat\(\["sync"\]\)/);

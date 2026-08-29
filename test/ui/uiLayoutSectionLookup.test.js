@@ -20,7 +20,7 @@ function extractFunction(name) {
 }
 
 function loadLayoutNormalizer() {
-  const order = Object.freeze(["overview", "gpu", "tasks", "plans", "results", "sync", "operations", "servers", "settings", "diagnostics"]);
+  const order = Object.freeze(["overview", "gpu", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
   const keys = new Set(order);
   const sandbox = {
     RESOURCE_TREE_SECTION_ORDER: order,
@@ -47,7 +47,7 @@ function loadLayoutNormalizer() {
 }
 
 test("UI layout normalization reuses fixed section order and lookup set", () => {
-  assert.match(panel, /const RESOURCE_TREE_SECTION_ORDER = Object\.freeze\(\["overview", "gpu", "tasks", "plans", "results", "sync", "operations", "servers", "settings", "diagnostics"\]\)/);
+  assert.match(panel, /const RESOURCE_TREE_SECTION_ORDER = Object\.freeze\(\["overview", "gpu", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"\]\)/);
   assert.match(panel, /const RESOURCE_TREE_SECTION_KEYS = new Set\(RESOURCE_TREE_SECTION_ORDER\)/);
   const source = extractFunction("normalizeUiLayout");
   assert.match(source, /RESOURCE_TREE_SECTION_KEYS\.has\(item\)/);
@@ -59,7 +59,7 @@ test("UI layout normalization reuses fixed section order and lookup set", () => 
 test("UI layout normalization preserves custom order duplicates and adjacent fields", () => {
   const sandbox = loadLayoutNormalizer();
   const layout = {
-    order: ["tasks", "unknown", "overview", "tasks"],
+    order: ["execution", "unknown", "overview", "execution"],
     collapsed: { gpu: true },
     resourceTreeChildren: { plans: ["plan:a"] },
     columns: { tree: 300, inspector: 380 },
@@ -72,7 +72,7 @@ test("UI layout normalization preserves custom order duplicates and adjacent fie
   };
   const normalized = sandbox.normalize(layout);
 
-  assert.deepEqual(Array.from(normalized.order), ["tasks", "overview", "tasks", "gpu", "plans", "results", "sync", "operations", "servers", "settings", "diagnostics"]);
+  assert.deepEqual(Array.from(normalized.order), ["execution", "overview", "execution", "gpu", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
   assert.equal(sandbox.RESOURCE_TREE_SECTION_KEYS.checks, layout.order.length);
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.collapsed)), { servers: true, settings: true, diagnostics: true, gpu: true });
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.resourceTreeChildren)), layout.resourceTreeChildren);

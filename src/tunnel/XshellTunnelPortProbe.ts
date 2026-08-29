@@ -36,6 +36,7 @@ export interface TunnelProbeResult {
   apiVersion?: string;
   expectedAgentVersion?: string;
   projectRoot?: string;
+  agentInstallDir?: string;
   schedulerDependencies?: unknown;
   capabilities?: AgentCapabilitiesResponse;
   fileCapabilities?: FileCapabilitiesResponse;
@@ -56,6 +57,7 @@ export interface WorkerTelemetryProbeResult {
   workerTasksApiOk: boolean;
   latencyMs?: number;
   projectRoot?: string;
+  agentInstallDir?: string;
   schedulerDependencies?: unknown;
   capabilities?: unknown;
   warnings: string[];
@@ -118,6 +120,7 @@ export async function probeLocalTunnel(
       };
     }
     const projectRoot = String(health.projectRoot || "").trim();
+    const agentInstallDir = String(health.agentInstallDir || "").trim();
     const schedulerDependencies = health.schedulerDependencies;
 
     const capsResponse = await timedFetch(`${base}/api/capabilities`, { headers }, timeoutMs);
@@ -164,6 +167,7 @@ export async function probeLocalTunnel(
         agentVersion: health.agentVersion,
         apiVersion: capabilities.apiVersion,
         projectRoot,
+        agentInstallDir,
         schedulerDependencies,
         capabilities,
         missingCapabilities: compatibility.missingEndpoints,
@@ -249,6 +253,7 @@ export async function probeLocalTunnel(
       agentVersion: health.agentVersion,
       apiVersion: capabilities.apiVersion,
       projectRoot,
+      agentInstallDir,
       schedulerDependencies: health.schedulerDependencies,
       capabilities,
       fileCapabilities,
@@ -304,6 +309,7 @@ export async function probeWorkerTelemetryTunnel(
     }
     const health = await healthResponse.json().catch(() => ({}));
     const projectRoot = String(health.projectRoot || "").trim();
+    const agentInstallDir = String(health.agentInstallDir || "").trim();
     const capsResponse = await timedFetch(`${base}/api/capabilities`, { headers }, timeoutMs);
     if (capsResponse.status === 401 || capsResponse.status === 403) {
       return { ...baseResult, tcpOpen: true, healthOk: true, projectRoot, status: "agent_token_invalid", message: "Worker Telemetry token 被拒绝。" };
@@ -333,6 +339,7 @@ export async function probeWorkerTelemetryTunnel(
       status: ok ? "ok" : "worker_api_invalid",
       latencyMs: Date.now() - started,
       projectRoot,
+      agentInstallDir,
       schedulerDependencies: health.schedulerDependencies,
       capabilities,
       warnings: validation.warnings,
