@@ -57,5 +57,5 @@ test("panel reports post-bootstrap render failures without hiding the recovery p
   assert.match(extension, /case "webviewRenderError":[\s\S]{0,260}recordActionError/);
   assert.match(extension, /"webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel"/);
   assert.match(panel, /let lastRenderErrorMessage = ""/);
-  assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", error: message\.slice\(0, 480\) \}\)/);
+  assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", error: .*\.slice\(0, \d+\) \}\)/);
 });

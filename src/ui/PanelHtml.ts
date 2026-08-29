@@ -2526,7 +2526,7 @@ export function renderPanelHtml(): string {
       } catch (error) {
         const message = error && error.message ? String(error.message) : String(error);
         const stack = error && error.stack ? String(error.stack).slice(0, 900) : "";
-        const full = stack ? message + "\n" + stack : message;
+        const full = stack ? message + String.fromCharCode(10) + stack : message;
         el("renderError").textContent = "UI 渲染失败：" + message + (stack ? " | " + stack.slice(0, 380) : "");
         if (message !== lastRenderErrorMessage) {
           lastRenderErrorMessage = message;
