@@ -9498,7 +9498,7 @@ export function renderPanelHtml(): string {
       const cls = operationIsActive(st) ? "is-running" : (operationIsFailureLike(st) || st === "stale" ? "is-failed" : "");
       const message = operationDisplayMessage(op);
       const errorLine = operationErrorLine(op, message);
-      const logPath = String((op && (op.logPath || ((op.payload || {}) && op.payload.logPath))) || "").trim();
+      const logPath = String((op.logPath || (op.payload && op.payload.logPath)) || "").trim();
       const opId = String((op && (op.operationId || op.id)) || "");
       const openLog = logPath ? '<button class="mini secondary" data-command="copyText" data-text="' + escAttr(logPath) + '" title="复制调度器完整日志路径">复制日志路径</button>' : '';
       const openOps = '<button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳转到操作进度查看该操作终态与日志">查看操作进度</button>';
