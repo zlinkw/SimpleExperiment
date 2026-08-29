@@ -2525,11 +2525,14 @@ export function renderPanelHtml(): string {
         lastRenderErrorMessage = "";
       } catch (error) {
         const message = error && error.message ? String(error.message) : String(error);
-        el("renderError").textContent = "UI 渲染失败：" + message;
+        const stack = error && error.stack ? String(error.stack).slice(0, 900) : "";
+        const full = stack ? message + "\n" + stack : message;
+        el("renderError").textContent = "UI 渲染失败：" + message + (stack ? " | " + stack.slice(0, 380) : "");
         if (message !== lastRenderErrorMessage) {
           lastRenderErrorMessage = message;
-          vscode.postMessage({ command: "webviewRenderError", error: message.slice(0, 480) });
+          vscode.postMessage({ command: "webviewRenderError", error: full.slice(0, 980) });
         }
+        try { console.error("[SimpleExperiment] renderPanel failed", error); } catch (_) {}
       }
     }
 
