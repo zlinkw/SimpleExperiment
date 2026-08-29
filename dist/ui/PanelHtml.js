@@ -9496,12 +9496,13 @@ function renderPanelHtml() {
     }
 
     function renderSchedulerPlaceholderCard(op) {
-      const st = String(op.status || op.state || "running").toLowerCase();
+      if (!op || typeof op !== "object") return "";
+      const st = String((op && (op.status || op.state)) || "running").toLowerCase();
       const cls = operationIsActive(st) ? "is-running" : (operationIsFailureLike(st) || st === "stale" ? "is-failed" : "");
       const message = operationDisplayMessage(op);
       const errorLine = operationErrorLine(op, message);
-      const logPath = String(op.logPath || ((op.payload || {}) && op.payload.logPath) || "").trim();
-      const opId = String(op.operationId || op.id || "");
+      const logPath = String((op && (op.logPath || ((op.payload || {}) && op.payload.logPath))) || "").trim();
+      const opId = String((op && (op.operationId || op.id)) || "");
       const openLog = logPath ? '<button class="mini secondary" data-command="copyText" data-text="' + escAttr(logPath) + '" title="复制调度器完整日志路径">复制日志路径</button>' : '';
       const openOps = '<button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳转到操作进度查看该操作终态与日志">查看操作进度</button>';
       return '<div class="taskCard schedulerPlaceholder ' + cls + '" data-anchor="task-placeholder-' + escAttr(opId || st) + '">' +
@@ -9531,10 +9532,10 @@ function renderPanelHtml() {
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
       let placeholderSummary = "";
       if (showPlaceholder) {
-        const top = placeholderOps[0];
+        const top = (placeholderOps[0] && typeof placeholderOps[0] === "object") ? placeholderOps[0] : {};
         const topMsg = operationDisplayMessage(top);
         const topErr = operationErrorLine(top, topMsg);
-        const topStatus = String(top.status || top.state || "running").toLowerCase();
+        const topStatus = String((top && (top.status || top.state)) || "running").toLowerCase();
         const topFailed = operationIsFailureLike(topStatus) || topStatus === "stale";
         placeholderSummary = '<div class="schedulerPlaceholderNotice ' + (topFailed ? "is-failed" : "is-running") + '">' +
           '<b>' + (topFailed ? "调度已结束，但任务快照未回传；详情见操作进度。" : "调度已启动，任务状态回传中…") + '</b>' +
@@ -9556,7 +9557,7 @@ function renderPanelHtml() {
       const taskTableChanged = setHtmlIfChanged("taskTable", rows.length
         ? renderTaskCards(state, visibleRows, selected, rows.length)
         : (showPlaceholder
-          ? '<div class="taskPlaceholderDeck">' + placeholderOps.map(renderSchedulerPlaceholderCard).join("") + '</div>'
+          ? '<div class="taskPlaceholderDeck">' + placeholderOps.filter(op => op && typeof op === "object").map(renderSchedulerPlaceholderCard).join("") + '</div>'
           : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换“全部任务”查看历史记录。" : "暂无任务数据。") + '</div>'));
       renderTaskDetailPane(state, rows, selectedRows, taskView.detailRow);
       if (taskTableChanged) invalidateSelectedTaskPayload();
@@ -12568,12 +12569,13 @@ function renderPanelHtml() {
     }
 
     function operationDisplayMessage(row) {
-      const message = row.message || (row.status === "accepted" ? "等待 Hub Agent 回传进度" : "");
+      const safe = (row && typeof row === "object") ? row : {};
+      const message = safe.message || (safe.status === "accepted" ? "等待 Hub Agent 回传进度" : "");
       if (message) return message;
-      if (operationIsActive(row.status)) return "已提交，等待 Hub Agent 回传进度；可手动刷新数据。";
-      if (operationIsFailureLike(row.status)) return row.error && row.error !== "-" ? row.error : "操作未成功，请查看错误详情。";
-      if (operationIsCancelled(row.status)) return "操作已取消或停止。";
-      if (operationIsCompleted(row.status)) return "操作已完成。";
+      if (operationIsActive(safe.status)) return "已提交，等待 Hub Agent 回传进度；可手动刷新数据。";
+      if (operationIsFailureLike(safe.status)) return safe.error && safe.error !== "-" ? safe.error : "操作未成功，请查看错误详情。";
+      if (operationIsCancelled(safe.status)) return "操作已取消或停止。";
+      if (operationIsCompleted(safe.status)) return "操作已完成。";
       return "暂无状态说明。";
     }
 

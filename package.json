@@ -2,7 +2,7 @@
 	"name": "simple-experiment",
 	"displayName": "SimpleExperiment",
 	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-	"version": "0.4.17",
+	"version": "0.4.18",
 	"publisher": "simple-local",
 	"extensionKind": [
 		"ui"
@@ -635,7 +635,9 @@
 		"test:hub-worker-boundary": "npm run build && node --test test/tunnel/workerTelemetryApiContract.test.js test/tunnel/hubControlApiContract.test.js test/tunnel/workerTelemetryNoFileActionRequired.test.js test/tunnel/authorityMergeWorkerGpuPreferred.test.js test/tunnel/authorityMergeHubSchedulerAuthoritative.test.js test/tunnel/workerTaskTelemetryEnrichment.test.js",
 		"test:tunnel-migration": "npm run build && node --test test/migration/remainingRemoteFeatureAudit.test.js test/tunnel/capabilityDrivenUi.test.js test/tunnel/tunnelOnlyOperationQueue.test.js test/tunnel/noDirectRemoteActions.test.js test/tunnel/replaceGpuSchedulerLiveOutput.test.js test/tunnel/replaceRunPlanStopRetry.test.js test/tunnel/replaceArchiveSyncDelete.test.js test/tunnel/replaceRuntimeDiagnostics.test.js test/tunnel/replaceResultsAnalysis.test.js test/tunnel/legacyConfigMigration.test.js test/tunnel/noForbiddenSourceTerms.test.js",
 		"package": "npm run build && npm run compact:plan && npm run verify:package-runtime && npm exec -- @vscode/vsce package --no-dependencies --allow-missing-repository",
+		"postpackage": "node scripts/install-latest.js",
 		"verify:package-runtime": "node scripts/verify-vsix-runtime.js",
+		"install:latest": "node scripts/install-latest.js",
 		"package:public": "powershell -ExecutionPolicy Bypass -File scripts/package-public.ps1",
 		"preview:gpu-history": "npm run build && node scripts/render-gpu-history-preview.js",
 		"smoke": "npm run build && npm run lint && node -c dist/extension.js && node -c dist/panel.js && node dist/cli.js status && npm run package",

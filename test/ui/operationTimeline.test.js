@@ -29,8 +29,8 @@ test("operation progress renders as a VS Code timeline", () => {
   assert.match(html, /vscode\.setState\(Object\.assign\(\{\}, current, patch \|\| \{\}\)\)/);
   assert.match(html, /return OPERATION_STATUS_FILTER_VALUES\.includes\(filter\) \? filter : "all"/);
   assert.match(html, /operationIsCancelled\(status\) \? "is-cancelled"/);
-  assert.match(html, /if \(operationIsFailureLike\(row\.status\)\) return row\.error/);
-  assert.match(html, /if \(operationIsCompleted\(row\.status\)\) return "操作已完成。"/);
+  assert.match(html, /if \(operationIsFailureLike\(.*\.status\)\) return .*\.error/);
+  assert.match(html, /if \(operationIsCompleted\(.*\.status\)\) return "操作已完成。"/);
   assert.match(html, /meaningfulValue\(row\.progress\)/);
   assert.match(html, /const timestamp = operationTimestampView\(row\)/);
   assert.match(html, /timestamp\.label \+ "时间：" \+ timestamp\.raw/);
