@@ -30,10 +30,10 @@ test("servers config stays expanded near primary workflow by default", () => {
   const helpers = loadLayoutHelpers();
   assert.equal(helpers.defaultUiSectionOrder[0], "plans");
   assert.equal(helpers.defaultUiSectionOrder[1], "results");
-  assert.equal(helpers.defaultUiSectionOrder[2], "tasks");
+  assert.equal(helpers.defaultUiSectionOrder[2], "execution");
   assert.equal(helpers.defaultUiSectionOrder[3], "servers");
   assert.equal(helpers.defaultUiLayout.collapsed.servers, false);
-  assert.equal(helpers.defaultUiLayout.collapsed.operations, true);
+  assert.equal(helpers.defaultUiLayout.collapsed.execution, false);
   assert.equal(helpers.defaultUiLayout.collapsed.diagnostics, true);
 });
 

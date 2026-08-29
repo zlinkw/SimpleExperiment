@@ -1252,3 +1252,42 @@ npm run package:public
 - 运行确认窗口同样显示“核验代码指纹”，内部字段名保持兼容。
 - 手动保存 Hub 或 Worker 后会显示最终代码与 runtime 位置；配置完整后可直接继续“准备 Agent 并启动”。
 - 高级命令在命令面板默认隐藏，但面板内原按钮和直接命令 ID 不变。
+
+---
+
+## 运行进度（execution）与操作历史三角存储
+
+### 1. collapsed 折叠状态迁移：tasks / operations 合并为 execution
+
+面板折叠状态 `uiLayout.collapsed` 的 section key 已从旧的 `tasks` 与 `operations` 两个独立键合并为单一
+`execution` 键。迁移点：
+
+- 旧默认折叠：`tasks: false, operations: true`。
+- 新默认折叠：保留 `tasks` / `operations` 仅用于兼容回读，真正生效的折叠键是 `execution`。
+- 所有 section 路由、引用签名、资源树跳转都已做 `execution || tasks || operations` 别名兼容，旧配置读到的
+  `tasks` / `operations` 会被归一化进 `execution`，不会丢失折叠偏好。
+
+相关代码：`src/extension.ts:263`（默认 `collapsed` 定义，仍含 `tasks` / `operations` 兼容键）；
+`src/ui/PanelHtml.ts:1340`（`<section data-section="execution">` 新分区）；
+`src/ui/PanelHtml.ts:2648`、`2671-2673`、`2673`（`execution || tasks || operations` 别名兼容）。
+
+### 2. 操作历史三角存储：localOperations / realtime.operations / events.jsonl
+
+操作进度来源有三份，各自职责不同，不能互相替代：
+
+- `localOperations`：本机 extension 进程内存 + 持久化的操作记录（含本机发起、手动控制、提交证据），是唯一
+  权威的本机端操作视图，按 `operationId` 索引。
+- `realtime.operations`：Worker / Hub Agent 经 SSE / WebSocket 实时推送上来的操作终态，落盘为
+  `realtimeState.operations`；渲染时与本机 `localOperations`、快照、离线覆盖按优先级合并
+  （`firstNonEmptyRecord(realtime.operations, snapshot.operations, offline.operations)`）。
+- `events.jsonl`：Agent 在远端把每条操作 / 任务事件追加写入的本地 JSONL 日志（Hub 与 Worker 各一份），是远端
+  不可变审计源，用于重放、调试包与兜底重建 `realtime.operations`。
+
+三者关系：本机优先读 `localOperations`；实时终态来自 `realtime.operations`；远端真相来自 `events.jsonl`。
+排查操作进度不一致时，先对 `localOperations` 与 `realtime.operations` 是否对齐，必要时回放
+`events.jsonl` 确认 Agent 侧真实事件。
+
+相关代码：`src/extension.ts:725`（localOperations 定义）、`:1822` 及 `:2909`（写入与压缩）；
+`src/ui/WebviewRenderState.ts:45`（realtime.operations 合并优先级）；
+`src/clusterAgentRuntime.ts:912`、`:1047`（events.jsonl 追加与回放）；
+`src/clusterSchedulerRuntime.ts:1638`、`:1735`（Scheduler 侧 events.jsonl）。

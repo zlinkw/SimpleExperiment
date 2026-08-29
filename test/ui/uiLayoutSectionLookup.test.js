@@ -74,7 +74,7 @@ test("UI layout normalization preserves custom order duplicates and adjacent fie
 
   assert.deepEqual(Array.from(normalized.order), ["execution", "overview", "execution", "gpu", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
   assert.equal(sandbox.RESOURCE_TREE_SECTION_KEYS.checks, layout.order.length);
-  assert.deepEqual(JSON.parse(JSON.stringify(normalized.collapsed)), { servers: true, settings: true, diagnostics: true, gpu: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(normalized.collapsed)), { servers: true, settings: true, diagnostics: true, execution: false, gpu: true });
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.resourceTreeChildren)), layout.resourceTreeChildren);
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.columns)), layout.columns);
   assert.deepEqual(Array.from(normalized.pinnedCommands), layout.pinnedCommands);

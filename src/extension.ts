@@ -120,6 +120,7 @@ type WebviewActionCommand =
     | "deployLatestAgent"
     | "configureSftpIgnores"
     | "clearLegacyTasks"
+    | "clearOperations"
     | "selectExperiment"
     | "selectPlan"
     | "checkPluginUpdates"
@@ -249,18 +250,17 @@ let simpleSftpIntegrationReadinessCacheValue = null;
 const defaultUiSectionOrder = [
     "plans",
     "results",
-    "tasks",
+    "execution",
     "servers",
     "settings",
     "overview",
     "gpu",
     "sync",
-    "operations",
     "diagnostics",
 ];
 const defaultUiLayout = {
     order: defaultUiSectionOrder,
-    collapsed: { overview: false, plans: false, results: false, tasks: false, servers: false, settings: true, gpu: true, sync: true, operations: true, diagnostics: true },
+    collapsed: { overview: false, plans: false, results: false, execution: false, servers: false, settings: true, gpu: true, sync: true, diagnostics: true },
     resourceTreeChildren: {},
     manual: false,
     columns: { tree: 280, inspector: 360 },
@@ -360,6 +360,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "deployLatestAgent",
     "configureSftpIgnores",
     "clearLegacyTasks",
+    "clearOperations",
     "selectExperiment",
     "selectPlan",
     "checkPluginUpdates",
@@ -377,7 +378,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "abortScheduler", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
+    "abortScheduler", "clearOperations", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -4503,6 +4504,9 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "clearLegacyTasks":
                 await this.clearLegacyTasksFromUi(message);
+                break;
+            case "clearOperations":
+                await this.clearOperationHistoryFromUi(message);
                 break;
             case "saveUiLayout":
                 await this.saveUiLayoutFromUi(message);
@@ -9770,6 +9774,30 @@ class RealtimeTunnelPanelProvider {
         void this.persistProjectTaskSelectionState().catch(() => undefined);
         this.postState();
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
+    }
+    async clearOperationHistoryFromUi(message) {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("请先打开当前实验项目。");
+        const confirm = await vscode.window.showWarningMessage("确认清空本机运行进度历史？将清空扩展内存、simple_cluster/ui/local_operations.json 与实时缓存中的操作记录；不会删除远端 events.jsonl 审计（刷新后会重新拉取）。此操作不可恢复。", { modal: true }, "确认清空", "取消");
+        if (confirm !== "确认清空")
+            return;
+        const generation = this.projectContextGeneration;
+        // 1. 内存：清空本地操作三角（extension 内存 + 后续持久化镜像）
+        this.localOperations = {};
+        this.markLocalOperationsDirty();
+        // 2. 持久化：清空 simple_cluster/ui/local_operations.json（空对象会触发 unlink，清理文件镜像）
+        await this.persistProjectLocalOperationsState(true);
+        // 3. 实时态缓存：清空 lastRealtimeState.operations（本地/实时历史，不触远端审计）
+        if (this.lastRealtimeState && typeof this.lastRealtimeState === "object")
+            (this.lastRealtimeState as any).operations = {};
+        // 4. 远端快照本地镜像：清空 lastSnapshot.operations，避免合并后 UI 仍显示远端操作
+        if (this.lastSnapshot && typeof this.lastSnapshot === "object")
+            (this.lastSnapshot as any).operations = {};
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
+        this.postState();
+        void vscode.window.showInformationMessage("已清空本机运行进度历史（远端审计保留，刷新可重新拉取）。");
     }
     async downloadDebugBundle() {
         const generation = this.projectContextGeneration;
@@ -15245,9 +15273,11 @@ function localCommandReleasesAfterTrigger(command) {
 }
 function normalizeUiLayout(input) {
     const orderInput = Array.isArray(input.order) ? input.order.map((item) => String(item)) : [];
+    // 迁移旧布局：tasks / operations 卡片已合并为 execution
+    const migratedOrder = orderInput.map((item) => (item === "tasks" || item === "operations" ? "execution" : item));
     const order = [
-        ...orderInput.filter((item) => UI_LAYOUT_SECTION_KEYS.has(item)),
-        ...defaultUiSectionOrder.filter((item) => !orderInput.includes(item)),
+        ...migratedOrder.filter((item) => UI_LAYOUT_SECTION_KEYS.has(item)),
+        ...defaultUiSectionOrder.filter((item) => !migratedOrder.includes(item)),
     ];
     const collapsedInput = input.collapsed && typeof input.collapsed === "object" && !Array.isArray(input.collapsed)
         ? input.collapsed
@@ -15256,6 +15286,10 @@ function normalizeUiLayout(input) {
     for (const key of defaultUiSectionOrder) {
         if (typeof collapsedInput[key] === "boolean")
             collapsed[key] = Boolean(collapsedInput[key]);
+    }
+    // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）
+    if (typeof collapsedInput.execution !== "boolean") {
+        collapsed.execution = Boolean(collapsedInput.tasks) || Boolean(collapsedInput.operations);
     }
     return {
         order,

@@ -1762,7 +1762,7 @@ export function renderPanelHtml(): string {
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
       prepareAgents: "servers", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "servers", saveSchedulerConfig: "servers", startAll: "servers", testAll: "servers", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
-      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results", deleteArtifacts: "execution", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
+      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
       inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
       parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
       exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
@@ -1775,7 +1775,7 @@ export function renderPanelHtml(): string {
       servers: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["testAll", 4]]),
       gpu: new Map([["snapshot", 0], ["testAll", 1]]),
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
-      execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6]]),
+      execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6], ["clearOperations", 7]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
       sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["uploadProjectToHub", 2], ["uploadProjectToWorkers", 3], ["distributeCodeToWorkers", 4], ["deployLatestAgent", 5], ["configureSftpIgnores", 6]]),
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
@@ -1783,7 +1783,7 @@ export function renderPanelHtml(): string {
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
       saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
-      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results-traces", deleteArtifacts: "execution", parseResults: "results-summary", refreshResults: "results-summary",
+      stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results-traces",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results-summary", refreshResults: "results-summary",
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
       planCheckpointRetention: "results-checkpoints", inferConfigFromRun: "results-recovery", recoverPlanFromRun: "results-recovery", diagnoseResultAnomaly: "results-anomaly", compareWithBestConfig: "results-anomaly",
       parseCaseLevel: "results-traces", runLeakageCheck: "results-traces", runSubgroupAnalysis: "results-traces", exportCaseAnalysis: "results-traces", exportPlottingContract: "results-plotting",
@@ -2001,7 +2001,7 @@ export function renderPanelHtml(): string {
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
-      "abortScheduler", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
+      "abortScheduler", "clearOperations", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
@@ -4522,6 +4522,7 @@ export function renderPanelHtml(): string {
         completeThreeWay: "校验三方一致",
         deleteArtifacts: "删除产物",
         clearLegacyTasks: "清除旧任务残留",
+        clearOperations: "清空运行进度历史",
         reconcileDeletions: "校准删除状态",
         selfCheck: "自检",
         createDebugBundle: "生成调试包",
@@ -4600,9 +4601,19 @@ export function renderPanelHtml(): string {
     function normalizeUiLayout(layout) {
       layout = layout || {};
       const incoming = Array.isArray(layout.order) ? layout.order.map(String) : [];
-      const incomingSet = new Set(incoming);
-      const order = incoming.filter((item) => RESOURCE_TREE_SECTION_KEYS.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet.has(item)));
-      const collapsed = Object.assign({ servers: true, settings: true, diagnostics: true }, layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {});
+      // 迁移旧布局：tasks / operations 卡片已合并为 execution
+      const migratedIncoming = incoming.map((item) => (item === "tasks" || item === "operations" ? "execution" : item));
+      const incomingSet = new Set(migratedIncoming);
+      const order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet.has(item)));
+      const rawCollapsed = layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {};
+      const collapsed = Object.assign({ servers: true, settings: true, diagnostics: true, execution: false }, rawCollapsed);
+      // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）
+      if (typeof rawCollapsed.execution !== "boolean") {
+        collapsed.execution = Boolean(rawCollapsed.tasks) || Boolean(rawCollapsed.operations);
+      }
+      // 清理旧键，避免污染折叠签名（uiLayoutApplyKey / postRender 去重）
+      delete collapsed.tasks;
+      delete collapsed.operations;
       const resourceTreeChildren = normalizeResourceTreeChildOrders(layout.resourceTreeChildren || {});
       const columns = normalizeLayoutColumns(layout.columns || {});
       const pinnedCommands = normalizePinnedCommands(Array.isArray(layout.pinnedCommands) ? layout.pinnedCommands : pinnedCommandDefaults);
@@ -12279,6 +12290,7 @@ export function renderPanelHtml(): string {
       const globalAbort = '<div class="operationActions" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
         + '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="与运行状态解耦：' + (abortEnabled ? '可点' : '当前无运行中调度') + '，直调 stopExperiment {operationId, planFile} 经 worker_telemetry，无需选中行；成功后 rm tmp/cluster_scheduler/*.log/state.json + tmux kill -t zlk-sch-*">中止/清理</button>'
         + '<button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" title="备用：kill *-sch-* 并清理 simple_cluster/tmp/cluster_scheduler/*_state.json（自动匹配当前 prefix）">备用清理</button>'
+        + '<button class="mini danger" data-command="clearOperations" data-confirm="true" title="清空本机运行进度历史（不删远端审计）：清空扩展内存、simple_cluster/ui/local_operations.json 与实时缓存中的操作记录；远端 events.jsonl 审计保留，刷新后会重新拉取。">清空历史</button>'
         + '<button class="mini secondary" data-command="snapshot" title="手动刷新运行状态（重拉 schedulerStates/operations）">刷新运行状态</button>'
         + '<span class="muted" style="font-size:11px;">' + (abortEnabled ? '与运行状态解耦，可中止' : '暂无可中止调度') + ' · 点击刷新可重拉状态</span></div>';
       setHtmlIfChanged("operationList", globalAbort + (view.rows.length
@@ -13430,6 +13442,7 @@ export function renderPanelHtml(): string {
         syncArtifacts: "检查同步清单",
         completeThreeWay: "校验三方一致",
         deleteArtifacts: "删除",
+        clearOperations: "清空运行进度历史",
         parseResults: "解析结果",
         refreshResults: "刷新结果",
         runQualityGate: "质量门禁",
