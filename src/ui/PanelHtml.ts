@@ -754,7 +754,12 @@ export function renderPanelHtml(): string {
     .errorRowCommand { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 850; }
     .errorRowTime { color: #64748B; white-space: nowrap; }
     .errorRowMessage { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .taskCardList { display: grid; gap: 12px; }
+    .taskCardList { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; align-items: start; }
+    .planCardMore { margin-top: 10px; }
+    .planCardMore > summary { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid var(--border, #CBD5E1); border-radius: 999px; background: var(--subtle-bg, #F8FAFC); color: var(--text, #334155); font-size: 12px; font-weight: 700; list-style: none; user-select: none; }
+    .planCardMore > summary::-webkit-details-marker { display: none; }
+    .planCardMore > summary:hover { background: var(--vscode-button-hoverBackground, #E2E8F0); }
+    .planCardMore[open] > summary { margin-bottom: 10px; }
     .taskRenderBudgetNotice { padding: 8px 10px; margin-bottom: 10px; border: 1px solid #CBD5E1; border-left: 4px solid #94A3B8; border-radius: 8px; background: #F8FAFC; color: #475569; font-size: 12px; }
     .task-card {
       --task-status-color: #2563EB;
@@ -799,7 +804,7 @@ export function renderPanelHtml(): string {
     .taskLogRow td { padding: 0 6px 8px; background: color-mix(in srgb, var(--card-bg) 86%, transparent); }
     .taskLogDetails { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); padding: 7px 9px; }
     .taskLogDetails summary { cursor: pointer; color: var(--muted); }
-    .taskLogPre { max-height: 220px; margin: 8px 0 0; background: var(--vscode-textCodeBlock-background); }
+    .taskLogPre { max-height: 220px; margin: 8px 0 0; background: var(--vscode-textCodeBlock-background); overflow: auto; }
     .taskLogMeta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .clipCell { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
     .clipCell.wide { max-width: 280px; }
@@ -2180,6 +2185,12 @@ export function renderPanelHtml(): string {
         return;
       }
       if (!button || button.disabled) return;
+    });
+    document.addEventListener("toggle", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLDetailsElement && target.classList.contains("planCardMore")) {
+        planCardsExpanded = target.open;
+      }
     });
     document.addEventListener("contextmenu", (event) => {
       const button = event.target.closest("#workbenchInspector button[data-command], #mainColumn button[data-command]");
@@ -7871,10 +7882,25 @@ export function renderPanelHtml(): string {
       return payload;
     }
 
+    function resolveButtonPlanFile(state, button) {
+      if (!button) return "";
+      if (button.dataset.planFile) return button.dataset.planFile;
+      if (button.dataset.planId) {
+        const plan = planFromContext(state || {}, { planId: button.dataset.planId }) || {};
+        const file = plan.file || plan.planFile || plan.path || "";
+        if (file) return file;
+      }
+      return "";
+    }
     function planButtonDisableReason(state, command, button) {
-      const context = button ? { planFile: button.dataset.planFile || "", planId: button.dataset.planId || "" } : {};
+      const planFile = resolveButtonPlanFile(state, button);
+      const context = button ? { planFile, planId: button.dataset.planId || "" } : { planFile: planFile || "" };
       const reason = disableReason(state, command, context);
-      if (reason === "请先输入或选择 planFile" && button && (button.dataset.planFile || (el("planFileInput") && el("planFileInput").value))) return "";
+      // 卡片/工作台上的校验、预演、运行按钮即使未显式带 data-plan-file，只要按钮自身
+      // （data-plan-file / data-plan-id）或顶部 planFileInput 已关联到 baseline.yaml，
+      // 就不应被误判为“请先输入或选择 planFile”。
+      const hasPlanInput = Boolean(planFile || button.dataset.planId || (el("planFileInput") && el("planFileInput").value));
+      if (reason === "请先输入或选择 planFile" && button && hasPlanInput) return "";
       return reason;
     }
 
@@ -11311,6 +11337,9 @@ export function renderPanelHtml(): string {
       };
     }
 
+    let planCardsExpanded = false;
+    const PLAN_COLLAPSE_THRESHOLD = 8;
+
     function renderPlanCards(state, plans) {
       if (!plans.length) return '<div class="muted">没有 plan 列表时可直接输入 planFile。</div>';
       const visible = planVisibleRows(state, plans);
@@ -11319,7 +11348,7 @@ export function renderPanelHtml(): string {
       const notice = omitted
         ? '<div class="taskRenderBudgetNotice" title="' + escAttr("折叠：" + omitted) + '">计划 ' + visible.length + ' / ' + totalPlans + '；折叠 ' + omitted + '</div>'
         : "";
-      return notice + '<div class="taskCardList">' + visible.map((entry) => {
+      const cardHtml = (entry) => {
         const plan = entry.plan;
         const index = entry.index;
         const file = plan.file || plan.planFile || plan.path || "";
@@ -11361,7 +11390,19 @@ export function renderPanelHtml(): string {
           (plan.parseError ? '<div class="status-failed">' + esc(plan.parseError) + '</div>' : "") +
           (editable ? '<textarea id="plan-preview-' + index + '" class="wide" rows="8" data-plan-preview="true" data-plan-file="' + escAttr(file) + '">' + esc(text) + '</textarea>' : textNotice) +
         '</div>';
-      }).join("") + '</div>';
+      };
+      const listHtml = (entries) => '<div class="taskCardList">' + entries.map(cardHtml).join("") + '</div>';
+      if (visible.length <= PLAN_COLLAPSE_THRESHOLD) {
+        return notice + listHtml(visible);
+      }
+      const first = visible.slice(0, PLAN_COLLAPSE_THRESHOLD);
+      const rest = visible.slice(PLAN_COLLAPSE_THRESHOLD);
+      return notice
+        + listHtml(first)
+        + '<details class="planCardMore"' + (planCardsExpanded ? " open" : "") + '>'
+        + '<summary>展开更多（' + rest.length + ' 个计划）</summary>'
+        + listHtml(rest)
+        + '</details>';
     }
 
     function planVisibleRows(state, plans) {
@@ -13675,9 +13716,18 @@ export function renderPanelHtml(): string {
       if (simpleSftpReason) return simpleSftpReason;
       const capabilityReadiness = uiCapabilityReadinessForStateCommand(state, command);
       const keys = capabilityReadiness.keys;
-      const missing = capabilityReadiness.missing.slice();
+      let missing = capabilityReadiness.missing.slice();
       const workerMissing = missingNoHubWorkerResultCapabilities(state, command, keys, context);
       if (workerMissing) missing.splice(0, missing.length, ...workerMissing);
+      // 预演(dryRun)与校验(validate)同属 PLAN_PREFLIGHT_COMMANDS，共用同一 Hub 能力面
+      // （Hub 始终成对提供 validate-plan 与 dry-run-plan）。只要校验能力可用，不应因单独的
+      // dry-run-plan 能力键缺失而把“预演”按钮置灰，否则会出现“校验可用、预演灰”的分裂现象。
+      if (PLAN_PREFLIGHT_COMMANDS.has(command) && command !== "validatePlan") {
+        const validateReadiness = uiCapabilityReadinessForStateCommand(state, "validatePlan");
+        if (validateReadiness.missing.length === 0) {
+          missing = missing.filter((key) => key !== "actions.dry-run-plan");
+        }
+      }
       if (missing.length) return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
       const health = (state.health || {}).state;
       if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && REMOTE_ACTION_DISCONNECTED_HEALTH_STATES.has(health) && !hasRealtimeSignal(state)) return "tunnel 未连接";
@@ -13691,7 +13741,10 @@ export function renderPanelHtml(): string {
       }
       if (SELECTED_PLAN_ACTION_COMMANDS.has(command) && !hasSelectedPlan(state, context)) return "请先输入或选择 planFile";
       if (command === "archivePlan" && !hasSelectedPlan(state) && !(context && context.planFile)) return "请先输入或选择 planFile";
-      if (command === "runAllPlans" && !asArray(state.plans || state.recentPlans || []).length) return "没有可运行的计划文件";
+      // “运行全部计划”不应只因 plans 列表为空就被置灰：当用户已选择/填入某个 plan
+      // （planFileInput 或 selection）时，应当允许运行该计划（等价于运行全部可见计划）。
+      // 否则会出现“校验并提交运行可用、运行全部计划灰”的分裂现象。
+      if (command === "runAllPlans" && !asArray(state.plans || state.recentPlans || []).length && !hasSelectedPlan(state, {})) return "没有可运行的计划文件";
       if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
         const planFile = String(context.planFile || context.planId || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");
         const plan = typeof planFromContext === "function" ? planFromContext(state, { planFile }) || {} : {};
