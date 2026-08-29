@@ -66,3 +66,48 @@ test("stop targets still match reconciled stale submissions", () => {
   assert.equal(runOperationMatchesTarget(stale, { planFile: running.planFile }), true);
   assert.equal(runOperationMatchesTarget(stale, { operationId: running.operationId }), true);
 });
+
+test("tmux-alive with real activity stays running (no false stale)", () => {
+  const active = reconcileRunOperation(running, {
+    tmuxSessionAlive: true,
+    pidAlive: false,
+    schedulerStatesCount: 0,
+    liveLogCount: 4,
+  }, "activation", Date.now());
+  assert.equal(active.terminal, false);
+  assert.equal(active.patch.status, "running");
+});
+
+test("pid-alive with no activity stays running (real process trusted)", () => {
+  const active = reconcileRunOperation(running, {
+    pidAlive: true,
+    tmuxSessionAlive: false,
+    schedulerStatesCount: 0,
+    liveLogCount: 0,
+  }, "activation", Date.now());
+  assert.equal(active.terminal, false);
+  assert.equal(active.patch.status, "running");
+});
+
+test("tmux-alive but no activity promotes to stale after the grace window", () => {
+  // First reconcile seeds reconcileNoActivitySince=now; simulate a later reconcile
+  // where no activity has been observed for longer than the grace period.
+  const seeded = reconcileRunOperation(running, {
+    tmuxSessionAlive: true,
+    pidAlive: false,
+    schedulerStatesCount: 0,
+    liveLogCount: 0,
+  }, "activation", Date.now());
+  assert.equal(seeded.terminal, false);
+  const noActivitySince = seeded.patch.reconcileNoActivitySince;
+  assert.ok(noActivitySince);
+  const stale = reconcileRunOperation({ ...running, reconcileNoActivitySince: noActivitySince }, {
+    tmuxSessionAlive: true,
+    pidAlive: false,
+    schedulerStatesCount: 0,
+    liveLogCount: 0,
+  }, "activation", noActivitySince + 91_000);
+  assert.equal(stale.terminal, true);
+  assert.equal(stale.patch.status, "stale");
+  assert.match(stale.patch.reconcileReason, /tmux_alive_no_activity$/);
+});

@@ -7026,22 +7026,30 @@ class RealtimeTunnelPanelProvider {
                     if (this.shouldRetryOperationStatusProbe(opId, probeAttempt)) {
                         this.scheduleOperationStatusProbe(opId, action, workerId, probeAttempt + 1);
                     }
-                    else if (reconciled.dead) {
-                        // Probe budget exhausted and the scheduler process is gone: never
-                        // leave the operation stuck on "running". Mark it stale locally
-                        // and stop the probe timer.
+                    else {
+                        // Probe budget exhausted (or the scheduler process is gone) and still no
+                        // terminal event. Force the operation to stale so it can never stay stuck
+                        // on "running". A still-alive tmux shell is only treated as stuck when the
+                        // evidence shows no real scheduler activity (the false-alive startup race),
+                        // never a genuinely running process backed by a real pid or live logs.
                         const rec = this.localOperations[opId];
                         if (rec && !operationTerminal(rec)) {
-                            this.localOperations[opId] = {
-                                ...rec,
-                                status: "stale",
-                                message: rec.message || "调度进程已退出且无活动证据，已标记为 stale；请刷新运行状态或查看 Agent 日志。",
-                                updatedAt: new Date().toISOString(),
-                            };
-                            this.clearOperationStatusProbe(opId);
-                            this.clearOperationWatchdog(opId);
-                            this.markLocalOperationsDirty();
-                            this.postState();
+                            const ev = reconciled.evidence || {};
+                            const evHasActivity = Number(ev.schedulerStatesCount) > 0 || Number(ev.experimentTracesCount) > 0 || Number(ev.liveLogCount) > 0;
+                            const evProcessAlive = Boolean(ev.pidAlive || ev.tmuxSessionAlive);
+                            const forceStale = reconciled.dead || (probeAttempt >= this.operationStatusProbeMaxAttempts && evProcessAlive && !evHasActivity);
+                            if (forceStale) {
+                                this.localOperations[opId] = {
+                                    ...rec,
+                                    status: "stale",
+                                    message: rec.message || "调度进程已退出/无活动证据，已标记为 stale；请刷新运行状态或查看 Agent 日志。",
+                                    updatedAt: new Date().toISOString(),
+                                };
+                                this.clearOperationStatusProbe(opId);
+                                this.clearOperationWatchdog(opId);
+                                this.markLocalOperationsDirty();
+                                this.postState();
+                            }
                         }
                     }
                 }
@@ -7109,7 +7117,7 @@ class RealtimeTunnelPanelProvider {
     async reconcileSingleRunOperationEvidence(opId, action, workerId) {
         const record = this.localOperations[opId];
         if (!record || operationTerminal(record))
-            return { terminal: false, dead: false };
+            return { terminal: false, dead: false, evidence: {} };
         if (!operationLongRunningAction(action))
             return { terminal: false, dead: false };
         let evidenceWorkerId = workerId;
@@ -7131,10 +7139,10 @@ class RealtimeTunnelPanelProvider {
             evidence = result && typeof result === "object" ? result : {};
         }
         catch {
-            return { terminal: false, dead: false };
+            return { terminal: false, dead: false, evidence: {} };
         }
         if (!evidence || typeof evidence !== "object")
-            return { terminal: false, dead: false };
+            return { terminal: false, dead: false, evidence: {} };
         const decision = RunOperations_1.reconcileRunOperation(record, evidence, "operation_probe");
         const patch = { ...decision.patch };
         delete patch.lastReconcileError;
@@ -7144,11 +7152,11 @@ class RealtimeTunnelPanelProvider {
             this.clearOperationWatchdog(opId);
             this.markLocalOperationsDirty();
             this.postState();
-            return { terminal: true, dead: !evidence.pidAlive && !evidence.tmuxSessionAlive };
+            return { terminal: true, dead: !evidence.pidAlive && !evidence.tmuxSessionAlive, evidence };
         }
         this.markLocalOperationsDirty();
         this.postState();
-        return false;
+        return { terminal: false, dead: !evidence.pidAlive && !evidence.tmuxSessionAlive, evidence };
     }
     async reconcileStalePlanRunOperations(options = {}) {
         if (this.runOperationReconcilePromise)

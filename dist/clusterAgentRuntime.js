@@ -2074,6 +2074,93 @@ def tmux_pane_pid(session, cwd=None, env=None):
     except Exception:
         return 0
 
+def _tmux_log_size(log_path):
+    try:
+        return os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
+    except Exception:
+        return 0
+
+def _tmux_capture_tail(session, env, max_lines=50):
+    try:
+        r = subprocess.run(["tmux", "capture-pane", "-p", "-t", session], capture_output=True, text=True, timeout=5, env=env)
+        lines = (r.stdout or "").splitlines()[-max_lines:]
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+def _tmux_pane_python_running(session, env):
+    # Return True when a python process running cluster_scheduler is a descendant of
+    # the pane shell. Used by wait_scheduler to distinguish a genuinely running
+    # scheduler from a tmux shell that is alive but never launched the command.
+    pane_pid = tmux_pane_pid(session, None, env)
+    if not pane_pid:
+        return False
+    try:
+        out = subprocess.run(["ps", "-eo", "pid,ppid,comm,args"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return False
+    procs = []
+    for line in out.splitlines()[1:]:
+        parts = line.split(None, 3)
+        if len(parts) >= 4:
+            try:
+                procs.append((int(parts[0]), int(parts[1]), parts[2], parts[3]))
+            except ValueError:
+                continue
+    by_pid = {p[0]: p for p in procs}
+
+    def reachable(pid):
+        seen = set()
+        while pid and pid != 1 and pid not in seen:
+            seen.add(pid)
+            if pid == pane_pid:
+                return True
+            parent = by_pid.get(pid)
+            if not parent:
+                return False
+            pid = parent[1]
+        return False
+
+    for pid, ppid, comm, args_line in procs:
+        if "python" in comm and "cluster_scheduler" in args_line and reachable(pid):
+            return True
+    return False
+
+def _wait_tmux_ready(session, env, timeout=15.0, poll=0.3):
+    # Confirm the tmux pane shell is ready to accept keystrokes: echo a unique marker
+    # and wait until it shows up in capture-pane. Avoids the startup race where the
+    # first send-keys is dropped because the login shell has not reached its prompt.
+    marker = "SIMPLE_TMUX_READY_%d" % int(time.time())
+    try:
+        subprocess.run(["tmux", "send-keys", "-t", session, "printf '\\n%s\\n' " + shlex.quote(marker), "Enter"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+    except Exception:
+        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = subprocess.run(["tmux", "capture-pane", "-p", "-t", session], capture_output=True, text=True, timeout=3, env=env)
+            if marker in (r.stdout or ""):
+                return True
+        except Exception:
+            pass
+        time.sleep(poll)
+    return False
+
+def _send_tmux_line(session, line, env, retries=3):
+    # Send one line via tmux send-keys, validating the return code and retrying on
+    # transient failures. Returns the last return code (0 == success).
+    last_rc = 1
+    for attempt in range(1, retries + 1):
+        try:
+            proc = subprocess.run(["tmux", "send-keys", "-t", session, line, "Enter"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+            last_rc = proc.returncode
+            if last_rc == 0:
+                return 0
+        except Exception:
+            last_rc = -1
+        time.sleep(0.3 * attempt)
+    return last_rc
+
 def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=None):
     # Simulate a human operator: open a detached tmux session (login shell so conda/profile
     # is available), mirror the pane to a log file (screen + log), then type 'conda activate',
@@ -2139,8 +2226,42 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     if exit_code_path:
         command = command + "; printf '%s' \"$?\" > " + shlex.quote(str(exit_code_path))
     lines.append(command)
+    # Forward critical env vars directly into the tmux session environment so the
+    # launched scheduler sees them even if a later send-keys line is dropped by the
+    # startup race. This complements the export lines above (belt-and-suspenders).
+    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
+        _val = env.get(_key)
+        if _val:
+            try:
+                subprocess.run(["tmux", "set-environment", "-t", session, _key, str(_val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+            except Exception:
+                pass
+    # Wait until the pane shell is actually ready to accept keystrokes. If the
+    # readiness probe cannot be confirmed we bail out so the caller falls back to a
+    # direct Popen launch instead of leaving a half-initialised session that silently
+    # drops the scheduler command (the root cause of "等待 scheduler 终态").
+    if not _wait_tmux_ready(session, env):
+        try:
+            subprocess.run(["tmux", "kill-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+        except Exception:
+            pass
+        raise RuntimeError("tmux pane never became ready to accept input; caller should fall back to Popen")
+    # Type each line, validating the send-keys return code. On any failure record the
+    # problem to the log and bail so the caller falls back to Popen.
     for line in lines:
-        subprocess.run(["tmux", "send-keys", "-t", session, line, "Enter"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+        rc = _send_tmux_line(session, line, env)
+        if rc != 0:
+            if log_path:
+                try:
+                    with open(log_path, "ab") as _log:
+                        _log.write(("tmux send-keys failed rc=%s for line: %s\n" % (rc, line)).encode("utf-8", "replace"))
+                except Exception:
+                    pass
+            try:
+                subprocess.run(["tmux", "kill-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+            except Exception:
+                pass
+            raise RuntimeError("tmux send-keys failed rc=%s; caller should fall back to Popen" % rc)
     # Mirror the experiment's stdout.log/stderr.log into a split pane so the operator can see
     # errors directly inside the tmux window (the scheduler/train output may be redirected to
     # those files by the project). Wait for the scheduler's sidecar, then tail -F both logs.
@@ -7744,16 +7865,57 @@ def handle_action(root, action, payload, operation_id, op_id):
 
         def wait_scheduler():
             try:
+                _no_progress = float(env.get("SIMPLE_SCHEDULER_NO_PROGRESS") or 90)
+                _launch_grace = float(env.get("SIMPLE_SCHEDULER_LAUNCH_GRACE") or 45)
+                _hard_max = float(env.get("SIMPLE_SCHEDULER_WAIT_MAX") or 3600)
                 if used_tmux and scheduler_exit_code_path:
-                    while not exit_code_ready(scheduler_exit_code_path) and tmux_session_alive(tmux_session, root, env):
+                    _start = time.time()
+                    _last_size = _tmux_log_size(log_path)
+                    _last_progress = _start
+                    _rc = None
+                    _launch_failed = False
+                    while True:
+                        if exit_code_ready(scheduler_exit_code_path):
+                            _rc = read_task_exit_code(scheduler_exit_code_path)
+                            break
+                        if not tmux_session_alive(tmux_session, root, env):
+                            _rc = 255
+                            break
+                        _now = time.time()
+                        _elapsed = _now - _start
+                        _size = _tmux_log_size(log_path)
+                        if _size != _last_size:
+                            _last_size = _size
+                            _last_progress = _now
+                        _python_running = _tmux_pane_python_running(tmux_session, env)
+                        if _python_running:
+                            # A real scheduler process is running; trust it and keep waiting.
+                            _last_progress = _now
+                        if _elapsed > _hard_max:
+                            _rc = 255
+                            _launch_failed = True
+                            break
+                        if _elapsed > _launch_grace and (not _python_running) and (_now - _last_progress) > _no_progress:
+                            # tmux shell still alive but the scheduler command never produced
+                            # output or an exit code: treat as a launch failure so the panel is
+                            # never stuck on "等待 scheduler 终态".
+                            _rc = 255
+                            _launch_failed = True
+                            break
                         time.sleep(5)
-                    rc = read_task_exit_code(scheduler_exit_code_path)
+                    rc = _rc
+                    launch_failed = _launch_failed
                 elif used_tmux:
+                    _start = time.time()
                     while tmux_session_alive(tmux_session, root, env):
+                        if time.time() - _start > _hard_max:
+                            break
                         time.sleep(5)
                     rc = 255
+                    launch_failed = False
                 else:
                     rc = proc.wait() if proc is not None else 255
+                    launch_failed = False
                 if worker_task_was_stopped(root, scheduler_task):
                     return
                 finished = {**scheduler_task, "status": "completed" if rc == 0 else "failed", "exitCode": rc, "finishedAt": now_iso()}
@@ -7777,6 +7939,13 @@ def handle_action(root, action, payload, operation_id, op_id):
                                 log_tail = ""
                             evidence = scheduler_process_evidence(root, pid if pid else finished.get("pid"), tmux_session if used_tmux else "")
                             message = f"调度器进程退出码 {rc}，未收到调度器终态事件。"
+                            if launch_failed:
+                                pane_tail = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
+                                python_running = _tmux_pane_python_running(tmux_session, env) if used_tmux else False
+                                message = ("调度器启动失败：tmux 会话存活但 %.0fs 内无日志增长且未生成 exit_code（pane 内 python 进程：%s）。%s"
+                                           % (_no_progress, "存在" if python_running else "不存在", f"调度器进程退出码 {rc}，未收到调度器终态事件。"))
+                                if pane_tail:
+                                    message += " pane 尾部：" + pane_tail[-600:].replace("\n", " ").replace("\r", " ")
                             if log_tail:
                                 message += " 日志尾部：" + log_tail[-600:].replace("\n", " ").replace("\r", " ")
                             terminal_action(root, action, operation_id, op_id, "failed", message, {
@@ -7787,7 +7956,8 @@ def handle_action(root, action, payload, operation_id, op_id):
                                 "logTail": log_tail[-2000:],
                                 "planFile": plan,
                                 "schedulerStarted": True,
-                                "failureSource": "agent_scheduler_wait",
+                                "launchFailed": launch_failed,
+                                "failureSource": "agent_scheduler_wait" if not launch_failed else "agent_scheduler_launch_failure",
                                 "evidence": evidence,
                             }, request=payload)
                     except Exception:

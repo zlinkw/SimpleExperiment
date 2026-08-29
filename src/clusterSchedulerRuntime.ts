@@ -2743,7 +2743,17 @@ def main() -> None:
     if args.check_dependencies_json:
         print(json.dumps(scheduler_dependency_status(), ensure_ascii=False))
         return
-    require_scheduler_dependencies()
+    try:
+        require_scheduler_dependencies()
+    except SystemExit as _exc:
+        # Even when startup fails before run_job_mode, publish a terminal failed event so
+        # the operation journal is never left pending waiting for a scheduler terminal that
+        # will never arrive (defense in depth beyond the agent-side wait_scheduler fallback).
+        try:
+            append_scheduler_operation_event(args, "failed", f"调度器依赖检查未通过：{_exc}", {"failureSource": "scheduler_dependency_check", "schedulerStarted": True})
+        except Exception:
+            pass
+        raise
     if args.print_job_dir:
         if args.only_index is None:
             raise SystemExit("--print-job-dir 必须同时提供 --only-index")
@@ -2786,7 +2796,20 @@ def main() -> None:
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
     refresh_missing_worker_availability(workers, args.availability_path)
     workers_by_id = {str(worker.get("id") or ""): worker for worker in workers}
-    plan = load_plan(args.plan)
+    try:
+        plan = load_plan(args.plan)
+    except SystemExit as _exc:
+        try:
+            append_scheduler_operation_event(args, "failed", f"计划加载失败：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True})
+        except Exception:
+            pass
+        raise
+    except Exception as _exc:
+        try:
+            append_scheduler_operation_event(args, "failed", f"计划加载异常：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True})
+        except Exception:
+            pass
+        raise
     jobs = jobs_for_args(plan, args)
     execution_mode = plan_execution_mode(plan, args.mode)
     args.mode = execution_mode

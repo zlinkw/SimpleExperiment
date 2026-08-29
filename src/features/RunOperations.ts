@@ -112,9 +112,54 @@ export function reconcileRunOperation(
       },
     };
   }
-  const processAlive = Boolean(evidence.pidAlive || evidence.tmuxSessionAlive);
-  if (processAlive) {
-    return { terminal: false, patch: { ...base, status: remoteStatus || "running" } };
+  const pidAlive = Boolean(evidence.pidAlive);
+  const tmuxAlive = Boolean(evidence.tmuxSessionAlive);
+  const hasActivity = Boolean(
+    Number(evidence.schedulerStatesCount || 0) > 0
+    || Number(evidence.experimentTracesCount || 0) > 0
+    || Number(evidence.workerTasksCount || 0) > 0
+    || Number(evidence.liveLogCount || 0) > 0,
+  );
+  // A real worker/python pid proves the scheduler process is alive: keep waiting.
+  if (pidAlive) {
+    return { terminal: false, patch: { ...base, status: remoteStatus || "running", reconcileNoActivitySince: 0 } };
+  }
+  // tmux session alive but the only thing present is the scheduler shell, and it has
+  // produced no real activity (no scheduler states, no experiment traces, no live log).
+  // This is the "tmux 假存活" scenario: the command was dropped by a startup race and
+  // the shell is just sitting at a prompt. Promote to stale once the no-activity window
+  // exceeds the reconciliation grace, so the panel never hangs on "waiting for scheduler".
+  if (tmuxAlive && !hasActivity) {
+    const noActivitySince = Number((record as any).reconcileNoActivitySince) || nowMs;
+    if (nowMs - noActivitySince > RUN_OPERATION_RECONCILE_GRACE_MS) {
+      return {
+        terminal: true,
+        patch: {
+          ...base,
+          status: "stale",
+          message: "tmux 会话存活但调度器长时间无任何活动证据，判定为启动失败（命令可能被启动竞态丢弃）。",
+          finishedAt: checkedAt,
+          reconciledAt: checkedAt,
+          reconcileReason: `${reason}:tmux_alive_no_activity`,
+          startedAt: record.startedAt || remote.startedAt || "",
+          updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+          reconcileNoActivitySince: noActivitySince,
+        },
+      };
+    }
+    return {
+      terminal: false,
+      patch: {
+        ...base,
+        status: remoteStatus || "running",
+        reconcileNoActivitySince: noActivitySince,
+        reconcileCheckedAt: checkedAt,
+        reconcileGraceExpiresAt: new Date(nowMs + RUN_OPERATION_RECONCILE_GRACE_MS).toISOString(),
+      },
+    };
+  }
+  if (tmuxAlive && hasActivity) {
+    return { terminal: false, patch: { ...base, status: remoteStatus || "running", reconcileNoActivitySince: 0 } };
   }
   // Process is dead (no pid / no tmux session). If the log already shows a hard
   // error, promote to a terminal failed state immediately so the Operations panel
