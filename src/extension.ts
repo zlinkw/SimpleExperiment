@@ -10001,77 +10001,122 @@ class RealtimeTunnelPanelProvider {
     async abortSchedulerFromUi(message: any) {
         const operationId = String(message?.operationId || message?.operation_id || message?.id || "run-plan-bpla27").trim() || "run-plan-bpla27";
         const planFile = String(message?.planFile || message?.plan_file || "baseline.yaml").trim() || "baseline.yaml";
-        const body: any = { operationId, planFile, action: "abort_cleanup" };
+        // 解析调度归属 Worker，失败时降级到首个启用 Worker，绝不抛错阻断中止。
+        let workerId = "";
         try {
-            const client: any = this.client as any;
-            let result: any = null;
-            let lastError: any = null;
-            const tryIds = ["hub", ...this.enabledWorkerConfigs().map(w=>w.id), ...Array.from(((client as any).clients?.keys?.() || []) as any)];
-            for (const id of [...new Set(tryIds)]) {
-                try {
-                    if (typeof client.abortScheduler === "function") { result = await client.abortScheduler(body); if (result) break; }
-                } catch (e) { lastError = e; }
-                try {
-                    const epClient = (client as any).clients?.get?.(id) || (client as any).getClient?.(id);
-                    if (epClient && typeof epClient.abortScheduler === "function") { result = await epClient.abortScheduler(body); if (result) break; }
-                } catch (e) { lastError = e; }
+            workerId = this.planSchedulerWorkerId({
+                schedulerOwnerWorkerId: String(message?.workerId || ""),
+                options: { schedulerOwnerWorkerId: String(message?.workerId || ""), workerId: String(message?.workerId || "") },
+            } as any);
+        } catch {}
+        if (!workerId) {
+            workerId = this.resolveWorkerEndpointId(String(message?.workerId || "")) || this.enabledWorkerConfigs()[0]?.id || "nwpu3";
+        }
+        try {
+            // 统一走 stop-scheduler-operation：服务端执行 tmux kill-session + SIGTERM/SIGKILL + deregister，
+            // 并返回 remainingActiveEvidence 供前端确认 tmux/pid 已清理。不再仅写控制文件（abort_cleanup）。
+            const result: any = await this.stopExperimentRouted({
+                operationId,
+                planFile,
+                workerId,
+                action: "stop-scheduler-operation",
+            } as any);
+            // 若仍有残留活动证据（tmux/pid 仍存活），再发一次 stop 触发服务端 SIGKILL 兜底分支。
+            let remaining: any[] = (result && Array.isArray(result.remainingActiveEvidence) ? result.remainingActiveEvidence : []) || [];
+            if (remaining.length) {
+                const retry: any = await this.stopExperimentRouted({
+                    operationId,
+                    planFile,
+                    workerId,
+                    action: "stop-scheduler-operation",
+                    manualStopType: "force",
+                } as any);
+                remaining = (retry && Array.isArray(retry.remainingActiveEvidence) ? retry.remainingActiveEvidence : []) || [];
             }
-            if (!result) {
-                try {
-                    const workerId = this.planSchedulerWorkerId() || this.enabledWorkerConfigs()[0]?.id || "nwpu3";
-                    const worker = this.setupConfig.workerTunnels.find((w: any) => w.id === workerId);
-                    const port = (worker as any)?.localForwardPort;
-                    if (port) {
-                        const url = `http://127.0.0.1:${port}/api/scheduler/abort`;
-                        const resp: any = await (globalThis as any).fetch?.(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(()=>null);
-                        if (resp && resp.ok) {
-                            result = await resp.json().catch(()=> ({}));
-                        } else if (resp) {
-                            const txt = await resp.text().catch(()=> "");
-                            if (txt) result = JSON.parse(txt) as any;
-                        }
-                    }
-                } catch {}
+            // 范围化清理本地 tmp（仅当前 opId/planFile 相关），并清除实时/快照缓存中对应 op 回灌。
+            this.cleanupSchedulerTmpForOp(operationId, planFile);
+            this.clearLocalOperationCachesForOp(operationId);
+            // 依据 stop 结果落本地终态：确认已清理才置 cancelled；否则 failed 并提示手动 tmux kill。
+            const op: any = (this as any).localOperations?.[operationId];
+            const now = new Date().toISOString();
+            if (op) {
+                if (remaining.length) {
+                    op.status = "failed";
+                    op.message = "已发送中止但检测到残留活动证据（" + JSON.stringify(remaining) + "），tmux 可能仍存活，请手动 tmux kill-session -t zlk-sch-" + operationId;
+                } else {
+                    op.status = "cancelled";
+                    op.message = "已中止并清理 " + operationId + " / " + planFile + (op.pid ? " pid=" + op.pid : "");
+                }
+                op.finishedAt = now;
+                op.reconciledAt = now;
+                op.reconcileReason = remaining.length ? "abort:remaining" : "abort:stopped";
+                op.updatedAt = now;
+                (this as any).markLocalOperationsDirty();
             }
-            if (!result && lastError) throw lastError;
-            // 清理本地侧调度状态（幂等）- 解耦：直接清理所有残留，不依赖 schedulerStates
-            try {
-                const fs = require("fs");
-                const path = require("path");
-                const os = require("os");
-                const homedir = os.homedir();
-                const tmpDir = path.join(homedir, "simple_cluster", "tmp", "cluster_scheduler");
-                if (fs.existsSync(tmpDir)) {
-                    for (const f of fs.readdirSync(tmpDir)) if (f.endsWith("_state.json") || f.endsWith(".log") || f.endsWith(".json")) try { fs.unlinkSync(path.join(tmpDir, f)); } catch {}
-                    const logsDir = path.join(tmpDir, "logs");
-                    if (fs.existsSync(logsDir)) {
-                        for (const f of fs.readdirSync(logsDir)) try { fs.unlinkSync(path.join(logsDir, f)); } catch {}
-                    }
-                }
-                const projectsState = path.join(homedir, "state", "projects");
-                if (fs.existsSync(projectsState)) {
-                    for (const proj of fs.readdirSync(projectsState)) {
-                        const actionsDir = path.join(projectsState, proj, "actions");
-                        if (fs.existsSync(actionsDir)) {
-                            for (const f of fs.readdirSync(actionsDir)) if (f.startsWith("run-plan-")) try { fs.unlinkSync(path.join(actionsDir, f)); } catch {}
-                        }
-                    }
-                }
-            } catch {}
-            try {
-                if ((this as any).localOperations && (this as any).localOperations[operationId]) {
-                    (this as any).localOperations[operationId] = { ...(this as any).localOperations[operationId], status: "cancelled", updatedAt: new Date().toISOString(), message: "已手动中止 pid=" + (this as any).localOperations[operationId].pid || "" };
-                    (this as any).markLocalOperationsDirty();
-                    (this as any).postState();
-                }
-            } catch {}
-            const msg = result?.message || `已发送中止 ${operationId} / ${planFile} 并清理 simple_cluster/tmp/cluster_scheduler/*.{log,json} + state/projects/*/actions/run-plan-* 与 zlk-sch-* tmux`;
-            void vscode.window.showInformationMessage(msg);
+            // 主动触发一次状态上屏，避免 90s grace 内面板仍显示 running（终态不会被 refresh 覆盖）。
+            (this as any).postState();
+            this.clearOperationStatusProbe(operationId);
+            this.clearOperationWatchdog(operationId);
+            if (remaining.length) {
+                void vscode.window.showWarningMessage("中止后仍有活动证据残留（tmux/pid 仍存活），请手动 tmux kill-session -t zlk-sch-" + operationId + " 或检查 Worker。");
+            } else {
+                void vscode.window.showInformationMessage("已中止并清理 " + operationId + " / " + planFile + "（tmux/pid 已终止）。");
+            }
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            void vscode.window.showErrorMessage(`中止失败：${msg}`);
+            void vscode.window.showErrorMessage("中止失败：" + msg);
             throw e;
         }
+    }
+
+    private clearLocalOperationCachesForOp(opId: string) {
+        // 清除实时/快照缓存中对应 opId，避免下次 mergeOperationRecords 把远端 running 回灌覆盖本地终态。
+        const strip = (store: any) => {
+            if (!store || typeof store !== "object") return;
+            const ops = store.operations;
+            if (!ops) return;
+            if (Array.isArray(ops)) {
+                store.operations = ops.filter((o: any) => String(o?.operationId || o?.id || "") !== opId);
+            } else if (typeof ops === "object") {
+                delete ops[opId];
+            }
+        };
+        try { strip(this.lastRealtimeState); } catch {}
+        try { strip(this.lastSnapshot); } catch {}
+    }
+
+    private cleanupSchedulerTmpForOp(opId: string, planFile: string) {
+        // 仅删除与当前 opId / planFile 相关的日志与状态文件，避免误删并发任务产物。
+        try {
+            const fs = require("fs");
+            const path = require("path");
+            const os = require("os");
+            const homedir = os.homedir();
+            const tmpDir = path.join(homedir, "simple_cluster", "tmp", "cluster_scheduler");
+            const planKey = String(planFile || "").replace(/[^a-z0-9]/gi, "_");
+            const patterns = [opId, planKey].filter(Boolean);
+            const match = (f: string) => patterns.some((p) => f.includes(p));
+            const reap = (dir: string) => {
+                if (!fs.existsSync(dir)) return;
+                for (const f of fs.readdirSync(dir)) {
+                    if (!match(f)) continue;
+                    if (f.endsWith("_state.json") || f.endsWith(".log") || f.endsWith(".json") || f.endsWith(".exit_code")) {
+                        try { fs.unlinkSync(path.join(dir, f)); } catch {}
+                    }
+                }
+            };
+            reap(tmpDir);
+            reap(path.join(tmpDir, "logs"));
+            const projectsState = path.join(homedir, "state", "projects");
+            if (fs.existsSync(projectsState)) {
+                for (const proj of fs.readdirSync(projectsState)) {
+                    const actionsDir = path.join(projectsState, proj, "actions");
+                    if (fs.existsSync(actionsDir)) {
+                        for (const f of fs.readdirSync(actionsDir)) if (f.includes(opId)) try { fs.unlinkSync(path.join(actionsDir, f)); } catch {}
+                    }
+                }
+            }
+        } catch {}
     }
     async openTensorBoardFromUi(message: any) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";

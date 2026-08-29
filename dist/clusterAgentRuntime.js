@@ -8583,16 +8583,28 @@ def scheduler_process_evidence(root, pid=None, tmux_session=None):
     checked_pid = int(pid or 0) if str(pid or "").strip().lstrip("-").isdigit() else 0
     checked_session = str(tmux_session or "").strip()
     session_alive = False
+    python_running = False
     try:
         session_alive = tmux_session_alive(checked_session, cwd=root)
     except Exception:
         session_alive = False
+    # 仅 has-session 不足以证明调度器存活：启动竞态可能只留下一个空 shell。
+    # 结合 pane 内是否真有 python cluster_scheduler 进程，避免“tmux 假存活”把面板卡在 running。
+    if session_alive:
+        try:
+            python_running = _tmux_pane_python_running(checked_session, os.environ)
+        except Exception:
+            python_running = False
     pid_alive = process_alive(checked_pid)
+    # 真实存活 = tmux 会话存在 且（pid 存活 或 pane 内有 python cluster_scheduler 进程）。
+    tmux_alive = session_alive and (pid_alive or python_running)
     return {
         "checkedPid": checked_pid,
         "checkedTmuxSession": checked_session,
         "pidAlive": pid_alive,
-        "tmuxSessionAlive": session_alive,
+        "tmuxSessionAlive": tmux_alive,
+        "tmuxShellAlive": session_alive,
+        "tmuxPythonRunning": python_running,
     }
 
 
@@ -8673,7 +8685,9 @@ def stop_scheduler_operation(root, payload):
     before = scheduler_process_evidence(root, target_pid, target_session)
     terminated_sessions, terminated_pids = [], []
     errors = []
-    if before["tmuxSessionAlive"]:
+    # 用原始会话存活（tmuxShellAlive）决定 kill：即便 pane 内只是空 shell（无 python 进程），
+    # 也应 kill 掉，避免中止后 tmux 仍残留把面板判活。
+    if before["tmuxShellAlive"]:
         result = subprocess.run(["tmux", "kill-session", "-t", str(before["checkedTmuxSession"])], cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, check=False)
         if result.returncode == 0:
             terminated_sessions.append(before["checkedTmuxSession"])
