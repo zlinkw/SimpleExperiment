@@ -14025,7 +14025,7 @@ function renderPanelHtml() {
         }
       }
       if (SUBMITTED_RUN_COMMANDS.has(command) && !executionWorkerReadiness(state).ready) {
-        if (command === "runAllPlans" && isLenient) { pushSoft("executionWorker", "至少配置并启用一个执行 Worker"); } else { return "至少配置并启用一个执行 Worker"; }
+        if (isLenient) { pushSoft("executionWorker", "至少配置并启用一个执行 Worker"); } else { return "至少配置并启用一个执行 Worker"; }
       }
       const endpointReadiness = projectEndpointReadiness(state);
       if (PLAN_PREFLIGHT_COMMANDS.has(command) && !endpointReadiness.hubReady) {
@@ -14037,7 +14037,9 @@ function renderPanelHtml() {
       }
       if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
         const outputGateReason = projectOutputGateReason(state, context);
-        if (outputGateReason) return outputGateReason;
+        if (outputGateReason) {
+          if (isLenient) { pushSoft("outputGate", outputGateReason); } else { return outputGateReason; }
+        }
       }
       if (command === "retryExperiment" && String(context.batchSelected || "") === "true") {
         const selectedPlanFiles = uniqueText(asArray(context.selectedPlanFiles || []).map((item) => String(item || "").trim()).filter(Boolean));

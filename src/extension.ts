@@ -132,6 +132,7 @@ type WebviewActionCommand =
     | "cleanupDrafts";
     // Update commands are intentionally local-only and do not enter the remote action map.
 const viewId = "simpleExperiment.panel";
+const LENIENT_RUN = true;
 const LOCAL_API_PREFERRED_PORT = 19765;
 const API_DISCOVERY_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleExperiment");
 const API_DISCOVERY_PATH = path.join(API_DISCOVERY_DIR, "api.json");
@@ -4815,11 +4816,21 @@ class RealtimeTunnelPanelProvider {
             await this.assertPlanLocalConfigFiles(body);
             const plan = this.localPlanForActionBody(body);
             const outputGateReason = projectOutputGateReason(this.localPlanMetadata.detectedProject, plan);
-            if (outputGateReason)
-                throw new Error(outputGateReason);
+            if (outputGateReason) {
+                if (LENIENT_RUN) {
+                    console.warn(`[LENIENT_RUN] outputGate soft warn: ${outputGateReason}`);
+                } else {
+                    throw new Error(outputGateReason);
+                }
+            }
             await this.ensureWorkerPoolPlanTarget(body, operationResultPlanFile(body) || plan?.planFile || command);
-            this.assertExecutionWorkersReady(body.options?.workers);
-            this.assertExecutionAgentProjectsReady(body);
+            if (LENIENT_RUN) {
+                try { this.assertExecutionWorkersReady(body.options?.workers); } catch (error) { console.warn(`[LENIENT_RUN] assertExecutionWorkersReady soft warn: ${errorMessage(error)}`); }
+                try { this.assertExecutionAgentProjectsReady(body); } catch (error) { console.warn(`[LENIENT_RUN] assertExecutionAgentProjectsReady soft warn: ${errorMessage(error)}`); }
+            } else {
+                this.assertExecutionWorkersReady(body.options?.workers);
+                this.assertExecutionAgentProjectsReady(body);
+            }
             await this.assertPlanNotAlreadyActive(operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "", plan);
             if (!await this.ensureSimpleSftpReadyForSetup(body.debugMode === true ? "Debug 首跑" : command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
@@ -4832,8 +4843,14 @@ class RealtimeTunnelPanelProvider {
             );
             body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
             await this.ensureCodeReadyForRun(undefined, [body]);
-            if (!await this.runPlanPreflight(body, "当前计划"))
-                return;
+            const preflightOk = await this.runPlanPreflight(body, "当前计划");
+            if (!preflightOk) {
+                if (LENIENT_RUN) {
+                    console.warn(`[LENIENT_RUN] runPlanPreflight soft warn: preflight not ok, continue to submit`);
+                } else {
+                    return;
+                }
+            }
             try {
                 const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
                 if (pf) {

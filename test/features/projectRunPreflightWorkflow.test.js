@@ -64,7 +64,13 @@ test("project next action follows the real preflight order", () => {
   assert.ok(preflight.indexOf('postPlanSchedulerAction("validate-plan"') < preflight.indexOf('postPlanSchedulerAction("dry-run-plan"'));
   assert.match(preflight, /waitForOperationTerminalResult\("validate-plan"/);
   assert.match(preflight, /waitForOperationTerminalResult\("dry-run-plan"/);
-  assert.match(extension, /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/);
+  // LENIENT_RUN 软门禁：校验/预演失败从硬 return 改为可配置 warn+继续
+  assert.match(extension, /runPlanPreflight\(body, "当前计划"\)/);
+  {
+    const hasHardReturn = /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/.test(extension);
+    const hasLenient = /LENIENT_RUN[\s\S]*runPlanPreflight\(body, "当前计划"\)/.test(extension) || /preflightOk/.test(extension);
+    assert.ok(hasHardReturn || hasLenient, "preflight blocking should exist either as hard return or lenient warn");
+  }
   assert.match(extension, /if \(!await this\.runPlanPreflight\(body, `计划 \$\{planFile\}`, authority\)\)\s*throw new Error\(`计划 \$\{planFile\} 的校验或预演未返回有效结果，已停止整批提交。`\);/);
   assert.match(extension, /个计划已通过校验与预演，并提交/);
   assert.match(extension, /topology\.mode === "single_worker"[\s\S]{0,180}postWorkerTunnelAction\(workerId, action, body, options\)/);

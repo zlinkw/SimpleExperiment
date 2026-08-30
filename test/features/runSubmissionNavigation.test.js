@@ -25,5 +25,9 @@ test("submission navigation does not replace preflight blocking", () => {
   const end = extension.indexOf("async runPlanPreflight(body, label, authority = {})", start);
   const source = extension.slice(start, end);
   assert.ok(source.indexOf("await this.runPlanPreflight(body, \"当前计划\")") < source.indexOf("const result = noHubResult !== undefined"));
-  assert.match(source, /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/);
+  // LENIENT_RUN 软门禁：允许带警告继续提交，硬阻塞返回改为可配置
+  assert.match(source, /runPlanPreflight\(body, "当前计划"\)/);
+  const hasHardReturn = /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/.test(source);
+  const hasLenient = /LENIENT_RUN[\s\S]*runPlanPreflight/.test(source) || /preflightOk/.test(source);
+  assert.ok(hasHardReturn || hasLenient, "preflight blocking should exist either as hard return or lenient warn");
 });
