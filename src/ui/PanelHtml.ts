@@ -13963,13 +13963,28 @@ export function renderPanelHtml(): string {
       // 预演(dryRun)与校验(validate)同属 PLAN_PREFLIGHT_COMMANDS，共用同一 Hub 能力面
       // （Hub 始终成对提供 validate-plan 与 dry-run-plan）。只要校验能力可用，不应因单独的
       // dry-run-plan 能力键缺失而把“预演”按钮置灰，否则会出现“校验可用、预演灰”的分裂现象。
+      // LENIENT 宽松门禁：无条件过滤 dry-run-plan（避免缓存/键分裂导致校验蓝而预演灰），
+      // 且所有 PLAN_PREFLIGHT 能力缺失改为软告警，保持 validate/dryRun 同色可点。
+      if (isLenient && command === "dryRunPlan") {
+        const beforeLen = missing.length;
+        missing = missing.filter((key) => key !== "actions.dry-run-plan");
+        if (beforeLen !== missing.length && missing.length === 0) {
+          pushSoft("capability", "actions.dry-run-plan");
+        }
+      }
       if (PLAN_PREFLIGHT_COMMANDS.has(command) && command !== "validatePlan") {
         const validateReadiness = uiCapabilityReadinessForStateCommand(state, "validatePlan");
         if (validateReadiness.missing.length === 0) {
           missing = missing.filter((key) => key !== "actions.dry-run-plan");
         }
       }
-      if (missing.length) return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
+      if (missing.length) {
+        if (isLenient && PLAN_PREFLIGHT_COMMANDS.has(command)) {
+          pushSoft("capability", missing.join(", "));
+        } else {
+          return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
+        }
+      }
       const health = (state.health || {}).state;
       if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && REMOTE_ACTION_DISCONNECTED_HEALTH_STATES.has(health) && !hasRealtimeSignal(state)) {
         if (PLAN_PREFLIGHT_COMMANDS.has(command)) { pushSoft("tunnel", "tunnel 未连接"); }
@@ -13989,7 +14004,14 @@ export function renderPanelHtml(): string {
       // “运行全部计划”不应只因 plans 列表为空就被置灰：当用户已选择/填入某个 plan
       // （planFileInput 或 selection）时，应当允许运行该计划（等价于运行全部可见计划）。
       // 否则会出现“校验并提交运行可用、运行全部计划灰”的分裂现象。
-      if (command === "runAllPlans" && !asArray(state.plans || state.recentPlans || []).length && !hasSelectedPlan(state, {})) return "没有可运行的计划文件";
+      // LENIENT 宽松门禁：即使 plans 列表为空，只要已选 plan 就软放行，不硬拦截
+      if (command === "runAllPlans" && !asArray(state.plans || state.recentPlans || []).length) {
+        const hasPlan = hasSelectedPlan(state, context) || hasSelectedPlan(state, {});
+        if (!hasPlan) return "没有可运行的计划文件";
+        if (isLenient && hasPlan) {
+          pushSoft("planList", "没有可运行的计划文件");
+        }
+      }
       if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
         const planFile = String(context.planFile || context.planId || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");
         const plan = typeof planFromContext === "function" ? planFromContext(state, { planFile }) || {} : {};

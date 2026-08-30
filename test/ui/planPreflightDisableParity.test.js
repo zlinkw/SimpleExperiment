@@ -26,7 +26,10 @@ function extractFunction(name) {
 function loadDisableReason(opts) {
   const actionEndpoints = opts.actionEndpoints || {};
   const hasPlanInput = opts.hasPlanInput !== false;
+  const isLenient = opts.isLenient !== undefined ? Boolean(opts.isLenient) : true;
   const sandbox = {
+    LENIENT_RUN: isLenient,
+    isLenientRun: isLenient,
     runMode: "formal",
     DEBUG_MODE_BLOCKED_UI_COMMANDS: new Set(["clearLegacyTasks"]),
     TASK_CONTROL_COMMANDS: new Set(["stopExperiment", "retryExperiment"]),
@@ -79,10 +82,15 @@ test("dryRun 与 validate 在 Hub 仅上报 validate-plan 时门禁一致", () =
 });
 
 test("dryRun 在 validate 能力也缺失时仍被正确拦截", () => {
-  const sandbox = loadDisableReason({ actionEndpoints: {} });
   const state = { capabilities: { endpoints: { actions: true }, actionEndpoints: {} } };
-  const validateReason = sandbox.reason(state, "validatePlan", {});
-  const dryRunReason = sandbox.reason(state, "dryRunPlan", {});
+  // LENIENT 宽松门禁：能力缺失转为软告警，validate/dryRun 同为可点（同色），不硬拦截
+  const sandboxLenient = loadDisableReason({ actionEndpoints: {}, isLenient: true });
+  assert.equal(sandboxLenient.reason(state, "validatePlan", {}), "", "LENIENT 校验应软放行");
+  assert.equal(sandboxLenient.reason(state, "dryRunPlan", {}), "", "LENIENT 预演应软放行，与校验同色");
+  // 严格模式仍保持硬拦截，用于回归校验
+  const sandboxStrict = loadDisableReason({ actionEndpoints: {}, isLenient: false });
+  const validateReason = sandboxStrict.reason(state, "validatePlan", {});
+  const dryRunReason = sandboxStrict.reason(state, "dryRunPlan", {});
   assert.ok(validateReason, "validate 缺失能力应被拦截");
   assert.ok(dryRunReason, "dryRun 缺失能力应同样被拦截");
   assert.match(dryRunReason, /Hub Agent|validate-plan/);
