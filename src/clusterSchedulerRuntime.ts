@@ -2798,6 +2798,16 @@ def main() -> None:
             append_scheduler_operation_event(args, "failed", f"调度器依赖检查未通过：{_exc}", {"failureSource": "scheduler_dependency_check", "schedulerStarted": True})
         except Exception:
             pass
+        try:
+            _msg = f"[{now()}] scheduler_dependency_check_failed {_exc}"
+            _sched_log = str(getattr(args, "scheduler_log", "") or "").strip()
+            if _sched_log:
+                append_log(Path(_sched_log), _msg)
+            _op = str(getattr(args, "operation_id", "") or getattr(args, "op_id", "") or "").strip()
+            if _op:
+                append_log(Path(f"simple_cluster/tmp/cluster_scheduler/{_op}.log"), _msg)
+        except Exception:
+            pass
         raise
     if args.print_job_dir:
         if args.only_index is None:
@@ -2848,10 +2858,40 @@ def main() -> None:
             append_scheduler_operation_event(args, "failed", f"计划加载失败：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True})
         except Exception:
             pass
+        try:
+            _msg = f"[{now()}] scheduler_load_plan_failed {_exc} plan={args.plan}"
+            _sched_log = str(getattr(args, "scheduler_log", "") or "").strip()
+            if _sched_log:
+                append_log(Path(_sched_log), _msg)
+            _op = str(getattr(args, "operation_id", "") or getattr(args, "op_id", "") or "").strip()
+            if _op:
+                append_log(Path(f"simple_cluster/tmp/cluster_scheduler/{_op}.log"), _msg)
+            try:
+                _pk = plan_runtime_key(args.plan)
+                append_log(Path(f"simple_cluster/tmp/cluster_scheduler/{_pk}.log"), _msg)
+            except Exception:
+                pass
+        except Exception:
+            pass
         raise
     except Exception as _exc:
         try:
             append_scheduler_operation_event(args, "failed", f"计划加载异常：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True})
+        except Exception:
+            pass
+        try:
+            _msg = f"[{now()}] scheduler_load_plan_exception {_exc} plan={args.plan}"
+            _sched_log = str(getattr(args, "scheduler_log", "") or "").strip()
+            if _sched_log:
+                append_log(Path(_sched_log), _msg)
+            _op = str(getattr(args, "operation_id", "") or getattr(args, "op_id", "") or "").strip()
+            if _op:
+                append_log(Path(f"simple_cluster/tmp/cluster_scheduler/{_op}.log"), _msg)
+            try:
+                _pk = plan_runtime_key(args.plan)
+                append_log(Path(f"simple_cluster/tmp/cluster_scheduler/{_pk}.log"), _msg)
+            except Exception:
+                pass
         except Exception:
             pass
         raise

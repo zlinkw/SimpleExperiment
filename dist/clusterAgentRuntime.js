@@ -2076,6 +2076,45 @@ def tmux_pane_pid(session, cwd=None, env=None):
 
 def _tmux_log_size(log_path):
     try:
+        if not log_path or not os.path.isfile(log_path):
+            return 0
+        # Effective log size: ignore empty, conda activate, cd, export echoes and pipe-pane marker
+        # so shell bootstrap lines are not mistaken for real scheduler progress.
+        try:
+            _size = os.path.getsize(log_path)
+            _read_len = min(_size, 64 * 1024)
+            with open(log_path, "rb") as _f:
+                if _size > _read_len:
+                    _f.seek(_size - _read_len)
+                _data = _f.read(_read_len)
+        except Exception:
+            return 0
+        _text = _data.decode("utf-8", errors="replace")
+        _effective = 0
+        for _line in _text.splitlines():
+            _stripped = _line.strip()
+            if not _stripped:
+                continue
+            if _stripped.startswith("[pipe-pane"):
+                continue
+            if _stripped.startswith("conda activate"):
+                continue
+            if _stripped.startswith("cd "):
+                continue
+            if _stripped.startswith("export "):
+                continue
+            if "SIMPLE_TMUX_READY" in _stripped:
+                continue
+            _effective += len(_stripped.encode("utf-8")) + 1
+        return _effective
+    except Exception:
+        try:
+            return os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
+        except Exception:
+            return 0
+
+def _tmux_raw_log_size(log_path):
+    try:
         return os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
     except Exception:
         return 0
@@ -2191,10 +2230,35 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     if proc.returncode != 0:
         raise RuntimeError(f"tmux start failed rc={proc.returncode}")
     if log_path:
+        _pipe_ok = False
+        _pipe_err = ""
         try:
-            subprocess.run(["tmux", "pipe-pane", "-t", session, "-o", "tee -a " + shlex.quote(str(log_path))], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
-        except Exception:
-            pass
+            _pp = subprocess.run(["tmux", "pipe-pane", "-t", session, "-o", "tee -a " + shlex.quote(str(log_path))], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5, env=env)
+            if _pp.returncode == 0:
+                _pipe_ok = True
+            else:
+                _pipe_err = (_pp.stderr or _pp.stdout or f"rc={_pp.returncode}").strip()
+        except Exception as _pp_exc:
+            _pipe_err = str(_pp_exc)
+        if _pipe_ok:
+            try:
+                pathlib.Path(str(log_path)).touch(exist_ok=True)
+                with open(str(log_path), "a", encoding="utf-8") as _lf:
+                    _lf.write(f"[pipe-pane attached {now_iso()} session={session}]\n")
+            except Exception:
+                pass
+        else:
+            try:
+                os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
+                with open(str(log_path), "a", encoding="utf-8") as _lf:
+                    _lf.write(f"[pipe-pane failed session={session} err={_pipe_err}]\n")
+                # Fallback: try plain cat pipe
+                try:
+                    subprocess.run(["tmux", "pipe-pane", "-t", session, "cat >> " + shlex.quote(str(log_path))], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+                except Exception:
+                    pass
+            except Exception:
+                pass
     conda_env = simple_conda_env_name(env)
     lines = []
     if conda_env:
@@ -7963,8 +8027,9 @@ def handle_action(root, action, payload, operation_id, op_id):
                             if launch_failed:
                                 pane_tail = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
                                 python_running = _tmux_pane_python_running(tmux_session, env) if used_tmux else False
-                                message = ("调度器启动失败：tmux 会话存活但 %.0fs 内无日志增长且未生成 exit_code（pane 内 python 进程：%s）。%s"
-                                           % (_no_progress, "存在" if python_running else "不存在", f"调度器进程退出码 {rc}，未收到调度器终态事件。"))
+                                _total_wait = _launch_grace + _no_progress
+                                message = ("调度器启动失败：tmux 会话存活但合计 %.0fs 内无有效日志增长且未生成 exit_code（pane 内 python 进程：%s）。%s"
+                                           % (_total_wait, "存在" if python_running else "不存在", f"调度器进程退出码 {rc}，未收到调度器终态事件。"))
                                 if pane_tail:
                                     message += " pane 尾部：" + pane_tail[-600:].replace("\n", " ").replace("\r", " ")
                             if log_tail:
@@ -8684,6 +8749,28 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     live_log_count = 0
     live_log_tail = ""
     live_log_updated_at = ""
+    # Helper: read effective tail from a log file (filter shell echoes)
+    def _read_effective_tail(path, max_bytes=16*1024):
+        try:
+            if not path or not os.path.isfile(path):
+                return "", 0, ""
+            _st = os.stat(path)
+            with open(path, "rb") as _h:
+                _h.seek(max(0, _st.st_size - max_bytes))
+                _raw = _h.read()
+            _txt = _raw.decode("utf-8", errors="replace")
+            _tail_150 = _txt.splitlines()[-150:]
+            _joined = "\n".join(_tail_150)
+            _t4000 = _joined[-4000:] if _joined else ""
+            _eff_tail = "\n".join([_l for _l in _t4000.splitlines() if _l.strip() and not _l.strip().startswith("conda activate") and not _l.strip().startswith("cd ") and not _l.strip().startswith("export ") and not _l.strip().startswith("[pipe-pane")][-50:])
+            # If effective filtering removed everything but raw has content, keep raw tail for evidence
+            if not _eff_tail and _t4000.strip():
+                _eff_tail = "\n".join(_t4000.splitlines()[-50:])
+            _cnt = len([_l for _l in _eff_tail.splitlines() if _l.strip()]) if _eff_tail else 0
+            _upd = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_st.st_mtime))
+            return _eff_tail, _cnt, _upd
+        except Exception:
+            return "", 0, ""
     if log_path and os.path.isfile(log_path):
         stat = os.stat(log_path)
         with open(log_path, "rb") as handle:
@@ -8697,6 +8784,78 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         live_log_tail = "\n".join(tail_4000.splitlines()[-50:]) if tail_4000 else ""
         live_log_count = len([line for line in live_log_tail.splitlines() if line.strip()]) if live_log_tail else len([line for line in text.splitlines() if line.strip()])
         live_log_updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
+    # Fallback: if op_id.log is <200B or empty, merge payload.schedulerLog / queue_log (plan_key.log)
+    _needs_fallback = False
+    try:
+        _raw_size = os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
+        if _raw_size < 200 or not live_log_tail.strip():
+            _needs_fallback = True
+    except Exception:
+        _needs_fallback = not live_log_tail.strip()
+    if _needs_fallback:
+        _fallback_candidates = []
+        # payload.schedulerLog / queue_log
+        for _key in ("schedulerLog", "scheduler_log", "queueLog", "queue_log", "schedulerLogPath", "scheduler_log_path"):
+            _val = str(payload.get(_key) or "").strip()
+            if _val:
+                _fallback_candidates.append(_val)
+        # derive plan_key log: simple_cluster/tmp/cluster_scheduler/<plan_key>.log
+        _plan_for_key = str(plan_file or payload.get("planFile") or payload.get("plan") or "").strip()
+        if _plan_for_key:
+            try:
+                _pk = scheduler_plan_runtime_key(root, _plan_for_key)
+                if _pk:
+                    _fallback_candidates.append(f"simple_cluster/tmp/cluster_scheduler/{_pk}.log")
+            except Exception:
+                pass
+        # Also try operation_id.log already is primary, but ensure we don't duplicate
+        for _rel in _fallback_candidates:
+            try:
+                _cand_path = safe_project_path(root, _rel)
+            except Exception:
+                continue
+            if _cand_path == log_path:
+                continue
+            _tail2, _cnt2, _upd2 = _read_effective_tail(_cand_path)
+            if _tail2.strip():
+                # Merge effective content
+                if live_log_tail.strip():
+                    live_log_tail = (live_log_tail.rstrip() + "\n" + _tail2).strip()[-4000:]
+                    live_log_count = len([_l for _l in live_log_tail.splitlines() if _l.strip()])
+                    # keep earliest updatedAt? Use latest
+                    if _upd2 and (not live_log_updated_at or _upd2 > live_log_updated_at):
+                        live_log_updated_at = _upd2
+                else:
+                    live_log_tail = _tail2
+                    live_log_count = _cnt2
+                    live_log_updated_at = _upd2
+                    # adopt fallback path as log_rel if primary was empty
+                    if not log_path or not os.path.isfile(log_path) or _raw_size < 200:
+                        log_rel = _rel
+                        log_path = _cand_path
+                # Only merge first effective fallback to keep tail bounded
+                if live_log_count >= 5:
+                    break
+            # Also try raw fallback if effective was empty but file exists
+            try:
+                if _cand_path and os.path.isfile(_cand_path) and not _tail2.strip():
+                    _st2 = os.stat(_cand_path)
+                    with open(_cand_path, "rb") as _h2:
+                        _h2.seek(max(0, _st2.st_size - 16*1024))
+                        _raw2 = _h2.read().decode("utf-8", errors="replace")
+                    _raw_tail2 = "\n".join(_raw2.splitlines()[-50:])
+                    if _raw_tail2.strip():
+                        if live_log_tail.strip():
+                            live_log_tail = (live_log_tail.rstrip() + "\n" + _raw_tail2).strip()[-4000:]
+                        else:
+                            live_log_tail = _raw_tail2
+                            live_log_updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_st2.st_mtime))
+                        live_log_count = len([_l for _l in live_log_tail.splitlines() if _l.strip()])
+                        if not log_path or not os.path.isfile(log_path):
+                            log_rel = _rel
+                            log_path = _cand_path
+            except Exception:
+                pass
     process = scheduler_process_evidence(root, pid if pid is not None else payload.get("pid"), tmux_session or payload.get("tmuxSession") or payload.get("session"))
     evidence_counts = {
         "schedulerStatesCount": len(scheduler_rows),
