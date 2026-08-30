@@ -12679,18 +12679,29 @@ function renderPanelHtml() {
       try {
         // 回退：row.logTail 为空时，优先回退到 evidence.logTail / liveLogTail，
         // 避免“running 但报错”时日志区一片空白。
-        const evidenceLogTail = (row.evidence && (row.evidence.logTail || row.evidence.liveLogTail)) || ((row.payload && row.payload.evidence && (row.payload.evidence.logTail || row.payload.evidence.liveLogTail))) || ((row.payload && (row.payload.logTail || row.payload.log_tail)) || "");
+        const evidenceLiveLogTail = String((row.evidence && (row.evidence.liveLogTail || row.evidence.live_log_tail || row.evidence.logTail || row.evidence.log_tail)) || (row.payload && row.payload.evidence && (row.payload.evidence.liveLogTail || row.payload.evidence.live_log_tail || row.payload.evidence.logTail || row.payload.evidence.log_tail)) || "").trim();
+        const payloadTail = String((row.payload && (row.payload.logTail || row.payload.log_tail || row.payload.liveLogTail || row.payload.live_log_tail)) || "").trim();
         const tmuxSession = String(row.tmuxSession || row.tmux_session || row.session || (row.payload && (row.payload.tmuxSession || row.payload.tmux_session || row.payload.session)) || "").trim();
-        const tmuxHint = tmuxSession ? "tmux capture-pane -p -t " + tmuxSession + " / tmux attach -t " + tmuxSession : "tmux capture-pane -p -t zlk-sch-* / tmux attach -t zlk-sch-*";
-        const raw = String(row.logTail || row.consoleTail || row.liveOutput || row.hubConsoleLog || row.console_log || row.log || row.output || row.console_tail || row.log_tail || evidenceLogTail || "").trim();
+        const tmuxCaptureCmd = tmuxSession ? "tmux capture-pane -p -t " + tmuxSession : "tmux capture-pane -p -t zlk-sch-*";
+        const tmuxAttachCmd = tmuxSession ? "tmux attach -t " + tmuxSession : "tmux attach -t zlk-sch-*";
+        const opIdForLog = String(row.operationId || row.opId || row.id || (row.payload && (row.payload.operationId || row.payload.opId)) || "").trim();
+        const logPathForHint = String(row.logPath || row.log_path || (row.payload && (row.payload.logPath || row.payload.log_path)) || (row.evidence && (row.evidence.logPath || row.evidence.log_path)) || (opIdForLog ? "simple_cluster/tmp/cluster_scheduler/" + opIdForLog + ".log" : "simple_cluster/tmp/cluster_scheduler/*.log")).trim();
+        const rawUntrimmed = String(evidenceLiveLogTail || row.logTail || row.log_tail || payloadTail || "").trim();
+        // 尾部优先：raw 按换行分割取后 50 行，再取其中最后 20 行展示（避免头部截断）；先按 150 行+4000字符做尾部截断，保持将显示最新 20/50 条文案一致
+        const rawTrimmed4000 = rawUntrimmed.length > 4000 ? rawUntrimmed.slice(-4000) : rawUntrimmed;
+        const rawLinesAll = rawTrimmed4000 ? rawTrimmed4000.split(/\\r?\\n/) : [];
+        const rawTail150 = rawLinesAll.slice(-150).join("\\n");
+        const rawTail4000 = rawTail150.length > 4000 ? rawTail150.slice(-4000) : rawTail150;
+        const rawLines = rawTail4000 ? rawTail4000.split(/\\r?\\n/) : [];
+        const windowedRaw = rawLines.slice(-50);
         const schedLog = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
-        const combined = [raw, schedLog].filter(Boolean).join("\\n");
-        const lines = combined ? combined.split(/\\r?\\n/) : [];
-        const windowed = lines.slice(-50);
+        const schedLines = schedLog ? schedLog.split(/\\r?\\n/).slice(-50) : [];
+        const combined = [...windowedRaw, ...schedLines].slice(-50);
+        const windowed = combined.length ? combined : windowedRaw;
         const preview = windowed.slice(-20);
         const total = windowed.length;
         const more = Math.max(0, total - 20);
-        const emptyHint = '<div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已优先回退到 evidence.logTail 仍为空）。请在远端执行 <code>' + esc(tmuxHint) + '</code> 查看实时日志；若长时间无更新，请点“刷新运行状态”或“中止清理”。将显示最新 20/50 条</div>';
+        const emptyHint = '<div class="muted" style="font-size:11px; line-height:1.45;">暂无日志，真实日志路径：<code>' + esc(logPathForHint) + '</code><br>远端查看：<br><code>' + esc(tmuxCaptureCmd) + '</code><br><code>' + esc(tmuxAttachCmd) + '</code><br>可点击“刷新运行状态”或“终止”后重试；仅展示最近 20/50 行</div>';
         const previewHtml = total ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(preview.join("\\n")) + '</pre>' : emptyHint;
         const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条及打开 simple_cluster/console_logs/baseline-*">历史记录' + (more ? ' +' + more : total ? ' (' + total + ')' : '') + '</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志">打开完整日志</button>';
         return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;">' + previewHtml + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + historyBtn + '</div></div>';

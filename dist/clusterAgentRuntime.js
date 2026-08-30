@@ -8671,7 +8671,16 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     traces = matching_plan_rows(trace_snapshot.get("experimentTraces") or [], plan_file or payload.get("planFile") or payload.get("plan"))
     worker_tasks = matching_plan_rows(task_snapshot.get("tasks") or [], plan_file or payload.get("planFile") or payload.get("plan"))
     log_rel = str(payload.get("logPath") or payload.get("log_path") or "")
-    log_path = safe_project_path(root, log_rel) if log_rel else ""
+    if not log_rel:
+        # 兜底：payload 未提供 logPath 时按 opId 拼接真实调度日志路径 simple_cluster/tmp/cluster_scheduler/<opId>.log
+        fallback_rel = f"simple_cluster/tmp/cluster_scheduler/{operation_id}.log" if str(operation_id or "").strip() else ""
+        log_rel = fallback_rel
+    log_path = ""
+    if log_rel:
+        try:
+            log_path = safe_project_path(root, log_rel)
+        except Exception:
+            log_path = ""
     live_log_count = 0
     live_log_tail = ""
     live_log_updated_at = ""
@@ -8681,8 +8690,12 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
             handle.seek(max(0, stat.st_size - 16 * 1024))
             raw_tail = handle.read()
         text = raw_tail.decode("utf-8", errors="replace")
-        live_log_count = len([line for line in text.splitlines() if line.strip()])
-        live_log_tail = text[-4000:]
+        # 日志优先取末尾（tail）：先取最后 150 行，再截 4000 字符，最后取 50 行，确保 liveLogTail 为尾部而非头部，并同步到 logTail 别名
+        tail_lines_150 = text.splitlines()[-150:]
+        tail_joined_150 = "\n".join(tail_lines_150)
+        tail_4000 = tail_joined_150[-4000:] if tail_joined_150 else ""
+        live_log_tail = "\n".join(tail_4000.splitlines()[-50:]) if tail_4000 else ""
+        live_log_count = len([line for line in live_log_tail.splitlines() if line.strip()]) if live_log_tail else len([line for line in text.splitlines() if line.strip()])
         live_log_updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
     process = scheduler_process_evidence(root, pid if pid is not None else payload.get("pid"), tmux_session or payload.get("tmuxSession") or payload.get("session"))
     evidence_counts = {
@@ -8701,6 +8714,11 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         "activeEvidence": active_evidence,
         "liveLogUpdatedAt": live_log_updated_at,
         "liveLogTail": live_log_tail,
+        "live_log_tail": live_log_tail,
+        "logTail": live_log_tail,
+        "log_tail": live_log_tail,
+        "logPath": log_rel,
+        "log_path": log_rel,
     }
 
 

@@ -12565,12 +12565,46 @@ function operationsRecord(value) {
     }));
 }
 function mergeOperationRecords(...records) {
-    const out = {};
+    const tailPreferred = (value: unknown): string => {
+        const t = String(value || "").trim();
+        if (!t) return "";
+        // 尾部优先：取最后 150 行中截 4000 字符，再取最后 50 行，确保为尾部而非头部
+        const lines150 = t.split(/\r?\n/).slice(-150);
+        const joined150 = lines150.join("\n");
+        const sliced4000 = joined150.length > 4000 ? joined150.slice(-4000) : joined150;
+        const lines50 = sliced4000.split(/\r?\n/).slice(-50);
+        return lines50.join("\n");
+    };
+    const out: any = {};
     for (const record of records) {
         for (const [key, value] of Object.entries(record || {})) {
-            if (operationTerminal(out[key]) && !operationTerminal(value))
+            if (operationTerminal((out as any)[key]) && !operationTerminal(value))
                 continue;
-            out[key] = { ...(out[key] || {}), ...value };
+            (out as any)[key] = { ...((out as any)[key] || {}), ...(value as any) };
+        }
+    }
+    // 修复：若 evidence.liveLogTail 非空且 row.logTail 为空，同步回填到 row，确保 extension->面板 链路不断（尾部优先）
+    for (const [key, value] of Object.entries(out)) {
+        if (!value || typeof value !== "object") continue;
+        const row = value as any;
+        const ev = (row.evidence && typeof row.evidence === "object" ? row.evidence : null) || (row.payload && row.payload.evidence && typeof row.payload.evidence === "object" ? row.payload.evidence : null) || {};
+        const liveRaw = String((ev as any).liveLogTail || (ev as any).live_log_tail || (ev as any).logTail || (ev as any).log_tail || "").trim();
+        const live = tailPreferred(liveRaw);
+        const hasLogTail = String(row.logTail || (row as any).log_tail || "").trim();
+        if (live && !hasLogTail) {
+            (out as any)[key] = { ...row, logTail: live, log_tail: live };
+        } else if (hasLogTail) {
+            // 存量 logTail 也做尾部截断，避免头部截断残留
+            const normalized = tailPreferred(hasLogTail);
+            if (normalized && normalized !== hasLogTail) {
+                (out as any)[key] = { ...(out as any)[key], logTail: normalized, log_tail: normalized };
+            }
+        }
+        // 同步兼容：若 row.logTail 仍空但 payload 有 tail，也回填（尾部优先）
+        const payloadRaw = String((row.payload && ((row.payload as any).logTail || (row.payload as any).log_tail || (row.payload as any).liveLogTail || (row.payload as any).live_log_tail)) || "").trim();
+        const payloadTail = tailPreferred(payloadRaw);
+        if (!String((out as any)[key].logTail || (out as any)[key].log_tail || "").trim() && payloadTail) {
+            (out as any)[key] = { ...(out as any)[key], logTail: payloadTail, log_tail: payloadTail };
         }
     }
     return out;

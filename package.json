@@ -2,7 +2,7 @@
 	"name": "simple-experiment",
 	"displayName": "SimpleExperiment",
 	"description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-	"version": "0.4.25",
+	"version": "0.4.26",
 	"publisher": "simple-local",
 	"extensionKind": [
 		"ui"
@@ -398,29 +398,29 @@
 					"default": "simple",
 					"pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
 					"scope": "application",
-				"description": "远端 tmux 会话名前缀，用于多用户共用服务器时区分归属；仅允许小写字母、数字、点、下划线和连字符。"
-			},
-			"simpleExperiment.tensorboard.port": {
-				"type": "number",
-				"default": 6006,
-				"minimum": 1024,
-				"maximum": 65535,
-				"scope": "application",
-				"description": "TensorBoard 在远端监听的端口，点击“打开 TensorBoard”时会重启该端口上的 <prefix>_tb tmux 会话。"
-			},
-			"simpleExperiment.tensorboard.logdir": {
-				"type": "string",
-				"default": "work_dirs",
-				"scope": "application",
-				"description": "启动 TensorBoard 时优先使用的日志目录（相对于远端项目根目录）。留空或不存在时，agent 会自动探测 events.out.tfevents.* 目录并直接启动 tensorboard。"
-			},
-			"simpleExperiment.tensorboard.tmuxSession": {
-				"type": "string",
-				"default": "",
-				"scope": "application",
-				"description": "TensorBoard 的 tmux 会话名。留空时自动取 <tunnel.remoteTmuxSessionPrefix>_tb，切勿写死具体服务器或用户名。"
-			},
-			"simpleExperiment.tunnel.condaEnv": {
+					"description": "远端 tmux 会话名前缀，用于多用户共用服务器时区分归属；仅允许小写字母、数字、点、下划线和连字符。"
+				},
+				"simpleExperiment.tensorboard.port": {
+					"type": "number",
+					"default": 6006,
+					"minimum": 1024,
+					"maximum": 65535,
+					"scope": "application",
+					"description": "TensorBoard 在远端监听的端口，点击“打开 TensorBoard”时会重启该端口上的 <prefix>_tb tmux 会话。"
+				},
+				"simpleExperiment.tensorboard.logdir": {
+					"type": "string",
+					"default": "work_dirs",
+					"scope": "application",
+					"description": "启动 TensorBoard 时优先使用的日志目录（相对于远端项目根目录）。留空或不存在时，agent 会自动探测 events.out.tfevents.* 目录并直接启动 tensorboard。"
+				},
+				"simpleExperiment.tensorboard.tmuxSession": {
+					"type": "string",
+					"default": "",
+					"scope": "application",
+					"description": "TensorBoard 的 tmux 会话名。留空时自动取 <tunnel.remoteTmuxSessionPrefix>_tb，切勿写死具体服务器或用户名。"
+				},
+				"simpleExperiment.tunnel.condaEnv": {
 					"type": "string",
 					"default": "",
 					"scope": "application",
