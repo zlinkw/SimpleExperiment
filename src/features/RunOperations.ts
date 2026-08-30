@@ -48,13 +48,33 @@ export const RUN_OPERATION_ERROR_LOG_PATTERNS: RegExp[] = [
   /SyntaxError/i,
   /subprocess\.CalledProcessError/i,
   /returned non-zero exit status/i,
-  /\bError\b/i,
-  /\bException\b/i,
+  /\bError\s*:/i,
+  /\bException\s*:/i,
 ];
 
 export function runOperationLogShowsError(evidence: RemoteRunEvidence): boolean {
-  const tail = String((evidence as any).liveLogTail || (evidence as any).logTail || "");
+  const raw = String((evidence as any).liveLogTail || (evidence as any).logTail || "");
+  if (!raw) return false;
+  // 过滤调度等待期探测日志：dispatch_probe / idle=0 / wait pending / rejected 行不应判为错误
+  const filtered = raw
+    .split(/\r?\n/)
+    .filter((line) => {
+      if (/dispatch_probe/i.test(line)) return false;
+      if (/idle\s*=\s*0/i.test(line)) return false;
+      if (/wait pending/i.test(line)) return false;
+      if (/rejected/i.test(line)) return false;
+      if (/error\s*=/i.test(line) && /dispatch_probe/i.test(raw)) return false;
+      return true;
+    })
+    .join("\n");
+  const tail = filtered.trim() ? filtered : "";
   if (!tail) return false;
+  // 进一步白名单：若过滤后仅剩探测文本则不判错
+  if (/dispatch_probe/i.test(tail) && !RUN_OPERATION_ERROR_LOG_PATTERNS.some((re) => re.test(tail.replace(/dispatch_probe[^\n]*/gi, "")))) {
+    const cleaned = tail.replace(/dispatch_probe[^\n]*/gi, "").trim();
+    if (!cleaned) return false;
+    return RUN_OPERATION_ERROR_LOG_PATTERNS.some((re) => re.test(cleaned));
+  }
   return RUN_OPERATION_ERROR_LOG_PATTERNS.some((re) => re.test(tail));
 }
 
@@ -212,8 +232,22 @@ export function reconcileRunOperation(
   // Process is dead (no pid / no tmux session). If the log already shows a hard
   // error, promote to a terminal failed state immediately so the Operations panel
   // never stays stuck on "waiting for scheduler terminal".
+  // 增加 90s grace：启动 90s 内即使日志含错误也不立即判失败，避免将调度等待期探测日志误判为程序错误
   const logTail = String((evidence as any).liveLogTail || (evidence as any).logTail || "");
   if (runOperationLogShowsError(evidence)) {
+    const startedRaw = String(record.startedAt || remote.startedAt || record.updatedAt || "");
+    const startedMs = Date.parse(startedRaw);
+    const age = Number.isFinite(startedMs) ? nowMs - startedMs : RUN_OPERATION_RECONCILE_GRACE_MS + 1;
+    if (age >= 0 && age < RUN_OPERATION_RECONCILE_GRACE_MS) {
+      return {
+        terminal: false,
+        patch: {
+          ...base,
+          reconcileCheckedAt: checkedAt,
+          reconcileGraceExpiresAt: new Date(startedMs + RUN_OPERATION_RECONCILE_GRACE_MS).toISOString(),
+        },
+      };
+    }
     return {
       terminal: true,
       patch: {

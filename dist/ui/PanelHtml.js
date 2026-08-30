@@ -12657,9 +12657,14 @@ function renderPanelHtml() {
       ].join("\\n");
     }
     function operationEvidenceHasErrorText(row) {
+      const _ageMs = Date.now() - Date.parse(String((row || {}).startedAt || (row || {}).updatedAt || ""));
+      if (Number.isFinite(_ageMs) && _ageMs >= 0 && _ageMs < 90000) return "";
       const ev = operationEvidenceOf(row);
-      const payloadText = operationPayloadText(row);
-      const texts = [
+      const rawPayloadText = operationPayloadText(row);
+      // 若 payload 仅含 dispatch_probe 则视为空，避免误判
+      const payloadNonProbe = rawPayloadText.split(/\\r?\\n/).filter((l) => !/dispatch_probe/i.test(l)).join("\\n").trim();
+      const payloadText = rawPayloadText.trim() && !payloadNonProbe ? "" : rawPayloadText;
+      const rawTexts = [
         String(ev.error || ""),
         String(ev.logTail || ev.liveLogTail || ""),
         String(ev.timedOut || ev.timed_out || ev.timedout || ev.timeout || ""),
@@ -12667,21 +12672,48 @@ function renderPanelHtml() {
         String((row || {}).logTail || ""),
         payloadText
       ].join("\\n");
+      if (!rawTexts.trim()) return "";
+      const filteredLines = rawTexts.split(/\\r?\\n/).filter((line) => {
+        if (/dispatch_probe/i.test(line)) return false;
+        if (/idle\\s*=\\s*0/i.test(line)) return false;
+        if (/wait pending/i.test(line)) return false;
+        if (/rejected/i.test(line) && /dispatch_probe|idle/i.test(rawTexts)) return false;
+        if (/error\\s*=/i.test(line) && /dispatch_probe/i.test(line)) return false;
+        return true;
+      });
+      const texts = filteredLines.join("\\n");
       if (!texts.trim()) return "";
-      if (/traceback|exception|\\berror\\b|\\bfailed\\b|失败|异常|exit code|非零|non-?zero|stderr|timedOut|timed_out|dead/i.test(texts)) return texts;
+      // Error 需冒号才算真实错误，避免 error= 探测误触；其它关键词保持原有
+      if (/traceback/i.test(texts) || /exception\\s*:/i.test(texts) || /\\bError\\s*:/i.test(texts) || /\\bfailed\\b|失败|异常|exit code|非零|non-?zero|stderr|timedOut|timed_out|dead/i.test(texts)) return texts;
       return "";
     }
     function operationHasDeadEvidence(row) {
       const status = String((row || {}).status || "").toLowerCase();
       if (!operationIsActive(status)) return false;
+      const _ageMs = Date.now() - Date.parse(String((row || {}).startedAt || (row || {}).updatedAt || ""));
+      if (Number.isFinite(_ageMs) && _ageMs >= 0 && _ageMs < 90000) return false;
       const ev = operationEvidenceOf(row);
-      const payloadText = operationPayloadText(row);
+      const rawPayloadText = operationPayloadText(row);
+      const payloadNonProbe = String(rawPayloadText || "").split(/\\r?\\n/).filter((l) => !/dispatch_probe/i.test(l)).join("\\n").trim();
+      const payloadText = String(rawPayloadText || "").trim() && !payloadNonProbe ? "" : rawPayloadText;
+      const payloadHasRealError = payloadNonProbe ? /traceback|exception\\s*:|\\bError\\s*:|\\bfailed\\b|失败|异常/i.test(payloadNonProbe) : false;
       const pidAlive = Boolean(ev.pidAlive);
       const tmuxAlive = Boolean(ev.tmuxSessionAlive);
       const deadFlag = ev.dead === true || String(ev.dead || "").toLowerCase() === "true" || String(ev.status || "").toLowerCase().includes("dead") || String(ev.state || "").toLowerCase().includes("dead");
-      const errorFlag = Boolean(ev.error) || String(ev.error || "").trim() !== "" || String((row || {}).error || "").trim() !== "" || String(payloadText || "").trim() !== "" && /traceback|exception|\\berror\\b|\\bfailed\\b|失败|异常/i.test(payloadText);
+      const evErrorFiltered = String(ev.error || "").trim() && !/dispatch_probe/i.test(String(ev.error || "")) ? String(ev.error || "") : "";
+      const rowErrorFiltered = String((row || {}).error || "").trim() && !/dispatch_probe/i.test(String((row || {}).error || "")) ? String((row || {}).error || "") : "";
+      const errorFlag = Boolean(evErrorFiltered) || rowErrorFiltered !== "" || payloadHasRealError;
       const timedOutFlag = Boolean(ev.timedOut || ev.timed_out || ev.timedout || ev.timeout || (row && (row.timedOut || row.timed_out))) || /timedOut|timed_out|timeout/i.test(String(ev.error || "") + String(payloadText || ""));
-      if (deadFlag || errorFlag || timedOutFlag) return true;
+      // 若仅因探测日志触发的 timedOut/error，不在 90s 内判 dead
+      if (deadFlag || errorFlag || timedOutFlag) {
+        // 额外校验：若所有 error 文本均来自 dispatch_probe 探测，则不算 dead
+        const combinedError = [evErrorFiltered, rowErrorFiltered, payloadNonProbe].join("\\n").trim();
+        if (!combinedError && (errorFlag || timedOutFlag)) {
+          // 仅含探测文本的错误不触发 dead
+        } else {
+          return true;
+        }
+      }
       if (!pidAlive && !tmuxAlive) return true;
       if (operationEvidenceHasErrorText(row)) return true;
       return false;
@@ -12689,6 +12721,8 @@ function renderPanelHtml() {
     function operationRunningEvidenceWarning(row) {
       const status = String((row || {}).status || "").toLowerCase();
       if (!operationIsActive(status)) return "";
+      const _ageMs2 = Date.now() - Date.parse(String((row || {}).startedAt || (row || {}).updatedAt || ""));
+      if (Number.isFinite(_ageMs2) && _ageMs2 >= 0 && _ageMs2 < 90000) return "";
       const hasDead = operationHasDeadEvidence(row);
       const errText = operationEvidenceHasErrorText(row);
       if (!hasDead && !errText) return "";

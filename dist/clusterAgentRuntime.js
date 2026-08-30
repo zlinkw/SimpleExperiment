@@ -8890,12 +8890,40 @@ def _programError(text_or_payload, logTail=None):
             t = str(text_or_payload.get("error") or text_or_payload.get("traceback") or text_or_payload.get("message") or "")
         else:
             t = str(text_or_payload or "")
+        # 调度等待期过滤：若文本仅含 dispatch_probe/idle=0/wait pending 等探测行，则不判为程序错误
+        if t.strip():
+            # 按行过滤探测文本（类似 re.sub 过滤）
+            lines = t.splitlines()
+            filtered = []
+            for _line in lines:
+                if re.search(r"dispatch_probe", _line, re.I):
+                    continue
+                if re.search(r"idle\s*=\s*0", _line, re.I):
+                    continue
+                if re.search(r"wait pending", _line, re.I):
+                    continue
+                if re.search(r"rejected", _line, re.I) and re.search(r"dispatch_probe|idle", t, re.I):
+                    continue
+                # error= 探测（常见于 dispatch_probe 行）不计入 Error 判定
+                if re.search(r"error\s*=", _line, re.I) and re.search(r"dispatch_probe", t, re.I):
+                    continue
+                filtered.append(_line)
+            _filtered_text = "\n".join(filtered).strip()
+            # 若过滤后为空，说明原文仅含探测等待日志
+            if not _filtered_text:
+                return ""
+            # 若原文含探测标记且过滤后无真实错误特征，则返回空
+            if re.search(r"dispatch_probe|idle\s*=\s*0|wait pending", t, re.I):
+                if not re.search(r"Traceback|ModuleNotFoundError|SyntaxError|psutil|CondaValueError|EnvironmentNotFound", _filtered_text, re.I):
+                    if not re.search(r"\bError\b\s*:|\bException\b\s*:|Traceback|失败|异常", _filtered_text, re.I):
+                        return ""
+            t = _filtered_text if _filtered_text else t
         if "Traceback" in t:
             lines = [l.rstrip() for l in t.splitlines() if l.strip()]
             # 取 traceback 段：最后 20 行截 1200
             tail = "\n".join(lines[-20:])
             return tail[-1200:]
-        if re.search(r"\bError\b|\bException\b|Traceback|失败|异常", t, re.I):
+        if re.search(r"\bError\b\s*:|\bException\b\s*:|Traceback|失败|异常", t, re.I):
             return t.strip()[-1200:]
         return ""
     except Exception:
