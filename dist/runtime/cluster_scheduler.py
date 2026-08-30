@@ -2919,7 +2919,20 @@ def main() -> None:
     state_key = f"{plan_key}__debug__{slug(args.debug_run_id, 'debug', 64)}" if args.debug_mode else plan_key
     state_path = tmp_dir / f"{state_key}_state.json"
     control_path = tmp_dir / f"{state_key}_control.json"
-    queue_log = Path(args.debug_output_dir) / "scheduler.log" if args.debug_mode else tmp_dir / f"{plan_key}.log"
+    _scheduler_log_arg = str(getattr(args, "scheduler_log", "") or "").strip()
+    if _scheduler_log_arg:
+        queue_log = Path(_scheduler_log_arg)
+    elif args.debug_mode:
+        queue_log = Path(args.debug_output_dir) / "scheduler.log"
+    else:
+        queue_log = tmp_dir / f"{plan_key}.log"
+
+    def _append_scheduler_log(text: str) -> None:
+        append_log(queue_log, text)
+        if _scheduler_log_arg:
+            _explicit = Path(_scheduler_log_arg)
+            if _explicit != queue_log:
+                append_log(_explicit, text)
 
     def apply_scheduler_deletions_to_runtime() -> bool:
         matchers = read_scheduler_deletion_matchers()
@@ -3044,7 +3057,7 @@ def main() -> None:
         delay = min(900, passive_interrupt_base_backoff * attempts)
         passive_backoff_until = max(passive_backoff_until, time.time() + delay)
         stopped.append(item)
-        append_log(queue_log, f"[{now()}] passive_interrupt_requeue {kind} experiment={index} server={item.get('worker_name')} gpu={item.get('gpu_id')} attempt={attempts}/{passive_interrupt_max_retries} delay_seconds={delay} reason={reason}")
+        _append_scheduler_log( f"[{now()}] passive_interrupt_requeue {kind} experiment={index} server={item.get('worker_name')} gpu={item.get('gpu_id')} attempt={attempts}/{passive_interrupt_max_retries} delay_seconds={delay} reason={reason}")
         return True
 
     def finish_item(kind: str, key: str, item: dict[str, Any], worker: dict[str, Any]) -> None:
@@ -3069,13 +3082,13 @@ def main() -> None:
             item["requiresManualReview"] = True
             completed.append(item)
             status = "completed"
-            append_log(queue_log, f"[{now()}] manual_interrupted {kind} experiment={item['experiment_index']} server={item['worker_name']} gpu={item['gpu_id']} reason={manual_type}")
+            _append_scheduler_log( f"[{now()}] manual_interrupted {kind} experiment={item['experiment_index']} server={item['worker_name']} gpu={item['gpu_id']} reason={manual_type}")
         elif exit_code == 0:
             item["status"] = "normal_completed"
             item["completion_type"] = "normal_completed"
             completed.append(item)
             status = "completed"
-            append_log(queue_log, f"[{now()}] done {kind} experiment={item['experiment_index']} server={item['worker_name']} gpu={item['gpu_id']} exit_code=0")
+            _append_scheduler_log( f"[{now()}] done {kind} experiment={item['experiment_index']} server={item['worker_name']} gpu={item['gpu_id']} exit_code=0")
         elif passive_reason and requeue_passive_interruption(kind, item, worker, passive_reason):
             status = "queued"
         else:
@@ -3089,7 +3102,7 @@ def main() -> None:
                 item["interruptionReason"] = passive_reason
             failed.append(item)
             status = "failed"
-            append_log(queue_log, f"[{now()}] failed {kind} experiment={item['experiment_index']} server={item['worker_name']} gpu={item['gpu_id']} {item['error']}")
+            _append_scheduler_log( f"[{now()}] failed {kind} experiment={item['experiment_index']} server={item['worker_name']} gpu={item['gpu_id']} {item['error']}")
         if kind == "test":
             testing.pop(key, None)
         else:
@@ -3137,7 +3150,7 @@ def main() -> None:
         if not action:
             return False
         if action == "abort_cleanup":
-            append_log(queue_log, f"[{now()}] control abort_cleanup")
+            _append_scheduler_log( f"[{now()}] control abort_cleanup")
             manual_type = manual_interruption_type({"type": "scheduler_control"}, control) or "manual_stop_bad_code_or_no_effect"
             for item in list(active.values()) + list(testing.values()):
                 worker = workers_by_id.get(str(item.get("worker_id") or ""))
@@ -3161,7 +3174,7 @@ def main() -> None:
             write_current_state()
             return True
         if action == "stop_and_test":
-            append_log(queue_log, f"[{now()}] control stop_and_test")
+            _append_scheduler_log( f"[{now()}] control stop_and_test")
             if execution_mode != "train_test":
                 control["action"] = "abort_cleanup"
                 control["manualStopType"] = "manual_stop_converged"
@@ -3189,7 +3202,7 @@ def main() -> None:
                         item["output_dir"] = str(job.output_dir)
                     item["gpu_process_pids"] = gpu_process_pids(worker, str(item.get("gpu_id") or ""))
                     testing[key] = item
-                    append_log(queue_log, f"[{now()}] test_dispatch experiment={item['experiment_index']} server={worker['name']} gpu={item['gpu_id']} session={session}")
+                    _append_scheduler_log( f"[{now()}] test_dispatch experiment={item['experiment_index']} server={worker['name']} gpu={item['gpu_id']} session={session}")
                 except Exception as exc:
                     item["finished_at"] = now()
                     item["error"] = str(exc)
@@ -3212,7 +3225,7 @@ def main() -> None:
                 queued_indexes.add(index)
                 retry_indexes.append(index)
                 failed.remove(item)
-            append_log(queue_log, f"[{now()}] control retry_failed queued={retry_indexes}")
+            _append_scheduler_log( f"[{now()}] control retry_failed queued={retry_indexes}")
             atomic_write_json(control_path, {"action": "", "handled_at": now(), "previous_action": action, "retry_indexes": retry_indexes})
             write_current_state()
             return False
@@ -3236,15 +3249,15 @@ def main() -> None:
                     return True
             failed[:] = [item for item in failed if not_requeued(item)]
             stopped[:] = [item for item in stopped if not_requeued(item)]
-            append_log(queue_log, f"[{now()}] control reproduce_missing queued={queued_now}")
+            _append_scheduler_log( f"[{now()}] control reproduce_missing queued={queued_now}")
             atomic_write_json(control_path, {"action": "", "handled_at": now(), "previous_action": action, "queued_indexes": queued_now})
             write_current_state()
             return False
         if action == "error":
-            append_log(queue_log, f"[{now()}] control_error {control.get('error')}")
+            _append_scheduler_log( f"[{now()}] control_error {control.get('error')}")
         return False
 
-    append_log(queue_log, f"[{now()}] scheduler_start mode={execution_mode} experiments={len(queue)} workers={len(workers)} poll_seconds={poll_seconds}")
+    _append_scheduler_log( f"[{now()}] scheduler_start mode={execution_mode} experiments={len(queue)} workers={len(workers)} poll_seconds={poll_seconds}")
     write_current_state()
     no_dispatch_error_cycles = 0
     _scheduler_abort = {"sig": None}
@@ -3261,7 +3274,7 @@ def main() -> None:
         while queue or active or testing:
             if _scheduler_abort["sig"] is not None:
                 scheduler_abort_message = f"调度器收到终止信号 {_scheduler_abort['sig']}，已安全结束并写入终态"
-                append_log(queue_log, f"[{now()}] scheduler_abort signal={_scheduler_abort['sig']}")
+                _append_scheduler_log( f"[{now()}] scheduler_abort signal={_scheduler_abort['sig']}")
                 write_current_state(scheduler_abort_message)
                 break
             scheduler_wait_reason = ""
@@ -3276,9 +3289,9 @@ def main() -> None:
                 probe = probe_idle_gpus(worker, busy_slots)
                 dispatch_probe.append(probe)
                 if probe.get("error"):
-                    append_log(queue_log, f"[{now()}] dispatch_probe worker={worker.get('name')} error={probe.get('error')}")
+                    _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={probe.get('error')}")
                 elif not probe.get("idle_gpu_ids"):
-                    append_log(queue_log, f"[{now()}] dispatch_probe worker={worker.get('name')} idle=0 rejected={len(probe.get('rejected') or [])}")
+                    _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} idle=0 rejected={len(probe.get('rejected') or [])}")
                 for gpu_id in list(probe.get("idle_gpu_ids") or []):
                     if not queue:
                         break
@@ -3310,7 +3323,7 @@ def main() -> None:
                         else:
                             active[f"{worker['id']}:{gpu_id}"] = item
                         dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "dispatched", "checked_at": now(), "session": session})
-                        append_log(queue_log, f"[{now()}] dispatch experiment={experiment_index} server={worker['name']} gpu={gpu_id} session={session}")
+                        _append_scheduler_log( f"[{now()}] dispatch experiment={experiment_index} server={worker['name']} gpu={gpu_id} session={session}")
                     except Exception as exc:
                         dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "launch_failed", "checked_at": now(), "error": str(exc)})
                         failed.append({
@@ -3338,7 +3351,7 @@ def main() -> None:
                         no_dispatch_error_cycles += 1
                         if no_dispatch_error_cycles >= 3:
                             reason = scheduler_wait_reason or "all worker dispatch probes failed"
-                            append_log(queue_log, f"[{now()}] fail_pending reason={reason}")
+                            _append_scheduler_log( f"[{now()}] fail_pending reason={reason}")
                             while queue:
                                 failed.append({"experiment_index": queue.popleft(), "finished_at": now(), "error": reason})
                             write_current_state(reason)
@@ -3348,7 +3361,7 @@ def main() -> None:
                 sleep_target = poll_seconds + (random.uniform(0, poll_jitter_seconds) if poll_jitter_seconds else 0)
                 if passive_backoff_until > time.time():
                     sleep_target = max(sleep_target, passive_backoff_until - time.time())
-                append_log(queue_log, f"[{now()}] wait pending={len(queue)} running={len(active)} poll_seconds={poll_seconds} jitter_seconds={poll_jitter_seconds} sleep_seconds={sleep_target:.1f}")
+                _append_scheduler_log( f"[{now()}] wait pending={len(queue)} running={len(active)} poll_seconds={poll_seconds} jitter_seconds={poll_jitter_seconds} sleep_seconds={sleep_target:.1f}")
                 if not queue and not active and not testing:
                     break
                 slept = 0
@@ -3365,7 +3378,7 @@ def main() -> None:
                         break
                     slept += 5
     except Exception as exc:
-        append_log(queue_log, f"[{now()}] scheduler_error {exc}")
+        _append_scheduler_log( f"[{now()}] scheduler_error {exc}")
         write_current_state(str(exc))
         # Surface the failure: include a tail of the scheduler log and the
         # traceback so the Operations panel can render the root cause instead of
@@ -3395,7 +3408,7 @@ def main() -> None:
             "stoppedCount": len(stopped),
         })
         raise
-    append_log(queue_log, f"[{now()}] scheduler_finish")
+    _append_scheduler_log( f"[{now()}] scheduler_finish")
     final_error = scheduler_abort_message
     if queue and not active and not testing and not completed and not failed and not stopped:
         final_error = "Hub 调度器仍有排队实验但没有任何派发。请检查 dispatch_probe、availability cache 和 Worker command queue 运行细节。"

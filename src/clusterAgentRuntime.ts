@@ -2164,6 +2164,10 @@ def _is_noise_line(line):
                 return True
         if "cd " in _s and "/data" in _s and "experiment" not in _s.lower():
             return True
+        if "qgking" in _s or "simple_agent" in _s:
+            return True
+        if _s.strip() in ["/", "e/projects", "a/qgking"]:
+            return True
         return False
     except Exception:
         return False
@@ -8033,7 +8037,7 @@ def handle_action(root, action, payload, operation_id, op_id):
                             if not _size_grew:
                                 _pane_tail_raw = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
                                 if _pane_tail_raw:
-                                    _pane_tail_raw = re.sub(r"\\\n\s*", " ", _pane_tail_raw)
+                                    _pane_tail_raw = re.sub(r"\n\s*", " ", _pane_tail_raw)
                                 _pane_filtered = [_l for _l in _pane_tail_raw.splitlines() if _l.strip() and not _is_noise_line(_l)] if _pane_tail_raw else []
                                 _pane_tail = "\n".join(_pane_filtered) + ("\n" if _pane_filtered else "")
                                 if _pane_tail and _pane_tail != _last_pane_tail:
@@ -8099,7 +8103,7 @@ def handle_action(root, action, payload, operation_id, op_id):
                             if launch_failed:
                                 pane_tail_raw = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
                                 if pane_tail_raw:
-                                    pane_tail_raw = re.sub(r"\\\n\s*", " ", pane_tail_raw)
+                                    pane_tail_raw = re.sub(r"\n\s*", " ", pane_tail_raw)
                                 _pane_filtered_msg = [_l for _l in pane_tail_raw.splitlines() if _l.strip() and not _is_noise_line(_l)] if pane_tail_raw else []
                                 pane_tail = "\n".join(_pane_filtered_msg) + ("\n" if _pane_filtered_msg else "")
                                 python_running = _tmux_pane_python_running(tmux_session, env) if used_tmux else False
