@@ -476,7 +476,7 @@ function renderPanelHtml() {
     .operationHead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
     .operationTitle { min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-weight: 800; }
     .operationId { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; color: var(--muted); }
-    .operationMessage { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .operationMessage { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space:pre-wrap; word-break:break-all; max-height:240px; overflow:auto; }
     .operationError { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; padding: 4px 7px; border-left: 3px solid var(--danger); border-radius: 4px; background: color-mix(in srgb, var(--danger) 8%, var(--vscode-editor-background)); color: #7F1D1D; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
     .operationError b { flex: 0 0 auto; }
     .operationDetails { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -12548,7 +12548,7 @@ function renderPanelHtml() {
       const schedulerZhRaw = String(ev.schedulerErrorZh || (row || {}).schedulerErrorZh || ((row || {}).payload && (row.payload || {}).payload && (row.payload.schedulerErrorZh || row.payload.scheduler_error_zh)) || "").trim();
       const programErrRaw = String(ev.programError || (row || {}).programError || ((row || {}).payload && (row.payload || {}).payload && (row.payload.programError || row.payload.program_error)) || "").trim();
       const failuresRaw = Array.isArray(ev.failures) ? ev.failures : Array.isArray((row || {}).failures) ? (row || {}).failures : Array.isArray((row && row.payload && row.payload.failures)) ? row.payload.failures : [];
-      const schedulerFromFailures = failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "scheduler").map((f) => String(f.messageZh || f.message || "").trim()).filter(Boolean).join("；");
+      const schedulerFromFailures = failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "scheduler").map((f) => String(f.messageZh || f.message || "").trim()).filter(Boolean).join("\\n");
       const programFromFailures = failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "program").map((f) => String(f.message || f.traceback || "").trim()).filter(Boolean).join("\\n");
       const schedulerZh = schedulerZhRaw || schedulerFromFailures;
       const programErr = programErrRaw || programFromFailures;
@@ -12570,7 +12570,7 @@ function renderPanelHtml() {
         if (!redacted || redacted === "-" || redacted === "[REDACTED]") return "";
         const clipped = redacted.length > 200 ? redacted.slice(0, 200) : redacted;
         if (shown && (shown === clipped || shown.includes(clipped))) return "";
-        return '<div class="operationError" style="border-left-color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,var(--vscode-editor-background));color:#8A6D00;" title="' + escAttr(clipped) + '"><b>调度器报错</b><span>' + esc(compactText(clipped, 200)) + '</span></div>';
+        return '<div class="operationError" style="border-left-color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,var(--vscode-editor-background));color:#8A6D00;" title="' + escAttr(clipped) + '"><b>调度器报错</b><pre style="margin:4px 0 0;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(compactText(clipped, 200)) + '</pre></div>';
       };
       const renderProgramBlock = (progText) => {
         if (!progText) return "";

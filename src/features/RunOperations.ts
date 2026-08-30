@@ -219,7 +219,7 @@ export function reconcileRunOperation(
       patch: {
         ...base,
         status: "failed",
-        message: `远端调度进程已退出且日志含错误：${logTail.slice(-500).replace(/\n/g, " ").replace(/\r/g, " ")}`,
+        message: `远端调度进程已退出且日志含错误：\n${logTail.slice(-500)}`,
         finishedAt: checkedAt,
         reconciledAt: checkedAt,
         reconcileReason: `${reason}:dead_process_with_error_log`,

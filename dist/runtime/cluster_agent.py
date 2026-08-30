@@ -8094,9 +8094,9 @@ def handle_action(root, action, payload, operation_id, op_id):
                                 message = ("调度器启动失败：tmux 会话存活但合计 %.0fs 内无有效日志增长且未生成 exit_code（pane 内 python 进程：%s）。%s"
                                            % (_total_wait, "存在" if python_running else "不存在", f"调度器进程退出码 {rc}，未收到调度器终态事件。"))
                                 if pane_tail:
-                                    message += " pane 尾部：" + pane_tail[-600:].replace("\n", " ").replace("\r", " ")
+                                    message += " pane 尾部：\n" + pane_tail[-600:]
                             if log_tail:
-                                message += " 日志尾部：" + log_tail[-2000:].replace("\n", " ").replace("\r", " ")
+                                message += " 日志尾部：\n" + log_tail[-2000:]
                             terminal_action(root, action, operation_id, op_id, "failed", message, {
                                 "pid": pid,
                                 "tmuxSession": tmux_session if used_tmux else "",
