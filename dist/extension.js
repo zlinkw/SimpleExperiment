@@ -636,7 +636,7 @@ class RealtimeTunnelPanelProvider {
     webviewReady = false;
     panelReadyWatchdogTimer;
     pendingPanelNavigation;
-    operationStatusProbeMaxAttempts = 4;
+    operationStatusProbeMaxAttempts = 3;
     realtimeUiStateRefs;
     lastRealtimeHeartbeatPostAt = 0;
     realtimeHeartbeatPostMinMs = 60_000;
@@ -656,6 +656,7 @@ class RealtimeTunnelPanelProvider {
     planRuntimeEvidenceCache;
     localOperationsPersistPromise;
     runOperationReconcilePromise;
+    runOperationReconcilePollTimer;
     operationTimers = new Map();
     operationProbeTimers = new Map();
     postLaunchAutoTestTimer;
@@ -6611,6 +6612,9 @@ class RealtimeTunnelPanelProvider {
                 this.clearOperationWatchdog(request.opId);
             else
                 this.scheduleOperationStatusProbe(request.opId, action);
+            // 启动 longRunning 操作后立即开启 30s 自动对账轮询，避免假执行中/无活动
+            // 长期不被发现（不再依赖用户手动点“刷新运行状态”）。
+            this.scheduleRunOperationReconcilePoll();
             this.lastError = undefined;
             this.captureActionResult(action, actionResult);
             this.postState();
@@ -7035,14 +7039,29 @@ class RealtimeTunnelPanelProvider {
                         const rec = this.localOperations[opId];
                         if (rec && !operationTerminal(rec)) {
                             const ev = reconciled.evidence || {};
-                            const evHasActivity = Number(ev.schedulerStatesCount) > 0 || Number(ev.experimentTracesCount) > 0 || Number(ev.liveLogCount) > 0;
+                            // 去掉 schedulerStatesCount 对残留 state.json 的误用：仅 experimentTraces
+                            // 与 liveLog 算作真实活动。同时：若操作已启动超过 180s 且日志不再更新
+                            // （无新日志增长），即使 liveLogCount>0 也视为无活动，允许转为 stale。
+                            const startedAt = rec.startedAt || rec.started_at || (rec.payload && (rec.payload.startedAt || rec.payload.started_at));
+                            const startedTs = startedAt ? Date.parse(String(startedAt)) : NaN;
+                            const nowTs = Date.now();
+                            const logUpdatedTs = ev.liveLogUpdatedAt ? Date.parse(String(ev.liveLogUpdatedAt)) : NaN;
+                            const logFresh = Number.isFinite(logUpdatedTs)
+                                ? (nowTs - logUpdatedTs < 180_000)
+                                : (Number.isFinite(startedTs) ? (nowTs - startedTs < 180_000) : true);
+                            const evHasActivity = Number(ev.experimentTracesCount) > 0 || (Number(ev.liveLogCount) > 0 && logFresh);
                             const evProcessAlive = Boolean(ev.pidAlive || ev.tmuxSessionAlive);
-                            const forceStale = reconciled.dead || (probeAttempt >= this.operationStatusProbeMaxAttempts && evProcessAlive && !evHasActivity);
+                            const networkError = Boolean(reconciled.networkError);
+                            // 强制 stale 的判定：
+                            //  - reconciled.dead（进程确实死了）
+                            //  - 探测预算耗尽且进程仍“活”（tmux/python）但无真实活动（假存活）
+                            //  - 探测预算耗尽且证据采集是网络错误（无法确认存活，超时应收口，不可无限 running）
+                            const forceStale = reconciled.dead || (probeAttempt >= this.operationStatusProbeMaxAttempts && (evProcessAlive && !evHasActivity || networkError));
                             if (forceStale) {
                                 this.localOperations[opId] = {
                                     ...rec,
                                     status: "stale",
-                                    message: rec.message || "调度进程已退出/无活动证据，已标记为 stale；请刷新运行状态或查看 Agent 日志。",
+                                    message: rec.message || (networkError ? "调度状态探测持续失败（网络错误），已标记为 stale；请刷新运行状态或查看 Agent 日志。" : "调度进程已退出/无活动证据，已标记为 stale；请刷新运行状态或查看 Agent 日志。"),
                                     updatedAt: new Date().toISOString(),
                                 };
                                 this.clearOperationStatusProbe(opId);
@@ -7138,15 +7157,21 @@ class RealtimeTunnelPanelProvider {
             const result = await this.client.getRunEvidence(evidenceWorkerId, params);
             evidence = result && typeof result === "object" ? result : {};
         }
-        catch {
-            return { terminal: false, dead: false, evidence: {} };
+        catch (error) {
+            // 网络错误不应被当作“进程已死”，但仍需返回 networkError 以允许调用方在
+            // 探测预算耗尽时按超时收口为 stale（否则会因无证据而不触发 forceStale，
+            // 导致操作永久卡在 running）。
+            const msg = errorMessage(error).toLowerCase();
+            const networkError = /network|timeout|etimedout|econnreset|enotfound|econnrefused|getaddrinfo|fetch failed|abort|canceled|ECONN|socket|handshake|502|503|504|reset|unreachable|dns/i.test(msg);
+            return { terminal: false, dead: false, evidence: {}, networkError };
         }
         if (!evidence || typeof evidence !== "object")
             return { terminal: false, dead: false, evidence: {} };
         const decision = RunOperations_1.reconcileRunOperation(record, evidence, "operation_probe");
         const patch = { ...decision.patch };
         delete patch.lastReconcileError;
-        this.localOperations[opId] = patch;
+        // 把远端证据一并落到记录上，供 UI 外显“running 但报错/假执行中”的黄色 warning 与日志预览。
+        this.localOperations[opId] = { ...patch, evidence: evidence && typeof evidence === "object" ? evidence : {} };
         if (decision.terminal) {
             this.clearOperationStatusProbe(opId);
             this.clearOperationWatchdog(opId);
@@ -7187,7 +7212,8 @@ class RealtimeTunnelPanelProvider {
                     checkedTmuxSession: evidence.checkedTmuxSession || record.checkedTmuxSession || record.tmuxSession || "",
                 };
                 delete patch.lastReconcileError;
-                this.localOperations[operationId] = patch;
+                // 把远端证据一并落到记录上，供 UI 外显“running 但报错/假执行中”的黄色 warning 与日志预览。
+                this.localOperations[operationId] = { ...patch, evidence: evidence && typeof evidence === "object" ? evidence : {} };
                 if (decision.terminal)
                     reconciled.push(operationId);
             }
@@ -7204,7 +7230,27 @@ class RealtimeTunnelPanelProvider {
         finally {
             if (this.runOperationReconcilePromise === operation)
                 this.runOperationReconcilePromise = undefined;
+            // 自动轮询：只要仍存在 longRunning 操作，就每 30s 自触发一次对账，
+            // 不再依赖用户手动点“刷新运行状态”。避免 stale/假执行中 长期无人发现。
+            this.scheduleRunOperationReconcilePoll(reason);
         }
+    }
+    scheduleRunOperationReconcilePoll(reason = "auto-poll") {
+        if (this.runOperationReconcilePollTimer) {
+            clearTimeout(this.runOperationReconcilePollTimer);
+            this.runOperationReconcilePollTimer = undefined;
+        }
+        if (!this.isRealtimeMode())
+            return;
+        if (this.longRunningPlanRunOperations().length === 0)
+            return;
+        const timer = setTimeout(() => {
+            if (this.runOperationReconcilePollTimer === timer)
+                this.runOperationReconcilePollTimer = undefined;
+            void this.reconcileStalePlanRunOperations({ reason: String(reason || "auto-poll").slice(0, 80) });
+        }, 30_000);
+        timer.unref?.();
+        this.runOperationReconcilePollTimer = timer;
     }
     stopExperimentMatchesTarget(record, target) {
         return RunOperations_1.runOperationMatchesTarget(record, target);

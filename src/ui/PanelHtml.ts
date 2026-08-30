@@ -12442,13 +12442,17 @@ export function renderPanelHtml(): string {
 
     function renderOperationStatusSummary(rowsOrStats) {
       const stats = rowsOrStats && rowsOrStats.accepted !== undefined ? rowsOrStats : operationStatusCounts(rowsOrStats);
+      const anomalyValue = stats.failed + (stats.suspect || 0);
+      const anomalyTitle = (stats.suspect || 0) > 0
+        ? ("异常操作：" + stats.failed + "；另有 " + stats.suspect + " 个 running 中但证据显示已死/报错，待确认异常（请刷新运行状态或查看 Agent/Tmux 日志）。")
+        : ("筛选异常操作：" + (stats.failed || 0));
       return '<div class="operationStatusSummary" title="操作进度">' +
         operationStatusCard("全部", stats.total, "all") +
         operationStatusCard("已提交", stats.accepted, "accepted") +
         operationStatusCard("执行中", stats.running, "running") +
         operationStatusCard("已完成", stats.completed, "completed") +
         operationStatusCard("已取消", stats.cancelled, "cancelled") +
-        operationStatusCard("异常", stats.failed, "failed") +
+        operationStatusCard("异常", anomalyValue, "failed") +
       '</div>';
     }
 
@@ -12458,15 +12462,22 @@ export function renderPanelHtml(): string {
     }
 
     function operationStatusCounts(rows) {
-      const out = { total: rows.length, accepted: 0, running: 0, completed: 0, cancelled: 0, failed: 0 };
+      const out = { total: rows.length, accepted: 0, running: 0, completed: 0, cancelled: 0, failed: 0, suspect: 0 };
       rows.forEach((row) => {
-        const status = String(row.status || "").toLowerCase();
-        if (status === "accepted" || status === "submitted") out.accepted += 1;
-        else if (operationIsActive(status)) out.running += 1;
-        else if (operationIsFailureLike(status)) out.failed += 1;
-        else if (operationIsCancelled(status)) out.cancelled += 1;
-        else if (operationIsCompleted(status)) out.completed += 1;
+        const raw = String(row.status || "").toLowerCase();
+        const isStale = raw === "stale" || raw.includes("stale") || raw.includes("timedout") || raw.includes("timed_out");
+        if (raw === "accepted" || raw === "submitted") out.accepted += 1;
+        else if (isStale || operationIsFailureLike(raw)) out.failed += 1;
+        else if (operationIsActive(raw)) {
+          out.running += 1;
+          // running 但证据显示进程已死/含报错/timedOut：计为“待确认异常”，避免“异常 0”掩盖假执行中。
+          if (operationHasDeadEvidence(row)) out.suspect += 1;
+        }
+        else if (operationIsCancelled(raw)) out.cancelled += 1;
+        else if (operationIsCompleted(raw)) out.completed += 1;
+        else if (isStale) out.failed += 1;
       });
+      // stale 已计入 failed，确保异常卡片正确计数；suspect 额外提示 pending 异常
       return out;
     }
 
@@ -12475,6 +12486,7 @@ export function renderPanelHtml(): string {
       const cls = operationIsActive(status) ? "is-running" : (operationIsFailureLike(status) ? "is-failed" : (operationIsCancelled(status) ? "is-cancelled" : (operationIsCompleted(status) ? "is-completed" : "")));
       const message = operationDisplayMessage(row);
       const errorLine = operationErrorLine(row, message);
+      const runningWarn = operationRunningEvidenceWarning(row);
       const details = renderOperationDetailPills(row);
       const fileActions = renderRemoteResultInspectionActions(row.unparseableFileList, row.planFile, 3, row.unparseableDetails);
       const rawType = row.type || row.action || "operation";
@@ -12495,9 +12507,10 @@ export function renderPanelHtml(): string {
             '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '">' + loadingPrefix(operationIsActive(row.status)) + esc(operationStatusLabel(row.status)) + '</span></div>' +
             '<span class="operationId" title="' + escAttr(row.operationId) + '">' + esc(compactIdentifier(row.operationId)) + '</span>' +
           '</div>' +
-          '<div class="operationMessage">' + esc(message) + '</div>' +
-          errorLine +
-          details +
+           '<div class="operationMessage">' + esc(message) + '</div>' +
+           errorLine +
+           runningWarn +
+           details +
           tmuxPill +
           fileActions +
           logWindow +
@@ -12527,6 +12540,77 @@ export function renderPanelHtml(): string {
         parts.push('<details class="operationLogTail"><summary>调度日志尾部（' + esc(String(logTail.length)) + ' 字符）</summary><pre>' + esc(tailPreview) + '</pre>' + actions + '</details>');
       }
       return parts.join("");
+    }
+
+    // 运行中的操作，远端证据（evidence.error / evidence.logTail）含异常关键字时，
+    // 外显黄色 warning 条与 logTail 预览，避免“假执行中”把报错吞掉。
+    function operationEvidenceOf(row) {
+      const r = (row || {});
+      return r.evidence || (r.payload && r.payload.evidence) || {};
+    }
+    function operationPayloadText(row) {
+      const p = (row && row.payload) || {};
+      return [
+        String(p.error || ""),
+        String(p.logTail || p.log_tail || p.liveLogTail || p.live_log_tail || ""),
+        String((p.evidence && (p.evidence.error || p.evidence.logTail || p.evidence.liveLogTail)) || ""),
+        String(p.message || p.msg || "")
+      ].join("\\n");
+    }
+    function operationEvidenceHasErrorText(row) {
+      const ev = operationEvidenceOf(row);
+      const payloadText = operationPayloadText(row);
+      const texts = [
+        String(ev.error || ""),
+        String(ev.logTail || ev.liveLogTail || ""),
+        String(ev.timedOut || ev.timed_out || ev.timedout || ev.timeout || ""),
+        String((row || {}).error || ""),
+        String((row || {}).logTail || ""),
+        payloadText
+      ].join("\\n");
+      if (!texts.trim()) return "";
+      if (/traceback|exception|\\berror\\b|\\bfailed\\b|失败|异常|exit code|非零|non-?zero|stderr|timedOut|timed_out|dead/i.test(texts)) return texts;
+      return "";
+    }
+    function operationHasDeadEvidence(row) {
+      const status = String((row || {}).status || "").toLowerCase();
+      if (!operationIsActive(status)) return false;
+      const ev = operationEvidenceOf(row);
+      const payloadText = operationPayloadText(row);
+      const pidAlive = Boolean(ev.pidAlive);
+      const tmuxAlive = Boolean(ev.tmuxSessionAlive);
+      const deadFlag = ev.dead === true || String(ev.dead || "").toLowerCase() === "true" || String(ev.status || "").toLowerCase().includes("dead") || String(ev.state || "").toLowerCase().includes("dead");
+      const errorFlag = Boolean(ev.error) || String(ev.error || "").trim() !== "" || String((row || {}).error || "").trim() !== "" || String(payloadText || "").trim() !== "" && /traceback|exception|\\berror\\b|\\bfailed\\b|失败|异常/i.test(payloadText);
+      const timedOutFlag = Boolean(ev.timedOut || ev.timed_out || ev.timedout || ev.timeout || (row && (row.timedOut || row.timed_out))) || /timedOut|timed_out|timeout/i.test(String(ev.error || "") + String(payloadText || ""));
+      if (deadFlag || errorFlag || timedOutFlag) return true;
+      if (!pidAlive && !tmuxAlive) return true;
+      if (operationEvidenceHasErrorText(row)) return true;
+      return false;
+    }
+    function operationRunningEvidenceWarning(row) {
+      const status = String((row || {}).status || "").toLowerCase();
+      if (!operationIsActive(status)) return "";
+      const hasDead = operationHasDeadEvidence(row);
+      const errText = operationEvidenceHasErrorText(row);
+      if (!hasDead && !errText) return "";
+      const ev = operationEvidenceOf(row);
+      const payloadTail = (row && row.payload && (row.payload.logTail || row.payload.log_tail || row.payload.liveLogTail)) || "";
+      const evTail = String(ev.logTail || ev.liveLogTail || (row || {}).logTail || payloadTail || "").trim();
+      const combinedText = String(errText || evTail || payloadTail || ev.error || (row && row.error) || "").trim();
+      const snippet = (evTail || combinedText).slice(0, 500);
+      const isErrorTone = Boolean(ev.error || (row && row.error) || /traceback|exception|\\berror\\b/i.test(combinedText));
+      const toneStyle = isErrorTone
+        ? "border-left-color:var(--danger);background:color-mix(in srgb,var(--danger) 8%,var(--vscode-editor-background));color:#7F1D1D;"
+        : "border-left-color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,var(--vscode-editor-background));color:#8A6D00;";
+      const icon = isErrorTone ? "✖ 远端错误" : "⚠ 运行期异常";
+      const detail = isErrorTone
+        ? "操作状态为 running，但远端证据/日志已含错误（dead/error/timedOut），可能已失败；展示前500字。"
+        : "操作状态为 running，但远端证据显示已死/超时或日志含异常，可能为假执行中；展示前500字。";
+      const preview = evTail
+        ? '<details class="operationLogTail"><summary>远端证据日志前500字预览（总' + esc(String(evTail.length)) + '字符）</summary><pre>' + esc(evTail.slice(0, 500)) + '</pre></details>'
+        : (snippet ? '<div style="margin-top:4px;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(snippet) + '</div>' : "");
+      return '<div class="operationError" style="' + toneStyle + '" title="该操作状态为 running，但远端证据含异常，可能已失败或挂死。">' +
+        '<b>' + icon + '</b><span>' + detail + ' 请点“刷新运行状态”或“中止清理”并查看 tmux 日志。</span></div>' + preview;
     }
 
     function operationTimestampView(row) {
@@ -12590,7 +12674,12 @@ export function renderPanelHtml(): string {
 
     function renderOperationLogsWindowed(row) {
       try {
-        const raw = String(row.logTail || row.consoleTail || row.liveOutput || row.hubConsoleLog || row.console_log || row.log || row.output || row.console_tail || row.log_tail || "").trim();
+        // 回退：row.logTail 为空时，优先回退到 evidence.logTail / liveLogTail，
+        // 避免“running 但报错”时日志区一片空白。
+        const evidenceLogTail = (row.evidence && (row.evidence.logTail || row.evidence.liveLogTail)) || ((row.payload && row.payload.evidence && (row.payload.evidence.logTail || row.payload.evidence.liveLogTail))) || ((row.payload && (row.payload.logTail || row.payload.log_tail)) || "");
+        const tmuxSession = String(row.tmuxSession || row.tmux_session || row.session || (row.payload && (row.payload.tmuxSession || row.payload.tmux_session || row.payload.session)) || "").trim();
+        const tmuxHint = tmuxSession ? "tmux capture-pane -p -t " + tmuxSession + " / tmux attach -t " + tmuxSession : "tmux capture-pane -p -t zlk-sch-* / tmux attach -t zlk-sch-*";
+        const raw = String(row.logTail || row.consoleTail || row.liveOutput || row.hubConsoleLog || row.console_log || row.log || row.output || row.console_tail || row.log_tail || evidenceLogTail || "").trim();
         const schedLog = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
         const combined = [raw, schedLog].filter(Boolean).join("\\n");
         const lines = combined ? combined.split(/\\r?\\n/) : [];
@@ -12598,7 +12687,8 @@ export function renderPanelHtml(): string {
         const preview = windowed.slice(-20);
         const total = windowed.length;
         const more = Math.max(0, total - 20);
-        const previewHtml = total ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(preview.join("\\n")) + '</pre>' : '<div class="muted" style="font-size:11px;">暂无日志，将显示最新 20/50 条</div>';
+        const emptyHint = '<div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已优先回退到 evidence.logTail 仍为空）。请在远端执行 <code>' + esc(tmuxHint) + '</code> 查看实时日志；若长时间无更新，请点“刷新运行状态”或“中止清理”。将显示最新 20/50 条</div>';
+        const previewHtml = total ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(preview.join("\\n")) + '</pre>' : emptyHint;
         const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条及打开 simple_cluster/console_logs/baseline-*">历史记录' + (more ? ' +' + more : total ? ' (' + total + ')' : '') + '</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志">打开完整日志</button>';
         return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;">' + previewHtml + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + historyBtn + '</div></div>';
       } catch (e) { return '<div class="operationLogWindow" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">打开完整日志</button></div>'; }
@@ -12620,7 +12710,15 @@ export function renderPanelHtml(): string {
 
     function operationDisplayMessage(row) {
       const safe = (row && typeof row === "object") ? row : {};
-      const message = safe.message || (safe.status === "accepted" ? "等待 Hub Agent 回传进度" : "");
+      let message = safe.message || (safe.status === "accepted" ? "等待 Hub Agent 回传进度" : "");
+      // “等待 scheduler 终态”且已 dead：避免卡在 running，增加调度已停止文案
+      if (message && /等待 scheduler 终态/i.test(message)) {
+        const ev = operationEvidenceOf(safe);
+        const dead = (!ev.pidAlive && !ev.tmuxSessionAlive) || Boolean(ev.dead || ev.error || ev.timedOut || ev.timed_out || ev.timedout) || operationEvidenceHasErrorText(safe);
+        if (dead) {
+          return "调度已停止（远端进程已退出，未收到终态；请查看日志或点击“中止清理”）";
+        }
+      }
       if (message) return message;
       if (operationIsActive(safe.status)) return "已提交，等待 Hub Agent 回传进度；可手动刷新数据。";
       if (operationIsFailureLike(safe.status)) return safe.error && safe.error !== "-" ? safe.error : "操作未成功，请查看错误详情。";

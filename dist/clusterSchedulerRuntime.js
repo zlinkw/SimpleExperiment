@@ -1698,6 +1698,51 @@ def append_scheduler_operation_event(args: argparse.Namespace, status: str, mess
     run_agent_completion_pipeline(getattr(args, "project_dir", ".") or ".", event)
 
 
+def append_scheduler_operation_event_robust(args: argparse.Namespace, status: str, message: str, extra: dict[str, Any] | None = None) -> None:
+    # Primary path: normal event writer. If it raises (e.g. state dir unwritable,
+    # journal locked, early startup before state dir initialised), fall back to a
+    # direct atomic append of the terminal failed event into events.jsonl so the
+    # Operations panel is never stuck on "等待 scheduler 终态".
+    try:
+        append_scheduler_operation_event(args, status, message, extra)
+    except Exception:
+        try:
+            _fallback_append_failed_event(args, message, extra or {})
+        except Exception:
+            pass
+
+
+def _fallback_append_failed_event(args: argparse.Namespace, message: str, extra: dict[str, Any]) -> None:
+    base = scheduler_agent_state_dir()
+    base.mkdir(parents=True, exist_ok=True)
+    journal = base / "events.jsonl"
+    seq = read_agent_seq() + 1
+    operation_id = str(getattr(args, "operation_id", "") or os.environ.get("SIMPLE_SCHEDULER_OPERATION_ID") or os.environ.get("SIMPLE_EXPERIMENT_OPERATION_ID") or "").strip()
+    if not operation_id:
+        return
+    item = {
+        "schemaVersion": 1,
+        "seq": seq,
+        "generatedAt": now(),
+        "source": "cluster_scheduler",
+        "hubId": "hub",
+        "type": "operation_failed",
+        "operationId": operation_id,
+        "payload": {
+            "action": str(getattr(args, "operation_action", "") or "run-plan").strip() or "run-plan",
+            "opId": str(getattr(args, "op_id", "") or operation_id).strip() or operation_id,
+            "status": "failed",
+            "message": message,
+            "schedulerStarted": True,
+            "schedulerFinished": True,
+            **(extra if isinstance(extra, dict) else {}),
+        },
+    }
+    with journal.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
+    write_agent_seq(seq)
+
+
 def safe_worker_id(value: object) -> str:
     text = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(value or "worker"))[:80]
     return text or "worker"
@@ -3294,7 +3339,7 @@ def main() -> None:
                     _tail = _h.read().decode("utf-8", "replace")[-2000:]
         except Exception:
             _tail = ""
-        append_scheduler_operation_event(args, "failed", f"调度器异常：{exc}", {
+        append_scheduler_operation_event_robust(args, "failed", f"调度器异常：{exc}", {
             "statePath": str(state_path).replace("\\", "/"),
             "schedulerLog": str(args.scheduler_log or queue_log).replace("\\", "/"),
             "logTail": _tail,
@@ -3350,14 +3395,33 @@ if __name__ == "__main__":
         # the traceback so the Operations panel is never stuck on "等待 scheduler 终态".
         try:
             _guard_args = _SCHEDULER_ARGS_FOR_GUARD
-            if _guard_args is not None and getattr(_guard_args, "operation_id", "") and not _scheduler_terminal_emitted(_guard_args):
-                _tb = traceback.format_exc()
-                append_scheduler_operation_event(_guard_args, "failed", f"调度器启动/运行异常：{_sched_guard_exc}", {
-                    "failureSource": "scheduler_guard",
-                    "error": _tb,
-                    "schedulerLog": str(getattr(_guard_args, "scheduler_log", "") or ""),
-                    "planFile": str(getattr(_guard_args, "plan", "") or ""),
-                })
+            # 早期参数解析失败也可能使 operation_id 为空；用 args 或环境变量兜底，
+            # 确保仍能落 failed 事件（否则面板会卡在 running）。
+            _op_id = ""
+            if _guard_args is not None:
+                _op_id = str(getattr(_guard_args, "operation_id", "") or "").strip()
+            if not _op_id:
+                _op_id = str(os.environ.get("SIMPLE_SCHEDULER_OPERATION_ID") or os.environ.get("SIMPLE_EXPERIMENT_OPERATION_ID") or "").strip()
+            if _op_id:
+                _already = False
+                try:
+                    # _scheduler_terminal_emitted 自身可能异常/失效，失效时仍要兜底写 failed。
+                    _already = _scheduler_terminal_emitted(_guard_args) if _guard_args is not None else False
+                except Exception:
+                    _already = False
+                if not _already:
+                    _tb = traceback.format_exc()
+                    _emit_args = _guard_args if _guard_args is not None else argparse.Namespace()
+                    try:
+                        setattr(_emit_args, "operation_id", _op_id)
+                    except Exception:
+                        pass
+                    append_scheduler_operation_event_robust(_emit_args, "failed", f"调度器启动/运行异常：{_sched_guard_exc}", {
+                        "failureSource": "scheduler_guard",
+                        "error": _tb,
+                        "schedulerLog": str(getattr(_guard_args, "scheduler_log", "") or "") if _guard_args is not None else "",
+                        "planFile": str(getattr(_guard_args, "plan", "") or "") if _guard_args is not None else "",
+                    })
         except Exception:
             pass
         raise

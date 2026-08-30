@@ -7865,13 +7865,14 @@ def handle_action(root, action, payload, operation_id, op_id):
 
         def wait_scheduler():
             try:
-                _no_progress = float(env.get("SIMPLE_SCHEDULER_NO_PROGRESS") or 90)
+                _no_progress = float(env.get("SIMPLE_SCHEDULER_NO_PROGRESS") or 45)
                 _launch_grace = float(env.get("SIMPLE_SCHEDULER_LAUNCH_GRACE") or 45)
-                _hard_max = float(env.get("SIMPLE_SCHEDULER_WAIT_MAX") or 3600)
+                _hard_max = float(env.get("SIMPLE_SCHEDULER_WAIT_MAX") or 600)
                 if used_tmux and scheduler_exit_code_path:
                     _start = time.time()
                     _last_size = _tmux_log_size(log_path)
                     _last_progress = _start
+                    _last_pane_tail = ""
                     _rc = None
                     _launch_failed = False
                     while True:
@@ -7884,21 +7885,41 @@ def handle_action(root, action, payload, operation_id, op_id):
                         _now = time.time()
                         _elapsed = _now - _start
                         _size = _tmux_log_size(log_path)
-                        if _size != _last_size:
+                        _size_grew = (_size != _last_size)
+                        if _size_grew:
                             _last_size = _size
                             _last_progress = _now
                         _python_running = _tmux_pane_python_running(tmux_session, env)
                         if _python_running:
-                            # A real scheduler process is running; trust it and keep waiting.
-                            _last_progress = _now
+                            # Do NOT uncritically refresh _last_progress: a "running" python
+                            # process can be hung, or the pane check can be a false positive
+                            # (e.g. a leftover shell). Only count it as live activity when the
+                            # log actually grew (above) OR the pane produced fresh output.
+                            # Otherwise the no_progress fuse below is free to fire so we never
+                            # get stuck on a fake "执行中".
+                            if not _size_grew:
+                                _pane_tail = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
+                                if _pane_tail and _pane_tail != _last_pane_tail:
+                                    _last_progress = _now
+                                    _last_pane_tail = _pane_tail
                         if _elapsed > _hard_max:
                             _rc = 255
                             _launch_failed = True
                             break
+                        # Fast-fail: launch window passed, python is dead (no exit code yet)
+                        # and the pane has shown no activity for _no_progress seconds. Surface
+                        # the failure now instead of waiting up to hard_max (600s), so the panel
+                        # is never stuck on "等待 scheduler 终态". This also catches the
+                        # _send_tmux_line drop case: if the scheduler command was never sent, no
+                        # exit code is ever written, but python is already dead -> immediate 255.
                         if _elapsed > _launch_grace and (not _python_running) and (_now - _last_progress) > _no_progress:
-                            # tmux shell still alive but the scheduler command never produced
-                            # output or an exit code: treat as a launch failure so the panel is
-                            # never stuck on "等待 scheduler 终态".
+                            _rc = 255
+                            _launch_failed = True
+                            break
+                        # python 存活但长时间无任何真实活动（日志/pane 均无增长）：视为挂死，
+                        # 收口落 failed，不再无限“假执行中”。用 3x no_progress 的更宽窗口，
+                        # 避免误杀启动慢或日志稀疏的真实调度（正常调度器会频繁刷新日志）。
+                        if _python_running and _elapsed > _launch_grace and (_now - _last_progress) > (_no_progress * 3):
                             _rc = 255
                             _launch_failed = True
                             break
@@ -7933,8 +7954,8 @@ def handle_action(root, action, payload, operation_id, op_id):
                                 lp = safe_project_path(root, log_rel)
                                 if os.path.isfile(lp):
                                     with open(lp, "rb") as h:
-                                        h.seek(max(0, os.path.getsize(lp) - 8 * 1024))
-                                        log_tail = h.read().decode("utf-8", "replace")[-2000:]
+                                        h.seek(max(0, os.path.getsize(lp) - 8000))
+                                        log_tail = h.read().decode("utf-8", "replace")[-8000:]
                             except Exception:
                                 log_tail = ""
                             evidence = scheduler_process_evidence(root, pid if pid else finished.get("pid"), tmux_session if used_tmux else "")
@@ -7947,13 +7968,13 @@ def handle_action(root, action, payload, operation_id, op_id):
                                 if pane_tail:
                                     message += " pane 尾部：" + pane_tail[-600:].replace("\n", " ").replace("\r", " ")
                             if log_tail:
-                                message += " 日志尾部：" + log_tail[-600:].replace("\n", " ").replace("\r", " ")
+                                message += " 日志尾部：" + log_tail[-2000:].replace("\n", " ").replace("\r", " ")
                             terminal_action(root, action, operation_id, op_id, "failed", message, {
                                 "pid": pid,
                                 "tmuxSession": tmux_session if used_tmux else "",
                                 "exitCode": rc,
                                 "logPath": log_rel,
-                                "logTail": log_tail[-2000:],
+                                "logTail": log_tail[-8000:],
                                 "planFile": plan,
                                 "schedulerStarted": True,
                                 "launchFailed": launch_failed,
@@ -7969,10 +7990,20 @@ def handle_action(root, action, payload, operation_id, op_id):
                     if not worker_task_was_stopped(root, scheduler_task) and not operation_already_terminal(root, operation_id):
                         err = traceback.format_exc()
                         last_err = err.splitlines()[-1] if err.splitlines() else "unknown"
+                        _exc_log_tail = ""
+                        try:
+                            _lp = safe_project_path(root, log_rel)
+                            if os.path.isfile(_lp):
+                                with open(_lp, "rb") as _h:
+                                    _h.seek(max(0, os.path.getsize(_lp) - 8000))
+                                    _exc_log_tail = _h.read().decode("utf-8", "replace")[-8000:]
+                        except Exception:
+                            _exc_log_tail = ""
                         terminal_action(root, action, operation_id, op_id, "failed", "调度器监视线程异常：" + last_err, {
                             "pid": pid,
                             "tmuxSession": tmux_session if used_tmux else "",
                             "logPath": log_rel,
+                            "logTail": _exc_log_tail,
                             "planFile": plan,
                             "schedulerStarted": True,
                             "failureSource": "agent_scheduler_wait_exception",
@@ -8596,8 +8627,10 @@ def scheduler_process_evidence(root, pid=None, tmux_session=None):
         except Exception:
             python_running = False
     pid_alive = process_alive(checked_pid)
-    # 真实存活 = tmux 会话存在 且（pid 存活 或 pane 内有 python cluster_scheduler 进程）。
-    tmux_alive = session_alive and (pid_alive or python_running)
+    # 真实存活 = tmux 会话存在 且 pane 内确有 python cluster_scheduler 进程在跑。
+    # 去掉 pid_alive 的掩盖：仅 shell pid 存活（如空壳会话、挂死的登录 shell）不能等同
+    # 任务存活，否则会误判“执行中”而把面板卡在 running。pane 内 python 进程才是真证。
+    tmux_alive = session_alive and python_running
     return {
         "checkedPid": checked_pid,
         "checkedTmuxSession": checked_session,

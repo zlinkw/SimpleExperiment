@@ -1,5 +1,6 @@
 export const LONG_RUNNING_PLAN_ACTIONS = new Set(["run-plan", "reproduce-plan"]);
 export const RUN_OPERATION_RECONCILE_GRACE_MS = 90_000;
+export const RUN_OPERATION_NO_LOG_GROWTH_STALE_MS = 180_000;
 export const RUN_OPERATION_CLOCK_SKEW_SECONDS = 300;
 
 export interface RunOperationRecord {
@@ -79,6 +80,18 @@ export function hasRemoteRunActivity(evidence: RemoteRunEvidence): boolean {
   );
 }
 
+// 判断是否应因“无日志增长且已超时”而收口为 stale：
+// 操作启动超过 180s，且日志在 180s 内无新增长（liveLogUpdatedAt 过期/缺失视为不新鲜）。
+// 用于 pidAlive / tmuxAlive&&hasActivity 分支，避免挂死或“假执行中”无限占用 running。
+function runOperationShouldStaleByStall(evidence: any, record: any, remote: any, nowMs: number): boolean {
+  const startedTs = Date.parse(String(record.startedAt || remote.startedAt || "")) || 0;
+  if (!startedTs) return false;
+  if (nowMs - startedTs <= RUN_OPERATION_NO_LOG_GROWTH_STALE_MS) return false;
+  const logUpdatedTs = Date.parse(String((evidence as any).liveLogUpdatedAt || "")) || 0;
+  const logFresh = logUpdatedTs ? (nowMs - logUpdatedTs < RUN_OPERATION_NO_LOG_GROWTH_STALE_MS) : false;
+  return !logFresh;
+}
+
 export function reconcileRunOperation(
   record: RunOperationRecord,
   evidence: RemoteRunEvidence,
@@ -120,8 +133,26 @@ export function reconcileRunOperation(
     || Number(evidence.workerTasksCount || 0) > 0
     || Number(evidence.liveLogCount || 0) > 0,
   );
-  // A real worker/python pid proves the scheduler process is alive: keep waiting.
+  // A real worker/python pid proves the scheduler process is alive: keep waiting,
+  // BUT cap the wait at 180s — if the pid is alive yet the log has shown no growth
+  // for >180s (hung/stalled process), stop waiting and mark stale instead of
+  // letting it sit on "running" forever.
   if (pidAlive) {
+    if (runOperationShouldStaleByStall(evidence, record, remote, nowMs)) {
+      return {
+        terminal: true,
+        patch: {
+          ...base,
+          status: "stale",
+          message: "调度进程 pid 存活但日志超过 180s 无新增长，疑似挂死；已标记 stale。",
+          finishedAt: checkedAt,
+          reconciledAt: checkedAt,
+          reconcileReason: `${reason}:pid_alive_stalled`,
+          startedAt: record.startedAt || remote.startedAt || "",
+          updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+        },
+      };
+    }
     return { terminal: false, patch: { ...base, status: remoteStatus || "running", reconcileNoActivitySince: 0 } };
   }
   // tmux session alive but the only thing present is the scheduler shell, and it has
@@ -159,6 +190,23 @@ export function reconcileRunOperation(
     };
   }
   if (tmuxAlive && hasActivity) {
+    // 历史有活动但仍可能“假执行中”（如残留 state.json、挂死的 tmux python）。
+    // 若启动已超过 180s 且日志无新增长，判定为挂死并转 stale，避免长期 running。
+    if (runOperationShouldStaleByStall(evidence, record, remote, nowMs)) {
+      return {
+        terminal: true,
+        patch: {
+          ...base,
+          status: "stale",
+          message: "tmux 存活且有历史活动，但启动超过 180s 且日志无新增长，判定为挂死/假执行中；已标记 stale。",
+          finishedAt: checkedAt,
+          reconciledAt: checkedAt,
+          reconcileReason: `${reason}:tmux_alive_stalled`,
+          startedAt: record.startedAt || remote.startedAt || "",
+          updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+        },
+      };
+    }
     return { terminal: false, patch: { ...base, status: remoteStatus || "running", reconcileNoActivitySince: 0 } };
   }
   // Process is dead (no pid / no tmux session). If the log already shows a hard

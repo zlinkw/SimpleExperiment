@@ -45,6 +45,7 @@ test("remote terminal or active evidence wins over the local pending record", ()
     operation: { status: "running" },
     tmuxSessionAlive: true,
     liveLogCount: 4,
+    liveLogUpdatedAt: new Date().toISOString(),
   }, "activation", Date.now());
   assert.equal(active.terminal, false);
   assert.equal(active.patch.status, "running");
@@ -73,6 +74,7 @@ test("tmux-alive with real activity stays running (no false stale)", () => {
     pidAlive: false,
     schedulerStatesCount: 0,
     liveLogCount: 4,
+    liveLogUpdatedAt: new Date().toISOString(),
   }, "activation", Date.now());
   assert.equal(active.terminal, false);
   assert.equal(active.patch.status, "running");
@@ -84,6 +86,7 @@ test("pid-alive with no activity stays running (real process trusted)", () => {
     tmuxSessionAlive: false,
     schedulerStatesCount: 0,
     liveLogCount: 0,
+    liveLogUpdatedAt: new Date().toISOString(),
   }, "activation", Date.now());
   assert.equal(active.terminal, false);
   assert.equal(active.patch.status, "running");

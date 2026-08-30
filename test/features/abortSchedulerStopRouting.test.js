@@ -49,5 +49,5 @@ test("scheduler_process_evidence reports python-gated tmuxSessionAlive plus diag
   assert.match(fn, /"tmuxShellAlive": session_alive/);
   assert.match(fn, /"tmuxPythonRunning": python_running/);
   // 空 shell（会话存活但无 python 进程）不应判 tmuxSessionAlive
-  assert.match(fn, /tmux_alive = session_alive and \(pid_alive or python_running\)/);
+  assert.match(fn, /tmux_alive = session_alive and python_running/);
 });
