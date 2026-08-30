@@ -12722,6 +12722,16 @@ function renderPanelHtml() {
       return '<div class="operationFileActions"><span>不可解析的远端原文件</span>' + entries + (omitted ? '<span>其余 ' + esc(String(omitted)) + ' 个见操作详情</span>' : "") + '</div>';
     }
 
+    function operationGraceRemainingSeconds(row) {
+      const safe = (row && typeof row === "object") ? row : {};
+      const raw = safe.reconcileGraceExpiresAt || safe.reconcile_grace_expires_at || "";
+      if (!raw) return null;
+      const at = Date.parse(String(raw));
+      if (!Number.isFinite(at)) return null;
+      const remaining = Math.ceil((at - Date.now()) / 1000);
+      return remaining > 0 ? remaining : 0;
+    }
+
     function operationDisplayMessage(row) {
       const safe = (row && typeof row === "object") ? row : {};
       let message = safe.message || (safe.status === "accepted" ? "等待 Hub Agent 回传进度" : "");
@@ -12732,6 +12742,15 @@ function renderPanelHtml() {
         if (dead) {
           return "调度已停止（远端进程已退出，未收到终态；请查看日志或点击“中止清理”）";
         }
+      }
+      // 90s 宽限期内（reconcileGraceExpiresAt 未过期且未终态）：展示剩余宽限时间而非纯 running，便于用户感知调度收敛等待
+      const graceRemaining = operationGraceRemainingSeconds(safe);
+      const isTerminal = operationIsFailureLike(safe.status) || operationIsCancelled(safe.status) || operationIsCompleted(safe.status) || String(safe.status || "").toLowerCase().includes("stale");
+      if (graceRemaining !== null && graceRemaining > 0 && !isTerminal) {
+        const graceText = "宽限期剩余 " + graceRemaining + "s，等待调度收敛";
+        if (message) return graceText + "（" + message + "）";
+        if (operationIsActive(safe.status)) return graceText + "（已提交，等待 Hub Agent 回传进度）";
+        return graceText;
       }
       if (message) return message;
       if (operationIsActive(safe.status)) return "已提交，等待 Hub Agent 回传进度；可手动刷新数据。";

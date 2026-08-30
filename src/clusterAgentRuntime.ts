@@ -2097,7 +2097,10 @@ def _tmux_log_size(log_path):
             if _stripped.startswith("conda activate"):
                 continue
             if _stripped.startswith("cd "):
-                continue
+                # 仅过滤 shell bootstrap 的短 cd 行（cd /data 或带引号，长度<80），避免误删正常调度日志中含 cd /path 的行。
+                # 调度日志中的 cd 多含 experiment/run 等且较长，不应视为 bootstrap 噪音。
+                if len(_stripped) < 80 and ("/data" in _stripped or '"' in _stripped or "'" in _stripped) and "experiment" not in _stripped.lower():
+                    continue
             if _stripped.startswith("export "):
                 continue
             if "SIMPLE_TMUX_READY" in _stripped:
