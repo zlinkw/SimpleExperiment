@@ -10957,11 +10957,11 @@ function renderPanelHtml() {
     }
 
     function asEditorList(values) {
-      return (values || []).filter(Boolean).join("\\\\n");
+      return (values || []).filter(Boolean).join("\\n");
     }
 
     function mapToLines(map) {
-      return Object.entries(map || {}).map(([key, value]) => key + ": " + value).join("\\\\n");
+      return Object.entries(map || {}).map(([key, value]) => key + ": " + value).join("\\n");
     }
 
     function adapterRulesArePartial(rules) {
