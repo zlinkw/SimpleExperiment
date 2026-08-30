@@ -1407,6 +1407,8 @@ export function renderPanelHtml(): string {
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const LENIENT_RUN = true;
+    const isLenientRun = LENIENT_RUN;
     const OPERATION_STATUS_FILTER_VALUES = ["all", "accepted", "running", "completed", "cancelled", "failed"];
     const PLAN_VIEW_SCOPE_VALUES = ["selected", "all"];
     const restoredWebviewState = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
@@ -13931,6 +13933,18 @@ export function renderPanelHtml(): string {
     }
     function disableReason(state, command, context) {
       context = context || {};
+      const isLenient = typeof isLenientRun !== "undefined" ? isLenientRun : (typeof LENIENT_RUN !== "undefined" ? LENIENT_RUN : true);
+      if (!state.__softWarnings) state.__softWarnings = [];
+      const pushSoft = (kind, reason) => {
+        if (!reason) return;
+        const list = state.__softWarnings;
+        for (let i = 0; i < list.length; i += 1) {
+          const item = list[i];
+          if (item && item.kind === kind && item.reason === reason) return;
+          if (item === reason) return;
+        }
+        list.push({ kind, reason });
+      };
       const debugReason = debugModeDisableReason(command, context.debugMode === true ? "debug" : undefined);
       if (debugReason) return debugReason;
       const contextRunKey = usableTaskKey(context.runKey) ? context.runKey : "";
@@ -13938,7 +13952,9 @@ export function renderPanelHtml(): string {
       if (state.connectionMode === "offline_import" && isRemoteAction(command)) return "离线导入不能执行远端操作";
       if (command === "clearLegacyTasks") return "";
       const simpleSftpReason = simpleSftpCommandDisableReason(state, command);
-      if (simpleSftpReason) return simpleSftpReason;
+      if (simpleSftpReason) {
+        if (isLenient) { pushSoft("simpleSftp", simpleSftpReason); } else { return simpleSftpReason; }
+      }
       const capabilityReadiness = uiCapabilityReadinessForStateCommand(state, command);
       const keys = capabilityReadiness.keys;
       let missing = capabilityReadiness.missing.slice();
@@ -13955,7 +13971,11 @@ export function renderPanelHtml(): string {
       }
       if (missing.length) return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
       const health = (state.health || {}).state;
-      if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && REMOTE_ACTION_DISCONNECTED_HEALTH_STATES.has(health) && !hasRealtimeSignal(state)) return "tunnel 未连接";
+      if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && REMOTE_ACTION_DISCONNECTED_HEALTH_STATES.has(health) && !hasRealtimeSignal(state)) {
+        if (PLAN_PREFLIGHT_COMMANDS.has(command)) { pushSoft("tunnel", "tunnel 未连接"); }
+        else if (isLenient) { pushSoft("tunnel", "tunnel 未连接"); }
+        else { return "tunnel 未连接"; }
+      }
       if (command === "startAll" && !hasAnyTunnelSession(state)) return "请先配置 Hub 或 Worker 的 Xshell 隧道会话";
       if (command === "startAgents" && !hasAnyTunnelSession(state)) return "请先配置 Hub 或 Worker 的 Xshell 隧道会话";
       if (command === "startAllConnections" && !hasAnyTunnelSession(state)) return "请先配置 Xshell 隧道会话";
@@ -13979,10 +13999,17 @@ export function renderPanelHtml(): string {
           return "当前 Plan 已有 " + activity.taskCount + " 个任务和 " + activity.operationCount + " 个提交操作未结束，不能重复提交";
         }
       }
-      if (SUBMITTED_RUN_COMMANDS.has(command) && !executionWorkerReadiness(state).ready) return "至少配置并启用一个执行 Worker";
+      if (SUBMITTED_RUN_COMMANDS.has(command) && !executionWorkerReadiness(state).ready) {
+        if (command === "runAllPlans" && isLenient) { pushSoft("executionWorker", "至少配置并启用一个执行 Worker"); } else { return "至少配置并启用一个执行 Worker"; }
+      }
       const endpointReadiness = projectEndpointReadiness(state);
-      if (PLAN_PREFLIGHT_COMMANDS.has(command) && !endpointReadiness.hubReady) return endpointReadiness.missing[0] || "Hub Agent 未通过当前项目检测";
-      if (SUBMITTED_RUN_COMMANDS.has(command) && !endpointReadiness.ready) return endpointReadiness.summary;
+      if (PLAN_PREFLIGHT_COMMANDS.has(command) && !endpointReadiness.hubReady) {
+        const r = endpointReadiness.missing[0] || "Hub Agent 未通过当前项目检测";
+        if (isLenient) { pushSoft("hubReady", r); } else { return r; }
+      }
+      if (SUBMITTED_RUN_COMMANDS.has(command) && !endpointReadiness.ready) {
+        if (isLenient) { pushSoft("endpoint", endpointReadiness.summary); } else { return endpointReadiness.summary; }
+      }
       if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
         const outputGateReason = projectOutputGateReason(state, context);
         if (outputGateReason) return outputGateReason;
