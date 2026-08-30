@@ -54,8 +54,8 @@ test("artifact scoped UI actions reuse one command set", () => {
 test("Plan execution checks reuse selected and submitted run command sets", () => {
   const disabled = extractFunction("disableReason");
   assert.match(panel, /const SUBMITTED_RUN_COMMANDS = new Set\(\[\.\.\.SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"\]\)/);
-  assert.equal((disabled.match(/SELECTED_PLAN_RUN_COMMANDS\.has\(command\)/g) || []).length, 2);
-  assert.equal((disabled.match(/SUBMITTED_RUN_COMMANDS\.has\(command\)/g) || []).length, 2);
+  assert.equal((disabled.match(/SELECTED_PLAN_RUN_COMMANDS\.has\(command\)/g) || []).length, 3);
+  assert.equal((disabled.match(/SUBMITTED_RUN_COMMANDS\.has\(command\)/g) || []).length, 3);
   assert.match(extractFunction("runModeForButton"), /SELECTED_PLAN_RUN_COMMANDS\.has\(String\(command \|\| ""\)\)/);
   assert.doesNotMatch(panel, /\["runPlan", "reproducePlan"\]\.includes\(/);
   assert.doesNotMatch(panel, /\["runPlan", "reproducePlan", "runAllPlans"\]\.includes\(/);

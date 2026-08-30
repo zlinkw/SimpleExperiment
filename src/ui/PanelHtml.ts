@@ -13979,7 +13979,7 @@ export function renderPanelHtml(): string {
         }
       }
       if (missing.length) {
-        if (isLenient && PLAN_PREFLIGHT_COMMANDS.has(command)) {
+        if (isLenient && (PLAN_PREFLIGHT_COMMANDS.has(command) || SELECTED_PLAN_RUN_COMMANDS.has(command) || SUBMITTED_RUN_COMMANDS.has(command))) {
           pushSoft("capability", missing.join(", "));
         } else {
           return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
