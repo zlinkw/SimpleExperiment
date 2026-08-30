@@ -2113,8 +2113,11 @@ def _tmux_log_size(log_path):
                 continue
             if _stripped.startswith("printf") and ("exit_code" in _stripped or "$?" in _stripped):
                 continue
-            if _stripped.startswith("python") and ("cluster_scheduler" in _stripped or "--scheduler-log" in _stripped or "--plan" in _stripped):
+            if "cluster_scheduler" in _stripped or "--scheduler-log" in _stripped or "--operation-id" in _stripped or "worker_availability" in _stripped or "--agent-state-dir" in _stripped or "exit_code" in _stripped:
                 continue
+            if _stripped.startswith("/") or _stripped.startswith("--"):
+                if "cluster_scheduler" in _stripped or "--scheduler-log" in _stripped or "--operation-id" in _stripped or "worker_availability" in _stripped or "--agent-state-dir" in _stripped or "exit_code" in _stripped:
+                    continue
             _effective += len(_stripped.encode("utf-8")) + 1
         return _effective
     except Exception:
@@ -2157,8 +2160,11 @@ def _is_noise_line(line):
             return True
         if _s.startswith("printf") and ("exit_code" in _s or "$?" in _s):
             return True
-        if _s.startswith("python") and ("cluster_scheduler" in _s or "--scheduler-log" in _s or "--plan" in _s):
+        if "cluster_scheduler" in _s or "--scheduler-log" in _s or "--operation-id" in _s or "worker_availability" in _s or "--agent-state-dir" in _s or "exit_code" in _s:
             return True
+        if _s.startswith("/") or _s.startswith("--"):
+            if "cluster_scheduler" in _s or "--scheduler-log" in _s or "--operation-id" in _s or "worker_availability" in _s or "--agent-state-dir" in _s or "exit_code" in _s:
+                return True
         if "cd " in _s and "/data" in _s and "experiment" not in _s.lower():
             return True
         return False
@@ -2178,7 +2184,7 @@ def _read_effective_tail(path, max_bytes=16*1024):
         _joined = "\n".join(_tail_150)
         _t4000 = _joined[-4000:] if _joined else ""
         _filtered = [_l for _l in _t4000.splitlines() if _l.strip() and not _is_noise_line(_l)]
-        _eff_tail = "\n".join(_filtered[-50:]) if _filtered else ""
+        _eff_tail = ("\n".join(_filtered[-50:]) + ("\n" if _filtered[-50:] else "")) if _filtered else ""
         _cnt = len([_l for _l in _eff_tail.splitlines() if _l.strip()]) if _eff_tail else 0
         _upd = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_st.st_mtime))
         return _eff_tail, _cnt, _upd
@@ -8028,7 +8034,11 @@ def handle_action(root, action, payload, operation_id, op_id):
                             # Otherwise the no_progress fuse below is free to fire so we never
                             # get stuck on a fake "执行中".
                             if not _size_grew:
-                                _pane_tail = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
+                                _pane_tail_raw = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
+                                if _pane_tail_raw:
+                                    _pane_tail_raw = re.sub(r"\\\n\s*", " ", _pane_tail_raw)
+                                _pane_filtered = [_l for _l in _pane_tail_raw.splitlines() if _l.strip() and not _is_noise_line(_l)] if _pane_tail_raw else []
+                                _pane_tail = "\n".join(_pane_filtered) + ("\n" if _pane_filtered else "")
                                 if _pane_tail and _pane_tail != _last_pane_tail:
                                     _last_progress = _now
                                     _last_pane_tail = _pane_tail
@@ -8091,15 +8101,28 @@ def handle_action(root, action, payload, operation_id, op_id):
                             message = f"调度器进程退出码 {rc}，未收到调度器终态事件。"
                             if launch_failed:
                                 pane_tail_raw = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
-                                pane_tail = "\n".join([_l for _l in pane_tail_raw.splitlines() if _l.strip() and not _is_noise_line(_l)]) if pane_tail_raw else ""
+                                if pane_tail_raw:
+                                    pane_tail_raw = re.sub(r"\\\n\s*", " ", pane_tail_raw)
+                                _pane_filtered_msg = [_l for _l in pane_tail_raw.splitlines() if _l.strip() and not _is_noise_line(_l)] if pane_tail_raw else []
+                                pane_tail = "\n".join(_pane_filtered_msg) + ("\n" if _pane_filtered_msg else "")
                                 python_running = _tmux_pane_python_running(tmux_session, env) if used_tmux else False
                                 _total_wait = _launch_grace + _no_progress
                                 message = ("调度器启动失败：tmux 会话存活但合计 %.0fs 内无有效日志增长且未生成 exit_code（pane 内 python 进程：%s）。%s"
                                            % (_total_wait, "存在" if python_running else "不存在", f"调度器进程退出码 {rc}，未收到调度器终态事件。"))
                                 if pane_tail:
-                                    message += " pane 尾部：\n" + pane_tail[-600:]
+                                    _pt_slice = pane_tail[-600:]
+                                    if not _pt_slice.endswith("\n"):
+                                        _pt_slice += "\n"
+                                    message += " pane 尾部：\n" + _pt_slice
                             if log_tail:
-                                message += " 日志尾部：\n" + log_tail[-2000:]
+                                if not log_tail.endswith("\n"):
+                                    log_tail += "\n"
+                                _lt_slice = log_tail[-2000:]
+                                if not _lt_slice.endswith("\n"):
+                                    _lt_slice += "\n"
+                                message += " 日志尾部：\n" + _lt_slice
+                                if not message.endswith("\n"):
+                                    message += "\n"
                             terminal_action(root, action, operation_id, op_id, "failed", message, {
                                 "pid": pid,
                                 "tmuxSession": tmux_session if used_tmux else "",
@@ -8830,6 +8853,13 @@ def _redact_path(value):
 def _is_scheduler_source(text):
     try:
         t = str(text or "")
+        # 运行态“scheduler started pid=..., 等待 scheduler 终态”不应视为调度器错误源，仅为 running 状态
+        if re.search(r"scheduler started pid=.*等待 scheduler 终态", t, re.I):
+            if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|失败|异常|错误", t):
+                return False
+        if re.search(r"scheduler started pid=", t, re.I) and "等待 scheduler 终态" in t:
+            if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", t):
+                return False
         for src in SCHEDULER_SOURCES:
             if src.lower() in t.lower() if src.isascii() else src in t:
                 return True
@@ -8854,28 +8884,66 @@ def _schedulerErrorZh(text_or_payload):
             raw = str(text_or_payload.get("message") or text_or_payload.get("error") or text_or_payload.get("msg") or "")
         else:
             raw = str(text_or_payload or "")
+        # 优先级：payload.message 含“调度器启动失败/无有效日志增长/未生成 exit_code”时取 hub 真因首行200（最高优，覆盖 scheduler started 多行场景）
+        if re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", raw):
+            for _l in raw.splitlines():
+                if re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", _l):
+                    _cand = _l.strip()
+                    if _cand:
+                        return _cand[:200]
+            _first_hit = (raw.strip().splitlines()[0].strip() if raw.strip() else "")
+            if _first_hit:
+                return _first_hit[:200]
+        # 运行态“scheduler started pid=..., 等待 scheduler 终态”不应作为调度器报错展示（仅为 running 状态）
+        if re.search(r"scheduler started pid=.*等待 scheduler 终态", raw, re.I):
+            if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|失败|异常|错误|Traceback|Error|Exception", raw, re.I):
+                return ""
+        if re.search(r"scheduler started pid=", raw, re.I) and "等待 scheduler 终态" in raw:
+            if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", raw):
+                return ""
         # 取 payload.message 第一行中文截200（任务要求）
         first_line = (raw.splitlines()[0] if raw.strip() else "").strip()
         if first_line:
-            # 若首行本身即 scheduler 相关，直接返回截断（保证中文）
-            if _is_scheduler_source(first_line):
-                return first_line[:200]
+            # 运行态首行不应直接返回
+            if re.search(r"scheduler started pid=.*等待 scheduler 终态", first_line, re.I):
+                if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", first_line):
+                    pass
+                elif _is_scheduler_source(first_line):
+                    return first_line[:200]
+            elif _is_scheduler_source(first_line):
+                # 仅当首行含失败/异常等错误特征或是 hub 真因时才视为调度器报错，避免 benign scheduler 日志（如 "scheduler started epoch 1"）误报
+                if re.search(r"失败|异常|错误|Traceback|Error|Exception|未生成|无有效日志|不存在|not found|No such file", first_line, re.I) or re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", first_line):
+                    return first_line[:200]
+                # 无错误特征的纯 scheduler 首行不视为调度器错误（满足 failureSourceKind none 且 live_log 无错误时空）
+                return ""
         t = raw if raw else str(text_or_payload or "")
+        # 运行态二次兜底
+        if re.search(r"scheduler started pid=.*等待 scheduler 终态", t, re.I):
+            if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|失败|异常|错误", t):
+                return ""
         # 兜底：按原有调度器中文映射，保证单测与旧行为兼容
         if re.search(r"tmux", t, re.I) or re.search(r"scheduler", t, re.I) or re.search(r"exit_code", t, re.I) or re.search(r"调度器", t):
             if re.search(r"tmux.*kill|tmux.*attach|tmux.*session", t, re.I):
                 return "调度器 tmux 会话异常，请检查 Xshell 会话与 tmux 状态"
             if re.search(r"No such file|not found|不存在", t, re.I):
                 return "调度器依赖文件缺失"
-            return "调度器启动失败，请检查远端调度器日志与环境"
+            # 仅当含失败/异常等真实错误特征时才返回通用调度器失败，避免 running 态或无错误日志误报
+            if re.search(r"失败|异常|错误|Traceback|Error|Exception|未生成|无有效日志", t, re.I):
+                return "调度器启动失败，请检查远端调度器日志与环境"
+            # 若首行含中文且为调度相关，返回首行截断，否则空（满足 failureSourceKind none 时不误报通用失败）
+            if first_line and re.search(r"[\u4e00-\u9fa5]", first_line) and _is_scheduler_source(first_line):
+                return first_line[:200]
+            return ""
         if re.search(r"psutil|No such file|ModuleNotFoundError.*scheduler|调度器异常", t, re.I):
             return "调度器依赖缺失或异常"
         if re.search(r"conda.*not found|EnvironmentNotFound|CondaValueError", t, re.I):
             return "调度器环境缺失，请检查 conda 环境"
-        # 若 first_line 非空且含中文，直接返回截断（满足“取第一行中文截200”）
+        # 若 first_line 非空且含中文，直接返回截断（满足“取第一行中文截200”），但仅当为调度相关或含失败特征时返回，避免非调度中文/纯英文误报为调度器错误
         if first_line and re.search(r"[\u4e00-\u9fa5]", first_line):
-            return first_line[:200]
-        return first_line[:200] if first_line else ""
+            if _is_scheduler_source(first_line) or re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|失败|异常", first_line):
+                return first_line[:200]
+            return ""
+        return ""
     except Exception:
         return ""
 
@@ -8952,9 +9020,12 @@ def _classify(payload, logTail=None):
         elif payload is not None:
             p_text = str(payload)
         l_text = str(logTail or "")
-        # 同时检测 payload 与 logTail
+        # 同时检测 payload 与 logTail（log 侧亦用 _schedulerErrorZh 避免仅含 scheduler 关键词无错误时误判为 scheduler）
         has_sched_payload = bool(_schedulerErrorZh(p_text)) if p_text else False
-        has_sched_log = _is_scheduler_source(l_text) if l_text else False
+        has_sched_log = bool(_schedulerErrorZh(l_text)) if l_text else False
+        # 兼容部分历史逻辑：若 _schedulerErrorZh 对 log 返回空但 _is_scheduler_source 对含 hub 真因的 log 仍应判为 scheduler，则二次校验 hub 关键词
+        if not has_sched_log and l_text and re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", l_text):
+            has_sched_log = True
         has_prog_payload = bool(_programError(p_text)) if p_text else False
         has_prog_log = bool(_programError(l_text)) if l_text else False
         has_sched = has_sched_payload or has_sched_log
@@ -9015,7 +9086,7 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
             _joined = "\n".join(_tail_150)
             _t4000 = _joined[-4000:] if _joined else ""
             _filtered = [_l for _l in _t4000.splitlines() if _l.strip() and not _is_noise_line(_l)]
-            _eff_tail = "\n".join(_filtered[-50:]) if _filtered else ""
+            _eff_tail = ("\n".join(_filtered[-50:]) + ("\n" if _filtered[-50:] else "")) if _filtered else ""
             _cnt = len([_l for _l in _eff_tail.splitlines() if _l.strip()]) if _eff_tail else 0
             _upd = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_st.st_mtime))
             return _eff_tail, _cnt, _upd
@@ -9080,6 +9151,9 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
                 # Only merge first effective fallback to keep tail bounded
                 if live_log_count >= 5:
                     break
+    # 确保 pane/log 尾保留 \n（与 wait_scheduler 中 pane_tail 保持一致，覆盖 fallback 与非 fallback 分支）
+    if live_log_tail and not live_log_tail.endswith("\n"):
+        live_log_tail += "\n"
     process = scheduler_process_evidence(root, pid if pid is not None else payload.get("pid"), tmux_session or payload.get("tmuxSession") or payload.get("session"))
     evidence_counts = {
         "schedulerStatesCount": len(scheduler_rows),
@@ -9093,13 +9167,22 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     _payload_msg_hub = str(payload.get("message") or payload.get("error") or payload.get("msg") or "") if isinstance(payload, dict) else str(payload or "")
     _hub_sched_hit = bool(re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|tmux.*会话.*存活", _payload_msg_hub))
     if _hub_sched_hit:
-        _schedZh_raw = (_payload_msg_hub.splitlines()[0].strip() if _payload_msg_hub.strip() else "")[:200]
+        # 优先级：payload.message 含 hub 真因时取首个含失败关键词的行截200，而非盲取首行（覆盖 scheduler started 多行场景）
+        _hit_line = ""
+        for _l in _payload_msg_hub.splitlines():
+            if re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", _l):
+                _hit_line = _l.strip()
+                break
+        if not _hit_line:
+            _lines = [l for l in _payload_msg_hub.splitlines() if l.strip()]
+            _hit_line = (_lines[0].strip() if _lines else (_payload_msg_hub.strip().splitlines()[0].strip() if _payload_msg_hub.strip() else ""))
+        _schedZh_raw = _hit_line[:200]
         if failureSourceKind not in ("scheduler", "mixed"):
             if failureSourceKind == "program":
                 failureSourceKind = "mixed"
             else:
                 failureSourceKind = "scheduler"
-        schedulerErrorZh = _schedZh_raw
+        schedulerErrorZh = _redact_text(_schedZh_raw)
         _prog_raw = _programError(live_log_tail) if failureSourceKind in ("program", "mixed") else ""
         if not _prog_raw and failureSourceKind in ("program", "mixed"):
             _prog_raw = _programError(payload)
