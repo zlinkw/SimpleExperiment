@@ -7350,6 +7350,9 @@ class RealtimeTunnelPanelProvider {
                         schedulerErrorZh: ev.schedulerErrorZh || cur.schedulerErrorZh || "",
                         programError: ev.programError || cur.programError || "",
                         failures: ev.failures || cur.failures || [],
+                        liveLogCount: ev.liveLogCount ?? cur.liveLogCount ?? 0,
+                        liveLogTailRedacted: ev.liveLogTailRedacted ?? cur.liveLogTailRedacted ?? "",
+                        fallbackTriggered: ev.fallbackTriggered ?? cur.fallbackTriggered ?? false,
                         lastEvidenceAt: new Date().toISOString(),
                     };
                     // 若证据显示已终态或有明确失败，尝试通过 reconcile 决策推进终态

@@ -12638,6 +12638,21 @@ function renderPanelHtml() {
           parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span></div>');
         }
       }
+      if (!parts.length) {
+        const diagKind = String(ev.failureSourceKind || (row || {}).failureSourceKind || ((row || {}).payload && (row.payload || {}).evidence && (row.payload || {}).evidence.failureSourceKind) || "").trim();
+        const diagPath = String(ev.logPathRedacted || (row || {}).logPathRedacted || (row && row.payload && (row.payload.logPathRedacted || row.payload.log_path_redacted)) || "").trim();
+        const diagCount = String(ev.liveLogCount ?? ev.live_log_count ?? (row || {}).liveLogCount ?? (row || {}).live_log_count ?? "").trim();
+        const diagFallback = ev.fallbackTriggered ?? ev.fallback_triggered ?? (row || {}).fallbackTriggered ?? (row || {}).fallback_triggered;
+        if (diagKind || diagPath) {
+          let pills = '<div class="muted" style="font-size:11px;display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">';
+          if (diagKind) pills += '<span class="pill" title="failureSourceKind">kind=' + esc(diagKind) + '</span>';
+          if (diagPath) pills += '<span class="pill" title="logPathRedacted">' + esc(diagPath) + '</span>';
+          if (diagCount) pills += '<span class="pill">行数=' + esc(diagCount) + '</span>';
+          if (diagFallback !== undefined && diagFallback !== null && String(diagFallback) !== "") pills += '<span class="pill">fallback=' + esc(String(diagFallback === true || String(diagFallback) === "true" ? "是" : "否")) + '</span>';
+          pills += '</div>';
+          parts.push(pills);
+        }
+      }
       return parts.join("");
     }
 
@@ -12822,10 +12837,13 @@ function renderPanelHtml() {
         const schedLog = schedLogRaw ? redact(schedLogRaw) : "";
         const combinedSrc = [combinedRaw, schedLog].filter(Boolean).join("\\n").trim();
         const logPathRedacted = String(ev.logPathRedacted || (row || {}).logPathRedacted || (row && row.payload && (row.payload.logPathRedacted || row.payload.log_path_redacted)) || "").trim();
+        const liveLogCount = Number(ev.liveLogCount ?? ev.live_log_count ?? (row || {}).liveLogCount ?? (row || {}).live_log_count ?? 0) || 0;
+        const failureSourceKind = String(ev.failureSourceKind || (row || {}).failureSourceKind || ((row || {}).payload && (row.payload || {}).evidence && (row.payload || {}).evidence.failureSourceKind) || "").trim();
+        const fallbackTriggered = Boolean(ev.fallbackTriggered ?? ev.fallback_triggered ?? (row || {}).fallbackTriggered ?? (row || {}).fallback_triggered ?? false);
         const isSchedulerLine = s=>/tmux|scheduler|exit_code|调度器/i.test(s);
         const isProgramLine = s=>/Traceback|Error|Exception|失败|异常/.test(s);
         if (!combinedSrc) {
-          return '<div class="operationLogsWindowed" style="margin-top:6px;display:grid;gap:4px;"><div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已脱敏，仅展示尾20/50行）</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整日志（已脱敏，尾50行）">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button></div></div>';
+          return '<div class="operationLogsWindowed" style="margin-top:6px;display:grid;gap:4px;"><div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已脱敏，仅展示尾20/50行）</div><div class="muted" style="font-size:11px;">诊断：logPath=' + esc(logPathRedacted || "-") + ' · 行数=' + esc(String(liveLogCount)) + ' · kind=' + esc(failureSourceKind || "-") + ' · fallback=' + (fallbackTriggered ? "是" : "否") + '</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整日志（已脱敏，尾50行）">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button></div></div>';
         }
         const redactedCombined = redact(combinedSrc);
         const tail4000 = redactedCombined.length > 4000 ? redactedCombined.slice(-4000) : redactedCombined;
@@ -12838,8 +12856,9 @@ function renderPanelHtml() {
         const schedulerPreview = schedulerLines.slice(-20);
         const programPreview = programLines.slice(-20);
         const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条（已脱敏）">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button>';
-        const schedulerContent = schedulerLines.length ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(schedulerPreview.join("\\n")) + '</pre>' : '<div class="muted">暂无调度器日志（仅程序日志）</div>';
-        const programContent = programLines.length ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(programPreview.join("\\n")) + '</pre>' : '<div class="muted">暂无程序日志（仅调度器日志）</div>';
+        const _diagHint = ' <span style="font-size:11px;">（行数=' + esc(String(liveLogCount)) + ' · 脱敏长度=' + esc(String((redactedTail || combinedRaw || "").length)) + '）</span>';
+        const schedulerContent = schedulerLines.length ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(schedulerPreview.join("\\n")) + '</pre>' : '<div class="muted">暂无调度器日志（仅程序日志）' + _diagHint + '</div>';
+        const programContent = programLines.length ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(programPreview.join("\\n")) + '</pre>' : '<div class="muted">暂无程序日志（仅调度器日志）' + _diagHint + '</div>';
         const schedulerCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">调度器日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + schedulerContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
         const programCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">程序运行日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + programContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
         return '<div class="operationLogsWindowed"><div style="display:grid;grid-template-columns:1fr;gap:8px">' + schedulerCard + programCard + '</div></div>';

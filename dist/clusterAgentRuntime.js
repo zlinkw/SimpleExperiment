@@ -9141,6 +9141,10 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         "failures": failures,
         "logPathRedacted": logPathRedacted,
         "liveLogTailRedacted": liveLogTailRedacted,
+        "liveLogCount": live_log_count,
+        "live_log_count": live_log_count,
+        "fallbackTriggered": _needs_fallback,
+        "fallback_triggered": _needs_fallback,
     }
 
 
