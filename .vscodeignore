@@ -17,6 +17,9 @@ scripts/**
 test/**
 scenarios/**
 *.vsix
+review_report.md
+**/*.vsix
+**/review_report.md
 dist/runtime/__pycache__/**
 dist/test/**
 dist/testing/**
