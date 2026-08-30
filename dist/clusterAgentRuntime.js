@@ -2136,9 +2136,16 @@ def _is_noise_line(line):
             return True
         if "Traceback" in _s or "Error" in _s or "Exception" in _s:
             return False
-        if _s.startswith("[pipe-pane"):
+        if _s.startswith("(base)") or _s.startswith("(zlk)"):
+            if "$" in _s:
+                _s = _s.split("$", 1)[1].strip()
+            if not _s:
+                return True
+            if "Traceback" in _s or "Error" in _s or "Exception" in _s:
+                return False
+        if "conda activate" in _s:
             return True
-        if _s.startswith("conda activate"):
+        if _s.startswith("[pipe-pane"):
             return True
         if _s.startswith("export "):
             return True
@@ -2152,9 +2159,8 @@ def _is_noise_line(line):
             return True
         if _s.startswith("python") and ("cluster_scheduler" in _s or "--scheduler-log" in _s or "--plan" in _s):
             return True
-        if _s.startswith("cd "):
-            if len(_s) < 80 and ("/data" in _s or '"' in _s or "'" in _s) and "experiment" not in _s.lower():
-                return True
+        if "cd " in _s and "/data" in _s and "experiment" not in _s.lower():
+            return True
         return False
     except Exception:
         return False
@@ -8994,13 +9000,14 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         live_log_count = 0
         live_log_updated_at = ""
     # Fallback: if effective count==0 or raw <512B, merge payload.schedulerLog / queue_log (plan_key.log)
+    _has_sched_kw = re.search(r"dispatch|scheduler|experiment|Traceback|Error|调度器", live_log_tail or "")
     _needs_fallback = False
     try:
         _raw_size = os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
-        if _raw_size < 512 or live_log_count == 0 or not live_log_tail.strip():
+        if _raw_size < 512 or live_log_count == 0 or not live_log_tail.strip() or (live_log_count <= 3 and not _has_sched_kw):
             _needs_fallback = True
     except Exception:
-        _needs_fallback = not live_log_tail.strip() or live_log_count == 0
+        _needs_fallback = not live_log_tail.strip() or live_log_count == 0 or (live_log_count <= 3 and not _has_sched_kw)
     if _needs_fallback:
         _fallback_candidates = []
         # payload.schedulerLog / queue_log
@@ -9055,15 +9062,30 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     active_evidence = bool(process["pidAlive"] or process["tmuxSessionAlive"] or any(evidence_counts.values()))
     # 分类与脱敏：failureSourceKind / schedulerErrorZh / programError / failures / logPathRedacted/logTailRedacted（任务要求 payload/logTail 双参 + 脱敏）
     failureSourceKind = _classify(payload, live_log_tail)
-    # 调度器报错：取 payload.message 第一行中文截200（兼容 fallback 到 logTail）
-    _schedZh_raw = _schedulerErrorZh(payload) if failureSourceKind in ("scheduler", "mixed") else ""
-    if not _schedZh_raw and failureSourceKind in ("scheduler", "mixed"):
-        _schedZh_raw = _schedulerErrorZh(live_log_tail)
-    _prog_raw = _programError(live_log_tail) if failureSourceKind in ("program", "mixed") else ""
-    if not _prog_raw and failureSourceKind in ("program", "mixed"):
-        _prog_raw = _programError(payload)
-    schedulerErrorZh = _redact_text(_schedZh_raw)
-    programError = _redact_text(_prog_raw)
+    _payload_msg_hub = str(payload.get("message") or payload.get("error") or payload.get("msg") or "") if isinstance(payload, dict) else str(payload or "")
+    _hub_sched_hit = bool(re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|tmux.*会话.*存活", _payload_msg_hub))
+    if _hub_sched_hit:
+        _schedZh_raw = (_payload_msg_hub.splitlines()[0].strip() if _payload_msg_hub.strip() else "")[:200]
+        if failureSourceKind not in ("scheduler", "mixed"):
+            if failureSourceKind == "program":
+                failureSourceKind = "mixed"
+            else:
+                failureSourceKind = "scheduler"
+        schedulerErrorZh = _schedZh_raw
+        _prog_raw = _programError(live_log_tail) if failureSourceKind in ("program", "mixed") else ""
+        if not _prog_raw and failureSourceKind in ("program", "mixed"):
+            _prog_raw = _programError(payload)
+        programError = _redact_text(_prog_raw)
+    else:
+        # 调度器报错：取 payload.message 第一行中文截200（兼容 fallback 到 logTail）
+        _schedZh_raw = _schedulerErrorZh(payload) if failureSourceKind in ("scheduler", "mixed") else ""
+        if not _schedZh_raw and failureSourceKind in ("scheduler", "mixed"):
+            _schedZh_raw = _schedulerErrorZh(live_log_tail)
+        _prog_raw = _programError(live_log_tail) if failureSourceKind in ("program", "mixed") else ""
+        if not _prog_raw and failureSourceKind in ("program", "mixed"):
+            _prog_raw = _programError(payload)
+        schedulerErrorZh = _redact_text(_schedZh_raw)
+        programError = _redact_text(_prog_raw)
     failures = []
     if schedulerErrorZh:
         failures.append({"kind": "scheduler", "messageZh": schedulerErrorZh})
