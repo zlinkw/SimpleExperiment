@@ -12784,8 +12784,11 @@ export function renderPanelHtml(): string {
         const schedLogRaw = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
         const schedLog = schedLogRaw ? redact(schedLogRaw) : "";
         const combinedSrc = [combinedRaw, schedLog].filter(Boolean).join("\\n").trim();
+        const logPathRedacted = String(ev.logPathRedacted || (row || {}).logPathRedacted || (row && row.payload && (row.payload.logPathRedacted || row.payload.log_path_redacted)) || "").trim();
+        const isSchedulerLine = s=>/tmux|scheduler|exit_code|调度器/i.test(s);
+        const isProgramLine = s=>/Traceback|Error|Exception|失败|异常/.test(s);
         if (!combinedSrc) {
-          return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;"><div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已脱敏，仅展示尾20/50行）</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整日志（已脱敏，尾50行）">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button></div></div>';
+          return '<div class="operationLogsWindowed" style="margin-top:6px;display:grid;gap:4px;"><div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已脱敏，仅展示尾20/50行）</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整日志（已脱敏，尾50行）">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button></div></div>';
         }
         const redactedCombined = redact(combinedSrc);
         const tail4000 = redactedCombined.length > 4000 ? redactedCombined.slice(-4000) : redactedCombined;
@@ -12793,15 +12796,17 @@ export function renderPanelHtml(): string {
         const tail150 = rawLines.slice(-150).join("\\n");
         const tail150Lines = tail150 ? tail150.split(/\\r?\\n/) : [];
         const windowed = tail150Lines.slice(-50);
-        const preview = windowed.slice(-20);
-        const total = windowed.length;
-        const more = Math.max(0, total - 20);
-        const previewHtml = '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(preview.join("\\n")) + '</pre>';
-        const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条（已脱敏）">历史记录' + (more ? ' +' + more : total ? ' (' + total + ')' : '') + '</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button>';
-        const logPathRedacted = String(ev.logPathRedacted || (row || {}).logPathRedacted || (row && row.payload && (row.payload.logPathRedacted || row.payload.log_path_redacted)) || "").trim();
-        const pathHint = logPathRedacted ? '<div class="muted" style="font-size:11px; line-height:1.35;">日志路径：<code>' + esc(logPathRedacted) + '</code>（已脱敏，仅展示尾20/50行）</div>' : '<div class="muted" style="font-size:11px; line-height:1.35;">仅展示尾20/50行（已脱敏，不暴露绝对路径）</div>';
-        return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;">' + previewHtml + pathHint + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + historyBtn + '</div></div>';
-      } catch (e) { return '<div class="operationLogWindow" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">打开完整日志</button></div>'; }
+        const schedulerLines = windowed.filter(isSchedulerLine);
+        const programLines = windowed.filter(isProgramLine);
+        const schedulerPreview = schedulerLines.slice(-20);
+        const programPreview = programLines.slice(-20);
+        const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条（已脱敏）">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button>';
+        const schedulerContent = schedulerLines.length ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(schedulerPreview.join("\\n")) + '</pre>' : '<div class="muted">暂无调度器日志（仅程序日志）</div>';
+        const programContent = programLines.length ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(programPreview.join("\\n")) + '</pre>' : '<div class="muted">暂无程序日志（仅调度器日志）</div>';
+        const schedulerCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">调度器日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + schedulerContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
+        const programCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">程序运行日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + programContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
+        return '<div class="operationLogsWindowed"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' + schedulerCard + programCard + '</div></div>';
+      } catch (e) { return '<div class="operationLogsWindowed" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">打开完整日志</button></div>'; }
     }
 
     function renderRemoteResultInspectionActions(files, planFile, limit, details) {

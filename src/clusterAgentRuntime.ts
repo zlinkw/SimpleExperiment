@@ -2097,13 +2097,20 @@ def _tmux_log_size(log_path):
             if _stripped.startswith("conda activate"):
                 continue
             if _stripped.startswith("cd "):
-                # 仅过滤 shell bootstrap 的短 cd 行（cd /data 或带引号，长度<80），避免误删正常调度日志中含 cd /path 的行。
-                # 调度日志中的 cd 多含 experiment/run 等且较长，不应视为 bootstrap 噪音。
+                # 仅过滤 shell bootstrap 的短 cd 行（长度<80），避免误删正常调度日志中含 cd /path 的行
                 if len(_stripped) < 80 and ("/data" in _stripped or '"' in _stripped or "'" in _stripped) and "experiment" not in _stripped.lower():
                     continue
             if _stripped.startswith("export "):
                 continue
             if "SIMPLE_TMUX_READY" in _stripped:
+                continue
+            if "SIMPLE_EXPERIMENT_" in _stripped:
+                continue
+            if "printf '%s'" in _stripped or 'printf "%s"' in _stripped:
+                continue
+            if _stripped.startswith("printf") and ("exit_code" in _stripped or "$?" in _stripped):
+                continue
+            if _stripped.startswith("python") and ("cluster_scheduler" in _stripped or "--scheduler-log" in _stripped or "--plan" in _stripped):
                 continue
             _effective += len(_stripped.encode("utf-8")) + 1
         return _effective
@@ -2118,6 +2125,56 @@ def _tmux_raw_log_size(log_path):
         return os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
     except Exception:
         return 0
+
+def _is_noise_line(line):
+    try:
+        _s = line.strip()
+        if not _s:
+            return True
+        if "Traceback" in _s or "Error" in _s or "Exception" in _s:
+            return False
+        if _s.startswith("[pipe-pane"):
+            return True
+        if _s.startswith("conda activate"):
+            return True
+        if _s.startswith("export "):
+            return True
+        if "SIMPLE_TMUX_READY" in _s:
+            return True
+        if "SIMPLE_EXPERIMENT_" in _s:
+            return True
+        if "printf '%s'" in _s or 'printf "%s"' in _s:
+            return True
+        if _s.startswith("printf") and ("exit_code" in _s or "$?" in _s):
+            return True
+        if _s.startswith("python") and ("cluster_scheduler" in _s or "--scheduler-log" in _s or "--plan" in _s):
+            return True
+        if _s.startswith("cd "):
+            if len(_s) < 80 and ("/data" in _s or '"' in _s or "'" in _s) and "experiment" not in _s.lower():
+                return True
+        return False
+    except Exception:
+        return False
+
+def _read_effective_tail(path, max_bytes=16*1024):
+    try:
+        if not path or not os.path.isfile(path):
+            return "", 0, ""
+        _st = os.stat(path)
+        with open(path, "rb") as _h:
+            _h.seek(max(0, _st.st_size - max_bytes))
+            _raw = _h.read()
+        _txt = _raw.decode("utf-8", errors="replace")
+        _tail_150 = _txt.splitlines()[-150:]
+        _joined = "\n".join(_tail_150)
+        _t4000 = _joined[-4000:] if _joined else ""
+        _filtered = [_l for _l in _t4000.splitlines() if _l.strip() and not _is_noise_line(_l)]
+        _eff_tail = "\n".join(_filtered[-50:]) if _filtered else ""
+        _cnt = len([_l for _l in _eff_tail.splitlines() if _l.strip()]) if _eff_tail else 0
+        _upd = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_st.st_mtime))
+        return _eff_tail, _cnt, _upd
+    except Exception:
+        return "", 0, ""
 
 def _tmux_capture_tail(session, env, max_lines=50):
     try:
@@ -8017,15 +8074,15 @@ def handle_action(root, action, payload, operation_id, op_id):
                             try:
                                 lp = safe_project_path(root, log_rel)
                                 if os.path.isfile(lp):
-                                    with open(lp, "rb") as h:
-                                        h.seek(max(0, os.path.getsize(lp) - 8000))
-                                        log_tail = h.read().decode("utf-8", "replace")[-8000:]
+                                    _eff_log_tail, _eff_cnt, _ = _read_effective_tail(lp, max_bytes=8000)
+                                    log_tail = _eff_log_tail[-8000:] if _eff_log_tail else ""
                             except Exception:
                                 log_tail = ""
                             evidence = scheduler_process_evidence(root, pid if pid else finished.get("pid"), tmux_session if used_tmux else "")
                             message = f"调度器进程退出码 {rc}，未收到调度器终态事件。"
                             if launch_failed:
-                                pane_tail = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
+                                pane_tail_raw = _tmux_capture_tail(tmux_session, env) if used_tmux else ""
+                                pane_tail = "\n".join([_l for _l in pane_tail_raw.splitlines() if _l.strip() and not _is_noise_line(_l)]) if pane_tail_raw else ""
                                 python_running = _tmux_pane_python_running(tmux_session, env) if used_tmux else False
                                 _total_wait = _launch_grace + _no_progress
                                 message = ("调度器启动失败：tmux 会话存活但合计 %.0fs 内无有效日志增长且未生成 exit_code（pane 内 python 进程：%s）。%s"
@@ -8059,9 +8116,8 @@ def handle_action(root, action, payload, operation_id, op_id):
                         try:
                             _lp = safe_project_path(root, log_rel)
                             if os.path.isfile(_lp):
-                                with open(_lp, "rb") as _h:
-                                    _h.seek(max(0, os.path.getsize(_lp) - 8000))
-                                    _exc_log_tail = _h.read().decode("utf-8", "replace")[-8000:]
+                                _eff_exc_tail, _, _ = _read_effective_tail(_lp, max_bytes=8000)
+                                _exc_log_tail = _eff_exc_tail[-8000:] if _eff_exc_tail else ""
                         except Exception:
                             _exc_log_tail = ""
                         terminal_action(root, action, operation_id, op_id, "failed", "调度器监视线程异常：" + last_err, {
@@ -8908,7 +8964,7 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     live_log_count = 0
     live_log_tail = ""
     live_log_updated_at = ""
-    # Helper: read effective tail from a log file (filter shell echoes)
+    # Helper: read effective tail from a log file (filter shell echoes) - synced with global _is_noise_line
     def _read_effective_tail(path, max_bytes=16*1024):
         try:
             if not path or not os.path.isfile(path):
@@ -8921,36 +8977,27 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
             _tail_150 = _txt.splitlines()[-150:]
             _joined = "\n".join(_tail_150)
             _t4000 = _joined[-4000:] if _joined else ""
-            _eff_tail = "\n".join([_l for _l in _t4000.splitlines() if _l.strip() and not _l.strip().startswith("conda activate") and not _l.strip().startswith("cd ") and not _l.strip().startswith("export ") and not _l.strip().startswith("[pipe-pane")][-50:])
-            # If effective filtering removed everything but raw has content, keep raw tail for evidence
-            if not _eff_tail and _t4000.strip():
-                _eff_tail = "\n".join(_t4000.splitlines()[-50:])
+            _filtered = [_l for _l in _t4000.splitlines() if _l.strip() and not _is_noise_line(_l)]
+            _eff_tail = "\n".join(_filtered[-50:]) if _filtered else ""
             _cnt = len([_l for _l in _eff_tail.splitlines() if _l.strip()]) if _eff_tail else 0
             _upd = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_st.st_mtime))
             return _eff_tail, _cnt, _upd
         except Exception:
             return "", 0, ""
     if log_path and os.path.isfile(log_path):
-        stat = os.stat(log_path)
-        with open(log_path, "rb") as handle:
-            handle.seek(max(0, stat.st_size - 16 * 1024))
-            raw_tail = handle.read()
-        text = raw_tail.decode("utf-8", errors="replace")
-        # 日志优先取末尾（tail）：先取最后 150 行，再截 4000 字符，最后取 50 行，确保 liveLogTail 为尾部而非头部，并同步到 logTail 别名
-        tail_lines_150 = text.splitlines()[-150:]
-        tail_joined_150 = "\n".join(tail_lines_150)
-        tail_4000 = tail_joined_150[-4000:] if tail_joined_150 else ""
-        live_log_tail = "\n".join(tail_4000.splitlines()[-50:]) if tail_4000 else ""
-        live_log_count = len([line for line in live_log_tail.splitlines() if line.strip()]) if live_log_tail else len([line for line in text.splitlines() if line.strip()])
-        live_log_updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
-    # Fallback: if op_id.log is <200B or empty, merge payload.schedulerLog / queue_log (plan_key.log)
+        live_log_tail, live_log_count, live_log_updated_at = _read_effective_tail(log_path, max_bytes=16*1024)
+    else:
+        live_log_tail = ""
+        live_log_count = 0
+        live_log_updated_at = ""
+    # Fallback: if effective count==0 or raw <512B, merge payload.schedulerLog / queue_log (plan_key.log)
     _needs_fallback = False
     try:
         _raw_size = os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
-        if _raw_size < 200 or not live_log_tail.strip():
+        if _raw_size < 512 or live_log_count == 0 or not live_log_tail.strip():
             _needs_fallback = True
     except Exception:
-        _needs_fallback = not live_log_tail.strip()
+        _needs_fallback = not live_log_tail.strip() or live_log_count == 0
     if _needs_fallback:
         _fallback_candidates = []
         # payload.schedulerLog / queue_log
@@ -8989,32 +9036,12 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
                     live_log_count = _cnt2
                     live_log_updated_at = _upd2
                     # adopt fallback path as log_rel if primary was empty
-                    if not log_path or not os.path.isfile(log_path) or _raw_size < 200:
+                    if not log_path or not os.path.isfile(log_path) or _raw_size < 512:
                         log_rel = _rel
                         log_path = _cand_path
                 # Only merge first effective fallback to keep tail bounded
                 if live_log_count >= 5:
                     break
-            # Also try raw fallback if effective was empty but file exists
-            try:
-                if _cand_path and os.path.isfile(_cand_path) and not _tail2.strip():
-                    _st2 = os.stat(_cand_path)
-                    with open(_cand_path, "rb") as _h2:
-                        _h2.seek(max(0, _st2.st_size - 16*1024))
-                        _raw2 = _h2.read().decode("utf-8", errors="replace")
-                    _raw_tail2 = "\n".join(_raw2.splitlines()[-50:])
-                    if _raw_tail2.strip():
-                        if live_log_tail.strip():
-                            live_log_tail = (live_log_tail.rstrip() + "\n" + _raw_tail2).strip()[-4000:]
-                        else:
-                            live_log_tail = _raw_tail2
-                            live_log_updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_st2.st_mtime))
-                        live_log_count = len([_l for _l in live_log_tail.splitlines() if _l.strip()])
-                        if not log_path or not os.path.isfile(log_path):
-                            log_rel = _rel
-                            log_path = _cand_path
-            except Exception:
-                pass
     process = scheduler_process_evidence(root, pid if pid is not None else payload.get("pid"), tmux_session or payload.get("tmuxSession") or payload.get("session"))
     evidence_counts = {
         "schedulerStatesCount": len(scheduler_rows),
