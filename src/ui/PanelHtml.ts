@@ -12481,7 +12481,7 @@ export function renderPanelHtml(): string {
       return out;
     }
 
-    function renderOperationItem(row) {
+     function renderOperationItem(row) {
       const status = String(row.status || "-").toLowerCase();
       const cls = operationIsActive(status) ? "is-running" : (operationIsFailureLike(status) ? "is-failed" : (operationIsCancelled(status) ? "is-cancelled" : (operationIsCompleted(status) ? "is-completed" : "")));
       const message = operationDisplayMessage(row);
@@ -12496,25 +12496,27 @@ export function renderPanelHtml(): string {
       const abortButton = isAbortable ? '<div class="operationActions"><button class="mini danger" data-command="abortScheduler" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" data-confirm="true" title="与运行状态解耦：一键 kill *-sch-* 并清理 simple_cluster/tmp/cluster_scheduler/*_state.json（自动匹配当前 prefix）">中止/清理</button></div>' : '';
       const tbLinkForRunning = renderTensorBoardLinksForRunning();
       const logWindow = renderOperationLogsWindowed(row);
-      const tmuxSession = String(row.tmuxSession || row.tmux_session || row.session || (row.payload && (row.payload.tmuxSession || row.payload.tmux_session || row.payload.session)) || "").trim();
-      const tmuxAttachCmd = tmuxSession ? "tmux attach -t " + tmuxSession : "";
-      const tmuxCaptureCmd = tmuxSession ? "tmux capture-pane -p -t " + tmuxSession : "";
-      const tmuxPill = tmuxSession ? '<div class="operationDetails" style="margin-top:4px;"><span class="operationDetailPill" title="tmux 会话：' + escAttr(tmuxSession) + '，点击复制进入/查看指令"><span>tmux</span><b>' + esc(tmuxSession) + '</b><button class="mini secondary" data-command="copyText" data-text="' + escAttr(tmuxAttachCmd) + '" title="复制 tmux attach 进入窗口指令">复制进入指令</button><button class="mini secondary" data-command="copyText" data-text="' + escAttr(tmuxCaptureCmd) + '" title="复制查看 pane 内容指令">复制查看指令</button></span></div>' : "";
+      // LENIENT_RUN 软门禁 Badge 协同：若后端标记 lenient/软门禁，卡片头部追加黄色 Badge，不与调度/程序报错色块冲突
+      const evForBadge = (row && typeof row === "object" && ((row || {}).evidence || ((row || {}).payload && (row.payload || {}).payload.evidence) || {})) || {};
+      const rawLenient = row.lenientRun ?? row.lenient ?? row.softGate ?? row.LENIENT_RUN ?? (row.payload && (row.payload.lenientRun ?? row.payload.lenient ?? row.payload.LENIENT_RUN)) ?? evForBadge.lenientRun ?? evForBadge.LENIENT_RUN ?? evForBadge.softGate;
+      const modeStr = String(row.executionMode || row.mode || evForBadge.executionMode || "").toLowerCase();
+      const isLenient = rawLenient === true || String(rawLenient).toLowerCase() === "true" || modeStr.includes("lenient") || String(row.executionMode || "").toLowerCase() === "lenient_run";
+      const lenientBadge = isLenient ? '<span class="pill" style="border-color:#FDE68A;background:#FFFBEB;color:#B45309;" title="软门禁：宽松模式运行（LENIENT_RUN），允许带警告提交">软门禁</span>' : '';
+      // 隐藏所有 tmux 内部字样：不再渲染 tmux 会话 pill（已 redacted 字段优先，卡片内不暴露 tmux attach/capture 指令）
       return '<div class="operationItem ' + cls + '" data-anchor="' + escAttr(treeAnchorId("operation", row.operationId || row.id || row.type || row.updatedAt)) + '" title="' + escAttr(itemTitle) + '">' +
         '<span class="operationDot" aria-hidden="true"></span>' +
         '<div class="operationBody">' +
           '<div class="operationHead">' +
-            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '">' + loadingPrefix(operationIsActive(row.status)) + esc(operationStatusLabel(row.status)) + '</span></div>' +
+            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '">' + loadingPrefix(operationIsActive(row.status)) + esc(operationStatusLabel(row.status)) + '</span>' + lenientBadge + '</div>' +
             '<span class="operationId" title="' + escAttr(row.operationId) + '">' + esc(compactIdentifier(row.operationId)) + '</span>' +
           '</div>' +
-           '<div class="operationMessage">' + esc(message) + '</div>' +
+           '<div class="operationMessage">' + esc(typeof redactUiText === "function" ? redactUiText(String(message || "")) : String(message || "")) + '</div>' +
            errorLine +
            runningWarn +
            details +
-          tmuxPill +
           fileActions +
           logWindow +
-          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(row.error) + '">错误</span>' : '') + '</div>' +
+          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(redactUiText(String(row.error))) + '">错误</span>' : '') + '</div>' +
           abortButton +
           tbLinkForRunning +
         '</div>' +
@@ -12523,21 +12525,113 @@ export function renderPanelHtml(): string {
 
     // A failed operation's error was reachable only by hovering a two-character pill while the
     // less actionable message occupied the visible line; promote it whenever it adds information.
+    function redactUiText(value) {
+      let t = String(value || "");
+      t = t.split("/data").join("[REDACTED]");
+      t = t.split("simple_cluster").join("[REDACTED]");
+      t = t.split("exit_code").join("[REDACTED]");
+      t = t.split("exit_").join("[REDACTED]");
+      t = t.split("tmux").join("[REDACTED tmux]");
+      t = t.split("printf").join("[REDACTED]");
+      t = t.split("$?").join("[REDACTED]");
+      return t;
+    }
     function operationErrorLine(row, message) {
-      const error = String((row || {}).error || "").trim();
-      const logTail = String((row || {}).logTail || ((row || {}).payload && (row.payload || {}).logTail) || "").trim();
-      const parts = [];
-      const shown = String(message || "").trim();
-      if (error && error !== "-" && (!shown || (shown !== error && !shown.includes(error)))) {
-        parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span></div>');
+      const redact = typeof redactUiText === "function" ? redactUiText : (value) => String(value || "");
+      const ev = (row && typeof row === "object" && ((row || {}).evidence || ((row || {}).payload && (row || {}).payload.evidence))) || {};
+      const rawKind = String(ev.failureSourceKind || (row || {}).failureSourceKind || ((row || {}).payload && (row.payload || {}).evidence && (row.payload || {}).evidence.failureSourceKind) || "").toLowerCase();
+      const schedulerZhRaw = String(ev.schedulerErrorZh || (row || {}).schedulerErrorZh || ((row || {}).payload && (row.payload || {}).payload && (row.payload.schedulerErrorZh || row.payload.scheduler_error_zh)) || "").trim();
+      const programErrRaw = String(ev.programError || (row || {}).programError || ((row || {}).payload && (row.payload || {}).payload && (row.payload.programError || row.payload.program_error)) || "").trim();
+      const failuresRaw = Array.isArray(ev.failures) ? ev.failures : Array.isArray((row || {}).failures) ? (row || {}).failures : Array.isArray((row && row.payload && row.payload.failures)) ? row.payload.failures : [];
+      const schedulerFromFailures = failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "scheduler").map((f) => String(f.messageZh || f.message || "").trim()).filter(Boolean).join("；");
+      const programFromFailures = failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "program").map((f) => String(f.message || f.traceback || "").trim()).filter(Boolean).join("\\n");
+      const schedulerZh = schedulerZhRaw || schedulerFromFailures;
+      const programErr = programErrRaw || programFromFailures;
+      let failureKind = rawKind;
+      if (!failureKind || failureKind === "none" || failureKind === "unknown" || failureKind === "") {
+        const hasSched = Boolean(schedulerZh);
+        const hasProg = Boolean(programErr);
+        if (hasSched && hasProg) failureKind = "mixed";
+        else if (hasSched) failureKind = "scheduler";
+        else if (hasProg) failureKind = "program";
+        else failureKind = "";
       }
-      if (logTail) {
-        const tailPreview = logTail.slice(-1500);
-        const logPath = String((row || {}).logPath || ((row || {}).payload && (row.payload || {}).logPath) || "").trim();
-        const actions = logPath
-          ? '<button class="mini secondary" data-command="copyText" data-text="' + escAttr(logPath) + '" title="复制调度器完整日志路径，用于在远程/本地打开">复制日志路径</button>'
-          : '';
-        parts.push('<details class="operationLogTail"><summary>调度日志尾部（' + esc(String(logTail.length)) + ' 字符）</summary><pre>' + esc(tailPreview) + '</pre>' + actions + '</details>');
+      const errorRaw = String((row || {}).error || (row && row.payload && (row.payload.error || row.payload.message)) || "").trim();
+      const shown = redact(String(message || "").trim());
+      const parts = [];
+      const renderSchedulerBlock = (msgZh) => {
+        if (!msgZh) return "";
+        const redacted = redact(msgZh);
+        if (!redacted || redacted === "-" || redacted === "[REDACTED]") return "";
+        const clipped = redacted.length > 200 ? redacted.slice(0, 200) : redacted;
+        if (shown && (shown === clipped || shown.includes(clipped))) return "";
+        return '<div class="operationError" style="border-left-color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,var(--vscode-editor-background));color:#8A6D00;" title="' + escAttr(clipped) + '"><b>调度器报错</b><span>' + esc(compactText(clipped, 200)) + '</span></div>';
+      };
+      const renderProgramBlock = (progText) => {
+        if (!progText) return "";
+        const redacted = redact(progText);
+        if (!redacted || redacted === "-") return "";
+        const traceback = redacted.length > 4000 ? redacted.slice(-4000) : redacted;
+        return '<div class="operationError" style="border-left-color:var(--danger);background:color-mix(in srgb,var(--danger) 8%,var(--vscode-editor-background));color:#7F1D1D;" title="' + escAttr(traceback.slice(-500)) + '"><b>程序报错</b><pre style="margin:4px 0 0;max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(traceback) + '</pre></div>';
+      };
+      if (failureKind === "scheduler") {
+        const block = renderSchedulerBlock(schedulerZh || errorRaw || "调度器异常");
+        if (block) parts.push(block);
+        failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "scheduler").forEach((f) => {
+          const mm = String(f.messageZh || f.message || "").trim();
+          if (!mm || mm === (schedulerZh || errorRaw)) return;
+          const redacted = redact(mm);
+          if (redacted && redacted !== redact(schedulerZh || errorRaw || "")) {
+            const b = renderSchedulerBlock(mm);
+            if (b && parts.indexOf(b) === -1) parts.push(b);
+          }
+        });
+      } else if (failureKind === "program") {
+        const block = renderProgramBlock(programErr || errorRaw);
+        if (block) parts.push(block);
+        failuresRaw.filter((f) => f && String(f.kind).toLowerCase() === "program").forEach((f) => {
+          const mm = String(f.message || f.traceback || "").trim();
+          if (!mm || mm === (programErr || errorRaw)) return;
+          const b = renderProgramBlock(mm);
+          if (b && parts.indexOf(b) === -1) parts.push(b);
+        });
+      } else if (failureKind === "mixed") {
+        const schedBlocks = [];
+        const progBlocks = [];
+        const pushSched = (text) => { const b = renderSchedulerBlock(text || ""); if (b && schedBlocks.indexOf(b) === -1) schedBlocks.push(b); };
+        const pushProg = (text) => { const b = renderProgramBlock(text || ""); if (b && progBlocks.indexOf(b) === -1) progBlocks.push(b); };
+        if (schedulerZh) pushSched(schedulerZh);
+        if (programErr) pushProg(programErr);
+        if (!schedBlocks.length && !progBlocks.length) {
+          failuresRaw.forEach((f) => {
+            const kind = String(f.kind || "").toLowerCase();
+            if (kind === "scheduler") pushSched(f.messageZh || f.message || "");
+            else if (kind === "program") pushProg(f.message || f.traceback || "");
+          });
+        }
+        if (!schedBlocks.length) failuresRaw.filter((f) => String(f.kind).toLowerCase() === "scheduler").forEach((f) => pushSched(f.messageZh || f.message || ""));
+        if (!progBlocks.length) failuresRaw.filter((f) => String(f.kind).toLowerCase() === "program").forEach((f) => pushProg(f.message || f.traceback || ""));
+        if (!schedBlocks.length && !progBlocks.length) {
+          if (programErr || errorRaw) pushProg(programErr || errorRaw);
+          if (schedulerZh || errorRaw) {
+            const cand = schedulerZh || errorRaw;
+            const candEsc = esc(redact(cand).slice(0, 20));
+            if (cand && progBlocks.join("").indexOf(candEsc) === -1) pushSched(cand);
+          }
+        }
+        if (schedBlocks.length && progBlocks.length) {
+          const left = '<div style="display:grid;gap:6px;align-content:start;">' + schedBlocks.join("") + '</div>';
+          const right = '<div style="display:grid;gap:6px;align-content:start;">' + progBlocks.join("") + '</div>';
+          parts.push('<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start;">' + left + right + '</div>');
+        } else {
+          if (schedBlocks.length) parts.push(...schedBlocks);
+          if (progBlocks.length) parts.push(...progBlocks);
+        }
+      } else {
+        const error = redact(errorRaw);
+        if (error && error !== "-" && (!shown || (shown !== error && !shown.includes(error)))) {
+          parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span></div>');
+        }
       }
       return parts.join("");
     }
@@ -12674,34 +12768,37 @@ export function renderPanelHtml(): string {
 
     function renderOperationLogsWindowed(row) {
       try {
-        // 回退：row.logTail 为空时，优先回退到 evidence.logTail / liveLogTail，
-        // 避免“running 但报错”时日志区一片空白。
-        const evidenceLiveLogTail = String((row.evidence && (row.evidence.liveLogTail || row.evidence.live_log_tail || row.evidence.logTail || row.evidence.log_tail)) || (row.payload && row.payload.evidence && (row.payload.evidence.liveLogTail || row.payload.evidence.live_log_tail || row.payload.evidence.logTail || row.payload.evidence.log_tail)) || "").trim();
-        const payloadTail = String((row.payload && (row.payload.logTail || row.payload.log_tail || row.payload.liveLogTail || row.payload.live_log_tail)) || "").trim();
-        const tmuxSession = String(row.tmuxSession || row.tmux_session || row.session || (row.payload && (row.payload.tmuxSession || row.payload.tmux_session || row.payload.session)) || "").trim();
-        const tmuxCaptureCmd = tmuxSession ? "tmux capture-pane -p -t " + tmuxSession : "tmux capture-pane -p -t zlk-sch-*";
-        const tmuxAttachCmd = tmuxSession ? "tmux attach -t " + tmuxSession : "tmux attach -t zlk-sch-*";
-        const opIdForLog = String(row.operationId || row.opId || row.id || (row.payload && (row.payload.operationId || row.payload.opId)) || "").trim();
-        const logPathForHint = String(row.logPath || row.log_path || (row.payload && (row.payload.logPath || row.payload.log_path)) || (row.evidence && (row.evidence.logPath || row.evidence.log_path)) || (opIdForLog ? "simple_cluster/tmp/cluster_scheduler/" + opIdForLog + ".log" : "simple_cluster/tmp/cluster_scheduler/*.log")).trim();
-        const rawUntrimmed = String(evidenceLiveLogTail || row.logTail || row.log_tail || payloadTail || "").trim();
-        // 尾部优先：raw 按换行分割取后 50 行，再取其中最后 20 行展示（避免头部截断）；先按 150 行+4000字符做尾部截断，保持将显示最新 20/50 条文案一致
-        const rawTrimmed4000 = rawUntrimmed.length > 4000 ? rawUntrimmed.slice(-4000) : rawUntrimmed;
-        const rawLinesAll = rawTrimmed4000 ? rawTrimmed4000.split(/\\r?\\n/) : [];
-        const rawTail150 = rawLinesAll.slice(-150).join("\\n");
-        const rawTail4000 = rawTail150.length > 4000 ? rawTail150.slice(-4000) : rawTail150;
-        const rawLines = rawTail4000 ? rawTail4000.split(/\\r?\\n/) : [];
-        const windowedRaw = rawLines.slice(-50);
-        const schedLog = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
-        const schedLines = schedLog ? schedLog.split(/\\r?\\n/).slice(-50) : [];
-        const combined = [...windowedRaw, ...schedLines].slice(-50);
-        const windowed = combined.length ? combined : windowedRaw;
+        const redact = typeof redactUiText === "function" ? redactUiText : (value) => String(value || "");
+        const ev = (row && typeof row === "object" && ((row || {}).evidence || ((row || {}).payload && (row.payload || {}).payload.evidence))) || {};
+        const redactedTail = String((row || {}).liveLogTailRedacted || (row || {}).logTailRedacted || (row || {}).logTail_redacted || ev.liveLogTailRedacted || ev.logTailRedacted || ev.live_log_tail_redacted || ev.log_tail_redacted || (row.payload && (row.payload.liveLogTailRedacted || row.payload.logTailRedacted)) || "").trim();
+        const rawFallbackCandidates = [
+          String((row.evidence && (row.evidence.liveLogTail || row.evidence.live_log_tail || row.evidence.logTail || row.evidence.log_tail)) || ""),
+          String((row.payload && row.payload.evidence && (row.payload.evidence.liveLogTail || row.payload.evidence.live_log_tail || row.payload.evidence.logTail || row.payload.evidence.log_tail)) || ""),
+          String((row || {}).logTail || (row || {}).log_tail || ""),
+          String((row.payload && (row.payload.logTail || row.payload.log_tail || row.payload.liveLogTail || row.payload.live_log_tail)) || "")
+        ];
+        const rawFallback = rawFallbackCandidates.find((v) => String(v || "").trim()) || "";
+        const combinedRaw = redactedTail || redact(String(rawFallback || "").trim());
+        const schedLogRaw = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
+        const schedLog = schedLogRaw ? redact(schedLogRaw) : "";
+        const combinedSrc = [combinedRaw, schedLog].filter(Boolean).join("\\n").trim();
+        if (!combinedSrc) {
+          return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;"><div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已脱敏，仅展示尾20/50行）</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整日志（已脱敏，尾50行）">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button></div></div>';
+        }
+        const redactedCombined = redact(combinedSrc);
+        const tail4000 = redactedCombined.length > 4000 ? redactedCombined.slice(-4000) : redactedCombined;
+        const rawLines = tail4000 ? tail4000.split(/\\r?\\n/) : [];
+        const tail150 = rawLines.slice(-150).join("\\n");
+        const tail150Lines = tail150 ? tail150.split(/\\r?\\n/) : [];
+        const windowed = tail150Lines.slice(-50);
         const preview = windowed.slice(-20);
         const total = windowed.length;
         const more = Math.max(0, total - 20);
-        const emptyHint = '<div class="muted" style="font-size:11px; line-height:1.45;">暂无日志，真实日志路径：<code>' + esc(logPathForHint) + '</code><br>远端查看：<br><code>' + esc(tmuxCaptureCmd) + '</code><br><code>' + esc(tmuxAttachCmd) + '</code><br>可点击“刷新运行状态”或“终止”后重试；仅展示最近 20/50 行</div>';
-        const previewHtml = total ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(preview.join("\\n")) + '</pre>' : emptyHint;
-        const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条及打开 simple_cluster/console_logs/baseline-*">历史记录' + (more ? ' +' + more : total ? ' (' + total + ')' : '') + '</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志">打开完整日志</button>';
-        return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;">' + previewHtml + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + historyBtn + '</div></div>';
+        const previewHtml = '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(preview.join("\\n")) + '</pre>';
+        const historyBtn = '<button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看完整50条（已脱敏）">历史记录' + (more ? ' +' + more : total ? ' (' + total + ')' : '') + '</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志（已脱敏）">打开完整日志</button>';
+        const logPathRedacted = String(ev.logPathRedacted || (row || {}).logPathRedacted || (row && row.payload && (row.payload.logPathRedacted || row.payload.log_path_redacted)) || "").trim();
+        const pathHint = logPathRedacted ? '<div class="muted" style="font-size:11px; line-height:1.35;">日志路径：<code>' + esc(logPathRedacted) + '</code>（已脱敏，仅展示尾20/50行）</div>' : '<div class="muted" style="font-size:11px; line-height:1.35;">仅展示尾20/50行（已脱敏，不暴露绝对路径）</div>';
+        return '<div class="operationLogWindow" style="margin-top:6px;display:grid;gap:4px;">' + previewHtml + pathHint + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + historyBtn + '</div></div>';
       } catch (e) { return '<div class="operationLogWindow" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">打开完整日志</button></div>'; }
     }
 

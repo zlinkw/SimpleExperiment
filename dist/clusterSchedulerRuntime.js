@@ -2798,7 +2798,8 @@ def main() -> None:
         # the operation journal is never left pending waiting for a scheduler terminal that
         # will never arrive (defense in depth beyond the agent-side wait_scheduler fallback).
         try:
-            append_scheduler_operation_event(args, "failed", f"调度器依赖检查未通过：{_exc}", {"failureSource": "scheduler_dependency_check", "schedulerStarted": True})
+            _early_msg = str(_exc).strip().splitlines()[0][:200] if str(_exc).strip() else f"调度器依赖检查未通过：{_exc}"
+            append_scheduler_operation_event(args, "failed", f"调度器依赖检查未通过：{_exc}", {"failureSource": "scheduler_dependency_check", "schedulerStarted": True, "schedulerErrorZh": _early_msg[:200]})
         except Exception:
             pass
         try:
@@ -2858,7 +2859,8 @@ def main() -> None:
         plan = load_plan(args.plan)
     except SystemExit as _exc:
         try:
-            append_scheduler_operation_event(args, "failed", f"计划加载失败：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True})
+            _early_msg2 = str(_exc).strip().splitlines()[0][:200] if str(_exc).strip() else f"计划加载失败：{_exc}"
+            append_scheduler_operation_event(args, "failed", f"计划加载失败：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True, "schedulerErrorZh": _early_msg2[:200]})
         except Exception:
             pass
         try:
@@ -2879,7 +2881,8 @@ def main() -> None:
         raise
     except Exception as _exc:
         try:
-            append_scheduler_operation_event(args, "failed", f"计划加载异常：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True})
+            _early_msg3 = str(_exc).strip().splitlines()[0][:200] if str(_exc).strip() else f"计划加载异常：{_exc}"
+            append_scheduler_operation_event(args, "failed", f"计划加载异常：{_exc}", {"failureSource": "scheduler_load_plan", "planFile": args.plan, "schedulerStarted": True, "schedulerErrorZh": _early_msg3[:200]})
         except Exception:
             pass
         try:
@@ -3379,11 +3382,13 @@ def main() -> None:
                     _tail = _h.read().decode("utf-8", "replace")[-2000:]
         except Exception:
             _tail = ""
+        _sched_zh = str(exc).strip().splitlines()[0][:200] if str(exc).strip() else f"调度器异常：{exc}"
         append_scheduler_operation_event_robust(args, "failed", f"调度器异常：{exc}", {
             "statePath": str(state_path).replace("\\", "/"),
             "schedulerLog": str(args.scheduler_log or queue_log).replace("\\", "/"),
             "logTail": _tail,
             "error": traceback.format_exc(),
+            "schedulerErrorZh": _sched_zh[:200],
             "totalExperiments": len(jobs),
             "pendingCount": len(queue),
             "runningCount": len(active),
@@ -3456,9 +3461,11 @@ if __name__ == "__main__":
                         setattr(_emit_args, "operation_id", _op_id)
                     except Exception:
                         pass
+                    _guard_zh = str(_sched_guard_exc).strip().splitlines()[0][:200] if str(_sched_guard_exc).strip() else f"调度器启动/运行异常：{_sched_guard_exc}"
                     append_scheduler_operation_event_robust(_emit_args, "failed", f"调度器启动/运行异常：{_sched_guard_exc}", {
                         "failureSource": "scheduler_guard",
                         "error": _tb,
+                        "schedulerErrorZh": _guard_zh[:200],
                         "schedulerLog": str(getattr(_guard_args, "scheduler_log", "") or "") if _guard_args is not None else "",
                         "planFile": str(getattr(_guard_args, "plan", "") or "") if _guard_args is not None else "",
                     })

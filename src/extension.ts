@@ -730,6 +730,8 @@ class RealtimeTunnelPanelProvider {
     private localOperationsPersistPromise?: Promise<void>;
     private runOperationReconcilePromise?: Promise<{ reconciled: string[]; checked: string[] }>;
     private runOperationReconcilePollTimer?: any;
+    private evidenceAutoPollTimer?: any;
+    private evidenceAutoPollInFlight = false;
     operationTimers = new Map();
     operationProbeTimers = new Map();
     private postLaunchAutoTestTimer?: ReturnType<typeof setTimeout>;
@@ -7346,6 +7348,91 @@ class RealtimeTunnelPanelProvider {
         }, 30_000);
         timer.unref?.();
         this.runOperationReconcilePollTimer = timer;
+        // 同时确保 5s 证据轮询已启动
+        this.scheduleEvidenceAutoPoll();
+    }
+    scheduleEvidenceAutoPoll() {
+        if (this.evidenceAutoPollTimer) {
+            clearTimeout(this.evidenceAutoPollTimer);
+            this.evidenceAutoPollTimer = undefined;
+        }
+        if (!this.isRealtimeMode()) return;
+        if (this.longRunningPlanRunOperations().length === 0) return;
+        if (this.evidenceAutoPollInFlight) return;
+        const timer = setTimeout(() => {
+            if (this.evidenceAutoPollTimer === timer) this.evidenceAutoPollTimer = undefined;
+            void this.pollRunningEvidenceAndMerge();
+        }, 5_000);
+        timer.unref?.();
+        this.evidenceAutoPollTimer = timer;
+    }
+    async pollRunningEvidenceAndMerge() {
+        if (this.evidenceAutoPollInFlight) {
+            this.scheduleEvidenceAutoPoll();
+            return;
+        }
+        if (!this.isRealtimeMode()) return;
+        const ops = this.longRunningPlanRunOperations();
+        if (!ops.length) return;
+        // 单并发守卫
+        this.evidenceAutoPollInFlight = true;
+        try {
+            for (const rec of ops) {
+                const opId = String((rec as any).operationId || (rec as any).remoteOperationId || "").trim();
+                if (!opId) continue;
+                // 二次检查终态，避免对已完成的操作无谓请求
+                const cur = (this.localOperations as any)[opId];
+                if (!cur || operationTerminal(cur)) continue;
+                try {
+                    const workerId = this.runOperationEvidenceWorkerId(cur);
+                    const params = {
+                        operationId: opId,
+                        planFile: operationResultPlanFile(cur),
+                        pid: (cur as any).pid || "",
+                        tmuxSession: (cur as any).tmuxSession || (cur as any).session || "",
+                    };
+                    // 使用 budget.run 保证并发与限流，复用 manual_refresh（任务要求）
+                    const evidence: any = await this.budget.run("manual_refresh", () => (this.client as any).getRunEvidence(workerId, params));
+                    const ev = evidence && typeof evidence === "object" ? evidence : {};
+                    // 合并到 localOperations，保留已有字段
+                    const merged: any = {
+                        ...(cur as any),
+                        evidence: ev,
+                        // 兼容旧 UI 直接读 row.logTail / row.evidence.liveLogTail
+                        logTail: (ev as any).liveLogTail || (ev as any).logTail || (cur as any).logTail || "",
+                        liveLogTail: (ev as any).liveLogTail || (cur as any).liveLogTail || "",
+                        logPath: (ev as any).logPath || (cur as any).logPath || "",
+                        logPathRedacted: (ev as any).logPathRedacted || (ev as any).logPath || (cur as any).logPathRedacted || "",
+                        failureSourceKind: (ev as any).failureSourceKind || (cur as any).failureSourceKind || "",
+                        schedulerErrorZh: (ev as any).schedulerErrorZh || (cur as any).schedulerErrorZh || "",
+                        programError: (ev as any).programError || (cur as any).programError || "",
+                        failures: (ev as any).failures || (cur as any).failures || [],
+                        lastEvidenceAt: new Date().toISOString(),
+                    };
+                    // 若证据显示已终态或有明确失败，尝试通过 reconcile 决策推进终态
+                    (this.localOperations as any)[opId] = merged;
+                    // 轻量对账：若 evidence 已含硬错误，直接走 reconcileSingleRunOperationEvidence 的终态逻辑，不单独调用以免重复 budget 消耗
+                } catch (e) {
+                    const msg = (e as any)?.message || String(e || "");
+                    const isBudgetDenied = (e as any)?.name === "RequestBudgetDeniedError" || /Request blocked|rate_limited|cooldown/i.test(msg);
+                    if (isBudgetDenied) {
+                        const cur2 = (this.localOperations as any)[opId];
+                        if (cur2) (cur2 as any).lastEvidenceError = ("budget限流: " + msg).slice(0, 300);
+                        // 预算限流则停止本轮剩余 op 的尝试，等待下次轮询
+                        break;
+                    }
+                    // 网络或单次失败不阻断其他 op 的轮询
+                    // 记录 lastReconcileError 便于调试，但不标记终态
+                    const cur2 = (this.localOperations as any)[opId];
+                    if (cur2) (cur2 as any).lastEvidenceError = msg.slice(0, 300);
+                }
+            }
+            this.markLocalOperationsDirty();
+            this.postState();
+        } finally {
+            this.evidenceAutoPollInFlight = false;
+            this.scheduleEvidenceAutoPoll();
+        }
     }
     stopExperimentMatchesTarget(record, target) {
         return RunOperations_1.runOperationMatchesTarget(record, target);

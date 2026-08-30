@@ -8727,6 +8727,165 @@ def matching_plan_rows(rows, plan_file):
     return out
 
 
+
+SCHEDULER_SOURCES = {"scheduler", "tmux", "exit_code", "调度器", "调度器异常", "psutil", "conda", "ModuleNotFoundError", "No such file", "not found"}
+
+def _redact_text(value):
+    try:
+        t = str(value or "")
+        # /data absolute prefix
+        t = re.sub(r"/data[^\s\"'\\]*", "[REDACTED]", t)
+        # simple_cluster/.../.exit_code
+        t = re.sub(r"simple_cluster[^\s\"'\\]*\.exit_code[^\s\"'\\]*", "[REDACTED]", t, flags=re.I)
+        t = re.sub(r"simple_cluster[^\s\"'\\]*", "[REDACTED]", t, flags=re.I)
+        # exit_code
+        t = re.sub(r"exit_code", "[REDACTED]", t, flags=re.I)
+        # printf "$?" >
+        t = re.sub(r"printf\s*[\"']\$\\\?[\"']\s*>", "[REDACTED]", t)
+        t = re.sub(r"printf\s+[^\n]*\$\?[^\n]*>", "[REDACTED]", t, flags=re.I)
+        # tmux instruction
+        t = re.sub(r"tmux\s+[^\n\r]*", "[REDACTED tmux]", t, flags=re.I)
+        return t
+    except Exception:
+        return str(value or "")
+
+# 脱敏助手别名 redact（任务要求命名）
+def redact(value):
+    return _redact_text(value)
+
+def _redact_path(value):
+    try:
+        p = str(value or "")
+        p = re.sub(r"/data[^\s\"']*", "[REDACTED]", p)
+        p = re.sub(r"simple_cluster[^\s\"']*\.exit_code[^\s\"']*", "[REDACTED]", p, flags=re.I)
+        p = re.sub(r"simple_cluster[^\s\"']*", "[REDACTED]", p, flags=re.I)
+        p = re.sub(r"exit_code", "[REDACTED]", p, flags=re.I)
+        p = re.sub(r"tmux\s+[^\n\r]*", "[REDACTED tmux]", p, flags=re.I)
+        return p
+    except Exception:
+        return str(value or "")
+
+def _is_scheduler_source(text):
+    try:
+        t = str(text or "")
+        for src in SCHEDULER_SOURCES:
+            if src.lower() in t.lower() if src.isascii() else src in t:
+                return True
+        # 额外规则：调度相关中文也判定
+        if re.search(r"调度器", t):
+            return True
+        return False
+    except Exception:
+        return False
+
+def _is_program_source(text):
+    try:
+        t = str(text or "")
+        return bool(re.search(r"Traceback|Error|Exception|失败|异常", t, re.I))
+    except Exception:
+        return False
+
+def _schedulerErrorZh(text_or_payload):
+    try:
+        # 兼容 payload dict 与纯文本
+        if isinstance(text_or_payload, dict):
+            raw = str(text_or_payload.get("message") or text_or_payload.get("error") or text_or_payload.get("msg") or "")
+        else:
+            raw = str(text_or_payload or "")
+        # 取 payload.message 第一行中文截200（任务要求）
+        first_line = (raw.splitlines()[0] if raw.strip() else "").strip()
+        if first_line:
+            # 若首行本身即 scheduler 相关，直接返回截断（保证中文）
+            if _is_scheduler_source(first_line):
+                return first_line[:200]
+        t = raw if raw else str(text_or_payload or "")
+        # 兜底：按原有调度器中文映射，保证单测与旧行为兼容
+        if re.search(r"tmux", t, re.I) or re.search(r"scheduler", t, re.I) or re.search(r"exit_code", t, re.I) or re.search(r"调度器", t):
+            if re.search(r"tmux.*kill|tmux.*attach|tmux.*session", t, re.I):
+                return "调度器 tmux 会话异常，请检查 Xshell 会话与 tmux 状态"
+            if re.search(r"No such file|not found|不存在", t, re.I):
+                return "调度器依赖文件缺失"
+            return "调度器启动失败，请检查远端调度器日志与环境"
+        if re.search(r"psutil|No such file|ModuleNotFoundError.*scheduler|调度器异常", t, re.I):
+            return "调度器依赖缺失或异常"
+        if re.search(r"conda.*not found|EnvironmentNotFound|CondaValueError", t, re.I):
+            return "调度器环境缺失，请检查 conda 环境"
+        # 若 first_line 非空且含中文，直接返回截断（满足“取第一行中文截200”）
+        if first_line and re.search(r"[\u4e00-\u9fa5]", first_line):
+            return first_line[:200]
+        return first_line[:200] if first_line else ""
+    except Exception:
+        return ""
+
+def _programError(text_or_payload, logTail=None):
+    try:
+        # 支持 _programError(payload, logTail) 与 _programError(text) 两种调用
+        if logTail is not None:
+            t = str(logTail or "") + "\n" + str(text_or_payload or "")
+            if isinstance(text_or_payload, dict):
+                t = str(text_or_payload.get("error") or text_or_payload.get("traceback") or "") + "\n" + str(logTail or "")
+        elif isinstance(text_or_payload, dict):
+            t = str(text_or_payload.get("error") or text_or_payload.get("traceback") or text_or_payload.get("message") or "")
+        else:
+            t = str(text_or_payload or "")
+        if "Traceback" in t:
+            lines = [l.rstrip() for l in t.splitlines() if l.strip()]
+            # 取 traceback 段：最后 20 行截 1200
+            tail = "\n".join(lines[-20:])
+            return tail[-1200:]
+        if re.search(r"\bError\b|\bException\b|Traceback|失败|异常", t, re.I):
+            return t.strip()[-1200:]
+        return ""
+    except Exception:
+        return ""
+
+def _classify(payload, logTail=None):
+    try:
+        # 兼容旧单参调用 _classify(text)
+        if logTail is None and not isinstance(payload, dict):
+            t = str(payload or "")
+            has_sched = bool(_schedulerErrorZh(t))
+            has_prog = bool(_programError(t))
+            if has_sched and has_prog:
+                return "mixed"
+            if has_sched:
+                return "scheduler"
+            if has_prog:
+                return "program"
+            if t.strip():
+                return "none"
+            return "none"
+        # 新双参：_classify(payload, logTail)
+        p_text = ""
+        if isinstance(payload, dict):
+            p_text = str(payload.get("message") or payload.get("error") or "")
+        elif payload is not None:
+            p_text = str(payload)
+        l_text = str(logTail or "")
+        # 同时检测 payload 与 logTail
+        has_sched_payload = bool(_schedulerErrorZh(p_text)) if p_text else False
+        has_sched_log = _is_scheduler_source(l_text) if l_text else False
+        has_prog_payload = bool(_programError(p_text)) if p_text else False
+        has_prog_log = bool(_programError(l_text)) if l_text else False
+        has_sched = has_sched_payload or has_sched_log
+        has_prog = has_prog_payload or has_prog_log
+        if has_sched and has_prog:
+            return "mixed"
+        if has_sched:
+            return "scheduler"
+        if has_prog:
+            return "program"
+        if (p_text.strip() or l_text.strip()):
+            # 无明确错误时返回 none，与旧 unknown 语义对齐但满足任务要求 none
+            # 为兼容旧 unknown 场景，若有文本但未分类，返回 none（任务要求 mixed/none）
+            combined = (p_text + "\n" + l_text).strip()
+            if combined:
+                return "none"
+            return "none"
+        return "none"
+    except Exception:
+        return "none"
+
 def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, tmux_session=None):
     operation = operation_summary_from_events(operation_id, read_operation_events(root, operation_id, 200))
     payload = operation.get("latestEvent", {}).get("payload") if isinstance(operation.get("latestEvent"), dict) else {}
@@ -8867,6 +9026,24 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         "liveLogCount": live_log_count,
     }
     active_evidence = bool(process["pidAlive"] or process["tmuxSessionAlive"] or any(evidence_counts.values()))
+    # 分类与脱敏：failureSourceKind / schedulerErrorZh / programError / failures / logPathRedacted/logTailRedacted（任务要求 payload/logTail 双参 + 脱敏）
+    failureSourceKind = _classify(payload, live_log_tail)
+    # 调度器报错：取 payload.message 第一行中文截200（兼容 fallback 到 logTail）
+    _schedZh_raw = _schedulerErrorZh(payload) if failureSourceKind in ("scheduler", "mixed") else ""
+    if not _schedZh_raw and failureSourceKind in ("scheduler", "mixed"):
+        _schedZh_raw = _schedulerErrorZh(live_log_tail)
+    _prog_raw = _programError(live_log_tail) if failureSourceKind in ("program", "mixed") else ""
+    if not _prog_raw and failureSourceKind in ("program", "mixed"):
+        _prog_raw = _programError(payload)
+    schedulerErrorZh = _redact_text(_schedZh_raw)
+    programError = _redact_text(_prog_raw)
+    failures = []
+    if schedulerErrorZh:
+        failures.append({"kind": "scheduler", "messageZh": schedulerErrorZh})
+    if programError:
+        failures.append({"kind": "program", "message": programError, "traceback": programError})
+    logPathRedacted = _redact_path(log_rel)
+    liveLogTailRedacted = _redact_text(live_log_tail)
     return {
         "schemaVersion": SCHEMA_VERSION,
         "checkedAt": now_iso(),
@@ -8881,6 +9058,12 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         "log_tail": live_log_tail,
         "logPath": log_rel,
         "log_path": log_rel,
+        "failureSourceKind": failureSourceKind,
+        "schedulerErrorZh": schedulerErrorZh,
+        "programError": programError,
+        "failures": failures,
+        "logPathRedacted": logPathRedacted,
+        "liveLogTailRedacted": liveLogTailRedacted,
     }
 
 
