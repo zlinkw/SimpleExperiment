@@ -4,6 +4,7 @@ import { DownloadOptions, FileTransferTask } from "./FileTransferTypes";
 import { RealtimeReconnect } from "./RealtimeReconnect";
 import { applyRealtimeEvent, applySnapshot, compactRealtimeState, createRealtimeState, RealtimeEvent, RealtimeState } from "./RealtimeEventReducer";
 import { ClusterSnapshot, GpuHistoryQuery, GpuHistoryResponse, HttpTunnelClient, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
+// T2: RealtimeTunnelClient 透传批量能力协商字段，聚合逻辑在 MultiEndpointRealtimeClient
 import { localBaseUrl } from "./TunnelGateway";
 import { TunnelHealth } from "./TunnelHealth";
 
@@ -160,6 +161,7 @@ export class RealtimeTunnelClient {
   }
 
   getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {
+    // T2: 批量能力协商字段透传至 HttpTunnelClient，聚合由 MultiEndpointRealtimeClient 完成
     return this.http.getGpuHistory(query);
   }
 

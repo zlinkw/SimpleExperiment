@@ -84,3 +84,73 @@ code --install-extension "D:\GitRepo\MCP\zlk-cluster-orchestrator\simple-experim
 
 相关代码：`package.json` 的 `postpackage` 脚本（`node scripts/install-latest.js`）；
 `scripts/install-latest.js:5`（绝对路径拼接）、`:12`（安装命令）。
+
+### 4. 外层模板剥离坑（P0）：26 处正则 `\` 被外层 ``return `...<script>...` `` 吞噬 → 握手超时 `Unexpected token const`
+
+**严禁** 在 `src/ui/PanelHtml.ts` 最外层 `return `...<script>...</script>`` 模板字符串内部裸写单反斜杠正则/字符串。
+
+**现象**：
+- 面板打开后长时间白屏，握手超时；DevTools 控制台报 `Unexpected token 'const'` / `Invalid or unexpected token`，堆栈指向内层 `<script>` 顶部。
+- 实际是 26 处正则（如 `/\s+/` `/\d+/` `/\./` `/\//` `/\{/` `/\}/` `/\(/` 等）与 `"\n"` 字符串在外层模板解析阶段被吞噬，落盘后变为 `/s+/` `/d+/` 非法语法，导致整个 Webview 脚本解析失败、握手回调永不注册。
+
+**根因**：
+- `PanelHtml.ts` 最外层是 JS 模板字符串 `` return `<!doctype ...><script> ... </script>` ``。
+- JS 模板字符串会先对内容做转义预处理：`\s`→`s`（`\s` 非合法转义被剥掉 `\`）、`\n`→真实换行、`\.`→`.`、`\/`→`/`。内层脚本写入的正则/字符串经此一层剥离后已与源码不一致。
+- 例如源码写 `const re = /\s+/`，落盘后变为 `const re = /s+/`；源码写 `"\n"`，落盘后变为真实换行把语句切断。
+
+**正确写法（二选一，择一即合规）**：
+
+1. **双写转义（推荐用于正则）**：内层脚本中所有 `\` 都写成 `\\`，经外层剥离一层后恰好还原。
+   ```ts
+   // 源码（PanelHtml.ts 内层脚本）应写：
+   const ws = /\\s+/;
+   const date = /\\d{4}-\\d{2}-\\d{2}/;
+   const dot = /\\./;
+   const slash = /\\//;
+   const nl = "\\n"; // 或 "\\t"
+   // 落盘后还原为 /\s+/ /\d{4}-\d{2}-\d{2}/ /\./ /\// "\n"
+   ```
+
+2. **`String.fromCharCode` 规避（推荐用于换行拼接）**：已有先例 `PanelHtml.ts:2529`
+   ```ts
+   // 严禁： message + "\n" + stack   // 会被外层模板展开为真实换行
+   // 正确：
+   const full = stack ? message + String.fromCharCode(10) + stack : message;
+   ```
+
+**门禁（提交前必跑，双重校验缺一不可）**：
+1. `npm run build` 内置语法门禁：`node -c dist/extension.js && node -c dist/ui/PanelHtml.js`（见 `package.json#scripts.build`），**严禁** 跳过 build 直接提交。
+2. `vm.Script` 二次校验（捕捉 `node -c` 漏过的模板剥离后语法断裂）：
+   ```powershell
+   node -e "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"
+   ```
+   必须零异常退出；任一失败即视为 P0 回归。
+
+**自检清单**：
+- [ ] 全局搜索外层模板区间内的 `/\` 与 `"\`，确认无裸 `\s` `\d` `\w` `\.` `\/` `\{` `\}` `\(` `\)` `\n` `\t`
+- [ ] `npm run build` 通过
+- [ ] `node -c dist/ui/PanelHtml.js` 通过
+- [ ] `vm.Script` 校验通过
+
+相关代码：`src/ui/PanelHtml.ts` 全文件（外层 `return `...``）；修复对照 `PanelHtml.ts:2529`（`String.fromCharCode(10)` 正确示例）。
+
+> 交叉引用：`docs/bash-lc-pitfalls.md` 亦强调脚本拼装时的转义剥离风险；`AGENTS.md#红线约束-P0` 为提交强约束。
+
+### 5. 禁止硬编码隧道端口-P0：`10890`/`127.0.0.1:18765` 写死导致隧道不可用与校验无回调
+
+**严禁** 在业务逻辑中硬编码 `10890` 或假设 `127.0.0.1:18765` 为唯一 Agent 地址。隧道由用户每服务器通过 Xshell/SSH 配置（`*.xsh`、`~/.ssh/config`、`settings.json` per-server host/port/forward）动态决定。
+
+**现象**：
+- 用户自定义隧道端口（如非 18765）时，写死 `127.0.0.1:18765` 导致 `校验 Agent 版本` 点击无反应（`worker_telemetry` 模式下 `/health` vs `/api/health` 路径不一致，前端无回调）。
+- 写死 `10890` 导致部分机器隧道检测失效；GPU tmux 窗口 `无法打开`，job 调度静默失败（`ModuleNotFoundError: torch` 未回传到 UI，任务列表 `pending` 无报错）。
+
+**正确做法**（见 `AGENTS.md#P0`）：
+1. 所有探活/校验/版本比对读取 `XshellRealtimeTunnelConfig`/`TunnelEndpointPortAssignment` 的 `localForwardHost/localForwardPort` 与 `remoteAgentHost/remoteAgentPort`，动态拼装 `http://${host}:${port}`，不得回退到固定端口检测。
+2. `TunnelGateway`/`XshellTunnelSetup` 不得 `throw` 限制只能 `127.0.0.1`；`XshellTunnelPortProbe` 的 `base` 与 `tcpOpen` 必须用 `resolveProbeHost(config)` 动态 host，健康探测走 `fetchHealthWithFallback`（`/api/health` → `/health` → `/api/version` 兼容降级）。
+3. Agent 侧：`/health` 与 `/api/health`（以及 `/version`/`/api/version`）互为别名；`worker_telemetry` 白名单必须包含健康与版本接口，否则前端校验 404 无回调。
+
+**门禁**：`Select-String -Pattern "10890"` 在 `src/**`/`dist/**` 业务逻辑零命中；`npm run build` 与 `vm.Script` 双重校验通过。
+
+相关代码：`src/tunnel/XshellTunnelPortProbe.ts`（`resolveProbeBase/fetchHealthWithFallback`）、`src/tunnel/TunnelGateway.ts`（`normalizeHost/localBaseUrl`）、`src/tunnel/XshellTunnelSetup.ts`（动态 host）、`src/extension.ts#verifyDeployedAgentRuntime`（动态 `base` + 兼容降级）、`src/clusterAgentRuntime.ts`（`route in ("/api/health","/health")` 与 worker_telemetry 白名单）。
+
+> 交叉引用：`AGENTS.md#P0 — 禁止硬编码隧道端口/IP`、`docs/adr/003-tunnel-dynamic-endpoint.md`。

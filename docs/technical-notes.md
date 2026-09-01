@@ -735,7 +735,7 @@ Worker 额外配置：
 
 首次配置推荐点击“准备 Agent 并启动”。一次确认后会按固定顺序写入受管 `RemoteCommand`、通过 SimpleSFTP 部署最新版 runtime、打开全部 Xshell 会话并检测 Hub/Worker；任一 `.xsh` 已有非 SimpleExperiment 登录命令时，会在远端部署前停止且不会覆盖。部署、写入、启动和检测仍保留独立按钮用于故障恢复。
 
-“启动连接”只负责打开 Xshell 会话，不会自动改写 `.xsh` 或提交实验。写入后的 `RemoteCommand` 会在后台启动受管 Agent tmux，然后让前台终端串行读取登录 profile、`.bashrc`、按需激活配置的 Conda 环境、切到自动计算的当前项目代码目录，并保持正常交互式 bash。环境留空时直接使用系统 Python，不探测或激活 Conda；填写环境名后若 `conda activate <env>` 失败，终端会保留 Conda 原始报错和一行 Agent 失败码，便于定位环境问题。提交 Plan 时，Hub scheduler 和 Worker run-job 会严格继承各自选定的执行环境；Worker 每个 job 优先放入独立 tmux session 保活，结束后自动销毁，下一个 job 重新创建新 session。
+“启动连接”只负责打开 Xshell 会话，不会自动改写 `.xsh` 或提交实验。写入后的 `RemoteCommand` 会在后台启动受管 Agent tmux，然后让前台终端串行读取登录 profile、`.bashrc`、按需激活配置的 Conda 环境、切到自动计算的当前项目代码目录，并保持正常交互式 bash。环境留空时直接使用系统 Python，不探测或激活 Conda；填写环境名后若 `conda activate <env>` 失败，终端会保留 Conda 原始报错和一行 Agent 失败码，便于定位环境问题。提交 Plan 时，Hub scheduler 和 Worker run-job 会严格继承各自选定的执行环境；Worker 采用固定GPU窗口（tmux split-window）+ capture-pane 主镜像，日志以 capture-pane 为主，文件日志仅兜底（旧每job一tmux/文件日志为主已废弃）。
 
 如果 Hub 仍显示 `agent_version_mismatch`，说明远端运行的 Agent 会话还没有重启到新版本。
 

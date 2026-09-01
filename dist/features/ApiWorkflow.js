@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FLOW_STEPS = void 0;
+exports.isNwpu3Server = exports.FLOW_STEPS = void 0;
 exports.defaultFlowState = defaultFlowState;
 exports.normalizeFlowState = normalizeFlowState;
 exports.advanceFlowStep = advanceFlowStep;
@@ -9,7 +9,7 @@ exports.filterPlans = filterPlans;
 exports.selectWorkflowPlan = selectWorkflowPlan;
 exports.remoteProjectWorkDir = remoteProjectWorkDir;
 exports.buildWorkflowRoute = buildWorkflowRoute;
-exports.isNwpu3Server = isNwpu3Server;
+exports.isWorkerServer = isWorkerServer;
 exports.normalizeApiRemotePath = normalizeApiRemotePath;
 exports.resolveApiRemoteRoot = resolveApiRemoteRoot;
 exports.resolveApiRemoteRootWithPolicy = resolveApiRemoteRootWithPolicy;
@@ -249,13 +249,15 @@ function buildWorkflowRoute(options) {
         missing: [],
     };
 }
-function isNwpu3Server(server) {
+function isWorkerServer(server) {
     const item = server && typeof server === "object" ? server : {};
     const id = String(item.id || item.serverId || "");
     const label = String(item.label || item.name || item.displayName || "");
     const host = String(item.host || item.sshHost || item.resolvedHost || "");
-    return [id, label, host].some((value) => /(^|[^a-z0-9])(worker|nwpu213|npu213)([^a-z0-9]|$)/i.test(value));
+    return [id, label, host].some((value) => /(^|[^a-z0-9])worker([^a-z0-9]|$)/i.test(value));
 }
+// 兼容历史调用：保留 isNwpu3Server 别名，统一走通用 isWorkerServer
+exports.isNwpu3Server = isWorkerServer;
 function normalizeApiRemotePath(value) {
     const text = String(value || "").trim().replace(/\\/g, "/").replace(/\/+/g, "/");
     if (!text || text === "/" || text === "." || text === "..")

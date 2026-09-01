@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, csv, fnmatch, glob, hashlib, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, subprocess, sys, threading, time, traceback, urllib.request, zipfile
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
+# 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.2.0"
+AGENT_VERSION = "0.4.92"
+RUNTIME_VERSION = "0.4.92"
+PLUGIN_VERSION = "0.4.92"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -25,11 +29,67 @@ MAX_RUNTIME_FILE_INDEX_RECORDS = 8
 RUNTIME_FILE_INDEX_TTL_SECONDS = 10 * 60
 MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS = 32
 SCHEDULER_DEPENDENCY_CACHE_TTL_SECONDS = 10 * 60
-GPU_HISTORY_BUCKET_SECONDS = 60
-GPU_HISTORY_RETENTION_SECONDS = 72 * 60 * 60
-GPU_HISTORY_MAX_POINTS_PER_SERIES = 72 * 60
-GPU_HISTORY_MAX_SERIES = 128
-GPU_HISTORY_MAX_TOTAL_POINTS = 40000
+def _env_int(key: str, default: int) -> int:
+    try:
+        raw = os.environ.get(key)
+        if raw is None or str(raw).strip() == "":
+            return default
+        return int(str(raw).strip())
+    except Exception:
+        return default
+
+# T3: GPU 采集协议参数化（环境变量 SIMPLE_GPU_HISTORY_BUCKET/RETENTION 或启动参数），保持 60/72 默认回退，移除 300 硬编码
+GPU_HISTORY_BUCKET_SECONDS = _env_int("SIMPLE_GPU_HISTORY_BUCKET_SECONDS", 0) or _env_int("SIMPLE_GPU_HISTORY_BUCKET", 60) or 60
+_raw_ret_hours = _env_int("SIMPLE_GPU_HISTORY_RETENTION_HOURS", 0)
+_raw_ret_seconds = _env_int("SIMPLE_GPU_HISTORY_RETENTION_SECONDS", 0)
+_raw_ret_generic = _env_int("SIMPLE_GPU_HISTORY_RETENTION", 0)
+if _raw_ret_seconds:
+    GPU_HISTORY_RETENTION_SECONDS = _raw_ret_seconds
+elif _raw_ret_hours:
+    GPU_HISTORY_RETENTION_SECONDS = _raw_ret_hours * 3600
+elif _raw_ret_generic:
+    GPU_HISTORY_RETENTION_SECONDS = _raw_ret_generic if _raw_ret_generic > 1000 else _raw_ret_generic * 3600
+else:
+    GPU_HISTORY_RETENTION_SECONDS = 72 * 3600
+# 启动参数覆盖（--gpu-history-bucket / --gpu-history-retention-*）
+for _arg, _val in zip(sys.argv, sys.argv[1:] + [""]):
+    if _arg in ("--gpu-history-bucket", "--gpu-history-bucket-seconds") and str(_val).strip().isdigit():
+        try:
+            GPU_HISTORY_BUCKET_SECONDS = max(1, int(str(_val).strip()))
+        except Exception:
+            pass
+    if _arg in ("--gpu-history-retention", "--gpu-history-retention-hours") and str(_val).strip().isdigit():
+        try:
+            GPU_HISTORY_RETENTION_SECONDS = max(3600, int(str(_val).strip()) * 3600)
+        except Exception:
+            pass
+    if _arg == "--gpu-history-retention-seconds" and str(_val).strip().isdigit():
+        try:
+            GPU_HISTORY_RETENTION_SECONDS = max(3600, int(str(_val).strip()))
+        except Exception:
+            pass
+GPU_HISTORY_MAX_POINTS_PER_SERIES = _env_int("SIMPLE_GPU_HISTORY_MAX_POINTS", 72 * 60) or 72 * 60
+GPU_HISTORY_MAX_SERIES = _env_int("SIMPLE_GPU_HISTORY_MAX_SERIES", 128) or 128
+GPU_HISTORY_MAX_TOTAL_POINTS = _env_int("SIMPLE_GPU_HISTORY_MAX_TOTAL_POINTS", 40000) or 40000
+GPU_IDLE_UTIL_THRESHOLD = int(os.environ.get("SIMPLE_GPU_IDLE_UTIL_THRESHOLD") or 5)
+GPU_IDLE_MEM_THRESHOLD_MB = int(os.environ.get("SIMPLE_GPU_IDLE_MEM_THRESHOLD") or 200)
+
+# 已旁路5秒窗口：瞬时双阈值，无历史平均，不再维护滑动窗口
+def _记录显卡利用率(gpu_id, util, now=None):
+    """旁路：瞬时判空不再写入历史，保留兼容空函数"""
+    return
+
+def _计算5秒平均利用率(gpu_id):
+    """旁路：瞬时判空不再计算平均，返回None兼容旧调用"""
+    return None
+
+def _record_gpu_util(gpu_id, util, now=None):
+    return
+
+def _calc_gpu_5s_avg(gpu_id):
+    return None
+
+# tail 三层预算（统一）：L1 实时日志 LIVE 256KB/120行（面板 live tail）、L2 审计日志 AUDIT 1MB 自适应（auditTail）、L3 调度有效尾 16KB/150→50行（_read_effective_tail），需保持分层截断一致，避免日志透传丢失
 LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
 AUDIT_TAIL_MAX_BYTES = 1024 * 1024
 ATOMIC_REPLACE_ATTEMPTS = 6
@@ -144,6 +204,8 @@ ACTION_PATHS = [
     "/api/actions/finalize-worker-operation",
     "/api/actions/start-tensorboard",
     "/api/actions/get-tensorboard-status",
+    "/api/actions/clear-cache",
+    "/api/actions/clearCache",
 ]
 ACTION_ROUTES = set(ACTION_PATHS)
 WORKER_COMMAND_QUEUE = {}
@@ -661,7 +723,15 @@ def scheduler_state_paths(root):
     return list(paths)
 
 def safe_project_path(root, value):
-    rel = str(value or "").replace("\\", "/").lstrip("/")
+    # tmp/ 为主，simple_cluster/tmp 仅过渡兼容，下版本移除（强绑定 src/syncState.ts:MANAGED_ARTIFACT_PREFIXES 13前缀；绝对路径经 relpath 归一化，双兼容防 logPath 越界致空日志 P0）
+    raw = str(value or "").replace("\\", "/")
+    if os.path.isabs(raw) or raw.startswith("/"):
+        try:
+            rel = os.path.relpath(os.path.abspath(raw), os.path.abspath(root)).replace("\\", "/")
+        except Exception:
+            rel = raw.lstrip("/")
+    else:
+        rel = raw.lstrip("/")
     parts = [p for p in rel.split("/") if p not in ("", ".")]
     if not parts or any(p == ".." for p in parts):
         raise ValueError("unsafe path")
@@ -1314,6 +1384,7 @@ def collect_traces(root, scheduler=None):
             row.setdefault("generatedAt", now_iso())
     return data
 
+# L1 实时日志尾：256KB/120行预算（面板 live tail），与 L2/L3 分层一致，截断后按行读取避免日志透传截断
 def read_live_log_tail(path, max_lines=120, max_bytes=LIVE_LOG_TAIL_MAX_BYTES):
     line_limit = max(1, int(max_lines or 120))
     byte_limit = max(1024, int(max_bytes or LIVE_LOG_TAIL_MAX_BYTES))
@@ -1331,21 +1402,106 @@ def read_live_log_tail(path, max_lines=120, max_bytes=LIVE_LOG_TAIL_MAX_BYTES):
     lines = text.splitlines(keepends=True)
     return "".join(lines[-line_limit:]), offset
 
-def collect_live_output(states, max_lines=120):
+def collect_live_output(states, max_lines=120, root=None):
+    # P0: 优先读 live_output/{gid}.json 或 _tmux_capture_tail(fixed_gpu_window) 的 pane buffer，文件 read_live_log_tail 仅降级
     events = []
     for state in states:
         for key in ("running_experiments", "testing_experiments"):
             for row in state.get(key) or []:
                 log = str(row.get("log_path") or row.get("hub_console_log") or row.get("schedulerLog") or "")
-                if not log or not os.path.isfile(log):
-                    continue
-                try:
-                    text, offset = read_live_log_tail(log, max_lines)
-                    run_key = scheduler_row_run_key(row)
-                    live_key = run_key or "|".join(str(row.get(x) or "") for x in ("source", "plan", "experiment", "worker_id", "session", "log_path"))
-                    events.append({"key": live_key, "runKey": run_key or live_key, "text": text, "path": log, "offset": offset})
-                except Exception:
-                    pass
+                run_key = scheduler_row_run_key(row)
+                live_key = run_key or "|".join(str(row.get(x) or "") for x in ("source", "plan", "experiment", "worker_id", "session", "log_path"))
+                text = ""
+                offset = 0
+                used_pane = False
+                # 提取 gid 用于 live_output / capture-pane 优先路径
+                gid = str(row.get("gpu_id") or row.get("gpuId") or row.get("gpu") or "").strip()
+                if not gid:
+                    # 兼容从 session 或 log_path 推断，或尝试从 row 的其他字段
+                    for _k in ("gpuId", "gpu_id", "gpu", "targetGpuId", "target_gpu_id"):
+                        _v = str(row.get(_k) or "").strip()
+                        if _v:
+                            gid = _v
+                            break
+                # window 维度聚合：优先 live_output/{tmuxTarget}.json（真实 pane 直链，支撑 UI window 切换自动对应任务日志）
+                _tmux_target = str(row.get("tmuxTarget") or row.get("tmuxSession") or row.get("window") or "").strip()
+                if not _tmux_target and gid:
+                    try:
+                        _prefix2 = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
+                        _tmux_target = fixed_gpu_window_name(_prefix2, gid)
+                    except Exception:
+                        _tmux_target = ""
+                if _tmux_target:
+                    try:
+                        _root2 = str(root or "").strip() or os.getcwd()
+                        _safe_target = re.sub(r"[^A-Za-z0-9_.-]+", "-", _tmux_target).strip("-") or _tmux_target
+                        live_path_target = os.path.join(agent_dir(_root2), "live_output", f"{_safe_target}.json")
+                        if os.path.isfile(live_path_target):
+                            data2 = read_json(live_path_target, {})
+                            if isinstance(data2, dict):
+                                tail_val2 = data2.get("tail")
+                                if isinstance(tail_val2, list) and tail_val2:
+                                    text = "\n".join(str(x) for x in tail_val2[-int(max_lines or 120):]) + "\n"
+                                    offset = len(tail_val2)
+                                    used_pane = True
+                                elif isinstance(tail_val2, str) and tail_val2.strip():
+                                    lines2 = tail_val2.splitlines()
+                                    text = "\n".join(lines2[-int(max_lines or 120):]) + "\n"
+                                    offset = len(lines2)
+                                    used_pane = True
+                    except Exception:
+                        pass
+                    if not used_pane:
+                        try:
+                            cap2 = _tmux_capture_tail(_tmux_target, None, int(max_lines or 120))
+                            if cap2 and str(cap2).strip():
+                                text = cap2
+                                offset = len(str(cap2).splitlines())
+                                used_pane = True
+                        except Exception:
+                            pass
+                # 1) 兼容旧路径 live_output/{gid}.json
+                if not used_pane and gid:
+                    try:
+                        _root = str(root or "").strip() or os.getcwd()
+                        live_path = os.path.join(agent_dir(_root), "live_output", f"{gid}.json")
+                        if os.path.isfile(live_path):
+                            data = read_json(live_path, {})
+                            if isinstance(data, dict):
+                                tail_val = data.get("tail")
+                                if isinstance(tail_val, list) and tail_val:
+                                    text = "\n".join(str(x) for x in tail_val[-int(max_lines or 120):]) + "\n"
+                                    offset = len(tail_val)
+                                    used_pane = True
+                                elif isinstance(tail_val, str) and tail_val.strip():
+                                    lines = tail_val.splitlines()
+                                    text = "\n".join(lines[-int(max_lines or 120):]) + "\n"
+                                    offset = len(lines)
+                                    used_pane = True
+                    except Exception:
+                        pass
+                # 2) 其次 _tmux_capture_tail(fixed_gpu_window) 兼容 gid 窗口
+                if not used_pane and gid:
+                    try:
+                        prefix = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
+                        win = fixed_gpu_window_name(prefix, gid)
+                        if win != _tmux_target:
+                            cap = _tmux_capture_tail(win, None, int(max_lines or 120))
+                            if cap and str(cap).strip():
+                                text = cap
+                                offset = len(str(cap).splitlines())
+                                used_pane = True
+                    except Exception:
+                        pass
+                # 3) 降级：文件 read_live_log_tail
+                if not used_pane:
+                    if not log or not os.path.isfile(log):
+                        continue
+                    try:
+                        text, offset = read_live_log_tail(log, max_lines)
+                    except Exception:
+                        continue
+                events.append({"key": live_key, "runKey": run_key or live_key, "text": text, "path": log, "offset": offset})
     return events
 
 def scheduler_row_run_key(row):
@@ -1407,6 +1563,7 @@ def collect_local_gpu():
             }
         except Exception:
             continue
+        # 瞬时双阈值：保留瞬时 util/mem 写入，不再写入5秒平均
         gpus.append(item)
         uuid_map[uuid] = item
     try:
@@ -1460,7 +1617,7 @@ def gpu_history_empty():
     return {
         "schemaVersion": 1,
         "bucketSeconds": GPU_HISTORY_BUCKET_SECONDS,
-        "retentionHours": 72,
+        "retentionHours": max(1, int(GPU_HISTORY_RETENTION_SECONDS // 3600)),
         "maxPointsPerSeries": GPU_HISTORY_MAX_POINTS_PER_SERIES,
         "servers": {},
     }
@@ -1703,24 +1860,13 @@ def fill_gpu_history_points(points, server_id, gpu_id, start_epoch, end_epoch):
         return []
     real_by_bucket = {int(point.get("bucketEpoch") or 0): point for point in points or []}
     out = []
-    for bucket in range(start_bucket, end_bucket + GPU_HISTORY_BUCKET_SECONDS, GPU_HISTORY_BUCKET_SECONDS):
+    # T4: 去零填充 - 仅返回 real points，不再补 0；调用方已改为直接 downsample real_points
+    for bucket in sorted(real_by_bucket.keys()):
         real = real_by_bucket.get(bucket)
-        if real is not None:
+        if real is not None and start_bucket <= bucket <= end_bucket:
             point = dict(real)
             point["imputed"] = False
-        else:
-            point = {
-                "serverId": server_id,
-                "gpuId": gpu_id,
-                "bucketEpoch": bucket,
-                "timestamp": gpu_history_iso(bucket),
-                "gpuUtilPercent": 0,
-                "memoryUsedMb": 0,
-                "memoryTotalMb": 0,
-                "memoryUtilPercent": 0,
-                "imputed": True,
-            }
-        out.append(point)
+            out.append(point)
     return out
 
 def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_points=GPU_HISTORY_MAX_POINTS_PER_SERIES):
@@ -1739,18 +1885,21 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
             if gpu_id and current_gpu_id != str(gpu_id):
                 continue
             selected = [point for point in points if int(point.get("bucketEpoch") or 0) >= effective_start and int(point.get("bucketEpoch") or 0) <= effective_end]
-            filled = fill_gpu_history_points(selected, current_server_id, current_gpu_id, effective_start, effective_end)
+            # T4: 移除 fill_gpu_history_points 补零（imputed True 按0补），改为 downsample 仅 real points；gapBefore 断线由 downsample 标记
+            real_points = [dict(p) for p in selected]
+            for _real in real_points:
+                _real["imputed"] = False
             series.append({
                 "serverId": current_server_id,
                 "gpuId": current_gpu_id,
-                "points": downsample_gpu_history_points(filled, max_points),
-                "rawPointCount": len(filled),
+                "points": downsample_gpu_history_points(real_points, max_points),
+                "rawPointCount": len(real_points),
                 "sampledPointCount": len(selected),
             })
     return {
         "schemaVersion": 1,
         "bucketSeconds": GPU_HISTORY_BUCKET_SECONDS,
-        "retentionHours": 72,
+        "retentionHours": max(1, int(GPU_HISTORY_RETENTION_SECONDS // 3600)),
         "maxPointsPerSeries": GPU_HISTORY_MAX_POINTS_PER_SERIES,
         "maxSeries": GPU_HISTORY_MAX_SERIES,
         "updatedAt": history.get("updatedAt") or "",
@@ -1772,18 +1921,127 @@ def api_worker_gpu(root):
     }
 
 def gpu_row_id(row):
-    return str(row.get("index") or row.get("gpu_id") or row.get("gpuId") or row.get("id") or "").strip()
+    # 修复 index==0 时因 Python falsy 被 or 跳过取到 uuid：显式判 None 且优先 index 数字 0-3 返回 "0"；UUID 仅作后缀忽略，规范化为数字 0..63
+    for k in ("index","gpu_index"):
+        v = row.get(k)
+        if v is not None and str(v).strip()!="":
+            norm = _normalize_gpu_id_for_window(v)
+            if norm and norm != "0":
+                return norm
+            try: return str(int(float(str(v).strip())))
+            except: 
+                nv = _normalize_gpu_id_for_window(str(v).strip())
+                if nv:
+                    return nv
+                return str(v).strip()
+    for k in ("gpu_id","gpuId","id"):
+        v = row.get(k)
+        if v is not None and str(v).strip()!="":
+            s = str(v).strip()
+            if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", s, re.I):
+                m = re.search(r"(?:gpu)[-_]?(\d+)\b", s, re.I)
+                if m:
+                    return m.group(1)
+                continue
+            norm = _normalize_gpu_id_for_window(s)
+            if norm and norm != "0":
+                return norm
+            if re.match(r"^\d+$", s):
+                return s
+            m2 = re.search(r"(?:gpu)[-_]?(\d+)\b", s, re.I)
+            if m2:
+                return m2.group(1)
+            # 非 UUID 且非数字则跳过，避免返回 UUID
+            if not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", s, re.I):
+                # 仅当非 UUID 才返回，否则继续找下一个
+                if len(s) < 12:
+                    return s
+    # 兼容历史 gpu_uuid 字段，仅当作纯 UUID 时忽略
+    for k in ("uuid","gpu_uuid"):
+        v = row.get(k)
+        if v is not None and str(v).strip()!="":
+            s = str(v).strip()
+            if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", s, re.I):
+                m = re.search(r"(?:gpu)[-_]?(\d+)\b", s, re.I)
+                if m:
+                    return m.group(1)
+                continue
+            norm = _normalize_gpu_id_for_window(s)
+            if norm and norm != "0":
+                return norm
+            if s.isdigit():
+                return s
+    return ""
 
-def gpu_row_busy(row):
-    processes = row.get("processes") or row.get("procs") or []
-    if isinstance(processes, list) and len(processes) > 0:
-        return True
+def gpu_row_busy(row, util_threshold=None, mem_threshold=None):
+    """利用率<阈值且显存<阈值判空，瞬时；支持每服务器阈值覆盖，缺失时回退进程数"""
     try:
-        return int(row.get("processCount") or row.get("process_count") or 0) > 0
+        # 每服务器覆盖优先，否则用全局阈值（默认 5% / 200MB）
+        thr_util = float(util_threshold) if util_threshold is not None else float(GPU_IDLE_UTIL_THRESHOLD)
+        thr_mem = float(mem_threshold) if mem_threshold is not None else float(GPU_IDLE_MEM_THRESHOLD_MB)
+        # 读取利用率：兼容多个字段名
+        util = None
+        for k in ("utilizationPercent", "utilization", "gpu_util", "utilizationGpu", "utilization_gpu", "gpuUtilPercent", "gpu_util_percent"):
+            if k in row and row.get(k) is not None:
+                try:
+                    v = float(row.get(k))
+                    if math.isfinite(v):
+                        util = v
+                        break
+                except Exception:
+                    continue
+        # 读取显存占用 MB：兼容多个字段名
+        mem = None
+        for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used", "used", "usedMemoryMb", "used_memory_mb", "memory_used_mb"):
+            if k in row and row.get(k) is not None:
+                try:
+                    v = float(row.get(k))
+                    if math.isfinite(v):
+                        mem = v
+                        break
+                except Exception:
+                    continue
+        # 瞬时双阈值：util<thr_util 且 mem<thr_mem 即空闲 else 忙
+        if util is not None and mem is not None:
+            if float(util) < thr_util and float(mem) < thr_mem:
+                return False
+            else:
+                return True
+        # 字段缺失时回退进程数（仅缺失时回退）
+        processes = row.get("processes") or row.get("procs") or []
+        if isinstance(processes, list) and len(processes) > 0:
+            return True
+        try:
+            return int(row.get("processCount") or row.get("process_count") or 0) > 0
+        except Exception:
+            return False
     except Exception:
         return False
 
-def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", ttl_seconds=180, capacity_limit=None):
+def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", ttl_seconds=None, capacity_limit=None, **kwargs):
+    # 兼容旧 ttl_seconds 位置参数：若第4个位置实为 capacity_limit 数字而 capacity_limit 未传，则兼容
+    if capacity_limit is None and ttl_seconds is not None:
+        # 旧调用 availability_from_gpu(..., 180, cap) 会把 ttl_seconds 当 capacity_limit 误用；兼容处理
+        # 若 ttl_seconds 看起来像 capacity（小整数）且 kwargs 无 capacity，则尝试识别
+        # 但新逻辑已去TTL，ttl_seconds 仅作兼容忽略，capacity_limit 以 kwargs 或显式为准
+        try:
+            # 若 ttl_seconds 是数字且 capacity_limit 为 None 且源 payload 无 TTL 语义，则忽略
+            pass
+        except Exception:
+            pass
+    # 处理 kwargs 中可能残留的 ttl / capacity
+    if capacity_limit is None and "capacity_limit" in kwargs:
+        capacity_limit = kwargs.get("capacity_limit")
+    if capacity_limit is None and "capacityLimit" in kwargs:
+        capacity_limit = kwargs.get("capacityLimit")
+    # 去TTL：忽略所有 ttl 相关参数；支持每服务器阈值覆盖
+    # 每服务器空卡阈值：优先 kwargs，其次 gpu_payload 透传，最后全局默认
+    thr_util = kwargs.get("gpuIdleUtilThreshold") if kwargs.get("gpuIdleUtilThreshold") is not None else kwargs.get("gpu_idle_util_threshold")
+    if thr_util is None:
+        thr_util = gpu_payload.get("gpuIdleUtilThreshold") if isinstance(gpu_payload, dict) and gpu_payload.get("gpuIdleUtilThreshold") is not None else gpu_payload.get("gpu_idle_util_threshold") if isinstance(gpu_payload, dict) else None
+    thr_mem = kwargs.get("gpuIdleMemThresholdMb") if kwargs.get("gpuIdleMemThresholdMb") is not None else kwargs.get("gpu_idle_mem_threshold")
+    if thr_mem is None:
+        thr_mem = gpu_payload.get("gpuIdleMemThresholdMb") if isinstance(gpu_payload, dict) and gpu_payload.get("gpuIdleMemThresholdMb") is not None else gpu_payload.get("gpu_idle_mem_threshold") if isinstance(gpu_payload, dict) else None
     rows = gpu_payload.get("gpus") or gpu_payload.get("gpu") or []
     if isinstance(rows, dict):
         rows = next((value for value in rows.values() if isinstance(value, list)), [])
@@ -1796,17 +2054,23 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
         gpu_id = gpu_row_id(row)
         if not gpu_id:
             continue
-        if gpu_row_busy(row):
+        if gpu_row_busy(row, util_threshold=thr_util, mem_threshold=thr_mem):
             busy.append(gpu_id)
         else:
             available.append(gpu_id)
-    reason = "ok" if available else ("all_busy" if busy else "no_gpu_snapshot")
+    # 中文化 reason：可用 / 目前无空卡 / 暂无显卡数据（去英文缩写）
+    if available:
+        reason = "可用"
+    elif busy:
+        reason = "目前无空卡"
+    else:
+        reason = "暂无显卡数据"
     # Concurrency limit = number of GPUs this worker can occupy at once (total GPU count),
     # not a hardcoded 1. An explicit capacity_limit (or the scheduler's per-worker
     # max_concurrent_gpus) can still lower it.
     total_gpus = len(available) + len(busy)
     cap = int(capacity_limit) if capacity_limit else max(1, total_gpus)
-    return {
+    result = {
         "workerId": str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
         "available": bool(available),
         "availableGpuIds": available,
@@ -1814,9 +2078,17 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
         "reason": reason,
         "source": source,
         "updatedAt": now_iso(),
-        "ttlSeconds": int(ttl_seconds or 45),
         "capacityLimit": cap,
+        "gpuIdleUtilThreshold": int(thr_util) if thr_util is not None else int(GPU_IDLE_UTIL_THRESHOLD),
+        "gpuIdleMemThresholdMb": int(thr_mem) if thr_mem is not None else int(GPU_IDLE_MEM_THRESHOLD_MB),
+        "gpus": rows,
     }
+    # 同时透传 sessionCheck / ttl 供调度器感知每服务器差异
+    if kwargs.get("sessionCheckMinSeconds") is not None or kwargs.get("session_check_min_seconds") is not None:
+        result["sessionCheckMinSeconds"] = int(kwargs.get("sessionCheckMinSeconds") or kwargs.get("session_check_min_seconds") or 5)
+    if kwargs.get("workerStatusTtlSeconds") is not None or kwargs.get("worker_status_ttl_seconds") is not None:
+        result["workerStatusTtlSeconds"] = int(kwargs.get("workerStatusTtlSeconds") or kwargs.get("worker_status_ttl_seconds") or 45)
+    return result
 
 def api_worker_availability(root):
     gpu_payload = api_worker_gpu(root)
@@ -1831,20 +2103,16 @@ def read_availability_cache(root, cached=False):
     return data if isinstance(data, dict) else {}
 
 def availability_entry_expired(entry, ttl_default=180):
+    # 去TTL：按5秒平均利用率判空，不再按 ttlSeconds 判过期，保留仅作最大记录数裁剪
     if not isinstance(entry, dict):
         return True
-    age = iso_age_seconds(entry.get("updatedAt"))
-    if age is None:
-        return False
-    try:
-        ttl = int(entry.get("ttlSeconds") or ttl_default)
-    except Exception:
-        ttl = ttl_default
-    return age > max(60, ttl) * WORKER_AVAILABILITY_EXPIRY_FACTOR
+    # 不再按 ttl 判断过期，仅保留基本结构校验
+    return False
 
 # Entries accumulate per worker id and are broadcast whole on every batch, so retired or
 # renamed workers must not linger forever in the cache, the API payload or the journal.
 def prune_availability_entries(entries, keep_ids, ttl_default=180):
+    # 去TTL：忽略 ttl_default，仅按 keep_ids 与最大记录数裁剪
     kept = {}
     for worker_id, entry in entries.items():
         if worker_id in keep_ids or not availability_entry_expired(entry, ttl_default):
@@ -1856,7 +2124,7 @@ def prune_availability_entries(entries, keep_ids, ttl_default=180):
 
 def write_availability_batch(root, payload):
     now = now_iso()
-    ttl = int(payload.get("ttlSeconds") or 180)
+    # 去TTL：不再使用 ttlSeconds
     rows = payload.get("workers") if isinstance(payload.get("workers"), list) else []
     current = read_availability_cache(root)
     source_entries = current.get("workers") if isinstance(current.get("workers"), dict) else {}
@@ -1872,10 +2140,11 @@ def write_availability_batch(root, payload):
         merged["workerId"] = worker_id
         merged["source"] = str(row.get("source") or payload.get("source") or "local_aggregator")
         merged["updatedAt"] = str(row.get("updatedAt") or payload.get("generatedAt") or now)
-        merged["ttlSeconds"] = int(row.get("ttlSeconds") or ttl)
+        # 去TTL：移除 ttlSeconds 字段，删除前兼容清理
+        merged.pop("ttlSeconds", None)
         entries[worker_id] = merged
         updated_ids.add(worker_id)
-    entries = prune_availability_entries(entries, updated_ids, ttl)
+    entries = prune_availability_entries(entries, updated_ids)
     out = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now, "workers": entries}
     atomic_write(availability_cache_path(root), out)
     append_event(root, {"type": "worker_availability", "source": str(payload.get("source") or "local_aggregator"), "payload": {"workers": list(entries.values()), "generatedAt": now}})
@@ -1891,7 +2160,6 @@ def write_worker_uplink_batch(root, payload):
             "schemaVersion": SCHEMA_VERSION,
             "source": availability.get("source") or "worker_uplink",
             "generatedAt": availability.get("updatedAt") or now_iso(),
-            "ttlSeconds": availability.get("ttlSeconds") or payload.get("ttlSeconds") or 180,
             "workers": [availability],
         })
     for event in events:
@@ -1930,6 +2198,7 @@ def simple_conda_env_python(env_name):
     # Resolve the configured conda env's python to an absolute path. The agent's own PATH
     # often lacks 'conda', but a login shell ('bash -lc') has it initialized (just like an
     # interactive tmux session), so we ask conda to resolve the interpreter for us.
+    # 绝对路径支持：如 /path/to/conda_envs/<env_name> 直接取 {path}/bin/python，不再探测 conda run
     if not env_name:
         return None
     cache = getattr(simple_conda_env_python, "_cache", None)
@@ -1938,6 +2207,15 @@ def simple_conda_env_python(env_name):
         simple_conda_env_python._cache = cache
     if env_name in cache:
         return cache[env_name]
+    if str(env_name).strip().startswith("/"):
+        clean = str(env_name).strip().rstrip("/\\")
+        if clean.endswith("/bin/python"):
+            result = clean
+        else:
+            result = clean + "/bin/python"
+        cache[env_name] = result
+        return result
+    # 降级兜底保留：仅环境名（如 <env_name>）曾走 conda run 探测，现已要求绝对路径，此分支保留为历史兼容但主流程已在 simple_runtime_python 处直接失败
     result = None
     try:
         proc = subprocess.run(
@@ -1955,21 +2233,19 @@ def simple_conda_env_python(env_name):
 
 
 def simple_runtime_python(env=None):
-    # Prefer the configured conda env's absolute interpreter when resolvable; when a
-    # conda env is declared but not locally resolvable, fall back to the literal
-    # "python" so remote validation guidance and tests keep the portable command.
+    # 固化为绝对路径：仅接受以 / 开头的绝对路径（可选以 /bin/python 结尾），否则直接失败提示“请填写完整环境路径”；跨平台以 "/" 判定
     source = simple_runtime_env(env)
     conda_env = simple_conda_env_name(source)
     if conda_env:
-        try:
-            ep = simple_conda_env_python(conda_env)
-        except Exception:
-            ep = None
-        if ep:
-            return ep
-        return "python"
+        # 必须为绝对路径：以 / 开头，精确到环境文件夹如 /path/to/conda_envs/<env_name>，可选以 /bin/python 结尾；空值表示不激活 conda
+        if not str(conda_env).strip().startswith("/"):
+            raise RuntimeError(f"condaEnv 请填写完整环境路径，以 / 开头（精确到环境文件夹，如 /path/to/conda_envs/<env_name>，可选以 /bin/python 结尾），当前值: {conda_env!r}；仅环境名已废弃")
+        clean = conda_env.strip().rstrip("/\\")
+        if clean.endswith("/bin/python"):
+            return clean
+        return clean + "/bin/python"
     # No conda env: use the agent's own interpreter for local checks.
-    return sys.executable
+    return sys.executable if os.path.isabs(sys.executable) else sys.executable
 
 def simple_conda_env_name(env=None):
     source = os.environ if env is None else env
@@ -2023,13 +2299,46 @@ def simple_conda_wrapped_args(args, env):
     require = str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on")
     if not (require and conda_env):
         return args
-    # Activate the conda env: source conda.sh first so 'conda activate' works in non-interactive shells.
-    if shutil.which("conda") is None:
-        return args
+    # 变量化双保险：conda activate 与绝对 python 共存；不在此因 which 失败而跳过 wrapping，activation 脚本自行 source conda.sh
     shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
     # Keep the portable activation pattern expected by runtime tests (empty-arg call)
     # simple_conda_activation_script()} && exec
     return [shell, "-lc", f"{simple_conda_activation_script(env)} && exec {shlex.join([str(item) for item in args])}"]
+
+def _normalize_gpu_id_for_window(value):
+    s = str(value or "0").strip()
+    if not s or s == "-":
+        return "0"
+    if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", s, re.I):
+        m = re.search(r"(?:gpu)[-_]?(\d+)\b", s, re.I)
+        if m:
+            v = m.group(1)
+            try:
+                if 0 <= int(v) < 64:
+                    return v
+            except Exception:
+                pass
+        return "0"
+    if re.match(r"^\d+$", s):
+        try:
+            if 0 <= int(s) < 64:
+                return s
+        except Exception:
+            pass
+        return s
+    m2 = re.search(r"(?:gpu)[-_]?(\d+)\b", s, re.I)
+    if m2:
+        return m2.group(1)
+    # fallback: pure numeric fragment not inside uuid already handled, else 0
+    return "0" if not s.isdigit() else s
+
+def fixed_gpu_window_name(prefix, gpu_id):
+    base = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prefix or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple")).strip("-").lower()[:32]
+    if not base or not re.match(r"^[a-z0-9]", base):
+        base = "simple"
+    gid_raw = _normalize_gpu_id_for_window(gpu_id)
+    gid = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gid_raw or "0").strip().lower()).strip("-").lower() or "0"
+    return f"{base}-gpu-{gid}"
 
 def simple_tmux_name(value):
     text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "task")).strip("-").lower()
@@ -2039,8 +2348,9 @@ def simple_tmux_name(value):
     return ((prefix + "-" + (text or "task"))[:96])
 
 def worker_tmux_session_name(worker_id, gpu_id, local_worker_id=None):
-    # 可测性与归一加固：抽出纯函数，两个归一均与 simple_tmux_name 一致（小写、非法字符→-、去首尾-、截后 lower）
-    gpu_id_norm = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gpu_id or "0").strip().lower()).strip("-").lower() or "0"
+    # 可测性与归一加固：抽出纯函数，两个归一均与 simple_tmux_name 一致（小写、非法字符→-、去首尾-、截后 lower）；gpu 归一化复用 _normalize_gpu_id_for_window 忽略 UUID
+    gpu_id_norm_raw = _normalize_gpu_id_for_window(gpu_id)
+    gpu_id_norm = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gpu_id_norm_raw or "0").strip().lower()).strip("-").lower() or "0"
     gpu_id_norm = re.sub(r"[^a-z0-9_.-]+", "-", gpu_id_norm).strip("-") or "0"
     worker_norm = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(worker_id or "").strip().lower()).strip("-").lower() or "worker"
     worker_norm = re.sub(r"[^a-z0-9_.-]+", "-", worker_norm).strip("-") or "worker"
@@ -2075,7 +2385,7 @@ def _tmux_log_size(log_path):
     try:
         if not log_path or not os.path.isfile(log_path):
             return 0
-        # Effective log size: ignore empty, conda activate, cd, export echoes and pipe-pane marker
+        # Effective log size: ignore bootstrap echoes; pipe-pane marker已为主镜像(固定GPU窗口+capture-pane)，此处仅兼容旧日志过滤
         # so shell bootstrap lines are not mistaken for real scheduler progress.
         try:
             _size = os.path.getsize(log_path)
@@ -2136,6 +2446,9 @@ def _is_noise_line(line):
             return True
         if "Traceback" in _s or "Error" in _s or "Exception" in _s:
             return False
+        # 保留关键错误行：Killed/OOM/signal/exit code 等强制非噪声（P0-1）
+        if re.search(r"Killed|OOM|out of memory|signal|Segfault|CUDA|NCCL|exit code|exit_code|killed|took too long|timeout", _s, re.IGNORECASE):
+            return False
         if _s.startswith("(base)") or _s.startswith("(zlk)"):
             if "$" in _s:
                 _s = _s.split("$", 1)[1].strip()
@@ -2157,9 +2470,19 @@ def _is_noise_line(line):
             return True
         if _s.startswith("printf") and ("exit_code" in _s or "$?" in _s):
             return True
+        # 白名单：含关键调度错误的行不视为噪声，避免调度启动失败被清零（P0-3）
+        if "调度器启动失败" in _s or "目前无空卡" in _s or "排队等待中" in _s:
+            return False
+        # passive_interrupt 重入队为主动重试非致命，必须视为有效进展，禁止判噪声
+        if "passive_interrupt_requeue" in _s or "passive_interrupted" in _s:
+            return False
+        if re.search(r"passive_interrupt", _s, re.I):
+            return False
         if "cluster_scheduler" in _s or "--scheduler-log" in _s or "--operation-id" in _s or "worker_availability" in _s or "--agent-state-dir" in _s or "exit_code" in _s:
             return True
         if _s.startswith("/") or _s.startswith("--"):
+            if "调度器启动失败" in _s or "目前无空卡" in _s or "排队等待中" in _s:
+                return False
             if "cluster_scheduler" in _s or "--scheduler-log" in _s or "--operation-id" in _s or "worker_availability" in _s or "--agent-state-dir" in _s or "exit_code" in _s:
                 return True
         if "cd " in _s and "/data" in _s and "experiment" not in _s.lower():
@@ -2172,6 +2495,7 @@ def _is_noise_line(line):
     except Exception:
         return False
 
+# L3 调度有效尾（复用 L1/L2 预算思想）：16KB 截断后取末 150 行→噪声过滤→保留 50 行，确保调度错误/程序首错不被截断，需与 LIVE/AUDIT 预算分层一致
 def _read_effective_tail(path, max_bytes=16*1024):
     try:
         if not path or not os.path.isfile(path):
@@ -2302,36 +2626,12 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=10)
     if proc.returncode != 0:
         raise RuntimeError(f"tmux start failed rc={proc.returncode}")
+    # 日志直显 tmux 窗口：不再 pipe-pane tee，日志直接输出到 pane；log_path 仅用于 info 备份（FileHandler）
     if log_path:
-        _pipe_ok = False
-        _pipe_err = ""
         try:
-            _pp = subprocess.run(["tmux", "pipe-pane", "-t", session, "-o", "tee -a " + shlex.quote(str(log_path))], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5, env=env)
-            if _pp.returncode == 0:
-                _pipe_ok = True
-            else:
-                _pipe_err = (_pp.stderr or _pp.stdout or f"rc={_pp.returncode}").strip()
-        except Exception as _pp_exc:
-            _pipe_err = str(_pp_exc)
-        if _pipe_ok:
-            try:
-                pathlib.Path(str(log_path)).touch(exist_ok=True)
-                with open(str(log_path), "a", encoding="utf-8") as _lf:
-                    _lf.write(f"[pipe-pane attached {now_iso()} session={session}]\n")
-            except Exception:
-                pass
-        else:
-            try:
-                os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
-                with open(str(log_path), "a", encoding="utf-8") as _lf:
-                    _lf.write(f"[pipe-pane failed session={session} err={_pipe_err}]\n")
-                # Fallback: try plain cat pipe
-                try:
-                    subprocess.run(["tmux", "pipe-pane", "-t", session, "cat >> " + shlex.quote(str(log_path))], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
-                except Exception:
-                    pass
-            except Exception:
-                pass
+            os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
+        except Exception:
+            pass
     conda_env = simple_conda_env_name(env)
     lines = []
     if conda_env:
@@ -2383,22 +2683,15 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         except Exception:
             pass
         raise RuntimeError("tmux pane never became ready to accept input; caller should fall back to Popen")
-    # Type each line, validating the send-keys return code. On any failure record the
-    # problem to the log and bail so the caller falls back to Popen.
+    # Type each line, validating the send-keys return code. On any failure bail directly (no file fallback).
     for line in lines:
         rc = _send_tmux_line(session, line, env)
         if rc != 0:
-            if log_path:
-                try:
-                    with open(log_path, "ab") as _log:
-                        _log.write(("tmux send-keys failed rc=%s for line: %s\n" % (rc, line)).encode("utf-8", "replace"))
-                except Exception:
-                    pass
             try:
                 subprocess.run(["tmux", "kill-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
             except Exception:
                 pass
-            raise RuntimeError("tmux send-keys failed rc=%s; caller should fall back to Popen" % rc)
+            raise RuntimeError("tmux send-keys failed rc=%s; refusing fallback" % rc)
     # Mirror the experiment's stdout.log/stderr.log into a split pane so the operator can see
     # errors directly inside the tmux window (the scheduler/train output may be redirected to
     # those files by the project). Wait for the scheduler's sidecar, then tail -F both logs.
@@ -2413,6 +2706,154 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         except Exception:
             pass
     return tmux_pane_pid(session, cwd, env) or 0
+
+def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
+    if not tmux_session_alive(gpu_window, cwd, env):
+        shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
+        shell_cmd = [shell]
+        if shell.endswith("bash"):
+            shell_cmd.append("-l")
+        subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=10)
+        import time as _t
+        _t.sleep(0.2)
+    try:
+        # 修复 GPU pane 无 conda：变量化取 SIMPLE_EXPERIMENT_CONDA_ENV，不写死 zlk；优先用 conda activate 包裹，否则用绝对路径候选
+        _conda_env_name = simple_conda_env_name(env) if isinstance(env, dict) else ""
+        _activation = simple_conda_activation_script(env) if isinstance(env, dict) and _conda_env_name else "true"
+        _args_list = [str(x) for x in args]
+        # 若当前 args[0] 为 bare python 且可解析到绝对路径，则替换为绝对路径（双保险）
+        if _args_list and _args_list[0] == "python" and _conda_env_name:
+            try:
+                _ep = simple_conda_env_python(_conda_env_name)
+                if _ep:
+                    _args_list[0] = _ep
+            except Exception:
+                pass
+        _joined = __import__("shlex").join(_args_list)
+        if _activation and _activation != "true":
+            _inner = f"{_activation} && {_joined}"
+        else:
+            _inner = _joined
+        # 实时日志 tee：stdout/stderr 同时输出到 TMUX pane（可见）与文件备份（log_path），exit_code 用 pipefail 保留
+        _tee_log = __import__("shlex").quote(str(log_path))
+        try:
+            os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
+        except Exception:
+            pass
+        _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}"
+        result = subprocess.run(["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-lc", _cmd], capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
+        pane_id = (result.stdout or "").strip().splitlines()[-1].strip() if result.stdout else ""
+        return pane_id or gpu_window
+    except Exception as exc:
+        raise RuntimeError(f"split-window failed: {exc}")
+
+def _resolve_dynamic_gpu_ids(root):
+    # 动态解析 worker 配置的 gpu_ids：优先 options/env/availableGpuIds，其次遍历 MANAGED GPU 窗口
+    try:
+        cuda = str(os.environ.get("CUDA_VISIBLE_DEVICES") or "").strip()
+        if cuda:
+            ids = [x.strip() for x in cuda.split(",") if x.strip() != ""]
+            if ids:
+                return ids
+    except Exception:
+        pass
+    try:
+        gp = read_json(path_for(root, "gpu_snapshot.json"), {})
+        gpus = gp.get("gpus") or gp.get("gpu") or {}
+        if isinstance(gpus, list) and gpus:
+            ids = [str(g.get("index") if isinstance(g, dict) and g.get("index") is not None else g.get("id") if isinstance(g, dict) else str(g)) for g in gpus if isinstance(g, dict)]
+            ids = [x for x in ids if x]
+            if ids:
+                return ids
+        if isinstance(gpus, dict):
+            for v in gpus.values():
+                if isinstance(v, list) and v:
+                    ids = [str(x.get("index") if isinstance(x, dict) and x.get("index") is not None else str(x.get("id") or x.get("gpu") or x) if isinstance(x, dict) else str(x)) for x in v]
+                    ids = [x for x in ids if x]
+                    if ids:
+                        return ids
+    except Exception:
+        pass
+    try:
+        av = read_json(path_for(root, "worker_availability.json"), {})
+        workers = av.get("workers") if isinstance(av, dict) else None
+        if isinstance(workers, dict):
+            for w in workers.values():
+                if isinstance(w, dict):
+                    ids = w.get("availableGpuIds") or w.get("gpuIds") or w.get("gpu_ids") or []
+                    if ids:
+                        return [str(x) for x in ids]
+        if isinstance(av, list):
+            for w in av:
+                if isinstance(w, dict):
+                    ids = w.get("availableGpuIds") or []
+                    if ids:
+                        return [str(x) for x in ids]
+    except Exception:
+        pass
+    try:
+        prefix_probe = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
+        out = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], capture_output=True, text=True, timeout=3)
+        if out.returncode == 0 and out.stdout:
+            ids = []
+            for name in (out.stdout or "").splitlines():
+                if name.startswith(prefix_probe + "-gpu-"):
+                    gid = name[len(prefix_probe + "-gpu-"):]
+                    if gid:
+                        ids.append(gid)
+            if ids:
+                return sorted(set(ids))
+    except Exception:
+        pass
+    return ["0","1","2","3"]
+
+def _safe_kill_pane(pane_id, gpu_window=None):
+    # 任务完成后 pane 回收：tmux kill-pane -t pane_id，容错 pane_id==gpu_window；增加 pane_id 探活避免黑屏
+    try:
+        pid = str(pane_id or "").strip()
+        gw = str(gpu_window or "").strip()
+        if not pid:
+            return
+        if gw and pid == gw:
+            return
+        # 探活 pane_id 再 kill，避免误杀导致黑屏
+        try:
+            if subprocess.run(["tmux", "has-session", "-t", pid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3).returncode != 0:
+                return
+        except Exception:
+            pass
+        subprocess.run(["tmux", "kill-pane", "-t", pid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except Exception:
+        pass
+
+def start_gpu_log_tail_sampler(root, poll_seconds=60, jitter_seconds=30):
+    interval = sampler_interval_seconds(poll_seconds, 60.0)
+    def loop():
+        while True:
+            try:
+                prefix = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
+                for gid in _resolve_dynamic_gpu_ids(root):
+                    win = fixed_gpu_window_name(prefix, gid)
+                    if not tmux_session_alive(win):
+                        continue
+                    cap = _tmux_capture_tail(win, None, 120)
+                    if cap:
+                        _safe_win = re.sub(r"[^A-Za-z0-9_.-]+", "-", win).strip("-") or win
+                        for _live_key in (_safe_win, str(gid)):
+                            try:
+                                live_path = os.path.join(agent_dir(root), "live_output", f"{_live_key}.json")
+                                os.makedirs(os.path.dirname(live_path), exist_ok=True)
+                                atomic_write(live_path, {"gpu": gid, "window": win, "tmuxTarget": win, "tail": cap.splitlines()[-120:], "updatedAt": now_iso()})
+                            except Exception:
+                                pass
+                        append_event(root, {"type": "log_tail", "payload": {"gpu": gid, "window": win, "tmuxTarget": win, "tail": cap[-4000:]}, "source": "gpu_log_sampler"})
+            except Exception:
+                pass
+            import time as _tt, random as _rd
+            _tt.sleep(interval + (_rd.random()*jitter_seconds if jitter_seconds else 0))
+    import threading as _th
+    _th.Thread(target=loop, daemon=True, name="gpu-log-tail-sampler").start()
+
 
 def read_task_exit_code(exit_code_path):
     try:
@@ -2495,6 +2936,49 @@ def execute_worker_command(root, command, worker_id):
         payload["opId"] = command_id
         payload["operationId"] = command_id
         return handle_action(root, action, payload, command_id, command_id)
+    if action in ("clear-cache", "clearCache"):
+        # 清除缓存白名单：基于 MANAGED_ARTIFACT_PREFIXES 受控生成，逐项校验 isManaged等价 + realpath 防逃逸
+        # tmp/ 为主，simple_cluster/tmp 仅过渡兼容，下版本移除
+        _MANAGED_ARTIFACT_PREFIXES_PY = ["tmp/cluster_scheduler/logs/", "tmp/cluster_scheduler/", "tmp/tmux_logs/", "tmp/console_logs/", "tmp/", "simple_cluster/tmp/cluster_scheduler/logs/", "simple_cluster/tmp/cluster_scheduler/", "simple_cluster/tmp/tmux_logs/", "simple_cluster/tmp/console_logs/", "simple_cluster/tmp/"]
+        def _is_managed_rel(rel):
+            # 等价 src/syncState.ts:isManagedArtifactPath
+            norm = str(rel or "").replace("\\", "/").lstrip("/")
+            if not norm or norm.startswith("[simple]"):
+                return False
+            # 去除 simple_cluster 前缀的变体
+            variants = {norm}
+            idx = norm.find("/simple_cluster/")
+            if idx >= 0:
+                variants.add(norm[idx+1:])
+            for v in list(variants):
+                for p in _MANAGED_ARTIFACT_PREFIXES_PY:
+                    if v == p.rstrip("/") or v.startswith(p) or v.startswith(p.rstrip("/") + "/"):
+                        return True
+            return False
+        deleted = 0
+        for prefix in _MANAGED_ARTIFACT_PREFIXES_PY:
+            pattern = prefix.rstrip("/") + "/*"
+            import glob as _g
+            for path in _g.glob(os.path.join(root, pattern)):
+                try:
+                    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(root)).replace("\\", "/")
+                    if not _is_managed_rel(rel):
+                        continue
+                    # 校验 safe_project_path + realpath 不超出 root
+                    safe_project_path(root, rel)
+                    real_target = os.path.realpath(os.path.abspath(path))
+                    real_root = os.path.realpath(os.path.abspath(root))
+                    if not real_target.startswith(real_root + os.sep) and real_target != real_root:
+                        continue
+                    if os.path.isdir(path):
+                        __import__("shutil").rmtree(path)
+                    else:
+                        os.remove(path)
+                    deleted += 1
+                except Exception:
+                    continue
+        append_event(root, {"type": "cache_cleared", "payload": {"deletedCount": deleted}})
+        return {"commandId": command_id, "status": "completed", "deletedCount": deleted, "message": f"已清除 {deleted} 项缓存"}
     if action not in ("start-worker-task", "retry-worker-task"):
         result = {"commandId": command_id, "status": "failed", "message": f"不支持的 Worker 命令：{action}"}
         append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
@@ -2523,7 +3007,11 @@ def execute_worker_command(root, command, worker_id):
         session = str(command.get("session"))
     else:
         session = worker_tmux_session_name(worker_id, gpu_id, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID"))
-    rel_log = str(command.get("logPath") or f"simple_cluster/tmux_logs/{session}.log").replace("\\", "/").lstrip("/")
+    _raw_log = str(command.get("logPath") or f"tmp/tmux_logs/{session}.log")
+    if os.path.isabs(_raw_log):
+        rel_log = os.path.relpath(os.path.abspath(_raw_log), os.path.abspath(project_dir)).replace("\\", "/")
+    else:
+        rel_log = _raw_log.replace("\\", "/").lstrip("/")
     log_path = safe_project_path(project_dir, rel_log)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     env = simple_runtime_env(os.environ.copy())
@@ -2554,6 +3042,7 @@ def execute_worker_command(root, command, worker_id):
         result = {"commandId": command_id, "status": "failed", "message": str(exc)}
         append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
         return result
+    overwrite_existing = any(action_bool(value) for value in (command.get("overwriteExisting"), command.get("overwrite_existing"), command.get("overwrite"), options.get("overwriteExisting"), options.get("overwrite_existing"), options.get("overwrite")))
     args = [
         simple_runtime_python(env),
         scheduler_path,
@@ -2566,15 +3055,26 @@ def execute_worker_command(root, command, worker_id):
         "--worker-id", worker_id,
         "--default-result-csv-dir", default_result_csv_dir,
     ]
+    if overwrite_existing:
+        args.append("--overwrite")
     if debug_mode:
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
-    tmux_session = simple_tmux_name(session)
+    # per-GPU固定窗口(1C)：主路径为 simple-gpu-{gpu_id} 复用 + split-window，log_path 仍按 session 归一，保证 tmux ls 仅 simple-gpu-0..3
+    _tmux_prefix = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "").strip()
+    try:
+        _cfg_prefix = str((options.get("tmuxSessionPrefix") if isinstance(options, dict) else "") or (command.get("tmuxSessionPrefix") if isinstance(command, dict) else "") or "").strip()
+        if _cfg_prefix:
+            _tmux_prefix = _cfg_prefix
+    except Exception:
+        pass
+    gpu_window = fixed_gpu_window_name(_tmux_prefix, gpu_id) if str(gpu_id or "").strip() else simple_tmux_name(session)
+    tmux_session = gpu_window
     # Let the scheduler (run_job) publish the resolved experiment output_dir to a sidecar so the
     # tmux window can mirror stdout.log/stderr.log live (see start_simple_tmux_command split-pane).
     env["SIMPLE_EXPERIMENT_TMUX_SESSION"] = tmux_session
     env["SIMPLE_EXPERIMENT_TMUX_LOG_DIR"] = os.path.dirname(str(log_path))
     # per-GPU复用：exit_code 按 commandId 区分，避免同GPU复用会话时旧文件误判
-    exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}-{commandId}.exit_code")
+    exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}-{command_id}.exit_code")
     try:
         env["SIMPLE_EXPERIMENT_EXIT_CODE_PATH"] = str(exit_code_path)
     except Exception:
@@ -2584,15 +3084,25 @@ def execute_worker_command(root, command, worker_id):
     pid = 0
     if tmux_available():
         try:
-            pid = start_simple_tmux_command(tmux_session, args, project_dir, log_path, env, exit_code_path)
+            pid = start_job_in_gpu_pane(gpu_window, args, project_dir, env, log_path, exit_code_path)
             used_tmux = True
         except Exception as exc:
-            with open(log_path, "ab") as log:
-                log.write((f"[simple-agent] tmux launch failed, fallback to direct Popen: {exc}\n").encode("utf-8", errors="replace"))
+            try:
+                _fallback_session = simple_tmux_name(session)
+                tmux_session = _fallback_session
+                env["SIMPLE_EXPERIMENT_TMUX_SESSION"] = tmux_session
+                _fallback_exit = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}-{command_id}.exit_code")
+                try:
+                    env["SIMPLE_EXPERIMENT_EXIT_CODE_PATH"] = str(_fallback_exit)
+                    exit_code_path = _fallback_exit
+                except Exception:
+                    pass
+                pid = start_simple_tmux_command(tmux_session, args, project_dir, log_path, env, exit_code_path)
+                used_tmux = True
+            except Exception as exc2:
+                raise RuntimeError(f"tmux launch failed: {exc} / fallback:{exc2}; refusing silent bash fallback")
     if not used_tmux:
-        with open(log_path, "ab") as log:
-            proc = subprocess.Popen(simple_conda_wrapped_args(args, env), cwd=project_dir, stdout=log, stderr=subprocess.STDOUT, env=env)
-            pid = int(proc.pid or 0)
+        raise RuntimeError("tmux available but launch failed and ALLOW_POPEN_FALLBACK not enabled; refusing silent bash fallback\uff1b\u8bf7\u5b89\u88c5 tmux \u6216\u542f\u7528 ALLOW_POPEN_FALLBACK")
     task = {
         "schemaVersion": SCHEMA_VERSION,
         "commandId": command_id,
@@ -2628,6 +3138,26 @@ def execute_worker_command(root, command, worker_id):
     result = {"commandId": command_id, "status": "running", "pid": pid, "session": session, "tmuxSession": tmux_session if used_tmux else "", "logPath": rel_log, "debugMode": debug_mode, "debugRunId": debug_run_id, "debugOutputDir": debug_output_dir, "resultOwnerWorkerId": worker_id, **({"manualReassignment": True, "sourceWorkerId": source_worker_id, "targetWorkerId": worker_id, "originalRunKey": original_run_key, "reassignmentRunKey": reassignment_run_key or command_id} if manual_reassignment else {}), "message": "Debug Worker 任务已启动" if debug_mode else "Worker 任务已启动"}
     append_event(root, {"type": "worker_task_started", "workerId": worker_id, "operationId": command_id, "payload": {**task, **result}})
     def wait_task():
+        def _resolve_pane_id():
+            # 解析 pane_id 供回收，容错 gpu_window 场景
+            try:
+                rp = subprocess.run(["tmux", "list-panes", "-t", tmux_session, "-F", "#{pane_id}"], capture_output=True, text=True, timeout=3)
+                if rp.returncode == 0 and rp.stdout.strip():
+                    return rp.stdout.strip().splitlines()[0].strip()
+            except Exception:
+                pass
+            return ""
+        def _recycle_after_task():
+            try:
+                pane_id = _resolve_pane_id()
+                if not pane_id:
+                    return
+                # 容错 pane_id == gpu_window：遍历 MANAGED 窗口或按 gpu_id 计算 gw
+                prefix_gw = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or env.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
+                gw = fixed_gpu_window_name(prefix_gw, gpu_id) if gpu_id else ""
+                _safe_kill_pane(pane_id, gw)
+            except Exception:
+                pass
         try:
             if used_tmux:
                 # Sessions are intentionally left open after the command finishes, so we must
@@ -2636,6 +3166,8 @@ def execute_worker_command(root, command, worker_id):
                 while not exit_code_ready(exit_code_path) and tmux_session_alive(tmux_session, project_dir, env):
                     time.sleep(3)
                 rc = read_task_exit_code(exit_code_path)
+                # 任务完成后 pane 回收（read_task_exit_code 后）
+                _recycle_after_task()
             else:
                 rc = proc.wait()
             if worker_task_was_stopped(root, task):
@@ -2643,12 +3175,17 @@ def execute_worker_command(root, command, worker_id):
             finished = {**task, "status": "completed" if rc == 0 else "failed", "exitCode": rc, "finishedAt": now_iso()}
             append_worker_task(root, finished)
             append_event(root, {"type": "worker_task_completed" if rc == 0 else "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": finished})
+            # 任务完成后 pane 回收（worker_task completed/failed）
+            if used_tmux:
+                _recycle_after_task()
         except Exception as exc:
             if worker_task_was_stopped(root, task):
                 return
             failed = {**task, "status": "failed", "error": str(exc), "finishedAt": now_iso()}
             append_worker_task(root, failed)
             append_event(root, {"type": "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": failed})
+            if used_tmux:
+                _recycle_after_task()
     threading.Thread(target=wait_task, daemon=True, name=f"worker-task-{command_id}").start()
     return result
 
@@ -2834,8 +3371,9 @@ def write_worker_gpu_snapshot(root):
     atomic_write(path_for(root, "gpu_snapshot.json"), payload)
     return payload
 
-def sampler_interval_seconds(value, default_seconds=60.0):
-    return max(60.0, float(value or default_seconds))
+def sampler_interval_seconds(value, default_seconds=1.0):
+    # 5秒平均利用率<5%判空：下限由60s改为1s，确保每秒采样
+    return max(1.0, float(value or default_seconds))
 
 def sampler_sleep_seconds(interval, jitter_seconds=30.0):
     jitter = max(0.0, float(jitter_seconds or 0.0))
@@ -2847,15 +3385,23 @@ def payload_cache_changed(cache, key, payload):
     cache[key] = payload
     return True
 
-def start_worker_telemetry_sampler(root, poll_seconds=60, jitter_seconds=30):
-    interval = sampler_interval_seconds(poll_seconds, 60.0)
+def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
+    # 5秒平均利用率<5%判空：默认1秒采样以支撑5秒窗口
+    interval = sampler_interval_seconds(poll_seconds, 1.0)
     heartbeat_interval = max(60.0, interval)
+    worker_id_local = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     def loop():
         last_payloads = {}
         last_heartbeat = 0.0
         while True:
             try:
                 payload = write_worker_gpu_snapshot(root)
+                # 单机 worker_telemetry 模式自刷新 worker_availability.json 避免调度停滞
+                try:
+                    avail = availability_from_gpu(worker_id_local, payload, "worker_agent_direct")
+                    write_availability_batch(root, {"schemaVersion": SCHEMA_VERSION, "source": "worker_agent_direct", "generatedAt": avail.get("updatedAt"), "workers": [avail]})
+                except Exception:
+                    pass
                 gpu_event = {"gpus": payload.get("gpus") or [], "status": payload.get("status"), "error": payload.get("error") or ""}
                 if payload_cache_changed(last_payloads, "gpu", gpu_event):
                     append_event(root, {"type": "gpu_snapshot", "source": "worker_telemetry", "payload": gpu_event})
@@ -2892,7 +3438,7 @@ def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
                     "scheduler_snapshot": {"schedulerStates": scheduler},
                     "experiment_trace": {"experimentTraces": traces},
                 }
-                for item in collect_live_output(scheduler):
+                for item in collect_live_output(scheduler, 120, root):
                     payloads[f"log_tail:{item.get('runKey') or item.get('key')}"] = item
                 for name, payload in payloads.items():
                     if payload_cache_changed(last_payloads, name, payload):
@@ -3091,6 +3637,9 @@ def api_health(root, mode="realtime"):
         "state": "agent_ok",
         "agentVersion": health.get("agentVersion") or AGENT_VERSION,
         "apiVersion": API_VERSION,
+        "runtimeVersion": RUNTIME_VERSION,
+        "pluginVersion": PLUGIN_VERSION,
+        "schedulerVersion": RUNTIME_VERSION,
         "mode": "worker_telemetry" if mode == "worker_telemetry" else "realtime",
         "startedAt": started_at,
         "serverTime": now_iso(),
@@ -3105,17 +3654,34 @@ def api_health(root, mode="realtime"):
         "checkedAt": now_iso(),
     }
 
+def api_version(root, mode="realtime"):
+    health = api_health(root, mode)
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "agentVersion": health.get("agentVersion") or AGENT_VERSION,
+        "apiVersion": API_VERSION,
+        "runtimeVersion": RUNTIME_VERSION,
+        "pluginVersion": PLUGIN_VERSION,
+        "schedulerVersion": RUNTIME_VERSION,
+        "mode": health.get("mode"),
+        "checkedAt": now_iso(),
+    }
+
 def api_capabilities(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
         return {
             "schemaVersion": SCHEMA_VERSION,
             "apiVersion": API_VERSION,
             "agentVersion": AGENT_VERSION,
+            "runtimeVersion": RUNTIME_VERSION,
+            "pluginVersion": PLUGIN_VERSION,
+            "schedulerVersion": RUNTIME_VERSION,
             "mode": "worker_telemetry",
             "actionApiVersion": 2,
             "realActionRuntime": True,
             "endpoints": {
                 "health": True,
+                "version": True,
                 "capabilities": True,
                 "gpu": True,
                 "gpuHistory": True,
@@ -3150,11 +3716,15 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
         "schemaVersion": SCHEMA_VERSION,
         "apiVersion": API_VERSION,
         "agentVersion": AGENT_VERSION,
+        "runtimeVersion": RUNTIME_VERSION,
+        "pluginVersion": PLUGIN_VERSION,
+        "schedulerVersion": RUNTIME_VERSION,
         "mode": "hub_control",
         "actionApiVersion": 2,
         "realActionRuntime": True,
         "endpoints": {
             "health": True,
+            "version": True,
             "snapshot": True,
             "gpu": True,
             "gpuHistory": True,
@@ -7746,6 +8316,36 @@ def _reap_zombie_scheduler_sessions(root, known_op_ids):
         pass
     return reaped
 
+def _reap_orphan_gpu_sessions(root, force_all=False):
+    # GPU 窗口与调度窗口同生命周期：调度销毁时回收关联 GPU 窗口，避免孤儿 long-lived 会话
+    if not tmux_available():
+        return []
+    prefix = _tmux_prefix()
+    reaped = []
+    try:
+        out = subprocess.run(["tmux", "ls"], text=True, capture_output=True, timeout=5).stdout or ""
+        for line in out.splitlines():
+            name = line.split(":", 1)[0].strip()
+            # 匹配 prefix-gpu-<id> 或 simple-gpu-* 形态
+            is_gpu = False
+            if name.startswith(prefix + "-gpu-"):
+                is_gpu = True
+            elif name.startswith("simple-gpu-"):
+                is_gpu = True
+            elif re.match(r"^gpu-\d+$", name):
+                is_gpu = True
+            if not is_gpu:
+                continue
+            # 若 force_all 或无活跃 scheduler，则直接回收
+            try:
+                subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                reaped.append(name)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return reaped
+
 
 def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
     # Prevent two run-plan schedulers from independently allocating the same worker's GPUs. When a
@@ -7917,10 +8517,15 @@ def handle_action(root, action, payload, operation_id, op_id):
             log_path = safe_project_path(root, f"{debug_output_dir}/hub_scheduler.log")
             os.makedirs(os.path.dirname(log_path), exist_ok=True)
             log_rel = os.path.relpath(log_path, root).replace("\\", "/")
-        poll_seconds = max(60, int(options.get("pollSeconds") or options.get("poll_seconds") or 60))
+        poll_seconds = max(5, int(options.get("pollSeconds") or options.get("poll_seconds") or 60))
         jitter_seconds = max(0, int(options.get("jitterSeconds") or options.get("jitter_seconds") or 30))
         ttl_seconds = max(60, int(options.get("workerStatusTtlSeconds") or options.get("worker_status_ttl_seconds") or 180))
+        gpu_idle_util = max(0, min(100, int(options.get("gpuIdleUtilThreshold") or options.get("gpu_idle_util_threshold") or 5)))
+        gpu_idle_mem = max(0, min(8192, int(options.get("gpuIdleMemThresholdMb") or options.get("gpu_idle_mem_threshold") or 200)))
+        session_check_min = max(1, min(60, int(options.get("sessionCheckMinSeconds") or options.get("session_check_min_seconds") or 5)))
         env = simple_runtime_env(os.environ.copy())
+        env["SIMPLE_GPU_IDLE_UTIL_THRESHOLD"] = str(gpu_idle_util)
+        env["SIMPLE_GPU_IDLE_MEM_THRESHOLD"] = str(gpu_idle_mem)
         scheduler_args = [
             simple_runtime_python(env),
             scheduler,
@@ -7929,6 +8534,9 @@ def handle_action(root, action, payload, operation_id, op_id):
             "--poll-seconds", str(poll_seconds),
             "--poll-jitter-seconds", str(jitter_seconds),
             "--worker-status-ttl-seconds", str(ttl_seconds),
+            "--gpu-idle-util-threshold", str(gpu_idle_util),
+            "--gpu-idle-mem-threshold", str(gpu_idle_mem),
+            "--session-check-min-seconds", str(session_check_min),
             "--availability-path", availability_cache_path(root),
             "--agent-state-dir", agent_dir(root),
             "--operation-id", operation_id,
@@ -7952,6 +8560,9 @@ def handle_action(root, action, payload, operation_id, op_id):
             env["SIMPLE_EXPERIMENT_WORKER_SET_REVISION"] = str(operation_fields.get("workerSetRevision"))
         if debug_mode:
             scheduler_args.extend(["--debug-mode", "--debug-run-id", debug_run_id, "--debug-output-dir", debug_output_dir])
+        overwrite_existing = any(action_bool(value) for value in (payload.get("overwriteExisting"), payload.get("overwrite_existing"), payload.get("overwrite"), options.get("overwriteExisting"), options.get("overwrite_existing"), options.get("overwrite"), action_operation_fields(payload).get("overwriteExisting"), action_operation_fields(payload).get("overwrite")))
+        if overwrite_existing:
+            scheduler_args.append("--overwrite")
         tmux_session = simple_tmux_name(f"sch-{op_id}")
         pid = 0
         used_tmux = False
@@ -7962,12 +8573,9 @@ def handle_action(root, action, payload, operation_id, op_id):
                 pid = start_simple_tmux_command(tmux_session, scheduler_args, root, log_path, env, scheduler_exit_code_path)
                 used_tmux = True
             except Exception as exc:
-                with open(log_path, "a", encoding="utf-8") as out:
-                    out.write(f"[simple-agent] scheduler tmux launch failed, fallback to direct Popen: {exc}\n")
+                raise RuntimeError(f"scheduler tmux launch failed: {exc}; refusing silent bash fallback")
         if not used_tmux:
-            out = open(log_path, "a", encoding="utf-8")
-            proc = subprocess.Popen(scheduler_args, cwd=root, stdout=out, stderr=subprocess.STDOUT, env=env)
-            pid = int(proc.pid or 0)
+            raise RuntimeError("tmux available but scheduler launch failed and ALLOW_POPEN_FALLBACK not enabled; refusing silent bash fallback")
         # Register the scheduler as a tracked task so it shows up in the task cards and can be
         # stopped from the panel even though it is launched by run-plan (not a worker task). This
         # closes the gap where a stuck scheduler process was invisible to the task UI.
@@ -8043,6 +8651,32 @@ def handle_action(root, action, payload, operation_id, op_id):
                                 if _pane_tail and _pane_tail != _last_pane_tail:
                                     _last_progress = _now
                                     _last_pane_tail = _pane_tail
+                        # --- Busy-waiting guard: dispatch_probe "目前无空卡" + running>0 为 GPU 忙正常等待，passive_interrupt_requeue 为主动重入队，均视为有效进展，禁止 90s 误判 ---
+                        _busy_or_passive_progress = False
+                        try:
+                            _tail_probe = ""
+                            with open(log_path, "rb") as _pf:
+                                _sz_probe = os.path.getsize(log_path)
+                                _pf.seek(max(0, _sz_probe - 8192))
+                                _tail_probe = _pf.read().decode("utf-8", errors="replace")
+                            if "passive_interrupt_requeue" in _tail_probe:
+                                _busy_or_passive_progress = True
+                            else:
+                                _running_vals_probe = re.findall(r"running=(\d+)", _tail_probe)
+                                _last_running_probe = int(_running_vals_probe[-1]) if _running_vals_probe else 0
+                                if _last_running_probe > 0:
+                                    if re.search(r"wait\s+pending", _tail_probe, re.I):
+                                        _busy_or_passive_progress = True
+                                    if "dispatch_probe" in _tail_probe and "目前无空卡" in _tail_probe:
+                                        _busy_or_passive_progress = True
+                                    # done/dispatch 在 running>0 时亦为有效进展（但通常已由 _size_grew 覆盖，此处兜底）
+                                    if re.search(r"\bdispatch\b", _tail_probe, re.I) or re.search(r"\bdone\b", _tail_probe, re.I):
+                                        _busy_or_passive_progress = True
+                        except Exception:
+                            pass
+                        if _busy_or_passive_progress:
+                            _last_progress = _now
+                            _last_size = _size
                         if _elapsed > _hard_max:
                             _rc = 255
                             _launch_failed = True
@@ -8369,13 +9003,41 @@ def handle_action(root, action, payload, operation_id, op_id):
 def api_worker_tasks(root):
     data = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), None)
     if isinstance(data, dict):
-        return data
+        tasks = data.get("tasks") if isinstance(data.get("tasks"), list) else []
+        enriched = []
+        for _item in tasks:
+            if not isinstance(_item, dict):
+                continue
+            _row = dict(_item)
+            _target = str(_row.get("tmuxTarget") or _row.get("tmuxSession") or "").strip()
+            if not _target:
+                _gid_tmp = str(_row.get("gpuId") or _row.get("gpu_id") or _row.get("gpu") or _row.get("targetGpuId") or "").strip()
+                if _gid_tmp:
+                    try:
+                        _prefix_tmp = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
+                        _target = fixed_gpu_window_name(_prefix_tmp, _gid_tmp)
+                    except Exception:
+                        _target = ""
+                else:
+                    _sess_tmp = str(_row.get("session") or "").strip()
+                    if _sess_tmp:
+                        _target = simple_tmux_name(_sess_tmp) if "gpu-" not in _sess_tmp else _sess_tmp
+            if _target:
+                _row["tmuxTarget"] = _target
+                if not str(_row.get("tmuxSession") or "").strip():
+                    _row["tmuxSession"] = _target
+                _row.setdefault("window", _target)
+            enriched.append(_row)
+        _out = dict(data)
+        _out["tasks"] = enriched
+        return _out
     return {"schemaVersion": SCHEMA_VERSION, "tasks": [], "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
         paths = [
             "/api/health",
+            "/api/version",
             "/api/capabilities",
             "/api/gpu",
             "/api/gpu/history",
@@ -8411,6 +9073,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
         "info": {"title": "SimpleExperiment Hub Agent Realtime Gateway", "version": API_VERSION},
         "paths": {path: {} for path in [
             "/api/health",
+            "/api/version",
             "/api/capabilities",
             "/api/files/capabilities",
             "/api/openapi.json",
@@ -8460,6 +9123,7 @@ def api_diagnostics(root, include_token=False):
     }
     return result
 
+# L2 审计尾预算：min(1MB, max(64KB, line_limit*4096))，与 L1 实时尾 256KB 协同，避免审计尾过大撑爆前端，需与 _read_effective_tail L3 预算统一文档化
 def audit_tail_byte_budget(line_limit):
     return min(AUDIT_TAIL_MAX_BYTES, max(64 * 1024, int(line_limit) * 4096))
 
@@ -8854,13 +9518,15 @@ def _redact_path(value):
 def _is_scheduler_source(text):
     try:
         t = str(text or "")
-        # 运行态“scheduler started pid=..., 等待 scheduler 终态”不应视为调度器错误源，仅为 running 状态
+        # 运行态“scheduler started pid=..., 等待 scheduler 终态”不应视为调度器错误源，仅为 running 状态；但含 all_busy/busy/no_idle/probe/无空闲/无可用/all worker 时视为调度失败需放行
         if re.search(r"scheduler started pid=.*等待 scheduler 终态", t, re.I):
             if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|失败|异常|错误", t):
-                return False
+                if not re.search(r"all_busy|busy|no_idle|no[-_ ]idle|probe|无空闲|无可用|all worker|目前无空卡", t, re.I):
+                    return False
         if re.search(r"scheduler started pid=", t, re.I) and "等待 scheduler 终态" in t:
             if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", t):
-                return False
+                if not re.search(r"all_busy|busy|no_idle|no[-_ ]idle|probe|无空闲|无可用|all worker|目前无空卡", t, re.I):
+                    return False
         for src in SCHEDULER_SOURCES:
             if src.lower() in t.lower() if src.isascii() else src in t:
                 return True
@@ -8885,6 +9551,15 @@ def _schedulerErrorZh(text_or_payload):
             raw = str(text_or_payload.get("message") or text_or_payload.get("error") or text_or_payload.get("msg") or "")
         else:
             raw = str(text_or_payload or "")
+        # P0-4/P1 前置：若含“目前无空卡/all_busy”直接中文化为“目前无空卡”，避免 3行调度日志被判 none
+        if re.search(r"目前无空卡|all_busy|all_busy_or_disallowed", raw, re.I):
+            for _l in raw.splitlines():
+                if "目前无空卡" in _l or re.search(r"all_busy", _l, re.I):
+                    _cand = _l.strip()
+                    if _cand:
+                        _cand = re.sub(r"all_busy_or_disallowed|all_busy", "目前无空卡", _cand, flags=re.I)
+                        return _cand[:200]
+            return "目前无空卡"
         # 优先级：payload.message 含“调度器启动失败/无有效日志增长/未生成 exit_code”时取 hub 真因首行200（最高优，覆盖 scheduler started 多行场景）
         if re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", raw):
             for _l in raw.splitlines():
@@ -8895,19 +9570,23 @@ def _schedulerErrorZh(text_or_payload):
             _first_hit = (raw.strip().splitlines()[0].strip() if raw.strip() else "")
             if _first_hit:
                 return _first_hit[:200]
-        # 运行态“scheduler started pid=..., 等待 scheduler 终态”不应作为调度器报错展示（仅为 running 状态）
+        # 运行态“scheduler started pid=..., 等待 scheduler 终态”不应作为调度器报错展示（仅为 running 状态），但含 all_busy/busy/no_idle/probe/无空闲/无可用/all worker 时视为调度失败需放行
         if re.search(r"scheduler started pid=.*等待 scheduler 终态", raw, re.I):
             if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|失败|异常|错误|Traceback|Error|Exception", raw, re.I):
-                return ""
+                if not re.search(r"all_busy|busy|no_idle|no[-_ ]idle|probe|无空闲|无可用|all worker|目前无空卡", raw, re.I):
+                    return ""
         if re.search(r"scheduler started pid=", raw, re.I) and "等待 scheduler 终态" in raw:
             if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", raw):
-                return ""
+                if not re.search(r"all_busy|busy|no_idle|no[-_ ]idle|probe|无空闲|无可用|all worker|目前无空卡", raw, re.I):
+                    return ""
         # 取 payload.message 第一行中文截200（任务要求）
         first_line = (raw.splitlines()[0] if raw.strip() else "").strip()
         if first_line:
-            # 运行态首行不应直接返回
+            # 运行态首行不应直接返回，但含 all_busy/busy/no_idle/probe/无空闲/无可用 时视为调度失败需放行
             if re.search(r"scheduler started pid=.*等待 scheduler 终态", first_line, re.I):
                 if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code", first_line):
+                    if re.search(r"all_busy|busy|no_idle|no[-_ ]idle|probe|无空闲|无可用|all worker|目前无空卡", first_line, re.I):
+                        return first_line[:200]
                     pass
                 elif _is_scheduler_source(first_line):
                     return first_line[:200]
@@ -8918,10 +9597,11 @@ def _schedulerErrorZh(text_or_payload):
                 # 无错误特征的纯 scheduler 首行不视为调度器错误（满足 failureSourceKind none 且 live_log 无错误时空）
                 return ""
         t = raw if raw else str(text_or_payload or "")
-        # 运行态二次兜底
+        # 运行态二次兜底，但含 all_busy/busy/no_idle/probe/无空闲/无可用/all worker 时视为调度失败需放行
         if re.search(r"scheduler started pid=.*等待 scheduler 终态", t, re.I):
             if not re.search(r"调度器启动失败|无有效日志增长|未生成 exit_code|失败|异常|错误", t):
-                return ""
+                if not re.search(r"all_busy|busy|no_idle|no[-_ ]idle|probe|无空闲|无可用|all worker|目前无空卡", t, re.I):
+                    return ""
         # 兜底：按原有调度器中文映射，保证单测与旧行为兼容
         if re.search(r"tmux", t, re.I) or re.search(r"scheduler", t, re.I) or re.search(r"exit_code", t, re.I) or re.search(r"调度器", t):
             if re.search(r"tmux.*kill|tmux.*attach|tmux.*session", t, re.I):
@@ -9061,19 +9741,22 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     worker_tasks = matching_plan_rows(task_snapshot.get("tasks") or [], plan_file or payload.get("planFile") or payload.get("plan"))
     log_rel = str(payload.get("logPath") or payload.get("log_path") or "")
     if not log_rel:
-        # 兜底：payload 未提供 logPath 时按 opId 拼接真实调度日志路径 simple_cluster/tmp/cluster_scheduler/<opId>.log
+        # 兜底：payload 未提供 logPath 时按 opId 拼接调度日志路径 tmp/cluster_scheduler/<opId>.log（simple_cluster/tmp 仅过渡兼容）
         fallback_rel = f"simple_cluster/tmp/cluster_scheduler/{operation_id}.log" if str(operation_id or "").strip() else ""
         log_rel = fallback_rel
     log_path = ""
     if log_rel:
         try:
             log_path = safe_project_path(root, log_rel)
-        except Exception:
+        except Exception as _e:
             log_path = ""
+            _workerResolveErrors.append(f"{log_rel}: {str(_e)[:200]}")
     live_log_count = 0
     live_log_tail = ""
     live_log_updated_at = ""
+    _workerResolveErrors = []
     # Helper: read effective tail from a log file (filter shell echoes) - synced with global _is_noise_line
+    # L3 调度有效尾（复用 L1/L2 预算思想）：16KB 截断后取末 150 行→噪声过滤→保留 50 行，确保调度错误/程序首错不被截断，需与 LIVE/AUDIT 预算分层一致（嵌套版本，与顶层同预算）
     def _read_effective_tail(path, max_bytes=16*1024):
         try:
             if not path or not os.path.isfile(path):
@@ -9099,15 +9782,21 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         live_log_tail = ""
         live_log_count = 0
         live_log_updated_at = ""
-    # Fallback: if effective count==0 or raw <512B, merge payload.schedulerLog / queue_log (plan_key.log)
-    _has_sched_kw = re.search(r"dispatch|scheduler|experiment|Traceback|Error|调度器", live_log_tail or "")
+    # Fallback: 16KB→150→4000→50 分层联动（P0-1）：若已滤 tail 含 Killed/OOM/Error 等关键词则保留，不因 _raw_size<512 强制覆盖稀释；关键词列表 dispatch|scheduler|experiment|Traceback|Error|调度器|Killed|OOM|out of memory|signal|Segfault|CUDA|NCCL|exit code|exit_code|killed|took too long|timeout
+    _has_sched_kw = re.search(r"dispatch|scheduler|experiment|Traceback|Error|调度器|Killed|OOM|out of memory|signal|Segfault|CUDA|NCCL|exit code|exit_code|killed|took too long|timeout|all_busy|busy|no_idle|no[-_ ]idle|probe|无空闲|无可用|all worker|目前无空卡", live_log_tail or "", re.IGNORECASE)
+    _has_critical_kw = re.search(r"Killed|OOM|out of memory|signal|Segfault|CUDA|NCCL|exit code|exit_code|Error|Traceback", live_log_tail or "", re.IGNORECASE)
     _needs_fallback = False
     try:
         _raw_size = os.path.getsize(log_path) if log_path and os.path.isfile(log_path) else 0
-        if _raw_size < 512 or live_log_count == 0 or not live_log_tail.strip() or (live_log_count <= 3 and not _has_sched_kw):
+        # 空 tail 或 count==0 必须 fallback；小文件 <512 仅在空或无关键错误时 fallback（P0-4：L3有效尾非空时不因 count<=3 无关键词而稀释）
+        if live_log_count == 0 or not live_log_tail.strip():
+            _needs_fallback = True
+        elif _raw_size < 512 and (not live_log_tail.strip() or live_log_count == 0):
+            _needs_fallback = True
+        elif _raw_size < 512 and not _has_critical_kw and not _has_sched_kw:
             _needs_fallback = True
     except Exception:
-        _needs_fallback = not live_log_tail.strip() or live_log_count == 0 or (live_log_count <= 3 and not _has_sched_kw)
+        _needs_fallback = not live_log_tail.strip() or live_log_count == 0
     if _needs_fallback:
         _fallback_candidates = []
         # payload.schedulerLog / queue_log
@@ -9115,7 +9804,7 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
             _val = str(payload.get(_key) or "").strip()
             if _val:
                 _fallback_candidates.append(_val)
-        # derive plan_key log: simple_cluster/tmp/cluster_scheduler/<plan_key>.log
+        # derive plan_key log: tmp/cluster_scheduler/<plan_key>.log（simple_cluster/tmp 仅过渡兼容）
         _plan_for_key = str(plan_file or payload.get("planFile") or payload.get("plan") or "").strip()
         if _plan_for_key:
             try:
@@ -9125,10 +9814,15 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
             except Exception:
                 pass
         # Also try operation_id.log already is primary, but ensure we don't duplicate
+        # fallback_candidates 同时尝试：{opId}.log 主 + {planKey}.log 历史 + payload.schedulerLog/queue_log 若存在（P0-1）
+        _op_rel = f"simple_cluster/tmp/cluster_scheduler/{operation_id}.log" if str(operation_id or "").strip() else ""
+        if _op_rel and _op_rel not in _fallback_candidates and _op_rel != log_rel:
+            _fallback_candidates.insert(0, _op_rel)
         for _rel in _fallback_candidates:
             try:
                 _cand_path = safe_project_path(root, _rel)
-            except Exception:
+            except Exception as _e:
+                _workerResolveErrors.append(f"{_rel}: {str(_e)[:200]}")
                 continue
             if _cand_path == log_path:
                 continue
@@ -9229,6 +9923,8 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         "live_log_count": live_log_count,
         "fallbackTriggered": _needs_fallback,
         "fallback_triggered": _needs_fallback,
+        "_workerResolveError": "; ".join(_workerResolveErrors) if _workerResolveErrors else "",
+        "_workerResolveErrors": _workerResolveErrors,
     }
 
 
@@ -9279,6 +9975,54 @@ def stop_scheduler_operation(root, payload):
         # also reap any leftover zombie sch-* sessions from this stop
         remaining = set(str(e.get("opId") or "") for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "").strip())
         _reap_zombie_scheduler_sessions(root, remaining)
+    except Exception:
+        pass
+    # 中止同时终止关联 GPU 任务 pane/会话，防止调度停止后 GPU 任务继续运行；回收孤儿 GPU 窗口与调度同生命周期
+    try:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        dirty = False
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            if str(task.get("status") or "").lower() != "running":
+                continue
+            sess = str(task.get("tmuxSession") or "").strip()
+            if sess and tmux_session_alive(sess, cwd=root):
+                try:
+                    subprocess.run(["tmux", "kill-session", "-t", sess], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, cwd=root)
+                    if sess not in terminated_sessions:
+                        terminated_sessions.append(sess)
+                    dirty = True
+                except Exception:
+                    pass
+            pid = int(task.get("pid") or 0)
+            if pid and _is_pid_alive(pid):
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    if pid not in terminated_pids:
+                        terminated_pids.append(pid)
+                    dirty = True
+                except Exception:
+                    pass
+            task["status"] = "stopped"
+            task["finishedAt"] = now_iso()
+            task["stopReason"] = "scheduler_aborted"
+            task["manualStopType"] = "scheduler_aborted"
+            dirty = True
+        if dirty:
+            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+            try:
+                append_event(root, {"type": "worker_task_stopped", "payload": {"reason": "scheduler_aborted", "terminatedSessions": terminated_sessions}})
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        reaped_gpu = _reap_orphan_gpu_sessions(root, force_all=True)
+        for g in reaped_gpu:
+            if g not in terminated_sessions:
+                terminated_sessions.append(g)
     except Exception:
         pass
     message = "已终止匹配的调度进程" if matched else ("未找到活动调度进程" if not errors else "停止调度进程失败")
@@ -9392,6 +10136,11 @@ def serve_http(args):
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 60), getattr(args, "jitter_seconds", 30))
+        # P0: worker_telemetry 与 hub_control 均启动 gpu_log_tail 采样，与 GPU 采样同频 60s，写入 live_output/{gid}.json + append_event log_tail
+        try:
+            start_gpu_log_tail_sampler(root, getattr(args, "gpu_poll_seconds", 60) or 60, getattr(args, "jitter_seconds", 30))
+        except Exception:
+            pass
         hub_uplink_url = getattr(args, "hub_uplink_url", "") or os.environ.get("SIMPLE_EXPERIMENT_HUB_UPLINK_URL", "")
         start_worker_hub_uplink(
             root,
@@ -9413,6 +10162,10 @@ def serve_http(args):
             )
     elif mode == "hub_control":
         start_hub_control_sampler(root, getattr(args, "poll_seconds", 60), getattr(args, "jitter_seconds", 30))
+        try:
+            start_gpu_log_tail_sampler(root, getattr(args, "poll_seconds", 60) or 60, getattr(args, "jitter_seconds", 30))
+        except Exception:
+            pass
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "SimpleExperimentAgent/" + AGENT_VERSION
@@ -9567,14 +10320,19 @@ def serve_http(args):
                     return
             elif self.reject_if_needed():
                 return
-            if route == "/api/health":
+            if route in ("/api/health", "/health", "/api/version", "/version"):
+                # 兼容别名：/health 与 /api/health 均可达，避免前端 worker_telemetry 404 无回调
+                if route in ("/health", "/version") or route == "/api/version":
+                    return self.send_json(api_version(root, mode) if route.endswith("version") else api_health(root, mode))
                 return self.send_json(api_health(root, mode))
+            if route == "/api/version":
+                return self.send_json(api_version(root, mode))
             if route == "/api/capabilities":
                 return self.send_json(api_capabilities(root, bool(token), mode))
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse") and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/tmux/capture", "/api/tmux/list") and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
@@ -9699,6 +10457,99 @@ def serve_http(args):
             if route == "/api/files/transfer-status":
                 transfer_id = (parse_qs(parsed.query).get("id") or [""])[0]
                 return self.send_json(read_transfer_status(root, transfer_id))
+            if route == "/api/tmux/capture":
+                params = parse_qs(parsed.query)
+                window = (params.get("window") or params.get("session") or params.get("name") or [""])[0].strip()
+                if not window:
+                    return self.send_json({"error": "window required"}, status=400)
+                # allow alnum, ._-:, %, dot and slash for pane target (pane id like %0, window like session:1, pane like session:1.2)
+                if not re.match(r"^[A-Za-z0-9._\-:./%]+$", window):
+                    return self.send_json({"error": "invalid window name"}, status=400)
+                try:
+                    r = subprocess.run(["tmux", "capture-pane", "-p", "-t", window], capture_output=True, text=True, timeout=5)
+                    text = r.stdout or ""
+                    if r.returncode != 0:
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": False, "error": (r.stderr or f"rc={r.returncode}").strip()[-500:], "text": text}, status=200)
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": True, "text": text, "lines": text.splitlines()[-200:]})
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=500)
+            if route == "/api/tmux/list":
+                try:
+                    if not tmux_available():
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": False, "sessions": [], "error": "tmux not found"})
+                    # list sessions
+                    sess_proc = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}|#{session_windows}|#{session_created}|#{session_attached}"], capture_output=True, text=True, timeout=5)
+                    if sess_proc.returncode != 0:
+                        err = (sess_proc.stderr or "").strip().lower()
+                        if "no server" in err or "no sessions" in err:
+                            return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "sessions": [], "message": "no tmux server"})
+                        # fallback to tmux ls
+                        sess_proc2 = subprocess.run(["tmux", "ls"], capture_output=True, text=True, timeout=5)
+                        if sess_proc2.returncode != 0 and ("no server" in (sess_proc2.stderr or "").lower() or "no sessions" in (sess_proc2.stderr or "").lower()):
+                            return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "sessions": [], "message": "no tmux server"})
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "available": True, "sessions": [], "error": (sess_proc.stderr or sess_proc2.stderr or "list-sessions failed").strip()[-500:]}, status=200)
+                    sessions = []
+                    for line in (sess_proc.stdout or "").splitlines():
+                        if not line.strip():
+                            continue
+                        parts = line.split("|")
+                        sess_name = (parts[0] if len(parts)>0 else "").strip()
+                        if not sess_name:
+                            continue
+                        try:
+                            sess_windows = int((parts[1] if len(parts)>1 else "0").strip() or 0)
+                        except Exception:
+                            sess_windows = 0
+                        # list windows for this session
+                        windows = []
+                        try:
+                            win_proc = subprocess.run(["tmux", "list-windows", "-t", sess_name, "-F", "#{window_index}|#{window_name}|#{window_active}|#{window_panes}"], capture_output=True, text=True, timeout=5)
+                            if win_proc.returncode == 0:
+                                for wline in (win_proc.stdout or "").splitlines():
+                                    if not wline.strip():
+                                        continue
+                                    wparts = wline.split("|")
+                                    widx = (wparts[0] if len(wparts)>0 else "").strip()
+                                    wname = (wparts[1] if len(wparts)>1 else "").strip()
+                                    wactive = (wparts[2] if len(wparts)>2 else "0").strip() == "1"
+                                    try:
+                                        wpanes = int((wparts[3] if len(wparts)>3 else "1").strip() or 1)
+                                    except Exception:
+                                        wpanes = 1
+                                    panes = []
+                                    try:
+                                        pane_proc = subprocess.run(["tmux", "list-panes", "-t", f"{sess_name}:{widx}", "-F", "#{pane_index}|#{pane_active}|#{pane_current_command}|#{pane_width}|#{pane_height}|#{pane_id}|#{pane_title}"], capture_output=True, text=True, timeout=5)
+                                        if pane_proc.returncode == 0:
+                                            for pline in (pane_proc.stdout or "").splitlines():
+                                                if not pline.strip():
+                                                    continue
+                                                pparts = pline.split("|")
+                                                pidx = (pparts[0] if len(pparts)>0 else "").strip()
+                                                pactive = (pparts[1] if len(pparts)>1 else "0").strip() == "1"
+                                                pcmd = (pparts[2] if len(pparts)>2 else "").strip()
+                                                try:
+                                                    pw = int((pparts[3] if len(pparts)>3 else "0").strip() or 0)
+                                                except Exception:
+                                                    pw = 0
+                                                try:
+                                                    ph = int((pparts[4] if len(pparts)>4 else "0").strip() or 0)
+                                                except Exception:
+                                                    ph = 0
+                                                pid = (pparts[5] if len(pparts)>5 else "").strip()
+                                                ptitle = (pparts[6] if len(pparts)>6 else "").strip()
+                                                target = f"{sess_name}:{widx}.{pidx}" if pidx else f"{sess_name}:{widx}"
+                                                panes.append({"index": pidx, "active": pactive, "command": pcmd, "width": pw, "height": ph, "id": pid, "title": ptitle, "target": target})
+                                        else:
+                                            panes.append({"index": "0", "active": True, "command": "", "width": 0, "height": 0, "id": "", "title": "", "target": f"{sess_name}:{widx}"})
+                                    except Exception:
+                                        pass
+                                    windows.append({"index": widx, "name": wname, "active": wactive, "panes": panes, "target": f"{sess_name}:{widx}", "paneCount": wpanes})
+                        except Exception:
+                            pass
+                        sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows})
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "sessions": sessions})
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=500)
             return self.send_json({"error": "not found"}, status=404)
 
         def do_POST(self):
@@ -9707,8 +10558,33 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation") and worker_action not in WORKER_RESULT_ACTIONS:
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache") and worker_action not in WORKER_RESULT_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
+            length = int(self.headers.get("Content-Length") or 0)
+            raw_body = self.rfile.read(length)
+            payload = {}
+            if route != "/api/files/upload-chunk" or "application/json" in (self.headers.get("Content-Type") or ""):
+                try:
+                    payload = json.loads(raw_body.decode("utf-8") or "{}")
+                except Exception:
+                    return self.send_json({"error": "invalid json"}, status=400)
+            # Admin kill-stale-runtime: used by extension killRemoteAgentAndTmux to clean old tmux/pids via tunnel
+            if route in ("/api/admin/kill-stale-runtime", "/api/admin/exec"):
+                if not self.localhost_only():
+                    return self.send_json({"error": "localhost only"}, status=403)
+                if self.reject_if_needed():
+                    return
+                try:
+                    cmd = str(payload.get("command") or payload.get("cmd") or "").strip()
+                    if route == "/api/admin/kill-stale-runtime" or not cmd:
+                        kill_cmd = "tmux kill-session -t zlk-worker-nwpu3-agent 2>/dev/null || true; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(zlk-sch-|simple-gpu-)' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true; echo ok"
+                        out = subprocess.run(kill_cmd, shell=True, capture_output=True, text=True, timeout=10)
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "output": (out.stdout or "")[:2000], "error": (out.stderr or "")[:2000]})
+                    else:
+                        out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": out.returncode == 0, "returncode": out.returncode, "output": (out.stdout or "")[:4000], "error": (out.stderr or "")[:4000]})
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=500)
             allowed = ACTION_ROUTES.union({
                 "/api/worker/availability/batch",
                 "/api/workers/uplink/events",
@@ -9718,14 +10594,6 @@ def serve_http(args):
             })
             if route not in allowed:
                 return self.send_json({"error": "not found"}, status=404)
-            length = int(self.headers.get("Content-Length") or 0)
-            raw_body = self.rfile.read(length)
-            payload = {}
-            if route != "/api/files/upload-chunk" or "application/json" in (self.headers.get("Content-Type") or ""):
-                try:
-                    payload = json.loads(raw_body.decode("utf-8") or "{}")
-                except Exception:
-                    return self.send_json({"error": "invalid json"}, status=400)
             if route.startswith("/api/files/"):
                 if route == "/api/files/upload-init":
                     remote_path = str(payload.get("remotePath") or payload.get("path") or "")

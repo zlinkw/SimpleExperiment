@@ -93,6 +93,12 @@ class HttpTunnelClient {
             params.set("end", String(query.end));
         if (query.maxPoints !== undefined)
             params.set("maxPoints", String(Math.max(1, Math.min(864, Math.trunc(query.maxPoints) || 1))));
+        if (query.batch !== undefined)
+            params.set("batch", query.batch ? "1" : "0");
+        if (query.bucketSeconds !== undefined)
+            params.set("bucketSeconds", String(Math.max(1, Math.trunc(query.bucketSeconds) || 60)));
+        if (query.retentionHours !== undefined)
+            params.set("retentionHours", String(Math.max(1, Math.trunc(query.retentionHours) || 72)));
         const suffix = params.size ? `?${params.toString()}` : "";
         return this.requestJson(`/api/gpu/history${suffix}`, "gpu_history", undefined, {
             method: "GET",

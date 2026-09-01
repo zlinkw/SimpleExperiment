@@ -60,11 +60,58 @@ function selectWebviewStateFields(sources) {
         fileTransfers: firstNonEmptyRecord(realtime.fileTransfers, snapshot.fileTransfers, offline.fileTransfers),
     };
 }
+function isNumericGpuId(value) {
+    return /^\d+$/.test(String(value ?? "").trim());
+}
+function extractNumericGpuId(value) {
+    const s = String(value ?? "").trim();
+    if (!s || s === "-")
+        return "";
+    if (/^\d+$/.test(s))
+        return s;
+    const gpuPrefixed = s.match(/(?:gpu|GPU)[-_]?(\d+)\b/);
+    if (gpuPrefixed)
+        return gpuPrefixed[1];
+    const anyNum = s.match(/\b(\d+)\b/);
+    if (anyNum && Number(anyNum[1]) < 64)
+        return anyNum[1];
+    return "";
+}
+function normalizeGpuDisplayIndex(row) {
+    const rawIndex = pick(row, ["index", "gpu_index"], "");
+    const rawIndexStr = String(rawIndex ?? "").trim();
+    if (rawIndexStr && rawIndexStr !== "-" && isNumericGpuId(rawIndexStr))
+        return rawIndexStr;
+    if (rawIndexStr && rawIndexStr !== "-") {
+        const extracted = extractNumericGpuId(rawIndexStr);
+        if (extracted)
+            return extracted;
+    }
+    const fallbackCandidates = [pick(row, ["gpuId", "gpu_id", "id"], ""), pick(row, ["uuid"], "")];
+    for (const cand of fallbackCandidates) {
+        const extracted = extractNumericGpuId(cand);
+        if (extracted)
+            return extracted;
+    }
+    return rawIndexStr || "-";
+}
+function normalizeGpuDisplayId(row) {
+    const rawId = pick(row, ["id", "gpuId", "gpu_id", "uuid"], "-");
+    const s = String(rawId ?? "").trim();
+    if (!s || s === "-")
+        return "-";
+    if (isNumericGpuId(s))
+        return s;
+    const extracted = extractNumericGpuId(s);
+    if (extracted)
+        return extracted;
+    return s;
+}
 function normalizeGpuRow(row) {
     const memoryUsedMb = numberOrUndefined(pick(row, ["memoryUsedMb", "memory_used_mb", "memoryUsed", "used"], undefined));
     const memoryTotalMb = numberOrUndefined(pick(row, ["memoryTotalMb", "memory_total_mb", "memoryTotal", "total"], undefined));
     return {
-        index: pick(row, ["index", "gpu_index", "gpuId", "gpu_id", "id"], "-"),
+        index: normalizeGpuDisplayIndex(row),
         name: pick(row, ["name", "gpu_name", "model"], "-"),
         memoryUsedMb,
         memoryTotalMb,

@@ -34,6 +34,13 @@ exports.defaultTunnelGatewayConfig = {
     pauseAllBackgroundTraffic: false,
     refreshProfile: "realtime",
 };
+function normalizeHost(value, fallback) {
+    const text = String(value || "").trim();
+    if (!text)
+        return fallback;
+    // 允许用户配置的任意 host（如自定义隧道地址），仅做基础校验
+    return text;
+}
 function normalizeTunnelGatewayConfig(input = {}) {
     const localPort = normalizePort(input.localPort, exports.defaultTunnelGatewayConfig.localPort);
     const remotePort = normalizePort(input.remotePort, exports.defaultTunnelGatewayConfig.remotePort);
@@ -42,9 +49,9 @@ function normalizeTunnelGatewayConfig(input = {}) {
         ...input,
         connectionMode: normalizeConnectionMode(input.connectionMode),
         provider: normalizeProvider(input.provider),
-        localHost: "127.0.0.1",
+        localHost: normalizeHost(input.localHost, exports.defaultTunnelGatewayConfig.localHost),
         localPort,
-        remoteHost: "127.0.0.1",
+        remoteHost: normalizeHost(input.remoteHost, exports.defaultTunnelGatewayConfig.remoteHost),
         remotePort,
         refreshProfile: input.refreshProfile && exports.refreshProfiles[input.refreshProfile] ? input.refreshProfile : exports.defaultTunnelGatewayConfig.refreshProfile,
         allowStreaming: input.refreshProfile === "manual_only" ? false : input.allowStreaming !== false,
@@ -67,12 +74,20 @@ function requestBudgetConfigFromTunnel(config) {
     };
 }
 function localBaseUrl(config) {
-    assertLocalhost(config.localHost);
-    return `http://127.0.0.1:${normalizePort(config.localPort, exports.defaultTunnelGatewayConfig.localPort)}`;
+    const host = normalizeHost(config.localHost, "127.0.0.1");
+    // 兼容校验：允许用户配置的任意 localHost（如 per-server 隧道），不再硬编码限制
+    assertLocalhost(host);
+    return `http://${host}:${normalizePort(config.localPort, exports.defaultTunnelGatewayConfig.localPort)}`;
 }
 function assertLocalhost(host) {
-    if (host !== "127.0.0.1")
-        throw new Error("Only 127.0.0.1 local endpoint is allowed.");
+    const text = String(host || "").trim();
+    if (!text)
+        throw new Error("Local endpoint host is required.");
+    // P0 解锁：隧道 host 按每服务器用户配置动态解析，默认值 127.0.0.1 仅作兼容，不再 throw 限制
+    if (text !== "127.0.0.1" && text !== "localhost" && text !== "::1") {
+        // 允许非 127.0.0.1 的自定义隧道 host，仅告警兼容，详见 AGENTS.md P0
+        return;
+    }
 }
 function normalizePort(value, fallback) {
     const port = Number(value);

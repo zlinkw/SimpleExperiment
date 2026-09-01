@@ -62,9 +62,9 @@ function normalizeXshellSetupConfig(input = {}) {
         sftpHost: input.sftpHost?.trim() || undefined,
         sshHost: input.sshHost?.trim() || undefined,
         hubSshPort: normalizeSshPort(input.hubSshPort, exports.defaultXshellTunnelSetupConfig.hubSshPort),
-        localForwardHost: "127.0.0.1",
+        localForwardHost: String(input.localForwardHost || "127.0.0.1").trim() || "127.0.0.1",
         localForwardPort: (0, TunnelGateway_1.normalizePort)(input.localForwardPort, exports.defaultXshellTunnelSetupConfig.localForwardPort),
-        remoteAgentHost: "127.0.0.1",
+        remoteAgentHost: String(input.remoteAgentHost || "127.0.0.1").trim() || "127.0.0.1",
         remoteAgentPort: (0, TunnelGateway_1.normalizePort)(input.remoteAgentPort, exports.defaultXshellTunnelSetupConfig.remoteAgentPort),
         xshellSessionName,
         savedSessionRunner: normalizeSavedSessionRunner(input.savedSessionRunner),
@@ -109,9 +109,9 @@ function normalizeXshellWorkerTunnelConfig(input = {}, index = 0, fallbackRemote
         resolvedHost: input.resolvedHost?.trim() || undefined,
         sftpHost: input.sftpHost?.trim() || undefined,
         sshHost: input.sshHost?.trim() || undefined,
-        localForwardHost: "127.0.0.1",
+        localForwardHost: String(input.localForwardHost || "127.0.0.1").trim() || "127.0.0.1",
         localForwardPort: (0, TunnelGateway_1.normalizePort)(input.localForwardPort, TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange.start + index),
-        remoteAgentHost: "127.0.0.1",
+        remoteAgentHost: String(input.remoteAgentHost || "127.0.0.1").trim() || "127.0.0.1",
         remoteAgentPort: remoteTelemetryPort,
         remoteTelemetryPort,
         sshConfigAlias: input.sshConfigAlias?.trim() || undefined,
@@ -125,10 +125,32 @@ function normalizeXshellWorkerTunnelConfig(input = {}, index = 0, fallbackRemote
         agentInstallDir: input.agentInstallDir?.trim() || undefined,
         condaEnv: input.condaEnv === undefined ? undefined : normalizeCondaEnvName(input.condaEnv),
         maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1),
-        allowedGpuIds: Array.isArray(input.allowedGpuIds) ? Array.from(new Set(input.allowedGpuIds.map((item) => String(item || "").trim()).filter(Boolean))) : [],
+        allowedGpuIds: normalizeAllowedGpuIds(input.allowedGpuIds),
         authMethod: normalizeAuthMethod(input.authMethod),
         enabled: input.enabled !== false,
+        gpuIdleUtilThreshold: normalizeIdleUtilThreshold(input.gpuIdleUtilThreshold),
+        gpuIdleMemThresholdMb: normalizeIdleMemThreshold(input.gpuIdleMemThresholdMb),
+        sessionCheckMinSeconds: normalizeSessionCheckSeconds(input.sessionCheckMinSeconds),
+        workerStatusTtlSeconds: normalizeWorkerTtlSeconds(input.workerStatusTtlSeconds),
     };
+}
+function normalizeAllowedGpuIds(input) {
+    const raw = Array.isArray(input) ? input : typeof input === "string" ? String(input).split(/[,\s]+/) : [];
+    const trimmed = raw.map((item) => String(item || "").trim()).filter(Boolean);
+    if (!trimmed.length)
+        return [];
+    if (trimmed.length === 1 && (trimmed[0] === "-" || trimmed[0] === "--"))
+        return [];
+    if (trimmed.some((value) => value === "-" || value === "--")) {
+        console.warn(`[allowedGpuIds] 非法占位 "${trimmed.join(",")}" 已置空为全部允许`);
+        return [];
+    }
+    const invalid = trimmed.filter((value) => !/^\d+$/.test(value));
+    if (invalid.length) {
+        console.warn(`[allowedGpuIds] 非法 GPU ID "${invalid.join(",")}" 已置空为全部允许，仅数字 0..N 有效`);
+        return [];
+    }
+    return Array.from(new Set(trimmed));
 }
 function workerTunnelToXshellSetupConfig(base, worker) {
     return normalizeXshellSetupConfig({
@@ -170,8 +192,9 @@ function validateXshellSetupConfig(config) {
         errors.push("本地转发端口必须在 1024-65535 之间。");
     if (config.remoteAgentPort < 1024 || config.remoteAgentPort > 65535)
         errors.push("服务器上的 Agent 端口必须在 1024-65535 之间。");
-    if (config.localForwardHost !== "127.0.0.1" || config.remoteAgentHost !== "127.0.0.1")
-        errors.push("隧道两端只能使用 127.0.0.1。");
+    // P0 已解锁：隧道 host 按每服务器用户配置动态解析，不再强制 127.0.0.1
+    if (!String(config.localForwardHost || "").trim() || !String(config.remoteAgentHost || "").trim())
+        errors.push("隧道两端 host 不能为空。");
     if (config.authMethod === "key" && !config.privateKeyPath)
         errors.push("密钥登录需要选择私钥文件。");
     if (config.workerRealtimeMode === "hub_plus_workers" && !config.workerTunnels.some((worker) => worker.enabled))
@@ -235,11 +258,35 @@ function normalizePositiveInt(value, fallback) {
     const number = Number(value);
     return Number.isInteger(number) && number > 0 ? number : fallback;
 }
+function normalizeIdleUtilThreshold(value) {
+    if (value === undefined || value === null || String(value).trim() === "")
+        return undefined;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 0 && n <= 100 ? n : undefined;
+}
+function normalizeIdleMemThreshold(value) {
+    if (value === undefined || value === null || String(value).trim() === "")
+        return undefined;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 0 && n <= 8192 ? n : undefined;
+}
+function normalizeSessionCheckSeconds(value) {
+    if (value === undefined || value === null || String(value).trim() === "")
+        return undefined;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 1 && n <= 60 ? n : undefined;
+}
+function normalizeWorkerTtlSeconds(value) {
+    if (value === undefined || value === null || String(value).trim() === "")
+        return undefined;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 10 && n <= 7200 ? n : undefined;
+}
 function normalizePortConfig(input, workers, hubLocalPort, hubRemotePort, hubDisplayName) {
     const range = (0, TunnelPortConflict_1.normalizePortRange)(input?.workerLocalPortRange, TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange);
     const validIds = new Set(["hub", ...workers.map((worker) => worker.id)]);
     const assignments = Array.isArray(input?.assignments)
-        ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && assignment.localForwardHost === "127.0.0.1" && assignment.remoteBindHost === "127.0.0.1")
+        ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
         : [];
     const assignedAt = new Date(0).toISOString();
     if (!assignments.some((assignment) => assignment.endpointId === "hub")) {

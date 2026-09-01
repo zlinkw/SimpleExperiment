@@ -4,6 +4,7 @@ exports.CLUSTER_SCHEDULER_RUNTIME = void 0;
 exports.CLUSTER_SCHEDULER_RUNTIME = String.raw `from __future__ import annotations
 
 import argparse
+import logging
 import ast
 import copy
 import csv
@@ -14,6 +15,7 @@ import os
 import random
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -32,6 +34,11 @@ except ModuleNotFoundError as exc:
         raise
     yaml = None
 
+# 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
+SCHEDULER_VERSION = "0.4.64"
+RUNTIME_VERSION = "0.4.64"
+PLUGIN_VERSION = "0.4.64"
+
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 1.5
 WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS = 3.0
@@ -41,6 +48,15 @@ DELETED_EXPERIMENTS_PATH = Path("simple_cluster/deleted_experiments.jsonl")
 DELETED_SCHEDULER_ROWS_PATH = Path("simple_cluster/deleted_scheduler_rows.jsonl")
 MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
 AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
+
+
+def scheduler_version_info() -> dict[str, Any]:
+    return {
+        "schedulerVersion": SCHEDULER_VERSION,
+        "runtimeVersion": RUNTIME_VERSION,
+        "pluginVersion": PLUGIN_VERSION,
+        "checkedAt": datetime.now().astimezone().isoformat(),
+    }
 
 
 def scheduler_dependency_status() -> dict[str, Any]:
@@ -366,6 +382,60 @@ RESULT_PREFIX_PAIRS = {
 }
 
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
+
+# 历史产物解耦：用于调度前检测 output_dir 是否已有产物的标记文件（与 RESULT_ROOT_FILES 交叉但聚焦关键产物）
+EXISTING_ARTIFACT_MARKERS = (
+    "metrics_summary.csv", "metrics.csv", "results.csv", "summary.csv",
+    "best_model.pth", "checkpoint.pth", "latest.pth", "model.pth",
+    "train.log", "test.log", "stdout.log", "stderr.log", "console.log",
+    "artifact_manifest.json", "checkpoint_manifest.json",
+    "config_snapshot.yaml", "env_snapshot.json",
+)
+
+
+def has_existing_artifacts(output_dir: str | Path) -> dict[str, Any]:
+    base = Path(str(output_dir or "").strip())
+    if not base.is_dir():
+        return {"exists": False, "markers": [], "totalFiles": 0}
+    markers: list[str] = []
+    total = 0
+    try:
+        for child in base.iterdir():
+            total += 1
+            if child.name in EXISTING_ARTIFACT_MARKERS:
+                markers.append(child.name)
+        # 深层 checkpoint 兜底
+        for name in ("best_model.pth", "checkpoint.pth", "latest.pth"):
+            if not any(m == name for m in markers) and (base / name).exists():
+                markers.append(name)
+            # work_dirs 常见 checkpoint 子目录
+            ckpt_dir = base / "checkpoints"
+            if ckpt_dir.is_dir():
+                for p in ckpt_dir.iterdir():
+                    if p.is_file() and p.suffix in (".pth", ".ckpt", ".pt"):
+                        markers.append(f"checkpoints/{p.name}")
+                        break
+    except Exception:
+        pass
+    return {"exists": bool(markers or total > 0 and (base / "artifact_manifest.json").exists()), "markers": sorted(set(markers)), "totalFiles": total}
+
+
+def detect_existing_outputs(jobs: list[Job]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for job in jobs:
+        info = has_existing_artifacts(job.output_dir)
+        if info["exists"]:
+            out.append({"index": job.index, "case": job.case, "seed": job.seed, "output_dir": job.output_dir, "markers": info["markers"], "totalFiles": info["totalFiles"]})
+    return out
+
+
+def check_existing_mode(args: argparse.Namespace) -> None:
+    plan = load_plan(args.plan) if args.plan else {}
+    jobs = jobs_for_args(plan, args)
+    existing = detect_existing_outputs(jobs)
+    payload = {"schemaVersion": 1, "ok": True, "plan": args.plan, "total": len(jobs), "existingCount": len(existing), "existing": existing}
+    print(json.dumps(payload, ensure_ascii=False))
+
 
 
 def direct_result_field(*records: dict[str, Any]) -> str:
@@ -1112,11 +1182,74 @@ def simple_runtime_env(base=None):
     return env
 
 
+def _simple_conda_env_python_candidates(conda_env: str) -> list[str]:
+    name = str(conda_env or "").strip()
+    if not name or name in {"-", "--"}:
+        return []
+    # 绝对路径支持：如 /path/to/conda_envs/<env_name> 直接取 {path}/bin/python；仅以 / 开头的绝对路径为主流程，环境名分支保留为降级兜底不再作为主路径
+    if name.strip().startswith("/"):
+        clean = name.strip().rstrip("/\\")
+        if clean.endswith("/bin/python"):
+            return [clean]
+        return [clean + "/bin/python"]
+    home = os.path.expanduser("~")
+    candidates: list[str] = []
+    for base in [
+        os.path.join(home, "miniconda3", "envs", name, "bin", "python"),
+        os.path.join(home, "anaconda3", "envs", name, "bin", "python"),
+        os.path.join(home, "miniforge3", "envs", name, "bin", "python"),
+        os.path.join(home, "mambaforge", "envs", name, "bin", "python"),
+        f"/opt/conda/envs/{name}/bin/python",
+        f"/opt/anaconda3/envs/{name}/bin/python",
+        f"/usr/local/anaconda3/envs/{name}/bin/python",
+    ]:
+        candidates.append(base)
+    return candidates
+
+
+def _simple_conda_resolve_env_python(conda_env: str) -> str | None:
+    name = str(conda_env or "").strip()
+    if not name or name in {"-", "--"}:
+        return None
+    # 仅接受绝对路径：以 / 开头，直接取 {path}/bin/python；仅环境名已废弃，经 runtime_python_command 强校验后此处不再探测 conda run
+    if name.strip().startswith("/"):
+        clean = name.strip().rstrip("/\\")
+        if clean.endswith("/bin/python"):
+            candidate = clean
+        else:
+            candidate = clean + "/bin/python"
+        try:
+            if os.path.isfile(candidate):
+                return candidate
+        except Exception:
+            pass
+        # 远端文件系统可能与调度器本机不同，仍返回绝对路径供 runtime_python_command 与 tmux 包裹使用
+        return candidate
+    # 降级兜底保留：仅环境名（如 <env_name>）曾走候选探测，现已要求绝对路径，此分支保留为历史兼容但主流程已在 runtime_python_command 处直接失败
+    try:
+        proc = subprocess.run(
+            ["bash", "-lc", f"conda run -n {shlex.quote(name)} python -c 'import sys; print(sys.executable)'"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10,
+        )
+        if proc.returncode == 0:
+            lines = [ln.strip() for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
+            if lines:
+                candidate = lines[-1]
+                if candidate:
+                    return candidate
+    except Exception:
+        pass
+    for cand in _simple_conda_env_python_candidates(name):
+        try:
+            if os.path.isfile(cand):
+                return cand
+        except Exception:
+            continue
+    return None
+
+
 def simple_conda_activation_script(env: dict[str, str] | None = None) -> str:
-    # Source conda's shell init so 'conda activate' works in non-interactive shells,
-    # then activate the env. Standard, portable approach that works across servers.
-    # Keep a compatibility marker for publicRuntimeEnvironmentDefault's regex.
-    # Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required
+    # 变量化：不写死 zlk，运行时从 SIMPLE_EXPERIMENT_CONDA_ENV 取名；先尝试 source conda.sh 再 activate，兼容非交互 shell
     raw_env_name = simple_conda_env_name(env)
     if not raw_env_name:
         return "true"
@@ -1132,30 +1265,52 @@ def simple_conda_activation_script(env: dict[str, str] | None = None) -> str:
         '_c_ok=0; for _i in 1 2 3 4 5; do '
         'if conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" 2>/dev/null; then _c_ok=1; break; fi; '
         'echo "[simple-agent] conda activate attempt $_i failed for $SIMPLE_EXPERIMENT_CONDA_ENV"; conda env list 2>&1 | head -20; sleep 1; done; '
-        'if [ "$_c_ok" != "1" ]; then echo "Conda env $SIMPLE_EXPERIMENT_CONDA_ENV is required"; echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi'
+        'if [ "$_c_ok" != "1" ]; then echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi'
     )
 
 
 def simple_conda_wrapped_args(args: list[str], env: dict[str, str]) -> list[str]:
+    # 变量化：tmux 人工发送模式仍需在 bash -lc 前拼接 conda activate；不依赖 shutil.which，保持在非交互 shell 也能 activate
     if os.name == "nt":
         return args
     conda_env = str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
     if not (simple_conda_required(env) or conda_env):
         return args
-    # Activate the conda env: source conda.sh first so 'conda activate' works in non-interactive shells.
-    if shutil.which("conda") is None:
-        return args
     return shell_command_args(f"{simple_conda_activation_script(env)} && exec {shlex.join(args)}")
 
 
+def _replace_bare_python_prefix(text: str, python_bin: str) -> str:
+    # 将裸 python 首 token 固化为绝对路径，避免 bash -lc 非交互 shell 找不到 torch
+    if not text or not python_bin or not os.path.isabs(python_bin):
+        return text
+    stripped = text.lstrip()
+    if not stripped:
+        return text
+    leading = text[: len(text) - len(stripped)]
+    # 首 token 为 bare python/python3/python3.x 形式的替换
+    m = re.match(r"^(python3?(\.\d+)?)(\s|$|;)", stripped)
+    if m:
+        return leading + python_bin + stripped[m.end(1) :]
+    # 处理 shell 连接符后的 bare python（如 "&& python" 或 "; python"）
+    if re.search(r"(?:&&|;|\|\|)\s*python3?(\.\d+)?\b", text):
+        text = re.sub(r"((?:&&|;|\|\|)\s*)python3?(\.\d+)?\b", r"\1" + python_bin, text)
+    return text
+
+
 def runtime_python_command(env: dict[str, str] | None = None) -> str:
-    # When a conda env is required and 'conda' is on PATH, launch with bare 'python'
-    # so that 'conda run' resolves the env interpreter.
+    # 固化为绝对路径：仅接受以 / 开头的绝对路径（可选以 /bin/python 结尾），否则直接失败提示“请填写完整环境路径”；跨平台以 "/" 判定，避免 Windows isabs 误判
     source = simple_runtime_env(env) if env is not None else simple_runtime_env()
     conda_env = str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
-    require = str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on")
-    if conda_env and require and shutil.which("conda") is not None:
-        return "python"
+    if conda_env:
+        # 必须为绝对路径：以 / 开头，精确到环境文件夹如 /path/to/conda_envs/<env_name>，可选以 /bin/python 结尾；空值表示不激活 conda
+        if not conda_env.strip().startswith("/"):
+            raise RuntimeError(f"condaEnv 请填写完整环境路径，以 / 开头（精确到环境文件夹，如 /path/to/conda_envs/<env_name>，可选以 /bin/python 结尾），当前值: {conda_env!r}；仅环境名已废弃")
+        clean = conda_env.strip().rstrip("/\\")
+        if clean.endswith("/bin/python"):
+            return clean
+        return clean + "/bin/python"
+    if sys.executable and os.path.isabs(sys.executable):
+        return sys.executable
     return sys.executable
 
 
@@ -1191,6 +1346,7 @@ def shell_command_args(command: str) -> list[str]:
 
 def render_command(template: str, job: Job, config_path: Path, args: argparse.Namespace) -> list[str]:
     values = dict(job.template_values or {})
+    python_bin = runtime_python_command(dict(os.environ))
     values.update({
         "index": job.index,
         "suite": job.suite,
@@ -1209,10 +1365,14 @@ def render_command(template: str, job: Job, config_path: Path, args: argparse.Na
         "mode": str(args.mode or ""),
         "plan": str(args.plan or ""),
         "plan_file": str(args.plan or ""),
+        "python": python_bin,
     })
+    # 同时支持模板使用 {python} 占位；未使用占位时后续 _replace_bare_python_prefix 会固化首 token
+    values["python"] = python_bin
     rendered = normalize_command_text(render_template(template, values))
     if bool(getattr(args, "debug_mode", False)):
         rendered = rewrite_debug_command_outputs(rendered, job)
+    rendered = _replace_bare_python_prefix(rendered, python_bin)
     if command_requires_shell(rendered):
         return shell_command_args(rendered)
     return shlex.split(rendered)
@@ -1281,7 +1441,7 @@ def wrap_command(command: list[str], job: Job, config_path: Path, args: argparse
         print(f"[simple-experiment-runtime] adapter run wrapper missing, command runs without wrapper: {job.run_wrapper}", flush=True)
         return command
     context_json = json.dumps(wrapper_context(job, config_path, args, stage), ensure_ascii=False, separators=(",", ":"))
-    return [runtime_python_command(), wrapper_path, "--output-dir", job.output_dir, "--context-json", context_json, "--", *command]
+    return [runtime_python_command(dict(os.environ)), wrapper_path, "--output-dir", job.output_dir, "--context-json", context_json, "--", *command]
 
 
 def surface_original_error(job: "Job", phase: str) -> None:
@@ -1321,9 +1481,14 @@ def surface_original_error(job: "Job", phase: str) -> None:
 
 def run_job(job: Job, args: argparse.Namespace) -> None:
     manifest = Path(job.output_dir) / "artifact_manifest.json"
-    if args.resume and manifest.exists() and args.mode != "test":
-        print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir}", flush=True)
+    overwrite = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
+    # 解耦：调度/显卡状态不再受历史产物阻塞；仅当 --resume 且非 --overwrite 时才跳过已完成的 manifest
+    if not overwrite and args.resume and manifest.exists() and args.mode != "test":
+        info = has_existing_artifacts(job.output_dir)
+        print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir} markers={info.get('markers') or []} (use --overwrite to force rerun)", flush=True)
         return
+    if overwrite and manifest.exists():
+        print(f"[simple-experiment-runtime] overwrite existing job index={job.index} output={job.output_dir}", flush=True)
     config_path = write_job_config(job)
     # Publish the resolved experiment output_dir to a sidecar so the agent's tmux window can
     # mirror stdout.log/stderr.log live. Only active when the agent injected the env vars.
@@ -1771,9 +1936,15 @@ def is_terminal_worker_command_event(event: dict[str, Any]) -> bool:
     event_type = str(event.get("type") or "")
     payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
     status = str(payload.get("status") or "").lower()
-    if event_type in ("worker_task_completed", "worker_task_failed", "worker_command_completed", "worker_command_failed", "worker_task_stopped"):
+    # P0/P1 修复：调度器需识别 worker_command_exec_error 为终态，避免 running=4 虚增后 idle=0 永循环
+    if event_type in ("worker_task_completed", "worker_task_failed", "worker_command_completed", "worker_command_failed", "worker_task_stopped", "worker_command_exec_error", "worker_command_failed"):
         return True
-    return status in ("completed", "failed", "cancelled", "canceled", "stalled", "stopped")
+    # 兼容 payload.error 含 path outside / exec_error 的情况视为失败终态
+    if event_type == "worker_command_exec_error":
+        return True
+    if "exec_error" in event_type or "path outside" in str(payload.get("error") or "").lower():
+        return True
+    return status in ("completed", "failed", "cancelled", "canceled", "stalled", "stopped", "error")
 
 
 def command_result_events(command_ids: set[str]) -> dict[str, dict[str, Any]]:
@@ -1891,6 +2062,33 @@ def busy_gpu_uuids(worker: dict[str, Any]) -> set[str]:
     return set()
 
 
+def _normalize_gpu_numeric_id(value: Any) -> str:
+    s = str(value if value is not None else "").strip()
+    if not s or s == "-":
+        return ""
+    if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", s, re.I):
+        m = re.search(r"(?:gpu)[-_]?(\d+)\b", s, re.I)
+        if m:
+            v = m.group(1)
+            try:
+                if 0 <= int(v) < 64:
+                    return v
+            except Exception:
+                pass
+        return ""
+    if re.match(r"^\d+$", s):
+        try:
+            if 0 <= int(s) < 64:
+                return s
+        except Exception:
+            pass
+        return s
+    m2 = re.search(r"(?:gpu)[-_]?(\d+)\b", s, re.I)
+    if m2:
+        return m2.group(1)
+    return ""
+
+
 def gpu_process_pids(worker: dict[str, Any], gpu_id: str) -> list[str]:
     return []
 
@@ -1918,7 +2116,7 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
         }
         return probe
     updated_at = str(availability.get("updatedAt") or "")
-    ttl = int(availability.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 45)
+    ttl = int(availability.get("ttlSeconds") or worker.get("workerStatusTtlSeconds") or worker.get("worker_status_ttl_seconds") or worker.get("sessionCheckMinSeconds") or 45)
     age = availability_age_seconds(worker)
     if age is None or age > ttl:
         probe["error"] = f"worker availability stale age={age if age is not None else 'unknown'} ttl={ttl}"
@@ -1934,15 +2132,118 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
     if availability.get("available") is False:
         probe["error"] = str(availability.get("reason") or "worker unavailable")
         return probe
-    allowed = {str(item).strip() for item in worker.get("allowed_gpu_ids", []) if str(item).strip()}
-    busy = {str(item).strip() for item in availability.get("busyGpuIds") or [] if str(item).strip()}
+    raw_allowed = [str(item).strip() for item in worker.get("allowed_gpu_ids", []) if str(item).strip()]
+    # 语义修复：空、"-"、"--" 均表示全部允许；仅数字 ID 透传；非法值告警并置空，避免 not_allowed 全拒
+    if not raw_allowed:
+        allowed: set[str] = set()
+    elif len(raw_allowed) == 1 and raw_allowed[0] in ("-", "--"):
+        allowed = set()
+    elif any(item in ("-", "--") for item in raw_allowed):
+        print(f"[allowed_gpu_ids] 非法占位 {raw_allowed!r} 已置空为全部允许", flush=True)
+        allowed = set()
+    else:
+        invalid = [item for item in raw_allowed if not item.isdigit()]
+        if invalid:
+            print(f"[allowed_gpu_ids] 非法 GPU ID {invalid!r} 已置空为全部允许，仅数字 0..N 有效", flush=True)
+            allowed = set()
+        else:
+            allowed = set(raw_allowed)
+    # 每服务器空卡阈值：worker 优先，availability 透传次之，全局默认值兜底
+    thr_util = worker.get("gpu_idle_util_threshold")
+    if thr_util is None:
+        thr_util = worker.get("gpuIdleUtilThreshold")
+    if thr_util is None:
+        thr_util = availability.get("gpuIdleUtilThreshold") if isinstance(availability, dict) else None
+    if thr_util is None:
+        thr_util = availability.get("gpu_idle_util_threshold") if isinstance(availability, dict) else None
+    thr_mem = worker.get("gpu_idle_mem_threshold")
+    if thr_mem is None:
+        thr_mem = worker.get("gpuIdleMemThresholdMb")
+    if thr_mem is None:
+        thr_mem = availability.get("gpuIdleMemThresholdMb") if isinstance(availability, dict) else None
+    if thr_mem is None:
+        thr_mem = availability.get("gpu_idle_mem_threshold") if isinstance(availability, dict) else None
+    # 若 availability 含原始 gpus 列表，则用每服务器阈值重算 busy/available，避免全局阈值误判
+    raw_gpus = availability.get("gpus") if isinstance(availability.get("gpus"), list) else None
+    if raw_gpus is not None:
+        recomputed_available: list[str] = []
+        recomputed_busy: set[str] = set()
+        for row in raw_gpus:
+            if not isinstance(row, dict):
+                continue
+            gid = ""
+            for cand in (row.get("index"), row.get("gpu_index"), row.get("gpuId"), row.get("gpu_id"), row.get("id"), row.get("uuid")):
+                norm = _normalize_gpu_numeric_id(cand)
+                if norm:
+                    gid = norm
+                    break
+            if not gid:
+                try:
+                    raw_idx = str(row.get("index") or row.get("gpu_index") or "").strip()
+                    if raw_idx and re.match(r"^\d+$", raw_idx):
+                        gid = raw_idx
+                    else:
+                        continue
+                except Exception:
+                    continue
+            if not gid:
+                continue
+            # 动态阈值判定，与 agent 侧 gpu_row_busy 一致
+            busy_flag = False
+            try:
+                util = None
+                for k in ("utilizationPercent", "utilization", "gpu_util", "utilizationGpu", "utilization_gpu"):
+                    if k in row and row.get(k) is not None:
+                        try:
+                            v = float(row.get(k))
+                            if v == v:
+                                util = v
+                                break
+                        except Exception:
+                            continue
+                mem = None
+                for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used", "used"):
+                    if k in row and row.get(k) is not None:
+                        try:
+                            v = float(row.get(k))
+                            if v == v:
+                                mem = v
+                                break
+                        except Exception:
+                            continue
+                if util is not None and mem is not None:
+                    u_thr = float(thr_util) if thr_util is not None else 5.0
+                    m_thr = float(thr_mem) if thr_mem is not None else 200.0
+                    busy_flag = not (float(util) < u_thr and float(mem) < m_thr)
+                else:
+                    procs = row.get("processes") or row.get("procs") or []
+                    if isinstance(procs, list) and len(procs) > 0:
+                        busy_flag = True
+                    else:
+                        try:
+                            busy_flag = int(row.get("processCount") or row.get("process_count") or 0) > 0
+                        except Exception:
+                            busy_flag = False
+            except Exception:
+                busy_flag = False
+            if busy_flag:
+                recomputed_busy.add(gid)
+            else:
+                recomputed_available.append(gid)
+        # 用重算结果覆盖 stale 的 busy/available
+        busy = recomputed_busy
+        # 覆盖可用列表为重算后的 idle 集合（保持原有 availableGpuIds 语义为 idle）
+        availability_available = recomputed_available
+    else:
+        busy = {str(item).strip() for item in availability.get("busyGpuIds") or [] if str(item).strip()}
+        availability_available = [str(item).strip() for item in availability.get("availableGpuIds") or [] if str(item).strip()]
     capacity = max(1, int(worker.get("max_concurrent_gpus") or worker.get("maxConcurrentGpus") or availability.get("capacityLimit") or 1))
     active_count = sum(1 for item in active.values() if str(item.get("worker_id") or "") == str(worker.get("id") or ""))
     if active_count >= capacity:
         probe["rejected"].append({"reason": "capacity_limit", "active": active_count, "capacity": capacity})
         return probe
     out: list[str] = []
-    for gpu_id in [str(item).strip() for item in availability.get("availableGpuIds") or [] if str(item).strip()]:
+    for gpu_id in availability_available:
         reason = ""
         if f"{worker['id']}:{gpu_id}" in active:
             reason = "active_slot"
@@ -1958,6 +2259,10 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
             break
     probe["idle_gpu_ids"] = out
     probe["source"] = availability.get("source") or "hub_cached_snapshot"
+    if thr_util is not None:
+        probe["gpuIdleUtilThreshold"] = int(thr_util)
+    if thr_mem is not None:
+        probe["gpuIdleMemThresholdMb"] = int(thr_mem)
     return probe
 
 
@@ -2216,6 +2521,15 @@ def is_managed_artifact_path(value: Any) -> bool:
             "simple_cluster/console_logs/",
             "simple_cluster/tmux_logs/",
             "simple_cluster/tmp/cluster_scheduler/logs/",
+            "simple_cluster/tmp/cluster_scheduler/",
+            "simple_cluster/tmp/tmux_logs/",
+            "simple_cluster/tmp/console_logs/",
+            "tmp/console_logs/",
+            "tmp/tmux_logs/",
+            "tmp/cluster_scheduler/logs/",
+            "tmp/cluster_scheduler/",
+            "tmp/",
+            "simple_cluster/tmp/",
         ]
     )
 
@@ -2412,8 +2726,7 @@ def sync_finished_artifacts(plan: str, items: list[dict[str, Any]], workers_by_i
 
 
 def sync_running_console_logs(plan: str, items: list[dict[str, Any]], workers_by_id: dict[str, dict[str, Any]], jobs_by_index: dict[int, Any], status: str) -> None:
-    paths_by_worker: dict[str, list[str]] = {}
-    rows_by_worker: dict[str, list[dict[str, Any]]] = {}
+    # P0: 移除 sync_worker_paths/read_remote_tail 文件拉取，改为消费 agent 的 log_tail events（或直接透传 live_output），避免抛 RuntimeError
     for item in items:
         worker = workers_by_id.get(str(item.get("worker_id") or ""))
         if not worker:
@@ -2427,27 +2740,86 @@ def sync_running_console_logs(plan: str, items: list[dict[str, Any]], workers_by
             continue
         item["hub_console_log"] = raw_log
         item["output_dir"] = str(getattr(job, "output_dir", item.get("output_dir", "")) or "")
-        worker_id = str(worker.get("id") or "")
-        paths_by_worker.setdefault(worker_id, []).append(raw_log)
-        rows_by_worker.setdefault(worker_id, []).append(item)
-    for worker_id, paths in paths_by_worker.items():
-        worker = workers_by_id.get(worker_id)
-        if not worker:
-            continue
+        gid = str(item.get("gpu_id") or item.get("gpuId") or item.get("gpu") or "").strip()
+        tmux_target = str(item.get("tmuxTarget") or item.get("tmuxSession") or item.get("window") or "").strip()
+        if not tmux_target and gid:
+            try:
+                _pfx = str(item.get("tmuxPrefix") or "") or "simple"
+                import re as _re2
+                tmux_target = _re2.sub(r"[^A-Za-z0-9_.-]+", "-", f"{_pfx}-gpu-{gid}").strip("-").lower() or f"simple-gpu-{gid}"
+            except Exception:
+                tmux_target = f"simple-gpu-{gid}" if gid else ""
+        tail = ""
         try:
-            changed = sync_worker_paths(worker, paths)
-            for item in rows_by_worker.get(worker_id, []):
-                raw_log = str(item.get("log_path") or "")
-                if changed:
-                    item["console_tail"] = read_remote_tail(worker, raw_log)
-                    item["log_synced_at"] = now()
-                    item.pop("sync_skipped", None)
-                else:
-                    item["sync_skipped"] = "unchanged"
+            # window 维度优先：live_output/{tmuxTarget}.json 真实 pane 直链
+            if tmux_target:
+                import re as _re3
+                _safe_t = _re3.sub(r"[^A-Za-z0-9_.-]+", "-", tmux_target).strip("-") or tmux_target
+                for _base in [scheduler_agent_state_dir() / "live_output" / f"{_safe_t}.json", Path("simple_agent/state/projects") / "live_output" / f"{_safe_t}.json"]:
+                    try:
+                        if _base.is_file():
+                            _data = safe_read_json(_base, {})
+                            _t = _data.get("tail") if isinstance(_data, dict) else None
+                            if isinstance(_t, list) and _t:
+                                tail = "\n".join(str(x) for x in _t[-50:]) + "\n"
+                                break
+                            elif isinstance(_t, str) and _t.strip():
+                                tail = _t
+                                break
+                    except Exception:
+                        continue
+            # 1) 兼容旧路径 live_output/{gid}.json
+            if not tail and gid:
+                for _base in [scheduler_agent_state_dir() / "live_output" / f"{gid}.json", Path("simple_agent/state/projects") / "live_output" / f"{gid}.json"]:
+                    try:
+                        if _base.is_file():
+                            _data = safe_read_json(_base, {})
+                            _t = _data.get("tail") if isinstance(_data, dict) else None
+                            if isinstance(_t, list) and _t:
+                                tail = "\n".join(str(x) for x in _t[-50:]) + "\n"
+                                break
+                            elif isinstance(_t, str) and _t.strip():
+                                tail = _t
+                                break
+                    except Exception:
+                        continue
+            # 2) 其次消费 agent 的 log_tail events（最近 200 行 journal）
+            if not tail:
+                try:
+                    journal = scheduler_agent_state_dir() / "events.jsonl"
+                    if journal.is_file():
+                        lines = journal.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]
+                        for line in reversed(lines):
+                            try:
+                                ev = json.loads(line)
+                                if str(ev.get("type") or "") == "log_tail":
+                                    pay = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+                                    ev_gid = str(pay.get("gpu") or pay.get("gid") or "").strip()
+                                    ev_tail = pay.get("tail") or pay.get("text") or ""
+                                    if ev_tail:
+                                        if not gid or ev_gid == gid or not ev_gid:
+                                            if isinstance(ev_tail, list):
+                                                tail = "\n".join(str(x) for x in ev_tail[-50:]) + "\n"
+                                            else:
+                                                tail = str(ev_tail)
+                                            break
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+            if tail:
+                item["console_tail"] = tail[-TAIL_BYTES:]
+                item["log_tail"] = tail[-TAIL_BYTES:]
+                item["log_synced_at"] = now()
+                item.pop("sync_skipped", None)
+                item.pop("log_sync_error", None)
+            else:
+                # 无 tail 不抛异常，保持调度流程，避免 RuntimeError
+                item["sync_skipped"] = "no_tail_yet"
                 item.pop("log_sync_error", None)
         except Exception as exc:
-            for item in rows_by_worker.get(worker_id, []):
-                item["log_sync_error"] = str(exc)
+            # 容错：避免抛 RuntimeError 阻断调度
+            item["log_sync_error"] = str(exc)[:200]
 
 
 def ensure_worker_runtime(worker: dict[str, Any]) -> str:
@@ -2464,7 +2836,7 @@ def write_state(path: Path, payload: dict[str, Any]) -> None:
     atomic_write_json(path, payload)
 
 
-def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "", default_result_csv_dir: str = "experiments/results") -> str:
+def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "", default_result_csv_dir: str = "experiments/results", overwrite_existing: bool = False) -> str:
     conda_env = simple_conda_env_name({
         "SIMPLE_EXPERIMENT_CONDA_ENV": str(worker.get("conda_env") or worker.get("condaEnv") or ""),
     })
@@ -2493,6 +2865,8 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
         "debugRunId": str(debug_run_id or ""),
         "debugOutputDir": str(debug_output_dir or ""),
         "defaultResultCsvDir": normalize_default_result_csv_dir(default_result_csv_dir),
+        "overwriteExisting": bool(overwrite_existing),
+        "overwrite": bool(overwrite_existing),
     })
     return session
 
@@ -2758,6 +3132,9 @@ def main() -> None:
     parser.add_argument("--validate-plan", action="store_true")
     parser.add_argument("--dry-run-plan", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--overwrite-existing", action="store_true")
+    parser.add_argument("--check-existing", action="store_true")
     parser.add_argument("--mode", choices=["train_test", "train", "test"], default="")
     parser.add_argument("--only-index", type=int)
     parser.add_argument("--only-indices", default="")
@@ -2767,6 +3144,13 @@ def main() -> None:
     parser.add_argument("--worker-status-ttl-seconds", type=int, default=180)
     parser.add_argument("--poll-jitter-seconds", type=int, default=30)
     parser.add_argument("--session-check-min-seconds", type=int, default=60)
+    parser.add_argument("--gpu-idle-util-threshold", type=int, default=5)
+    parser.add_argument("--gpu-idle-mem-threshold", type=int, default=200)
+    parser.add_argument("--gpu-history-bucket", type=int, default=60)
+    parser.add_argument("--gpu-history-bucket-seconds", type=int, default=60)
+    parser.add_argument("--gpu-history-retention", type=int, default=72)
+    parser.add_argument("--gpu-history-retention-hours", type=int, default=72)
+    parser.add_argument("--gpu-history-retention-seconds", type=int, default=259200)
     parser.add_argument("--passive-interrupt-max-retries", type=int, default=3)
     parser.add_argument("--passive-interrupt-backoff-seconds", type=int, default=0)
     parser.add_argument("--agent-state-dir", default="")
@@ -2788,6 +3172,11 @@ def main() -> None:
         args.debug_run_id = str(args.debug_run_id or args.operation_id or f"debug-{int(time.time())}")
         args.debug_output_dir = str(args.debug_output_dir or debug_run_root(args.plan or "plan", args.debug_run_id))
     AGENT_STATE_DIR = str(args.agent_state_dir or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")).strip()
+    if getattr(args, "check_existing", False):
+        if not args.plan:
+            raise SystemExit("--check-existing 必须同时提供 --plan")
+        check_existing_mode(args)
+        return
     if args.check_dependencies_json:
         print(json.dumps(scheduler_dependency_status(), ensure_ascii=False))
         return
@@ -2931,11 +3320,36 @@ def main() -> None:
         queue_log = tmp_dir / f"{plan_key}.log"
 
     def _append_scheduler_log(text: str) -> None:
-        append_log(queue_log, text)
-        if _scheduler_log_arg:
-            _explicit = Path(_scheduler_log_arg)
-            if _explicit != queue_log:
-                append_log(_explicit, text)
+        # 控制台直显：print 到 stdout 并 flush，直显 tmux；备份到 tmp 仅用 logging.FileHandler 追加
+        try:
+            print(text, flush=True)
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            import logging as _logging
+            def _fh_append(_path: Path, _msg: str) -> None:
+                _path.parent.mkdir(parents=True, exist_ok=True)
+                _h = _logging.FileHandler(str(_path), encoding="utf-8")
+                _h.setLevel(_logging.INFO)
+                _h.setFormatter(_logging.Formatter("%(message)s"))
+                _lg = _logging.getLogger(f"scheduler_backup_{str(_path)}")
+                _lg.addHandler(_h)
+                _lg.setLevel(_logging.INFO)
+                _lg.propagate = False
+                _lg.info(_msg)
+                _h.close()
+                _lg.removeHandler(_h)
+            _fh_append(queue_log, text)
+            if _scheduler_log_arg:
+                _explicit = Path(_scheduler_log_arg)
+                if _explicit != queue_log:
+                    _fh_append(_explicit, text)
+        except Exception:
+            pass
 
     def apply_scheduler_deletions_to_runtime() -> bool:
         matchers = read_scheduler_deletion_matchers()
@@ -3115,7 +3529,23 @@ def main() -> None:
         changed = False
         command_ids = {str(item.get("session") or "") for item in list(testing.values()) + list(active.values()) if str(item.get("session") or "")}
         finished_events = command_result_events(command_ids)
+        # P1 快速回滚：exec_error 不受 session_check_min_seconds 节流，需立即释放 running 槽位
         for key, item in list(testing.items()):
+            sess = str(item.get("session") or "")
+            if sess in finished_events:
+                ev = finished_events.get(sess) or {}
+                if str(ev.get("type") or "") == "worker_command_exec_error":
+                    # bypass throttling for exec_error
+                    worker = workers_by_id.get(str(item.get("worker_id") or ""))
+                    if worker:
+                        finish_item("test", key, item, worker)
+                    else:
+                        item["finished_at"] = now()
+                        item["error"] = "worker config missing"
+                        failed.append(item)
+                        testing.pop(key, None)
+                    changed = True
+                    continue
             if time.time() - last_session_check.get(key, 0.0) < session_check_min_seconds:
                 continue
             last_session_check[key] = time.time()
@@ -3127,10 +3557,31 @@ def main() -> None:
                 testing.pop(key, None)
                 changed = True
                 continue
-            if str(item.get("session") or "") in finished_events:
+            if sess in finished_events:
                 finish_item("test", key, item, worker)
                 changed = True
         for key, item in list(active.items()):
+            sess = str(item.get("session") or "")
+            if sess in finished_events:
+                ev = finished_events.get(sess) or {}
+                if str(ev.get("type") or "") == "worker_command_exec_error":
+                    worker = workers_by_id.get(str(item.get("worker_id") or ""))
+                    if worker:
+                        # 标记为 exec_error 失败并立即释放
+                        item["error"] = str((ev.get("payload") or {}).get("error") or "worker_command_exec_error")
+                        item["finished_at"] = now()
+                        item["status"] = "failed"
+                        item["completion_type"] = "failed"
+                        failed.append(item)
+                        active.pop(key, None)
+                        _append_scheduler_log(f"[{now()}] exec_error_reap experiment={item.get('experiment_index')} session={sess} error={item['error'][:120]}")
+                    else:
+                        item["finished_at"] = now()
+                        item["error"] = "worker config missing"
+                        failed.append(item)
+                        active.pop(key, None)
+                    changed = True
+                    continue
             if time.time() - last_session_check.get(key, 0.0) < session_check_min_seconds:
                 continue
             last_session_check[key] = time.time()
@@ -3142,7 +3593,7 @@ def main() -> None:
                 active.pop(key, None)
                 changed = True
                 continue
-            if str(item.get("session") or "") in finished_events:
+            if sess in finished_events:
                 finish_item("train", key, item, worker)
                 changed = True
         return changed
@@ -3196,7 +3647,8 @@ def main() -> None:
                     continue
                 kill_session(worker, str(item.get("session") or ""), "manual_stop_converged", "user")
                 try:
-                    session = launch_experiment(worker, args.plan, int(item["experiment_index"]), str(item["gpu_id"]), log_dir, "test", args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir)
+                    overwrite_existing = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
+                    session = launch_experiment(worker, args.plan, int(item["experiment_index"]), str(item["gpu_id"]), log_dir, "test", args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir, overwrite_existing)
                     item["train_session"] = item.get("session", "")
                     item["session"] = session
                     item["testing_started_at"] = now()
@@ -3300,7 +3752,8 @@ def main() -> None:
                         break
                     experiment_index = queue.popleft()
                     try:
-                        session = launch_experiment(worker, args.plan, experiment_index, gpu_id, log_dir, execution_mode, args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir)
+                        overwrite_existing = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
+                        session = launch_experiment(worker, args.plan, experiment_index, gpu_id, log_dir, execution_mode, args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir, overwrite_existing)
                         item = {
                             "experiment_index": experiment_index,
                             "worker_id": worker["id"],

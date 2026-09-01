@@ -8,6 +8,8 @@ Worker 任务。下列坑都是在这一路径上反复踩过的，记录在此�
 > 通用红线：**凡是拼进 `bash -lc "..."` 的脚本，都要假设它运行在一个非交互、非登录友好的
 > 子 shell 里，且 tmux 会话继承的是 tmux SERVER 的环境，不是发起命令的客户端环境。**
 
+> 交叉红线（Webview 外层模板剥离坑 P0）：`src/ui/PanelHtml.ts` 的 ``return `...<script>...` `` 外层模板同样会吞噬内层正则/字符串的 `\`（如 `\s` `\d` `\.` `\/` `\n`），**严禁** 裸写 `/\s+/` `"\n"`，必须双写为 `/\\s+/` `"\\n"` 或用 `String.fromCharCode(10)` 规避；门禁为 `npm run build` 的 `node -c` 双校验 + `vm.Script` 二次校验。详见 `docs/troubleshooting.md#外层模板剥离坑-P0` 与 `AGENTS.md#红线约束`。
+
 ---
 
 ## 1. 非交互 `bash -lc` 里 `conda activate` 直接失败 → 会话自毁

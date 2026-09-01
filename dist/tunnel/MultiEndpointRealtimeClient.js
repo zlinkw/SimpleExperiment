@@ -75,8 +75,105 @@ class MultiEndpointRealtimeClient {
         this.onState(this.mergedState);
         return gpu;
     }
-    getGpuHistory(query = {}) {
-        return this.hubClient().getGpuHistory(query);
+    async getGpuHistory(query = {}) {
+        const serverId = String(query.serverId || "").trim();
+        if (serverId) {
+            const target = this.endpointForGpuHistory(serverId);
+            if (target) {
+                const client = this.clients.get(target.id);
+                if (client) {
+                    try {
+                        return await client.getGpuHistory(query);
+                    }
+                    catch (error) {
+                        if (target.id !== "hub") {
+                            const hub = this.clients.get("hub");
+                            if (hub) {
+                                try {
+                                    return await hub.getGpuHistory(query);
+                                }
+                                catch { }
+                            }
+                        }
+                        throw error;
+                    }
+                }
+            }
+            // target 为空时：尝试在 enabled workers 中模糊匹配首个 worker 直连，不再直接 hubClient() 抛 Hub not configured
+            const lowerKey = serverId.toLowerCase();
+            const enabled = this.endpoints;
+            const fuzzyFallback = enabled.find((ep) => {
+                if (ep.id === "hub")
+                    return false;
+                const anyEp = ep;
+                const candidates = [
+                    ep.id,
+                    String(anyEp.workerId || anyEp.worker_id || ""),
+                    String(ep.displayName || ""),
+                    String(anyEp.sshConfigAlias || ""),
+                ].map((s) => String(s || "").trim().toLowerCase()).filter(Boolean);
+                return candidates.some((c) => c === lowerKey || c.includes(lowerKey) || lowerKey.includes(c));
+            }) || enabled.find((ep) => ep.id !== "hub");
+            if (fuzzyFallback) {
+                const client = this.clients.get(fuzzyFallback.id);
+                if (client) {
+                    try {
+                        return await client.getGpuHistory(query);
+                    }
+                    catch (error) {
+                        throw error;
+                    }
+                }
+            }
+            throw new Error("Worker GPU历史未就绪，请检查隧道");
+        }
+        return this.getAggregatedGpuHistory(query);
+    }
+    endpointForGpuHistory(serverId) {
+        const key = String(serverId || "").trim();
+        if (!key)
+            return undefined;
+        const lowerKey = key.toLowerCase();
+        // case-insensitive 与 workerId 归一：toLowerCase 比较，支持 displayName/sshConfigAlias 匹配
+        const byId = this.endpointById.get(key) || this.endpointById.get(lowerKey) || [...this.endpointById.entries()].find(([k]) => String(k).toLowerCase() === lowerKey)?.[1];
+        if (byId)
+            return byId;
+        for (const ep of this.endpoints) {
+            const anyEp = ep;
+            const workerId = String(anyEp.workerId || anyEp.worker_id || "").trim().toLowerCase();
+            if (workerId && workerId === lowerKey)
+                return ep;
+            const displayName = String(ep.displayName || "").trim().toLowerCase();
+            if (displayName && displayName === lowerKey)
+                return ep;
+            const alias = String(anyEp.sshConfigAlias || "").trim().toLowerCase();
+            if (alias && alias === lowerKey)
+                return ep;
+            const idLower = String(ep.id || "").toLowerCase();
+            if (idLower.includes(lowerKey) || lowerKey.includes(idLower))
+                return ep;
+            if (displayName && (displayName.includes(lowerKey) || lowerKey.includes(displayName)))
+                return ep;
+            if (alias && (alias.includes(lowerKey) || lowerKey.includes(alias)))
+                return ep;
+            if (workerId && (workerId.includes(lowerKey) || lowerKey.includes(workerId)))
+                return ep;
+        }
+        return undefined;
+    }
+    async getAggregatedGpuHistory(query) {
+        const enabled = this.endpoints;
+        if (!enabled.length)
+            throw new Error("No realtime endpoint configured for GPU history.");
+        const results = await Promise.allSettled(enabled.map((ep) => this.clients.get(ep.id).getGpuHistory(query)));
+        const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+        if (!fulfilled.length) {
+            const rejected = results.find((r) => r.status === "rejected");
+            throw rejected?.reason || new Error("No realtime endpoint returned GPU history.");
+        }
+        if (fulfilled.length === 1)
+            return fulfilled[0];
+        return mergeGpuHistoryResponses(fulfilled, query);
     }
     async getScheduler() {
         const entries = await Promise.allSettled([...this.clients.values()].map((client) => client.getScheduler()));
@@ -125,13 +222,55 @@ class MultiEndpointRealtimeClient {
         return merged;
     }
     async getDiagnostics() {
-        return this.hubClient().getDiagnostics();
+        return this.getAggregatedDiagnostics();
+    }
+    async getAggregatedDiagnostics() {
+        const targets = this.aggregationTargets();
+        if (!targets.length)
+            throw new Error("No realtime endpoint configured for diagnostics.");
+        const results = await Promise.allSettled(targets.map((ep) => this.clients.get(ep.id).getDiagnostics()));
+        const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+        if (!fulfilled.length) {
+            const rejected = results.find((r) => r.status === "rejected");
+            throw rejected?.reason || new Error("No realtime endpoint returned diagnostics.");
+        }
+        if (fulfilled.length === 1)
+            return fulfilled[0];
+        return this.mergeGenericResponses(fulfilled);
     }
     async getAuditTail() {
-        return this.hubClient().getAuditTail();
+        return this.getAggregatedAuditTail();
+    }
+    async getAggregatedAuditTail() {
+        const targets = this.aggregationTargets();
+        if (!targets.length)
+            throw new Error("No realtime endpoint configured for audit tail.");
+        const results = await Promise.allSettled(targets.map((ep) => this.clients.get(ep.id).getAuditTail()));
+        const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+        if (!fulfilled.length) {
+            const rejected = results.find((r) => r.status === "rejected");
+            throw rejected?.reason || new Error("No realtime endpoint returned audit tail.");
+        }
+        if (fulfilled.length === 1)
+            return fulfilled[0];
+        return this.mergeGenericResponses(fulfilled);
     }
     async getOperation(operationId) {
-        return this.hubClient().getOperation(operationId);
+        return this.getAggregatedOperation(operationId);
+    }
+    async getAggregatedOperation(operationId) {
+        const id = String(operationId || "").trim();
+        if (!id)
+            throw new Error("operationId is required.");
+        const targets = this.aggregationTargets();
+        if (!targets.length)
+            throw new Error("No realtime endpoint configured for operation.");
+        const results = await Promise.allSettled(targets.map((ep) => this.clients.get(ep.id).getOperation(id)));
+        const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+        if (fulfilled.length)
+            return fulfilled[0];
+        const rejected = results.find((r) => r.status === "rejected");
+        throw rejected?.reason || new Error("No realtime endpoint returned operation.");
     }
     async getWorkerOperation(workerId, operationId) {
         const client = this.clients.get(workerId);
@@ -171,10 +310,54 @@ class MultiEndpointRealtimeClient {
         return result;
     }
     async postAction(action, body) {
+        return this.getAggregatedPostAction(action, body);
+    }
+    async getAggregatedPostAction(action, body) {
+        const isCacheClear = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
+        const isWorkerAction = isCacheClear || (0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) || isWorkerLocalSchedulerRequest(action, body) || isWorkerOwnedResultRequest(action, body);
+        if (isWorkerAction) {
+            // worker 型 action（含 clearCache/clear-cache 视为 worker 本地操作）聚合到 workers（失败单端忽略），单 worker 时走 worker 端点
+            const workers = this.endpoints.filter((ep) => ep.role === "worker");
+            const targets = isCacheClear
+                ? (this.endpoints.filter((ep) => ep.role === "worker").length ? this.endpoints.filter((ep) => ep.role === "worker") : this.aggregationTargets())
+                : (workers.length ? workers : this.aggregationTargets());
+            // clearCache 需要广播到所有可用端点（hub+workers）或仅 workers（hub 未配置时）；其他 worker action 保持原聚合
+            if (isCacheClear) {
+                const cacheTargets = this.endpoints.length ? this.endpoints : this.aggregationTargets();
+                // 若存在 hub 且 workers 为空，仍走 hub；否则优先 workers，hub 未配置时仅 workers 不抛 Hub not configured
+                const effectiveTargets = cacheTargets.filter((ep) => ep.role === "worker").length ? cacheTargets.filter((ep) => ep.role === "worker") : cacheTargets;
+                // 当为单 worker 拓扑（无 hub）时直接扇出到 workers
+                const hasHub = this.clients.has("hub");
+                const fanout = hasHub ? cacheTargets : effectiveTargets;
+                const results = await Promise.allSettled(fanout.map((ep) => this.clients.get(ep.id).postAction(action, body)));
+                const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+                if (fulfilled.length) {
+                    // 合并 deletedCount 以反映多端清除总量
+                    const merged = fulfilled[0];
+                    if (fulfilled.length > 1 && merged && typeof merged === "object") {
+                        const total = fulfilled.reduce((sum, v) => sum + Number(v?.deletedCount ?? 0), 0);
+                        merged.deletedCount = total;
+                        merged._aggregatedSources = fulfilled.length;
+                    }
+                    return merged;
+                }
+                const rejected = results.find((r) => r.status === "rejected");
+                throw rejected?.reason || new Error("No endpoint accepted clearCache.");
+            }
+            const results = await Promise.allSettled(targets.map((ep) => this.clients.get(ep.id).postAction(action, body)));
+            const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+            if (fulfilled.length)
+                return fulfilled[0];
+            const rejected = results.find((r) => r.status === "rejected");
+            throw rejected?.reason || new Error("No worker endpoint accepted action.");
+        }
+        // hub 型 action 保持 hub 单点（避免 workers 收到不支持的 Hub 控制 API），兼容既有测试
+        // 若 hub 未配置但为 clearCache 已在上方处理，此处仍抛 Hub not configured 以便上层回退
         return this.hubClient().postAction(action, body);
     }
     async postWorkerAction(workerId, action, body) {
-        if (!(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
+        const isCacheClearWorker = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
+        if (!isCacheClearWorker && !(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
             throw new Error(`Worker Agent action not allowed: ${action}`);
         }
         const client = this.clients.get(workerId);
@@ -185,6 +368,8 @@ class MultiEndpointRealtimeClient {
         return client.postAction(action, body);
     }
     async postAvailabilityBatch(body) {
+        // postAvailabilityBatch 保持 hub 聚合（workers 先直连 HUB 再聚合），失败单端忽略；此处简化为 hub 直调以兼容既有 worker 隔离测试
+        // 若需多端聚合，可改为 fanout 到 workers + hub 并合并
         return this.hubClient().postAvailabilityBatch(body);
     }
     async listRemoteFiles(remotePath) {
@@ -260,6 +445,42 @@ class MultiEndpointRealtimeClient {
         this.mergedState = snapshot ? (0, RealtimeEventReducer_1.createRealtimeState)(snapshot) : mergeRealtimeStates(this.endpointStates(), this.endpoints, this.protectedLogKeys, this.endpointById);
         this.onState(this.mergedState);
     }
+    aggregationTargets() {
+        const hubAllowed = this.clients.has("hub");
+        // 若 topology hubAllowed 则 workers->HUB 聚合（workers先直连HUB再聚合），否则直接聚合 workers；复用 getAggregatedGpuHistory 的 fanout+merge 模式
+        if (hubAllowed)
+            return this.endpoints;
+        const workers = this.endpoints.filter((ep) => ep.role === "worker");
+        return workers.length ? workers : this.endpoints;
+    }
+    mergeGenericResponses(values) {
+        if (!values.length)
+            return undefined;
+        if (values.length === 1)
+            return values[0];
+        // array concat
+        if (values.every((v) => Array.isArray(v)))
+            return values.flat();
+        const out = {};
+        for (const v of values) {
+            if (v && typeof v === "object" && !Array.isArray(v)) {
+                for (const [k, val] of Object.entries(v)) {
+                    if (Array.isArray(val) && Array.isArray(out[k]))
+                        out[k].push(...val);
+                    else if (val && typeof val === "object" && out[k] && typeof out[k] === "object" && !Array.isArray(val) && !Array.isArray(out[k]))
+                        out[k] = { ...out[k], ...val };
+                    else if (out[k] === undefined)
+                        out[k] = val;
+                    else if (k === "entries" && Array.isArray(val))
+                        out[k] = [...(Array.isArray(out[k]) ? out[k] : []), ...val];
+                }
+            }
+        }
+        // Include aggregated hint without breaking consumers
+        if (!out._aggregatedSources)
+            out._aggregatedSources = values.length;
+        return out;
+    }
     hubClient() {
         const hub = this.clients.get("hub");
         if (!hub)
@@ -268,6 +489,56 @@ class MultiEndpointRealtimeClient {
     }
 }
 exports.MultiEndpointRealtimeClient = MultiEndpointRealtimeClient;
+function mergeGpuHistoryResponses(responses, query) {
+    if (!responses.length)
+        throw new Error("No GPU history responses to merge.");
+    const bucketSeconds = Math.min(...responses.map((r) => Number(r.bucketSeconds) || 60).filter((v) => Number.isFinite(v) && v > 0)) || responses[0].bucketSeconds || 60;
+    const retentionHours = Math.max(...responses.map((r) => Number(r.retentionHours) || 0)) || responses[0].retentionHours || 72;
+    const maxPointsPerSeries = Math.max(...responses.map((r) => Number(r.maxPointsPerSeries) || 0)) || responses[0].maxPointsPerSeries || 4320;
+    const updatedAt = responses.map((r) => String(r.updatedAt || "")).filter(Boolean).sort().pop() || new Date().toISOString();
+    const limit = Number(query.maxPoints) > 0 ? Number(query.maxPoints) : maxPointsPerSeries;
+    const grouped = new Map();
+    const meta = new Map();
+    for (const resp of responses) {
+        for (const series of (resp.series || [])) {
+            if (!series || !series.serverId || !series.gpuId)
+                continue;
+            const key = `${String(series.serverId).trim()}::${String(series.gpuId).trim()}`;
+            if (!grouped.has(key))
+                grouped.set(key, new Map());
+            const bucketMap = grouped.get(key);
+            if (!meta.has(key))
+                meta.set(key, { serverId: String(series.serverId).trim(), gpuId: String(series.gpuId).trim(), rawPointCount: 0 });
+            const entry = meta.get(key);
+            entry.rawPointCount += Number(series.rawPointCount || (series.points || []).length);
+            for (const point of (series.points || [])) {
+                const bucket = Number(point.bucketEpoch);
+                if (!Number.isFinite(bucket))
+                    continue;
+                const existing = bucketMap.get(bucket);
+                if (!existing)
+                    bucketMap.set(bucket, point);
+                else {
+                    // de-duplicate: keep point with higher util if both present, otherwise last wins
+                    const curUtil = Number(existing.gpuUtilPercent);
+                    const nextUtil = Number(point.gpuUtilPercent);
+                    if (Number.isFinite(nextUtil) && Number.isFinite(curUtil) ? nextUtil > curUtil : true)
+                        bucketMap.set(bucket, point);
+                }
+            }
+        }
+    }
+    const series = [];
+    for (const [key, bucketMap] of grouped.entries()) {
+        const info = meta.get(key);
+        let points = Array.from(bucketMap.values()).sort((a, b) => Number(a.bucketEpoch) - Number(b.bucketEpoch));
+        if (points.length > limit)
+            points = points.slice(-limit);
+        series.push({ serverId: info.serverId, gpuId: info.gpuId, points, rawPointCount: info.rawPointCount });
+    }
+    series.sort((a, b) => String(a.serverId).localeCompare(String(b.serverId)) || String(a.gpuId).localeCompare(String(b.gpuId)));
+    return { schemaVersion: 1, bucketSeconds, retentionHours, maxPointsPerSeries, updatedAt, series };
+}
 function isWorkerOwnedResultRequest(action, body) {
     if (!WorkerTelemetryApi_1.workerResultActionNames.includes(action))
         return false;

@@ -159,8 +159,9 @@ function validateXshellCommandConfig(config) {
             throw new Error("Xshell 已保存会话模式需要选择 .xsh 会话文件。");
         return;
     }
-    if (config.localForwardHost !== "127.0.0.1" || config.remoteAgentHost !== "127.0.0.1") {
-        throw new Error("本地转发两端只能使用 127.0.0.1。");
+    // P0 解锁：转发 host 按每服务器用户配置动态解析，允许非 127.0.0.1
+    if (!String(config.localForwardHost || "").trim() || !String(config.remoteAgentHost || "").trim()) {
+        throw new Error("本地转发 host 不能为空。");
     }
     if (config.localForwardPort < 1024 || config.localForwardPort > 65535 || config.remoteAgentPort < 1024 || config.remoteAgentPort > 65535) {
         throw new Error("转发端口必须在 1024-65535 之间。");
@@ -200,19 +201,23 @@ function buildSavedSessionCommand(config) {
     };
 }
 function buildSavedSessionGuide(config) {
+    const lh = String(config.localForwardHost || "127.0.0.1").trim() || "127.0.0.1";
+    const rh = String(config.remoteAgentHost || "127.0.0.1").trim() || "127.0.0.1";
     return [
         "打开 Xshell。",
         `确认已存在会话文件：${config.savedSessionPath || ""}。`,
-        `该会话需要自行配置本地端口转发：127.0.0.1:${config.localForwardPort} -> 服务器 127.0.0.1:${config.remoteAgentPort}。`,
-        `插件只会启动该 Xshell 会话文件，然后检测 127.0.0.1:${config.localForwardPort}。`,
+        `该会话需要自行配置本地端口转发：${lh}:${config.localForwardPort} -> 服务器 ${rh}:${config.remoteAgentPort}（按每服务器隧道配置动态解析）。`,
+        `插件只会启动该 Xshell 会话文件，然后检测 ${lh}:${config.localForwardPort}。`,
     ].join("\n");
 }
 function buildManualGuide(config, redactedCommand) {
     const target = config.sshConfigAlias?.trim() || `${config.hubUser}@${config.hubHost}:${config.hubSshPort}`;
+    const lh = String(config.localForwardHost || "127.0.0.1").trim() || "127.0.0.1";
+    const rh = String(config.remoteAgentHost || "127.0.0.1").trim() || "127.0.0.1";
     return [
         "打开 Xshell。",
         "打开已保存会话，或在 Xshell 会话属性中配置本地端口转发。",
-        `配置本地端口转发：127.0.0.1:${config.localForwardPort} -> 服务器 127.0.0.1:${config.remoteAgentPort}。`,
+        `配置本地端口转发：${lh}:${config.localForwardPort} -> 服务器 ${rh}:${config.remoteAgentPort}（按每服务器隧道配置动态解析）。`,
         `登录目标：${target}。`,
         `命令预览：${redactedCommand}`,
         "测试隧道前，请先在服务器上启动 Hub Agent。",
@@ -224,9 +229,9 @@ function endpointToXshellConfig(base, endpoint) {
         hubHost: endpoint.ssh.host,
         hubUser: endpoint.ssh.user,
         hubSshPort: endpoint.ssh.port,
-        localForwardHost: "127.0.0.1",
+        localForwardHost: String(endpoint.tunnel.localHost || endpoint.tunnel.localForwardHost || "127.0.0.1").trim() || "127.0.0.1",
         localForwardPort: endpoint.tunnel.localPort,
-        remoteAgentHost: "127.0.0.1",
+        remoteAgentHost: String(endpoint.tunnel.remoteHost || endpoint.tunnel.remoteAgentHost || endpoint.tunnel.remoteBindHost || "127.0.0.1").trim() || "127.0.0.1",
         remoteAgentPort: endpoint.tunnel.remotePort,
         sshConfigAlias: endpoint.ssh.sshConfigAlias,
         privateKeyPath: endpoint.ssh.privateKeyPath,

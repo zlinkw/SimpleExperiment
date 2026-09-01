@@ -12,6 +12,7 @@ CONTEXT.md
 .claude/**
 .local-gpt/**
 .runtime/**
+.tmp/**
 .vscode/**
 scripts/**
 test/**

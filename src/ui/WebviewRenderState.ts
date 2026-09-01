@@ -47,11 +47,48 @@ export function selectWebviewStateFields(sources: unknown): Record<string, unkno
   };
 }
 
+function isNumericGpuId(value: unknown): boolean {
+  return /^\d+$/.test(String(value ?? "").trim());
+}
+function extractNumericGpuId(value: unknown): string {
+  const s = String(value ?? "").trim();
+  if (!s || s === "-") return "";
+  if (/^\d+$/.test(s)) return s;
+  const gpuPrefixed = s.match(/(?:gpu|GPU)[-_]?(\d+)\b/);
+  if (gpuPrefixed) return gpuPrefixed[1];
+  const anyNum = s.match(/\b(\d+)\b/);
+  if (anyNum && Number(anyNum[1]) < 64) return anyNum[1];
+  return "";
+}
+function normalizeGpuDisplayIndex(row: unknown): string {
+  const rawIndex = pick(row, ["index", "gpu_index"], "");
+  const rawIndexStr = String(rawIndex ?? "").trim();
+  if (rawIndexStr && rawIndexStr !== "-" && isNumericGpuId(rawIndexStr)) return rawIndexStr;
+  if (rawIndexStr && rawIndexStr !== "-") {
+    const extracted = extractNumericGpuId(rawIndexStr);
+    if (extracted) return extracted;
+  }
+  const fallbackCandidates = [pick(row, ["gpuId", "gpu_id", "id"], ""), pick(row, ["uuid"], "")];
+  for (const cand of fallbackCandidates) {
+    const extracted = extractNumericGpuId(cand);
+    if (extracted) return extracted;
+  }
+  return rawIndexStr || "-";
+}
+function normalizeGpuDisplayId(row: unknown): string {
+  const rawId = pick(row, ["id", "gpuId", "gpu_id", "uuid"], "-");
+  const s = String(rawId ?? "").trim();
+  if (!s || s === "-") return "-";
+  if (isNumericGpuId(s)) return s;
+  const extracted = extractNumericGpuId(s);
+  if (extracted) return extracted;
+  return s;
+}
 export function normalizeGpuRow(row: unknown): Record<string, unknown> {
   const memoryUsedMb = numberOrUndefined(pick(row, ["memoryUsedMb", "memory_used_mb", "memoryUsed", "used"], undefined));
   const memoryTotalMb = numberOrUndefined(pick(row, ["memoryTotalMb", "memory_total_mb", "memoryTotal", "total"], undefined));
   return {
-    index: pick(row, ["index", "gpu_index", "gpuId", "gpu_id", "id"], "-"),
+    index: normalizeGpuDisplayIndex(row),
     name: pick(row, ["name", "gpu_name", "model"], "-"),
     memoryUsedMb,
     memoryTotalMb,

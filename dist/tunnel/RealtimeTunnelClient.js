@@ -6,6 +6,7 @@ const FileTransferClient_1 = require("./FileTransferClient");
 const RealtimeReconnect_1 = require("./RealtimeReconnect");
 const RealtimeEventReducer_1 = require("./RealtimeEventReducer");
 const TunnelClient_1 = require("./TunnelClient");
+// T2: RealtimeTunnelClient 透传批量能力协商字段，聚合逻辑在 MultiEndpointRealtimeClient
 const TunnelGateway_1 = require("./TunnelGateway");
 exports.defaultRealtimeRefreshPolicy = {
     mode: "realtime",
@@ -128,6 +129,7 @@ class RealtimeTunnelClient {
         return this.http.getGpu();
     }
     getGpuHistory(query = {}) {
+        // T2: 批量能力协商字段透传至 HttpTunnelClient，聚合由 MultiEndpointRealtimeClient 完成
         return this.http.getGpuHistory(query);
     }
     getScheduler() {

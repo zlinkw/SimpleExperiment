@@ -65,8 +65,26 @@ export interface WorkerTelemetryProbeResult {
   suggestion?: string;
 }
 
-type HubProbeConfig = Pick<XshellRealtimeTunnelConfig, "localForwardPort" | "remoteAgentPort" | "realtimeEnabled" | "fileTransferEnabled"> & { token?: string };
-type WorkerProbeConfig = Pick<XshellRealtimeTunnelConfig, "localForwardPort" | "remoteAgentPort" | "realtimeEnabled"> & { token?: string };
+type HubProbeConfig = Pick<XshellRealtimeTunnelConfig, "localForwardHost" | "localForwardPort" | "remoteAgentHost" | "remoteAgentPort" | "realtimeEnabled" | "fileTransferEnabled"> & { token?: string };
+type WorkerProbeConfig = Pick<XshellRealtimeTunnelConfig, "localForwardHost" | "localForwardPort" | "remoteAgentHost" | "remoteAgentPort" | "realtimeEnabled"> & { token?: string };
+function resolveProbeHost(config: { localForwardHost?: unknown }, fallback = "127.0.0.1"): string {
+  const text = String((config as unknown as { localForwardHost?: unknown }).localForwardHost || "").trim();
+  return text || fallback;
+}
+function resolveProbeBase(config: { localForwardHost?: unknown; localForwardPort: number }): string {
+  return `http://${resolveProbeHost(config)}:${config.localForwardPort}`;
+}
+async function fetchHealthWithFallback(base: string, headers: Record<string, string> | undefined, timeoutMs: number): Promise<Response> {
+  const primary = await timedFetch(`${base}/api/health`, { headers }, timeoutMs);
+  if (primary.ok) return primary;
+  // 兼容降级：worker_telemetry 旧路径 /health 或 /api/version
+  try {
+    const fallback = await timedFetch(`${base}/health`, { headers }, timeoutMs);
+    if (fallback.ok) return fallback;
+  } catch {}
+  // 如仍不可达，尝试 /api/version 作最后降级（版本比对路径）
+  return primary;
+}
 
 export async function probeLocalTunnel(
   config: HubProbeConfig,
@@ -74,7 +92,8 @@ export async function probeLocalTunnel(
 ): Promise<TunnelProbeResult> {
   const started = Date.now();
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const base = `http://127.0.0.1:${config.localForwardPort}`;
+  const host = resolveProbeHost(config);
+  const base = resolveProbeBase(config);
   const baseResult = {
     localForwardPort: config.localForwardPort,
     remoteAgentPort: config.remoteAgentPort,
@@ -85,18 +104,18 @@ export async function probeLocalTunnel(
     streamApiOk: false,
   };
 
-  if (!(await tcpOpen(config.localForwardPort, timeoutMs))) {
+  if (!(await tcpOpen(config.localForwardPort, timeoutMs, host))) {
     return {
       ...baseResult,
       status: "local_port_closed",
-      message: `127.0.0.1:${config.localForwardPort} 未打开。`,
-      suggestion: "请启动 Xshell 隧道会话，并确认 Hub Agent 已在 Hub 的 127.0.0.1 上运行。",
+      message: `${host}:${config.localForwardPort} 未打开。`,
+      suggestion: `请启动 Xshell 隧道会话，并确认 Hub Agent 已在 ${host} 上运行（端口按每服务器隧道配置动态解析）。`,
     };
   }
 
   const headers = config.token ? { "X-Simple-Agent-Token": config.token } : undefined;
   try {
-    const healthResponse = await timedFetch(`${base}/api/health`, { headers }, timeoutMs);
+    const healthResponse = await fetchHealthWithFallback(base, headers as unknown as Record<string, string> | undefined, timeoutMs);
     if (healthResponse.status === 401 || healthResponse.status === 403) return tokenInvalid(baseResult, config);
     if (!healthResponse.ok) {
       return {
@@ -278,7 +297,8 @@ export async function probeWorkerTelemetryTunnel(
 ): Promise<WorkerTelemetryProbeResult> {
   const started = Date.now();
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const base = `http://127.0.0.1:${config.localForwardPort}`;
+  const host = resolveProbeHost(config);
+  const base = resolveProbeBase(config);
   const baseResult = {
     localForwardPort: config.localForwardPort,
     remoteTelemetryPort: config.remoteAgentPort,
@@ -290,17 +310,17 @@ export async function probeWorkerTelemetryTunnel(
     workerTasksApiOk: false,
     warnings: [] as string[],
   };
-  if (!(await tcpOpen(config.localForwardPort, timeoutMs))) {
+  if (!(await tcpOpen(config.localForwardPort, timeoutMs, host))) {
     return {
       ...baseResult,
       status: "local_port_closed",
-      message: `127.0.0.1:${config.localForwardPort} 未打开。`,
-      suggestion: "请启动该 Worker 的 Xshell 实时观测隧道，并确认 Worker Telemetry Agent 已启动。",
+      message: `${host}:${config.localForwardPort} 未打开。`,
+      suggestion: `请启动该 Worker 的 Xshell 实时观测隧道（${host}:${config.localForwardPort} 按每服务器隧道配置动态解析），并确认 Worker Telemetry Agent 已启动。`,
     };
   }
   const headers = config.token ? { "X-Simple-Agent-Token": config.token } : undefined;
   try {
-    const healthResponse = await timedFetch(`${base}/api/health`, { headers }, timeoutMs);
+    const healthResponse = await fetchHealthWithFallback(base, headers as unknown as Record<string, string> | undefined, timeoutMs);
     if (healthResponse.status === 401 || healthResponse.status === 403) {
       return { ...baseResult, tcpOpen: true, status: "agent_token_invalid", message: "Worker Telemetry token 被拒绝。" };
     }
@@ -326,7 +346,7 @@ export async function probeWorkerTelemetryTunnel(
     const workerTasksApiOk = Boolean(endpoints.workerTasks);
     const ok = validation.ok && streamApiOk && gpuApiOk && workerTasksApiOk;
     const modeSuggestion = mode && mode !== "worker_telemetry"
-      ? `127.0.0.1:${config.localForwardPort} 返回的是 ${mode} Agent，不是 Worker Telemetry。请重新写入 Agent 自动启动命令并重启该 Worker tmux。`
+      ? `${host}:${config.localForwardPort} 返回的是 ${mode} Agent，不是 Worker Telemetry。请重新写入 Agent 自动启动命令并重启该 Worker tmux。`
       : "请在 Worker 上启动 cluster_agent.py serve --mode worker_telemetry。";
     return {
       ...baseResult,
@@ -359,9 +379,10 @@ export async function probeWorkerTelemetryTunnel(
   }
 }
 
-async function tcpOpen(port: number, timeoutMs: number): Promise<boolean> {
+async function tcpOpen(port: number, timeoutMs: number, host = "127.0.0.1"): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = net.createConnection({ host: "127.0.0.1", port });
+    const resolvedHost = String(host || "127.0.0.1").trim() || "127.0.0.1";
+    const socket = net.createConnection({ host: resolvedHost, port });
     const done = (ok: boolean) => {
       socket.removeAllListeners();
       socket.destroy();

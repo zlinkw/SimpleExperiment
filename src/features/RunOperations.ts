@@ -91,6 +91,8 @@ export function operationTerminalStatus(value: unknown): boolean {
 }
 
 export function hasRemoteRunActivity(evidence: RemoteRunEvidence): boolean {
+  // passive_interrupt_requeue / dispatch_probe(目前无空卡)+running>0 / wait+running>0 均为有效进展，即使 liveLogCount 被去噪也视为活动
+  if (schedulerLogShowsBusyWaiting(evidence as any) || schedulerLogShowsPassiveRequeue(evidence as any)) return true;
   return Boolean(
     evidence.pidAlive || evidence.tmuxSessionAlive
     || Number(evidence.schedulerStatesCount) > 0
@@ -100,10 +102,31 @@ export function hasRemoteRunActivity(evidence: RemoteRunEvidence): boolean {
   );
 }
 
+function schedulerLogShowsPassiveRequeue(evidence: any): boolean {
+  const tail = String((evidence as any)?.liveLogTail || (evidence as any)?.logTail || "");
+  return /passive_interrupt_requeue/i.test(tail);
+}
+
+function schedulerLogShowsBusyWaiting(evidence: any): boolean {
+  const tail = String((evidence as any)?.liveLogTail || (evidence as any)?.logTail || "");
+  if (!tail) return false;
+  // wait pending + running>0 正常忙等待
+  const runningVals = [...tail.matchAll(/running=(\d+)/gi)].map(m => Number(m[1]));
+  const lastRunning = runningVals.length ? runningVals[runningVals.length - 1] : 0;
+  if (lastRunning > 0) {
+    if (/wait\s+pending/i.test(tail)) return true;
+    if (/dispatch_probe/i.test(tail) && /目前无空卡/.test(tail)) return true;
+    if (/\bdispatch\b/i.test(tail) || /\bdone\b/i.test(tail)) return true;
+  }
+  return false;
+}
+
 // 判断是否应因“无日志增长且已超时”而收口为 stale：
 // 操作启动超过 180s，且日志在 180s 内无新增长（liveLogUpdatedAt 过期/缺失视为不新鲜）。
 // 用于 pidAlive / tmuxAlive&&hasActivity 分支，避免挂死或“假执行中”无限占用 running。
+// 补充：调度期 dispatch_probe(目前无空卡)+running>0 或 passive_interrupt_requeue 属于正常忙等待，禁止判 stalled。
 function runOperationShouldStaleByStall(evidence: any, record: any, remote: any, nowMs: number): boolean {
+  if (schedulerLogShowsPassiveRequeue(evidence) || schedulerLogShowsBusyWaiting(evidence)) return false;
   const startedTs = Date.parse(String(record.startedAt || remote.startedAt || "")) || 0;
   if (!startedTs) return false;
   if (nowMs - startedTs <= RUN_OPERATION_NO_LOG_GROWTH_STALE_MS) return false;
@@ -147,8 +170,11 @@ export function reconcileRunOperation(
   }
   const pidAlive = Boolean(evidence.pidAlive);
   const tmuxAlive = Boolean(evidence.tmuxSessionAlive);
+  // 关键修复：dispatch_probe(目前无空卡)+running>0 为 GPU 忙正常等待，passive_interrupt_requeue 为主动重入队，均视为有效活动，禁止 90s 误判为假存活
+  const busyWaitingActive = schedulerLogShowsBusyWaiting(evidence as any) || schedulerLogShowsPassiveRequeue(evidence as any);
   const hasActivity = Boolean(
-    Number(evidence.schedulerStatesCount || 0) > 0
+    busyWaitingActive
+    || Number(evidence.schedulerStatesCount || 0) > 0
     || Number(evidence.experimentTracesCount || 0) > 0
     || Number(evidence.workerTasksCount || 0) > 0
     || Number(evidence.liveLogCount || 0) > 0,
@@ -181,6 +207,14 @@ export function reconcileRunOperation(
   // the shell is just sitting at a prompt. Promote to stale once the no-activity window
   // exceeds the reconciliation grace, so the panel never hangs on "waiting for scheduler".
   if (tmuxAlive && !hasActivity) {
+    // 额外 guard：若 liveLogTail 虽被去噪计数为 0，但含 busyWaiting/passiveRequeue 文本，仍视为有活动，不进入 stale 分支
+    // 仅当 running==0 且无 dispatch/done/passive_interrupt 等有效进展且超时才判失败
+    if (busyWaitingActive) {
+      return {
+        terminal: false,
+        patch: { ...base, status: remoteStatus || "running", reconcileNoActivitySince: 0, reconcileCheckedAt: checkedAt },
+      };
+    }
     const noActivitySince = Number((record as any).reconcileNoActivitySince) || nowMs;
     if (nowMs - noActivitySince > RUN_OPERATION_RECONCILE_GRACE_MS) {
       return {

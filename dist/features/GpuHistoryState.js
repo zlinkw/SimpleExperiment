@@ -132,7 +132,7 @@ function compactGpuHistoryResponse(value) {
     const rawPointTotal = series.reduce((sum, item) => sum + item.rawPointCount, 0);
     return {
         schemaVersion: 1,
-        bucketSeconds: boundedNumber(source.bucketSeconds, 1, 86_400, 300),
+        bucketSeconds: boundedNumber(source.bucketSeconds, 1, 86_400, 60),
         retentionHours: boundedNumber(source.retentionHours, 1, 24 * 31, 72),
         updatedAt: boundedText(source.updatedAt, 64),
         series,

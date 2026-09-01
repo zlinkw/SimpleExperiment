@@ -38,6 +38,7 @@ exports.deactivate = deactivate;
 // @ts-nocheck
 const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs/promises"));
+const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const crypto = __importStar(require("crypto"));
 const os = __importStar(require("os"));
@@ -84,6 +85,7 @@ const PptPlotBridge_1 = require("./PptPlotBridge");
 const GpuHistoryState_1 = require("./features/GpuHistoryState");
 const TopologyMode_1 = require("./features/TopologyMode");
 const ApiWorkflow_1 = require("./features/ApiWorkflow");
+const RuntimeManifest_1 = require("./runtime/RuntimeManifest");
 const AgentRuntimeScope_1 = require("./features/AgentRuntimeScope");
 const WorkerPlanSharding_1 = require("./features/WorkerPlanSharding");
 const ExtensionUpdates_1 = require("./features/ExtensionUpdates");
@@ -341,7 +343,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "abortScheduler", "clearOperations", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
+    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -499,14 +501,15 @@ async function activateExtension(context) {
     await (0, RenamedExtensionStateMigration_1.migrateRenamedExtensionState)(context).catch(() => undefined);
     provider = new RealtimeTunnelPanelProvider(context);
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()));
-    context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()));
+    context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
     void RemoteRootPolicyPrefill_1.prefillRemoteRootPolicy(context, context.globalState.get(keys.setupConfig), vscode).catch(() => undefined);
     provider.startLocalApiServer();
     void provider.reconcileStalePlanRunOperations({ reason: "activation" }).catch(() => undefined);
     void provider.runActivationOnboarding();
+    setTimeout(() => void provider?.checkRemoteAgentVersionAndNotify(false).catch(() => undefined), 8000);
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
 }
 function deactivate() {
@@ -1145,6 +1148,7 @@ class RealtimeTunnelPanelProvider {
         return { ok: true, key, reset: true };
     }
     async apiProjectPrepare(params = {}) {
+        await this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         const root = String(params.workspace || workspaceRoot() || "").trim();
         if (!root)
             throw new Error("project.prepare 需要已打开工作区，或传入 workspace 参数。");
@@ -1154,6 +1158,7 @@ class RealtimeTunnelPanelProvider {
                 this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
             }),
             this.refreshLocalSshConfig().catch(() => undefined),
+            ensureSimpleProjectEntrypoints(root).catch(() => undefined),
         ]);
         const requestedMode = TopologyMode_1.normalizeTopologyMode(params.topologyMode || params.mode);
         const serverIds = stringArrayField(params, "serverIds");
@@ -1292,8 +1297,8 @@ class RealtimeTunnelPanelProvider {
                         ? Number(existing?.maxConcurrentGpus || 1)
                         : Math.max(1, Math.trunc(Number(row.maxConcurrentGpus) || 1)),
                     allowedGpuIds: Array.isArray(row.allowedGpuIds)
-                        ? uniqueStrings(row.allowedGpuIds.map((item) => String(item || "").trim()).filter(Boolean))
-                        : existing?.allowedGpuIds || [],
+                        ? sanitizeAllowedGpuIds(row.allowedGpuIds)
+                        : existing?.allowedGpuIds ? sanitizeAllowedGpuIds(existing.allowedGpuIds) : [],
                     authMethod: row.authMethod === "key" ? "key" : "password",
                     enabled: row.enabled !== false,
                 };
@@ -1506,8 +1511,8 @@ class RealtimeTunnelPanelProvider {
                     ? Number(existing.maxConcurrentGpus || 1)
                     : Math.max(1, Math.trunc(Number(worker.maxConcurrentGpus) || 1)),
                 allowedGpuIds: Array.isArray(worker.allowedGpuIds)
-                    ? uniqueStrings(worker.allowedGpuIds.map((item) => String(item || "").trim()).filter(Boolean))
-                    : existing.allowedGpuIds || [],
+                    ? sanitizeAllowedGpuIds(worker.allowedGpuIds)
+                    : existing.allowedGpuIds ? sanitizeAllowedGpuIds(existing.allowedGpuIds) : [],
             });
         }
         return [...byId.values()];
@@ -1649,9 +1654,33 @@ class RealtimeTunnelPanelProvider {
         return rows;
     }
     async apiPlanValidate(params = {}) {
-        await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
-            this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
-        });
+        await this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
+        const __root = workspaceRoot() || "";
+        await Promise.all([
+            this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
+                this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
+            }),
+            __root ? ensureSimpleProjectEntrypoints(__root).catch(() => undefined) : Promise.resolve(),
+        ]);
+        if (__root) {
+            // 探查默认指令是否可执行，仅失败时提示（附尾部日志，经脱敏与换行固化）
+            try {
+                const rules = await readProjectAdapterRules(__root, "experiments/simple_project.yaml").catch(() => null);
+                const tpl = String(rules?.trainCommandTemplate || DEFAULT_TRAIN_TEMPLATE);
+                const probe = await probeEntrypointTemplate(__root, tpl);
+                if (!probe.ok) {
+                    const rawTail = String(probe.tail || "").slice(-800);
+                    const tail = rawTail.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 800).replace(/`/g, "'").replace(/\$\{/g, "{");
+                    const safeError = String(probe.error || "").slice(0, 300).replace(/[\r\n]+/g, " ").trim();
+                    throw new Error(`默认指令执行失败：${safeError}，请在设置中修改 entrypoints.trainCommandTemplate${tail ? String.fromCharCode(10) + "尾部日志: " + tail : ""}`);
+                }
+            }
+            catch (e) {
+                const msg = String(e?.message || "");
+                if (msg.includes("默认指令执行失败"))
+                    throw e;
+            }
+        }
         const plan = this.apiResolveSelectedPlan(params);
         const topology = this.projectTopologyAssessment();
         const missing = ApiWorkflow_1.structuredMissingInventory({
@@ -2910,6 +2939,7 @@ class RealtimeTunnelPanelProvider {
         this.view = webviewView;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.onDidReceiveMessage((message) => void this.handleMessage(message));
+        void this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         this.loadPanelHtml();
         webviewView.onDidChangeVisibility(() => {
             this.budget.setHidden(!webviewView.visible);
@@ -4436,6 +4466,12 @@ class RealtimeTunnelPanelProvider {
             case "clearOperations":
                 await this.clearOperationHistoryFromUi(message);
                 break;
+            case "clearCache":
+                await this.clearCacheFromUi();
+                break;
+            case "abortOperation":
+                await this.abortSchedulerFromUi(message);
+                break;
             case "saveUiLayout":
                 await this.saveUiLayoutFromUi(message);
                 break;
@@ -4506,6 +4542,15 @@ class RealtimeTunnelPanelProvider {
             case "copyText":
                 await this.copyTextFromUi(message);
                 break;
+            case "verifyAgentVersion":
+                await this.verifyAgentVersionManually();
+                break;
+            case "fetchTmuxCapture":
+                await this.fetchTmuxCaptureFromUi(message);
+                break;
+            case "fetchTmuxList":
+                await this.fetchTmuxListFromUi(message);
+                break;
             default:
                 if (uiActionCommands.has(command))
                     await this.runActionCommand(command, message);
@@ -4554,6 +4599,8 @@ class RealtimeTunnelPanelProvider {
         }
     }
     uiCommandWatchdogMs(command) {
+        if (command === "fetchTmuxList" || command === "fetchTmuxCapture")
+            return 8000;
         if (command === "runAllPlans") {
             const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));
             return Math.min(60 * 60_000, Math.max(180_000, planCount * 130_000 + 60_000));
@@ -4862,6 +4909,70 @@ class RealtimeTunnelPanelProvider {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         return Boolean(previewed);
     }
+    async detectLocalExistingOutputs(plan, body) {
+        const root = workspaceRoot();
+        if (!root)
+            return [];
+        const markers = ["metrics_summary.csv", "metrics.csv", "results.csv", "summary.csv", "best_model.pth", "checkpoint.pth", "latest.pth", "train.log", "stdout.log", "stderr.log", "artifact_manifest.json", "checkpoint_manifest.json"];
+        const out = [];
+        const checkRoots = ["work_dirs", "experiments/results", "experiments/runs", "outputs", "results", "simple_cluster/results", "simple_cluster/logs", "simple_cluster/tmp/cluster_scheduler", "simple_cluster/tmp"];
+        for (const rel of checkRoots) {
+            const full = path.join(root, rel);
+            try {
+                const stat = await fs.stat(full).catch(() => null);
+                if (!stat)
+                    continue;
+                if (stat.isDirectory()) {
+                    const entries = await fs.readdir(full).catch(() => []);
+                    if (!entries.length)
+                        continue;
+                    const hit = entries.filter((n) => markers.includes(n) || n.endsWith(".csv") || n.endsWith(".pth") || n.endsWith(".log"));
+                    if (hit.length || entries.length > 0) {
+                        // shallow check for markers inside work_dirs/multirun
+                        let hasMarker = hit.length > 0;
+                        if (!hasMarker) {
+                            // check one level deep for marker
+                            for (const e of entries.slice(0, 20)) {
+                                const sub = path.join(full, e);
+                                try {
+                                    const s = await fs.stat(sub).catch(() => null);
+                                    if (s && s.isDirectory()) {
+                                        const subEntries = await fs.readdir(sub).catch(() => []);
+                                        if (subEntries.some((n) => markers.includes(n)))
+                                            hasMarker = true;
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                        if (hasMarker || entries.length > 5)
+                            out.push({ output_dir: rel, markers: hit.slice(0, 5), totalFiles: entries.length });
+                    }
+                }
+                else if (stat.isFile()) {
+                    out.push({ output_dir: rel, markers: [path.basename(rel)], totalFiles: 1 });
+                }
+            }
+            catch { }
+        }
+        // suite 精确检测：work_dirs/multirun/{suite} 等
+        try {
+            const suite = String(plan?.suite || body?.options?.suite || "").trim();
+            if (suite) {
+                for (const rel of [`work_dirs/multirun/${suite}`, `work_dirs/${suite}`, `experiments/results/${suite}.csv`, `experiments/results/${suite}`]) {
+                    const full = path.join(root, rel);
+                    try {
+                        await fs.stat(full);
+                        if (!out.some((x) => x.output_dir === rel))
+                            out.push({ output_dir: rel, markers: ["suite_match"], totalFiles: 1 });
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch { }
+        return out.slice(0, 10);
+    }
     async confirmPlanRunSubmission(command, plan, debugMode = false, body) {
         const remoteTargets = this.planRunRemoteTargets(body);
         const projectOutputCandidates = adapterRuleResultCandidates(this.localPlanMetadata.detectedProject?.adapterRules || {});
@@ -4869,6 +4980,23 @@ class RealtimeTunnelPanelProvider {
         const answer = await vscode.window.showWarningMessage(planRunConfirmationDetail(command, { ...(plan || {}), debugMode, schedulerOwnerWorkerId: this.planSchedulerWorkerId(body), confirmationOutputCandidates: projectOutputCandidates }, remoteTargets), { modal: true }, label);
         if (answer !== label)
             throw new UiCommandCancelled(command === "reproducePlan" ? "复现实验已取消。" : "运行计划已取消。");
+        // 解耦历史产物：调度前检测输出目录是否已有产物（metrics_summary.csv / checkpoint / train.log 等），显式询问覆盖/跳过
+        const existing = await this.detectLocalExistingOutputs(plan, body);
+        if (existing.length) {
+            const detail = existing.slice(0, 3).map((e) => `${e.output_dir}${e.markers.length ? ` (${e.markers.join(", ")})` : ""}`).join("；");
+            const pick = await vscode.window.showWarningMessage(`检测到已有历史产物 ${existing.length} 处（${detail}${existing.length > 3 ? " 等" : ""}），是否重新运行覆盖？“覆盖”将带 --overwrite 强制重跑并覆盖旧文件；“跳过已有”将保留 --resume 行为自动跳过已完成任务（GPU 调度不受历史产物影响）。`, { modal: true }, "覆盖重新运行", "跳过已有", "取消");
+            if (!pick || pick === "取消")
+                throw new UiCommandCancelled("已取消：用户未选择历史产物的处理方式。");
+            if (pick === "覆盖重新运行") {
+                body.options = { ...(body.options || {}), overwriteExisting: true, overwrite: true };
+                body.overwriteExisting = true;
+                body.overwrite = true;
+            }
+            else {
+                body.options = { ...(body.options || {}), overwriteExisting: false, overwrite: false };
+                body.overwriteExisting = false;
+            }
+        }
     }
     async collectRunGitProvenance(root) {
         const repo = await this.primaryGitRepository();
@@ -4967,11 +5095,21 @@ class RealtimeTunnelPanelProvider {
             throw new Error("至少需要配置并启用一个 Worker 才能运行实验。请在“设置 > 服务器”添加 Worker 的 Xshell 会话和项目父目录。");
     }
     assertExecutionCondaEnvReady(workers = this.workerActionTargets()) {
-        const missing = (Array.isArray(workers) ? workers : [])
+        const list = Array.isArray(workers) ? workers : [];
+        const missing = list
             .filter((worker) => !normalizeCondaEnvSetting(worker?.condaEnv))
             .map((worker) => String(worker?.workerId || worker?.id || worker?.label || "未命名 Worker"));
         if (missing.length) {
-            throw new Error(`${missing.join("、")} 未配置 condaEnv。请在“设置 > 服务器”的 Worker Conda 环境中填写，或在 project.prepare 参数 workerTunnels[].condaEnv 中传入。`);
+            throw new Error(`${missing.join("、")} 未配置 condaEnv。请在“设置 > 服务器”的 Worker Conda 环境中填写完整绝对路径（以 / 开头，如 /path/to/conda_envs/<env_name>），或在 project.prepare 参数 workerTunnels[].condaEnv 中传入；留空表示不激活 Conda。`);
+        }
+        const invalid = list
+            .filter((worker) => {
+            const v = normalizeCondaEnvSetting(worker?.condaEnv);
+            return v && !isCondaEnvAbsolutePathValid(v);
+        })
+            .map((worker) => `${String(worker?.workerId || worker?.id || worker?.label || "未命名 Worker")}: "${normalizeCondaEnvSetting(worker?.condaEnv)}"`);
+        if (invalid.length) {
+            throw new Error(`${invalid.join("、")} condaEnv 请填写完整环境路径，以 / 开头（精确到环境文件夹，如 /path/to/conda_envs/<env_name>，可选以 /bin/python 结尾）；仅环境名已废弃。`);
         }
     }
     assertHubAgentProjectReady() {
@@ -5467,16 +5605,24 @@ class RealtimeTunnelPanelProvider {
             fs.readFile(agentPath, "utf8"),
             fs.readFile(schedulerPath, "utf8"),
         ]);
-        const manifest = {
-            schemaVersion: 1,
-            pluginVersion: String(this.context.extension.packageJSON?.version || ""),
-            runtimeVersion: sha256Text(`${agentText}\n${schedulerText}`).slice(0, 16),
-            files: {
-                "cluster_agent.py": sha256Text(agentText),
-                "cluster_scheduler.py": sha256Text(schedulerText),
-            },
-            deployedAt: new Date().toISOString(),
+        const pluginVersion = String(this.context.extension.packageJSON?.version || "");
+        const runtimeVersion = RuntimeManifest_1.CURRENT_RUNTIME_VERSION;
+        const manifest = RuntimeManifest_1.buildExpectedRuntimeManifest(pluginVersion, runtimeVersion, [
+            { component: "hub_agent", version: runtimeVersion, remotePath: "simple_cluster/runtime/cluster_agent.py", content: agentText },
+            { component: "cluster_scheduler", version: runtimeVersion, remotePath: "simple_cluster/runtime/cluster_scheduler.py", content: schedulerText },
+        ], new Date().toISOString());
+        manifest.files = {
+            "cluster_agent.py": RuntimeManifest_1.sha256Text(agentText),
+            "cluster_scheduler.py": RuntimeManifest_1.sha256Text(schedulerText),
         };
+        manifest.deployedAt = new Date().toISOString();
+        try {
+            const preCheck = await this.verifyDeployedAgentRuntime(targets, manifest);
+            if (preCheck.fatal.length)
+                console.warn(`[deploy] 远端旧版检测：${preCheck.fatal.join("；")}，将覆盖部署新版`);
+        }
+        catch {
+        }
         if (!pathConfirmed) {
             await this.confirmRemoteWriteTargets("上传 Agent runtime", targets);
             await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
@@ -5506,6 +5652,59 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`Agent runtime 部署校验失败：${verifyIssues.fatal.join("; ")}`);
         if (verifyIssues.warnings.length)
             void vscode.window.showWarningMessage(`Agent runtime 已部署，但部分目标未校验：${verifyIssues.warnings.join("；")}`);
+        // 成功后对每 target 追加 fs/sha256 二次核验并透传到 remoteDetails（便于 UI 与日志核验）
+        let _shaDetails = [];
+        try {
+            const _token2 = this.tunnelConfig && this.tunnelConfig.token;
+            const _expFiles = manifest.files || {};
+            for (const t of targets) {
+                const port = t.localForwardPort;
+                if (!port)
+                    continue;
+                const host = String(t.localForwardHost || t.localHost || "127.0.0.1").trim() || "127.0.0.1";
+                const base = `http://${host}:${port}`;
+                const _runtimeDirHint = String(t.remotePath || "").replace(/\/+$/, "");
+                let _installDir = "";
+                let _runtimeDir = "";
+                if (_runtimeDirHint.endsWith("/simple_cluster/runtime")) {
+                    _runtimeDir = _runtimeDirHint;
+                    _installDir = _runtimeDir.replace(/\/simple_cluster\/runtime\/?$/, "");
+                }
+                else {
+                    const _workRoot = String(t.projectWorkDir || t.remoteRoot || t.agentProjectDir || t.remotePath || "").trim();
+                    const _perTargetAgentInstallDir = String(t.agentInstallDir || "").trim();
+                    try {
+                        const _dirs = this.agentRuntimeDirs ? this.agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir) : null;
+                        _installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || this.reportedAgentInstallDir?.() || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
+                    }
+                    catch {
+                        _installDir = String(this.reportedAgentInstallDir?.() || "").trim();
+                    }
+                    _runtimeDir = _installDir ? `${_installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : _runtimeDirHint;
+                }
+                for (const [fname, exp] of Object.entries(_expFiles)) {
+                    const remoteAbs = `${_runtimeDir.replace(/\/+$/, "")}/${fname}`;
+                    try {
+                        const cc = new AbortController();
+                        const tt = setTimeout(() => cc.abort(), 2500);
+                        tt.unref?.();
+                        const rr = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers: _token2 ? { "X-Simple-Agent-Token": String(_token2) } : undefined, signal: cc.signal });
+                        clearTimeout(tt);
+                        if (!rr.ok) {
+                            _shaDetails.push(`${t.label}/${fname}:HTTP${rr.status}`);
+                            continue;
+                        }
+                        const jj = await rr.json();
+                        const ok = String(jj.sha256 || "").toLowerCase() === String(exp).toLowerCase();
+                        _shaDetails.push(`${t.label}/${fname}:${ok ? "sha256 ok" : "sha256 mismatch"}`);
+                    }
+                    catch (e) {
+                        _shaDetails.push(`${t.label}/${fname}:不可达`);
+                    }
+                }
+            }
+        }
+        catch { }
         if (targets.some((target) => target.role === "hub"))
             this.lastProbe = undefined;
         for (const target of targets.filter((item) => item.role !== "hub"))
@@ -5515,31 +5714,74 @@ class RealtimeTunnelPanelProvider {
             state: "agent_restart_required",
             status: "agent_restart_required",
             checkedAt: new Date().toISOString(),
-            message: `最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话后再次检测。`,
+            message: `最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话后再次检测。` + (_shaDetails.length ? ` 二次核验：${_shaDetails.join("； ")}` : ""),
+            remoteDetails: _shaDetails,
         };
+        this.lastDeployShaDetails = _shaDetails;
         this.postState();
-        if (showMessage)
-            void vscode.window.showInformationMessage(`最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话，再点击“检测全部”。`);
+        if (showMessage) {
+            const shaMsg = _shaDetails.length ? ` 二次核验：${_shaDetails.join("； ")}` : "";
+            void vscode.window.showInformationMessage(`最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话，再点击“检测全部”。${shaMsg}`);
+        }
     }
     async verifyDeployedAgentRuntime(targets, manifest) {
         const token = this.tunnelConfig && this.tunnelConfig.token;
         const fatal = [];
         const warnings = [];
+        const expectedFiles = manifest.files || {};
+        if (!expectedFiles["cluster_agent.py"] && manifest.components) {
+            const comps = manifest.components || {};
+            for (const [key, info] of Object.entries(comps)) {
+                const name = key === "hub_agent" ? "cluster_agent.py" : key === "cluster_scheduler" ? "cluster_scheduler.py" : String(key);
+                if (info && info.sha256)
+                    expectedFiles[name] = String(info.sha256);
+            }
+        }
+        const expectedRuntimeVersion = String(manifest.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "");
+        const expectedPluginVersion = String(manifest.pluginVersion || "");
+        if (!expectedRuntimeVersion) {
+            fatal.push("本地 runtimeVersion 为空（单源 src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION 缺失），禁止 fallback 硬编码，已阻止校验");
+        }
         for (const target of targets) {
-            const installDir = this.agentRuntimeDirs(target.remoteRoot).installDir;
+            const _runtimeHint = String(target.remotePath || "").replace(/\/+$/, "");
+            let installDir = "";
+            let runtimeDir = "";
+            if (_runtimeHint.endsWith("/simple_cluster/runtime")) {
+                runtimeDir = _runtimeHint;
+                installDir = runtimeDir.replace(/\/simple_cluster\/runtime\/?$/, "");
+            }
+            else {
+                const _workRoot = String(target.projectWorkDir || target.remoteRoot || target.agentProjectDir || target.remotePath || "").trim();
+                const _perTargetAgentInstallDir = String(target.agentInstallDir || "").trim();
+                try {
+                    const _dirs = this.agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir);
+                    installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || this.reportedAgentInstallDir() || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
+                    runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
+                }
+                catch {
+                    installDir = String(this.reportedAgentInstallDir() || "").trim();
+                    runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
+                }
+                if (!runtimeDir && _runtimeHint)
+                    runtimeDir = _runtimeHint;
+            }
             const port = target.localForwardPort;
             if (!port) {
                 warnings.push(`${target.label}：缺少本地转发端口，跳过部署校验`);
                 continue;
             }
-            const base = `http://127.0.0.1:${port}`;
+            const host = String(target.localForwardHost || target.localHost || "127.0.0.1").trim() || "127.0.0.1";
+            const base = `http://${host}:${port}`;
             const headers = token ? { "X-Simple-Agent-Token": String(token) } : undefined;
             const checks = [
-                ["cluster_agent.py", manifest.files["cluster_agent.py"]],
-                ["cluster_scheduler.py", manifest.files["cluster_scheduler.py"]],
+                ["cluster_agent.py", expectedFiles["cluster_agent.py"] || ""],
+                ["cluster_scheduler.py", expectedFiles["cluster_scheduler.py"] || ""],
             ];
             for (const [name, expected] of checks) {
-                const remoteAbs = `${installDir}/simple_cluster/runtime/${name}`;
+                if (!expected)
+                    continue;
+                const _effectiveRuntime = (runtimeDir || `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
+                const remoteAbs = `${_effectiveRuntime}/${name}`;
                 try {
                     const controller = new AbortController();
                     const timer = setTimeout(() => controller.abort(), 5000);
@@ -5562,8 +5804,435 @@ class RealtimeTunnelPanelProvider {
                     warnings.push(`${target.label} 的 ${name}：agent 不可达，跳过校验（${error instanceof Error ? error.message : String(error)}）`);
                 }
             }
+            try {
+                // 统一走 /api/health，兼容降级 /health 与 /api/version（worker_telemetry 曾仅暴露 /health）
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 4000);
+                timer.unref?.();
+                let resp = await fetch(`${base}/api/health`, { headers, signal: controller.signal });
+                if (!resp.ok) {
+                    clearTimeout(timer);
+                    // 降级 1: /health
+                    try {
+                        const c1 = new AbortController();
+                        const t1 = setTimeout(() => c1.abort(), 4000);
+                        t1.unref?.();
+                        const r1 = await fetch(`${base}/health`, { headers, signal: c1.signal });
+                        clearTimeout(t1);
+                        if (r1.ok)
+                            resp = r1;
+                        else
+                            throw new Error(String(r1.status));
+                    }
+                    catch {
+                        const c2 = new AbortController();
+                        const t2 = setTimeout(() => c2.abort(), 4000);
+                        t2.unref?.();
+                        resp = await fetch(`${base}/api/version`, { headers, signal: c2.signal });
+                        clearTimeout(t2);
+                        if (!resp.ok) {
+                            warnings.push(`${target.label} 的版本接口返回 HTTP ${resp.status}，无法校验版本（已尝试 /api/health、/health、/api/version）`);
+                            continue;
+                        }
+                    }
+                }
+                else {
+                    clearTimeout(timer);
+                }
+                const data = await resp.json();
+                // 单源统一版本校验：所有远端版本字段必须与本地统一版本一致（以 package.json version为准）
+                const unifiedExpected = String(manifest.pluginVersion || manifest.runtimeVersion || expectedRuntimeVersion || expectedPluginVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "").trim();
+                const remoteAgentVersion = String(data.agentVersion || data.agent_version || "").trim();
+                const remoteRuntimeVersion = String(data.runtimeVersion || data.runtime_version || data.schedulerVersion || data.scheduler_version || "").trim();
+                const remotePluginVersion = String(data.pluginVersion || data.plugin_version || "").trim();
+                const remoteSchedulerVersion = String(data.schedulerVersion || data.scheduler_version || "").trim();
+                const remotes = [
+                    remoteAgentVersion && ["agentVersion", remoteAgentVersion],
+                    remoteRuntimeVersion && ["runtimeVersion", remoteRuntimeVersion],
+                    remotePluginVersion && ["pluginVersion", remotePluginVersion],
+                    remoteSchedulerVersion && ["schedulerVersion", remoteSchedulerVersion],
+                ].filter(Boolean);
+                for (const [key, val] of remotes) {
+                    if (unifiedExpected && val !== unifiedExpected) {
+                        fatal.push(`${target.label} 的 ${key} 不一致：远端 ${val} vs 本地统一版本 ${unifiedExpected}（单源 package.json#version）`);
+                    }
+                }
+            }
+            catch (error) {
+                warnings.push(`${target.label} 的版本校验不可达，跳过版本比对（${error instanceof Error ? error.message : String(error)}）`);
+            }
         }
         return { fatal, warnings };
+    }
+    async checkRemoteAgentVersionAndNotify(showUi = false) {
+        try {
+            const runtimeDir = path.join(__dirname, "runtime");
+            const agentPath = path.join(runtimeDir, "cluster_agent.py");
+            const schedulerPath = path.join(runtimeDir, "cluster_scheduler.py");
+            let agentText = "";
+            let schedulerText = "";
+            try {
+                [agentText, schedulerText] = await Promise.all([fs.readFile(agentPath, "utf8"), fs.readFile(schedulerPath, "utf8")]);
+            }
+            catch {
+                return { fatal: [], warnings: ["本地 runtime 文件不可读，跳过远端版本校验"] };
+            }
+            const pluginVersion = String(this.context.extension.packageJSON?.version || "");
+            const runtimeVersion = RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "";
+            if (!runtimeVersion) {
+                return { fatal: ["本地 runtimeVersion 为空（单源 src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION 缺失），禁止 fallback 硬编码"], warnings: [] };
+            }
+            const manifest = RuntimeManifest_1.buildExpectedRuntimeManifest
+                ? RuntimeManifest_1.buildExpectedRuntimeManifest(pluginVersion, runtimeVersion, [
+                    { component: "hub_agent", version: runtimeVersion, remotePath: "simple_cluster/runtime/cluster_agent.py", content: agentText },
+                    { component: "cluster_scheduler", version: runtimeVersion, remotePath: "simple_cluster/runtime/cluster_scheduler.py", content: schedulerText },
+                ], new Date().toISOString())
+                : { pluginVersion, runtimeVersion, files: { "cluster_agent.py": sha256Text(agentText), "cluster_scheduler.py": sha256Text(schedulerText) } };
+            if (!manifest.files) {
+                manifest.files = {
+                    "cluster_agent.py": RuntimeManifest_1.sha256Text ? RuntimeManifest_1.sha256Text(agentText) : sha256Text(agentText),
+                    "cluster_scheduler.py": RuntimeManifest_1.sha256Text ? RuntimeManifest_1.sha256Text(schedulerText) : sha256Text(schedulerText),
+                };
+            }
+            let targets = [];
+            try {
+                targets = this.agentRuntimeUploadTargets();
+            }
+            catch (e) {
+                const msg = String(e?.message || e || "获取远端目标失败");
+                if (showUi)
+                    await vscode.window.showInformationMessage(`未配置远端目标或隧道未建立：${msg}；请先配置服务器并启动 tunnel。`);
+                return { fatal: [], warnings: [msg] };
+            }
+            if (!targets.length) {
+                if (showUi)
+                    await vscode.window.showInformationMessage("未配置远端目标或隧道未建立（targets 为空），请先配置服务器并启动 tunnel 后再校验 Agent 版本。");
+                return { fatal: [], warnings: ["未配置远端目标或隧道未建立"] };
+            }
+            const result = await this.verifyDeployedAgentRuntime(targets, manifest);
+            if (result.fatal.length) {
+                const detail = `远端 Agent 版本不一致（旧版覆盖风险）：${result.fatal.join("；")}，正在自动覆盖安装最新版。`;
+                console.warn(`[version-check] ${detail}`);
+                try {
+                    await this.deployLatestAgentRuntime(true, true);
+                    const successMsg = `Agent 已自动更新到 ${pluginVersion}（runtime ${runtimeVersion}），请重启 Xshell 会话以生效。可点击“检测全部”验证。`;
+                    await vscode.window.showInformationMessage(successMsg);
+                    try {
+                        await this.restartRealtimeTunnelSessionsIfNeeded?.();
+                    }
+                    catch { }
+                    try {
+                        this.client?.reconnect?.();
+                    }
+                    catch { }
+                }
+                catch (deployError) {
+                    const failDetail = `自动覆盖安装失败：${String(deployError && deployError.message || deployError)}。请手动执行“部署 Agent”。`;
+                    console.warn(`[version-check] ${failDetail}`);
+                    void vscode.window.showWarningMessage(`${detail} ${failDetail}`, "部署 Agent").then((choice) => {
+                        if (choice === "部署 Agent")
+                            void this.deployLatestAgentRuntime(true, false).catch((err) => void vscode.window.showErrorMessage(String(err && err.message || err)));
+                    });
+                }
+                if (showUi) {
+                    await vscode.window.showInformationMessage(detail);
+                }
+            }
+            else if (showUi && result.warnings.length) {
+                await vscode.window.showWarningMessage(`Agent 版本校验警告：${result.warnings.join("；")}`);
+            }
+            else if (showUi) {
+                await vscode.window.showInformationMessage(`Agent 版本一致：本地 plugin=${pluginVersion} runtime=${runtimeVersion}`);
+            }
+            return result;
+        }
+        catch (error) {
+            const msg = String(error && error.message || error);
+            if (showUi)
+                await vscode.window.showInformationMessage(`未配置远端目标或隧道未建立：${msg}；请先配置服务器并启动 tunnel。`);
+            return { fatal: [], warnings: [msg] };
+        }
+    }
+    resolveAgentBase(target) {
+        const host = String(target.localForwardHost || target.localHost || "127.0.0.1").trim() || "127.0.0.1";
+        return `http://${host}:${target.localForwardPort}`;
+    }
+    async killRemoteAgentAndTmux() {
+        let targets = [];
+        try {
+            targets = this.agentRuntimeUploadTargets();
+        }
+        catch {
+            return;
+        }
+        if (!targets.length)
+            return;
+        const token = this.tunnelConfig && this.tunnelConfig.token;
+        for (const target of targets) {
+            const port = target.localForwardPort;
+            if (!port)
+                continue;
+            const base = this.resolveAgentBase(target);
+            const headers = token ? { "X-Simple-Agent-Token": String(token), "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 6000);
+                timer.unref?.();
+                await fetch(`${base}/api/admin/kill-stale-runtime`, { method: "POST", headers, body: JSON.stringify({}), signal: controller.signal });
+                clearTimeout(timer);
+            }
+            catch { }
+            // fallback via local tmux if tunnel not reachable (best-effort, ignore errors)
+            try {
+                const fallbackCmd = `tmux kill-session -t zlk-worker-nwpu3-agent 2>/dev/null; tmux kill-session -t zlk-sch-run-plan 2>/dev/null; pkill -f cluster_agent 2>/dev/null; pkill -f cluster_scheduler 2>/dev/null`;
+                // no local exec needed – remote kill already attempted
+            }
+            catch { }
+        }
+        await sleep(800);
+    }
+    async ensureRemoteAgentVersionConsistent() {
+        let result;
+        try {
+            result = await this.checkRemoteAgentVersionAndNotify(false);
+        }
+        catch (err) {
+            console.warn(`[version-check] ensureRemoteAgentVersionConsistent check failed: ${String(err?.message || err)}`);
+            throw err;
+        }
+        if (result && Array.isArray(result.fatal) && result.fatal.length) {
+            try {
+                await this.killRemoteAgentAndTmux();
+            }
+            catch { }
+            await this.deployLatestAgentRuntime(true, true);
+            // wait health 200 before continuing (max 15s)
+            let targets = [];
+            try {
+                targets = this.agentRuntimeUploadTargets();
+            }
+            catch { }
+            const token = this.tunnelConfig && this.tunnelConfig.token;
+            const deadline = Date.now() + 15000;
+            while (Date.now() < deadline) {
+                let allOk = true;
+                for (const t of targets) {
+                    const port = t.localForwardPort;
+                    if (!port)
+                        continue;
+                    const base = this.resolveAgentBase(t);
+                    try {
+                        const c = new AbortController();
+                        const tm = setTimeout(() => c.abort(), 3000);
+                        tm.unref?.();
+                        let resp = await fetch(`${base}/api/health`, { headers: token ? { "X-Simple-Agent-Token": String(token) } : undefined, signal: c.signal });
+                        if (!resp.ok) {
+                            clearTimeout(tm);
+                            const c2 = new AbortController();
+                            const t2 = setTimeout(() => c2.abort(), 3000);
+                            t2.unref?.();
+                            resp = await fetch(`${base}/health`, { headers: token ? { "X-Simple-Agent-Token": String(token) } : undefined, signal: c2.signal });
+                            clearTimeout(t2);
+                        }
+                        else
+                            clearTimeout(tm);
+                        if (!resp.ok) {
+                            allOk = false;
+                            break;
+                        }
+                    }
+                    catch {
+                        allOk = false;
+                        break;
+                    }
+                }
+                if (allOk)
+                    break;
+                await sleep(800);
+            }
+        }
+    }
+    async verifyAgentVersionManually() {
+        const pluginVersion = String(this.context.extension.packageJSON?.version || "");
+        const runtimeVersion = RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "";
+        let result = { fatal: [], warnings: [] };
+        try {
+            result = await this.checkRemoteAgentVersionAndNotify(true);
+        }
+        catch (e) {
+            result = { fatal: [String(e?.message || e)], warnings: [] };
+        }
+        let remoteDetails = [];
+        // 轻量预检：先走 /api/capabilities 1.5s 超时，隧道未建立时更快提示，不走 4s health 超时
+        const _capPrecheck = async (base, headers) => {
+            try {
+                const c = new AbortController();
+                const tm = setTimeout(() => c.abort(), 1500);
+                tm.unref?.();
+                const r = await fetch(`${base}/api/capabilities`, { headers, signal: c.signal });
+                clearTimeout(tm);
+                if (!r.ok)
+                    return { ok: false, error: `HTTP ${r.status}` };
+                const j = await r.json().catch(() => ({}));
+                if (!j || typeof j !== "object")
+                    return { ok: false, error: "invalid json" };
+                return { ok: true };
+            }
+            catch (e) {
+                return { ok: false, error: String(e?.message || e).slice(0, 60) };
+            }
+        };
+        try {
+            const targets = this.agentRuntimeUploadTargets();
+            const token = this.tunnelConfig && this.tunnelConfig.token;
+            // 准备本地 sha 期望（用于二次核验透传）
+            let _expectedMap = {};
+            try {
+                const runtimeDir = require("path").join(__dirname, "runtime");
+                const _agentText = require("fs").readFileSync(require("path").join(runtimeDir, "cluster_agent.py"), "utf8");
+                const _schedText = require("fs").readFileSync(require("path").join(runtimeDir, "cluster_scheduler.py"), "utf8");
+                const _crypto = require("crypto");
+                _expectedMap["cluster_agent.py"] = _crypto.createHash("sha256").update(_agentText, "utf8").digest("hex");
+                _expectedMap["cluster_scheduler.py"] = _crypto.createHash("sha256").update(_schedText, "utf8").digest("hex");
+            }
+            catch { }
+            for (const t of targets) {
+                const port = t.localForwardPort;
+                if (!port) {
+                    remoteDetails.push(`${t.label}: 缺少本地转发端口`);
+                    continue;
+                }
+                const base = this.resolveAgentBase(t);
+                const headers = token ? { "X-Simple-Agent-Token": String(token) } : undefined;
+                // capabilities 轻量预检
+                const cap = await _capPrecheck(base, headers);
+                if (!cap.ok) {
+                    remoteDetails.push(`${t.label}: 隧道未建立或不可达（capabilities 预检 ${cap.error || "失败"}，已跳过 4s health 超时）`);
+                    continue;
+                }
+                // health 版本信息
+                let healthInfo = "";
+                try {
+                    const c = new AbortController();
+                    const tm = setTimeout(() => c.abort(), 4000);
+                    tm.unref?.();
+                    let resp = await fetch(`${base}/api/health`, { headers, signal: c.signal });
+                    if (!resp.ok) {
+                        clearTimeout(tm);
+                        const c1 = new AbortController();
+                        const t1 = setTimeout(() => c1.abort(), 4000);
+                        t1.unref?.();
+                        let r1;
+                        try {
+                            r1 = await fetch(`${base}/health`, { headers, signal: c1.signal });
+                        }
+                        catch { }
+                        clearTimeout(t1);
+                        if (r1 && r1.ok)
+                            resp = r1;
+                        else {
+                            const c2 = new AbortController();
+                            const t2 = setTimeout(() => c2.abort(), 4000);
+                            t2.unref?.();
+                            resp = await fetch(`${base}/api/version`, { headers, signal: c2.signal });
+                            clearTimeout(t2);
+                        }
+                    }
+                    else
+                        clearTimeout(tm);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        const av = String(data.agentVersion || data.agent_version || "-");
+                        const rv = String(data.runtimeVersion || data.runtime_version || data.schedulerVersion || "-");
+                        const pv = String(data.pluginVersion || data.plugin_version || "-");
+                        const uv = String(data.unifiedVersion || data.unified_version || av || rv || "-");
+                        healthInfo = `agent=${av} runtime=${rv} plugin=${pv} unified=${uv}`;
+                    }
+                    else {
+                        healthInfo = `不可达 HTTP ${resp.status}`;
+                    }
+                }
+                catch (e) {
+                    healthInfo = `不可达 ${String(e?.message || e).slice(0, 60)}`;
+                }
+                // fs/sha256 二次核验并透传到 remoteDetails（每 target）— 兼容 per-server remoteRoot/installDir 差异，优先使用 runtimeDir
+                let shaInfo = "";
+                try {
+                    const _hint = String(t.remotePath || "").replace(/\/+$/, "");
+                    let _inst = "";
+                    let _rt = "";
+                    if (_hint.endsWith("/simple_cluster/runtime")) {
+                        _rt = _hint;
+                        _inst = _rt.replace(/\/simple_cluster\/runtime\/?$/, "");
+                    }
+                    else {
+                        const _wr = String(t.projectWorkDir || t.remoteRoot || t.agentProjectDir || t.remotePath || "").trim();
+                        const _per = String(t.agentInstallDir || "").trim();
+                        try {
+                            const _d = this.agentRuntimeDirs ? this.agentRuntimeDirs(_wr, _per) : null;
+                            _inst = String(_d?.installDir || _per || this.reportedAgentInstallDir?.() || "").trim() || (_wr ? `${_wr.replace(/\/+$/, "")}/simple_agent` : "");
+                            _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
+                        }
+                        catch {
+                            _inst = String(this.reportedAgentInstallDir?.() || "").trim();
+                            _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
+                        }
+                        if (!_rt && _hint)
+                            _rt = _hint;
+                    }
+                    const _effectiveRuntime = (_rt || `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
+                    if (_effectiveRuntime && Object.keys(_expectedMap).length) {
+                        const checks = [];
+                        for (const [fname, exp] of Object.entries(_expectedMap)) {
+                            const remoteAbs = `${_effectiveRuntime}/${fname}`;
+                            try {
+                                const cc = new AbortController();
+                                const tt = setTimeout(() => cc.abort(), 2500);
+                                tt.unref?.();
+                                const rr = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers, signal: cc.signal });
+                                clearTimeout(tt);
+                                if (!rr.ok) {
+                                    checks.push(`${fname}:HTTP${rr.status}`);
+                                    continue;
+                                }
+                                const jj = await rr.json();
+                                if (!jj || jj.ok !== true) {
+                                    checks.push(`${fname}:${jj?.error || "refused"}`);
+                                    continue;
+                                }
+                                const ok = String(jj.sha256 || "").toLowerCase() === String(exp).toLowerCase();
+                                checks.push(`${fname}:${ok ? "sha256 ok" : "sha256 mismatch"}`);
+                            }
+                            catch (e) {
+                                checks.push(`${fname}:不可达`);
+                            }
+                        }
+                        if (checks.length)
+                            shaInfo = ` | sha256[${checks.join(", ")}]`;
+                    }
+                }
+                catch { }
+                remoteDetails.push(`${t.label}: ${healthInfo}${shaInfo}`);
+            }
+        }
+        catch { }
+        const localInfo = `本地统一版本=${pluginVersion || runtimeVersion}（单源 package.json#version，plugin/runtime/scheduler/agent 均对齐）`;
+        const remoteInfo = remoteDetails.length ? remoteDetails.join("； ") : "请先配置服务器并启动 tunnel";
+        if (result.fatal && result.fatal.length) {
+            const msg = `远端 Agent 版本不一致：${result.fatal.join("；")}。${localInfo} vs ${remoteInfo}。已尝试自动覆盖，仍不一致时需一键部署。`;
+            const choice = await vscode.window.showInformationMessage(msg, "部署 Agent", "忽略");
+            if (choice === "部署 Agent")
+                await this.deployLatestAgentRuntime(true, true);
+        }
+        else if (result.warnings && result.warnings.length) {
+            await vscode.window.showInformationMessage(`校验完成（有警告）：${result.warnings.join("；")}。${localInfo} vs ${remoteInfo}`);
+        }
+        else {
+            await vscode.window.showInformationMessage(`Agent 版本一致：${localInfo} vs ${remoteInfo}`);
+        }
+        // 透传 remoteDetails 供调用方与日志二次核验
+        result.remoteDetails = remoteDetails;
+        return result;
     }
     agentRuntimeDeployTargets() {
         const topology = this.assertTopologyReady("部署 Agent runtime");
@@ -5617,6 +6286,10 @@ class RealtimeTunnelPanelProvider {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+        try {
+            await this.ensureRemoteAgentVersionConsistent();
+        }
+        catch { }
         const topology = this.assertPlanTopologyReady("运行前代码同步");
         const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).map((body) => this.planSchedulerWorkerId(body)).filter(Boolean));
         const targets = topology.mode === "worker_pool" && selectedWorkerIds.length
@@ -5636,6 +6309,10 @@ class RealtimeTunnelPanelProvider {
         await this.syncCodeTargets(targets, "plan-check");
     }
     async syncCodeTargets(targets, scope, options = {}) {
+        try {
+            await this.ensureRemoteAgentVersionConsistent();
+        }
+        catch { }
         const projectContext = options.projectContext;
         const assertCurrent = () => {
             if (projectContext && !this.projectContextIsCurrent(projectContext))
@@ -5910,6 +6587,11 @@ class RealtimeTunnelPanelProvider {
             displayHost: identity.networkHost,
             savedSessionPath: config.savedSessionPath,
             remotePath,
+            localForwardHost: config.localForwardHost || "127.0.0.1",
+            localForwardPort: Number(config.localForwardPort || 18765),
+            remoteAgentPort: Number(config.remoteAgentPort || 18765),
+            localHost: config.localForwardHost || "127.0.0.1",
+            localPort: Number(config.localForwardPort || 18765),
         };
     }
     workerCodeSyncTargets() {
@@ -5965,6 +6647,11 @@ class RealtimeTunnelPanelProvider {
             displayHost: identity.networkHost,
             savedSessionPath: worker.savedSessionPath,
             remotePath,
+            localForwardHost: worker.localForwardHost || config.localForwardHost || "127.0.0.1",
+            localForwardPort: Number(worker.localForwardPort || config.localForwardPort || 18765),
+            remoteAgentPort: Number(worker.remoteAgentPort || worker.remoteTelemetryPort || config.remoteAgentPort || 18765),
+            localHost: worker.localForwardHost || config.localForwardHost || "127.0.0.1",
+            localPort: Number(worker.localForwardPort || config.localForwardPort || 18765),
         };
     }
     async primaryGitRepository() {
@@ -6508,8 +7195,12 @@ class RealtimeTunnelPanelProvider {
                 remoteAgentPort: remoteTelemetryPort,
                 remoteTelemetryPort,
                 maxConcurrentGpus: numberRangePatch(patch, "maxConcurrentGpus", worker.maxConcurrentGpus || 1, 1, 64),
-                allowedGpuIds: stringArrayPatch(patch, "allowedGpuIds", worker.allowedGpuIds || []),
+                allowedGpuIds: sanitizeAllowedGpuIds(stringArrayPatch(patch, "allowedGpuIds", worker.allowedGpuIds || [])),
                 enabled: boolishPatch(patch, "enabled", worker.enabled !== false),
+                gpuIdleUtilThreshold: optionalNumberRangePatch(patch, "gpuIdleUtilThreshold", worker.gpuIdleUtilThreshold, 0, 100),
+                gpuIdleMemThresholdMb: optionalNumberRangePatch(patch, "gpuIdleMemThresholdMb", worker.gpuIdleMemThresholdMb, 0, 8192),
+                sessionCheckMinSeconds: optionalNumberRangePatch(patch, "sessionCheckMinSeconds", worker.sessionCheckMinSeconds, 1, 60),
+                workerStatusTtlSeconds: optionalNumberRangePatch(patch, "workerStatusTtlSeconds", worker.workerStatusTtlSeconds, 10, 7200),
             };
         });
         const manual = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
@@ -7081,7 +7772,27 @@ class RealtimeTunnelPanelProvider {
                             const logFresh = Number.isFinite(logUpdatedTs)
                                 ? (nowTs - logUpdatedTs < 180_000)
                                 : (Number.isFinite(startedTs) ? (nowTs - startedTs < 180_000) : true);
-                            const evHasActivity = Number(ev.experimentTracesCount) > 0 || (Number(ev.liveLogCount) > 0 && logFresh);
+                            // 修复调度误判：dispatch_probe"目前无空卡"+running>0 为 GPU 忙正常等待，passive_interrupt_requeue 为主动重入队，均视为有效活动，禁止 90s 误判为 stale
+                            const _tailForBusy = String(ev.liveLogTail || ev.logTail || "");
+                            const _hasPassiveRequeue = /passive_interrupt_requeue/i.test(_tailForBusy);
+                            let _busyWaitingActive = _hasPassiveRequeue;
+                            if (!_busyWaitingActive && _tailForBusy) {
+                                const _runningVals = [..._tailForBusy.matchAll(/running=(\d+)/gi)].map((m) => Number(m[1]));
+                                const _lastRunning = _runningVals.length ? _runningVals[_runningVals.length - 1] : 0;
+                                if (_lastRunning > 0) {
+                                    if (/wait\s+pending/i.test(_tailForBusy))
+                                        _busyWaitingActive = true;
+                                    else if (/dispatch_probe/i.test(_tailForBusy) && /目前无空卡/.test(_tailForBusy))
+                                        _busyWaitingActive = true;
+                                    else if (/\bdispatch\b/i.test(_tailForBusy) || /\bdone\b/i.test(_tailForBusy))
+                                        _busyWaitingActive = true;
+                                }
+                                else if (_hasPassiveRequeue) {
+                                    _busyWaitingActive = true;
+                                }
+                            }
+                            // 仅当 running==0 且无 dispatch/done/passive_interrupt 等有效进展时，liveLogCount 才作为唯一活动证据
+                            const evHasActivity = _busyWaitingActive || Number(ev.experimentTracesCount) > 0 || (Number(ev.liveLogCount) > 0 && logFresh);
                             const evProcessAlive = Boolean(ev.pidAlive || ev.tmuxSessionAlive);
                             const networkError = Boolean(reconciled.networkError);
                             // 强制 stale 的判定：
@@ -7643,6 +8354,11 @@ class RealtimeTunnelPanelProvider {
     }
     workerActionTargets() {
         const configs = new Map(this.setupConfig.workerTunnels.map((worker) => [worker.id, worker]));
+        const sched = this.schedulerSettings();
+        const globalUtil = Number(sched.gpuIdleUtilThreshold ?? Number(vscode.workspace.getConfiguration("simpleExperiment").get("scheduler.gpuIdleUtilThreshold", 5)) ?? 5);
+        const globalMem = Number(sched.gpuIdleMemThresholdMb ?? Number(vscode.workspace.getConfiguration("simpleExperiment").get("scheduler.gpuIdleMemThresholdMb", 200)) ?? 200);
+        const globalSession = Number(sched.sessionCheckMinSeconds ?? Number(vscode.workspace.getConfiguration("simpleExperiment").get("scheduler.sessionCheckMinSeconds", 5)) ?? 5);
+        const globalTtl = Number(sched.workerStatusTtlSeconds ?? 180);
         return this.workerCodeSyncTargets().map((worker) => {
             const config = configs.get(worker.id);
             const dirs = this.agentRuntimeDirs(config?.agentProjectDir || this.setupConfig.agentProjectDir);
@@ -7655,6 +8371,14 @@ class RealtimeTunnelPanelProvider {
                 agent_runtime_dir: dirs.installDir,
                 max_concurrent_gpus: config?.maxConcurrentGpus || 1,
                 allowed_gpu_ids: config?.allowedGpuIds || [],
+                gpuIdleUtilThreshold: config?.gpuIdleUtilThreshold ?? globalUtil,
+                gpu_idle_util_threshold: config?.gpuIdleUtilThreshold ?? globalUtil,
+                gpuIdleMemThresholdMb: config?.gpuIdleMemThresholdMb ?? globalMem,
+                gpu_idle_mem_threshold: config?.gpuIdleMemThresholdMb ?? globalMem,
+                sessionCheckMinSeconds: config?.sessionCheckMinSeconds ?? globalSession,
+                session_check_min_seconds: config?.sessionCheckMinSeconds ?? globalSession,
+                workerStatusTtlSeconds: config?.workerStatusTtlSeconds ?? globalTtl,
+                worker_status_ttl_seconds: config?.workerStatusTtlSeconds ?? globalTtl,
                 conda_env: effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
                 condaEnv: effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
                 ssh_config_alias: config?.sshConfigAlias,
@@ -9858,6 +10582,57 @@ class RealtimeTunnelPanelProvider {
         this.postState();
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
     }
+    async clearCacheFromUi() {
+        const confirm = await vscode.window.showWarningMessage("确认清除缓存？将删除 tmp/cluster_scheduler、tmp/tmux_logs、simple_cluster/tmp/cluster_scheduler、simple_cluster/tmp/tmux_logs 等 MANAGED 前缀内临时文件", { modal: true }, "确认清除", "取消");
+        if (confirm !== "确认清除")
+            return;
+        try {
+            const opId = crypto.randomUUID();
+            const endpoints = this.realtimeEndpoints ? this.realtimeEndpoints() : [];
+            const hasHub = endpoints.some((e) => e.id === "hub" || e.role === "hub");
+            const workerIds = endpoints.filter((e) => e.role === "worker").map((e) => String(e.id));
+            let res = undefined;
+            let aggregatedDeleted = 0;
+            let lastErr = undefined;
+            // 优先尝试聚合路由（兼容 hub 存在时）；若 Hub 未配置则回退到对所有可用端点广播（hub+workers）或仅 workers
+            try {
+                res = await this.client.postAction("clearCache", { opId, confirm: true });
+                aggregatedDeleted = Number(res?.deletedCount ?? 0);
+            }
+            catch (e) {
+                lastErr = e;
+                const msg = String(e?.message || "");
+                const hubMissing = msg.includes("Hub realtime endpoint not configured");
+                if (!hubMissing)
+                    throw e;
+                // Hub 未配置时直接对 worker 端点逐个 postAction（clearCache 视为 worker 本地操作）
+                if (!workerIds.length)
+                    throw e;
+                const results = await Promise.allSettled(workerIds.map((wid) => this.client.postWorkerAction(wid, "clearCache", { opId: `${opId}-${wid}`, confirm: true })));
+                const fulfilled = results.filter((r) => r.status === "fulfilled");
+                if (!fulfilled.length) {
+                    const rejected = results.find((r) => r.status === "rejected");
+                    throw rejected?.reason || e;
+                }
+                aggregatedDeleted = fulfilled.reduce((sum, r) => sum + Number(r.value?.deletedCount ?? 0), 0);
+                res = { deletedCount: aggregatedDeleted, aggregated: true, workerCount: fulfilled.length };
+            }
+            // 若有 hub 且也有 workers，额外广播到 workers 以确保单 worker 拓扑下二者一致性（聚合已覆盖多端时忽略）
+            if (hasHub && workerIds.length && res && !res.aggregated) {
+                try {
+                    const workerResults = await Promise.allSettled(workerIds.map((wid) => this.client.postWorkerAction(wid, "clearCache", { opId: `${opId}-${wid}`, confirm: true }).catch(() => undefined)));
+                    const extra = workerResults.filter((r) => r.status === "fulfilled" && r.value).reduce((s, r) => s + Number(r.value?.deletedCount ?? 0), 0);
+                    if (extra)
+                        aggregatedDeleted += extra;
+                }
+                catch { }
+            }
+            await vscode.window.showInformationMessage(`缓存已清除：${aggregatedDeleted ?? 0} 项`);
+        }
+        catch (err) {
+            await vscode.window.showErrorMessage(String(err?.message || err));
+        }
+    }
     async clearOperationHistoryFromUi(message) {
         const root = workspaceRoot();
         if (!root)
@@ -10086,7 +10861,7 @@ class RealtimeTunnelPanelProvider {
         }
         catch { }
         if (!workerId) {
-            workerId = this.resolveWorkerEndpointId(String(message?.workerId || "")) || this.enabledWorkerConfigs()[0]?.id || "nwpu3";
+            workerId = this.resolveWorkerEndpointId(String(message?.workerId || "")) || this.enabledWorkerConfigs()[0]?.id || "";
         }
         try {
             // 统一走 stop-scheduler-operation：服务端执行 tmux kill-session + SIGTERM/SIGKILL + deregister，
@@ -10321,6 +11096,105 @@ class RealtimeTunnelPanelProvider {
         }
         await vscode.env.clipboard.writeText(text);
         void vscode.window.showInformationMessage(`已复制：${text.slice(0, 120)}${text.length > 120 ? "..." : ""}`);
+    }
+    async fetchTmuxCaptureFromUi(message) {
+        const win = String(message?.window || message?.session || message?.name || "").trim() || "zlk-worker-nwpu3-agent";
+        try {
+            // 优先走 tunnel client 的通用 request，若不可用则回退为直接本机端口探测
+            let result = null;
+            const tryClient = this.client;
+            if (tryClient && typeof tryClient.requestJson === "function") {
+                try {
+                    result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}`, { method: "GET" });
+                }
+                catch { }
+            }
+            if (!result) {
+                let host = "127.0.0.1";
+                let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
+                try {
+                    const targets = this.agentRuntimeUploadTargets?.() || [];
+                    const t = targets.find((x) => x.localForwardPort) || targets[0];
+                    if (t) {
+                        host = String(t.localForwardHost || t.localHost || host).trim() || host;
+                        port = Number(t.localForwardPort || port);
+                    }
+                }
+                catch { }
+                const token = String(this.tunnelConfig?.token || "");
+                const http = require("http");
+                result = await new Promise((resolve, reject) => {
+                    const req = http.request({ host, port, path: `/api/tmux/capture?window=${encodeURIComponent(win)}`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 4000 }, (res) => {
+                        let data = "";
+                        res.on("data", (c) => data += c);
+                        res.on("end", () => { try {
+                            resolve(JSON.parse(data || "{}"));
+                        }
+                        catch {
+                            resolve({ text: data });
+                        } });
+                    });
+                    req.on("error", reject);
+                    req.on("timeout", () => { req.destroy(new Error("timeout")); });
+                    req.end();
+                });
+            }
+            const text = String(result?.text || result?.output || "").slice(0, 12000);
+            const ok = result?.ok !== false;
+            const payload = { type: "tmuxCapture", window: win, text, ok, fetchedAt: new Date().toISOString(), error: result?.error || "" };
+            this.view?.webview.postMessage(payload);
+        }
+        catch (exc) {
+            const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
+            this.view?.webview.postMessage({ type: "tmuxCapture", window: win, text: "", ok: false, error: msg, fetchedAt: new Date().toISOString() });
+        }
+    }
+    async fetchTmuxListFromUi(_message) {
+        try {
+            let result = null;
+            const tryClient = this.client;
+            if (tryClient && typeof tryClient.requestJson === "function") {
+                try {
+                    result = await tryClient.requestJson(`/api/tmux/list`, { method: "GET" });
+                }
+                catch { }
+            }
+            if (!result) {
+                let host = "127.0.0.1";
+                let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
+                try {
+                    const targets = this.agentRuntimeUploadTargets?.() || [];
+                    const t = targets.find((x) => x.localForwardPort) || targets[0];
+                    if (t) {
+                        host = String(t.localForwardHost || t.localHost || host).trim() || host;
+                        port = Number(t.localForwardPort || port);
+                    }
+                }
+                catch { }
+                const token = String(this.tunnelConfig?.token || "");
+                const http = require("http");
+                result = await new Promise((resolve, reject) => {
+                    const req = http.request({ host, port, path: `/api/tmux/list`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 5000 }, (res) => {
+                        let data = "";
+                        res.on("data", (c) => data += c);
+                        res.on("end", () => { try {
+                            resolve(JSON.parse(data || "{}"));
+                        }
+                        catch {
+                            resolve({ sessions: [], error: data });
+                        } });
+                    });
+                    req.on("error", reject);
+                    req.on("timeout", () => { req.destroy(new Error("timeout")); });
+                    req.end();
+                });
+            }
+            this.view?.webview.postMessage({ type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() });
+        }
+        catch (exc) {
+            const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
+            this.view?.webview.postMessage({ type: "tmuxList", ok: false, available: false, sessions: [], error: msg, fetchedAt: new Date().toISOString() });
+        }
     }
     async openTensorBoardUrlFromUi(message) {
         const url = String(message?.tbUrl || message?.url || "").trim();
@@ -11016,6 +11890,9 @@ class RealtimeTunnelPanelProvider {
         return {
             pollSeconds: Math.max(5, Number(config.get("scheduler.pollSeconds", 10)) || 10),
             jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 5)) || 0),
+            gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)) || 5)),
+            gpuIdleMemThresholdMb: Math.max(0, Math.min(8192, Number(config.get("scheduler.gpuIdleMemThresholdMb", 200)) || 200)),
+            sessionCheckMinSeconds: Math.max(1, Math.min(60, Number(config.get("scheduler.sessionCheckMinSeconds", 5)) || 5)),
             workerStatusTtlSeconds: Math.max(10, Number(config.get("scheduler.workerStatusTtlSeconds", 45)) || 45),
             localAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.localAvailabilityPushSeconds", 10)) || 10),
             workerAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.workerAvailabilityPushSeconds", 10)) || 10),
@@ -11092,7 +11969,7 @@ class RealtimeTunnelPanelProvider {
         const gpu = (this.lastRealtimeState?.gpu || {});
         return this.enabledWorkerConfigs().map((worker) => {
             const rows = Array.isArray(gpu[worker.id]) ? gpu[worker.id] : [];
-            const allowed = new Set((worker.allowedGpuIds || []).map((item) => String(item || "").trim()).filter(Boolean));
+            const allowed = new Set(sanitizeAllowedGpuIds(worker.allowedGpuIds || []));
             const availableGpuIds = [];
             const busyGpuIds = [];
             for (const row of rows) {
@@ -13704,7 +14581,25 @@ async function writeProjectCodeSyncState(root, codeSync) {
         updatedAt: new Date().toISOString(),
         codeSync: normalized,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    const text = JSON.stringify(payload, null, 2) + "\n";
+    const tmpPath = `${fullPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmpPath, text, "utf8");
+    try {
+        await fs.rename(tmpPath, fullPath);
+    }
+    catch {
+        try {
+            await fs.writeFile(fullPath, text, "utf8");
+        }
+        finally {
+            try {
+                await fs.unlink(tmpPath);
+            }
+            catch {
+                // ignore
+            }
+        }
+    }
 }
 function normalizeLocalOperationsState(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -16154,12 +17049,34 @@ function preservedOptionalStringPatch(patch, key, fallback) {
     const value = preservedStringPatch(patch, key, fallback || "");
     return value || undefined;
 }
+function isCondaEnvAbsolutePathValid(value) {
+    const text = String(value === undefined || value === null ? "" : value).trim();
+    if (!text)
+        return true;
+    if (text === "-" || text === "--")
+        return true;
+    return text.charAt(0) === "/";
+}
+function assertCondaEnvAbsolutePath(value, label = "condaEnv") {
+    const text = String(value === undefined || value === null ? "" : value).trim();
+    if (!text)
+        return;
+    if (text === "-" || text === "--")
+        return;
+    if (text.charAt(0) !== "/") {
+        throw new Error(`${label} 请填写完整环境路径，以 / 开头（精确到环境文件夹，如 /path/to/conda_envs/<env_name>，可选以 /bin/python 结尾），当前值: "${text}"；仅环境名已废弃`);
+    }
+}
 function condaEnvPatch(patch, key, fallback = "") {
     if (!Object.prototype.hasOwnProperty.call(patch, key))
         return String(fallback || "").trim();
     const value = patch[key];
     const normalized = typeof value === "string" ? value.trim() : String(fallback || "").trim();
-    return normalized === "-" || normalized === "--" ? "" : normalized;
+    if (normalized === "-" || normalized === "--")
+        return "";
+    if (normalized)
+        assertCondaEnvAbsolutePath(normalized, key);
+    return normalized;
 }
 function effectiveWorkerCondaEnv(worker, fallback = "") {
     if (worker && worker.condaEnv !== undefined)
@@ -16219,6 +17136,17 @@ function numberRangePatch(patch, key, fallback, min, max) {
         return fallback;
     return Math.max(min, Math.min(max, Math.trunc(value)));
 }
+function optionalNumberRangePatch(patch, key, fallback, min, max) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key))
+        return fallback;
+    const value = patch[key];
+    if (value === undefined || value === null || (typeof value === "string" && value.trim() === ""))
+        return undefined;
+    const num = Number(value);
+    if (!Number.isFinite(num))
+        return fallback;
+    return Math.max(min, Math.min(max, Math.trunc(num)));
+}
 function forwardIndexPatch(patch, key, fallback) {
     if (!hasNumericPatchValue(patch, key))
         return fallback;
@@ -16252,6 +17180,24 @@ function stringArrayPatch(patch, key, fallback = []) {
         return Array.from(new Set(value.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean)));
     }
     return [...fallback];
+}
+function sanitizeAllowedGpuIds(ids) {
+    const raw = Array.isArray(ids) ? ids : typeof ids === "string" ? String(ids).split(/[,\s]+/) : [];
+    const trimmed = raw.map((item) => String(item || "").trim()).filter(Boolean);
+    if (!trimmed.length)
+        return [];
+    if (trimmed.length === 1 && (trimmed[0] === "-" || trimmed[0] === "--"))
+        return [];
+    if (trimmed.some((value) => value === "-" || value === "--")) {
+        console.warn(`[allowedGpuIds] 非法占位 "${trimmed.join(",")}" 已置空为全部允许`);
+        return [];
+    }
+    const invalid = trimmed.filter((value) => !/^\d+$/.test(value));
+    if (invalid.length) {
+        console.warn(`[allowedGpuIds] 非法 GPU ID "${invalid.join(",")}" 已置空为全部允许，仅数字 0..N 有效`);
+        return [];
+    }
+    return Array.from(new Set(trimmed));
 }
 function makeOpId(action) {
     return `${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -17737,8 +18683,12 @@ async function detectLocalProjectForActionGate(root, planDir, previous = {}) {
         metadataPartialReason: "运行/校验前只执行轻量扫描；完整项目接入摘要由后台刷新。",
     };
 }
+const DEFAULT_TRAIN_TEMPLATE = "{python} train.py --config {config} --output_dir {output_dir}";
+const DEFAULT_TEST_TEMPLATE = "{python} test.py --config {config} --checkpoint {checkpoint} --output_dir {output_dir}";
 function emptyProjectAdapterRules() {
     return {
+        trainCommandTemplate: "",
+        testCommandTemplate: "",
         secondaryMetrics: [],
         classificationMetrics: [],
         segmentationMetrics: [],
@@ -17749,6 +18699,95 @@ function emptyProjectAdapterRules() {
         csvColumnMapping: {},
         metricAliases: {},
     };
+}
+async function ensureSimpleProjectEntrypoints(root) {
+    const rel = "experiments/simple_project.yaml";
+    const full = path.join(root, rel);
+    const trainExists = await fs.stat(path.join(root, "train.py")).then(s => s.isFile()).catch(() => false);
+    const testExists = await fs.stat(path.join(root, "test.py")).then(s => s.isFile()).catch(() => false);
+    let text = await fs.readFile(full, "utf-8").catch(() => "");
+    const hasFile = Boolean(text);
+    const needsEnsure = !hasFile || !text.includes("entrypoints:") || !/trainCommandTemplate\s*:/.test(text) || !/testCommandTemplate\s*:/.test(text) || /trainCommandTemplate\s*:\s*["']?\s*["']/.test(text) || /testCommandTemplate\s*:\s*["']?\s*["']/.test(text);
+    if (!needsEnsure)
+        return { ensured: false, trainExists, testExists, filled: [] };
+    const projectName = path.basename(root) || "project";
+    let templateText = "";
+    try {
+        const files = ProjectAdapterTemplates_1.projectAdapterTemplateFiles(projectName) || [];
+        templateText = (files.find((f) => f.relativePath === "simple_project.yaml")?.text) || "";
+    }
+    catch {
+        templateText = "";
+    }
+    if (!templateText) {
+        try {
+            templateText = ProjectAdapterTemplates_1.projectOnboardingConfigTemplate(projectName) || "";
+        }
+        catch {
+            templateText = "";
+        }
+    }
+    if (!templateText) {
+        templateText = `schemaVersion: 1\nprojectName: ${projectName}\nentrypoints:\n  trainCommandTemplate: "${DEFAULT_TRAIN_TEMPLATE}"\n  testCommandTemplate: "${DEFAULT_TEST_TEMPLATE}"\n`;
+    }
+    if (!hasFile) {
+        await fs.mkdir(path.dirname(full), { recursive: true });
+        await fs.writeFile(full, templateText, "utf-8");
+        return { ensured: true, trainExists, testExists, filled: ["trainCommandTemplate", "testCommandTemplate"] };
+    }
+    // patch existing file: ensure entrypoints section has defaults if missing/empty
+    const filled = [];
+    if (!/trainCommandTemplate\s*:\s*".+?"/.test(text) && !/trainCommandTemplate\s*:\s*'.+?'/.test(text)) {
+        if (text.includes("entrypoints:")) {
+            text = text.replace(/entrypoints:\s*\n(?:.*\n)*?(?=\n[A-Za-z0-9_-]+:\s*|\Z)/, (m) => {
+                if (/trainCommandTemplate/.test(m))
+                    return m.replace(/trainCommandTemplate\s*:\s*["']?\s*["']?/, `trainCommandTemplate: "${DEFAULT_TRAIN_TEMPLATE}"`);
+                return m.replace(/entrypoints:\s*\n/, `entrypoints:\n  trainCommandTemplate: "${DEFAULT_TRAIN_TEMPLATE}"\n`);
+            });
+        }
+        else {
+            text = text.trimEnd() + `\nentrypoints:\n  trainCommandTemplate: "${DEFAULT_TRAIN_TEMPLATE}"\n  testCommandTemplate: "${DEFAULT_TEST_TEMPLATE}"\n`;
+        }
+        filled.push("trainCommandTemplate");
+    }
+    if (!/testCommandTemplate\s*:\s*".+?"/.test(text) && !/testCommandTemplate\s*:\s*'.+?'/.test(text)) {
+        if (text.includes("testCommandTemplate")) {
+            text = text.replace(/testCommandTemplate\s*:\s*["']?\s*["']?/, `testCommandTemplate: "${DEFAULT_TEST_TEMPLATE}"`);
+        }
+        else if (text.includes("entrypoints:")) {
+            text = text.replace(/(trainCommandTemplate:[^\n]*\n)/, `$1  testCommandTemplate: "${DEFAULT_TEST_TEMPLATE}"\n`);
+        }
+        if (!filled.includes("testCommandTemplate"))
+            filled.push("testCommandTemplate");
+    }
+    if (filled.length)
+        await fs.writeFile(full, text, "utf-8");
+    return { ensured: filled.length > 0, trainExists, testExists, filled };
+}
+async function probeEntrypointTemplate(root, template) {
+    const cmd = String(template || "").trim();
+    if (!cmd)
+        return { ok: false, error: "指令为空" };
+    const m = cmd.match(/python\s+([^\s]+)/);
+    const script = m ? m[1] : "";
+    if (script) {
+        const full = path.join(root, script);
+        const exists = await fs.stat(full).then(s => s.isFile()).catch(() => false);
+        if (!exists)
+            return { ok: false, error: `入口文件不存在: ${script}`, tail: `${script} not found` };
+        // argparse probe: check --config / --output_dir placeholders use
+        const content = await fs.readFile(full, "utf-8").catch(() => "");
+        if (content && /argparse/.test(content)) {
+            const expectsConfig = /\-\-config/.test(content);
+            const expectsOutputDir = /output_dir|output-dir/.test(content);
+            if (expectsConfig && !cmd.includes("{config}"))
+                return { ok: false, error: `参数不匹配: ${script} 需要 --config 但模板缺少 {config}`, tail: content.slice(-800) };
+            if (expectsOutputDir && !cmd.includes("{output_dir}"))
+                return { ok: false, error: `参数不匹配: ${script} 需要 --output_dir 但模板缺少 {output_dir}`, tail: content.slice(-800) };
+            // dry try python --help like check via file parse, no execution
+        }
+    }
+    return { ok: true };
 }
 const localConfigSummaryLimit = 80;
 const guidedPlanConfigPickerSummaryLimit = 24;
@@ -17871,6 +18910,8 @@ function parseProjectAdapterRules(text) {
     const outputScalar = (name) => outputsStart >= 0 ? scalar(name, 2, outputsStart, outputsEnd) : "";
     const outputList = (name) => outputsStart >= 0 ? listAfter(name, 2, outputsStart, outputsEnd) : [];
     const outputMap = (name) => outputsStart >= 0 ? mapAfter(name, 2, outputsStart, outputsEnd) : {};
+    const [entrypointsStart, entrypointsEnd] = sectionRange("entrypoints");
+    const entryScalar = (name) => entrypointsStart >= 0 ? scalar(name, 2, entrypointsStart, entrypointsEnd) : "";
     return {
         taskType: scalar("taskType", 0) || outputScalar("taskType") || undefined,
         primaryMetric: scalar("primaryMetric", 0) || outputScalar("primaryMetric") || undefined,
@@ -17884,6 +18925,8 @@ function parseProjectAdapterRules(text) {
         metricRegex: outputScalar("metricRegex") || scalar("metricRegex", 0) || undefined,
         csvColumnMapping: Object.keys(outputMap("csvColumnMapping")).length ? outputMap("csvColumnMapping") : mapAfter("csvColumnMapping", 0),
         metricAliases: Object.keys(outputMap("metricAliases")).length ? outputMap("metricAliases") : mapAfter("metricAliases", 0),
+        trainCommandTemplate: entryScalar("trainCommandTemplate") || scalar("trainCommandTemplate", 0) || undefined,
+        testCommandTemplate: entryScalar("testCommandTemplate") || scalar("testCommandTemplate", 0) || undefined,
     };
 }
 const SEGMENTATION_PROJECT_METRIC_PATTERN = /dice|dsc|iou|hd95|asd|hausdorff/i;
@@ -18724,8 +19767,7 @@ function planRunTargetLocations(values) {
         const remotePath = normalizeRemoteWorkRoot(item.remotePath || item.path || "");
         const capacityValue = Number(item.maxConcurrentGpus || item.max_concurrent_gpus || 1);
         const maxConcurrentGpus = Number.isFinite(capacityValue) && capacityValue > 0 ? Math.trunc(capacityValue) : 1;
-        const allowedGpuIds = uniqueStrings((Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : [])
-            .map((value) => String(value || "").trim()).filter(Boolean));
+        const allowedGpuIds = sanitizeAllowedGpuIds(Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : []);
         const rawCondaEnv = String(item.condaEnv || item.conda_env || "").trim();
         const condaEnv = rawCondaEnv === "-" || rawCondaEnv === "--" ? "" : rawCondaEnv;
         const key = `${role}:${label.toLowerCase()}:${remotePath}`;
@@ -18743,8 +19785,7 @@ function planRunTargetLocations(values) {
 function planRunWorkerCapacitySummary(target) {
     const item = target && typeof target === "object" ? target : {};
     const limit = Math.max(1, Math.trunc(Number(item.maxConcurrentGpus || item.max_concurrent_gpus || 1) || 1));
-    const allowed = uniqueStrings((Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : [])
-        .map((value) => String(value || "").trim()).filter(Boolean));
+    const allowed = sanitizeAllowedGpuIds(Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : []);
     const rawCondaEnv = String(item.condaEnv || item.conda_env || "").trim();
     const condaEnv = rawCondaEnv === "-" || rawCondaEnv === "--" ? "" : rawCondaEnv;
     return `${String(item.label || item.id || "Worker")}：执行环境 ${executionEnvironmentLabel(condaEnv)}；并发占卡上限 ${limit}；允许 GPU ${allowed.length ? allowed.join("、") : "不限"}`;
@@ -20940,14 +21981,24 @@ function samePath(a, b) {
 async function buildLocalCodeManifest(root) {
     const files = await walkCodeFiles(root);
     const manifest = {};
-    for (const relative of files) {
-        const full = path.join(root, relative);
-        const stat = await fs.stat(full);
-        manifest[relative.replace(/\\/g, "/")] = {
-            size: stat.size,
-            sha256: await sha256File(full),
-        };
+    const concurrency = 12;
+    let nextIndex = 0;
+    async function worker() {
+        while (true) {
+            const index = nextIndex++;
+            if (index >= files.length)
+                break;
+            const relative = files[index];
+            const full = path.join(root, relative);
+            const stat = await fs.stat(full);
+            manifest[relative.replace(/\\/g, "/")] = {
+                size: stat.size,
+                sha256: await sha256File(full),
+            };
+        }
     }
+    const workers = Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker());
+    await Promise.all(workers);
     return manifest;
 }
 function fingerprintFromManifest(manifest) {
@@ -20958,9 +22009,13 @@ function sha256Text(text) {
     return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 async function sha256File(file) {
-    const hash = crypto.createHash("sha256");
-    hash.update(await fs.readFile(file));
-    return hash.digest("hex");
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash("sha256");
+        const input = fsNode.createReadStream(file);
+        input.on("data", (chunk) => hash.update(chunk));
+        input.on("error", reject);
+        input.on("end", () => resolve(hash.digest("hex")));
+    });
 }
 async function walkCodeFiles(root, dir = root) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -21018,14 +22073,20 @@ const protectedCodeSyncTopLevelDirs = new Set([
     "result",
     "backup",
     "tmp",
+    ".tmp",
     "temp",
+    "artifacts",
 ]);
-const protectedCodeSyncFilePattern = /\.(pth|pt|ckpt|onnx|engine|h5|hdf5|pkl|pickle|joblib|nii|gz|mha|mhd|dcm|png|jpg|jpeg|bmp|tif|tiff|npy|npz|zip|tar|tgz|rar|7z|log|out|err|csv|tsv|xlsx|xls|vsix)$/i;
+const protectedCodeSyncFilePattern = /\.(pth|pt|ckpt|onnx|engine|h5|hdf5|pkl|pickle|joblib|nii|gz|mha|mhd|dcm|png|jpg|jpeg|bmp|tif|tiff|npy|npz|zip|tar|tgz|rar|7z|log|out|err|csv|tsv|xlsx|xls|vsix|bin|safetensors|weights|model)$/i;
 function isExcludedCodePath(relative, directory) {
     const value = relative.replace(/\\/g, "/");
     const lower = value.toLowerCase();
     const top = lower.split("/")[0];
     if (protectedCodeSyncTopLevelDirs.has(top))
+        return true;
+    if (lower === "artifacts" || lower.startsWith("artifacts/"))
+        return true;
+    if (lower.split("/").includes("artifacts"))
         return true;
     if (directory)
         return false;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ARTIFACT_REGISTRY_PATH = exports.DELETED_SCHEDULER_ROWS_PATH = exports.DELETED_EXPERIMENTS_PATH = void 0;
+exports.MANAGED_ARTIFACT_PREFIXES = exports.ARTIFACT_REGISTRY_PATH = exports.DELETED_SCHEDULER_ROWS_PATH = exports.DELETED_EXPERIMENTS_PATH = void 0;
 exports.normalizeComparablePath = normalizeComparablePath;
 exports.comparablePathVariants = comparablePathVariants;
 exports.isManagedArtifactPath = isManagedArtifactPath;
@@ -46,19 +46,32 @@ function comparablePathVariants(value) {
     }
     return Array.from(variants).filter(Boolean);
 }
+// tmp/ 为主，simple_cluster/tmp 仅过渡兼容，下版本移除（与 clusterAgentRuntime.py:safe_project_path 强绑定，共13前缀）
+exports.MANAGED_ARTIFACT_PREFIXES = [
+    "tmp/cluster_scheduler/logs/",
+    "tmp/cluster_scheduler/",
+    "tmp/tmux_logs/",
+    "tmp/console_logs/",
+    "tmp/",
+    "work_dirs/",
+    "cluster_runs/",
+    "experiments/runs/",
+    "experiments/results/",
+    "simple_cluster/console_logs/",
+    "simple_cluster/tmux_logs/",
+    "simple_cluster/tmp/cluster_scheduler/logs/",
+    "simple_cluster/tmp/cluster_scheduler/",
+    "simple_cluster/tmp/tmux_logs/",
+    "simple_cluster/tmp/console_logs/",
+    "simple_cluster/tmp/",
+];
 function isManagedArtifactPath(value) {
     const normalized = normalizeComparablePath(value);
     if (!normalized || normalized.startsWith("[simple]"))
         return false;
     if (/^\[[^\]]+\]/.test(normalized))
         return false;
-    return comparablePathVariants(normalized).some((variant) => variant.startsWith("work_dirs/")
-        || variant.startsWith("cluster_runs/")
-        || variant.startsWith("experiments/runs/")
-        || variant.startsWith("experiments/results/")
-        || variant.startsWith("simple_cluster/console_logs/")
-        || variant.startsWith("simple_cluster/tmux_logs/")
-        || variant.startsWith("simple_cluster/tmp/cluster_scheduler/logs/"));
+    return comparablePathVariants(normalized).some((variant) => exports.MANAGED_ARTIFACT_PREFIXES.some((prefix) => variant.startsWith(prefix)));
 }
 function normalizedPathSet(paths) {
     const out = new Set();

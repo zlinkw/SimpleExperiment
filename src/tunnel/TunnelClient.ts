@@ -28,11 +28,13 @@ export interface ClusterSnapshot {
 }
 
 export interface TunnelEndpointConfig {
-  localHost: "127.0.0.1";
+  localHost: string;
   localPort: number;
   token?: string;
   timeoutMs?: number;
   capabilities?: unknown;
+  // 批量能力协商字段（T2）：用于多端聚合批量
+  batchCapabilities?: { gpuHistoryBatch?: boolean; diagnosticsBatch?: boolean };
 }
 
 export interface GpuHistoryQuery {
@@ -41,6 +43,10 @@ export interface GpuHistoryQuery {
   start?: string | number;
   end?: string | number;
   maxPoints?: number;
+  // 批量能力协商字段（T2）：透传至 Agent 用于 bucket/retention 协商与批量聚合
+  batch?: boolean;
+  bucketSeconds?: number;
+  retentionHours?: number;
 }
 
 export interface GpuHistoryPoint {
@@ -69,6 +75,8 @@ export interface GpuHistoryResponse {
   maxPointsPerSeries: number;
   updatedAt: string;
   series: GpuHistorySeries[];
+  // 批量能力协商回传（T2）：是否批量聚合
+  batchApplied?: boolean;
 }
 
 export interface TunnelClient {
@@ -169,6 +177,9 @@ export class HttpTunnelClient implements TunnelClient {
     if (query.start !== undefined) params.set("start", String(query.start));
     if (query.end !== undefined) params.set("end", String(query.end));
     if (query.maxPoints !== undefined) params.set("maxPoints", String(Math.max(1, Math.min(864, Math.trunc(query.maxPoints) || 1))));
+    if (query.batch !== undefined) params.set("batch", query.batch ? "1" : "0");
+    if (query.bucketSeconds !== undefined) params.set("bucketSeconds", String(Math.max(1, Math.trunc(query.bucketSeconds) || 60)));
+    if (query.retentionHours !== undefined) params.set("retentionHours", String(Math.max(1, Math.trunc(query.retentionHours) || 72)));
     const suffix = params.size ? `?${params.toString()}` : "";
     return this.requestJson<GpuHistoryResponse>(`/api/gpu/history${suffix}`, "gpu_history", undefined, {
       method: "GET",

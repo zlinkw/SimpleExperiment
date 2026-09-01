@@ -24,9 +24,9 @@ export interface XshellWorkerTunnelConfig {
   resolvedHost?: string;
   sftpHost?: string;
   sshHost?: string;
-  localForwardHost: "127.0.0.1";
+  localForwardHost: string;
   localForwardPort: number;
-  remoteAgentHost: "127.0.0.1";
+  remoteAgentHost: string;
   remoteAgentPort: number;
   remoteTelemetryPort: number;
   sshConfigAlias?: string;
@@ -43,6 +43,10 @@ export interface XshellWorkerTunnelConfig {
   allowedGpuIds: string[];
   authMethod: XshellAuthMethod;
   enabled: boolean;
+  gpuIdleUtilThreshold?: number;
+  gpuIdleMemThresholdMb?: number;
+  sessionCheckMinSeconds?: number;
+  workerStatusTtlSeconds?: number;
 }
 
 export interface XshellRealtimeTunnelConfig {
@@ -56,9 +60,9 @@ export interface XshellRealtimeTunnelConfig {
   resolvedHost?: string;
   sftpHost?: string;
   sshHost?: string;
-  localForwardHost: "127.0.0.1";
+  localForwardHost: string;
   localForwardPort: number;
-  remoteAgentHost: "127.0.0.1";
+  remoteAgentHost: string;
   remoteAgentPort: number;
   sshConfigAlias?: string;
   privateKeyPath?: string;
@@ -147,9 +151,9 @@ export function normalizeXshellSetupConfig(input: Partial<XshellTunnelSetupConfi
     sftpHost: input.sftpHost?.trim() || undefined,
     sshHost: input.sshHost?.trim() || undefined,
     hubSshPort: normalizeSshPort(input.hubSshPort, defaultXshellTunnelSetupConfig.hubSshPort),
-    localForwardHost: "127.0.0.1",
+    localForwardHost: String((input as unknown as { localForwardHost?: unknown }).localForwardHost || "127.0.0.1").trim() || "127.0.0.1",
     localForwardPort: normalizePort(input.localForwardPort, defaultXshellTunnelSetupConfig.localForwardPort),
-    remoteAgentHost: "127.0.0.1",
+    remoteAgentHost: String((input as unknown as { remoteAgentHost?: unknown }).remoteAgentHost || "127.0.0.1").trim() || "127.0.0.1",
     remoteAgentPort: normalizePort(input.remoteAgentPort, defaultXshellTunnelSetupConfig.remoteAgentPort),
     xshellSessionName,
     savedSessionRunner: normalizeSavedSessionRunner(input.savedSessionRunner),
@@ -199,10 +203,10 @@ export function normalizeXshellWorkerTunnelConfig(
     resolvedHost: input.resolvedHost?.trim() || undefined,
     sftpHost: input.sftpHost?.trim() || undefined,
     sshHost: input.sshHost?.trim() || undefined,
-    localForwardHost: "127.0.0.1",
-    localForwardPort: normalizePort(input.localForwardPort, defaultTunnelPorts.workerLocalPortRange.start + index),
-    remoteAgentHost: "127.0.0.1",
-    remoteAgentPort: remoteTelemetryPort,
+    localForwardHost: String((input as unknown as { localForwardHost?: unknown }).localForwardHost || "127.0.0.1").trim() || "127.0.0.1",
+      localForwardPort: normalizePort(input.localForwardPort, defaultTunnelPorts.workerLocalPortRange.start + index),
+    remoteAgentHost: String((input as unknown as { remoteAgentHost?: unknown }).remoteAgentHost || "127.0.0.1").trim() || "127.0.0.1",
+      remoteAgentPort: remoteTelemetryPort,
     remoteTelemetryPort,
     sshConfigAlias: input.sshConfigAlias?.trim() || undefined,
     privateKeyPath: input.privateKeyPath?.trim() || undefined,
@@ -215,10 +219,31 @@ export function normalizeXshellWorkerTunnelConfig(
     agentInstallDir: input.agentInstallDir?.trim() || undefined,
     condaEnv: input.condaEnv === undefined ? undefined : normalizeCondaEnvName(input.condaEnv),
     maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1),
-    allowedGpuIds: Array.isArray(input.allowedGpuIds) ? Array.from(new Set(input.allowedGpuIds.map((item) => String(item || "").trim()).filter(Boolean))) : [],
+    allowedGpuIds: normalizeAllowedGpuIds(input.allowedGpuIds),
     authMethod: normalizeAuthMethod(input.authMethod),
     enabled: input.enabled !== false,
+    gpuIdleUtilThreshold: normalizeIdleUtilThreshold((input as unknown as { gpuIdleUtilThreshold?: unknown }).gpuIdleUtilThreshold),
+    gpuIdleMemThresholdMb: normalizeIdleMemThreshold((input as unknown as { gpuIdleMemThresholdMb?: unknown }).gpuIdleMemThresholdMb),
+    sessionCheckMinSeconds: normalizeSessionCheckSeconds((input as unknown as { sessionCheckMinSeconds?: unknown }).sessionCheckMinSeconds),
+    workerStatusTtlSeconds: normalizeWorkerTtlSeconds((input as unknown as { workerStatusTtlSeconds?: unknown }).workerStatusTtlSeconds),
   };
+}
+
+function normalizeAllowedGpuIds(input: unknown): string[] {
+  const raw: unknown[] = Array.isArray(input) ? input : typeof input === "string" ? String(input).split(/[,\s]+/) : [];
+  const trimmed = raw.map((item) => String(item || "").trim()).filter(Boolean);
+  if (!trimmed.length) return [];
+  if (trimmed.length === 1 && (trimmed[0] === "-" || trimmed[0] === "--")) return [];
+  if (trimmed.some((value) => value === "-" || value === "--")) {
+    console.warn(`[allowedGpuIds] 非法占位 "${trimmed.join(",")}" 已置空为全部允许`);
+    return [];
+  }
+  const invalid = trimmed.filter((value) => !/^\d+$/.test(value));
+  if (invalid.length) {
+    console.warn(`[allowedGpuIds] 非法 GPU ID "${invalid.join(",")}" 已置空为全部允许，仅数字 0..N 有效`);
+    return [];
+  }
+  return Array.from(new Set(trimmed));
 }
 
 export function workerTunnelToXshellSetupConfig(base: XshellTunnelSetupConfig, worker: Partial<XshellWorkerTunnelConfig>): XshellTunnelSetupConfig {
@@ -255,7 +280,8 @@ export function validateXshellSetupConfig(config: XshellTunnelSetupConfig): stri
   if (config.hubSshPort < 1 || config.hubSshPort > 65535) errors.push("服务器 SSH 登录端口必须在 1-65535 之间。");
   if (config.localForwardPort < 1024 || config.localForwardPort > 65535) errors.push("本地转发端口必须在 1024-65535 之间。");
   if (config.remoteAgentPort < 1024 || config.remoteAgentPort > 65535) errors.push("服务器上的 Agent 端口必须在 1024-65535 之间。");
-  if (config.localForwardHost !== "127.0.0.1" || config.remoteAgentHost !== "127.0.0.1") errors.push("隧道两端只能使用 127.0.0.1。");
+  // P0 已解锁：隧道 host 按每服务器用户配置动态解析，不再强制 127.0.0.1
+  if (!String(config.localForwardHost || "").trim() || !String(config.remoteAgentHost || "").trim()) errors.push("隧道两端 host 不能为空。");
   if (config.authMethod === "key" && !config.privateKeyPath) errors.push("密钥登录需要选择私钥文件。");
   if (config.workerRealtimeMode === "hub_plus_workers" && !config.workerTunnels.some((worker) => worker.enabled)) errors.push("Worker 实时模式至少需要一个已启用的 Worker 隧道。");
   for (const worker of config.workerTunnels.filter((item) => item.enabled)) {
@@ -325,6 +351,30 @@ function normalizePositiveInt(value: unknown, fallback: number): number {
   return Number.isInteger(number) && number > 0 ? number : fallback;
 }
 
+function normalizeIdleUtilThreshold(value: unknown): number | undefined {
+  if (value === undefined || value === null || String(value).trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 100 ? n : undefined;
+}
+
+function normalizeIdleMemThreshold(value: unknown): number | undefined {
+  if (value === undefined || value === null || String(value).trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 8192 ? n : undefined;
+}
+
+function normalizeSessionCheckSeconds(value: unknown): number | undefined {
+  if (value === undefined || value === null || String(value).trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= 60 ? n : undefined;
+}
+
+function normalizeWorkerTtlSeconds(value: unknown): number | undefined {
+  if (value === undefined || value === null || String(value).trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 10 && n <= 7200 ? n : undefined;
+}
+
 function normalizePortConfig(
   input: Partial<XshellTunnelSetupConfig["ports"]> | undefined,
   workers: XshellWorkerTunnelConfig[],
@@ -335,7 +385,7 @@ function normalizePortConfig(
   const range = normalizePortRange(input?.workerLocalPortRange, defaultTunnelPorts.workerLocalPortRange);
   const validIds = new Set(["hub", ...workers.map((worker) => worker.id)]);
   const assignments = Array.isArray(input?.assignments)
-    ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && assignment.localForwardHost === "127.0.0.1" && assignment.remoteBindHost === "127.0.0.1")
+    ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
     : [];
   const assignedAt = new Date(0).toISOString();
   if (!assignments.some((assignment) => assignment.endpointId === "hub")) {

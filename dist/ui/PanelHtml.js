@@ -65,7 +65,7 @@ function renderPanelHtml() {
     @keyframes simple-spin { to { transform: rotate(360deg); } }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; background: var(--vscode-textCodeBlock-background); border-radius: 4px; max-height: 240px; overflow: auto; }
     .cardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
-    .gpuServerStack { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .gpuServerStack { display: grid; grid-template-columns: 1fr; gap: 10px; min-width: 0; width: 100%; box-sizing: border-box; }
     .card, .section-card { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card-bg); display: grid; gap: 12px; }
     .app-shell { width: min(100%, 1560px); margin: 0 auto; padding: 22px 24px 30px; display: grid; gap: 16px; }
     .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-width: 0; }
@@ -490,14 +490,6 @@ function renderPanelHtml() {
     .operationLogTail > summary { cursor: pointer; padding: 4px 8px; font-size: 11px; color: var(--muted); }
     .operationLogTail > pre { max-height: 280px; overflow: auto; margin: 0; padding: 8px; font-size: 11px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; color: var(--text); }
     .operationLogTail > .mini { margin: 0 8px 8px; }
-    .schedulerPlaceholderNotice { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, var(--vscode-editor-background)); font-size: 12px; line-height: 1.5; }
-    .schedulerPlaceholderNotice.is-failed { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--vscode-editor-background)); }
-    .schedulerPlaceholderNotice b { display: block; margin-bottom: 4px; }
-    .schedulerPlaceholderNotice .operationMessage { margin: 4px 0; overflow-wrap: anywhere; }
-    .taskPlaceholderDeck { display: grid; gap: 10px; margin-top: 6px; }
-    .taskCard.schedulerPlaceholder { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; background: var(--subtle-bg); }
-    .taskCard.schedulerPlaceholder .taskCardHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-    .taskCard.schedulerPlaceholder .taskTitle { font-weight: 600; }
     .operationFileActions { display: grid; gap: 5px; margin-top: 7px; min-width: 0; }
     .operationFileActions > span { color: var(--muted); font-size: 11px; }
     .operationFileEntry { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 0; border-top: 1px solid var(--border); }
@@ -519,6 +511,22 @@ function renderPanelHtml() {
     .operationStatusCard.accepted { border-left-color: #D97706; background: #FFFBEB; color: #0F172A; }
     .operationStatusCard span { color: var(--muted); font-size: var(--simple-font-sm); }
     .operationStatusCard b { font-size: var(--simple-font-status); font-weight: 850; font-variant-numeric: tabular-nums; }
+    .tmuxFilterBar { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 6px; margin: 8px 0 6px; }
+    .tmuxWindowCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px; min-height: 42px; padding: 6px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; background: var(--vscode-input-background); color: var(--text); text-align: left; }
+    .tmuxWindowCard:hover:not(:disabled) { border-color: var(--vscode-focusBorder); }
+    .tmuxWindowCard.is-active { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+    .tmuxWindowCard:disabled { opacity: .55; cursor: default; }
+    .tmuxWindowCard.gpu { border-left-color: #16A34A; }
+    .tmuxWindowCard.scheduler { border-left-color: #2563EB; }
+    .tmuxWindowCard.worker { border-left-color: #7C3AED; background: #F5F3FF; color: #0F172A; }
+    .tmuxWindowCard.other { border-left-color: #94A3B8; }
+    .tmuxWindowCard.missing { border-style: dashed; opacity: .78; }
+    .tmuxWindowCard span { color: var(--muted); font-size: var(--simple-font-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tmuxWindowCard b { font-size: var(--simple-font-status); font-weight: 850; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tmuxOverviewGrid { display: grid; gap: 6px; margin-top: 6px; }
+    .tmuxOverviewItem { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-editor-background); font-size: 12px; }
+    .tmuxOverviewItem.is-active { border-color: var(--vscode-focusBorder); background: #EEF2FF; }
+    .tmuxOverviewItem.missing { border-style: dashed; background: #F8FAFC; color: var(--muted); }
     .tree-inspector-facts { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 4px; }
     .tree-inspector-fact { display: grid; gap: 2px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-input-background); }
     .tree-inspector-fact span { color: var(--muted); font-size: 10px; }
@@ -537,18 +545,6 @@ function renderPanelHtml() {
     .commandCenter { display: grid; gap: 8px; padding: 10px; border: 1px solid #CBD5E1; border-radius: 10px; background: rgba(255,255,255,.9); }
     .commandCenterHead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline; }
     .commandCenterGrid { display: none; }
-    .clusterRuntimeOverview { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-left: 4px solid #CBD5E1; border-radius: 10px; background: rgba(255,255,255,.90); color: #0F172A; }
-    .runtimeOverviewHead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
-    .runtimeOverviewTitle { display: block; min-width: 0; }
-    .runtimeOverviewTitle b { color: #111827; font-size: var(--simple-font-lg); font-weight: 850; }
-    .runtimeOverviewChips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; min-width: 0; }
-    .runtimeOverviewChip { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid #CBD5E1; border-radius: 999px; background: #F8FAFC; color: #475569; font-size: var(--simple-font-sm); font-weight: 750; overflow-wrap: anywhere; }
-    .runtimeOverviewChip.good { border-color: #BBF7D0; background: #F0FDF4; color: #15803D; }
-    .runtimeOverviewChip.warn { border-color: #FDE68A; background: #FFFBEB; color: #B45309; }
-    .runtimeOverviewChip.error { border-color: #FCA5A5; background: #FEF2F2; color: #DC2626; }
-    .runtimeOverviewChip.mine { border-color: #C4B5FD; background: #F5F3FF; color: #6D28D9; }
-    .clusterRuntimeOverview .overviewStatusGrid { grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 7px; }
-    .clusterRuntimeOverview .overviewRiskBand { padding: 0; border: 0; background: transparent; }
     .overviewStatusGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 8px; }
     .overviewStatusCard {
       position: relative;
@@ -586,17 +582,7 @@ function renderPanelHtml() {
     .statusInfoPopover summary::-webkit-details-marker { display: none; }
     .statusInfoPopoverBody { position: absolute; right: 0; z-index: 30; width: min(280px, 78vw); margin-top: 5px; padding: 8px 9px; border: 1px solid #CBD5E1; border-radius: 8px; background: #FFFFFF; box-shadow: 0 18px 40px rgba(15,23,42,.16); color: #334155; font-size: 11px; line-height: 1.45; }
     .overviewRiskBand { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card-bg) 92%, var(--vscode-input-background) 8%); }
-    .communicationMatrix { display: grid; gap: 7px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #FFFFFF; color: #0F172A; }
-    .communicationMatrixHead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-    .communicationMatrixHead b { font-size: 13px; font-weight: 850; color: #111827; }
-    .communicationMatrixGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
-    .communicationPathCard { display: grid; gap: 5px; min-width: 0; padding: 8px 9px; border: 1px solid #E2E8F0; border-left: 4px solid #CBD5E1; border-radius: 8px; background: #FAFBFC; }
-    .communicationPathCard.good { border-left-color: #16A34A; }
-    .communicationPathCard.warn { border-left-color: #D97706; background: #FFFBEB; }
-    .communicationPathCard.info { border-left-color: #2563EB; }
-    .communicationPathCard b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #111827; }
-    .communicationPathCard span { color: #64748B; font-size: 11px; line-height: 1.25; }
-    .communicationPathMeta { display: flex; flex-wrap: wrap; gap: 5px; }
+    
     .overviewLegacyRows { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
     .overviewLegacyRows .row { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); padding: 8px; grid-template-columns: 92px minmax(0, 1fr); }
     .param-list { display: grid; gap: 6px; }
@@ -831,6 +817,10 @@ function renderPanelHtml() {
       border-radius: 8px;
       background: #FFFFFF;
       color: #0F172A;
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
     }
     .gpuServerHead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 0; }
     .gpuServerTitle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; color: #111827; font-size: 15px; font-weight: 800; }
@@ -839,26 +829,26 @@ function renderPanelHtml() {
     .gpuServerStatus.online { color: #16A34A; }
     .gpuServerStatus.stale { color: #D97706; }
     .gpuServerStatus.offline, .gpuServerStatus.failed { color: #DC2626; }
-    .gpuHistoryPanel { display: grid; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle-bg); }
-    .gpuHistoryPanel > summary { cursor: pointer; color: var(--vscode-foreground); font-size: 13px; font-weight: 800; }
-    .gpuHistoryPanelBody { display: grid; gap: 8px; min-width: 0; }
-    .gpuHistoryChart { display: grid; gap: 7px; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); }
-    .gpuHistoryChartHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
-    .gpuHistoryChartTitle { color: var(--vscode-foreground); font-size: 12px; font-weight: 800; }
+    .gpuHistoryPanel { display: grid; gap: 10px; margin-bottom: 12px; padding: 10px 0; border: 1px solid var(--border); border-radius: 6px; background: transparent; box-sizing: border-box; width: 100%; }
+    .gpuHistoryPanel > summary { cursor: pointer; color: var(--vscode-foreground); font-size: 13px; font-weight: 800; padding: 0 12px; box-sizing: border-box; }
+    .gpuHistoryPanelBody { display: grid; gap: 8px; min-width: 0; width: 100%; box-sizing: border-box; padding: 0; margin: 0; background: transparent; }
+    .gpuHistoryChart { display: grid; gap: 7px; min-width: 0; width: 100%; padding: 8px 0 6px; border: none; border-top: 1px solid var(--border); border-radius: 0; background: transparent; box-sizing: border-box; margin: 0; }
+    .gpuHistoryChartHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; padding: 0 16px; box-sizing: border-box; width: 100%; }
     .gpuHistoryChartMeta { color: var(--vscode-descriptionForeground); font-size: 11px; }
-    .gpuHistoryCanvasWrap { position: relative; min-width: 0; }
-    .gpuHistoryCanvas { display: block; width: 100%; height: 190px; min-height: 150px; border: 1px solid var(--border); border-radius: 4px; background: var(--vscode-editor-background); outline: none; }
+    .gpuHistoryCanvasWrap { position: relative; min-width: 0; width: 100%; flex: 1 1 auto; display: block; box-sizing: border-box; margin: 0; padding: 0; }
+    .gpuHistoryCanvas { display: block; width: 100% !important; max-width: 100%; height: 190px; min-height: 150px; border: 1px solid var(--border); border-left: 0; border-right: 0; border-radius: 0; background: var(--vscode-editor-background); outline: none; box-sizing: border-box; margin: 0; }
     .gpuHistoryCanvas:focus { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder); }
     .gpuHistoryTooltip { position: absolute; top: 6px; left: 6px; z-index: 2; max-width: min(320px, calc(100% - 12px)); padding: 5px 7px; border: 1px solid var(--vscode-focusBorder); border-radius: 4px; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground)); font-size: 11px; line-height: 1.4; box-shadow: 0 4px 12px rgba(0, 0, 0, .18); pointer-events: none; }
-    .gpuHistoryLegend { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; }
+    .gpuHistoryLegend { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; padding: 0 16px; box-sizing: border-box; width: 100%; }
     .gpuLegendItem { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 2px 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--vscode-foreground); font: inherit; font-size: 11px; cursor: pointer; }
     .gpuLegendItem:hover, .gpuLegendItem:focus-visible { border-color: var(--vscode-focusBorder); background: var(--vscode-list-hoverBackground); outline: none; }
     .gpuLegendSwatch { width: 18px; height: 3px; flex: 0 0 auto; border-radius: 2px; }
-    .gpuHistorySummary { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.45; }
+    .gpuHistorySummary { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.45; padding: 0 16px; box-sizing: border-box; width: 100%; }
     .gpuHistoryGap { color: var(--vscode-editorWarning-foreground); }
-    .gpuHistoryDetails { display: grid; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-    .gpuHistoryDetails > summary { cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 11px; font-weight: 700; }
-    .gpuHistoryStatus { color: var(--vscode-descriptionForeground); font-size: 11px; }
+    .gpuHistoryDetails { display: grid; gap: 8px; margin: 8px -16px -14px -20px; padding: 8px 0 10px; border-top: 1px solid var(--border); min-width: 0; width: auto; box-sizing: border-box; grid-column: 1 / -1; background: transparent; }
+    .gpuHistoryDetails[open] { width: auto; }
+    .gpuHistoryDetails > summary { cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 11px; font-weight: 700; padding: 4px 16px 0 20px; }
+    .gpuHistoryStatus { color: var(--vscode-descriptionForeground); font-size: 11px; padding: 0 16px; box-sizing: border-box; width: 100%; }
     .gpuHistoryStatus.error { color: var(--vscode-errorForeground); }
     .gpuHistoryStatus.stale { color: var(--vscode-editorWarning-foreground); }
     .gpuList { display: grid; gap: 12px; }
@@ -876,12 +866,15 @@ function renderPanelHtml() {
       gap: 12px 18px;
       align-items: start;
       min-width: 0;
+      width: 100%;
+      max-width: 100%;
       padding: 14px 16px 14px 20px;
       border: 1.5px solid var(--gpu-border-color);
       border-radius: 8px;
       background: var(--gpu-card-bg);
       color: #0F172A;
       transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+      box-sizing: border-box;
     }
     .gpu-row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: transparent; }
     .gpu-row.is-occupied::before, .gpu-row.is-mine::before { background: var(--gpu-status-color); }
@@ -890,7 +883,7 @@ function renderPanelHtml() {
     .gpu-row.is-mine { --gpu-status-color: #7C3AED; --gpu-border-color: #C4B5FD; --gpu-progress-color: #8B5CF6; --gpu-status-text: #6D28D9; --gpu-card-bg: #F5F3FF; box-shadow: 0 0 0 1px rgba(124, 58, 237, .06); }
     .gpu-row.mem-danger:not(.is-mine) { --gpu-status-color: #DC2626; --gpu-border-color: #FCA5A5; --gpu-progress-color: #EF4444; --gpu-status-text: #DC2626; }
     .gpu-row:hover { box-shadow: 0 8px 20px rgba(15, 23, 42, .08); }
-    .gpu-main { display: grid; gap: 8px; min-width: 0; }
+    .gpu-main { display: grid; gap: 8px; min-width: 0; width: 100%; box-sizing: border-box; }
     .gpu-main .line { overflow-wrap: anywhere; color: #334155; font-size: 12px; }
     .gpu-title { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; min-width: 0; }
     .gpu-title b { color: #0F172A; font-size: 14px; font-weight: 800; }
@@ -997,6 +990,11 @@ function renderPanelHtml() {
     .field label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
     .helpBadge { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 700; line-height: 1; cursor: help; }
     .field input, .field select { width: 100%; box-sizing: border-box; }
+    .thresholdRow { display: grid; grid-template-columns: minmax(0, 1fr) 140px; gap: 6px; grid-column: 1 / -1; align-items: center; padding: 4px 0; }
+    .thresholdRow .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+    .thresholdRow .value { min-width: 120px; }
+    .thresholdRow .value input { width: 100%; min-width: 120px; box-sizing: border-box; }
+    .taskTitle .pill { white-space: nowrap; overflow-wrap: normal; word-break: keep-all; }
     .toolbar, .workflowActions, .actionGrid, .topbar-actions, .section-actions, .serverBadges, .serverObjectMeta, .statusLegend, .publishActionDeck, .taskActions, .traceActions, .planQuickGrid { min-width: 0; }
     button, input, select, textarea { max-width: 100%; min-width: 0; box-sizing: border-box; }
     button { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
@@ -1172,6 +1170,8 @@ function renderPanelHtml() {
         <span class="status-chip">Xshell</span>
         <span class="status-chip">全局配置</span>
         <span class="status-chip status-completed">仅本机端口</span>
+        <button data-command="verifyAgentVersion" class="secondary" type="button" title="校验 Agent 版本：对比本地与远端 Agent 版本并提示升级">校验 Agent 版本</button>
+        <button data-command="clearCache" class="secondary" type="button" title="清除缓存：删除 tmp/cluster_scheduler 与 tmux_logs 等 MANAGED 前缀内临时文件">清除缓存</button>
         <button data-command="pauseAll" class="secondary" type="button">暂停全部网络</button>
         <button data-command="resumeNetwork" class="secondary" type="button">恢复网络</button>
         <button data-command="openSetupGuide" class="secondary" type="button" title="打开安装与服务器目录配置说明">配置说明</button>
@@ -1345,6 +1345,37 @@ function renderPanelHtml() {
       <div id="gpuGrid" class="gpuServerStack" data-anchor="gpu-grid"></div>
     </section>
 
+         <section class="section-card" data-section="tmux" data-anchor="tmux" data-title="TMUX 会话 / 窗口 / 窗格">
+       <div class="section-head">
+         <div class="section-title">
+           <h2>TMUX 会话 / 窗口 / 窗格</h2>
+           <div class="section-desc">默认展示所有窗口卡片，点击卡片切换 capture-pane；窗口数量按服务器 GPU 数量动态生成</div>
+         </div>
+         <div class="cardTools">
+           <button id="tmuxRefreshBtn" class="secondary" type="button">刷新 capture</button>
+           <button id="tmuxListBtn" class="secondary" type="button">列出 sessions</button>
+           <select id="tmuxWindowSelect" title="选择 tmux 目标（session:window.pane）" style="display:none"><option value="">正在列出...</option></select>
+         </div>
+       </div>
+       <div id="tmuxListInfo" style="margin:6px 0;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);font-size:12px;line-height:1.4;">
+         <span id="tmuxListMeta">等待列出 tmux sessions...</span>
+         <div id="tmuxFilterBar" class="tmuxFilterBar"></div>
+         <div id="tmuxOverview" class="tmuxOverviewGrid" style="margin-top:6px;display:grid;gap:4px;"></div>
+       </div>
+       <details open>
+         <summary>实时捕获数据（<span id="tmuxCaptureMeta">等待同步</span>）</summary>
+         <pre id="tmuxCapturePre" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;">尚未同步，请刷新或等待自动轮询...</pre>
+       </details>
+      <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
+        <b style="font-size:12px;">可复制的 tmux 附着指令（当嵌入 xterm 异常时手动打开）</b>
+        <div style="display:grid;gap:4px;font-family:Consolas,monospace;font-size:11px;">
+          <div>Agent 附着会话：<code id="tmuxCmdAgent">ssh qgking@NWPU3 -t "tmux attach -t zlk-worker-nwpu3-agent"</code> <button class="secondary" type="button" data-copy-target="tmuxCmdAgent">复制</button></div>
+          <div>调度显示会话：<code id="tmuxCmdSch">tmux attach -t zlk-sch-&lt;opId&gt;</code> <button class="secondary" type="button" data-copy-target="tmuxCmdSch">复制</button></div>
+          <div>GPU 窗口：<code id="tmuxCmdGpu">tmux attach -t simple-gpu-0</code> <button class="secondary" type="button" data-copy-target="tmuxCmdGpu">复制</button> <code>simple-gpu-0..3</code></div>
+        </div>
+      </div>
+    </section>
+
     <section class="section-card" data-section="execution" data-anchor="execution" data-title="运行进度">
       <div class="section-head">
           <div class="section-title">
@@ -1412,6 +1443,10 @@ function renderPanelHtml() {
     const vscode = acquireVsCodeApi();
     const LENIENT_RUN = true;
     const isLenientRun = LENIENT_RUN;
+    const PROJECT_TMP_DIRNAME = "tmp";
+    const CLUSTER_SCHEDULER_SUBDIR = "cluster_scheduler";
+    const TMUX_LOGS_SUBDIR = "tmux_logs";
+    const CONSOLE_LOGS_SUBDIR = "console_logs";
     const OPERATION_STATUS_FILTER_VALUES = ["all", "accepted", "running", "completed", "cancelled", "failed"];
     const PLAN_VIEW_SCOPE_VALUES = ["selected", "all"];
     const restoredWebviewState = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
@@ -1425,6 +1460,262 @@ function renderPanelHtml() {
     window.addEventListener("error", (event) => reportBootstrapError(event.error || event.message));
     window.addEventListener("unhandledrejection", (event) => reportBootstrapError(event.reason));
     const el = (id) => document.getElementById(id);
+    let tmuxPollTimer = 0;
+    const TMUX_POLL_MS = 5000;
+    let tmuxListCache = { sessions: [], fetchedAt: "" };
+    let tmuxWindowFilter = String((restoredWebviewState && restoredWebviewState.tmuxWindowFilter) || "all");
+    let tmuxLastCaptureTarget = "";
+    function normalizeTmuxWindowFilter(value) {
+      const v = String(value || "all").trim();
+      if (!v) return "all";
+      return v;
+    }
+    function classifyTmuxWindow(name) {
+      const n = String(name || "").toLowerCase();
+      if (n.indexOf("simple-gpu") === 0 || n.indexOf("zlk-gpu") === 0) return "gpu";
+      if (n.indexOf("zlk-sch-") === 0) return "scheduler";
+      if (n.indexOf("zlk-worker") === 0) return "worker";
+      if (n.indexOf("_tb") !== -1 || n.indexOf("tensorboard") !== -1) return "other";
+      return "other";
+    }
+    function getTmuxWindowCandidates(sessions) {
+      const out = [];
+      const seen = {};
+      const list = Array.isArray(sessions) ? sessions : [];
+      for (let si = 0; si < list.length; si++) {
+        const sess = list[si] || {};
+        const sessName = String(sess.name || "").trim();
+        if (!sessName) continue;
+        const wins = Array.isArray(sess.windows) ? sess.windows : [];
+        if (!wins.length) {
+          const target = sessName;
+          if (!seen[target]) { seen[target] = 1; out.push({ target: target, label: sessName, sessName: sessName, windowIndex: "", windowName: "", panes: 0, active: false, category: classifyTmuxWindow(sessName), synthetic: false }); }
+        } else {
+          for (let wi = 0; wi < wins.length; wi++) {
+            const w = wins[wi] || {};
+            const wIdx = String(w.index || "0");
+            const wName = String(w.name || "");
+            const panes = Array.isArray(w.panes) ? w.panes : [];
+            const paneCount = panes.length;
+            const isActive = !!w.active || panes.some(function(p){ return !!p.active; });
+            const target = sessName + ":" + wIdx;
+            const shortLabel = wName ? (sessName + ":" + wName) : target;
+            const category = classifyTmuxWindow(wName || sessName);
+            if (!seen[target]) { seen[target] = 1; out.push({ target: target, label: shortLabel, sessName: sessName, windowIndex: wIdx, windowName: wName, panes: paneCount, active: isActive, category: category, synthetic: false }); }
+          }
+        }
+      }
+      out.sort(function(a,b){
+        const order = { gpu:0, scheduler:1, worker:2, other:3 };
+        const ao = order[a.category] !== undefined ? order[a.category] : 4;
+        const bo = order[b.category] !== undefined ? order[b.category] : 4;
+        if (ao !== bo) return ao - bo;
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        const al = String(a.label).toLowerCase();
+        const bl = String(b.label).toLowerCase();
+        if (al < bl) return -1;
+        if (al > bl) return 1;
+        return 0;
+      });
+      return out;
+    }
+    function renderTmuxFilterBar(sessions) {
+      const bar = el("tmuxFilterBar");
+      if (!bar) return;
+      const candidates = getTmuxWindowCandidates(sessions);
+      const total = candidates.length;
+      const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
+      let html = "";
+      const allActive = activeFilter === "all";
+      html += '<button type="button" class="tmuxWindowCard other' + (allActive ? ' is-active' : '') + '" data-tmux-filter="all" aria-pressed="' + (allActive ? "true" : "false") + '" title="显示所有窗口概览"><span>全部</span><b>' + String(total) + '</b></button>';
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i];
+        const isActive = activeFilter === c.target;
+        const klass = c.category || "other";
+        const miss = c.synthetic ? " missing" : "";
+        const title = c.synthetic ? (c.label + "（GPU 预期窗口，尚未创建 tmux 会话）") : (c.target + "  panes:" + c.panes + (c.active ? " *" : ""));
+        html += '<button type="button" class="tmuxWindowCard ' + escAttr(klass) + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '" aria-pressed="' + (isActive ? "true" : "false") + '" title="' + escAttr(title) + '"><span>' + esc(c.label) + '</span><b>' + esc(c.target) + '</b></button>';
+      }
+      bar.innerHTML = html || '<span class="muted" style="font-size:11px;">暂无窗口</span>';
+    }
+    function renderTmuxOverview(sessions) {
+      const meta = el("tmuxListMeta");
+      const overview = el("tmuxOverview");
+      const sel = el("tmuxWindowSelect");
+      if (!meta || !overview) return;
+      const list = Array.isArray(sessions) ? sessions : [];
+      if (sel) {
+        let html = "";
+        const candidates = getTmuxWindowCandidates(list);
+        for (let i = 0; i < candidates.length; i++) {
+          const c = candidates[i];
+          html += '<option value="' + escAttr(c.target) + '">' + esc(c.label + " " + c.target) + '</option>';
+        }
+        if (!html) html = '<option value="zlk-worker-nwpu3-agent">zlk-worker-nwpu3-agent (fallback)</option>';
+        const prev = sel.value;
+        sel.innerHTML = html;
+        if (prev) {
+          let found = false;
+          for (let i = 0; i < sel.options.length; i++) if (sel.options[i].value === prev) { found = true; break; }
+          if (found) sel.value = prev;
+        }
+        const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
+        if (activeFilter !== "all") {
+          let exists = false;
+          for (let i = 0; i < candidates.length; i++) if (candidates[i].target === activeFilter) { exists = true; break; }
+          if (exists) sel.value = activeFilter;
+        }
+      }
+      if (!list.length) {
+        meta.textContent = "未检测到 tmux 会话：没有 tmux server / 权限不足 / 终端为空。";
+        renderTmuxFilterBar(list);
+        const cands = getTmuxWindowCandidates(list);
+        let grid = "";
+        for (let i = 0; i < cands.length; i++) {
+          const c = cands[i];
+          const isActive = normalizeTmuxWindowFilter(tmuxWindowFilter) === c.target;
+          const miss = c.synthetic ? " missing" : "";
+          grid += '<div class="tmuxOverviewItem' + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '"><span class="pill">' + esc(c.category) + '</span><b>' + esc(c.label) + '</b><span class="muted">' + esc(c.target) + '</span>' + (c.synthetic ? '<span class="pill" style="border-color:#FDE68A;background:#FFFBEB;color:#B45309;">待创建</span>' : '') + '</div>';
+        }
+        if (!grid) grid = '<span class="muted" style="font-size:11px;">提示：含 zlk-sch-* 调度器，zlk-gpu-* / zlk-worker-* / simple-gpu-* / &lt;prefix&gt;_tb 等类型</span>';
+        overview.innerHTML = grid;
+        return;
+      }
+      const totalWindows = list.reduce(function(a, s){ return a + (s.windows ? s.windows.length : 0); }, 0);
+      const totalPanes = list.reduce(function(a, s){ return a + (s.windows ? s.windows.reduce(function(b, w){ return b + (w.panes ? w.panes.length : 0); }, 0) : 0); }, 0);
+      meta.textContent = "会话 " + list.length + " 个 窗口 " + totalWindows + " 个 窗格 " + totalPanes + " @ " + (tmuxListCache.fetchedAt || new Date().toLocaleTimeString());
+      renderTmuxFilterBar(list);
+      const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
+      let grid = "";
+      if (activeFilter === "all") {
+        for (let si = 0; si < list.length; si++) {
+          const sess = list[si] || {};
+          const badge = classifyTmuxWindow(sess.name || "");
+          grid += '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">windows ' + String(sess.windowCount || (sess.windows ? sess.windows.length : 0)) + '</span>';
+          const wins = sess.windows || [];
+          for (let wi = 0; wi < wins.length; wi++) {
+            const w = wins[wi] || {};
+            const wLabel = (w.index || "") + ":" + (w.name || "") + (w.active ? " *" : "");
+            const target = (sess.name || "") + ":" + (w.index || "0");
+            const isActive = activeFilter === target;
+            grid += '<span style="padding:2px 6px;border:1px dashed var(--border);border-radius:4px;font-size:11px;' + (isActive ? 'outline:1px solid var(--vscode-focusBorder);' : '') + '" data-tmux-filter="' + escAttr(target) + '">' + esc(wLabel) + ' panes ' + String(w.panes ? w.panes.length : 0);
+            if (w.panes) {
+              for (let pi = 0; pi < w.panes.length; pi++) {
+                const pane = w.panes[pi] || {};
+                const pLabel = "." + (pane.index || "") + " " + (pane.command || "") + (pane.active ? "*" : "");
+                grid += ' <code style="font-size:10px;">' + esc(pane.target || "") + esc(pLabel) + '</code>';
+              }
+            }
+            grid += '</span>';
+          }
+          grid += '</div>';
+        }
+      } else {
+        let found = null;
+        let foundSess = null;
+        let foundWin = null;
+        for (let si = 0; si < list.length; si++) {
+          const sess = list[si] || {};
+          const wins = sess.windows || [];
+          for (let wi = 0; wi < wins.length; wi++) {
+            const w = wins[wi] || {};
+            const target = (sess.name || "") + ":" + (w.index || "0");
+            if (target === activeFilter) { found = target; foundSess = sess; foundWin = w; break; }
+          }
+          if (found) break;
+        }
+        if (found && foundSess && foundWin) {
+          grid += '<div class="tmuxOverviewItem is-active"><span class="pill">' + esc(classifyTmuxWindow(foundWin.name || foundSess.name || "")) + '</span><b>' + esc(foundSess.name || "") + ':' + esc(foundWin.index || "") + ' ' + esc(foundWin.name || "") + '</b><span class="muted">panes ' + String(foundWin.panes ? foundWin.panes.length : 0) + (foundWin.active ? " *活跃" : "") + '</span>';
+          if (foundWin.panes) {
+            for (let pi = 0; pi < foundWin.panes.length; pi++) {
+              const pane = foundWin.panes[pi] || {};
+              grid += '<span style="padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;"><code>' + esc(pane.target || found) + '</code> ' + esc(pane.command || "") + (pane.active ? " *" : "") + '</span>';
+            }
+          }
+          grid += '</div>';
+        } else {
+          grid += '<div class="tmuxOverviewItem"><span class="muted">未找到窗口 ' + esc(activeFilter) + '，显示全部概览</span></div>';
+        }
+      }
+      overview.innerHTML = grid;
+    }
+    async function refreshTmuxList() {
+      const meta = el("tmuxListMeta");
+      if (meta) meta.textContent = "列举 tmux sessions ...";
+      try {
+        const clientActionId = createClientActionId("fetchTmuxList", "tmuxList");
+        const pendingKey = "fetchTmuxList:tmuxList";
+        const payload = { command: "fetchTmuxList", clientActionId };
+        pendingActionsById[clientActionId] = { command: "fetchTmuxList", pendingKey, clientActionId, startedAt: Date.now(), label: "fetchTmuxList", status: "running" };
+        if (pendingActionTimeouts[clientActionId]) clearTimeout(pendingActionTimeouts[clientActionId]);
+        pendingActionTimeouts[clientActionId] = setTimeout(function(){
+          const it = pendingActionsById[clientActionId];
+          if (it && it.status === "running") {
+            it.status = "stalled";
+            if (meta) meta.textContent = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
+          }
+        }, 8000);
+        vscode.postMessage(payload);
+      } catch (e) {
+        if (meta) meta.textContent = "列举失败 " + String(e).slice(0,60);
+      }
+    }
+    function tmuxResolveCaptureTarget() {
+      const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
+      if (activeFilter !== "all") return activeFilter;
+      const sel = el("tmuxWindowSelect");
+      if (sel && sel.value) return sel.value.trim();
+      const cands = getTmuxWindowCandidates(tmuxListCache.sessions || []);
+      for (let i = 0; i < cands.length; i++) if (cands[i].active) return cands[i].target;
+      if (cands.length) return cands[0].target;
+      if (tmuxListCache.sessions && tmuxListCache.sessions[0]) return (tmuxListCache.sessions[0].name || "zlk-worker-nwpu3-agent") + ":0";
+      return "zlk-worker-nwpu3-agent";
+    }
+    function decodeCapturedText(raw){
+      let s = String(raw || "");
+      if (!s) return "";
+      const bs = String.fromCharCode(92);
+      const nl = String.fromCharCode(10);
+      const cr = String.fromCharCode(13);
+      const dq = String.fromCharCode(34);
+      if (s.length > 1 && s.charCodeAt(0) === 34 && s.charCodeAt(s.length - 1) === 34) {
+        try { const parsed = JSON.parse(s); if (typeof parsed === "string") s = parsed; } catch (e) {}
+      }
+      let real = 0;
+      for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) real++;
+      let lit = 0;
+      for (let i = 0; i < s.length - 1; i++) if (s.charCodeAt(i) === 92 && s.charCodeAt(i + 1) === 110) lit++;
+      if (lit > 0 && (real === 0 || lit > real)) {
+        s = s.split(bs + "r" + bs + "n").join(nl);
+        s = s.split(bs + "n").join(nl);
+        s = s.split(bs + "r").join(cr);
+        s = s.split(bs + dq).join(dq);
+        lit = 0;
+        for (let i = 0; i < s.length - 1; i++) if (s.charCodeAt(i) === 92 && s.charCodeAt(i + 1) === 110) lit++;
+        if (lit > 0) s = s.split(bs + "n").join(nl);
+      }
+      return s;
+    }
+    async function refreshTmuxCapture() {
+      const pre = el("tmuxCapturePre");
+      const meta = el("tmuxCaptureMeta");
+      const win = tmuxResolveCaptureTarget();
+      if (!pre || !meta) return;
+      const now = Date.now();
+      if (tmuxLastCaptureTarget === win && pre.dataset.lastFetch && (now - Number(pre.dataset.lastFetch)) < 800) return;
+      tmuxLastCaptureTarget = win;
+      pre.dataset.lastFetch = String(now);
+      meta.textContent = "同步中 " + win + " ...";
+      try {
+        vscode.postMessage({ command: "fetchTmuxCapture", window: win });
+      } catch (e) {
+        meta.textContent = "同步失败 " + String(e).slice(0,60);
+      }
+    }
+    function scheduleTmuxPoll() {
+      clearInterval(tmuxPollTimer);
+      tmuxPollTimer = setInterval(function(){ refreshTmuxList(); refreshTmuxCapture(); }, TMUX_POLL_MS);
+    }
     const DIAGNOSTIC_JSON_PREVIEW_LIMIT = 16000;
     const DIAGNOSTIC_JSON_MAX_DEPTH = 4;
     const DIAGNOSTIC_JSON_ARRAY_LIMIT = 16;
@@ -1841,11 +2132,14 @@ function renderPanelHtml() {
     const CONFIG_SCHEDULER_BOUNDS = Object.freeze({
       pollSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
       jitterSeconds: Object.freeze({ min: 0, max: 1800, step: 1 }),
-      workerStatusTtlSeconds: Object.freeze({ min: 10, max: 7200, step: 1 }),
-      localAvailabilityPushSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
-      workerAvailabilityPushSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
+      gpuIdleUtilThreshold: Object.freeze({ min: 0, max: 100, step: 1 }),
+      gpuIdleMemThresholdMb: Object.freeze({ min: 0, max: 8192, step: 1 }),
+      sessionCheckMinSeconds: Object.freeze({ min: 1, max: 60, step: 1 }),
+      workerStatusTtlSeconds: Object.freeze({ min: 60, max: 7200, step: 1 }),
+      localAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
+      workerAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
       operationEventMaxDelayMs: Object.freeze({ min: 100, max: 10000, step: 100 }),
-      workerActionMinIntervalMs: Object.freeze({ min: 200, max: 60000, step: 100 }),
+      workerActionMinIntervalMs: Object.freeze({ min: 500, max: 60000, step: 100 }),
       workerActionMaxConcurrent: CONFIG_GPU_CONCURRENCY_BOUNDS
     });
     const EMPTY_CONFIG_INPUT_BOUNDS = Object.freeze({});
@@ -2011,7 +2305,7 @@ function renderPanelHtml() {
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
-      "abortScheduler", "clearOperations", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText",
+      "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture",
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
@@ -2053,6 +2347,27 @@ function renderPanelHtml() {
           operationSectionSignatureCacheRows = null;
           operationSectionSignatureCacheValue = null;
           renderOperationSection(lastState || {});
+        }
+        return;
+      }
+      const tmuxFilterTarget = event.target.closest("[data-tmux-filter]");
+      if (tmuxFilterTarget) {
+        event.preventDefault();
+        const raw = tmuxFilterTarget.getAttribute("data-tmux-filter") || (tmuxFilterTarget.dataset ? tmuxFilterTarget.dataset.tmuxFilter : "") || "all";
+        const next = normalizeTmuxWindowFilter(raw);
+        const changed = next !== tmuxWindowFilter;
+        if (changed) {
+          tmuxWindowFilter = next;
+          persistWebviewState({ tmuxWindowFilter: tmuxWindowFilter });
+          renderTmuxOverview(tmuxListCache.sessions || []);
+        }
+        refreshTmuxCapture();
+        // sync hidden select for compat
+        const sel = el("tmuxWindowSelect");
+        if (sel && next !== "all") {
+          let exists = false;
+          for (let i = 0; i < sel.options.length; i++) if (sel.options[i].value === next) { exists = true; break; }
+          if (exists) sel.value = next;
         }
         return;
       }
@@ -2150,7 +2465,7 @@ function renderPanelHtml() {
         const command = button.dataset.command;
         const payload = payloadFromButton(button);
         const pendingKey = pendingKeyForButton(button, command, payload);
-        if (!pendingButtonKeys.has(pendingKey)) {
+        if (!pendingButtonKeys?.has(pendingKey)) {
           if (commandNeedsLoading(command)) {
             const clientActionId = createClientActionId(command, pendingKey);
             payload.clientActionId = clientActionId;
@@ -2180,7 +2495,7 @@ function renderPanelHtml() {
       const codeTrigger = event.target.closest("code[data-command], [data-command].tbUrl");
       if (codeTrigger) {
         const command = codeTrigger.dataset.command;
-        if (!command || !webviewHandledCommands.has(command)) return;
+        if (!command || !webviewHandledCommands?.has(command)) return;
         const payload = payloadFromButton(codeTrigger);
         if (codeTrigger.dataset.tbUrl) {
           payload.tbUrl = codeTrigger.dataset.tbUrl;
@@ -2367,7 +2682,7 @@ function renderPanelHtml() {
           const serverId = historyDetails.dataset.serverId || "";
           const gpuId = historyDetails.dataset.gpuId || "";
           const key = gpuHistorySeriesKey(serverId, gpuId);
-          const wasOpen = expandedGpuHistoryKeys.has(key);
+          const wasOpen = expandedGpuHistoryKeys?.has(key);
           if (historyDetails.open) {
             expandedGpuHistoryKeys.add(key);
             while (expandedGpuHistoryKeys.size > GPU_HISTORY_SERIES_CACHE_LIMIT) expandedGpuHistoryKeys.delete(expandedGpuHistoryKeys.values().next().value);
@@ -2455,6 +2770,30 @@ function renderPanelHtml() {
     setupResourceTreeObserver();
     el("initialStateRetry").addEventListener("click", requestInitialPanelState);
     requestInitialPanelState();
+    // TMUX polling init (sessions/windows/panes)
+    (function initTmuxPolling(){
+      const sel = el("tmuxWindowSelect");
+      const btn = el("tmuxRefreshBtn");
+      const listBtn = el("tmuxListBtn");
+      if (sel) sel.addEventListener("change", refreshTmuxCapture);
+      if (btn) btn.addEventListener("click", refreshTmuxCapture);
+      if (listBtn) listBtn.addEventListener("click", refreshTmuxList);
+      document.addEventListener("click", (ev)=>{
+        const t = ev.target.closest("[data-copy-target]");
+        if(!t) return;
+        const id = t.getAttribute("data-copy-target");
+        const src = id ? document.getElementById(id) : null;
+        const text = src ? src.textContent : "";
+        if (!text) return;
+        try { navigator.clipboard.writeText(text); } catch {}
+        const orig = t.textContent;
+        t.textContent = "已复制";
+        setTimeout(()=> t.textContent = orig, 1200);
+      });
+      scheduleTmuxPoll();
+      setTimeout(refreshTmuxList, 800);
+      setTimeout(refreshTmuxCapture, 1400);
+    })();
 
     function requestInitialPanelState() {
       const notice = el("initialStateNotice");
@@ -2489,6 +2828,25 @@ function renderPanelHtml() {
         if (!item) continue;
         if (item.type === "uiCommandStatus") {
           handleUiCommandStatus(item);
+          continue;
+        }
+        if (item.type === "tmuxList") {
+          tmuxListCache = { sessions: item.sessions || [], fetchedAt: item.fetchedAt || new Date().toLocaleTimeString() };
+          renderTmuxOverview(item.sessions || []);
+          const meta = el("tmuxListMeta");
+          if (meta && item.status) {
+            if (String(item.status).toLowerCase() === "stalled") meta.textContent = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
+            else if (String(item.status).toLowerCase() === "failed") meta.textContent = "列举失败 " + String(item.error || "").slice(0,80);
+          }
+          // 自动刷新选中窗口的 capture，保持与筛选卡片同步
+          try { refreshTmuxCapture(); } catch (e) {}
+          continue;
+        }
+        if (item.type === "tmuxCapture") {
+          const pre = el("tmuxCapturePre");
+          const meta = el("tmuxCaptureMeta");
+          if (pre) pre.textContent = decodeCapturedText(item.text || item.capture || "");
+          if (meta) meta.textContent = String(item.window || "") + " @ " + String(item.fetchedAt || new Date().toLocaleTimeString());
           continue;
         }
         if (item.type === "state") latestStateMessage = item;
@@ -2536,6 +2894,7 @@ function renderPanelHtml() {
         renderWorkbenchInspector(state);
         updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
         renderVisibleSections(state);
+        try { renderTmuxOverview(tmuxListCache.sessions || []); } catch (e) {}
         applyLayoutColumns();
         schedulePostRenderMaintenance();
         lastRenderErrorMessage = "";
@@ -2708,8 +3067,8 @@ function renderPanelHtml() {
       if (value === null || value === undefined) return "";
       const type = typeof value;
       if (type !== "object" && type !== "function") return type + ":" + String(value);
-      if (!objectReferenceIds.has(value)) objectReferenceIds.set(value, nextObjectReferenceId++);
-      return "ref:" + objectReferenceIds.get(value);
+      if (!objectReferenceIds?.has(value)) objectReferenceIds.set(value, nextObjectReferenceId++);
+      return "ref:" + objectReferenceIds?.get(value);
     }
 
     function sectionRenderSignature(state, section) {
@@ -2766,7 +3125,7 @@ function renderPanelHtml() {
         if (forceNull) stableSectionHashToken(digest, "null");
         return forceNull;
       }
-      if (seen.has(value)) {
+      if (seen?.has(value)) {
         stableSectionHashToken(digest, JSON.stringify("[Circular]"));
         return true;
       }
@@ -2833,7 +3192,7 @@ function renderPanelHtml() {
       taskView.visibleRows.forEach((row) => visible.add(taskLogKey(row)));
       taskView.activeRows.forEach((row) => visible.add(taskLogKey(row)));
       const next = {};
-      entries.forEach(([key, value]) => { if (visible.has(key)) next[key] = value; });
+      entries.forEach(([key, value]) => { if (visible?.has(key)) next[key] = value; });
       for (const [key, value] of entries) {
         if (Object.keys(next).length >= TASK_LOG_EXPANSION_LIMIT) break;
         if (!(key in next)) next[key] = value;
@@ -3014,9 +3373,9 @@ function renderPanelHtml() {
     function compactRowsForSignature(rows, limit, keys) {
       const source = rows && typeof rows === "object" ? rows : EMPTY_OUTPUT_DERIVATION_VALUES;
       const cacheKey = String(limit) + "|" + asArray(keys).join("|");
-      let variants = compactRowsForSignatureCache.get(source);
-      if (variants && variants.has(cacheKey)) {
-        const cached = variants.get(cacheKey);
+      let variants = compactRowsForSignatureCache?.get(source);
+      if (variants && variants?.has(cacheKey)) {
+        const cached = variants?.get(cacheKey);
         variants.delete(cacheKey);
         variants.set(cacheKey, cached);
         return cached;
@@ -3055,9 +3414,9 @@ function renderPanelHtml() {
     function compactObjectMapForSignature(value, limit, keys) {
       const source = value && typeof value === "object" ? value : EMPTY_OUTPUT_DERIVATION_SOURCE;
       const cacheKey = String(limit) + "|" + asArray(keys).join("|");
-      let variants = compactObjectMapForSignatureCache.get(source);
-      if (variants && variants.has(cacheKey)) {
-        const cached = variants.get(cacheKey);
+      let variants = compactObjectMapForSignatureCache?.get(source);
+      if (variants && variants?.has(cacheKey)) {
+        const cached = variants?.get(cacheKey);
         variants.delete(cacheKey);
         variants.set(cacheKey, cached);
         return cached;
@@ -3617,7 +3976,7 @@ function renderPanelHtml() {
       if (type === "string") return value.length > DIAGNOSTIC_JSON_STRING_LIMIT ? value.slice(0, DIAGNOSTIC_JSON_STRING_LIMIT) + "... 已截断 " + (value.length - DIAGNOSTIC_JSON_STRING_LIMIT) + " 字符" : value;
       if (type === "number" || type === "boolean") return value;
       if (type !== "object") return String(value);
-      if (seen.has(value)) return "[循环引用已省略]";
+      if (seen?.has(value)) return "[循环引用已省略]";
       if (depth >= DIAGNOSTIC_JSON_MAX_DEPTH) return "[深层对象已省略]";
       seen.add(value);
       if (Array.isArray(value)) {
@@ -3648,7 +4007,7 @@ function renderPanelHtml() {
     }
 
     function commandNeedsLoading(command) {
-      return !COMMANDS_WITHOUT_LOADING.has(String(command || ""));
+      return !COMMANDS_WITHOUT_LOADING?.has(String(command || ""));
     }
 
     function createClientActionId(command, pendingKey) {
@@ -3702,6 +4061,11 @@ function renderPanelHtml() {
       return !operationIsFailureLike(value) && !operationIsCancelled(value) && (value.includes("complete") || value === "done" || value === "succeeded");
     }
 
+    function operationSucceeded(row) {
+      const status = String((row || {}).status || (row || {}).state || "").toLowerCase();
+      return operationIsCompleted(status);
+    }
+
     function operationRowsForState(state) {
       const input = ((state || {}).operations || {});
       return operationRowsForInput(input);
@@ -3721,7 +4085,7 @@ function renderPanelHtml() {
     }
 
     function isTerminalUiStatus(status) {
-      return TERMINAL_UI_STATUSES.has(String(status || "").toLowerCase());
+      return TERMINAL_UI_STATUSES?.has(String(status || "").toLowerCase());
     }
 
     function handleUiCommandStatus(data) {
@@ -3761,7 +4125,7 @@ function renderPanelHtml() {
     function submittedCommandTarget(command, status) {
       const normalizedCommand = String(command || "");
       const normalizedStatus = String(status || "").toLowerCase();
-      if (normalizedStatus === "submitted" && SUBMITTED_RUN_COMMANDS.has(normalizedCommand)) {
+      if (normalizedStatus === "submitted" && SUBMITTED_RUN_COMMANDS?.has(normalizedCommand)) {
         return { section: "execution", anchor: "execution" };
       }
       if (normalizedStatus === "completed" && normalizedCommand === "restoreArchivedPlan") {
@@ -3809,7 +4173,7 @@ function renderPanelHtml() {
     }
 
     function isConfigSaveCommand(command) {
-      return CONFIG_SAVE_COMMANDS.has(String(command || ""));
+      return CONFIG_SAVE_COMMANDS?.has(String(command || ""));
     }
 
     function clearPendingActionTimeout(clientActionId) {
@@ -3838,7 +4202,7 @@ function renderPanelHtml() {
         const item = pendingActions[key] || {};
         const age = now - Number(item.startedAt || 0);
         const action = commandActionName(item.command);
-        const active = activeActions.has(action) || activeActions.has(String(item.command || ""));
+        const active = activeActions?.has(action) || activeActions?.has(String(item.command || ""));
         if (age > 30000 || (!active && item.seenState && age > 1200)) {
           delete pendingActions[key];
           if (item.clientActionId) {
@@ -3900,7 +4264,7 @@ function renderPanelHtml() {
       pendingButtonCandidates().forEach((button) => {
         visited += 1;
         const key = pendingKeyFromButtonDataset(button);
-        const fallback = buttonHasPendingScope(button) ? "" : fallbackByCommand.get(String(button.dataset.command || ""));
+        const fallback = buttonHasPendingScope(button) ? "" : fallbackByCommand?.get(String(button.dataset.command || ""));
         const pendingKey = pendingActions[key] ? key : fallback;
         if (pendingKey) setButtonLoading(button, pendingKey);
         else clearButtonLoading(button);
@@ -3913,7 +4277,7 @@ function renderPanelHtml() {
       Object.keys(pendingActions).forEach((key) => {
         const item = pendingActions[key] || {};
         const command = String(item.command || "");
-        if (command && !pendingActionIsScoped(item) && !map.has(command)) map.set(command, key);
+        if (command && !pendingActionIsScoped(item) && !map?.has(command)) map.set(command, key);
       });
       return map;
     }
@@ -4023,17 +4387,17 @@ function renderPanelHtml() {
       const rank = new Map(order.map((anchor, index) => [String(anchor || ""), index]));
       const nodes = Array.from(card.querySelectorAll("[data-anchor]")).filter((node) => {
         if (!node || node === card) return false;
-        return rank.has(String(node.getAttribute("data-anchor") || ""));
+        return rank?.has(String(node.getAttribute("data-anchor") || ""));
       });
       const byParent = new Map();
       nodes.forEach((node) => {
         const parent = node.parentElement;
         if (!parent) return;
-        if (!byParent.has(parent)) byParent.set(parent, []);
-        byParent.get(parent).push(node);
+        if (!byParent?.has(parent)) byParent.set(parent, []);
+        byParent?.get(parent)?.push(node);
       });
       byParent.forEach((items, parent) => {
-        const sorted = [...items].sort((a, b) => (rank.get(String(a.getAttribute("data-anchor") || "")) || 0) - (rank.get(String(b.getAttribute("data-anchor") || "")) || 0));
+        const sorted = [...items].sort((a, b) => (rank?.get(String(a.getAttribute("data-anchor") || "")) || 0) - (rank?.get(String(b.getAttribute("data-anchor") || "")) || 0));
         if (items.every((node, index) => node === sorted[index])) return;
         const boundary = items[items.length - 1].nextSibling;
         sorted.forEach((node) => parent.insertBefore(node, boundary));
@@ -4051,8 +4415,8 @@ function renderPanelHtml() {
       const cards = Array.from(deck.querySelectorAll(":scope > [data-section]"));
       const byId = new Map(cards.map((card) => [card.dataset.section, card]));
       const orderedSections = new Set(currentUiLayout.order);
-      const ordered = currentUiLayout.order.map((section) => byId.get(section)).filter(Boolean)
-        .concat(cards.filter((card) => !orderedSections.has(card.dataset.section)));
+      const ordered = currentUiLayout.order.map((section) => byId?.get(section)).filter(Boolean)
+        .concat(cards.filter((card) => !orderedSections?.has(card.dataset.section)));
       const currentOrder = cards.map((card) => card.dataset.section).join("|");
       const nextOrder = ordered.map((card) => card.dataset.section).join("|");
       if (currentOrder !== nextOrder) {
@@ -4295,15 +4659,15 @@ function renderPanelHtml() {
     function compactNativeTitleText(value) {
       const text = String(value || "").replace(/\s+/g, " ").trim();
       if (!text) return "";
-      if (LOW_VALUE_NATIVE_TITLES.has(text)) return "";
+      if (LOW_VALUE_NATIVE_TITLES?.has(text)) return "";
       const direct = compactDirectTitleValue(text);
       if (direct) return direct;
       const explanatory = text.length > 18 && EXPLANATORY_TITLE_PATTERN.test(text);
       const pieces = text.split(/[。；;\\n]/).map((item) => item.trim()).filter(Boolean);
-      const first = (pieces.find((item) => !EXPLANATORY_TITLE_PATTERN.test(item) && !LOW_VALUE_NATIVE_TITLES.has(item)) || "").trim();
+      const first = (pieces.find((item) => !EXPLANATORY_TITLE_PATTERN.test(item) && !LOW_VALUE_NATIVE_TITLES?.has(item)) || "").trim();
       if (explanatory && !first) return "";
       const base = explanatory ? first : text;
-      if (LOW_VALUE_NATIVE_TITLES.has(base)) return "";
+      if (LOW_VALUE_NATIVE_TITLES?.has(base)) return "";
       return compactTitleLength(base);
     }
 
@@ -4314,7 +4678,7 @@ function renderPanelHtml() {
       if (pairMatch) {
         const label = pairMatch[1].split(/[：:]/)[0].trim();
         const value = pairMatch[1].split(/[：:]/).slice(1).join("：").trim();
-        if (LOW_VALUE_NATIVE_TITLE_KEYS.has(label) || EXPLANATORY_TITLE_PATTERN.test(label) || EXPLANATORY_TITLE_PATTERN.test(value)) return "";
+        if (LOW_VALUE_NATIVE_TITLE_KEYS?.has(label) || EXPLANATORY_TITLE_PATTERN.test(label) || EXPLANATORY_TITLE_PATTERN.test(value)) return "";
         return compactTitleLength(pairMatch[1].trim());
       }
       return "";
@@ -4330,7 +4694,7 @@ function renderPanelHtml() {
       document.querySelectorAll("button[data-command]:not([data-handler-checked='1'])").forEach((button) => {
         const command = String(button.dataset.command || "");
         button.dataset.handlerChecked = "1";
-        if (webviewHandledCommands.has(command)) return;
+        if (webviewHandledCommands?.has(command)) return;
         const reason = "该按钮尚未接入 Extension handler，已自动禁用，避免点击无反应。";
         button.disabled = true;
         setNativeTitle(button, reason);
@@ -4346,8 +4710,8 @@ function renderPanelHtml() {
       let withoutTooltip = 0;
       const hasHelp = (command) => {
         const key = String(command || "");
-        if (!helpByCommand.has(key)) helpByCommand.set(key, Boolean(commandHelp(key)));
-        return helpByCommand.get(key);
+        if (!helpByCommand?.has(key)) helpByCommand.set(key, Boolean(commandHelp(key)));
+        return helpByCommand?.get(key);
       };
       for (const button of buttons) {
         const command = String(button.dataset.command || "");
@@ -4360,7 +4724,7 @@ function renderPanelHtml() {
       const missingHandler = [];
       const missingHelp = [];
       commands.forEach((command) => {
-        if (!webviewHandledCommands.has(command)) missingHandler.push(command);
+        if (!webviewHandledCommands?.has(command)) missingHandler.push(command);
         if (!hasHelp(command)) missingHelp.push(command);
       });
       return { commands, missingHandler, missingHelp, withoutTooltip, disabledWithoutReason };
@@ -4440,7 +4804,7 @@ function renderPanelHtml() {
         if (storedContextReason) warnings.push(command + ": " + storedContextReason);
         if (command === "archivePlan" && !(button.dataset.planFile || button.dataset.file)) warnings.push(command + ": 缺少 planFile");
         if (["validatePlan", "dryRunPlan", "runPlan"].includes(command) && button.closest("#recentPlans") && !button.dataset.planFile) warnings.push(command + ": 缺少 planFile");
-        if (!BUTTON_AUDIT_ROW_ACTION_COMMANDS.has(command) || !button.classList.contains("taskActionButton")) return;
+        if (!BUTTON_AUDIT_ROW_ACTION_COMMANDS?.has(command) || !button.classList.contains("taskActionButton")) return;
         const hasOperationKey = Boolean(button.dataset.runKey || button.dataset.archiveKey || button.dataset.experimentId || button.dataset.actionKey);
         if (!hasOperationKey) warnings.push(command + ": 缺少可操作 key");
         if (["stopExperiment", "retryExperiment", "archiveArtifacts", "deleteArtifacts"].includes(command) && !button.dataset.workerId) {
@@ -4568,7 +4932,7 @@ function renderPanelHtml() {
         showRegistry: "端点清单",
         restart: "重启实时流",
         manualGpuSnapshot: "刷新 GPU",
-        loadGpuHistory: "加载最近三天 GPU 历史曲线",
+        loadGpuHistory: "加载最近 1 天 GPU 历史曲线",
         manualSchedulerSnapshot: "刷新调度器",
         manualTracesSnapshot: "刷新 trace",
         script: "生成启动脚本",
@@ -4620,7 +4984,7 @@ function renderPanelHtml() {
       // 迁移旧布局：tasks / operations 卡片已合并为 execution
       const migratedIncoming = incoming.map((item) => (item === "tasks" || item === "operations" ? "execution" : item));
       const incomingSet = new Set(migratedIncoming);
-      const order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet.has(item)));
+      const order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet?.has(item)));
       const rawCollapsed = layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {};
       const collapsed = Object.assign({ servers: true, settings: true, diagnostics: true, execution: false }, rawCollapsed);
       // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）
@@ -4642,7 +5006,7 @@ function renderPanelHtml() {
       const record = input && typeof input === "object" && !Array.isArray(input) ? input : {};
       const out = {};
       Object.keys(record).forEach((section) => {
-        if (!RESOURCE_TREE_SECTION_KEYS.has(section) || !Array.isArray(record[section])) return;
+        if (!RESOURCE_TREE_SECTION_KEYS?.has(section) || !Array.isArray(record[section])) return;
         const unique = [];
         record[section].map((value) => String(value || "").trim()).filter(Boolean).forEach((anchor) => {
           if (!unique.includes(anchor)) unique.push(anchor);
@@ -4665,12 +5029,12 @@ function renderPanelHtml() {
 
     function normalizePinnedCommands(commands) {
       const source = Array.isArray(commands) ? commands : null;
-      const cached = source ? pinnedCommandsNormalizationCache.get(source) : undefined;
+      const cached = source ? pinnedCommandsNormalizationCache?.get(source) : undefined;
       if (cached) return cached;
       const unique = [];
       (source || []).forEach((command) => {
         const value = String(command || "");
-        if (PINNED_COMMAND_VALUES.has(value) && !unique.includes(value)) unique.push(value);
+        if (PINNED_COMMAND_VALUES?.has(value) && !unique.includes(value)) unique.push(value);
       });
       const normalized = unique.slice(0, 8);
       if (source) pinnedCommandsNormalizationCache.set(source, normalized);
@@ -4681,8 +5045,8 @@ function renderPanelHtml() {
       const source = Array.isArray(actions) ? actions : null;
       const normalizedLimit = limit || 24;
       const cacheKey = String(normalizedLimit) + ":" + normalizeActionSection(activeResourceSection || "overview");
-      let variants = source ? savedButtonActionsNormalizationCache.get(source) : undefined;
-      const cached = variants && variants.get(cacheKey);
+      let variants = source ? savedButtonActionsNormalizationCache?.get(source) : undefined;
+      const cached = variants && variants?.get(cacheKey);
       if (cached) {
         variants.delete(cacheKey);
         variants.set(cacheKey, cached);
@@ -4692,7 +5056,7 @@ function renderPanelHtml() {
       const seen = new Set();
       (source || []).forEach((item) => {
         const spec = normalizeSavedButtonAction(item);
-        if (!spec || seen.has(spec.id)) return;
+        if (!spec || seen?.has(spec.id)) return;
         seen.add(spec.id);
         out.push(spec);
       });
@@ -4715,7 +5079,7 @@ function renderPanelHtml() {
     function normalizeSavedButtonAction(item) {
       const source = item && typeof item === "object" ? item : {};
       const command = String(source.command || "");
-      if (!command || !webviewHandledCommands.has(command)) return null;
+      if (!command || !webviewHandledCommands?.has(command)) return null;
       const section = normalizeActionSection(source.section || activeResourceSection || "overview");
       const payload = sanitizeActionPayload(source.payload || {});
       const label = compactText(String(source.label || featureCommandLabel(command) || command).replace(/\s+/g, " ").trim(), 40);
@@ -4736,7 +5100,7 @@ function renderPanelHtml() {
     function normalizeActionSection(section) {
       const value = String(section || "overview");
       if (value === "tasks" || value === "operations") return "execution";
-      if (RESOURCE_TREE_SECTION_KEYS.has(value)) return value;
+      if (RESOURCE_TREE_SECTION_KEYS?.has(value)) return value;
       if (value.startsWith("server")) return "servers";
       return "overview";
     }
@@ -4937,7 +5301,7 @@ function renderPanelHtml() {
     function actionSpecFromButton(button) {
       if (!button) return null;
       const command = String(button.dataset.command || "");
-      if (!command || !webviewHandledCommands.has(command)) return null;
+      if (!command || !webviewHandledCommands?.has(command)) return null;
       const sourceSection = button.dataset.actionSection || (button.closest("#mainColumn [data-section]") || {}).dataset?.section || activeResourceSection || "overview";
       const payload = buttonDatasetActionPayload(button);
       const label = cleanButtonLabel(button) || featureCommandLabel(command) || command;
@@ -5199,7 +5563,7 @@ function renderPanelHtml() {
       const saved = resourceTreeCustomChildOrder(section);
       if (!saved.length) return rows;
       const byAnchor = new Map(rows.map((row) => [row.anchor, row]));
-      return saved.map((anchor) => byAnchor.get(anchor)).filter(Boolean)
+      return saved.map((anchor) => byAnchor?.get(anchor)).filter(Boolean)
         .concat(rows.filter((row) => !saved.includes(row.anchor)));
     }
 
@@ -5252,7 +5616,7 @@ function renderPanelHtml() {
 
     function normalizeTreeTone(tone) {
       const value = String(tone || "").toLowerCase();
-      return RESOURCE_TREE_TONE_VALUES.has(value) ? value : "";
+      return RESOURCE_TREE_TONE_VALUES?.has(value) ? value : "";
     }
 
     function resourceTreeDominantTone(tones) {
@@ -5274,7 +5638,7 @@ function renderPanelHtml() {
     function resourceTreeSearchText(html) {
       if (html && typeof html === "object") {
         const node = html;
-        const cached = resourceTreeSearchTextCache.get(node);
+        const cached = resourceTreeSearchTextCache?.get(node);
         if (typeof cached === "string") return cached;
         const value = [node.id, node.label, node.kind, node.icon, node.tone, node.status, node.count, node.section, node.anchor, node.tooltip, node.searchText, asArray(node.children || []).map(resourceTreeSearchText).join(" ")].join(" ").toLowerCase();
         resourceTreeSearchTextCache.set(node, value);
@@ -5300,7 +5664,6 @@ function renderPanelHtml() {
     function overviewTreeObjects() {
       return [
         treeObjectItem("overview", "运维状态", "入口", "", "运维状态", "overview-status", "", "状态 总览 Hub Worker GPU 任务"),
-        treeObjectItem("overview", "集群运行态", "入口", "", "集群运行态", "overview-flow", "", "工作流 阶段 接入 同步 运行 解析 集群运行态"),
         treeObjectItem("overview", "发布同步摘要", "入口", "", "发布同步", "sync-publish", "", "发布 GitHub SFTP Hub Worker Agent"),
         treeObjectItem("overview", "阻塞项", "入口", "", "阻塞项", "overview-blockers", "", "阻塞 failed stalled 操作进度")
       ];
@@ -5308,7 +5671,7 @@ function renderPanelHtml() {
 
     function overviewHealthText(state) {
       const health = String((state.health || {}).state || "").toLowerCase();
-      if (OVERVIEW_HEALTHY_STATUS_TOKENS.has(health)) return "正常";
+      if (OVERVIEW_HEALTHY_STATUS_TOKENS?.has(health)) return "正常";
       if (health) return labelStatus(health);
       return "待检测";
     }
@@ -5576,7 +5939,7 @@ function renderPanelHtml() {
 
     function workbenchInspectorOperationSignatureRows(state, section, meta) {
       const actionSection = inspectorActionSection(section, meta);
-      if (!INSPECTOR_OPERATION_SECTIONS.has(section) && !INSPECTOR_OPERATION_SECTIONS.has(actionSection)) return [];
+      if (!INSPECTOR_OPERATION_SECTIONS?.has(section) && !INSPECTOR_OPERATION_SECTIONS?.has(actionSection)) return [];
       return operationRowsForState(state).slice(0, section === "execution" || actionSection === "execution" || section === "operations" || actionSection === "operations" ? 12 : 6)
         .map((op) => compactRecordForSignature(op || {}, ["operationId", "type", "status", "message", "error", "updatedAt", "workerId"]));
     }
@@ -5618,7 +5981,7 @@ function renderPanelHtml() {
       const priority = inspectorActionPriority(actionSection);
       return rows.map((item, index) => {
         const command = String(item && item[1] || "");
-        return { item, index, rank: priority.has(command) ? priority.get(command) : 1000 + index };
+        return { item, index, rank: priority?.has(command) ? priority?.get(command) : 1000 + index };
       }).sort((a, b) => a.rank - b.rank || a.index - b.index)
         .slice(0, INSPECTOR_ACTION_RENDER_LIMIT)
         .sort((a, b) => a.index - b.index)
@@ -5785,7 +6148,7 @@ function renderPanelHtml() {
       const order = resourceTreeChildrenForSection(section);
       if (!order.length) return actions;
       const rank = new Map(order.map((anchor, index) => [String(anchor || ""), index]));
-      return actions.map((item, index) => ({ item, index, rank: rank.has(actionResourceAnchor(section, item[1])) ? rank.get(actionResourceAnchor(section, item[1])) : 999 + index }))
+      return actions.map((item, index) => ({ item, index, rank: rank?.has(actionResourceAnchor(section, item[1])) ? rank?.get(actionResourceAnchor(section, item[1])) : 999 + index }))
         .sort((a, b) => a.rank - b.rank || a.index - b.index)
         .map((entry) => entry.item);
     }
@@ -5882,7 +6245,7 @@ function renderPanelHtml() {
 
     function workbenchInspectorEvents(state, meta, section) {
       const actionSection = inspectorActionSection(section, meta);
-      if (!INSPECTOR_OPERATION_SECTIONS.has(section) && !INSPECTOR_OPERATION_SECTIONS.has(actionSection)) {
+      if (!INSPECTOR_OPERATION_SECTIONS?.has(section) && !INSPECTOR_OPERATION_SECTIONS?.has(actionSection)) {
         return [];
       }
       const rows = operationRowsForState(state);
@@ -5913,7 +6276,7 @@ function renderPanelHtml() {
 
     function operationSearchHaystack(row) {
       if (!row || typeof row !== "object") return "";
-      const cached = operationSearchHaystackCache.get(row);
+      const cached = operationSearchHaystackCache?.get(row);
       if (cached !== undefined) return cached;
       const haystack = [row.operationId, row.id, row.type, row.action, row.status, row.message, row.error, row.searchText].join(" ").toLowerCase();
       operationSearchHaystackCache.set(row, haystack);
@@ -5924,7 +6287,7 @@ function renderPanelHtml() {
       const anchor = String((meta || {}).anchor || "");
       if (!anchor || anchor === section) {
         if (section === "execution" || section === "operations") return MATCH_EVERY_OPERATION;
-        const pattern = OPERATION_SECTION_MATCH_PATTERNS.get(section);
+        const pattern = OPERATION_SECTION_MATCH_PATTERNS?.get(section);
         return pattern ? (haystack) => pattern.test(haystack) : MATCH_NO_OPERATION;
       }
       const label = String((meta || {}).label || "");
@@ -6067,7 +6430,7 @@ function renderPanelHtml() {
       const claims = asArray(((state.resultSummary || {}).claimEvidencePreview || {}).claims || []);
       const unsupportedClaims = claims.filter((row) => String(row.status || "").toLowerCase() !== "supported").length;
       const tiles = [
-        objectTile("Hub", "H", HUB_HEALTHY_STATUS_TOKENS.has(String(health.state || "").toLowerCase()) ? "good" : "warn", labelStatus(health.state || "待检测")),
+        objectTile("Hub", "H", HUB_HEALTHY_STATUS_TOKENS?.has(String(health.state || "").toLowerCase()) ? "good" : "warn", labelStatus(health.state || "待检测")),
         objectTile("Worker", "W", workers.length ? "good" : "warn", String(workers.length)),
         objectTile("GPU", "G", gpuStats.mine ? "mine" : (gpuStats.total ? "good" : "warn"), gpuStats.total ? (gpuStats.free + "/" + gpuStats.total) : "待检测"),
         objectTile("任务", "T", taskStats.failed ? "error" : (taskStats.running ? "good" : taskStats.queued ? "warn" : "good"), taskStats.running ? (taskStats.running + " 运行") : taskStats.queued ? (taskStats.queued + " 排队") : "空闲"),
@@ -6086,105 +6449,27 @@ function renderPanelHtml() {
     }
 
     function renderOverviewOpsWorkbench(state, legacyRows) {
-      const setup = state.setup || {};
-      const health = state.health || {};
-      const realtime = state.realtime || {};
-      const diagnostics = state.diagnostics || {};
-      const scheduler = state.schedulerConfig || {};
-      const workers = asArray(setup.workerTunnels || []);
-      const enabledWorkers = enabledWorkerTunnelsForState(state);
-      const workerTelemetry = asArray(state.workerTelemetryStatus || []);
-      const workerOk = workerTelemetry.filter((item) => statusContainsAny(item.status, WORKER_AVAILABLE_STATUS_PARTS)).length;
-      const gpuStats = overviewGpuStats(state);
-      const taskStats = overviewTaskStats(state);
-      const projectStats = overviewProjectStats(state);
-      const projectReadiness = overviewProjectReadiness(state);
-      const operationStats = overviewOperationStats(state);
-      const paused = diagnostics.requests && diagnostics.requests.paused;
-      const conflicts = asArray(state.tunnelPortConflicts || []);
-      const hubOk = HUB_HEALTHY_STATUS_TOKENS.has(String(health.state || "").toLowerCase());
-      const streamStatus = String(realtime.streamStatus || "disconnected");
-      const streamOk = statusContainsAny(streamStatus, REALTIME_CONNECTED_STATUS_PARTS);
-      const schedulerRange = overviewSchedulerRange(scheduler);
-      const workflowSummary = {
-        hubOk,
-        conflicts,
-        projectReadiness,
-        running: taskStats.running,
-        queued: taskStats.queued,
-        failed: taskStats.failed,
-        failedOps: operationStats.failed,
-      };
-      const cards = [
-        overviewStatusCard("Xshell 隧道", hubOk && !conflicts.length ? "good" : "warn", hubOk ? "Hub 可达" : "待检测", [
-          ["本地端点", state.localEndpoint || ("127.0.0.1:" + (setup.localForwardPort || "-")), "当前 Hub 本地隧道地址"],
-          ["端口冲突", String(conflicts.length), conflicts.length ? "存在重复本机端口，请改为唯一端口" : "未报告冲突"]
-        ]),
-        overviewStatusCard("Hub 控制面", hubOk ? "good" : "warn", labelStatus(health.state || "unknown"), [
-          ["显示名", setup.hubDisplayName || setup.hubHost || "Hub", "Hub 在面板中的显示名"],
-          ["Agent 端口", setup.remoteAgentPort || "-", "Hub 远端本机 Agent 端口"]
-        ]),
-        overviewStatusCard("Worker 状态", enabledWorkers.length && workerOk >= enabledWorkers.length ? "good" : (enabledWorkers.length ? "warn" : "error"), enabledWorkers.length ? (workerOk + "/" + enabledWorkers.length + " 可用") : "未配置", [
-          ["启用", String(enabledWorkers.length), "启用后参与观测、同步和调度目标"],
-          ["总数", String(workers.length), "已配置 Worker 数"]
-        ]),
-        overviewStatusCard("GPU 资源", gpuStats.mine ? "mine" : (gpuStats.total ? "good" : "warn"), gpuStats.total ? (gpuStats.free + "/" + gpuStats.total + " 空闲") : "暂无数据", [
-          ["占用", String(gpuStats.busy), "当前有进程或 runKey 的 GPU"],
-          ["我的任务", String(gpuStats.mine), "按 currentUser、aliases 或命令关键词识别"]
-        ]),
-        overviewStatusCard("任务队列", taskStats.failed ? "error" : (taskStats.running ? "info" : (taskStats.queued ? "warn" : "")), taskStats.running ? (taskStats.running + " 运行中") : (taskStats.queued ? (taskStats.queued + " 排队") : "空闲"), [
-          ["排队", String(taskStats.queued), "等待 availability 和并发上限释放"],
-          ["失败", String(taskStats.failed), "失败任务需要查看详情和日志"]
-        ]),
-        overviewStatusCard("项目接入", projectReadiness.tone, projectReadiness.status, [
-          ["Plan", String(projectReadiness.planCount), "已识别计划或可生成计划"],
-          ["当前计划", projectReadiness.planFile ? compactPath(projectReadiness.planFile) : "未选择", projectReadiness.detail],
-          ["输出门禁", projectReadiness.outputReady ? "已通过" : "待处理", projectReadiness.outputReady ? "当前 Plan 已声明可解析输出" : projectReadiness.detail],
-          ["结果线索", String(projectStats.resultSignals), "CSV/JSON/summary/stdout 等结果线索"]
-        ]),
-        overviewStatusCard("操作进度", operationStats.failed ? "error" : operationStats.running ? "info" : "good", operationStats.failed ? (operationStats.failed + " 失败") : operationStats.running ? (operationStats.running + " 进行中") : "空闲", [
-          ["进行中", String(operationStats.running), "accepted、submitted、queued、running 等等待终态的操作"],
-          ["失败", String(operationStats.failed), "failed、stalled、unsupported、error 等失败终态"],
-          ["已完成", String(operationStats.completed), "已成功结束的操作"],
-          ["最近", operationStatusLabel(operationStats.latestStatus), operationTypeLabel(operationStats.latestType || "暂无操作")]
-        ]),
-        overviewStatusCard("调度策略", "", schedulerRange, [
-          ["TTL", String(configDefault(scheduler.workerStatusTtlSeconds, 180)) + "s", "Hub 本地 availability cache 过期阈值，不是轮询间隔"],
-          ["控制", String(configDefault(scheduler.workerActionMaxConcurrent, 1)) + " 并发", "停止、删除、归档、重试等手动控制动作并发上限"]
-        ])
-      ];
-      const risks = [];
-      if (paused) risks.push(overviewRiskItem("网络已暂停", "status-warning", "暂停全部网络活动后不会自动刷新远端状态，需要手动恢复。"));
-      if (!streamOk) risks.push(overviewRiskItem("实时流 " + labelStatus(streamStatus), "status-warning", "实时流未连接时，面板会依赖较慢的快照或缓存。"));
-      if (state.lastError) risks.push(overviewRiskItem("最近错误", "status-failed", state.lastError));
-      if (conflicts.length) risks.push(overviewRiskItem("端口冲突 " + conflicts.length, "status-failed", "先修复本机端口冲突，避免 Xshell 会话绑定失败。"));
-      if (!risks.length) risks.push(overviewRiskItem("未发现阻塞风险", "status-completed", "概览未发现端口冲突、暂停状态或最近错误。"));
+      const workflowSummary = { hubOk: false, conflicts: [], projectReadiness: overviewProjectReadiness(state), running: 0, queued: 0, failed: 0, failedOps: 0 };
+      try {
+        const health = state.health || {};
+        const setup = state.setup || {};
+        const conflicts = asArray(state.tunnelPortConflicts || []);
+        const hubOk = HUB_HEALTHY_STATUS_TOKENS?.has(String(health.state || "").toLowerCase());
+        const taskStats = overviewTaskStats(state);
+        const operationStats = overviewOperationStats(state);
+        workflowSummary.hubOk = hubOk;
+        workflowSummary.conflicts = conflicts;
+        workflowSummary.running = taskStats.running;
+        workflowSummary.queued = taskStats.queued;
+        workflowSummary.failed = taskStats.failed;
+        workflowSummary.failedOps = operationStats.failed;
+        workflowSummary.projectReadiness = overviewProjectReadiness(state);
+      } catch (_) {}
       return '<div class="overviewOpsWorkbench" title="运维总览">' +
         renderCommandCenter(state, workflowSummary) +
-        renderClusterRuntimeOverview(state, workflowSummary, cards, risks) +
-        renderCommunicationMatrix(state) +
         '<details class="advanced"><summary>基础摘要</summary><div class="overviewLegacyRows">' + legacyRows.join("") + '</div></details>' +
       '</div>';
     }
-
-    function renderClusterRuntimeOverview(state, summary, cards, risks) {
-      const realtime = state.realtime || {};
-      const streamOk = statusContainsAny(realtime.streamStatus, REALTIME_CONNECTED_STATUS_PARTS);
-      const sync = overviewSyncReadiness(state);
-      const chips = [
-        overviewRuntimeChip("隧道", summary.hubOk && !summary.conflicts.length ? "good" : "warn", summary.hubOk ? "Hub 可达" : "待检测"),
-        overviewRuntimeChip("实时", streamOk ? "good" : "warn", streamOk ? labelStatus(realtime.streamStatus) : "待连接"),
-        overviewRuntimeChip("同步", sync.failure ? "error" : sync.ready ? "good" : "info", sync.status),
-        overviewRuntimeChip("任务", summary.failed ? "error" : (summary.running ? "good" : summary.queued ? "warn" : ""), summary.running ? summary.running + " 运行" : summary.queued ? summary.queued + " 排队" : "空闲"),
-        overviewRuntimeChip("操作", "", "看进度区")
-      ];
-      return '<section class="clusterRuntimeOverview" data-anchor="overview-flow" title="集群运行态">' +
-        '<div class="runtimeOverviewHead"><div class="runtimeOverviewTitle"><b>集群运行态</b></div><div class="runtimeOverviewChips">' + chips.join("") + '</div></div>' +
-        '<div class="overviewStatusGrid">' + cards.join("") + '</div>' +
-        '<div class="overviewRiskBand compact" data-anchor="overview-blockers">' + risks.join("") + '</div>' +
-      '</section>';
-    }
-
     function statusContainsAny(value, parts) {
       const text = String(value || "").toLowerCase();
       return parts.some((part) => text.includes(part));
@@ -6215,37 +6500,6 @@ function renderPanelHtml() {
     function overviewRiskItem(label, klass, title) {
       return '<span class="pill ' + escAttr(klass || "") + '" title="' + escAttr(label) + '">' + esc(label) + '</span>';
     }
-
-    function renderCommunicationMatrix(state) {
-      const scheduler = state.schedulerConfig || {};
-      const poll = Number(configDefault(scheduler.pollSeconds, 60));
-      const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
-      const localPush = Number(configDefault(scheduler.localAvailabilityPushSeconds, 60));
-      const workerPush = Number(configDefault(scheduler.workerAvailabilityPushSeconds, 60));
-      const eventDelay = Number(configDefault(scheduler.operationEventMaxDelayMs, 1000));
-      const paths = [
-        communicationPath("本机 -> Hub", "", "127.0.0.1 本地隧道", ["手动触发", "Hub 权威"]),
-        communicationPath("本机 -> Worker", "", "127.0.0.1 本地隧道", ["用户点击", "Worker 本机权威"]),
-        communicationPath("Worker -> 本机", "", "WebSocket/SSE 推送", ["长连接", "事件实时"]),
-        communicationPath("Worker -> Hub", "", workerPush + "-" + (workerPush + Math.max(0, jitter)) + "s 可用性", ["低频抖动", "终态上报"]),
-        communicationPath("Hub 调度轮询", "warn", poll + "-" + (poll + Math.max(0, jitter)) + "s", ["cache 读取", "无短轮询"]),
-        communicationPath("实时事件合并", "", "最多 " + eventDelay + "ms", ["删除/停止/归档", "快速终态"])
-      ];
-      return '<div class="communicationMatrix" title="通信矩阵">' +
-        '<div class="communicationMatrixHead"><b>通信矩阵</b></div>' +
-        '<div class="communicationMatrixGrid">' + paths.join("") + '</div>' +
-      '</div>';
-    }
-
-    function communicationPath(title, tone, status, tags) {
-      const meta = (tags || []).map((tag) => '<span class="pill">' + esc(tag) + '</span>').join("");
-      return '<article class="communicationPathCard ' + escAttr(tone || "info") + '" title="' + escAttr(title + "：" + status) + '">' +
-        '<b>' + esc(title) + '</b>' +
-        '<span>' + esc(status) + '</span>' +
-        '<div class="communicationPathMeta">' + meta + '</div>' +
-      '</article>';
-    }
-
     function overviewSchedulerRange(scheduler) {
       const poll = Number(configDefault(scheduler.pollSeconds, 60));
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
@@ -6359,7 +6613,7 @@ function renderPanelHtml() {
     }
 
     function simpleSftpCommandDisableReason(state, command) {
-      if (!SIMPLE_SFTP_GATED_COMMANDS.has(String(command || ""))) return "";
+      if (!SIMPLE_SFTP_GATED_COMMANDS?.has(String(command || ""))) return "";
       const simpleSftp = simpleSftpReadinessForState(state);
       return simpleSftp.ready ? "" : simpleSftp.message;
     }
@@ -6402,7 +6656,7 @@ function renderPanelHtml() {
       }
       const terminalStage = selectedPlan ? planExecutionStage(state, planFile) : undefined;
       const terminalPhase = String((terminalStage || {}).phase || "");
-      if (PLAN_WORKFLOW_TERMINAL_PHASES.has(terminalPhase)) {
+      if (PLAN_WORKFLOW_TERMINAL_PHASES?.has(terminalPhase)) {
         const terminalTone = terminalPhase === "review" ? "error" : terminalPhase === "results" ? "good" : "info";
         const terminalStatus = terminalPhase === "results"
           ? "结果待处理"
@@ -6434,7 +6688,7 @@ function renderPanelHtml() {
       if (!endpointReadiness.ready) return result("Agent 待检测", endpointReadiness.summary || "检测 Hub 与全部启用 Worker 的当前项目状态。");
       const stage = terminalStage || planExecutionStage(state, planFile);
       const phase = String(stage.phase || "ready");
-      if (PLAN_WORKFLOW_RUNNING_PHASES.has(phase)) {
+      if (PLAN_WORKFLOW_RUNNING_PHASES?.has(phase)) {
         const status = phase === "validating" ? "校验中" : phase === "dry-running" ? "预演中" : phase === "submitting" ? "提交中" : "运行中";
         return result(status, stage.status, { ready: true, blocking: false, tone: "info" });
       }
@@ -6482,9 +6736,9 @@ function renderPanelHtml() {
       const assignmentById = indexes.assignmentById;
       const conflictById = indexes.conflictById;
       const hubName = setup.hubDisplayName || setup.sshConfigAlias || setup.hubHost || "Hub";
-      const hubAssignment = assignmentById.get("hub") || {};
+      const hubAssignment = assignmentById?.get("hub") || {};
       const hubStatus = (state.health || {}).state || "未检测";
-      const goodWorkers = enabledWorkers.filter((worker) => serverObjectStatusClass((workerStatus.get(String(worker.id)) || {}).status || "已配置", conflictById.get(String(worker.id)), worker.enabled !== false) === "ok").length;
+      const goodWorkers = enabledWorkers.filter((worker) => serverObjectStatusClass((workerStatus?.get(String(worker.id)) || {}).status || "已配置", conflictById?.get(String(worker.id)), worker.enabled !== false) === "ok").length;
       const summary = [
         serverObjectSummaryItem("模式", topology.modeLabel || topologyModeLabel(topology.mode), topology.schedulerOwner || "尚未确认"),
         serverObjectSummaryItem("端点", (hubParticipates ? 1 : 0) + workers.length, "当前模式参与的端点总数"),
@@ -6499,7 +6753,7 @@ function renderPanelHtml() {
           name: hubName,
           id: "hub",
           status: hubStatus,
-          statusClass: serverObjectStatusClass(hubStatus, conflictById.get("hub"), true),
+          statusClass: serverObjectStatusClass(hubStatus, conflictById?.get("hub"), true),
           detail: "Hub",
           meta: [
             "控制面",
@@ -6516,8 +6770,8 @@ function renderPanelHtml() {
           ]
         }));
       workers.forEach((worker) => {
-        const assignment = assignmentById.get(String(worker.id)) || {};
-        const probe = workerStatus.get(String(worker.id)) || {};
+        const assignment = assignmentById?.get(String(worker.id)) || {};
+        const probe = workerStatus?.get(String(worker.id)) || {};
         const status = worker.enabled === false ? "禁用" : (probe.status || "已配置");
         const localPort = worker.localForwardPort || assignment.localForwardPort || "-";
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
@@ -6528,7 +6782,7 @@ function renderPanelHtml() {
           name: worker.displayName || worker.id,
           id: worker.id,
           status,
-          statusClass: serverObjectStatusClass(status, conflictById.get(String(worker.id)), worker.enabled !== false),
+          statusClass: serverObjectStatusClass(status, conflictById?.get(String(worker.id)), worker.enabled !== false),
           detail: "Worker",
           meta: [
             worker.enabled === false ? "禁用" : "启用",
@@ -6750,7 +7004,7 @@ function renderPanelHtml() {
       const assignmentById = indexes.assignmentById;
       const conflictById = indexes.conflictById;
       const hubName = setup.hubDisplayName || setup.sshConfigAlias || setup.hubHost || "Hub";
-      const hubAssignment = assignmentById.get("hub") || {};
+      const hubAssignment = assignmentById?.get("hub") || {};
       const hubAgent = agent.hub || {};
       const hubSession = sessionForPath(setup.savedSessionPath);
       const cards = [];
@@ -6780,7 +7034,7 @@ function renderPanelHtml() {
           '<div class="serverBadges"><span class="pill">tmux ' + esc(setup.remoteTmuxSessionPrefix || "simple") + '</span></div></div>' +
           '<div class="configGrid">' +
             configInput("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀", setup.remoteTmuxSessionPrefix || "simple") +
-            configInput("hub", "condaEnv", "Conda 环境（可选）", setup.condaEnv || "") +
+            configInput("hub", "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", setup.condaEnv || "") +
           '</div>' +
           '<div class="toolbar"><button data-command="saveHubConfig" data-config-scope="hub">保存默认值</button></div>' +
           '<div class="muted">前缀应用于新生成的 Agent tmux 会话；已有会话需重新写入启动命令或重新准备 Agent。</div>' +
@@ -6818,7 +7072,7 @@ function renderPanelHtml() {
           '<div class="serverBadges">' +
             '<span class="pill">127.0.0.1:' + esc(setup.localForwardPort || hubAssignment.localForwardPort || "-") + '</span>' +
             '<span class="pill">Agent ' + esc(setup.remoteAgentPort || hubAssignment.remoteServicePort || "-") + '</span>' +
-            sessionStatusCell(conflictById.get("hub"), (state.health || {}).state || "未检测") +
+            sessionStatusCell(conflictById?.get("hub"), (state.health || {}).state || "未检测") +
           '</div></div>' +
           '<div class="configGrid">' +
             configInput("hub", "hubDisplayName", "显示名称", hubName) +
@@ -6826,7 +7080,7 @@ function renderPanelHtml() {
             configInput("hub", "transferHost", "SFTP 传输地址", setup.transferHost || "", "text", "wide") +
             configInput("hub", "hubUser", "登录用户", setup.hubUser || "") +
             configInput("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀", setup.remoteTmuxSessionPrefix || "simple") +
-            configInput("hub", "condaEnv", "Conda 环境（可选）", setup.condaEnv || "") +
+            configInput("hub", "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", setup.condaEnv || "") +
             configInput("hub", "sshConfigAlias", "登录别名", setup.sshConfigAlias || "") +
             configInput("hub", "agentProjectDir", "项目父目录", setup.agentProjectDir || "", "text", "wide") +
             configSessionSelect("hub", "savedSessionPath", "Xshell 隧道会话", setup.savedSessionPath || "") +
@@ -6861,9 +7115,9 @@ function renderPanelHtml() {
         '</div>'
       );
       (setup.workerTunnels || []).forEach((worker) => {
-        const assignment = assignmentById.get(String(worker.id)) || {};
-        const status = worker.enabled === false ? "禁用" : ((workerStatus.get(String(worker.id)) || {}).status || "已配置");
-        const workerAgent = indexes.agentWorkerById.get(String(worker.id)) || {};
+        const assignment = assignmentById?.get(String(worker.id)) || {};
+        const status = worker.enabled === false ? "禁用" : ((workerStatus?.get(String(worker.id)) || {}).status || "已配置");
+        const workerAgent = indexes.agentWorkerById?.get(String(worker.id)) || {};
         const scope = "worker:" + String(worker.id);
         const workerSession = sessionForPath(worker.savedSessionPath);
         cards.push(
@@ -6872,18 +7126,22 @@ function renderPanelHtml() {
             '<div class="serverBadges">' +
               '<span class="pill">127.0.0.1:' + esc(worker.localForwardPort || assignment.localForwardPort || "-") + '</span>' +
               '<span class="pill">Telemetry ' + esc(worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-") + '</span>' +
-              sessionStatusCell(conflictById.get(String(worker.id)), status) +
+              sessionStatusCell(conflictById?.get(String(worker.id)), status) +
             '</div></div>' +
             '<div class="configGrid">' +
               configInput(scope, "displayName", "显示名称", worker.displayName || worker.id) +
             configInput(scope, "workerHost", "服务器地址", worker.workerHost || worker.hubHost || "") +
             configInput(scope, "transferHost", "SFTP 传输地址", worker.transferHost || "", "text", "wide") +
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
-            configInput(scope, "condaEnv", "Conda 环境（可选）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
+            configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
             configInput(scope, "sshConfigAlias", "登录别名", worker.sshConfigAlias || "") +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
             configInput(scope, "maxConcurrentGpus", "并发占卡上限", worker.maxConcurrentGpus || 1, "number") +
             configInput(scope, "allowedGpuIds", "允许 GPU 列表", Array.isArray(worker.allowedGpuIds) ? worker.allowedGpuIds.join(", ") : "", "text", "wide") +
+            '<div class="muted" style="grid-column: 1 / -1; padding: 6px 0 2px; font-size: 11px;">空卡识别阈值：利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡（留空跟随全局 5% / 200MB）</div>' +
+            '<div class="thresholdRow"><div class="label">空卡利用率阈值 %（利用率 &lt; 阈值 视为空闲）</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleUtilThreshold') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleUtilThreshold ?? "") + '" placeholder="默认 5（&lt;5% 空闲）" type="number" min="0" max="100" style="width:100%; min-width:120px; box-sizing:border-box;" title="利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡" /></div></div>' +
+            '<div class="thresholdRow"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡" /></div></div>' +
+            '<div class="thresholdRow"><div class="label">会话检测最小间隔 秒</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="完成检测最小间隔，1–60 秒" /></div></div>' +
             configSessionSelect(scope, "savedSessionPath", "Xshell 隧道会话", worker.savedSessionPath || "") +
             configPortPair(scope, "隧道端口对", "localForwardPort", "remoteTelemetryPort", worker.localForwardPort || assignment.localForwardPort || "", worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "", workerSession, "savedSessionForwardIndex", worker.savedSessionForwardIndex) +
             configSelect(scope, "enabled", "启用状态", worker.enabled === false ? "false" : "true", [["true", "启用"], ["false", "禁用"]]) +
@@ -7235,7 +7493,7 @@ function renderPanelHtml() {
     }
 
     function clearStatusInfoPopoverClose(details) {
-      const timer = statusInfoPopoverTimers.get(details);
+      const timer = statusInfoPopoverTimers?.get(details);
       if (timer) clearTimeout(timer);
       statusInfoPopoverTimers.delete(details);
     }
@@ -7256,10 +7514,29 @@ function renderPanelHtml() {
       // min/max attributes alone are advisory: the save path reads input.value directly, so an
       // out-of-range value saves silently and the allowed range is never stated anywhere.
       const hint = configBoundsHint(bounds);
-      const violation = configBoundsViolation(bounds, value);
+      const boundsViolation = configBoundsViolation(bounds, value);
+      const condaViolation = configCondaEnvViolation(key, value);
+      const violation = condaViolation || boundsViolation;
       const hintHtml = hint ? '<span class="configBoundsHint" title="' + escAttr(hint) + '">' + esc(hint) + '</span>' : "";
       const violationHtml = violation ? '<span class="configBoundsError" title="' + escAttr(label + "：" + violation) + '">' + esc(violation) + '</span>' : "";
-      return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
+      const placeholder = key === "condaEnv" ? ' placeholder="/path/to/conda_envs/<env_name>"' : "";
+      return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + placeholder + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
+    }
+
+    function isCondaEnvAbsolutePathValid(value) {
+      const text = String(value === undefined || value === null ? "" : value).trim();
+      if (!text) return true;
+      if (text === "-" || text === "--") return true;
+      return text.charAt(0) === "/";
+    }
+
+    function configCondaEnvViolation(key, value) {
+      if (String(key || "") !== "condaEnv") return "";
+      const text = String(value === undefined || value === null ? "" : value).trim();
+      if (!text) return "";
+      if (text === "-" || text === "--") return "";
+      if (text.charAt(0) !== "/") return "请填写完整环境路径，以 / 开头，如 /path/to/conda_envs/<env_name>";
+      return "";
     }
 
     function configBoundsHint(bounds) {
@@ -7346,7 +7623,7 @@ function renderPanelHtml() {
     }
 
     function configInputBounds(scope, key) {
-      if (CONFIG_PORT_KEYS.has(key)) return CONFIG_PORT_BOUNDS;
+      if (CONFIG_PORT_KEYS?.has(key)) return CONFIG_PORT_BOUNDS;
       if (key === "maxConcurrentGpus") return CONFIG_GPU_CONCURRENCY_BOUNDS;
       if (scope === "scheduler") return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;
       return EMPTY_CONFIG_INPUT_BOUNDS;
@@ -7371,7 +7648,7 @@ function renderPanelHtml() {
       const index = new Map();
       source.forEach((session) => {
         const key = sessionPathKey(session && session.filePath);
-        if (key && !index.has(key)) index.set(key, session);
+        if (key && !index?.has(key)) index.set(key, session);
       });
       xshellSessionIndexCacheSource = source;
       xshellSessionIndexCacheValue = index;
@@ -7379,7 +7656,7 @@ function renderPanelHtml() {
     }
     function sessionForPath(value) {
       const key = sessionPathKey(value);
-      return key ? xshellSessionPathIndex().get(key) : undefined;
+      return key ? xshellSessionPathIndex()?.get(key) : undefined;
     }
     function samePath(a, b) {
       if (!a || !b) return false;
@@ -7427,14 +7704,17 @@ function renderPanelHtml() {
         workerAvailabilityPushSeconds: "Worker 上报(秒)",
         operationEventMaxDelayMs: "事件合并(ms)",
         workerActionMinIntervalMs: "Worker 操作间隔(ms)",
-        workerActionMaxConcurrent: "Worker 操作并发"
+        workerActionMaxConcurrent: "Worker 操作并发",
+        gpuIdleUtilThreshold: "全局空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存且关系，默认 5%）",
+        gpuIdleMemThresholdMb: "全局空卡显存阈值：显存 < 阈值 才视为空闲（与利用率且关系，默认 200MB）",
+        sessionCheckMinSeconds: "全局会话检测最小间隔（秒，默认 5）"
       };
       const workerHelp = {
         displayName: "显示名",
         workerHost: "Worker 地址",
         transferHost: "SFTP 地址",
         workerUser: "Worker 用户",
-        condaEnv: "留空使用系统 Python，不执行 Conda 激活",
+        condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
         sshConfigAlias: "登录别名",
         agentProjectDir: "服务器上存放项目的父目录；插件自动追加当前项目名",
         savedSessionPath: "负责保持 127.0.0.1 本地端口转发的 Xshell 隧道会话文件",
@@ -7443,7 +7723,10 @@ function renderPanelHtml() {
         remoteTelemetryPort: "Worker 上由 Agent 监听的远端端口",
         enabled: "启用",
         maxConcurrentGpus: "GPU 并发上限",
-        allowedGpuIds: "允许 GPU ID"
+        allowedGpuIds: "允许 GPU ID",
+        gpuIdleUtilThreshold: "空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存双条件且关系）",
+        gpuIdleMemThresholdMb: "空卡显存阈值：显存占用 < 阈值 才视为空闲（与利用率双条件且关系）",
+        sessionCheckMinSeconds: "会话检测最小间隔（秒），越小越灵敏"
       };
       const hubHelp = {
         hubDisplayName: "面板中显示的 Hub 名称；为空时使用 Xshell 会话名、SSH 别名或主机名",
@@ -7451,7 +7734,7 @@ function renderPanelHtml() {
         transferHost: "SFTP 地址",
         hubUser: "Hub 用户",
         remoteTmuxSessionPrefix: "远端 tmux 会话名前缀；多用户共用服务器时建议用稳定用户名，旧 zlk 会话可填 zlk",
-        condaEnv: "留空使用系统 Python，不执行 Conda 激活",
+        condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
         sshConfigAlias: "登录别名",
         agentProjectDir: "服务器上存放项目的父目录；插件自动追加当前项目名",
         savedSessionPath: "负责保持 127.0.0.1 本地端口转发的 Xshell 隧道会话文件",
@@ -7765,7 +8048,7 @@ function renderPanelHtml() {
         const payload = contextRefreshPayloadFromButton(button, command, options);
         const reason = actionButtonDisableReason(command, payload, options);
         const pendingKey = pendingKeyForButton(button, command, payload);
-        const pending = pendingButtonKeys.has(pendingKey);
+        const pending = pendingButtonKeys?.has(pendingKey);
         button.disabled = Boolean(reason || pending);
         button.dataset.pendingKey = pendingKey;
         const title = reason || (pending ? "执行中" : commandHelp(command));
@@ -7865,9 +8148,9 @@ function renderPanelHtml() {
     function contextRefreshPayloadFromButton(button, command, options) {
       const payload = buttonDatasetActionPayload(button);
       if (button.dataset.configScope) payload.configScope = button.dataset.configScope;
-      const planCommand = PLAN_FILE_PAYLOAD_COMMANDS.has(command);
+      const planCommand = PLAN_FILE_PAYLOAD_COMMANDS?.has(command);
       const storedAction = Boolean((options || {}).actionId || (options || {}).actionSection || (options || {}).savedAction);
-      const requiresExplicitSavedPlanPayload = storedAction && (explicitPlanFileCommands.has(command) || explicitSavePlanCommands.has(command));
+      const requiresExplicitSavedPlanPayload = storedAction && (explicitPlanFileCommands?.has(command) || explicitSavePlanCommands?.has(command));
       if (!payload.planFile && planCommand && !requiresExplicitSavedPlanPayload && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
       if (button.dataset.planRevision) payload.planRevision = button.dataset.planRevision;
@@ -7876,7 +8159,7 @@ function renderPanelHtml() {
         payload.planFile = payload.planFile || button.dataset.file;
       }
       if (button.dataset.batchSelected === "true") Object.assign(payload, selectedTaskPayload());
-      if (ARTIFACT_SCOPE_COMMANDS.has(command) && button.dataset.batchSelected === "true") {
+      if (ARTIFACT_SCOPE_COMMANDS?.has(command) && button.dataset.batchSelected === "true") {
         payload.selectedRunKeys = [];
         payload.selectedExperimentIds = [];
       }
@@ -7943,7 +8226,7 @@ function renderPanelHtml() {
         planRunRow("当前计划", selectedPlan ? "good" : "warn", selectedPlan ? compactPath(selectedPlan) : "未选择", "计划 " + planCount + " / " + taskScale + (selectedPlan ? " / " + modeLabel : "")),
         planRunRow("运行前同步", syncReady ? "good" : "warn", "Hub " + labelStatus(sync.hub || "待同步") + " / Worker " + labelStatus(sync.workers || "待同步"), "代码指纹 " + compactIdentifier(sync.fingerprint || "-"), "原始 fingerprint：" + compactIdentifier(sync.fingerprint || "-")),
         planRunRow("校验与预演", preflight.tone, preflight.message, preflight.badge),
-        planRunRow("执行阶段", executionStage.phase === "monitor" ? "info" : executionStage.phase === "results" ? "good" : executionStage.phase === "review" ? "warn" : PLAN_WORKFLOW_READY_PHASES.has(executionStage.phase) ? "good" : "", executionStage.status, planExecutionPhaseLabel(executionStage.phase), "原始阶段：" + String(executionStage.phase || "未知")),
+        planRunRow("执行阶段", executionStage.phase === "monitor" ? "info" : executionStage.phase === "results" ? "good" : executionStage.phase === "review" ? "warn" : PLAN_WORKFLOW_READY_PHASES?.has(executionStage.phase) ? "good" : "", executionStage.status, planExecutionPhaseLabel(executionStage.phase), "原始阶段：" + String(executionStage.phase || "未知")),
         planRunRow("调度队列", failed ? "error" : (running ? "info" : (queued ? "warn" : "")), "运行 " + running + " / 排队 " + queued + " / 失败 " + failed, running ? (running + " 运行中") : queued ? (queued + " 排队") : failed ? (failed + " 需处理") : staticCapacity),
         planRunRow("输出闭环", outputTone, outputStatus, outputBadge)
       ].join("");
@@ -7956,7 +8239,7 @@ function renderPanelHtml() {
 
     function planTaskScaleSummary(plan) {
       const source = plan && typeof plan === "object" ? plan : null;
-      if (source && planTaskScaleSummaryCache.has(source)) return planTaskScaleSummaryCache.get(source);
+      if (source && planTaskScaleSummaryCache?.has(source)) return planTaskScaleSummaryCache?.get(source);
       const item = source || {};
       const caseSource = item.cases;
       const seedSource = item.seeds;
@@ -7998,8 +8281,8 @@ function renderPanelHtml() {
 
     function planModeLabel(mode) {
       const value = String(mode || "train_test").trim().toLowerCase().replace(/[\s-]+/g, "_");
-      if (PLAN_TRAIN_MODE_TOKENS.has(value)) return "仅训练";
-      if (PLAN_TEST_MODE_TOKENS.has(value)) return "仅评估";
+      if (PLAN_TRAIN_MODE_TOKENS?.has(value)) return "仅训练";
+      if (PLAN_TEST_MODE_TOKENS?.has(value)) return "仅评估";
       return "训练并评估";
     }
 
@@ -8041,7 +8324,7 @@ function renderPanelHtml() {
       if (planFirstRunRecommended(state || {}, selectedPlan, plan, executionStage, true)) {
         return '<div class="planRunActions">' + renderProjectFirstRunActions(true, selectedPlan) + '</div>';
       }
-      return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '">单独预演</button></div>';
+      return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '">单独预演</button><label class="muted" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;" title="勾选后提交时带 --overwrite 覆盖已有产物（metrics_summary.csv / checkpoint / train.log 等），不勾选则自动跳过已完成任务；GPU 调度不受历史产物影响"><input type="checkbox" id="overwriteExistingToggle" data-overwrite-toggle="true" /> 覆盖已有产物</label><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并弹窗确认覆盖/跳过">调度前检测已有产物时弹窗确认</span></div>';
     }
 
     function planRunRow(label, tone, value, badge, badgeTitle) {
@@ -8150,7 +8433,7 @@ function renderPanelHtml() {
 
     function syncStatusOk(value) {
       const text = String(value || "").toLowerCase();
-      return Boolean(text && !SYNC_NOT_READY_STATUS_TOKENS.has(text) && !text.includes("fail") && !text.includes("error") && !text.includes("失败") && !text.includes("错误") && !text.includes("未参与") && !text.includes("skip"));
+      return Boolean(text && !SYNC_NOT_READY_STATUS_TOKENS?.has(text) && !text.includes("fail") && !text.includes("error") && !text.includes("失败") && !text.includes("错误") && !text.includes("未参与") && !text.includes("skip"));
     }
 
     function syncStatusFailure(value) {
@@ -8263,7 +8546,7 @@ function renderPanelHtml() {
       const payload = query && typeof query === "object" ? query : {};
       const key = gpuHistorySeriesKey(payload.serverId || "overview", payload.gpuId || "overview");
       const now = Date.now();
-      const lastAt = Number(gpuHistoryRequestLastAt.get(key) || 0);
+      const lastAt = Number(gpuHistoryRequestLastAt?.get(key) || 0);
       if (now - lastAt < GPU_HISTORY_REQUEST_COOLDOWN_MS) return false;
       gpuHistoryRequestLastAt.set(key, now);
       while (gpuHistoryRequestLastAt.size > GPU_HISTORY_SERIES_CACHE_LIMIT) gpuHistoryRequestLastAt.delete(gpuHistoryRequestLastAt.keys().next().value);
@@ -8289,7 +8572,7 @@ function renderPanelHtml() {
         fetchedAt: item.fetchedAt || "",
         updatedAt: item.data && item.data.updatedAt || gpuHistoryMeta.updatedAt || "",
         bucketSeconds: item.data && item.data.bucketSeconds || gpuHistoryMeta.bucketSeconds || 300,
-        retentionHours: item.data && item.data.retentionHours || gpuHistoryMeta.retentionHours || 72
+        retentionHours: item.data && item.data.retentionHours || gpuHistoryMeta.retentionHours || 24
       });
       if (!["ready", "stale"].includes(status) || !item.data || !Array.isArray(item.data.series)) return;
       const query = item.query || {};
@@ -8312,17 +8595,17 @@ function renderPanelHtml() {
     }
 
     function gpuHistorySeriesFor(serverId, gpuId) {
-      return gpuHistorySeriesCache.get(gpuHistorySeriesKey(serverId, gpuId));
+      return gpuHistorySeriesCache?.get(gpuHistorySeriesKey(serverId, gpuId));
     }
 
     function renderGpuHistoryOverview(state, servers) {
       const series = gpuHistoryOverviewSeries(state, servers);
       const status = gpuHistoryStatusText("overview");
       const body = series.length
-        ? renderGpuHistoryChart("服务器 GPU 峰值", "overview", series, "每个时间桶显示服务器全部 GPU 的最高利用率")
-        : '<div class="gpuHistoryStatus">展开后加载最近三天历史。当前实时状态不会自动携带三天原始数据。</div>';
+        ? renderGpuHistoryChart("服务器 GPU 峰值", "overview", series, "最近 1 天 · 近 3 小时占 52% 宽度放大，单桶峰值")
+        : '<div class="gpuHistoryStatus">展开后加载最近 1 天历史。当前实时状态不会自动携带三天原始数据。</div>';
       return '<details class="gpuHistoryPanel" data-gpu-history-scope="overview"' + (gpuHistoryOverviewOpen ? ' open' : '') + '>' +
-        '<summary>历史状态曲线（最近三天）</summary>' +
+        '<summary>历史状态曲线（最近 1 天）</summary>' +
         '<div class="gpuHistoryPanelBody">' +
           '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>' +
           body +
@@ -8334,7 +8617,7 @@ function renderPanelHtml() {
       const series = gpuHistorySeriesFor(serverId, gpuId);
       const status = gpuHistoryStatusText("gpu");
       if (!series) return '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>';
-      return renderGpuHistoryChart("GPU " + gpuId + (gpuName && gpuName !== "-" ? " · " + gpuName : ""), "gpu", [series], "利用率与显存利用率，百分比坐标") +
+      return renderGpuHistoryChart("GPU " + gpuId + (gpuName && gpuName !== "-" ? " · " + gpuName : ""), "gpu", [series], "最近 1 天 · 近 3 小时占 52% 宽度放大，百分比坐标") +
         '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>';
     }
 
@@ -8364,7 +8647,7 @@ function renderPanelHtml() {
       gpuHistorySeriesCache.forEach((series) => {
         const serverId = String(series.serverId || "");
         if (!serverId) return;
-        let server = byServer.get(serverId);
+        let server = byServer?.get(serverId);
         if (!server) {
           server = { serverId, gpuCount: 0, points: new Map() };
           byServer.set(serverId, server);
@@ -8375,7 +8658,7 @@ function renderPanelHtml() {
           if (util === null) return;
           const bucket = Number(point.bucketEpoch);
           if (!Number.isFinite(bucket)) return;
-          const current = server.points.get(bucket);
+          const current = server.points?.get(bucket);
           if (!current || util > current.gpuUtilPercent || (util === current.gpuUtilPercent && current.imputed && point.imputed !== true)) {
             server.points.set(bucket, { timestamp: point.timestamp, bucketEpoch: bucket, gpuUtilPercent: util, gpuId: series.gpuId, gapBefore: point.gapBefore === true, imputed: point.imputed === true, gpuCount: 0 });
           }
@@ -8384,7 +8667,7 @@ function renderPanelHtml() {
       const names = new Map(asArray(servers).map((server) => [String(server.serverId || server.workerId || ""), gpuServerDisplayName(state || {}, server)]));
       const value = Array.from(byServer.values()).map((server) => ({
         serverId: server.serverId,
-        label: names.get(server.serverId) || server.serverId,
+        label: names?.get(server.serverId) || server.serverId,
         gpuCount: server.gpuCount,
         points: Array.from(server.points.values()).sort((a, b) => a.bucketEpoch - b.bucketEpoch)
       })).filter((series) => series.points.length).sort((a, b) => String(a.serverId).localeCompare(String(b.serverId)));
@@ -8418,7 +8701,7 @@ function renderPanelHtml() {
       const stats = gpuHistorySeriesStats(series);
       if (!stats.pointCount) return "暂无历史点。";
       const prefix = kind === "overview" ? "服务器峰值" : "GPU 利用率 / 显存利用率";
-      return prefix + "：" + stats.pointCount + " 个点，范围 " + new Date(stats.min * 1000).toLocaleString() + " 至 " + new Date(stats.max * 1000).toLocaleString() + "；" + stats.imputedCount + " 个缺失点按 0 补齐" + (stats.gapCount ? "，仍有 " + stats.gapCount + " 个异常缺口。" : "。 缺失补零仅用于连接曲线，不代表真实负载。");
+      return prefix + "（最近 1 天，近 3 小时放大）：" + stats.pointCount + " 个点，范围 " + new Date(stats.min * 1000).toLocaleString() + " 至 " + new Date(stats.max * 1000).toLocaleString() + "；" + stats.imputedCount + " 个缺失点按 0 补齐" + (stats.gapCount ? "，仍有 " + stats.gapCount + " 个异常缺口。" : "。 缺失补零仅用于连接曲线，不代表真实负载。");
     }
 
     function gpuHistorySeriesStats(series) {
@@ -8498,8 +8781,14 @@ function renderPanelHtml() {
       if (!timeRange) return;
       const rect = canvas.getBoundingClientRect();
       const x = Math.max(0, Math.min(rect.width, Number(event.clientX || 0) - rect.left));
-      const ratio = rect.width > 0 ? x / rect.width : 0;
-      const target = timeRange.min + (timeRange.max - timeRange.min) * ratio;
+      const padding = { left: 36, right: 12 };
+      const plotWidth = Math.max(1, rect.width - padding.left - padding.right);
+      const plotX = x - padding.left;
+      const ratioWidth = Math.max(1, plotWidth);
+      let target;
+      if (plotX < 0) target = timeRange.min;
+      else if (plotX > plotWidth) target = timeRange.max;
+      else target = gpuHistoryTimeInverseTransform(plotX, timeRange.min, timeRange.max, plotWidth);
       const nearestTime = gpuHistoryNearestTimestamp(series, target);
       if (!Number.isFinite(nearestTime)) return;
       const kind = canvas.dataset.chartKind || "overview";
@@ -8530,7 +8819,7 @@ function renderPanelHtml() {
 
     function gpuHistoryPointIndex(points) {
       const source = asArray(points);
-      const cached = gpuHistoryPointIndexCache.get(source);
+      const cached = gpuHistoryPointIndexCache?.get(source);
       if (cached) return cached;
       const rows = source.filter((point) => Number.isFinite(Number(point.bucketEpoch))).slice().sort((a, b) => Number(a.bucketEpoch) - Number(b.bucketEpoch));
       const times = rows.map((point) => Number(point.bucketEpoch));
@@ -8605,13 +8894,45 @@ function renderPanelHtml() {
       return Number.isFinite(used) && Number.isFinite(total) ? Math.round(used) + " / " + Math.round(total) + " MB" : "-";
     }
 
+    function gpuHistoryTimeTransform(time, minTime, maxTime, plotWidth) {
+      const RECENT_WINDOW = 3 * 3600;
+      const RECENT_RATIO = 0.52;
+      const totalSpan = Math.max(1, maxTime - minTime);
+      if (totalSpan <= RECENT_WINDOW) return (time - minTime) / totalSpan * plotWidth;
+      const split = maxTime - RECENT_WINDOW;
+      const earlySpan = Math.max(1, split - minTime);
+      const recentSpan = RECENT_WINDOW;
+      if (time < split) {
+        const earlyRatio = (1 - RECENT_RATIO);
+        return (time - minTime) / earlySpan * plotWidth * earlyRatio;
+      }
+      const earlyWidth = plotWidth * (1 - RECENT_RATIO);
+      return earlyWidth + (time - split) / recentSpan * plotWidth * RECENT_RATIO;
+    }
+    function gpuHistoryTimeInverseTransform(x, minTime, maxTime, plotWidth) {
+      const RECENT_WINDOW = 3 * 3600;
+      const RECENT_RATIO = 0.52;
+      const totalSpan = Math.max(1, maxTime - minTime);
+      if (totalSpan <= RECENT_WINDOW) return minTime + x / Math.max(1, plotWidth) * totalSpan;
+      const split = maxTime - RECENT_WINDOW;
+      const earlyWidth = plotWidth * (1 - RECENT_RATIO);
+      if (x < earlyWidth) {
+        const earlySpan = Math.max(1, split - minTime);
+        return minTime + x / Math.max(1, earlyWidth) * earlySpan;
+      }
+      return split + (x - earlyWidth) / Math.max(1, plotWidth - earlyWidth) * RECENT_WINDOW;
+    }
     function drawGpuHistoryCanvas(canvas) {
       if (!canvas) return;
       const kind = canvas.dataset.chartKind || "overview";
       const chart = canvas.closest(".gpuHistoryChart");
       const series = gpuHistoryCanvasSeries(canvas);
       const rect = canvas.getBoundingClientRect();
-      const width = Math.max(320, Math.round(rect.width || (chart && chart.clientWidth) || 640));
+      const wrap = canvas.closest(".gpuHistoryCanvasWrap");
+      const chartWidth = chart ? chart.clientWidth : 0;
+      const wrapWidth = wrap ? wrap.clientWidth : 0;
+      const measured = Math.max(Number(rect.width) || 0, Number(chartWidth) || 0, Number(wrapWidth) || 0);
+      const width = Math.max(320, Math.round(measured || 640));
       const height = Math.max(150, Math.round(rect.height || 190));
       const dpr = Math.max(1, Math.min(2, Number(window.devicePixelRatio || 1)));
       if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
@@ -8643,56 +8964,103 @@ function renderPanelHtml() {
       }
       const minTime = timeRange.min;
       const maxTime = timeRange.max;
-      const timeSpan = Math.max(1, maxTime - minTime);
+      const RECENT_WINDOW = 3 * 3600;
+      const RECENT_RATIO = 0.52;
+      const needsFisheye = (maxTime - minTime) > RECENT_WINDOW;
       const focused = canvas.dataset.focusSeries || "";
-      asArray(series).forEach((item) => {
+      // 1天窗口过滤：仅绘制最近 24h
+      const windowStart = maxTime - 24 * 3600;
+      const filteredSeries = series.map((item) => {
+        const filteredPoints = (item.points || []).filter((p) => Number(p.bucketEpoch) >= windowStart);
+        return Object.assign({}, item, { points: filteredPoints.length ? filteredPoints : item.points });
+      });
+      asArray(filteredSeries).forEach((item) => {
         const serverStyle = gpuHistoryServerStyle(item.serverId);
         const pointIndex = gpuHistoryPointIndex(item.points || []);
+        const rows = pointIndex.rows.filter((p) => Number(p.bucketEpoch) >= windowStart);
         const lines = kind === "gpu"
-          ? [{ field: "gpuUtilPercent", color: "#2563EB", dash: [], marker: "circle", focus: "util" }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], marker: "square", focus: "memory" }]
-          : [{ field: "gpuUtilPercent", color: serverStyle.color, dash: serverStyle.dash, marker: serverStyle.marker, focus: item.serverId }];
-        lines.forEach((line) => drawHistoryLine(context, pointIndex.rows, line, minTime, timeSpan, padding, plotWidth, plotHeight, focused, pointIndex.expectedStep));
+          ? [{ field: "gpuUtilPercent", color: "#2563EB", dash: [], focus: "util" }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], focus: "memory" }]
+          : [{ field: "gpuUtilPercent", color: serverStyle.color, dash: serverStyle.dash, focus: item.serverId }];
+        lines.forEach((line) => drawHistoryLine(context, rows, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, pointIndex.expectedStep));
       });
+      if (needsFisheye) {
+        const splitX = padding.left + plotWidth * (1 - RECENT_RATIO);
+        context.save();
+        context.strokeStyle = "rgba(37, 99, 235, 0.35)";
+        context.setLineDash([4, 4]);
+        context.beginPath(); context.moveTo(splitX, padding.top); context.lineTo(splitX, padding.top + plotHeight); context.stroke();
+        context.setLineDash([]);
+        context.fillStyle = "rgba(37, 99, 235, 0.10)";
+        context.fillRect(splitX, padding.top, plotWidth * RECENT_RATIO, plotHeight);
+        context.fillStyle = "#2563EB";
+        context.font = "10px sans-serif";
+        context.fillText("近 3 小时放大", splitX + 4, padding.top + 10);
+        context.restore();
+      }
       context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
-      context.fillText(new Date(minTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), padding.left, height - 7);
+      const startLabel = new Date((needsFisheye ? windowStart : minTime) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      context.fillText(startLabel, padding.left, height - 7);
+      const midLabel = needsFisheye ? new Date((maxTime - RECENT_WINDOW) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+      if (midLabel) {
+        const midX = padding.left + plotWidth * (1 - RECENT_RATIO);
+        const w = context.measureText(midLabel).width;
+        context.fillText(midLabel, midX - w / 2, height - 7);
+      }
       const endLabel = new Date(maxTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const endWidth = context.measureText(endLabel).width;
       context.fillText(endLabel, width - padding.right - endWidth, height - 7);
     }
 
-    function drawHistoryLine(context, points, line, minTime, timeSpan, padding, plotWidth, plotHeight, focused, expectedStep) {
+    function drawHistoryLine(context, points, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, expectedStep) {
       const dimmed = focused && focused !== line.focus;
       context.save();
       context.globalAlpha = dimmed ? 0.2 : 1;
       context.strokeStyle = line.color;
       context.fillStyle = line.color;
-      context.lineWidth = dimmed ? 1 : 1.8;
+      context.lineWidth = dimmed ? 1 : 1.3;
+      context.lineJoin = "round";
+      context.lineCap = "round";
       context.setLineDash(line.dash || []);
-      let previousTime = null;
-      let previousX = null;
-      let previousY = null;
-      let hasSegment = false;
-      const markers = [];
-      const markerStep = Math.max(1, Math.floor(points.length / 24));
-      context.beginPath();
-      points.forEach((point, index) => {
+      let segment = [];
+      const flushSegment = () => {
+        if (!segment.length) return;
+        if (segment.length === 1) {
+          context.beginPath();
+          context.moveTo(segment[0].x, segment[0].y);
+          context.lineTo(segment[0].x, segment[0].y);
+          context.stroke();
+        } else if (segment.length === 2) {
+          context.beginPath();
+          context.moveTo(segment[0].x, segment[0].y);
+          context.lineTo(segment[1].x, segment[1].y);
+          context.stroke();
+        } else {
+          context.beginPath();
+          context.moveTo(segment[0].x, segment[0].y);
+          for (let i = 0; i < segment.length - 1; i++) {
+            const p0 = i > 0 ? segment[i - 1] : segment[0];
+            const p1 = segment[i];
+            const p2 = segment[i + 1];
+            const p3 = i + 2 < segment.length ? segment[i + 2] : p2;
+            const cp1x = p1.x + (p2.x - p0.x) / 6;
+            const cp1y = p1.y + (p2.y - p0.y) / 6;
+            const cp2x = p2.x - (p3.x - p1.x) / 6;
+            const cp2y = p2.y - (p3.y - p1.y) / 6;
+            context.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+          }
+          context.stroke();
+        }
+        segment = [];
+      };
+      points.forEach((point) => {
         const value = finiteHistoryPercent(point[line.field]);
         const time = Number(point.bucketEpoch);
-        if (value === null || !Number.isFinite(time)) { previousTime = null; previousX = null; previousY = null; return; }
-        const gap = previousTime !== null && historyPointStartsGap(point, { bucketEpoch: previousTime }, expectedStep);
-        const x = padding.left + (time - minTime) / timeSpan * plotWidth;
+        if (value === null || !Number.isFinite(time)) { flushSegment(); return; }
+        const x = padding.left + gpuHistoryTimeTransform(time, minTime, maxTime, plotWidth);
         const y = padding.top + plotHeight - value / 100 * plotHeight;
-        if (!gap && previousX !== null && previousY !== null) {
-          context.lineTo(x, y);
-          hasSegment = true;
-        } else context.moveTo(x, y);
-        if (index === points.length - 1 || gap || index % markerStep === 0) markers.push([x, y]);
-        previousTime = time;
-        previousX = x;
-        previousY = y;
+        segment.push({ x, y });
       });
-      if (hasSegment) context.stroke();
-      markers.forEach((point) => drawHistoryMarker(context, line.marker, point[0], point[1]));
+      flushSegment();
       context.restore();
     }
 
@@ -8729,7 +9097,7 @@ function renderPanelHtml() {
       const usage = new Map();
       Object.values(gpuHistoryServerStyles).forEach((item) => {
         const color = String(item && item.color || "").trim();
-        if (color) usage.set(color, (usage.get(color) || 0) + 1);
+        if (color) usage.set(color, (usage?.get(color) || 0) + 1);
       });
       gpuHistoryServerStyleColorUsageCache = usage;
       return usage;
@@ -8739,7 +9107,7 @@ function renderPanelHtml() {
       const key = String(color || "").trim();
       if (!key || !delta) return;
       const usage = gpuHistoryServerStyleColorUsage();
-      const next = (usage.get(key) || 0) + delta;
+      const next = (usage?.get(key) || 0) + delta;
       if (next > 0) usage.set(key, next);
       else usage.delete(key);
     }
@@ -8756,13 +9124,13 @@ function renderPanelHtml() {
         adjustGpuHistoryServerStyleColorUsage(removed && removed.color, -1);
       }
       const usedColors = Array.from(colorUsage.keys());
-      const available = GPU_HISTORY_COLORS.filter((candidate) => !colorUsage.has(candidate));
+      const available = GPU_HISTORY_COLORS.filter((candidate) => !colorUsage?.has(candidate));
       let color = chooseGpuHistoryColor(available, usedColors);
       if (!color) {
         const reusable = usedColors.slice().sort();
         color = reusable[gpuStableIndex(key) % reusable.length] || GPU_HISTORY_COLORS[gpuStableIndex(key) % GPU_HISTORY_COLORS.length];
       }
-      const variant = colorUsage.get(color) || 0;
+      const variant = colorUsage?.get(color) || 0;
       const style = { color, dash: lineDashForStyle(GPU_HISTORY_LINE_STYLES[variant % GPU_HISTORY_LINE_STYLES.length]), marker: GPU_HISTORY_MARKERS[Math.floor(variant / GPU_HISTORY_LINE_STYLES.length) % GPU_HISTORY_MARKERS.length] };
       gpuHistoryServerStyles[key] = style;
       adjustGpuHistoryServerStyleColorUsage(color, 1);
@@ -8791,7 +9159,7 @@ function renderPanelHtml() {
     // OKLab/OKLCH conversion keeps color choice perceptual and deterministic across themes.
     function gpuHistoryOklab(value) {
       const hex = String(value || "").replace("#", "");
-      const cached = gpuHistoryOklabCache.get(hex);
+      const cached = gpuHistoryOklabCache?.get(hex);
       if (cached) {
         gpuHistoryOklabCache.delete(hex);
         gpuHistoryOklabCache.set(hex, cached);
@@ -8874,16 +9242,12 @@ function renderPanelHtml() {
       ].filter(Boolean).join(" · ");
       const serverId = String((server && (server.serverId || server.workerId)) || "");
       const historyKey = gpuHistorySeriesKey(serverId, String(gpu.index));
-      const historyOpen = expandedGpuHistoryKeys.has(historyKey);
+      const historyOpen = expandedGpuHistoryKeys?.has(historyKey);
       return '<div class="' + klass.join(" ") + '" data-anchor="' + escAttr(anchor) + '" title="' + escAttr(gpuTitleBits) + '">' +
         '<div class="gpu-main">' +
           '<div class="gpu-title"><b>GPU ' + esc(gpu.index) + '</b><span class="gpu-model">' + esc(gpu.name) + '</span><span class="gpu-id">' + esc(gpu.id) + '</span>' + mineBadge + cached + '</div>' +
           '<div class="progress-line"><div class="progress-bar"><div class="progress-fill ' + fillClass + '" style="width:' + progressWidth(gpu.memoryPercent) + '%"></div></div><span class="progressPercent' + percentClass + '">' + valuePercent(gpu.memoryPercent) + '</span></div>' +
           '<div class="line">显存 ' + esc(memoryText(gpu)) + experiment + '</div>' +
-          '<details class="gpuHistoryDetails" data-gpu-history-scope="gpu" data-server-id="' + escAttr(serverId) + '" data-gpu-id="' + escAttr(String(gpu.index)) + '"' + (historyOpen ? ' open' : '') + '>' +
-            '<summary>历史（最近三天）</summary>' +
-            renderGpuHistoryCard(serverId, String(gpu.index), gpu.name) +
-          '</details>' +
         '</div>' +
         '<div class="gpu-metrics">' +
           metric("利用率", valuePercent(gpu.utilizationPercent), highUtilization ? "warn" : "") +
@@ -8891,6 +9255,10 @@ function renderPanelHtml() {
           metric("进程", gpu.processCount) +
           metric("状态", status, "statusValue" + (owner.isMine ? " mine" : "") + (gpu.staleFromCache ? " stale" : "")) +
         '</div>' +
+        '<details class="gpuHistoryDetails" data-gpu-history-scope="gpu" data-server-id="' + escAttr(serverId) + '" data-gpu-id="' + escAttr(String(gpu.index)) + '"' + (historyOpen ? ' open' : '') + '>' +
+          '<summary>历史（最近 1 天）</summary>' +
+          renderGpuHistoryCard(serverId, String(gpu.index), gpu.name) +
+        '</details>' +
       '</div>';
     }
 
@@ -8919,7 +9287,7 @@ function renderPanelHtml() {
         }
         const processes = asArray(gpu.processes);
         const cacheKey = [objectReferenceKey(processes), processes.length, gpu.processCount || "", gpu.updatedAt || ""].join("|");
-        const cached = gpuOwnerStateCache.get(gpu);
+        const cached = gpuOwnerStateCache?.get(gpu);
         if (cached && cached.key === cacheKey) return cached.value;
         const value = computeGpuOwnerState(processes, config);
         gpuOwnerStateCache.set(gpu, { key: cacheKey, value });
@@ -8969,7 +9337,7 @@ function renderPanelHtml() {
 
     function normalizeGpuOwnerConfig(value) {
       const config = value && typeof value === "object" ? value : {};
-      const mode = GPU_OWNER_MATCH_MODES.has(config.myProcessMatchMode) ? config.myProcessMatchMode : "both";
+      const mode = GPU_OWNER_MATCH_MODES?.has(config.myProcessMatchMode) ? config.myProcessMatchMode : "both";
       const aliases = stringArray(config.currentUserAliases);
       const keywords = stringArray(config.myCommandKeywords);
       const currentUser = String(config.currentUser || "").trim();
@@ -9040,7 +9408,7 @@ function renderPanelHtml() {
       });
       pruneGpuServerCache(seen);
       Object.entries(lastGpuServersById).forEach(([key, cached]) => {
-        if (!seen.has(key) && cached && cached.gpuRows && cached.gpuRows.length) {
+        if (!seen?.has(key) && cached && cached.gpuRows && cached.gpuRows.length) {
           merged.push(Object.assign({}, cached, { status: "stale", staleFromCache: true }));
         }
       });
@@ -9060,7 +9428,7 @@ function renderPanelHtml() {
       });
       if (!configured.size) return;
       Object.keys(lastGpuServersById).forEach((key) => {
-        if (!seen.has(key) && !configured.has(cleanEndpointId(key))) delete lastGpuServersById[key];
+        if (!seen?.has(key) && !configured?.has(cleanEndpointId(key))) delete lastGpuServersById[key];
       });
     }
 
@@ -9069,7 +9437,7 @@ function renderPanelHtml() {
       if (entries.length <= GPU_CACHE_SERVER_LIMIT) return;
       const keep = new Set(activeKeys);
       entries
-        .filter(([key]) => !keep.has(key))
+        .filter(([key]) => !keep?.has(key))
         .sort((a, b) => Number(a[1].uiReceivedMs || 0) - Number(b[1].uiReceivedMs || 0))
         .slice(0, Math.max(0, entries.length - GPU_CACHE_SERVER_LIMIT))
         .forEach(([key]) => { delete lastGpuServersById[key]; });
@@ -9091,7 +9459,7 @@ function renderPanelHtml() {
           if (isMyGpu(gpu, ownerConfig)) mineCount += 1;
         }
         const key = cleanEndpointId(server.serverId || server.workerId);
-        omittedGpuRowCount += visibleKeys.has(key) ? budgetGpuRowsForRender(rows, ownerConfig).omittedCount : rows.length;
+        omittedGpuRowCount += visibleKeys?.has(key) ? budgetGpuRowsForRender(rows, ownerConfig).omittedCount : rows.length;
       }
       const omittedServerCount = Math.max(0, servers.length - visibleServers.length);
       return { visibleServers, gpuCount, busyCount, mineCount, omittedServerCount, omittedGpuRowCount };
@@ -9103,7 +9471,7 @@ function renderPanelHtml() {
       const selectedKeys = new Set(selected.map((server) => cleanEndpointId(server.serverId || server.workerId)));
       servers.slice(GPU_SERVER_RENDER_LIMIT).forEach((server) => {
         const key = cleanEndpointId(server.serverId || server.workerId);
-        if (!key || selectedKeys.has(key) || !gpuServerHasMine(server, ownerConfig)) return;
+        if (!key || selectedKeys?.has(key) || !gpuServerHasMine(server, ownerConfig)) return;
         const replaceIndex = selected.findIndex((item) => !gpuServerHasMine(item, ownerConfig) && !gpuServerHasBusy(item));
         if (replaceIndex < 0) return;
         selectedKeys.delete(cleanEndpointId(selected[replaceIndex].serverId || selected[replaceIndex].workerId));
@@ -9111,7 +9479,7 @@ function renderPanelHtml() {
         selectedKeys.add(key);
       });
       const order = new Map(servers.map((server, index) => [cleanEndpointId(server.serverId || server.workerId), index]));
-      return selected.sort((a, b) => (order.get(cleanEndpointId(a.serverId || a.workerId)) || 0) - (order.get(cleanEndpointId(b.serverId || b.workerId)) || 0));
+      return selected.sort((a, b) => (order?.get(cleanEndpointId(a.serverId || a.workerId)) || 0) - (order?.get(cleanEndpointId(b.serverId || b.workerId)) || 0));
     }
 
     function budgetGpuRowsForRender(rows, ownerConfig) {
@@ -9147,7 +9515,7 @@ function renderPanelHtml() {
         return Object.assign({}, row, { staleFromCache: false });
       });
       cachedRows.forEach((row) => {
-        if (!seen.has(gpuRowKey(row))) rows.push(Object.assign({}, row, { staleFromCache: true }));
+        if (!seen?.has(gpuRowKey(row))) rows.push(Object.assign({}, row, { staleFromCache: true }));
       });
       return sortGpuRows(rows);
     }
@@ -9173,10 +9541,10 @@ function renderPanelHtml() {
       }
       const cacheable = Boolean(server) && typeof server === "object";
       if (cacheable) {
-        const cached = gpuServerWorkerMatchCache.get(server);
+        const cached = gpuServerWorkerMatchCache?.get(server);
         if (cached) return cached;
       }
-      const found = gpuServerAliases(server || {}).map((alias) => lookup.get(alias)).find(Boolean);
+      const found = gpuServerAliases(server || {}).map((alias) => lookup?.get(alias)).find(Boolean);
       const match = { index: found ? found.index : GPU_SERVER_UNCONFIGURED_INDEX, worker: (found && found.worker) || null };
       if (cacheable) gpuServerWorkerMatchCache.set(server, match);
       return match;
@@ -9191,6 +9559,8 @@ function renderPanelHtml() {
     }
 
     function gpuRowKey(row) {
+      const idx = String(row.index || "").trim();
+      if (idx && idx !== "-") return idx;
       return String(row.id && row.id !== "-" ? row.id : row.index);
     }
 
@@ -9214,7 +9584,7 @@ function renderPanelHtml() {
           const key = cleanEndpointId(value);
           if (!key) return;
           [key, key.replace(/^worker[:_-]/, "")].forEach((alias) => {
-            if (alias && !map.has(alias)) map.set(alias, { worker, index });
+            if (alias && !map?.has(alias)) map.set(alias, { worker, index });
           });
         });
       });
@@ -9282,7 +9652,7 @@ function renderPanelHtml() {
 
     function compactPath(value) {
       const text = String(value === undefined || value === null || value === "" ? "-" : value);
-      const cached = compactPathCache.get(text);
+      const cached = compactPathCache?.get(text);
       if (cached !== undefined) {
         compactPathCache.delete(text);
         compactPathCache.set(text, cached);
@@ -9333,7 +9703,7 @@ function renderPanelHtml() {
     function resolveWorkerConfig(value) {
       const key = workerAliasKey(value);
       if (!key) return undefined;
-      return workerAliasMap().get(key);
+      return workerAliasMap()?.get(key);
     }
 
     function workerAliasMap() {
@@ -9344,7 +9714,7 @@ function renderPanelHtml() {
       source.forEach((worker) => {
         workerAliasValues(worker).forEach((alias) => {
           const key = workerAliasKey(alias);
-          if (key && !map.has(key)) map.set(key, worker);
+          if (key && !map?.has(key)) map.set(key, worker);
         });
       });
       workerAliasMapCacheSource = source;
@@ -9499,7 +9869,7 @@ function renderPanelHtml() {
       const selection = data.selection || {};
       const selected = taskSelectionSetsForState(data);
       const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
-      const allRows = schedulerRowsForState(data).filter((row) => !hiddenLegacyTaskUiKeys.has(String(row.uiKey || "")));
+      const allRows = schedulerRowsForState(data).filter((row) => !hiddenLegacyTaskUiKeys?.has(String(row.uiKey || "")));
       const selectedPlanFile = data.planFileInput || selection.selectedPlanId || "";
       const selectedPlan = selectedPlanFile ? planFromContext(data, { planFile: selectedPlanFile }) || {} : {};
       const scope = taskRowsForPlanScope(allRows, selectedPlanFile, taskPlanScope, selectedPlan);
@@ -9516,1008 +9886,6 @@ function renderPanelHtml() {
       };
       return taskSectionViewCacheValue;
     }
-
-    // Part 3/4: when the scheduler has not written any task snapshot yet but a
-    // run-plan operation exists (running or failed), derive placeholder scheduler
-    // task rows so the task view is never empty and the operation error is visible.
-    function computeSchedulerPlaceholderOps(state, scope) {
-      const ops = (state && state.operations) ? Object.values(state.operations) : [];
-      const currentKey = scope && scope.selectedPlanFile ? normalizePlanSelectionKey(scope.selectedPlanFile) : "";
-      return ops.filter((op) => {
-        if (!op || typeof op !== "object") return false;
-        const st = String(op.status || op.state || "").toLowerCase();
-        const isActive = operationIsActive(st) || ["accepted", "submitted", "queued", "waiting", "started"].some((s) => st === s || st.includes(s));
-        const isFailed = operationIsFailureLike(st) || st === "stale";
-        if (!(isActive || isFailed)) return false;
-        const pf = normalizePlanSelectionKey(op.planFile || op.plan || "");
-        return !currentKey || !pf || samePlanSelection(pf, currentKey);
-      });
-    }
-
-    function renderSchedulerPlaceholderCard(op) {
-      if (!op || typeof op !== "object") return "";
-      const st = String((op && (op.status || op.state)) || "running").toLowerCase();
-      const cls = operationIsActive(st) ? "is-running" : (operationIsFailureLike(st) || st === "stale" ? "is-failed" : "");
-      const message = operationDisplayMessage(op);
-      const errorLine = operationErrorLine(op, message);
-      const logPath = String((op.logPath || (op.payload && op.payload.logPath)) || "").trim();
-      const opId = String((op && (op.operationId || op.id)) || "");
-      const openLog = logPath ? '<button class="mini secondary" data-command="copyText" data-text="' + escAttr(logPath) + '" title="复制调度器完整日志路径">复制日志路径</button>' : '';
-      const openOps = '<button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳转到操作进度查看该操作终态与日志">查看操作进度</button>';
-      return '<div class="taskCard schedulerPlaceholder ' + cls + '" data-anchor="task-placeholder-' + escAttr(opId || st) + '">' +
-        '<div class="taskCardHead"><span class="taskTitle">调度占位（来自操作进度）</span><span class="' + statusClass(op.status) + '">' + esc(operationStatusLabel(op.status)) + '</span></div>' +
-        '<div class="taskCardBody"><div class="muted">调度器尚未回传任务快照，以下状态来自操作进度事件。</div>' +
-        '<div class="operationMessage">' + esc(message) + '</div>' + errorLine +
-        '<div class="operationActions">' + openOps + openLog + '</div></div></div>';
-    }
-
-    function renderTaskSection(state) {
-      const view = taskSectionViewModelForState(state);
-      const selected = view.selected;
-      const scope = view.scope;
-      const rows = view.rows;
-      const taskView = view.taskView;
-      const counts = taskView.counts;
-      // Part 3/4: derive placeholder scheduler task rows from run-plan operations so
-      // the task view is never empty while a scheduler operation is active/failed.
-      const placeholderOps = scope.scoped ? computeSchedulerPlaceholderOps(state, scope) : [];
-      const showPlaceholder = scope.scoped && rows.length === 0 && placeholderOps.length > 0;
-      const versionCount = scope.selectedCount + (showPlaceholder ? placeholderOps.length : 0);
-      const scopeBar = scope.selectedPlanFile
-        ? '<div class="taskScopeBar"><span class="muted">任务范围</span><div class="taskScopeSwitch" role="group" aria-label="任务范围">' +
-            '<button type="button" data-task-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + versionCount + '</button>' +
-            '<button type="button" data-task-plan-scope="all" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
-          '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
-        : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
-      let placeholderSummary = "";
-      if (showPlaceholder) {
-        const top = (placeholderOps[0] && typeof placeholderOps[0] === "object") ? placeholderOps[0] : {};
-        const topMsg = operationDisplayMessage(top);
-        const topErr = operationErrorLine(top, topMsg);
-        const topStatus = String((top && (top.status || top.state)) || "running").toLowerCase();
-        const topFailed = operationIsFailureLike(topStatus) || topStatus === "stale";
-        placeholderSummary = '<div class="schedulerPlaceholderNotice ' + (topFailed ? "is-failed" : "is-running") + '">' +
-          '<b>' + (topFailed ? "调度已结束，但任务快照未回传；详情见操作进度。" : "调度已启动，任务状态回传中…") + '</b>' +
-          '<div class="operationMessage">' + esc(topMsg) + '</div>' + topErr +
-          '<div class="operationActions">' +
-            '<button class="mini" data-command="snapshot" title="手动刷新运行状态（重拉 schedulerStates / operations）">刷新运行状态</button>' +
-            '<button class="mini secondary" data-task-plan-scope="all" title="切换到全部任务查看历史记录">切换到全部任务</button>' +
-            '<button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="在操作进度查看该操作终态与日志">打开操作进度</button>' +
-          '</div></div>';
-      }
-      let taskSummaryHtml = scopeBar + renderTaskPlanCompletionNext(state, scope) + (rows.length
-        ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
-        : (showPlaceholder ? placeholderSummary : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>'));
-      setHtmlIfChanged("taskSummary", taskSummaryHtml);
-      const selectedRows = taskView.selectedRows;
-      renderTaskBatchActions(state, rows, selectedRows);
-      setHtmlIfChanged("taskProgressCards", "");
-      const visibleRows = taskView.visibleRows;
-      const taskTableChanged = setHtmlIfChanged("taskTable", rows.length
-        ? renderTaskCards(state, visibleRows, selected, rows.length)
-        : (showPlaceholder
-          ? '<div class="taskPlaceholderDeck">' + placeholderOps.filter(op => op && typeof op === "object").map(renderSchedulerPlaceholderCard).join("") + '</div>'
-          : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换“全部任务”查看历史记录。" : "暂无任务数据。") + '</div>'));
-      renderTaskDetailPane(state, rows, selectedRows, taskView.detailRow);
-      if (taskTableChanged) invalidateSelectedTaskPayload();
-    }
-
-    function renderExecutionSection(state) {
-      renderOperationSection(state);
-      renderTaskSection(state);
-    }
-    function handleTaskPlanScopeClick(button) {
-      const next = button.dataset.taskPlanScope === "all" ? "all" : "selected";
-      if (!setTaskPlanScope(next)) return;
-      renderExecutionSection(lastState || {});
-    }
-
-    function handleTaskSelectionChange(box) {
-      invalidateSelectedTaskPayload();
-      refreshContextualActionButtons(lastState || {}, el("workbenchInspector"));
-      refreshContextualActionButtons(lastState || {}, el("pinnedActionsHost"));
-      refreshContextualActionButtons(lastState || {}, el("taskBatchActions"));
-      vscode.postMessage({ command: "selectExperiment", taskUiKey: box.dataset.taskUiKey, runKey: box.dataset.actionKey || box.dataset.runKey, experimentId: box.dataset.experimentId, archiveKey: box.dataset.archiveKey, selected: box.checked });
-    }
-
-    function renderDetectedProject(state) {
-      const project = state.detectedProject || {};
-      const configs = project.configSummaries || [];
-      const plans = project.plans || [];
-      const entries = project.entryCandidates || {};
-      const resultFiles = project.resultFiles || [];
-      const outputContractFiles = project.outputContractFiles || [];
-      const resultParsePreviews = project.resultParsePreviews || [];
-      const adapterRules = project.adapterRules || {};
-      const missingOnboarding = project.missingOnboarding || [];
-      const selectedPlan = planFromContext(state, { planFile: state.planFileInput || ((state.selection || {}).selectedPlanId) || "" });
-      const previewScope = planScopedResultParsePreviews(resultParsePreviews, selectedPlan, adapterRules);
-      const projectMeta = {
-        configs,
-        plans,
-        entries,
-        resultFiles,
-        outputContractFiles,
-        resultParsePreviews: previewScope.items,
-        resultParsePreviewScope: previewScope,
-        parseablePreviewCount: validResultPreviewCount(previewScope.items),
-        adapterRules,
-        missingOnboarding,
-        selectedPlan,
-        serverReadiness: serverSetupReadiness(state),
-        executionWorkerReadiness: executionWorkerReadiness(state),
-        endpointReadiness: projectEndpointReadiness(state),
-        codeSyncReadiness: projectCodeSyncReadiness(state)
-      };
-      const outputGate = projectOutputGateDiagnostics(project, projectMeta, selectedPlan);
-      projectMeta.outputGate = outputGate;
-      projectMeta.outputContractCheck = currentResultOutputContractCheck(state);
-      const selectedPlanFile = selectedPlan && (selectedPlan.file || selectedPlan.planFile || selectedPlan.planId);
-      projectMeta.outputContractStage = currentPlanRuntimeContractStage(state, selectedPlanFile);
-      return renderProjectQuickAccess(state, project, projectMeta) +
-      renderAdapterRules(adapterRules) +
-      renderResultParsePreviews(previewScope) +
-      renderConfigInspector(project, selectedPlan);
-    }
-
-    function projectUploadDestinationSummary(state) {
-      const agentInput = (state || {}).agentSessions;
-      const agent = agentInput && typeof agentInput === "object" ? agentInput : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const hubInput = agent.hub;
-      const hub = hubInput && typeof hubInput === "object" ? hubInput : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const workers = Array.isArray(agent.workers) ? agent.workers : EMPTY_OUTPUT_DERIVATION_VALUES;
-      const hubWorkDir = hub.workDir;
-      const hubActualWorkRoot = hub.actualWorkRoot;
-      const hubProjectName = hub.projectName;
-      const cached = projectUploadDestinationSummaryCache.get(agent);
-      if (cached
-        && cached.hub === hub
-        && cached.workers === workers
-        && cached.hubWorkDir === hubWorkDir
-        && cached.hubActualWorkRoot === hubActualWorkRoot
-        && cached.hubProjectName === hubProjectName) return cached.value;
-      const hubPath = meaningfulValue(hubWorkDir);
-      const hubRoot = meaningfulValue(hubActualWorkRoot);
-      const projectName = meaningfulValue(hubProjectName);
-      const enabledWorkers = workers.filter((worker) => worker && worker.enabled !== false);
-      const workerPaths = enabledWorkers.map((worker) => meaningfulValue(worker.workDir)).filter(Boolean);
-      const missingWorkers = Math.max(0, enabledWorkers.length - workerPaths.length);
-      let value;
-      if (!hubPath) value = { ready: false, summary: hubRoot && !projectName ? "打开本地项目后显示上传位置" : "保存 Hub 项目父目录后显示" };
-      else if (!enabledWorkers.length) value = { ready: false, summary: "Hub：" + compactPath(hubPath) + "；尚未配置 Worker" };
-      else if (missingWorkers) value = { ready: false, summary: "Hub：" + compactPath(hubPath) + "；" + missingWorkers + " 个 Worker 路径待保存" };
-      else {
-        const distinctPaths = uniqueText([hubPath, ...workerPaths]);
-        value = distinctPaths.length === 1
-          ? { ready: true, summary: "Hub + " + enabledWorkers.length + " 个 Worker：" + compactPath(hubPath) }
-          : { ready: true, summary: "Hub：" + compactPath(hubPath) + "；Worker " + enabledWorkers.length + " 个独立位置" };
-      }
-      projectUploadDestinationSummaryCache.set(agent, { hub, workers, hubWorkDir, hubActualWorkRoot, hubProjectName, value });
-      return value;
-    }
-
-    function projectQuickLifecyclePresentation(stage, readyToStart, firstRunRecommended) {
-      const item = stage || {};
-      const phase = String(item.phase || "");
-      const summary = String(item.status || "");
-      const active = {
-        validating: ["校验中", "status-running"],
-        "dry-running": ["预演中", "status-running"],
-        submitting: ["提交中", "status-running"],
-        monitor: ["运行中", "status-running"]
-      }[phase];
-      if (active) return { badge: active[0], className: active[1], summary, preferStage: true };
-      if (phase === "results") return { badge: "结果待处理", className: "status-running", summary, preferStage: true };
-      if (phase === "debug-review") return { badge: "Debug 待复核", className: "status-warning", summary, preferStage: true };
-      if (phase === "review") return { badge: "任务需处理", className: "status-failed", summary, preferStage: true };
-      if (!readyToStart) return { badge: "待补齐", className: "status-warning", summary: "", preferStage: false };
-      if (phase === "validate") return { badge: "校验需处理", className: "status-warning", summary, preferStage: true };
-      if (phase === "dry-run") return { badge: "预演需处理", className: "status-warning", summary, preferStage: true };
-      if (phase === "run" && /失败|异常|未完成/.test(summary)) return { badge: "提交需处理", className: "status-warning", summary, preferStage: true };
-      if (firstRunRecommended) return { badge: "建议 Debug 首跑", className: "status-warning", summary: "当前 Plan revision 尚无运行证据，建议先验证首个任务", preferStage: true };
-      return { badge: "可提交", className: "status-completed", summary, preferStage: true };
-    }
-
-    function renderProjectQuickAccess(state, project, meta) {
-      const planDir = state.planDir || "experiments/plans";
-      const selectedPlanFile = (meta.selectedPlan && (meta.selectedPlan.file || meta.selectedPlan.planFile)) || "";
-      const availablePlanCount = asArray(meta.plans || project.plans || []).length;
-      const simpleSftp = simpleSftpReadinessForState(state);
-      const workspace = projectWorkspaceContext(state, project);
-      const firstConfig = selectedPlanFile ? firstProjectConfig(project, meta, meta.selectedPlan) : "";
-      const configAvailable = projectConfigAvailable(firstConfig, project, meta);
-      const trainEntry = project.trainEntry || firstProjectPath((meta.entries || {}).trainEntries);
-      const testEntry = project.testEntry || firstProjectPath((meta.entries || {}).testEntries);
-      const adapterConfig = project.adapterConfig || "experiments/simple_project.yaml";
-      const outputGate = meta.outputGate || projectOutputGateDiagnostics(project, meta, meta.selectedPlan);
-      const resultLocation = projectResultLocation(project, meta, meta.selectedPlan);
-      const uploadDestination = projectUploadDestinationSummary(state);
-      const existingResultPaths = uniqueText([
-        ...asArray(project.outputContractFiles),
-        ...asArray(project.resultFiles)
-      ].map(String).filter(isParseableResultCandidate));
-      const resultLocationExists = existingResultPaths.some((file) => file.toLowerCase() === resultLocation.path.toLowerCase());
-      const accessSummary = project.adapterConfig
-        ? project.adapterConfig
-        : outputGate.ok && resultLocation.source === "当前 Plan"
-          ? "当前 Plan 已声明输出，无需额外模板"
-          : outputGate.ok && resultLocation.source
-            ? "已识别" + resultLocation.source + "，可按需保存接入模板"
-            : "未生成 experiments/simple_project.yaml";
-      const serverReadiness = meta.serverReadiness || serverSetupReadiness(state);
-      const workerReadiness = meta.executionWorkerReadiness || executionWorkerReadiness(state);
-      const endpointReadiness = meta.endpointReadiness || projectEndpointReadiness(state);
-      const codeSyncReadiness = meta.codeSyncReadiness || projectCodeSyncReadiness(state);
-      const environment = projectEnvironmentSummary(state, project);
-      const executionStage = selectedPlanFile ? planExecutionStage(state, selectedPlanFile) : undefined;
-      const readyToStart = Boolean(simpleSftp.ready) && Boolean(selectedPlanFile) && outputGate.ok && serverReadiness.ready && workerReadiness.ready && endpointReadiness.ready && !meta.outputContractStage;
-      const firstRunRecommended = planFirstRunRecommended(state, selectedPlanFile, meta.selectedPlan, executionStage, readyToStart);
-      const lifecycle = projectQuickLifecyclePresentation(executionStage, readyToStart, firstRunRecommended);
-      const readinessSummary = meta.outputContractStage
-        ? meta.outputContractStage.message
-        : (!selectedPlanFile && availablePlanCount ? "缺少：明确选择本次运行计划" : projectReadinessStatusText(simpleSftp, serverReadiness, workerReadiness, endpointReadiness, outputGate));
-      const statusSummary = lifecycle.preferStage && lifecycle.summary ? lifecycle.summary : readinessSummary;
-      const missingItems = asArray(meta.missingOnboarding).map((item) => String(item || "").replace(/^下一步：/, "").trim()).filter(Boolean);
-      const missing = missingItems.length
-        ? '<div class="notice warning" title="' + escAttr(missingItems.join("；")) + '"><b>接入提示</b> ' + esc(missingItems[0]) + (missingItems.length > 1 ? '<span class="muted"> 另有 ' + esc(String(missingItems.length - 1)) + ' 项</span>' : '') + '</div>'
-        : "";
-      const primaryRows = [
-        projectQuickRow("本地项目", workspace.summary, [], workspace.singleProject ? "status-completed" : "status-warning"),
-        projectQuickRow("当前计划", selectedPlanFile || (availablePlanCount ? "未选择（发现 " + availablePlanCount + " 个）" : "尚未创建"), [
-          projectPathButton("目录", planDir),
-          projectPathButton(selectedPlanFile ? "打开计划" : "", selectedPlanFile),
-          '<button class="mini projectPathButton secondary" data-command="generatePlanGuide">新建模板</button>'
-        ]),
-        projectQuickRow("当前配置", firstConfig ? (configAvailable ? firstConfig : firstConfig + "（缺失）") : (selectedPlanFile ? "未发现配置" : "选择 Plan 后显示"), [
-          projectPathButton(configAvailable ? "打开配置" : "", firstConfig)
-        ]),
-        projectQuickRow("入口", "训练：" + (trainEntry || "未发现") + "；评估：" + (testEntry || "未发现"), [
-          projectPathButton(trainEntry ? "训练" : "", trainEntry),
-          projectPathButton(testEntry ? "评估" : "", testEntry)
-        ]),
-        projectQuickRow("接入", accessSummary, [
-          project.adapterConfig ? projectPathButton("打开", adapterConfig) : '',
-          project.adapterConfig || !outputGate.ok ? '<button class="mini projectPathButton secondary" data-command="generateOutputAdapter">' + (project.adapterConfig ? "更新模板" : "生成模板") + '</button>' : ''
-        ], outputGate.ok ? "status-completed" : "status-warning"),
-        projectQuickRow("结果位置", resultLocation.summary, [
-          projectPathButton(resultLocationExists ? "打开" : "", resultLocationExists ? resultLocation.path : "")
-        ], resultLocation.path && outputGate.ok ? "status-completed" : "status-warning"),
-        renderProjectRuntimeContractRow(meta.outputContractStage, project, selectedPlanFile),
-        projectQuickRow("状态", statusSummary, [])
-      ].filter(Boolean);
-      const infrastructureRows = [
-        projectQuickRow("环境", environment.summary, [
-          projectPathButton(environment.firstFile ? "依赖" : "", environment.firstFile),
-          '<button class="mini projectPathButton secondary" type="button" data-section-target="settings" data-anchor-target="settings-servers" title="查看或修改 Hub/Worker 执行环境">环境</button>'
-        ], environment.files.length ? "status-completed" : ""),
-        projectQuickRow("服务器", serverReadiness.summary, [
-          '<button class="mini projectPathButton secondary" type="button" data-section-target="settings" data-anchor-target="settings-servers">设置</button>'
-        ], serverReadiness.ready ? "status-completed" : "status-warning"),
-        projectQuickRow("上传位置", uploadDestination.summary, [
-          '<button class="mini projectPathButton secondary" type="button" data-section-target="settings" data-anchor-target="settings-servers">查看</button>'
-        ], uploadDestination.ready ? "status-completed" : "status-warning"),
-        projectQuickRow("运行目标", workerReadiness.summary, [
-          !workerReadiness.ready ? '<button class="mini projectPathButton secondary" type="button" data-section-target="settings" data-anchor-target="settings-servers">添加 Worker</button>' : ''
-        ], workerReadiness.ready ? "status-completed" : "status-warning"),
-        projectQuickRow("连接", endpointReadiness.summary, [
-          endpointReadiness.projectMismatch
-            ? '<button class="mini projectPathButton" data-command="prepareAgents">准备 Agent</button>'
-            : endpointReadiness.versionMismatch
-            ? '<button class="mini projectPathButton secondary" data-command="deployLatestAgent">部署 Agent</button>'
-            : endpointReadiness.restartRequired
-              ? '<button class="mini projectPathButton secondary" data-command="startAllConnections">启动会话</button><button class="mini projectPathButton secondary" data-command="testAll">检测全部</button>'
-              : '<button class="mini projectPathButton" data-command="prepareAgents">准备 Agent</button><button class="mini projectPathButton secondary" data-command="testAll">检测全部</button>'
-        ], endpointReadiness.ready ? "status-completed" : "status-warning"),
-        projectQuickRow("代码同步", codeSyncReadiness.ready ? codeSyncReadiness.summary : (codeSyncReadiness.hubRequired ? "校验时自动同步 Hub；提交运行时自动同步 Hub/Worker" : "提交运行时自动同步 Worker"), [
-          codeSyncReadiness.hubRequired && !codeSyncReadiness.hubReady ? '<button class="mini projectPathButton secondary" data-command="uploadProjectToHub">上传 Hub</button>' : '',
-          codeSyncReadiness.workerRequired && !codeSyncReadiness.workerReady ? '<button class="mini projectPathButton secondary" data-command="uploadProjectToWorkers">上传 Worker</button>' : ''
-        ], codeSyncReadiness.ready ? "status-completed" : "status-warning")
-      ].filter(Boolean);
-      return '<div class="projectQuickNav" title="项目入口">' +
-        '<div class="projectQuickHead"><b>项目关键入口</b><span class="' + escAttr(lifecycle.className) + '">' + esc(lifecycle.badge) + '</span></div>' +
-        legacySftpNoticeForState(state) +
-        renderProjectOnboardingFlow(state, project, meta) +
-        renderProjectNextAction(state, project, meta, selectedPlanFile, outputGate, serverReadiness, workerReadiness, endpointReadiness) +
-        '<div class="projectQuickRows">' + primaryRows.join("") + '</div>' +
-        '<details class="projectQuickDetails"><summary>环境、服务器、连接与同步详情</summary><div class="projectQuickRows">' + infrastructureRows.join("") + '</div></details>' +
-        renderOutputGateChecklist(project, meta, meta.selectedPlan) +
-      '</div>' + missing;
-    }
-
-    function projectEnvironmentSummary(state, project) {
-      const setupInput = (state || {}).setup;
-      const setup = setupInput && typeof setupInput === "object" ? setupInput : EMPTY_SERVER_SETUP;
-      const projectSource = project && typeof project === "object" && !Array.isArray(project) ? project : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const environmentFiles = Array.isArray(projectSource.environmentFiles) ? projectSource.environmentFiles : EMPTY_OUTPUT_DERIVATION_VALUES;
-      const workers = enabledWorkerTunnelsForState(state);
-      const hubEnvInput = setup.condaEnv;
-      const cached = projectEnvironmentSummaryCache.get(projectSource);
-      if (cached
-        && cached.setup === setup
-        && cached.workers === workers
-        && cached.environmentFiles === environmentFiles
-        && cached.hubEnvInput === hubEnvInput) return cached.value;
-      const hubEnv = meaningfulValue(setup.condaEnv);
-      const hubEnvironment = executionEnvironmentText(hubEnv);
-      const workerEnvironments = uniqueText(workers.map((worker) => executionEnvironmentText(worker.condaEnv === undefined ? hubEnv : worker.condaEnv)));
-      const distinctWorkers = workerEnvironments.filter((item) => item !== hubEnvironment);
-      const environmentText = distinctWorkers.length ? "Hub " + hubEnvironment + " · Worker " + distinctWorkers.join("/") : hubEnvironment;
-      const files = environmentFiles.map(String).filter(Boolean);
-      const firstFile = files[0] || "";
-      const fileText = firstFile ? firstFile + (files.length > 1 ? " 等 " + files.length + " 个清单" : "") : "未发现依赖清单，请确认执行环境已安装项目依赖";
-      const value = { files, firstFile, summary: environmentText + " · " + fileText };
-      projectEnvironmentSummaryCache.set(projectSource, { setup, workers, environmentFiles, hubEnvInput, value });
-      return value;
-    }
-
-    function projectWorkspaceContext(state, project) {
-      const workspaceInput = (state || {}).workspace;
-      const item = workspaceInput && typeof workspaceInput === "object" ? workspaceInput : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const projectSource = project && typeof project === "object" && !Array.isArray(project) ? project : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const mappingErrorInput = item.mappingError;
-      const workspaceRootInput = item.root;
-      const workspaceNameInput = item.name;
-      const folderCountInput = item.folderCount;
-      const singleProjectInput = item.singleProject;
-      const containerPathInput = item.containerPath;
-      const projectRootInput = projectSource.root;
-      const cached = projectWorkspaceContextCache.get(item);
-      if (cached
-        && cached.mappingErrorInput === mappingErrorInput
-        && cached.workspaceRootInput === workspaceRootInput
-        && cached.workspaceNameInput === workspaceNameInput
-        && cached.folderCountInput === folderCountInput
-        && cached.singleProjectInput === singleProjectInput
-        && cached.containerPathInput === containerPathInput
-        && cached.projectRootInput === projectRootInput) return cached.value;
-      const mappingError = meaningfulValue(mappingErrorInput);
-      const fallbackRoot = mappingError ? "" : meaningfulValue(projectRootInput);
-      const root = meaningfulValue(workspaceRootInput) || fallbackRoot;
-      const name = meaningfulValue(workspaceNameInput) || (root ? root.split(/[\\/]/).filter(Boolean).pop() : "");
-      const folderCount = Number(folderCountInput || 0);
-      let value;
-      if (!root && !name) value = { open: false, singleProject: false, summary: "未打开本地项目；上传、Agent 和远端操作前必须打开一个项目" };
-      else if (singleProjectInput === false || folderCount > 1) value = { open: true, singleProject: false, summary: (name || "当前目录") + " · 多根工作区（" + Math.max(2, folderCount) + " 个），远端操作会阻断" };
-      else if (mappingError) value = { open: true, singleProject: true, summary: (name || "当前项目") + " · 工作区路径映射错误：" + compactText(mappingError, 180) };
-      else {
-        const remotePath = meaningfulValue(containerPathInput);
-        const pathSummary = remotePath ? "容器 " + remotePath + " → 宿主 " + compactPath(root) : compactPath(root);
-        value = { open: true, singleProject: true, summary: (name || "当前项目") + " · " + pathSummary };
-      }
-      projectWorkspaceContextCache.set(item, { mappingErrorInput, workspaceRootInput, workspaceNameInput, folderCountInput, singleProjectInput, containerPathInput, projectRootInput, value });
-      return value;
-    }
-
-    function executionEnvironmentText(value) {
-      const condaEnv = meaningfulValue(value);
-      return condaEnv ? "Conda " + condaEnv : "系统 Python";
-    }
-
-    function renderProjectNextAction(state, project, meta, planFile, outputGate, serverReadiness, workerReadiness, endpointReadiness) {
-      const selectedPlan = planFile ? planFromContext(state || {}, { planFile }) || {} : {};
-      const activeRun = planFile ? planActiveRunEvidence(state, planFile, selectedPlan) : { active: false };
-      if (activeRun.active) {
-        if (activeRun.historicalOnly) {
-          return activeRun.taskCount
-            ? projectSectionNextAction("旧 revision 仍有未结束任务；为保护旧任务，当前版本暂不能提交", "查看全部任务", "execution", "execution", { taskPlanScope: "all" })
-            : projectSectionNextAction("旧 revision 仍有未结束提交；为保护旧任务，当前版本暂不能提交", "查看提交进度", "execution", "execution");
-        }
-        return renderPlanExecutionNextAction(state, planFile);
-      }
-      const executionStage = planFile ? planExecutionStage(state, planFile) : undefined;
-      if (PLAN_WORKFLOW_TERMINAL_PHASES.has(String((executionStage || {}).phase || ""))) {
-        return renderPlanExecutionNextAction(state, planFile);
-      }
-      const simpleSftp = simpleSftpReadinessForState(state);
-      if (!simpleSftp.ready) {
-        return projectNextAction(simpleSftp.message, "打开配置说明", "openSetupGuide");
-      }
-      if (!(serverReadiness || {}).ready) {
-        return projectSectionNextAction("先配置 Xshell 会话和服务器项目父目录", "配置服务器", "settings", "settings-servers");
-      }
-      if (!planFile) {
-        return asArray((meta || {}).plans || (project || {}).plans || []).length
-          ? projectNextAction("选择本次要接入并运行的 Plan", "选择 Plan", "bootstrapProject")
-          : projectNextAction("一键创建 Plan 和结果接入", "接入当前项目", "bootstrapProject");
-      }
-      const contractStage = (meta || {}).outputContractStage;
-      if (contractStage) {
-        if (contractStage.section === "execution" || contractStage.section === "operations") {
-          return projectSectionNextAction(contractStage.message, contractStage.label, contractStage.section === "execution" ? "execution" : contractStage.section, contractStage.anchor === "operations" ? "execution" : contractStage.anchor);
-        }
-        if (contractStage.section === "plans") {
-          if (project.adapterConfig) {
-            return projectNextAction(contractStage.message + "；修改接入配置或项目输出后重新运行当前 Plan", "打开接入配置", "openPlan", { file: project.adapterConfig });
-          }
-          return projectNextAction(contractStage.message, "生成接入模板", "generateOutputAdapter");
-        }
-        return projectNextAction(contractStage.message, contractStage.label, contractStage.command);
-      }
-      if (!outputGate.ok && !project.adapterConfig) {
-        return projectNextAction("补全结果捕获规则", "生成接入模板", "generateOutputAdapter");
-      }
-      if (!outputGate.ok) {
-        return projectNextAction("补全计划输出契约", "打开当前计划", "openPlan", { file: planFile });
-      }
-      if (!(workerReadiness || {}).ready) {
-        return projectSectionNextAction("至少配置并启用一个执行 Worker", "添加 Worker", "settings", "settings-servers");
-      }
-      const preparationBlockers = agentPreparationBlockersFromState(state);
-      if (preparationBlockers.length) {
-        return projectSectionNextAction(preparationBlockers[0], "修复服务器配置", "settings", "settings-servers");
-      }
-      if ((endpointReadiness || {}).versionMismatch) {
-        return projectNextAction("Agent 版本与插件不兼容；部署后需重启 Xshell 会话", "部署 Agent", "deployLatestAgent");
-      }
-      if ((endpointReadiness || {}).projectMismatch) {
-        return projectNextAction("当前 Agent 仍指向旧项目；需重写本项目启动命令", "准备 Agent", "prepareAgents");
-      }
-      if ((endpointReadiness || {}).restartRequired) {
-        return projectNextAction("最新版 Agent 已部署；请重启 Hub/Worker Xshell 会话后检测", "启动会话", "startAllConnections");
-      }
-      if (asArray((endpointReadiness || {}).dependencyIssues).length) {
-        return projectSectionNextAction(endpointReadiness.dependencyIssues[0], "查看依赖", "settings", "settings-servers");
-      }
-      if (!(endpointReadiness || {}).ready) {
-        return projectNextAction("检测 Xshell 隧道与 Hub/Worker Agent", "检测全部", "testAll");
-      }
-      if (planFirstRunRecommended(state, planFile, (meta || {}).selectedPlan, executionStage, true)) {
-        return renderProjectFirstRunActions(true, planFile);
-      }
-      return renderPlanExecutionNextAction(state, planFile);
-    }
-
-    function renderProjectRuntimeContractRow(stage, project, planFile) {
-      if (!stage) return "";
-      return projectQuickRow("运行时契约", runtimeContractStageMessage(stage, project), [renderRuntimeContractRecoveryActions(stage, project, planFile)], stage.section === "plans" ? "status-warning" : stage.section === "execution" || stage.section === "operations" ? "status-running" : "status-completed");
-    }
-
-    function runtimeContractStageMessage(stage, project) {
-      const message = String((stage || {}).message || "");
-      return stage && stage.section === "plans" && (project || {}).adapterConfig
-        ? message + "；修改接入配置或项目输出后重新运行当前 Plan"
-        : message;
-    }
-
-    function runtimeContractStageBadge(stage) {
-      if (!stage) return "";
-      if (stage.section === "execution" || stage.section === "operations") return "检查中";
-      if (stage.section === "plans") return "运行缺失";
-      return stage.command === "checkOutputContract" ? "待检查" : "待重新解析";
-    }
-
-    function renderRuntimeContractRecoveryActions(stage, project, planFile) {
-      if (!stage) return "";
-      if (stage.section === "execution" || stage.section === "operations") {
-        return '<button class="mini projectPathButton secondary" type="button" data-section-target="execution" data-anchor-target="execution">查看进度</button>';
-      }
-      if (stage.section === "plans") {
-        const inspectActions = renderRemoteResultInspectionActions(stage.unparseableFileList, planFile, 2, stage.unparseableDetails);
-        if ((project || {}).adapterConfig) {
-          return inspectActions + projectPathButton("打开接入配置", project.adapterConfig) + (planFile
-            ? '<button class="mini projectPathButton secondary" data-command="runPlan" data-plan-file="' + escAttr(planFile) + '" data-confirm="true" title="修改接入配置或项目输出后，重新同步、校验、预演并提交">修复后重新运行</button>'
-            : "");
-        }
-        return inspectActions + '<button class="mini projectPathButton secondary" data-command="generateOutputAdapter">生成接入模板</button>';
-      }
-      return '<button class="mini projectPathButton secondary" data-command="' + escAttr(stage.command) + '">' + esc(stage.label) + '</button>';
-    }
-
-    function renderPlanExecutionNextAction(state, planFile) {
-      const stage = planExecutionStage(state, planFile);
-      if (stage.section) return projectSectionNextAction(stage.status, stage.label, stage.section, stage.anchor || stage.section);
-      return projectNextAction(stage.status, stage.label, stage.command, { planFile });
-    }
-
-    function planActiveRunEvidence(state, planFile, selectedPlanRecord) {
-      const selectedPlan = normalizePlanSelectionKey(planFile);
-      if (!selectedPlan) return { active: false, operationCount: 0, taskCount: 0 };
-      const plan = selectedPlanRecord && typeof selectedPlanRecord === "object"
-        ? selectedPlanRecord
-        : (typeof planFromContext === "function" ? planFromContext(state || {}, { planFile }) || {} : {});
-      const planRevision = String(plan.revision || plan.planRevision || plan.plan_revision || "").trim();
-      const planUpdatedAtText = String(plan.updatedAt || plan.updated_at || "");
-      const planUpdatedAt = Date.parse(planUpdatedAtText);
-      if (planActiveRunEvidenceCacheState !== state) {
-        planActiveRunEvidenceCacheState = state;
-        planActiveRunEvidenceCache = new Map();
-      }
-      const cacheKey = [selectedPlan, planRevision, planUpdatedAtText].join("|");
-      if (planActiveRunEvidenceCache.has(cacheKey)) return planActiveRunEvidenceCache.get(cacheKey);
-      const matchesCurrentVersion = (row) => {
-        const revision = String((row || {}).planRevision || (row || {}).plan_revision || "").trim();
-        if (planRevision && revision) return revision === planRevision;
-        if (Number.isFinite(planUpdatedAt)) {
-          const rowAt = Date.parse(String((row || {}).updatedAt || (row || {}).updated_at || (row || {}).startedAt || (row || {}).started_at || ""));
-          return Number.isFinite(rowAt) && rowAt >= planUpdatedAt;
-        }
-        return !planRevision;
-      };
-      let operationCount = 0;
-      let taskCount = 0;
-      let currentOperationCount = 0;
-      let currentTaskCount = 0;
-      for (const row of operationRowsForState(state || {})) {
-        if (!PLAN_RUN_OPERATION_TYPES.has(String((row || {}).type || "").toLowerCase())
-          || !samePlanSelection((row || {}).planFile || "", selectedPlan)
-          || (row || {}).schedulerFinished
-          || !PLAN_ACTIVE_STATUSES.has(String((row || {}).status || "").toLowerCase())) continue;
-        operationCount += 1;
-        if (matchesCurrentVersion(row)) currentOperationCount += 1;
-      }
-      for (const row of schedulerRowsForState(state || {})) {
-        if (!samePlanSelection((row || {}).planFile || (row || {}).plan || "", selectedPlan)
-          || !PLAN_ACTIVE_STATUSES.has(String((row || {}).status || "").toLowerCase())) continue;
-        taskCount += 1;
-        if (matchesCurrentVersion(row)) currentTaskCount += 1;
-      }
-      const active = operationCount > 0 || taskCount > 0;
-      const currentActive = currentOperationCount > 0 || currentTaskCount > 0;
-      const result = {
-        active,
-        currentActive,
-        historicalActive: active && (currentOperationCount < operationCount || currentTaskCount < taskCount),
-        historicalOnly: active && !currentActive,
-        operationCount,
-        taskCount,
-        currentOperationCount,
-        currentTaskCount,
-        historicalOperationCount: operationCount - currentOperationCount,
-        historicalTaskCount: taskCount - currentTaskCount
-      };
-      planActiveRunEvidenceCache.set(cacheKey, result);
-      return result;
-    }
-
-    function planExecutionStage(state, planFile) {
-      const data = state || {};
-      const plan = planFromContext(data, { planFile }) || {};
-      const planUpdatedAtText = String(plan.updatedAt || "");
-      const planUpdatedAt = Date.parse(planUpdatedAtText);
-      const planRevision = String(plan.revision || "");
-      if (planExecutionStageCacheState !== data) {
-        planExecutionStageCacheState = data;
-        planExecutionStageCache = new Map();
-      }
-      const cacheKey = planExecutionStageCacheKey(planFile, planRevision, planUpdatedAtText);
-      if (planExecutionStageCache.has(cacheKey)) return planExecutionStageCache.get(cacheKey);
-      const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
-      if (!rows.length) {
-        const taskStage = terminalPlanTaskExecutionStage(data, planFile, planRevision, planUpdatedAt);
-        if (taskStage) return cachePlanExecutionStage(cacheKey, taskStage);
-      }
-      const latestValidate = rows.find((row) => String(row.type || "").toLowerCase() === "validate-plan");
-      if (!latestValidate) {
-        return cachePlanExecutionStage(cacheKey, {
-          phase: "ready",
-          status: "准备就绪；确认后自动同步、校验、预演并提交",
-          label: "校验并提交运行",
-          command: "runPlan"
-        });
-      }
-      if (operationPending(latestValidate)) {
-        return cachePlanExecutionStage(cacheKey, { phase: "validating", status: "计划校验执行中，等待操作终态", label: "查看进度", section: "execution", anchor: "execution" });
-      }
-      if (!operationSucceeded(latestValidate)) {
-        return cachePlanExecutionStage(cacheKey, {
-          phase: "validate",
-          status: operationIsFailureLike(latestValidate.status) ? "最近一次校验失败；修正 Plan 后重新校验" : "最近一次校验未完成；重新校验当前计划",
-          label: "重新校验",
-          command: "validatePlan"
-        });
-      }
-      const latestDryRun = rows.find((row) => String(row.type || "").toLowerCase() === "dry-run-plan" && operationAtOrAfter(row, latestValidate));
-      if (operationPending(latestDryRun)) {
-        return cachePlanExecutionStage(cacheKey, { phase: "dry-running", status: "计划预演执行中，等待调度预览", label: "查看进度", section: "execution", anchor: "execution" });
-      }
-      if (!operationSucceeded(latestDryRun)) {
-        return cachePlanExecutionStage(cacheKey, {
-          phase: "dry-run",
-          status: latestDryRun && operationIsFailureLike(latestDryRun.status) ? "最近一次预演失败；调整后重新预演" : "校验已通过，预演调度与任务展开结果",
-          label: latestDryRun && operationIsFailureLike(latestDryRun.status) ? "重新预演" : "预演当前计划",
-          command: "dryRunPlan"
-        });
-      }
-      const latestRun = rows.find((row) => PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()) && operationAtOrAfter(row, latestDryRun));
-      const runAccepted = Boolean(latestRun && (latestRun.submissionAccepted || latestRun.schedulerStarted));
-      if (operationPending(latestRun)) {
-        if (runAccepted) {
-          return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "计划已提交，调度器正在排队或运行任务", label: "查看任务", section: "execution", anchor: "execution" });
-        }
-        return cachePlanExecutionStage(cacheKey, { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "execution", anchor: "execution" });
-      }
-      if (operationSucceeded(latestRun)) {
-        if (debugRunRecord(latestRun)) {
-          return cachePlanExecutionStage(cacheKey, { phase: "debug-review", status: "Debug 已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" });
-        }
-        return cachePlanExecutionStage(cacheKey, { phase: "results", status: "调度已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" });
-      }
-      if (latestRun && operationIsFailureLike(latestRun.status) && runAccepted) {
-        return cachePlanExecutionStage(cacheKey, {
-          phase: "review",
-          status: latestRun.schedulerFinished ? "调度已结束且存在失败任务；先查看任务并按需重试" : "调度状态异常；先查看任务与日志，避免重复提交整个 Plan",
-          label: "查看任务",
-          section: "execution",
-          anchor: "execution"
-        });
-      }
-      return cachePlanExecutionStage(cacheKey, {
-        phase: "run",
-        status: latestRun && operationIsFailureLike(latestRun.status) ? "运行提交失败；修正后重新提交" : "预演已通过，可以提交正式运行",
-        label: latestRun && operationIsFailureLike(latestRun.status) ? "重新提交" : "提交运行",
-        command: "runPlan"
-      });
-    }
-
-    function planExecutionStageCacheKey(planFile, planRevision, planUpdatedAt) {
-      return [normalizePlanSelectionKey(planFile), String(planRevision || ""), String(planUpdatedAt || "")].join("|");
-    }
-
-    function cachePlanExecutionStage(cacheKey, stage) {
-      if (planExecutionStageCache.size >= PLAN_EXECUTION_STAGE_CACHE_LIMIT) {
-        const oldestKey = planExecutionStageCache.keys().next().value;
-        if (oldestKey !== undefined) planExecutionStageCache.delete(oldestKey);
-      }
-      planExecutionStageCache.set(cacheKey, stage);
-      return stage;
-    }
-
-    function taskMatchesPlanVersion(row, planRevision, planUpdatedAt) {
-      const revision = String((row || {}).planRevision || (row || {}).plan_revision || "");
-      if (planRevision && revision) return revision === planRevision;
-      if (Number.isFinite(planUpdatedAt)) {
-        const taskAt = Date.parse(String((row || {}).updatedAt || (row || {}).startedAt || ""));
-        return Number.isFinite(taskAt) && taskAt >= planUpdatedAt;
-      }
-      return !planRevision;
-    }
-
-    function terminalPlanTaskExecutionStage(state, planFile, planRevision, planUpdatedAt) {
-      const matching = planVersionTaskRows(state, planFile, planRevision, planUpdatedAt);
-      if (!matching.length || matching.some((row) => !taskTerminalStatus((row || {}).status))) return undefined;
-      if (matching.some((row) => taskFailureLikeStatus((row || {}).status))) {
-        return { phase: "review", status: "调度任务均已结束且存在失败、停止或取消记录；先查看任务并按需重试", label: "查看任务", section: "execution", anchor: "execution" };
-      }
-      if (matching.some((row) => debugRunRecord(row))) {
-        return { phase: "debug-review", status: "Debug 任务已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" };
-      }
-      return { phase: "results", status: "调度任务均已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" };
-    }
-
-    function debugRunRecord(row) {
-      const item = row && typeof row === "object" ? row : {};
-      const mode = item.debugMode ?? item.debug_mode;
-      if (mode === true || String(mode || "").trim().toLowerCase() === "true") return true;
-      const output = String(item.debugOutputDir || item.debug_output_dir || "").replace(/\\\\/g, "/").replace(new RegExp("^/+", "g"), "");
-      return output.startsWith("simple_cluster/debug_runs/");
-    }
-
-    function planPreflightSummary(state, planFile) {
-      const plan = planFromContext(state || {}, { planFile }) || {};
-      const rows = planVersionOperationRows(state, planFile, String(plan.revision || ""), Date.parse(String(plan.updatedAt || "")));
-      const validate = rows.find((row) => String(row.type || "").toLowerCase() === "validate-plan");
-      const dryRun = operationSucceeded(validate) && rows.find((row) => String(row.type || "").toLowerCase() === "dry-run-plan" && operationAtOrAfter(row, validate));
-      if (dryRun) {
-        const message = compactText(meaningfulValue(dryRun.error) || meaningfulValue(dryRun.message) || "预演状态已更新", 72);
-        if (operationPending(dryRun)) return { ready: false, tone: "info", message, badge: "预演中" };
-        if (operationIsFailureLike(dryRun.status)) return { ready: false, tone: "error", message, badge: "预演失败" };
-        if (operationSucceeded(dryRun)) return { ready: true, tone: "good", message, badge: "可调度 " + Number(dryRun.dispatchableCount || 0) + " / 排队 " + Number(dryRun.queuedCount || 0) };
-      }
-      if (validate) {
-        const message = compactText(meaningfulValue(validate.error) || meaningfulValue(validate.message) || "校验状态已更新", 72);
-        if (operationPending(validate)) return { ready: false, tone: "info", message, badge: "校验中" };
-        if (operationIsFailureLike(validate.status)) return { ready: false, tone: "error", message, badge: "校验失败" };
-        if (operationSucceeded(validate)) return { ready: false, tone: "info", message, badge: "任务 " + (meaningfulValue(validate.jobCount) || "-") + " / 运行时继续预演" };
-      }
-      return { ready: false, tone: "info", message: "提交运行时自动执行", badge: "自动校验预演" };
-    }
-
-    function planVersionOperationRows(state, planFile, planRevision, planUpdatedAt) {
-      ensurePlanVersionRowsCache(state);
-      const cacheKey = planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt);
-      if (planVersionOperationRowsCache.has(cacheKey)) return planVersionOperationRowsCache.get(cacheKey);
-      const rows = operationRowsForState(state || {}).filter((row) => samePlanSelection(row.planFile, planFile) && operationMatchesPlanVersion(row, planRevision, planUpdatedAt));
-      cachePlanVersionRows(planVersionOperationRowsCache, cacheKey, rows);
-      return rows;
-    }
-
-    function planVersionTaskRows(state, planFile, planRevision, planUpdatedAt) {
-      ensurePlanVersionRowsCache(state);
-      const cacheKey = planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt);
-      if (planVersionTaskRowsCache.has(cacheKey)) return planVersionTaskRowsCache.get(cacheKey);
-      const rows = schedulerRowsForState(state || {}).filter((row) => samePlanSelection((row || {}).planFile || (row || {}).plan || "", planFile)
-        && taskMatchesPlanVersion(row, planRevision, planUpdatedAt));
-      cachePlanVersionRows(planVersionTaskRowsCache, cacheKey, rows);
-      return rows;
-    }
-
-    function ensurePlanVersionRowsCache(state) {
-      if (planVersionRowsCacheState === state) return;
-      planVersionRowsCacheState = state;
-      planVersionOperationRowsCache = new Map();
-      planVersionTaskRowsCache = new Map();
-    }
-
-    function planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt) {
-      return [normalizePlanSelectionKey(planFile), String(planRevision || ""), Number.isFinite(planUpdatedAt) ? String(planUpdatedAt) : ""].join("|");
-    }
-
-    function cachePlanVersionRows(cache, key, rows) {
-      if (cache.size >= PLAN_VERSION_ROWS_CACHE_LIMIT) cache.clear();
-      cache.set(key, rows);
-    }
-
-    function operationMatchesPlanVersion(row, planRevision, planUpdatedAt) {
-      const rowRevision = String((row || {}).planRevision || (row || {}).plan_revision || "").trim();
-      if (rowRevision) return !planRevision || rowRevision === planRevision;
-      if (Number.isFinite(planUpdatedAt)) {
-        const operationAt = Date.parse(String((row || {}).updatedAt || (row || {}).updated_at || ""));
-        return Number.isFinite(operationAt) && operationAt >= planUpdatedAt;
-      }
-      return !planRevision;
-    }
-
-    function resultSummaryMatchesPlanVersion(summary, planRevision, planUpdatedAt) {
-      const revision = String((summary || {}).planRevision || (summary || {}).plan_revision || "").trim();
-      if (planRevision && revision) return revision === planRevision;
-      if (Number.isFinite(planUpdatedAt)) {
-        const parsedAt = Date.parse(String((summary || {}).lastParsedAt || (summary || {}).last_parsed_at || (summary || {}).generatedAt || (summary || {}).generated_at || ""));
-        return Number.isFinite(parsedAt) && parsedAt >= planUpdatedAt;
-      }
-      return !planRevision;
-    }
-
-    function operationAtOrAfter(candidate, reference) {
-      if (!candidate || !reference) return false;
-      const candidateAt = Date.parse(String(candidate.updatedAt || ""));
-      const referenceAt = Date.parse(String(reference.updatedAt || ""));
-      if (Number.isFinite(candidateAt) && Number.isFinite(referenceAt)) return candidateAt >= referenceAt;
-      return Number(candidate.seq || 0) >= Number(reference.seq || 0);
-    }
-
-    function operationSucceeded(row) {
-      const status = String((row || {}).status || "").toLowerCase();
-      return Boolean(status && !operationIsFailureLike(status) && (status.includes("complete") || status === "done" || status.includes("success") || status.includes("succeed")));
-    }
-
-    function operationPending(row) {
-      const status = String((row || {}).status || "").toLowerCase();
-      return status === "accepted" || operationIsActive(status);
-    }
-
-    function serverSetupReadiness(state) {
-      const setupSource = (state || {}).setup;
-      const setup = setupSource && typeof setupSource === "object" ? setupSource : EMPTY_SERVER_SETUP;
-      const workers = enabledWorkerTunnelsForState(state);
-      const topology = (state || {}).topology || {};
-      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
-      if (setup === serverSetupReadinessCacheSetup && workers === serverSetupReadinessCacheWorkers && serverSetupReadinessCacheValue && serverSetupReadinessCacheValue.hubRequired === hubRequired) return serverSetupReadinessCacheValue;
-      const missing = [];
-      if (hubRequired && !meaningfulValue(setup.savedSessionPath)) missing.push("Hub Xshell 会话");
-      if (hubRequired && !meaningfulValue(setup.agentProjectDir)) missing.push("Hub 项目父目录");
-      workers.forEach((worker) => {
-        const label = String(worker.displayName || worker.id || "Worker");
-        if (!meaningfulValue(worker.savedSessionPath)) missing.push(label + " Xshell 会话");
-        if (!meaningfulValue(worker.agentProjectDir)) missing.push(label + " 项目父目录");
-      });
-      const workerLabel = workers.length ? "；" + workers.length + " 个 Worker" : "；Hub 模式";
-      const value = {
-        ready: missing.length === 0,
-        missing,
-        hubRequired,
-        summary: missing.length ? "缺少：" + missing.join("、") : (hubRequired ? "Hub 已配置" : "无 Hub 模式已配置") + workerLabel
-      };
-      serverSetupReadinessCacheSetup = setup;
-      serverSetupReadinessCacheWorkers = workers;
-      serverSetupReadinessCacheValue = value;
-      return value;
-    }
-
-    function executionWorkerReadiness(state) {
-      const workers = enabledWorkerTunnelsForState(state);
-      if (workers === executionWorkerReadinessCacheWorkers && executionWorkerReadinessCacheValue) return executionWorkerReadinessCacheValue;
-      const value = {
-        ready: workers.length > 0,
-        count: workers.length,
-        missing: workers.length ? [] : ["执行 Worker"],
-        summary: workers.length ? workers.length + " 个 Worker 已启用" : "未配置执行 Worker，不能提交实验"
-      };
-      executionWorkerReadinessCacheWorkers = workers;
-      executionWorkerReadinessCacheValue = value;
-      return value;
-    }
-
-    function agentPreparationBlockersFromState(state) {
-      const blockers = ((state || {}).agentSessions || {}).preparationBlockers;
-      const source = Array.isArray(blockers) ? blockers : EMPTY_AGENT_PREPARATION_BLOCKERS;
-      if (source === agentPreparationBlockersCacheSource && agentPreparationBlockersCacheValue) return agentPreparationBlockersCacheValue;
-      agentPreparationBlockersCacheSource = source;
-      agentPreparationBlockersCacheValue = uniqueText(source.map((item) => String(item || "").trim()).filter(Boolean));
-      return agentPreparationBlockersCacheValue;
-    }
-
-    function projectEndpointReadiness(state) {
-      const data = state || {};
-      if (projectEndpointReadinessCacheState === data && projectEndpointReadinessCacheValue) return projectEndpointReadinessCacheValue;
-      const workers = enabledWorkerTunnelsForState(state);
-      const topology = data.topology || {};
-      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
-      const workerProbes = data.workerProbes || {};
-      const hubStatus = String((data.probe || {}).status || (data.health || {}).state || "").toLowerCase();
-      const restartRequired = hubRequired && hubStatus === "agent_restart_required";
-      let versionMismatch = hubRequired && hubStatus === "agent_version_mismatch";
-      let projectMismatch = hubRequired && hubStatus === "agent_project_mismatch";
-      const hubReady = !hubRequired || HUB_OPERATION_READY_STATUS_TOKENS.has(hubStatus);
-      let workerReady = true;
-      const hubProbe = data.probe || {};
-      const hubMismatch = "Hub 当前 Agent 仍指向旧项目（" + String(hubProbe.projectRoot || "未返回") + "；期望 " + String(hubProbe.expectedProjectRoot || "未配置") + "）";
-      const missing = hubReady ? [] : [restartRequired ? "Agent 待重启" : versionMismatch ? "Hub Agent 版本不兼容" : projectMismatch ? hubMismatch : "Hub 未检测或不可达"];
-      const dependencyRows = hubRequired ? [{ label: "Hub", dependency: hubProbe.schedulerDependencies }] : [];
-      workers.forEach((worker) => dependencyRows.push({ label: worker.displayName || worker.id || "Worker", dependency: (workerProbes[worker.id] || {}).schedulerDependencies }));
-      const dependencyIssues = dependencyRows.flatMap((row) => {
-        const dependency = row.dependency;
-        if (!dependency || dependency.ok !== false) return [];
-        const install = String(dependency.installCommand || "").trim();
-        return [String(row.label) + " Scheduler 依赖缺失" + (install ? "；安装命令：" + install : "")];
-      });
-      missing.push(...dependencyIssues);
-      workers.forEach((worker) => {
-        const label = String(worker.displayName || worker.id || "Worker");
-        const workerProbe = workerProbes[worker.id] || {};
-        const status = String(workerProbe.status || "").toLowerCase();
-        if (status === "agent_version_mismatch") versionMismatch = true;
-        if (status === "agent_project_mismatch") projectMismatch = true;
-        if (status !== "ok") {
-          workerReady = false;
-          missing.push(label + (status === "agent_version_mismatch" ? " Agent 版本不兼容" : status === "agent_project_mismatch" ? " 当前 Agent 仍指向旧项目（" + String(workerProbe.projectRoot || "未返回") + "；期望 " + String(workerProbe.expectedProjectRoot || "未配置") + "）" : " 未检测或不可达"));
-        }
-      });
-      const value = {
-        ready: missing.length === 0,
-        hubReady,
-        workerReady,
-        versionMismatch,
-        projectMismatch,
-        restartRequired,
-        dependencyReady: dependencyIssues.length === 0,
-        dependencyIssues,
-        missing,
-        summary: restartRequired && hubRequired
-          ? "Agent 已部署，需重启会话并检测"
-          : projectMismatch
-            ? "当前 Agent 仍指向旧项目，需准备 Agent"
-          : versionMismatch
-            ? "Agent 版本不兼容，需部署并重启"
-            : dependencyIssues.length ? "Scheduler 依赖未就绪：" + dependencyIssues.join("、")
-            : missing.length ? "缺少：" + missing.join("、") : (hubRequired ? "Hub/Worker Agent 可达" : "Worker Agent 可达")
-      };
-      value.hubRequired = hubRequired;
-      projectEndpointReadinessCacheState = data;
-      projectEndpointReadinessCacheValue = value;
-      return value;
-    }
-
-    function projectCodeSyncReadiness(state) {
-      const data = state || {};
-      if (projectCodeSyncReadinessCacheState === data && projectCodeSyncReadinessCacheValue) return projectCodeSyncReadinessCacheValue;
-      const workerRequired = enabledWorkerTunnelsForState(state).length > 0;
-      const topology = data.topology || {};
-      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
-      const sync = data.codeSync || {};
-      const hubReady = !hubRequired || syncStatusOk(sync.hub);
-      const workerReady = !workerRequired || syncStatusOk(sync.workers);
-      const fingerprintReady = hasText(sync.fingerprint);
-      const missing = [];
-      if (hubRequired && !hubReady) missing.push("Hub 代码");
-      if (!workerReady) missing.push("Worker 代码");
-      if (!fingerprintReady) missing.push("代码指纹");
-      const value = {
-        ready: hubReady && workerReady && fingerprintReady,
-        hubReady,
-        hubRequired,
-        workerReady,
-        workerRequired,
-        fingerprintReady,
-        missing,
-        summary: missing.length ? "待同步：" + missing.join("、") : "代码已同步 · " + compactIdentifier(sync.fingerprint)
-      };
-      projectCodeSyncReadinessCacheState = data;
-      projectCodeSyncReadinessCacheValue = value;
-      return value;
-    }
-
-    function projectReadinessStatusText(simpleSftpReadiness, serverReadiness, workerReadiness, endpointReadiness, outputGate) {
-      const simpleSftpMissing = simpleSftpReadiness && simpleSftpReadiness.ready === false ? ["SimpleSFTP 文件传输依赖"] : [];
-      const serverMissing = asArray((serverReadiness || {}).missing);
-      const workerMissing = asArray((workerReadiness || {}).missing);
-      const endpointMissing = asArray((endpointReadiness || {}).missing);
-      const outputMissing = asArray((outputGate || {}).missing);
-      const missing = [...simpleSftpMissing, ...serverMissing, ...workerMissing, ...endpointMissing, ...outputMissing];
-      return missing.length ? "缺少：" + missing.join("、") : "已满足运行前置条件";
-    }
-
-    function projectNextAction(status, label, command, payload) {
-      const data = payload || {};
-      const fileAttr = data.file ? ' data-file="' + escAttr(data.file) + '"' : "";
-      const planAttr = data.planFile ? ' data-plan-file="' + escAttr(data.planFile) + '"' : "";
-      const actionReason = debugModeDisableReason(command) || simpleSftpCommandDisableReason(lastState || {}, command);
-      const disabledAttr = actionReason ? ' disabled title="' + escAttr(actionReason) + '" aria-label="' + escAttr(label + "：" + actionReason) + '"' : "";
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" data-command="' + escAttr(command) + '"' + fileAttr + planAttr + disabledAttr + '>' + esc(label) + '</button></div>';
-    }
-
-    function renderProjectFirstRunActions(show, planFile) {
-      if (!show || !planFile) return "";
-      const planAttr = ' data-plan-file="' + escAttr(planFile) + '"';
-      return '<div class="projectQuickNext firstRunActions"><span>首次运行</span><b>当前 Plan revision 尚无运行证据，建议先验证首个任务</b><div class="projectQuickActions">' +
-        '<button class="mini" data-command="runPlan" data-debug-mode="true" data-confirm="true"' + planAttr + ' title="只提交当前 Plan 的首个任务，产物进入 Debug 独立目录，不进入正式结果链">Debug 首跑</button>' +
-        '<button class="mini secondary" data-command="runPlan" data-debug-mode="false" data-confirm="true" data-force-formal="true"' + planAttr + ' title="同步、校验并预演后提交完整正式 Plan">正式运行</button>' +
-      '</div></div>';
-    }
-
-    function projectSectionNextAction(status, label, section, anchor, options) {
-      const taskScope = options && options.taskPlanScope === "all" ? ' data-task-plan-scope="all"' : options && options.taskPlanScope === "selected" ? ' data-task-plan-scope="selected"' : "";
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" type="button" data-section-target="' + escAttr(section) + '" data-anchor-target="' + escAttr(anchor) + '"' + taskScope + '>' + esc(label) + '</button></div>';
-    }
-
-    function firstProjectConfig(project, meta, plan) {
-      const selected = meaningfulValue((plan || {}).baseConfig || (plan || {}).base_config);
-      if (selected) return selected;
-      const planConfigSource = meaningfulValue((plan || {}).configSource);
-      if (planConfigSource) return planConfigSource;
-      const summaries = asArray((meta || {}).configs || (project || {}).configSummaries || []);
-      const summary = summaries.find((item) => item && item.file);
-      if (summary && summary.file) return String(summary.file);
-      return firstProjectPath((project || {}).configs);
-    }
-
-    function projectConfigAvailable(file, project, meta) {
-      const value = meaningfulValue(file);
-      if (/^(?:Plan 内联配置|case 级配置)$/.test(value)) return true;
-      if (!value || /[{}$]/.test(value)) return Boolean(value);
-      return asArray((project || {}).configs || (meta || {}).configs || []).some((item) => String((item && item.file) || item || "") === value);
-    }
-
-    function firstProjectPath(values) {
-      const item = asArray(values || []).find(Boolean);
-      return item ? String(item) : "";
-    }
-
-    function projectResultLocation(project, meta, plan) {
-      const projectSource = project && typeof project === "object" && !Array.isArray(project) ? project : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const metaSource = meta && typeof meta === "object" && !Array.isArray(meta) ? meta : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const planSource = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const rules = projectSource.adapterRules || metaSource.adapterRules || EMPTY_OUTPUT_DERIVATION_SOURCE;
-      const outputContractFiles = projectSource.outputContractFiles || metaSource.outputContractFiles || EMPTY_OUTPUT_DERIVATION_VALUES;
-      const resultFiles = projectSource.resultFiles || metaSource.resultFiles || EMPTY_OUTPUT_DERIVATION_VALUES;
-      const cached = projectResultLocationCache.get(planSource);
-      if (cached && cached.rules === rules && cached.outputContractFiles === outputContractFiles && cached.resultFiles === resultFiles) return cached.value;
-      const planCandidates = planOutputEvidenceCandidates(planSource);
-      const ruleCandidates = adapterRuleResultCandidates(rules);
-      const existingCandidates = uniqueText([
-        ...asArray(outputContractFiles),
-        ...asArray(resultFiles)
-      ].map((item) => String(item || "").trim()).filter(isParseableResultCandidate));
-      const source = planCandidates.length ? "当前 Plan" : ruleCandidates.length ? "接入规则" : existingCandidates.length ? "已发现结果" : "";
-      const candidates = uniqueText([...planCandidates, ...ruleCandidates, ...existingCandidates]);
-      const resultPath = candidates[0] || "";
-      const value = {
-        path: resultPath,
-        count: candidates.length,
-        source,
-        summary: resultPath ? resultPath + (candidates.length > 1 ? " 等 " + candidates.length + " 个" : "") + " · " + source : "未声明可解析结果位置"
-      };
-      projectResultLocationCache.set(planSource, { rules, outputContractFiles, resultFiles, value });
-      return value;
-    }
-
-    function projectQuickRow(label, value, actions, klass) {
-      return '<div class="projectQuickRow" title="' + escAttr(label + "：" + (value || "-")) + '">' +
-        '<div class="projectQuickLabel">' + esc(label) + '</div>' +
-        '<div class="projectQuickValue ' + escAttr(klass || "") + '">' + esc(value || "-") + '</div>' +
-        '<div class="projectQuickActions">' + asArray(actions || []).filter(Boolean).join("") + '</div>' +
-      '</div>';
-    }
-
     function projectPathButton(label, file) {
       if (!label || !file) return "";
       return '<button class="mini projectPathButton secondary" data-command="openPlan" data-file="' + escAttr(file) + '" title="' + escAttr(file) + '">' + esc(label) + '</button>';
@@ -10564,7 +9932,7 @@ function renderPanelHtml() {
 
     function projectOnboardingExecutionTarget(stage) {
       const phase = String((stage || {}).phase || "");
-      if (PLAN_WORKFLOW_BUSY_PHASES.has(phase) || PLAN_WORKFLOW_TASK_PHASES.has(phase)) {
+      if (PLAN_WORKFLOW_BUSY_PHASES?.has(phase) || PLAN_WORKFLOW_TASK_PHASES?.has(phase)) {
         return { section: "execution", anchor: "execution", action: "查看运行进度" };
       }
       return { section: "plans", anchor: "plans-actions", action: "查看运行入口" };
@@ -10573,7 +9941,7 @@ function renderPanelHtml() {
     function planFirstRunRecommended(state, planFile, plan, stage, readyToStart) {
       if (!readyToStart || !planFile) return false;
       const phase = String((stage || {}).phase || "");
-      if (!PLAN_WORKFLOW_READY_PHASES.has(phase)) return false;
+      if (!PLAN_WORKFLOW_READY_PHASES?.has(phase)) return false;
       if (phase === "run" && /失败|异常|未完成/.test(String((stage || {}).status || ""))) return false;
       return !currentPlanRevisionRunEvidenceForState(state || {}, planFile, plan || {});
     }
@@ -10584,12 +9952,12 @@ function renderPanelHtml() {
       const detail = String(item.status || (readyToStart ? "可以提交当前 Plan" : "完成前置步骤后开始运行"));
       if (phase === "results") return { ok: true, status: "运行完成", detail };
       if (phase === "monitor") return { ok: false, status: "运行中", detail };
-      if (PLAN_WORKFLOW_BUSY_PHASES.has(phase)) return { ok: false, status: "处理中", detail };
+      if (PLAN_WORKFLOW_BUSY_PHASES?.has(phase)) return { ok: false, status: "处理中", detail };
       if (phase === "debug-review") return { ok: false, status: "Debug 待复核", detail };
       if (phase === "review") return { ok: false, status: "任务需处理", detail };
       if (!readyToStart) return { ok: false, status: "待前置步骤", detail: "完成基础设施、Plan 输出和 Agent 检测后开始运行" };
       if (firstRunRecommended) return { ok: false, status: "建议 Debug 首跑", detail: "先验证首个任务、实时日志和结果输出，再提交完整 Plan" };
-      if (PLAN_WORKFLOW_READY_PHASES.has(phase)) return { ok: true, status: "可提交", detail };
+      if (PLAN_WORKFLOW_READY_PHASES?.has(phase)) return { ok: true, status: "可提交", detail };
       return { ok: false, status: "待处理", detail };
     }
 
@@ -10602,7 +9970,7 @@ function renderPanelHtml() {
         currentPlanWorkflowResultCache = new Map();
       }
       const cacheKey = normalizePlanSelectionKey(planFile);
-      if (currentPlanWorkflowResultCache.has(cacheKey)) return currentPlanWorkflowResultCache.get(cacheKey);
+      if (currentPlanWorkflowResultCache?.has(cacheKey)) return currentPlanWorkflowResultCache?.get(cacheKey);
       const scopedState = data.planFileInput === planFile ? data : Object.assign({}, data, { planFileInput: planFile });
       const summary = scopedState.resultsSummary || {};
       const autoParse = resultAutoParseReadinessForState(scopedState, summary);
@@ -10724,9 +10092,9 @@ function renderPanelHtml() {
       const configFile = String((plan || {}).baseConfig || (plan || {}).base_config || "").trim();
       const adapterReady = Boolean(project.adapterConfig);
       const cacheKey = refListKey(planSource, rules, configs, outputContractFiles, resultParsePreviews, contractReady, configFile, adapterReady);
-      let projectCache = projectOutputGateDiagnosticsCache.get(projectSource);
-      if (projectCache && projectCache.has(cacheKey)) {
-        const cached = projectCache.get(cacheKey);
+      let projectCache = projectOutputGateDiagnosticsCache?.get(projectSource);
+      if (projectCache && projectCache?.has(cacheKey)) {
+        const cached = projectCache?.get(cacheKey);
         projectCache.delete(cacheKey);
         projectCache.set(cacheKey, cached);
         return cached;
@@ -10772,7 +10140,7 @@ function renderPanelHtml() {
 
     function validResultPreviewCount(previews) {
       const source = previews && typeof previews === "object" ? previews : null;
-      if (source && validResultPreviewCountCache.has(source)) return validResultPreviewCountCache.get(source);
+      if (source && validResultPreviewCountCache?.has(source)) return validResultPreviewCountCache?.get(source);
       const count = asArray(source || []).filter(resultPreviewHasRecords).length;
       if (source) validResultPreviewCountCache.set(source, count);
       return count;
@@ -10852,8 +10220,8 @@ function renderPanelHtml() {
       if (!target) return false;
       const normalized = target.toLowerCase();
       const basename = (target.split("/").pop() || "").toLowerCase();
-      return compiled.exactPaths.has(normalized)
-        || compiled.basenames.has(basename)
+      return compiled.exactPaths?.has(normalized)
+        || compiled.basenames?.has(basename)
         || compiled.patterns.some((pattern) => pattern.test(target));
     }
 
@@ -10865,17 +10233,17 @@ function renderPanelHtml() {
       const previewSource = previews && typeof previews === "object" ? previews : EMPTY_OUTPUT_DERIVATION_VALUES;
       const planSource = plan && typeof plan === "object" && !Array.isArray(plan) ? plan : EMPTY_OUTPUT_DERIVATION_SOURCE;
       const rulesSource = rules && typeof rules === "object" && !Array.isArray(rules) ? rules : EMPTY_OUTPUT_DERIVATION_SOURCE;
-      let planCache = planScopedResultPreviewCache.get(previewSource);
+      let planCache = planScopedResultPreviewCache?.get(previewSource);
       if (!planCache) {
         planCache = new WeakMap();
         planScopedResultPreviewCache.set(previewSource, planCache);
       }
-      let rulesCacheForPreviews = planCache.get(planSource);
+      let rulesCacheForPreviews = planCache?.get(planSource);
       if (!rulesCacheForPreviews) {
         rulesCacheForPreviews = new WeakMap();
         planCache.set(planSource, rulesCacheForPreviews);
       }
-      if (rulesCacheForPreviews.has(rulesSource)) return rulesCacheForPreviews.get(rulesSource);
+      if (rulesCacheForPreviews?.has(rulesSource)) return rulesCacheForPreviews?.get(rulesSource);
       const all = asArray(previewSource).filter((item) => item && typeof item === "object");
       const selected = Boolean(plan && (plan.planFile || plan.file || plan.planId || plan.suite));
       if (!selected) {
@@ -10883,12 +10251,12 @@ function renderPanelHtml() {
         rulesCacheForPreviews.set(rulesSource, unscoped);
         return unscoped;
       }
-      let rulesCache = planScopedResultCandidateCache.get(planSource);
+      let rulesCache = planScopedResultCandidateCache?.get(planSource);
       if (!rulesCache) {
         rulesCache = new WeakMap();
         planScopedResultCandidateCache.set(planSource, rulesCache);
       }
-      let derived = rulesCache.get(rulesSource);
+      let derived = rulesCache?.get(rulesSource);
       if (!derived) {
         const candidates = uniqueText([
           ...planOutputEvidenceCandidates(plan),
@@ -11013,7 +10381,7 @@ function renderPanelHtml() {
     function adapterRuleResultCandidates(rules) {
       const source = rules && typeof rules === "object" ? rules : null;
       if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
-      const cached = adapterRuleResultCandidatesCache.get(source);
+      const cached = adapterRuleResultCandidatesCache?.get(source);
       if (cached) return cached;
       const value = uniqueText([
         ...asArray(source.candidateCsv),
@@ -11038,7 +10406,7 @@ function renderPanelHtml() {
     function uniqueText(values) {
       const seen = new Set();
       return (values || []).map((item) => String(item || "").trim()).filter((item) => {
-        if (!item || seen.has(item.toLowerCase())) return false;
+        if (!item || seen?.has(item.toLowerCase())) return false;
         seen.add(item.toLowerCase());
         return true;
       });
@@ -11088,7 +10456,7 @@ function renderPanelHtml() {
     function renderAdapterRules(rules) {
       const source = rules && typeof rules === "object" ? rules : null;
       if (!source) return "";
-      if (renderAdapterRulesCache.has(source)) return renderAdapterRulesCache.get(source);
+      if (renderAdapterRulesCache?.has(source)) return renderAdapterRulesCache?.get(source);
       if (!hasAdapterRuleSignals(rules)) {
         renderAdapterRulesCache.set(source, "");
         return "";
@@ -11266,12 +10634,12 @@ function renderPanelHtml() {
       const selectedSource = selected && typeof selected === "object" && !Array.isArray(selected) ? selected : null;
       if (!selectedSource) return { rows: [], counts };
       const baselineSource = baseline && typeof baseline === "object" && !Array.isArray(baseline) ? baseline : EMPTY_CONFIG_PARAM_DIFF_SOURCE;
-      let baselineCache = configParamDiffBaseCache.get(selectedSource);
+      let baselineCache = configParamDiffBaseCache?.get(selectedSource);
       if (!baselineCache) {
         baselineCache = new WeakMap();
         configParamDiffBaseCache.set(selectedSource, baselineCache);
       }
-      const cached = baselineCache.get(baselineSource);
+      const cached = baselineCache?.get(baselineSource);
       if (cached) return cached;
       const hasBaseline = baselineSource !== EMPTY_CONFIG_PARAM_DIFF_SOURCE;
       const selectedOmitted = Number(selected.omittedParamCount || 0) > 0;
@@ -11280,8 +10648,8 @@ function renderPanelHtml() {
       const baselineByKey = configParamsByKey(hasBaseline && baselineSource.params);
       const keys = Array.from(new Set([...currentByKey.keys(), ...baselineByKey.keys()])).sort(naturalCompare);
       const rows = keys.map((key) => {
-        const param = currentByKey.get(key);
-        const baselineParam = baselineByKey.get(key);
+        const param = currentByKey?.get(key);
+        const baselineParam = baselineByKey?.get(key);
         const kind = !hasBaseline ? "uncompared" : !baselineParam ? baselineOmitted ? "uncertain" : "added" : !param ? selectedOmitted ? "uncertain" : "missing" : String(param.value) === String(baselineParam.value) ? "same" : "changed";
         if (counts[kind] !== undefined) counts[kind] += 1;
         const searchText = [selectedSource.file, hasBaseline && baselineSource.file, key, param && param.value, baselineParam && baselineParam.value, param && param.kind, baselineParam && baselineParam.kind].join(" ").toLowerCase();
@@ -11321,12 +10689,12 @@ function renderPanelHtml() {
       const staticIndex = configInspectorIndex(configSummaries);
       const indexed = staticIndex.indexed;
       const planConfigKey = normalizeConfigInspectorFile(configInspectorPlanConfigFile(selectedPlan));
-      const planConfig = planConfigKey ? staticIndex.byNormalizedFile.get(planConfigKey) : undefined;
+      const planConfig = planConfigKey ? staticIndex.byNormalizedFile?.get(planConfigKey) : undefined;
       const level1Values = staticIndex.level1Values;
       if (configLevel1Filter !== "all" && !level1Values.includes(configLevel1Filter)) configLevel1Filter = "all";
       const level2Values = configLevel1Filter === "all"
         ? staticIndex.level2Values
-        : staticIndex.level2ValuesByLevel1.get(configLevel1Filter) || [];
+        : staticIndex.level2ValuesByLevel1?.get(configLevel1Filter) || [];
       if (configLevel2Filter !== "all" && !level2Values.includes(configLevel2Filter)) configLevel2Filter = "all";
       const query = configParamFilter.trim().toLowerCase();
       const filteredConfigs = indexed.filter((cfg) => (configLevel1Filter === "all" || cfg.pathParts.level1 === configLevel1Filter) && (configLevel2Filter === "all" || cfg.pathParts.level2 === configLevel2Filter) && (!query || cfg.searchText.includes(query) || (planConfig && planConfig.searchText.includes(query)))).sort((left, right) => left === planConfig ? -1 : right === planConfig ? 1 : left.index - right.index);
@@ -11417,7 +10785,7 @@ function renderPanelHtml() {
       const seen = new Set();
       function add(entry) {
         const key = planIdentity(entry.plan, entry.index);
-        if (seen.has(key)) return;
+        if (seen?.has(key)) return;
         seen.add(key);
         out.push(entry);
       }
@@ -11455,7 +10823,7 @@ function renderPanelHtml() {
       const raw = normalizePlanSelectionKey(value);
       if (!raw) return EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY;
       const lower = raw.toLowerCase();
-      if (planFileEquivalenceCache.has(lower)) return planFileEquivalenceCache.get(lower);
+      if (planFileEquivalenceCache?.has(lower)) return planFileEquivalenceCache?.get(lower);
       const base = lower.split("/").pop() || lower;
       const extension = [".yaml", ".yml", ".json"].find((item) => base.endsWith(item)) || "";
       const noExt = extension ? base.slice(0, -extension.length) : base;
@@ -11478,7 +10846,7 @@ function renderPanelHtml() {
 
     function samePlanSelection(left, right) {
       const rightEntry = planFileEquivalenceEntry(right);
-      return rightEntry.keys.length > 0 && planFileEquivalenceEntry(left).keys.some((key) => rightEntry.keySet.has(key));
+      return rightEntry.keys.length > 0 && planFileEquivalenceEntry(left).keys.some((key) => rightEntry.keySet?.has(key));
     }
 
     function planArchiveRecordPlanFile(row) {
@@ -11489,7 +10857,7 @@ function renderPanelHtml() {
 
     function addPlanArchiveReadinessIndexEntry(index, planFile, rowIndex) {
       planFileEquivalenceKeys(planFile).forEach((key) => {
-        let rows = index.get(key);
+        let rows = index?.get(key);
         if (!rows) {
           rows = [];
           index.set(key, rows);
@@ -11531,12 +10899,12 @@ function renderPanelHtml() {
 
     function planArchiveUiReadinessIndices(index, planFile) {
       const rows = new Set();
-      planFileEquivalenceKeys(planFile).forEach((key) => asArray(index.get(key)).forEach((rowIndex) => rows.add(rowIndex)));
+      planFileEquivalenceKeys(planFile).forEach((key) => asArray(index?.get(key)).forEach((rowIndex) => rows.add(rowIndex)));
       return rows;
     }
 
     function cachePlanArchiveUiReadiness(cacheKey, value) {
-      if (!planArchiveReadinessCache.has(cacheKey) && planArchiveReadinessCache.size >= PLAN_ARCHIVE_READINESS_CACHE_LIMIT) {
+      if (!planArchiveReadinessCache?.has(cacheKey) && planArchiveReadinessCache.size >= PLAN_ARCHIVE_READINESS_CACHE_LIMIT) {
         planArchiveReadinessCache.delete(planArchiveReadinessCache.keys().next().value);
       }
       planArchiveReadinessCache.set(cacheKey, value);
@@ -11546,11 +10914,11 @@ function renderPanelHtml() {
     function planArchiveUiReadiness(state, planFile) {
       const index = planArchiveUiReadinessIndexForState(state || {});
       const cacheKey = normalizePlanSelectionKey(planFile).toLowerCase();
-      if (planArchiveReadinessCache.has(cacheKey)) return planArchiveReadinessCache.get(cacheKey);
+      if (planArchiveReadinessCache?.has(cacheKey)) return planArchiveReadinessCache?.get(cacheKey);
       const resultIndices = planArchiveUiReadinessIndices(index.resultIndicesByKey, planFile);
       const activeTaskIndices = planArchiveUiReadinessIndices(index.activeTaskIndicesByKey, planFile);
       let archivedCount = 0;
-      resultIndices.forEach((rowIndex) => { if (index.archivedResultIndices.has(rowIndex)) archivedCount += 1; });
+      resultIndices.forEach((rowIndex) => { if (index.archivedResultIndices?.has(rowIndex)) archivedCount += 1; });
       const resultCount = resultIndices.size;
       const activeTaskCount = activeTaskIndices.size;
       const notIncludedCount = Math.max(0, resultCount - archivedCount);
@@ -11652,9 +11020,9 @@ function renderPanelHtml() {
         const status = String((row || {}).status || "");
         if (counts[status] !== undefined) counts[status] += 1;
         if (isTaskRowSelected(row, selected)) selectedRows.push(row);
-        if (criticalRows.length < TASK_RENDER_LIMIT && (TASK_LIVE_STATUS_TOKENS.has(taskStatusToken(status)) || taskFailureLikeStatus(status))) criticalRows.push(row);
-        if (queuedRows.length < queuedLimit && TASK_QUEUED_STATUSES.has(status)) queuedRows.push(row);
-        if (activeRows.length < 8 && TASK_LIVE_STATUS_TOKENS.has(status)) activeRows.push(row);
+        if (criticalRows.length < TASK_RENDER_LIMIT && (TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(status)) || taskFailureLikeStatus(status))) criticalRows.push(row);
+        if (queuedRows.length < queuedLimit && TASK_QUEUED_STATUSES?.has(status)) queuedRows.push(row);
+        if (activeRows.length < 8 && TASK_LIVE_STATUS_TOKENS?.has(status)) activeRows.push(row);
       });
       let visibleRows = allRows;
       if (allRows.length > TASK_RENDER_LIMIT) {
@@ -11663,7 +11031,7 @@ function renderPanelHtml() {
         const add = (row) => {
           if (out.length >= TASK_RENDER_LIMIT) return;
           const key = String((row && row.uiKey) || "");
-          if (!key || seen.has(key)) return;
+          if (!key || seen?.has(key)) return;
           seen.add(key);
           out.push(row);
         };
@@ -11702,12 +11070,12 @@ function renderPanelHtml() {
         const level1 = cfg.pathParts.level1;
         const level2 = cfg.pathParts.level2;
         const normalizedFile = normalizeConfigInspectorFile(cfg.file);
-        if (normalizedFile && !byNormalizedFile.has(normalizedFile)) byNormalizedFile.set(normalizedFile, cfg);
+        if (normalizedFile && !byNormalizedFile?.has(normalizedFile)) byNormalizedFile.set(normalizedFile, cfg);
         if (level1) level1Set.add(level1);
         if (level2) level2Set.add(level2);
         if (!level1 || !level2) return;
-        if (!level2SetsByLevel1.has(level1)) level2SetsByLevel1.set(level1, new Set());
-        level2SetsByLevel1.get(level1).add(level2);
+        if (!level2SetsByLevel1?.has(level1)) level2SetsByLevel1.set(level1, new Set());
+        level2SetsByLevel1?.get(level1).add(level2);
       });
       const level1Values = Array.from(level1Set).sort(naturalCompare);
       const level2Values = Array.from(level2Set).sort(naturalCompare);
@@ -11732,7 +11100,7 @@ function renderPanelHtml() {
       const key = taskTargetKey(row);
       const log = compactText(taskLogText(state, row, key) || "暂无日志。", 420);
       const actions = [
-        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
+        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
@@ -11741,7 +11109,7 @@ function renderPanelHtml() {
         ["日志", "selectLogRunKey", Boolean(key), false],
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
-      const detailTone = row.status === "completed" || row.status === "done" ? "good" : (taskFailureLikeStatus(row.status) ? "error" : (TASK_QUEUED_STATUSES.has(row.status) ? "warn" : "good"));
+      const detailTone = row.status === "completed" || row.status === "done" ? "good" : (taskFailureLikeStatus(row.status) ? "error" : (TASK_QUEUED_STATUSES?.has(row.status) ? "warn" : "good"));
       const taskTime = taskTimestampView(row);
       setHtmlIfChanged(pane,
         '<div class="detailHeader" title="任务详情">' +
@@ -11834,7 +11202,7 @@ function renderPanelHtml() {
       const pending = taskActionPending(row);
       const pendingDelete = Boolean(taskActionPending(row, "deleteArtifacts"));
       const actions = [
-        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
+        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
@@ -11868,7 +11236,7 @@ function renderPanelHtml() {
     // Running rows only: progress and placement are what the user scans for while a
     // plan is live. Terminal rows keep the compact head and leave detail to the tooltip.
     function taskLivePills(row) {
-      if (!TASK_LIVE_STATUS_TOKENS.has(taskStatusToken(String((row || {}).status || "")))) return "";
+      if (!TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(String((row || {}).status || "")))) return "";
       const progress = compactText(String((row || {}).progress || "").trim(), 18);
       const gpuIds = arrayText((row || {}).gpuIds);
       const worker = (row || {}).serverId && row.serverId !== "-" ? workerName(row.serverId) : "";
@@ -11890,7 +11258,7 @@ function renderPanelHtml() {
       const key = taskTargetKey(row);
       const checked = isTaskRowSelected(row, selected);
       const actions = [
-        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS.has(row.status), true],
+        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
@@ -11949,7 +11317,7 @@ function renderPanelHtml() {
     function isTaskRowSelected(row, selected) {
       const uiKeys = selected && selected.uiKeys ? selected.uiKeys : EMPTY_TASK_SELECTION_SET;
       const operationKeys = selected && selected.operationKeys ? selected.operationKeys : EMPTY_TASK_SELECTION_SET;
-      return uiKeys.has(String(row.uiKey || "")) || (!uiKeys.size && taskOperationKeys(row).some((value) => operationKeys.has(value)));
+      return uiKeys?.has(String(row.uiKey || "")) || (!uiKeys.size && taskOperationKeys(row).some((value) => operationKeys?.has(value)));
     }
 
     function taskCardClass(status) {
@@ -11958,8 +11326,8 @@ function renderPanelHtml() {
       if (value.includes("testing")) return "is-testing";
       if (value.includes("queue") || value.includes("pending")) return "is-queued";
       if (value.includes("complete") || value === "done") return "is-completed";
-      if (TASK_STOPPED_STATUSES.has(value)) return "is-stopped";
-      if (TASK_FAILURE_STATUSES.has(value)) return "is-failed";
+      if (TASK_STOPPED_STATUSES?.has(value)) return "is-stopped";
+      if (TASK_FAILURE_STATUSES?.has(value)) return "is-failed";
       return "is-queued";
     }
 
@@ -12016,9 +11384,9 @@ function renderPanelHtml() {
       const logs = state.logs || {};
       const direct = logs[key] || logs[row.logPath] || logs[row.runKey] || logs[row.experimentId] || logs[row.archiveKey];
       const text = logPayloadText(direct);
-      const liveText = firstText(text, row.liveOutput, row.logTail);
-      const finalText = firstText(row.finalLog, row.finalOutput, row.consoleTail, row.stdout, row.stderr, row.logTail, row.liveOutput);
-      return isTerminalTask(row) ? firstText(finalText, liveText) : firstText(liveText, finalText);
+      const liveText = decodeCapturedText(firstText(text, row.liveOutput, row.logTail));
+      const finalText = decodeCapturedText(firstText(row.finalLog, row.finalOutput, row.consoleTail, row.stdout, row.stderr, row.logTail, row.liveOutput));
+      return isTerminalTask(row) ? decodeCapturedText(firstText(finalText, liveText)) : decodeCapturedText(firstText(liveText, finalText));
     }
 
     function shouldOpenTaskLog(row, text) {
@@ -12026,7 +11394,7 @@ function renderPanelHtml() {
     }
 
     function isActiveTask(row) {
-      return TASK_LIVE_STATUS_TOKENS.has(String(row.status || "").toLowerCase());
+      return TASK_LIVE_STATUS_TOKENS?.has(String(row.status || "").toLowerCase());
     }
 
     function isTerminalTask(row) {
@@ -12034,9 +11402,9 @@ function renderPanelHtml() {
     }
 
     function logPayloadText(value) {
-      if (typeof value === "string") return value;
+      if (typeof value === "string") return decodeCapturedText(value);
       if (!value || typeof value !== "object") return "";
-      return firstText(value.text, value.output, value.tail, value.log, value.stdout, value.stderr);
+      return decodeCapturedText(firstText(value.text, value.output, value.tail, value.log, value.stdout, value.stderr));
     }
 
     function renderTaskProgressCard(row) {
@@ -12097,7 +11465,7 @@ function renderPanelHtml() {
       function add(row) {
         if (out.length >= TRACE_RENDER_LIMIT) return;
         const key = traceRowKey(row);
-        if (seen.has(key)) return;
+        if (seen?.has(key)) return;
         seen.add(key);
         out.push(row);
       }
@@ -12221,7 +11589,7 @@ function renderPanelHtml() {
       const context = { runKey, archiveKey, workerId: row.workerId, planFile, planRevision: row.planRevision, updatedAt: row.updatedAt, reviewState: row.reviewState };
       const reason = traceActionDisableReason(lastState, command, context);
       const pendingKey = pendingKeyForAction(command, { runKey, archiveKey, workerId: row.workerId, planFile, confirmationPath });
-      const pending = pendingButtonKeys.has(pendingKey);
+      const pending = pendingButtonKeys?.has(pendingKey);
       const titleText = reason || (pending ? "执行中" : commandHelp(command));
       return '<button class="taskActionButton" data-command="' + escAttr(command) + '" data-pending-key="' + escAttr(pendingKey) + '" data-run-key="' + escAttr(runKey) + '" data-archive-key="' + escAttr(archiveKey) + '" data-plan-file="' + escAttr(planFile) + '" data-plan-revision="' + escAttr(row.planRevision || "") + '" data-worker-id="' + escAttr(row.workerId || "") + '" data-confirmation-path="' + escAttr(confirmationPath) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '"' + (confirmFlag ? ' data-confirm="true"' : "") + (dangerFlag ? ' data-danger="true"' : "") + ((reason || pending) ? " disabled" : "") + (titleText ? ' title="' + escAttr(titleText) + '" aria-label="' + escAttr(label + "：" + titleText) + '"' : "") + '>' + loadingPrefix(pending) + esc(label) + '</button>';
     }
@@ -12241,7 +11609,7 @@ function renderPanelHtml() {
       if (!traceMatchesPlanVersion(context, String(plan.revision || ""), Date.parse(String(plan.updatedAt || "")))) return "记录属于旧 Plan 版本；可查看历史，但不能作为当前版本结果执行操作。";
       const reason = disableReason(state, command, context);
       if (reason) return reason;
-      if (ARTIFACT_SCOPE_COMMANDS.has(command) && (!context.workerId || context.workerId === "-")) {
+      if (ARTIFACT_SCOPE_COMMANDS?.has(command) && (!context.workerId || context.workerId === "-")) {
         return "缺少 Worker 标识，只能处理 Hub 索引；请优先在任务区选择带 Worker 的任务。";
       }
       return "";
@@ -12302,7 +11670,7 @@ function renderPanelHtml() {
     }
 
     function traceRowSelected(row, selected) {
-      return [row.id, row.archiveKey].some((value) => selected.has(String(value || "")));
+      return [row.id, row.archiveKey].some((value) => selected?.has(String(value || "")));
     }
 
     function renderOperationSection(state) {
@@ -12344,6 +11712,90 @@ function renderPanelHtml() {
           ? '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'
           : '<div class="empty-state">当前筛选下没有操作记录。</div>')
         : '<div class="empty-state">尚无操作记录。</div>'));
+    }
+
+    function renderTaskSection(state) {
+      const view = taskSectionViewModelForState(state);
+      const selected = view.selected;
+      const scope = view.scope;
+      const rows = view.rows;
+      const taskView = view.taskView;
+      const counts = taskView.counts;
+      const versionCount = scope.selectedCount;
+      const scopeBar = scope.selectedPlanFile
+        ? '<div class="taskScopeBar"><span class="muted">任务范围</span><div class="taskScopeSwitch" role="group" aria-label="任务范围">' +
+            '<button type="button" data-task-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + versionCount + '</button>' +
+            '<button type="button" data-task-plan-scope="all" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
+          '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
+        : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
+      let taskSummaryHtml = scopeBar + renderTaskPlanCompletionNext(state, scope) + (rows.length
+        ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
+        : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>');
+      setHtmlIfChanged("taskSummary", taskSummaryHtml);
+      const selectedRows = taskView.selectedRows;
+      renderTaskBatchActions(state, rows, selectedRows);
+      setHtmlIfChanged("taskProgressCards", "");
+      const visibleRows = taskView.visibleRows;
+      const taskTableChanged = setHtmlIfChanged("taskTable", rows.length
+        ? renderTaskCards(state, visibleRows, selected, rows.length)
+        : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换至全部任务查看历史记录。" : "暂无任务数据。") + '</div>');
+      renderTaskDetailPane(state, rows, selectedRows, taskView.detailRow);
+      if (taskTableChanged) invalidateSelectedTaskPayload();
+    }
+
+    function renderExecutionSection(state) {
+      renderOperationSection(state);
+      renderTaskSection(state);
+    }
+    function handleTaskPlanScopeClick(button) {
+      const next = button.dataset.taskPlanScope === "all" ? "all" : "selected";
+      if (!setTaskPlanScope(next)) return;
+      renderExecutionSection(lastState || {});
+    }
+
+    function handleTaskSelectionChange(box) {
+      invalidateSelectedTaskPayload();
+      refreshContextualActionButtons(lastState || {}, el("workbenchInspector"));
+      refreshContextualActionButtons(lastState || {}, el("pinnedActionsHost"));
+      refreshContextualActionButtons(lastState || {}, el("taskBatchActions"));
+      vscode.postMessage({ command: "selectExperiment", taskUiKey: box.dataset.taskUiKey, runKey: box.dataset.actionKey || box.dataset.runKey, experimentId: box.dataset.experimentId, archiveKey: box.dataset.archiveKey, selected: box.checked });
+    }
+
+    function renderDetectedProject(state) {
+      const project = state.detectedProject || {};
+      const configs = project.configSummaries || [];
+      const plans = project.plans || [];
+      const entries = project.entryCandidates || {};
+      const resultFiles = project.resultFiles || [];
+      const outputContractFiles = project.outputContractFiles || [];
+      const resultParsePreviews = project.resultParsePreviews || [];
+      const adapterRules = project.adapterRules || {};
+      const missingOnboarding = project.missingOnboarding || [];
+      const selectedPlan = planFromContext(state, { planFile: state.planFileInput || ((state.selection || {}).selectedPlanId) || "" });
+      const previewScope = planScopedResultParsePreviews(resultParsePreviews, selectedPlan, adapterRules);
+      const projectMeta = {
+        configs,
+        plans,
+        entries,
+        resultFiles,
+        outputContractFiles,
+        resultParsePreviews: previewScope.items,
+        resultParsePreviewScope: previewScope,
+        parseablePreviewCount: validResultPreviewCount(previewScope.items),
+        adapterRules,
+        missingOnboarding,
+        selectedPlan,
+        serverReadiness: serverSetupReadiness(state),
+        executionWorkerReadiness: executionWorkerReadiness(state),
+        endpointReadiness: projectEndpointReadiness(state),
+        codeSyncReadiness: projectCodeSyncReadiness(state)
+      };
+      const outputGate = projectOutputGateDiagnostics(project, projectMeta, selectedPlan);
+      projectMeta.outputGate = outputGate;
+      projectMeta.outputContractCheck = currentResultOutputContractCheck(state);
+      const selectedPlanFile = selectedPlan && (selectedPlan.file || selectedPlan.planFile || selectedPlan.planId);
+      projectMeta.outputContractStage = currentPlanRuntimeContractStage(state, selectedPlanFile);
+      return renderAdapterRules(adapterRules) + renderResultParsePreviews(previewScope) + renderConfigInspector(project, selectedPlan);
     }
 
     function operationViewModelForState(state) {
@@ -12425,7 +11877,7 @@ function renderPanelHtml() {
       const seen = new Set();
       const add = (row) => {
         const key = String(row.operationId || row.id || row.type || row.updatedAt || out.length);
-        if (seen.has(key) || out.length >= OPERATION_RENDER_LIMIT) return;
+        if (seen?.has(key) || out.length >= OPERATION_RENDER_LIMIT) return;
         seen.add(key);
         out.push(row);
       };
@@ -12497,7 +11949,7 @@ function renderPanelHtml() {
       const rawType = row.type || row.action || "operation";
       const itemTitle = operationTypeLabel(rawType) + "（原始：" + rawType + "）：" + operationStatusLabel(row.status);
       const timestamp = operationTimestampView(row);
-      const isAbortable = PLAN_RUN_OPERATION_TYPES.has(rawType) || String(rawType).toLowerCase().includes("run-plan") || String(rawType).toLowerCase() === "runplan" || String(rawType).toLowerCase().includes("workflow") || Boolean(row.planFile);
+      const isAbortable = PLAN_RUN_OPERATION_TYPES?.has(rawType) || String(rawType).toLowerCase().includes("run-plan") || String(rawType).toLowerCase() === "runplan" || String(rawType).toLowerCase().includes("workflow") || Boolean(row.planFile);
       const abortButton = isAbortable ? '<div class="operationActions"><button class="mini danger" data-command="abortScheduler" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" data-confirm="true" title="与运行状态解耦：一键 kill *-sch-* 并清理 simple_cluster/tmp/cluster_scheduler/*_state.json（自动匹配当前 prefix）">中止/清理</button></div>' : '';
       const tbLinkForRunning = renderTensorBoardLinksForRunning();
       const logWindow = renderOperationLogsWindowed(row);
@@ -12664,12 +12116,12 @@ function renderPanelHtml() {
     }
     function operationPayloadText(row) {
       const p = (row && row.payload) || {};
-      return [
+      return decodeCapturedText([
         String(p.error || ""),
         String(p.logTail || p.log_tail || p.liveLogTail || p.live_log_tail || ""),
         String((p.evidence && (p.evidence.error || p.evidence.logTail || p.evidence.liveLogTail)) || ""),
         String(p.message || p.msg || "")
-      ].join("\\n");
+      ].join("\\n"));
     }
     function operationEvidenceHasErrorText(row) {
       const _ageMs = Date.now() - Date.parse(String((row || {}).startedAt || (row || {}).updatedAt || ""));
@@ -12832,9 +12284,9 @@ function renderPanelHtml() {
           String((row.payload && (row.payload.logTail || row.payload.log_tail || row.payload.liveLogTail || row.payload.live_log_tail)) || "")
         ];
         const rawFallback = rawFallbackCandidates.find((v) => String(v || "").trim()) || "";
-        const combinedRaw = redactedTail || redact(String(rawFallback || "").trim());
+        const combinedRaw = decodeCapturedText(redactedTail || redact(String(rawFallback || "").trim()));
         const schedLogRaw = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
-        const schedLog = schedLogRaw ? redact(schedLogRaw) : "";
+        const schedLog = schedLogRaw ? decodeCapturedText(redact(schedLogRaw)) : "";
         const combinedSrc = [combinedRaw, schedLog].filter(Boolean).join("\\n").trim();
         const logPathRedacted = String(ev.logPathRedacted || (row || {}).logPathRedacted || (row && row.payload && (row.payload.logPathRedacted || row.payload.log_path_redacted)) || "").trim();
         const liveLogCount = Number(ev.liveLogCount ?? ev.live_log_count ?? (row || {}).liveLogCount ?? (row || {}).live_log_count ?? 0) || 0;
@@ -12872,7 +12324,7 @@ function renderPanelHtml() {
       const visible = rows.slice(0, Math.max(1, Number(limit || 3)));
       const entries = visible.map((file) => {
         const name = file.replace(/\\\\/g, "/").split("/").pop() || "结果文件";
-        const error = detailMap.get(file) || "未返回具体解析原因；可下载原文件检查内容。";
+        const error = detailMap?.get(file) || "未返回具体解析原因；可下载原文件检查内容。";
         return '<div class="operationFileEntry"><div class="operationFileReason" title="' + escAttr(file + "：" + error) + '"><b>' + esc(compactText(name, 44)) + '</b><span>' + esc(compactText(error, 120)) + '</span></div><button class="mini secondary" data-command="downloadRemoteResult" data-remote-path="' + escAttr(file) + '" data-plan-file="' + escAttr(planFile) + '" title="' + escAttr("下载只读副本并打开：" + file) + '">查看文件</button></div>';
       }).join("");
       const omitted = rows.length - visible.length;
@@ -13038,7 +12490,7 @@ function renderPanelHtml() {
         ready: item.ready === true && status === "ready",
         label: labels[status] || labels.unknown,
         message: String(item.message || "尚未检测 PPT automation。"),
-        actionCommand: PPT_AUTOMATION_ACTION_COMMANDS.has(String(item.actionCommand || "")) ? String(item.actionCommand) : "",
+        actionCommand: PPT_AUTOMATION_ACTION_COMMANDS?.has(String(item.actionCommand || "")) ? String(item.actionCommand) : "",
         actionLabel: String(item.actionLabel || "")
       };
     }
@@ -13064,9 +12516,9 @@ function renderPanelHtml() {
       const planUpdatedAtText = String(item.updatedAt || "");
       const planUpdatedAt = Date.parse(planUpdatedAtText);
       const cacheKey = [normalizePlanSelectionKey(selectedPlan), planRevision, planUpdatedAtText].join("|");
-      if (currentPlanRevisionRunEvidenceCache.has(cacheKey)) return currentPlanRevisionRunEvidenceCache.get(cacheKey);
+      if (currentPlanRevisionRunEvidenceCache?.has(cacheKey)) return currentPlanRevisionRunEvidenceCache?.get(cacheKey);
       const operationMatch = operationRowsForState(data).some((row) =>
-        PLAN_RUN_OPERATION_TYPES.has(String((row || {}).type || "").toLowerCase())
+        PLAN_RUN_OPERATION_TYPES?.has(String((row || {}).type || "").toLowerCase())
         && samePlanSelection((row || {}).planFile || "", selectedPlan)
         && Boolean((row || {}).submissionAccepted || (row || {}).schedulerStarted)
         && operationMatchesPlanVersion(row, planRevision, planUpdatedAt));
@@ -13493,7 +12945,7 @@ function renderPanelHtml() {
       for (const row of asArray(rows)) {
         const action = String((row || {}).type || "").toLowerCase();
         const field = RESULT_ANALYSIS_ARTIFACT_FIELDS[action];
-        if (!field || seenActions.has(action) || !operationSucceeded(row)) continue;
+        if (!field || seenActions?.has(action) || !operationSucceeded(row)) continue;
         if ((planFile && !samePlanSelection(row.planFile, planFile)) || !operationMatchesPlanVersion(row, planRevision, planUpdatedAt)) continue;
         seenActions.add(action);
         out[field] = meaningfulValue(row[field]);
@@ -13579,7 +13031,7 @@ function renderPanelHtml() {
       const source = String(sourcePath || "").trim();
       const automation = pptAutomationReadinessForState(lastState || {});
       const pendingKey = pendingKeyForAction("plotResultsToPpt", { sourcePath: source });
-      const pending = pendingButtonKeys.has(pendingKey);
+      const pending = pendingButtonKeys?.has(pendingKey);
       const debugReason = debugModeDisableReason("plotResultsToPpt");
       const unavailable = Boolean(debugReason || !source || !automation.ready);
       const unavailableReason = debugReason || (!source
@@ -13892,7 +13344,7 @@ function renderPanelHtml() {
       const pendingPayload = Object.assign({}, savedPayload, batchPayload);
       const reason = options.disabledReason || actionButtonDisableReason(command, pendingPayload, options);
       const pendingKey = pendingKeyForAction(command, pendingPayload);
-      const pending = pendingButtonKeys.has(pendingKey);
+      const pending = pendingButtonKeys?.has(pendingKey);
       const disabled = reason || pending ? " disabled" : "";
       const titleText = reason || (pending ? "执行中" : commandHelp(command));
       const title = titleText ? ' title="' + escAttr(titleText) + '" aria-label="' + escAttr(label + "：" + titleText) + '"' : "";
@@ -13908,7 +13360,7 @@ function renderPanelHtml() {
     function actionButtonDisableReason(command, payload, options) {
       const strictReason = scopedActionMissingContextReason(command, payload, options || {});
       if (strictReason) return strictReason;
-      const rowScoped = taskObjectScopedCommands.has(command) && hasTaskObjectTarget(payload) && String(payload.batchSelected || "") !== "true";
+      const rowScoped = taskObjectScopedCommands?.has(command) && hasTaskObjectTarget(payload) && String(payload.batchSelected || "") !== "true";
       return rowScoped ? rowActionDisableReason(lastState, command, payload) : disableReason(lastState, command, payload);
     }
 
@@ -13917,11 +13369,11 @@ function renderPanelHtml() {
       options = options || {};
       const storedAction = Boolean(options.actionId || options.actionSection || options.savedAction);
       const batchAction = Boolean(options.batch || String(payload.batchSelected || "") === "true");
-      if (batchAction && taskBatchScopedCommands.has(command) && !hasTaskBatchTarget(payload)) return "请先在任务表勾选实验";
-      if (storedAction && taskObjectScopedCommands.has(command) && !batchAction && !hasTaskObjectTarget(payload)) return "该固定按钮缺少任务标识，请从任务行重新加入工作详情或右侧置顶";
-      if (storedAction && endpointScopedCommands.has(command) && !payload.endpointId) return "该固定按钮缺少服务器标识，请从服务器行重新加入工作详情或右侧置顶";
-      if (storedAction && explicitPlanFileCommands.has(command) && !(payload.planFile || payload.file)) return "该固定按钮缺少 planFile，请从计划行重新加入工作详情或右侧置顶";
-      if (storedAction && explicitSavePlanCommands.has(command) && !payload.savePlan) return "该固定按钮缺少计划草稿标识，请从计划编辑区重新加入工作详情或右侧置顶";
+      if (batchAction && taskBatchScopedCommands?.has(command) && !hasTaskBatchTarget(payload)) return "请先在任务表勾选实验";
+      if (storedAction && taskObjectScopedCommands?.has(command) && !batchAction && !hasTaskObjectTarget(payload)) return "该固定按钮缺少任务标识，请从任务行重新加入工作详情或右侧置顶";
+      if (storedAction && endpointScopedCommands?.has(command) && !payload.endpointId) return "该固定按钮缺少服务器标识，请从服务器行重新加入工作详情或右侧置顶";
+      if (storedAction && explicitPlanFileCommands?.has(command) && !(payload.planFile || payload.file)) return "该固定按钮缺少 planFile，请从计划行重新加入工作详情或右侧置顶";
+      if (storedAction && explicitSavePlanCommands?.has(command) && !payload.savePlan) return "该固定按钮缺少计划草稿标识，请从计划编辑区重新加入工作详情或右侧置顶";
       return "";
     }
 
@@ -13936,7 +13388,7 @@ function renderPanelHtml() {
     }
     function rowActionButton(label, command, row, visible, confirmFlag, dangerFlag) {
       if (!visible) return "";
-      const archiveScoped = ARTIFACT_SCOPE_COMMANDS.has(command);
+      const archiveScoped = ARTIFACT_SCOPE_COMMANDS?.has(command);
       const runKey = command === "selectLogRunKey" ? taskLogActionKey(row) : (archiveScoped ? "" : taskActionKeyForCommand(row, command));
       const experimentId = archiveScoped ? "" : row.experimentId;
       const archiveKey = archiveScoped ? taskArchiveActionKey(row) : row.archiveKey;
@@ -13946,7 +13398,7 @@ function renderPanelHtml() {
       const context = { runKey, taskUiKey: row.uiKey, experimentId, archiveKey, workerId, experimentIndex: row.experimentIndex, taskStatus: row.status, gpuId: row.gpuIds, planFile, confirmationPath, debugMode: row.debugMode === true, rowAction: true };
       const reason = rowActionDisableReason(lastState, command, context);
       const pendingKey = pendingKeyForAction(command, { runKey, taskUiKey: row.uiKey, experimentId, archiveKey, workerId, planFile, confirmationPath });
-      const pending = pendingButtonKeys.has(pendingKey);
+      const pending = pendingButtonKeys?.has(pendingKey);
       const titleText = reason || (pending ? "执行中" : commandHelp(command));
       return '<button class="taskActionButton" data-command="' + escAttr(command) + '" data-pending-key="' + escAttr(pendingKey) + '" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(runKey) + '" data-experiment-id="' + escAttr(experimentId) + '" data-archive-key="' + escAttr(archiveKey) + '" data-worker-id="' + escAttr(workerId) + '" data-experiment-index="' + escAttr(row.experimentIndex) + '" data-task-status="' + escAttr(row.status) + '" data-gpu-id="' + escAttr(arrayText(row.gpuIds)) + '" data-plan-file="' + escAttr(planFile) + '" data-confirmation-path="' + escAttr(confirmationPath) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (confirmFlag ? ' data-confirm="true"' : "") + (dangerFlag ? ' data-danger="true"' : "") + ((reason || pending) ? " disabled" : "") + (titleText ? ' title="' + escAttr(titleText) + '" aria-label="' + escAttr(label + "：" + titleText) + '"' : "") + '>' + loadingPrefix(pending) + esc(label) + '</button>';
     }
@@ -13958,7 +13410,7 @@ function renderPanelHtml() {
       const topology = (state || {}).topology || {};
       if (topology.mode !== "worker_pool") return "仅多 Worker模式支持手动转移";
       if (!context.workerId || context.workerId === "-") return "该任务缺少来源 Worker 标识";
-      if (!TASK_QUEUED_STATUSES.has(taskStatusToken(context.taskStatus || ""))) return "仅允许转移排队或未开始任务；运行中和终态任务不可转移";
+      if (!TASK_QUEUED_STATUSES?.has(taskStatusToken(context.taskStatus || ""))) return "仅允许转移排队或未开始任务；运行中和终态任务不可转移";
       if (!usableTaskKey(context.runKey)) return "该任务缺少可定位 runKey";
       if (!String(context.planFile || "").trim()) return "该任务缺少 planFile，不能安全转移";
       const index = Number(context.experimentIndex);
@@ -13977,15 +13429,15 @@ function renderPanelHtml() {
       if (command === "selectLogRunKey") return context.runKey ? "" : "该任务缺少可定位日志标识";
       const workerAction = directWorkerActionMap[command];
       if (workerAction) {
-        const needsWorker = TASK_CONTROL_COMMANDS.has(command) || Boolean(context.workerId && context.workerId !== "-");
+        const needsWorker = TASK_CONTROL_COMMANDS?.has(command) || Boolean(context.workerId && context.workerId !== "-");
         if (needsWorker) {
           if (!context.workerId || context.workerId === "-") return "该任务缺少 Worker 标识，不能直发 Worker Agent";
           const workerMissing = missingWorkerActionCapabilities(state, context.workerId, workerAction);
-          const canHubProjectFallback = ARTIFACT_SCOPE_COMMANDS.has(command) && Boolean(context.runKey || context.archiveKey);
+          const canHubProjectFallback = ARTIFACT_SCOPE_COMMANDS?.has(command) && Boolean(context.runKey || context.archiveKey);
           if (workerMissing.length && !canHubProjectFallback) return "需要升级或检测 Worker Agent: " + workerMissing.join(", ");
         }
       }
-      if (ARTIFACT_SCOPE_COMMANDS.has(command)) {
+      if (ARTIFACT_SCOPE_COMMANDS?.has(command)) {
         if (!context.runKey && !context.archiveKey) return "旧任务缺少可操作标识";
       } else if (!context.runKey) {
         return "旧任务缺少可操作标识";
@@ -14033,22 +13485,22 @@ function renderPanelHtml() {
           pushSoft("capability", "actions.dry-run-plan");
         }
       }
-      if (PLAN_PREFLIGHT_COMMANDS.has(command) && command !== "validatePlan") {
+      if (PLAN_PREFLIGHT_COMMANDS?.has(command) && command !== "validatePlan") {
         const validateReadiness = uiCapabilityReadinessForStateCommand(state, "validatePlan");
         if (validateReadiness.missing.length === 0) {
           missing = missing.filter((key) => key !== "actions.dry-run-plan");
         }
       }
       if (missing.length) {
-        if (isLenient && (PLAN_PREFLIGHT_COMMANDS.has(command) || SELECTED_PLAN_RUN_COMMANDS.has(command) || SUBMITTED_RUN_COMMANDS.has(command))) {
+        if (isLenient && (PLAN_PREFLIGHT_COMMANDS?.has(command) || SELECTED_PLAN_RUN_COMMANDS?.has(command) || SUBMITTED_RUN_COMMANDS?.has(command))) {
           pushSoft("capability", missing.join(", "));
         } else {
           return (workerMissing ? "需要升级或检测 Worker Agent: " : "需要升级或检测 Hub Agent: ") + missing.join(", ");
         }
       }
       const health = (state.health || {}).state;
-      if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && REMOTE_ACTION_DISCONNECTED_HEALTH_STATES.has(health) && !hasRealtimeSignal(state)) {
-        if (PLAN_PREFLIGHT_COMMANDS.has(command)) { pushSoft("tunnel", "tunnel 未连接"); }
+      if (isRemoteAction(command) && state.connectionMode !== "offline_import" && health && REMOTE_ACTION_DISCONNECTED_HEALTH_STATES?.has(health) && !hasRealtimeSignal(state)) {
+        if (PLAN_PREFLIGHT_COMMANDS?.has(command)) { pushSoft("tunnel", "tunnel 未连接"); }
         else if (isLenient) { pushSoft("tunnel", "tunnel 未连接"); }
         else { return "tunnel 未连接"; }
       }
@@ -14060,7 +13512,7 @@ function renderPanelHtml() {
         const preparationBlockers = agentPreparationBlockersFromState(state);
         if (preparationBlockers.length) return preparationBlockers[0];
       }
-      if (SELECTED_PLAN_ACTION_COMMANDS.has(command) && !hasSelectedPlan(state, context)) return "请先输入或选择 planFile";
+      if (SELECTED_PLAN_ACTION_COMMANDS?.has(command) && !hasSelectedPlan(state, context)) return "请先输入或选择 planFile";
       if (command === "archivePlan" && !hasSelectedPlan(state) && !(context && context.planFile)) return "请先输入或选择 planFile";
       // “运行全部计划”不应只因 plans 列表为空就被置灰：当用户已选择/填入某个 plan
       // （planFileInput 或 selection）时，应当允许运行该计划（等价于运行全部可见计划）。
@@ -14073,7 +13525,7 @@ function renderPanelHtml() {
           pushSoft("planList", "没有可运行的计划文件");
         }
       }
-      if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
+      if (SELECTED_PLAN_RUN_COMMANDS?.has(command)) {
         const planFile = String(context.planFile || context.planId || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");
         const plan = typeof planFromContext === "function" ? planFromContext(state, { planFile }) || {} : {};
         const activity = planActiveRunEvidence(state, planFile, plan);
@@ -14082,18 +13534,18 @@ function renderPanelHtml() {
           return "当前 Plan 已有 " + activity.taskCount + " 个任务和 " + activity.operationCount + " 个提交操作未结束，不能重复提交";
         }
       }
-      if (SUBMITTED_RUN_COMMANDS.has(command) && !executionWorkerReadiness(state).ready) {
+      if (SUBMITTED_RUN_COMMANDS?.has(command) && !executionWorkerReadiness(state).ready) {
         if (isLenient) { pushSoft("executionWorker", "至少配置并启用一个执行 Worker"); } else { return "至少配置并启用一个执行 Worker"; }
       }
       const endpointReadiness = projectEndpointReadiness(state);
-      if (PLAN_PREFLIGHT_COMMANDS.has(command) && !endpointReadiness.hubReady) {
+      if (PLAN_PREFLIGHT_COMMANDS?.has(command) && !endpointReadiness.hubReady) {
         const r = endpointReadiness.missing[0] || "Hub Agent 未通过当前项目检测";
         if (isLenient) { pushSoft("hubReady", r); } else { return r; }
       }
-      if (SUBMITTED_RUN_COMMANDS.has(command) && !endpointReadiness.ready) {
+      if (SUBMITTED_RUN_COMMANDS?.has(command) && !endpointReadiness.ready) {
         if (isLenient) { pushSoft("endpoint", endpointReadiness.summary); } else { return endpointReadiness.summary; }
       }
-      if (SELECTED_PLAN_RUN_COMMANDS.has(command)) {
+      if (SELECTED_PLAN_RUN_COMMANDS?.has(command)) {
         const outputGateReason = projectOutputGateReason(state, context);
         if (outputGateReason) {
           if (isLenient) { pushSoft("outputGate", outputGateReason); } else { return outputGateReason; }
@@ -14105,8 +13557,8 @@ function renderPanelHtml() {
         if (hasBatchTargets && selectedPlanFiles.length > 1) return "批量重试需要选中的任务来自同一个 plan；请按计划分批选择。";
         if (hasBatchTargets && selectedPlanFiles.length === 0) return "批量重试需要任务带有所属 planFile；旧任务缺少 plan 时不能安全重试。";
       }
-      if (TASK_CONTROL_COMMANDS.has(command) && !contextRunKey && !hasSelectedExperiment(state)) return "请先在任务表勾选实验";
-      if (ARTIFACT_SCOPE_COMMANDS.has(command) && !contextRunKey && !contextArchiveKey && !hasSelectedExperiment(state) && !hasSelectedArchive(state)) return "请先选择实验或归档项";
+      if (TASK_CONTROL_COMMANDS?.has(command) && !contextRunKey && !hasSelectedExperiment(state)) return "请先在任务表勾选实验";
+      if (ARTIFACT_SCOPE_COMMANDS?.has(command) && !contextRunKey && !contextArchiveKey && !hasSelectedExperiment(state) && !hasSelectedArchive(state)) return "请先选择实验或归档项";
       if (command === "downloadDebugBundle" && !state.debugBundlePath) return "请先生成调试包并等待完成";
       return "";
     }
@@ -14115,7 +13567,7 @@ function renderPanelHtml() {
     }
     function hasRealtimeSignal(state) {
       const status = String(((state.realtime || {}).streamStatus) || "");
-      return REALTIME_SIGNAL_STATUS_TOKENS.has(status) || Boolean(state.lastSnapshotAt);
+      return REALTIME_SIGNAL_STATUS_TOKENS?.has(status) || Boolean(state.lastSnapshotAt);
     }
     function hasAnyTunnelSession(state) {
       const setup = state.setup || {};
@@ -14140,7 +13592,7 @@ function renderPanelHtml() {
         const file = String(plan.file || plan.planFile || plan.path || "");
         const id = String(plan.planId || file || "");
         [file, id].filter(Boolean).forEach((key) => {
-          if (!index.has(key)) index.set(key, { plan, rowIndex });
+          if (!index?.has(key)) index.set(key, { plan, rowIndex });
         });
       });
       planLookupIndexCacheSource = source;
@@ -14152,8 +13604,8 @@ function renderPanelHtml() {
       const planId = String((context && context.planId) || planFile || "");
       if (!planFile && !planId) return undefined;
       const index = planLookupIndexForState(state);
-      const fileMatch = planFile ? index.get(planFile) : null;
-      const idMatch = planId ? index.get(planId) : null;
+      const fileMatch = planFile ? index?.get(planFile) : null;
+      const idMatch = planId ? index?.get(planId) : null;
       if (!fileMatch) return idMatch && idMatch.plan;
       if (!idMatch) return fileMatch.plan;
       return (fileMatch.rowIndex <= idMatch.rowIndex ? fileMatch : idMatch).plan;
@@ -14165,7 +13617,7 @@ function renderPanelHtml() {
     function planOutputCandidates(plan) {
       const source = plan && typeof plan === "object" ? plan : null;
       if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
-      const cached = planOutputCandidatesCache.get(source);
+      const cached = planOutputCandidatesCache?.get(source);
       if (cached) return cached;
       const value = uniqueText(asArray(source.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
       planOutputCandidatesCache.set(source, value);
@@ -14174,7 +13626,7 @@ function renderPanelHtml() {
     function planOutputEvidenceCandidates(plan) {
       const source = plan && typeof plan === "object" ? plan : null;
       if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
-      const cached = planOutputEvidenceCandidatesCache.get(source);
+      const cached = planOutputEvidenceCandidatesCache?.get(source);
       if (cached) return cached;
       const value = planOutputCandidates(source).filter(isParseableResultCandidate);
       planOutputEvidenceCandidatesCache.set(source, value);
@@ -14183,7 +13635,7 @@ function renderPanelHtml() {
     function planOutputEvidenceSignals(plan) {
       const source = plan && typeof plan === "object" ? plan : null;
       if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
-      const cached = planOutputEvidenceSignalsCache.get(source);
+      const cached = planOutputEvidenceSignalsCache?.get(source);
       if (cached) return cached;
       const value = uniqueText(asArray(source.outputSignals || [])
         .map((item) => String(item || "").trim())
@@ -14195,7 +13647,7 @@ function renderPanelHtml() {
       const text = String(value || "").trim().replace(/\\\\/g, "/");
       const base = text.split("/").pop() || "";
       const lower = base.toLowerCase();
-      if (!text || text.toLowerCase().startsWith("simple_cluster/results/") || RESULT_METADATA_FILENAMES.has(lower) || RESULT_METADATA_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return false;
+      if (!text || text.toLowerCase().startsWith("simple_cluster/results/") || RESULT_METADATA_FILENAMES?.has(lower) || RESULT_METADATA_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return false;
       return /\\.(csv|json|txt|log|out)$/i.test(text);
     }
     function projectOutputGateReason(state, context) {
@@ -14252,7 +13704,7 @@ function renderPanelHtml() {
         uiCapabilityReadinessCache = new Map();
       }
       const commandKey = String(command || "");
-      if (uiCapabilityReadinessCache.has(commandKey)) return uiCapabilityReadinessCache.get(commandKey);
+      if (uiCapabilityReadinessCache?.has(commandKey)) return uiCapabilityReadinessCache?.get(commandKey);
       const keys = uiCapabilityMap[command] || [];
       const missing = keys.filter((key) => !hasCapability(state, key));
       const value = { keys, missing };
@@ -14261,7 +13713,7 @@ function renderPanelHtml() {
     }
     function missingNoHubWorkerResultCapabilities(state, command, keys, context) {
       const topology = (state || {}).topology || {};
-      if (!NO_HUB_TOPOLOGY_MODES.has(String(topology.mode || "")) || !noHubWorkerResultCommands.has(command)) return null;
+      if (!NO_HUB_TOPOLOGY_MODES?.has(String(topology.mode || "")) || !noHubWorkerResultCommands?.has(command)) return null;
       const targetIds = uniqueText([
         context && context.workerId,
         ...asArray((context || {}).selectedWorkerIds),
@@ -14309,7 +13761,7 @@ function renderPanelHtml() {
     }
     function runModeForButton(button, command, fallbackMode) {
       const data = (button || {}).dataset || {};
-      if (SELECTED_PLAN_RUN_COMMANDS.has(String(command || ""))) {
+      if (SELECTED_PLAN_RUN_COMMANDS?.has(String(command || ""))) {
         if (data.forceFormal === "true") return false;
         if (data.debugMode !== undefined) return data.debugMode === "true";
       }
@@ -14330,7 +13782,7 @@ function renderPanelHtml() {
         if (button.dataset.topologyMode) patch.mode = button.dataset.topologyMode;
         payload.patch = patch;
       }
-      const planCommand = RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS.has(command);
+      const planCommand = RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS?.has(command);
       if (button.dataset.planFile) payload.planFile = button.dataset.planFile;
       else if (planCommand && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
@@ -14352,7 +13804,7 @@ function renderPanelHtml() {
       if (button.dataset.gpuId) payload.gpuId = button.dataset.gpuId;
       if (button.dataset.workerId) payload.workerId = button.dataset.workerId;
       if (button.dataset.batchSelected === "true") Object.assign(payload, selectedTaskPayload());
-      if (ARTIFACT_SCOPE_COMMANDS.has(command) && button.dataset.batchSelected === "true") {
+      if (ARTIFACT_SCOPE_COMMANDS?.has(command) && button.dataset.batchSelected === "true") {
         payload.selectedRunKeys = [];
         payload.selectedExperimentIds = [];
       }
@@ -14378,16 +13830,462 @@ function renderPanelHtml() {
       if (button.dataset.id && !payload.operationId) payload.operationId = button.dataset.id;
       if (button.dataset.localPort) payload.localPort = button.dataset.localPort;
       if (command === "selectLogRunKey") payload.runKey = button.dataset.runKey;
+      if (command === "runPlan" || command === "reproducePlan" || command === "runAllPlans") {
+        const toggle = document.getElementById("overwriteExistingToggle") || document.querySelector('[data-overwrite-toggle="true"]');
+        if (toggle && toggle.checked) {
+          payload.overwriteExisting = true;
+          payload.overwrite = true;
+          payload.options = payload.options || {};
+          payload.options.overwriteExisting = true;
+          payload.options.overwrite = true;
+        }
+      }
       return payload;
     }
 
     function debugModeBlockedUiCommand(command) {
-      return DEBUG_MODE_BLOCKED_UI_COMMANDS.has(String(command || ""));
+      return DEBUG_MODE_BLOCKED_UI_COMMANDS?.has(String(command || ""));
     }
 
     function debugModeDisableReason(command, mode) {
       const activeMode = mode === undefined ? (typeof runMode === "undefined" ? "formal" : runMode) : mode;
       return String(activeMode || "formal") === "debug" && debugModeBlockedUiCommand(command) ? "Debug 模式禁止归档、删除、结果、统计、论文和 PPT 操作" : "";
+    }
+
+    function planActiveRunEvidence(state, planFile, selectedPlanRecord) {
+      const selectedPlan = normalizePlanSelectionKey(planFile);
+      if (!selectedPlan) return { active: false, operationCount: 0, taskCount: 0 };
+      const plan = selectedPlanRecord && typeof selectedPlanRecord === "object"
+        ? selectedPlanRecord
+        : (typeof planFromContext === "function" ? planFromContext(state || {}, { planFile }) || {} : {});
+      const planRevision = String(plan.revision || plan.planRevision || plan.plan_revision || "").trim();
+      const planUpdatedAtText = String(plan.updatedAt || plan.updated_at || "");
+      const planUpdatedAt = Date.parse(planUpdatedAtText);
+      if (planActiveRunEvidenceCacheState !== state) {
+        planActiveRunEvidenceCacheState = state;
+        planActiveRunEvidenceCache = new Map();
+      }
+      const cacheKey = [selectedPlan, planRevision, planUpdatedAtText].join("|");
+      if (planActiveRunEvidenceCache?.has(cacheKey)) return planActiveRunEvidenceCache?.get(cacheKey);
+      const matchesCurrentVersion = (row) => {
+        const revision = String((row || {}).planRevision || (row || {}).plan_revision || "").trim();
+        if (planRevision && revision) return revision === planRevision;
+        if (Number.isFinite(planUpdatedAt)) {
+          const rowAt = Date.parse(String((row || {}).updatedAt || (row || {}).updated_at || (row || {}).startedAt || (row || {}).started_at || ""));
+          return Number.isFinite(rowAt) && rowAt >= planUpdatedAt;
+        }
+        return !planRevision;
+      };
+      let operationCount = 0;
+      let taskCount = 0;
+      let currentOperationCount = 0;
+      let currentTaskCount = 0;
+      for (const row of operationRowsForState(state || {})) {
+        if (!PLAN_RUN_OPERATION_TYPES.has(String((row || {}).type || "").toLowerCase())
+          || !samePlanSelection((row || {}).planFile || "", selectedPlan)
+          || (row || {}).schedulerFinished
+          || !PLAN_ACTIVE_STATUSES.has(String((row || {}).status || "").toLowerCase())) continue;
+        operationCount += 1;
+        if (matchesCurrentVersion(row)) currentOperationCount += 1;
+      }
+      for (const row of schedulerRowsForState(state || {})) {
+        if (!samePlanSelection((row || {}).planFile || (row || {}).plan || "", selectedPlan)
+          || !PLAN_ACTIVE_STATUSES.has(String((row || {}).status || "").toLowerCase())) continue;
+        taskCount += 1;
+        if (matchesCurrentVersion(row)) currentTaskCount += 1;
+      }
+      const active = operationCount > 0 || taskCount > 0;
+      const currentActive = currentOperationCount > 0 || currentTaskCount > 0;
+      const result = {
+        active,
+        currentActive,
+        historicalActive: active && (currentOperationCount < operationCount || currentTaskCount < taskCount),
+        historicalOnly: active && !currentActive,
+        operationCount,
+        taskCount,
+        currentOperationCount,
+        currentTaskCount,
+        historicalOperationCount: operationCount - currentOperationCount,
+        historicalTaskCount: taskCount - currentTaskCount
+      };
+      planActiveRunEvidenceCache.set(cacheKey, result);
+      return result;
+    }
+
+    function planExecutionStage(state, planFile) {
+      const data = state || {};
+      const plan = planFromContext(data, { planFile }) || {};
+      const planUpdatedAtText = String(plan.updatedAt || "");
+      const planUpdatedAt = Date.parse(planUpdatedAtText);
+      const planRevision = String(plan.revision || "");
+      if (planExecutionStageCacheState !== data) {
+        planExecutionStageCacheState = data;
+        planExecutionStageCache = new Map();
+      }
+      const cacheKey = planExecutionStageCacheKey(planFile, planRevision, planUpdatedAtText);
+      if (planExecutionStageCache?.has(cacheKey)) return planExecutionStageCache?.get(cacheKey);
+      const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
+      if (!rows.length) {
+        const taskStage = terminalPlanTaskExecutionStage(data, planFile, planRevision, planUpdatedAt);
+        if (taskStage) return cachePlanExecutionStage(cacheKey, taskStage);
+      }
+      const latestValidate = rows.find((row) => String(row.type || "").toLowerCase() === "validate-plan");
+      if (!latestValidate) {
+        return cachePlanExecutionStage(cacheKey, {
+          phase: "ready",
+          status: "准备就绪；确认后自动同步、校验、预演并提交",
+          label: "校验并提交运行",
+          command: "runPlan"
+        });
+      }
+      if (operationPending(latestValidate)) {
+        return cachePlanExecutionStage(cacheKey, { phase: "validating", status: "计划校验执行中，等待操作终态", label: "查看进度", section: "execution", anchor: "execution" });
+      }
+      if (!operationSucceeded(latestValidate)) {
+        return cachePlanExecutionStage(cacheKey, {
+          phase: "validate",
+          status: operationIsFailureLike(latestValidate.status) ? "最近一次校验失败；修正 Plan 后重新校验" : "最近一次校验未完成；重新校验当前计划",
+          label: "重新校验",
+          command: "validatePlan"
+        });
+      }
+      const latestDryRun = rows.find((row) => String(row.type || "").toLowerCase() === "dry-run-plan" && operationAtOrAfter(row, latestValidate));
+      if (operationPending(latestDryRun)) {
+        return cachePlanExecutionStage(cacheKey, { phase: "dry-running", status: "计划预演执行中，等待调度预览", label: "查看进度", section: "execution", anchor: "execution" });
+      }
+      if (!operationSucceeded(latestDryRun)) {
+        return cachePlanExecutionStage(cacheKey, {
+          phase: "dry-run",
+          status: latestDryRun && operationIsFailureLike(latestDryRun.status) ? "最近一次预演失败；调整后重新预演" : "校验已通过，预演调度与任务展开结果",
+          label: latestDryRun && operationIsFailureLike(latestDryRun.status) ? "重新预演" : "预演当前计划",
+          command: "dryRunPlan"
+        });
+      }
+      const latestRun = rows.find((row) => PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()) && operationAtOrAfter(row, latestDryRun));
+      const runAccepted = Boolean(latestRun && (latestRun.submissionAccepted || latestRun.schedulerStarted));
+      if (operationPending(latestRun)) {
+        if (runAccepted) {
+          return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "计划已提交，调度器正在排队或运行任务", label: "查看任务", section: "execution", anchor: "execution" });
+        }
+        return cachePlanExecutionStage(cacheKey, { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "execution", anchor: "execution" });
+      }
+      if (operationSucceeded(latestRun)) {
+        if (debugRunRecord(latestRun)) {
+          return cachePlanExecutionStage(cacheKey, { phase: "debug-review", status: "Debug 已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" });
+        }
+        return cachePlanExecutionStage(cacheKey, { phase: "results", status: "调度已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" });
+      }
+      if (latestRun && operationIsFailureLike(latestRun.status) && runAccepted) {
+        return cachePlanExecutionStage(cacheKey, {
+          phase: "review",
+          status: latestRun.schedulerFinished ? "调度已结束且存在失败任务；先查看任务并按需重试" : "调度状态异常；先查看任务与日志，避免重复提交整个 Plan",
+          label: "查看任务",
+          section: "execution",
+          anchor: "execution"
+        });
+      }
+      return cachePlanExecutionStage(cacheKey, {
+        phase: "run",
+        status: latestRun && operationIsFailureLike(latestRun.status) ? "运行提交失败；修正后重新提交" : "预演已通过，可以提交正式运行",
+        label: latestRun && operationIsFailureLike(latestRun.status) ? "重新提交" : "提交运行",
+        command: "runPlan"
+      });
+    }
+
+    function planExecutionStageCacheKey(planFile, planRevision, planUpdatedAt) {
+      return [normalizePlanSelectionKey(planFile), String(planRevision || ""), String(planUpdatedAt || "")].join("|");
+    }
+
+    function cachePlanExecutionStage(cacheKey, stage) {
+      if (planExecutionStageCache.size >= PLAN_EXECUTION_STAGE_CACHE_LIMIT) {
+        const oldestKey = planExecutionStageCache.keys().next().value;
+        if (oldestKey !== undefined) planExecutionStageCache.delete(oldestKey);
+      }
+      planExecutionStageCache.set(cacheKey, stage);
+      return stage;
+    }
+
+    function taskMatchesPlanVersion(row, planRevision, planUpdatedAt) {
+      const revision = String((row || {}).planRevision || (row || {}).plan_revision || "");
+      if (planRevision && revision) return revision === planRevision;
+      if (Number.isFinite(planUpdatedAt)) {
+        const taskAt = Date.parse(String((row || {}).updatedAt || (row || {}).startedAt || ""));
+        return Number.isFinite(taskAt) && taskAt >= planUpdatedAt;
+      }
+      return !planRevision;
+    }
+
+    function terminalPlanTaskExecutionStage(state, planFile, planRevision, planUpdatedAt) {
+      const matching = planVersionTaskRows(state, planFile, planRevision, planUpdatedAt);
+      if (!matching.length || matching.some((row) => !taskTerminalStatus((row || {}).status))) return undefined;
+      if (matching.some((row) => taskFailureLikeStatus((row || {}).status))) {
+        return { phase: "review", status: "调度任务均已结束且存在失败、停止或取消记录；先查看任务并按需重试", label: "查看任务", section: "execution", anchor: "execution" };
+      }
+      if (matching.some((row) => debugRunRecord(row))) {
+        return { phase: "debug-review", status: "Debug 任务已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" };
+      }
+      return { phase: "results", status: "调度任务均已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" };
+    }
+
+    function debugRunRecord(row) {
+      const item = row && typeof row === "object" ? row : {};
+      const mode = item.debugMode ?? item.debug_mode;
+      if (mode === true || String(mode || "").trim().toLowerCase() === "true") return true;
+      const output = String(item.debugOutputDir || item.debug_output_dir || "").replace(/\\\\/g, "/").replace(new RegExp("^/+", "g"), "");
+      return output.startsWith("simple_cluster/debug_runs/");
+    }
+
+    function planPreflightSummary(state, planFile) {
+      const plan = planFromContext(state || {}, { planFile }) || {};
+      const rows = planVersionOperationRows(state, planFile, String(plan.revision || ""), Date.parse(String(plan.updatedAt || "")));
+      const validate = rows.find((row) => String(row.type || "").toLowerCase() === "validate-plan");
+      const dryRun = operationSucceeded(validate) && rows.find((row) => String(row.type || "").toLowerCase() === "dry-run-plan" && operationAtOrAfter(row, validate));
+      if (dryRun) {
+        const message = compactText(meaningfulValue(dryRun.error) || meaningfulValue(dryRun.message) || "预演状态已更新", 72);
+        if (operationPending(dryRun)) return { ready: false, tone: "info", message, badge: "预演中" };
+        if (operationIsFailureLike(dryRun.status)) return { ready: false, tone: "error", message, badge: "预演失败" };
+        if (operationSucceeded(dryRun)) return { ready: true, tone: "good", message, badge: "可调度 " + Number(dryRun.dispatchableCount || 0) + " / 排队 " + Number(dryRun.queuedCount || 0) };
+      }
+      if (validate) {
+        const message = compactText(meaningfulValue(validate.error) || meaningfulValue(validate.message) || "校验状态已更新", 72);
+        if (operationPending(validate)) return { ready: false, tone: "info", message, badge: "校验中" };
+        if (operationIsFailureLike(validate.status)) return { ready: false, tone: "error", message, badge: "校验失败" };
+        if (operationSucceeded(validate)) return { ready: false, tone: "info", message, badge: "任务 " + (meaningfulValue(validate.jobCount) || "-") + " / 运行时继续预演" };
+      }
+      return { ready: false, tone: "info", message: "提交运行时自动执行", badge: "自动校验预演" };
+    }
+
+    function planVersionOperationRows(state, planFile, planRevision, planUpdatedAt) {
+      ensurePlanVersionRowsCache(state);
+      const cacheKey = planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt);
+      if (planVersionOperationRowsCache?.has(cacheKey)) return planVersionOperationRowsCache?.get(cacheKey);
+      const rows = operationRowsForState(state || {}).filter((row) => samePlanSelection(row.planFile, planFile) && operationMatchesPlanVersion(row, planRevision, planUpdatedAt));
+      cachePlanVersionRows(planVersionOperationRowsCache, cacheKey, rows);
+      return rows;
+    }
+
+    function planVersionTaskRows(state, planFile, planRevision, planUpdatedAt) {
+      ensurePlanVersionRowsCache(state);
+      const cacheKey = planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt);
+      if (planVersionTaskRowsCache?.has(cacheKey)) return planVersionTaskRowsCache?.get(cacheKey);
+      const rows = schedulerRowsForState(state || {}).filter((row) => samePlanSelection((row || {}).planFile || (row || {}).plan || "", planFile)
+        && taskMatchesPlanVersion(row, planRevision, planUpdatedAt));
+      cachePlanVersionRows(planVersionTaskRowsCache, cacheKey, rows);
+      return rows;
+    }
+
+    function ensurePlanVersionRowsCache(state) {
+      if (planVersionRowsCacheState === state) return;
+      planVersionRowsCacheState = state;
+      planVersionOperationRowsCache = new Map();
+      planVersionTaskRowsCache = new Map();
+    }
+
+    function planVersionRowsCacheKey(planFile, planRevision, planUpdatedAt) {
+      return [normalizePlanSelectionKey(planFile), String(planRevision || ""), Number.isFinite(planUpdatedAt) ? String(planUpdatedAt) : ""].join("|");
+    }
+
+    function cachePlanVersionRows(cache, key, rows) {
+      if (cache.size >= PLAN_VERSION_ROWS_CACHE_LIMIT) cache.clear();
+      cache.set(key, rows);
+    }
+
+    function operationMatchesPlanVersion(row, planRevision, planUpdatedAt) {
+      const rowRevision = String((row || {}).planRevision || (row || {}).plan_revision || "").trim();
+      if (rowRevision) return !planRevision || rowRevision === planRevision;
+      if (Number.isFinite(planUpdatedAt)) {
+        const operationAt = Date.parse(String((row || {}).updatedAt || (row || {}).updated_at || ""));
+        return Number.isFinite(operationAt) && operationAt >= planUpdatedAt;
+      }
+      return !planRevision;
+    }
+
+    function resultSummaryMatchesPlanVersion(summary, planRevision, planUpdatedAt) {
+      const revision = String((summary || {}).planRevision || (summary || {}).plan_revision || "").trim();
+      if (planRevision && revision) return revision === planRevision;
+      if (Number.isFinite(planUpdatedAt)) {
+        const parsedAt = Date.parse(String((summary || {}).lastParsedAt || (summary || {}).last_parsed_at || (summary || {}).generatedAt || (summary || {}).generated_at || ""));
+        return Number.isFinite(parsedAt) && parsedAt >= planUpdatedAt;
+      }
+      return !planRevision;
+    }
+
+    function operationAtOrAfter(candidate, reference) {
+      if (!candidate || !reference) return false;
+      const candidateAt = Date.parse(String(candidate.updatedAt || ""));
+      const referenceAt = Date.parse(String(reference.updatedAt || ""));
+      if (Number.isFinite(candidateAt) && Number.isFinite(referenceAt)) return candidateAt >= referenceAt;
+      return Number(candidate.seq || 0) >= Number(reference.seq || 0);
+    }
+
+    function operationPending(row) {
+      const status = String((row || {}).status || "").toLowerCase();
+      return status === "accepted" || operationIsActive(status);
+    }
+
+    function serverSetupReadiness(state) {
+      const setupSource = (state || {}).setup;
+      const setup = setupSource && typeof setupSource === "object" ? setupSource : EMPTY_SERVER_SETUP;
+      const workers = enabledWorkerTunnelsForState(state);
+      const topology = (state || {}).topology || {};
+      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
+      if (setup === serverSetupReadinessCacheSetup && workers === serverSetupReadinessCacheWorkers && serverSetupReadinessCacheValue && serverSetupReadinessCacheValue.hubRequired === hubRequired) return serverSetupReadinessCacheValue;
+      const missing = [];
+      if (hubRequired && !meaningfulValue(setup.savedSessionPath)) missing.push("Hub Xshell 会话");
+      if (hubRequired && !meaningfulValue(setup.agentProjectDir)) missing.push("Hub 项目父目录");
+      workers.forEach((worker) => {
+        const label = String(worker.displayName || worker.id || "Worker");
+        if (!meaningfulValue(worker.savedSessionPath)) missing.push(label + " Xshell 会话");
+        if (!meaningfulValue(worker.agentProjectDir)) missing.push(label + " 项目父目录");
+      });
+      const workerLabel = workers.length ? "；" + workers.length + " 个 Worker" : "；Hub 模式";
+      const value = {
+        ready: missing.length === 0,
+        missing,
+        hubRequired,
+        summary: missing.length ? "缺少：" + missing.join("、") : (hubRequired ? "Hub 已配置" : "无 Hub 模式已配置") + workerLabel
+      };
+      serverSetupReadinessCacheSetup = setup;
+      serverSetupReadinessCacheWorkers = workers;
+      serverSetupReadinessCacheValue = value;
+      return value;
+    }
+
+    function executionWorkerReadiness(state) {
+      const workers = enabledWorkerTunnelsForState(state);
+      if (workers === executionWorkerReadinessCacheWorkers && executionWorkerReadinessCacheValue) return executionWorkerReadinessCacheValue;
+      const value = {
+        ready: workers.length > 0,
+        count: workers.length,
+        missing: workers.length ? [] : ["执行 Worker"],
+        summary: workers.length ? workers.length + " 个 Worker 已启用" : "未配置执行 Worker，不能提交实验"
+      };
+      executionWorkerReadinessCacheWorkers = workers;
+      executionWorkerReadinessCacheValue = value;
+      return value;
+    }
+
+    function agentPreparationBlockersFromState(state) {
+      const blockers = ((state || {}).agentSessions || {}).preparationBlockers;
+      const source = Array.isArray(blockers) ? blockers : EMPTY_AGENT_PREPARATION_BLOCKERS;
+      if (source === agentPreparationBlockersCacheSource && agentPreparationBlockersCacheValue) return agentPreparationBlockersCacheValue;
+      agentPreparationBlockersCacheSource = source;
+      agentPreparationBlockersCacheValue = uniqueText(source.map((item) => String(item || "").trim()).filter(Boolean));
+      return agentPreparationBlockersCacheValue;
+    }
+
+    function projectEndpointReadiness(state) {
+      const data = state || {};
+      if (projectEndpointReadinessCacheState === data && projectEndpointReadinessCacheValue) return projectEndpointReadinessCacheValue;
+      const workers = enabledWorkerTunnelsForState(state);
+      const topology = data.topology || {};
+      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
+      const workerProbes = data.workerProbes || {};
+      const hubStatus = String((data.probe || {}).status || (data.health || {}).state || "").toLowerCase();
+      const restartRequired = hubRequired && hubStatus === "agent_restart_required";
+      let versionMismatch = hubRequired && hubStatus === "agent_version_mismatch";
+      let projectMismatch = hubRequired && hubStatus === "agent_project_mismatch";
+      const hubReady = !hubRequired || HUB_OPERATION_READY_STATUS_TOKENS.has(hubStatus);
+      let workerReady = true;
+      const hubProbe = data.probe || {};
+      const hubMismatch = "Hub 当前 Agent 仍指向旧项目（" + String(hubProbe.projectRoot || "未返回") + "；期望 " + String(hubProbe.expectedProjectRoot || "未配置") + "）";
+      const missing = hubReady ? [] : [restartRequired ? "Agent 待重启" : versionMismatch ? "Hub Agent 版本不兼容" : projectMismatch ? hubMismatch : "Hub 未检测或不可达"];
+      const dependencyRows = hubRequired ? [{ label: "Hub", dependency: hubProbe.schedulerDependencies }] : [];
+      workers.forEach((worker) => dependencyRows.push({ label: worker.displayName || worker.id || "Worker", dependency: (workerProbes[worker.id] || {}).schedulerDependencies }));
+      const dependencyIssues = dependencyRows.flatMap((row) => {
+        const dependency = row.dependency;
+        if (!dependency || dependency.ok !== false) return [];
+        const install = String(dependency.installCommand || "").trim();
+        return [String(row.label) + " Scheduler 依赖缺失" + (install ? "；安装命令：" + install : "")];
+      });
+      missing.push(...dependencyIssues);
+      workers.forEach((worker) => {
+        const label = String(worker.displayName || worker.id || "Worker");
+        const workerProbe = workerProbes[worker.id] || {};
+        const status = String(workerProbe.status || "").toLowerCase();
+        if (status === "agent_version_mismatch") versionMismatch = true;
+        if (status === "agent_project_mismatch") projectMismatch = true;
+        if (status !== "ok") {
+          workerReady = false;
+          missing.push(label + (status === "agent_version_mismatch" ? " Agent 版本不兼容" : status === "agent_project_mismatch" ? " 当前 Agent 仍指向旧项目（" + String(workerProbe.projectRoot || "未返回") + "；期望 " + String(workerProbe.expectedProjectRoot || "未配置") + "）" : " 未检测或不可达"));
+        }
+      });
+      const value = {
+        ready: missing.length === 0,
+        hubReady,
+        workerReady,
+        versionMismatch,
+        projectMismatch,
+        restartRequired,
+        dependencyReady: dependencyIssues.length === 0,
+        dependencyIssues,
+        missing,
+        summary: restartRequired && hubRequired
+          ? "Agent 已部署，需重启会话并检测"
+          : projectMismatch
+            ? "当前 Agent 仍指向旧项目，需准备 Agent"
+          : versionMismatch
+            ? "Agent 版本不兼容，需部署并重启"
+            : dependencyIssues.length ? "Scheduler 依赖未就绪：" + dependencyIssues.join("、")
+            : missing.length ? "缺少：" + missing.join("、") : (hubRequired ? "Hub/Worker Agent 可达" : "Worker Agent 可达")
+      };
+      value.hubRequired = hubRequired;
+      projectEndpointReadinessCacheState = data;
+      projectEndpointReadinessCacheValue = value;
+      return value;
+    }
+
+    function projectCodeSyncReadiness(state) {
+      const data = state || {};
+      if (projectCodeSyncReadinessCacheState === data && projectCodeSyncReadinessCacheValue) return projectCodeSyncReadinessCacheValue;
+      const workerRequired = enabledWorkerTunnelsForState(state).length > 0;
+      const topology = data.topology || {};
+      const hubRequired = topology.mode ? topology.mode === "hub_worker" : true;
+      const sync = data.codeSync || {};
+      const hubReady = !hubRequired || syncStatusOk(sync.hub);
+      const workerReady = !workerRequired || syncStatusOk(sync.workers);
+      const fingerprintReady = hasText(sync.fingerprint);
+      const missing = [];
+      if (hubRequired && !hubReady) missing.push("Hub 代码");
+      if (!workerReady) missing.push("Worker 代码");
+      if (!fingerprintReady) missing.push("代码指纹");
+      const value = {
+        ready: hubReady && workerReady && fingerprintReady,
+        hubReady,
+        hubRequired,
+        workerReady,
+        workerRequired,
+        fingerprintReady,
+        missing,
+        summary: missing.length ? "待同步：" + missing.join("、") : "代码已同步 · " + compactIdentifier(sync.fingerprint)
+      };
+      projectCodeSyncReadinessCacheState = data;
+      projectCodeSyncReadinessCacheValue = value;
+      return value;
+    }
+
+    function projectReadinessStatusText(simpleSftpReadiness, serverReadiness, workerReadiness, endpointReadiness, outputGate) {
+      const simpleSftpMissing = simpleSftpReadiness && simpleSftpReadiness.ready === false ? ["SimpleSFTP 文件传输依赖"] : [];
+      const serverMissing = asArray((serverReadiness || {}).missing);
+      const workerMissing = asArray((workerReadiness || {}).missing);
+      const endpointMissing = asArray((endpointReadiness || {}).missing);
+      const outputMissing = asArray((outputGate || {}).missing);
+      const missing = [...simpleSftpMissing, ...serverMissing, ...workerMissing, ...endpointMissing, ...outputMissing];
+      return missing.length ? "缺少：" + missing.join("、") : "已满足运行前置条件";
+    }
+
+    function projectSectionNextAction(status, label, section, anchor, options) {
+      const taskScope = options && options.taskPlanScope === "all" ? ' data-task-plan-scope="all"' : options && options.taskPlanScope === "selected" ? ' data-task-plan-scope="selected"' : "";
+      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" type="button" data-section-target="' + escAttr(section) + '" data-anchor-target="' + escAttr(anchor) + '"' + taskScope + '>' + esc(label) + '</button></div>';
+    }
+
+    function projectNextAction(status, label, command, payload) {
+      const data = payload || {};
+      const fileAttr = data.file ? ' data-file="' + escAttr(data.file) + '"' : "";
+      const planAttr = data.planFile ? ' data-plan-file="' + escAttr(data.planFile) + '"' : "";
+      const actionReason = debugModeDisableReason(command) || simpleSftpCommandDisableReason(lastState || {}, command);
+      const disabledAttr = actionReason ? ' disabled title="' + escAttr(actionReason) + '" aria-label="' + escAttr(label + "：" + actionReason) + '"' : "";
+      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" data-command="' + escAttr(command) + '"' + fileAttr + planAttr + disabledAttr + '>' + esc(label) + '</button></div>';
     }
 
     function refreshRunModeUi() {
@@ -14667,7 +14565,7 @@ function renderPanelHtml() {
       const seen = new Set();
       const append = (source) => asArray(source).forEach((value) => {
         const text = String(value || "").trim();
-        if (!text || text === "-" || seen.has(text)) return;
+        if (!text || text === "-" || seen?.has(text)) return;
         seen.add(text);
         cleaned.push(text);
       });
@@ -14688,6 +14586,63 @@ function renderPanelHtml() {
         source: pick(rows, ["source", "telemetrySource", "telemetry_source"], "-")
       };
     }
+    function isGpuUuid(value) {
+      const s = String(value || "").trim();
+      if (!s || s === "-") return false;
+      if (/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(s)) return true;
+      if (/^GPU-[0-9a-f]{8}-/i.test(s)) return true;
+      if (s.length > 20 && s.indexOf("-") !== -1 && /[a-f]/i.test(s) && /[0-9a-f-]{20,}/i.test(s) && s.indexOf("GPU-") === 0) return true;
+      return false;
+    }
+    function isNumericGpuId(value) {
+      return /^\\d+$/.test(String(value || "").trim());
+    }
+    function extractNumericGpuId(value) {
+      const s = String(value || "").trim();
+      if (!s || s === "-") return "";
+      if (isGpuUuid(s)) return "";
+      if (/^\\d+$/.test(s)) return s;
+      const gpuPrefixed = s.match(/(?:gpu|GPU)[-_]?(\\d+)\\b/);
+      if (gpuPrefixed) return gpuPrefixed[1];
+      return "";
+    }
+    function normalizeGpuDisplayIndex(row) {
+      const rawIndex = pick(row, ["index", "gpu_index"], "");
+      const rawIndexStr = String(rawIndex != null ? rawIndex : "").trim();
+      if (rawIndexStr && rawIndexStr !== "-" && !isGpuUuid(rawIndexStr) && isNumericGpuId(rawIndexStr)) return rawIndexStr;
+      if (rawIndexStr && rawIndexStr !== "-" && !isGpuUuid(rawIndexStr)) {
+        const extracted = extractNumericGpuId(rawIndexStr);
+        if (extracted) return extracted;
+      }
+      const fallbackCandidates = [pick(row, ["gpuId", "gpu_id", "id"], ""), pick(row, ["uuid"], "")];
+      for (let i = 0; i < fallbackCandidates.length; i++) {
+        const candid = String(fallbackCandidates[i] || "").trim();
+        if (!candid || isGpuUuid(candid)) continue;
+        const extracted = extractNumericGpuId(candid);
+        if (extracted) return extracted;
+        if (isNumericGpuId(candid)) return candid;
+      }
+      if (isGpuUuid(rawIndexStr)) return "-";
+      return rawIndexStr || "-";
+    }
+    function normalizeGpuDisplayId(row) {
+      const rawIndex = pick(row, ["index", "gpu_index"], "");
+      const rawIdxStr = String(rawIndex != null ? rawIndex : "").trim();
+      if (rawIdxStr && !isGpuUuid(rawIdxStr) && isNumericGpuId(rawIdxStr)) return rawIdxStr;
+      if (rawIdxStr && !isGpuUuid(rawIdxStr)) {
+        const ex = extractNumericGpuId(rawIdxStr);
+        if (ex) return ex;
+      }
+      const rawId = pick(row, ["id", "gpuId", "gpu_id", "uuid"], "-");
+      const s = String(rawId || "").trim();
+      if (!s || s === "-") return rawIdxStr && !isGpuUuid(rawIdxStr) && isNumericGpuId(rawIdxStr) ? rawIdxStr : "-";
+      if (isGpuUuid(s)) return rawIdxStr && !isGpuUuid(rawIdxStr) && isNumericGpuId(rawIdxStr) ? rawIdxStr : "-";
+      if (isNumericGpuId(s)) return s;
+      const extracted = extractNumericGpuId(s);
+      if (extracted) return extracted;
+      if (rawIdxStr && !isGpuUuid(rawIdxStr) && isNumericGpuId(rawIdxStr)) return rawIdxStr;
+      return "-";
+    }
     function normalizeGpuRow(row) {
       const memoryUsedMb = numberOrDash(pick(row, ["memoryUsedMb", "memory_used_mb", "memoryUsed", "used"], "-"));
       const memoryTotalMb = numberOrDash(pick(row, ["memoryTotalMb", "memory_total_mb", "memoryTotal", "total"], "-"));
@@ -14695,8 +14650,8 @@ function renderPanelHtml() {
       const runKey = pick(row, ["runKey", "run_key", "assignedExperiment", "assignedRunKey", "experiment", "experimentId"], "-");
       const processCount = pick(row, ["processCount", "process_count", "processesTotalCount", "processes_total_count"], processes.length);
       return {
-        index: pick(row, ["index", "gpu_index"], pick(row, ["id", "gpuId", "gpu_id"], "-")),
-        id: pick(row, ["id", "gpuId", "gpu_id", "uuid"], "-"),
+        index: normalizeGpuDisplayIndex(row),
+        id: normalizeGpuDisplayId(row),
         name: pick(row, ["name", "gpu_name", "model"], "-"),
         memoryUsedMb,
         memoryTotalMb,
@@ -14774,7 +14729,7 @@ function renderPanelHtml() {
       const seen = new Set();
       const add = (row, index) => {
         const key = schedulerSourceRowIdentity(row, index);
-        if (seen.has(key)) return;
+        if (seen?.has(key)) return;
         seen.add(key);
         out.push(row);
       };
@@ -14788,7 +14743,7 @@ function renderPanelHtml() {
     }
     function schedulerSourceRowNeedsAttention(row) {
       const status = taskStatusToken(pick(row || {}, ["status", "state", "runStatus", "run_status"], ""));
-      return TASK_ACTIVE_STATUSES.has(status) || taskFailureLikeStatus(status);
+      return TASK_ACTIVE_STATUSES?.has(status) || taskFailureLikeStatus(status);
     }
     function schedulerSourceRowIdentity(row, index) {
       if (!row || typeof row !== "object") return "row:" + index;
@@ -14871,7 +14826,7 @@ function renderPanelHtml() {
     const taskKeyDerivationCache = new WeakMap();
     function taskKeyDerivations(row) {
       const cacheable = Boolean(row) && (typeof row === "object" || typeof row === "function");
-      if (cacheable && taskKeyDerivationCache.has(row)) return taskKeyDerivationCache.get(row);
+      if (cacheable && taskKeyDerivationCache?.has(row)) return taskKeyDerivationCache?.get(row);
       const direct = firstText(row.runKey, row.experimentId, row.archiveKey, row.session);
       const actionKey = usableTaskKey(direct) ? direct : "";
       const targetFallback = [
@@ -14915,7 +14870,7 @@ function renderPanelHtml() {
       return taskKeyDerivations(row).logActionKey;
     }
     function taskActionKeyForCommand(row, command) {
-      return ARTIFACT_SCOPE_COMMANDS.has(command) ? taskArchiveActionKey(row) : taskActionKey(row);
+      return ARTIFACT_SCOPE_COMMANDS?.has(command) ? taskArchiveActionKey(row) : taskActionKey(row);
     }
     function taskPlanFile(row) {
       return taskKeyDerivations(row).planFile;
@@ -14990,10 +14945,10 @@ function renderPanelHtml() {
       const data = state || {};
       const cacheableRows = Boolean(allRows) && (typeof allRows === "object" || typeof allRows === "function");
       const cacheableState = Boolean(data) && (typeof data === "object" || typeof data === "function");
-      let stateCache = cacheableRows ? traceRowsForPlanScopeCache.get(allRows) : undefined;
-      let variants = stateCache && cacheableState ? stateCache.get(data) : undefined;
+      let stateCache = cacheableRows ? traceRowsForPlanScopeCache?.get(allRows) : undefined;
+      let variants = stateCache && cacheableState ? stateCache?.get(data) : undefined;
       const cacheKey = String(scopeMode || "all");
-      if (variants && variants.has(cacheKey)) return variants.get(cacheKey);
+      if (variants && variants?.has(cacheKey)) return variants?.get(cacheKey);
       const selectedPlanFile = normalizePlanSelectionKey(data.planFileInput || (data.selection || {}).selectedPlanId || "");
       const plan = selectedPlanFile ? planFromContext(data, { planFile: selectedPlanFile }) || {} : {};
       const selectedPlanRevision = String(plan.revision || "");
@@ -15128,7 +15083,7 @@ function renderPanelHtml() {
       });
       asArray(files).forEach((file) => {
         const pathValue = String(file || "").trim();
-        if (pathValue && !byPath.has(pathValue)) byPath.set(pathValue, { path: pathValue, error: "" });
+        if (pathValue && !byPath?.has(pathValue)) byPath.set(pathValue, { path: pathValue, error: "" });
       });
       return [...byPath.values()].slice(0, 20);
     }
@@ -15153,7 +15108,7 @@ function renderPanelHtml() {
         return;
       }
       if (type !== "object") return;
-      if (seen.has(value)) return;
+      if (seen?.has(value)) return;
       seen.add(value);
       if (Array.isArray(value)) {
         value.slice(0, 12).forEach((item) => appendOperationSearchValue(item, parts, budget, depth + 1, seen));
@@ -15235,15 +15190,15 @@ function renderPanelHtml() {
       return TASK_STATUS_LABELS[taskStatusToken(raw)] || raw;
     }
     function taskFailureLikeStatus(status) {
-      return TASK_FAILURE_STATUSES.has(taskStatusToken(status));
+      return TASK_FAILURE_STATUSES?.has(taskStatusToken(status));
     }
     function taskTerminalStatus(status) {
       const value = taskStatusToken(status);
-      return TASK_TERMINAL_STATUSES.has(value) || taskFailureLikeStatus(value);
+      return TASK_TERMINAL_STATUSES?.has(value) || taskFailureLikeStatus(value);
     }
     function taskArchivableStatus(status) {
       const value = taskStatusToken(status);
-      return TASK_ARCHIVABLE_STATUSES.has(value) || taskFailureLikeStatus(value);
+      return TASK_ARCHIVABLE_STATUSES?.has(value) || taskFailureLikeStatus(value);
     }
     function bucketStatus(key) { return SCHEDULER_BUCKET_STATUSES[key] ?? key.replace("_experiments", "").replace("pending", "queued"); }
     function operationStatusFromType(type) {

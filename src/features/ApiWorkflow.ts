@@ -303,13 +303,15 @@ export function buildWorkflowRoute(options: WorkflowRouteOptions): WorkflowRoute
   };
 }
 
-export function isNwpu3Server(server: unknown): boolean {
+export function isWorkerServer(server: unknown): boolean {
   const item = server && typeof server === "object" ? server as Record<string, unknown> : {};
   const id = String(item.id || item.serverId || "");
   const label = String(item.label || item.name || item.displayName || "");
   const host = String(item.host || item.sshHost || item.resolvedHost || "");
-  return [id, label, host].some((value) => /(^|[^a-z0-9])(worker|nwpu213|npu213)([^a-z0-9]|$)/i.test(value));
+  return [id, label, host].some((value) => /(^|[^a-z0-9])worker([^a-z0-9]|$)/i.test(value));
 }
+// 兼容历史调用：保留 isNwpu3Server 别名，统一走通用 isWorkerServer
+export const isNwpu3Server = isWorkerServer;
 
 export function normalizeApiRemotePath(value: unknown): string | undefined {
   const text = String(value || "").trim().replace(/\\/g, "/").replace(/\/+/g, "/");

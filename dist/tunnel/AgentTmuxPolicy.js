@@ -6,7 +6,7 @@ exports.defaultAgentTmuxSessionName = defaultAgentTmuxSessionName;
 exports.isValidRemoteTmuxSessionName = isValidRemoteTmuxSessionName;
 exports.agentTmuxStartupCommand = agentTmuxStartupCommand;
 exports.simpleTmuxSessionPrefix = "simple";
-exports.simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V19=1";
+exports.simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1";
 exports.simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
 exports.simpleDefaultCondaEnv = "";
 function normalizeRemoteTmuxSessionPrefix(value) {
@@ -83,7 +83,7 @@ function agentRuntimeCommand(options) {
         `if [ -z "$WORK_DIR" ]; then exit 127; fi`,
         `LOG="$INSTALL_DIR/logs/${options.session}.log"`,
         `mkdir -p "$INSTALL_DIR/logs" "$INSTALL_DIR/simple_cluster/runtime" "$WORK_DIR"`,
-        `exec >> "$LOG" 2>&1`,
+        `exec > >(tee -a "$LOG") 2>&1`,
         `echo "[$(date -Is)] Starting ${options.session} mode=${options.mode} port=${options.port}"`,
         `echo "Install dir: $INSTALL_DIR"`,
         `echo "Work dir: $WORK_DIR"`,

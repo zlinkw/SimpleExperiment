@@ -16,7 +16,7 @@ import {
 import { sha256File, verifyLocalFileSha256 } from "./FileTransferVerifier";
 
 export interface FileTransferClientConfig {
-  localHost: "127.0.0.1";
+  localHost: string;
   localPort: number;
   token?: string;
   chunkSizeBytes?: number;
