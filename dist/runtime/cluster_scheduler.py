@@ -2672,64 +2672,23 @@ def path_matches_any(value: Any, candidates: set[str]) -> bool:
 
 
 def read_deleted_experiment_matchers() -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    try:
-        text = DELETED_EXPERIMENTS_PATH.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return out
-    except Exception:
-        return out
-    for line in text.splitlines():
-        try:
-            item = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(item, dict) and item:
-            out.append(item)
-    return out
+    # 已旁路已删除名单机制：始终认为无已删除，plan 里的全部按 pending 顺序跑
+    return []
 
 
 def experiment_entry_matches_deletion(entry: dict[str, Any], deleted: dict[str, Any]) -> bool:
-    entry_ids = [str(entry.get(key) or "").strip() for key in ["run_id", "global_job_id"] if str(entry.get(key) or "").strip()]
-    deleted_ids = [str(deleted.get(key) or "").strip() for key in ["run_id", "global_job_id"] if str(deleted.get(key) or "").strip()]
-    if entry_ids and any(item in entry_ids for item in deleted_ids):
-        return True
-    deleted_paths: set[str] = set()
-    path_keys = ["hub_job_dir", "worker_job_dir", "native_job_dir", "hub_console_log", "results_csv", "checkpoint_path", "path", "archive_key", "output_dir", "outputDir"]
-    for key in path_keys:
-        if is_managed_artifact_path(deleted.get(key)):
-            deleted_paths.update(comparable_path_variants(deleted.get(key)))
-    deleted_paths.update(variant for item in (deleted.get("deleted_paths") or []) for variant in comparable_path_variants(item) if is_managed_artifact_path(item))
-    if not deleted_paths:
-        return False
-    return any(path_matches_any(entry.get(key), deleted_paths) for key in path_keys)
+    # 已旁路已删除名单机制：始终不匹配
+    return False
 
 
 def filter_deleted_experiment_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    deleted = read_deleted_experiment_matchers()
-    if not deleted:
-        return entries
-    return [entry for entry in entries if not any(experiment_entry_matches_deletion(entry, matcher) for matcher in deleted)]
+    # 已旁路已删除名单机制：直接透传，不再过滤
+    return entries
 
 
 def job_deleted(job: Any, worker: dict[str, Any], item: dict[str, Any] | None = None) -> bool:
-    worker_project_dir = str(worker["project_dir"]).rstrip("/")
-    worker_job_dir = f"{worker_project_dir}/{str(job.output_dir).strip('/')}"
-    entry = {
-        "global_job_id": f"{getattr(job, 'suite', '')}:{getattr(job, 'case', '')}:{getattr(job, 'seed', '')}",
-        "run_id": str((item or {}).get("run_id") or ""),
-        "suite": str(getattr(job, "suite", "")),
-        "case": str(getattr(job, "case", "")),
-        "seed": str(getattr(job, "seed", "")),
-        "hub_job_dir": str(job.output_dir),
-        "worker_id": str(worker.get("id") or ""),
-        "worker_host": str(worker.get("target") or worker.get("name") or ""),
-        "worker_job_dir": worker_job_dir,
-        "native_job_dir": worker_job_dir,
-        "results_csv": str(getattr(job, "result_csv", "")),
-        "hub_console_log": str((item or {}).get("hub_console_log") or (item or {}).get("log_path") or ""),
-    }
-    return any(experiment_entry_matches_deletion(entry, matcher) for matcher in read_deleted_experiment_matchers())
+    # 已旁路已删除名单机制：始终认为未被删除
+    return False
 
 
 def index_entry_from_manifest(manifest_path: Path, worker: dict[str, Any], job: Any, item: dict[str, Any]) -> dict[str, Any]:
@@ -2774,8 +2733,7 @@ def upsert_experiment_index(entries: list[dict[str, Any]]) -> None:
 
 
 def archived_entry_exists(job: Any, worker: dict[str, Any]) -> bool:
-    if job_deleted(job, worker):
-        return True
+    # 已旁路已删除名单机制：不再因 deleted 判定为已归档
     job_dir = Path(str(job.output_dir))
     if (job_dir / "artifact_manifest.json").exists():
         return True
@@ -2805,9 +2763,7 @@ def sync_finished_artifacts(plan: str, items: list[dict[str, Any]], workers_by_i
         job = job_for(item, jobs_by_index)
         if not worker or not job:
             continue
-        if job_deleted(job, worker, item):
-            item["artifact_sync_skipped"] = "deleted_by_local_ledger"
-            continue
+        # 已旁路已删除名单机制：不再因 deleted 跳过 artifact 同步
         status = "completed" if int(item.get("exit_code") or 1) == 0 and not item.get("error") else "failed"
         try:
             if archived_entry_exists(job, worker):
@@ -2856,9 +2812,7 @@ def sync_running_console_logs(plan: str, items: list[dict[str, Any]], workers_by
         if not raw_log:
             continue
         job = job_for(item, jobs_by_index)
-        if job and job_deleted(job, worker, item):
-            item["sync_skipped"] = "deleted_by_local_ledger"
-            continue
+        # 已旁路已删除名单机制：不再因 deleted 跳过 console 同步
         item["hub_console_log"] = raw_log
         item["output_dir"] = str(getattr(job, "output_dir", item.get("output_dir", "")) or "")
         gid = str(item.get("gpu_id") or item.get("gpuId") or item.get("gpu") or "").strip()
@@ -3028,31 +2982,13 @@ def append_log(path: Path, text: str) -> None:
 
 
 def read_scheduler_deletion_matchers() -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    try:
-        text = DELETED_SCHEDULER_ROWS_PATH.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return out
-    except Exception:
-        return out
-    for line in text.splitlines():
-        try:
-            item = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(item, dict) and item:
-            out.append(item)
-    return out
+    # 已旁路已删除名单机制：始终认为无调度器删除
+    return []
 
 
 def scheduler_matcher_matches_plan(plan: str, matcher: dict[str, Any]) -> bool:
-    suite = str(matcher.get("suite") or "").strip()
-    explicit_plan = str(matcher.get("plan") or "").strip()
-    if explicit_plan and explicit_plan not in plan:
-        return False
-    if suite and suite not in plan:
-        return False
-    return True
+    # 已旁路已删除名单机制：始终不匹配
+    return False
 
 
 def parse_time_ms(value: Any) -> float | None:
@@ -3082,83 +3018,18 @@ def row_comparable_time(item: dict[str, Any], state: dict[str, Any] | None = Non
 
 
 def scheduler_matcher_matches_pending(plan: str, state: dict[str, Any], index: Any, matcher: dict[str, Any]) -> bool:
-    if not scheduler_matcher_matches_plan(plan, matcher):
-        return False
-    if str(index) != str(matcher.get("experimentIndex") or ""):
-        return False
-    scheduler_session = str(matcher.get("schedulerSession") or "").strip()
-    state_session = str(state.get("scheduler_session") or "").strip()
-    if scheduler_session and scheduler_session != state_session:
-        return False
-    if bool(matcher.get("affectsPending")):
-        return True
-    return bool(scheduler_session and scheduler_session == state_session)
+    # 已旁路已删除名单机制：始终不匹配 pending，不再因黑名单跳过或停止
+    return False
 
 
 def scheduler_matcher_matches_item(plan: str, item: dict[str, Any], matcher: dict[str, Any], state: dict[str, Any] | None = None) -> bool:
-    if not scheduler_matcher_matches_plan(plan, matcher):
-        return False
-    if str(item.get("experiment_index") or "") != str(matcher.get("experimentIndex") or ""):
-        return False
-    worker_id = str(matcher.get("workerId") or "").strip()
-    if worker_id and str(item.get("worker_id") or "").strip() != worker_id:
-        return False
-    worker_host = str(matcher.get("workerHost") or "").strip()
-    if worker_host:
-        candidates = {str(item.get(key) or "").strip() for key in ["worker_host", "worker_name", "worker_id", "server"]}
-        if worker_host not in candidates:
-            return False
-    scheduler_session = str(matcher.get("schedulerSession") or "").strip()
-    session = str(matcher.get("session") or "").strip()
-    log_path = normalize_comparable_path(str(matcher.get("logPath") or ""))
-    has_strong_identity = bool(scheduler_session or session or log_path)
-    if scheduler_session and scheduler_session != str((state or {}).get("scheduler_session") or item.get("scheduler_session") or "").strip():
-        return False
-    if session and session != str(item.get("session") or "").strip():
-        return False
-    if log_path and normalize_comparable_path(str(item.get("log_path") or item.get("logPath") or "")) != log_path:
-        return False
-    if has_strong_identity:
-        return True
-    deleted_at = parse_time_ms(matcher.get("deletedAt"))
-    if deleted_at is not None:
-        row_at = row_comparable_time(item, state)
-        if row_at is not None and row_at > deleted_at:
-            return False
-    return True
+    # 已旁路已删除名单机制：始终不匹配任何 row
+    return False
 
 
 def apply_scheduler_deletions_to_state(state: dict[str, Any]) -> bool:
-    matchers = read_scheduler_deletion_matchers()
-    if not matchers:
-        return False
-    changed = False
-    plan = str(state.get("plan") or "")
-    row_matchers = [m for m in matchers if str(m.get("deleteMode") or "row") == "row"]
-    log_matchers = [m for m in matchers if str(m.get("deleteMode") or "") == "log_fields"]
-    for key in ["running_experiments", "testing_experiments", "completed_experiments", "failed_experiments", "stopped_experiments"]:
-        rows = state.get(key) or []
-        if not isinstance(rows, list):
-            continue
-        if log_matchers:
-            for item in rows:
-                if not isinstance(item, dict) or not any(scheduler_matcher_matches_item(plan, item, m, state) for m in log_matchers):
-                    continue
-                for field in ["hub_console_log", "console_tail", "log_tail", "log_synced_at", "log_sync_error", "sync_error"]:
-                    if field in item:
-                        item.pop(field, None)
-                        changed = True
-        kept = [item for item in rows if not isinstance(item, dict) or not any(scheduler_matcher_matches_item(plan, item, m, state) for m in row_matchers)]
-        if len(kept) != len(rows):
-            state[key] = kept
-            changed = True
-    queue = state.get("pending_experiments")
-    if isinstance(queue, list):
-        kept_queue = [index for index in queue if not any(scheduler_matcher_matches_pending(plan, state, index, m) for m in row_matchers)]
-        if len(kept_queue) != len(queue):
-            state["pending_experiments"] = kept_queue
-            changed = True
-    return changed
+    # 已旁路已删除名单机制：不再过滤 state / pending 队列
+    return False
 
 
 def sync_state_once(args: argparse.Namespace) -> None:
@@ -3481,53 +3352,8 @@ def main() -> None:
             pass
 
     def apply_scheduler_deletions_to_runtime() -> bool:
-        matchers = read_scheduler_deletion_matchers()
-        if not matchers:
-            return False
-        changed = False
-        row_matchers = [m for m in matchers if str(m.get("deleteMode") or "row") == "row"]
-        log_matchers = [m for m in matchers if str(m.get("deleteMode") or "") == "log_fields"]
-        runtime_state = {
-            "plan": args.plan,
-            "scheduler_session": args.scheduler_session,
-        }
-
-        def row_deleted(item: dict[str, Any]) -> bool:
-            return any(scheduler_matcher_matches_item(args.plan, item, matcher, runtime_state) for matcher in row_matchers)
-
-        def scrub_logs(item: dict[str, Any]) -> None:
-            nonlocal changed
-            if not any(scheduler_matcher_matches_item(args.plan, item, matcher, runtime_state) for matcher in log_matchers):
-                return
-            for field in ["hub_console_log", "console_tail", "log_tail", "log_synced_at", "log_sync_error", "sync_error"]:
-                if field in item:
-                    item.pop(field, None)
-                    changed = True
-
-        original_queue_count = len(queue)
-        kept_queue = [index for index in queue if not any(scheduler_matcher_matches_pending(args.plan, runtime_state, index, matcher) for matcher in row_matchers)]
-        if len(kept_queue) != original_queue_count:
-            queue.clear()
-            queue.extend(kept_queue)
-            changed = True
-        for group in [completed, failed, stopped]:
-            for item in list(group):
-                if row_deleted(item):
-                    group.remove(item)
-                    changed = True
-                else:
-                    scrub_logs(item)
-        for group in [active, testing]:
-            for key, item in list(group.items()):
-                if row_deleted(item):
-                    worker = workers_by_id.get(str(item.get("worker_id") or ""))
-                    if worker:
-                        kill_session(worker, str(item.get("session") or ""), "scheduler_row_deleted", "scheduler")
-                    group.pop(key, None)
-                    changed = True
-                else:
-                    scrub_logs(item)
-        return changed
+        # 已旁路已删除名单机制：不再因黑名单跳过 pending 或停止运行中任务
+        return False
 
     def state_payload(error: str = "") -> dict[str, Any]:
         apply_scheduler_deletions_to_runtime()
