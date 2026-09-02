@@ -9557,35 +9557,6 @@ def handle_action(root, action, payload, operation_id, op_id):
         if not keys:
             return terminal_action(root, action, operation_id, op_id, "failed", "没有选择可删除目标。")
         deleted, residues, skipped = remove_project_targets(root, keys)
-        failed_paths = set(str(item.get("path") or "") for item in skipped if isinstance(item, dict))
-        failed_paths.update(str(item.get("path") or "") for item in residues if isinstance(item, dict))
-        deleted_paths = [str(item.get("path") or "") for item in deleted if isinstance(item, dict)]
-        plan_file = action_plan_file(payload)
-        plan_norm = normalize_result_candidate(plan_file) if plan_file else ""
-        slug = plan_summary_slug(plan_norm)
-        deleted_rel = f"simple_cluster/deletions/by_plan/{slug}/deleted_experiments.jsonl" if slug else "simple_cluster/deleted_experiments.jsonl"
-        scheduler_rel = f"simple_cluster/deletions/by_plan/{slug}/deleted_scheduler_rows.jsonl" if slug else "simple_cluster/deleted_scheduler_rows.jsonl"
-        rows = [{
-            "schemaVersion": 1,
-            "deleted_at": now_iso(),
-            "status": "delete_failed" if key in failed_paths else "deleted",
-            "archive_key": key,
-            "path": key,
-            "hub_job_dir": key,
-            "worker_job_dir": key,
-            "native_job_dir": key,
-            "deleted_paths": deleted_paths,
-            "residue": residues,
-            "skipped": skipped,
-            "planFile": plan_norm or "",
-            "action": action,
-        } for key in keys]
-        append_project_jsonl(root, deleted_rel, rows)
-        append_project_jsonl(root, scheduler_rel, [{**row, "deleteMode": "row", "reason": action} for row in rows])
-        # Keep project-level latest aliases for unscoped consumers.
-        if slug:
-            append_project_jsonl(root, "simple_cluster/deleted_experiments.jsonl", rows)
-            append_project_jsonl(root, "simple_cluster/deleted_scheduler_rows.jsonl", [{**row, "deleteMode": "row", "reason": action} for row in rows])
         status = "failed" if residues or skipped else "completed"
         summary = {
             "targetCount": len(keys),
@@ -9595,9 +9566,7 @@ def handle_action(root, action, payload, operation_id, op_id):
             "deleted": deleted,
             "skipped": skipped,
             "residues": residues,
-            "planFile": plan_norm or "",
-            "deletedExperimentsPath": deleted_rel,
-            "deletedSchedulerRowsPath": scheduler_rel,
+            "planFile": normalize_result_candidate(action_plan_file(payload)) if action_plan_file(payload) else "",
         }
         append_event(root, {"type": "delete_progress", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **summary}})
         message = f"删除完成：成功 {len(deleted)} 项，跳过 {len(skipped)} 项，残留 {len(residues)} 项"
