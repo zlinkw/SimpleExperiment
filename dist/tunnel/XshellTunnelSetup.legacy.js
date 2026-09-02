@@ -230,8 +230,9 @@ function basename(value) {
     return value.replace(/\\/g, "/").split("/").pop() || value;
 }
 function normalizeRemoteTmuxSessionPrefix(value) {
-    const prefix = String(value ?? "simple").trim().toLowerCase();
-    return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix) ? prefix : "simple";
+    // 仅当 settings 缺失时回退到 "zlk"（与 AgentTmuxPolicy.simpleTmuxSessionPrefix 同步，动态解析优先）
+    const prefix = String(value ?? "zlk").trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(prefix) ? prefix : "zlk";
 }
 function normalizeSshPort(value, fallback) {
     const port = Number(value);

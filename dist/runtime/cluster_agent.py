@@ -1427,7 +1427,7 @@ def collect_live_output(states, max_lines=120, root=None):
                 _tmux_target = str(row.get("tmuxTarget") or row.get("tmuxSession") or row.get("window") or "").strip()
                 if not _tmux_target and gid:
                     try:
-                        _prefix2 = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk"
+                        _prefix2 = _resolve_tmux_prefix(None, None, None)
                         _tmux_target = fixed_gpu_window_name(_prefix2, gid)
                     except Exception:
                         _tmux_target = ""
@@ -1483,7 +1483,7 @@ def collect_live_output(states, max_lines=120, root=None):
                 # 2) 其次 _tmux_capture_tail(fixed_gpu_window) 兼容 gid 窗口
                 if not used_pane and gid:
                     try:
-                        prefix = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk"
+                        prefix = _resolve_tmux_prefix(None, None, None)
                         win = fixed_gpu_window_name(prefix, gid)
                         if win != _tmux_target:
                             cap = _tmux_capture_tail(win, None, int(max_lines or 120))
@@ -2333,7 +2333,13 @@ def _normalize_gpu_id_for_window(value):
     return "0" if not s.isdigit() else s
 
 def fixed_gpu_window_name(prefix, gpu_id):
-    base = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prefix or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk")).strip("-").lower()[:32]
+    # 前缀按设置自动识别：显式 prefix 优先，否则走 _resolve_tmux_prefix 统一解析
+    if prefix and str(prefix).strip():
+        base = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prefix).strip()).strip("-").lower()[:32]
+        if not base or not re.match(r"^[a-z0-9]", base):
+            base = _resolve_tmux_prefix(None, None, None)
+    else:
+        base = _resolve_tmux_prefix(None, None, None)
     if not base or not re.match(r"^[a-z0-9]", base):
         base = "zlk"
     gid_raw = _normalize_gpu_id_for_window(gpu_id)
@@ -2342,7 +2348,9 @@ def fixed_gpu_window_name(prefix, gpu_id):
 
 def simple_tmux_name(value):
     text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "task")).strip("-").lower()
-    prefix = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk")).strip("-").lower()[:32]
+    prefix = _resolve_tmux_prefix(None, None, None)
+    # _resolve 已做归一与合法性校验，此处二次加固与旧逻辑保持一致
+    prefix = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prefix or _resolve_tmux_prefix(None, None, None))).strip("-").lower()[:32]
     if not prefix or not re.match(r"^[a-z0-9]", prefix):
         prefix = "zlk"
     return ((prefix + "-" + (text or "task"))[:96])
@@ -2599,22 +2607,31 @@ def _is_heavy_scheduler_line(line):
         pass
     return False
 
-def _wait_tmux_ready(session, env, timeout=15.0, poll=0.3):
+def _wait_tmux_ready(session, env, timeout=30.0, poll=0.3):
     # 围栏：禁止在主 shell 上执行 readiness 探针（应仅在 tmux 子窗口）
     if _is_main_shell_target(session):
         raise RuntimeError(f"refusing to probe tmux readiness on main shell target {session!r}; must be zlk-sch-*/zlk-gpu-*/zlk-worker-*-agent")
     # Confirm the tmux pane shell is ready to accept keystrokes: echo a unique marker
     # and wait until it shows up in capture-pane. Avoids the startup race where the
     # first send-keys is dropped because the login shell has not reached its prompt.
-    marker = "SIMPLE_TMUX_READY_%d" % int(time.time())
-    try:
-        subprocess.run(["tmux", "send-keys", "-t", session, "printf '\\n%s\\n' " + shlex.quote(marker), "Enter"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
-    except Exception:
+        marker = "SIMPLE_TMUX_READY_%d" % int(time.time())
+    # send-keys marker 增加重试 2 次（共 3 次尝试），避免单次丢键导致 readiness 误判
+    _sent = False
+    for _attempt in range(3):
+        try:
+            _proc = subprocess.run(["tmux", "send-keys", "-t", session, "printf '\\n%s\\n' " + shlex.quote(marker), "Enter"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+            if _proc.returncode == 0:
+                _sent = True
+                break
+        except Exception:
+            pass
+        time.sleep(0.3 * (_attempt + 1))
+    if not _sent:
         return False
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            r = subprocess.run(["tmux", "capture-pane", "-p", "-t", session], capture_output=True, text=True, timeout=3, env=env)
+            r = subprocess.run(["tmux", "capture-pane", "-p", "-S", "-100", "-t", session], capture_output=True, text=True, timeout=3, env=env)
             if marker in (r.stdout or ""):
                 return True
         except Exception:
@@ -2669,20 +2686,23 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # 围栏：显式拒绝主 shell target 作为 session
     if _is_main_shell_target(session):
         raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; must be zlk-sch-*/zlk-gpu-*/zlk-worker-*-agent")
-    proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=10)
+    proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
     if proc.returncode != 0:
-        # new-session 失败后尝试 new-window 再报错，禁止回退到直接 shell 执行（P0 围栏：永不在 zlk1:0.0 执行调度指令）
-        try:
-            # 尝试在现有 server 上新建 window（server 存在但 session 名冲突等场景）
-            wp = subprocess.run(["tmux", "new-window", "-d", "-n", session, "-t", session] + shell_cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=10)
-            if wp.returncode == 0:
-                raise RuntimeError(f"tmux start failed rc={proc.returncode} but new-window succeeded for {session!r}; refusing shell fallback, caller must retry with fresh session name")
-        except Exception as _nwe:
-            # new-window 也失败则直接报错，不回退到 Popen/bash
-            if isinstance(_nwe, RuntimeError) and "new-window succeeded" in str(_nwe):
-                raise
-            pass
-        raise RuntimeError(f"tmux start failed rc={proc.returncode}; refusing shell fallback (new-window also failed) for {session!r}")
+        err = (proc.stderr or "") + (proc.stdout or "")
+        # 失败时若 stderr 含 duplicate session / session exists 则先 kill-session 再重试一次 new-session；其他错误直接抛 RuntimeError 带 stderr；删除错误的 new-window 回退分支
+        low = err.lower()
+        if "duplicate session" in low or "session exists" in low or "duplicate" in low:
+            try:
+                subprocess.run(["tmux", "kill-session", "-t", session], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=5)
+                time.sleep(0.3)
+            except Exception:
+                pass
+            proc2 = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
+            if proc2.returncode != 0:
+                err2 = (proc2.stderr or "") + (proc2.stdout or "")
+                raise RuntimeError(f"tmux new-session failed after retry rc={proc2.returncode} stderr={err2!r} for {session!r}")
+        else:
+            raise RuntimeError(f"tmux new-session failed rc={proc.returncode} stderr={err!r} for {session!r}")
     # 日志直显 tmux 窗口：不再 pipe-pane tee，日志直接输出到 pane；log_path 仅用于 info 备份（FileHandler）
     if log_path:
         try:
@@ -2770,7 +2790,10 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         shell_cmd = [shell]
         if shell.endswith("bash"):
             shell_cmd.append("-l")
-        subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=10)
+        proc_gs = subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
+        if proc_gs.returncode != 0:
+            err = (proc_gs.stderr or proc_gs.stdout or "")
+            raise RuntimeError(f"tmux new-session failed for gpu_window {gpu_window!r} rc={proc_gs.returncode} stderr={err!r}")
         import time as _t
         _t.sleep(0.2)
     try:
@@ -2849,7 +2872,7 @@ def _resolve_dynamic_gpu_ids(root):
     except Exception:
         pass
     try:
-        prefix_probe = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk"
+        prefix_probe = _resolve_tmux_prefix(None, None, None)
         out = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"], capture_output=True, text=True, timeout=3)
         if out.returncode == 0 and out.stdout:
             ids = []
@@ -2891,7 +2914,7 @@ def start_gpu_log_tail_sampler(root, poll_seconds=60, jitter_seconds=30):
                 time.sleep(30)
                 continue
             try:
-                prefix = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk"
+                prefix = _resolve_tmux_prefix(None, None, None)
                 for gid in _resolve_dynamic_gpu_ids(root):
                     win = fixed_gpu_window_name(prefix, gid)
                     if not tmux_session_alive(win):
@@ -3213,7 +3236,7 @@ def execute_worker_command(root, command, worker_id):
                 if not pane_id:
                     return
                 # 容错 pane_id == gpu_window：遍历 MANAGED 窗口或按 gpu_id 计算 gw
-                prefix_gw = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or env.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk"
+                prefix_gw = _resolve_tmux_prefix(None, None, env)
                 gw = fixed_gpu_window_name(prefix_gw, gpu_id) if gpu_id else ""
                 _safe_kill_pane(pane_id, gw)
             except Exception:
@@ -3581,7 +3604,7 @@ def write_snapshots(root, hub_id, workers, scheduler, traces, gpu, health, error
     # TB健康入快照(2B)：供面板免轮询展示，端口默认6006，配置由扩展侧覆盖
     tb_info = {}
     try:
-        tb_prefix = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk"
+        tb_prefix = _resolve_tmux_prefix(None, None, None)
         tb_sess = tb_tmux_session_name(tb_prefix)
         tb_port = 6006
         tb_running = tmux_session_alive(tb_sess)
@@ -8215,8 +8238,9 @@ def progress_action(root, action, operation_id, op_id, status, message, extra=No
 
 def tb_tmux_session_name(prefix):
     # Mirror the extension-side normalizeRemoteTmuxSessionPrefix so the session name is
-    # derived from configuration and never hardcoded to a specific server/user.
-    p = re.sub(r"[^a-z0-9._-]+", "-", str(prefix or "zlk").strip().lower()).strip("-")[:32]
+    # derived from configuration and never hardcoded; prefix 优先显式传入，否则走 _resolve
+    raw = str(prefix).strip() if prefix and str(prefix).strip() else _resolve_tmux_prefix(None, None, None)
+    p = re.sub(r"[^a-z0-9._-]+", "-", str(raw).strip().lower()).strip("-")[:32]
     if not p or not re.match(r"^[a-z0-9]", p):
         p = "zlk"
     return p + "_tb"
@@ -8304,7 +8328,7 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
     # needs no server-specific path in settings. Session named <prefix>_tb; it is NOT managed by the
     # agent control loop. Each open kills the old session and recreates a fresh one (low cost).
     prefix = str(payload.get("sessionPrefix") or payload.get("session_prefix")
-                or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk")
+                or _resolve_tmux_prefix(None, None, None))
     # 统一归一：不再信任 payload tmuxSession 原值（避免 ZLK_tb 与 zlk_tb 快照不一致），与 write_snapshots 完全一致
     tb_session = tb_tmux_session_name(prefix)
     port = int(payload.get("port") or 6006)
@@ -8349,11 +8373,110 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
     )
 
 
+def _resolve_tmux_prefix(options=None, command=None, env=None):
+    # 按优先级：options.tmuxSessionPrefix -> command.tmuxSessionPrefix -> os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") -> 读 $WORK_DIR/.vscode/settings.json 的 tunnel.remoteTmuxSessionPrefix -> 回退 "zlk"
+    def _extract_prefix(obj):
+        if obj is None:
+            return ""
+        if isinstance(obj, dict):
+            for k in ("tmuxSessionPrefix", "tmux_session_prefix", "sessionPrefix", "session_prefix", "remoteTmuxSessionPrefix", "remote_tmux_session_prefix"):
+                try:
+                    v = obj.get(k)
+                    if v is not None and str(v).strip() != "":
+                        return str(v).strip()
+                except Exception:
+                    pass
+            return ""
+        # attribute access fallback
+        for k in ("tmuxSessionPrefix", "tmux_session_prefix", "sessionPrefix", "session_prefix", "remoteTmuxSessionPrefix"):
+            try:
+                v = getattr(obj, k, None)
+                if v is not None and str(v).strip() != "":
+                    return str(v).strip()
+            except Exception:
+                pass
+        try:
+            # dict-like via __getitem__
+            for k in ("tmuxSessionPrefix", "tmux_session_prefix"):
+                try:
+                    if hasattr(obj, "__contains__") and k in obj:
+                        v = obj[k]
+                        if v is not None and str(v).strip() != "":
+                            return str(v).strip()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return ""
+    # 1) options
+    for src in (options, command):
+        if src is not None:
+            raw = _extract_prefix(src)
+            if raw:
+                norm = re.sub(r"[^a-z0-9._-]+", "-", str(raw).strip().lower()).strip("-")[:32]
+                if norm and re.match(r"^[a-z0-9]", norm):
+                    return norm
+                # raw present but invalid -> fallback to zlk immediately (保持与 normalizeRemoteTmuxSessionPrefix 一致)
+                return "zlk"
+    # 3) env
+    env_candidates = []
+    if isinstance(env, dict):
+        env_candidates.append(env)
+    env_candidates.append(os.environ)
+    for em in env_candidates:
+        try:
+            v = em.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") if hasattr(em, "get") else None
+            if v is not None and str(v).strip() != "":
+                norm = re.sub(r"[^a-z0-9._-]+", "-", str(v).strip().lower()).strip("-")[:32]
+                if norm and re.match(r"^[a-z0-9]", norm):
+                    return norm
+                return "zlk"
+        except Exception:
+            pass
+    # 4) read $WORK_DIR/.vscode/settings.json -> tunnel.remoteTmuxSessionPrefix
+    try:
+        work_dir = ""
+        if isinstance(env, dict):
+            work_dir = str(env.get("WORK_DIR") or env.get("WORKDIR") or env.get("SIMPLE_EXPERIMENT_WORK_DIR") or "").strip()
+        if not work_dir:
+            work_dir = str(os.environ.get("WORK_DIR") or os.environ.get("SIMPLE_EXPERIMENT_WORK_DIR") or "").strip()
+        candidates = []
+        if work_dir:
+            candidates.append(os.path.join(str(work_dir), ".vscode", "settings.json"))
+        try:
+            candidates.append(os.path.join(os.getcwd(), ".vscode", "settings.json"))
+        except Exception:
+            pass
+        for cand in candidates:
+            try:
+                if cand and os.path.isfile(cand):
+                    with open(cand, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    val = None
+                    if isinstance(data, dict):
+                        if "tunnel.remoteTmuxSessionPrefix" in data:
+                            val = data.get("tunnel.remoteTmuxSessionPrefix")
+                        tunnel = data.get("tunnel")
+                        if (val is None or str(val).strip() == "") and isinstance(tunnel, dict):
+                            val = tunnel.get("remoteTmuxSessionPrefix") or tunnel.get("remote_tmux_session_prefix")
+                        if (val is None or str(val).strip() == "") and "remoteTmuxSessionPrefix" in data:
+                            val = data.get("remoteTmuxSessionPrefix")
+                    if val is not None and str(val).strip() != "":
+                        norm = re.sub(r"[^a-z0-9._-]+", "-", str(val).strip().lower()).strip("-")[:32]
+                        if norm and re.match(r"^[a-z0-9]", norm):
+                            return norm
+                        return "zlk"
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # 5) 回退 "zlk"
+    return "zlk"
+
+
 def _tmux_prefix():
-    p = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk").strip().lower()).strip("-")[:32]
-    if not p or not re.match(r"^[a-z0-9]", p):
-        p = "zlk"
-    return p
+    # 仅当 settings 缺失时回退到 "zlk"（与 _resolve_tmux_prefix 统一），_resolve 内部已处理 env/settings 优先级
+    return _resolve_tmux_prefix(None, None, None)
 
 
 def _run_plan_registry_path(root):
@@ -9119,7 +9242,7 @@ def api_worker_tasks(root):
                 _gid_tmp = str(_row.get("gpuId") or _row.get("gpu_id") or _row.get("gpu") or _row.get("targetGpuId") or "").strip()
                 if _gid_tmp:
                     try:
-                        _prefix_tmp = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "zlk"
+                        _prefix_tmp = _resolve_tmux_prefix(None, None, None)
                         _target = fixed_gpu_window_name(_prefix_tmp, _gid_tmp)
                     except Exception:
                         _target = ""
