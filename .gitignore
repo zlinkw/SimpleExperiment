@@ -15,9 +15,26 @@ _*.md
 _*.html
 _run_test_full.txt
 
-# Old build vsix
+# Build artifacts
+dist/
+*.vsix
 simple-experiment-0.1.5*.vsix
 dist/runtime/__pycache__/
 
+# Temp / scratch
+.tmp/
+tmp/
+*.tmp
+*.log
+
+# Dependencies (never commit)
+node_modules/
+
 # Local development workflow only; never publish batch planning notes.
 docs/target-mode-plan.md
+
+# SimpleExperiment runtime caches (local only, never commit)
+simple_cluster/
+
+# Ad-hoc backups
+*.bak

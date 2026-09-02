@@ -1,0 +1,65 @@
+// @ts-nocheck
+/**
+ * sections/index - 聚合导出 + createAllSections 工厂
+ * 供 PanelHtmlRenderer 聚合使用，保持与 PanelSectionFactory 兼容
+ */
+import type { Section } from "./types";
+import { OverviewSection } from "./OverviewSection";
+import { ServersSection } from "./ServersSection";
+import { PlansSection } from "./PlansSection";
+import { ResultsSection } from "./ResultsSection";
+import { ExecutionSection } from "./ExecutionSection";
+import { GpuSection } from "./GpuSection";
+import { SyncSection } from "./SyncSection";
+import { TmuxSection } from "./TmuxSection";
+import { SettingsSection } from "./SettingsSection";
+import { DiagnosticsSection } from "./DiagnosticsSection";
+
+export type { Section } from "./types";
+export { OverviewSection } from "./OverviewSection";
+export { ServersSection } from "./ServersSection";
+export { PlansSection } from "./PlansSection";
+export { ResultsSection } from "./ResultsSection";
+export { ExecutionSection } from "./ExecutionSection";
+export { GpuSection } from "./GpuSection";
+export { SyncSection } from "./SyncSection";
+export { TmuxSection } from "./TmuxSection";
+export { SettingsSection } from "./SettingsSection";
+export { DiagnosticsSection } from "./DiagnosticsSection";
+
+export function createAllSections(): Section[] {
+  const sections: Section[] = [
+    new OverviewSection(),
+    new ServersSection(),
+    new SettingsSection(),
+    new PlansSection(),
+    new ResultsSection(),
+    new SyncSection(),
+    new GpuSection(),
+    new TmuxSection(),
+    new ExecutionSection(),
+    new DiagnosticsSection(),
+  ];
+  return sections.sort((a, b) => a.order - b.order);
+}
+
+export function createSectionById(id: string): Section | undefined {
+  return createAllSections().find((s) => s.id === id);
+}
+
+/**
+ * 适配 PanelSectionFactory 的 PanelSection 形状，供 PanelHtmlRenderer 使用
+ */
+export function toPanelSections(sections: Section[]): import("../../factories/PanelSectionFactory").PanelSection[] {
+  return sections.map((s) => ({
+    id: s.id as any,
+    title: s.title,
+    order: s.order,
+    icon: "",
+    renderHtml: (state: unknown) => s.renderHtml(state),
+    renderCss: () => s.renderCss(),
+    renderScript: () => s.renderScript(),
+  }));
+}
+
+export const allSectionIds = ["overview","servers","settings","plans","results","sync","gpu","tmux","execution","diagnostics"] as const;
