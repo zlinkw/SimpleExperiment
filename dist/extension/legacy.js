@@ -8856,8 +8856,9 @@ class RealtimeTunnelPanelProvider {
         const topology = this.assertPlanTopologyReady("草稿 Debug 运行");
         this.assertExecutionWorkersReady(body.options?.workers);
         this.assertExecutionAgentProjectsReady(body);
-        if (!await this.ensureSimpleSftpReadyForSetup("草稿 Debug 首跑"))
-            return;
+        if (!await this.ensureSimpleSftpReadyForSetup("草稿 Debug 首跑")) {
+            throw new UiCommandCancelled("草稿 Debug 已取消，SimpleSFTP 未就绪。");
+        }
         assertCurrent();
         const answer = await vscode.window.showWarningMessage(`确认运行草稿 Debug？\nPLAN：${record.draftPlanPath}\n配置：${record.draftConfigPaths.join(", ") || "-"}\n输出：simple_cluster/debug_runs/<plan>/<debug-run>\n目标：${topology.mode}`, { modal: true }, "运行 Debug");
         if (answer !== "运行 Debug")
