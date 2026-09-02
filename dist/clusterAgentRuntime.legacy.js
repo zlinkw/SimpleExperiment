@@ -2344,7 +2344,7 @@ def fixed_gpu_window_name(prefix, gpu_id):
     else:
         base = _resolve_tmux_prefix(None, None, None)
     if not base or not re.match(r"^[a-z0-9]", base):
-        base = "zlk"
+        base = "simple"
     gid_raw = _normalize_gpu_id_for_window(gpu_id)
     gid = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(gid_raw or "0").strip().lower()).strip("-").lower() or "0"
     return f"{base}-gpu-{gid}"
@@ -2355,7 +2355,7 @@ def simple_tmux_name(value):
     # _resolve 已做归一与合法性校验，此处二次加固与旧逻辑保持一致
     prefix = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prefix or _resolve_tmux_prefix(None, None, None))).strip("-").lower()[:32]
     if not prefix or not re.match(r"^[a-z0-9]", prefix):
-        prefix = "zlk"
+        prefix = "simple"
     return ((prefix + "-" + (text or "task"))[:96])
 
 def worker_tmux_session_name(worker_id, gpu_id, local_worker_id=None):
@@ -2574,19 +2574,19 @@ def _tmux_pane_python_running(session, env):
     return False
 
 def _is_main_shell_target(session):
-    # 围栏：禁止重型调度指令落在主 shell zlk1:0.0（用户截图主 shell 为 zlk1:0.0，调度应仅在 zlk-sch-* / zlk-gpu-* / zlk-worker-*-agent）
+    # 围栏：禁止重型调度指令落在主 shell simple1:0.0 / zlk1:0.0（兼容历史前缀，调度应仅在 <prefix>-sch-* / <prefix>-gpu-* / <prefix>-worker-*-agent）
     try:
         s = str(session or "").strip()
         if not s:
             return True
-        # 严格匹配主 shell 及其变体：zlk1:0.0 / 0.0 / :0.0
-        if s == "zlk1:0.0" or s.endswith(":0.0") and not ("-sch-" in s or "-gpu-" in s or "-agent" in s):
-            # 额外：任何以 zlk1 开头且无 -sch/-gpu/-agent 的均视为主 shell
-            if s.startswith("zlk1"):
+        # 严格匹配主 shell 及其变体：simple1:0.0 / zlk1:0.0 / 0.0 / :0.0
+        if s in ("simple1:0.0", "zlk1:0.0") or s.endswith(":0.0") and not ("-sch-" in s or "-gpu-" in s or "-agent" in s):
+            # 额外：任何以 simple1/zlk1 开头且无 -sch/-gpu/-agent 的均视为主 shell（兼容历史）
+            if s.startswith("simple1") or s.startswith("zlk1"):
                 return True
             if s == "0.0" or s.endswith(":0.0"):
                 return True
-        if s in ("zlk1:0.0", "zlk1:0", "0.0", "0"):
+        if s in ("simple1:0.0", "simple1:0", "zlk1:0.0", "zlk1:0", "0.0", "0"):
             return True
     except Exception:
         pass
@@ -2610,10 +2610,47 @@ def _is_heavy_scheduler_line(line):
         pass
     return False
 
+def _truncate_text(value, limit=2000):
+    try:
+        s = str(value or "")
+        if len(s) > limit:
+            return s[:limit] + f"...[truncated {len(s)-limit} chars, total {len(s)}]"
+        return s
+    except Exception:
+        return ""
+
+def _tmux_ls_snapshot(env, timeout=3):
+    try:
+        r = subprocess.run(["tmux", "ls"], capture_output=True, text=True, timeout=timeout, env=env)
+        out = (r.stdout or "")[:1500]
+        err = (r.stderr or "")[:500]
+        if out or err:
+            return (out + ("\n[stderr] " + err if err else "")).strip()[:2000]
+        return f"tmux ls rc={r.returncode}"
+    except Exception as exc:
+        return f"tmux ls unavailable: {exc!r}"
+
+def _build_tmux_error_context(session, returncode=None, stderr="", stdout="", cwd="", attempts=1, env=None):
+    try:
+        stderr_t = _truncate_text(stderr, 2000)
+        stdout_t = _truncate_text(stdout, 2000)
+        cwd_s = str(cwd or "") or "(cwd empty)"
+        snapshot = _tmux_ls_snapshot(env)
+        env_keys = ""
+        try:
+            if isinstance(env, dict):
+                env_keys = ",".join(sorted(k for k in env.keys() if k.startswith("SIMPLE_") or k in ("CUDA_VISIBLE_DEVICES", "CONDA_DEFAULT_ENV", "WORK_DIR")))[:500]
+        except Exception:
+            env_keys = ""
+        parts = [f"session={session!r}", f"returncode={returncode}", f"cwd={cwd_s!r}", f"attempts={attempts}", f"stderr={stderr_t!r}", f"stdout={stdout_t!r}", f"env_keys={env_keys!r}", f"tmux_ls={snapshot!r}"]
+        return "; ".join(parts)
+    except Exception as exc:
+        return f"session={session!r} rc={returncode} build_context_failed={exc!r}"
+
 def _wait_tmux_ready(session, env, timeout=30.0, poll=0.3):
     # 围栏：禁止在主 shell 上执行 readiness 探针（应仅在 tmux 子窗口）
     if _is_main_shell_target(session):
-        raise RuntimeError(f"refusing to probe tmux readiness on main shell target {session!r}; must be zlk-sch-*/zlk-gpu-*/zlk-worker-*-agent")
+        raise RuntimeError(f"refusing to probe tmux readiness on main shell target {session!r}; must be simple-sch-*/simple-gpu-*/simple-worker-*-agent")
     # Confirm the tmux pane shell is ready to accept keystrokes: echo a unique marker
     # and wait until it shows up in capture-pane. Avoids the startup race where the
     # first send-keys is dropped because the login shell has not reached its prompt.
@@ -2643,7 +2680,7 @@ def _wait_tmux_ready(session, env, timeout=30.0, poll=0.3):
     return False
 
 def _send_tmux_line(session, line, env, retries=3):
-    # 围栏：禁止重型调度指令发送到主 shell zlk1:0.0
+    # 围栏：禁止重型调度指令发送到主 shell simple1:0.0（兼容 zlk1:0.0）
     if _is_main_shell_target(session) and _is_heavy_scheduler_line(line):
         raise RuntimeError(f"refusing heavy scheduler line on main shell target {session!r}: {str(line)[:120]!r}")
     # Send one line via tmux send-keys, validating the return code and retrying on
@@ -2688,11 +2725,11 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
             pass
     # 围栏：显式拒绝主 shell target 作为 session
     if _is_main_shell_target(session):
-        raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; must be zlk-sch-*/zlk-gpu-*/zlk-worker-*-agent")
+        raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; must be simple-sch-*/simple-gpu-*/simple-worker-*-agent; " + _build_tmux_error_context(session, None, "", "", cwd, 1, env))
     proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
     if proc.returncode != 0:
         err = (proc.stderr or "") + (proc.stdout or "")
-        # 失败时若 stderr 含 duplicate session / session exists 则先 kill-session 再重试一次 new-session；其他错误直接抛 RuntimeError 带 stderr；删除错误的 new-window 回退分支
+        # 失败时若 stderr 含 duplicate session / session exists 则先 kill-session 再重试一次 new-session；其他错误直接抛 RuntimeError 带详细上下文并阻止调度
         low = err.lower()
         if "duplicate session" in low or "session exists" in low or "duplicate" in low:
             try:
@@ -2703,9 +2740,11 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
             proc2 = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
             if proc2.returncode != 0:
                 err2 = (proc2.stderr or "") + (proc2.stdout or "")
-                raise RuntimeError(f"tmux new-session failed after retry rc={proc2.returncode} stderr={err2!r} for {session!r}")
+                ctx2 = _build_tmux_error_context(session, proc2.returncode, proc2.stderr, proc2.stdout, cwd, 2, env)
+                raise RuntimeError(f"tmux new-session failed after retry rc={proc2.returncode} stderr={_truncate_text(err2, 2000)!r} for {session!r}; cwd={str(cwd)!r}; attempts=2; {ctx2}")
         else:
-            raise RuntimeError(f"tmux new-session failed rc={proc.returncode} stderr={err!r} for {session!r}")
+            ctx = _build_tmux_error_context(session, proc.returncode, proc.stderr, proc.stdout, cwd, 1, env)
+            raise RuntimeError(f"tmux new-session failed rc={proc.returncode} stderr={_truncate_text(err, 2000)!r} for {session!r}; cwd={str(cwd)!r}; attempts=1; {ctx}")
     # 日志直显 tmux 窗口：不再 pipe-pane tee，日志直接输出到 pane；log_path 仅用于 info 备份（FileHandler）
     if log_path:
         try:
@@ -2753,17 +2792,15 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                 subprocess.run(["tmux", "set-environment", "-t", session, _key, str(_val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
             except Exception:
                 pass
-    # Wait until the pane shell is actually ready to accept keystrokes. If the
-    # readiness probe cannot be confirmed we bail out so the caller falls back to a
-    # direct Popen launch instead of leaving a half-initialised session that silently
-    # drops the scheduler command (the root cause of "等待 scheduler 终态").
+    # Wait until the pane shell is actually ready to accept keystrokes. 超时即视为调度器级错误，带详细上下文并阻止后续调度
     if not _wait_tmux_ready(session, env):
         try:
             subprocess.run(["tmux", "kill-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
         except Exception:
             pass
-        raise RuntimeError("tmux pane never became ready to accept input; caller should fall back to Popen")
-    # Type each line, validating the send-keys return code. On any failure bail directly (no file fallback).
+        ctx = _build_tmux_error_context(session, None, "", "", cwd, 1, env)
+        raise RuntimeError(f"tmux _wait_tmux_ready timeout after 30s for {session!r}; cwd={str(cwd)!r}; {ctx}; refusing to continue scheduling")
+    # Type each line, validating the send-keys return code. 任何失败均升为调度器级错误，带详细上下文
     for line in lines:
         rc = _send_tmux_line(session, line, env)
         if rc != 0:
@@ -2771,7 +2808,8 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                 subprocess.run(["tmux", "kill-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
             except Exception:
                 pass
-            raise RuntimeError("tmux send-keys failed rc=%s; refusing fallback" % rc)
+            ctx = _build_tmux_error_context(session, rc, "", f"send-keys failed for line={_truncate_text(line, 500)!r}", cwd, 1, env)
+            raise RuntimeError(f"tmux send-keys failed rc={rc} for {session!r}; line={_truncate_text(line, 500)!r}; cwd={str(cwd)!r}; {ctx}; refusing fallback and blocking schedule")
     # Mirror the experiment's stdout.log/stderr.log into a split pane so the operator can see
     # errors directly inside the tmux window (the scheduler/train output may be redirected to
     # those files by the project). Wait for the scheduler's sidecar, then tail -F both logs.
@@ -2796,7 +2834,26 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         proc_gs = subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
         if proc_gs.returncode != 0:
             err = (proc_gs.stderr or proc_gs.stdout or "")
-            raise RuntimeError(f"tmux new-session failed for gpu_window {gpu_window!r} rc={proc_gs.returncode} stderr={err!r}")
+            # 尝试 kill 后重试一次，仍失败则升为调度器级错误，带详细上下文
+            low_gs = (err or "").lower()
+            attempts_gs = 1
+            if "duplicate session" in low_gs or "session exists" in low_gs or "duplicate" in low_gs:
+                try:
+                    subprocess.run(["tmux", "kill-session", "-t", gpu_window], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=5)
+                    import time as _t2
+                    _t2.sleep(0.3)
+                except Exception:
+                    pass
+                proc_gs2 = subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
+                if proc_gs2.returncode != 0:
+                    err2 = (proc_gs2.stderr or proc_gs2.stdout or "")
+                    ctx2 = _build_tmux_error_context(gpu_window, proc_gs2.returncode, proc_gs2.stderr, proc_gs2.stdout, cwd, 2, env)
+                    raise RuntimeError(f"tmux new-session failed after retry for gpu_window {gpu_window!r} rc={proc_gs2.returncode} stderr={_truncate_text(err2, 2000)!r}; cwd={str(cwd)!r}; attempts=2; {ctx2}; blocking task dispatch")
+                proc_gs = proc_gs2
+                attempts_gs = 2
+            if proc_gs.returncode != 0:
+                ctx = _build_tmux_error_context(gpu_window, proc_gs.returncode, proc_gs.stderr, proc_gs.stdout, cwd, attempts_gs, env)
+                raise RuntimeError(f"tmux new-session failed for gpu_window {gpu_window!r} rc={proc_gs.returncode} stderr={_truncate_text(err, 2000)!r}; cwd={str(cwd)!r}; attempts={attempts_gs}; {ctx}; blocking task dispatch")
         import time as _t
         _t.sleep(0.2)
     try:
@@ -2825,10 +2882,20 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
             pass
         _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}"
         result = subprocess.run(["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-lc", _cmd], capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
+        if result.returncode != 0:
+            ctx_sw = _build_tmux_error_context(gpu_window, result.returncode, result.stderr, result.stdout, cwd, 1, env)
+            raise RuntimeError(f"tmux split-window failed for {gpu_window!r} rc={result.returncode} stderr={_truncate_text(result.stderr, 2000)!r} stdout={_truncate_text(result.stdout, 2000)!r}; cwd={str(cwd)!r}; cmd={_truncate_text(_cmd, 800)!r}; {ctx_sw}; blocking task dispatch")
         pane_id = (result.stdout or "").strip().splitlines()[-1].strip() if result.stdout else ""
+        if not pane_id or pane_id == gpu_window:
+            # pane 进入失败视为调度器级错误：无 pane_id 则无法监控任务，必须阻止派发
+            ctx_pane = _build_tmux_error_context(gpu_window, result.returncode, result.stderr, result.stdout, cwd, 1, env)
+            raise RuntimeError(f"tmux split-window pane enter failed for {gpu_window!r}: pane_id missing or equals window (pane_id={pane_id!r}); cwd={str(cwd)!r}; stdout={_truncate_text(result.stdout, 1000)!r}; {ctx_pane}; blocking task dispatch")
         return pane_id or gpu_window
+    except RuntimeError:
+        raise
     except Exception as exc:
-        raise RuntimeError(f"split-window failed: {exc}")
+        ctx_exc = _build_tmux_error_context(gpu_window, None, str(exc), "", cwd, 1, env)
+        raise RuntimeError(f"split-window failed for {gpu_window!r}: {exc!r}; cwd={str(cwd)!r}; {ctx_exc}; blocking task dispatch")
 
 def _resolve_dynamic_gpu_ids(root):
     # 动态解析 worker 配置的 gpu_ids：优先 options/env/availableGpuIds，其次遍历 MANAGED GPU 窗口
@@ -8245,7 +8312,7 @@ def tb_tmux_session_name(prefix):
     raw = str(prefix).strip() if prefix and str(prefix).strip() else _resolve_tmux_prefix(None, None, None)
     p = re.sub(r"[^a-z0-9._-]+", "-", str(raw).strip().lower()).strip("-")[:32]
     if not p or not re.match(r"^[a-z0-9]", p):
-        p = "zlk"
+        p = "simple"
     return p + "_tb"
 
 
@@ -8377,7 +8444,7 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
 
 
 def _resolve_tmux_prefix(options=None, command=None, env=None):
-    # 按优先级：options.tmuxSessionPrefix -> command.tmuxSessionPrefix -> os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") -> 读 $WORK_DIR/.vscode/settings.json 的 tunnel.remoteTmuxSessionPrefix -> 回退 "zlk"
+    # 按优先级：options.tmuxSessionPrefix -> command.tmuxSessionPrefix -> os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") -> 读 $WORK_DIR/.vscode/settings.json 的 tunnel.remoteTmuxSessionPrefix -> 回退 "simple"
     def _extract_prefix(obj):
         if obj is None:
             return ""
@@ -8419,8 +8486,8 @@ def _resolve_tmux_prefix(options=None, command=None, env=None):
                 norm = re.sub(r"[^a-z0-9._-]+", "-", str(raw).strip().lower()).strip("-")[:32]
                 if norm and re.match(r"^[a-z0-9]", norm):
                     return norm
-                # raw present but invalid -> fallback to zlk immediately (保持与 normalizeRemoteTmuxSessionPrefix 一致)
-                return "zlk"
+                # raw present but invalid -> fallback to simple immediately (保持与 normalizeRemoteTmuxSessionPrefix 一致)
+                return "simple"
     # 3) env
     env_candidates = []
     if isinstance(env, dict):
@@ -8433,7 +8500,7 @@ def _resolve_tmux_prefix(options=None, command=None, env=None):
                 norm = re.sub(r"[^a-z0-9._-]+", "-", str(v).strip().lower()).strip("-")[:32]
                 if norm and re.match(r"^[a-z0-9]", norm):
                     return norm
-                return "zlk"
+                return "simple"
         except Exception:
             pass
     # 4) read $WORK_DIR/.vscode/settings.json -> tunnel.remoteTmuxSessionPrefix
@@ -8468,17 +8535,17 @@ def _resolve_tmux_prefix(options=None, command=None, env=None):
                         norm = re.sub(r"[^a-z0-9._-]+", "-", str(val).strip().lower()).strip("-")[:32]
                         if norm and re.match(r"^[a-z0-9]", norm):
                             return norm
-                        return "zlk"
+                        return "simple"
             except Exception:
                 continue
     except Exception:
         pass
-    # 5) 回退 "zlk"
-    return "zlk"
+    # 5) 回退 "simple"
+    return "simple"
 
 
 def _tmux_prefix():
-    # 仅当 settings 缺失时回退到 "zlk"（与 _resolve_tmux_prefix 统一），_resolve 内部已处理 env/settings 优先级
+    # 仅当 settings 缺失时回退到 "simple"（与 _resolve_tmux_prefix 统一），_resolve 内部已处理 env/settings 优先级
     return _resolve_tmux_prefix(None, None, None)
 
 
@@ -8798,15 +8865,38 @@ def handle_action(root, action, payload, operation_id, op_id):
         pid = 0
         used_tmux = False
         scheduler_exit_code_path = ""
+        scheduler_launch_error = ""
         if tmux_available():
             try:
                 scheduler_exit_code_path = safe_project_path(root, f"simple_cluster/tmp/cluster_scheduler/{op_id}.exit_code")
                 pid = start_simple_tmux_command(tmux_session, scheduler_args, root, log_path, env, scheduler_exit_code_path)
                 used_tmux = True
             except Exception as exc:
-                raise RuntimeError(f"scheduler tmux launch failed: {exc}; refusing silent bash fallback")
+                scheduler_launch_error = f"scheduler tmux launch failed: {exc}; refusing silent bash fallback"
+                # 调度器级错误：写入 scheduler log、标记 failed，禁止继续调度
+                try:
+                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                    with open(log_path, "a", encoding="utf-8") as _lf:
+                        _lf.write(f"[{now_iso()}] SCHEDULER LAUNCH FAILED: {exc}\n")
+                        _lf.write(f"session={tmux_session!r} op_id={op_id!r} cwd={str(root)!r}\n")
+                        _lf.write(f"scheduler_args={_truncate_text(' '.join(str(x) for x in scheduler_args), 2000)}\n")
+                        try:
+                            _lf.write(f"tmux_ls={_tmux_ls_snapshot(env)}\n")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return terminal_action(root, action, operation_id, op_id, "failed", scheduler_launch_error, {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch", "error": str(exc), "logTail": _truncate_text(str(exc), 4000)}, request=payload)
         if not used_tmux:
-            raise RuntimeError("tmux available but scheduler launch failed and ALLOW_POPEN_FALLBACK not enabled; refusing silent bash fallback")
+            msg = scheduler_launch_error or "tmux available but scheduler launch failed and ALLOW_POPEN_FALLBACK not enabled; refusing silent bash fallback"
+            try:
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, "a", encoding="utf-8") as _lf2:
+                    _lf2.write(f"[{now_iso()}] SCHEDULER LAUNCH FAILED: {msg}\n")
+                    _lf2.write(f"session={tmux_session!r} op_id={op_id!r} cwd={str(root)!r}\n")
+            except Exception:
+                pass
+            return terminal_action(root, action, operation_id, op_id, "failed", msg, {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch_no_fallback", "error": msg, "logTail": _truncate_text(msg, 4000)}, request=payload)
         # Register the scheduler as a tracked task so it shows up in the task cards and can be
         # stopped from the panel even though it is launched by run-plan (not a worker task). This
         # closes the gap where a stuck scheduler process was invisible to the task UI.
@@ -10808,7 +10898,7 @@ def serve_http(args):
                 try:
                     cmd = str(payload.get("command") or payload.get("cmd") or "").strip()
                     if route == "/api/admin/kill-stale-runtime" or not cmd:
-                        kill_cmd = "for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^zlk-worker-.*-agent$' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(zlk-sch-|zlk-gpu-|simple-gpu-)' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true; echo ok"
+                        kill_cmd = "for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(simple-worker-.*-agent|zlk-worker-.*-agent)$' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; tmux kill-session -t simple-sch-run-plan 2>/dev/null || true; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(simple-sch-|zlk-sch-|simple-gpu-|zlk-gpu-)' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true; echo ok"
                         out = subprocess.run(kill_cmd, shell=True, capture_output=True, text=True, timeout=10)
                         return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "output": (out.stdout or "")[:2000], "error": (out.stderr or "")[:2000]})
                     else:

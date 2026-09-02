@@ -6,15 +6,15 @@
   "components": {
     "hub_agent": {
       "version": "0.4.92",
-      "sha256": "22f0c376e57ad08ff45c1a27559e912b70e47aaf98663cf3e479b0a81aac1439",
+      "sha256": "b030e4de1c56929450e0f696b3e6718ed4896ced4f8174a07d98098f0c9361c4",
       "remotePath": "simple_cluster/runtime/cluster_agent.py",
-      "installedAt": "2026-09-02T15:49:30.955Z"
+      "installedAt": "2026-09-02T15:59:17.587Z"
     },
     "cluster_scheduler": {
       "version": "0.4.92",
       "sha256": "88671296da24193b05ba07d5e3e83af7a56989fb62a4ab1e40af839782979d9e",
       "remotePath": "simple_cluster/runtime/cluster_scheduler.py",
-      "installedAt": "2026-09-02T15:49:30.956Z"
+      "installedAt": "2026-09-02T15:59:17.588Z"
     }
   }
 }

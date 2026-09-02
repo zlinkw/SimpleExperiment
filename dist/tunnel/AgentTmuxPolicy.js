@@ -5,8 +5,8 @@ exports.normalizeRemoteTmuxSessionPrefix = normalizeRemoteTmuxSessionPrefix;
 exports.defaultAgentTmuxSessionName = defaultAgentTmuxSessionName;
 exports.isValidRemoteTmuxSessionName = isValidRemoteTmuxSessionName;
 exports.agentTmuxStartupCommand = agentTmuxStartupCommand;
-// 仅当 settings 缺失时回退到 "zlk"（与 tunnel.remoteTmuxSessionPrefix / XshellTunnelSetup 默认保持一致，动态解析优先）
-exports.simpleTmuxSessionPrefix = "zlk";
+// 仅当 settings 缺失时回退到 "simple"（与 tunnel.remoteTmuxSessionPrefix / XshellTunnelSetup 默认保持一致，动态解析优先）
+exports.simpleTmuxSessionPrefix = "simple";
 exports.simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1";
 exports.simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
 exports.simpleDefaultCondaEnv = "";
