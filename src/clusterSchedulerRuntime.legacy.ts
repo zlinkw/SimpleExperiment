@@ -41,8 +41,6 @@ WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
 WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS = 10.0
 WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS = 300
 ARCHIVE_STATE_PATH = Path("simple_cluster/archive_state.json")
-DELETED_EXPERIMENTS_PATH = Path("simple_cluster/deleted_experiments.jsonl")
-DELETED_SCHEDULER_ROWS_PATH = Path("simple_cluster/deleted_scheduler_rows.jsonl")
 MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
 AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
 
@@ -2671,26 +2669,6 @@ def path_matches_any(value: Any, candidates: set[str]) -> bool:
     return False
 
 
-def read_deleted_experiment_matchers() -> list[dict[str, Any]]:
-    # 已旁路已删除名单机制：始终认为无已删除，plan 里的全部按 pending 顺序跑
-    return []
-
-
-def experiment_entry_matches_deletion(entry: dict[str, Any], deleted: dict[str, Any]) -> bool:
-    # 已旁路已删除名单机制：始终不匹配
-    return False
-
-
-def filter_deleted_experiment_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # 已旁路已删除名单机制：直接透传，不再过滤
-    return entries
-
-
-def job_deleted(job: Any, worker: dict[str, Any], item: dict[str, Any] | None = None) -> bool:
-    # 已旁路已删除名单机制：始终认为未被删除
-    return False
-
-
 def index_entry_from_manifest(manifest_path: Path, worker: dict[str, Any], job: Any, item: dict[str, Any]) -> dict[str, Any]:
     parsed = safe_read_json(manifest_path, {})
     hub_job_dir = manifest_path.parent.as_posix()
@@ -2720,7 +2698,6 @@ def index_entry_from_manifest(manifest_path: Path, worker: dict[str, Any], job: 
 
 
 def upsert_experiment_index(entries: list[dict[str, Any]]) -> None:
-    entries = filter_deleted_experiment_entries(entries)
     if not entries:
         return
     index_path = Path("simple_cluster/experiment_index.json")
@@ -2728,12 +2705,11 @@ def upsert_experiment_index(entries: list[dict[str, Any]]) -> None:
     if not isinstance(current, list):
         current = []
     keys = {str(entry.get("hub_job_dir") or "") for entry in entries}
-    kept = filter_deleted_experiment_entries([entry for entry in current if str(entry.get("hub_job_dir") or "") not in keys])
-    atomic_write_json(index_path, filter_deleted_experiment_entries([*kept, *entries]))
+    kept = [entry for entry in current if str(entry.get("hub_job_dir") or "") not in keys]
+    atomic_write_json(index_path, [*kept, *entries])
 
 
 def archived_entry_exists(job: Any, worker: dict[str, Any]) -> bool:
-    # 已旁路已删除名单机制：不再因 deleted 判定为已归档
     job_dir = Path(str(job.output_dir))
     if (job_dir / "artifact_manifest.json").exists():
         return True
@@ -2763,7 +2739,6 @@ def sync_finished_artifacts(plan: str, items: list[dict[str, Any]], workers_by_i
         job = job_for(item, jobs_by_index)
         if not worker or not job:
             continue
-        # 已旁路已删除名单机制：不再因 deleted 跳过 artifact 同步
         status = "completed" if int(item.get("exit_code") or 1) == 0 and not item.get("error") else "failed"
         try:
             if archived_entry_exists(job, worker):
@@ -2812,7 +2787,6 @@ def sync_running_console_logs(plan: str, items: list[dict[str, Any]], workers_by
         if not raw_log:
             continue
         job = job_for(item, jobs_by_index)
-        # 已旁路已删除名单机制：不再因 deleted 跳过 console 同步
         item["hub_console_log"] = raw_log
         item["output_dir"] = str(getattr(job, "output_dir", item.get("output_dir", "")) or "")
         gid = str(item.get("gpu_id") or item.get("gpuId") or item.get("gpu") or "").strip()
@@ -2981,16 +2955,6 @@ def append_log(path: Path, text: str) -> None:
         f.write(text.rstrip() + "\n")
 
 
-def read_scheduler_deletion_matchers() -> list[dict[str, Any]]:
-    # 已旁路已删除名单机制：始终认为无调度器删除
-    return []
-
-
-def scheduler_matcher_matches_plan(plan: str, matcher: dict[str, Any]) -> bool:
-    # 已旁路已删除名单机制：始终不匹配
-    return False
-
-
 def parse_time_ms(value: Any) -> float | None:
     text = str(value or "").strip()
     if not text:
@@ -3017,21 +2981,6 @@ def row_comparable_time(item: dict[str, Any], state: dict[str, Any] | None = Non
     return None
 
 
-def scheduler_matcher_matches_pending(plan: str, state: dict[str, Any], index: Any, matcher: dict[str, Any]) -> bool:
-    # 已旁路已删除名单机制：始终不匹配 pending，不再因黑名单跳过或停止
-    return False
-
-
-def scheduler_matcher_matches_item(plan: str, item: dict[str, Any], matcher: dict[str, Any], state: dict[str, Any] | None = None) -> bool:
-    # 已旁路已删除名单机制：始终不匹配任何 row
-    return False
-
-
-def apply_scheduler_deletions_to_state(state: dict[str, Any]) -> bool:
-    # 已旁路已删除名单机制：不再过滤 state / pending 队列
-    return False
-
-
 def sync_state_once(args: argparse.Namespace) -> None:
     state_path = Path(args.state_path)
     state = safe_read_json(state_path, {})
@@ -3040,7 +2989,6 @@ def sync_state_once(args: argparse.Namespace) -> None:
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8"))
     workers_by_id = {str(worker.get("id") or ""): worker for worker in workers}
     plan = str(args.plan or state.get("plan") or "")
-    apply_scheduler_deletions_to_state(state)
     _, jobs = build_jobs(load_plan(plan), args.default_result_csv_dir)
     jobs_by_index = {int(job.index): job for job in jobs}
     completed = state.setdefault("completed_experiments", [])
@@ -3080,8 +3028,6 @@ def sync_state_once(args: argparse.Namespace) -> None:
         state[key] = kept
     for status, rows in live_sync.items():
         sync_running_console_logs(plan, rows, workers_by_id, jobs_by_index, status)
-    apply_scheduler_deletions_to_state(state)
-    apply_scheduler_deletions_to_state(state)
     write_state(state_path, state)
 
 
@@ -3351,12 +3297,7 @@ def main() -> None:
         except Exception:
             pass
 
-    def apply_scheduler_deletions_to_runtime() -> bool:
-        # 已旁路已删除名单机制：不再因黑名单跳过 pending 或停止运行中任务
-        return False
-
     def state_payload(error: str = "") -> dict[str, Any]:
-        apply_scheduler_deletions_to_runtime()
         return {
             "plan": args.plan,
             "planRevision": str(getattr(args, "plan_revision", "") or ""),

@@ -1,5 +1,3 @@
-export const DELETED_EXPERIMENTS_PATH = "simple_cluster/deleted_experiments.jsonl";
-export const DELETED_SCHEDULER_ROWS_PATH = "simple_cluster/deleted_scheduler_rows.jsonl";
 export const ARTIFACT_REGISTRY_PATH = "simple_cluster/artifact_registry.json";
 
 export interface SchedulerEntryDeleteMatcher {
@@ -182,36 +180,16 @@ export function pathMatchesAny(value: string, candidates: Set<string>): boolean 
   return false;
 }
 
-export function experimentEntryMatchesDeletion(entry: ExperimentIndexEntry, deleted: Partial<ExperimentIndexEntry>): boolean {
-  const entryIds = [entry.run_id, entry.global_job_id].map((item) => String(item || "").trim()).filter(Boolean);
-  const deletedIds = [deleted.run_id, deleted.global_job_id].map((item) => String(item || "").trim()).filter(Boolean);
-  if (entryIds.length && deletedIds.some((id) => entryIds.includes(id))) return true;
-  const deletedPaths = normalizedPathSet([
-    deleted.hub_job_dir,
-    deleted.worker_job_dir,
-    deleted.native_job_dir,
-    deleted.hub_console_log,
-    deleted.results_csv,
-    deleted.checkpoint_path,
-  ].map((item) => String(item || "")).filter((item) => item && isManagedArtifactPath(item)));
-  if (!deletedPaths.size) return false;
-  return [entry.hub_job_dir, entry.worker_job_dir, entry.native_job_dir, entry.hub_console_log, entry.results_csv, entry.checkpoint_path]
-    .some((item) => item && pathMatchesAny(String(item), deletedPaths));
+export function experimentEntryMatchesDeletion(_entry: ExperimentIndexEntry, _matcher: Partial<ExperimentIndexEntry>): boolean {
+  return false;
 }
 
-export function filterExperimentIndex(entries: ExperimentIndexEntry[], deleted: Partial<ExperimentIndexEntry>[]): ExperimentIndexEntry[] {
-  return entries.filter((entry) => !deleted.some((matcher) => experimentEntryMatchesDeletion(entry, matcher)));
+export function filterExperimentIndex(entries: ExperimentIndexEntry[], _blocklist: Partial<ExperimentIndexEntry>[]): ExperimentIndexEntry[] {
+  return entries;
 }
 
-export function collectDeletedPaths(deleted: Partial<ExperimentIndexEntry>[]): string[] {
-  const out = new Set<string>();
-  for (const entry of deleted) {
-    for (const value of [entry.hub_console_log, entry.hub_job_dir, entry.results_csv, entry.checkpoint_path]) {
-      const normalized = normalizeComparablePath(String(value || ""));
-      if (normalized && isManagedArtifactPath(normalized)) out.add(normalized);
-    }
-  }
-  return Array.from(out);
+export function collectDeletedPaths(_blocklist: Partial<ExperimentIndexEntry>[]): string[] {
+  return [];
 }
 
 export function cleanManagedArtifactPaths(paths: string[]): string[] {
@@ -272,86 +250,20 @@ export function inferExperimentIndexFromEntry(entry: ExperimentIndexEntry): stri
   return "";
 }
 
-export function filterSchedulerState(state: any, matchers: SchedulerEntryDeleteMatcher[]): { state: any; changed: boolean } {
-  let changed = false;
-  const plan = String(state.plan || state.file || "");
-  const logMatchers = matchers.filter((matcher) => matcher.deleteMode === "log_fields");
-  if (logMatchers.length) {
-    for (const key of schedulerRowKeys()) {
-      for (const item of state[key] || []) {
-        if (!logMatchers.some((matcher) => schedulerMatcherMatchesItem(plan, item, matcher, state))) continue;
-        for (const field of ["hub_console_log", "console_tail", "log_tail", "log_synced_at", "log_sync_error", "sync_error"]) {
-          if (field in item) {
-            delete item[field];
-            changed = true;
-          }
-        }
-      }
-    }
-  }
-
-  const rowMatchers = matchers.filter((matcher) => !matcher.deleteMode || matcher.deleteMode === "row");
-  for (const key of schedulerRowKeys()) {
-    const rows = Array.isArray(state[key]) ? state[key] : [];
-    const kept = rows.filter((item: any) => !rowMatchers.some((matcher) => schedulerMatcherMatchesItem(plan, item, matcher, state)));
-    if (kept.length !== rows.length) {
-      state[key] = kept;
-      changed = true;
-    }
-  }
-  if (Array.isArray(state.pending_experiments)) {
-    const kept = state.pending_experiments.filter((index: any) => !rowMatchers.some((matcher) => schedulerMatcherMatchesPending(plan, state, index, matcher)));
-    if (kept.length !== state.pending_experiments.length) {
-      state.pending_experiments = kept;
-      changed = true;
-    }
-  }
-  if (changed) state.updated_at = new Date().toISOString();
-  return { state, changed };
+export function filterSchedulerState(state: any, _matchers: SchedulerEntryDeleteMatcher[]): { state: any; changed: boolean } {
+  return { state, changed: false };
 }
 
-export function schedulerMatcherMatchesPlan(plan: string, matcher: SchedulerEntryDeleteMatcher): boolean {
-  const suite = String(matcher.suite || "").trim();
-  const explicitPlan = String(matcher.plan || "").trim();
-  if (explicitPlan && !plan.includes(explicitPlan)) return false;
-  if (suite && !plan.includes(suite)) return false;
-  return true;
+export function schedulerMatcherMatchesPlan(_plan: string, _matcher: SchedulerEntryDeleteMatcher): boolean {
+  return false;
 }
 
-export function schedulerMatcherMatchesPending(plan: string, state: any, index: any, matcher: SchedulerEntryDeleteMatcher): boolean {
-  if (!schedulerMatcherMatchesPlan(plan, matcher)) return false;
-  if (String(index) !== String(matcher.experimentIndex ?? "")) return false;
-  const schedulerSession = String(matcher.schedulerSession || "").trim();
-  const stateSession = String(state?.scheduler_session || "").trim();
-  if (schedulerSession && schedulerSession !== stateSession) return false;
-  if (matcher.affectsPending) return true;
-  return Boolean(schedulerSession && schedulerSession === stateSession);
+export function schedulerMatcherMatchesPending(_plan: string, _state: any, _index: any, _matcher: SchedulerEntryDeleteMatcher): boolean {
+  return false;
 }
 
-export function schedulerMatcherMatchesItem(plan: string, item: any, matcher: SchedulerEntryDeleteMatcher, state?: any): boolean {
-  if (!schedulerMatcherMatchesPlan(plan, matcher)) return false;
-  if (String(item.experiment_index ?? "") !== String(matcher.experimentIndex ?? "")) return false;
-  const workerId = String(matcher.workerId || "").trim();
-  if (workerId && String(item.worker_id || "").trim() !== workerId) return false;
-  const workerHost = String(matcher.workerHost || "").trim();
-  if (workerHost) {
-    const candidates = [item.worker_host, item.worker_name, item.worker_id, item.server].map((value) => String(value || "").trim()).filter(Boolean);
-    if (!candidates.includes(workerHost)) return false;
-  }
-  const schedulerSession = String(matcher.schedulerSession || "").trim();
-  const session = String(matcher.session || "").trim();
-  const logPath = normalizeComparablePath(String(matcher.logPath || ""));
-  const hasStrongIdentity = Boolean(schedulerSession || session || logPath);
-  if (schedulerSession && schedulerSession !== String(state?.scheduler_session || item.scheduler_session || "").trim()) return false;
-  if (session && session !== String(item.session || "").trim()) return false;
-  if (logPath && normalizeComparablePath(String(item.log_path || item.logPath || "")) !== logPath) return false;
-  if (hasStrongIdentity) return true;
-  const deletedAt = parseTime(matcher.deletedAt);
-  if (deletedAt !== undefined) {
-    const rowAt = rowComparableTime(item, state);
-    if (rowAt !== undefined && rowAt > deletedAt) return false;
-  }
-  return true;
+export function schedulerMatcherMatchesItem(_plan: string, _item: any, _matcher: SchedulerEntryDeleteMatcher, _state?: any): boolean {
+  return false;
 }
 
 export function dedupeJsonRecords<T extends Record<string, any>>(records: T[]): T[] {
