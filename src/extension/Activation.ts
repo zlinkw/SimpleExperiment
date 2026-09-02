@@ -28,10 +28,12 @@ export async function activateExtension(context: Record<string, unknown> & { sub
   const services = new DefaultServiceFactory();
 
   // 单一工厂路径：优先经 ServiceFactory 创建，可回退到 legacy 直连
+  // FIX: 传入原始 vscode.ExtensionContext 而非简化的 factoryContext，确保 this.context.extension.packageJSON 可用
   let provider: any;
   try {
     console.log("[Activation] try factory");
-    provider = services.createPanelProvider(factoryContext);
+    provider = services.createPanelProvider(context as any);
+    if (provider && typeof (provider as any).resolveWebviewView !== "function") throw new Error("not real provider");
   } catch (e) {
     console.error("[Activation] factory failed", e);
     provider = undefined;
