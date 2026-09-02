@@ -6090,7 +6090,7 @@ class RealtimeTunnelPanelProvider {
             catch { }
             // fallback via local tmux if tunnel not reachable (best-effort, ignore errors)
             try {
-                const fallbackCmd = `for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^zlk-worker-.*-agent$' || true); do tmux kill-session -t "$s" 2>/dev/null || true; done; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true`;
+                const fallbackCmd = `for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^((zlk|simple)-worker-.*-agent|.*sch-.*)' || true); do tmux kill-session -t "$s" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true`;
                 // no local exec needed – remote kill already attempted
             }
             catch { }
@@ -11205,7 +11205,10 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`已复制：${text.slice(0, 120)}${text.length > 120 ? "..." : ""}`);
     }
     async fetchTmuxCaptureFromUi(message) {
-        const fallbackWin = this.enabledWorkerConfigs()[0]?.id ? `zlk-worker-${this.enabledWorkerConfigs()[0].id}-agent` : "zlk-worker-agent";
+        const _pfxRaw = this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || "simple";
+        const _pfx = (0, AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix)(_pfxRaw);
+        const _wid = this.enabledWorkerConfigs()[0]?.id;
+        const fallbackWin = _wid ? (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", _wid, _pfx) : `${_pfx}-worker-agent`;
         const win = String(message?.window || message?.session || message?.name || "").trim() || fallbackWin;
         try {
             // 优先走 tunnel client 的通用 request，若不可用则回退为直接本机端口探测
