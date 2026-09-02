@@ -3588,30 +3588,8 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
         await this.deployLatestAgentRuntime(false, true);
         await this.startAllXshellConnections(false, false);
-        // 优化：sleep 3000→800，首轮 testTunnel 立即执行，轮询 800ms，单次失败 2.5s 内返回（原 5s 超时串联最慢 60s）
-        await sleep(800);
-        {
-            const timeoutMs = 30000;
-            const intervalMs = 800;
-            const deadline = Date.now() + (timeoutMs - 800);
-            let polledReady = false;
-            while (Date.now() <= deadline) {
-                await this.testTunnel(false);
-                const polledCompletion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
-                if (polledCompletion.ready) {
-                    polledReady = true;
-                    break;
-                }
-                if (Date.now() + intervalMs > deadline) break;
-                await sleep(intervalMs);
-            }
-            if (!polledReady) {
-                await this.testTunnel(true);
-            } else {
-                this.postState();
-                this.showTunnelTestToast();
-            }
-        }
+        // 手动路径：立即单次检测，不 sleep/不轮询；fetch failed/ECONNREFUSED 立即抛错提示，仅自动查询才轮询
+        await this.testTunnel(true);
         const completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
         if (!completion.ready)
             throw new Error(`Agent 已部署并启动，但当前拓扑端点健康检测未通过：${completion.issues.join("；") || completion.message}。请按提示修复 Conda/Python 依赖、当前项目代码目录或端口后再次检测。`);
@@ -4685,11 +4663,9 @@ export class RealtimeTunnelPanelProvider {
         const isLocalTrigger = localCommandReleasesAfterTrigger(command);
         const guardedWork = work()
             .then(async () => {
-            // 本地触发类（startAllConnections/testAll/snapshot）一闪而过，延长 loading 至至少 1200ms 并给出中间提示，避免无反馈
-            if (isLocalTrigger) await sleep(1200);
             return {
                 status: "completed",
-                message: isLocalTrigger ? "已触发本地 VS Code 操作，通道建立中..." : "completed",
+                message: isLocalTrigger ? "已触发本地 VS Code 操作" : "completed",
             };
         })
             .catch((error) => {
@@ -4706,11 +4682,6 @@ export class RealtimeTunnelPanelProvider {
         const result: any = await Promise.race([guardedWork, timeout]);
         if (timer)
             clearTimeout(timer);
-        // 对本地触发类再额外保活 800ms 确保 spinner 可见（work 已含 1200ms，此处再补避免竞态瞬间闪现）
-        if (isLocalTrigger && (result as any).status === "completed") {
-            await sleep(600);
-            (result as any).message = "本地操作已触发（保持转圈 1.8s 便于观察）";
-        }
         if (result.status === "cancelled") {
             try { vscode.window.showInformationMessage(result.message || "已取消"); } catch {}
             try { this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) }); this.postState(); } catch {}
@@ -5794,20 +5765,27 @@ export class RealtimeTunnelPanelProvider {
         }
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
-        // 优化：sleep 3000→800，轮询 800ms（原 2000），verify 超时 2500ms 并行，单次失败 2.5s（原 10-20s），early-break 保持
-        await sleep(800);
-        const _verifyTimeoutMs = 30000;
-        const _verifyIntervalMs = 800;
-        const _verifyDeadline = Date.now() + (_verifyTimeoutMs - 800);
-        let verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
-        let _verifyOk = verifyIssues.fatal.length === 0 && verifyIssues.warnings.length === 0;
-        while (!_verifyOk && Date.now() <= _verifyDeadline) {
-            if (verifyIssues.fatal.length) break;
-            if (Date.now() + _verifyIntervalMs > _verifyDeadline) break;
-            await sleep(_verifyIntervalMs);
+        // 手动触发(showMessage=true)：单次 verify 立即返回，避免 fetch failed/ECONNREFUSED 无意义延迟；仅自动触发(showMessage=false)才轮询重试
+        let verifyIssues: any;
+        let _verifyOk: boolean;
+        if (showMessage) {
             verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
             _verifyOk = verifyIssues.fatal.length === 0 && verifyIssues.warnings.length === 0;
-            if (_verifyOk) break;
+        } else {
+            await sleep(800);
+            const _verifyTimeoutMs = 30000;
+            const _verifyIntervalMs = 800;
+            const _verifyDeadline = Date.now() + (_verifyTimeoutMs - 800);
+            verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
+            _verifyOk = verifyIssues.fatal.length === 0 && verifyIssues.warnings.length === 0;
+            while (!_verifyOk && Date.now() <= _verifyDeadline) {
+                if (verifyIssues.fatal.length) break;
+                if (Date.now() + _verifyIntervalMs > _verifyDeadline) break;
+                await sleep(_verifyIntervalMs);
+                verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
+                _verifyOk = verifyIssues.fatal.length === 0 && verifyIssues.warnings.length === 0;
+                if (_verifyOk) break;
+            }
         }
         if (verifyIssues.fatal.length)
             throw new Error(`Agent runtime 部署校验失败：${verifyIssues.fatal.join("; ")}`);
