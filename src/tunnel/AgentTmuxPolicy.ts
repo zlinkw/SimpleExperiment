@@ -1,5 +1,5 @@
-// 仅当 settings 缺失时回退到 "zlk"（与 tunnel.remoteTmuxSessionPrefix / XshellTunnelSetup 默认保持一致，动态解析优先）
-export const simpleTmuxSessionPrefix = "zlk";
+// 仅当 settings 缺失时回退到 "simple"（与 tunnel.remoteTmuxSessionPrefix / XshellTunnelSetup 默认保持一致，动态解析优先）
+export const simpleTmuxSessionPrefix = "simple";
 export const simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1";
 export const simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
 export const simpleDefaultCondaEnv = "";
