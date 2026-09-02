@@ -5656,7 +5656,7 @@ class RealtimeTunnelPanelProvider {
         const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), serverIds);
         if (!targets.length)
             throw new Error("没有可部署的 Hub/Worker 目标。");
-        const runtimeDir = path.join(__dirname, "runtime");
+        const runtimeDir = path.join(__dirname, "..", "runtime");
         const agentPath = path.join(runtimeDir, "cluster_agent.py");
         const schedulerPath = path.join(runtimeDir, "cluster_scheduler.py");
         const [agentText, schedulerText] = await Promise.all([
@@ -5926,7 +5926,7 @@ class RealtimeTunnelPanelProvider {
     }
     async checkRemoteAgentVersionAndNotify(showUi = false) {
         try {
-            const runtimeDir = path.join(__dirname, "runtime");
+            const runtimeDir = path.join(__dirname, "..", "runtime");
             const agentPath = path.join(runtimeDir, "cluster_agent.py");
             const schedulerPath = path.join(runtimeDir, "cluster_scheduler.py");
             let agentText = "";
@@ -6148,7 +6148,7 @@ class RealtimeTunnelPanelProvider {
             // 准备本地 sha 期望（用于二次核验透传）
             let _expectedMap = {};
             try {
-                const runtimeDir = require("path").join(__dirname, "runtime");
+                const runtimeDir = require("path").join(__dirname, "..", "runtime");
                 const _agentText = require("fs").readFileSync(require("path").join(runtimeDir, "cluster_agent.py"), "utf8");
                 const _schedText = require("fs").readFileSync(require("path").join(runtimeDir, "cluster_scheduler.py"), "utf8");
                 const _crypto = require("crypto");
