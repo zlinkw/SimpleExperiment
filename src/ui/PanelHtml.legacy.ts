@@ -12249,7 +12249,28 @@ export function renderPanelHtml(): string {
           return true;
         }
       }
-      if (!pidAlive && !tmuxAlive) return true;
+      // 调度器等待轮询期（wait pending / poll_seconds / sleep）且进程存活，不判 dead
+      const _tailPoll = String((ev.liveLogTail || ev.logTail || ev.live_log_tail || ev.log_tail || "")).trim();
+      const _isPollWait = (function(t){
+        if (!t) return false;
+        if (/wait\\s+pending/i.test(t)) return true;
+        if (/poll_seconds/i.test(t)) return true;
+        if (/sleep_seconds/i.test(t)) return true;
+        if (/short_sleep/i.test(t)) return true;
+        if (/idle_wake/i.test(t)) return true;
+        if (/signal_wake/i.test(t)) return true;
+        if (/has_idle.*True/i.test(t)) return true;
+        if (/passive_interrupt_requeue/i.test(t)) return true;
+        if (/running=\\d+/i.test(t) && /wait/i.test(t)) return true;
+        return false;
+      })(_tailPoll);
+      if (_isPollWait && (pidAlive || tmuxAlive)) return false;
+      if (!pidAlive && !tmuxAlive) {
+        // 若证据采集尚未来得及（liveLogCount==0 且无 logTail），90s 后仍暂不判 dead，待下次轮询
+        const _hasLog = String(_tailPoll || "").trim().length > 0 || Number(ev.liveLogCount || 0) > 0;
+        if (!_hasLog) return false;
+        return true;
+      }
       if (operationEvidenceHasErrorText(row)) return true;
       return false;
     }
@@ -12413,11 +12434,44 @@ export function renderPanelHtml(): string {
       const safe = (row && typeof row === "object") ? row : {};
       let message = safe.message || (safe.status === "accepted" ? "等待 Hub Agent 回传进度" : "");
       // “等待 scheduler 终态”且已 dead：避免卡在 running，增加调度已停止文案
+      // 细化：调度器等待轮询（wait poll_seconds=60 / sleep 60）时应显示“等待轮询”而非“调度已停止”
       if (message && /等待 scheduler 终态/i.test(message)) {
         const ev = operationEvidenceOf(safe);
-        const dead = (!ev.pidAlive && !ev.tmuxSessionAlive) || Boolean(ev.dead || ev.error || ev.timedOut || ev.timed_out || ev.timedout) || operationEvidenceHasErrorText(safe);
-        if (dead) {
-          return "调度已停止（远端进程已退出，未收到终态；请查看日志或点击“中止清理”）";
+        const _tail = String((ev.liveLogTail || ev.logTail || ev.live_log_tail || ev.log_tail || "")).trim();
+        const _isPollWaiting = (function(tail){
+          if (!tail) return false;
+          if (/wait\\s+pending/i.test(tail)) return true;
+          if (/poll_seconds/i.test(tail)) return true;
+          if (/sleep_seconds/i.test(tail)) return true;
+          if (/short_sleep/i.test(tail)) return true;
+          if (/idle_wake/i.test(tail)) return true;
+          if (/signal_wake/i.test(tail)) return true;
+          if (/has_idle.*True/i.test(tail)) return true;
+          if (/running=\\d+/i.test(tail) && /wait/i.test(tail)) return true;
+          if (/passive_interrupt_requeue/i.test(tail)) return true;
+          return false;
+        })(_tail);
+        const _alive = Boolean(ev.pidAlive || ev.tmuxSessionAlive);
+        const _startedAt = safe.startedAt || safe.started_at || safe.updatedAt || safe.updated_at || "";
+        const _ageMs = _startedAt ? (Date.now() - Date.parse(String(_startedAt))) : NaN;
+        const _inGrace = Number.isFinite(_ageMs) && _ageMs >= 0 && _ageMs < 90000;
+        if (_isPollWaiting && _alive) {
+          let _pollSec = 60;
+          const _m = _tail.match(/poll_seconds\\s*=\\s*(\\d+)/i);
+          if (_m) _pollSec = Number(_m[1]) || 60;
+          else {
+            const _m2 = _tail.match(/sleep_seconds\\s*=\\s*([\\d.]+)/i);
+            if (_m2) _pollSec = Math.round(Number(_m2[1]) || 60);
+          }
+          return "等待轮询（运行中，等待下一轮调度；轮询间隔约 " + _pollSec + "s，远端进程正常等待）";
+        }
+        if (_inGrace) {
+          // 宽限期内不覆盖为已停止
+        } else {
+          const dead = (!ev.pidAlive && !ev.tmuxSessionAlive) || Boolean(ev.dead || ev.error || ev.timedOut || ev.timed_out || ev.timedout) || operationEvidenceHasErrorText(safe);
+          if (dead) {
+            return "调度已停止（远端进程已退出，未收到终态；请查看日志或点击“中止清理”）";
+          }
         }
       }
       // 90s 宽限期内（reconcileGraceExpiresAt 未过期且未终态）：展示剩余宽限时间而非纯 running，便于用户感知调度收敛等待
