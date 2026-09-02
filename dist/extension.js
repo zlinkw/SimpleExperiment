@@ -14,6 +14,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.RealtimeTunnelPanelProvider = void 0;
 exports.activate = activate;
 exports.deactivate = deactivate;
 /**
@@ -22,6 +23,8 @@ exports.deactivate = deactivate;
  * 原 22288 行逻辑已迁移至 src/extension/legacy.ts
  */
 __exportStar(require("./extension/legacy"), exports);
+var legacy_1 = require("./extension/legacy");
+Object.defineProperty(exports, "RealtimeTunnelPanelProvider", { enumerable: true, get: function () { return legacy_1.RealtimeTunnelPanelProvider; } });
 // 覆盖 activate/deactivate 走工厂路径
 const activation = require("./extension/Activation");
 function activate(context) {

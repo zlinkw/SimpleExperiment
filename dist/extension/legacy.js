@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.RealtimeTunnelPanelProvider = void 0;
 exports.activate = activate;
 exports.deactivate = deactivate;
 // @ts-nocheck
@@ -13044,6 +13045,7 @@ class RealtimeTunnelPanelProvider {
         };
     }
 }
+exports.RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider;
 function firstRecord(...values) {
     return values.find((value) => value && typeof value === "object") || {};
 }
@@ -22456,3 +22458,12 @@ async function confirmUiCommand(title, detail, danger) {
         throw new UiCommandCancelled(`${title} 已取消。`);
 }
 // test rebuild 2026-08-29T02:25:09.1082977+08:00
+// 确保 CJS 兼容
+try {
+    module.exports.RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider;
+}
+catch { }
+try {
+    exports.RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider;
+}
+catch { }
