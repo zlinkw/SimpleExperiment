@@ -3353,8 +3353,8 @@ def main() -> None:
     if not args.workers_json:
         raise SystemExit("缺少 --workers-json。")
 
-    # poll 下限由 60 改为 5：信号化后短轮询+信号唤醒协同，允许用户配置 5s 级探活，<5 强制兜底防风暴
-    poll_seconds = max(5, int(args.poll_seconds or 600))
+    # poll 下限保持 60：校园网封禁风险，配合首跑/任务结束主动探活，无需短轮询
+    poll_seconds = max(60, int(args.poll_seconds or 600))
     poll_jitter_seconds = max(0, int(args.poll_jitter_seconds or 0))
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8"))
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
@@ -3644,9 +3644,9 @@ def main() -> None:
             testing.pop(key, None)
         else:
             active.pop(key, None)
-        # 任务结束信号：finish_item 后写 control.json signal=task_end（piggyback + 风暴合并由去抖处理）
+        # 主动探活：任务结束立即刷新可用性，再由上层调度/下次派发消费（无需经 control.json 信号等待轮询，最坏唤醒由 5s 休眠兜底）
         try:
-            write_scheduler_signal(control_path, SCHEDULER_SIGNAL_TASK_END)
+            refresh_worker_availability_for_signal(workers, args.availability_path)
         except Exception:
             pass
 
@@ -3851,18 +3851,22 @@ def main() -> None:
 
     _append_scheduler_log( f"[{now()}] scheduler_start mode={execution_mode} experiments={len(queue)} workers={len(workers)} poll_seconds={poll_seconds}")
     write_current_state()
-    # 首跑信号：scheduler_start 后立即 dispatch 不等待首个 wait（信号类型 first_run，去抖窗口内合并）
+    # 首跑主动探活：立即执行一次探活再派发，无需等待轮询信号（60s下限配合主动探活，避免校园网封禁）
+    try:
+        refresh_worker_availability_for_signal(workers, args.availability_path)
+        _append_scheduler_log( f"[{now()}] availability_first_run_probe active poll_seconds={poll_seconds} jitter={poll_jitter_seconds}")
+    except Exception as _e:
+        _append_scheduler_log( f"[{now()}] availability_first_run_fallback error={_e}")
+        try:
+            read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+        except Exception:
+            pass
     _scheduler_signal_debounce_seconds = SCHEDULER_SIGNAL_DEBOUNCE_SECONDS
     _last_poll_monotonic = 0.0
     _last_signal_monotonic = time.monotonic()
     _last_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
-    _pending_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
+    _pending_signal_type = SCHEDULER_SIGNAL_POLL_TICK
     _signal_storm_count = 0
-    try:
-        write_scheduler_signal(control_path, SCHEDULER_SIGNAL_FIRST_RUN)
-        _append_scheduler_log( f"[{now()}] signal_first_run dispatch immediate poll_seconds={poll_seconds} jitter={poll_jitter_seconds}")
-    except Exception:
-        pass
     no_dispatch_error_cycles = 0
     _scheduler_abort = {"sig": None}
     def _handle_scheduler_signal(signum, _frame):
@@ -3999,7 +4003,7 @@ def main() -> None:
                     break
                 slept = 0
                 while slept < sleep_target:
-                    # 信号优先分支：收到信号立即 break 并 reap+dispatch（Event唤醒近似，0.5s粒度，最坏唤醒<1s）
+                    # 信号优先分支：收到信号立即 break 并 reap+dispatch（5s粒度，最坏唤醒5s，配合主动探活无需0.5s高频）
                     _ctrl = read_control(control_path)
                     _sig = scheduler_signal_from_control(_ctrl)
                     if _sig or _ctrl.get("action"):
@@ -4065,12 +4069,12 @@ def main() -> None:
                             break
                         # 收到 reap 信号立即 break 去 dispatch，无需等待剩余 sleep_target
                         break
-                    # 去抖：若轮询与信号间隔<5s，丢弃后者已在顶部处理；此处用 0.5s 粒度唤醒，最坏唤醒 <1s
+                    # 休息时 5s 粒度轮询，最坏唤醒 5s（配合首跑/任务结束主动探活，避免0.5s高频与校园网封禁）
                     try:
-                        time.sleep(0.5)
+                        time.sleep(5)
                     except InterruptedError:
                         break
-                    slept += 0.5
+                    slept += 5
     except Exception as exc:
         _append_scheduler_log( f"[{now()}] scheduler_error {exc}")
         write_current_state(str(exc))
