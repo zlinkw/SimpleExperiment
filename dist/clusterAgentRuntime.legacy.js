@@ -2274,7 +2274,8 @@ def simple_conda_activation_script(env=None):
             'if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then :',
             'for __SIMPLE_EXPERIMENT_CONDA_SH in "$HOME/miniconda3/etc/profile.d/conda.sh" "$HOME/anaconda3/etc/profile.d/conda.sh" "$HOME/miniforge3/etc/profile.d/conda.sh" "$HOME/mambaforge/etc/profile.d/conda.sh" "/opt/conda/etc/profile.d/conda.sh" "/opt/anaconda3/etc/profile.d/conda.sh" "/usr/local/anaconda3/etc/profile.d/conda.sh"; do if ! command -v conda >/dev/null 2>&1 && [ -f "$__SIMPLE_EXPERIMENT_CONDA_SH" ]; then . "$__SIMPLE_EXPERIMENT_CONDA_SH"; fi; done',
             'if command -v conda >/dev/null 2>&1; then __SIMPLE_EXPERIMENT_CONDA_SETUP="$(conda shell.posix hook 2>/dev/null)" && eval "$__SIMPLE_EXPERIMENT_CONDA_SETUP" || true; fi',
-            'if command -v conda >/dev/null 2>&1; then conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" >/dev/null 2>&1 || __simple_conda_required; elif [ "$' + '{SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}" = "1" ]; then __simple_conda_required; fi',
+            '__simple_conda_env_dir="$SIMPLE_EXPERIMENT_CONDA_ENV"; case "$__simple_conda_env_dir" in */bin/python) __simple_conda_env_dir="$(dirname "$(dirname "$__simple_conda_env_dir")")";; */bin) __simple_conda_env_dir="$(dirname "$__simple_conda_env_dir")";; esac',
+            'if command -v conda >/dev/null 2>&1; then conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" >/dev/null 2>&1 || __simple_conda_required; elif [ -x "$__simple_conda_env_dir/bin/python" ]; then export PATH="$__simple_conda_env_dir/bin:$PATH"; elif [ -x "$SIMPLE_EXPERIMENT_CONDA_ENV" ] && [ ! -d "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then __simple_conda_bin="$(dirname "$SIMPLE_EXPERIMENT_CONDA_ENV")"; export PATH="$__simple_conda_bin:$PATH"; elif [ "$' + '{SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV:-0}" = "1" ]; then __simple_conda_required; fi',
             'fi',
         ])
     if not raw_env_name:
@@ -2288,10 +2289,11 @@ def simple_conda_activation_script(env=None):
         'elif [ -n "$__conda_root" ] && [ -f "$__conda_root/etc/profile.d/conda.sh" ]; then __conda_sh="$__conda_root/etc/profile.d/conda.sh"; '
         'elif [ -n "$CONDA_EXE" ]; then __conda_sh="$(dirname $CONDA_EXE)/../etc/profile.d/conda.sh"; fi; '
         'if [ -n "$__conda_sh" ] && [ -f "$__conda_sh" ]; then . "$__conda_sh"; fi; '
-        '_c_ok=0; for _i in 1 2 3 4 5; do '
+        '__simple_conda_env_dir="$SIMPLE_EXPERIMENT_CONDA_ENV"; case "$__simple_conda_env_dir" in */bin/python) __simple_conda_env_dir="$(dirname "$(dirname "$__simple_conda_env_dir")")";; */bin) __simple_conda_env_dir="$(dirname "$__simple_conda_env_dir")";; esac; '
+        'if [ -x "$__simple_conda_env_dir/bin/python" ]; then export PATH="$__simple_conda_env_dir/bin:$PATH"; elif [ -x "$SIMPLE_EXPERIMENT_CONDA_ENV" ] && [ ! -d "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then __simple_conda_bin="$(dirname "$SIMPLE_EXPERIMENT_CONDA_ENV")"; export PATH="$__simple_conda_bin:$PATH"; else _c_ok=0; for _i in 1 2 3 4 5; do '
         'if conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" 2>/dev/null; then _c_ok=1; break; fi; '
         'echo "[simple-agent] conda activate attempt $_i failed for $SIMPLE_EXPERIMENT_CONDA_ENV"; conda env list 2>&1 | head -20; sleep 1; done; '
-        'if [ "$_c_ok" != "1" ]; then echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi'
+        'if [ "$_c_ok" != "1" ]; then echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi; fi'
     )
 
 def simple_conda_wrapped_args(args, env):
@@ -3136,18 +3138,53 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         import time as _t
         _t.sleep(0.2)
     try:
-        # 修复 GPU pane 无 conda：变量化取 SIMPLE_EXPERIMENT_CONDA_ENV，不写死 zlk；优先用 conda activate 包裹，否则用绝对路径候选
+        # 修复 GPU pane 无 conda：若 SIMPLE_EXPERIMENT_CONDA_ENV 是绝对路径且 $CONDA_ENV/bin/python 存在，则直接用该 python 和 PATH 包含 $CONDA_ENV/bin，不走 conda activate（兜底 conda 已清洗 PATH 的情况）
         _conda_env_name = simple_conda_env_name(env) if isinstance(env, dict) else ""
-        _activation = simple_conda_activation_script(env) if isinstance(env, dict) and _conda_env_name else "true"
         _args_list = [str(x) for x in args]
-        # 若当前 args[0] 为 bare python 且可解析到绝对路径，则替换为绝对路径（双保险）
-        if _args_list and _args_list[0] == "python" and _conda_env_name:
+        _conda_env_is_abs = bool(str(_conda_env_name or "").strip().startswith("/"))
+        _direct_python = ""
+        _direct_bin = ""
+        _activation = "true"
+        if _conda_env_is_abs:
             try:
                 _ep = simple_conda_env_python(_conda_env_name)
                 if _ep:
-                    _args_list[0] = _ep
+                    _direct_python = str(_ep).strip()
+                    if _direct_python.endswith("/bin/python"):
+                        _direct_bin = _direct_python[:-7]
+                    else:
+                        _clean_tmp = str(_conda_env_name).strip().rstrip("/\\")
+                        if _clean_tmp.endswith("/bin/python"):
+                            _direct_bin = __import__("os").path.dirname(_clean_tmp)
+                            _direct_python = _clean_tmp
+                        elif _clean_tmp.endswith("/bin"):
+                            _direct_bin = _clean_tmp
+                        else:
+                            _direct_bin = _clean_tmp.rstrip("/") + "/bin"
+                    if __import__("os").path.isfile(_direct_python) and __import__("os").access(_direct_python, __import__("os").X_OK):
+                        if _args_list and _args_list[0] == "python":
+                            _args_list[0] = _direct_python
+                        _activation = f'export PATH={__import__("shlex").quote(_direct_bin)}:$PATH'
+                    else:
+                        if _args_list and _args_list[0] == "python" and _direct_python:
+                            _args_list[0] = _direct_python
+                        _direct_bin_q = __import__("shlex").quote(_direct_bin)
+                        _direct_py_q = __import__("shlex").quote(_direct_python)
+                        _orig_act = simple_conda_activation_script(env)
+                        _activation = f'if [ -x {_direct_py_q} ]; then export PATH={_direct_bin_q}:$PATH; else {_orig_act}; fi'
+                else:
+                    _activation = simple_conda_activation_script(env)
             except Exception:
-                pass
+                _activation = simple_conda_activation_script(env) if _conda_env_name else "true"
+        else:
+            _activation = simple_conda_activation_script(env) if isinstance(env, dict) and _conda_env_name else "true"
+            if _args_list and _args_list[0] == "python" and _conda_env_name:
+                try:
+                    _ep = simple_conda_env_python(_conda_env_name)
+                    if _ep:
+                        _args_list[0] = _ep
+                except Exception:
+                    pass
         _joined = __import__("shlex").join(_args_list)
         if _activation and _activation != "true":
             _inner = f"{_activation} && {_joined}"
