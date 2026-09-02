@@ -37,8 +37,8 @@ RUNTIME_VERSION = "0.4.64"
 PLUGIN_VERSION = "0.4.64"
 
 TAIL_BYTES = 16 * 1024
-WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 1.5
-WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS = 3.0
+WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
+WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS = 10.0
 WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS = 300
 ARCHIVE_STATE_PATH = Path("simple_cluster/archive_state.json")
 DELETED_EXPERIMENTS_PATH = Path("simple_cluster/deleted_experiments.jsonl")
@@ -113,8 +113,12 @@ def write_scheduler_signal(control_path: Path, signal: str) -> None:
         pass
 
 
-def refresh_worker_availability_for_signal(workers: list[dict[str, Any]], availability_path: str = "") -> None:
-    stale_workers = [w for w in workers if not availability_is_fresh(w)]
+def refresh_worker_availability_for_signal(workers: list[dict[str, Any]], availability_path: str = "", force: bool = False) -> None:
+    # 首轮强制直连：忽略 fresh/stale，直接对全量 workers 直连探活，避免 fresh 但内容为“无空卡/空”时 60s 误判阻塞
+    if force:
+        stale_workers = list(workers)
+    else:
+        stale_workers = [w for w in workers if not availability_is_fresh(w)]
     if not stale_workers:
         return
     def _refresh(worker: dict[str, Any]) -> None:
@@ -3856,10 +3860,10 @@ def main() -> None:
 
     _append_scheduler_log( f"[{now()}] scheduler_start mode={execution_mode} experiments={len(queue)} workers={len(workers)} poll_seconds={poll_seconds}")
     write_current_state()
-    # 首跑主动探活：立即执行一次探活再派发，无需等待轮询信号（60s下限配合主动探活，避免校园网封禁）
+    # 首跑主动探活：强制直连全量 workers（忽略 fresh），超时 5s/10s，确保首批 4 任务 60s 内派发而非等待下一轮 poll
     try:
-        refresh_worker_availability_for_signal(workers, args.availability_path)
-        _append_scheduler_log( f"[{now()}] availability_first_run_probe active poll_seconds={poll_seconds} jitter={poll_jitter_seconds}")
+        refresh_worker_availability_for_signal(workers, args.availability_path, force=True)
+        _append_scheduler_log( f"[{now()}] availability_first_run_probe active poll_seconds={poll_seconds} jitter={poll_jitter_seconds} force=True")
     except Exception as _e:
         _append_scheduler_log( f"[{now()}] availability_first_run_fallback error={_e}")
         try:
@@ -3870,7 +3874,8 @@ def main() -> None:
     _last_poll_monotonic = 0.0
     _last_signal_monotonic = time.monotonic()
     _last_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
-    _pending_signal_type = SCHEDULER_SIGNAL_POLL_TICK
+    # 首轮已强制刷新内存，首轮 dispatch 走信号路径避免被 read_availability_cache 覆盖为过期文件内容
+    _pending_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
     _signal_storm_count = 0
     no_dispatch_error_cycles = 0
     _scheduler_abort = {"sig": None}
@@ -3914,8 +3919,9 @@ def main() -> None:
             _is_signal_dispatch = _pending_signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END) and (time.monotonic() - _last_signal_monotonic) < (_scheduler_signal_debounce_seconds + 2.0)
             if _is_signal_dispatch:
                 try:
-                    refresh_worker_availability_for_signal(workers, args.availability_path)
-                    _append_scheduler_log( f"[{now()}] availability_signal_path type={_pending_signal_type} stale_refresh")
+                    _force_refresh = _pending_signal_type == SCHEDULER_SIGNAL_FIRST_RUN
+                    refresh_worker_availability_for_signal(workers, args.availability_path, force=_force_refresh)
+                    _append_scheduler_log( f"[{now()}] availability_signal_path type={_pending_signal_type} force={_force_refresh}")
                 except Exception as _e:
                     _append_scheduler_log( f"[{now()}] availability_signal_fallback error={_e}")
                     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
@@ -4053,9 +4059,10 @@ def main() -> None:
                                 _pending_signal_type = _sig
                                 _signal_storm_count = 0
                                 _append_scheduler_log( f"[{now()}] signal_wake type={_sig} slept={slept:.1f}/{sleep_target:.1f} prioritize_signal")
-                                # 信号路径直连（B路径 stale才直连，带超时预算与 stale回退）
+                                # 信号路径直连：first_run 强制全量刷新（忽略 fresh），task_end 仅 stale
                                 try:
-                                    refresh_worker_availability_for_signal(workers, args.availability_path)
+                                    _force_wake = _sig == SCHEDULER_SIGNAL_FIRST_RUN
+                                    refresh_worker_availability_for_signal(workers, args.availability_path, force=_force_wake)
                                 except Exception:
                                     try:
                                         read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
