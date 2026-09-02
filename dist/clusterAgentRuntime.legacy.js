@@ -2630,7 +2630,7 @@ def _tmux_ls_snapshot(env, timeout=3):
     except Exception as exc:
         return f"tmux ls unavailable: {exc!r}"
 
-def _build_tmux_error_context(session, returncode=None, stderr="", stdout="", cwd="", attempts=1, env=None):
+def _build_tmux_error_context(session, returncode=None, stderr="", stdout="", cwd="", attempts=1, env=None, last_capture=""):
     try:
         stderr_t = _truncate_text(stderr, 2000)
         stdout_t = _truncate_text(stdout, 2000)
@@ -2642,41 +2642,126 @@ def _build_tmux_error_context(session, returncode=None, stderr="", stdout="", cw
                 env_keys = ",".join(sorted(k for k in env.keys() if k.startswith("SIMPLE_") or k in ("CUDA_VISIBLE_DEVICES", "CONDA_DEFAULT_ENV", "WORK_DIR")))[:500]
         except Exception:
             env_keys = ""
-        parts = [f"session={session!r}", f"returncode={returncode}", f"cwd={cwd_s!r}", f"attempts={attempts}", f"stderr={stderr_t!r}", f"stdout={stdout_t!r}", f"env_keys={env_keys!r}", f"tmux_ls={snapshot!r}"]
+        last_cap_t = _truncate_text(last_capture, 2000) if last_capture else ""
+        parts = [f"session={session!r}", f"returncode={returncode}", f"cwd={cwd_s!r}", f"attempts={attempts}", f"stderr={stderr_t!r}", f"stdout={stdout_t!r}", f"last_capture={last_cap_t!r}", f"env_keys={env_keys!r}", f"tmux_ls={snapshot!r}"]
         return "; ".join(parts)
     except Exception as exc:
-        return f"session={session!r} rc={returncode} build_context_failed={exc!r}"
+        return f"session={session!r} rc={returncode} build_context_failed={exc!r} last_capture={_truncate_text(last_capture, 2000)!r}"
 
-def _wait_tmux_ready(session, env, timeout=30.0, poll=0.3):
+def _wait_tmux_ready(session, env, timeout=60.0, poll=0.3, cwd=""):
     # 围栏：禁止在主 shell 上执行 readiness 探针（应仅在 tmux 子窗口）
     if _is_main_shell_target(session):
         raise RuntimeError(f"refusing to probe tmux readiness on main shell target {session!r}; must be simple-sch-*/simple-gpu-*/simple-worker-*-agent")
+    # cwd 存在性校验：若 cwd 不存在直接抛错带路径（避免 bash -l 在不存在目录起慢或静默失败）
+    _cwd_to_check = str(cwd or "")
+    if _cwd_to_check:
+        try:
+            if not os.path.isdir(_cwd_to_check):
+                raise RuntimeError(f"tmux _wait_tmux_ready cwd not exists for {session!r}; cwd={_cwd_to_check!r}; refusing to continue scheduling")
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            print(f"[warn] tmux _wait_tmux_ready cwd check exception for {session!r} cwd={_cwd_to_check!r}: {exc!r}", file=sys.stderr, flush=True)
     # Confirm the tmux pane shell is ready to accept keystrokes: echo a unique marker
     # and wait until it shows up in capture-pane. Avoids the startup race where the
     # first send-keys is dropped because the login shell has not reached its prompt.
-        marker = "SIMPLE_TMUX_READY_%d" % int(time.time())
-    # send-keys marker 增加重试 2 次（共 3 次尝试），避免单次丢键导致 readiness 误判
+    marker = "SIMPLE_TMUX_READY_%d" % int(time.time())
+    # 初始化排障上下文：每次 capture-pane 的 stdout/stderr/last output 均捕获，失败时带入 RuntimeError
+    _wait_tmux_ready.last_capture = ""
+    _wait_tmux_ready.last_stderr = ""
+    _wait_tmux_ready.last_stdout = ""
+    _wait_tmux_ready.last_rc = None
+    _wait_tmux_ready.consecutive_timeouts = 0
+    last_capture = ""
+    last_stderr = ""
+    last_stdout = ""
+    last_rc = None
+    consecutive_timeouts = 0
+    # send-keys marker 增加重试 2 次（共 3 次尝试），避免单次丢键导致 readiness 误判；失败记录 warning
     _sent = False
+    last_send_err = ""
     for _attempt in range(3):
         try:
-            _proc = subprocess.run(["tmux", "send-keys", "-t", session, "printf '\\n%s\\n' " + shlex.quote(marker), "Enter"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+            _proc = subprocess.run(["tmux", "send-keys", "-t", session, "printf '\\n%s\\n' " + shlex.quote(marker), "Enter"], capture_output=True, text=True, timeout=5, env=env)
             if _proc.returncode == 0:
                 _sent = True
                 break
-        except Exception:
-            pass
+            else:
+                last_send_err = f"rc={_proc.returncode} stderr={_truncate_text(_proc.stderr, 500)!r} stdout={_truncate_text(_proc.stdout, 500)!r}"
+                print(f"[warn] tmux send-keys attempt {_attempt+1}/3 failed for {session!r} marker {marker!r}: {last_send_err}", file=sys.stderr, flush=True)
+        except Exception as exc:
+            last_send_err = f"exception {exc!r}"
+            print(f"[warn] tmux send-keys attempt {_attempt+1}/3 exception for {session!r}: {exc!r}", file=sys.stderr, flush=True)
         time.sleep(0.3 * (_attempt + 1))
     if not _sent:
+        _wait_tmux_ready.last_stderr = last_send_err
+        _wait_tmux_ready.last_capture = last_capture
+        _wait_tmux_ready.last_stdout = last_stdout
+        _wait_tmux_ready.last_rc = -1
+        print(f"[warn] tmux send-keys failed after 3 attempts for {session!r} marker {marker!r} last_err={last_send_err!r}", file=sys.stderr, flush=True)
         return False
     deadline = time.time() + timeout
+    poll_interval = poll
+    poll_count = 0
     while time.time() < deadline:
+        poll_count += 1
         try:
             r = subprocess.run(["tmux", "capture-pane", "-p", "-S", "-100", "-t", session], capture_output=True, text=True, timeout=3, env=env)
+            last_capture = r.stdout or ""
+            last_stderr = r.stderr or ""
+            last_stdout = r.stdout or ""
+            last_rc = r.returncode
+            _wait_tmux_ready.last_capture = last_capture
+            _wait_tmux_ready.last_stderr = last_stderr
+            _wait_tmux_ready.last_stdout = last_stdout
+            _wait_tmux_ready.last_rc = last_rc
+            _wait_tmux_ready.consecutive_timeouts = consecutive_timeouts
             if marker in (r.stdout or ""):
+                if consecutive_timeouts:
+                    print(f"[info] tmux _wait_tmux_ready recovered after {consecutive_timeouts} timeouts for {session!r}", file=sys.stderr, flush=True)
+                print(f"[info] tmux _wait_tmux_ready success for {session!r} after {poll_count} polls marker {marker!r} last_capture_len={len(last_capture)}", file=sys.stderr, flush=True)
+                consecutive_timeouts = 0
                 return True
-        except Exception:
-            pass
-        time.sleep(poll)
+            if poll_count == 1 or poll_count % 10 == 0:
+                print(f"[info] tmux _wait_tmux_ready polling {session!r} attempt {poll_count} marker not yet visible last_capture_len={len(last_capture)} last_rc={last_rc}", file=sys.stderr, flush=True)
+            consecutive_timeouts = 0
+            _wait_tmux_ready.consecutive_timeouts = consecutive_timeouts
+            poll_interval = poll
+        except subprocess.TimeoutExpired as exc:
+            consecutive_timeouts += 1
+            last_stderr = f"TimeoutExpired after 3s: {exc!r}"
+            _wait_tmux_ready.last_stderr = last_stderr
+            _wait_tmux_ready.last_capture = last_capture
+            _wait_tmux_ready.consecutive_timeouts = consecutive_timeouts
+            print(f"[warn] tmux capture-pane timeout {consecutive_timeouts} for {session!r}: {exc!r} last_capture={_truncate_text(last_capture, 200)!r}", file=sys.stderr, flush=True)
+            if consecutive_timeouts >= 5:
+                poll_interval = poll * 2
+                print(f"[warn] tmux capture-pane consecutive timeout {consecutive_timeouts} for {session!r}, extending poll to {poll_interval}s", file=sys.stderr, flush=True)
+            else:
+                poll_interval = poll
+            time.sleep(poll_interval)
+            continue
+        except Exception as exc:
+            consecutive_timeouts += 1
+            last_stderr = f"{exc!r}"
+            _wait_tmux_ready.last_stderr = last_stderr
+            _wait_tmux_ready.last_capture = last_capture
+            _wait_tmux_ready.consecutive_timeouts = consecutive_timeouts
+            print(f"[warn] tmux capture-pane exception for {session!r}: {exc!r} last_capture={_truncate_text(last_capture, 200)!r} last_stderr={_truncate_text(last_stderr, 200)!r}", file=sys.stderr, flush=True)
+            if consecutive_timeouts >= 5:
+                poll_interval = poll * 2
+                print(f"[warn] tmux capture-pane consecutive exception {consecutive_timeouts} for {session!r}, extending poll to {poll_interval}s", file=sys.stderr, flush=True)
+            else:
+                poll_interval = poll
+            time.sleep(poll_interval)
+            continue
+        time.sleep(poll_interval)
+    _wait_tmux_ready.last_capture = last_capture
+    _wait_tmux_ready.last_stderr = last_stderr
+    _wait_tmux_ready.last_stdout = last_stdout
+    _wait_tmux_ready.last_rc = last_rc
+    _wait_tmux_ready.consecutive_timeouts = consecutive_timeouts
+    print(f"[warn] tmux _wait_tmux_ready timeout after {timeout}s for {session!r} marker {marker!r} polls={poll_count} last_capture={_truncate_text(last_capture, 500)!r} last_stderr={_truncate_text(last_stderr, 500)!r} consecutive_timeouts={consecutive_timeouts}", file=sys.stderr, flush=True)
     return False
 
 def _send_tmux_line(session, line, env, retries=3):
@@ -2792,14 +2877,38 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                 subprocess.run(["tmux", "set-environment", "-t", session, _key, str(_val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
             except Exception:
                 pass
+    # cwd 存在性校验（前置）：若 cwd 不存在直接抛错带路径，避免高负载下 bash -l 慢启与 capture 超时静默
+    if cwd:
+        try:
+            if not os.path.isdir(str(cwd)):
+                ctx_cwd = _build_tmux_error_context(session, None, f"cwd not exists: {str(cwd)!r}", "", cwd, 1, env, last_capture="")
+                raise RuntimeError(f"tmux _wait_tmux_ready cwd not exists for {session!r}; cwd={str(cwd)!r}; {ctx_cwd}; refusing to continue scheduling")
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            print(f"[warn] cwd existence check failed for {session!r} cwd={str(cwd)!r}: {exc!r}", file=sys.stderr, flush=True)
     # Wait until the pane shell is actually ready to accept keystrokes. 超时即视为调度器级错误，带详细上下文并阻止后续调度
-    if not _wait_tmux_ready(session, env):
+    try:
+        _wait_ok = _wait_tmux_ready(session, env, timeout=60.0, poll=0.3, cwd=cwd)
+    except RuntimeError as _wait_exc:
         try:
             subprocess.run(["tmux", "kill-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
         except Exception:
             pass
-        ctx = _build_tmux_error_context(session, None, "", "", cwd, 1, env)
-        raise RuntimeError(f"tmux _wait_tmux_ready timeout after 30s for {session!r}; cwd={str(cwd)!r}; {ctx}; refusing to continue scheduling")
+        raise
+    if not _wait_ok:
+        try:
+            subprocess.run(["tmux", "kill-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
+        except Exception:
+            pass
+        _last_cap = getattr(_wait_tmux_ready, "last_capture", "")
+        _last_err = getattr(_wait_tmux_ready, "last_stderr", "")
+        _last_out = getattr(_wait_tmux_ready, "last_stdout", "")
+        _last_rc = getattr(_wait_tmux_ready, "last_rc", None)
+        _combined_stderr = _last_err or _truncate_text(_last_cap, 2000)
+        _combined_stdout = _last_out or _truncate_text(_last_cap, 2000)
+        ctx = _build_tmux_error_context(session, _last_rc, _combined_stderr, _combined_stdout, cwd, 1, env, last_capture=_last_cap)
+        raise RuntimeError(f"tmux _wait_tmux_ready timeout after 60.0s for {session!r}; cwd={str(cwd)!r}; last_capture={_truncate_text(_last_cap, 2000)!r}; {ctx}; refusing to continue scheduling")
     # Type each line, validating the send-keys return code. 任何失败均升为调度器级错误，带详细上下文
     for line in lines:
         rc = _send_tmux_line(session, line, env)
