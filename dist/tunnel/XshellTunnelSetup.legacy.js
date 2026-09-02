@@ -12,7 +12,7 @@ const TunnelPortConflict_1 = require("./TunnelPortConflict");
 const WorkerTelemetryApi_1 = require("./WorkerTelemetryApi");
 exports.defaultXshellTunnelSetupConfig = {
     xshellExePath: "",
-    remoteTmuxSessionPrefix: "simple",
+    remoteTmuxSessionPrefix: "zlk",
     hubHost: "",
     hubUser: "",
     hubSshPort: 22,

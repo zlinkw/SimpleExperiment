@@ -44,6 +44,31 @@ exports.assertTmuxPaneAlive = assertTmuxPaneAlive;
 const child_process = __importStar(require("child_process"));
 const DEFAULT_HOST = "";
 const DEFAULT_TARGET = "zlk1:0.0";
+// 围栏：禁止重型调度/agent 指令落入主 shell zlk1:0.0（仅允许 zlk-sch-*/zlk-gpu-*/zlk-worker-*-agent 等子窗口）
+function isMainShellTarget(target) {
+    const s = String(target || "").trim();
+    if (!s)
+        return true;
+    if (s === "zlk1:0.0" || s === "zlk1:0" || s === "0.0")
+        return true;
+    if (s.startsWith("zlk1") && !s.includes("-sch-") && !s.includes("-gpu-") && !s.includes("-agent"))
+        return true;
+    if (s.endsWith(":0.0") && !s.includes("-sch-") && !s.includes("-gpu-") && !s.includes("-agent"))
+        return true;
+    return false;
+}
+function isHeavySchedulerCommand(command) {
+    const c = String(command || "");
+    if (c.includes("cluster_scheduler.py") || c.includes("cluster_scheduler") || c.includes("SIMPLE_TMUX_READY") || c.includes("SIMPLE_EXPERIMENT_TMUX") || c.includes("SIMPLE_EXPERIMENT_EXIT_CODE"))
+        return true;
+    if (c.includes("conda activate"))
+        return true;
+    if (/^\s*cd\s+/.test(c) && c.includes("/data"))
+        return true;
+    if (c.includes("printf") && c.includes("exit_code"))
+        return true;
+    return false;
+}
 function buildTmuxRemoteCommand(target) {
     return `tmux load-buffer -; tmux paste-buffer -t ${target}; tmux send-keys -t ${target} Enter`;
 }
@@ -52,6 +77,9 @@ function tmuxExecViaBuffer(command, options = {}) {
     if (!host)
         throw new Error("tmux host 未配置：请按拓扑传入 worker/host 配置");
     const target = options.target || DEFAULT_TARGET;
+    if (isMainShellTarget(target) && isHeavySchedulerCommand(command)) {
+        throw new Error(`refusing heavy scheduler command on main shell target ${target}: ${String(command).slice(0, 120)}`);
+    }
     const remote = buildTmuxRemoteCommand(target);
     return new Promise((resolve, reject) => {
         const proc = child_process.spawn("ssh.exe", [host, remote], { stdio: ["pipe", "pipe", "pipe"] });

@@ -5,7 +5,7 @@ exports.normalizeRemoteTmuxSessionPrefix = normalizeRemoteTmuxSessionPrefix;
 exports.defaultAgentTmuxSessionName = defaultAgentTmuxSessionName;
 exports.isValidRemoteTmuxSessionName = isValidRemoteTmuxSessionName;
 exports.agentTmuxStartupCommand = agentTmuxStartupCommand;
-exports.simpleTmuxSessionPrefix = "simple";
+exports.simpleTmuxSessionPrefix = "zlk";
 exports.simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1";
 exports.simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
 exports.simpleDefaultCondaEnv = "";
