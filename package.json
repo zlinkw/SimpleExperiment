@@ -697,7 +697,8 @@
     "preview:gpu-history": "npm run build && node scripts/render-gpu-history-preview.js",
     "smoke": "npm run build && npm run lint && node -c dist/extension.js && node -c dist/panel.js && node dist/cli.js status && npm run package",
     "acceptance": "node scripts/acceptance.js",
-    "compact:plan": "node scripts/compact-target-mode-plan.js"
+    "compact:plan": "node scripts/compact-target-mode-plan.js",
+    "check:tmux-guard": "node scripts/check-tmux-guard.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
