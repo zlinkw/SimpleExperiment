@@ -764,7 +764,7 @@ class RealtimeTunnelPanelProvider {
             return this.localApiServer;
         const server = new LocalApiServerClass({
             name: "SimpleExperiment",
-            version: String(this.context.extension.packageJSON?.version || ""),
+            version: String(this.context?.extension?.packageJSON?.version || ""),
             preferredPort: LOCAL_API_PREFERRED_PORT,
             discoveryPath: API_DISCOVERY_PATH,
             methods: this.createLocalApiMethods(),
@@ -785,7 +785,7 @@ class RealtimeTunnelPanelProvider {
             status: async () => ({
                 ok: true,
                 name: "SimpleExperiment",
-                version: String(this.context.extension.packageJSON?.version || ""),
+                version: String(this.context?.extension?.packageJSON?.version || ""),
                 workspace: workspaceRoot() || "",
                 connectionMode: this.effectiveConnectionMode(),
                 topology: this.projectTopologyAssessment(),
@@ -953,7 +953,7 @@ class RealtimeTunnelPanelProvider {
         };
     }
     apiConfigSchema() {
-        const properties = this.context.extension.packageJSON?.contributes?.configuration?.properties || {};
+        const properties = this.context?.extension?.packageJSON?.contributes?.configuration?.properties || {};
         return Object.entries(properties)
             .filter(([key]) => key.startsWith(API_CONFIG_PREFIX))
             .map(([key, schema]) => ({
@@ -5608,7 +5608,7 @@ class RealtimeTunnelPanelProvider {
             fs.readFile(agentPath, "utf8"),
             fs.readFile(schedulerPath, "utf8"),
         ]);
-        const pluginVersion = String(this.context.extension.packageJSON?.version || "");
+        const pluginVersion = String(this.context?.extension?.packageJSON?.version || "");
         const runtimeVersion = RuntimeManifest_1.CURRENT_RUNTIME_VERSION;
         const manifest = RuntimeManifest_1.buildExpectedRuntimeManifest(pluginVersion, runtimeVersion, [
             { component: "hub_agent", version: runtimeVersion, remotePath: "simple_cluster/runtime/cluster_agent.py", content: agentText },
@@ -5880,7 +5880,7 @@ class RealtimeTunnelPanelProvider {
             catch {
                 return { fatal: [], warnings: ["本地 runtime 文件不可读，跳过远端版本校验"] };
             }
-            const pluginVersion = String(this.context.extension.packageJSON?.version || "");
+            const pluginVersion = String(this.context?.extension?.packageJSON?.version || "");
             const runtimeVersion = RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "";
             if (!runtimeVersion) {
                 return { fatal: ["本地 runtimeVersion 为空（单源 src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION 缺失），禁止 fallback 硬编码"], warnings: [] };
@@ -6056,7 +6056,7 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async verifyAgentVersionManually() {
-        const pluginVersion = String(this.context.extension.packageJSON?.version || "");
+        const pluginVersion = String(this.context?.extension?.packageJSON?.version || "");
         const runtimeVersion = RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "";
         let result = { fatal: [], warnings: [] };
         try {
@@ -12585,7 +12585,7 @@ class RealtimeTunnelPanelProvider {
                 || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, topology.hubAllowed),
         });
         return {
-            extensionVersion: String(this.context.extension.packageJSON?.version || ""),
+            extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             connectionMode,
             localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
             workspace,
@@ -12873,7 +12873,7 @@ class RealtimeTunnelPanelProvider {
         }
         const boundedMessage = compactSensitiveText(message, 600) || "面板状态生成失败。";
         return {
-            extensionVersion: String(this.context.extension.packageJSON?.version || ""),
+            extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             connectionMode: "xshell_tunnel_realtime",
             localEndpoint: "http://127.0.0.1:18765",
             workspace,
