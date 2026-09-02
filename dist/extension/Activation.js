@@ -21,9 +21,11 @@ function tryRequire(id) {
     }
 }
 async function activate(context) {
+    console.log("[Activation] enter", new Date().toISOString(), "process.env.FEATURE_FACTORY_PANEL", process.env.FEATURE_FACTORY_PANEL);
     return activateExtension(context);
 }
 async function activateExtension(context) {
+    console.log("[Activation] enter", new Date().toISOString(), "process.env.FEATURE_FACTORY_PANEL", process.env.FEATURE_FACTORY_PANEL);
     const mod = tryRequire("../config/RenamedExtensionStateMigration");
     await mod?.migrateRenamedExtensionState(context).catch(() => undefined);
     const factoryContext = (0, ExtensionContext_1.toFactoryContext)(context);
@@ -31,9 +33,11 @@ async function activateExtension(context) {
     // 单一工厂路径：优先经 ServiceFactory 创建，可回退到 legacy 直连
     let provider;
     try {
+        console.log("[Activation] try factory");
         provider = services.createPanelProvider(factoryContext);
     }
-    catch {
+    catch (e) {
+        console.error("[Activation] factory failed", e);
         provider = undefined;
     }
     if (!provider || typeof provider.resolveWebviewView !== "function") {
@@ -47,10 +51,12 @@ async function activateExtension(context) {
         }
     }
     _provider = provider;
+    console.log("[Activation] provider", !!provider, typeof provider?.resolveWebviewView);
     if (provider && typeof provider.resolveWebviewView === "function") {
         try {
             const vscode = tryRequire("vscode");
             if (vscode && vscode.window && typeof vscode.window.registerWebviewViewProvider === "function") {
+                console.log("[Activation] registerWebviewViewProvider", "simpleExperiment.panel");
                 context.subscriptions.push(vscode.window.registerWebviewViewProvider("simpleExperiment.panel", provider, { webviewOptions: { retainContextWhenHidden: true } }));
             }
         }
