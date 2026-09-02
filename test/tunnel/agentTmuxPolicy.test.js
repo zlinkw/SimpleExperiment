@@ -8,8 +8,8 @@ const {
 } = require("../../dist/tunnel/AgentTmuxPolicy.js");
 
 test("agent tmux policy supports configurable remote session prefixes", () => {
-  assert.equal(defaultAgentTmuxSessionName("hub"), "simple-hub-agent");
-  assert.equal(defaultAgentTmuxSessionName("worker", "nwpu5"), "simple-worker-nwpu5-agent");
+  assert.equal(defaultAgentTmuxSessionName("hub"), "zlk-hub-agent");
+  assert.equal(defaultAgentTmuxSessionName("worker", "nwpu5"), "zlk-worker-nwpu5-agent");
   assert.equal(defaultAgentTmuxSessionName("worker", "nwpu5", "zlk"), "zlk-worker-nwpu5-agent");
   assert.equal(isValidRemoteTmuxSessionName("simple-worker-nwpu5-agent"), true);
   assert.equal(isValidRemoteTmuxSessionName("zlk-worker-nwpu5-agent"), true);
@@ -18,8 +18,8 @@ test("agent tmux policy supports configurable remote session prefixes", () => {
 
 test("agent tmux startup command checks existing session and process before starting", () => {
   const command = agentTmuxStartupCommand({ role: "worker", endpointId: "nwpu5", port: 18765 });
-  assert.match(command, /SESSION='simple-worker-nwpu5-agent'/);
-  assert.match(command, /SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX='simple'/);
+  assert.match(command, /SESSION='zlk-worker-nwpu5-agent'/);
+  assert.match(command, /SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX='zlk'/);
 
   const prefixed = agentTmuxStartupCommand({ role: "worker", endpointId: "nwpu5", port: 18765, sessionPrefix: "zlk" });
   assert.match(prefixed, /SESSION='zlk-worker-nwpu5-agent'/);
@@ -41,7 +41,7 @@ test("agent tmux startup command checks existing session and process before star
 
 test("agent tmux startup uses system Python by default and requires explicit Conda environments", () => {
   const blank = agentTmuxStartupCommand({ role: "hub", installDir: "/srv/agent", workDir: "/srv/project" });
-  assert.match(blank, /SIMPLE_EXPERIMENT_AGENT_TMUX_V19=1/);
+  assert.match(blank, /SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1/);
   assert.match(blank, /SIMPLE_EXPERIMENT_CONDA_ENV=''/);
   assert.match(blank, /SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV='0'/);
   assert.match(blank, /if \[ -n "\$SIMPLE_EXPERIMENT_CONDA_ENV" \]; then :/);

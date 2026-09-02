@@ -15,7 +15,7 @@ test("public setup defaults to system Python without changing explicit Conda env
   const policy = require(path.join(root, "dist/tunnel/AgentTmuxPolicy.js"));
 
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.condaEnv"].default, "");
-  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.remoteTmuxSessionPrefix"].default, "simple");
+  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.remoteTmuxSessionPrefix"].default, "zlk");
   assert.deepEqual(packageJson.contributes.configuration.properties["simpleExperiment.remote.allowedRoots"].default, []);
   assert.deepEqual(packageJson.contributes.configuration.properties["simpleExperiment.remote.deniedRoots"].default, []);
   assert.equal(setup.defaultXshellTunnelSetupConfig.condaEnv, "");
@@ -27,7 +27,7 @@ test("public setup defaults to system Python without changing explicit Conda env
   const blank = policy.agentTmuxStartupCommand({ role: "hub", port: 18765, installDir: "/srv/agent", workDir: "/srv/demo", condaEnv: "" });
   assert.match(blank, /SIMPLE_EXPERIMENT_CONDA_ENV=''/);
   assert.match(blank, /SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV='0'/);
-  assert.match(blank, /SIMPLE_EXPERIMENT_AGENT_TMUX_V19=1/);
+  assert.match(blank, /SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1/);
   assert.match(blank, /if \[ -n "\$SIMPLE_EXPERIMENT_CONDA_ENV" \]; then :/);
 
   const explicit = policy.agentTmuxStartupCommand({ role: "worker", endpointId: "w1", port: 18766, installDir: "/srv/agent", workDir: "/srv/demo", condaEnv: "torch2" });

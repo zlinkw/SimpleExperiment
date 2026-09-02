@@ -405,7 +405,7 @@
         },
         "simpleExperiment.tunnel.remoteTmuxSessionPrefix": {
           "type": "string",
-          "default": "simple",
+          "default": "zlk",
           "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
           "scope": "application",
           "description": "远端 tmux 会话名前缀，用于多用户共用服务器时区分归属；仅允许小写字母、数字、点、下划线和连字符。"

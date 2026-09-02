@@ -1,4 +1,4 @@
-export const simpleTmuxSessionPrefix = "simple";
+export const simpleTmuxSessionPrefix = "zlk";
 export const simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1";
 export const simpleAgentRuntimeRelativePath = "simple_cluster/runtime/cluster_agent.py";
 export const simpleDefaultCondaEnv = "";

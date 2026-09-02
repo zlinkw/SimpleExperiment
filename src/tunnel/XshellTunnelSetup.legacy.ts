@@ -100,7 +100,7 @@ export type XshellTunnelSetupConfig = XshellRealtimeTunnelConfig;
 
 export const defaultXshellTunnelSetupConfig: XshellTunnelSetupConfig = {
   xshellExePath: "",
-  remoteTmuxSessionPrefix: "simple",
+  remoteTmuxSessionPrefix: "zlk",
   hubHost: "",
   hubUser: "",
   hubSshPort: 22,
