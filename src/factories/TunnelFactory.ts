@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * TunnelFactory - 隧道工厂
  * 封装 TunnelGateway / TunnelPortAllocator / TunnelEndpointRegistry / XshellTunnel* 的创建
@@ -7,6 +6,87 @@
  */
 
 import type { FactoryContext } from "./types";
+
+// ---------- 强类型动态 require 访问器 ----------
+function tryRequire<T>(id: string): T | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(id) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+type TunnelGatewayMod = {
+  defaultTunnelGatewayConfig: TunnelGatewayConfig;
+  normalizeTunnelGatewayConfig?: (input: Partial<TunnelGatewayConfig>) => TunnelGatewayConfig;
+  localBaseUrl?: (cfg: { localHost: string; localPort: number }) => string;
+  normalizePort?: (value: unknown, fallback: number) => number;
+};
+
+type XshellSetupMod = {
+  normalizeXshellRealtimeTunnelConfig?: (input: Partial<XshellSetupConfig>) => XshellSetupConfig;
+  normalizeXshellTunnelSetup?: (input: Partial<XshellSetupConfig>) => XshellSetupConfig;
+};
+
+type PortAllocatorMod = {
+  TunnelPortAllocator?: new (range?: TunnelPortRange) => unknown;
+  allocateTunnelPorts?: (...args: unknown[]) => unknown;
+};
+
+type EndpointRegistryMod = {
+  buildTunnelEndpointRegistry?: (setup: XshellSetupConfig, probes: Record<string, unknown>) => unknown;
+};
+
+type PortConflictMod = {
+  detectPortConflicts?: (assignments: TunnelEndpointAssignment[], range?: TunnelPortRange) => TunnelPortConflict[];
+  makeTunnelPortConflict?: (...args: unknown[]) => unknown;
+};
+
+type PortProbeMod = {
+  XshellTunnelPortProbe?: new () => unknown;
+  createPortProbe?: () => unknown;
+};
+
+type LauncherMod = {
+  XshellSessionLauncher?: new (deps: Record<string, unknown>) => unknown;
+};
+
+type IntegrationMod = {
+  XshellTunnelIntegration?: new (deps: Record<string, unknown>) => unknown;
+};
+
+function getTunnelGateway(): TunnelGatewayMod | undefined {
+  return tryRequire<TunnelGatewayMod>("../tunnel/TunnelGateway");
+}
+
+function getXshellSetup(): XshellSetupMod | undefined {
+  return tryRequire<XshellSetupMod>("../tunnel/XshellTunnelSetup");
+}
+
+function getPortAllocator(): PortAllocatorMod | undefined {
+  return tryRequire<PortAllocatorMod>("../tunnel/TunnelPortAllocator");
+}
+
+function getEndpointRegistry(): EndpointRegistryMod | undefined {
+  return tryRequire<EndpointRegistryMod>("../tunnel/TunnelEndpointRegistry");
+}
+
+function getPortConflict(): PortConflictMod | undefined {
+  return tryRequire<PortConflictMod>("../tunnel/TunnelPortConflict");
+}
+
+function getPortProbe(): PortProbeMod | undefined {
+  return tryRequire<PortProbeMod>("../tunnel/XshellTunnelPortProbe");
+}
+
+function getLauncher(): LauncherMod | undefined {
+  return tryRequire<LauncherMod>("../tunnel/XshellSessionLauncher");
+}
+
+function getIntegration(): IntegrationMod | undefined {
+  return tryRequire<IntegrationMod>("../tunnel/XshellTunnelIntegration");
+}
 
 export interface TunnelGatewayConfig {
   localHost: string;
@@ -64,68 +144,79 @@ export class DefaultTunnelFactory implements TunnelFactory {
   }
 
   private getDefaultPort(): number {
-    try { return require("../tunnel/TunnelGateway").defaultTunnelGatewayConfig.localPort; } catch { return 0; }
+    const gw = getTunnelGateway();
+    if (gw?.defaultTunnelGatewayConfig?.localPort !== undefined) {
+      return Number(gw.defaultTunnelGatewayConfig.localPort) || 0;
+    }
+    return 0;
   }
 
   private getDefaultRemotePort(): number {
-    try { return require("../tunnel/TunnelGateway").defaultTunnelGatewayConfig.remotePort; } catch { return 0; }
+    const gw = getTunnelGateway();
+    if (gw?.defaultTunnelGatewayConfig?.remotePort !== undefined) {
+      return Number(gw.defaultTunnelGatewayConfig.remotePort) || 0;
+    }
+    return 0;
   }
 
   private getDefaultGatewayConfig(): TunnelGatewayConfig {
-    try { return require("../tunnel/TunnelGateway").defaultTunnelGatewayConfig as TunnelGatewayConfig; } catch { return { localHost: "127.0.0.1", localPort: 0, remoteHost: "127.0.0.1", remotePort: 0 } as TunnelGatewayConfig; }
+    const gw = getTunnelGateway();
+    if (gw?.defaultTunnelGatewayConfig) {
+      return gw.defaultTunnelGatewayConfig as TunnelGatewayConfig;
+    }
+    return { localHost: "127.0.0.1", localPort: 0, remoteHost: "127.0.0.1", remotePort: 0 } as TunnelGatewayConfig;
   }
 
   normalizeGatewayConfig(input: Partial<TunnelGatewayConfig> = {}): TunnelGatewayConfig {
-    try {
-      const mod = require("../tunnel/TunnelGateway");
-      if (mod && typeof mod.normalizeTunnelGatewayConfig === "function") {
+    const mod = getTunnelGateway();
+    if (mod) {
+      if (typeof mod.normalizeTunnelGatewayConfig === "function") {
         return mod.normalizeTunnelGatewayConfig(input);
       }
-      if (mod && mod.defaultTunnelGatewayConfig) {
+      if (mod.defaultTunnelGatewayConfig) {
         const def = mod.defaultTunnelGatewayConfig as TunnelGatewayConfig;
         return { ...def, ...input } as TunnelGatewayConfig;
       }
-    } catch {}
+    }
     // 回退：使用动态默认配置合并，禁止硬编码端口字面量分支
     const defPort = this.getDefaultPort();
     const defRemotePort = this.getDefaultRemotePort();
+    void this.getDefaultGatewayConfig();
     const fallbackBase = { localHost: "127.0.0.1", localPort: defPort, remoteHost: "127.0.0.1", remotePort: defRemotePort } as TunnelGatewayConfig;
     return { ...fallbackBase, ...input } as TunnelGatewayConfig;
   }
 
   normalizeSetupConfig(input: Partial<XshellSetupConfig> = {}): XshellSetupConfig {
-    try {
-      const mod = require("../tunnel/XshellTunnelSetup");
-      if (mod && typeof mod.normalizeXshellRealtimeTunnelConfig === "function") {
+    const mod = getXshellSetup();
+    if (mod) {
+      if (typeof mod.normalizeXshellRealtimeTunnelConfig === "function") {
         return mod.normalizeXshellRealtimeTunnelConfig(input);
       }
-      if (mod && typeof mod.normalizeXshellTunnelSetup === "function") {
+      if (typeof mod.normalizeXshellTunnelSetup === "function") {
         return mod.normalizeXshellTunnelSetup(input);
       }
-    } catch {}
+    }
     return { hubHost: String(input.hubHost || ""), localForwardPort: Number(input.localForwardPort) || 0, remoteAgentPort: Number(input.remoteAgentPort) || 0, ...input } as XshellSetupConfig;
   }
 
   createPortAllocator(range?: TunnelPortRange): unknown {
-    try {
-      const mod = require("../tunnel/TunnelPortAllocator");
-      if (mod && mod.TunnelPortAllocator) return new mod.TunnelPortAllocator(range);
+    const mod = getPortAllocator();
+    if (mod) {
+      if (mod.TunnelPortAllocator) return new mod.TunnelPortAllocator(range);
       if (typeof mod.allocateTunnelPorts === "function") return { allocate: mod.allocateTunnelPorts, range };
-    } catch {}
+    }
     return { kind: "TunnelPortAllocator", range: range || null, allocate: async () => ({ ok: true, assignments: [], conflicts: [] }) };
   }
 
   createEndpointRegistry(setup: XshellSetupConfig, probes: Record<string, unknown> = {}): unknown {
-    try {
-      const mod = require("../tunnel/TunnelEndpointRegistry");
-      if (typeof mod.buildTunnelEndpointRegistry === "function") return mod.buildTunnelEndpointRegistry(setup, probes);
-    } catch {}
+    const mod = getEndpointRegistry();
+    if (mod && typeof mod.buildTunnelEndpointRegistry === "function") return mod.buildTunnelEndpointRegistry(setup, probes);
     return { kind: "TunnelEndpointRegistry", setup, probes, endpoints: [] };
   }
 
   detectPortConflicts(assignments: TunnelEndpointAssignment[], range?: TunnelPortRange): TunnelPortConflict[] {
-    try {
-      const mod = require("../tunnel/TunnelPortConflict");
+    const mod = getPortConflict();
+    if (mod) {
       if (typeof mod.detectPortConflicts === "function") return mod.detectPortConflicts(assignments, range);
       if (typeof mod.makeTunnelPortConflict === "function" && assignments) {
         // 基础去重检测回退
@@ -138,47 +229,43 @@ export class DefaultTunnelFactory implements TunnelFactory {
         }
         return conflicts;
       }
-    } catch {}
+    }
     return [];
   }
 
   createPortProbe(): unknown {
-    try {
-      const mod = require("../tunnel/XshellTunnelPortProbe");
-      if (mod && mod.XshellTunnelPortProbe) return new mod.XshellTunnelPortProbe();
+    const mod = getPortProbe();
+    if (mod) {
+      if (mod.XshellTunnelPortProbe) return new mod.XshellTunnelPortProbe();
       if (typeof mod.createPortProbe === "function") return mod.createPortProbe();
-    } catch {}
+    }
     return { kind: "PortProbe", probe: async (_port: number) => "available" };
   }
 
   createLauncher(): unknown {
-    try {
-      const mod = require("../tunnel/XshellSessionLauncher");
-      if (mod && mod.XshellSessionLauncher) return new mod.XshellSessionLauncher(this.injectedDeps);
-    } catch {}
+    const mod = getLauncher();
+    if (mod && mod.XshellSessionLauncher) return new mod.XshellSessionLauncher(this.injectedDeps);
     return { kind: "XshellSessionLauncher", launch: async () => ({ ok: true }) };
   }
 
   createIntegration(): unknown {
-    try {
-      const mod = require("../tunnel/XshellTunnelIntegration");
-      if (mod && mod.XshellTunnelIntegration) return new mod.XshellTunnelIntegration(this.injectedDeps);
-    } catch {}
+    const mod = getIntegration();
+    if (mod && mod.XshellTunnelIntegration) return new mod.XshellTunnelIntegration(this.injectedDeps);
     return { kind: "XshellTunnelIntegration", check: async () => ({ ok: true }) };
   }
 
   resolveEndpointUrl(cfg: { localHost: string; localPort: number }): string {
     // P0: 禁止工厂内出现字面量端口，全部经 TunnelGateway.localBaseUrl 动态解析
-    try {
-      const mod = require("../tunnel/TunnelGateway");
+    const mod = getTunnelGateway();
+    if (mod) {
       if (typeof mod.localBaseUrl === "function") return mod.localBaseUrl(cfg);
       if (typeof mod.normalizePort === "function") {
-        const defPort = mod.defaultTunnelGatewayConfig?.localPort ?? this.getDefaultPort();
+        const defPort: number = (mod.defaultTunnelGatewayConfig?.localPort as number) ?? this.getDefaultPort();
         const safe = mod.normalizePort(cfg.localPort, defPort);
         const host = String(cfg.localHost || "127.0.0.1").trim() || "127.0.0.1";
         return `http://${host}:${safe}`;
       }
-    } catch {}
+    }
     const host = String(cfg.localHost || "127.0.0.1").trim() || "127.0.0.1";
     const port = Number(cfg.localPort);
     // 回退时动态读取默认端口，禁止字面量分支
@@ -187,7 +274,7 @@ export class DefaultTunnelFactory implements TunnelFactory {
     return `http://${host}:${safePort}`;
   }
 
-  createAll(ctx: FactoryContext): unknown[] {
+  createAll(_ctx: FactoryContext): unknown[] {
     return [
       this.createPortAllocator(),
       this.createEndpointRegistry({ hubHost: "", localForwardPort: 0, remoteAgentPort: 0 } as XshellSetupConfig),
@@ -197,7 +284,7 @@ export class DefaultTunnelFactory implements TunnelFactory {
     ];
   }
 
-  createByName(name: string, ctx: FactoryContext): unknown | undefined {
+  createByName(name: string, _ctx: FactoryContext): unknown | undefined {
     const map: Record<string, () => unknown> = {
       portAllocator: () => this.createPortAllocator(),
       endpointRegistry: () => this.createEndpointRegistry({ hubHost: "", localForwardPort: 0, remoteAgentPort: 0 } as XshellSetupConfig),

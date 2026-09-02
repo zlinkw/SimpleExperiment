@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * FeatureFactory - Feature 工厂
  * 管理 PlanBuilder / Results / Quality / Comparison / DraftPlans 等 FeatureHandler
@@ -7,6 +6,20 @@
  */
 
 import type { FactoryContext } from "./types";
+
+function tryRequire<T>(id: string): T | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(id) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+type FeatureModule = Record<string, unknown> & {
+  execute?: (args: unknown, ctx: FactoryContext) => Promise<unknown>;
+  default?: (args: unknown, ctx: FactoryContext) => Promise<unknown>;
+};
 
 export type FeatureKind =
   | "planBuilder"
@@ -36,13 +49,13 @@ class GenericFeatureHandler implements FeatureHandler {
   private readonly impl: (args: unknown, ctx: FactoryContext) => Promise<unknown>;
   constructor(kind: FeatureKind, impl?: (args: unknown, ctx: FactoryContext) => Promise<unknown>) {
     this.kind = kind;
-    this.impl = impl || (async (args) => ({ kind, args, ok: true }));
+    this.impl = impl || (async (args) => ({ kind, args, ok: true }) as unknown);
   }
   async execute(args: unknown, ctx: FactoryContext & { signal?: AbortSignal }): Promise<unknown> {
     return this.impl(args, ctx);
   }
-  queueSpec(_args: unknown) {
-    return { priority: 0 as const, exclusiveKeys: [this.kind] as string[], coalesceKey: undefined, timeoutMs: 30000 };
+  queueSpec(_args: unknown): Pick<import("../core/OperationQueue").OperationSpec, "priority" | "exclusiveKeys" | "coalesceKey" | "timeoutMs"> {
+    return { priority: 0 as unknown as import("../core/OperationQueue").OperationSpec["priority"], exclusiveKeys: [this.kind] as string[], coalesceKey: undefined, timeoutMs: 30000 };
   }
 }
 
@@ -105,6 +118,10 @@ const featureImplHints: Record<FeatureKind, string> = {
   checkpoint: "features/Checkpoint",
 };
 
+function getFeatureModule(hint: string): FeatureModule | undefined {
+  return tryRequire<FeatureModule>(`../${hint}`);
+}
+
 export class DefaultFeatureFactory implements FeatureFactory {
   private readonly cache = new Map<FeatureKind, FeatureHandler>();
   private readonly deps: Record<string, unknown>;
@@ -119,18 +136,20 @@ export class DefaultFeatureFactory implements FeatureFactory {
     // 尝试按需委托旧模块（门面包裹旧实现，零行为变更）
     const hint = featureImplHints[kind];
     if (hint) {
-      try {
-        const mod = require(`../${hint}`);
-        // 若模块存在，包装为 FeatureHandler（保持原逻辑不变）
-        if (mod) {
-          handler = new GenericFeatureHandler(kind, async (args, ctx) => {
-            // 优先调用模块的默认导出或同名方法
-            const fn = mod.execute || mod.default || mod[kind] || mod[`${kind}Handler`];
-            if (typeof fn === "function") return fn(args, ctx);
-            return { kind, args, delegatedTo: hint, ok: true };
-          });
-        }
-      } catch {}
+      const mod = getFeatureModule(hint);
+      // 若模块存在，包装为 FeatureHandler（保持原逻辑不变）
+      if (mod) {
+        handler = new GenericFeatureHandler(kind, async (args: unknown, ctx: FactoryContext) => {
+          // 优先调用模块的默认导出或同名方法
+          const rec = mod as Record<string, unknown>;
+          const fn = (rec["execute"] as ((a: unknown, c: FactoryContext) => Promise<unknown>) | undefined)
+            || (rec["default"] as ((a: unknown, c: FactoryContext) => Promise<unknown>) | undefined)
+            || (rec[kind] as ((a: unknown, c: FactoryContext) => Promise<unknown>) | undefined)
+            || (rec[`${kind}Handler`] as ((a: unknown, c: FactoryContext) => Promise<unknown>) | undefined);
+          if (typeof fn === "function") return fn(args, ctx);
+          return { kind, args, delegatedTo: hint, ok: true } as unknown;
+        });
+      }
     }
     if (!handler) handler = new GenericFeatureHandler(kind);
     this.cache.set(kind, handler);

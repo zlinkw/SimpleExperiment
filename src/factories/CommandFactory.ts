@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * CommandFactory - 命令工厂
  * 表驱动注册所有 VS Code commands，与 package.json#contributes.commands 单源契约
@@ -7,6 +6,31 @@
  */
 
 import type { FactoryContext } from "./types";
+
+function tryRequire<T>(id: string): T | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(id) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+type HostOperationLeaseMod = {
+  withHostOperationLease?: (label: string, fn: () => unknown | Promise<unknown>) => Promise<unknown>;
+};
+
+type VscodeMod = {
+  commands?: { registerCommand: (id: string, fn: (...a: unknown[]) => unknown) => unknown };
+};
+
+function getHostOperationLease(): HostOperationLeaseMod | undefined {
+  return tryRequire<HostOperationLeaseMod>("../core/HostOperationLease");
+}
+
+function getVscode(): VscodeMod | undefined {
+  return tryRequire<VscodeMod>("vscode");
+}
 
 export interface CommandDescriptor {
   readonly id: string;
@@ -61,7 +85,7 @@ export interface CommandFactory {
 function defaultHandlerFor(id: string): (...args: unknown[]) => unknown {
   return (...args: unknown[]) => {
     // Phase1: 占位 handler，后续由 FeatureFactory / HostOperationLease 包装
-    return { command: id, args, ok: true, delegated: true };
+    return { command: id, args, ok: true, delegated: true } as unknown;
   };
 }
 
@@ -71,23 +95,25 @@ export class DefaultCommandFactory implements CommandFactory {
     this.deps = deps;
   }
 
-  createDescriptors(ctx: FactoryContext): CommandDescriptor[] {
+  createDescriptors(_ctx: FactoryContext): CommandDescriptor[] {
+    const handlerMap = this.deps["handlerMap"] as Record<string, (...a: unknown[]) => unknown> | undefined;
     return COMMAND_MANIFEST.map((item) => ({
       ...item,
       withLease: true,
       leaseLabel: item.id,
-      handler: (this.deps.handlerMap as Record<string, (...a: unknown[]) => unknown>)?.[item.id] || defaultHandlerFor(item.id),
+      handler: handlerMap?.[item.id] || defaultHandlerFor(item.id),
     }));
   }
 
-  createByName(id: string, ctx: FactoryContext): CommandDescriptor | undefined {
+  createByName(id: string, _ctx: FactoryContext): CommandDescriptor | undefined {
     const found = COMMAND_MANIFEST.find((c) => c.id === id);
     if (!found) return undefined;
+    const handlerMap = this.deps["handlerMap"] as Record<string, (...a: unknown[]) => unknown> | undefined;
     return {
       ...found,
       withLease: true,
       leaseLabel: found.id,
-      handler: (this.deps.handlerMap as Record<string, (...a: unknown[]) => unknown>)?.[found.id] || defaultHandlerFor(found.id),
+      handler: handlerMap?.[found.id] || defaultHandlerFor(found.id),
     };
   }
 
@@ -101,13 +127,12 @@ export class DefaultCommandFactory implements CommandFactory {
   ): unknown[] {
     const descriptors = this.createDescriptors(factoryCtx);
     const disposables: unknown[] = [];
-    let vscode: unknown;
-    try { vscode = require("vscode"); } catch {}
+    const vscode = getVscode();
     for (const d of descriptors) {
       try {
-        const vsc = vscode as { commands?: { registerCommand: (id: string, fn: (...a: unknown[]) => unknown) => unknown } };
+        const vsc = vscode as VscodeMod | undefined;
         if (vsc?.commands?.registerCommand) {
-          const wrapped = d.withLease ? withLeaseWrapper(d, factoryCtx) : d.handler;
+          const wrapped = d.withLease ? withLeaseWrapper(d) : d.handler;
           const disp = vsc.commands.registerCommand(d.id, wrapped);
           if (ctx.subscriptions && typeof ctx.subscriptions.push === "function") ctx.subscriptions.push(disp);
           disposables.push(disp);
@@ -122,14 +147,12 @@ export class DefaultCommandFactory implements CommandFactory {
   }
 }
 
-function withLeaseWrapper(descriptor: CommandDescriptor, _ctx: FactoryContext): (...args: unknown[]) => unknown {
+function withLeaseWrapper(descriptor: CommandDescriptor): (...args: unknown[]) => unknown {
   return async (...args: unknown[]) => {
-    try {
-      const mod = require("../core/HostOperationLease");
-      if (mod && typeof mod.withHostOperationLease === "function") {
-        return await mod.withHostOperationLease(descriptor.leaseLabel || descriptor.id, () => descriptor.handler(...args));
-      }
-    } catch {}
+    const mod = getHostOperationLease();
+    if (mod && typeof mod.withHostOperationLease === "function") {
+      return await mod.withHostOperationLease(descriptor.leaseLabel || descriptor.id, () => descriptor.handler(...args));
+    }
     return descriptor.handler(...args);
   };
 }

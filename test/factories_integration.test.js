@@ -233,6 +233,10 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
     path.join(srcRoot, "factories", "types.ts"),
     path.join(srcRoot, "ui", "PanelTemplateEscaper.ts"),
     path.join(srcRoot, "ui", "PanelHtmlRenderer.ts"),
+    path.join(srcRoot, "factories", "TunnelFactory.ts"),
+    path.join(srcRoot, "factories", "FeatureFactory.ts"),
+    path.join(srcRoot, "factories", "CommandFactory.ts"),
+    path.join(srcRoot, "factories", "PanelSectionFactory.ts"),
   ]);
   const allFiles = [
     ...dirs.flatMap((d) => srcFiles(d, (p) => p.endsWith(".ts") && !p.endsWith(".legacy.ts") && !p.endsWith("legacy.ts"))),
