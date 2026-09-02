@@ -3545,11 +3545,15 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     async prepareAgentsForFirstRun(showMessage = true) {
-        if (!await this.ensureSimpleSftpReadyForSetup("准备 Agent"))
-            return false;
-        if (!workspaceRoot()) {
-            await this.openWorkspaceFolderForContinuation("准备 Agent", "prepareAgents");
-            return false;
+        console.log("[diag] prepareAgents entry", { showMessage, hasWorkspace: !!workspaceRoot(), sftp: (()=>{try{return simpleSftpIntegrationReadiness()}catch(e){return String(e)}})() });
+        if(!await this.ensureSimpleSftpReadyForSetup("准备 Agent")){
+          console.warn("[diag] prepareAgents blocked: SimpleSFTP not ready");
+          throw new UiCommandCancelled("SimpleSFTP 未就绪，已取消准备 Agent。请先安装并重载窗口。");
+        }
+        if(!workspaceRoot()){
+          console.warn("[diag] prepareAgents blocked: no workspaceRoot");
+          await this.openWorkspaceFolderForContinuation("准备 Agent","prepareAgents");
+          throw new UiCommandCancelled("未选择项目，已取消准备 Agent。");
         }
         assertSingleProjectWorkspace("准备 Agent");
         await this.syncXshellConfigBeforeNetwork("prepare agents for first run");
@@ -5696,6 +5700,7 @@ export class RealtimeTunnelPanelProvider {
         });
     }
     async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = []) {
+        console.log("[diag] deployLatestAgentRuntime entry", { showMessage, pathConfirmed, serverIds });
         await this.prepareSftpTargets("deployLatestAgentRuntime", "simpleSftp.uploadFiles", serverIds);
         const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), serverIds);
         if (!targets.length)
@@ -5731,6 +5736,7 @@ export class RealtimeTunnelPanelProvider {
         }
         const failures = [];
         for (const target of targets) {
+            console.log("[diag] simpleSftp.uploadFiles invoke", target.id, target.remotePath);
             const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
                 localBase: runtimeDir,
                 targetId: `${target.id}-agent-runtime`,
@@ -5743,6 +5749,7 @@ export class RealtimeTunnelPanelProvider {
                 ],
                 manifest: { ...manifest, targetId: target.id, targetRole: target.role, targetLabel: target.label },
             });
+            console.log("[diag] simpleSftp.uploadFiles result", JSON.stringify(result)?.slice(0,500));
             const record = result && typeof result === "object" ? result : {};
             if (!sftpUploadFilesSucceeded(record))
                 failures.push(`${target.label}（id=${target.id}, host=${target.host}, networkHost=${target.networkHost || target.displayHost || "-"}）: ${stringFromRecord(record, ["error", "message", "status"]) || "上传失败"}`);
