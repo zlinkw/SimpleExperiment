@@ -2349,6 +2349,9 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
     else:
         busy = {str(item).strip() for item in availability.get("busyGpuIds") or [] if str(item).strip()}
         availability_available = [str(item).strip() for item in availability.get("availableGpuIds") or [] if str(item).strip()]
+    # 快照滞后窗口修复：合并 active 占用，即使快照判 idle，已占即 busy（双重保险）
+    busy_gpus_from_active = {str(item.get("gpu_id") or "").strip() for item in active.values() if str(item.get("worker_id") or "") == str(worker.get("id") or "") and str(item.get("gpu_id") or "").strip()}
+    busy = busy | busy_gpus_from_active
     capacity = max(1, int(worker.get("max_concurrent_gpus") or worker.get("maxConcurrentGpus") or availability.get("capacityLimit") or 1))
     active_count = sum(1 for item in active.values() if str(item.get("worker_id") or "") == str(worker.get("id") or ""))
     if active_count >= capacity:
@@ -2358,6 +2361,8 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
     for gpu_id in availability_available:
         reason = ""
         if f"{worker['id']}:{gpu_id}" in active:
+            reason = "active_slot"
+        elif gpu_id in busy_gpus_from_active:
             reason = "active_slot"
         elif allowed and gpu_id not in allowed:
             reason = "not_allowed"
@@ -3957,9 +3962,25 @@ def main() -> None:
                         set_console_fields(args.plan, item, worker, jobs_by_index.get(experiment_index), initial_status)
                         if execution_mode == "test":
                             item["testing_started_at"] = item["started_at"]
-                            testing[f"{worker['id']}:{gpu_id}"] = item
+                            key = f"{worker['id']}:{gpu_id}"
+                            if key in testing:
+                                _append_scheduler_log(f"[{now()}] skip overwrite active_slot {key} experiment={experiment_index} already running {testing[key].get('experiment_index')}")
+                                try:
+                                    queue.appendleft(experiment_index)
+                                except Exception:
+                                    queue.append(experiment_index)
+                                continue
+                            testing[key] = item
                         else:
-                            active[f"{worker['id']}:{gpu_id}"] = item
+                            key = f"{worker['id']}:{gpu_id}"
+                            if key in active:
+                                _append_scheduler_log(f"[{now()}] skip overwrite active_slot {key} experiment={experiment_index} already running {active[key].get('experiment_index')}")
+                                try:
+                                    queue.appendleft(experiment_index)
+                                except Exception:
+                                    queue.append(experiment_index)
+                                continue
+                            active[key] = item
                         dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "dispatched", "checked_at": now(), "session": session})
                         _append_scheduler_log( f"[{now()}] dispatch experiment={experiment_index} server={worker['name']} gpu={gpu_id} session={session}")
                     except Exception as exc:
