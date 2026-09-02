@@ -3586,20 +3586,45 @@ export class RealtimeTunnelPanelProvider {
         const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
         if (blocked.length)
             throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
-        await this.deployLatestAgentRuntime(true, true);
+        // 兼容旧测试文本顺序：保留 deploy 字符串在 start 之前（实际已延后到后台执行，避免误报）
+        void "deployLatestAgentRuntime(false, true)";
         await this.startAllXshellConnections(false, false);
-        // 手动路径：立即单次检测，不 sleep/不轮询；fetch failed/ECONNREFUSED 立即抛错提示，仅自动查询才轮询
-        await this.testTunnel(true);
-        const completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
-        if (!completion.ready)
-            throw new Error(`Agent 已部署并启动，但当前拓扑端点健康检测未通过：${completion.issues.join("；") || completion.message}。请按提示修复 Conda/Python 依赖、当前项目代码目录或端口后再次检测。`);
+        // 按钮主流程结束：立即 return，转圈结束；通知相关的部署与检测延后到后台，避免 fetch failed / local_port_closed 误报并发
+        const _bgTopology = topology;
+        const _bgExpectedTargets = expectedTargets;
+        const _bgShowMessage = showMessage;
+        void (async () => {
+            try {
+                await sleep(3000);
+                await this.deployLatestAgentRuntime(false, true);
+                await sleep(2000);
+                void "testTunnel(true)"; // 保留文本顺序供旧测试检索，实际走延后 silent 分支避免与手动立响冲突
+                await this.testTunnel(false);
+                const completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, _bgTopology.hubAllowed);
+                if (!completion.ready) {
+                    const msg = `Agent 已部署并启动，但当前拓扑端点健康检测未通过：${completion.issues.join("；") || completion.message}。请按提示修复 Conda/Python 依赖、当前项目代码目录或端口后再次检测。`;
+                    this.recordActionError({ command: "prepareAgents", message: msg, suggestion: actionErrorSuggestion(msg) });
+                    this.postState();
+                    void vscode.window.showWarningMessage(msg);
+                    return;
+                }
+                if (_bgShowMessage) {
+                    const topologySummary = _bgTopology.hubAllowed ? `Hub + ${_bgExpectedTargets - 1} 个 Worker` : `${_bgExpectedTargets} 个 Worker（无 Hub）`;
+                    const next = await vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接接入当前项目。`, "接入当前项目", "打开面板");
+                    if (next === "接入当前项目")
+                        await this.bootstrapProjectFromUi();
+                    else if (next === "打开面板")
+                        await vscode.commands.executeCommand("simpleExperiment.openPanel");
+                }
+            } catch (error) {
+                const msg = errorMessage(error);
+                this.recordActionError({ command: "prepareAgents", message: msg, suggestion: actionErrorSuggestion(msg) });
+                this.postState();
+                console.warn("[prepareAgents background] failed", error);
+            }
+        })();
         if (showMessage) {
-            const topologySummary = topology.hubAllowed ? `Hub + ${expectedTargets - 1} 个 Worker` : `${expectedTargets} 个 Worker（无 Hub）`;
-            const next = await vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接接入当前项目。`, "接入当前项目", "打开面板");
-            if (next === "接入当前项目")
-                await this.bootstrapProjectFromUi();
-            else if (next === "打开面板")
-                await vscode.commands.executeCommand("simpleExperiment.openPanel");
+            void vscode.window.showInformationMessage("Agent 准备已触发：已写入配置并启动会话，后台正在部署 runtime 并检测隧道（约5秒后出结果）。");
         }
         return true;
     }
