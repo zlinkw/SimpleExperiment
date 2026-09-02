@@ -1998,7 +1998,8 @@ function renderPanelHtml() {
     const RESOURCE_TREE_SECTION_KEYS = new Set(RESOURCE_TREE_SECTION_ORDER);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
     const INSPECTOR_OPERATION_SECTIONS = new Set(["execution"]);
-    const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status", "copyTensorBoardUrl", "openTensorBoardUrl", "openTensorBoard", "showLogHistory", "openFullLog", "copyText"]);
+    // 白名单仅保留纯瞬时选择/状态查询，其余非瞬时操作均进入 setButtonLoading 转圈（prepareAgents/deployLatestAgent/testAll/runPlan 等长任务已覆盖，openTensorBoard 等需转圈）
+    const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
     const TERMINAL_UI_STATUSES = new Set(["completed", "submitted", "failed", "cancelled", "stalled"]);
     const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
     const SELECTED_PLAN_RUN_COMMANDS = new Set(["runPlan", "reproducePlan"]);
