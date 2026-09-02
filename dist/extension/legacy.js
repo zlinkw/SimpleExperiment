@@ -5752,8 +5752,12 @@ class RealtimeTunnelPanelProvider {
         }
         if (verifyIssues.fatal.length)
             throw new Error(`Agent runtime 部署校验失败：${verifyIssues.fatal.join("; ")}`);
-        if (!_verifyOk && verifyIssues.warnings.length)
-            void vscode.window.showWarningMessage(`Agent runtime 已部署，但部分目标未校验：${verifyIssues.warnings.join("；")}`);
+        if (!_verifyOk && verifyIssues.warnings.length) {
+            if (showMessage)
+                void vscode.window.showWarningMessage(`Agent runtime 已部署，但部分目标未校验：${verifyIssues.warnings.join("；")}`);
+            else
+                console.warn(`[Agent runtime 已部署，但部分目标未校验（静默）] ${verifyIssues.warnings.join("；")}`);
+        }
         // 成功后对每 target 追加 fs/sha256 二次核验并透传到 remoteDetails（便于 UI 与日志核验）
         let _shaDetails = [];
         try {
@@ -6016,7 +6020,7 @@ class RealtimeTunnelPanelProvider {
                 const detail = `远端 Agent 版本不一致（旧版覆盖风险）：${result.fatal.join("；")}，正在自动覆盖安装最新版。`;
                 console.warn(`[version-check] ${detail}`);
                 try {
-                    await this.deployLatestAgentRuntime(true, true);
+                    await this.deployLatestAgentRuntime(showUi, true);
                     const successMsg = `Agent 已自动更新到 ${pluginVersion}（runtime ${runtimeVersion}），请重启 Xshell 会话以生效。可点击“检测全部”验证。`;
                     await vscode.window.showInformationMessage(successMsg);
                     try {
@@ -6107,7 +6111,7 @@ class RealtimeTunnelPanelProvider {
                 await this.killRemoteAgentAndTmux();
             }
             catch { }
-            await this.deployLatestAgentRuntime(true, true);
+            await this.deployLatestAgentRuntime(false, true);
             // wait health 200 before continuing (max 15s)
             let targets = [];
             try {
