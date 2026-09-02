@@ -2379,7 +2379,6 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
         out.append(gpu_id)
         if active_count + len(out) >= capacity:
             break
-    random.shuffle(out)
     probe["idle_gpu_ids"] = out
     probe["source"] = availability.get("source") or "hub_cached_snapshot"
     if thr_util is not None:
@@ -3704,14 +3703,19 @@ def main() -> None:
             _last_poll_monotonic = time.monotonic()
             _pending_signal_type = SCHEDULER_SIGNAL_POLL_TICK
             for worker in ordered_workers_for_dispatch(workers):
-                busy_slots = {**active, **testing}
-                probe = probe_idle_gpus(worker, busy_slots)
-                dispatch_probe.append(probe)
-                if probe.get("error"):
-                    _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={probe.get('error')}")
-                elif not probe.get("idle_gpu_ids"):
-                    _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} idle=0 rejected={len(probe.get('rejected') or [])}")
-                for gpu_id in list(probe.get("idle_gpu_ids") or []):
+                # 严格单发：每次 probe 仅取1个空闲GPU派1个job，派完立即重探，避免批量透支空卡规则
+                while queue:
+                    busy_slots = {**active, **testing}
+                    probe = probe_idle_gpus(worker, busy_slots)
+                    dispatch_probe.append(probe)
+                    if probe.get("error"):
+                        _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={probe.get('error')}")
+                        break
+                    idle_ids = list(probe.get("idle_gpu_ids") or [])
+                    if not idle_ids:
+                        _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} idle=0 rejected={len(probe.get('rejected') or [])}")
+                        break
+                    gpu_id = idle_ids[0]
                     if not queue:
                         break
                     experiment_index = queue.popleft()
