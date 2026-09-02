@@ -4,6 +4,7 @@
  * 原 22288 行逻辑已迁移至 src/extension/legacy.ts
  */
 export * from "./extension/legacy";
+export { RealtimeTunnelPanelProvider } from "./extension/legacy";
 // 覆盖 activate/deactivate 走工厂路径
 const activation = require("./extension/Activation");
 export function activate(context: any) {

@@ -651,7 +651,7 @@ function setupGuideNextStep(options) {
     };
 }
 const SETUP_GUIDE_MAX_STEPS = 4;
-class RealtimeTunnelPanelProvider {
+export class RealtimeTunnelPanelProvider {
     context;
     hostOperationLease = new HostOperationLease_1.HostOperationLeaseManager();
     view;
@@ -22285,4 +22285,9 @@ async function confirmUiCommand(title, detail, danger) {
 }
 
 // test rebuild 2026-08-29T02:25:09.1082977+08:00
+
+
+// 确保 CJS 兼容
+try { (module as any).exports.RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider; } catch {}
+try { (exports as any).RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider; } catch {}
 

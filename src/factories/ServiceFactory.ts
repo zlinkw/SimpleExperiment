@@ -91,17 +91,7 @@ export class DefaultServiceFactory implements ServiceFactory {
       }
     }
     // 向后兼容：真实创建失败时回退到桩对象
-    return {
-      kind: "RealtimeTunnelPanelProvider",
-      ctx,
-      factories: {
-        tunnel: this.tunnel,
-        realtime: this.realtime,
-        features: this.features,
-        panels: this.panels,
-      },
-      dispose() {},
-    };
+    throw new Error("[ServiceFactory] RealtimeTunnelPanelProvider not found - fallback to legacy");
   }
 
   createLocalApiServer(ctx: FactoryContext): unknown {

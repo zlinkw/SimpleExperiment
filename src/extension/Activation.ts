@@ -32,7 +32,7 @@ export async function activateExtension(context: Record<string, unknown> & { sub
   } catch {
     provider = undefined;
   }
-  if (!provider) {
+  if (!provider || typeof (provider as any).resolveWebviewView !== "function") {
     try {
       const legacy = tryRequire<{ RealtimeTunnelPanelProvider: new (c: unknown) => unknown }>("./legacy");
       const RealtimeTunnelPanelProvider = legacy?.RealtimeTunnelPanelProvider;
@@ -43,6 +43,24 @@ export async function activateExtension(context: Record<string, unknown> & { sub
   }
   _provider = provider;
 
+  if (provider && typeof (provider as any).resolveWebviewView === "function") {
+    try {
+      const vscode = tryRequire<any>("vscode");
+      if (vscode && vscode.window && typeof vscode.window.registerWebviewViewProvider === "function") {
+        context.subscriptions.push(
+          vscode.window.registerWebviewViewProvider("simpleExperiment.panel", provider as any, { webviewOptions: { retainContextWhenHidden: true } })
+        );
+      }
+    } catch {}
+  } else {
+    // provider 无 resolveWebviewView，说明拿到桩，回退 legacy
+    try {
+      const legacy = tryRequire<any>("./legacy");
+      if (legacy && typeof legacy.activate === "function") {
+        return legacy.activate(context);
+      }
+    } catch {}
+  }
   // 注册命令（委托给 CommandFactory）
   try {
     registerProviderCommands({ factoryContext, commandFactory: services.commands as any, provider }, context);
