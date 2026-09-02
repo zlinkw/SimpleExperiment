@@ -7611,10 +7611,10 @@ export class RealtimeTunnelPanelProvider {
             while ((this.workerActionInFlight.get(workerId) || 0) >= settings.workerActionMaxConcurrent) {
                 await this.waitForWorkerActionRelease(workerId);
             }
-            const lastAt = this.workerActionLastAt.get(workerId) || 0;
-            const waitMs = Math.max(0, settings.workerActionMinIntervalMs - (Date.now() - lastAt));
-            if (waitMs > 0)
-                throw new UiCommandCancelled(`操作过于频繁，请稍后重试（需等待 ${Math.ceil(waitMs/1000)}s，限流 ${settings.workerActionMinIntervalMs}ms`);
+            // Fix: remove rate-limit throw for internal consecutive steps (validatePlan/dryRunPlan/runPlan).
+            // Single "validate and submit" triggers 3 worker actions in sequence; prior 500ms throw
+            // incorrectly flagged internal steps as "too frequent". Keep only maxConcurrent queuing.
+            // Very short double-clicks are serialized by admission lock. prepareAgents does not use workerActionSlot.
             const currentInFlight = this.workerActionInFlight.get(workerId) || 0;
             this.workerActionInFlight.set(workerId, currentInFlight + 1);
             this.recordWorkerActionAt(workerId, Date.now(), settings.workerActionMinIntervalMs);
