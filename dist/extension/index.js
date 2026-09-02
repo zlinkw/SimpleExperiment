@@ -1,4 +1,9 @@
 "use strict";
+// @ts-nocheck
+/**
+ * src/extension/index.ts - 聚合导出 (Phase 2)
+ * 新模块化层的统一入口，保持 extension.ts 作为兼容门面可运行
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -14,10 +19,9 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// @ts-nocheck
-/**
- * src/cli.ts - Facade
- * original 273 lines moved to cli.legacy.ts
- * thin facade: export * passthrough
- */
-__exportStar(require("./cli.legacy"), exports);
+__exportStar(require("./ExtensionContext"), exports);
+__exportStar(require("./ProviderState"), exports);
+__exportStar(require("./ProviderRealtime"), exports);
+__exportStar(require("./ProviderSnapshot"), exports);
+__exportStar(require("./ProviderCommands"), exports);
+__exportStar(require("./Activation"), exports);

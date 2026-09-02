@@ -16,8 +16,8 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", { value: true });
 // @ts-nocheck
 /**
- * src/cli.ts - Facade
- * original 273 lines moved to cli.legacy.ts
+ * src/factories/TunnelFactory.ts - Facade
+ * original 298 lines moved to TunnelFactory.legacy.ts
  * thin facade: export * passthrough
  */
-__exportStar(require("./cli.legacy"), exports);
+__exportStar(require("./TunnelFactory.legacy"), exports);

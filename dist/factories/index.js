@@ -14,10 +14,14 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// @ts-nocheck
 /**
- * src/cli.ts - Facade
- * original 273 lines moved to cli.legacy.ts
- * thin facade: export * passthrough
+ * src/factories/index.ts - 工厂聚合导出 (Phase 5 Final)
+ * 统一导出所有工厂，作为 Composition Root 唯一入口
  */
-__exportStar(require("./cli.legacy"), exports);
+__exportStar(require("./types"), exports);
+__exportStar(require("./ServiceFactory"), exports);
+__exportStar(require("./TunnelFactory"), exports);
+__exportStar(require("./RealtimeClientFactory"), exports);
+__exportStar(require("./FeatureFactory"), exports);
+__exportStar(require("./CommandFactory"), exports);
+__exportStar(require("./PanelSectionFactory"), exports);
