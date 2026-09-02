@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.componentsCss = void 0;
-// @ts-nocheck
 /**
  * components.css - 组件样式：按钮、表单、表格、pills、操作时间线
  * 提取自 PanelHtml.ts ~43-600 行组件段

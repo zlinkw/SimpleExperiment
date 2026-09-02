@@ -14,7 +14,6 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// @ts-nocheck
 /**
  * src/ui/WebviewRenderState.ts - Facade (RenderState Refactor v0.4.92)
  * 瘦身门面：re-export legacy 保持兼容，新增模块见 src/ui/renderState/

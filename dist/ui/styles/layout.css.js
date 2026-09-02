@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.layoutCss = void 0;
-// @ts-nocheck
 /**
  * layout.css - 布局样式：抽屉、网格、卡片、资源树、工作台
  * 提取自 PanelHtml.ts ~57-380 行布局段

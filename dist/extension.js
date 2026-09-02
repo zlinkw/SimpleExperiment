@@ -16,7 +16,6 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
-// @ts-nocheck
 /**
  * src/extension.ts - Facade (Factory Refactor v0.4.92)
  * 瘦身门面：委托给 src/extension/Activation.ts 的工厂化实现

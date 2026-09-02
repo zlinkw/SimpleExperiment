@@ -14,17 +14,25 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// @ts-nocheck
 /**
  * src/features/Results.ts - Facade
  * 原 1595 行已迁移至 Results.legacy.ts，按需委托 ResultsFactory
  * 瘦身门面：保持 API 兼容，通过 export * 透传
  */
 __exportStar(require("./Results.legacy"), exports);
+function tryRequire(id) {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require(id);
+    }
+    catch {
+        return undefined;
+    }
+}
 // 工厂化增强：委托给 ResultParser / ResultsFactory（可选覆盖）
 try {
-    const factoryMod = require("./factories/ResultsFactory");
-    const parserMod = require("./Results/ResultParser");
+    const factoryMod = tryRequire("./factories/ResultsFactory");
+    const parserMod = tryRequire("./Results/ResultParser");
     void factoryMod;
     void parserMod;
 }

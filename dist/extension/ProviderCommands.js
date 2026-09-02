@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 /**
  * ProviderCommands - 命令注册逻辑抽离 (Phase 2)
  * 搬运自 src/extension.ts 18000-20000 段 命令注册，保持原逻辑不变，委托给 CommandFactory
@@ -56,10 +55,10 @@ function registerProviderCommands(deps, vscodeContext) {
     const handlerMap = resolveCommandHandlerMap(deps.provider);
     // 将 handlerMap 注入到 factory 的 deps（CommandFactory 内部用 deps.handlerMap 覆盖默认 handler）
     const factory = deps.commandFactory;
-    const originalDeps = factory.deps || {};
-    factory.deps = { ...originalDeps, handlerMap };
+    const originalDeps = factory["deps"] || {};
+    factory["deps"] = { ...originalDeps, handlerMap };
     try {
-        return factory.registerAll(vscodeContext, deps.factoryContext);
+        return factory["registerAll"](vscodeContext, deps.factoryContext);
     }
     finally {
         // 保持可重入
@@ -74,7 +73,7 @@ class ProviderCommands {
         return registerProviderCommands(this.deps, vscodeContext);
     }
     descriptors() {
-        return this.deps.commandFactory.createDescriptors?.(this.deps.factoryContext) || [];
+        return (this.deps.commandFactory.createDescriptors?.(this.deps.factoryContext) || []);
     }
 }
 exports.ProviderCommands = ProviderCommands;

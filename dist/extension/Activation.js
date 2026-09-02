@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 /**
  * Activation - 新的 activate 入口，使用 ServiceFactory 组装，<150 行
  * 搬运自 src/extension.ts activate / activateExtension / deactivate，保持兼容门面可运行
@@ -13,12 +12,20 @@ const ServiceFactory_1 = require("../factories/ServiceFactory");
 const ExtensionContext_1 = require("./ExtensionContext");
 const ProviderCommands_1 = require("./ProviderCommands");
 let _provider;
+function tryRequire(id) {
+    try {
+        return require(id);
+    }
+    catch {
+        return undefined;
+    }
+}
 async function activate(context) {
     return activateExtension(context);
 }
 async function activateExtension(context) {
-    const { migrateRenamedExtensionState } = require("../config/RenamedExtensionStateMigration");
-    await migrateRenamedExtensionState(context).catch(() => undefined);
+    const mod = tryRequire("../config/RenamedExtensionStateMigration");
+    await mod?.migrateRenamedExtensionState(context).catch(() => undefined);
     const factoryContext = (0, ExtensionContext_1.toFactoryContext)(context);
     const services = new ServiceFactory_1.DefaultServiceFactory();
     // 单一工厂路径：优先经 ServiceFactory 创建，可回退到 legacy 直连
@@ -31,7 +38,8 @@ async function activateExtension(context) {
     }
     if (!provider) {
         try {
-            const { RealtimeTunnelPanelProvider } = require("./legacy");
+            const legacy = tryRequire("./legacy");
+            const RealtimeTunnelPanelProvider = legacy?.RealtimeTunnelPanelProvider;
             provider = RealtimeTunnelPanelProvider ? new RealtimeTunnelPanelProvider(context) : undefined;
         }
         catch {
@@ -63,9 +71,11 @@ async function activateExtension(context) {
     catch { } }, 8000);
     // 配置变更监听（与原逻辑一致）
     try {
-        const vscode = require("vscode");
-        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => void provider?.handleConfigurationChanged?.(e)));
-        context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged?.()));
+        const vscode = tryRequire("vscode");
+        if (vscode) {
+            context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => void provider?.handleConfigurationChanged?.(e)));
+            context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged?.()));
+        }
     }
     catch { }
 }

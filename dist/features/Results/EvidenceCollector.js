@@ -1,28 +1,29 @@
 "use strict";
-// @ts-nocheck
 /**
  * EvidenceCollector — 从 Results.ts / PlanArchive.ts 提取证据归档逻辑
- * 负责 run evidence 收集、checkpoint 快照、归档校验与证据链完整性检查
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EvidenceCollector = void 0;
 exports.collectEvidence = collectEvidence;
 exports.validateBundle = validateBundle;
 exports.bundleToManifest = bundleToManifest;
-const requiredKindsByPlan = {
-    default: ["result", "config"],
-};
-function sha256(text) {
+function tryRequire(id) {
     try {
-        const c = require("crypto");
-        return c.createHash("sha256").update(text).digest("hex");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require(id);
     }
     catch {
-        return `hash_${text.length}`;
+        return undefined;
     }
 }
+function sha256(text) {
+    const c = tryRequire("crypto");
+    if (c)
+        return c.createHash("sha256").update(text).digest("hex");
+    return `hash_${text.length}`;
+}
 function collectEvidence(runKey, files, planFile) {
-    const items = Object.entries(files || {}).map(([path, content]) => {
+    const items = Object.entries(files ?? {}).map(([path, content]) => {
         const kind = /\.csv$/i.test(path) ? "result" : /(checkpoint|ckpt)/i.test(path) ? "checkpoint" : /\.log$/i.test(path) ? "log" : /(config\.ya?ml|\.json$)/i.test(path) ? "config" : "env";
         return { kind, path, sha256: sha256(String(content).slice(0, 4096)), size: String(content).length, mtime: new Date().toISOString(), valid: true };
     });
@@ -44,7 +45,6 @@ function validateBundle(bundle) {
     for (const item of bundle.items)
         if (item.valid === false)
             issues.push({ severity: "warning", message: `证据无效: ${item.path}` });
-    // 校验 planArchive 的 restore 完整性：若存在 archivedPlanFile，应具备环境快照
     if (bundle.planFile && !bundle.items.some((i) => i.kind === "env"))
         issues.push({ severity: "warning", message: "缺少 env_snapshot，复现可能不完全" });
     return { ok: issues.filter((i) => i.severity === "critical").length === 0, issues };
@@ -61,18 +61,19 @@ class EvidenceCollector {
             const data = await getRunEvidence({ ...params, runKey });
             const files = {};
             if (data && typeof data === "object") {
-                if (Array.isArray(data.files))
-                    for (const f of data.files)
-                        files[String(f.path || f.name)] = String(f.content || "");
-                else if (data.evidence)
-                    Object.assign(files, data.evidence);
+                const rec = data;
+                if (Array.isArray(rec["files"]))
+                    for (const f of rec["files"])
+                        files[String(f["path"] ?? f["name"] ?? "")] = String(f["content"] ?? "");
+                else if (rec["evidence"])
+                    Object.assign(files, rec["evidence"]);
                 else
-                    Object.assign(files, data);
+                    Object.assign(files, rec);
             }
-            return collectEvidence(runKey, files, params.planFile);
+            return collectEvidence(runKey, files, params["planFile"]);
         }
-        catch (e) {
-            return { runKey, planFile: params.planFile, items: [], complete: false, missing: ["remote_fetch_failed"], collectedAt: new Date().toISOString() };
+        catch {
+            return { runKey, planFile: params["planFile"], items: [], complete: false, missing: ["remote_fetch_failed"], collectedAt: new Date().toISOString() };
         }
     }
 }

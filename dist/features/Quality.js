@@ -14,16 +14,24 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// @ts-nocheck
 /**
  * src/features/Quality.ts - Facade
  * 原 649 行已迁移至 Quality.legacy.ts，按需委托 QualityFactory
  * 瘦身门面：保持 API 兼容，通过 export * 透传
  */
 __exportStar(require("./Quality.legacy"), exports);
+function tryRequire(id) {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require(id);
+    }
+    catch {
+        return undefined;
+    }
+}
 // 工厂化增强：委托给 QualityFactory（可选覆盖）
 try {
-    const factoryMod = require("./factories/QualityFactory");
+    const factoryMod = tryRequire("./factories/QualityFactory");
     void factoryMod;
 }
 catch { }

@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 /**
  * ExtensionContext - 扩展上下文封装 (Phase 2 模块化)
  * 搬运自 src/extension.ts 的上下文访问逻辑，不改原逻辑，仅通过 FactoryContext 注入。
@@ -18,14 +17,15 @@ exports.extensionContextKeys = extensionContextKeys;
  * 原逻辑搬运自 extension.ts 中多处对 context.globalState / workspaceState 的直接访问
  */
 function toFactoryContext(vscodeContext, overrides = {}) {
+    const raw = vscodeContext;
     return {
-        extensionUri: vscodeContext.extensionUri ?? vscodeContext.extensionPath,
+        extensionUri: (raw["extensionUri"] ?? raw["extensionPath"]),
         globalState: vscodeContext.globalState,
         workspaceState: vscodeContext.workspaceState,
-        secrets: vscodeContext.secrets,
+        secrets: raw["secrets"],
         // 透传常见扩展字段，保持渐进兼容
-        extensionPath: vscodeContext.extensionPath,
-        subscriptions: vscodeContext.subscriptions,
+        extensionPath: raw["extensionPath"],
+        subscriptions: raw["subscriptions"],
         ...overrides,
     };
 }

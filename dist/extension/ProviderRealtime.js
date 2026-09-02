@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 /**
  * ProviderRealtime - 实时相关逻辑抽离 (Phase 2)
  * 搬运自 src/extension.ts 12000-12200 段：realtimeEndpoints / tunnelLaunchItems / agentLaunchItems 等
@@ -11,9 +10,17 @@ exports.buildRealtimeEndpoints = buildRealtimeEndpoints;
 exports.buildTunnelLaunchItems = buildTunnelLaunchItems;
 exports.buildAgentLaunchItems = buildAgentLaunchItems;
 exports.buildRealtimeStateSnapshot = buildRealtimeStateSnapshot;
+function tryRequire(id) {
+    try {
+        return require(id);
+    }
+    catch {
+        return undefined;
+    }
+}
 function endpointCapabilitiesFromProbe(probe) {
     try {
-        return probe?.capabilities || [];
+        return probe?.["capabilities"] || [];
     }
     catch {
         return [];
@@ -22,7 +29,10 @@ function endpointCapabilitiesFromProbe(probe) {
 function buildRealtimeEndpoints(deps) {
     // 搬运自 RealtimeTunnelPanelProvider.realtimeEndpoints()
     try {
-        const { buildTunnelEndpointRegistry } = require("../tunnel/TunnelEndpointRegistry");
+        const mod = tryRequire("../tunnel/TunnelEndpointRegistry");
+        if (!mod)
+            return [];
+        const { buildTunnelEndpointRegistry } = mod;
         const { hubAllowed } = projectTopologyAssessmentStub(deps.setupConfig, deps.lastProbe, deps.lastWorkerProbes);
         const registry = buildTunnelEndpointRegistry(deps.setupConfig, { hub: deps.lastProbe, ...deps.lastWorkerProbes });
         return (registry.endpoints || [])
@@ -33,7 +43,7 @@ function buildRealtimeEndpoints(deps) {
             displayName: endpoint.displayName,
             localHost: "127.0.0.1",
             localPort: endpoint.tunnel.localPort,
-            token: deps.tunnelConfig?.token,
+            token: deps.tunnelConfig?.["token"] ?? "",
             timeoutMs: 8000,
             capabilities: endpointCapabilitiesFromProbe(endpoint.lastProbe),
         }));
@@ -45,14 +55,18 @@ function buildRealtimeEndpoints(deps) {
 function buildTunnelLaunchItems(deps) {
     // 搬运自 RealtimeTunnelPanelProvider.tunnelLaunchItems()
     try {
-        const { normalizeXshellSetupConfig, workerTunnelToXshellSetupConfig } = require("../tunnel/XshellTunnelSetup");
+        const mod = tryRequire("../tunnel/XshellTunnelSetup");
+        if (!mod)
+            return [];
+        const { normalizeXshellSetupConfig, workerTunnelToXshellSetupConfig } = mod;
         const { hubAllowed } = projectTopologyAssessmentStub(deps.setupConfig, deps.lastProbe, deps.lastWorkerProbes);
         const items = hubAllowed ? [
             { id: "hub", role: "hub", config: normalizeXshellSetupConfig({ ...deps.setupConfig, workerRealtimeMode: "hub_only", workerTelemetryMode: "hub_only", workerTunnels: [] }) },
         ] : [];
         const workers = enabledWorkerConfigsStub(deps.setupConfig);
         for (const worker of workers) {
-            items.push({ id: worker.id, role: "worker", config: workerTunnelToXshellSetupConfig(deps.setupConfig, worker) });
+            const w = worker;
+            items.push({ id: String(w["id"]), role: "worker", config: workerTunnelToXshellSetupConfig(deps.setupConfig, worker) });
         }
         return items;
     }
@@ -63,12 +77,12 @@ function buildTunnelLaunchItems(deps) {
 function buildAgentLaunchItems(deps) {
     // 搬运自 RealtimeTunnelPanelProvider.agentLaunchItems()
     return buildTunnelLaunchItems(deps)
-        .filter((item) => item.config?.savedSessionPath)
+        .filter((item) => item.config?.["savedSessionPath"])
         .map((item) => ({
         id: `${item.id}-agent`,
         role: item.role,
         displayName: `${item.id} Agent`,
-        sessionPath: item.config.savedSessionPath || "",
+        sessionPath: String(item.config["savedSessionPath"] || ""),
     }));
 }
 function buildRealtimeStateSnapshot(deps) {
@@ -82,7 +96,7 @@ function buildRealtimeStateSnapshot(deps) {
 }
 function enabledWorkerConfigsStub(setupConfig) {
     try {
-        return (setupConfig?.workerTunnels || []).filter((w) => w?.enabled !== false);
+        return (setupConfig?.["workerTunnels"] || []).filter((w) => w?.["enabled"] !== false);
     }
     catch {
         return [];
@@ -90,7 +104,8 @@ function enabledWorkerConfigsStub(setupConfig) {
 }
 function projectTopologyAssessmentStub(setupConfig, _lastProbe, _lastWorkerProbes) {
     // 轻量搬运：hubAllowed 判定与 extension.ts 保持一致（topologyMode 判断），此处简化为 setupConfig 能力
-    const mode = String(setupConfig?.topologyMode || setupConfig?.mode || "hub_plus_workers");
+    const sc = setupConfig;
+    const mode = String(sc?.["topologyMode"] || sc?.["mode"] || "hub_plus_workers");
     const hubAllowed = mode !== "worker_only" && mode !== "workers_only";
     return { hubAllowed, mode };
 }

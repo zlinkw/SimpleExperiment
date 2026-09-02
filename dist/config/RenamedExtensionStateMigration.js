@@ -40,7 +40,6 @@ exports.hasCompletedXshellSetup = hasCompletedXshellSetup;
 exports.readExtensionStateFromDatabase = readExtensionStateFromDatabase;
 exports.renamedExtensionStateSourcePath = renamedExtensionStateSourcePath;
 exports.migrateRenamedExtensionState = migrateRenamedExtensionState;
-// @ts-nocheck
 const path = __importStar(require("path"));
 const XshellTunnelSetup_1 = require("../tunnel/XshellTunnelSetup");
 exports.RENAMED_EXTENSION_STATE_MIGRATION_VERSION = 2;

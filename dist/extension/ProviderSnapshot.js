@@ -1,5 +1,4 @@
 "use strict";
-// @ts-nocheck
 /**
  * ProviderSnapshot - 快照/合并逻辑抽离 (Phase 2)
  * 搬运自 src/extension.ts 中 syncState / StateMerge / compact* / manualSnapshot 相关
@@ -77,8 +76,9 @@ function compactMergedGpuForWebview(...gpus) {
 }
 function applySyncStateFilters(experimentIndex, schedulerState, deletedExperiments, deletedSchedulerMatchers) {
     // 委托给 syncState 纯函数，保持原逻辑不变
-    const filteredExperiments = syncState.filterExperimentIndex(experimentIndex, deletedExperiments);
-    const sched = syncState.filterSchedulerState(schedulerState || {}, deletedSchedulerMatchers);
+    const ss = syncState;
+    const filteredExperiments = ss.filterExperimentIndex(experimentIndex, deletedExperiments);
+    const sched = ss.filterSchedulerState(schedulerState || {}, deletedSchedulerMatchers);
     return {
         filteredExperiments,
         filteredSchedulerState: sched.state,
@@ -98,9 +98,9 @@ async function requestManualSnapshot(deps) {
 function compactStateMergeDiagnostics(state) {
     // 搬运自 extension.ts compactDiagnostics 的简化投影，供快照层复用
     return {
-        schedulerRows: Array.isArray(state.schedulerStates) ? state.schedulerStates.length : 0,
-        experimentTraces: Array.isArray(state.experimentTraces) ? state.experimentTraces.length : 0,
-        operations: typeof state.operations === "object" ? Object.keys(state.operations || {}).length : 0,
+        schedulerRows: Array.isArray(state["schedulerStates"]) ? state["schedulerStates"].length : 0,
+        experimentTraces: Array.isArray(state["experimentTraces"]) ? state["experimentTraces"].length : 0,
+        operations: typeof state["operations"] === "object" ? Object.keys(state["operations"] || {}).length : 0,
         timestamp: new Date().toISOString(),
     };
 }

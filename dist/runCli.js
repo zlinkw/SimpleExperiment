@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-// @ts-nocheck
 const cli_1 = require("./cli");
 try {
     process.exitCode = (0, cli_1.runRecordedCli)(process.argv.slice(2));
