@@ -4025,10 +4025,32 @@ def main() -> None:
                             break
                     else:
                         no_dispatch_error_cycles = 0
-                sleep_target = poll_seconds + (random.uniform(0, poll_jitter_seconds) if poll_jitter_seconds else 0)
-                if passive_backoff_until > time.time():
-                    sleep_target = max(sleep_target, passive_backoff_until - time.time())
-                _append_scheduler_log( f"[{now()}] wait pending={len(queue)} running={len(active)} poll_seconds={poll_seconds} jitter_seconds={poll_jitter_seconds} sleep_seconds={sleep_target:.1f}")
+                # 60s阻塞修复：动态 sleep_target + 5s 快探 idle（有 pending 且有 idle 时不等 60s）
+                _has_idle_for_pending = False
+                if queue:
+                    try:
+                        _probe_busy = {**active, **testing}
+                        for _w in workers:
+                            _pp = probe_idle_gpus(_w, _probe_busy)
+                            if _pp.get("idle_gpu_ids"):
+                                _has_idle_for_pending = True
+                                break
+                    except Exception:
+                        _has_idle_for_pending = False
+                if queue and _has_idle_for_pending:
+                    _base_poll = poll_seconds + (random.uniform(0, poll_jitter_seconds) if poll_jitter_seconds else 0)
+                    sleep_target = min(5.0, float(_base_poll))
+                    if passive_backoff_until > time.time():
+                        _rem = passive_backoff_until - time.time()
+                        sleep_target = max(sleep_target, min(_rem, 5.0))
+                    _append_scheduler_log( f"[{now()}] wait pending={len(queue)} running={len(active)} poll_seconds={poll_seconds} jitter_seconds={poll_jitter_seconds} sleep_seconds={sleep_target:.1f} has_idle=True short_sleep")
+                    if sleep_target <= 0:
+                        continue
+                else:
+                    sleep_target = poll_seconds + (random.uniform(0, poll_jitter_seconds) if poll_jitter_seconds else 0)
+                    if passive_backoff_until > time.time():
+                        sleep_target = max(sleep_target, passive_backoff_until - time.time())
+                    _append_scheduler_log( f"[{now()}] wait pending={len(queue)} running={len(active)} poll_seconds={poll_seconds} jitter_seconds={poll_jitter_seconds} sleep_seconds={sleep_target:.1f}")
                 if not queue and not active and not testing:
                     break
                 slept = 0
@@ -4100,6 +4122,21 @@ def main() -> None:
                             break
                         # 收到 reap 信号立即 break 去 dispatch，无需等待剩余 sleep_target
                         break
+                    # 60s阻塞修复：每次 5s 唤醒前快探 idle，若 queue 非空且有 idle 立即 break 去 dispatch（不等 60s 耗尽）
+                    if queue:
+                        try:
+                            _busy_for_probe = {**active, **testing}
+                            _any_idle = False
+                            for _w in workers:
+                                _pp2 = probe_idle_gpus(_w, _busy_for_probe)
+                                if _pp2.get("idle_gpu_ids"):
+                                    _any_idle = True
+                                    break
+                            if _any_idle:
+                                _append_scheduler_log( f"[{now()}] idle_wake pending={len(queue)} running={len(active)} slept={slept:.1f}/{sleep_target:.1f} has_idle=True")
+                                break
+                        except Exception:
+                            pass
                     # 休息时 5s 粒度轮询，最坏唤醒 5s（配合首跑/任务结束主动探活，避免0.5s高频与校园网封禁）
                     try:
                         time.sleep(5)
