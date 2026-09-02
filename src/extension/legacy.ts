@@ -4933,7 +4933,8 @@ export class RealtimeTunnelPanelProvider {
                     const hasActiveOp = ops.some((op: any) => String(op.planFile||op.plan||"").includes(pf) && String(op.status||"").toLowerCase().match(/running|started|waiting/));
                     if (hasStale || hasActiveOp) {
                         await this.abortSchedulerFromUi({operationId: "run-plan-bpla27", planFile: pf});
-                        await new Promise(r=>setTimeout(r,1500));
+                        // P0 fix: event-driven, reduce from 1500 to 200ms
+                        await new Promise(r=>setTimeout(r,200));
                     }
                 }
             } catch {}
@@ -6082,45 +6083,71 @@ export class RealtimeTunnelPanelProvider {
                 // no local exec needed – remote kill already attempted
             } catch {}
         }
-        await sleep(800);
+        // P0 fix: remove fixed 800ms wait, parallel with deploy
     }
     async ensureRemoteAgentVersionConsistent() {
         let result: any;
         try { result = await this.checkRemoteAgentVersionAndNotify(false); } catch (err) { console.warn(`[version-check] ensureRemoteAgentVersionConsistent check failed: ${String((err as any)?.message || err)}`); throw err; }
         if (result && Array.isArray(result.fatal) && result.fatal.length) {
-            try { await this.killRemoteAgentAndTmux(); } catch {}
-            await this.deployLatestAgentRuntime(false, true);
-            // wait health 200 before continuing (max 15s)
-            let targets: any[] = [];
-            try { targets = this.agentRuntimeUploadTargets(); } catch {}
-            const token = this.tunnelConfig && this.tunnelConfig.token;
-            const deadline = Date.now() + 15000;
-            while (Date.now() < deadline) {
-                let allOk = true;
-                for (const t of targets) {
-                    const port = t.localForwardPort;
-                    if (!port) continue;
-                    const base = this.resolveAgentBase(t);
-                    try {
-                        const c = new AbortController();
-                        const tm = setTimeout(() => c.abort(), 3000);
-                        tm.unref?.();
-                        let resp = await fetch(`${base}/api/health`, { headers: token ? { "X-Simple-Agent-Token": String(token) } : undefined, signal: c.signal });
-                        if (!resp.ok) {
-                            clearTimeout(tm);
-                            const c2 = new AbortController();
-                            const t2 = setTimeout(() => c2.abort(), 3000);
-                            t2.unref?.();
-                            resp = await fetch(`${base}/health`, { headers: token ? { "X-Simple-Agent-Token": String(token) } : undefined, signal: c2.signal });
-                            clearTimeout(t2);
-                        } else clearTimeout(tm);
-                        if (!resp.ok) { allOk = false; break; }
-                    } catch { allOk = false; break; }
-                }
-                if (allOk) break;
-                await sleep(800);
-            }
+            // P0 fix: background async, do not block withHostOperationLease
+            void this.killRemoteAgentAndTmux().catch(() => undefined);
+            void this.deployLatestAgentRuntime(false, true).catch(() => undefined);
+            try {
+                this.lastHealth = {
+                    state: "agent_restart_required",
+                    status: "verifying",
+                    checkedAt: new Date().toISOString(),
+                    message: "新版已部署，后台校验中（15s 内完成），请稍后点击“检测全部”验证。",
+                    fatal: result.fatal,
+                } as any;
+                this.postState();
+            } catch {}
+            try { this.scheduleBackgroundHealthProbe(15000); } catch {}
+            return;
         }
+    }
+    private scheduleBackgroundHealthProbe(timeoutMs = 15000) {
+        const deadline = Date.now() + timeoutMs;
+        let targets: any[] = [];
+        try { targets = this.agentRuntimeUploadTargets(); } catch { return; }
+        if (!targets.length) return;
+        const token = this.tunnelConfig && this.tunnelConfig.token;
+        const probeOnce = async (): Promise<boolean> => {
+            for (const t of targets) {
+                const port = (t as any).localForwardPort;
+                if (!port) continue;
+                const base = this.resolveAgentBase(t as any);
+                try {
+                    const c = new AbortController();
+                    const tm: any = setTimeout(() => c.abort(), 3000);
+                    (tm as any).unref?.();
+                    let resp = await fetch(`${base}/api/health`, { headers: token ? { "X-Simple-Agent-Token": String(token) } : undefined, signal: c.signal } as any);
+                    if (!resp.ok) {
+                        clearTimeout(tm);
+                        const c2 = new AbortController();
+                        const t2: any = setTimeout(() => c2.abort(), 3000);
+                        (t2 as any).unref?.();
+                        resp = await fetch(`${base}/health`, { headers: token ? { "X-Simple-Agent-Token": String(token) } : undefined, signal: c2.signal } as any);
+                        clearTimeout(t2);
+                    } else clearTimeout(tm);
+                    if (!resp.ok) return false;
+                } catch { return false; }
+            }
+            return true;
+        };
+        const tick = () => {
+            if (Date.now() >= deadline) { try { this.postState(); } catch {} return; }
+            void probeOnce().then((allOk) => {
+                if (allOk) {
+                    try {
+                        this.lastHealth = { ...(this.lastHealth as any), state: "healthy", status: "healthy", checkedAt: new Date().toISOString(), message: "后台校验完成：Agent 已就绪。" } as any;
+                        this.postState();
+                    } catch {} return;
+                }
+                const timer: any = setTimeout(tick, 800); (timer as any).unref?.();
+            }).catch(() => { const timer: any = setTimeout(tick, 800); (timer as any).unref?.(); });
+        };
+        const initial: any = setTimeout(tick, 800); (initial as any).unref?.();
     }
     async verifyAgentVersionManually() {
         const pluginVersion = String(this.context?.extension?.packageJSON?.version || "");
@@ -7562,7 +7589,7 @@ export class RealtimeTunnelPanelProvider {
             const lastAt = this.workerActionLastAt.get(workerId) || 0;
             const waitMs = Math.max(0, settings.workerActionMinIntervalMs - (Date.now() - lastAt));
             if (waitMs > 0)
-                await sleep(waitMs);
+                throw new UiCommandCancelled(`操作过于频繁，请稍后重试（需等待 ${Math.ceil(waitMs/1000)}s，限流 ${settings.workerActionMinIntervalMs}ms`);
             const currentInFlight = this.workerActionInFlight.get(workerId) || 0;
             this.workerActionInFlight.set(workerId, currentInFlight + 1);
             this.recordWorkerActionAt(workerId, Date.now(), settings.workerActionMinIntervalMs);
