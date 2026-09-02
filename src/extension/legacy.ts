@@ -11813,7 +11813,11 @@ export class RealtimeTunnelPanelProvider {
         this.availabilityPushTimer = undefined;
         if (!this.isRealtimeMode() || !this.projectTopologyAssessment().hubAllowed)
             return;
+        if (this.longRunningPlanRunOperations().length === 0)
+            return;
         const scheduleNext = () => {
+            if (this.longRunningPlanRunOperations().length === 0)
+                return;
             if (loopGeneration !== this.availabilityPushLoopGeneration)
                 return;
             const settings = this.schedulerSettings();
@@ -11841,6 +11845,8 @@ export class RealtimeTunnelPanelProvider {
     }
     private async pushLocalWorkerAvailability(force) {
         if (!this.isRealtimeMode() || !this.projectTopologyAssessment().hubAllowed)
+            return;
+        if (!force && this.longRunningPlanRunOperations().length === 0)
             return;
         const generation = this.projectContextGeneration;
         const client = this.client;
