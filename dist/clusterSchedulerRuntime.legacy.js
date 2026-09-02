@@ -2379,6 +2379,7 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
         out.append(gpu_id)
         if active_count + len(out) >= capacity:
             break
+    random.shuffle(out)
     probe["idle_gpu_ids"] = out
     probe["source"] = availability.get("source") or "hub_cached_snapshot"
     if thr_util is not None:
