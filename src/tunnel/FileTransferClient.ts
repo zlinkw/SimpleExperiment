@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/FileTransferClient.ts - Facade
  * original moved to FileTransferClient.legacy.ts

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * sections/index - 聚合导出 + createAllSections 工厂
  * 供 PanelHtmlRenderer 聚合使用，保持与 PanelSectionFactory 兼容

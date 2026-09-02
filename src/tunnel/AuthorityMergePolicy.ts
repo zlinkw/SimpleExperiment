@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/AuthorityMergePolicy.ts - Facade
  * original 273 lines moved to AuthorityMergePolicy.legacy.ts

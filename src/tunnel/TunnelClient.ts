@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/TunnelClient.ts - Facade
  * original moved to TunnelClient.legacy.ts

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * base.css - 基础变量与全局样式
  * 提取自 PanelHtml.ts 1-120 行 :root / html / body / h2/h3

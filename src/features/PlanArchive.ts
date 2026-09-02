@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/features/PlanArchive.ts - Facade
  * 原 1006 行已迁移至 PlanArchive.legacy.ts

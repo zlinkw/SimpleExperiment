@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/XshellTunnelPortProbe.ts - Facade
  * original moved to XshellTunnelPortProbe.legacy.ts

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Section 接口定义 - PanelHtml 模块化拆分 Phase 3
  * 对齐 src/factories/PanelSectionFactory.ts 的 PanelSection 约定

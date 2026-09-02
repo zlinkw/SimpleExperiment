@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/features/GpuHistoryState.ts - Facade
  * original moved to GpuHistoryState.legacy.ts

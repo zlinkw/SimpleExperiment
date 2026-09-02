@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ProviderCommands - 命令注册逻辑抽离 (Phase 2)
  * 搬运自 src/extension.ts 18000-20000 段 命令注册，保持原逻辑不变，委托给 CommandFactory
@@ -60,11 +59,11 @@ export function registerProviderCommands(deps: ProviderCommandDeps, vscodeContex
   // 委托给 CommandFactory.registerAll，保持编排与 extension.ts activate 中一致
   const handlerMap = resolveCommandHandlerMap(deps.provider);
   // 将 handlerMap 注入到 factory 的 deps（CommandFactory 内部用 deps.handlerMap 覆盖默认 handler）
-  const factory: any = deps.commandFactory;
-  const originalDeps = (factory as any).deps || {};
-  (factory as any).deps = { ...originalDeps, handlerMap };
+  const factory = deps.commandFactory as unknown as Record<string, unknown>;
+  const originalDeps = (factory["deps"] as Record<string, unknown>) || {};
+  factory["deps"] = { ...originalDeps, handlerMap };
   try {
-    return factory.registerAll(vscodeContext as any, deps.factoryContext);
+    return (factory["registerAll"] as (ctx: unknown, fc: unknown) => unknown[])(vscodeContext as unknown, deps.factoryContext);
   } finally {
     // 保持可重入
   }
@@ -75,7 +74,7 @@ export class ProviderCommands {
   register(vscodeContext: { subscriptions: { push(...args: unknown[]): unknown } } & Record<string, unknown>): unknown[] {
     return registerProviderCommands(this.deps, vscodeContext);
   }
-  descriptors() {
-    return (this.deps.commandFactory as any).createDescriptors?.(this.deps.factoryContext) || [];
+  descriptors(): unknown[] {
+    return ((this.deps.commandFactory as unknown as { createDescriptors?: (ctx: unknown) => unknown[] }).createDescriptors?.(this.deps.factoryContext) || []) as unknown[];
   }
 }

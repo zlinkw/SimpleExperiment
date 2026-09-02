@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/extension/index.ts - 聚合导出 (Phase 2)
  * 新模块化层的统一入口，保持 extension.ts 作为兼容门面可运行

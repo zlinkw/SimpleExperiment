@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/features/SmallScale.ts - Facade
  * original moved to SmallScale.legacy.ts

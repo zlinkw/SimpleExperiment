@@ -1,9 +1,33 @@
-// @ts-nocheck
 /**
  * PlanBuilderFactory — PlanBuilder 工厂
  * 封装 ExperimentMatrix 生成逻辑，委托给 features/PlanBuilder
- * 支持依赖注入（matrix 默认值、namingRule、seed 策略）并保持原有 API 兼容
  */
+
+function tryRequire<T>(id: string): T | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(id) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+type PlanBuilderMod = {
+  buildExperimentMatrix?: (matrix: unknown, existingRunKeys: string[]) => unknown;
+  expandPlanMatrix?: (matrix: unknown, existingRunKeys: string[]) => unknown;
+  renderPlanYaml?: (matrix: unknown, experiments: unknown[]) => string;
+  parsePlanCases?: (yaml: string) => string[];
+  validateDeepLearningPlanContract?: (yaml: string) => unknown;
+};
+
+type MatrixGeneratorMod = {
+  generateMatrix?: (matrix: unknown, existingRunKeys: string[]) => unknown;
+  MatrixGenerator?: new () => { generate(matrix: unknown, existingRunKeys: string[]): unknown };
+};
+
+type PlanValidatorMod = {
+  validatePlan?: (yaml: string) => unknown;
+};
 
 export interface PlanBuilderFactoryOptions {
   defaultSuite?: string;
@@ -12,76 +36,66 @@ export interface PlanBuilderFactoryOptions {
 }
 
 export interface PlanBuilderFactory {
-  buildMatrix(matrix: any, existingRunKeys?: string[]): any;
-  renderYaml(matrix: any, experiments: any[]): string;
+  buildMatrix(matrix: unknown, existingRunKeys?: string[]): unknown;
+  renderYaml(matrix: unknown, experiments: unknown[]): string;
   parseCases(yaml: string): string[];
-  validate(yaml: string): any;
-  create(matrix: any): { matrix: any; build: (existingRunKeys?: string[]) => any };
+  validate(yaml: string): unknown;
+  create(matrix: unknown): { matrix: unknown; build: (existingRunKeys?: string[]) => unknown };
 }
 
 class DefaultPlanBuilderFactory implements PlanBuilderFactory {
   private readonly opts: PlanBuilderFactoryOptions;
   constructor(opts: PlanBuilderFactoryOptions = {}) { this.opts = opts; }
 
-  buildMatrix(matrix: any, existingRunKeys: string[] = []): any {
-    const normalized = this.normalizeMatrix(matrix);
-    try {
-      const mod = require("../PlanBuilder");
-      if (mod && typeof mod.buildExperimentMatrix === "function") return mod.buildExperimentMatrix(normalized, existingRunKeys);
-      if (mod && typeof mod.expandPlanMatrix === "function") return mod.expandPlanMatrix(normalized, existingRunKeys);
-    } catch {}
-    // 降级：由 MatrixGenerator 生成
-    try {
-      const mg = require("../PlanBuilder/MatrixGenerator");
-      if (mg && typeof mg.generateMatrix === "function") return mg.generateMatrix(normalized, existingRunKeys);
-      if (mg && mg.MatrixGenerator) {
-        const gen = new mg.MatrixGenerator();
-        return gen.generate(normalized, existingRunKeys);
-      }
-    } catch {}
+  buildMatrix(matrix: unknown, existingRunKeys: string[] = []): unknown {
+    const normalized = this.normalizeMatrix(matrix as Record<string, unknown>);
+    const mod = tryRequire<PlanBuilderMod>("../PlanBuilder");
+    if (mod?.buildExperimentMatrix) return mod.buildExperimentMatrix(normalized, existingRunKeys);
+    if (mod?.expandPlanMatrix) return mod.expandPlanMatrix(normalized, existingRunKeys);
+    const mg = tryRequire<MatrixGeneratorMod>("../PlanBuilder/MatrixGenerator");
+    if (mg?.generateMatrix) return mg.generateMatrix(normalized, existingRunKeys);
+    if (mg?.MatrixGenerator) {
+      const gen = new mg.MatrixGenerator();
+      return gen.generate(normalized, existingRunKeys);
+    }
     return { experiments: [], duplicateRunKeys: [], yaml: "", previewCsv: "" };
   }
 
-  renderYaml(matrix: any, experiments: any[]): string {
-    try {
-      const mod = require("../PlanBuilder");
-      if (mod && typeof mod.renderPlanYaml === "function") return mod.renderPlanYaml(matrix, experiments);
-    } catch {}
-    return `suite: ${matrix.suite || this.opts.defaultSuite || "suite"}\nmode: train_test\nbase_config: ${matrix.baseConfig || ""}\n`;
+  renderYaml(matrix: unknown, experiments: unknown[]): string {
+    const mod = tryRequire<PlanBuilderMod>("../PlanBuilder");
+    if (mod?.renderPlanYaml) return mod.renderPlanYaml(matrix, experiments);
+    const rec = matrix as Record<string, unknown>;
+    return `suite: ${String(rec["suite"] ?? this.opts.defaultSuite ?? "suite")}\nmode: train_test\nbase_config: ${String(rec["baseConfig"] ?? "")}\n`;
   }
 
   parseCases(yaml: string): string[] {
-    try {
-      const mod = require("../PlanBuilder");
-      if (mod && typeof mod.parsePlanCases === "function") return mod.parsePlanCases(yaml);
-    } catch {}
+    const mod = tryRequire<PlanBuilderMod>("../PlanBuilder");
+    if (mod?.parsePlanCases) return mod.parsePlanCases(yaml);
     return [];
   }
 
-  validate(yaml: string): any {
-    try {
-      const mod = require("../PlanBuilder");
-      if (mod && typeof mod.validateDeepLearningPlanContract === "function") return mod.validateDeepLearningPlanContract(yaml);
-      const vmod = require("../PlanBuilder/PlanValidator");
-      if (vmod && typeof vmod.validatePlan === "function") return vmod.validatePlan(yaml);
-    } catch {}
+  validate(yaml: string): unknown {
+    const mod = tryRequire<PlanBuilderMod>("../PlanBuilder");
+    if (mod?.validateDeepLearningPlanContract) return mod.validateDeepLearningPlanContract(yaml);
+    const vmod = tryRequire<PlanValidatorMod>("../PlanBuilder/PlanValidator");
+    if (vmod?.validatePlan) return vmod.validatePlan(yaml);
     return { ok: true, missing: [], issues: [], summary: {} };
   }
 
-  create(matrix: any): { matrix: any; build: (existingRunKeys?: string[]) => any } {
-    const normalized = this.normalizeMatrix(matrix);
+  create(matrix: unknown): { matrix: unknown; build: (existingRunKeys?: string[]) => unknown } {
+    const normalized = this.normalizeMatrix(matrix as Record<string, unknown>);
     return { matrix: normalized, build: (existingRunKeys?: string[]) => this.buildMatrix(normalized, existingRunKeys) };
   }
 
-  private normalizeMatrix(matrix: any): any {
-    if (!matrix) return { baseConfig: this.opts.defaultBaseConfig || "", suite: this.opts.defaultSuite || "suite", variables: [], seeds: [], constraints: [] };
+  private normalizeMatrix(matrix: Record<string, unknown> | null | undefined): Record<string, unknown> {
+    if (!matrix) return { baseConfig: this.opts.defaultBaseConfig ?? "", suite: this.opts.defaultSuite ?? "suite", variables: [], seeds: [], constraints: [] };
     return {
-      baseConfig: matrix.baseConfig || this.opts.defaultBaseConfig || "",
-      suite: matrix.suite || this.opts.defaultSuite || "suite",
-      variables: Array.isArray(matrix.variables) ? matrix.variables : [],
-      seeds: Array.isArray(matrix.seeds) ? matrix.seeds : [],
-      constraints: Array.isArray(matrix.constraints) ? matrix.constraints : [],
-      namingRule: matrix.namingRule || (this.opts.defaultNamingPattern ? { pattern: this.opts.defaultNamingPattern } : undefined),
+      baseConfig: (matrix["baseConfig"] as string) ?? this.opts.defaultBaseConfig ?? "",
+      suite: (matrix["suite"] as string) ?? this.opts.defaultSuite ?? "suite",
+      variables: Array.isArray(matrix["variables"]) ? matrix["variables"] : [],
+      seeds: Array.isArray(matrix["seeds"]) ? matrix["seeds"] : [],
+      constraints: Array.isArray(matrix["constraints"]) ? matrix["constraints"] : [],
+      namingRule: (matrix["namingRule"] as unknown) ?? (this.opts.defaultNamingPattern ? { pattern: this.opts.defaultNamingPattern } : undefined),
     };
   }
 }

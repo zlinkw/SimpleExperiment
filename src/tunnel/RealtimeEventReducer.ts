@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/RealtimeEventReducer.ts - Facade
  * original 624 lines moved to RealtimeEventReducer.legacy.ts

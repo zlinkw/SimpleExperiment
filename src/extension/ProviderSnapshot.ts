@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ProviderSnapshot - 快照/合并逻辑抽离 (Phase 2)
  * 搬运自 src/extension.ts 中 syncState / StateMerge / compact* / manualSnapshot 相关
@@ -63,6 +62,11 @@ export function compactMergedGpuForWebview(...gpus: unknown[]): unknown {
   return out;
 }
 
+type SyncStateModule = {
+  filterExperimentIndex: (a: unknown[], b: unknown[]) => unknown[];
+  filterSchedulerState: (a: Record<string, unknown>, b: unknown[]) => { state: unknown; changed: boolean };
+};
+
 export function applySyncStateFilters(
   experimentIndex: unknown[],
   schedulerState: unknown,
@@ -70,13 +74,14 @@ export function applySyncStateFilters(
   deletedSchedulerMatchers: unknown[],
 ): { filteredExperiments: unknown[]; filteredSchedulerState: unknown; changed: boolean } {
   // 委托给 syncState 纯函数，保持原逻辑不变
-  const filteredExperiments: any = syncState.filterExperimentIndex(
-    experimentIndex as any[],
-    deletedExperiments as any[],
-  );
-  const sched = syncState.filterSchedulerState(
-    (schedulerState as any) || {},
-    deletedSchedulerMatchers as any[],
+  const ss = syncState as unknown as SyncStateModule;
+  const filteredExperiments = ss.filterExperimentIndex(
+    experimentIndex as unknown[],
+    deletedExperiments as unknown[],
+  ) as unknown[];
+  const sched = ss.filterSchedulerState(
+    (schedulerState as Record<string, unknown>) || {},
+    deletedSchedulerMatchers as unknown[],
   );
   return {
     filteredExperiments,
@@ -107,9 +112,9 @@ export async function requestManualSnapshot(deps: ManualSnapshotDeps): Promise<{
 export function compactStateMergeDiagnostics(state: Record<string, unknown>): Record<string, unknown> {
   // 搬运自 extension.ts compactDiagnostics 的简化投影，供快照层复用
   return {
-    schedulerRows: Array.isArray((state as any).schedulerStates) ? (state as any).schedulerStates.length : 0,
-    experimentTraces: Array.isArray((state as any).experimentTraces) ? (state as any).experimentTraces.length : 0,
-    operations: typeof (state as any).operations === "object" ? Object.keys((state as any).operations || {}).length : 0,
+    schedulerRows: Array.isArray((state as Record<string, unknown>)["schedulerStates"]) ? ((state as Record<string, unknown>)["schedulerStates"] as unknown[]).length : 0,
+    experimentTraces: Array.isArray((state as Record<string, unknown>)["experimentTraces"]) ? ((state as Record<string, unknown>)["experimentTraces"] as unknown[]).length : 0,
+    operations: typeof (state as Record<string, unknown>)["operations"] === "object" ? Object.keys((state as Record<string, unknown>)["operations"] as object || {}).length : 0,
     timestamp: new Date().toISOString(),
   };
 }

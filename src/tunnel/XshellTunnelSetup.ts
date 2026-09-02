@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/XshellTunnelSetup.ts - Facade
  * original moved to XshellTunnelSetup.legacy.ts

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/RealtimeTunnelClient.ts - Facade
  * original moved to RealtimeTunnelClient.legacy.ts

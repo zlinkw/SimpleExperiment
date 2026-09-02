@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ExtensionContext - 扩展上下文封装 (Phase 2 模块化)
  * 搬运自 src/extension.ts 的上下文访问逻辑，不改原逻辑，仅通过 FactoryContext 注入。
@@ -25,7 +24,7 @@ export interface ExtensionContextFacade {
   };
   readonly subscriptions: { push(...args: unknown[]): unknown };
   readonly extensionPath?: string;
-  readonly asAbsolutePath?(relativePath: string): string;
+  readonly asAbsolutePath?: (relativePath: string) => string;
 }
 
 export interface ExtensionContextOptions {
@@ -41,16 +40,17 @@ export function toFactoryContext(
   vscodeContext: ExtensionContextFacade,
   overrides: Record<string, unknown> = {},
 ): FactoryContext {
+  const raw = vscodeContext as unknown as Record<string, unknown>;
   return {
-    extensionUri: (vscodeContext as any).extensionUri ?? (vscodeContext as any).extensionPath,
-    globalState: vscodeContext.globalState,
-    workspaceState: vscodeContext.workspaceState,
-    secrets: (vscodeContext as any).secrets,
+    extensionUri: (raw["extensionUri"] ?? raw["extensionPath"]) as FactoryContext["extensionUri"],
+    globalState: vscodeContext.globalState as unknown as FactoryContext["globalState"],
+    workspaceState: vscodeContext.workspaceState as unknown as FactoryContext["workspaceState"],
+    secrets: raw["secrets"] as FactoryContext["secrets"],
     // 透传常见扩展字段，保持渐进兼容
-    extensionPath: (vscodeContext as any).extensionPath,
-    subscriptions: (vscodeContext as any).subscriptions,
+    extensionPath: raw["extensionPath"] as string | undefined,
+    subscriptions: raw["subscriptions"] as unknown,
     ...overrides,
-  } as FactoryContext;
+  } as unknown as FactoryContext;
 }
 
 export function createExtensionContextFacade(vscodeContext: unknown): ExtensionContextFacade {

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/features/RunOperations.ts - Facade
  * original moved to RunOperations.legacy.ts

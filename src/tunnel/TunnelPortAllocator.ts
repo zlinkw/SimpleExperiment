@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/TunnelPortAllocator.ts - Facade
  * original moved to TunnelPortAllocator.legacy.ts

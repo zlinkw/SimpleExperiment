@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/features/Results.ts - Facade
  * 原 1595 行已迁移至 Results.legacy.ts，按需委托 ResultsFactory
@@ -6,10 +5,19 @@
  */
 export * from "./Results.legacy";
 
+function tryRequire<T>(id: string): T | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(id) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 // 工厂化增强：委托给 ResultParser / ResultsFactory（可选覆盖）
 try {
-  const factoryMod = require("./factories/ResultsFactory");
-  const parserMod = require("./Results/ResultParser");
+  const factoryMod = tryRequire<unknown>("./factories/ResultsFactory");
+  const parserMod = tryRequire<unknown>("./Results/ResultParser");
   void factoryMod;
   void parserMod;
 } catch {}

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Activation - 新的 activate 入口，使用 ServiceFactory 组装，<150 行
  * 搬运自 src/extension.ts activate / activateExtension / deactivate，保持兼容门面可运行
@@ -11,15 +10,19 @@ import { registerProviderCommands } from "./ProviderCommands";
 
 let _provider: unknown | undefined;
 
-export async function activate(context: unknown): Promise<void> {
-  return activateExtension(context as any);
+function tryRequire<T>(id: string): T | undefined {
+  try { return (require as unknown as (x: string) => T)(id); } catch { return undefined; }
 }
 
-export async function activateExtension(context: any): Promise<void> {
-  const { migrateRenamedExtensionState } = require("../config/RenamedExtensionStateMigration");
-  await migrateRenamedExtensionState(context).catch(() => undefined);
+export async function activate(context: unknown): Promise<void> {
+  return activateExtension(context as unknown as Record<string, unknown> & { subscriptions: { push(...args: unknown[]): unknown } });
+}
 
-  const factoryContext: FactoryContext = toFactoryContext(context);
+export async function activateExtension(context: Record<string, unknown> & { subscriptions: { push(...args: unknown[]): unknown } }): Promise<void> {
+  const mod = tryRequire<{ migrateRenamedExtensionState: (c: unknown) => Promise<void> }>("../config/RenamedExtensionStateMigration");
+  await mod?.migrateRenamedExtensionState(context).catch(() => undefined);
+
+  const factoryContext: FactoryContext = toFactoryContext(context as unknown as import("./ExtensionContext").ExtensionContextFacade);
   const services = new DefaultServiceFactory();
 
   // 单一工厂路径：优先经 ServiceFactory 创建，可回退到 legacy 直连
@@ -31,7 +34,8 @@ export async function activateExtension(context: any): Promise<void> {
   }
   if (!provider) {
     try {
-      const { RealtimeTunnelPanelProvider } = require("./legacy");
+      const legacy = tryRequire<{ RealtimeTunnelPanelProvider: new (c: unknown) => unknown }>("./legacy");
+      const RealtimeTunnelPanelProvider = legacy?.RealtimeTunnelPanelProvider;
       provider = RealtimeTunnelPanelProvider ? new RealtimeTunnelPanelProvider(context) : undefined;
     } catch {
       provider = undefined;
@@ -52,9 +56,11 @@ export async function activateExtension(context: any): Promise<void> {
 
   // 配置变更监听（与原逻辑一致）
   try {
-    const vscode = require("vscode");
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: unknown) => void (provider as any)?.handleConfigurationChanged?.(e)));
-    context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void (provider as any)?.handleWorkspaceFoldersChanged?.()));
+    const vscode = tryRequire<typeof import("vscode")>("vscode");
+    if (vscode) {
+      context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: unknown) => void (provider as { handleConfigurationChanged?: (e: unknown) => unknown })?.handleConfigurationChanged?.(e)));
+      context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void (provider as { handleWorkspaceFoldersChanged?: () => unknown })?.handleWorkspaceFoldersChanged?.()));
+    }
   } catch {}
 }
 

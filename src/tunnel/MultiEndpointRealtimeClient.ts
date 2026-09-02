@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/tunnel/MultiEndpointRealtimeClient.ts - Facade
  * 原 693 行已迁移至 MultiEndpointRealtimeClient.legacy.ts
