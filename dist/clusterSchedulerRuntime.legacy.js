@@ -49,6 +49,121 @@ DELETED_SCHEDULER_ROWS_PATH = Path("simple_cluster/deleted_scheduler_rows.jsonl"
 MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
 AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
 
+# === 调度信号化改造：信号类型 / 去抖 / 错误早停 ===
+SCHEDULER_SIGNAL_FIRST_RUN = "first_run"
+SCHEDULER_SIGNAL_TASK_END = "task_end"
+SCHEDULER_SIGNAL_POLL_TICK = "poll_tick"
+SCHEDULER_SIGNAL_DEBOUNCE_SECONDS = 5.0
+SCHEDULER_ERROR_LOG_PATTERNS = [
+    re.compile(r"Traceback \(most recent call last\)", re.I),
+    re.compile(r"ModuleNotFoundError", re.I),
+    re.compile(r"CondaValueError", re.I),
+    re.compile(r"SyntaxError", re.I),
+    re.compile(r"returned non-zero exit status", re.I),
+    re.compile(r"\bError\s*:", re.I),
+    re.compile(r"\bException\s*:", re.I),
+    re.compile(r"No such file", re.I),
+    re.compile(r"psutil\.AccessDenied", re.I),
+]
+
+
+def scheduler_signal_from_control(control: dict[str, Any]) -> str:
+    raw = str(control.get("signal") or control.get("action") or "").strip().lower()
+    if raw in {SCHEDULER_SIGNAL_FIRST_RUN, "first-run", "first"}:
+        return SCHEDULER_SIGNAL_FIRST_RUN
+    if raw in {SCHEDULER_SIGNAL_TASK_END, "task-end", "task_end", "taskend"}:
+        return SCHEDULER_SIGNAL_TASK_END
+    if raw:
+        return raw
+    return ""
+
+
+def scheduler_log_shows_error(tail: str) -> bool:
+    if not tail:
+        return False
+    filtered_lines = []
+    for line in str(tail).splitlines():
+        low = line.lower()
+        if "dispatch_probe" in low:
+            continue
+        if re.search(r"idle\s*=\s*0", low):
+            continue
+        if "wait pending" in low:
+            continue
+        filtered_lines.append(line)
+    filtered = "\n".join(filtered_lines)
+    if not filtered.strip():
+        return False
+    return any(p.search(filtered) for p in SCHEDULER_ERROR_LOG_PATTERNS)
+
+
+def write_scheduler_signal(control_path: Path, signal: str) -> None:
+    try:
+        current = {}
+        if control_path.is_file():
+            try:
+                current = json.loads(control_path.read_text(encoding="utf-8"))
+                if not isinstance(current, dict):
+                    current = {}
+            except Exception:
+                current = {}
+        current["signal"] = signal
+        current["action"] = signal
+        current["emittedAt"] = now()
+        current["emittedMonotonic"] = time.monotonic()
+        atomic_write_json(control_path, current)
+    except Exception:
+        pass
+
+
+def refresh_worker_availability_for_signal(workers: list[dict[str, Any]], availability_path: str = "") -> None:
+    stale_workers = [w for w in workers if not availability_is_fresh(w)]
+    if not stale_workers:
+        return
+    def _refresh(worker: dict[str, Any]) -> None:
+        try:
+            row = fetch_worker_availability(worker)
+            note_availability_receipt(worker, row)
+            worker["_agent_status"] = "online"
+            worker["worker_status_ttl_seconds"] = int(row.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 180)
+            # 信号路径不写 worker_availability.json：仅内存 note_availability_receipt，避免信号风暴写放大与缓存污染
+        except Exception as exc:
+            worker["_agent_status"] = f"offline: {exc}"
+    with futures.ThreadPoolExecutor(max_workers=min(4, len(stale_workers))) as pool:
+        pending = {pool.submit(_refresh, w): w for w in stale_workers}
+        deadline = time.monotonic() + WORKER_AVAILABILITY_REFRESH_WINDOW_SECONDS
+        for fut in pending:
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                fut.result(timeout=remaining)
+            except Exception:
+                pass
+
+
+def scheduler_should_fail_fast(failed: list[dict[str, Any]], active: dict[str, Any], testing: dict[str, Any]) -> bool:
+    if failed:
+        return True
+    for item in list(active.values()) + list(testing.values()):
+        tail = str(item.get("console_tail") or item.get("log_tail") or "")
+        if scheduler_log_shows_error(tail):
+            return True
+        if item.get("exit_code") not in (None, 0, "0"):
+            try:
+                if int(item.get("exit_code")) != 0:
+                    return True
+            except Exception:
+                if str(item.get("exit_code")).strip():
+                    return True
+    return False
+
+
+def scheduler_fail_pending_queue(queue: deque, failed: list[dict[str, Any]], reason: str) -> int:
+    count = 0
+    while queue:
+        failed.append({"experiment_index": queue.popleft(), "finished_at": now(), "error": reason, "status": "failed", "completion_type": "failed", "failedBySignal": True})
+        count += 1
+    return count
+
 
 def scheduler_version_info() -> dict[str, Any]:
     return {
@@ -2886,11 +3001,18 @@ def kill_session(worker: dict[str, Any], session: str, reason: str = "manual_sto
 def read_control(path: Path) -> dict[str, Any]:
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
-        return parsed if isinstance(parsed, dict) else {}
+        if not isinstance(parsed, dict):
+            return {}
+        # 信号类型枚举兼容：signal 字段与 action 互为别名，统一归一化
+        if parsed.get("signal") and not parsed.get("action"):
+            parsed["action"] = str(parsed.get("signal") or "")
+        if parsed.get("action") and not parsed.get("signal"):
+            parsed["signal"] = str(parsed.get("action") or "")
+        return parsed
     except FileNotFoundError:
         return {}
     except Exception as exc:
-        return {"action": "error", "error": str(exc)}
+        return {"action": "error", "signal": "error", "error": str(exc)}
 
 
 def append_log(path: Path, text: str) -> None:
@@ -3234,7 +3356,8 @@ def main() -> None:
     if not args.workers_json:
         raise SystemExit("缺少 --workers-json。")
 
-    poll_seconds = max(60, args.poll_seconds)
+    # poll 下限由 60 改为 5：信号化后短轮询+信号唤醒协同，允许用户配置 5s 级探活，<5 强制兜底防风暴
+    poll_seconds = max(5, int(args.poll_seconds or 600))
     poll_jitter_seconds = max(0, int(args.poll_jitter_seconds or 0))
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8"))
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
@@ -3524,6 +3647,11 @@ def main() -> None:
             testing.pop(key, None)
         else:
             active.pop(key, None)
+        # 任务结束信号：finish_item 后写 control.json signal=task_end（piggyback + 风暴合并由去抖处理）
+        try:
+            write_scheduler_signal(control_path, SCHEDULER_SIGNAL_TASK_END)
+        except Exception:
+            pass
 
     def reap_finished_items() -> bool:
         changed = False
@@ -3600,6 +3728,18 @@ def main() -> None:
 
     def handle_control() -> bool:
         control = read_control(control_path)
+        sig = scheduler_signal_from_control(control)
+        # 信号类型区分：first_run / task_end 视为调度信号，区别于轮询 poll_tick
+        if sig in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END):
+            _append_scheduler_log( f"[{now()}] signal_received type={sig} via_control")
+            try:
+                atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": sig})
+            except Exception:
+                pass
+            return False
+        # 兼容：control 仅有 poll_tick 时按轮询处理（不中断）
+        if sig == SCHEDULER_SIGNAL_POLL_TICK:
+            return False
         action = str(control.get("action") or "")
         if not action:
             return False
@@ -3714,6 +3854,18 @@ def main() -> None:
 
     _append_scheduler_log( f"[{now()}] scheduler_start mode={execution_mode} experiments={len(queue)} workers={len(workers)} poll_seconds={poll_seconds}")
     write_current_state()
+    # 首跑信号：scheduler_start 后立即 dispatch 不等待首个 wait（信号类型 first_run，去抖窗口内合并）
+    _scheduler_signal_debounce_seconds = SCHEDULER_SIGNAL_DEBOUNCE_SECONDS
+    _last_poll_monotonic = 0.0
+    _last_signal_monotonic = time.monotonic()
+    _last_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
+    _pending_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
+    _signal_storm_count = 0
+    try:
+        write_scheduler_signal(control_path, SCHEDULER_SIGNAL_FIRST_RUN)
+        _append_scheduler_log( f"[{now()}] signal_first_run dispatch immediate poll_seconds={poll_seconds} jitter={poll_jitter_seconds}")
+    except Exception:
+        pass
     no_dispatch_error_cycles = 0
     _scheduler_abort = {"sig": None}
     def _handle_scheduler_signal(signum, _frame):
@@ -3737,8 +3889,37 @@ def main() -> None:
                 break
             if reap_finished_items():
                 write_current_state()
-            read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
-            refresh_missing_worker_availability(workers, args.availability_path)
+            # 错误早停：任一 failed 或 logShowsError 即 while queue: failed.append 并 terminal failed（原子标记，原需3轮改1轮）
+            if scheduler_should_fail_fast(failed, active, testing):
+                _fail_reason = "fail_fast: 任一任务失败/日志报错触发，停整个 plan"
+                if failed:
+                    _fail_reason = str(failed[-1].get("error") or _fail_reason)[:200]
+                else:
+                    for _it in list(active.values()) + list(testing.values()):
+                        _tail = str(_it.get("console_tail") or _it.get("log_tail") or "")
+                        if scheduler_log_shows_error(_tail):
+                            _fail_reason = _tail.strip().splitlines()[-1][:200] if _tail.strip() else _fail_reason
+                            break
+                _append_scheduler_log( f"[{now()}] fail_fast_trigger pending={len(queue)} failed={len(failed)} reason={_fail_reason[:120]}")
+                scheduler_fail_pending_queue(queue, failed, _fail_reason)
+                write_current_state(_fail_reason)
+                break
+            # 信号类型枚举与直连 vs 缓存分流：信号路径尽可能不利用缓存发信号（B路径 stale才直连 + C piggyback）
+            _is_signal_dispatch = _pending_signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END) and (time.monotonic() - _last_signal_monotonic) < (_scheduler_signal_debounce_seconds + 2.0)
+            if _is_signal_dispatch:
+                try:
+                    refresh_worker_availability_for_signal(workers, args.availability_path)
+                    _append_scheduler_log( f"[{now()}] availability_signal_path type={_pending_signal_type} stale_refresh")
+                except Exception as _e:
+                    _append_scheduler_log( f"[{now()}] availability_signal_fallback error={_e}")
+                    read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+                    refresh_missing_worker_availability(workers, args.availability_path)
+            else:
+                read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+                refresh_missing_worker_availability(workers, args.availability_path)
+            # 去抖记录：本轮 dispatch 视为一次 poll，更新 last_poll
+            _last_poll_monotonic = time.monotonic()
+            _pending_signal_type = SCHEDULER_SIGNAL_POLL_TICK
             for worker in ordered_workers_for_dispatch(workers):
                 busy_slots = {**active, **testing}
                 probe = probe_idle_gpus(worker, busy_slots)
@@ -3805,11 +3986,10 @@ def main() -> None:
                     scheduler_wait_reason = "; ".join(errors[:3]) if errors else "no_idle_gpu_from_hub_probe"
                     if latest and errors and len(errors) == len(latest):
                         no_dispatch_error_cycles += 1
-                        if no_dispatch_error_cycles >= 3:
+                        if no_dispatch_error_cycles >= 1:
                             reason = scheduler_wait_reason or "all worker dispatch probes failed"
-                            _append_scheduler_log( f"[{now()}] fail_pending reason={reason}")
-                            while queue:
-                                failed.append({"experiment_index": queue.popleft(), "finished_at": now(), "error": reason})
+                            _append_scheduler_log( f"[{now()}] fail_pending reason={reason} fail_fast_cycles={no_dispatch_error_cycles}")
+                            scheduler_fail_pending_queue(queue, failed, reason)
                             write_current_state(reason)
                             break
                     else:
@@ -3822,17 +4002,78 @@ def main() -> None:
                     break
                 slept = 0
                 while slept < sleep_target:
-                    if read_control(control_path).get("action") or _scheduler_abort["sig"] is not None:
+                    # 信号优先分支：收到信号立即 break 并 reap+dispatch（Event唤醒近似，0.5s粒度，最坏唤醒<1s）
+                    _ctrl = read_control(control_path)
+                    _sig = scheduler_signal_from_control(_ctrl)
+                    if _sig or _ctrl.get("action"):
+                        _now_mono = time.monotonic()
+                        _is_dup_poll = _sig == SCHEDULER_SIGNAL_POLL_TICK and (_now_mono - _last_signal_monotonic) < _scheduler_signal_debounce_seconds
+                        _is_dup_signal = _sig in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END) and _sig == _last_signal_type and (_now_mono - _last_signal_monotonic) < _scheduler_signal_debounce_seconds
+                        if _is_dup_signal:
+                            # 风暴合并：同类信号在去抖窗口内合并，丢弃后者
+                            _signal_storm_count += 1
+                            _append_scheduler_log( f"[{now()}] signal_coalesced type={_sig} storm={_signal_storm_count} debounce={_scheduler_signal_debounce_seconds}s")
+                            try:
+                                atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _sig, "coalesced": True})
+                            except Exception:
+                                pass
+                        elif _is_dup_poll:
+                            # 去抖：轮询与信号间隔<5s丢弃后者（优先信号）
+                            _append_scheduler_log( f"[{now()}] dropped_duplicate_poll signal={_last_signal_type} poll_interval={_now_mono - _last_signal_monotonic:.1f}s prioritize_signal")
+                            try:
+                                atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _sig, "dropped": "poll"})
+                            except Exception:
+                                pass
+                        else:
+                            if _sig in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END):
+                                _last_signal_monotonic = _now_mono
+                                _last_signal_type = _sig
+                                _pending_signal_type = _sig
+                                _signal_storm_count = 0
+                                _append_scheduler_log( f"[{now()}] signal_wake type={_sig} slept={slept:.1f}/{sleep_target:.1f} prioritize_signal")
+                                # 信号路径直连（B路径 stale才直连，带超时预算与 stale回退）
+                                try:
+                                    refresh_worker_availability_for_signal(workers, args.availability_path)
+                                except Exception:
+                                    try:
+                                        read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+                                    except Exception:
+                                        pass
+                                try:
+                                    atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _sig})
+                                except Exception:
+                                    pass
+                            else:
+                                # 通用 action 信号也优先唤醒
+                                _pending_signal_type = _sig or str(_ctrl.get("action") or "unknown")
+                                _append_scheduler_log( f"[{now()}] control_wake action={_pending_signal_type} slept={slept:.1f}")
+                                try:
+                                    atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _pending_signal_type})
+                                except Exception:
+                                    pass
+                            break
+                    if _scheduler_abort["sig"] is not None:
                         break
                     if reap_finished_items():
                         write_current_state()
+                        # 任务结束 piggyback：reap 产生新完成即视为 task_end 信号，触发立即 dispatch
+                        if scheduler_should_fail_fast(failed, active, testing):
+                            _append_scheduler_log( f"[{now()}] fail_fast_in_sleep pending={len(queue)}")
+                            break
+                        # 风暴合并：多个 finish 在去抖窗口内合并为一次 dispatch
+                        _pending_signal_type = SCHEDULER_SIGNAL_TASK_END
+                        _last_signal_monotonic = time.monotonic()
+                        _last_signal_type = SCHEDULER_SIGNAL_TASK_END
                         if not queue and not active and not testing:
                             break
+                        # 收到 reap 信号立即 break 去 dispatch，无需等待剩余 sleep_target
+                        break
+                    # 去抖：若轮询与信号间隔<5s，丢弃后者已在顶部处理；此处用 0.5s 粒度唤醒，最坏唤醒 <1s
                     try:
-                        time.sleep(5)
+                        time.sleep(0.5)
                     except InterruptedError:
                         break
-                    slept += 5
+                    slept += 0.5
     except Exception as exc:
         _append_scheduler_log( f"[{now()}] scheduler_error {exc}")
         write_current_state(str(exc))
