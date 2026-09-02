@@ -106,9 +106,38 @@ class HostOperationLeaseManager {
             const inspection = await this.inspect();
             if (inspection.record?.windowId === this.windowId) {
                 const session = sharedSessions().get(sessionKey(this.leasePath));
-                if (session?.leaseId === inspection.record.leaseId && session.windowId === this.windowId) {
-                    session.refs += 1;
-                    return this.createHandle(inspection.record, session);
+                if (session?.windowId === this.windowId) {
+                    if (session.leaseId === inspection.record.leaseId) {
+                        session.refs += 1;
+                        return this.createHandle(inspection.record, session);
+                    }
+                    // 同窗口不同 leaseId：视为重入而非冲突，避免 prepareAgents -> uploadFiles 自死锁
+                    if (inspection.expiresAtMs > this.now()) {
+                        console.warn("[HostOperationLease] reentrant acquire from same window, reusing", inspection.record.leaseId, "-> nested");
+                        session.parentLeaseId = inspection.record.leaseId;
+                        session.refs += 1;
+                        return this.createHandle(inspection.record, session);
+                    }
+                    // 已过期则走下面的过期回收逻辑，不抛冲突
+                }
+                else if (inspection.expiresAtMs > this.now()) {
+                    // 同窗口但无本地 session 缓存：仍视为重入，直接复用现有租约而非抛冲突
+                    // 该 fallback 不拥有文件心跳，释放时仅清理本地映射，不触碰文件（由原持有者负责过期）
+                    console.warn("[HostOperationLease] reentrant acquire from same window without local session, reusing", inspection.record.leaseId);
+                    const fallbackSession = {
+                        leasePath: this.leasePath,
+                        leaseId: inspection.record.leaseId,
+                        windowId: inspection.record.windowId,
+                        refs: 1,
+                        renew: async () => { },
+                        expire: async () => {
+                            const k = sessionKey(this.leasePath);
+                            if (sharedSessions().get(k) === fallbackSession)
+                                sharedSessions().delete(k);
+                        },
+                    };
+                    sharedSessions().set(sessionKey(this.leasePath), fallbackSession);
+                    return this.createHandle(inspection.record, fallbackSession);
                 }
             }
             if (inspection.expiresAtMs > this.now())
