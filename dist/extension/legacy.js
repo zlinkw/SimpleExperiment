@@ -2940,7 +2940,24 @@ class RealtimeTunnelPanelProvider {
         console.log("[legacy] resolveWebviewView", webviewView?.viewType, new Date().toISOString());
         this.view = webviewView;
         webviewView.webview.options = { enableScripts: true };
-        webviewView.webview.onDidReceiveMessage((message) => { console.log("[legacy] onDidReceiveMessage", message?.command || message?.type || message); return void this.handleMessage(message); });
+        webviewView.webview.onDidReceiveMessage((message) => {
+            void this.handleMessage(message).catch((e) => {
+                console.error("[legacy] handleMessage unhandled", e);
+                try {
+                    this.recordActionError(String(e?.message || e));
+                }
+                catch { }
+                try {
+                    this.postState();
+                }
+                catch { }
+                try {
+                    const vscode = require("vscode");
+                    vscode.window.showErrorMessage(String(e?.message || e));
+                }
+                catch { }
+            });
+        });
         void this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         this.loadPanelHtml();
         webviewView.onDidChangeVisibility(() => {
@@ -3026,14 +3043,17 @@ class RealtimeTunnelPanelProvider {
     }
     async withHostOperationLease(actionType, actionLabel, operation, options = {}) {
         const leaseContext = currentHostOperationLeaseContext();
+        console.log("[diag] withHostOperationLease acquire", { actionType, actionLabel });
         try {
-            return await this.hostOperationLease.run({
+            const result = await this.hostOperationLease.run({
                 pluginId: "simple-local.simple-experiment",
                 workspaceUri: leaseContext.workspaceUri,
                 hostProjectPath: leaseContext.hostProjectPath,
                 actionType,
                 actionLabel,
             }, operation);
+            console.log("[diag] withHostOperationLease acquired", { actionType, actionLabel });
+            return result;
         }
         catch (error) {
             if (error instanceof HostOperationLease_1.HostOperationLeaseConflictError && !options.suppressConflictUi)
@@ -4196,6 +4216,7 @@ class RealtimeTunnelPanelProvider {
     }
     async handleMessage(message) {
         console.log("[legacy] handleMessage", message?.command, message);
+        console.log("[diag] handleMessage entry", { command: stringField(message, "command"), clientActionId: stringField(message, "clientActionId") });
         const rawCommand = stringField(message, "command");
         const command = getSafeCommand(message);
         const clientActionId = stringField(message, "clientActionId");
@@ -4585,7 +4606,18 @@ class RealtimeTunnelPanelProvider {
         const result = await Promise.race([guardedWork, timeout]);
         if (timer)
             clearTimeout(timer);
-        if (result.status === "failed") {
+        if (result.status === "cancelled") {
+            try {
+                vscode.window.showInformationMessage(result.message || "已取消");
+            }
+            catch { }
+            try {
+                this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) });
+                this.postState();
+            }
+            catch { }
+        }
+        else if (result.status === "failed") {
             this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) });
             this.postState();
         }
@@ -4980,16 +5012,24 @@ class RealtimeTunnelPanelProvider {
         const remoteTargets = this.planRunRemoteTargets(body);
         const projectOutputCandidates = adapterRuleResultCandidates(this.localPlanMetadata.detectedProject?.adapterRules || {});
         const label = command === "reproducePlan" ? "确认复现" : "确认提交";
+        console.log("[diag] confirmPlanRunSubmission first dialog before", { command });
         const answer = await vscode.window.showWarningMessage(planRunConfirmationDetail(command, { ...(plan || {}), debugMode, schedulerOwnerWorkerId: this.planSchedulerWorkerId(body), confirmationOutputCandidates: projectOutputCandidates }, remoteTargets), { modal: true }, label);
+        console.log("[diag] confirmPlanRunSubmission first dialog after", { command, answer });
         if (answer !== label)
             throw new UiCommandCancelled(command === "reproducePlan" ? "复现实验已取消。" : "运行计划已取消。");
         // 解耦历史产物：调度前检测输出目录是否已有产物（metrics_summary.csv / checkpoint / train.log 等），显式询问覆盖/跳过
         const existing = await this.detectLocalExistingOutputs(plan, body);
         if (existing.length) {
             const detail = existing.slice(0, 3).map((e) => `${e.output_dir}${e.markers.length ? ` (${e.markers.join(", ")})` : ""}`).join("；");
+            console.log("[diag] confirmPlanRunSubmission second dialog before", { existingCount: existing.length, detail });
             const pick = await vscode.window.showWarningMessage(`检测到已有历史产物 ${existing.length} 处（${detail}${existing.length > 3 ? " 等" : ""}），是否重新运行覆盖？“覆盖”将带 --overwrite 强制重跑并覆盖旧文件；“跳过已有”将保留 --resume 行为自动跳过已完成任务（GPU 调度不受历史产物影响）。`, { modal: true }, "覆盖重新运行", "跳过已有", "取消");
-            if (!pick || pick === "取消")
-                throw new UiCommandCancelled("已取消：用户未选择历史产物的处理方式。");
+            console.log("[diag] confirmPlanRunSubmission second dialog after", { pick });
+            if (!pick) {
+                await vscode.window.showInformationMessage("已取消：未选择历史产物处理方式");
+                throw new UiCommandCancelled("已取消：用户未选择历史产物处理方式。");
+            }
+            if (pick === "取消")
+                throw new UiCommandCancelled("已取消：用户未选择历史产物处理方式。");
             if (pick === "覆盖重新运行") {
                 body.options = { ...(body.options || {}), overwriteExisting: true, overwrite: true };
                 body.overwriteExisting = true;
