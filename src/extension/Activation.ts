@@ -15,10 +15,12 @@ function tryRequire<T>(id: string): T | undefined {
 }
 
 export async function activate(context: unknown): Promise<void> {
+  console.log("[Activation] enter", new Date().toISOString(), "process.env.FEATURE_FACTORY_PANEL", process.env.FEATURE_FACTORY_PANEL);
   return activateExtension(context as unknown as Record<string, unknown> & { subscriptions: { push(...args: unknown[]): unknown } });
 }
 
 export async function activateExtension(context: Record<string, unknown> & { subscriptions: { push(...args: unknown[]): unknown } }): Promise<void> {
+  console.log("[Activation] enter", new Date().toISOString(), "process.env.FEATURE_FACTORY_PANEL", process.env.FEATURE_FACTORY_PANEL);
   const mod = tryRequire<{ migrateRenamedExtensionState: (c: unknown) => Promise<void> }>("../config/RenamedExtensionStateMigration");
   await mod?.migrateRenamedExtensionState(context).catch(() => undefined);
 
@@ -28,8 +30,10 @@ export async function activateExtension(context: Record<string, unknown> & { sub
   // 单一工厂路径：优先经 ServiceFactory 创建，可回退到 legacy 直连
   let provider: any;
   try {
+    console.log("[Activation] try factory");
     provider = services.createPanelProvider(factoryContext);
-  } catch {
+  } catch (e) {
+    console.error("[Activation] factory failed", e);
     provider = undefined;
   }
   if (!provider || typeof (provider as any).resolveWebviewView !== "function") {
@@ -42,11 +46,13 @@ export async function activateExtension(context: Record<string, unknown> & { sub
     }
   }
   _provider = provider;
+  console.log("[Activation] provider", !!provider, typeof (provider as any)?.resolveWebviewView);
 
   if (provider && typeof (provider as any).resolveWebviewView === "function") {
     try {
       const vscode = tryRequire<any>("vscode");
       if (vscode && vscode.window && typeof vscode.window.registerWebviewViewProvider === "function") {
+        console.log("[Activation] registerWebviewViewProvider", "simpleExperiment.panel");
         context.subscriptions.push(
           vscode.window.registerWebviewViewProvider("simpleExperiment.panel", provider as any, { webviewOptions: { retainContextWhenHidden: true } })
         );

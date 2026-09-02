@@ -1438,6 +1438,7 @@ export function renderPanelHtml(): string {
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    console.log("[webview] acquireVsCodeApi", !!vscode, typeof vscode?.postMessage);
     const LENIENT_RUN = true;
     const isLenientRun = LENIENT_RUN;
     const PROJECT_TMP_DIRNAME = "tmp";
@@ -2762,6 +2763,7 @@ export function renderPanelHtml(): string {
       target.outerHTML = configPortPair(scope, "隧道端口对", localKey, remoteKey, "", "", info, "savedSessionForwardIndex", undefined);
     });
     window.addEventListener("message", (event) => {
+      console.log("[webview] window.message", event.data?.type || event.data?.command || event.data);
       handleIncomingWebviewMessage(event.data);
     });
     setupResourceTreeObserver();
@@ -2793,6 +2795,7 @@ export function renderPanelHtml(): string {
     })();
 
     function requestInitialPanelState() {
+      console.log("[webview] post webviewReady");
       const notice = el("initialStateNotice");
       const retry = el("initialStateRetry");
       if (notice) notice.hidden = false;
@@ -2817,6 +2820,7 @@ export function renderPanelHtml(): string {
     }
 
     function handleIncomingWebviewMessage(message) {
+      console.log("[webview] recv", message);
       if (!message) return;
       const messages = flattenIncomingWebviewMessages(message);
       let latestStateMessage = null;

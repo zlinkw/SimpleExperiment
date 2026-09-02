@@ -3016,9 +3016,10 @@ export class RealtimeTunnelPanelProvider {
         }), writeProjectLocalPlanMetadataState);
     }
     resolveWebviewView(webviewView) {
+        console.log("[legacy] resolveWebviewView", webviewView?.viewType, new Date().toISOString());
         this.view = webviewView;
         webviewView.webview.options = { enableScripts: true };
-        webviewView.webview.onDidReceiveMessage((message) => void this.handleMessage(message));
+        webviewView.webview.onDidReceiveMessage((message) => { console.log("[legacy] onDidReceiveMessage", message?.command || message?.type || message); return void this.handleMessage(message); });
         void this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         this.loadPanelHtml();
         webviewView.onDidChangeVisibility(() => {
@@ -4269,6 +4270,7 @@ export class RealtimeTunnelPanelProvider {
             this.postState();
     }
     async handleMessage(message) {
+        console.log("[legacy] handleMessage", message?.command, message);
         const rawCommand = stringField(message, "command");
         const command = getSafeCommand(message);
         const clientActionId = stringField(message, "clientActionId");
