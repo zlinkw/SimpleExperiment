@@ -3588,12 +3588,12 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
         await this.deployLatestAgentRuntime(false, true);
         await this.startAllXshellConnections(false, false);
-        // 修复：原 sleep(3000)+单次 testTunnel(true) 在 Xshell 隧道尚未就绪时必报 ECONNREFUSED 误报（多一个报错通知），改为轮询等待直到成功或超时
-        await sleep(3000);
+        // 优化：sleep 3000→800，首轮 testTunnel 立即执行，轮询 800ms，单次失败 2.5s 内返回（原 5s 超时串联最慢 60s）
+        await sleep(800);
         {
             const timeoutMs = 30000;
-            const intervalMs = 2000;
-            const deadline = Date.now() + (timeoutMs - 3000);
+            const intervalMs = 800;
+            const deadline = Date.now() + (timeoutMs - 800);
             let polledReady = false;
             while (Date.now() <= deadline) {
                 await this.testTunnel(false);
@@ -4679,14 +4679,19 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     private async withUiCommandStatus(clientActionId, command, message, work) {
-        this.postUiCommandStatus(clientActionId, "running", command, "running");
+        this.postUiCommandStatus(clientActionId, "running", command, "正在执行...（按钮已转圈）");
         let timer;
         const watchdogMs = this.uiCommandWatchdogMs(command);
+        const isLocalTrigger = localCommandReleasesAfterTrigger(command);
         const guardedWork = work()
-            .then(() => ({
-            status: "completed",
-            message: localCommandReleasesAfterTrigger(command) ? "已触发本地 VS Code 操作" : "completed",
-        }))
+            .then(async () => {
+            // 本地触发类（startAllConnections/testAll/snapshot）一闪而过，延长 loading 至至少 1200ms 并给出中间提示，避免无反馈
+            if (isLocalTrigger) await sleep(1200);
+            return {
+                status: "completed",
+                message: isLocalTrigger ? "已触发本地 VS Code 操作，通道建立中..." : "completed",
+            };
+        })
             .catch((error) => {
             if (isUiCommandRemotePending(error))
                 return { status: "submitted", message: errorMessage(error), remotePending: true };
@@ -4698,9 +4703,14 @@ export class RealtimeTunnelPanelProvider {
             timer = setTimeout(() => resolve({ status: "stalled", message: `本地命令 ${Math.round(watchdogMs / 1000)}s 内未结束，按钮已恢复；后台操作可能仍在继续。`, watchdog: true }), watchdogMs);
             timer.unref?.();
         });
-        const result = await Promise.race([guardedWork, timeout]);
+        const result: any = await Promise.race([guardedWork, timeout]);
         if (timer)
             clearTimeout(timer);
+        // 对本地触发类再额外保活 800ms 确保 spinner 可见（work 已含 1200ms，此处再补避免竞态瞬间闪现）
+        if (isLocalTrigger && (result as any).status === "completed") {
+            await sleep(600);
+            (result as any).message = "本地操作已触发（保持转圈 1.8s 便于观察）";
+        }
         if (result.status === "cancelled") {
             try { vscode.window.showInformationMessage(result.message || "已取消"); } catch {}
             try { this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) }); this.postState(); } catch {}
@@ -5784,11 +5794,11 @@ export class RealtimeTunnelPanelProvider {
         }
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
-        // 修复：原单次 verifyDeployedAgentRuntime 在 Agent 重启/隧道未就绪时必报 fetch failed 误报，改为 30s 超时+2s 间隔轮询，仅唯一通知（与隧道检测一致）
-        await sleep(3000);
+        // 优化：sleep 3000→800，轮询 800ms（原 2000），verify 超时 2500ms 并行，单次失败 2.5s（原 10-20s），early-break 保持
+        await sleep(800);
         const _verifyTimeoutMs = 30000;
-        const _verifyIntervalMs = 2000;
-        const _verifyDeadline = Date.now() + (_verifyTimeoutMs - 3000);
+        const _verifyIntervalMs = 800;
+        const _verifyDeadline = Date.now() + (_verifyTimeoutMs - 800);
         let verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
         let _verifyOk = verifyIssues.fatal.length === 0 && verifyIssues.warnings.length === 0;
         while (!_verifyOk && Date.now() <= _verifyDeadline) {
@@ -5907,24 +5917,24 @@ export class RealtimeTunnelPanelProvider {
                 ["cluster_agent.py", expectedFiles["cluster_agent.py"] || ""],
                 ["cluster_scheduler.py", expectedFiles["cluster_scheduler.py"] || ""],
             ];
-            for (const [name, expected] of checks) {
-                if (!expected) continue;
+            const effectiveChecks = checks.filter(([, expected]) => Boolean(expected));
+            await Promise.all(effectiveChecks.map(async ([name, expected]) => {
                 const _effectiveRuntime = (runtimeDir || `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
                 const remoteAbs = `${_effectiveRuntime}/${name}`;
                 try {
                     const controller = new AbortController();
-                    const timer = setTimeout(() => controller.abort(), 5000);
+                    const timer = setTimeout(() => controller.abort(), 2500);
                     timer.unref?.();
                     const resp = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers, signal: controller.signal });
                     clearTimeout(timer);
                     if (!resp.ok) {
                         warnings.push(`${target.label} 的 ${name}：agent 返回 HTTP ${resp.status}，无法校验`);
-                        continue;
+                        return;
                     }
                     const data: any = await resp.json();
                     if (!data || data.ok !== true) {
                         warnings.push(`${target.label} 的 ${name}：agent 拒绝校验（${data && data.error ? data.error : "未知"}）`);
-                        continue;
+                        return;
                     }
                     if (String(data.sha256).toLowerCase() !== String(expected).toLowerCase())
                         fatal.push(`${target.label} 的 ${name} 部署校验不一致：远端 sha256(${data.sha256}) 与本地(${expected}) 不同，可能部署到错误路径`);
@@ -5932,11 +5942,11 @@ export class RealtimeTunnelPanelProvider {
                 catch (error) {
                     warnings.push(`${target.label} 的 ${name}：agent 不可达，跳过校验（${error instanceof Error ? error.message : String(error)}）`);
                 }
-            }
+            }));
             try {
-                // 统一走 /api/health，兼容降级 /health 与 /api/version（worker_telemetry 曾仅暴露 /health）
+                // 统一走 /api/health，兼容降级 /health 与 /api/version（worker_telemetry 曾仅暴露 /health）；超时 2500ms（原4000），并行文件校验已提速
                 const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 4000);
+                const timer = setTimeout(() => controller.abort(), 2500);
                 timer.unref?.();
                 let resp = await fetch(`${base}/api/health`, { headers, signal: controller.signal });
                 if (!resp.ok) {
@@ -5944,7 +5954,7 @@ export class RealtimeTunnelPanelProvider {
                     // 降级 1: /health
                     try {
                         const c1 = new AbortController();
-                        const t1 = setTimeout(() => c1.abort(), 4000);
+                        const t1 = setTimeout(() => c1.abort(), 2500);
                         t1.unref?.();
                         const r1 = await fetch(`${base}/health`, { headers, signal: c1.signal });
                         clearTimeout(t1);
@@ -5952,7 +5962,7 @@ export class RealtimeTunnelPanelProvider {
                         else throw new Error(String(r1.status));
                     } catch {
                         const c2 = new AbortController();
-                        const t2 = setTimeout(() => c2.abort(), 4000);
+                        const t2 = setTimeout(() => c2.abort(), 2500);
                         t2.unref?.();
                         resp = await fetch(`${base}/api/version`, { headers, signal: c2.signal });
                         clearTimeout(t2);
