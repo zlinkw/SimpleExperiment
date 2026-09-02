@@ -2833,6 +2833,9 @@ def start_gpu_log_tail_sampler(root, poll_seconds=60, jitter_seconds=30):
     interval = sampler_interval_seconds(poll_seconds, 60.0)
     def loop():
         while True:
+            if not has_running_plan(root):
+                time.sleep(30)
+                continue
             try:
                 prefix = os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple"
                 for gid in _resolve_dynamic_gpu_ids(root):
@@ -3382,6 +3385,46 @@ def sampler_sleep_seconds(interval, jitter_seconds=30.0):
     jitter = max(0.0, float(jitter_seconds or 0.0))
     return interval + (random.random() * jitter if jitter else 0.0)
 
+def has_running_plan(root):
+    # 计划未接入时返回 False，调用方应 30s 休眠且不探活；有运行中任务/调度态时返回 True
+    try:
+        data = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), None)
+        if isinstance(data, dict):
+            tasks = data.get("tasks") if isinstance(data.get("tasks"), list) else []
+            for t in tasks:
+                if not isinstance(t, dict):
+                    continue
+                st = str(t.get("status") or "").strip().lower()
+                if st in ("running", "pending", "queued", "starting"):
+                    return True
+        for p in scheduler_state_paths(root):
+            st_data = read_runtime_json_cached(p, None)
+            if not isinstance(st_data, dict):
+                continue
+            s = str(st_data.get("status") or st_data.get("state") or st_data.get("phase") or "").strip().lower()
+            if s in ("running", "pending", "active", "executing"):
+                return True
+            for bucket in ("running_experiments", "testing_experiments", "queued_experiments", "pending_experiments"):
+                vals = st_data.get(bucket)
+                if isinstance(vals, list) and len(vals) > 0:
+                    return True
+        snap = read_runtime_json_cached(path_for(root, "cluster_snapshot.json"), None)
+        if isinstance(snap, dict):
+            states = snap.get("schedulerStates") if isinstance(snap.get("schedulerStates"), list) else []
+            for st in states:
+                if not isinstance(st, dict):
+                    continue
+                s = str(st.get("status") or st.get("state") or st.get("phase") or "").strip().lower()
+                if s in ("running", "pending", "active", "executing"):
+                    return True
+                for bucket in ("running_experiments", "testing_experiments", "queued_experiments", "pending_experiments"):
+                    vals = st.get(bucket)
+                    if isinstance(vals, list) and len(vals) > 0:
+                        return True
+    except Exception:
+        pass
+    return False
+
 def payload_cache_changed(cache, key, payload):
     if key in cache and cache[key] == payload:
         return False
@@ -3397,6 +3440,9 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
         last_payloads = {}
         last_heartbeat = 0.0
         while True:
+            if not has_running_plan(root):
+                time.sleep(30)
+                continue
             try:
                 payload = write_worker_gpu_snapshot(root)
                 # 单机 worker_telemetry 模式自刷新 worker_availability.json 避免调度停滞
