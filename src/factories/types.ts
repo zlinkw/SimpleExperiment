@@ -1,19 +1,23 @@
-// @ts-nocheck
 /**
  * Factory Infrastructure - Common Types (Phase 0+1)
- * 遵循 docs/architecture-factory-refactor-plan.md §3.1 通用基类型
- * 所有工厂共享的上下文与基接口，Composition Root 唯一组装点使用。
+ * 遵循 docs/architecture-factory-refactor-plan.md §3.1 通用基础设施
+ * 所有工厂均实现以下抽象接口，Composition Root 唯一组装使用。
  */
 
+import type * as vscode from "vscode";
+import type { ClusterStore } from "../state/ClusterStore";
+import type { OperationQueue } from "../core/OperationQueue";
+import type { RequestBudgetConfig } from "../tunnel/RequestBudget";
+
 export interface FactoryContext {
-  readonly extensionUri: unknown;
-  readonly globalState: unknown;
-  readonly workspaceState: unknown;
-  readonly secrets?: unknown;
-  readonly clusterStore?: unknown;
-  readonly operationQueue?: unknown;
-  readonly requestBudgetConfig?: unknown;
-  // 允许透传任意扩展字段，保持渐进式兼容
+  readonly extensionUri: vscode.Uri;
+  readonly globalState: vscode.Memento;
+  readonly workspaceState: vscode.Memento;
+  readonly secrets?: vscode.SecretStorage;
+  readonly clusterStore?: ClusterStore;
+  readonly operationQueue?: OperationQueue;
+  readonly requestBudgetConfig?: RequestBudgetConfig;
+  // 透传扩展字段，保持兼容
   readonly [key: string]: unknown;
 }
 

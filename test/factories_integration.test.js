@@ -210,8 +210,8 @@ test("vm.Script 校验 dist/ui/PanelHtml.js 与 dist/extension.js 通过", () =>
   }
 });
 
-// 6. 所有新文件有 // @ts-nocheck（排除 *.legacy.ts 与 *legacy.ts 归档）
-test("所有新工厂/扩展/UI 模块有 // @ts-nocheck", () => {
+// 6. 所有新文件有 // @ts-nocheck（排除 *.legacy.ts 与 *legacy.ts 归档，已类型化的 3 个工厂/UI 核心文件除外）
+test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的除外）", () => {
   const dirs = [
     path.join(srcRoot, "factories"),
     path.join(srcRoot, "extension"),
@@ -229,6 +229,11 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck", () => {
     path.join(srcRoot, "ui", "PanelTemplateEscaper.ts"),
     path.join(srcRoot, "factories", "index.ts"),
   ];
+  const typedMigrated = new Set([
+    path.join(srcRoot, "factories", "types.ts"),
+    path.join(srcRoot, "ui", "PanelTemplateEscaper.ts"),
+    path.join(srcRoot, "ui", "PanelHtmlRenderer.ts"),
+  ]);
   const allFiles = [
     ...dirs.flatMap((d) => srcFiles(d, (p) => p.endsWith(".ts") && !p.endsWith(".legacy.ts") && !p.endsWith("legacy.ts"))),
     ...extraFiles.filter((p) => fs.existsSync(p)),
@@ -237,7 +242,19 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck", () => {
   for (const file of allFiles) {
     const content = fs.readFileSync(file, "utf8");
     const firstLine = content.split("\n")[0] || "";
+    if (typedMigrated.has(file)) {
+      // 已迁移为强类型的核心工厂文件不应再有 @ts-nocheck
+      assert.doesNotMatch(firstLine, /@ts-nocheck/, `${path.relative(srcRoot, file)} 已去 @ts-nocheck（强类型）`);
+      continue;
+    }
     assert.match(firstLine, /@ts-nocheck/, `${path.relative(srcRoot, file)} 首行应有 // @ts-nocheck`);
+  }
+  // 额外校验：已迁移文件确实无 @ts-nocheck 且能通过 typecheck
+  for (const file of typedMigrated) {
+    if (fs.existsSync(file)) {
+      const content = fs.readFileSync(file, "utf8");
+      assert.equal(content.includes("@ts-nocheck"), false, `${path.relative(srcRoot, file)} 不应包含 @ts-nocheck`);
+    }
   }
 });
 
