@@ -8332,6 +8332,15 @@ function renderPanelHtml() {
       return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '">单独预演</button><label class="muted" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;" title="勾选后提交时带 --overwrite 覆盖已有产物（metrics_summary.csv / checkpoint / train.log 等），不勾选则自动跳过已完成任务；GPU 调度不受历史产物影响"><input type="checkbox" id="overwriteExistingToggle" data-overwrite-toggle="true" /> 覆盖已有产物</label><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并弹窗确认覆盖/跳过">调度前检测已有产物时弹窗确认</span></div>';
     }
 
+    function renderProjectFirstRunActions(show, planFile) {
+      if (!show || !planFile) return "";
+      const planAttr = ' data-plan-file="' + escAttr(planFile) + '"';
+      return '<div class="projectQuickNext firstRunActions"><span>首次运行</span><b>当前 Plan revision 尚无运行证据，建议先验证首个任务</b><div class="projectQuickActions">' +
+        '<button class="mini" data-command="runPlan" data-debug-mode="true" data-confirm="true"' + planAttr + ' title="只提交当前Plan 的首个任务，产物进入 Debug 独立目录，不进入正式结果…">Debug 首跑</button>' +
+        '<button class="mini secondary" data-command="runPlan" data-debug-mode="false" data-confirm="true" data-force-formal="true"' + planAttr + ' title="同步、校验并预演后提交完整正式Plan">正式运行</button>' +
+      '</div></div>';
+    }
+
     function planRunRow(label, tone, value, badge, badgeTitle) {
       return '<div class="planRunRow ' + escAttr(tone || "") + '" title="' + escAttr(label + "：" + (value || "-") + (badge ? " / " + badge : "")) + '">' +
         '<span class="planRunLabel">' + esc(label) + '</span>' +
