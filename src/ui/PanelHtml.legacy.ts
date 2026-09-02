@@ -2461,6 +2461,7 @@ export function renderPanelHtml(): string {
       const button = event.target.closest("button[data-command]");
       if (button && !button.disabled) {
         const command = button.dataset.command;
+        if (command === "prepareAgents") { console.log("[webview] prepareAgents click", { state: lastState, readiness: serverSetupReadiness(lastState), blockers: agentPreparationBlockersFromState(lastState) }); }
         const payload = payloadFromButton(button);
         const pendingKey = pendingKeyForButton(button, command, payload);
         if (!pendingButtonKeys?.has(pendingKey)) {

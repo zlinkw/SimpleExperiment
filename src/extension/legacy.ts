@@ -3564,12 +3564,15 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(`Agent 准备已阻止，尚未修改 .xsh 或部署 runtime：${preparationBlockers.join("；")}`);
         const targets = this.agentStartupTargets();
         const expectedTargets = topology.hubAllowed ? 1 + this.enabledWorkerConfigs().length : this.enabledWorkerConfigs().length;
+        console.log("[diag] prepareAgents check", { expectedTargets, sftpTargets: this.sftpSharedTargets().length, runtimeTargets: this.agentRuntimeUploadTargets().length, blockers: this.currentAgentPreparationBlockers().length });
         if (targets.length !== expectedTargets)
             throw new Error(`Agent 准备目标不完整：需要 ${expectedTargets} 个，当前 ${targets.length} 个。请检查当前拓扑内所有服务器的 Xshell 会话和项目父目录。`);
         this.assertExecutionCondaEnvReady(this.workerActionTargets());
         const availableProfileTargets = this.sftpSharedTargets().length;
-        if (availableProfileTargets < expectedTargets)
+        if (availableProfileTargets < expectedTargets) {
+            console.warn("[diag] prepareAgents sftpTargets mismatch", { expected: expectedTargets, actual: this.sftpSharedTargets().length, sftpShared: this.sftpSharedTargets().map(t=>t.id) });
             throw new Error(`当前项目 SimpleSFTP 目标不完整：需要 ${expectedTargets} 个，当前 ${availableProfileTargets} 个。请检查当前拓扑内服务器的真实传输地址、用户名和项目父目录。`);
+        }
         const runtimeTargets = this.agentRuntimeUploadTargets();
         await this.confirmRemoteWriteTargets("准备 Agent 并上传 runtime", runtimeTargets);
         const answer = await vscode.window.showWarningMessage(agentStartupWriteConfirmationDetail(targets, runtimeTargets, true), { modal: true }, "确认准备并启动");
@@ -5701,7 +5704,9 @@ export class RealtimeTunnelPanelProvider {
     }
     async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = []) {
         console.log("[diag] deployLatestAgentRuntime entry", { showMessage, pathConfirmed, serverIds });
+        console.log("[diag] prepareSftpTargets before", { serverIds });
         await this.prepareSftpTargets("deployLatestAgentRuntime", "simpleSftp.uploadFiles", serverIds);
+        console.log("[diag] prepareSftpTargets after", { transportTargets: this.sftpSharedTargets().length });
         const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), serverIds);
         if (!targets.length)
             throw new Error("没有可部署的 Hub/Worker 目标。");
