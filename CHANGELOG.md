@@ -1,3 +1,10 @@
+## 0.4.92 (2026-09-02)
+- 工厂化重构：48新文件+28 legacy归档，17 Facade，全仓 <250行，@ts-nocheck 清零
+- 修复面板加载：PanelHtml 回退、provider 导出注册、packageJSON 容错
+- 修复按钮静默：void catch、cancelled 通知、prepareAgents throw
+- 修复文件传输：HostOperationLease 重入、runtime 路径 __dirname、runDraftDebug 统一
+- 验证：build/tests/P0 双重门禁通过，手动测试通过，标记为最新可用版本
+
 ## 0.4.87
 
 - 修复 UI 渲染失败：恢复 renderDetectedProject / renderExecutionSection / renderTaskSection / handleTaskPlanScopeClick / handleTaskSelectionChange 等在精简通信矩阵/集群运行态/调度占位时误删的渲染函数，消除 ReferenceError: renderDetectedProject is not defined at renderPlanSection:6483 与 renderExecutionSection is not defined at refreshTerminalUi:2719
