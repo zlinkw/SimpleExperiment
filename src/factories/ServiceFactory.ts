@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ServiceFactory - 根抽象工厂 (Abstract Factory)
  * 聚合 TunnelFactory / RealtimeClientFactory / FeatureFactory / CommandFactory / PanelSectionFactory
@@ -17,6 +16,40 @@ import { DefaultRealtimeClientFactory } from "./RealtimeClientFactory";
 import { DefaultFeatureFactory } from "./FeatureFactory";
 import { DefaultCommandFactory } from "./CommandFactory";
 import { DefaultPanelSectionFactory } from "./PanelSectionFactory";
+
+// ---------- 强类型动态 require 访问器 ----------
+function tryRequire<T>(id: string): T | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(id) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+type ExtensionMod = {
+  RealtimeTunnelPanelProvider?: new (ctx: FactoryContext) => unknown;
+  default?: {
+    RealtimeTunnelPanelProvider?: new (ctx: FactoryContext) => unknown;
+  };
+};
+
+type LocalApiServerMod = {
+  LocalApiServer?: new (opts: unknown) => unknown;
+  LocalApiServerClass?: new (opts: unknown) => unknown;
+  default?: {
+    LocalApiServer?: new (opts: unknown) => unknown;
+    LocalApiServerClass?: new (opts: unknown) => unknown;
+  };
+};
+
+function getExtensionMod(): ExtensionMod | undefined {
+  return tryRequire<ExtensionMod>("../extension");
+}
+
+function getLocalApiServerMod(): LocalApiServerMod | undefined {
+  return tryRequire<LocalApiServerMod>("../api/LocalApiServer");
+}
 
 export interface ServiceFactory {
   readonly tunnel: TunnelFactory;
@@ -42,21 +75,21 @@ export class DefaultServiceFactory implements ServiceFactory {
     commands?: CommandFactory,
     panels?: PanelSectionFactory,
   ) {
-    this.tunnel = tunnel || new DefaultTunnelFactory();
-    this.realtime = realtime || new DefaultRealtimeClientFactory();
-    this.features = features || new DefaultFeatureFactory();
-    this.commands = commands || new DefaultCommandFactory();
-    this.panels = panels || new DefaultPanelSectionFactory();
+    this.tunnel = tunnel ?? new DefaultTunnelFactory();
+    this.realtime = realtime ?? new DefaultRealtimeClientFactory();
+    this.features = features ?? new DefaultFeatureFactory();
+    this.commands = commands ?? new DefaultCommandFactory();
+    this.panels = panels ?? new DefaultPanelSectionFactory();
   }
 
   createPanelProvider(ctx: FactoryContext): unknown {
-    try {
-      const mod = require("../extension");
-      const Cls = mod?.RealtimeTunnelPanelProvider || mod?.default?.RealtimeTunnelPanelProvider;
+    const mod = getExtensionMod();
+    if (mod) {
+      const Cls = mod.RealtimeTunnelPanelProvider ?? mod.default?.RealtimeTunnelPanelProvider;
       if (typeof Cls === "function") {
         return new Cls(ctx);
       }
-    } catch {}
+    }
     // 向后兼容：真实创建失败时回退到桩对象
     return {
       kind: "RealtimeTunnelPanelProvider",
@@ -72,20 +105,23 @@ export class DefaultServiceFactory implements ServiceFactory {
   }
 
   createLocalApiServer(ctx: FactoryContext): unknown {
-    try {
-      const mod = require("../api/LocalApiServer");
-      const Cls = mod?.LocalApiServer || mod?.default?.LocalApiServer || mod?.LocalApiServerClass;
+    const mod = getLocalApiServerMod();
+    if (mod) {
+      const Cls =
+        mod.LocalApiServer ?? mod.default?.LocalApiServer ?? mod.LocalApiServerClass ?? mod.default?.LocalApiServerClass;
       if (typeof Cls === "function") {
+        const ctxRecord = ctx as unknown as Record<string, unknown>;
+        const version = String(ctxRecord["extensionVersion"] ?? ctxRecord["version"] ?? "");
         // 尝试用 FactoryContext 中的信息启动真实 LocalApiServer，失败则回退
         return new Cls({
           name: "SimpleExperiment",
-          version: String((ctx as any)?.extensionVersion || (ctx as any)?.version || ""),
+          version,
           preferredPort: 19765,
           discoveryPath: "",
           methods: {},
         });
       }
-    } catch {}
+    }
     return {
       kind: "LocalApiServer",
       ctx,

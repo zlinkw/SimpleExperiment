@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * RealtimeClientFactory - 实时客户端工厂
  * 封装 RequestBudget / RealtimeTunnelClient / MultiEndpointRealtimeClient 的创建
@@ -7,6 +6,59 @@
  */
 
 import type { FactoryContext } from "./types";
+
+// ---------- 强类型动态 require 访问器 ----------
+function tryRequire<T>(id: string): T | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require(id) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+type TunnelGatewayMod = {
+  refreshProfiles?: Record<string, RefreshProfileConfig>;
+};
+
+type RequestBudgetMod = {
+  RequestBudget?: new (cfg: unknown) => unknown;
+  defaultRequestBudgetConfig?: unknown;
+};
+
+type RealtimeTunnelClientMod = {
+  RealtimeTunnelClient?: new (
+    endpoint: { localHost: string; localPort: number; [key: string]: unknown },
+    budget: unknown,
+    policy: RealtimeRefreshPolicy,
+    onState: (s: unknown) => void,
+  ) => unknown;
+};
+
+type MultiEndpointRealtimeClientMod = {
+  MultiEndpointRealtimeClient?: new (
+    endpoints: NamedTunnelEndpointConfig[],
+    budgetFactory: (e: NamedTunnelEndpointConfig) => unknown,
+    policy: RealtimeRefreshPolicy,
+    onState: (s: unknown) => void,
+  ) => unknown;
+};
+
+function getTunnelGateway(): TunnelGatewayMod | undefined {
+  return tryRequire<TunnelGatewayMod>("../tunnel/TunnelGateway");
+}
+
+function getRequestBudgetMod(): RequestBudgetMod | undefined {
+  return tryRequire<RequestBudgetMod>("../tunnel/RequestBudget");
+}
+
+function getSingleClientMod(): RealtimeTunnelClientMod | undefined {
+  return tryRequire<RealtimeTunnelClientMod>("../tunnel/RealtimeTunnelClient");
+}
+
+function getMultiClientMod(): MultiEndpointRealtimeClientMod | undefined {
+  return tryRequire<MultiEndpointRealtimeClientMod>("../tunnel/MultiEndpointRealtimeClient");
+}
 
 export interface NamedTunnelEndpointConfig {
   id: string;
@@ -50,10 +102,10 @@ export interface RealtimeClientFactory {
 }
 
 function resolvePolicyForProfile(profile: string): RealtimeRefreshPolicy {
-  try {
-    const gw = require("../tunnel/TunnelGateway");
-    if (gw && gw.refreshProfiles && gw.refreshProfiles[profile]) {
-      const cfg = gw.refreshProfiles[profile] as RefreshProfileConfig;
+  const gw = getTunnelGateway();
+  if (gw?.refreshProfiles) {
+    const cfg = gw.refreshProfiles[profile] as RefreshProfileConfig | undefined;
+    if (cfg) {
       return {
         mode: profile as RealtimeRefreshPolicy["mode"],
         preferWebSocket: cfg.stream,
@@ -64,7 +116,7 @@ function resolvePolicyForProfile(profile: string): RealtimeRefreshPolicy {
         pauseWhenWebviewHidden: false,
       } as RealtimeRefreshPolicy;
     }
-  } catch {}
+  }
   const isManual = profile === "manual_only";
   const isBalanced = profile === "balanced";
   return {
@@ -85,13 +137,11 @@ export class DefaultRealtimeClientFactory implements RealtimeClientFactory {
   }
 
   createBudget(endpoint: NamedTunnelEndpointConfig): unknown {
-    try {
-      const mod = require("../tunnel/RequestBudget");
-      if (mod && mod.RequestBudget) {
-        const cfg = (this.deps.requestBudgetConfig as unknown) || mod.defaultRequestBudgetConfig;
-        return new mod.RequestBudget(cfg);
-      }
-    } catch {}
+    const mod = getRequestBudgetMod();
+    if (mod?.RequestBudget) {
+      const cfg = (this.deps["requestBudgetConfig"] as unknown) ?? mod.defaultRequestBudgetConfig;
+      return new mod.RequestBudget(cfg);
+    }
     return { kind: "RequestBudget", endpointId: endpoint.id, consume: () => true, snapshot: () => ({}) };
   }
 
@@ -101,12 +151,10 @@ export class DefaultRealtimeClientFactory implements RealtimeClientFactory {
     policy: RealtimeRefreshPolicy,
     onState: (s: unknown) => void,
   ): unknown {
-    try {
-      const mod = require("../tunnel/RealtimeTunnelClient");
-      if (mod && mod.RealtimeTunnelClient) {
-        return new mod.RealtimeTunnelClient(endpoint, budget, policy, onState);
-      }
-    } catch {}
+    const mod = getSingleClientMod();
+    if (mod?.RealtimeTunnelClient) {
+      return new mod.RealtimeTunnelClient(endpoint, budget, policy, onState);
+    }
     return { kind: "RealtimeTunnelClient", endpoint, budget, policy, onState, connect: async () => undefined, dispose() {} };
   }
 
@@ -116,17 +164,16 @@ export class DefaultRealtimeClientFactory implements RealtimeClientFactory {
     policy?: RealtimeRefreshPolicy,
     onState?: (s: unknown) => void,
   ): unknown {
-    try {
-      const mod = require("../tunnel/MultiEndpointRealtimeClient");
-      if (mod && mod.MultiEndpointRealtimeClient) {
-        const effPolicy = policy || resolvePolicyForProfile("realtime");
-        return new mod.MultiEndpointRealtimeClient(endpoints, budgetFactory, effPolicy, onState || (() => undefined));
-      }
-    } catch {}
+    const mod = getMultiClientMod();
+    if (mod?.MultiEndpointRealtimeClient) {
+      const effPolicy = policy ?? resolvePolicyForProfile("realtime");
+      const handler: (s: unknown) => void = onState ?? (() => undefined);
+      return new mod.MultiEndpointRealtimeClient(endpoints, budgetFactory, effPolicy, handler);
+    }
     return {
       kind: "MultiEndpointRealtimeClient",
       endpoints,
-      policy: policy || resolvePolicyForProfile("realtime"),
+      policy: policy ?? resolvePolicyForProfile("realtime"),
       connect: async () => undefined,
       dispose() {},
     };
@@ -136,7 +183,7 @@ export class DefaultRealtimeClientFactory implements RealtimeClientFactory {
     return resolvePolicyForProfile(profile);
   }
 
-  createAll(ctx: FactoryContext): unknown[] {
+  createAll(_ctx: FactoryContext): unknown[] {
     const policy = this.policyForProfile("realtime");
     const dummyEndpoint: NamedTunnelEndpointConfig = { id: "hub", role: "hub", localHost: "127.0.0.1", localPort: 0 };
     const budget = this.createBudget(dummyEndpoint);
@@ -147,7 +194,7 @@ export class DefaultRealtimeClientFactory implements RealtimeClientFactory {
     ];
   }
 
-  createByName(name: string, ctx: FactoryContext): unknown | undefined {
+  createByName(name: string, _ctx: FactoryContext): unknown | undefined {
     const policy = this.policyForProfile("realtime");
     const dummyEndpoint: NamedTunnelEndpointConfig = { id: "hub", role: "hub", localHost: "127.0.0.1", localPort: 0 };
     const map: Record<string, () => unknown> = {
