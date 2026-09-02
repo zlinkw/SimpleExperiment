@@ -1991,7 +1991,7 @@ export function renderPanelHtml(): string {
       archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
     });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
-    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
+    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "tmux", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(RESOURCE_TREE_SECTION_ORDER);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
     const INSPECTOR_OPERATION_SECTIONS = new Set(["execution"]);
@@ -2044,8 +2044,8 @@ export function renderPanelHtml(): string {
       "publish-github": "发布 GitHub", "sync-github": "同步 GitHub", "overwrite-github": "覆盖 GitHub", "upload-project-to-hub": "上传到 Hub", "upload-project-to-workers": "上传到 Worker", "distribute-code-to-workers": "分发 Worker 代码", "deploy-latest-agent": "部署 Agent",
       "configure-sftp-ignores": "配置 SFTP 忽略", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
     });
-    const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", plans: "校验/预演", execution: "查看运行与操作", results: "解析/统计", sync: "发布/同步", diagnostics: "看诊断" });
-    const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ overview: "◌", servers: "▧", gpu: "◫", plans: "◇", execution: "▣", results: "▤", sync: "⇅", diagnostics: "⌁" });
+    const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ overview: "检查总览", servers: "保存后检测", gpu: "查看 GPU", tmux: "检查会话", plans: "校验/预演", execution: "查看运行与操作", results: "解析/统计", sync: "发布/同步", diagnostics: "看诊断" });
+    const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ overview: "◌", servers: "▧", gpu: "◫", tmux: "⬢", plans: "◇", execution: "▣", results: "▤", sync: "⇅", diagnostics: "⌁" });
     const RESOURCE_TREE_TONE_RANKS = Object.freeze({ error: 5, warn: 4, mine: 3, good: 2, info: 1 });
     const RESOURCE_TREE_TONE_HELP = Object.freeze({
       good: "绿色：当前区域状态正常或数据新鲜。",
@@ -2055,7 +2055,7 @@ export function renderPanelHtml(): string {
       mine: "紫色：当前区域包含我的任务或重点关注对象。"
     });
     const INSPECTOR_ACTION_GROUP_LABELS = Object.freeze({
-      overview: "总览", servers: "服务器", settings: "设置", gpu: "GPU", plans: "计划",
+      overview: "总览", servers: "服务器", settings: "设置", gpu: "GPU", tmux: "TMUX 会话", plans: "计划",
       execution: "运行进度", results: "结果", sync: "发布同步", diagnostics: "诊断"
     });
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
@@ -2065,7 +2065,7 @@ export function renderPanelHtml(): string {
       inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
       parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
       exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
-      uploadProjectToWorkers: "sync", distributeCodeToWorkers: "sync", deployLatestAgent: "sync", configureSftpIgnores: "sync", selfCheck: "diagnostics", createDebugBundle: "diagnostics", downloadDebugBundle: "diagnostics", openAuditTail: "diagnostics"
+      uploadProjectToWorkers: "sync", distributeCodeToWorkers: "sync", deployLatestAgent: "sync", configureSftpIgnores: "sync", fetchTmuxList: "tmux", fetchTmuxCapture: "tmux", selfCheck: "diagnostics", createDebugBundle: "diagnostics", downloadDebugBundle: "diagnostics", openAuditTail: "diagnostics"
     });
     const INSPECTOR_ACTION_PRIORITY_COMMON = new Map([["prepareAgents", 0], ["startAllConnections", 1], ["testAll", 2], ["snapshot", 3], ["pauseAll", 4]]);
     const INSPECTOR_ACTION_PRIORITY_OPERATIONS = new Map([["selfCheck", 0], ["createDebugBundle", 1], ["downloadDebugBundle", 2], ["openAuditTail", 3]]);
@@ -2077,6 +2077,7 @@ export function renderPanelHtml(): string {
       execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6], ["clearOperations", 7]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
       sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["uploadProjectToHub", 2], ["uploadProjectToWorkers", 3], ["distributeCodeToWorkers", 4], ["deployLatestAgent", 5], ["configureSftpIgnores", 6]]),
+      tmux: new Map([["fetchTmuxList", 0], ["fetchTmuxCapture", 1], ["testAll", 2]]),
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
@@ -2086,7 +2087,8 @@ export function renderPanelHtml(): string {
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
       planCheckpointRetention: "results-checkpoints", inferConfigFromRun: "results-recovery", recoverPlanFromRun: "results-recovery", diagnoseResultAnomaly: "results-anomaly", compareWithBestConfig: "results-anomaly",
       parseCaseLevel: "results-traces", runLeakageCheck: "results-traces", runSubgroupAnalysis: "results-traces", exportCaseAnalysis: "results-traces", exportPlottingContract: "results-plotting",
-      selfCheck: "diagnostics-targets", createDebugBundle: "diagnostics-json", downloadDebugBundle: "diagnostics-json", openAuditTail: "diagnostics-errors"
+      selfCheck: "diagnostics-targets", createDebugBundle: "diagnostics-json", downloadDebugBundle: "diagnostics-json", openAuditTail: "diagnostics-errors",
+      fetchTmuxList: "tmux-overview", fetchTmuxCapture: "tmux-overview"
     });
     const SYNC_COMMAND_ANCHORS = Object.freeze({ publishGithub: "sync-publish-github", syncGithub: "sync-github-push", overwriteGithub: "sync-github-overwrite", uploadProjectToHub: "sync-upload-hub", uploadProjectToWorkers: "sync-upload-workers", distributeCodeToWorkers: "sync-distribute-workers", deployLatestAgent: "sync-deploy-agent", configureSftpIgnores: "sync-sftp-ignore" });
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
@@ -5484,6 +5486,7 @@ export function renderPanelHtml(): string {
         servers: { label: "基础设施", node: withResourceTreeChildren(item("servers", "服务器管理", "服务器管理", "▦", "Hub/Worker/端口", "Hub Worker Xshell 端口 调度"), serverTreeObjects()) },
         settings: { label: "基础设施", node: withResourceTreeChildren(item("settings", "设置", "项目与服务器设置", "⚙", "结果目录、服务器、隧道与调度参数", "设置 结果 CSV 服务器 Hub Worker Xshell 端口 调度 参数"), settingsTreeObjects()) },
         gpu: { label: "资源", node: withResourceTreeChildren(item("gpu", "GPU 状态", "GPU 总览", "◫", "GPU 总览", "GPU 显卡 显存 温度 利用率 我的任务 进程"), gpuTreeObjects()) },
+        tmux: { label: "TMUX 会话", icon: RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", node: withResourceTreeChildren(item("tmux", "TMUX 会话 / 窗口 / 窗格", "TMUX 会话 / 窗口 / 窗格", RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", "会话/窗口/窗格", "tmux 会话 窗口 窗格 会话总览"), tmuxTreeObjects()) },
         plans: { label: "实验", node: withResourceTreeChildren(item("plans", "实验计划", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
         execution: { label: "执行", node: withResourceTreeChildren(item("execution", "运行进度", "调度操作与实验任务统一视图", "▣", "操作+任务/日志/终态", "任务 日志 停止 重试 删除 归档 排队 运行 操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), executionTreeObjects()) },
         results: { label: "实验", node: withResourceTreeChildren(item("results", "结果分析", "结果分析", "▤", "结果/统计/论文", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
@@ -5707,6 +5710,49 @@ export function renderPanelHtml(): string {
       return [
         treeObjectItem("gpu", "GPU 总览", "入口", "", "GPU 总览", "gpu-summary", "", "空闲 占用 我在用 高显存 高负载 GPU 显存 利用率 温度 服务器 进程 currentUser")
       ];
+    }
+
+    function tmuxTreeObjects() {
+      const out = [];
+      out.push(treeObjectItem("tmux", "会话总览", "入口", "", "TMUX 会话总览，点击刷新会话列表", "tmux-overview", "⬢", "tmux 会话总览 刷新 capture 会话 窗口 窗格"));
+      const sessions = (typeof tmuxListCache !== "undefined" && tmuxListCache && Array.isArray(tmuxListCache.sessions) && tmuxListCache.sessions.length ? tmuxListCache.sessions : null) || (typeof lastState !== "undefined" && lastState && Array.isArray(lastState.tmuxSessions) ? lastState.tmuxSessions : []);
+      if (!sessions || !sessions.length) {
+        out.push(treeObjectItem("tmux", "等待刷新", "占位", "", "尚未获取 tmux 会话，点击刷新或等待自动轮询", "tmux-waiting", "", "等待刷新 tmux"));
+        out.push(treeObjectItem("tmux", "窗口/窗格示例", "示例", "", "示例层级 NWPU3:0.0", "tmux-example-pane", "◧", "NWPU3 0.0 窗格示例"));
+      } else {
+        for (let i = 0; i < sessions.length && out.length < 10; i++) {
+          const sess = sessions[i] || {};
+          const name = String(sess.name || "session-" + i);
+          const safeName = name.replace(/[^a-zA-Z0-9_-]+/g, "-");
+          out.push(treeObjectItem("tmux", name, "会话", "", "会话 " + name, "tmux-session-" + safeName, "⬢", "tmux session " + name));
+          const wins = Array.isArray(sess.windows) ? sess.windows : [];
+          for (let wi = 0; wi < wins.length && out.length < 12; wi++) {
+            const w = wins[wi] || {};
+            const wIdx = String(w.index != null ? w.index : wi);
+            const wName = String(w.name || "");
+            const target = name + ":" + wIdx;
+            const safeTarget = target.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+            const panes = Array.isArray(w.panes) ? w.panes : [];
+            if (!panes.length) {
+              out.push(treeObjectItem("tmux", labelSafe(target, wName), "窗口", "", "窗口 " + (wName ? target + " " + wName : target), "tmux-window-" + safeTarget, "◧", "tmux window " + target));
+            } else {
+              for (let pi = 0; pi < panes.length && out.length < 12; pi++) {
+                const pane = panes[pi] || {};
+                const pIdx = String(pane.index != null ? pane.index : pi);
+                const pTarget = target + "." + pIdx;
+                const safePane = pTarget.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+                const cmd = String(pane.command || "");
+                out.push(treeObjectItem("tmux", pTarget, "窗格", "", "窗格 " + pTarget + (cmd ? " " + cmd : ""), "tmux-pane-" + safePane, "◧", "tmux pane " + pTarget + " " + cmd));
+              }
+            }
+          }
+        }
+      }
+      return out;
+    }
+
+    function labelSafe(target, wName) {
+      return wName ? target + " " + wName : target;
     }
 
     function planTreeObjects() {
@@ -5967,6 +6013,7 @@ export function renderPanelHtml(): string {
       if (section === "sync") return [object, (state.codeSync || {}).hub || "", (state.codeSync || {}).workers || "", (state.codeSync || {}).fingerprint || "", (state.health || {}).agentVersionStatus || ""];
       if (section === "operations") return [object, overviewOperationStats(state)];
       if (section === "diagnostics") return [object, state.extensionVersion || "", hasCapability(state, "endpoints.actions"), hasCapability(state, "endpoints.fileDownload"), asArray(state.actionErrors || []).length];
+      if (section === "tmux") return [object, ((tmuxListCache && tmuxListCache.sessions) || (state.tmuxSessions) || []).length, tmuxListCache && tmuxListCache.fetchedAt || ""];
       return [object, (state.health || {}).state || "", (state.realtime || {}).streamStatus || "", enabledWorkers.length, workers.length, conflicts.length];
     }
 
@@ -6095,6 +6142,12 @@ export function renderPanelHtml(): string {
           ["文件下载", hasCapability(state, "endpoints.fileDownload") ? "可用" : "待升级", "仅用于调试包或轻量文件"],
           ["错误", String(asArray(state.actionErrors || []).length), "最近 UI/action 错误数量"],
           ["目标矩阵", "可展开", "查看完成项、待验收项和真实集群烟测"]
+        ],
+        tmux: [
+          ["会话", String(((tmuxListCache && tmuxListCache.sessions) || (state.tmuxSessions) || []).length || "0"), "当前 tmux 会话数，刷新后更新"],
+          ["状态", (tmuxListCache && tmuxListCache.sessions && tmuxListCache.sessions.length ? "已列举" : "待刷新"), "是否已获取 tmux 列表"],
+          ["窗口/窗格", "见资源树", "扁平展示 NWPU3:0.0 等目标"],
+          ["刷新", tmuxListCache && tmuxListCache.fetchedAt ? String(tmuxListCache.fetchedAt).slice(0, 19) : "未刷新", "最近列举时间"]
         ]
       };
       return workbenchInspectorObjectFacts(section, meta).concat(facts[section] || facts.overview).slice(0, 8);
@@ -6125,6 +6178,7 @@ export function renderPanelHtml(): string {
       if (anchor.startsWith("server") || anchor.startsWith("servers-")) return "servers";
       if (anchor.startsWith("diagnostic") || anchor.startsWith("diagnostics-")) return "diagnostics";
       if (anchor.startsWith("gpu")) return "gpu";
+      if (anchor.startsWith("tmux")) return "tmux";
       if (section === "tasks" || section === "operations") return "execution";
       return section || "overview";
     }
@@ -6140,6 +6194,7 @@ export function renderPanelHtml(): string {
         execution: [["停止选中", "stopExperiment", { confirm: true, batch: true }], ["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
         sync: [["一键发布当前项目", "publishGithub", { confirm: true }], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
+        tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
       if (actions[actionSection]) actions[actionSection] = orderInspectorActionsByResourceTree(actionSection, actions[actionSection]);
@@ -6321,6 +6376,7 @@ export function renderPanelHtml(): string {
       if (section === "servers" && asArray(state.tunnelPortConflicts || []).length) return "warn";
       if (section === "plans") return overviewProjectReadiness(state).tone || "good";
       if (section === "results" && !asArray((state.detectedProject || {}).resultFiles || []).length) return "warn";
+      if (section === "tmux" && !(((tmuxListCache && tmuxListCache.sessions) || (state.tmuxSessions) || []).length)) return "warn";
       return "good";
     }
 
