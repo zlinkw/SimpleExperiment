@@ -3586,7 +3586,7 @@ export class RealtimeTunnelPanelProvider {
         const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
         if (blocked.length)
             throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
-        await this.deployLatestAgentRuntime(false, true);
+        await this.deployLatestAgentRuntime(true, true);
         await this.startAllXshellConnections(false, false);
         // 手动路径：立即单次检测，不 sleep/不轮询；fetch failed/ECONNREFUSED 立即抛错提示，仅自动查询才轮询
         await this.testTunnel(true);
