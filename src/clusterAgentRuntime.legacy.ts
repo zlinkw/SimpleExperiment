@@ -10173,7 +10173,7 @@ def serve_http(args):
     mode = args.mode or "hub_control"
     # Keep the worker id used for availability reporting and the worker command queue path
     # consistent with the serve --worker-id. The scheduler dispatches to and matches
-    # availability by this id (e.g. "nwpu3"); without this the agent would default to the
+    # availability by this id (e.g. "worker-id"); without this the agent would default to the
     # literal "worker", so the scheduler could never find the worker (idle=0, dispatches
     # rejected) and enqueued start-worker-task commands were written to a queue the agent
     # never reads.
@@ -10623,7 +10623,7 @@ def serve_http(args):
                 try:
                     cmd = str(payload.get("command") or payload.get("cmd") or "").strip()
                     if route == "/api/admin/kill-stale-runtime" or not cmd:
-                        kill_cmd = "tmux kill-session -t zlk-worker-nwpu3-agent 2>/dev/null || true; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(zlk-sch-|simple-gpu-)' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true; echo ok"
+                        kill_cmd = "for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^zlk-worker-.*-agent$' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(zlk-sch-|simple-gpu-)' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true; echo ok"
                         out = subprocess.run(kill_cmd, shell=True, capture_output=True, text=True, timeout=10)
                         return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "output": (out.stdout or "")[:2000], "error": (out.stderr or "")[:2000]})
                     else:

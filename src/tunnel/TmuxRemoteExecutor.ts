@@ -7,12 +7,12 @@
 import * as child_process from "child_process";
 
 export interface TmuxRemoteOptions {
-  host?: string; // 默认 NWPU3
+  host?: string; // 需由调用方按拓扑配置传入，无默认值
   target?: string; // 默认 zlk1:0.0
   timeoutMs?: number;
 }
 
-const DEFAULT_HOST = "NWPU3";
+const DEFAULT_HOST = "";
 const DEFAULT_TARGET = "zlk1:0.0";
 
 function buildTmuxRemoteCommand(target: string): string {
@@ -20,7 +20,8 @@ function buildTmuxRemoteCommand(target: string): string {
 }
 
 export function tmuxExecViaBuffer(command: string, options: TmuxRemoteOptions = {}): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const host = options.host || DEFAULT_HOST;
+  const host = String(options.host || DEFAULT_HOST).trim();
+  if (!host) throw new Error("tmux host 未配置：请按拓扑传入 worker/host 配置");
   const target = options.target || DEFAULT_TARGET;
   const remote = buildTmuxRemoteCommand(target);
   return new Promise((resolve, reject) => {
@@ -36,7 +37,7 @@ export function tmuxExecViaBuffer(command: string, options: TmuxRemoteOptions = 
   });
 }
 
-export function tmuxCapturePane(host: string = DEFAULT_HOST, target: string = DEFAULT_TARGET, lines: number = 80): Promise<string> {
+export function tmuxCapturePane(host: string, target: string = DEFAULT_TARGET, lines: number = 80): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = child_process.spawn("ssh.exe", [host, `tmux capture-pane -pt ${target} -S -${lines}`], { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
@@ -49,7 +50,7 @@ export function tmuxCapturePane(host: string = DEFAULT_HOST, target: string = DE
 }
 
 // 兼容旧调用：提供同步校验 pane 存在的 helper
-export async function assertTmuxPaneAlive(host: string = DEFAULT_HOST, target: string = DEFAULT_TARGET): Promise<void> {
+export async function assertTmuxPaneAlive(host: string, target: string = DEFAULT_TARGET): Promise<void> {
   const inspect = `tmux display-message -p -t ${target} '#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}'`;
   await new Promise<void>((resolve, reject) => {
     child_process.exec(`ssh.exe ${host} "${inspect}"`, (err, stdout) => {

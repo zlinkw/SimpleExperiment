@@ -3320,7 +3320,8 @@ export class RealtimeTunnelPanelProvider {
             }
         }
         const profileResult = await this.writeSftpManagerServerProfiles();
-        const expectedTargets = 1 + enabledWorkers.length;
+        const topology = this.projectTopologyAssessment();
+        const expectedTargets = topology.hubAllowed ? 1 + enabledWorkers.length : enabledWorkers.length;
         if (profileResult.targetCount < expectedTargets) {
             const open = await vscode.window.showWarningMessage(`服务器配置尚未形成完整的 SimpleSFTP 目标：需要 ${expectedTargets} 个，当前 ${profileResult.targetCount} 个。请检查 Hub/Worker 的 Xshell 主机、用户名和项目父目录。`, "打开服务器设置", "稍后");
             if (open === "打开服务器设置")
@@ -3587,8 +3588,30 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
         await this.deployLatestAgentRuntime(false, true);
         await this.startAllXshellConnections(false, false);
+        // 修复：原 sleep(3000)+单次 testTunnel(true) 在 Xshell 隧道尚未就绪时必报 ECONNREFUSED 误报（多一个报错通知），改为轮询等待直到成功或超时
         await sleep(3000);
-        await this.testTunnel(true);
+        {
+            const timeoutMs = 30000;
+            const intervalMs = 2000;
+            const deadline = Date.now() + (timeoutMs - 3000);
+            let polledReady = false;
+            while (Date.now() <= deadline) {
+                await this.testTunnel(false);
+                const polledCompletion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
+                if (polledCompletion.ready) {
+                    polledReady = true;
+                    break;
+                }
+                if (Date.now() + intervalMs > deadline) break;
+                await sleep(intervalMs);
+            }
+            if (!polledReady) {
+                await this.testTunnel(true);
+            } else {
+                this.postState();
+                this.showTunnelTestToast();
+            }
+        }
         const completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
         if (!completion.ready)
             throw new Error(`Agent 已部署并启动，但当前拓扑端点健康检测未通过：${completion.issues.join("；") || completion.message}。请按提示修复 Conda/Python 依赖、当前项目代码目录或端口后再次检测。`);
@@ -6051,7 +6074,7 @@ export class RealtimeTunnelPanelProvider {
             } catch {}
             // fallback via local tmux if tunnel not reachable (best-effort, ignore errors)
             try {
-                const fallbackCmd = `tmux kill-session -t zlk-worker-nwpu3-agent 2>/dev/null; tmux kill-session -t zlk-sch-run-plan 2>/dev/null; pkill -f cluster_agent 2>/dev/null; pkill -f cluster_scheduler 2>/dev/null`;
+                const fallbackCmd = `for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^zlk-worker-.*-agent$' || true); do tmux kill-session -t "$s" 2>/dev/null || true; done; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true`;
                 // no local exec needed – remote kill already attempted
             } catch {}
         }
@@ -11028,7 +11051,8 @@ export class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`已复制：${text.slice(0, 120)}${text.length > 120 ? "..." : ""}`);
     }
     async fetchTmuxCaptureFromUi(message: any) {
-        const win = String(message?.window || message?.session || message?.name || "").trim() || "zlk-worker-nwpu3-agent";
+        const fallbackWin = this.enabledWorkerConfigs()[0]?.id ? `zlk-worker-${this.enabledWorkerConfigs()[0].id}-agent` : "zlk-worker-agent";
+        const win = String(message?.window || message?.session || message?.name || "").trim() || fallbackWin;
         try {
             // 优先走 tunnel client 的通用 request，若不可用则回退为直接本机端口探测
             let result: any = null;

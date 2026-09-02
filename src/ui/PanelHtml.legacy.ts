@@ -1366,7 +1366,7 @@ export function renderPanelHtml(): string {
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
         <b style="font-size:12px;">可复制的 tmux 附着指令（当嵌入 xterm 异常时手动打开）</b>
         <div style="display:grid;gap:4px;font-family:Consolas,monospace;font-size:11px;">
-          <div>Agent 附着会话：<code id="tmuxCmdAgent">ssh qgking@NWPU3 -t "tmux attach -t zlk-worker-nwpu3-agent"</code> <button class="secondary" type="button" data-copy-target="tmuxCmdAgent">复制</button></div>
+          <div>Agent 附着会话：<code id="tmuxCmdAgent">ssh <user>@<host> -t "tmux attach -t zlk-worker-agent"</code> <button class="secondary" type="button" data-copy-target="tmuxCmdAgent">复制</button></div>
           <div>调度显示会话：<code id="tmuxCmdSch">tmux attach -t zlk-sch-&lt;opId&gt;</code> <button class="secondary" type="button" data-copy-target="tmuxCmdSch">复制</button></div>
           <div>GPU 窗口：<code id="tmuxCmdGpu">tmux attach -t simple-gpu-0</code> <button class="secondary" type="button" data-copy-target="tmuxCmdGpu">复制</button> <code>simple-gpu-0..3</code></div>
         </div>
@@ -1549,7 +1549,7 @@ export function renderPanelHtml(): string {
           const c = candidates[i];
           html += '<option value="' + escAttr(c.target) + '">' + esc(c.label + " " + c.target) + '</option>';
         }
-        if (!html) html = '<option value="zlk-worker-nwpu3-agent">zlk-worker-nwpu3-agent (fallback)</option>';
+        if (!html) html = '<option value="zlk-worker-agent">zlk-worker-agent (fallback)</option>';
         const prev = sel.value;
         sel.innerHTML = html;
         if (prev) {
@@ -1666,8 +1666,8 @@ export function renderPanelHtml(): string {
       const cands = getTmuxWindowCandidates(tmuxListCache.sessions || []);
       for (let i = 0; i < cands.length; i++) if (cands[i].active) return cands[i].target;
       if (cands.length) return cands[0].target;
-      if (tmuxListCache.sessions && tmuxListCache.sessions[0]) return (tmuxListCache.sessions[0].name || "zlk-worker-nwpu3-agent") + ":0";
-      return "zlk-worker-nwpu3-agent";
+      if (tmuxListCache.sessions && tmuxListCache.sessions[0]) return (tmuxListCache.sessions[0].name || "zlk-worker-agent") + ":0";
+      return "zlk-worker-agent";
     }
     function decodeCapturedText(raw){
       let s = String(raw || "");
