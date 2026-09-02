@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/ui/WebviewRenderState.ts - Facade (RenderState Refactor v0.4.92)
  * 瘦身门面：re-export legacy 保持兼容，新增模块见 src/ui/renderState/

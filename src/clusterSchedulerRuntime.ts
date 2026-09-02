@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/clusterSchedulerRuntime.ts - Facade
  * original 3938 lines (String.raw Python) moved to clusterSchedulerRuntime.legacy.ts

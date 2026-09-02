@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/core/HostOperationLease.ts - Facade
  * original moved to HostOperationLease.legacy.ts

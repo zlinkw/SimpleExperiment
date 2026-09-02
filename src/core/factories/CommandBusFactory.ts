@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * CommandBusFactory — CommandBus 工厂
  * 封装 CommandBus 创建与 handler 注册，支持依赖注入，保持与原 API 兼容

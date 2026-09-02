@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/syncState.ts - Facade
  * original 408 lines moved to syncState.legacy.ts

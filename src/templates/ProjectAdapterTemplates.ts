@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/templates/ProjectAdapterTemplates.ts - Facade
  * 原 880 行已迁移至 ProjectAdapterTemplates.legacy.ts

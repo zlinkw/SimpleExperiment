@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/ui/PanelHtml.ts - Facade (Factory Refactor v0.4.92)
  * 瘦身门面：委托给 PanelHtmlRenderer + PanelSectionFactory

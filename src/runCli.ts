@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-nocheck
 import { runRecordedCli } from "./cli";
 
 try {

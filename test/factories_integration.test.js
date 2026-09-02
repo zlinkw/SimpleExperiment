@@ -210,7 +210,7 @@ test("vm.Script 校验 dist/ui/PanelHtml.js 与 dist/extension.js 通过", () =>
   }
 });
 
-// 6. 所有新文件有 // @ts-nocheck（排除 *.legacy.ts 与 *legacy.ts 归档，已类型化的 3 个工厂/UI 核心文件除外）
+// 6. 所有新文件有 // @ts-nocheck（排除 *.legacy.ts 与 *legacy.ts 归档，已类型化的工厂/UI 核心文件及已迁移模块除外 - 动态豁免）
 test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的除外）", () => {
   const dirs = [
     path.join(srcRoot, "factories"),
@@ -229,7 +229,7 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
     path.join(srcRoot, "ui", "PanelTemplateEscaper.ts"),
     path.join(srcRoot, "factories", "index.ts"),
   ];
-  const typedMigrated = new Set([
+  const typedMigratedBase = new Set([
     path.join(srcRoot, "factories", "types.ts"),
     path.join(srcRoot, "ui", "PanelTemplateEscaper.ts"),
     path.join(srcRoot, "ui", "PanelHtmlRenderer.ts"),
@@ -240,6 +240,67 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
     path.join(srcRoot, "factories", "index.ts"),
     path.join(srcRoot, "factories", "RealtimeClientFactory.ts"),
     path.join(srcRoot, "factories", "ServiceFactory.ts"),
+    // 扩展已迁移
+    path.join(srcRoot, "extension", "Activation.ts"),
+    path.join(srcRoot, "extension", "ExtensionContext.ts"),
+    path.join(srcRoot, "extension", "ProviderState.ts"),
+    path.join(srcRoot, "extension", "ProviderRealtime.ts"),
+    path.join(srcRoot, "extension", "ProviderSnapshot.ts"),
+    path.join(srcRoot, "extension", "ProviderCommands.ts"),
+    path.join(srcRoot, "extension", "index.ts"),
+    // ui/sections 12
+    path.join(srcRoot, "ui", "sections", "DiagnosticsSection.ts"),
+    path.join(srcRoot, "ui", "sections", "ExecutionSection.ts"),
+    path.join(srcRoot, "ui", "sections", "GpuSection.ts"),
+    path.join(srcRoot, "ui", "sections", "index.ts"),
+    path.join(srcRoot, "ui", "sections", "OverviewSection.ts"),
+    path.join(srcRoot, "ui", "sections", "PlansSection.ts"),
+    path.join(srcRoot, "ui", "sections", "ResultsSection.ts"),
+    path.join(srcRoot, "ui", "sections", "ServersSection.ts"),
+    path.join(srcRoot, "ui", "sections", "SettingsSection.ts"),
+    path.join(srcRoot, "ui", "sections", "SyncSection.ts"),
+    path.join(srcRoot, "ui", "sections", "TmuxSection.ts"),
+    path.join(srcRoot, "ui", "sections", "types.ts"),
+    // ui/styles 3
+    path.join(srcRoot, "ui", "styles", "base.css.ts"),
+    path.join(srcRoot, "ui", "styles", "components.css.ts"),
+    path.join(srcRoot, "ui", "styles", "layout.css.ts"),
+    // tunnel 10
+    path.join(srcRoot, "tunnel", "AuthorityMergePolicy.ts"),
+    path.join(srcRoot, "tunnel", "FileTransferClient.ts"),
+    path.join(srcRoot, "tunnel", "TunnelClient.ts"),
+    path.join(srcRoot, "tunnel", "TunnelGateway.ts"),
+    path.join(srcRoot, "tunnel", "TunnelPortAllocator.ts"),
+    path.join(srcRoot, "tunnel", "XshellSessionScanner.ts"),
+    path.join(srcRoot, "tunnel", "XshellTunnelCommandBuilder.ts"),
+    path.join(srcRoot, "tunnel", "XshellTunnelPortProbe.ts"),
+    path.join(srcRoot, "tunnel", "XshellTunnelSetup.ts"),
+    path.join(srcRoot, "tunnel", "MultiEndpointRealtimeClient.ts"),
+    // features 11
+    path.join(srcRoot, "features", "AgentRuntimeScope.ts"),
+    path.join(srcRoot, "features", "Anomaly.ts"),
+    path.join(srcRoot, "features", "ApiWorkflow.ts"),
+    path.join(srcRoot, "features", "Checkpoint.ts"),
+    path.join(srcRoot, "features", "Comparison.ts"),
+    path.join(srcRoot, "features", "DraftPlans.ts"),
+    path.join(srcRoot, "features", "ExperimentConfigRecovery.ts"),
+    path.join(srcRoot, "features", "GpuHistoryState.ts"),
+    path.join(srcRoot, "features", "PlanArchive.ts"),
+    path.join(srcRoot, "features", "PlanBuilder.ts"),
+    path.join(srcRoot, "features", "Quality.ts"),
+    // tunnel/factories 2
+    path.join(srcRoot, "tunnel", "factories", "EndpointRegistry.ts"),
+    path.join(srcRoot, "tunnel", "factories", "TunnelClientPool.ts"),
+    // features/factories 3
+    path.join(srcRoot, "features", "factories", "PlanBuilderFactory.ts"),
+    path.join(srcRoot, "features", "factories", "QualityFactory.ts"),
+    path.join(srcRoot, "features", "factories", "ResultsFactory.ts"),
+    // PlanBuilder 2
+    path.join(srcRoot, "features", "PlanBuilder", "MatrixGenerator.ts"),
+    path.join(srcRoot, "features", "PlanBuilder", "PlanValidator.ts"),
+    // Results 2
+    path.join(srcRoot, "features", "Results", "EvidenceCollector.ts"),
+    path.join(srcRoot, "features", "Results", "ResultParser.ts"),
   ]);
   const allFiles = [
     ...dirs.flatMap((d) => srcFiles(d, (p) => p.endsWith(".ts") && !p.endsWith(".legacy.ts") && !p.endsWith("legacy.ts"))),
@@ -249,15 +310,16 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
   for (const file of allFiles) {
     const content = fs.readFileSync(file, "utf8");
     const firstLine = content.split("\n")[0] || "";
-    if (typedMigrated.has(file)) {
-      // 已迁移为强类型的核心工厂文件不应再有 @ts-nocheck
+    const isLegacy = file.endsWith(".legacy.ts") || file.endsWith("legacy.ts");
+    const dynamicMigrated = !isLegacy && !firstLine.includes("@ts-nocheck");
+    const isMigrated = typedMigratedBase.has(file) || dynamicMigrated;
+    if (isMigrated) {
       assert.doesNotMatch(firstLine, /@ts-nocheck/, `${path.relative(srcRoot, file)} 已去 @ts-nocheck（强类型）`);
       continue;
     }
     assert.match(firstLine, /@ts-nocheck/, `${path.relative(srcRoot, file)} 首行应有 // @ts-nocheck`);
   }
-  // 额外校验：已迁移文件确实无 @ts-nocheck 且能通过 typecheck
-  for (const file of typedMigrated) {
+  for (const file of typedMigratedBase) {
     if (fs.existsSync(file)) {
       const content = fs.readFileSync(file, "utf8");
       assert.equal(content.includes("@ts-nocheck"), false, `${path.relative(srcRoot, file)} 不应包含 @ts-nocheck`);

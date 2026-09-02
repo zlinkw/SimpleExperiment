@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/PptPlotBridge.ts - Facade
  * original 524 lines moved to PptPlotBridge.legacy.ts
