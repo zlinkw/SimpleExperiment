@@ -5732,10 +5732,27 @@ class RealtimeTunnelPanelProvider {
         }
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
-        const verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
+        // 修复：原单次 verifyDeployedAgentRuntime 在 Agent 重启/隧道未就绪时必报 fetch failed 误报，改为 30s 超时+2s 间隔轮询，仅唯一通知（与隧道检测一致）
+        await sleep(3000);
+        const _verifyTimeoutMs = 30000;
+        const _verifyIntervalMs = 2000;
+        const _verifyDeadline = Date.now() + (_verifyTimeoutMs - 3000);
+        let verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
+        let _verifyOk = verifyIssues.fatal.length === 0 && verifyIssues.warnings.length === 0;
+        while (!_verifyOk && Date.now() <= _verifyDeadline) {
+            if (verifyIssues.fatal.length)
+                break;
+            if (Date.now() + _verifyIntervalMs > _verifyDeadline)
+                break;
+            await sleep(_verifyIntervalMs);
+            verifyIssues = await this.verifyDeployedAgentRuntime(targets, manifest);
+            _verifyOk = verifyIssues.fatal.length === 0 && verifyIssues.warnings.length === 0;
+            if (_verifyOk)
+                break;
+        }
         if (verifyIssues.fatal.length)
             throw new Error(`Agent runtime 部署校验失败：${verifyIssues.fatal.join("; ")}`);
-        if (verifyIssues.warnings.length)
+        if (!_verifyOk && verifyIssues.warnings.length)
             void vscode.window.showWarningMessage(`Agent runtime 已部署，但部分目标未校验：${verifyIssues.warnings.join("；")}`);
         // 成功后对每 target 追加 fs/sha256 二次核验并透传到 remoteDetails（便于 UI 与日志核验）
         let _shaDetails = [];
