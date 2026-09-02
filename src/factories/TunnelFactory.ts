@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * src/factories/TunnelFactory.ts - Facade
  * original 298 lines moved to TunnelFactory.legacy.ts

@@ -237,6 +237,9 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
     path.join(srcRoot, "factories", "FeatureFactory.ts"),
     path.join(srcRoot, "factories", "CommandFactory.ts"),
     path.join(srcRoot, "factories", "PanelSectionFactory.ts"),
+    path.join(srcRoot, "factories", "index.ts"),
+    path.join(srcRoot, "factories", "RealtimeClientFactory.ts"),
+    path.join(srcRoot, "factories", "ServiceFactory.ts"),
   ]);
   const allFiles = [
     ...dirs.flatMap((d) => srcFiles(d, (p) => p.endsWith(".ts") && !p.endsWith(".legacy.ts") && !p.endsWith("legacy.ts"))),
@@ -305,7 +308,7 @@ test("src/factories/index.ts 聚合导出可加载", () => {
   const srcIndex = path.join(srcRoot, "factories", "index.ts");
   assert.ok(fs.existsSync(srcIndex), "src/factories/index.ts 存在");
   const content = fs.readFileSync(srcIndex, "utf8");
-  assert.match(content, /@ts-nocheck/, "index.ts 有 @ts-nocheck");
+  assert.doesNotMatch(content, /@ts-nocheck/, "index.ts 已去 @ts-nocheck（强类型）");
   assert.match(content, /export \* from ".\/ServiceFactory"/, "导出 ServiceFactory");
   assert.match(content, /export \* from ".\/TunnelFactory"/, "导出 TunnelFactory");
   // 若 dist 已编译则验证可 require
