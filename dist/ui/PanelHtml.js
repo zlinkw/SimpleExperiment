@@ -2,45 +2,53 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderPanelHtml = renderPanelHtml;
 /**
- * src/ui/PanelHtml.ts - Facade (Factory Refactor v0.4.92)
- * 瘦身门面：委托给 PanelHtmlRenderer + PanelSectionFactory
- * 原 15275 行模板已迁移至 src/ui/PanelHtml.legacy.ts
+ * src/ui/PanelHtml.ts - Facade (Factory Refactor v0.4.92) - HOTFIX
+ * 紧急回退：直接委托 legacy，确保握手 JS 完整
+ * 工厂路径仅在显式开启时使用，待 JS 补全后再切回
  */
-const PanelSectionFactory_1 = require("../factories/PanelSectionFactory");
-const PanelHtmlRenderer_1 = require("./PanelHtmlRenderer");
-const PanelTemplateEscaper_1 = require("./PanelTemplateEscaper");
-// 工厂化路径
-function renderViaFactory() {
+function renderPanelHtml() {
+    // 工厂灰度开关：仅当环境变量或全局标记显式开启时走工厂，否则直接 legacy
     try {
-        const factory = new PanelSectionFactory_1.DefaultPanelSectionFactory();
-        const sections = factory.createAll({});
-        const escaper = new PanelTemplateEscaper_1.PanelTemplateEscaper();
-        const renderer = new PanelHtmlRenderer_1.PanelHtmlRenderer(sections, escaper);
-        const html = renderer.render(String(Date.now()));
-        // vm.Script 校验
-        try {
-            new (require("vm").Script)(renderer.renderScript());
+        const useFactory = (typeof process !== "undefined" && process.env && process.env.FEATURE_FACTORY_PANEL === "1")
+            || (typeof globalThis.__panelFactoryOptIn !== "undefined" && String(globalThis.__panelFactoryOptIn) === "1");
+        if (useFactory) {
+            const { DefaultPanelSectionFactory } = require("../factories/PanelSectionFactory");
+            const { PanelHtmlRenderer } = require("./PanelHtmlRenderer");
+            const { PanelTemplateEscaper } = require("./PanelTemplateEscaper");
+            const factory = new DefaultPanelSectionFactory();
+            const sections = factory.createAll({});
+            const escaper = new PanelTemplateEscaper();
+            const renderer = new PanelHtmlRenderer(sections, escaper);
+            const html = renderer.render(String(Date.now()));
+            // 功能门禁：必须含握手三件套才视为可用，否则回退
+            if (html && html.includes("acquireVsCodeApi") && html.includes("requestInitialPanelState") && html.includes("handleIncomingWebviewMessage")) {
+                // 额外 vm 校验
+                try {
+                    new (require("vm").Script)(renderer.renderScript());
+                }
+                catch { }
+                return html;
+            }
         }
-        catch { }
-        return html;
     }
     catch (e) {
-        console.error("[PanelHtml facade] factory render failed", e);
-        return null;
+        try {
+            console.error("[PanelHtml facade] factory failed, fallback to legacy", e);
+        }
+        catch { }
     }
-}
-function renderPanelHtml() {
-    const viaFactory = renderViaFactory();
-    if (viaFactory && viaFactory.includes("<!doctype html>"))
-        return viaFactory;
-    // 回退 legacy
+    // 默认回退 legacy - 保证 958k 完整 HTML + 831k JS + 握手
     try {
         const legacy = require("./PanelHtml.legacy");
         if (legacy && typeof legacy.renderPanelHtml === "function") {
             return legacy.renderPanelHtml();
         }
     }
-    catch { }
-    // 最终兜底：返回 viaFactory 或空
-    return viaFactory || "<!doctype html><html><body>PanelHtml facade fallback</body></html>";
+    catch (e) {
+        try {
+            console.error("[PanelHtml facade] legacy failed", e);
+        }
+        catch { }
+    }
+    return "<!doctype html><html><body>PanelHtml facade fallback - please check legacy</body></html>";
 }
