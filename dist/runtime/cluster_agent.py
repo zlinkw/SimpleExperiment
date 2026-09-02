@@ -2649,7 +2649,8 @@ def _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, env, log_path):
                             _lf.write(f"[{now_iso()}] FALLBACK bootstrap via {target}: {bootstrap_line}\n")
                 except Exception:
                     pass
-                time.sleep(0.5)
+                # 新建窗口后等待 5秒让 bashrc 执行完毕（统一 5秒规则，fallback 路径亦如此）
+                time.sleep(5)
                 # 验证 session 是否已创建
                 if tmux_session_alive(session, cwd, env):
                     return True
@@ -2948,6 +2949,8 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         else:
             ctx = _build_tmux_error_context(session, proc.returncode, proc.stderr, proc.stdout, cwd, 1, env)
             raise RuntimeError(f"tmux new-session failed rc={proc.returncode} stderr={_truncate_text(err, 2000)!r} for {session!r}; cwd={str(cwd)!r}; attempts=1; {ctx}")
+    # 新建窗口后等待 5秒让 bashrc 相关脚本执行完毕，再发送 conda 激活等指令（统一 5秒规则）
+    time.sleep(5)
     # 日志直显 tmux 窗口：不再 pipe-pane tee，日志直接输出到 pane；log_path 仅用于 info 备份（FileHandler）
     if log_path:
         try:
@@ -3133,7 +3136,8 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
                 ctx = _build_tmux_error_context(gpu_window, proc_gs.returncode, proc_gs.stderr, proc_gs.stdout, cwd, attempts_gs, env)
                 raise RuntimeError(f"tmux new-session failed for gpu_window {gpu_window!r} rc={proc_gs.returncode} stderr={_truncate_text(err, 2000)!r}; cwd={str(cwd)!r}; attempts={attempts_gs}; {ctx}; blocking task dispatch")
         import time as _t
-        _t.sleep(0.2)
+        # 新建窗口后等待 5秒让 bashrc 相关脚本执行完毕，再发送 conda 激活等指令（统一 5秒规则）
+        _t.sleep(5)
     try:
         # 修复 GPU pane 无 conda：若 SIMPLE_EXPERIMENT_CONDA_ENV 是绝对路径且 $CONDA_ENV/bin/python 存在，则直接用该 python 和 PATH 包含 $CONDA_ENV/bin，不走 conda activate（兜底 conda 已清洗 PATH 的情况）
         _conda_env_name = simple_conda_env_name(env) if isinstance(env, dict) else ""
@@ -3194,6 +3198,13 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         except Exception:
             pass
         _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}"
+        # 复用窗口场景下 split-window 前同样等待 5秒，确保 bashrc 就绪后再执行含 conda 激活的指令（统一 5秒规则）
+        if _activation and _activation != "true":
+            try:
+                import time as _t_split
+                _t_split.sleep(5)
+            except Exception:
+                pass
         result = subprocess.run(["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-c", _cmd], capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
         if result.returncode != 0:
             ctx_sw = _build_tmux_error_context(gpu_window, result.returncode, result.stderr, result.stdout, cwd, 1, env)
