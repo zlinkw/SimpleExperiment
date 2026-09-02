@@ -3037,7 +3037,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                 print(f"[warn] retry _wait_tmux_ready after fallback failed for {session!r}: {_re_exc!r}", file=sys.stderr, flush=True)
                 _wait_ok = tmux_session_alive(session, cwd, env)
         if not _wait_ok:
-            # 若 session 已存在但 readiness 未通过，仍尝试继续 send-keys（后续会重试），仅当 session 完全不存在时才 Popen 兜底
+            # 若 session 已存在但 readiness 未通过，仍尝试继续 send-keys（后续会重试），仅当 session 完全不存在时直接阻断
             if tmux_session_alive(session, cwd, env):
                 print(f"[warn] _wait_tmux_ready still not ok but session alive for {session!r}, proceeding to send-keys with warn", file=sys.stderr, flush=True)
                 try:
@@ -3048,22 +3048,17 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                     pass
                 _wait_ok = True
             else:
-                # Session 仍不存在，尝试 Popen 兜底，不阻断调度
-                print(f"[warn] fallback bootstrap failed and session not alive for {session!r}, attempting Popen fallback (non-blocking)", file=sys.stderr, flush=True)
+                # Session 仍不存在，直接阻断调度并抛出详细上下文（不再 Popen 兜底）
+                print(f"[error] fallback bootstrap failed and session not alive for {session!r}, blocking task dispatch; {ctx}", file=sys.stderr, flush=True)
                 try:
                     if log_path:
                         with open(str(log_path), "a", encoding="utf-8") as _lf:
-                            _lf.write(f"[{now_iso()}] FALLBACK Popen for {session!r} due to _wait_tmux_ready failure; {ctx}\n")
+                            _lf.write(f"[{now_iso()}] ERROR _wait_tmux_ready failed for {session!r}; {ctx}; blocking dispatch\n")
                 except Exception:
                     pass
-                _popen_pid = _popen_fallback_launch(args, cwd, env, log_path, exit_code_path)
-                if _popen_pid:
-                    print(f"[info] Popen fallback succeeded pid={_popen_pid} for {session!r}", file=sys.stderr, flush=True)
-                    return _popen_pid
-                # Popen 也失败才抛错（保留原始异常信息）
                 if _wait_exc_info is not None:
-                    raise _wait_exc_info
-                raise RuntimeError(f"tmux _wait_tmux_ready timeout after 60.0s for {session!r}; cwd={str(cwd)!r}; last_capture={_truncate_text(_last_cap, 2000)!r}; {ctx}; fallback via main shell and Popen also failed")
+                    raise RuntimeError(f"tmux _wait_tmux_ready failed for {session!r}; cwd={str(cwd)!r}; last_capture={_truncate_text(_last_cap, 2000)!r}; {ctx}; fallback via main shell failed; blocking task dispatch: {_wait_exc_info!r}") from _wait_exc_info
+                raise RuntimeError(f"tmux _wait_tmux_ready timeout after 60.0s for {session!r}; cwd={str(cwd)!r}; last_capture={_truncate_text(_last_cap, 2000)!r}; {ctx}; fallback via main shell failed; blocking task dispatch")
     # Type each line, validating the send-keys return code. 宽松：失败先尝试 fallback 重建 session 并重发，仍失败则 Popen 兜底
     _send_failed_lines = []
     for line in lines:
@@ -3081,33 +3076,17 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                         continue
             _send_failed_lines.append((line, rc))
     if _send_failed_lines:
-        # 仍有失败行：尝试 Popen 兜底，不阻断调度
-        print(f"[warn] tmux send-keys still failed for {len(_send_failed_lines)} lines for {session!r}, attempting Popen fallback", file=sys.stderr, flush=True)
+        print(f"[error] tmux send-keys failed for {len(_send_failed_lines)} lines for {session!r}, blocking task dispatch", file=sys.stderr, flush=True)
         try:
             if log_path:
                 with open(str(log_path), "a", encoding="utf-8") as _lf:
-                    _lf.write(f"[{now_iso()}] WARN send-keys failed {len(_send_failed_lines)} lines for {session!r}, Popen fallback\n")
+                    _lf.write(f"[{now_iso()}] ERROR send-keys failed {len(_send_failed_lines)} lines for {session!r}; blocking dispatch\n")
                     for _fl, _rc in _send_failed_lines:
                         _lf.write(f"  failed line rc={_rc} line={_truncate_text(_fl, 300)!r}\n")
         except Exception:
             pass
-        # Popen 兜底：若 tmux session 存在但 send-keys 失败，用 Popen 补充启动（不 kill 旧 session，避免丢日志）
-        _popen_pid2 = _popen_fallback_launch(args, cwd, env, log_path, exit_code_path)
-        if _popen_pid2:
-            print(f"[info] Popen fallback after send-keys failure succeeded pid={_popen_pid2} for {session!r}", file=sys.stderr, flush=True)
-            return _popen_pid2
-        # Popen 也失败：保留原有错误上下文但仅 warn，不直接 kill 阻断（若 session 仍存活则返回 pid）
-        if tmux_session_alive(session, cwd, env):
-            print(f"[warn] Popen fallback also failed but tmux session alive for {session!r}, returning tmux pid with warn", file=sys.stderr, flush=True)
-            try:
-                if log_path:
-                    with open(str(log_path), "a", encoding="utf-8") as _lf:
-                        _lf.write(f"[{now_iso()}] WARN Popen fallback failed but session alive, returning tmux pid\n")
-            except Exception:
-                pass
-            return tmux_pane_pid(session, cwd, env) or 0
         ctx = _build_tmux_error_context(session, _send_failed_lines[0][1], "", f"send-keys failed for line={_truncate_text(_send_failed_lines[0][0], 500)!r}", cwd, 1, env)
-        raise RuntimeError(f"tmux send-keys failed rc={_send_failed_lines[0][1]} for {session!r}; line={_truncate_text(_send_failed_lines[0][0], 500)!r}; cwd={str(cwd)!r}; {ctx}; Popen fallback also failed")
+        raise RuntimeError(f"tmux send-keys failed rc={_send_failed_lines[0][1]} for {session!r}; line={_truncate_text(_send_failed_lines[0][0], 500)!r}; cwd={str(cwd)!r}; {ctx}; blocking task dispatch")
     # Mirror the experiment's stdout.log/stderr.log into a split pane so the operator can see
     # errors directly inside the tmux window (the scheduler/train output may be redirected to
     # those files by the project). Wait for the scheduler's sidecar, then tail -F both logs.
@@ -3178,7 +3157,7 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         except Exception:
             pass
         _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}"
-        result = subprocess.run(["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-lc", _cmd], capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
+        result = subprocess.run(["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-c", _cmd], capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
         if result.returncode != 0:
             ctx_sw = _build_tmux_error_context(gpu_window, result.returncode, result.stderr, result.stdout, cwd, 1, env)
             raise RuntimeError(f"tmux split-window failed for {gpu_window!r} rc={result.returncode} stderr={_truncate_text(result.stderr, 2000)!r} stdout={_truncate_text(result.stdout, 2000)!r}; cwd={str(cwd)!r}; cmd={_truncate_text(_cmd, 800)!r}; {ctx_sw}; blocking task dispatch")
