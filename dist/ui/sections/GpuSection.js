@@ -30,7 +30,7 @@ class GpuSection {
       </div>
       <div id="gpuHistoryOverview" data-anchor="gpu-history-overview"></div>
       <div id="gpuSummary" data-anchor="gpu-summary"></div>
-      <div id="gpuDenseTableWrap" class="gpuDenseTableWrap"><table id="gpuDenseTable" class="gpuDenseTable"><thead id="gpuDenseHead"></thead><tbody id="gpuDenseBody"></tbody></table></div>
+      <div id="gpuDenseTableWrap" class="gpuDenseTableWrap"><table id="gpuDenseTable" class="gpuDenseTable"><colgroup id="gpuDenseCols"></colgroup><thead id="gpuDenseHead"></thead><tbody id="gpuDenseBody"></tbody></table></div>
       <div id="gpuGrid" class="gpuServerStack" data-anchor="gpu-grid" style="display:none"></div>
     </section>`;
     }
@@ -38,7 +38,7 @@ class GpuSection {
         return `
     .gpuDenseToolbar{ display:flex; gap:6px; align-items:center; }
     .gpuDenseTableWrap{ overflow:auto; max-width:100%; border:1px solid var(--border); border-radius:6px; }
-    .gpuDenseTable{ border-collapse:collapse; width:100%; font-size:12px; }
+    .gpuDenseTable{ border-collapse:collapse; width:100%; min-width:100%; table-layout:fixed; font-size:12px; }
     .gpuDenseTable th, .gpuDenseTable td{ border:1px solid var(--border); padding:6px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
     .gpuDenseTable th{ background:var(--subtle-bg); user-select:none; cursor:pointer; }
     .gpuDenseTable th .colResizer{ position:absolute; right:0; top:0; width:6px; height:100%; cursor:col-resize; background:transparent; }
