@@ -26,7 +26,6 @@ function getSectionsMod(): SectionsMod | undefined {
 }
 
 export type SectionId =
-  | "overview"
   | "plans"
   | "results"
   | "execution"
@@ -80,7 +79,6 @@ class BaseSection implements PanelSection {
 function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 const SECTION_DEFS: ReadonlyArray<{ id: SectionId; order: number; title: string; icon: string }> = [
-  { id: "overview", order: 0, title: "总览", icon: "⌘" },
   { id: "plans", order: 1, title: "计划", icon: "📋" },
   { id: "results", order: 2, title: "结果", icon: "📊" },
   { id: "execution", order: 3, title: "执行", icon: "▶" },
@@ -153,7 +151,7 @@ export class DefaultPanelSectionFactory implements PanelSectionFactory {
     const sectionsMod = getSectionsMod();
     if (sectionsMod && typeof sectionsMod.createAllSections === "function") {
       const realSections = sectionsMod.createAllSections() as unknown[];
-      if (Array.isArray(realSections) && realSections.length >= 10) {
+      if (Array.isArray(realSections) && realSections.length >= 9) {
         const mapped = realSections.map(toPanelSection);
         // 合并 deps 定制覆盖（若有）
         const customMap = (this.deps["sections"] as Record<string, PanelSection> | undefined) || {};

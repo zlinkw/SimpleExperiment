@@ -11,8 +11,6 @@ test("inspector and workflow keep render helpers and drawer rails", () => {
   assert.match(panel, /\.communicationPathMeta \{ display: flex/);
   assert.match(panel, /\.inspectorHint \{/);
   assert.match(panel, /\.inspectorSummary \{/);
-  assert.match(panel, /function renderWorkflowStageRail\(/);
-  assert.match(panel, /function renderWorkbenchObjectStrip\(/);
   assert.match(panel, /function communicationPath\(title, tone, status, tags\)/);
   assert.match(panel, /var\(--tree-col\)/);
 });

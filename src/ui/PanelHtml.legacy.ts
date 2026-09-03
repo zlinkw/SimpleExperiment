@@ -94,117 +94,6 @@ export function renderPanelHtml(): string {
     .projectOnboardingNoticeBody b { font-size: 12px; }
     .projectOnboardingNoticeBody span { min-width: 0; color: #92400E; font-size: 11px; overflow-wrap: anywhere; }
     .projectOnboardingNotice button { flex: 0 0 auto; }
-    .workflowStageRail {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-      gap: 8px;
-      padding: 8px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      background: #F8FAFC;
-    }
-    .workflowStage {
-      position: relative;
-      min-width: 0;
-      display: grid;
-      grid-template-columns: 28px minmax(0, 1fr);
-      gap: 8px;
-      align-items: start;
-      min-height: 74px;
-      padding: 9px;
-      border: 1px solid #CBD5E1;
-      border-left: 4px solid #CBD5E1;
-      border-radius: 8px;
-      background: #FFFFFF;
-      color: #0F172A;
-    }
-    .workflowStage.good { border-left-color: #16A34A; border-color: #BBF7D0; background: #F0FDF4; }
-    .workflowStage.info { border-left-color: #2563EB; }
-    .workflowStage.warn { border-left-color: #D97706; border-color: #FDE68A; background: #FFFBEB; }
-    .workflowStage.error { border-left-color: #DC2626; border-color: #FCA5A5; background: #FEF2F2; }
-    .workflowStage.mine { border-left-color: #7C3AED; border-color: #C4B5FD; background: #F5F3FF; }
-    .workflowStageIndex {
-      width: 28px;
-      height: 28px;
-      display: inline-grid;
-      place-items: center;
-      border-radius: 999px;
-      border: 1px solid #CBD5E1;
-      background: #F8FAFC;
-      color: #475569;
-      font-size: 12px;
-      font-weight: 850;
-    }
-    .workflowStage.good .workflowStageIndex { color: #15803D; background: #DCFCE7; border-color: #BBF7D0; }
-    .workflowStage.warn .workflowStageIndex { color: #B45309; background: #FEF3C7; border-color: #FDE68A; }
-    .workflowStage.error .workflowStageIndex { color: #DC2626; background: #FEE2E2; border-color: #FCA5A5; }
-    .workflowStage.mine .workflowStageIndex { color: #6D28D9; background: #EDE9FE; border-color: #C4B5FD; }
-    .workflowStageBody { min-width: 0; display: grid; gap: 3px; }
-    .workflowStageBody b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #111827; font-size: 12px; font-weight: 850; }
-    .workflowStageBody span { color: #64748B; font-size: 11px; line-height: 1.35; }
-    .workflowStageStatus { justify-self: start; margin-top: 2px; padding: 1px 7px; border: 1px solid #CBD5E1; border-radius: 999px; background: #F8FAFC; color: #475569; font-size: 10px; font-weight: 800; }
-    .workflowStage.good .workflowStageStatus { color: #15803D; background: #DCFCE7; border-color: #BBF7D0; }
-    .workflowStage.warn .workflowStageStatus { color: #B45309; background: #FEF3C7; border-color: #FDE68A; }
-    .workflowStage.error .workflowStageStatus { color: #DC2626; background: #FEE2E2; border-color: #FCA5A5; }
-    .workflowStage.mine .workflowStageStatus { color: #6D28D9; background: #EDE9FE; border-color: #C4B5FD; }
-    .workflowCard, .featureReadinessCard, .targetMatrixCard { min-width: 0; padding: 9px; border: 1px solid #CBD5E1; border-left: 4px solid #CBD5E1; border-radius: 8px; background: #FFFFFF; color: #0F172A; }
-    .workflowCard { border-left: 4px solid #CBD5E1; }
-    .featureReadinessCard { border-left: 4px solid #CBD5E1; }
-    .targetMatrixCard { border-left: 4px solid #CBD5E1; }
-    .workflowCard.good, .featureReadinessCard.good, .targetMatrixCard.good { border-left-color: #16A34A; }
-    .workflowCard.warn, .featureReadinessCard.warn, .targetMatrixCard.warn { border-left-color: #D97706; background: #FFFBEB; }
-    .workflowCard.error, .featureReadinessCard.error, .targetMatrixCard.error { border-left-color: #DC2626; background: #FEF2F2; }
-    .workflowBlockerBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .workflowBlockerBar .pill { margin: 0; }
-    .objectStrip {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 8px;
-      padding: 8px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      background: color-mix(in srgb, var(--vscode-sideBar-background, var(--card-bg)) 88%, var(--vscode-editor-background) 12%);
-    }
-    .objectTile {
-      min-width: 0;
-      display: grid;
-      grid-template-columns: 28px minmax(0, 1fr);
-      gap: 8px;
-      align-items: center;
-      padding: 8px;
-      border: 1px solid var(--border);
-      border-left: 4px solid #94A3B8;
-      border-radius: 8px;
-      background: var(--vscode-editor-background);
-      color: var(--text);
-    }
-    .objectTile.good { border-left-color: #16A34A; }
-    .objectTile.warn { border-left-color: #D97706; background: #FFFBEB; color: #0F172A; }
-    .objectTile.error { border-left-color: #DC2626; background: #FEF2F2; color: #0F172A; }
-    .objectTile.mine { border-left-color: #7C3AED; background: #F5F3FF; color: #0F172A; border-color: #C4B5FD; }
-    .objectGlyph {
-      width: 28px;
-      height: 28px;
-      display: inline-grid;
-      place-items: center;
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      background: var(--subtle-bg);
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 850;
-    }
-    .objectTile.good .objectGlyph { color: #16A34A; background: #F0FDF4; border-color: #BBF7D0; }
-    .objectTile.warn .objectGlyph { color: #D97706; background: #FFFBEB; border-color: #FDE68A; }
-    .objectTile.error .objectGlyph { color: #DC2626; background: #FEF2F2; border-color: #FCA5A5; }
-    .objectTile.mine .objectGlyph { color: #6D28D9; background: #EDE9FE; border-color: #C4B5FD; }
-    .objectTileBody { min-width: 0; display: grid; gap: 2px; }
-    .objectTileHead { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; min-width: 0; }
-    .objectTileHead b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 850; }
-    .objectTileStatus { color: var(--muted); font-size: 11px; font-weight: 800; white-space: nowrap; }
-    .objectTile.warn .objectTileStatus { color: #B45309; }
-    .objectTile.error .objectTileStatus { color: #DC2626; }
-    .objectTile.mine .objectTileStatus { color: #6D28D9; }
     .workflowActions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }
     .workflowActions button { min-width: 0; padding: 5px 8px; font-size: 12px; }
     .section-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -560,10 +449,6 @@ export function renderPanelHtml(): string {
     body.debug-run-mode .runModeNote { color: var(--warning); }
     .workbench-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
     .workbench-summary .row { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); padding: 8px; grid-template-columns: 92px minmax(0, 1fr); }
-    .overviewOpsWorkbench { display: grid; gap: 10px; grid-column: 1 / -1; }
-    .commandCenter { display: grid; gap: 8px; padding: 10px; border: 1px solid #CBD5E1; border-radius: 10px; background: rgba(255,255,255,.9); }
-    .commandCenterHead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline; }
-    .commandCenterGrid { display: none; }
     .overviewStatusGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 8px; }
     .overviewStatusCard {
       position: relative;
@@ -975,21 +860,6 @@ export function renderPanelHtml(): string {
     .workerDenseWorker .wport { color: #0F172A; font-size: 12px; font-weight: 700; white-space: nowrap; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
-    .opsDense { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; font-size: 11px; }
-    .commandCenter.opsDense { gap: 6px; padding: 8px; }
-    .commandCenter.opsDense .objectStrip { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(118px, max-content); overflow-x: auto; gap: 6px; padding: 6px; }
-    .commandCenter.opsDense .objectTile { padding: 4px 6px; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; border-radius: 6px; }
-    .commandCenter.opsDense .objectGlyph { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; }
-    .commandCenter.opsDense .objectTileHead b { font-size: 11px; }
-    .commandCenter.opsDense .objectTileStatus { font-size: 11px; }
-    .commandCenter.opsDense .workflowStageRail { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 6px; }
-    .commandCenter.opsDense .workflowStage { min-height: 0; padding: 4px 6px; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; border-radius: 6px; }
-    .commandCenter.opsDense .workflowStageIndex { width: 22px; height: 22px; font-size: 11px; }
-    .commandCenter.opsDense .workflowStageBody { gap: 2px; }
-    .commandCenter.opsDense .workflowStageBody b { font-size: 11px; }
-    .commandCenter.opsDense .workflowStageDetail { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
-    .commandCenter.opsDense .workflowStageStatus { font-size: 10px; }
-    .commandCenter.opsDense .workflowBlockerBar { gap: 4px; }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
     .topologyHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #111827; font-size: 13px; font-weight: 850; }
     .topologyHeader span { color: #64748B; font-size: 11px; font-weight: 650; }
@@ -1252,17 +1122,6 @@ export function renderPanelHtml(): string {
     <aside id="workbenchInspector" class="workbenchInspector" aria-label="工作详情"></aside>
     <div id="pinContextMenu" class="pinContextMenu" role="menu" hidden></div>
     <div id="mainColumn" class="mainColumn" aria-label="中间状态与结果列">
-    <section class="section-card" data-section="overview" data-anchor="overview" data-title="运维总览">
-      <div class="section-head">
-        <div class="section-title">
-          <h2>运维总览</h2>
-          <div class="section-desc">连接、实时流、错误</div>
-        </div>
-      </div>
-      <div id="summary" class="workbench-summary" data-anchor="overview-status"></div>
-      <div id="opsFlow" class="ops-flow" data-anchor="overview-flow"></div>
-      <div class="muted">Xshell 本地隧道 · 127.0.0.1 · 全局服务器配置</div>
-    </section>
 
     <section class="section-card" data-section="servers" data-anchor="servers" data-title="服务器管理">
       <div class="section-head">
@@ -3136,7 +2995,6 @@ export function renderPanelHtml(): string {
       }
       if (section === "overview") {
         renderSummary(state);
-        renderOpsFlow(state);
       } else if (section === "sync") {
         renderActionSections(state);
       } else if (section === "servers") {
@@ -6510,19 +6368,6 @@ export function renderPanelHtml(): string {
       return;
     }
 
-    function renderOpsFlow(state) {
-      const target = el("opsFlow");
-      if (target) {
-        setHtmlIfChanged(target, "");
-        target.className = "ops-flow is-hidden";
-      }
-    }
-
-    function opsStep(index, title, status, desc, tone) {
-      const cls = tone === "warn" ? " status-warning" : (tone === "good" ? " status-completed" : "");
-      return '<div class="ops-step" title="' + escAttr(desc) + '"><b>' + esc(index + ". " + title) + ' <span class="' + cls + '">' + esc(status) + '</span></b><span>' + esc(desc) + '</span></div>';
-    }
-
     function renderSummary(state) {
       const health = state.health || {};
       const realtime = state.realtime || {};
@@ -6539,144 +6384,9 @@ export function renderPanelHtml(): string {
         row("最后错误", state.lastError || "-")
       ];
       if (paused) rows.splice(rows.length - 1, 0, row("网络状态", "已暂停", "status-warning"));
-      setHtmlIfChanged("summary", renderOverviewOpsWorkbench(state, rows));
+      setHtmlIfChanged("summary", '<div class="overviewLegacyRows">' + rows.join("") + '</div>');
     }
 
-    function renderCommandCenter(state, summary) {
-      return '<section id="workbenchCommandCenter" class="commandCenter opsDense" data-anchor="overview-command-center" title="工作台命令中心">' +
-        '<div class="commandCenterHead"><b>实验工作台</b><span class="muted">连接、同步、运行、结果</span></div>' +
-        '<div class="statusLegend" aria-label="状态图例"><span class="legendItem"><span class="legendDot good"></span>正常</span><span class="legendItem"><span class="legendDot info"></span>运行 / 信息</span><span class="legendItem"><span class="legendDot warn"></span>等待 / 注意</span><span class="legendItem"><span class="legendDot error"></span>异常 / 失败</span></div>' +
-        renderWorkbenchObjectStrip(state) +
-        renderWorkflowStageRail(state, summary) +
-        renderWorkflowBlockerBar(state, summary) +
-      '</section>';
-    }
-
-    function renderWorkflowStageRail(state, summary) {
-      const realtime = state.realtime || {};
-      const streamOk = statusContainsAny(realtime.streamStatus, REALTIME_CONNECTED_STATUS_PARTS);
-      const sync = overviewSyncReadiness(state);
-      const evidence = overviewResultEvidenceReadiness(state);
-      const projectReadiness = summary.projectReadiness || overviewProjectReadiness(state);
-      const automaticSyncPending = !projectReadiness.blocking && projectReadiness.status === "可提交" && !sync.ready;
-      const runGateTone = projectReadiness.blocking ? projectReadiness.tone : sync.failure ? "error" : automaticSyncPending ? "info" : projectReadiness.tone || "good";
-      const runGateStatus = projectReadiness.blocking ? projectReadiness.status : sync.failure ? "同步失败" : automaticSyncPending ? "运行时自动同步" : projectReadiness.status;
-      const runGateDetail = automaticSyncPending ? projectReadiness.detail + "；确认运行后会自动生成代码指纹，并同步 Hub 与参与 Worker。" : projectReadiness.detail;
-      const xshellPort = String(((state || {}).setup || {}).localForwardPort || "");
-      const xshellDetail = xshellPort ? ("本机只访问本地端口 " + xshellPort + "，Hub/Worker 远端访问都由 Xshell 已保存会话提供。") : "本机经 Xshell 已保存会话访问远端 Hub/Worker，本地端口按每服务器配置动态解析。";
-      const rows = [
-        ["1", "Xshell 隧道", summary.hubOk && !summary.conflicts.length ? "good" : "warn", summary.hubOk ? "可达" : "待检测", xshellDetail],
-        ["2", "实时推送", streamOk ? "good" : "warn", streamOk ? labelStatus(realtime.streamStatus) : "待连接", "Agent 通过 WebSocket/SSE 长连接推送 GPU、任务、日志和操作事件；不会用高频短轮询代替。"],
-        ["3", "运行门禁", runGateTone, runGateStatus, runGateDetail],
-        ["4", "调度执行", summary.failed ? "error" : (summary.running ? "info" : summary.queued ? "warn" : ""), summary.running ? (summary.running + " 运行") : summary.queued ? (summary.queued + " 排队") : "空闲", "Hub 只负责调度和索引；Worker 本机执行任务并推送终态，排队不受 GPU 总任务数限制。"],
-        ["5", "结果证据", evidence.tone, evidence.status, evidence.detail]
-      ];
-      return '<div class="workflowStageRail" title="工作流">' +
-        rows.map((row) => workflowStage(row[0], row[1], row[2], row[3], row[4])).join("") +
-        '</div>';
-    }
-
-    function workflowStage(index, title, tone, status, detail) {
-      const fullDetail = String(detail === undefined || detail === null ? (status || title) : detail);
-      const fullTitle = String(title || "") + "：" + String(status || "-") + "｜" + fullDetail;
-      return '<article class="workflowStage ' + escAttr(tone || "") + '" title="' + escAttr(fullTitle) + '">' +
-        '<span class="workflowStageIndex">' + esc(index) + '</span>' +
-        '<span class="workflowStageBody"><b>' + esc(title) + '</b><span class="workflowStageDetail">' + esc(compactText(fullDetail, 40)) + '</span><span class="workflowStageStatus">' + esc(status || "-") + '</span></span>' +
-        '</article>';
-    }
-
-    function workflowCard(title, tone, status, detail) {
-      return '<article class="workflowCard ' + escAttr(tone || "") + '" title="' + escAttr(detail || status || title) + '"><b>' + esc(title) + '</b><span>' + esc(status || "-") + '</span></article>';
-    }
-
-    function renderWorkflowBlockerBar(state, summary) {
-      const sync = overviewSyncReadiness(state);
-      const projectReadiness = summary.projectReadiness || overviewProjectReadiness(state);
-      const blockers = [];
-      if (!summary.hubOk) blockers.push(["待检测 Hub", "先点击检测全部，确认 Hub Agent 经 Xshell 本地端口可达。", "status-warning"]);
-      if (summary.conflicts.length) blockers.push(["端口冲突 " + summary.conflicts.length, "先修复本机端口冲突，避免 Xshell 会话覆盖同一 localPort。", "status-failed"]);
-      if (projectReadiness.blocking) blockers.push([projectReadiness.status, projectReadiness.detail, projectReadiness.tone === "error" ? "status-failed" : "status-warning"]);
-      if (sync.failure) blockers.push(["代码同步失败", "查看发布同步状态和最近操作错误；修复后可重新提交，运行流程会再次自动同步。", "status-failed"]);
-      if (summary.failed) blockers.push(["任务异常 " + summary.failed, "查看任务详情、日志和操作进度后再重试或删除。", "status-failed"]);
-      if (summary.failedOps) blockers.push(["操作异常 " + summary.failedOps, "failed/stalled 操作需要查看错误、残留和目标路径。", "status-failed"]);
-      const rows = blockers.length ? blockers : [["当前无首屏阻塞", "仍需以真实集群检测和操作进度终态为准。", "status-completed"]];
-      return '<div class="workflowBlockerBar" title="阻塞提示">' +
-        rows.map((row) => '<span class="pill ' + escAttr(row[2]) + '" title="' + escAttr(row[1]) + '">' + esc(row[0]) + '</span>').join("") +
-        '</div>';
-    }
-
-    function renderWorkbenchObjectStrip(state) {
-      const health = state.health || {};
-      const workers = enabledWorkerTunnelsForState(state);
-      const tasks = schedulerRowsForState(state);
-      const project = state.detectedProject || {};
-      const gpuStats = overviewGpuStats(state);
-      const taskStats = overviewTaskStats(state);
-      const operationStats = overviewOperationStats(state);
-      const plans = asArray(project.plans || []);
-      const resultFiles = asArray(project.resultFiles || []);
-      const claims = asArray(((state.resultSummary || {}).claimEvidencePreview || {}).claims || []);
-      const unsupportedClaims = claims.filter((row) => String(row.status || "").toLowerCase() !== "supported").length;
-      const tiles = [
-        objectTile("Hub", "H", HUB_HEALTHY_STATUS_TOKENS?.has(String(health.state || "").toLowerCase()) ? "good" : "warn", labelStatus(health.state || "待检测"), "Hub：" + labelStatus(health.state || "待检测") + " (" + String(health.state || "待检测") + ")"),
-        objectTile("Worker", "W", workers.length ? "good" : "warn", String(workers.length), opsCountTitle("Worker", String(workers.length), "", workers)),
-        objectTile("GPU", "G", gpuStats.mine ? "mine" : (gpuStats.total ? "good" : "warn"), gpuStats.total ? (gpuStats.free + "/" + gpuStats.total) : "待检测", "GPU：" + (gpuStats.total ? (gpuStats.free + "/" + gpuStats.total) : "待检测")),
-        objectTile("任务", "T", taskStats.failed ? "error" : (taskStats.running ? "good" : taskStats.queued ? "warn" : "good"), taskStats.running ? (taskStats.running + " 运行") : taskStats.queued ? (taskStats.queued + " 排队") : "空闲", "任务：" + (taskStats.running ? (taskStats.running + " 运行") : taskStats.queued ? (taskStats.queued + " 排队") : "空闲")),
-        objectTile("计划", "P", plans.length ? "good" : "warn", plans.length ? (plans.length + " 个") : "待接入", opsCountTitle("计划", plans.length ? (plans.length + " 个") : "待接入", "", plans)),
-        objectTile("结果", "R", resultFiles.length ? "good" : "warn", resultFiles.length ? (resultFiles.length + " 个") : "待解析", opsCountTitle("结果", resultFiles.length ? (resultFiles.length + " 个") : "待解析", "", resultFiles)),
-        objectTile("操作", "O", operationStats.failed ? "error" : operationStats.running ? "info" : "good", operationStats.failed ? (operationStats.failed + " 失败") : operationStats.running ? (operationStats.running + " 进行中") : "空闲", "操作：" + (operationStats.failed ? (operationStats.failed + " 失败") : operationStats.running ? (operationStats.running + " 进行中") : "空闲"))
-      ];
-      return '<div class="objectStrip" title="对象状态">' + tiles.join("") + '</div>';
-    }
-
-    function opsItemName(item) {
-      if (item === undefined || item === null) return "";
-      if (typeof item === "string") return item;
-      return String(item.displayName || item.name || item.title || item.path || item.file || item.id || "");
-    }
-    function opsTopNames(items, limit) {
-      const names = asArray(items).map(opsItemName).filter(Boolean);
-      const top = names.slice(0, Math.max(1, Number(limit) || 3));
-      const omitted = Math.max(0, names.length - top.length);
-      return { top: top, omitted: omitted, total: names.length };
-    }
-    function opsCountTitle(label, statusText, rawText, items) {
-      const info = opsTopNames(items, 3);
-      let title = String(label || "") + "：" + String(statusText || "-");
-      if (rawText && String(rawText) !== String(statusText)) title += " (" + String(rawText) + ")";
-      if (info.total) title += "｜" + info.top.join("、") + (info.omitted ? "…等共" + info.total + "个" : "");
-      return title;
-    }
-    function objectTile(label, glyph, tone, status, hint) {
-      const title = hint ? String(hint) : (String(label || "") + "：" + String(status || "-"));
-      return '<article class="objectTile ' + escAttr(tone || "") + '" title="' + escAttr(title) + '">' +
-        '<span class="objectGlyph" aria-hidden="true">' + esc(glyph) + '</span>' +
-        '<span class="objectTileBody"><span class="objectTileHead"><b>' + esc(label) + '</b><span class="objectTileStatus">' + esc(status || "-") + '</span></span></span>' +
-      '</article>';
-    }
-
-    function renderOverviewOpsWorkbench(state, legacyRows) {
-      const workflowSummary = { hubOk: false, conflicts: [], projectReadiness: overviewProjectReadiness(state), running: 0, queued: 0, failed: 0, failedOps: 0 };
-      try {
-        const health = state.health || {};
-        const setup = state.setup || {};
-        const conflicts = asArray(state.tunnelPortConflicts || []);
-        const hubOk = HUB_HEALTHY_STATUS_TOKENS?.has(String(health.state || "").toLowerCase());
-        const taskStats = overviewTaskStats(state);
-        const operationStats = overviewOperationStats(state);
-        workflowSummary.hubOk = hubOk;
-        workflowSummary.conflicts = conflicts;
-        workflowSummary.running = taskStats.running;
-        workflowSummary.queued = taskStats.queued;
-        workflowSummary.failed = taskStats.failed;
-        workflowSummary.failedOps = operationStats.failed;
-        workflowSummary.projectReadiness = overviewProjectReadiness(state);
-      } catch (_) {}
-      return '<div class="overviewOpsWorkbench" title="运维总览">' +
-        renderCommandCenter(state, workflowSummary) +
-        '<details class="advanced"><summary>基础摘要</summary><div class="overviewLegacyRows">' + legacyRows.join("") + '</div></details>' +
-      '</div>';
-    }
     function statusContainsAny(value, parts) {
       const text = String(value || "").toLowerCase();
       return parts.some((part) => text.includes(part));

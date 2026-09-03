@@ -60,7 +60,7 @@ test("project readiness reuses one derivation per Webview state object", () => {
 });
 
 test("overview consumers share cached project readiness", () => {
-  for (const name of ["compactOverviewProjectReadinessForSignature", "renderWorkflowStageRail", "renderWorkflowBlockerBar", "renderOverviewOpsWorkbench"]) {
+  for (const name of ["compactOverviewProjectReadinessForSignature"]) {
     assert.match(extractFunction(name), /overviewProjectReadiness\(/, name);
   }
 });

@@ -101,19 +101,4 @@ test("overview operation stats cover active failure and completed statuses", () 
   assert.doesNotMatch(extractFunction("operationIsFailureLike"), /return \[/);
 });
 
-test("overview operation surfaces use real counts and declare their runtime dependency", () => {
-  const overviewStart = panel.indexOf("function renderOverviewOpsWorkbench(");
-  const overviewEnd = panel.indexOf("function renderClusterRuntimeOverview(", overviewStart);
-  const overview = panel.slice(overviewStart, overviewEnd);
-  assert.match(overview, /const operationStats = overviewOperationStats\(state\);/);
-  assert.match(overview, /failedOps: operationStats\.failed/);
-  assert.match(panel, /overviewStatusCard\("操作进度", operationStats\.failed \? "error"/);
-  assert.match(panel, /objectTile\("操作", "O", operationStats\.failed \? "error"/);
-  assert.match(panel, /\["进行中", String\(operationStats\.running\)/);
-  assert.match(panel, /\["失败", String\(operationStats\.failed\)/);
-  assert.match(panel, /\["已完成", String\(operationStats\.completed\)/);
-  assert.match(panel, /operationTypeLabel\(operationStats\.latestType/);
-  assert.match(panel, /function operationTypeLabel\(type\)/);
-  assert.match(panel, /operationIsFailureLike\(status\) \? "is-failed"/);
-  assert.doesNotMatch(panel, /overviewStatusCard\("操作进度", "", "查看专区"/);
-});
+// (提交一) 运维总览已删除: renderOverviewOpsWorkbench 切片断言随之移除; operation 通用断言保留在前两个用例。

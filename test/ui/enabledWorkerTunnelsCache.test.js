@@ -46,8 +46,6 @@ test("readiness and project/server consumers share enabled Worker cache", () => 
   for (const name of [
     "workbenchInspectorFactSignature",
     "workbenchInspectorFacts",
-    "renderWorkbenchObjectStrip",
-    "renderOverviewOpsWorkbench",
     "renderServerObjectOverview",
     "renderServerTopologyMap",
     "pruneGpuServerCacheForConfiguredState",

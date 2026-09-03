@@ -13,7 +13,6 @@ const liveFns = [
   "renderTaskTable",
   "renderTaskProgressCard",
   "renderTaskCard",
-  "renderOverviewOpsWorkbench",
   "renderPlanRunWorkbench",
   "renderSectionIfVisible",
   "renderResourceTree",

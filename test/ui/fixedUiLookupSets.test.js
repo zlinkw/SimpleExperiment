@@ -87,8 +87,6 @@ test("Hub health summaries reuse composed status sets", () => {
   assert.match(panel, /const OVERVIEW_HEALTHY_STATUS_TOKENS = new Set\(\[\.\.\.HUB_HEALTHY_STATUS_TOKENS, "online"\]\)/);
   assert.match(panel, /const HUB_OPERATION_READY_STATUS_TOKENS = new Set\(\[\.\.\.HUB_HEALTHY_STATUS_TOKENS, "file_api_unavailable"\]\)/);
   assert.match(extractFunction("overviewHealthText"), /OVERVIEW_HEALTHY_STATUS_TOKENS\.has\(health\)/);
-  assert.match(extractFunction("renderWorkbenchObjectStrip"), /HUB_HEALTHY_STATUS_TOKENS\.has\(/);
-  assert.match(extractFunction("renderOverviewOpsWorkbench"), /HUB_HEALTHY_STATUS_TOKENS\.has\(/);
   assert.match(extractFunction("projectEndpointReadiness"), /HUB_OPERATION_READY_STATUS_TOKENS\.has\(hubStatus\)/);
 });
 
@@ -152,12 +150,8 @@ test("overview status predicates reuse immutable substring tokens", () => {
   assert.equal(sandbox.api.statusContainsAny("offline", sandbox.api.worker), false);
   assert.equal(sandbox.api.statusContainsAny("unreachable", sandbox.api.worker), false);
 
-  assert.match(extractFunction("renderWorkflowStageRail"), /statusContainsAny\(realtime\.streamStatus, REALTIME_CONNECTED_STATUS_PARTS\)/);
   assert.match(extractFunction("renderClusterRuntimeOverview"), /statusContainsAny\(realtime\.streamStatus, REALTIME_CONNECTED_STATUS_PARTS\)/);
-  const overview = extractFunction("renderOverviewOpsWorkbench");
-  assert.match(overview, /statusContainsAny\(item\.status, WORKER_AVAILABLE_STATUS_PARTS\)/);
-  assert.match(overview, /statusContainsAny\(streamStatus, REALTIME_CONNECTED_STATUS_PARTS\)/);
-  assert.doesNotMatch([overview, extractFunction("renderWorkflowStageRail"), extractFunction("renderClusterRuntimeOverview")].join("\n"), /\["websocket", "sse", "connected"\]/);
+  assert.doesNotMatch(extractFunction("renderClusterRuntimeOverview"), /\["websocket", "sse", "connected"\]/);
 });
 
 test("remote action boundaries reuse fixed health and topology sets", () => {

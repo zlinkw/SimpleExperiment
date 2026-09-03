@@ -3,7 +3,6 @@
  * 供 PanelHtmlRenderer 聚合使用，保持与 PanelSectionFactory 兼容
  */
 import type { Section } from "./types";
-import { OverviewSection } from "./OverviewSection";
 import { ServersSection } from "./ServersSection";
 import { PlansSection } from "./PlansSection";
 import { ResultsSection } from "./ResultsSection";
@@ -15,7 +14,6 @@ import { SettingsSection } from "./SettingsSection";
 import { DiagnosticsSection } from "./DiagnosticsSection";
 
 export type { Section } from "./types";
-export { OverviewSection } from "./OverviewSection";
 export { ServersSection } from "./ServersSection";
 export { PlansSection } from "./PlansSection";
 export { ResultsSection } from "./ResultsSection";
@@ -28,7 +26,6 @@ export { DiagnosticsSection } from "./DiagnosticsSection";
 
 export function createAllSections(): Section[] {
   const sections: Section[] = [
-    new OverviewSection(),
     new ServersSection(),
     new SettingsSection(),
     new PlansSection(),
@@ -61,4 +58,4 @@ export function toPanelSections(sections: Section[]): import("../../factories/Pa
   }));
 }
 
-export const allSectionIds = ["overview","servers","settings","plans","results","sync","gpu","tmux","execution","diagnostics"] as const;
+export const allSectionIds = ["servers","settings","plans","results","sync","gpu","tmux","execution","diagnostics"] as const;
