@@ -48,7 +48,6 @@ const SECTION_DEFS = [
     { id: "servers", order: 4, title: "服务器", icon: "🖥" },
     { id: "settings", order: 5, title: "设置", icon: "⚙" },
     { id: "gpu", order: 6, title: "GPU", icon: "🎮" },
-    { id: "sync", order: 7, title: "同步", icon: "🔄" },
     { id: "diagnostics", order: 8, title: "诊断", icon: "🩺" },
     { id: "operations", order: 9, title: "操作", icon: "⚡" },
 ];
@@ -103,7 +102,7 @@ class DefaultPanelSectionFactory {
         const sectionsMod = getSectionsMod();
         if (sectionsMod && typeof sectionsMod.createAllSections === "function") {
             const realSections = sectionsMod.createAllSections();
-            if (Array.isArray(realSections) && realSections.length >= 9) {
+            if (Array.isArray(realSections) && realSections.length >= 8) {
                 const mapped = realSections.map(toPanelSection);
                 // 合并 deps 定制覆盖（若有）
                 const customMap = this.deps["sections"] || {};

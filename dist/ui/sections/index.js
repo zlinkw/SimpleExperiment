@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allSectionIds = exports.DiagnosticsSection = exports.SettingsSection = exports.TmuxSection = exports.SyncSection = exports.GpuSection = exports.ExecutionSection = exports.ResultsSection = exports.PlansSection = exports.ServersSection = void 0;
+exports.allSectionIds = exports.DiagnosticsSection = exports.SettingsSection = exports.TmuxSection = exports.GpuSection = exports.ExecutionSection = exports.ResultsSection = exports.PlansSection = exports.ServersSection = void 0;
 exports.createAllSections = createAllSections;
 exports.createSectionById = createSectionById;
 exports.toPanelSections = toPanelSections;
@@ -9,7 +9,6 @@ const PlansSection_1 = require("./PlansSection");
 const ResultsSection_1 = require("./ResultsSection");
 const ExecutionSection_1 = require("./ExecutionSection");
 const GpuSection_1 = require("./GpuSection");
-const SyncSection_1 = require("./SyncSection");
 const TmuxSection_1 = require("./TmuxSection");
 const SettingsSection_1 = require("./SettingsSection");
 const DiagnosticsSection_1 = require("./DiagnosticsSection");
@@ -23,8 +22,6 @@ var ExecutionSection_2 = require("./ExecutionSection");
 Object.defineProperty(exports, "ExecutionSection", { enumerable: true, get: function () { return ExecutionSection_2.ExecutionSection; } });
 var GpuSection_2 = require("./GpuSection");
 Object.defineProperty(exports, "GpuSection", { enumerable: true, get: function () { return GpuSection_2.GpuSection; } });
-var SyncSection_2 = require("./SyncSection");
-Object.defineProperty(exports, "SyncSection", { enumerable: true, get: function () { return SyncSection_2.SyncSection; } });
 var TmuxSection_2 = require("./TmuxSection");
 Object.defineProperty(exports, "TmuxSection", { enumerable: true, get: function () { return TmuxSection_2.TmuxSection; } });
 var SettingsSection_2 = require("./SettingsSection");
@@ -37,7 +34,6 @@ function createAllSections() {
         new SettingsSection_1.SettingsSection(),
         new PlansSection_1.PlansSection(),
         new ResultsSection_1.ResultsSection(),
-        new SyncSection_1.SyncSection(),
         new GpuSection_1.GpuSection(),
         new TmuxSection_1.TmuxSection(),
         new ExecutionSection_1.ExecutionSection(),
@@ -62,4 +58,4 @@ function toPanelSections(sections) {
         renderScript: () => s.renderScript(),
     }));
 }
-exports.allSectionIds = ["servers", "settings", "plans", "results", "sync", "gpu", "tmux", "execution", "diagnostics"];
+exports.allSectionIds = ["servers", "settings", "plans", "results", "gpu", "tmux", "execution", "diagnostics"];
