@@ -2377,6 +2377,7 @@ function renderPanelHtml() {
               if (item && Date.now() - Number(item.startedAt || 0) >= 45000) {
                 item.status = "stalled";
                 item.message = "UI command timed out waiting for terminal status";
+                try { if (typeof showToast === "function") showToast("命令已卡住（stalled）：后台可能仍在继续，可在操作进度查看", "warning"); } catch (e) {}
                 delete pendingActions[pendingKey];
                 delete pendingActionsById[clientActionId];
                 clearPendingActionTimeout(clientActionId);
@@ -4058,6 +4059,9 @@ function renderPanelHtml() {
       }
       if (isTerminalUiStatus(data.status)) {
         if (String(data.status).toLowerCase() === "completed") clearConfigDraftsForCommand(data.command, item || {});
+        if (String(data.status).toLowerCase() === "stalled") {
+          try { if (typeof showToast === "function") showToast("命令已卡住（stalled）：" + String(data.message || "后台可能仍在继续，可在操作进度查看").slice(0, 120), "warning"); } catch (e) {}
+        }
         if (pendingKey) {
           delete pendingActions[pendingKey];
           pendingButtonKeys.delete(pendingKey);
@@ -12573,7 +12577,7 @@ function renderPanelHtml() {
       } else {
         const error = redact(errorRaw);
         if (error && error !== "-" && (!shown || (shown !== error && !shown.includes(error)))) {
-          parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span></div>');
+          parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span><button class="mini secondary" data-section-target="diagnostics" data-anchor-target="diagnostics-errors" title="跳转到诊断错误查看持久化错误行">诊断错误</button></div>');
         }
       }
       if (!parts.length) {
@@ -13865,6 +13869,7 @@ function renderPanelHtml() {
         '<span class="errorRowTime status-failed">' + esc(row.timestamp || "-") + '</span>' +
         '<span class="errorRowMessage status-failed">' + esc(row.message || "未知错误") + '</span>' +
         '<span class="errorRowSuggestion" title="' + escAttr(suggestion) + '">下一步：' + esc(compactText(suggestion, 160)) + '</span>' +
+        '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳转到操作进度查看后台真实终态">操作进度</button><button class="mini secondary" data-section-target="execution" data-anchor-target="execution-failed" title="跳转到异常操作查看失败与卡住的操作">异常操作</button></span>' +
       '</div>';
     }
 

@@ -4665,11 +4665,41 @@ class RealtimeTunnelPanelProvider {
         }
         this.postUiCommandStatus(clientActionId, result.status, command, result.message);
         if (result.status === "stalled" && result.watchdog && !result.remotePending) {
+            try {
+                this.recordActionError({ command, message: result.message, suggestion: `${actionErrorSuggestion(result.message)} 可在“操作进度 / 诊断错误”查看后台真实终态。` });
+            }
+            catch { }
+            try {
+                this.postState();
+            }
+            catch { }
+            try {
+                void vscode.window.showWarningMessage(`${command} 已卡住：${result.message} 查看详情：操作进度 / 诊断错误`, "查看操作进度").then((pick) => {
+                    if (pick === "查看操作进度" && this.view) {
+                        try {
+                            void this.view.webview.postMessage({ type: "navigate", section: "execution", anchor: "execution-operations" });
+                        }
+                        catch { }
+                    }
+                });
+            }
+            catch { }
             void guardedWork.then((lateResult) => {
                 const message = `后台真实终态：${lateResult.message}`;
                 if (lateResult.status === "failed") {
                     this.recordActionError({ command, message: lateResult.message, suggestion: actionErrorSuggestion(lateResult.message) });
                     this.postState();
+                    try {
+                        void vscode.window.showWarningMessage(`${command} 后台失败：${lateResult.message} 查看详情：操作进度 / 诊断错误`, "查看操作进度").then((pick) => {
+                            if (pick === "查看操作进度" && this.view) {
+                                try {
+                                    void this.view.webview.postMessage({ type: "navigate", section: "execution", anchor: "execution-operations" });
+                                }
+                                catch { }
+                            }
+                        });
+                    }
+                    catch { }
                 }
                 this.postUiCommandStatus(clientActionId, lateResult.status, command, message);
             });
@@ -4969,29 +4999,77 @@ class RealtimeTunnelPanelProvider {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const prefix = String(label || "当前计划").trim() || "当前计划";
         const workerId = this.planSchedulerWorkerId(body);
-        const validate = await this.postPlanSchedulerAction("validate-plan", body, {
-            title: `${prefix}：校验`,
-            requiresCapability: ["endpoints.actions", "actions.validate-plan"],
-            ...authority,
-        });
-        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
-        const validated = remoteActionPendingStatus(resultStatus(validate))
-            ? await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId, authority)
-            : validate;
-        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
-        if (!validated)
-            return false;
-        const preview = await this.postPlanSchedulerAction("dry-run-plan", body, {
-            title: `${prefix}：预演`,
-            requiresCapability: ["endpoints.actions", "actions.dry-run-plan"],
-            ...authority,
-        });
-        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
-        const previewed = remoteActionPendingStatus(resultStatus(preview))
-            ? await this.waitForOperationTerminalResult("dry-run-plan", preview, `${prefix}：预演`, 45_000, workerId, authority)
-            : preview;
-        this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
-        return Boolean(previewed);
+        const worker = workerId ? this.enabledWorkerConfigs().find((item) => item.id === workerId) : undefined;
+        const serverLabel = worker ? (worker.displayName || worker.id) : (workerId || "默认调度");
+        const planKey = String(body?.planFile || body?.plan || body?.selectedPlanId || body?.options?.planFile || body?.options?.plan || body?.options?.selectedPlanId || "").trim() || "-";
+        const clipOutput = (value) => {
+            const text = String(value ?? "").trim();
+            if (!text)
+                return "-";
+            return text.length > 200 ? `${text.slice(0, 200)}…(${text.length}字符)` : text;
+        };
+        const failPreflight = (check, rawMessage, output) => {
+            const message = `${prefix}${check}失败：服务器 ${serverLabel} · 计划 ${planKey} · 输出 ${clipOutput(output ?? rawMessage)}`;
+            try {
+                this.recordActionError({ command: "runPlanPreflight", message, suggestion: `${actionErrorSuggestion(String(rawMessage || message))} 可在“操作进度 / 诊断错误”查看完整输出。` });
+            }
+            catch { }
+            try {
+                this.postState();
+            }
+            catch { }
+            try {
+                void vscode.window.showWarningMessage(`${message} 查看详情：操作进度 / 诊断错误`, "查看操作进度").then((pick) => {
+                    if (pick === "查看操作进度" && this.view) {
+                        try {
+                            void this.view.webview.postMessage({ type: "navigate", section: "execution", anchor: "execution-operations" });
+                        }
+                        catch { }
+                    }
+                });
+            }
+            catch { }
+            return message;
+        };
+        let check = "校验(validate-plan)";
+        try {
+            const validate = await this.postPlanSchedulerAction("validate-plan", body, {
+                title: `${prefix}：校验`,
+                requiresCapability: ["endpoints.actions", "actions.validate-plan"],
+                ...authority,
+            });
+            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
+            const validated = remoteActionPendingStatus(resultStatus(validate))
+                ? await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId, authority)
+                : validate;
+            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
+            if (!validated) {
+                failPreflight(check, "校验未返回终态", "-");
+                return false;
+            }
+            check = "预演(dry-run-plan)";
+            const preview = await this.postPlanSchedulerAction("dry-run-plan", body, {
+                title: `${prefix}：预演`,
+                requiresCapability: ["endpoints.actions", "actions.dry-run-plan"],
+                ...authority,
+            });
+            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
+            const previewed = remoteActionPendingStatus(resultStatus(preview))
+                ? await this.waitForOperationTerminalResult("dry-run-plan", preview, `${prefix}：预演`, 45_000, workerId, authority)
+                : preview;
+            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
+            if (!previewed) {
+                failPreflight(check, "预演未返回终态", "-");
+                return false;
+            }
+            return Boolean(previewed);
+        }
+        catch (error) {
+            if (isUiCommandCancelled(error) || isUiCommandRemotePending(error))
+                throw error;
+            const raw = errorMessage(error);
+            throw new Error(failPreflight(check, raw, raw));
+        }
     }
     async detectLocalExistingOutputs(plan, body) {
         const root = workspaceRoot();
