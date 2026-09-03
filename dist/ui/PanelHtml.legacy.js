@@ -59,6 +59,9 @@ function renderPanelHtml() {
     .summaryLink:hover, .summaryLink:focus-visible { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground, var(--text)); outline: none; }
     button { max-width: 100%; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 1px solid var(--vscode-button-background); padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; line-height: 1.25; text-align: center; white-space: normal; overflow-wrap: anywhere; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: transparent; border-color: var(--border); }
+    button.danger-filled { color: #FFFFFF; background: #DC2626; border-color: #DC2626; font-weight: 700; }
+    button.danger-filled:hover { background: #B91C1C; border-color: #B91C1C; }
+    button.danger-filled:disabled { opacity: .45; cursor: not-allowed; }
     button:disabled { opacity: .45; cursor: not-allowed; }
     button.is-loading { opacity: .72; cursor: wait; }
     .loading-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 999px; display: inline-block; flex: 0 0 auto; animation: simple-spin .75s linear infinite; }
@@ -832,6 +835,15 @@ function renderPanelHtml() {
     .workerDenseWorker code.tbUrl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: anywhere; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
+    .runtimeEnvOverview { display: grid; gap: 8px; padding: 10px; border: 1px solid hsl(330 80% 72%); border-left: 4px solid hsl(330 85% 55%); border-radius: 8px; background: hsl(330 85% 95%); }
+    .runtimeEnvHead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: #831843; font-size: 12px; font-weight: 800; }
+    .runtimeEnvHead .sub { color: #9D174D; font-size: 11px; font-weight: 600; }
+    .runtimeEnvOverview .pill { background: hsl(25 95% 90%); border-color: hsl(25 90% 65%); color: #7C2D12; }
+    .runtimeEnvTableWrap { overflow: auto; max-width: 100%; border: 1px solid hsl(330 40% 80%); border-radius: 6px; background: #FFF7ED; }
+    .runtimeEnvTable { border-collapse: collapse; width: 100%; min-width: 100%; table-layout: fixed; font-size: 12px; }
+    .runtimeEnvTable th, .runtimeEnvTable td { border: 1px solid hsl(330 40% 80%); padding: 6px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .runtimeEnvTable th { background: hsl(330 70% 88%); color: #831843; }
+    .runtimeEnvTable tbody tr:hover { filter: brightness(0.97); }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
     .topologyHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #111827; font-size: 13px; font-weight: 850; }
     .topologyHeader span { color: #64748B; font-size: 11px; font-weight: 650; }
@@ -1216,11 +1228,10 @@ function renderPanelHtml() {
           <button type="button" data-command="prepareAgents" title="第1步先部署：上传最新版 Agent 到全部服务器 runtime，无需隧道在线">1 部署Agent</button>
           <button type="button" data-command="startAll" class="secondary" title="第1步连隧道：启动全部 Xshell 隧道，建立本机到服务器的端口转发">2 启动全部隧道</button>
           <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">3 一键上传到所有服务器</button>
-          <button type="button" class="secondary" data-command="overwriteGithub" data-danger="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
           <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">4 检测全部</button>
-          <button type="button" data-command="addWorkerConfig" class="secondary" title="新增一台服务器：在设置区填写地址与端口后保存">新增服务器</button>
+          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">5 从 GitHub 覆盖本机</button>
         </div>
-        <div class="muted">隧道端口等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
+        <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
 
         <section class="section-card" data-section="gpu" data-anchor="gpu" data-title="GPU 状态">
@@ -1985,7 +1996,7 @@ function renderPanelHtml() {
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
       execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6], ["clearOperations", 7]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
-      sync: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["testAll", 4], ["publishGithub", 5], ["syncGithub", 6], ["overwriteGithub", 7], ["uploadProjectToHub", 8], ["uploadProjectToWorkers", 9], ["distributeCodeToWorkers", 10], ["deployLatestAgent", 11], ["configureSftpIgnores", 12]]),
+      sync: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["publishGithub", 4], ["testAll", 5], ["syncGithub", 6], ["overwriteGithub", 7], ["uploadProjectToHub", 8], ["uploadProjectToWorkers", 9], ["distributeCodeToWorkers", 10], ["deployLatestAgent", 11], ["configureSftpIgnores", 12]]),
       tmux: new Map([["fetchTmuxList", 0], ["fetchTmuxCapture", 1], ["testAll", 2]]),
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
@@ -6179,7 +6190,7 @@ function renderPanelHtml() {
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["停止选中", "stopExperiment", { confirm: true, batch: true }], ["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
-        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"], ["一键上传到所有服务器", "publishGithub", { confirm: true }], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
+        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["一键上传到所有服务器", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
@@ -6918,10 +6929,39 @@ function renderPanelHtml() {
       '</div>';
     }
 
+    function runtimeEnvTableWidths(count) {
+      var widths = [150, 70, 110, 110, 80, 130, 90];
+      var out = [];
+      for (var i = 0; i < count; i++) out.push(widths[i % widths.length]);
+      return out.map(function(w) { return Math.max(60, Math.min(400, Number(w) || 120)); });
+    }
+
+    function renderRuntimeEnvOverview(state) {
+      var setup = (state && state.setup) || {};
+      var workers = asArray(setup.workerTunnels || []);
+      var cols = ["服务器", "启用", "本地端口", "远端端口", "GPU上限", "隧道会话", "状态"];
+      var widths = runtimeEnvTableWidths(cols.length);
+      var cg = widths.map(function(w, idx) { return '<col data-col-key="runtime-' + idx + '" style="width:' + w + 'px">'; }).join("") + '<col data-col-key="__gear" style="width:28px">';
+      var head = "<tr>" + cols.map(function(label, idx) { var w = widths[idx]; return '<th data-col-key="runtime-' + idx + '" style="width:' + w + 'px; min-width:' + w + 'px; max-width:' + w + 'px;">' + esc(label) + "</th>"; }).join("") + '<th style="width:28px;min-width:28px;">' + esc("设置") + "</th></tr>";
+      var body = "";
+      if (!workers.length) body = '<tr><td colspan="8">暂无服务器，请到设置区服务器卡片新增服务器。</td></tr>';
+      else body = workers.map(function(worker, idx) {
+        var name = worker.displayName || worker.id || ("worker-" + idx);
+        var enabled = worker.enabled === false ? "禁用" : "启用";
+        var local = worker.localForwardPort || "-";
+        var remote = worker.remoteTelemetryPort || worker.remoteAgentPort || "-";
+        var gpu = worker.maxConcurrentGpus || 1;
+        var session = serverSessionConfiguredLabel(worker.savedSessionPath, "隧道会话");
+        var status = worker.enabled === false ? "禁用" : "已配置";
+        return "<tr>" + "<td>" + esc(name) + "</td>" + "<td>" + esc(enabled) + "</td>" + "<td>" + esc(String(local)) + "</td>" + "<td>" + esc(String(remote)) + "</td>" + "<td>" + esc(String(gpu)) + "</td>" + "<td>" + esc(session) + "</td>" + "<td>" + esc(status) + "</td>" + "<td></td>" + "</tr>";
+      }).join("");
+      return '<section class="runtimeEnvOverview" data-anchor="sync-runtime-env" title="运行环境详情总览"><div class="runtimeEnvHead"><b>运行环境详情</b><span class="sub">高密度表格</span></div><div class="runtimeEnvTableWrap"><table class="runtimeEnvTable"><colgroup>' + cg + "</colgroup><thead>" + head + "</thead><tbody>" + body + "</tbody></table></div></section>";
+    }
+
     function renderSyncSection(state) {
       setHtmlIfChanged("syncChainOverview", renderServerChainOverview(state));
-      // 两卡合一：sync 卡内直写服务器总览（单 Worker 紧凑卡或对象总览），隧道表单见设置区。
-      setHtmlIfChanged("syncServerOverview", isSingleWorkerDense(state) ? renderSingleWorkerDenseCard(state) : renderServerObjectOverview(state));
+      // 两卡合一：sync 卡内直写服务器总览（单 Worker 紧凑卡或对象总览），隧道表单见设置区；运行环境详情高密度表拼于总览之后。
+      setHtmlIfChanged("syncServerOverview", (isSingleWorkerDense(state) ? renderSingleWorkerDenseCard(state) : renderServerObjectOverview(state)) + renderRuntimeEnvOverview(state));
     }
 
     function renderServerCardsV2(state) {
@@ -7081,6 +7121,7 @@ function renderPanelHtml() {
           renderServerDestinationPreview(workerAgent, scope) +
           renderSchedulerDependencyStatus((((state.workerProbes || {})[worker.id] || {}).schedulerDependencies), worker.displayName || worker.id) +
           '<div class="toolbar">' +
+            '<button data-command="addWorkerConfig" class="secondary" title="新增一台服务器：在设置区追加一块空服务器表单后填写保存">新增服务器</button>' +
             '<button data-command="saveWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-config-scope="' + escAttr(scope) + '">保存服务器</button>' +
             '<button data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(worker.id) + '" data-confirm="true" class="secondary">启动隧道</button>' +
             '<button data-command="deleteWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-danger="true" class="secondary">删除</button>' +
