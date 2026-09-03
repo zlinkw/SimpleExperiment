@@ -5766,6 +5766,9 @@ export class RealtimeTunnelPanelProvider {
     }
     async publishToGitHub() {
         this.notifyLocalActionStarted("一键发布当前项目", "正在创建或推送远程仓库，并提交当前工作区改动。");
+        // 拓扑感知：single_worker(无 Hub)跳过 Hub 相关同步要求，仅提示 Worker 侧入口。
+        const topology = this.projectTopologyAssessment();
+        const hubRequired = topology.hubAllowed === true && topology.mode === "hub_worker";
         const repo = await this.primaryGitRepository();
         if (gitRepositoryHasRemote(repo)) {
             await this.syncToGitHub(false);
@@ -5781,7 +5784,7 @@ export class RealtimeTunnelPanelProvider {
             await repo.commit(message);
         }
         await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
-        void vscode.window.showInformationMessage("GitHub 发布完成。");
+        void vscode.window.showInformationMessage(hubRequired ? "GitHub 发布完成。" : "GitHub 发布完成（无 Hub 模式已跳过 Hub，可用 Worker 上传入口继续同步）。");
     }
     async overwriteFromGitHub() {
         await confirmUiCommand("从 GitHub 覆盖本机", "将执行 git reset --hard 和 git clean，删除本地未提交改动。", true);
