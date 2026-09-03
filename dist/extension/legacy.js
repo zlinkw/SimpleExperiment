@@ -226,7 +226,7 @@ const defaultUiSectionOrder = [
 ];
 const defaultUiLayout = {
     order: defaultUiSectionOrder,
-    collapsed: { overview: false, plans: false, results: false, execution: false, servers: false, settings: true, gpu: true, sync: true, diagnostics: true },
+    collapsed: { overview: false, plans: false, results: false, execution: false, servers: false, settings: false, gpu: true, sync: false, diagnostics: true },
     resourceTreeChildren: {},
     manual: false,
     columns: { tree: 280, inspector: 360 },

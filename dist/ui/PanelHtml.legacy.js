@@ -1210,6 +1210,18 @@ function renderPanelHtml() {
             <div class="section-desc">GitHub、SFTP、Agent</div>
           </div>
         </div>
+        <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
+        <div class="muted">同步/发布入口已与设置区单链融合；下方按钮与设置区顶部单链速览一致。</div>
+        <div class="toolbar" data-anchor="sync-actions">
+          <span data-anchor="sync-publish-github"><button type="button" data-command="publishGithub" data-confirm="true">一键发布当前项目</button></span>
+          <span data-anchor="sync-github-push"><button type="button" class="secondary" data-command="syncGithub" data-confirm="true">同步到 GitHub</button></span>
+          <span data-anchor="sync-github-overwrite"><button type="button" class="secondary" data-command="overwriteGithub" data-danger="true">从 GitHub 覆盖本机</button></span>
+          <span data-anchor="sync-upload-hub"><button type="button" class="secondary" data-command="uploadProjectToHub" data-confirm="true">首次上传到 Hub</button></span>
+          <span data-anchor="sync-upload-workers"><button type="button" class="secondary" data-command="uploadProjectToWorkers" data-confirm="true">首次上传到 Worker</button></span>
+          <span data-anchor="sync-distribute-workers"><button type="button" class="secondary" data-command="distributeCodeToWorkers" data-confirm="true">分发代码到所有 Worker</button></span>
+          <span data-anchor="sync-deploy-agent"><button type="button" class="secondary" data-command="deployLatestAgent" data-confirm="true">部署最新版 Agent</button></span>
+          <span data-anchor="sync-sftp-ignore"><button type="button" class="secondary" data-command="configureSftpIgnores">配置 SFTP 忽略</button></span>
+        </div>
       </section>
 
         <section class="section-card" data-section="gpu" data-anchor="gpu" data-title="GPU 状态">
@@ -2950,7 +2962,7 @@ function renderPanelHtml() {
 
     function renderVisibleSections(state) {
       preserveMainColumnAnchor(() => {
-        ["overview", "servers", "settings", "plans", "results", "gpu", "execution", "diagnostics"].forEach((section) => renderSectionIfVisible(state, section));
+        ["overview", "servers", "settings", "sync", "plans", "results", "gpu", "execution", "diagnostics"].forEach((section) => renderSectionIfVisible(state, section));
       });
     }
 
@@ -2971,6 +2983,8 @@ function renderPanelHtml() {
         renderHubWorkerAndPorts(state);
       } else if (section === "settings") {
         if (!shouldKeepServerConfigDraft()) renderServerSettings(state);
+      } else if (section === "sync") {
+        renderSyncSection(state);
       } else if (section === "plans") {
         renderPlanSection(state);
       } else if (section === "results") {
@@ -4946,7 +4960,7 @@ function renderPanelHtml() {
       const incomingSet = new Set(migratedIncoming);
       const order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet?.has(item)));
       const rawCollapsed = layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {};
-      const collapsed = Object.assign({ servers: true, settings: true, diagnostics: true, execution: false }, rawCollapsed);
+      const collapsed = Object.assign({ servers: true, settings: false, sync: false, diagnostics: true, execution: false }, rawCollapsed);
       // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）
       if (typeof rawCollapsed.execution !== "boolean") {
         collapsed.execution = Boolean(rawCollapsed.tasks) || Boolean(rawCollapsed.operations);
@@ -6883,6 +6897,10 @@ function renderPanelHtml() {
       '</div>';
     }
 
+    function renderSyncSection(state) {
+      setHtmlIfChanged("syncChainOverview", renderServerChainOverview(state));
+    }
+
     function renderServerCardsV2(state) {
       const setup = state.setup || {};
       const topology = state.topology || {};
@@ -7069,8 +7087,10 @@ function renderPanelHtml() {
       '</div>';
       // 冲突仅连接步：settings 区不再重复 conflictNote，冲突只进单链第1步(连接)。
       const xshellBudgetNote = renderXshellSessionBudgetNote(state);
-      setHtmlIfChanged("serverChainOverview", renderServerChainOverview(state));
+      const chainHtml = renderServerChainOverview(state);
+      setHtmlIfChanged("syncChainOverview", chainHtml);
       setHtmlIfChanged("serverSettingsCards",
+        chainHtml +
         '<div class="serverStack">' + cards.join("") + '</div>' +
         pathConfirmationTools +
         pptPathConfirmationTools +
