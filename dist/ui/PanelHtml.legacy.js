@@ -849,16 +849,11 @@ function renderPanelHtml() {
     .chainStep.ok { border-left-color: #16A34A; }
     .chainStep.warn { border-left-color: #D97706; background: #FFFBEB; }
     .chainStep.error { border-left-color: #DC2626; background: #FEF2F2; }
-    .chainStep .chainStepLabel { color: #64748B; font-size: 11px; font-weight: 700; flex: 0 0 auto; }
     .chainStep .chainStepText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0F172A; font-size: 12px; }
     .chainBadge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: #F1F5F9; color: #475569; white-space: nowrap; }
     .chainBadge.ok { background: #DCFCE7; color: #166534; }
     .chainBadge.warn { background: #FEF3C7; color: #92400E; }
     .chainBadge.error { background: #FEE2E2; color: #991B1B; }
-    .chainDot { display: inline-block; width: 12px; height: 12px; border-radius: 999px; background: #94A3B8; border: 1px solid rgba(15, 23, 42, 0.18); flex: 0 0 auto; }
-    .chainDot.ok { background: #16A34A; border-color: #16A34A; }
-    .chainDot.warn { background: #D97706; border-color: #D97706; }
-    .chainDot.error { background: #DC2626; border-color: #DC2626; }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
     .topologyHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #111827; font-size: 13px; font-weight: 850; }
     .topologyHeader span { color: #64748B; font-size: 11px; font-weight: 650; }
@@ -1249,6 +1244,8 @@ function renderPanelHtml() {
           <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">一键上传到所有服务器</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
+        </div>
+        <div class="toolbar sync-actions-danger-wrap" data-anchor="sync-actions-danger-wrap">
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
         </div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
@@ -6940,7 +6937,7 @@ function renderPanelHtml() {
       const modeLabel = topology.modeLabel || topologyModeLabel(topology.mode || "single_worker");
       const connText = conflicts.length ? ("冲突 " + conflicts.length) : setupReady.ready ? "连接就绪" : "连接待配";
       const syncText = syncReady.ready ? "上传就绪" : (syncReady.summary || "待上传");
-      const agentText = agent.ready ? "就绪" : agent.status;
+      const agentText = agent.ready ? "Agent就绪" : agent.status;
       const connCls = conflicts.length ? "error" : (setupReady.ready ? "ok" : "warn");
       const syncCls = syncReady.ready ? "ok" : "warn";
       const agentCls = agent.ready ? "ok" : "warn";
@@ -6949,9 +6946,9 @@ function renderPanelHtml() {
       return '<div class="serverChainOverview ' + worstCls + '" data-anchor="settings-chain-overview" title="运行环境准备单链：部署Agent到上传到检测，全绿自动跳转实验卡">' +
         '<b>' + esc(modeLabel) + '</b>' +
         '<span class="chainSteps">' +
-        '<span class="chainStep ' + connCls + '"><span class="chainStepLabel">连接</span><span class="chainDot ' + connCls + '" data-chain-step="connect" title="' + escAttr(setupReady.summary || connText) + '"></span><span class="chainStepText" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</span></span>' +
-        '<span class="chainStep ' + syncCls + '"><span class="chainStepLabel">上传</span><span class="chainDot ' + syncCls + '" data-chain-step="upload" title="' + escAttr(syncText) + '"></span><span class="chainStepText" title="' + escAttr(syncText) + '">' + esc(syncText) + '</span></span>' +
-        '<span class="chainStep ' + agentCls + '"><span class="chainStepLabel">就绪</span><span class="chainDot ' + agentCls + '" data-chain-step="ready" title="' + escAttr(agent.detail || agentText) + '"></span><span class="chainStepText" title="' + escAttr(agent.detail || agentText) + '">' + esc(agentText) + '</span></span>' +
+        '<span class="chainStep ' + connCls + '" data-chain-step="connect"><span class="chainStepText" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</span></span>' +
+        '<span class="chainStep ' + syncCls + '" data-chain-step="upload"><span class="chainStepText" title="' + escAttr(syncText) + '">' + esc(syncText) + '</span></span>' +
+        '<span class="chainStep ' + agentCls + '" data-chain-step="ready"><span class="chainStepText" title="' + escAttr(agent.detail || agentText) + '">' + esc(agentText) + '</span></span>' +
         '</span>' +
         '<span class="chainBadge ' + worstCls + '">' + esc(badgeText) + '</span>' +
       '</div>';
