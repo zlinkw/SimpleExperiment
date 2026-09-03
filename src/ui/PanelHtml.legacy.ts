@@ -12162,12 +12162,12 @@ export function renderPanelHtml(): string {
         const planMatch = !currentPlan || !currentPlanKey || pf.includes(currentPlanKey) || pf === currentPlan || pf.includes(currentPlan);
         return isRunPlan && isActiveStatus && planMatch;
       }) || ops.find((op) => /running|started|waiting/.test(String(op.status||"").toLowerCase())) || ops[0] || {};
-      const abortOpId = String(activeOp.operationId || activeOp.id || "run-plan-bpla27");
+      const abortOpId = String(activeOp.operationId || activeOp.id || "");
       const abortPlan = String(activeOp.planFile || activeOp.plan || currentPlan || "");
       const globalAbort = '<div class="operationActions" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
         + '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="与运行状态解耦：' + (abortEnabled ? '可点' : '当前无运行中调度') + '，直调 stopExperiment {operationId, planFile} 经 worker_telemetry，无需选中行；成功后 rm tmp/cluster_scheduler/*.log/state.json + tmux kill -t zlk-sch-*">中止/清理</button>'
         + '<button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" title="备用：kill *-sch-* 并清理 simple_cluster/tmp/cluster_scheduler/*_state.json（自动匹配当前 prefix）">备用清理</button>'
-        + '<button class="mini danger" data-command="clearOperations" data-confirm="true" title="清空本机运行进度历史（不删远端审计）：清空扩展内存、simple_cluster/ui/local_operations.json 与实时缓存中的操作记录；远端 events.jsonl 审计保留，刷新后会重新拉取。">清空历史</button>'
+        + '<button class="mini secondary" data-command="clearOperations" data-confirm="true" title="清空本机运行进度历史（不删远端审计）：清空扩展内存、simple_cluster/ui/local_operations.json 与实时缓存中的操作记录；远端 events.jsonl 审计保留，刷新后会重新拉取。">清空历史</button>'
         + '<button class="mini secondary" data-command="snapshot" title="手动刷新运行状态（重拉 schedulerStates/operations）">刷新运行状态</button>'
         + '<span class="muted" style="font-size:11px;">' + (abortEnabled ? '与运行状态解耦，可中止' : '暂无可中止调度') + ' · 点击刷新可重拉状态</span></div>';
       setHtmlIfChanged("operationList", globalAbort + (view.rows.length

@@ -4957,7 +4957,8 @@ export class RealtimeTunnelPanelProvider {
                     const hasStale = states.some((s: any) => String(s.plan || s.planFile || "").includes(pf.replace(/^.*\//,"").replace(".yaml","")) && ((s.running_experiments||[]).length || (s.testing_experiments||[]).length));
                     const hasActiveOp = ops.some((op: any) => String(op.planFile||op.plan||"").includes(pf) && String(op.status||"").toLowerCase().match(/running|started|waiting/));
                     if (hasStale || hasActiveOp) {
-                        await this.abortSchedulerFromUi({operationId: "run-plan-bpla27", planFile: pf});
+                        const _fallbackAbortOp: any = (()=>{ try{ const ops=(this as any).longRunningPlanRunOperations?.(); if(Array.isArray(ops)&&ops.length) return ops[0]; }catch{} return undefined; })();
+                        await this.abortSchedulerFromUi({operationId: String(_fallbackAbortOp?.operationId || ""), planFile: pf});
                         // P0 fix: event-driven, reduce from 1500 to 200ms
                         await new Promise(r=>setTimeout(r,200));
                     }
@@ -6104,7 +6105,7 @@ export class RealtimeTunnelPanelProvider {
             } catch {}
             // fallback via local tmux if tunnel not reachable (best-effort, ignore errors)
             try {
-                const fallbackCmd = `for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^((zlk|simple)-worker-.*-agent|.*sch-.*)' || true); do tmux kill-session -t "$s" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true`;
+                const fallbackCmd = `for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^((zlk|simple)-worker-.*-agent|.*sch-.*|(simple|zlk)-gpu-.*)' || true); do tmux kill-session -t "$s" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true`;
                 // no local exec needed – remote kill already attempted
             } catch {}
         }
@@ -10681,6 +10682,14 @@ export class RealtimeTunnelPanelProvider {
         const confirm = await vscode.window.showWarningMessage("确认清空本机运行进度历史？将清空扩展内存、simple_cluster/ui/local_operations.json 与实时缓存中的操作记录；不会删除远端 events.jsonl 审计（刷新后会重新拉取）。此操作不可恢复。", { modal: true }, "确认清空", "取消");
         if (confirm !== "确认清空")
             return;
+        // P1: 有 running 时二次确认，避免误将“清空历史”当作“中止远端”使用，导致 30s 后 snapshot 回灌仍显示 running
+        try {
+            const runningOps: any[] = (typeof (this as any).longRunningPlanRunOperations === "function" ? (this as any).longRunningPlanRunOperations() : []);
+            if (Array.isArray(runningOps) && runningOps.length) {
+                const second = await vscode.window.showWarningMessage(`检测到仍有 ${runningOps.length} 个运行中任务（${runningOps.slice(0, 3).map((o: any) => String(o.operationId || o.id || "")).join("、")}${runningOps.length > 3 ? "…" : ""}），清空历史不会中止远端任务，刷新后会重新拉取。是否仍要清空本机历史？`, { modal: true }, "仍要清空", "取消");
+                if (second !== "仍要清空") return;
+            }
+        } catch {}
         const generation = this.projectContextGeneration;
         // 1. 内存：清空本地操作三角（extension 内存 + 后续持久化镜像）
         this.localOperations = {};
@@ -10890,8 +10899,20 @@ export class RealtimeTunnelPanelProvider {
             this.postState();
     }
     async abortSchedulerFromUi(message: any) {
-        const operationId = String(message?.operationId || message?.operation_id || message?.id || "run-plan-bpla27").trim() || "run-plan-bpla27";
-        const planFile = String(message?.planFile || message?.plan_file || "baseline.yaml").trim() || "baseline.yaml";
+        const fallbackOp: any = (() => {
+            try { const ops = (this as any).longRunningPlanRunOperations?.(); if (Array.isArray(ops) && ops.length) return ops[0]; } catch {}
+            try { const all: any[] = Object.values((this as any).localOperations || {}) as any[]; const cand = all.find((v: any) => v && typeof v === "object" && !operationTerminal(v) && LONG_RUNNING_OPERATION_ACTIONS.has(String((v as any).type || "").toLowerCase())); if (cand) return cand; } catch {}
+            return undefined;
+        })();
+        const fallbackOpId = String(fallbackOp?.operationId || fallbackOp?.id || "").trim();
+        const fallbackPlan = String(fallbackOp?.planFile || fallbackOp?.plan || "").trim();
+        const operationId = String(message?.operationId || message?.operation_id || message?.id || fallbackOpId).trim() || fallbackOpId;
+        const planFile = String(message?.planFile || message?.plan_file || fallbackPlan).trim() || fallbackPlan;
+        if (!operationId || !planFile) {
+            const msg = !fallbackOp ? "当前无运行中任务（longRunningPlanRunOperations 为空），无法确定中止目标" : `无法解析 operationId/planFile（operationId=${operationId || "(空)"} planFile=${planFile || "(空)"}）`;
+            void vscode.window.showWarningMessage(msg);
+            throw new Error(msg);
+        }
         // 解析调度归属 Worker，失败时降级到首个启用 Worker，绝不抛错阻断中止。
         let workerId = "";
         try {

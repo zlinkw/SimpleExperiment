@@ -3,8 +3,18 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-const extensionSource = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-const agentSource = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+function readWithLegacyFallback(primary, legacy) {
+  const p = path.join(__dirname, primary);
+  const l = path.join(__dirname, legacy);
+  let txt = "";
+  try { txt = fs.readFileSync(p, "utf8"); } catch {}
+  if (txt && txt.includes("async abortSchedulerFromUi(message") ) return txt;
+  if (txt && txt.includes("def stop_scheduler_operation(") ) return txt;
+  try { const lt = fs.readFileSync(l, "utf8"); if (lt && lt.length > txt.length) return lt; } catch {}
+  return txt;
+}
+const extensionSource = readWithLegacyFallback("../../src/extension.ts", "../../src/extension/legacy.ts");
+const agentSource = readWithLegacyFallback("../../src/clusterAgentRuntime.ts", "../../src/clusterAgentRuntime.legacy.ts");
 
 test("abortSchedulerFromUi routes through stop-scheduler-operation (tmux kill + SIGTERM/SIGKILL + deregister)", () => {
   const start = extensionSource.indexOf("async abortSchedulerFromUi(message");
