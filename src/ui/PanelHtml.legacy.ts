@@ -1095,11 +1095,11 @@ export function renderPanelHtml(): string {
     <div id="pinContextMenu" class="pinContextMenu" role="menu" hidden></div>
     <div id="mainColumn" class="mainColumn" aria-label="中间状态与结果列">
 
-    <section class="section-card" data-section="servers" data-anchor="servers" data-title="服务器管理">
+    <section class="section-card" data-section="servers" data-anchor="servers" data-title="服务器管理" style="display:none" data-legacy="servers-hidden-merged-into-sync" hidden>
       <div class="section-head">
         <div class="section-title">
           <h2>服务器管理</h2>
-          <div class="section-desc">Xshell、端口、项目父目录</div>
+          <div class="section-desc">Xshell、端口、项目父目录（已合入运行环境准备单卡，本节仅兼容保留）</div>
         </div>
       </div>
       <div id="serverCards" data-anchor="servers-list"></div>
@@ -1204,15 +1204,20 @@ export function renderPanelHtml(): string {
         <div class="section-head">
           <div class="section-title">
             <h2>运行环境准备</h2>
-            <div class="section-desc">单链镜像：部署 / 上传 / 检测</div>
+            <div class="section-desc">三步完成：1连隧道 2传代码 3检测</div>
           </div>
         </div>
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
-        <div class="muted">运行环境准备单链镜像；完整三步链见设置区顶部。失败停留本卡并报错，不自动跳转。</div>
+        <div id="syncServerOverview" data-anchor="sync-servers"></div>
         <div class="toolbar" data-anchor="sync-actions">
-          <span data-anchor="sync-publish-github"><button type="button" data-command="publishGithub" data-confirm="true">一键上传到所有服务器</button></span>
-          <span data-anchor="sync-github-overwrite"><button type="button" class="secondary" data-command="overwriteGithub" data-danger="true">从 GitHub 覆盖本机</button></span>
+          <button type="button" data-command="prepareAgents" title="第1步先部署：上传最新版 Agent 到全部服务器 runtime，无需隧道在线">1 部署Agent</button>
+          <button type="button" data-command="startAll" class="secondary" title="第1步连隧道：启动全部 Xshell 隧道，建立本机到服务器的端口转发">2 启动全部隧道</button>
+          <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">3 一键上传到所有服务器</button>
+          <button type="button" class="secondary" data-command="overwriteGithub" data-danger="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
+          <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">4 检测全部</button>
+          <button type="button" data-command="addWorkerConfig" class="secondary" title="新增一台服务器：在设置区填写地址与端口后保存">新增服务器</button>
         </div>
+        <div class="muted">隧道端口等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
 
         <section class="section-card" data-section="gpu" data-anchor="gpu" data-title="GPU 状态">
@@ -1891,7 +1896,7 @@ export function renderPanelHtml(): string {
       archived: "已归档", pending_review: "待筛选", included: "已纳入", excluded: "未纳入", parsed: "已解析", parse_success: "已解析", not_parsed: "待解析", unparsed: "未解析", parse_failed: "解析失败", not_deleted: "未删除", delete_pending: "删除中", deleted: "已删除", residue: "有残留", clean: "已清理", not_found: "未发现"
     });
     const BUTTON_AUDIT_ROW_ACTION_COMMANDS = new Set(["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts", "selectLogRunKey"]);
-    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "tmux", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
+    const RESOURCE_TREE_SECTION_ORDER = Object.freeze(["overview", "gpu", "tmux", "execution", "plans", "results", "sync", "settings", "diagnostics"]);
     const RESOURCE_TREE_SECTION_KEYS = new Set(RESOURCE_TREE_SECTION_ORDER);
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
     const INSPECTOR_OPERATION_SECTIONS = new Set(["execution"]);
@@ -1960,7 +1965,7 @@ export function renderPanelHtml(): string {
       execution: "运行进度", results: "结果", sync: "发布同步", diagnostics: "诊断"
     });
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
-      prepareAgents: "servers", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "servers", saveSchedulerConfig: "servers", startAll: "servers", testAll: "servers", snapshot: "gpu",
+      prepareAgents: "sync", startAllConnections: "overview", pauseAll: "overview", resumeNetwork: "overview", saveTopologyMode: "sync", saveSchedulerConfig: "sync", startAll: "sync", testAll: "sync", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
       stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
       inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
@@ -1977,12 +1982,12 @@ export function renderPanelHtml(): string {
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
       execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6], ["clearOperations", 7]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
-      sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["overwriteGithub", 2], ["uploadProjectToHub", 3], ["uploadProjectToWorkers", 4], ["distributeCodeToWorkers", 5], ["deployLatestAgent", 6], ["configureSftpIgnores", 7]]),
+      sync: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["testAll", 4], ["publishGithub", 5], ["syncGithub", 6], ["overwriteGithub", 7], ["uploadProjectToHub", 8], ["uploadProjectToWorkers", 9], ["distributeCodeToWorkers", 10], ["deployLatestAgent", 11], ["configureSftpIgnores", 12]]),
       tmux: new Map([["fetchTmuxList", 0], ["fetchTmuxCapture", 1], ["testAll", 2]]),
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
-      saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "servers-sessions", startAllConnections: "servers-sessions", prepareAgents: "servers-sessions", testAll: "servers-sessions", snapshot: "gpu-summary",
+      saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "sync-servers", startAllConnections: "sync-servers", prepareAgents: "sync-servers", testAll: "sync-servers", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
       stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results-traces",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results-summary", refreshResults: "results-summary",
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
@@ -2953,7 +2958,7 @@ export function renderPanelHtml(): string {
 
     function renderVisibleSections(state) {
       preserveMainColumnAnchor(() => {
-        ["overview", "servers", "settings", "sync", "plans", "results", "gpu", "execution", "diagnostics"].forEach((section) => renderSectionIfVisible(state, section));
+        ["overview", "settings", "sync", "plans", "results", "gpu", "execution", "diagnostics"].forEach((section) => renderSectionIfVisible(state, section));
       });
     }
 
@@ -2970,8 +2975,7 @@ export function renderPanelHtml(): string {
       if (section === "overview") {
         renderSummary(state);
       } else if (section === "servers") {
-        renderServerCards(state);
-        renderHubWorkerAndPorts(state);
+        // 两卡合一兼容空分支：旧 servers 骨架已 display:none 隐藏，总览由 sync 卡内 syncServerOverview 渲染，避免双份。
       } else if (section === "settings") {
         if (!shouldKeepServerConfigDraft()) renderServerSettings(state);
       } else if (section === "sync") {
@@ -3004,7 +3008,7 @@ export function renderPanelHtml(): string {
       if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation);
-      if (section === "sync") return refListKey(data.codeSync, data.capabilities, data.setup, data.health, data.probe, data.workerProbes);
+      if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
       if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
       if (section === "tasks") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary);
@@ -3279,8 +3283,22 @@ export function renderPanelHtml(): string {
       }
       if (section === "sync") {
         return {
+          topology: data.topology,
+          schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
+          setup: compactSetupForSignature(data.setup),
+          agentDestinations: compactAgentDestinationsForSignature(data.agentSessions),
+          xshellSessions: compactXshellSessionsForSignature(data.xshellSessions),
+          endpointRegistry: compactEndpointRegistryForSignature(data.endpointRegistry),
+          tunnelPortAssignments: compactRowsForSignature(data.tunnelPortAssignments, SECTION_SIGNATURE_ROW_LIMIT, ["id", "endpointId", "role", "localForwardPort", "remoteForwardPort", "status", "message"]),
+          tunnelPortConflicts: compactRowsForSignature(data.tunnelPortConflicts, SECTION_SIGNATURE_ROW_LIMIT, ["id", "endpointId", "localForwardPort", "port", "message", "severity"]),
+          health: compactHealthForSignature(data.health),
+          probe: compactRecordForSignature(data.probe || {}, ["status", "schedulerDependencies"]),
+          workerProbes: compactObjectMapForSignature(data.workerProbes, SECTION_SIGNATURE_ROW_LIMIT, ["status", "schedulerDependencies"]),
+          workerTelemetry: compactWorkerTelemetryForSignature(data.workerTelemetry),
+          workerTelemetryStatus: compactRowsForSignature(data.workerTelemetryStatus, SECTION_SIGNATURE_ROW_LIMIT, ["workerId", "status", "state"]),
           codeSync: data.codeSync,
-          capabilities: compactCapabilitiesForSignature(data.capabilities)
+          capabilities: compactCapabilitiesForSignature(data.capabilities),
+          realtimeDiagnostics: compactRealtimeDiagnosticsForSignature(data.realtimeDiagnostics)
         };
       }
       if (section === "diagnostics") {
@@ -4946,19 +4964,23 @@ export function renderPanelHtml(): string {
     function normalizeUiLayout(layout) {
       layout = layout || {};
       const incoming = Array.isArray(layout.order) ? layout.order.map(String) : [];
-      // 迁移旧布局：tasks / operations 卡片已合并为 execution
-      const migratedIncoming = incoming.map((item) => (item === "tasks" || item === "operations" ? "execution" : item));
+      // 迁移旧布局：tasks / operations 卡片已合并为 execution；servers 已合入 sync
+      const migratedIncoming = incoming.map((item) => (item === "tasks" || item === "operations" ? "execution" : item)).map((item) => (item === "servers" ? "sync" : item));
       const incomingSet = new Set(migratedIncoming);
       const order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet?.has(item)));
       const rawCollapsed = layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {};
       const collapsed = Object.assign({ servers: false, settings: false, sync: false, diagnostics: true, execution: false }, rawCollapsed);
-      // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）
+      // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）；servers 折叠迁移到 sync
       if (typeof rawCollapsed.execution !== "boolean") {
         collapsed.execution = Boolean(rawCollapsed.tasks) || Boolean(rawCollapsed.operations);
+      }
+      if (typeof rawCollapsed.sync !== "boolean" && typeof rawCollapsed.servers === "boolean") {
+        collapsed.sync = Boolean(rawCollapsed.servers);
       }
       // 清理旧键，避免污染折叠签名（uiLayoutApplyKey / postRender 去重）
       delete collapsed.tasks;
       delete collapsed.operations;
+      delete collapsed.servers;
       const resourceTreeChildren = normalizeResourceTreeChildOrders(layout.resourceTreeChildren || {});
       const columns = normalizeLayoutColumns(layout.columns || {});
       const pinnedCommands = normalizePinnedCommands(Array.isArray(layout.pinnedCommands) ? layout.pinnedCommands : pinnedCommandDefaults);
@@ -5065,8 +5087,9 @@ export function renderPanelHtml(): string {
     function normalizeActionSection(section) {
       const value = String(section || "overview");
       if (value === "tasks" || value === "operations") return "execution";
+      if (value === "servers") return "sync";
       if (RESOURCE_TREE_SECTION_KEYS?.has(value)) return value;
-      if (value.startsWith("server")) return "servers";
+      if (value.startsWith("server")) return "sync";
       return "overview";
     }
 
@@ -6128,13 +6151,14 @@ export function renderPanelHtml(): string {
 
     function inspectorActionSection(section, meta) {
       if (section === "settings") return "settings";
+      if (section === "servers") return "sync";
       const anchor = String((meta || {}).anchor || "");
       if (anchor.startsWith("sync-")) return "sync";
       if (anchor.startsWith("task-") || anchor.startsWith("tasks-") || anchor.startsWith("execution")) return "execution";
       if (anchor.startsWith("operation-") || anchor.startsWith("operations-")) return "execution";
       if (anchor.startsWith("result") || anchor.startsWith("results-")) return "results";
       if (anchor.startsWith("plan") || anchor.startsWith("plans-")) return "plans";
-      if (anchor.startsWith("server") || anchor.startsWith("servers-")) return "servers";
+      if (anchor.startsWith("server") || anchor.startsWith("servers-")) return "sync";
       if (anchor.startsWith("diagnostic") || anchor.startsWith("diagnostics-")) return "diagnostics";
       if (anchor.startsWith("gpu")) return "gpu";
       if (anchor.startsWith("tmux")) return "tmux";
@@ -6152,7 +6176,7 @@ export function renderPanelHtml(): string {
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["停止选中", "stopExperiment", { confirm: true, batch: true }], ["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
-        sync: [["一键上传到所有服务器", "publishGithub", { confirm: true }], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
+        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"], ["一键上传到所有服务器", "publishGithub", { confirm: true }], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
@@ -6883,7 +6907,7 @@ export function renderPanelHtml(): string {
       return '<div class="serverChainOverview" data-anchor="settings-chain-overview" title="运行环境准备单链：部署Agent到上传到检测，全绿自动跳转实验卡">' +
         '<b>' + esc(modeLabel) + '</b>' +
         '<span class="chainStep" data-chain-step="connect" title="' + escAttr(setupReady.summary || connText) + '">1 连接：</span>' +
-        '<button type="button" class="secondary" data-section-target="servers" data-anchor-target="servers-list" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</button>' +
+        '<button type="button" class="secondary" data-section-target="sync" data-anchor-target="sync-servers" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</button>' +
         '<span class="chainStep" data-chain-step="upload" title="' + escAttr(syncText) + '">2 上传：</span>' +
         '<button type="button" class="secondary" data-section-target="settings" data-anchor-target="settings-chain-overview" title="' + escAttr(syncText) + '">' + esc(syncText) + '</button>' +
         '<span class="chainStep" data-chain-step="ready" title="' + escAttr(agent.detail || agentText) + '">3 就绪：</span>' +
@@ -6893,6 +6917,8 @@ export function renderPanelHtml(): string {
 
     function renderSyncSection(state) {
       setHtmlIfChanged("syncChainOverview", renderServerChainOverview(state));
+      // 两卡合一：sync 卡内直写服务器总览（单 Worker 紧凑卡或对象总览），隧道表单见设置区。
+      setHtmlIfChanged("syncServerOverview", isSingleWorkerDense(state) ? renderSingleWorkerDenseCard(state) : renderServerObjectOverview(state));
     }
 
     function renderServerCardsV2(state) {
@@ -10361,7 +10387,7 @@ export function renderPanelHtml(): string {
       const stepSpecs = [
         { title: "1. 基础设施", ok: infrastructureReady, status: infrastructureReady ? "已就绪" : "待配置", detail: infrastructureDetail, section: "settings", anchor: "settings-servers", action: "查看服务器设置" },
         { title: "2. Plan 与输出", ok: planReady, status: planReady ? "已就绪" : selectedPlanFile ? "待输出" : "待选择", detail: planDetail, section: "plans", anchor: "plans-detected", action: "查看实验准备" },
-        { title: "3. Agent 连接", ok: agentReady, status: agentReady ? "已连接" : "待检测", detail: endpointDetail, section: "servers", anchor: "servers-list", action: "查看连接" },
+        { title: "3. Agent 连接", ok: agentReady, status: agentReady ? "已连接" : "待检测", detail: endpointDetail, section: "sync", anchor: "sync-servers", action: "查看连接" },
         { title: "4. 运行与监控", ok: execution.ok, status: execution.status, detail: execution.detail, section: executionTarget.section, anchor: executionTarget.anchor, action: executionTarget.action },
         { title: "5. 结果与归档", ok: result.tone === "good", status: result.status, detail: result.detail, section: "results", anchor: "results", action: "查看结果" }
       ];
