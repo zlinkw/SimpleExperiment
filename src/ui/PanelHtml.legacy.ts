@@ -449,38 +449,6 @@ export function renderPanelHtml(): string {
     body.debug-run-mode .runModeNote { color: var(--warning); }
     .workbench-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
     .workbench-summary .row { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); padding: 8px; grid-template-columns: 92px minmax(0, 1fr); }
-    .overviewStatusGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 8px; }
-    .overviewStatusCard {
-      position: relative;
-      overflow: hidden;
-      display: grid;
-      gap: 5px;
-      min-width: 0;
-      padding: 7px 8px 7px 10px;
-      border: 1px solid var(--border);
-      border-left: 4px solid #94A3B8;
-      border-radius: 8px;
-      background: #FAFBFC;
-      color: #0F172A;
-      box-shadow: 0 6px 16px rgba(15, 23, 42, .05);
-    }
-    .overviewStatusCard.good { border-left-color: #16A34A; }
-    .overviewStatusCard.warn { border-left-color: #D97706; background: #FFFBEB; }
-    .overviewStatusCard.error { border-left-color: #DC2626; background: #FEF2F2; }
-    .overviewStatusCard.info { border-left-color: #2563EB; }
-    .overviewStatusCard.mine { border-left-color: #7C3AED; background: #F5F3FF; border-color: #C4B5FD; }
-    .overviewCardHead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(4.5em, auto) auto; gap: 6px; align-items: center; min-width: 0; }
-    .overviewCardTitle { display: grid; gap: 0; min-width: 0; }
-    .overviewCardTitle b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #111827; font-size: var(--simple-font-md); font-weight: 800; }
-    .overviewCardValue { max-width: none; min-width: 0; overflow-wrap: anywhere; text-align: right; color: #0F172A; font-size: var(--simple-font-status); font-weight: 850; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: normal; }
-    .overviewStatusCard.good .overviewCardValue { color: #15803D; }
-    .overviewStatusCard.warn .overviewCardValue { color: #B45309; }
-    .overviewStatusCard.error .overviewCardValue { color: #DC2626; }
-    .overviewStatusCard.mine .overviewCardValue { color: #6D28D9; }
-    .overviewMiniGrid { display: flex; flex-wrap: wrap; gap: 4px; }
-    .overviewMini { display: inline-grid; grid-template-columns: auto auto; gap: 4px; min-width: 0; max-width: 100%; padding: 3px 6px; border: 1px solid #E2E8F0; border-radius: 999px; background: #FFFFFF; align-items: baseline; }
-    .overviewMini span { color: #64748B; font-size: var(--simple-font-sm); }
-    .overviewMini b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0F172A; font-size: var(--simple-font-md); font-weight: 800; }
     .statusInfoPopover { position: relative; justify-self: end; align-self: center; }
     .statusInfoPopover summary { list-style: none; cursor: pointer; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #CBD5E1; border-radius: 999px; background: #F8FAFC; color: #475569; font-size: 11px; font-weight: 850; user-select: none; }
     .statusInfoPopover summary::-webkit-details-marker { display: none; }
@@ -1019,10 +987,9 @@ export function renderPanelHtml(): string {
     .tree-item.mine .tree-icon { color: #7C3AED; background: #F5F3FF; }
     .tree-child-list { margin-left: 25px; padding-left: 10px; border-left-color: rgba(148, 163, 184, .34); }
     .tree-empty { padding: 10px 8px; color: #64748B; font-size: 12px; line-height: 1.45; }
-    .section-card, .card, .taskProgressCard, .overviewStatusCard, .workflowStage, .objectTile, .planRunRow, .resultEvidenceRow, .endpointStatusCard, .serverObjectCard, .operationItem, .task-card, .traceCard { min-width: 0; background: rgba(255,255,255,.88); border-color: rgba(148, 163, 184, .30); box-shadow: 0 8px 22px rgba(15, 23, 42, .045); }
+    .section-card, .card, .taskProgressCard, .workflowStage, .objectTile, .planRunRow, .resultEvidenceRow, .endpointStatusCard, .serverObjectCard, .operationItem, .task-card, .traceCard { min-width: 0; background: rgba(255,255,255,.88); border-color: rgba(148, 163, 184, .30); box-shadow: 0 8px 22px rgba(15, 23, 42, .045); }
     .workflowStage.good, .workflowStage.info, .workflowStage.warn, .workflowStage.error, .workflowStage.mine,
     .objectTile.good, .objectTile.info, .objectTile.warn, .objectTile.error, .objectTile.mine,
-    .overviewStatusCard.good, .overviewStatusCard.info, .overviewStatusCard.warn, .overviewStatusCard.error, .overviewStatusCard.mine,
     .planRunRow.good, .planRunRow.info, .planRunRow.warn, .planRunRow.error, .planRunRow.mine,
     .resultEvidenceRow.good, .resultEvidenceRow.info, .resultEvidenceRow.warn, .resultEvidenceRow.error, .resultEvidenceRow.mine,
     .serverObjectCard.ok, .serverObjectCard.warn, .serverObjectCard.error,
@@ -1038,7 +1005,6 @@ export function renderPanelHtml(): string {
     .workflowStageRail { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); padding: 6px; background: rgba(248,250,252,.78); }
     .workflowStage { min-height: 56px; padding: 8px; }
     .objectStrip { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
-    .overviewStatusGrid { grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 8px; }
     .endpointCardGrid, .serverObjectGrid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
     .endpointMiniGrid, .serverObjectStats, .traceReadinessGrid, .taskReadinessGrid { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
     .pinnedActions { position: relative; z-index: 1; flex: 0 0 auto; display: grid; gap: 7px; max-height: 126px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 9px; border: 1px solid #E2E8F0; border-left: 4px solid #7C3AED; border-radius: 10px; background: rgba(255,255,255,.92); }
@@ -5374,7 +5340,7 @@ export function renderPanelHtml(): string {
     }
 
     function statusCardSelector() {
-      return "#mainColumn .overviewStatusCard, #mainColumn .planRunRow, #mainColumn .task-card, #mainColumn .traceCard, #mainColumn .operationItem, #mainColumn .endpointStatusCard, #mainColumn .serverObjectCard, #mainColumn .resultEvidenceRow, #mainColumn .objectTile, #mainColumn .taskProgressCard, #mainColumn .gpuServer, #mainColumn .targetMatrixRow, #mainColumn .featureAuditPill, #mainColumn .capabilityItem";
+      return "#mainColumn .planRunRow, #mainColumn .task-card, #mainColumn .traceCard, #mainColumn .operationItem, #mainColumn .endpointStatusCard, #mainColumn .serverObjectCard, #mainColumn .resultEvidenceRow, #mainColumn .objectTile, #mainColumn .taskProgressCard, #mainColumn .gpuServer, #mainColumn .targetMatrixRow, #mainColumn .featureAuditPill, #mainColumn .capabilityItem";
     }
 
     function statusCardKey(card) {
@@ -6079,9 +6045,7 @@ export function renderPanelHtml(): string {
           ["风险", conflicts.length ? String(conflicts.length) + " 个" : "无阻塞", "端口冲突、暂停网络或最近错误"]
         ],
         servers: [
-          hubParticipates
-            ? ["Hub 端口", String(setup.localForwardPort || "-"), "插件访问的 Hub 本地隧道端口"]
-            : ["活动端点", String(enabledWorkers.length), "当前仅包含启用 Worker，不访问 Hub"],
+          ["活动端点", String(enabledWorkers.length), "当前仅包含启用 Worker"],
           ["Worker", String(enabledWorkers.length), "启用后参与观测、同步和调度目标"],
           ["调度", overviewSchedulerRange(scheduler), "pollSeconds + random(0, jitterSeconds)"],
           ["端口冲突", String(conflicts.length), "必须先修复本机端口冲突"]
@@ -6396,27 +6360,12 @@ export function renderPanelHtml(): string {
       return '<span class="runtimeOverviewChip ' + escAttr(tone || "") + '" title="' + escAttr(label + "：" + value) + '">' + esc(label + " " + value) + '</span>';
     }
 
-    function overviewStatusCard(title, tone, value, items) {
-      const summary = title + "：" + (value || "-");
-      return '<article class="overviewStatusCard ' + escAttr(tone || "") + '" data-overview-card="' + escAttr(title) + '" title="' + escAttr(summary) + '">' +
-        '<div class="overviewCardHead"><div class="overviewCardTitle"><b>' + esc(title) + '</b></div><div class="overviewCardValue">' + esc(value) + '</div>' + statusInfoPopover(summary) + '</div>' +
-        '<div class="overviewMiniGrid">' + (items || []).map((item) => overviewMini(item[0], item[1], item[2])).join("") + '</div>' +
-      '</article>';
-    }
-
     function statusInfoPopover(text, label) {
       const body = String(text || "").trim();
       if (!body) return "";
       return '<details class="statusInfoPopover"><summary title="' + escAttr(label || "详情") + '">i</summary><div class="statusInfoPopoverBody">' + esc(body) + '</div></details>';
     }
 
-    function overviewMini(label, value, title) {
-      return '<div class="overviewMini" title="' + escAttr(label + "：" + (value || "-")) + '"><span>' + esc(label) + '</span><b>' + esc(value) + '</b></div>';
-    }
-
-    function overviewRiskItem(label, klass, title) {
-      return '<span class="pill ' + escAttr(klass || "") + '" title="' + escAttr(label) + '">' + esc(label) + '</span>';
-    }
     function overviewSchedulerRange(scheduler) {
       const poll = Number(configDefault(scheduler.pollSeconds, 60));
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
