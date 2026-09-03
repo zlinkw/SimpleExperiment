@@ -10514,7 +10514,8 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
         "workerTasksCount": len(worker_tasks),
         "liveLogCount": live_log_count,
     }
-    active_evidence = bool(process["pidAlive"] or process["tmuxSessionAlive"] or any(evidence_counts.values()))
+    # P1: pidAlive 需同时满足 tmuxShellAlive 才算调度存活，避免空壳 shell pid 误判 running（仅 pane 内 python 才是真调度）
+    active_evidence = bool((process["pidAlive"] and process["tmuxShellAlive"]) or process["tmuxSessionAlive"] or any(evidence_counts.values()))
     # 分类与脱敏：failureSourceKind / schedulerErrorZh / programError / failures / logPathRedacted/logTailRedacted（任务要求 payload/logTail 双参 + 脱敏）
     failureSourceKind = _classify(payload, live_log_tail)
     _payload_msg_hub = str(payload.get("message") or payload.get("error") or payload.get("msg") or "") if isinstance(payload, dict) else str(payload or "")
@@ -10625,8 +10626,10 @@ def stop_scheduler_operation(root, payload):
         after = scheduler_process_evidence(root, target_pid, target_session)
     remaining_active = []
     if after["pidAlive"]: remaining_active.append({"kind": "pid", "value": after["checkedPid"]})
+    # P1: 双活判定需同时检查 shellAlive，避免空壳（has-session 但无 python）被误判为已清理
     if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
-    matched = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"])
+    elif after["tmuxShellAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
+    matched = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"] or before["tmuxShellAlive"])
     try:
         if wanted:
             deregister_active_run_plan(root, wanted)
