@@ -4,9 +4,19 @@ const assert = require("node:assert/strict");
 const sync = require("../dist/syncState.js");
 
 test("deletion ledger records merge without dropping local records", () => {
+  // 提交二去重收敛：syncState.dedupeJsonRecords 已删（他处全删），此处以内联 Map 去重保留语义规格；
+  // 服务器去重唯一入口见 tunnel/XshellTunnelSetup.dedupeWorkerTunnels，GPU/诊断各自保留。
+  const dedupeInline = (records) => {
+    const out = new Map();
+    for (const record of records) {
+      if (!record || !Object.keys(record).length) continue;
+      out.set(JSON.stringify(record), record);
+    }
+    return Array.from(out.values());
+  };
   const local = [{ hub_job_dir: "work_dirs/a", deleted_at: "local" }];
   const remote = [{ hub_job_dir: "work_dirs/b", deleted_at: "remote" }];
-  assert.deepEqual(sync.dedupeJsonRecords([...local, ...remote]), [...local, ...remote]);
+  assert.deepEqual(dedupeInline([...local, ...remote]), [...local, ...remote]);
 });
 
 test("deleted experiment cannot re-enter experiment index", () => {
