@@ -65,7 +65,7 @@ export function renderPanelHtml(): string {
     .gpuServerStack { display: grid; grid-template-columns: 1fr; gap: 10px; min-width: 0; width: 100%; box-sizing: border-box; }
     .gpuDenseToolbar{ display:flex; gap:6px; align-items:center; }
     .gpuDenseTableWrap{ overflow:auto; max-width:100%; border:1px solid var(--border); border-radius:6px; background: var(--card-bg); }
-    .gpuDenseTable{ border-collapse:collapse; width:100%; font-size:12px; }
+    .gpuDenseTable{ border-collapse:collapse; width:100%; min-width:100%; table-layout:fixed; font-size:12px; }
     .gpuDenseTable th, .gpuDenseTable td{ border:1px solid var(--border); padding:6px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
     .gpuDenseTable th{ background:var(--subtle-bg); user-select:none; cursor:pointer; }
     .gpuDenseTable th .colResizer{ position:absolute; right:0; top:0; width:6px; height:100%; cursor:col-resize; background:transparent; }
@@ -1372,7 +1372,7 @@ export function renderPanelHtml(): string {
       </div>
       <div id="gpuHistoryOverview" data-anchor="gpu-history-overview"></div>
       <div id="gpuSummary" data-anchor="gpu-summary"></div>
-      <div id="gpuDenseTableWrap" class="gpuDenseTableWrap"><table id="gpuDenseTable" class="gpuDenseTable"><thead id="gpuDenseHead"></thead><tbody id="gpuDenseBody"></tbody></table></div>
+      <div id="gpuDenseTableWrap" class="gpuDenseTableWrap"><table id="gpuDenseTable" class="gpuDenseTable"><colgroup id="gpuDenseCols"></colgroup><thead id="gpuDenseHead"></thead><tbody id="gpuDenseBody"></tbody></table></div>
       <div id="gpuGrid" class="gpuServerStack" data-anchor="gpu-grid" style="display:none"></div>
     </section>
 
@@ -8680,7 +8680,7 @@ export function renderPanelHtml(): string {
       var hash = 0; for(var i=0;i<s.length;i++) hash = ((hash<<5)-hash + s.charCodeAt(i))|0;
       var hues = [210, 160, 38, 280, 15, 195, 120, 45];
       var h = hues[Math.abs(hash)%hues.length];
-      return "hsl(" + h + " 10% 97%)";
+      return "hsl(" + h + " 34% 94%)";
     }
     function gpuDenseServerAccent(serverId){
       var s = String(serverId||"");
@@ -8846,7 +8846,24 @@ export function renderPanelHtml(): string {
          if(!wrap.dataset.bound) wrap.dataset.bound="1";
          bindGpuDenseGearControls();
          var visibleCols = gpuDenseVisibleCols();
-        var headHtml = "<tr>" + visibleCols.map(function(col){
+         var denseWidths = visibleCols.map(function(col){
+           var ww = gpuDenseState.colWidths[col.key] || col.width;
+           return Math.max(60, Math.min(400, Number(ww)||col.width));
+         });
+         try{
+           var denseTable = document.getElementById("gpuDenseTable");
+           var denseCols = document.getElementById("gpuDenseCols");
+           if(denseTable && !denseCols){
+             denseCols = document.createElement("colgroup");
+             denseCols.id = "gpuDenseCols";
+             denseTable.insertBefore(denseCols, denseTable.firstChild);
+           }
+           if(denseCols){
+             var cgHtml = denseWidths.map(function(ww, idx){ return '<col data-col-key="' + escAttr(visibleCols[idx].key) + '" style="width:' + ww + 'px">'; }).join("") + '<col data-col-key="__gear" style="width:28px">';
+             if(denseCols.innerHTML !== cgHtml) denseCols.innerHTML = cgHtml;
+           }
+         }catch(cgE){}
+         var headHtml = "<tr>" + visibleCols.map(function(col){
           var w = gpuDenseState.colWidths[col.key] || col.width;
           w = Math.max(60, Math.min(400, Number(w)||col.width));
           var sortIdx = (gpuDenseState.sorts||[]).findIndex(function(s){ return s.key===col.key; });
@@ -9034,6 +9051,10 @@ export function renderPanelHtml(): string {
               gpuDenseSavePersist();
               var th = headEl.querySelector('th[data-col-key="' + cssEscape(colKey) + '"]');
               if(th){ th.style.width=nw+"px"; th.style.minWidth=nw+"px"; th.style.maxWidth=nw+"px"; }
+              try{
+                var cgCol = document.querySelector('#gpuDenseCols col[data-col-key="' + cssEscape(colKey) + '"]');
+                if(cgCol){ cgCol.style.width=nw+"px"; }
+              }catch(cgE2){}
               bodyEl.querySelectorAll('td[data-col="' + cssEscape(colKey) + '"]').forEach(function(td){ td.style.width=nw+"px"; td.style.minWidth=nw+"px"; td.style.maxWidth=nw+"px"; });
             }
             function onUp(){ document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); }
