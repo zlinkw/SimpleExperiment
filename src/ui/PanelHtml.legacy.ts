@@ -53,7 +53,7 @@ export function renderPanelHtml(): string {
     .toolbar .toolbarSep { color: #1F4E79; font-weight: 800; user-select: none; padding: 0 4px; font-size: 18px; line-height: 1; }
     .toolbar > .toolbarSep { width: auto !important; flex: 0 0 auto; }
     .toolbar[data-anchor="sync-actions"] { padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; }
-    .toolbar[data-anchor="sync-actions"] button.danger-filled { margin-left: auto; }
+    .toolbar[data-anchor="sync-actions-danger"] { padding: 2px 0; background: transparent; border: none; margin: 8px 0 0; justify-content: flex-end; }
     .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
     .syncPublishPanel { display: grid; gap: 8px; min-width: 0; }
     .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
@@ -836,8 +836,22 @@ export function renderPanelHtml(): string {
     .workerDenseWorker code.tbUrl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: anywhere; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
-    .serverChainOverview { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 8px 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; color: #1F4E79; font-size: 12px; font-weight: 700; }
+    .serverChainOverview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; color: #1F4E79; font-size: 12px; font-weight: 700; }
+    .serverChainOverview.ok { border-left-color: #16A34A; }
+    .serverChainOverview.warn { border-left-color: #D97706; background: #FFFBEB; }
+    .serverChainOverview.error { border-left-color: #DC2626; background: #FEF2F2; }
     .serverChainOverview b { color: #1F4E79; font-size: 12px; font-weight: 800; margin-right: 2px; }
+    .chainSteps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; min-width: 0; }
+    .chainStep { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 7px; border: 1px solid #E2E8F0; border-left: 3px solid #CBD5E1; border-radius: 6px; background: #FFFFFF; color: #0F172A; font-size: 12px; font-weight: 700; }
+    .chainStep.ok { border-left-color: #16A34A; }
+    .chainStep.warn { border-left-color: #D97706; background: #FFFBEB; }
+    .chainStep.error { border-left-color: #DC2626; background: #FEF2F2; }
+    .chainStep .chainStepLabel { color: #64748B; font-size: 11px; font-weight: 700; flex: 0 0 auto; }
+    .chainStep .chainStepText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0F172A; font-size: 12px; }
+    .chainBadge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: #F1F5F9; color: #475569; white-space: nowrap; }
+    .chainBadge.ok { background: #DCFCE7; color: #166534; }
+    .chainBadge.warn { background: #FEF3C7; color: #92400E; }
+    .chainBadge.error { background: #FEE2E2; color: #991B1B; }
     .chainDot { display: inline-block; width: 12px; height: 12px; border-radius: 999px; background: #94A3B8; border: 1px solid rgba(15, 23, 42, 0.18); flex: 0 0 auto; }
     .chainDot.ok { background: #16A34A; border-color: #16A34A; }
     .chainDot.warn { background: #D97706; border-color: #D97706; }
@@ -1229,7 +1243,9 @@ export function renderPanelHtml(): string {
           <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">一键上传到所有服务器</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
-          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
+        </div>
+        <div class="toolbar" data-anchor="sync-actions-danger">
+          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
         </div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
@@ -5488,7 +5504,7 @@ export function renderPanelHtml(): string {
         plans: { label: "实验", node: withResourceTreeChildren(item("plans", "实验计划", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
         execution: { label: "执行", node: withResourceTreeChildren(item("execution", "运行进度", "调度操作与实验任务统一视图", "▣", "操作+任务/日志/终态", "任务 日志 停止 重试 删除 归档 排队 运行 操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), executionTreeObjects()) },
         results: { label: "实验", node: withResourceTreeChildren(item("results", "结果分析", "结果分析", "▤", "结果/统计/论文", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
-        sync: { label: "发布", node: withResourceTreeChildren(item("sync", "发布与同步", "发布同步", "⇅", "GitHub/SFTP/Agent", "Git GitHub SFTP 上传 分发 Agent 部署 发布 同步"), syncTreeObjects()) },
+        sync: { label: "发布", node: withResourceTreeChildren(item("sync", "运行环境准备 · 发布与同步", "运行环境准备 发布同步", "⇅", "三步链/三步动作/总览 + GitHub/SFTP/Agent", "运行环境准备 部署Agent 启动隧道 检测 三步链 三步动作 Git GitHub SFTP 上传 分发 Agent 部署 发布 同步"), syncTreeObjects()) },
         diagnostics: { label: "运维", node: withResourceTreeChildren(item("diagnostics", "诊断", "诊断", "⌁", "能力/端口/审计", "诊断 自检 调试 审计 能力 端口"), diagnosticTreeObjects()) }
       };
     }
@@ -5794,6 +5810,9 @@ export function renderPanelHtml(): string {
 
     function syncTreeObjects() {
       return [
+        treeObjectItem("sync", "运行环境准备链", "总览", "", "三步链速览：连接/上传/就绪，各卡左色条显示状态；全绿自动跳转实验卡。", "settings-chain-overview", "", "运行环境准备 连接 上传 就绪 chain overview 三步链"),
+        treeObjectItem("sync", "三步动作", "入口", "", "部署Agent→启动全部隧道→一键上传→检测全部；前4钮在蓝框内，危险覆盖独立并级。", "sync-actions", "", "运行环境准备 部署Agent 启动隧道 上传 检测 sync-actions 三步动作"),
+        treeObjectItem("sync", "服务器总览", "入口", "", "服务器总览容器；运行表已下线，卡内仅留链速览与动作。", "sync-servers", "", "运行环境准备 服务器总览 sync-servers"),
         treeObjectItem("sync", "一键上传到所有服务器", "入口", "", "提交并推送到 GitHub 后并行上传到所有服务器；无 remote 时通过 GitHub CLI 创建仓库。", "sync-publish-github", "", "publishGithub GitHub remote 创建 仓库"),
         treeObjectItem("sync", "同步到 GitHub", "入口", "", "提交并推送当前工作区改动到已配置 GitHub remote。", "sync-github-push", "", "syncGithub git add commit push"),
         treeObjectItem("sync", "从 GitHub 覆盖本机", "入口", "", "执行前需要确认；用于从 GitHub 覆盖本机工作区。", "sync-github-overwrite", "", "overwriteGithub reset clean 覆盖"),
@@ -6921,11 +6940,16 @@ export function renderPanelHtml(): string {
       const connCls = conflicts.length ? "error" : (setupReady.ready ? "ok" : "warn");
       const syncCls = syncReady.ready ? "ok" : "warn";
       const agentCls = agent.ready ? "ok" : "warn";
-      return '<div class="serverChainOverview" data-anchor="settings-chain-overview" title="运行环境准备单链：部署Agent到上传到检测，全绿自动跳转实验卡">' +
+      const worstCls = connCls === "error" ? "error" : (connCls === "warn" || syncCls === "warn" || agentCls === "warn" ? "warn" : "ok");
+      const badgeText = conflicts.length ? ("冲突 " + conflicts.length) : (worstCls === "ok" ? "全绿" : "待配");
+      return '<div class="serverChainOverview ' + worstCls + '" data-anchor="settings-chain-overview" title="运行环境准备单链：部署Agent到上传到检测，全绿自动跳转实验卡">' +
         '<b>' + esc(modeLabel) + '</b>' +
-        '<span class="chainDot ' + connCls + '" data-chain-step="connect" title="' + escAttr(setupReady.summary || connText) + '"></span>' +
-        '<span class="chainDot ' + syncCls + '" data-chain-step="upload" title="' + escAttr(syncText) + '"></span>' +
-        '<span class="chainDot ' + agentCls + '" data-chain-step="ready" title="' + escAttr(agent.detail || agentText) + '"></span>' +
+        '<span class="chainSteps">' +
+        '<span class="chainStep ' + connCls + '"><span class="chainStepLabel">连接</span><span class="chainDot ' + connCls + '" data-chain-step="connect" title="' + escAttr(setupReady.summary || connText) + '"></span><span class="chainStepText" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</span></span>' +
+        '<span class="chainStep ' + syncCls + '"><span class="chainStepLabel">上传</span><span class="chainDot ' + syncCls + '" data-chain-step="upload" title="' + escAttr(syncText) + '"></span><span class="chainStepText" title="' + escAttr(syncText) + '">' + esc(syncText) + '</span></span>' +
+        '<span class="chainStep ' + agentCls + '"><span class="chainStepLabel">就绪</span><span class="chainDot ' + agentCls + '" data-chain-step="ready" title="' + escAttr(agent.detail || agentText) + '"></span><span class="chainStepText" title="' + escAttr(agent.detail || agentText) + '">' + esc(agentText) + '</span></span>' +
+        '</span>' +
+        '<span class="chainBadge ' + worstCls + '">' + esc(badgeText) + '</span>' +
       '</div>';
     }
 
