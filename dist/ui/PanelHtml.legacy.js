@@ -2018,7 +2018,7 @@ function renderPanelHtml() {
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
-      saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "sync-servers", startAllConnections: "sync-servers", prepareAgents: "sync-servers", testAll: "sync-servers", snapshot: "gpu-summary",
+      saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "sync-actions", startAllConnections: "sync-actions", prepareAgents: "sync-actions", testAll: "sync-actions", snapshot: "gpu-summary",
       validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
       stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results-traces",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results-summary", refreshResults: "results-summary",
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
@@ -2027,6 +2027,7 @@ function renderPanelHtml() {
       selfCheck: "diagnostics-targets", createDebugBundle: "diagnostics-json", downloadDebugBundle: "diagnostics-json", openAuditTail: "diagnostics-errors",
       fetchTmuxList: "tmux-overview", fetchTmuxCapture: "tmux-overview"
     });
+    // 单链第二步：SYNC_COMMAND_ANCHORS 8映射无DOM承接（sync-publish-github/sync-github-push/sync-github-overwrite/sync-upload-hub/sync-upload-workers/sync-distribute-workers/sync-deploy-agent/sync-sftp-ignore 均无 data-anchor 卡），仅作 inspector 排序键保留，后端 case 全保留；syncCommandAnchor 回退 settings-chain-overview。
     const SYNC_COMMAND_ANCHORS = Object.freeze({ publishGithub: "sync-publish-github", syncGithub: "sync-github-push", overwriteGithub: "sync-github-overwrite", uploadProjectToHub: "sync-upload-hub", uploadProjectToWorkers: "sync-upload-workers", distributeCodeToWorkers: "sync-distribute-workers", deployLatestAgent: "sync-deploy-agent", configureSftpIgnores: "sync-sftp-ignore" });
     const RESULT_METADATA_FILENAMES = new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]);
     const RESULT_METADATA_SUFFIXES = ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"];
@@ -5813,15 +5814,7 @@ function renderPanelHtml() {
       return [
         treeObjectItem("sync", "运行环境准备链", "总览", "", "三步链速览：连接/上传/就绪，各卡左色条显示状态；全绿自动跳转实验卡。", "settings-chain-overview", "", "运行环境准备 连接 上传 就绪 chain overview 三步链"),
         treeObjectItem("sync", "三步动作", "入口", "", "部署Agent→启动全部隧道→一键上传→检测全部→危险覆盖同在蓝框内横向一行；危险钮保留 sync-actions-danger 锚点。", "sync-actions", "", "运行环境准备 部署Agent 启动隧道 上传 检测 sync-actions 三步动作"),
-        treeObjectItem("sync", "服务器总览", "入口", "", "服务器总览容器；运行表已下线，卡内仅留链速览与动作。", "sync-servers", "", "运行环境准备 服务器总览 sync-servers"),
-        treeObjectItem("sync", "一键上传到所有服务器", "入口", "", "提交并推送到 GitHub 后并行上传到所有服务器；无 remote 时通过 GitHub CLI 创建仓库。", "sync-publish-github", "", "publishGithub GitHub remote 创建 仓库"),
-        treeObjectItem("sync", "同步到 GitHub", "入口", "", "提交并推送当前工作区改动到已配置 GitHub remote。", "sync-github-push", "", "syncGithub git add commit push"),
-        treeObjectItem("sync", "从 GitHub 覆盖本机", "入口", "", "执行前需要确认；用于从 GitHub 覆盖本机工作区。", "sync-github-overwrite", "", "overwriteGithub reset clean 覆盖"),
-        treeObjectItem("sync", "首次上传到 Hub", "入口", "", "通过 SimpleSFTP 上传轻量项目代码到 Hub 项目父目录下自动追加项目名的目录。", "sync-upload-hub", "", "uploadProjectToHub SFTP Hub fingerprint"),
-        treeObjectItem("sync", "首次上传到 Worker", "入口", "", "通过 SimpleSFTP 上传轻量项目代码到一个或多个 Worker。", "sync-upload-workers", "", "uploadProjectToWorkers SFTP Worker"),
-        treeObjectItem("sync", "分发代码到所有 Worker", "入口", "", "把当前项目轻量代码包同步到所有启用 Worker。", "sync-distribute-workers", "", "distributeCodeToWorkers 所有 Worker"),
-        treeObjectItem("sync", "部署最新版 Agent", "runtime", "", "上传 VSIX 内置 cluster_agent.py 和 cluster_scheduler.py 到 Hub/Worker 的 simple_agent runtime。", "sync-deploy-agent", "", "deployLatestAgent runtime agent_version_mismatch"),
-        treeObjectItem("sync", "配置 SFTP 忽略", "入口", "", "配置代码同步忽略规则，避免上传权重、数据集、checkpoint 和大产物。", "sync-sftp-ignore", "", "configureSftpIgnores ignore checkpoint weights datasets")
+        // 单链第二步下线：sync-servers 空容器/sync-publish-github/sync-github-push/sync-github-overwrite 原锚/sync-upload-hub/sync-upload-workers/sync-distribute-workers/sync-deploy-agent/sync-sftp-ignore 共9树节点已下线（无DOM承接，点击回退链速览造成断层）；功能保留走 toolbar[data-anchor=sync-actions]/sync-actions-danger + inspector sync 全集，后端 case 全保留。覆盖本机如需树入口则改锚 sync-actions-danger（危险钮真实锚点）。
       ];
     }
 
@@ -8414,6 +8407,7 @@ function renderPanelHtml() {
 
     // 单链第二步：旧 sync 节已下线，renderActionSections/renderPublishActionGroups 已删除；
     // 同步/发布入口统一走 settings-chain-overview 新链（renderServerChainOverview）。
+    // 注：SYNC_COMMAND_ANCHORS 8业务锚点无DOM卡承接，此处回退 settings-chain-overview 仅防空指针，后端 case 全保留，inspector sync 全集不动。
     function syncCommandAnchor(command) {
       return SYNC_COMMAND_ANCHORS[command] || "settings-chain-overview";
     }
