@@ -38,6 +38,7 @@ class SettingsSection {
       <div id="remoteRootPolicySettings" data-anchor="settings-remote-root-policy"></div>
       <div id="pluginUpdateSettings" data-anchor="settings-plugin-update"></div>
       <div id="resultCsvDirectorySettings" data-anchor="settings-result-csv"></div>
+      <div id="serverChainOverview" data-anchor="settings-chain-overview"></div>
       <div id="serverSettingsCards" data-anchor="settings-servers"></div>
     </section>`;
     }

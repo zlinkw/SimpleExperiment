@@ -6866,6 +6866,27 @@ function renderPanelHtml() {
       '</div>';
     }
 
+    // 单链壳：settings-servers 顶部链速览 + 回跳(servers老位置不动，仅镜像入口)。
+    function renderServerChainOverview(state) {
+      const data = state || {};
+      const topology = data.topology || {};
+      const setupReady = serverSetupReadiness(data);
+      const syncReady = projectCodeSyncReadiness(data);
+      const agent = publishAgentReadiness(data);
+      const indexes = serverStatusIndexesForState(data);
+      const conflicts = indexes.conflicts || [];
+      const modeLabel = topology.modeLabel || topologyModeLabel(topology.mode || "single_worker");
+      const connText = conflicts.length ? ("冲突 " + conflicts.length) : setupReady.ready ? "连接就绪" : "连接待配";
+      const syncText = syncReady.ready ? "同步就绪" : (syncReady.summary || "待同步");
+      const agentText = agent.ready ? "Agent就绪" : agent.status;
+      return '<div class="serverChainOverview" data-anchor="settings-chain-overview" title="单链速览">' +
+        '<b>' + esc(modeLabel) + '</b>' +
+        '<button type="button" class="secondary" data-section-target="servers" data-anchor-target="servers-list" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</button>' +
+        '<button type="button" class="secondary" data-section-target="sync" data-anchor-target="sync-publish" title="' + escAttr(syncText) + '">' + esc(syncText) + '</button>' +
+        '<button type="button" class="secondary" data-section-target="sync" data-anchor-target="sync-deploy-agent" title="' + escAttr(agent.detail || agentText) + '">' + esc(agentText) + '</button>' +
+      '</div>';
+    }
+
     function renderServerCardsV2(state) {
       const setup = state.setup || {};
       const topology = state.topology || {};
@@ -7050,15 +7071,13 @@ function renderPanelHtml() {
           : '当前项目没有关闭提醒的 PPT 目标') + '</span>' +
         '<button type="button" class="secondary" data-command="resetPptPathConfirmations"' + (pptPathConfirmationCount ? '' : ' disabled') + '>恢复提醒</button>' +
       '</div>';
-      const conflictNote = conflicts.length
-        ? '<div class="status-warning">存在 ' + conflicts.length + ' 个端口冲突。请检查 Xshell 会话里的本机端口对，确保所有已启用端点端口唯一。</div>'
-        : "";
+      // 冲突仅连接步：settings 区不再重复 conflictNote，冲突只进单链第1步(连接)。
       const xshellBudgetNote = renderXshellSessionBudgetNote(state);
+      setHtmlIfChanged("serverChainOverview", renderServerChainOverview(state));
       setHtmlIfChanged("serverSettingsCards",
         '<div class="serverStack">' + cards.join("") + '</div>' +
         pathConfirmationTools +
         pptPathConfirmationTools +
-        conflictNote +
         xshellBudgetNote +
         '<div class="muted">Xshell 会话文件配置源。</div>');
     }
@@ -8322,9 +8341,8 @@ function renderPanelHtml() {
       const sync = state.codeSync || {};
       setHtmlIfChanged("publishFlow", renderPublishFlow(state));
       el("publishActions").className = "publishActionDeck";
-      setHtmlIfChanged("publishActions", workbenchInspectorActions("sync").map((item) =>
-        '<span class="publishActionAnchor" data-anchor="' + escAttr(syncCommandAnchor(item[1])) + '">' + actionButton(item[0], item[1], item[2] || {}) + '</span>'
-      ).join(""));
+      // 8按钮按 syncCommandAnchor 分组：发布组/同步组/Agent组，每组包 data-anchor 容器。
+      setHtmlIfChanged("publishActions", renderPublishActionGroups());
       setHtmlIfChanged("codeSyncState", '<div class="summaryLine">' + [
          '<span class="pill" title="' + escAttr("原始 fingerprint：" + compactIdentifier(sync.fingerprint || "-")) + '">代码指纹 ' + esc(compactIdentifier(sync.fingerprint || "-")) + '</span>',
         '<span class="pill" title="' + escAttr("Hub 原始状态：" + (sync.hub || "待同步")) + '">Hub ' + esc(labelStatus(sync.hub || "待同步")) + '</span>',
@@ -8345,6 +8363,24 @@ function renderPanelHtml() {
       return SYNC_COMMAND_ANCHORS[command] || "sync-publish";
     }
 
+    // 单链壳：8按钮分组渲染(旧sync节保留，仍消费 workbenchInspectorActions("sync") 全8项)。
+    function renderPublishActionGroups() {
+      const items = workbenchInspectorActions("sync");
+      const groups = [
+        { name: "发布", commands: ["publishGithub", "syncGithub", "overwriteGithub"] },
+        { name: "同步", commands: ["uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers"] },
+        { name: "Agent", commands: ["deployLatestAgent", "configureSftpIgnores"] }
+      ];
+      const byCommand = new Map(items.map((item) => [String(item[1]), item]));
+      return groups.map((group) => {
+        const buttons = group.commands.map((command) => byCommand.get(command)).filter(Boolean).map((item) =>
+          '<span class="publishActionAnchor" data-anchor="' + escAttr(syncCommandAnchor(item[1])) + '">' + actionButton(item[0], item[1], item[2] || {}) + '</span>'
+        ).join("");
+        return '<div class="publishActionGroup" data-anchor="' + escAttr(syncCommandAnchor(group.commands[0])) + '" title="' + escAttr(group.name) + '">' +
+          '<div class="muted">' + esc(group.name) + '</div>' + buttons + '</div>';
+      }).join("");
+    }
+
     function publishAgentReadiness(state) {
       const endpoint = projectEndpointReadiness(state || {});
       const status = endpoint.ready
@@ -8361,15 +8397,32 @@ function renderPanelHtml() {
 
     // A step that failed and a step that has not started yet used to render identically, and the
     // flow offered no way to act on the first blocker; both are resolved here.
+    // 单链壳 Step1-3：连接极简 / 同步(Hub按hubRequired隐藏) / Agent新卡(复用publishAgentReadiness)。
+    // 旧4步仅重构为3步展示，底层 sync/upload/deploy 命令与状态源不动；旧sync节保留不删。
     function publishFlowSteps(state) {
-      const sync = (state || {}).codeSync || {};
+      const data = state || {};
+      const sync = data.codeSync || {};
       const agent = publishAgentReadiness(state);
-      const hasFingerprint = hasText(sync.fingerprint);
+      const setupReady = serverSetupReadiness(data);
+      const syncReady = projectCodeSyncReadiness(data);
+      const indexes = serverStatusIndexesForState(data);
+      const conflicts = indexes.conflicts || [];
+      const connOk = setupReady.ready && conflicts.length === 0;
+      const connFailed = conflicts.length > 0;
+      const connStatus = connFailed ? ("端口冲突 " + conflicts.length) : (setupReady.ready ? "已连接配置" : "待配置");
+      const connDetail = connFailed
+        ? ("存在 " + conflicts.length + " 个端口冲突；" + (setupReady.summary || ""))
+        : (setupReady.summary || (setupReady.hubRequired ? "Hub 已配置" : "无 Hub 模式已配置"));
+      const hubRequired = syncReady.hubRequired;
+      const syncOk = syncReady.ready;
+      const syncFailed = syncStatusFailure(sync.hub) || syncStatusFailure(sync.workers);
+      const syncStatus = syncFailed ? "同步失败" : syncOk ? "已同步" : (syncReady.summary || "待同步");
+      const hubPart = hubRequired ? ("Hub " + labelStatus(sync.hub || "待同步") + "；") : "无 Hub 模式已跳过 Hub；";
+      const syncDetail = "指纹 " + compactIdentifier(sync.fingerprint || "-") + "；" + hubPart + "Worker " + labelStatus(sync.workers || "待同步");
       return [
-        { title: "1. 本地代码", ok: hasFingerprint, status: hasFingerprint ? "已生成指纹" : "待生成", detail: "代码指纹 " + compactIdentifier(sync.fingerprint || "-"), failed: false, command: "syncGithub", action: "同步 GitHub" },
-        { title: "2. 同步 Hub", ok: syncStatusOk(sync.hub), status: labelStatus(sync.hub || "待同步"), detail: "Hub 原始状态：" + (sync.hub || "待同步"), failed: syncStatusFailure(sync.hub), command: "uploadProjectToHub", action: "上传到 Hub" },
-        { title: "3. 同步 Worker", ok: syncStatusOk(sync.workers), status: labelStatus(sync.workers || "待同步"), detail: "Worker 原始状态：" + (sync.workers || "待同步"), failed: syncStatusFailure(sync.workers), command: "distributeCodeToWorkers", action: "分发到 Worker" },
-        { title: "4. Agent", ok: agent.ready, status: agent.status, detail: agent.detail, failed: false, command: "deployLatestAgent", action: "部署最新 Agent" }
+        { title: "1. 连接", ok: connOk, status: connStatus, detail: connDetail, failed: connFailed, command: "startAllConnections", action: "启动连接", section: "servers", anchor: "servers-list" },
+        { title: "2. 同步", ok: syncOk, status: syncStatus, detail: syncDetail, failed: syncFailed, command: "distributeCodeToWorkers", action: "分发到 Worker", section: "sync", anchor: "sync-distribute-workers", hubRequired },
+        { title: "3. Agent", ok: agent.ready, status: agent.status, detail: agent.detail, failed: false, command: "deployLatestAgent", action: "部署最新 Agent", section: "sync", anchor: "sync-deploy-agent" }
       ];
     }
 
@@ -8381,9 +8434,14 @@ function renderPanelHtml() {
       const steps = publishFlowSteps(state);
       const blocker = publishFlowBlocker(steps);
       const blockerIndex = blocker ? steps.indexOf(blocker) : -1;
+      // 锁死：非当前步 pending 不可点(onboardingStep内disabled)；完成自动收起 is-collapsed 只留头。
       const cards = steps.map((step, index) => onboardingStep(step.title, step.ok, step.status, step.detail, {
         pending: !step.ok && !step.failed && blockerIndex >= 0 && index > blockerIndex,
-        current: index === blockerIndex && !step.failed
+        current: index === blockerIndex && !step.failed,
+        collapsed: step.ok && blockerIndex >= 0 && index !== blockerIndex,
+        section: step.section,
+        anchor: step.anchor,
+        action: step.action
       })).join("");
       const next = blocker
         ? projectNextAction((blocker.failed ? "修复" : "完成") + blocker.title.replace(/^\\d+\\.\\s*/, "") + "：" + blocker.status, blocker.action, blocker.command)
@@ -10883,14 +10941,19 @@ function renderPanelHtml() {
 
     function onboardingStep(title, ok, status, detail, options = {}) {
       const hasTarget = Boolean(options.section && options.anchor);
+      // 单链锁死：pending 步骤禁用点击；已完成非阻断步骤自动收起 is-collapsed。
+      const locked = Boolean(options.pending);
+      const collapsed = Boolean(options.collapsed);
       const tone = ok ? "good" : options.pending ? "pending" : options.current ? "current" : "warn";
       const statusClass = ok ? "status-completed" : options.pending ? "muted" : "status-warning";
-      const tag = hasTarget ? "button" : "div";
-      const targetAttrs = hasTarget
-        ? ' type="button" class="onboardingStep is-link ' + tone + '" data-section-target="' + escAttr(options.section) + '" data-anchor-target="' + escAttr(options.anchor) + '" aria-label="' + escAttr(options.action || title) + '"'
-        : ' class="onboardingStep ' + tone + '"';
+      const tag = hasTarget && !locked ? "button" : "div";
+      const collapsedClass = collapsed ? " is-collapsed" : "";
+      const disabledAttr = locked ? ' disabled aria-disabled="true"' : "";
+      const targetAttrs = hasTarget && !locked
+        ? ' type="button" class="onboardingStep is-link ' + tone + collapsedClass + '" data-section-target="' + escAttr(options.section) + '" data-anchor-target="' + escAttr(options.anchor) + '" aria-label="' + escAttr(options.action || title) + '"'
+        : ' class="onboardingStep ' + tone + collapsedClass + '"' + disabledAttr;
       const currentAttr = options.current ? ' aria-current="step"' : "";
-      const action = hasTarget ? '<span class="onboardingStepLink">查看</span>' : "";
+      const action = (hasTarget && !locked) ? '<span class="onboardingStepLink">查看</span>' : "";
       return '<' + tag + targetAttrs + currentAttr + ' title="' + escAttr(options.action ? options.action + "：" + detail : detail) + '">' +
         '<b><span>' + esc(title) + '</span><span class="' + statusClass + '">' + esc(status) + '</span></b>' +
         '<span>' + esc(detail) + '</span>' +

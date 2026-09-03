@@ -19,7 +19,7 @@ class SyncSection {
           </div>
         </div>
         <div class="syncPublishPanel" data-anchor="sync-publish">
-          <div id="publishFlow"></div>
+          <div id="publishFlow" data-anchor="sync-flow"></div>
           <div id="publishActions" class="actionGrid"></div>
           <div id="codeSyncState" class="muted"></div>
         </div>
