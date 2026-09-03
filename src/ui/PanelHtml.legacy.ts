@@ -417,6 +417,9 @@ export function renderPanelHtml(): string {
       .projectQuickNext > .projectQuickActions > button { flex: 1 1 100%; min-width: 0; }
     }
     .projectPathButton { min-height: 24px; padding: 3px 7px; font-size: 11px; }
+    .planPreviewLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; align-items: center; }
+    .planPreviewLinks .projectPathButton { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .taskMetric .metric-value .projectPathButton { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .planRunWorkbench { display: grid; gap: 10px; margin: 10px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card-bg) 92%, var(--vscode-input-background) 8%); }
     .planRunActions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 2px; }
     .planRunRows { display: grid; gap: 6px; }
@@ -3008,7 +3011,65 @@ export function renderPanelHtml(): string {
       updateLayoutToggle();
       applyStatusCardCollapseState();
       compactNativeTitleAttributes();
+      renderPlanPreviewLinks();
       if (pendingButtonKeys.size || loadingButtonCount > 0) applyPendingButtonStates();
+    }
+
+    function isPlanPreviewPathChar(ch) {
+      if (ch === String.fromCharCode(92)) return true;
+      const code = ch.charCodeAt(0);
+      if (code >= 48 && code <= 57) return true;
+      if (code >= 65 && code <= 90) return true;
+      if (code >= 97 && code <= 122) return true;
+      return ch === "/" || ch === "." || ch === "-" || ch === "_" || ch === ":";
+    }
+    function extractPlanPreviewPaths(text) {
+      const out = [];
+      const seen = {};
+      const lines = String(text || "").split(String.fromCharCode(10));
+      const keyPat = /(base_config|config|outputDir|output_dir|results_csv|output_candidates)\\s*:/;
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+        if (!keyPat.test(line) && line.indexOf("configs/") < 0 && line.indexOf("experiments/") < 0) continue;
+        const clean = line.split("#")[0];
+        let cur = "";
+        const pushCur = () => {
+          let token = cur.replace(/^[\\s\"',;\\(\\[]+/, "").replace(/[\\s\"',;\\)\\]]+$/, "");
+          cur = "";
+          if (!token || token.indexOf("/") < 0) return;
+          if (token.length > 256) return;
+          if (seen[token]) return;
+          seen[token] = true;
+          out.push(token);
+        };
+        for (let k = 0; k < clean.length; k++) {
+          const ch = clean[k];
+          if (isPlanPreviewPathChar(ch)) cur += ch;
+          else pushCur();
+        }
+        pushCur();
+      }
+      return out.slice(0, 12);
+    }
+    function renderPlanPreviewLinks() {
+      const areas = document.querySelectorAll('textarea[data-plan-preview="true"]');
+      for (let i = 0; i < areas.length; i++) {
+        const area = areas[i];
+        const idx = String(area.id || "").replace("plan-preview-", "");
+        const host = document.querySelector('[data-plan-preview-links="' + idx + '"]');
+        if (!host) continue;
+        const found = extractPlanPreviewPaths(area.value || "");
+        if (!found.length) {
+          if (host.innerHTML !== "") host.innerHTML = "";
+          continue;
+        }
+        let html = '<span class="muted">预览内路径：</span>';
+        for (let j = 0; j < found.length; j++) {
+          const p = found[j];
+          html += '<button class="mini projectPathButton secondary" data-command="openPlan" data-file="' + escAttr(p) + '" title="' + escAttr(p) + '">' + esc(compactText(p, 60)) + '</button>';
+        }
+        if (host.innerHTML !== html) host.innerHTML = html;
+      }
     }
 
     function cardDecorationKey() {
@@ -11361,18 +11422,18 @@ export function renderPanelHtml(): string {
             '</div>' +
           '</div>' +
           '<div class="taskFacts">' +
-            taskMetric("套件", plan.suite || "-") +
-            taskMetric("基础配置", plan.baseConfig || plan.configSource || "-") +
+            planPathMetric("套件", plan.suite || "-") +
+            planPathMetric("基础配置", plan.baseConfig || plan.configSource || "-") +
             taskMetric("seeds", arrayText(plan.seeds || [])) +
             taskMetric("cases", compactPlanArrayText(plan.cases || [], plan.casesTotalCount, plan.casesOmittedCount)) +
             taskMetric("契约", plan.planContractOk === false ? "缺少：" + asArray(plan.planContractMissing || []).join("、") : "通过") +
-            taskMetric("输出捕获", asArray(plan.outputCandidates || []).length ? compactPlanArrayText(plan.outputCandidates || [], plan.outputCandidatesTotalCount, plan.outputCandidatesOmittedCount) : "未声明") +
-            (plan.restoreOutputNamespace ? taskMetric("版本输出", plan.restoreOutputNamespace) : "") +
+            planOutputCandidatesMetric("输出捕获", plan.outputCandidates || [], plan.outputCandidatesTotalCount, plan.outputCandidatesOmittedCount) +
+            (plan.restoreOutputNamespace ? planPathMetric("版本输出", plan.restoreOutputNamespace) : "") +
             taskMetric("归档条件", archiveReadiness.ready ? "可归档 / 有效结果 " + archiveReadiness.archivedCount : archiveReadiness.reason) +
             (archiveReadiness.resultCount ? taskMetric("结果取舍", "有效 " + archiveReadiness.archivedCount + " / 未纳入 " + archiveReadiness.notIncludedCount) : "") +
           '</div>' +
           (plan.parseError ? '<div class="status-failed">' + esc(plan.parseError) + '</div>' : "") +
-          (editable ? '<textarea id="plan-preview-' + index + '" class="wide" rows="8" data-plan-preview="true" data-plan-file="' + escAttr(file) + '">' + esc(text) + '</textarea>' : textNotice) +
+          (editable ? '<textarea id="plan-preview-' + index + '" class="wide" rows="8" data-plan-preview="true" data-plan-file="' + escAttr(file) + '">' + esc(text) + '</textarea><div class="planPreviewLinks" data-plan-preview-links="' + index + '"></div>' : textNotice) +
         '</div>';
       };
       const listHtml = (entries) => '<div class="taskCardList">' + entries.map(cardHtml).join("") + '</div>';
@@ -11588,6 +11649,31 @@ export function renderPanelHtml(): string {
 
     function taskMetric(label, value) {
       return '<div class="taskMetric"><span class="metric-label">' + esc(label) + '</span><span class="metric-value" title="' + escAttr(value) + '">' + esc(compactText(value, 80)) + '</span></div>';
+    }
+    function isPlanClickablePathValue(value) {
+      const raw = String(value === undefined || value === null ? "" : value).trim();
+      if (!raw || raw === "-" || raw === "未声明" || raw === "通过" || raw === "Plan 内联配置" || raw === "case 级配置") return false;
+      if (raw.indexOf("缺少：") === 0) return false;
+      return true;
+    }
+    function planPathButtonForMetric(full) {
+      const raw = String(full === undefined || full === null ? "" : full);
+      return '<button class="mini projectPathButton secondary" data-command="openPlan" data-file="' + escAttr(raw) + '" title="' + escAttr(raw) + '">' + esc(compactText(raw, 80)) + '</button>';
+    }
+    function planPathMetric(label, full) {
+      const raw = String(full === undefined || full === null || full === "" ? "-" : full);
+      if (!isPlanClickablePathValue(raw)) return taskMetric(label, raw);
+      return '<div class="taskMetric"><span class="metric-label">' + esc(label) + '</span><span class="metric-value" title="' + escAttr(raw) + '">' + planPathButtonForMetric(raw) + '</span></div>';
+    }
+    function planOutputCandidatesMetric(label, candidates, totalCount, omittedCount) {
+      const values = asArray(candidates || []);
+      if (!values.length) return taskMetric(label, "未声明");
+      const total = Math.max(Number(totalCount || 0), values.length);
+      const omitted = Math.max(Number(omittedCount || 0), total - values.length);
+      const title = arrayText(values) + (omitted ? "；另有 " + omitted + " 项已省略" : "");
+      const parts = values.map((item) => planPathButtonForMetric(item)).join(", ");
+      const suffix = omitted ? '<span class="muted">' + esc("；另有 " + omitted + " 项已省略") + '</span>' : "";
+      return '<div class="taskMetric"><span class="metric-label">' + esc(label) + '</span><span class="metric-value" title="' + escAttr(title) + '">' + parts + suffix + '</span></div>';
     }
 
     function timeMetric(label, time) {
