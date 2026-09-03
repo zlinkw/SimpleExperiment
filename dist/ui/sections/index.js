@@ -1,10 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.allSectionIds = exports.DiagnosticsSection = exports.SettingsSection = exports.TmuxSection = exports.SyncSection = exports.GpuSection = exports.ExecutionSection = exports.ResultsSection = exports.PlansSection = exports.ServersSection = exports.OverviewSection = void 0;
+exports.allSectionIds = exports.DiagnosticsSection = exports.SettingsSection = exports.TmuxSection = exports.SyncSection = exports.GpuSection = exports.ExecutionSection = exports.ResultsSection = exports.PlansSection = exports.ServersSection = void 0;
 exports.createAllSections = createAllSections;
 exports.createSectionById = createSectionById;
 exports.toPanelSections = toPanelSections;
-const OverviewSection_1 = require("./OverviewSection");
 const ServersSection_1 = require("./ServersSection");
 const PlansSection_1 = require("./PlansSection");
 const ResultsSection_1 = require("./ResultsSection");
@@ -14,8 +13,6 @@ const SyncSection_1 = require("./SyncSection");
 const TmuxSection_1 = require("./TmuxSection");
 const SettingsSection_1 = require("./SettingsSection");
 const DiagnosticsSection_1 = require("./DiagnosticsSection");
-var OverviewSection_2 = require("./OverviewSection");
-Object.defineProperty(exports, "OverviewSection", { enumerable: true, get: function () { return OverviewSection_2.OverviewSection; } });
 var ServersSection_2 = require("./ServersSection");
 Object.defineProperty(exports, "ServersSection", { enumerable: true, get: function () { return ServersSection_2.ServersSection; } });
 var PlansSection_2 = require("./PlansSection");
@@ -36,7 +33,6 @@ var DiagnosticsSection_2 = require("./DiagnosticsSection");
 Object.defineProperty(exports, "DiagnosticsSection", { enumerable: true, get: function () { return DiagnosticsSection_2.DiagnosticsSection; } });
 function createAllSections() {
     const sections = [
-        new OverviewSection_1.OverviewSection(),
         new ServersSection_1.ServersSection(),
         new SettingsSection_1.SettingsSection(),
         new PlansSection_1.PlansSection(),
@@ -66,4 +62,4 @@ function toPanelSections(sections) {
         renderScript: () => s.renderScript(),
     }));
 }
-exports.allSectionIds = ["overview", "servers", "settings", "plans", "results", "sync", "gpu", "tmux", "execution", "diagnostics"];
+exports.allSectionIds = ["servers", "settings", "plans", "results", "sync", "gpu", "tmux", "execution", "diagnostics"];

@@ -42,7 +42,6 @@ class BaseSection {
 }
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 const SECTION_DEFS = [
-    { id: "overview", order: 0, title: "总览", icon: "⌘" },
     { id: "plans", order: 1, title: "计划", icon: "📋" },
     { id: "results", order: 2, title: "结果", icon: "📊" },
     { id: "execution", order: 3, title: "执行", icon: "▶" },
@@ -104,7 +103,7 @@ class DefaultPanelSectionFactory {
         const sectionsMod = getSectionsMod();
         if (sectionsMod && typeof sectionsMod.createAllSections === "function") {
             const realSections = sectionsMod.createAllSections();
-            if (Array.isArray(realSections) && realSections.length >= 10) {
+            if (Array.isArray(realSections) && realSections.length >= 9) {
                 const mapped = realSections.map(toPanelSection);
                 // 合并 deps 定制覆盖（若有）
                 const customMap = this.deps["sections"] || {};
