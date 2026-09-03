@@ -8609,8 +8609,7 @@ function renderPanelHtml() {
     var GPU_DENSE_DEFAULT_COLS = [
       { key: "server", label: "服务器", width: 140, visible: true, sortable: true },
       { key: "gpu", label: "卡", width: 70, visible: true, sortable: true },
-      { key: "score", label: "评分", width: 80, visible: true, sortable: true },
-      { key: "serverScore", label: "服务器分", width: 90, visible: true, sortable: true },
+      { key: "serverScore", label: "评分", width: 90, visible: true, sortable: true },
       { key: "mem", label: "显存", width: 150, visible: true, sortable: true },
       { key: "util", label: "利用率", width: 90, visible: true, sortable: true },
       { key: "temp", label: "温度", width: 80, visible: true, sortable: true },
@@ -8618,7 +8617,7 @@ function renderPanelHtml() {
       { key: "runKey", label: "关联任务", width: 160, visible: true, sortable: true },
       { key: "status", label: "状态", width: 90, visible: true, sortable: true }
     ];
-    var GPU_DENSE_DEFAULT_SORTS = [{ key: "server", dir: "asc" }, { key: "score", dir: "desc" }, { key: "gpu", dir: "asc" }];
+    var GPU_DENSE_DEFAULT_SORTS = [{ key: "server", dir: "asc" }, { key: "serverScore", dir: "desc" }, { key: "gpu", dir: "asc" }];
     var gpuDenseState = { mergeServer: true, expandedKey: "", colConfig: null, sorts: null, colWidths: {}, rowHeights: {}, globalRowHeight: 32 };
     function gpuDenseLoadPersist(){
       try{
@@ -8640,6 +8639,28 @@ function renderPanelHtml() {
       if(!gpuDenseState.colWidths || typeof gpuDenseState.colWidths !== "object") gpuDenseState.colWidths = {};
       if(!gpuDenseState.rowHeights || typeof gpuDenseState.rowHeights !== "object") gpuDenseState.rowHeights = {};
       gpuDenseState.globalRowHeight = Math.max(24, Math.min(64, Number(gpuDenseState.globalRowHeight)||32));
+      // migration: drop deprecated score column, correct serverScore label, persist once
+      try{
+        var _migrated = false;
+        if(Array.isArray(gpuDenseState.colConfig)){
+          var _beforeLen = gpuDenseState.colConfig.length;
+          gpuDenseState.colConfig = gpuDenseState.colConfig.filter(function(c){ return c && c.key !== "score"; });
+          if(gpuDenseState.colConfig.length !== _beforeLen) _migrated = true;
+          gpuDenseState.colConfig.forEach(function(c){
+            if(c && c.key === "serverScore" && c.label !== "评分"){ c.label = "评分"; _migrated = true; }
+          });
+        }
+        if(Array.isArray(gpuDenseState.sorts)){
+          var _beforeSortLen = gpuDenseState.sorts.length;
+          gpuDenseState.sorts = gpuDenseState.sorts.filter(function(s){ return s && s.key !== "score"; });
+          if(gpuDenseState.sorts.length !== _beforeSortLen) _migrated = true;
+          if(!gpuDenseState.sorts.length){
+            gpuDenseState.sorts = JSON.parse(JSON.stringify(GPU_DENSE_DEFAULT_SORTS));
+            _migrated = true;
+          }
+        }
+        if(_migrated) gpuDenseSavePersist();
+      }catch(e){}
     }
     function gpuDenseSavePersist(){
       try{
@@ -8662,7 +8683,14 @@ function renderPanelHtml() {
       var hash = 0; for(var i=0;i<s.length;i++) hash = ((hash<<5)-hash + s.charCodeAt(i))|0;
       var hues = [210, 160, 38, 280, 15, 195, 120, 45];
       var h = hues[Math.abs(hash)%hues.length];
-      return "hsl(" + h + " 62% 92%)";
+      return "hsl(" + h + " 10% 97%)";
+    }
+    function gpuDenseServerAccent(serverId){
+      var s = String(serverId||"");
+      var hash = 0; for(var i=0;i<s.length;i++) hash = ((hash<<5)-hash + s.charCodeAt(i))|0;
+      var hues = [210, 160, 38, 280, 15, 195, 120, 45];
+      var h = hues[Math.abs(hash)%hues.length];
+      return "hsl(" + h + " 45% 78%)";
     }
     function gpuDenseRowKey(serverId, gpuIndex){
       return String(serverId||"") + "::" + String(gpuIndex||"");
@@ -8867,7 +8895,6 @@ function renderPanelHtml() {
           var av, bv;
           if(key==="server") { av = String(a.displayName||a.serverId); bv = String(b.displayName||b.serverId); return av.localeCompare(bv); }
           if(key==="gpu") { av = String(a.gpu.index); bv = String(b.gpu.index); var na=Number(av), nb=Number(bv); if(Number.isFinite(na) && Number.isFinite(nb)) return na-nb; return av.localeCompare(bv); }
-          if(key==="score") { av=Number(a.score); bv=Number(b.score); return (av-bv); }
           if(key==="serverScore") { av=Number(a.serverScore); bv=Number(b.serverScore); if(!Number.isFinite(av)) av=-1; if(!Number.isFinite(bv)) bv=-1; return av-bv; }
           if(key==="mem") { av=Number(a.gpu.memoryPercent); bv=Number(b.gpu.memoryPercent); if(!Number.isFinite(av)) av=-1; if(!Number.isFinite(bv)) bv=-1; return av-bv; }
           if(key==="util") { av=Number(a.gpu.utilizationPercent); bv=Number(b.gpu.utilizationPercent); if(!Number.isFinite(av)) av=-1; if(!Number.isFinite(bv)) bv=-1; return av-bv; }
@@ -8902,6 +8929,7 @@ function renderPanelHtml() {
           h = Math.max(24, Math.min(48, Number(h)||globalH));
           var isExpanded = gpuDenseState.expandedKey === row.key;
           var bg = row.bg;
+          var accent = gpuDenseServerAccent(row.serverId);
           var colsHtml = visibleCols.map(function(col){
             var cell = "";
             if(col.key==="server"){
@@ -8917,7 +8945,6 @@ function renderPanelHtml() {
               }
             }
             if(col.key==="gpu"){ var _gn=String(row.gpu.name||""); var _sn=gpuShortName(_gn); cell = '<td data-col="gpu" title="' + escAttr(_gn) + '" style="background:' + bg + ';">GPU ' + esc(row.gpu.index) + ' <span class="muted">' + esc(_sn) + '</span></td>'; }
-            else if(col.key==="score") cell = '<td data-col="score" style="background:' + bg + ';"><span class="pill">' + esc(String(row.score)) + '</span></td>';
             else if(col.key==="serverScore") cell = '<td data-col="serverScore" style="background:' + bg + ';">' + (row.serverScore!==null && row.serverScore!==undefined ? esc(String(Math.round(row.serverScore*10)/10)) : "-") + '</td>';
             else if(col.key==="mem") cell = '<td data-col="mem" style="background:' + bg + ';">' + esc(memoryText(row.gpu)) + '</td>';
             else if(col.key==="util") cell = '<td data-col="util" style="background:' + bg + ';">' + esc(valuePercent(row.gpu.utilizationPercent)) + '</td>';
@@ -8929,7 +8956,7 @@ function renderPanelHtml() {
             return cell;
           }).join("");
           var expandToggle = '<td style="background:' + bg + '; width:28px; text-align:center;"><button type="button" class="mini secondary gpuDenseExpandBtn" data-expand-key="' + escAttr(row.key) + '">' + (isExpanded?"收起":"展开") + '</button></td>';
-          bodyHtml += '<tr class="gpuDenseRow' + (isExpanded?" is-expanded":"") + '" data-row-key="' + escAttr(row.key) + '" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '" style="height:' + h + 'px; background:' + bg + '; position:relative;">' + colsHtml + expandToggle + '</tr>';
+          bodyHtml += '<tr class="gpuDenseRow' + (isExpanded?" is-expanded":"") + '" data-row-key="' + escAttr(row.key) + '" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '" style="height:' + h + 'px; background:' + bg + '; box-shadow:inset 3px 0 0 ' + accent + '; position:relative;">' + colsHtml + expandToggle + '</tr>';
           if(isExpanded){
             var colspan = visibleCols.length + 1;
             var chartId = "gpuDenseChart-" + row.key.replace(/[^a-zA-Z0-9_-]+/g, "_");
