@@ -1203,24 +1203,18 @@ function renderPanelHtml() {
         </div>
       </section>
 
-      <section class="section-card" data-section="sync" data-anchor="sync" data-title="发布与同步">
+      <section class="section-card" data-section="sync" data-anchor="sync" data-title="运行环境准备">
         <div class="section-head">
           <div class="section-title">
-            <h2>发布与同步</h2>
-            <div class="section-desc">GitHub、SFTP、Agent</div>
+            <h2>运行环境准备</h2>
+            <div class="section-desc">单链镜像：部署 / 上传 / 检测</div>
           </div>
         </div>
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
-        <div class="muted">同步/发布入口已与设置区单链融合；下方按钮与设置区顶部单链速览一致。</div>
+        <div class="muted">运行环境准备单链镜像；完整三步链见设置区顶部。失败停留本卡并报错，不自动跳转。</div>
         <div class="toolbar" data-anchor="sync-actions">
-          <span data-anchor="sync-publish-github"><button type="button" data-command="publishGithub" data-confirm="true">一键发布当前项目</button></span>
-          <span data-anchor="sync-github-push"><button type="button" class="secondary" data-command="syncGithub" data-confirm="true">同步到 GitHub</button></span>
+          <span data-anchor="sync-publish-github"><button type="button" data-command="publishGithub" data-confirm="true">一键上传到所有服务器</button></span>
           <span data-anchor="sync-github-overwrite"><button type="button" class="secondary" data-command="overwriteGithub" data-danger="true">从 GitHub 覆盖本机</button></span>
-          <span data-anchor="sync-upload-hub"><button type="button" class="secondary" data-command="uploadProjectToHub" data-confirm="true">首次上传到 Hub</button></span>
-          <span data-anchor="sync-upload-workers"><button type="button" class="secondary" data-command="uploadProjectToWorkers" data-confirm="true">首次上传到 Worker</button></span>
-          <span data-anchor="sync-distribute-workers"><button type="button" class="secondary" data-command="distributeCodeToWorkers" data-confirm="true">分发代码到所有 Worker</button></span>
-          <span data-anchor="sync-deploy-agent"><button type="button" class="secondary" data-command="deployLatestAgent" data-confirm="true">部署最新版 Agent</button></span>
-          <span data-anchor="sync-sftp-ignore"><button type="button" class="secondary" data-command="configureSftpIgnores">配置 SFTP 忽略</button></span>
         </div>
       </section>
 
@@ -1986,7 +1980,7 @@ function renderPanelHtml() {
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
       execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6], ["clearOperations", 7]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
-      sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["uploadProjectToHub", 2], ["uploadProjectToWorkers", 3], ["distributeCodeToWorkers", 4], ["deployLatestAgent", 5], ["configureSftpIgnores", 6]]),
+      sync: new Map([["publishGithub", 0], ["syncGithub", 1], ["overwriteGithub", 2], ["uploadProjectToHub", 3], ["uploadProjectToWorkers", 4], ["distributeCodeToWorkers", 5], ["deployLatestAgent", 6], ["configureSftpIgnores", 7]]),
       tmux: new Map([["fetchTmuxList", 0], ["fetchTmuxCapture", 1], ["testAll", 2]]),
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
@@ -4810,7 +4804,7 @@ function renderPanelHtml() {
         runPlan: "校验并提交运行",
         runAllPlans: "运行全部计划",
         archivePlan: "归档计划",
-        publishGithub: "发布到 GitHub",
+        publishGithub: "一键上传到所有服务器",
         syncGithub: "同步 GitHub",
         overwriteGithub: "GitHub 覆盖本机",
         uploadProjectToHub: "上传到 Hub",
@@ -4960,7 +4954,7 @@ function renderPanelHtml() {
       const incomingSet = new Set(migratedIncoming);
       const order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet?.has(item)));
       const rawCollapsed = layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {};
-      const collapsed = Object.assign({ servers: true, settings: false, sync: false, diagnostics: true, execution: false }, rawCollapsed);
+      const collapsed = Object.assign({ servers: false, settings: false, sync: false, diagnostics: true, execution: false }, rawCollapsed);
       // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）
       if (typeof rawCollapsed.execution !== "boolean") {
         collapsed.execution = Boolean(rawCollapsed.tasks) || Boolean(rawCollapsed.operations);
@@ -5766,7 +5760,7 @@ function renderPanelHtml() {
 
     function syncTreeObjects() {
       return [
-        treeObjectItem("sync", "一键发布当前项目", "入口", "", "发布当前工作区到 GitHub；无 remote 时通过 GitHub CLI 创建仓库。", "sync-publish-github", "", "publishGithub GitHub remote 创建 仓库"),
+        treeObjectItem("sync", "一键上传到所有服务器", "入口", "", "提交并推送到 GitHub 后并行上传到所有服务器；无 remote 时通过 GitHub CLI 创建仓库。", "sync-publish-github", "", "publishGithub GitHub remote 创建 仓库"),
         treeObjectItem("sync", "同步到 GitHub", "入口", "", "提交并推送当前工作区改动到已配置 GitHub remote。", "sync-github-push", "", "syncGithub git add commit push"),
         treeObjectItem("sync", "从 GitHub 覆盖本机", "入口", "", "执行前需要确认；用于从 GitHub 覆盖本机工作区。", "sync-github-overwrite", "", "overwriteGithub reset clean 覆盖"),
         treeObjectItem("sync", "首次上传到 Hub", "入口", "", "通过 SimpleSFTP 上传轻量项目代码到 Hub 项目父目录下自动追加项目名的目录。", "sync-upload-hub", "", "uploadProjectToHub SFTP Hub fingerprint"),
@@ -6154,14 +6148,14 @@ function renderPanelHtml() {
      function workbenchInspectorActions(section, meta) {
       const actionSection = inspectorActionSection(section, meta);
       const actions = {
-        overview: [["准备 Agent 并启动", "prepareAgents"], ["启动连接", "startAllConnections"], ["检测全部", "testAll"], ["刷新数据", "snapshot"], ["暂停网络", "pauseAll"]],
-        servers: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["准备 Agent 并启动", "prepareAgents"], ["启动全部隧道", "startAll"], ["启动连接", "startAllConnections"], ["检测全部", "testAll"]],
-        settings: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["准备 Agent 并启动", "prepareAgents"], ["启动全部隧道", "startAll"], ["启动连接", "startAllConnections"], ["检测全部", "testAll"]],
+        overview: [["部署Agent", "prepareAgents"], ["检测全部", "testAll"], ["刷新数据", "snapshot"], ["暂停网络", "pauseAll"]],
+        servers: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
+        settings: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
         gpu: [["刷新数据", "snapshot"], ["检测全部", "testAll"]],
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["停止选中", "stopExperiment", { confirm: true, batch: true }], ["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
-        sync: [["一键发布当前项目", "publishGithub", { confirm: true }], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
+        sync: [["一键上传到所有服务器", "publishGithub", { confirm: true }], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
@@ -6876,7 +6870,7 @@ function renderPanelHtml() {
       '</div>';
     }
 
-    // 单链壳：settings-servers 顶部链速览 + 回跳(servers老位置不动，仅镜像入口)。
+    // 运行环境准备单链：三步链速览（连接/上传/就绪），serverSettingsCards顶部双写保持。
     function renderServerChainOverview(state) {
       const data = state || {};
       const topology = data.topology || {};
@@ -6887,12 +6881,15 @@ function renderPanelHtml() {
       const conflicts = indexes.conflicts || [];
       const modeLabel = topology.modeLabel || topologyModeLabel(topology.mode || "single_worker");
       const connText = conflicts.length ? ("冲突 " + conflicts.length) : setupReady.ready ? "连接就绪" : "连接待配";
-      const syncText = syncReady.ready ? "同步就绪" : (syncReady.summary || "待同步");
-      const agentText = agent.ready ? "Agent就绪" : agent.status;
-      return '<div class="serverChainOverview" data-anchor="settings-chain-overview" title="单链速览">' +
+      const syncText = syncReady.ready ? "上传就绪" : (syncReady.summary || "待上传");
+      const agentText = agent.ready ? "就绪" : agent.status;
+      return '<div class="serverChainOverview" data-anchor="settings-chain-overview" title="运行环境准备单链：部署Agent到上传到检测，全绿自动跳转实验卡">' +
         '<b>' + esc(modeLabel) + '</b>' +
+        '<span class="chainStep" data-chain-step="connect" title="' + escAttr(setupReady.summary || connText) + '">1 连接：</span>' +
         '<button type="button" class="secondary" data-section-target="servers" data-anchor-target="servers-list" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</button>' +
+        '<span class="chainStep" data-chain-step="upload" title="' + escAttr(syncText) + '">2 上传：</span>' +
         '<button type="button" class="secondary" data-section-target="settings" data-anchor-target="settings-chain-overview" title="' + escAttr(syncText) + '">' + esc(syncText) + '</button>' +
+        '<span class="chainStep" data-chain-step="ready" title="' + escAttr(agent.detail || agentText) + '">3 就绪：</span>' +
         '<button type="button" class="secondary" data-section-target="settings" data-anchor-target="settings-chain-overview" title="' + escAttr(agent.detail || agentText) + '">' + esc(agentText) + '</button>' +
       '</div>';
     }
@@ -7185,8 +7182,7 @@ function renderPanelHtml() {
           '<button type="button" data-section-target="settings" data-anchor-target="settings-servers">设置</button>' +
           '<button data-command="addWorkerConfig">新增服务器</button>' +
           '<button data-command="startAll" class="secondary">' + esc(hubParticipates ? "启动全部隧道" : "启动 Worker 隧道") + '</button>' +
-          '<button data-command="prepareAgents">' + esc(hubParticipates ? "准备 Agent 并启动" : "准备 Worker Agent") + '</button>' +
-          '<button data-command="startAllConnections" class="secondary">' + esc(hubParticipates ? "启动连接" : "启动 Worker 连接") + '</button>' +
+          '<button data-command="prepareAgents">' + esc(hubParticipates ? "部署Agent" : "部署 Worker Agent") + '</button>' +
           '<button data-command="testAll" class="secondary">' + esc(hubParticipates ? "检测全部" : "检测 Worker") + '</button>' +
         '</div>');
     }
