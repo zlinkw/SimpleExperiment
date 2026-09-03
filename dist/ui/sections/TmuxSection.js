@@ -8,7 +8,7 @@ exports.tmuxSection = exports.TmuxSection = void 0;
 class TmuxSection {
     id = "tmux";
     title = "TMUX 会话 / 窗口 / 窗格";
-    order = 7;
+    order = 4;
     renderHtml(_state) {
         return `
          <section class="section-card" data-section="tmux" data-anchor="tmux" data-title="TMUX 会话 / 窗口 / 窗格">

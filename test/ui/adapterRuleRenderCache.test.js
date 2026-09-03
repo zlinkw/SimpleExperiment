@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
 
 function extractFunction(name) {
   const start = panel.indexOf(`function ${name}(`);
@@ -68,7 +68,7 @@ function loadRenderer() {
   return sandbox;
 }
 
-test("adapter rule renderer reuses stable rules and preserves candidate exclusions", () => {
+test("adapter rule preview details removed from panel", () => {
   const sandbox = loadRenderer();
   const rules = {
     taskType: "classification",
@@ -81,31 +81,10 @@ test("adapter rule renderer reuses stable rules and preserves candidate exclusio
     csvColumnMapping: { score: "value", name: "metric" },
   };
 
-  const first = sandbox.render(rules);
-  const firstCounts = { parse: sandbox.parseCalls, row: sandbox.rowCalls };
-
-  assert.match(first, /metrics\.csv/);
-  assert.match(first, /metrics\.json/);
-  assert.match(first, /stdout\.log/);
-  assert.match(first, /summary\.txt/);
-  assert.doesNotMatch(first, /status\.json/);
-  assert.doesNotMatch(first, /artifact_manifest\.json/);
-  assert.doesNotMatch(first, /run_status\.json/);
-  assert.doesNotMatch(first, /internal\.txt/);
-  assert.match(first, /4 个状态、manifest 或内部文件/);
-  assert.match(first, /auroc→AUC、dsc→Dice/);
-  assert.match(first, /score→value、name→metric/);
-  assert.strictEqual(sandbox.render(rules), first);
-  assert.deepEqual({ parse: sandbox.parseCalls, row: sandbox.rowCalls }, firstCounts);
-
-  const replacement = {
-    ...rules,
-    candidateCsv: ["status.json", "metrics-v2.csv"],
-  };
-  const refreshed = sandbox.render(replacement);
-  assert.notEqual(refreshed, first);
-  assert.match(refreshed, /metrics-v2\.csv/);
-  assert.ok(sandbox.parseCalls > firstCounts.parse);
+  assert.equal(sandbox.render(rules), "");
+  assert.doesNotMatch(panel, /项目接入规则/);
+  assert.doesNotMatch(panel, /结果解析预览/);
+  assert.doesNotMatch(panel, /配置参数预览/);
 });
 
 test("adapter rule renderer caches empty displays without touching editable renderer", () => {
@@ -121,9 +100,9 @@ test("adapter rule renderer caches empty displays without touching editable rend
   });
 
   assert.equal(sandbox.render(emptyRules), "");
-  assert.equal(reads, 1);
+  assert.equal(reads, 0);
   assert.equal(sandbox.render(emptyRules), "");
-  assert.equal(reads, 1);
+  assert.equal(reads, 0);
   assert.equal(sandbox.renderAdapterRulesCache.has(emptyRules), true);
   assert.equal(sandbox.renderAdapterRulesCache.get(emptyRules), "");
   assert.equal(sandbox.render(null), "");

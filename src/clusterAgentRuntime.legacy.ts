@@ -2617,7 +2617,10 @@ def _is_bootstrap_tmux_line(line):
         if not l:
             return False
         # 建窗/控窗指令：允许在主 shell (zlk1:0.0/simple1:0.0) 上执行，不属于重型调度
-        if "tmux new-session" in l or "tmux new -s" in l or "tmux new-window" in l or "tmux kill-session" in l or "tmux kill-pane" in l or "tmux split-window" in l:
+        if "tmux new-session" in l or "tmux new -s" in l or "tmux new-window" in l or "tmux kill-session" in l or "tmux kill-window" in l or "tmux kill-pane" in l or "tmux split-window" in l:
+            return True
+        # agent 管理窗模拟键入：tmux send-keys 透传 kill-window/new/split 等控窗指令同样放行
+        if "tmux send-keys" in l:
             return True
         if l.startswith("tmux ") and ("new" in l or "kill" in l or "split" in l):
             return True
@@ -11216,7 +11219,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache") and worker_action not in WORKER_RESULT_ACTIONS:
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window") and worker_action not in WORKER_RESULT_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             length = int(self.headers.get("Content-Length") or 0)
             raw_body = self.rfile.read(length)
@@ -11226,6 +11229,65 @@ def serve_http(args):
                     payload = json.loads(raw_body.decode("utf-8") or "{}")
                 except Exception:
                     return self.send_json({"error": "invalid json"}, status=400)
+            # tmux 关窗：经 agent 管理窗口模拟用户键入 send-keys（禁 bash -l，禁窗口外主 shell 直调）
+            if route == "/api/tmux/kill-window":
+                if not self.localhost_only():
+                    return self.send_json({"error": "localhost only"}, status=403)
+                target = str(payload.get("target") or payload.get("window") or payload.get("session") or "").strip()
+                if not target:
+                    return self.send_json({"error": "target required"}, status=400)
+                if not re.match(r"^[A-Za-z0-9._\-:]+$", target):
+                    return self.send_json({"error": "invalid target name"}, status=400)
+                sess_name = target.split(":")[0].strip() if ":" in target else target
+                if not sess_name:
+                    return self.send_json({"error": "invalid target name"}, status=400)
+                try:
+                    own_sess = str(os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION") or "").strip()
+                except Exception:
+                    own_sess = ""
+                if own_sess and sess_name == own_sess:
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "error": "refuse to kill own agent session"}, status=403)
+                confirmed = payload.get("confirm") is True or str(payload.get("confirm") or "").strip().lower() in ("true", "1", "yes")
+                if sess_name.endswith("-agent") and not confirmed:
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "needConfirm": True, "error": "agent window requires confirm"}, status=403)
+                try:
+                    mgmt_target = str(os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION") or "").strip()
+                except Exception:
+                    mgmt_target = ""
+                if not mgmt_target:
+                    try:
+                        _pfx = ""
+                        try:
+                            _pfx = str(_resolve_tmux_prefix() or "").strip()
+                        except Exception:
+                            _pfx = ""
+                        if not _pfx:
+                            _pfx = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower() or "simple"
+                        _pfx = re.sub(r"[^a-z0-9._-]+", "-", _pfx.lower()).strip("-")[:32] or "simple"
+                        if mode == "hub_control":
+                            mgmt_target = _pfx + "-hub-agent"
+                        else:
+                            try:
+                                _wid = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip().lower() or "worker"
+                            except Exception:
+                                _wid = "worker"
+                            _wid = re.sub(r"[^a-z0-9._-]+", "-", _wid).strip("-") or "worker"
+                            mgmt_target = _pfx + "-worker-" + _wid + "-agent"
+                    except Exception:
+                        mgmt_target = ""
+                if not mgmt_target:
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "agent mgmt session unknown"}, status=500)
+                if sess_name == mgmt_target and not confirmed:
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "needConfirm": True, "error": "agent window requires confirm"}, status=403)
+                try:
+                    kill_line = "tmux kill-window -t " + target
+                    r = subprocess.run(["tmux", "send-keys", "-t", mgmt_target, kill_line, "C-m"], capture_output=True, text=True, timeout=5)
+                    err = (r.stderr or "").strip()[-500:]
+                    if r.returncode != 0:
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "mgmt": mgmt_target, "error": err or f"rc={r.returncode}"}, status=200)
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True, "mgmt": mgmt_target})
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=500)
             # Admin kill-stale-runtime: used by extension killRemoteAgentAndTmux to clean old tmux/pids via tunnel
             if route in ("/api/admin/kill-stale-runtime", "/api/admin/exec"):
                 if not self.localhost_only():

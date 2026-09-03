@@ -3,7 +3,7 @@ import type { Section } from "./types";
 export class GpuSection implements Section {
   readonly id = "gpu";
   readonly title = "GPU 状态";
-  readonly order = 5;
+  readonly order = 3;
   renderHtml(_state?: unknown): string {
     return `
     <section class="section-card" data-section="gpu" data-anchor="gpu" data-title="GPU 状态">

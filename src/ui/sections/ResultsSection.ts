@@ -7,7 +7,7 @@ import type { Section } from "./types";
 export class ResultsSection implements Section {
   readonly id = "results";
   readonly title = "结果与归档";
-  readonly order = 4;
+  readonly order = 6;
   renderHtml(_state?: unknown): string {
     return `
       <section class="section-card" data-section="results" data-anchor="results" data-title="结果与归档">

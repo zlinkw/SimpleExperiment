@@ -8,7 +8,7 @@ exports.diagnosticsSection = exports.DiagnosticsSection = void 0;
 class DiagnosticsSection {
     id = "diagnostics";
     title = "诊断与自检";
-    order = 9;
+    order = 7;
     renderHtml(_state) {
         return `
     <section class="section-card" data-section="diagnostics" data-anchor="diagnostics" data-title="诊断与自检">

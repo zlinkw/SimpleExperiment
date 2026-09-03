@@ -7,7 +7,8 @@ const vm = require("node:vm");
 const root = path.join(__dirname, "..", "..");
 
 function panelSource() {
-  return fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  // PanelHtml.ts 现为回退 facade（委托 legacy），语义断言以 legacy 为准
+  return fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.legacy.ts"), "utf8");
 }
 
 function between(source, start, end) {
@@ -49,7 +50,8 @@ test("panel uses draggable three column workbench with searchable resource tree"
 
 test("panel exposes resizable columns, collapse controls, and persisted layout fields", () => {
   const panel = panelSource();
-  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  // extension.ts 现为薄 facade（委托 legacy），语义断言以 legacy 为准
+  const extension = fs.readFileSync(path.join(root, "src", "extension", "legacy.ts"), "utf8");
 
   assert.match(panel, /#cardDeck \{ --tree-col: 280px; --inspector-col: 360px;/);
   assert.match(panel, /grid-template-columns: var\(--tree-col\) 8px minmax\(var\(--main-min\), 1fr\) 8px var\(--inspector-col\)/);
@@ -75,7 +77,7 @@ test("panel exposes resizable columns, collapse controls, and persisted layout f
 });
 
 test("extension reuses fixed UI layout validation sets", () => {
-  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const extension = fs.readFileSync(path.join(root, "src", "extension", "legacy.ts"), "utf8");
   const helpers = between(extension, "function normalizeUiLayout(input)", "function clampUiNumber");
 
   assert.match(extension, /const UI_LAYOUT_SECTION_KEYS = new Set\(defaultUiSectionOrder\)/);
@@ -133,10 +135,10 @@ test("right and pinned actions enforce explicit scoped context", () => {
   assert.match(source, /const endpointScopedCommands = new Set/);
   assert.match(actionButtonBlock, /actionButtonDisableReason\(command, pendingPayload, options\)/);
   assert.match(actionButtonBlock, /data-context-action="true"/);
-  assert.match(scopedBlock, /storedAction && taskObjectScopedCommands\.has\(command\)/);
+  assert.match(scopedBlock, /storedAction && taskObjectScopedCommands\?\.has\(command\)/);
   assert.match(scopedBlock, /请从任务行重新加入工作详情或右侧置顶/);
-  assert.match(scopedBlock, /endpointScopedCommands\.has\(command\)/);
-  assert.match(scopedBlock, /explicitPlanFileCommands\.has\(command\)/);
+  assert.match(scopedBlock, /endpointScopedCommands\?\.has\(command\)/);
+  assert.match(scopedBlock, /explicitPlanFileCommands\?\.has\(command\)/);
   assert.match(refreshBlock, /button\[data-context-action="true"\], button\[data-batch-selected="true"\]/);
   assert.match(refreshBlock, /contextRefreshPayloadFromButton\(button, command, options\)/);
   assert.doesNotMatch(refreshBlock, /payloadFromButton\(button\)/);
@@ -176,10 +178,14 @@ test("resource tree active state does not rewrite inspector during realtime refr
 test("resource tree includes stable semantic sections including publish sync", () => {
   const source = panelSource();
 
-  for (const section of ["overview", "servers", "gpu", "execution", "plans", "results", "diagnostics", "sync"]) {
+  // 目标序：sync→plans→gpu→tmux→execution→results→diagnostics→settings（settings 恒尾）；
+  // servers 仅以 hidden 兼容节保留（data-legacy="servers-hidden-merged-into-sync"），overview 仅后端尾兼容，前端不再断言
+  for (const section of ["sync", "plans", "gpu", "tmux", "execution", "results", "diagnostics", "settings"]) {
     assert.match(source, new RegExp(`item\\("${section}"`));
   }
-  assert.match(source, /normalizeUiLayout\(currentUiLayout\)\.order\.concat\(\["sync"\]\)/);
+  assert.match(source, /data-legacy="servers-hidden-merged-into-sync"/);
+  assert.match(source, /normalizeUiLayout\(currentUiLayout\)\.order/);
+  assert.doesNotMatch(source, /normalizeUiLayout\(currentUiLayout\)\.order\.concat\(\["sync"\]\)/);
   assert.match(source, /resourceTreeMeta/);
   assert.match(source, /aria-current/);
   assert.match(source, /\.tree-item\.is-current/);

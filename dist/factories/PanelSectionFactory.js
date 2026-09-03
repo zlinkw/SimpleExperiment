@@ -42,14 +42,17 @@ class BaseSection {
 }
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 const SECTION_DEFS = [
-    { id: "plans", order: 1, title: "计划", icon: "📋" },
-    { id: "results", order: 2, title: "结果", icon: "📊" },
-    { id: "execution", order: 3, title: "执行", icon: "▶" },
-    { id: "servers", order: 4, title: "服务器", icon: "🖥" },
-    { id: "settings", order: 5, title: "设置", icon: "⚙" },
-    { id: "gpu", order: 6, title: "GPU", icon: "🎮" },
-    { id: "diagnostics", order: 8, title: "诊断", icon: "🩺" },
-    { id: "operations", order: 9, title: "操作", icon: "⚡" },
+    { id: "sync", order: 1, title: "运行环境准备", icon: "🔄" },
+    { id: "plans", order: 2, title: "计划", icon: "📋" },
+    { id: "gpu", order: 3, title: "GPU", icon: "🎮" },
+    { id: "tmux", order: 4, title: "TMUX", icon: "🖥" },
+    { id: "execution", order: 5, title: "执行", icon: "▶" },
+    { id: "results", order: 6, title: "结果", icon: "📊" },
+    { id: "diagnostics", order: 7, title: "诊断", icon: "🩺" },
+    { id: "settings", order: 8, title: "设置", icon: "⚙" },
+    // deprecated：老布局兼容保留，不参与目标序
+    { id: "servers", order: 90, title: "服务器", icon: "🖥" },
+    { id: "operations", order: 91, title: "操作", icon: "⚡" },
 ];
 function toPanelSection(s) {
     const rec = s;

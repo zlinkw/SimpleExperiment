@@ -8,7 +8,7 @@ exports.plansSection = exports.PlansSection = void 0;
 class PlansSection {
     id = "plans";
     title = "实验准备";
-    order = 3;
+    order = 2;
     renderHtml(_state) {
         return `
       <section class="section-card" data-section="plans" data-anchor="plans" data-title="实验准备">

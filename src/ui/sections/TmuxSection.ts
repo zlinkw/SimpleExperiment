@@ -7,7 +7,7 @@ import type { Section } from "./types";
 export class TmuxSection implements Section {
   readonly id = "tmux";
   readonly title = "TMUX 会话 / 窗口 / 窗格";
-  readonly order = 7;
+  readonly order = 4;
   renderHtml(_state?: unknown): string {
     return `
          <section class="section-card" data-section="tmux" data-anchor="tmux" data-title="TMUX 会话 / 窗口 / 窗格">

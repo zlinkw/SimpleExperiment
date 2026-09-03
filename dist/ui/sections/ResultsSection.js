@@ -8,7 +8,7 @@ exports.resultsSection = exports.ResultsSection = void 0;
 class ResultsSection {
     id = "results";
     title = "结果与归档";
-    order = 4;
+    order = 6;
     renderHtml(_state) {
         return `
       <section class="section-card" data-section="results" data-anchor="results" data-title="结果与归档">

@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
 
 function extractFunction(name) {
   const start = panel.indexOf(`function ${name}(`);
@@ -20,7 +20,7 @@ function extractFunction(name) {
 }
 
 function loadLayoutNormalizer() {
-  const order = Object.freeze(["overview", "gpu", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
+  const order = Object.freeze(["sync", "plans", "gpu", "tmux", "execution", "results", "diagnostics", "settings"]);
   const keys = new Set(order);
   const sandbox = {
     RESOURCE_TREE_SECTION_ORDER: order,
@@ -47,11 +47,11 @@ function loadLayoutNormalizer() {
 }
 
 test("UI layout normalization reuses fixed section order and lookup set", () => {
-  assert.match(panel, /const RESOURCE_TREE_SECTION_ORDER = Object\.freeze\(\["overview", "gpu", "execution", "plans", "results", "sync", "servers", "settings", "diagnostics"\]\)/);
+  assert.match(panel, /const RESOURCE_TREE_SECTION_ORDER = Object\.freeze\(\["sync", "plans", "gpu", "tmux", "execution", "results", "diagnostics", "settings"\]\)/);
   assert.match(panel, /const RESOURCE_TREE_SECTION_KEYS = new Set\(RESOURCE_TREE_SECTION_ORDER\)/);
   const source = extractFunction("normalizeUiLayout");
-  assert.match(source, /RESOURCE_TREE_SECTION_KEYS\.has\(item\)/);
-  assert.match(source, /RESOURCE_TREE_SECTION_ORDER\.filter\(\(item\) => !incomingSet\.has\(item\)\)/);
+  assert.match(source, /RESOURCE_TREE_SECTION_KEYS\?\.has\(item\)/);
+  assert.match(source, /RESOURCE_TREE_SECTION_ORDER\.filter\(\(item\) => !incomingSet\?\.has\(item\)\)/);
   assert.doesNotMatch(source, /const defaults =/);
   assert.doesNotMatch(source, /\.includes\(/);
 });
@@ -72,9 +72,9 @@ test("UI layout normalization preserves custom order duplicates and adjacent fie
   };
   const normalized = sandbox.normalize(layout);
 
-  assert.deepEqual(Array.from(normalized.order), ["execution", "overview", "execution", "gpu", "plans", "results", "sync", "servers", "settings", "diagnostics"]);
+  assert.deepEqual(Array.from(normalized.order), ["execution", "execution", "sync", "plans", "gpu", "tmux", "results", "diagnostics", "settings"]);
   assert.equal(sandbox.RESOURCE_TREE_SECTION_KEYS.checks, layout.order.length);
-  assert.deepEqual(JSON.parse(JSON.stringify(normalized.collapsed)), { servers: true, settings: true, diagnostics: true, execution: false, gpu: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(normalized.collapsed)), { settings: false, sync: false, diagnostics: true, execution: false, gpu: true });
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.resourceTreeChildren)), layout.resourceTreeChildren);
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.columns)), layout.columns);
   assert.deepEqual(Array.from(normalized.pinnedCommands), layout.pinnedCommands);

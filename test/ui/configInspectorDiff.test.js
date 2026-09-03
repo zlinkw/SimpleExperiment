@@ -110,16 +110,17 @@ test("config inspector accepts only concrete Plan config files as a comparison b
   assert.equal(context.configInspectorPlanConfigFile({ baseConfig: "" }), "");
 });
 
-test("config inspector renders Plan-baseline counts and value direction", () => {
+test("config inspector preview details removed from panel", () => {
   const html = renderPanelHtml();
-  assert.match(html, /renderConfigInspector\(project, selectedPlan\)/);
-  assert.match(html, /Plan 基准：/);
-  assert.match(html, /一致 ' \+ diff\.counts\.same/);
-  assert.match(html, /变更 ' \+ diff\.counts\.changed/);
-  assert.match(html, /仅所选 ' \+ diff\.counts\.added/);
-  assert.match(html, /所选缺少 ' \+ diff\.counts\.missing/);
-  assert.match(html, /摘要外待确认 ' \+ diff\.counts\.uncertain/);
+  assert.doesNotMatch(html, /配置参数预览/);
+  assert.doesNotMatch(html, /Plan 基准：/);
+  assert.doesNotMatch(html, /一致 ' \+ diff\.counts\.same/);
+  assert.doesNotMatch(html, /变更 ' \+ diff\.counts\.changed/);
+  assert.doesNotMatch(html, /仅所选 ' \+ diff\.counts\.added/);
+  assert.doesNotMatch(html, /所选缺少 ' \+ diff\.counts\.missing/);
+  assert.doesNotMatch(html, /摘要外待确认 ' \+ diff\.counts\.uncertain/);
+  assert.doesNotMatch(html, /当前 Plan 使用内联、case 级配置或未声明配置/);
+  assert.doesNotMatch(html, /cfg\.searchText\.includes\(query\)/);
+  assert.match(html, /function configParamDiffRows\(selected, baseline, query\)/);
   assert.match(html, /所选配置：.*Plan 配置：/);
-  assert.match(html, /当前 Plan 使用内联、case 级配置或未声明配置/);
-  assert.match(html, /cfg\.searchText\.includes\(query\) \|\| \(planConfig && planConfig\.searchText\.includes\(query\)\)/);
 });

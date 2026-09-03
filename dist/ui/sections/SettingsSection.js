@@ -8,7 +8,7 @@ exports.settingsSection = exports.SettingsSection = void 0;
 class SettingsSection {
     id = "settings";
     title = "设置";
-    order = 2;
+    order = 8;
     renderHtml(_state) {
         return `
     <section class="section-card" data-section="settings" data-anchor="settings" data-title="设置">

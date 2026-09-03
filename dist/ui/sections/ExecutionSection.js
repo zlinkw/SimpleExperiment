@@ -8,7 +8,7 @@ exports.executionSection = exports.ExecutionSection = void 0;
 class ExecutionSection {
     id = "execution";
     title = "运行进度";
-    order = 8;
+    order = 5;
     renderHtml(_state) {
         return `
     <section class="section-card" data-section="execution" data-anchor="execution" data-title="运行进度">

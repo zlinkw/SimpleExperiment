@@ -7,7 +7,7 @@ import type { Section } from "./types";
 export class ExecutionSection implements Section {
   readonly id = "execution";
   readonly title = "运行进度";
-  readonly order = 8;
+  readonly order = 5;
   renderHtml(_state?: unknown): string {
     return `
     <section class="section-card" data-section="execution" data-anchor="execution" data-title="运行进度">

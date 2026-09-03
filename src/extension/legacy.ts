@@ -250,20 +250,22 @@ let simpleSftpIntegrationReadinessCacheRegistry = null;
 let simpleSftpIntegrationReadinessCacheExtension = null;
 let simpleSftpIntegrationReadinessCacheLegacyExtension = null;
 let simpleSftpIntegrationReadinessCacheValue = null;
+// 后端默认布局：与前端 RESOURCE 目标序一致，settings 恒尾；末尾 overview 仅为老用户布局兼容保留，
+// 前端 normalizeUiLayout 按 RESOURCE_TREE_SECTION_KEYS 过滤掉 overview，不参与运行时 order（运行时以 legacy RESOURCE 为准）
 const defaultUiSectionOrder = [
+    "sync",
     "plans",
-    "results",
+    "gpu",
+    "tmux",
     "execution",
-    "servers",
+    "results",
+    "diagnostics",
     "settings",
     "overview",
-    "gpu",
-    "sync",
-    "diagnostics",
 ];
 const defaultUiLayout = {
     order: defaultUiSectionOrder,
-    collapsed: { overview: false, plans: false, results: false, execution: false, servers: false, settings: false, gpu: true, sync: false, diagnostics: true },
+    collapsed: { overview: false, plans: false, results: false, execution: false, tmux: false, settings: false, gpu: true, sync: false, diagnostics: true },
     resourceTreeChildren: {},
     manual: false,
     columns: { tree: 280, inspector: 360 },
@@ -381,7 +383,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList",
+    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -4673,6 +4675,9 @@ export class RealtimeTunnelPanelProvider {
             case "fetchTmuxList":
                 await this.fetchTmuxListFromUi(message);
                 break;
+            case "killTmuxWindow":
+                await this.killTmuxWindowFromUi(message);
+                break;
             default:
                 if (uiActionCommands.has(command))
                     await this.runActionCommand(command, message);
@@ -4757,7 +4762,7 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     uiCommandWatchdogMs(command) {
-        if (command === "fetchTmuxList" || command === "fetchTmuxCapture") return 8000;
+        if (command === "fetchTmuxList" || command === "fetchTmuxCapture" || command === "killTmuxWindow") return 8000;
         if (command === "runAllPlans") {
             const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));
             return Math.min(60 * 60_000, Math.max(180_000, planCount * 130_000 + 60_000));
@@ -11296,6 +11301,47 @@ export class RealtimeTunnelPanelProvider {
             this.view?.webview.postMessage({ type: "tmuxList", ok: false, available: false, sessions: [], error: msg, fetchedAt: new Date().toISOString() });
         }
     }
+    async killTmuxWindowFromUi(message: any) {
+        const target = String(message?.target || message?.window || message?.session || "").trim();
+        if (!target) throw new Error("缺少关闭目标 target（期望 session:index）");
+        const session = String(message?.session || (target.indexOf(":") !== -1 ? target.slice(0, target.indexOf(":")) : target)).trim() || target;
+        const win = String(message?.window || target).trim() || target;
+        const body = { target, window: win, session, confirm: message?.confirm === true || message?.confirm === "true" || message?.confirmed === true };
+        let result: any = null;
+        let lastError: any = null;
+        const tryClient = (this as any).client;
+        if (tryClient && typeof tryClient.requestJson === "function") {
+            try { result = await tryClient.requestJson(`/api/tmux/kill-window`, { method: "POST", body }); } catch (exc) { lastError = exc; result = null; }
+        }
+        if (!result) {
+            let host = "127.0.0.1";
+            let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
+            try {
+                const targets = this.agentRuntimeUploadTargets?.() || [];
+                const t = targets.find((x: any) => x.localForwardPort) || targets[0];
+                if (t) {
+                    host = String((t as any).localForwardHost || (t as any).localHost || host).trim() || host;
+                    port = Number(t.localForwardPort || port);
+                }
+            } catch {}
+            const token = String(this.tunnelConfig?.token || "");
+            const http = require("http") as typeof import("http");
+            const payload = JSON.stringify(body);
+            result = await new Promise<any>((resolve, reject) => {
+                const req = http.request({ host, port, path: `/api/tmux/kill-window`, method: "POST", headers: Object.assign({ "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }, token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}), timeout: 8000 }, (res: any) => {
+                    let data = "";
+                    res.on("data", (c: string) => data += c);
+                    res.on("end", () => { try { resolve(JSON.parse(data || "{}")); } catch { resolve({ ok: false, error: data }); } });
+                });
+                req.on("error", reject);
+                req.on("timeout", () => { req.destroy(new Error("timeout")); });
+                req.end(payload);
+            }).catch((exc: any) => { lastError = exc; return null; });
+        }
+        if (!result) throw new Error(String(lastError?.message || lastError || "kill-window 请求失败：agent 无响应"));
+        if (result?.ok === false || result?.error) throw new Error(String(result?.error || result?.message || "agent 拒绝关闭窗口"));
+        try { await this.fetchTmuxListFromUi({}); } catch {}
+    }
     async openTensorBoardUrlFromUi(message: any) {
         const url = String(message?.tbUrl || message?.url || "").trim();
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
@@ -16468,8 +16514,8 @@ function localCommandReleasesAfterTrigger(command) {
 }
 function normalizeUiLayout(input) {
     const orderInput = Array.isArray(input.order) ? input.order.map((item) => String(item)) : [];
-    // 迁移旧布局：tasks / operations 卡片已合并为 execution
-    const migratedOrder = orderInput.map((item) => (item === "tasks" || item === "operations" ? "execution" : item));
+    // 迁移旧布局：tasks / operations 卡片已合并为 execution；servers 已合入 sync
+    const migratedOrder = orderInput.map((item) => (item === "tasks" || item === "operations" ? "execution" : item)).map((item) => (item === "servers" ? "sync" : item));
     const order = [
         ...migratedOrder.filter((item) => UI_LAYOUT_SECTION_KEYS.has(item)),
         ...defaultUiSectionOrder.filter((item) => !migratedOrder.includes(item)),
@@ -16482,10 +16528,16 @@ function normalizeUiLayout(input) {
         if (typeof collapsedInput[key] === "boolean")
             collapsed[key] = Boolean(collapsedInput[key]);
     }
-    // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）
+    // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）；servers 折叠迁移到 sync
     if (typeof collapsedInput.execution !== "boolean") {
         collapsed.execution = Boolean(collapsedInput.tasks) || Boolean(collapsedInput.operations);
     }
+    if (typeof collapsedInput.sync !== "boolean" && typeof collapsedInput.servers === "boolean") {
+        collapsed.sync = Boolean(collapsedInput.servers);
+    }
+    delete collapsed.tasks;
+    delete collapsed.operations;
+    delete collapsed.servers;
     return {
         order,
         collapsed,

@@ -25,14 +25,18 @@ function getSectionsMod(): SectionsMod | undefined {
   return tryRequire<SectionsMod>("../ui/sections");
 }
 
+// 目标序：sync1/plans2/gpu3/tmux4/execution5/results6/diagnostics7/settings8（settings 恒尾）；
+// servers/operations 仅为老布局兼容保留（deprecated），运行时以 legacy RESOURCE 为准
 export type SectionId =
+  | "sync"
   | "plans"
-  | "results"
-  | "execution"
-  | "servers"
-  | "settings"
   | "gpu"
+  | "tmux"
+  | "execution"
+  | "results"
   | "diagnostics"
+  | "settings"
+  | "servers"
   | "operations";
 
 export interface PanelSection {
@@ -78,14 +82,17 @@ class BaseSection implements PanelSection {
 function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 const SECTION_DEFS: ReadonlyArray<{ id: SectionId; order: number; title: string; icon: string }> = [
-  { id: "plans", order: 1, title: "计划", icon: "📋" },
-  { id: "results", order: 2, title: "结果", icon: "📊" },
-  { id: "execution", order: 3, title: "执行", icon: "▶" },
-  { id: "servers", order: 4, title: "服务器", icon: "🖥" },
-  { id: "settings", order: 5, title: "设置", icon: "⚙" },
-  { id: "gpu", order: 6, title: "GPU", icon: "🎮" },
-  { id: "diagnostics", order: 8, title: "诊断", icon: "🩺" },
-  { id: "operations", order: 9, title: "操作", icon: "⚡" },
+  { id: "sync", order: 1, title: "运行环境准备", icon: "🔄" },
+  { id: "plans", order: 2, title: "计划", icon: "📋" },
+  { id: "gpu", order: 3, title: "GPU", icon: "🎮" },
+  { id: "tmux", order: 4, title: "TMUX", icon: "🖥" },
+  { id: "execution", order: 5, title: "执行", icon: "▶" },
+  { id: "results", order: 6, title: "结果", icon: "📊" },
+  { id: "diagnostics", order: 7, title: "诊断", icon: "🩺" },
+  { id: "settings", order: 8, title: "设置", icon: "⚙" },
+  // deprecated：老布局兼容保留，不参与目标序
+  { id: "servers", order: 90, title: "服务器", icon: "🖥" },
+  { id: "operations", order: 91, title: "操作", icon: "⚡" },
 ];
 
 type SectionLike = {

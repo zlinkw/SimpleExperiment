@@ -4,8 +4,8 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
+const extension = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
 
 function renderPanelHtmlFromSource(source) {
   const cleaned = source
@@ -239,8 +239,9 @@ test("local result previews stay scoped to the selected Plan and explicit projec
     assert.equal(scope.hiddenCount, 1);
     assert.equal(scope.scoped, true);
   }
-  assert.match(panel, /当前 Plan ' \+ matched\.length/);
-  assert.match(panel, /隐藏其他 ' \+ normalized\.hiddenCount/);
+  assert.doesNotMatch(panel, /当前 Plan ' \+ matched\.length/);
+  assert.doesNotMatch(panel, /隐藏其他 ' \+ normalized\.hiddenCount/);
+  assert.doesNotMatch(panel, /结果解析预览/);
   assert.match(extension, /planScopedResultParsePreviews\(arrayFromRecord\(project \|\| \{\}, "resultParsePreviews"\), plan, rules\)/);
 });
 

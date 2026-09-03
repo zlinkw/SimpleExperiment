@@ -4,7 +4,7 @@ exports.gpuSection = exports.GpuSection = void 0;
 class GpuSection {
     id = "gpu";
     title = "GPU 状态";
-    order = 5;
+    order = 3;
     renderHtml(_state) {
         return `
     <section class="section-card" data-section="gpu" data-anchor="gpu" data-title="GPU 状态">

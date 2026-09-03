@@ -3,12 +3,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.serversSection = exports.ServersSection = void 0;
 /**
  * ServersSection - 服务器/隧道板块
+ * @deprecated 已合入 sync（运行环境准备），仅 hidden 兼容保留；运行时顺序以 legacy RESOURCE 为准
  * 提取自 PanelHtml.ts 1214-1223 section[data-section="servers"]
  */
 class ServersSection {
     id = "servers";
     title = "服务器管理";
-    order = 1;
+    order = 90;
     renderHtml(_state) {
         return `
     <section class="section-card" data-section="servers" data-anchor="servers" data-title="服务器管理">
