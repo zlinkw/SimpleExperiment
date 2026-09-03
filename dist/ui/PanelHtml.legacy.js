@@ -962,6 +962,22 @@ function renderPanelHtml() {
     .schedulerDependencyStatus code { display: block; padding: 5px 7px; overflow-wrap: anywhere; white-space: normal; background: var(--vscode-textCodeBlock-background); }
     .serverRiskBand { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 2px; }
     .serverRiskBand .pill { margin: 0; }
+    .workerDense { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; font-size: 12px; }
+    .workerDenseHead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: #0F172A; font-size: 12px; font-weight: 800; }
+    .workerDenseHead .sub { color: #64748B; font-size: 12px; font-weight: 600; }
+    .workerDenseLinks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+    .workerDenseLink { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; min-width: 0; padding: 4px 6px; border: 1px solid #E2E8F0; border-radius: 6px; background: #FFFFFF; }
+    .workerDenseLink b { color: #0F172A; font-size: 12px; white-space: nowrap; }
+    .workerDenseLink span { color: #475569; font-size: 11px; min-width: 0; }
+    .workerDenseWorker { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; min-width: 0; padding: 4px 6px; border: 1px solid #E2E8F0; border-left: 3px solid #94A3B8; border-radius: 6px; background: #FFFFFF; }
+    .workerDenseWorker.ok { border-left-color: #16A34A; }
+    .workerDenseWorker.warn { border-left-color: #D97706; background: #FFFBEB; }
+    .workerDenseWorker.error { border-left-color: #DC2626; background: #FEF2F2; }
+    .workerDenseWorker.disabled { opacity: .76; }
+    .workerDenseWorker b.wname { color: #111827; font-size: 12px; font-weight: 800; }
+    .workerDenseWorker .wport { color: #0F172A; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
     .topologyHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #111827; font-size: 13px; font-weight: 850; }
     .topologyHeader span { color: #64748B; font-size: 11px; font-weight: 650; }
@@ -7345,12 +7361,89 @@ function renderPanelHtml() {
         '<div class="muted">Xshell 会话文件配置源。</div>');
     }
 
+    function isSingleWorkerDense(state) {
+      const topology = (state || {}).topology || {};
+      const setup = (state || {}).setup || {};
+      const workers = asArray(setup.workerTunnels || []);
+      return topology.mode === "single_worker" && topology.hubAllowed !== true && workers.length >= 1;
+    }
+
+    function renderSingleWorkerDenseCard(state) {
+      const setup = state.setup || {};
+      const topology = state.topology || {};
+      const scheduler = state.schedulerConfig || {};
+      const indexes = serverStatusIndexesForState(state);
+      const conflicts = indexes.conflicts;
+      const workers = asArray(setup.workerTunnels || []);
+      const enabledWorkers = enabledWorkerTunnelsForState(state);
+      const workerStatus = indexes.workerStatus;
+      const assignmentById = indexes.assignmentById;
+      const conflictById = indexes.conflictById;
+      const goodWorkers = enabledWorkers.filter((worker) => serverObjectStatusClass((workerStatus.get(String(worker.id)) || {}).status || "已配置", conflictById.get(String(worker.id)), worker.enabled !== false) === "ok").length;
+      const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
+      const poll = Number(configDefault(scheduler.pollSeconds, 60));
+      const modeLabel = topology.modeLabel || topologyModeLabel(topology.mode || "single_worker");
+      const schedOwner = topology.schedulerOwner || "Worker本机调度";
+      const conflictPill = conflicts.length
+        ? '<span class="pill status-failed" title="端口冲突">端口冲突 ' + esc(conflicts.length) + '</span>'
+        : '<span class="pill status-completed" title="端口无冲突">端口无冲突</span>';
+      const head = '<div class="workerDenseHead" title="单 Worker 模式总览">' +
+        '<b>' + esc(modeLabel) + '</b>' +
+        '<span class="sub">' + esc(schedOwner) + '</span>' +
+        '<span class="sub">自动 ' + esc(poll) + '-' + esc(poll + jitter) + 's</span>' +
+        '<span class="sub">Worker ' + esc(enabledWorkers.length) + '/' + esc(workers.length) + '</span>' +
+        '<span class="sub">健康 ' + esc(goodWorkers) + '/' + esc(enabledWorkers.length) + '</span>' +
+        conflictPill +
+      '</div>';
+      const workerPorts = workers.map((worker) => worker.localForwardPort).filter(Boolean);
+      const portsText = workerPorts.length ? workerPorts.join(", ") : "未配置";
+      const schedText = topology.mode === "worker_pool" ? "每个 Plan 人工选择一台 Worker，由该 Worker 独立调度完整 Plan" : "Worker 本机处理完整 Plan";
+      const links = '<div class="workerDenseLinks" title="通信链路">' +
+        '<div class="workerDenseLink" title="本机 -> Worker ' + escAttr(portsText) + '"><b>本机VSCode->Worker :' + esc(portsText) + '</b></div>' +
+        '<div class="workerDenseLink" title="' + escAttr(schedText) + '"><b>Worker本机处理完整Plan</b><span>' + esc(schedText) + '</span></div>' +
+        '<div class="workerDenseLink" title="有界状态与事件；至少 60 秒采样"><b>Worker->本机</b><span>有界60s采样</span></div>' +
+        '<div class="workerDenseLink" title="仅用户触发上传或下载；无自动备份"><b>SFTP仅手动</b></div>' +
+        '<div class="workerDenseLink" title="当前模式不访问 Hub"><b>Hub不访问</b></div>' +
+      '</div>';
+      const rows = workers.map((worker) => {
+        const assignment = assignmentById.get(String(worker.id)) || {};
+        const probe = workerStatus.get(String(worker.id)) || {};
+        const status = worker.enabled === false ? "禁用" : (probe.status || "已配置");
+        const statusClassValue = serverObjectStatusClass(status, conflictById.get(String(worker.id)), worker.enabled !== false);
+        const localPort = worker.localForwardPort || assignment.localForwardPort || "-";
+        const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
+        const allowed = Array.isArray(worker.allowedGpuIds) && worker.allowedGpuIds.length ? worker.allowedGpuIds.join(",") : "不限";
+        const tbHtml = tensorBoardOverviewStatValue(String(worker.id), localPort);
+        return '<div class="workerDenseWorker ' + escAttr(statusClassValue) + '" title="Worker ' + escAttr(worker.displayName || worker.id) + '">' +
+          '<b class="wname">' + esc(worker.displayName || worker.id) + '</b>' +
+          '<span class="pill" title="启用状态">' + esc(worker.enabled === false ? "禁用" : "启用") + '</span>' +
+          '<span class="pill" title="隧道会话">' + esc(serverSessionConfiguredLabel(worker.savedSessionPath, "隧道会话")) + '</span>' +
+          '<span class="pill" title="Agent 随隧道启动">随隧道</span>' +
+          '<span class="pill" title="' + escAttr(status) + '">' + esc(serverObjectStatusLabel(status, statusClassValue)) + '</span>' +
+          '<span class="wport" title="插件访问的 Worker 本机端口 127.0.0.1:' + escAttr(localPort) + '">本地:' + esc(localPort) + '</span>' +
+          '<span class="wport" title="Worker 服务器本机 Agent 端口 127.0.0.1:' + escAttr(remotePort) + '">远端:' + esc(remotePort) + '</span>' +
+          '<span class="wport" title="复用 xshell 隧道 local+1000，可直接复制/打开">TB ' + tbHtml + '</span>' +
+          '<span class="wport" title="只限制并发占卡，不限制排队总量">GPU上限' + esc(worker.maxConcurrentGpus || 1) + '</span>' +
+          '<span class="wport" title="' + escAttr(allowed) + '">允许' + esc(compactText(allowed, 28)) + '</span>' +
+        '</div>';
+      }).join("");
+      const foot = '<div class="workerDenseFoot" title="策略与目录">' +
+        '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>' +
+        '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>' +
+        '<span class="pill" title="事件延迟">实时 ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>' +
+        '<span class="pill" title="' + escAttr("控制：" + configDefault(scheduler.workerActionMaxConcurrent, 1) + "/" + configDefault(scheduler.workerActionMinIntervalMs, 1500) + "ms") + '">并发 ' + esc(configDefault(scheduler.workerActionMaxConcurrent, 1)) + '/' + esc(configDefault(scheduler.workerActionMinIntervalMs, 1500)) + 'ms</span>' +
+        '<span class="pill" title="状态与结果位置">' + esc(topology.stateOwner || "保存位置待确认") + '</span>' +
+      '</div>';
+      return '<section class="workerDense" data-anchor="servers-sessions" title="单 Worker 紧凑总览">' + head + links + rows + foot + '</section>';
+    }
+
     function renderServerCards(state) {
       const topology = (state || {}).topology || {};
       const hubParticipates = topology.hubAllowed === true;
+      const denseSingle = isSingleWorkerDense(state);
       setHtmlIfChanged("serverCards",
-        renderServerTopologyMap(state) +
-        renderServerObjectOverview(state) +
+        (denseSingle ? renderSingleWorkerDenseCard(state) : (renderServerTopologyMap(state) +
+        renderServerObjectOverview(state))) +
         '<div class="toolbar">' +
           '<button type="button" data-section-target="settings" data-anchor-target="settings-servers">设置</button>' +
           '<button data-command="addWorkerConfig">新增服务器</button>' +
