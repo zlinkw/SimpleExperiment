@@ -1,152 +1,140 @@
-# 移除运维总览（Ops Overview）执行计划
+# 运行环境准备单链融合计划
 
-> 本规划稿：彻底删除运维总览模块 + 服务器去重收敛 + 报错持久化补齐。分三提交落地，门禁 build + vm.Script + 10890 缺一不可。
+> 融合稿：服务器管理 + 发布同步两卡合一为运行环境准备单卡，旧两卡下线。本文件覆盖重写旧 14 项删运维内容，旧内容已全部替换，不再执行。
+> 项目：`D:\GitRepo\MCP\zlk-cluster-orchestrator`｜权威实现：`src/ui/PanelHtml.legacy.ts`（15805行）／`src/extension/legacy.ts`（22521行）
 
-## 顶部 TODO（共 14 项）
+## 0. 目标
 
-- [x] 1. 删除运维总览 HTML 结构：`PanelHtml.legacy.ts` 6545-6679
-- [x] 2. 删除运维总览前端逻辑入口：`PanelHtml.legacy.ts` 1255-1265
-- [x] 3. 删除运维总览 CSS：97-207 / 979-992
-- [x] 4. 删除 8 个运维总览专属测试文件
-- [x] 5. 服务器去重：删除运维总览之外的他处重复去重逻辑
-- [x] 6. 服务器去重：GPU 9015 相关逻辑保持不动
-- [x] 7. 服务器去重：诊断（diagnose）模块去重逻辑保留
-- [x] 8. 报错持久化：4718 stalled 写行补齐
-- [x] 9. 报错持久化：preflight 归因补齐
-- [x] 10. 报错持久化：2547 相关错误保留不删
-- [x] 11. 报错持久化：Toast 补齐
-- [x] 12. 按“三提交顺序”依次提交并各自验证
-- [x] 13. 门禁：`npm run build` + `vm.Script` + `10890` 零命中全部通过
-- [x] 14. 风险与回滚预案确认（备份分支 + 回滚命令可用）
+- 服务器管理 + 发布同步两卡合一为**运行环境准备单卡**，旧两卡（服务器管理卡、发布同步卡）下线，仅保留单链镜像入口。
+- 单卡承载三步链：部署 Agent → 上传（GitHub + 全服并行）→ 检测（端口 + 版本），状态显示 + 全绿自动跳转实验卡，失败停留本卡并报错。
+- 后端 `data-command` 入口全部保留兼容（`src/extension/legacy.ts:4603-4626`、`4397-4453` 不删 case），仅前端收敛按钮；`TunnelFactory` 动态解析端点，禁 `10890` 硬编码；外层模板内零裸反斜杠（双写 `\\`）。
 
----
+## 1. 30 问收敛表（需求 → 决策）
 
-## 1. 运维总览彻底删除
+| # | 问 | 收敛决策 |
+|---|---|---|
+| 1 | 两卡并存是否造成入口重复？ | 是，合一为单卡，旧两卡下线 |
+| 2 | 单卡名称？ | 运行环境准备 |
+| 3 | 三步链是哪三步？ | ①连接 ②上传 ③就绪（见 §2） |
+| 4 | 链首按钮调哪个后端？ | `prepareAgentsForFirstRun`，文案为“部署Agent” |
+| 5 | `prepareAgents` 与 `deployLatestAgent` 关系？ | 合并语义：前台 `deployLatestAgentRuntime(false,true)` + 后台 `testTunnel(false)`，见 `legacy.ts:3589-3602` |
+| 6 | 一键发布对应哪个命令？ | `publishGithub` 改名“一键上传到所有服务器”，后端不变 |
+| 7 | 覆盖本机保留否？ | 保留 `overwriteGithub`，强确认（`data-danger`） |
+| 8 | `syncGithub` 去留？ | 删除前端按钮，后端 `case syncGithub` 保留兼容 |
+| 9 | `uploadHub/uploadWorkers` 去留？ | 删除前端按钮，合并入“一键上传到所有服务器”并行上传，后端保留 |
+| 10 | `distributeCodeToWorkers` 去留？ | 删除前端按钮，合并入单键并行上传，后端保留 |
+| 11 | `configureSftpIgnores` 去留？ | 移出单链，放设置折叠区，后端保留 |
+| 12 | TensorBoard 行去留？ | 移出单链，放设置折叠区 |
+| 13 | 校验版本入口去留？ | 移出单链，放设置折叠区（版本检测并入第③步自动执行） |
+| 14 | 恢复布局去留？ | 移出单链，放设置折叠区 |
+| 15 | 逐个隧道按钮去留？ | 删除，仅留“启动全部隧道”（`startAll`），后端 `startTunnelEndpoint` 保留 |
+| 16 | 启动连接去留？ | `startAllConnections` 前端删除（工具条 7184-7187 + inspector），后端 case 保留兼容 |
+| 17 | 单个检测去留？ | 删除，仅留“检测全部”（`testAll → testTunnel(true)`），后台静默 `testTunnel(false)` |
+| 18 | 手动保存按钮去留？ | 前端删多余保存文案，改自动流转；后端 `save*FromUi` 全部保留 |
+| 19 | 新增/删除服务器保留否？ | 保留（`addWorkerConfig`／`deleteWorkerConfig`），多服纵向列表 |
+| 20 | 提交信息格式？ | 时间 + 任务名；无任务名用时间 + changed 文件列表回退，禁空提交（`timestampCommitMessage:22030`） |
+| 21 | 空提交如何阻断？ | `gitRepositoryHasChanges` 为空跳过 commit；`assertNonEmptyCommitMessage` 抛错阻断 |
+| 22 | 单链顺序？ | 部署Agent → 自动拉起 xshell 隧道 → 单键并行上传（github + 全服）→ 端口 + 版本检测 → 状态显示 + 全绿自动跳转实验卡（见 §3） |
+| 23 | `sync` 节保留什么？ | 单链镜像容器 `syncChainOverview` + 2 上传按钮（改名后一键上传 + 覆盖本机），删 6 个被合并按钮 HTML |
+| 24 | `renderServerChainOverview` 改为什么？ | 三步链速览（连接／上传／就绪），`serverSettingsCards` 顶部双写保持（`7088-7090`） |
+| 25 | `collapsed` 默认？ | `sync:false`、`settings:false` 展开；`servers` 按后端 `false` 展开对齐（前端 4960 改 `servers:false`） |
+| 26 | 多服如何展示？ | 纵向列表（`serverStack`），Hub + N Worker 依次排列，每卡保留新增／删除 |
+| 27 | 失败行为？ | 停留本卡，`recordActionError + postState + showWarningMessage`，不跳转 |
+| 28 | 全绿行为？ | 自动跳转实验卡（`bootstrapProjectFromUi`／`openPanel` 链路沿用 `prepareAgents:3611-3617`） |
+| 29 | P0 外层模板？ | 零裸反斜杠，双写 `\\` 或 `String.fromCharCode(10)`，`build + vm.Script` 双门禁 |
+| 30 | P0 端口？ | 禁 `10890` 硬编码，走 `TunnelFactory.resolveEndpointUrl()`，`Select-String 10890 src/** dist/**` 零命中 |
 
-### 1.1 目标
+## 2. 三步链定义
 
-运维总览（Ops Overview）从 UI、逻辑、样式、测试四层彻底移除，不留死入口、死样式、死测试。删除后面板无 `ops-overview` 残留 DOM / 路由 / 事件绑定 / CSS 类。
+```
+[1 连接] 部署Agent（prepareAgentsForFirstRun）→ 自动拉起 xshell 隧道（startAllXshellConnections → launchTunnelItem）
+  ↓ 成功继续，失败停留报错
+[2 上传] 单键并行：publishGithub（GitHub 有 remote 走 syncToGitHub(false)，无 remote 走 gh repo create）+ 全服 SFTP 并行上传
+        提交信息 = 时间 + 任务名（空任务名 → 时间 + changed 文件列表回退，禁空提交门禁）
+  ↓ 成功继续，失败停留报错
+[3 就绪] 端口 + 版本检测（testTunnel(true) 前台 / testTunnel(false) 后台）→ 状态显示（serverChainOverview 三段）→ 全绿自动跳转实验卡
+```
 
-### 1.2 删除清单
+- 三步链速览函数：`renderServerChainOverview:6877-6899`（连接／上传／就绪三段 + `data-chain-step`）。
+- 双写保持：`renderServerCardsV2:7087-7090` 同时写 `syncChainOverview` 与 `serverSettingsCards`（`setHtmlIfChanged` 幂等）。
+- `renderSyncSection:6897-6899` 仅做单链镜像，不再渲染旧 `renderActionSections`（已删除，见 `8353` 注释）。
 
-| # | 位置 | 范围 | 动作 |
-|---|------|------|------|
-| A | `src/ui/PanelHtml.legacy.ts` | 6545-6679 | 删除运维总览 HTML 模板整段（含外层 `return \`...\`` 内的 `<section id="ops-overview">` 及内层 `<script>` 绑定） |
-| B | `src/ui/PanelHtml.legacy.ts` | 1255-1265 | 删除运维总览 JS 逻辑入口（含初始化调用、`renderOpsOverview` / 事件监听注册段） |
-| C | 样式文件 CSS | 97-207 | 删除运维总览主样式（布局、卡片、表格） |
-| D | 样式文件 CSS | 979-992 | 删除运维总览补充样式（响应式 / 状态色） |
-| E | 测试目录 | 8 个测试文件 | 删除运维总览专属测试（含渲染快照、交互、样式断言类）。注意：只删纯 ops-overview 用例，混有用例先摘除其中 `describe('ops-overview')` 段而非整文件删除 |
+## 3. 按钮去留矩阵
 
-### 1.3 执行要点
+### 保留
 
-1. 先删 A（结构），再删 B（逻辑），再删 C/D（样式），最后删 E（测试），避免中间态出现“逻辑引用已删 DOM”或“测试引用已删模块”的红盘。
-2. 改 `PanelHtml.legacy.ts` 时遵守 P0 外层模板剥离坑：
-   - 外层 `return \`...<script>...\`` 内禁止裸 `\`（`\s` `\d` `\n` 等必须写成 `\\s` `\\d` `\\n`，或用 `String.fromCharCode(10)` 代换行）。
-   - 提交前必跑双重校验（见第 5 章门禁）。
-3. 全仓确认无残留：
-   - `Select-String -Pattern "ops-overview|OpsOverview|renderOpsOverview"` 在 `src/**` 必须零命中（大小写变体一并查）。
-   - CSS 类名（如 `.ops-overview` `.ops-card`，以实际 97-207 / 979-992 段内类名为准）全仓零命中。
-4. 若 B 段 1255-1265 与其他面板共用初始化函数，只删运维分支，不删共用函数签名。
+| 按钮（新文案） | 命令 | 位置 |
+|---|---|---|
+| 一键上传到所有服务器（`publishGithub` 改名） | `publishGithub` | sync 节 + inspector sync 组 + tree |
+| 从 GitHub 覆盖本机（强确认） | `overwriteGithub` | sync 节 + inspector sync 组 + tree |
+| 部署Agent（调 `prepareAgentsForFirstRun`） | `prepareAgents` | servers 工具条链首 + inspector servers/settings/overview |
+| 启动全部隧道 | `startAll` | servers 工具条 + inspector |
+| 检测全部 | `testAll` | servers 工具条 + inspector |
+| 新增服务器 | `addWorkerConfig` | servers 工具条／Worker 卡 |
+| 删除服务器 | `deleteWorkerConfig` | Worker 卡 |
 
-### 1.4 验收
+### 删除（前端删 HTML／inspector 项，后端 case 保留兼容）
 
-- 面板正常打开，无控制台 `Unexpected token` / `Invalid or unexpected token` / 握手超时。
-- 搜索运维总览关键字零命中；8 个测试文件已删，剩余测试全绿。
+| 按钮 | 命令 | 后端兼容位置 |
+|---|---|---|
+| 同步到 GitHub | `syncGithub` | `legacy.ts:4606-4608` 保留 |
+| 首次上传到 Hub | `uploadProjectToHub` | `legacy.ts:4612-4614` 保留 |
+| 首次上传到 Worker | `uploadProjectToWorkers` | `legacy.ts:4615-4617` 保留 |
+| 分发代码到所有 Worker | `distributeCodeToWorkers` | `legacy.ts:4618-4620` 保留 |
+| 逐个隧道 | `startTunnelEndpoint` | `legacy.ts:4397-4399,7393-7404` 保留 |
+| 启动连接 | `startAllConnections` | `legacy.ts:4439-4441` 保留（前端工具条 7184-7187 + inspector 删除） |
+| 单个检测 | `test` | `legacy.ts:4451-4453` 保留 |
+| 手动保存（多余文案） | `save*` | `saveTopologyMode/Hub/Scheduler/Worker/RemoteRootPolicy FromUi:7144-7300,10127` 保留，改自动流转 |
 
----
+### 移出（放设置折叠区，不在单链主路）
 
-## 2. 服务器去重
+| 项 | 去向 |
+|---|---|
+| SFTP 忽略（`configureSftpIgnores`） | 设置折叠区，后端 `4624-4626` 保留 |
+| TensorBoard 行（`renderTensorBoardLinkRow:7191`） | 设置折叠区 |
+| 校验版本入口 | 设置折叠区（版本检测并入第③步自动执行） |
+| 恢复布局（`resetUiLayout`） | 设置折叠区 |
 
-### 2.1 目标
+## 4. 顺序（单链执行序）
 
-服务器列表去重逻辑只保留两处：GPU 9015 相关逻辑、诊断模块逻辑；运维总览删除后，他处所有重复去重全删，避免多源去重打架。
+1. **部署Agent** → 自动拉起 xshell 隧道（`prepareAgentsForFirstRun:3548-3630`：写 SFTP 画像 + 写 `.xsh` 自启动 + `startAllXshellConnections(false,false)` 前台，后台 `deployLatestAgentRuntime(false,true)` + `testTunnel(false)`）。
+2. **单键并行上传** github + 全服（提交信息时间 + 任务名，非空门禁；无任务名用时间 + changed 文件列表回退，禁空提交）。
+3. **端口 + 版本检测**（`testTunnel(true)` 前台强提示／后台 `false` 静默；`publishAgentReadiness:8359` 聚合版本状态）。
+4. **状态显示 + 全绿自动跳转实验卡**（`renderServerChainOverview` 三段全就绪 → 沿用 `3611-3617 bootstrapProjectFromUi/openPanel`；失败停留本卡 `recordActionError + postState`）。
 
-### 2.2 策略
+## 5. collapsed 联动
 
-- **他处全删**：除下述两项保留外，其余散落在运维总览、面板渲染、工具函数中的 `dedupeServers` / `uniqueByHost` / `Set(host:port)` 类重复去重一律删除，统一走唯一收敛入口。
-- **GPU 9015 不动**：与 GPU 密集表 / 9015 端口相关的去重、聚合逻辑（`gpu-dense-table.md` 对应实现）保持不动，不在此次删除范围。误删会导致 GPU 表数据丢失或端口映射错乱。
-- **诊断保留**：诊断（diagnose / preflight 诊断路径）内的去重保留，用于故障定位时保持服务器指纹稳定。
+- `sync:false`、`settings:false`（展开），`servers:false`（按后端 `defaultUiLayout:266` 展开对齐，前端 `normalizeUiLayout:4960` 改 `servers:false`）。
+- `diagnostics:true`、`gpu:true` 保持折叠；`execution:false` 保持展开；旧 `tasks/operations` 键清理不变（`4961-4967`）。
+- `sectionIsCollapsed:3966` 与 `renderSectionIfVisible:2966-2984` 联动：折叠区跳过渲染，单链双写区（sync + settings）须同展开，否则单链只剩一半。
 
-### 2.3 执行要点
+## 6. 多服纵向列表
 
-1. 先列出全仓去重函数清单再动手，逐个标注“删 / 保留（GPU 9015） / 保留（诊断）”。
-2. 删除后确认服务器列表数量符合预期（无重复、无丢失），GPU 表与诊断页数据不受影响。
+- `renderServerCardsV2` 输出 `<div class="serverStack">` 纵向排列：拓扑卡 + Hub 卡（如参与）+ N Worker 卡，见 `7089-7091`。
+- 每 Worker 卡保留新增／删除（`addWorkerConfig`／`deleteWorkerConfig:7060`）；单 Worker 密集卡（`renderSingleWorkerDenseCard:7105`）沿用纵向单列。
+- 工具条位居列表底部：设置跳转 + 新增服务器 + 启动全部隧道 + 部署Agent + 检测全部（已删启动连接）。
 
-### 2.4 验收
+## 7. 失败停留报错
 
-- 非保留路径的去重函数零残留；GPU 9015 与诊断去重单测仍通过。
+- 任何一步失败：`recordActionError({command, message, suggestion}) + postState() + showWarningMessage`，停留本卡，不跳转（沿用 `prepareAgents:3604-3609` 后台失败路径与 `ensureSimpleSftpReadyForSetup` 的 `UiCommandCancelled` 透传）。
+- SFTP 未就绪／拓扑未就绪／目标不完整均抛错阻断，不写 `.xsh`、不上传 runtime（见 `3550-3588` 门禁段）。
+- 空提交阻断：无变更跳过 commit；空信息抛错（`assertNonEmptyCommitMessage`）。
 
----
+## 8. 改动清单（给执行 + 审核定位）
 
-## 3. 报错持久化
+```
+1. src/ui/PanelHtml.legacy.ts:1203-1222 sync 节重写为单链镜像 + 2 上传按钮（删 6 按钮 HTML，后端 4603-4626 保留）
+2. src/ui/PanelHtml.legacy.ts:6877-6899 renderServerChainOverview 重写三步链速览（连接/上传/就绪），7087-7090 双写保持
+3. src/ui/PanelHtml.legacy.ts:1986 sync priority 补 overwriteGithub（8 项对齐）；5764-5774 tree、6161 inspector、4795-4829 help 文案同步改名“一键上传到所有服务器”
+4. src/extension/legacy.ts:22029-22031 timestampCommitMessage 改时间 + 任务名 + changed 回退 + 空阻断；5754-5788 sync/publish 传 changed 文件列表
+5. src/ui/PanelHtml.legacy.ts:7184-7187 工具条：prepareAgents 改文案“部署Agent”，删 startAllConnections 按钮；6154-6156 inspector 同删启动连接，后端 4439-4441 保留
+6. src/ui/PanelHtml.legacy.ts:4960 collapsed servers:true→false（对齐后端 266 servers:false），sync/settings 保持 false 展开
+7. P0：外层模板零裸反斜杠（双写 \\），禁 10890，走 TunnelFactory
+```
 
-### 3.1 目标
+## 9. 门禁（每次验证必跑）
 
-报错链路可追溯、可归因、可提示：stalled 必须写行、preflight 必须归因、2547 保留、Toast 补齐。
-
-| 项 | 要求 |
-|----|------|
-| 4718 stalled 写行 | 在 4718 附近的 stalled 处理分支补写持久化行（写运行日志 / 状态行），确保 stalled 不再是静默卡死，重启后可复查 |
-| preflight 归因 | preflight 失败必须写明归因（哪台服务器 / 哪项检查 / 哪段输出），禁止裸 `throw` 无上下文 |
-| 2547 保留 | 2547 附近的错误保留逻辑（错误码透传 / 保留现场）不得随运维总览删除而误删，保持原行为 |
-| Toast 补齐 | 上述三处错误均需补齐 Toast 提示，前端可见，不只写日志 |
-
-### 3.2 执行要点
-
-1. 4718、2547 只做靶向 ±30 行阅读修改，不扩散。
-2. Toast 文案中文，含服务器名 + 错误摘要 + 查看日志入口。
-3. 持久化写入需幂等：重复报错不刷屏（同 key 去重 / 节流），但首错与恢复必须各记一行。
-
-### 3.3 验收
-
-- 构造 stalled / preflight 失败 / 2547 错误三场景，均满足：日志有行 + 归因完整 + Toast 弹出。
-
----
-
-## 4. 三提交顺序
-
-严格按以下顺序提交，每提交独立验证，任一门禁失败即停：
-
-1. **提交一：运维总览彻底删除**（第 1 章 A-E）
-   - 含 HTML / JS 入口 / CSS 两段 / 8 测试文件删除。
-   - 验证：关键字零命中 + `npm run build` + `vm.Script`。
-2. **提交二：服务器去重收敛**（第 2 章）
-   - 他处全删，GPU 9015 与诊断保留。
-   - 验证：服务器列表 + GPU 表 + 诊断页三处回归。
-3. **提交三：报错持久化**（第 3 章）
-   - 4718 stalled 写行 + preflight 归因 + 2547 保留确认 + Toast 补齐。
-   - 验证：三错误场景全链路（日志 + Toast）演示。
-
-禁止三合一提交；禁止先提交二/三再补一。
-
----
-
-## 5. 门禁（每次提交必跑）
-
-1. `npm run build`：内置 `node -c dist/extension.js && node -c dist/ui/PanelHtml.js` 语法门禁，严禁跳过。
-2. `vm.Script` 校验（二选一执行，零异常为准）：
-   - `node -e "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"`
-3. `10890` 零命中（P0 禁止硬编码隧道端口）：
-   - `Select-String -Pattern "10890"` 在 `src/**` / `dist/**` 业务逻辑中必须零命中（仅允许 `docs/` / `AGENTS.md` 约束说明出现）。
-   - 附带检查：不得回退到写死 `127.0.0.1:18765` 探测，须读每服务器隧道配置动态解析。
-
----
-
-## 6. 风险与回滚
-
-| 风险 | 影响 | 缓解 |
-|------|------|------|
-| A 段 HTML 删多/删少（6545-6679 边界差一行） | 面板白屏 / 残留空容器 | 删除前后 `git diff --stat` 核对行数；保留备份分支；逐段删除即时 build |
-| 外层模板 `\` 剥离坑 | 握手超时、`Unexpected token 'const'` | 改后必跑 build + vm.Script 双门禁；裸 `\` 全量复查 |
-| 去重误删 GPU 9015 / 诊断 | GPU 表丢数据、诊断失准 | 删除前标注保留清单；提交二单独回归 GPU 表 + 诊断页 |
-| 2547 误删 | 错误现场丢失 | 提交三前先确认 2547 段仍在，diff 中显式标出保留行 |
-| Toast 刷屏 | 频繁报错弹死 | 持久化加同 key 节流，首错/恢复各记一行 |
-
-### 回滚
-
-- 每个提交前建备份分支：`git branch backup/remove-ops-overview-<1|2|3>`。
-- 回滚命令（按提交逆序）：
-  - `git log --oneline -10` 确认提交号
-  - `git revert <提交三> && git revert <提交二> && git revert <提交一>`
-  - 或整分支回退：`git reset --hard backup/remove-ops-overview-1`（仅本地未推远端时用，已推远端一律用 `revert`）。
-- 回滚后重跑第 5 章三门禁，确认面板可开、测试全绿。
+1. `npm run build`（内置 `node -c dist/extension.js && node -c dist/ui/PanelHtml.js`，严禁跳过）。
+2. `vm.Script` 校验：`node -e "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"` 零异常。
+3. `10890` 零命中：`Select-String -Pattern "10890" src/** dist/**` 业务零命中（仅允许 `docs/`／`AGENTS.md` 约束说明）。
+4. 相关测试：sync／collapsed／commit-message／server-chain 相关用例全绿；工作区待审不提交（`git status` 保持待审态）。

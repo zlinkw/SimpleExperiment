@@ -5751,35 +5751,40 @@ export class RealtimeTunnelPanelProvider {
             throw error;
         }
     }
-    async syncToGitHub(confirm = true) {
+    async syncToGitHub(confirm = true, taskName) {
         if (confirm)
             this.notifyLocalActionStarted("同步到 GitHub", "正在执行 git add/commit/push。");
         const repo = await this.primaryGitRepository();
-        const message = timestampCommitMessage();
         await vscode.commands.executeCommand("git.stageAll");
         if (gitRepositoryHasChanges(repo)) {
+            const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
+            assertNonEmptyCommitMessage(message);
             repo.inputBox.value = message;
             await repo.commit(message);
+            await repo.push();
+            void vscode.window.showInformationMessage(`GitHub 同步完成：${message}`);
+            return;
         }
         await repo.push();
-        void vscode.window.showInformationMessage(`GitHub 同步完成：${message}`);
+        void vscode.window.showInformationMessage(`GitHub 同步完成：${timestampCommitMessage(taskName, [])}`);
     }
-    async publishToGitHub() {
-        this.notifyLocalActionStarted("一键发布当前项目", "正在创建或推送远程仓库，并提交当前工作区改动。");
+    async publishToGitHub(taskName) {
+        this.notifyLocalActionStarted("一键上传到所有服务器", "正在创建或推送远程仓库，并提交当前工作区改动。");
         // 拓扑感知：single_worker(无 Hub)跳过 Hub 相关同步要求，仅提示 Worker 侧入口。
         const topology = this.projectTopologyAssessment();
         const hubRequired = topology.hubAllowed === true && topology.mode === "hub_worker";
         const repo = await this.primaryGitRepository();
         if (gitRepositoryHasRemote(repo)) {
-            await this.syncToGitHub(false);
+            await this.syncToGitHub(false, taskName);
             return;
         }
         const root = workspaceRoot();
         if (!root)
             throw new Error("请先打开一个工作区，再执行 GitHub 发布。");
-        const message = timestampCommitMessage();
         await vscode.commands.executeCommand("git.stageAll");
         if (gitRepositoryHasChanges(repo)) {
+            const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
+            assertNonEmptyCommitMessage(message);
             repo.inputBox.value = message;
             await repo.commit(message);
         }
@@ -22026,8 +22031,35 @@ function gitRepositoryHasRemote(repo) {
     const remotes = repo?.state?.remotes || [];
     return remotes.some((remote) => String(remote?.name || "").trim() || String(remote?.fetchUrl || remote?.pushUrl || "").trim());
 }
-function timestampCommitMessage() {
-    return `simple sync ${new Date().toISOString()}`;
+function changedFileNamesFromRepo(repo, limit) {
+    const max = Number(limit || 5) || 5;
+    const state = (repo && repo.state) || {};
+    const picks = [].concat(state.workingTreeChanges || [], state.indexChanges || [], state.mergeChanges || []);
+    const names = [];
+    for (const item of picks) {
+        const raw = (item && item.uri && item.uri.fsPath) || (item && item.path) || (item && item.fileName) || "";
+        const text = String(raw || "").trim();
+        if (!text) continue;
+        try {
+            names.push(path.basename(text));
+        }
+        catch {
+            names.push(text);
+        }
+        if (names.length >= max) break;
+    }
+    return names.filter(Boolean);
+}
+function timestampCommitMessage(taskName, changedFiles) {
+    const stamp = new Date().toISOString();
+    const name = String(taskName || "").trim();
+    if (name) return `${stamp} ${name}`;
+    const files = Array.isArray(changedFiles) ? changedFiles.map((f) => String(f || "").trim()).filter(Boolean).slice(0, 5) : [];
+    if (files.length) return `${stamp} ${files.join(", ")}`;
+    return stamp;
+}
+function assertNonEmptyCommitMessage(message) {
+    if (!String(message || "").trim()) throw new Error("提交信息为空，已阻断空提交；请填写任务名或确认有文件变更。");
 }
 function samePath(a, b) {
     if (!a || !b)
