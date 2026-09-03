@@ -815,17 +815,18 @@ export function renderPanelHtml(): string {
     .workerDense { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; font-size: 12px; }
     .workerDenseHead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: #0F172A; font-size: 12px; font-weight: 800; }
     .workerDenseHead .sub { color: #64748B; font-size: 12px; font-weight: 600; }
-    .workerDenseLinks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+    .workerDenseLinks { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
     .workerDenseLink { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; min-width: 0; padding: 4px 6px; border: 1px solid #E2E8F0; border-radius: 6px; background: #FFFFFF; }
-    .workerDenseLink b { color: #0F172A; font-size: 12px; white-space: nowrap; }
-    .workerDenseLink span { color: #475569; font-size: 11px; min-width: 0; }
-    .workerDenseWorker { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; min-width: 0; padding: 4px 6px; border: 1px solid #E2E8F0; border-left: 3px solid #94A3B8; border-radius: 6px; background: #FFFFFF; }
+    .workerDenseLink b { color: #0F172A; font-size: 12px; white-space: nowrap; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .workerDenseLink span { color: #475569; font-size: 11px; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+    .workerDenseWorker { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; min-width: 0; overflow: hidden; padding: 4px 6px; border: 1px solid #E2E8F0; border-left: 3px solid #94A3B8; border-radius: 6px; background: #FFFFFF; }
     .workerDenseWorker.ok { border-left-color: #16A34A; }
     .workerDenseWorker.warn { border-left-color: #D97706; background: #FFFBEB; }
     .workerDenseWorker.error { border-left-color: #DC2626; background: #FEF2F2; }
     .workerDenseWorker.disabled { opacity: .76; }
-    .workerDenseWorker b.wname { color: #111827; font-size: 12px; font-weight: 800; }
-    .workerDenseWorker .wport { color: #0F172A; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .workerDenseWorker b.wname { color: #111827; font-size: 12px; font-weight: 800; min-width: 0; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .workerDenseWorker .wport { color: #0F172A; font-size: 12px; font-weight: 700; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+    .workerDenseWorker code.tbUrl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: anywhere; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
@@ -7097,8 +7098,8 @@ export function renderPanelHtml(): string {
       const portsText = workerPorts.length ? workerPorts.join(", ") : "未配置";
       const schedText = topology.mode === "worker_pool" ? "每个 Plan 人工选择一台 Worker，由该 Worker 独立调度完整 Plan" : "Worker 本机处理完整 Plan";
       const links = '<div class="workerDenseLinks" title="通信链路">' +
-        '<div class="workerDenseLink" title="本机 -> Worker ' + escAttr(portsText) + '"><b>本机VSCode->Worker :' + esc(portsText) + '</b></div>' +
-        '<div class="workerDenseLink" title="' + escAttr(schedText) + '"><b>Worker本机处理完整Plan</b><span>' + esc(schedText) + '</span></div>' +
+        '<div class="workerDenseLink" title="本机 -> Worker ' + escAttr(portsText) + '"><b>本机VSCode->Worker</b><span>:' + esc(portsText) + '</span></div>' +
+        (topology.mode === "worker_pool" ? '<div class="workerDenseLink" title="' + escAttr(schedText) + '"><b>Worker本机处理完整Plan</b><span>' + esc(schedText) + '</span></div>' : '<div class="workerDenseLink" title="' + escAttr(schedText) + '"><b>Worker本机处理完整Plan</b></div>') +
         '<div class="workerDenseLink" title="有界状态与事件；至少 60 秒采样"><b>Worker->本机</b><span>有界60s采样</span></div>' +
         '<div class="workerDenseLink" title="仅用户触发上传或下载；无自动备份"><b>SFTP仅手动</b></div>' +
         '<div class="workerDenseLink" title="当前模式不访问 Hub"><b>Hub不访问</b></div>' +
@@ -7170,7 +7171,7 @@ export function renderPanelHtml(): string {
       const tbLocal = local >= 1024 ? local + 1000 : 0;
       const tbUrl = tbLocal ? 'http://127.0.0.1:' + tbLocal : '';
       if (!tbUrl) return '待启动';
-      return '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;white-space:normal;"><code class="tbUrl" style="cursor:pointer;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;user-select:all;" title="点击直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code><button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" style="padding:3px 8px;">打开</button></span>';
+      return '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;white-space:normal;min-width:0;max-width:100%;"><code class="tbUrl" style="cursor:pointer;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;user-select:all;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:anywhere;" title="点击直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code><button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" style="padding:3px 8px;">打开</button></span>';
     }
     function renderTensorBoardLinksForRunning() {
       try {
