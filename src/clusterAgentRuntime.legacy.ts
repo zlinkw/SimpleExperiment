@@ -1878,11 +1878,13 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
     retention_start = effective_end - GPU_HISTORY_RETENTION_SECONDS + GPU_HISTORY_BUCKET_SECONDS
     effective_start = max(start_epoch if start_epoch is not None else retention_start, retention_start)
     series = []
+    target_server = str(server_id).strip().lower() if server_id else ""
+    target_gpu = str(gpu_id).strip().lower() if gpu_id else ""
     for current_server_id, gpus in history.get("servers", {}).items():
-        if server_id and current_server_id != str(server_id):
+        if target_server and str(current_server_id).strip().lower() != target_server:
             continue
         for current_gpu_id, points in gpus.items():
-            if gpu_id and current_gpu_id != str(gpu_id):
+            if target_gpu and str(current_gpu_id).strip().lower() != target_gpu:
                 continue
             selected = [point for point in points if int(point.get("bucketEpoch") or 0) >= effective_start and int(point.get("bucketEpoch") or 0) <= effective_end]
             # T4: 移除 fill_gpu_history_points 补零（imputed True 按0补），改为 downsample 仅 real points；gapBefore 断线由 downsample 标记
@@ -3911,9 +3913,7 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
         last_payloads = {}
         last_heartbeat = 0.0
         while True:
-            if not has_running_plan(root):
-                time.sleep(30)
-                continue
+            has_plan = has_running_plan(root)
             try:
                 payload = write_worker_gpu_snapshot(root)
                 # 单机 worker_telemetry 模式自刷新 worker_availability.json 避免调度停滞
@@ -3939,7 +3939,7 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
                     append_event(root, {"type": "worker_health", "source": "worker_telemetry", "payload": {"status": "degraded", "lastError": str(exc), "generatedAt": now_iso()}})
                 except Exception:
                     pass
-            time.sleep(sampler_sleep_seconds(interval, jitter_seconds))
+            time.sleep(sampler_sleep_seconds(interval if has_plan else max(interval, 30.0), jitter_seconds))
     thread = threading.Thread(target=loop, name="simple-worker-telemetry-sampler", daemon=True)
     thread.start()
     return thread

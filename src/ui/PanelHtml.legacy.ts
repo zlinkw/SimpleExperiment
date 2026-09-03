@@ -9228,7 +9228,12 @@ export function renderPanelHtml(): string {
     function gpuHistoryCanvasSeries(canvas) {
       const kind = canvas && canvas.dataset.chartKind || "overview";
       if (kind === "overview") return gpuHistoryOverviewSeries(lastState || {}, gpuViewModelForState(lastState || {}).servers);
-      const details = canvas && canvas.closest('details[data-gpu-history-scope="gpu"]');
+      const dense = canvas && canvas.closest && canvas.closest(".gpuDenseChartHost");
+      if (dense) {
+        const series = gpuHistorySeriesFor(dense.dataset.serverId || "", dense.dataset.gpuId || "");
+        return series ? [series] : [];
+      }
+      const details = canvas && canvas.closest && canvas.closest('details[data-gpu-history-scope="gpu"]');
       return details ? [gpuHistorySeriesFor(details.dataset.serverId || "", details.dataset.gpuId || "")].filter(Boolean) : [];
     }
 
@@ -9440,7 +9445,8 @@ export function renderPanelHtml(): string {
       asArray(filteredSeries).forEach((item) => {
         const serverStyle = gpuHistoryServerStyle(item.serverId);
         const pointIndex = gpuHistoryPointIndex(item.points || []);
-        const rows = pointIndex.rows.filter((p) => Number(p.bucketEpoch) >= windowStart);
+        const filteredRows = pointIndex.rows.filter((p) => Number(p.bucketEpoch) >= windowStart);
+        const rows = filteredRows.length ? filteredRows : pointIndex.rows;
         const lines = kind === "gpu"
           ? [{ field: "gpuUtilPercent", color: "#2563EB", dash: [], focus: "util" }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], focus: "memory" }]
           : [{ field: "gpuUtilPercent", color: serverStyle.color, dash: serverStyle.dash, focus: item.serverId }];
