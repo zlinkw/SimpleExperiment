@@ -1368,10 +1368,10 @@ function renderPanelHtml() {
         <div id="gpuDenseColumnsPicker" class="gpuDenseColumnsPicker"></div>
         <div class="gpuDenseGearRow">
           <span>全局行高</span>
-          <input type="range" id="gpuDenseRowHeightSlider" min="24" max="48" step="1" />
+          <input type="range" id="gpuDenseRowHeightSlider" min="24" max="64" step="1" />
           <span id="gpuDenseRowHeightValue">32px</span>
         </div>
-        <div class="muted">列宽：拖动表头竖线（60-400px）；行高：拖动行底横线（24-48px）或滑杆；均存 localStorage</div>
+        <div class="muted">列宽：拖动表头竖线（60-400px）；行高：拖动行底横线（24-64px）或滑杆；均存 localStorage</div>
       </div>
       <div id="gpuHistoryOverview" data-anchor="gpu-history-overview"></div>
       <div id="gpuSummary" data-anchor="gpu-summary"></div>
@@ -4680,7 +4680,7 @@ function renderPanelHtml() {
         const help = button.dataset.command ? commandHelp(button.dataset.command, button) : genericButtonHelp(button);
         if (!help) return;
         setNativeTitle(button, help);
-        const label = String(button.textContent || button.dataset.command || "").replace(/\s+/g, " ").trim();
+        const label = String(button.textContent || button.dataset.command || "").replace(/\\s+/g, " ").trim();
         button.setAttribute("aria-label", label ? label + "：" + help : help);
         button.dataset.tooltipReady = "1";
       });
@@ -4699,7 +4699,7 @@ function renderPanelHtml() {
     }
 
     function compactNativeTitleText(value) {
-      const text = String(value || "").replace(/\s+/g, " ").trim();
+      const text = String(value || "").replace(/\\s+/g, " ").trim();
       if (!text) return "";
       if (LOW_VALUE_NATIVE_TITLES?.has(text)) return "";
       const direct = compactDirectTitleValue(text);
@@ -4714,9 +4714,9 @@ function renderPanelHtml() {
     }
 
     function compactDirectTitleValue(text) {
-      const pathMatch = text.match(/([A-Za-z]:[\\/][^；。\s]+|(?:^|[\s：:])(?:[\w.-]+[\\/])+[^；。\s]+|127\.0\.0\.1:\d+|localhost:\d+)/);
+      const pathMatch = text.match(/([A-Za-z]:[\\/][^；。\\s]+|(?:^|[\\s：:])(?:[\\w.-]+[\\/])+[^；。\\s]+|127\\.0\\.0\\.1:\\d+|localhost:\\d+)/);
       if (pathMatch) return compactTitleLength(pathMatch[1].trim());
-      const pairMatch = text.match(/^([^：:]{1,18}[：:]\s*[^；。]{1,80})/);
+      const pairMatch = text.match(/^([^：:]{1,18}[：:]\\s*[^；。]{1,80})/);
       if (pairMatch) {
         const label = pairMatch[1].split(/[：:]/)[0].trim();
         const value = pairMatch[1].split(/[：:]/).slice(1).join("：").trim();
@@ -4727,7 +4727,7 @@ function renderPanelHtml() {
     }
 
     function compactTitleLength(text) {
-      const value = String(text || "").replace(/\s+/g, " ").trim();
+      const value = String(text || "").replace(/\\s+/g, " ").trim();
       if (value.length <= NATIVE_TITLE_MAX_CHARS) return value;
       return value.slice(0, Math.max(8, NATIVE_TITLE_MAX_CHARS - 1)).trimEnd() + "…";
     }
@@ -4859,7 +4859,7 @@ function renderPanelHtml() {
     function genericButtonHelp(button) {
       if (button.id === "layoutEditToggle") return "管理布局";
       if (button.dataset.collapseSection) return "折叠/展开";
-      const label = String(button.textContent || "").replace(/\s+/g, " ").trim();
+      const label = String(button.textContent || "").replace(/\\s+/g, " ").trim();
       return label ? "执行：" + label : "";
     }
 
@@ -5124,7 +5124,7 @@ function renderPanelHtml() {
       if (!command || !webviewHandledCommands?.has(command)) return null;
       const section = normalizeActionSection(source.section || activeResourceSection || "overview");
       const payload = sanitizeActionPayload(source.payload || {});
-      const label = compactText(String(source.label || featureCommandLabel(command) || command).replace(/\s+/g, " ").trim(), 40);
+      const label = compactText(String(source.label || featureCommandLabel(command) || command).replace(/\\s+/g, " ").trim(), 40);
       const id = String(source.id || actionSpecId(command, section, payload, label)).slice(0, 240);
       return {
         id,
@@ -5363,7 +5363,7 @@ function renderPanelHtml() {
     function cleanButtonLabel(button) {
       const clone = button.cloneNode(true);
       clone.querySelectorAll && clone.querySelectorAll(".loading-spinner").forEach((node) => node.remove());
-      return String(clone.textContent || "").replace(/\s+/g, " ").trim();
+      return String(clone.textContent || "").replace(/\\s+/g, " ").trim();
     }
 
     function buttonDatasetActionPayload(button) {
@@ -5437,7 +5437,7 @@ function renderPanelHtml() {
 
     function statusCardLabel(card) {
       const text = (card.querySelector("h3,h4,b,.objectTileHead,.gpuServerTitle") || card).textContent || "状态卡片";
-      return text.replace(/\s+/g, " ").trim().slice(0, 80) || "状态卡片";
+      return text.replace(/\\s+/g, " ").trim().slice(0, 80) || "状态卡片";
     }
 
     function hidePinContextMenu() {
@@ -6386,7 +6386,7 @@ function renderPanelHtml() {
         return pattern ? (haystack) => pattern.test(haystack) : MATCH_NO_OPERATION;
       }
       const label = String((meta || {}).label || "");
-      const parts = [anchor, label, section, (meta || {}).searchText || ""].join(" ").toLowerCase().split(/\s+/).filter((part) => part.length > 2);
+      const parts = [anchor, label, section, (meta || {}).searchText || ""].join(" ").toLowerCase().split(/\\s+/).filter((part) => part.length > 2);
       return (haystack) => parts.some((part) => haystack.includes(part));
     }
 
@@ -8376,7 +8376,7 @@ function renderPanelHtml() {
     }
 
     function planModeLabel(mode) {
-      const value = String(mode || "train_test").trim().toLowerCase().replace(/[\s-]+/g, "_");
+      const value = String(mode || "train_test").trim().toLowerCase().replace(/[\\s-]+/g, "_");
       if (PLAN_TRAIN_MODE_TOKENS?.has(value)) return "仅训练";
       if (PLAN_TEST_MODE_TOKENS?.has(value)) return "仅评估";
       return "训练并评估";
@@ -8531,7 +8531,7 @@ function renderPanelHtml() {
         current: index === blockerIndex && !step.failed
       })).join("");
       const next = blocker
-        ? projectNextAction((blocker.failed ? "修复" : "完成") + blocker.title.replace(/^\d+\.\s*/, "") + "：" + blocker.status, blocker.action, blocker.command)
+        ? projectNextAction((blocker.failed ? "修复" : "完成") + blocker.title.replace(/^\\d+\\.\\s*/, "") + "：" + blocker.status, blocker.action, blocker.command)
         : '<div class="projectQuickNext"><span>下一步</span><b>发布同步链路已就绪，可提交计划</b></div>';
       return '<div class="onboardingFlow" title="发布同步">' + cards + '</div>' + next;
     }
@@ -8631,12 +8631,15 @@ function renderPanelHtml() {
         var rh = window.localStorage && window.localStorage.getItem("gpuDense.rowHeights");
         if(rh) gpuDenseState.rowHeights = JSON.parse(rh) || {};
         var gh = window.localStorage && window.localStorage.getItem("gpuDense.globalRowHeight");
-        if(gh) gpuDenseState.globalRowHeight = Math.max(24, Math.min(48, Number(gh) || 32));
+        if(gh) gpuDenseState.globalRowHeight = Math.max(24, Math.min(64, Number(gh) || 32));
         var ms = window.localStorage && window.localStorage.getItem("gpuDense.mergeServer");
         if(ms !== null && ms !== undefined) gpuDenseState.mergeServer = String(ms) === "true";
       }catch(e){}
-      if(!gpuDenseState.colConfig) gpuDenseState.colConfig = JSON.parse(JSON.stringify(GPU_DENSE_DEFAULT_COLS));
-      if(!gpuDenseState.sorts) gpuDenseState.sorts = JSON.parse(JSON.stringify(GPU_DENSE_DEFAULT_SORTS));
+      if(!gpuDenseState.colConfig || !Array.isArray(gpuDenseState.colConfig) || !gpuDenseState.colConfig.length) gpuDenseState.colConfig = JSON.parse(JSON.stringify(GPU_DENSE_DEFAULT_COLS));
+      if(!gpuDenseState.sorts || !Array.isArray(gpuDenseState.sorts) || !gpuDenseState.sorts.length) gpuDenseState.sorts = JSON.parse(JSON.stringify(GPU_DENSE_DEFAULT_SORTS));
+      if(!gpuDenseState.colWidths || typeof gpuDenseState.colWidths !== "object") gpuDenseState.colWidths = {};
+      if(!gpuDenseState.rowHeights || typeof gpuDenseState.rowHeights !== "object") gpuDenseState.rowHeights = {};
+      gpuDenseState.globalRowHeight = Math.max(24, Math.min(64, Number(gpuDenseState.globalRowHeight)||32));
     }
     function gpuDenseSavePersist(){
       try{
@@ -8679,60 +8682,102 @@ function renderPanelHtml() {
     function renderGpuDenseTable(state){
       gpuDenseLoadPersist();
     }
+     function gpuDenseApplyRowHeight(v){
+       var vv=Math.max(24, Math.min(64, Number(v)||32));
+       gpuDenseState.globalRowHeight=vv;
+       gpuDenseState.rowHeights={};
+       gpuDenseSavePersist();
+       try{ document.documentElement.style.setProperty("--gpu-row-h", vv+"px"); }catch(e){}
+       var vEl=document.getElementById("gpuDenseRowHeightValue");
+       if(vEl) vEl.textContent=vv+"px";
+       var slider=document.getElementById("gpuDenseRowHeightSlider");
+       if(slider) slider.value=String(vv);
+       var rows=document.querySelectorAll("tr.gpuDenseRow");
+       rows.forEach(function(tr){
+         tr.style.height=vv+"px";
+         tr.style.minHeight=vv+"px";
+         tr.querySelectorAll("td").forEach(function(td){
+           td.style.height=vv+"px";
+           td.style.lineHeight=vv+"px";
+           td.style.paddingTop="0px";
+           td.style.paddingBottom="0px";
+         });
+       });
+       try{ if(typeof showToast==="function") showToast("全局行高 " + vv + "px 已应用", "info"); }catch(e){}
+     }
      function bindGpuDenseGearControls(){
-       var picker = document.getElementById("gpuDenseColumnsPicker");
-       if(picker && !picker.dataset.gearDelegated){
-         picker.dataset.gearDelegated="1";
-         picker.addEventListener("change", function(e){
-           var t=e.target;
-           if(!t || !t.matches || !t.matches('input[data-gear-col]')) return;
-           var k=t.getAttribute("data-gear-col");
+       if(window.__gpuGearDelegated) {
+         var _mb=document.getElementById("gpuMergeToggle");
+         if(_mb) _mb.textContent = gpuDenseState.mergeServer ? "合并:开" : "合并:关";
+         var _sl=document.getElementById("gpuDenseRowHeightSlider");
+         var _vl=document.getElementById("gpuDenseRowHeightValue");
+         if(_sl){ _sl.value=String(gpuDenseState.globalRowHeight); if(_vl) _vl.textContent=_sl.value+"px"; }
+         return;
+       }
+       window.__gpuGearDelegated=true;
+       gpuDenseLoadPersist();
+       try{ document.documentElement.style.setProperty("--gpu-row-h", gpuDenseState.globalRowHeight+"px"); }catch(e){}
+       document.addEventListener("change", function(e){
+         var t=e.target;
+         if(!t || !t.closest) return;
+         var cb=t.closest('input[data-gear-col]');
+         if(cb && cb.matches && cb.matches('input[data-gear-col]')){
+           gpuDenseLoadPersist();
+           if(!gpuDenseState.colConfig || !Array.isArray(gpuDenseState.colConfig) || !gpuDenseState.colConfig.length) gpuDenseState.colConfig = JSON.parse(JSON.stringify(GPU_DENSE_DEFAULT_COLS));
+           var k=cb.getAttribute("data-gear-col");
            var target=(gpuDenseState.colConfig||[]).find(function(x){ return x.key===k; });
-           if(target) target.visible=t.checked;
+           if(target) target.visible=cb.checked;
            gpuDenseSavePersist();
            renderGpuSection(lastState || {});
-         });
-       }
-       var gearBtn = document.getElementById("gpuDenseSettingsBtn");
-       var gear = document.getElementById("gpuDenseGear");
-       if(gearBtn && gear && !gearBtn.dataset.boundGear){
-         gearBtn.dataset.boundGear="1";
-         gearBtn.addEventListener("click", function(){ gear.hidden = !gear.hidden; if(!gear.hidden) gpuDenseRenderGear(); });
-       }
-       var gearClose = document.getElementById("gpuDenseGearClose");
-       if(gearClose && gear && !gearClose.dataset.boundClose){
-         gearClose.dataset.boundClose="1";
-         gearClose.addEventListener("click", function(){ gear.hidden = true; });
-       }
-       var mergeBtn = document.getElementById("gpuMergeToggle");
-       if(mergeBtn && !mergeBtn.dataset.bound){
-         mergeBtn.dataset.bound="1";
-         mergeBtn.addEventListener("click", function(){ gpuDenseState.mergeServer = !gpuDenseState.mergeServer; gpuDenseSavePersist(); renderGpuSection(lastState || {}); });
-       }
-       if(mergeBtn) mergeBtn.textContent = gpuDenseState.mergeServer ? "合并:开" : "合并:关";
-       var slider = document.getElementById("gpuDenseRowHeightSlider");
-       var val = document.getElementById("gpuDenseRowHeightValue");
-       if(slider){
-         slider.value = String(gpuDenseState.globalRowHeight);
-         if(val) val.textContent = slider.value + "px";
-         if(!slider.dataset.boundInput){
-           slider.dataset.boundInput="1";
-           slider.addEventListener("input", function(){
-             var v=Math.max(24, Math.min(48, Number(slider.value)||32));
-             gpuDenseState.globalRowHeight=v;
-             gpuDenseState.rowHeights={};
-             var curValEl=document.getElementById("gpuDenseRowHeightValue");
-             if(curValEl) curValEl.textContent=v+"px";
-             if(val) val.textContent=v+"px";
-             gpuDenseSavePersist();
-             var rs=document.querySelectorAll("tr.gpuDenseRow");
-             if(!rs || !rs.length) return;
-             rs.forEach(function(tr){ tr.style.height=v+"px"; });
-           });
          }
-       }
+         if(t && t.id==="gpuDenseRowHeightSlider"){
+           var v=Math.max(24, Math.min(64, Number(t.value)||32));
+           gpuDenseApplyRowHeight(v);
+         }
+       });
+       document.addEventListener("click", function(e){
+         var t=e.target;
+         if(!t || !t.closest) return;
+         var btn=t.closest("#gpuDenseSettingsBtn");
+         if(btn){
+           var gear=document.getElementById("gpuDenseGear");
+           if(gear){ var willShow=gear.hidden; gear.hidden=!gear.hidden; gear.style.display=gear.hidden?"none":""; if(!gear.hidden) gpuDenseRenderGear(); }
+           return;
+         }
+         var closeBtn=t.closest("#gpuDenseGearClose");
+         if(closeBtn){
+           var gear2=document.getElementById("gpuDenseGear");
+           if(gear2){ gear2.hidden=true; gear2.style.display="none"; }
+           return;
+         }
+         var mergeBtn=t.closest("#gpuMergeToggle");
+         if(mergeBtn){
+           gpuDenseState.mergeServer=!gpuDenseState.mergeServer;
+           mergeBtn.textContent = gpuDenseState.mergeServer ? "合并:开" : "合并:关";
+           gpuDenseSavePersist();
+           renderGpuSection(lastState || {});
+           return;
+         }
+       });
+       document.addEventListener("input", function(e){
+         var t=e.target;
+         if(!t || !t.closest) return;
+         var sl=t.closest("#gpuDenseRowHeightSlider");
+         if(!sl) return;
+         var v=Math.max(24, Math.min(64, Number(sl.value)||32));
+         var curValEl=document.getElementById("gpuDenseRowHeightValue");
+         if(curValEl) curValEl.textContent=v+"px";
+         gpuDenseApplyRowHeight(v);
+       });
+       var _mb2=document.getElementById("gpuMergeToggle");
+       if(_mb2) _mb2.textContent = gpuDenseState.mergeServer ? "合并:开" : "合并:关";
+       var _sl2=document.getElementById("gpuDenseRowHeightSlider");
+       var _vl2=document.getElementById("gpuDenseRowHeightValue");
+       if(_sl2){ _sl2.value=String(gpuDenseState.globalRowHeight); if(_vl2) _vl2.textContent=_sl2.value+"px"; }
      }
+
      function gpuDenseRenderGear(){
+       gpuDenseLoadPersist();
        var picker = document.getElementById("gpuDenseColumnsPicker");
        if(picker){
          var cols = gpuDenseState.colConfig || GPU_DENSE_DEFAULT_COLS;
@@ -8743,9 +8788,12 @@ function renderPanelHtml() {
        var slider = document.getElementById("gpuDenseRowHeightSlider");
        var val = document.getElementById("gpuDenseRowHeightValue");
        if(slider){
+         slider.min="24"; slider.max="64"; slider.step="1";
          slider.value=String(gpuDenseState.globalRowHeight);
          if(val) val.textContent=slider.value+"px";
        }
+       var gear=document.getElementById("gpuDenseGear");
+       if(gear){ gear.style.display=gear.hidden?"none":""; }
        bindGpuDenseGearControls();
      }
     function renderGpuSection(state) {
@@ -10202,7 +10250,7 @@ function renderPanelHtml() {
       if (!text || text === "-") return "";
       const name = text.split(String.fromCharCode(92)).join("/").split("/").pop() || text;
       const legacySessionPrefix = "s" + "sh" + "-config:";
-      return name.replace(/\.xsh$/i, "").replace(/^worker:/i, "").replace(new RegExp("^" + legacySessionPrefix, "i"), "").trim().toLowerCase();
+      return name.replace(/\\.xsh$/i, "").replace(/^worker:/i, "").replace(new RegExp("^" + legacySessionPrefix, "i"), "").trim().toLowerCase();
     }
 
     function workerAliasValues(worker) {
@@ -10214,7 +10262,7 @@ function renderPanelHtml() {
         worker && worker.hubHost,
         worker && worker.sshConfigAlias,
         worker && worker.savedSessionPath,
-        sessionName.replace(/\.xsh$/i, "")
+        sessionName.replace(/\\.xsh$/i, "")
       ].map((value) => String(value || "").trim()).filter(Boolean));
     }
 
@@ -10697,7 +10745,7 @@ function renderPanelHtml() {
         }
         let source = "^";
         for (let index = 0; index < pattern.length;) {
-          const placeholder = pattern.slice(index).match(/^\{+([A-Za-z0-9_.-]+)\}+/);
+          const placeholder = pattern.slice(index).match(/^\\{+([A-Za-z0-9_.-]+)\\}+/);
           if (placeholder) {
             const key = placeholder[1];
             const value = known[key];
@@ -10967,7 +11015,7 @@ function renderPanelHtml() {
 
     function projectTaskTypeLabel(taskType) {
       const raw = String(taskType || "").trim();
-      const key = raw.toLowerCase().replace(/[\s-]+/g, "_");
+      const key = raw.toLowerCase().replace(/[\\s-]+/g, "_");
       return PROJECT_TASK_TYPE_LABELS[key] || raw || "未指定";
     }
 
@@ -12857,7 +12905,7 @@ function renderPanelHtml() {
     }
 
     function renderRemoteResultInspectionActions(files, planFile, limit, details) {
-      const rows = uniqueText(asArray(files).map((file) => String(file || "").trim()).filter((file) => /\.(csv|json|txt|log|out)$/i.test(file)));
+      const rows = uniqueText(asArray(files).map((file) => String(file || "").trim()).filter((file) => /\\.(csv|json|txt|log|out)$/i.test(file)));
       if (!rows.length || !meaningfulValue(planFile)) return "";
       const detailMap = new Map(asArray(details).map((item) => [String((item || {}).path || "").trim(), String((item || {}).error || "").trim()]));
       const visible = rows.slice(0, Math.max(1, Number(limit || 3)));
@@ -12959,7 +13007,7 @@ function renderPanelHtml() {
     function operationTypeLabel(type) {
       const raw = String(type || "").trim();
       if (!raw || raw === "-") return raw || "操作";
-      const key = raw.replace(/([a-z])([A-Z])/g, "$1-$2").replace(/_/g, "-").replace(/\s+/g, "-").toLowerCase();
+      const key = raw.replace(/([a-z])([A-Z])/g, "$1-$2").replace(/_/g, "-").replace(/\\s+/g, "-").toLowerCase();
       return OPERATION_TYPE_LABELS[key] || raw;
     }
 
@@ -13578,7 +13626,7 @@ function renderPanelHtml() {
 
     function analysisStatusLabel(status) {
       const raw = String(status || "").trim();
-      const key = raw.toLowerCase().replace(/[\s-]+/g, "_");
+      const key = raw.toLowerCase().replace(/[\\s-]+/g, "_");
       const labels = {
         significant: "显著", not_significant: "不显著", pending: "待检查", waiting: "待检查", passed: "已通过", ok: "已通过", supported: "已支持",
         insufficient: "样本不足", needs_experiment: "需实验", unsupported: "不支持", unavailable: "不可用", failed: "失败", error: "错误"
@@ -15831,7 +15879,7 @@ function renderPanelHtml() {
       const raw = String(value === undefined || value === null ? "" : value).trim();
       const key = raw.toLowerCase();
       if (STATUS_LABELS[key]) return STATUS_LABELS[key];
-      const detailMatch = raw.match(/^(failed|error|warning)\s*[:：-]\s*(.+)$/i);
+      const detailMatch = raw.match(/^(failed|error|warning)\\s*[:：-]\\s*(.+)$/i);
       if (detailMatch) return STATUS_LABELS[detailMatch[1].toLowerCase()] + "：" + detailMatch[2];
       return raw;
     }
