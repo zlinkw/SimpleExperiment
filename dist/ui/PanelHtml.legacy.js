@@ -11405,9 +11405,7 @@ function renderPanelHtml() {
         const editable = (selected || Boolean(plan.parseError)) && !textUnavailable;
         const archiveReadiness = planArchiveUiReadiness(state, file);
         const title = plan.name || file.split(/[\\\\/]/).pop() || file;
-        const textNotice = plan.metadataTruncated
-          ? '<div class="muted" title="' + escAttr("摘要：" + (file || title)) + '">计划文件较大，已隐藏内联编辑。</div>'
-          : '<div class="muted" title="' + escAttr("未选中：" + (file || title)) + '">未选中计划已隐藏 YAML 预览。</div>';
+        const textNotice = "";
         return '<div class="task-card is-' + (plan.parseError ? "failed" : "completed") + (selected ? " selectedRow" : "") + '" data-anchor="' + escAttr(treeAnchorId("plan", file || plan.planId || title)) + '">' +
           '<div class="planCardHead">' +
             '<input class="taskSelectBox" type="checkbox" data-command="selectPlan" data-plan-file="' + escAttr(file) + '" data-plan-id="' + escAttr(plan.planId || file) + '"' + (selected ? " checked" : "") + '>' +
