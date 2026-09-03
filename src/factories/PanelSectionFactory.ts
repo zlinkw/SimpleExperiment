@@ -32,7 +32,6 @@ export type SectionId =
   | "servers"
   | "settings"
   | "gpu"
-  | "sync"
   | "diagnostics"
   | "operations";
 
@@ -85,7 +84,6 @@ const SECTION_DEFS: ReadonlyArray<{ id: SectionId; order: number; title: string;
   { id: "servers", order: 4, title: "服务器", icon: "🖥" },
   { id: "settings", order: 5, title: "设置", icon: "⚙" },
   { id: "gpu", order: 6, title: "GPU", icon: "🎮" },
-  { id: "sync", order: 7, title: "同步", icon: "🔄" },
   { id: "diagnostics", order: 8, title: "诊断", icon: "🩺" },
   { id: "operations", order: 9, title: "操作", icon: "⚡" },
 ];
@@ -151,7 +149,7 @@ export class DefaultPanelSectionFactory implements PanelSectionFactory {
     const sectionsMod = getSectionsMod();
     if (sectionsMod && typeof sectionsMod.createAllSections === "function") {
       const realSections = sectionsMod.createAllSections() as unknown[];
-      if (Array.isArray(realSections) && realSections.length >= 9) {
+      if (Array.isArray(realSections) && realSections.length >= 8) {
         const mapped = realSections.map(toPanelSection);
         // 合并 deps 定制覆盖（若有）
         const customMap = (this.deps["sections"] as Record<string, PanelSection> | undefined) || {};

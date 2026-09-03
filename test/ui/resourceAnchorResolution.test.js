@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
 
 function extractFunction(name) {
   const start = panelSource.indexOf(`function ${name}(`);
@@ -78,8 +78,9 @@ function buildMain() {
     node({ "data-section": "operations" }, [
       node({ "data-anchor": "operations-list", id: "operations-list" }),
     ]),
-    node({ "data-section": "sync", "data-anchor": "sync" }, [
-      node({ "data-anchor": "sync-publish", id: "sync-publish" }),
+    // 单链第二步：旧 sync/sync-publish fixture 已迁移到 settings/settings-chain-overview
+    node({ "data-section": "settings", "data-anchor": "settings" }, [
+      node({ "data-anchor": "settings-chain-overview", id: "settings-chain-overview" }),
     ]),
   ]);
 }
@@ -102,9 +103,14 @@ test("a global anchor is still used when the requested section is absent", () =>
   assert.equal(resolver.resolve("missing-section", "tasks-list").id, "tasks-list");
 });
 
-test("the sync section keeps its publish fallback", () => {
+test("the settings chain overview resolves without a sync publish fallback", () => {
   const resolver = loadResolver(buildMain());
-  assert.equal(resolver.resolve("sync", "sync-anything").id, "sync-publish");
+  // 旧 syncFallback 已删除：未知 anchor 不再误跳 sync-publish，而是回落到 section 容器
+  assert.doesNotMatch(panelSource, /syncFallback/);
+  assert.doesNotMatch(panelSource, /data-anchor="sync-publish"/);
+  assert.equal(resolver.resolve("settings", "settings-chain-overview").id, "settings-chain-overview");
+  const fallback = resolver.resolve("settings", "settings-anything");
+  assert.equal(fallback.getAttribute("data-section"), "settings");
 });
 
 test("an unknown anchor falls back to the section container", () => {

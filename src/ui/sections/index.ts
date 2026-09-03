@@ -8,7 +8,6 @@ import { PlansSection } from "./PlansSection";
 import { ResultsSection } from "./ResultsSection";
 import { ExecutionSection } from "./ExecutionSection";
 import { GpuSection } from "./GpuSection";
-import { SyncSection } from "./SyncSection";
 import { TmuxSection } from "./TmuxSection";
 import { SettingsSection } from "./SettingsSection";
 import { DiagnosticsSection } from "./DiagnosticsSection";
@@ -19,7 +18,6 @@ export { PlansSection } from "./PlansSection";
 export { ResultsSection } from "./ResultsSection";
 export { ExecutionSection } from "./ExecutionSection";
 export { GpuSection } from "./GpuSection";
-export { SyncSection } from "./SyncSection";
 export { TmuxSection } from "./TmuxSection";
 export { SettingsSection } from "./SettingsSection";
 export { DiagnosticsSection } from "./DiagnosticsSection";
@@ -30,7 +28,6 @@ export function createAllSections(): Section[] {
     new SettingsSection(),
     new PlansSection(),
     new ResultsSection(),
-    new SyncSection(),
     new GpuSection(),
     new TmuxSection(),
     new ExecutionSection(),
@@ -58,4 +55,4 @@ export function toPanelSections(sections: Section[]): import("../../factories/Pa
   }));
 }
 
-export const allSectionIds = ["servers","settings","plans","results","sync","gpu","tmux","execution","diagnostics"] as const;
+export const allSectionIds = ["servers","settings","plans","results","gpu","tmux","execution","diagnostics"] as const;

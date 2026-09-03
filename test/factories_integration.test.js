@@ -78,7 +78,7 @@ test("所有工厂可实例化 (Tunnel/Service/Realtime/Feature/Command/PanelSec
   assert.equal(typeof panels.createAll, "function");
   const sections = panels.createAll(ctx);
   assert.ok(Array.isArray(sections), "PanelSectionFactory.createAll returns array");
-  assert.ok(sections.length >= 10, `expected >=10 sections, got ${sections.length}`);
+  assert.ok(sections.length >= 8, `expected >=8 sections, got ${sections.length}`);
   for (const s of sections) {
     assert.ok(s.id, "section.id");
     assert.equal(typeof s.renderHtml, "function", `section ${s.id} renderHtml`);
@@ -109,9 +109,10 @@ test("PanelHtmlRenderer 可渲染且包含 CSP/nonce", () => {
   assert.match(html, /Content-Security-Policy/, "CSP");
   assert.match(html, /<style>/, "style tag");
   assert.match(html, /<script nonce="test-nonce-123">/, "script with nonce");
-  // 每段 Section 的 data-section 应存在
-  assert.match(html, /data-section="overview"/, "overview section");
+  // 每段 Section 的 data-section 应存在（单链第二步：sync 已下线，无 overview 段）
+  assert.match(html, /data-section="settings"/, "settings section");
   assert.match(html, /data-section="plans"/, "plans section");
+  assert.doesNotMatch(html, /data-section="sync"/, "sync retired");
 
   // renderCss / renderHtml / renderScript 单独调用
   assert.ok(renderer.renderCss().length >= 0, "renderCss");
@@ -258,7 +259,6 @@ test("所有新工厂/扩展/UI 模块有 // @ts-nocheck（已迁移类型化的
     path.join(srcRoot, "ui", "sections", "ResultsSection.ts"),
     path.join(srcRoot, "ui", "sections", "ServersSection.ts"),
     path.join(srcRoot, "ui", "sections", "SettingsSection.ts"),
-    path.join(srcRoot, "ui", "sections", "SyncSection.ts"),
     path.join(srcRoot, "ui", "sections", "TmuxSection.ts"),
     path.join(srcRoot, "ui", "sections", "types.ts"),
     // ui/styles 3

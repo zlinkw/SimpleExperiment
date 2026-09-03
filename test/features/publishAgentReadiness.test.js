@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
 
 function extractFunction(name) {
   const start = panel.indexOf(`function ${name}(`);
@@ -50,11 +50,14 @@ test("publish workflow reports actual Hub and Worker Agent readiness", () => {
   assert.equal(readiness({ setup, probe: { status: "ok" }, workerProbes: { w1: { status: "agent_project_mismatch" } } }).status, "项目不匹配");
 });
 
-test("publish workflow rerenders on endpoint changes and removes permanent Agent warning", () => {
-  assert.match(panel, /section === "sync"[^\n]+data\.probe, data\.workerProbes/);
-  assert.match(panel, /renderPublishFlow\(state\)/);
-  assert.match(panel, /\{ title: "4\. Agent", ok: agent\.ready, status: agent\.status, detail: agent\.detail,/);
-  assert.match(panel, /onboardingStep\(step\.title, step\.ok, step\.status, step\.detail,/);
+test("publish workflow rerenders on endpoint changes via the settings chain overview", () => {
+  // 单链第二步：旧 sync 分发/renderPublishFlow/4步标题已下线，新链为 settings-chain-overview 3按钮
+  assert.doesNotMatch(panel, /function renderPublishFlow\(state\)/);
+  assert.doesNotMatch(panel, /\{ title: "4\. Agent", ok: agent\.ready, status: agent\.status, detail: agent\.detail,/);
+  assert.match(panel, /function renderServerChainOverview\(/);
+  assert.match(panel, /data-anchor-target="settings-chain-overview"/);
+  assert.match(panel, /publishAgentReadiness\(data\)/);
   assert.doesNotMatch(panel, /onboardingStep\("4\. 部署 Agent", false, "按需执行"/);
-  assert.match(panel, /产物入口：归档、检查同步清单、删除、校准/);
+  // 单链第二步：旧 renderActionSections 产物/实验/结果/诊断占位文案已随之下线
+  assert.doesNotMatch(panel, /function renderActionSections/);
 });

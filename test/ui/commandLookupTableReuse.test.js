@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
 
 function declaration(name) {
   const start = source.indexOf("const " + name + " =");
@@ -39,6 +39,8 @@ test("webview command routing reuses frozen lookup tables", () => {
   assert.equal(sandbox.api.commandInspectorSection("plotResultsToPpt"), "results");
   assert.equal(sandbox.api.commandInspectorSection("futureCommand"), "overview");
   assert.equal(sandbox.api.syncCommandAnchor("deployLatestAgent"), "sync-deploy-agent");
+  // 单链第二步：未知命令回退到新链锚点
+  assert.equal(sandbox.api.syncCommandAnchor("futureCommand"), "settings-chain-overview");
   assert.equal(sandbox.api.actionResourceAnchor("results", "runStatistics"), "results-summary");
   assert.equal(sandbox.api.actionResourceAnchor("sync", "publishGithub"), "sync-publish-github");
   for (const name of names) assert.match(declaration(name), /Object\.freeze\(/);
