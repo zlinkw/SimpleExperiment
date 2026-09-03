@@ -50,6 +50,8 @@ export function renderPanelHtml(): string {
     .value, .pathCell { overflow-wrap: anywhere; }
     .toolbar, .actionGrid, .summaryLine, .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; align-items: center; min-width: 0; }
     .toolbar > *, .actionGrid > *, .summaryLine > *, .actions > * { min-width: 0; }
+    .toolbar .toolbarSep { color: #1F4E79; font-weight: 800; user-select: none; padding: 0 2px; }
+    .toolbar > .toolbarSep { width: auto !important; flex: 0 0 auto; }
     .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
     .syncPublishPanel { display: grid; gap: 8px; min-width: 0; }
     .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
@@ -832,14 +834,14 @@ export function renderPanelHtml(): string {
     .workerDenseWorker code.tbUrl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: anywhere; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
-    .runtimeEnvOverview { display: grid; gap: 8px; padding: 10px; border: 1px solid hsl(330 80% 72%); border-left: 4px solid hsl(330 85% 55%); border-radius: 8px; background: hsl(330 85% 95%); }
-    .runtimeEnvHead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: #831843; font-size: 12px; font-weight: 800; }
-    .runtimeEnvHead .sub { color: #9D174D; font-size: 11px; font-weight: 600; }
-    .runtimeEnvOverview .pill { background: hsl(25 95% 90%); border-color: hsl(25 90% 65%); color: #7C2D12; }
-    .runtimeEnvTableWrap { overflow: auto; max-width: 100%; border: 1px solid hsl(330 40% 80%); border-radius: 6px; background: #FFF7ED; }
-    .runtimeEnvTable { border-collapse: collapse; width: 100%; min-width: 100%; table-layout: fixed; font-size: 12px; }
-    .runtimeEnvTable th, .runtimeEnvTable td { border: 1px solid hsl(330 40% 80%); padding: 6px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .runtimeEnvTable th { background: hsl(330 70% 88%); color: #831843; }
+    .runtimeEnvOverview { display: grid; gap: 8px; padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; }
+    .runtimeEnvHead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: #1F4E79; font-size: 12px; font-weight: 800; }
+    .runtimeEnvHead .sub { color: #1F4E79; font-size: 11px; font-weight: 600; opacity: .75; }
+    .runtimeEnvOverview .pill { background: #EEF4FB; border-color: #BFD4EA; color: #1F4E79; }
+    .runtimeEnvTableWrap { overflow: auto; max-width: 100%; border: 1px solid #BFD4EA; border-radius: 6px; background: #FFFFFF; }
+    .runtimeEnvTable { border-collapse: collapse; width: auto; min-width: 0; table-layout: auto; font-size: 12px; }
+    .runtimeEnvTable th, .runtimeEnvTable td { border: 1px solid #BFD4EA; padding: 6px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+    .runtimeEnvTable th { background: hsl(210 60% 88%); color: #1F4E79; }
     .runtimeEnvTable tbody tr:hover { filter: brightness(0.97); }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
     .topologyHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #111827; font-size: 13px; font-weight: 850; }
@@ -1222,11 +1224,14 @@ export function renderPanelHtml(): string {
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
         <div id="syncServerOverview" data-anchor="sync-servers"></div>
         <div class="toolbar" data-anchor="sync-actions">
-          <button type="button" data-command="prepareAgents" title="第1步先部署：上传最新版 Agent 到全部服务器 runtime，无需隧道在线">1 部署Agent</button>
-          <button type="button" data-command="startAll" class="secondary" title="第1步连隧道：启动全部 Xshell 隧道，建立本机到服务器的端口转发">2 启动全部隧道</button>
-          <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">3 一键上传到所有服务器</button>
-          <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">4 检测全部</button>
-          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">5 从 GitHub 覆盖本机</button>
+          <button type="button" data-command="prepareAgents" title="第1步先部署：上传最新版 Agent 到全部服务器 runtime，无需隧道在线">部署Agent</button>
+          <span class="toolbarSep" aria-hidden="true">→</span>
+          <button type="button" data-command="startAll" class="secondary" title="第1步连隧道：启动全部 Xshell 隧道，建立本机到服务器的端口转发">启动全部隧道</button>
+          <span class="toolbarSep" aria-hidden="true">→</span>
+          <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">一键上传到所有服务器</button>
+          <span class="toolbarSep" aria-hidden="true">→</span>
+          <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
+          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
         </div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
@@ -6927,7 +6932,7 @@ export function renderPanelHtml(): string {
     }
 
     function runtimeEnvTableWidths(count) {
-      var widths = [150, 70, 110, 110, 80, 130, 90];
+      var widths = [150, 110, 110, 80];
       var out = [];
       for (var i = 0; i < count; i++) out.push(widths[i % widths.length]);
       return out.map(function(w) { return Math.max(60, Math.min(400, Number(w) || 120)); });
@@ -6936,29 +6941,26 @@ export function renderPanelHtml(): string {
     function renderRuntimeEnvOverview(state) {
       var setup = (state && state.setup) || {};
       var workers = asArray(setup.workerTunnels || []);
-      var cols = ["服务器", "启用", "本地端口", "远端端口", "GPU上限", "隧道会话", "状态"];
+      var cols = ["服务器", "本地端口", "远端端口", "GPU上限"];
       var widths = runtimeEnvTableWidths(cols.length);
       var cg = widths.map(function(w, idx) { return '<col data-col-key="runtime-' + idx + '" style="width:' + w + 'px">'; }).join("") + '<col data-col-key="__gear" style="width:28px">';
       var head = "<tr>" + cols.map(function(label, idx) { var w = widths[idx]; return '<th data-col-key="runtime-' + idx + '" style="width:' + w + 'px; min-width:' + w + 'px; max-width:' + w + 'px;">' + esc(label) + "</th>"; }).join("") + '<th style="width:28px;min-width:28px;">' + esc("设置") + "</th></tr>";
       var body = "";
-      if (!workers.length) body = '<tr><td colspan="8">暂无服务器，请到设置区服务器卡片新增服务器。</td></tr>';
+      if (!workers.length) body = '<tr><td colspan="5">暂无服务器，请到设置区服务器卡片新增服务器。</td></tr>';
       else body = workers.map(function(worker, idx) {
         var name = worker.displayName || worker.id || ("worker-" + idx);
-        var enabled = worker.enabled === false ? "禁用" : "启用";
         var local = worker.localForwardPort || "-";
         var remote = worker.remoteTelemetryPort || worker.remoteAgentPort || "-";
         var gpu = worker.maxConcurrentGpus || 1;
-        var session = serverSessionConfiguredLabel(worker.savedSessionPath, "隧道会话");
-        var status = worker.enabled === false ? "禁用" : "已配置";
-        return "<tr>" + "<td>" + esc(name) + "</td>" + "<td>" + esc(enabled) + "</td>" + "<td>" + esc(String(local)) + "</td>" + "<td>" + esc(String(remote)) + "</td>" + "<td>" + esc(String(gpu)) + "</td>" + "<td>" + esc(session) + "</td>" + "<td>" + esc(status) + "</td>" + "<td></td>" + "</tr>";
+        return "<tr>" + "<td>" + esc(name) + "</td>" + "<td>" + esc(String(local)) + "</td>" + "<td>" + esc(String(remote)) + "</td>" + "<td>" + esc(String(gpu)) + "</td>" + "<td></td>" + "</tr>";
       }).join("");
       return '<section class="runtimeEnvOverview" data-anchor="sync-runtime-env" title="运行环境详情总览"><div class="runtimeEnvHead"><b>运行环境详情</b><span class="sub">高密度表格</span></div><div class="runtimeEnvTableWrap"><table class="runtimeEnvTable"><colgroup>' + cg + "</colgroup><thead>" + head + "</thead><tbody>" + body + "</tbody></table></div></section>";
     }
 
     function renderSyncSection(state) {
       setHtmlIfChanged("syncChainOverview", renderServerChainOverview(state));
-      // 两卡合一：sync 卡内直写服务器总览（单 Worker 紧凑卡或对象总览），隧道表单见设置区；运行环境详情高密度表拼于总览之后。
-      setHtmlIfChanged("syncServerOverview", (isSingleWorkerDense(state) ? renderSingleWorkerDenseCard(state) : renderServerObjectOverview(state)) + renderRuntimeEnvOverview(state));
+      // 两卡合一：sync 卡内仅留运行环境详情高密度表，单 Worker 紧凑卡/对象总览小方格已收敛（设置区复用不受影响）。
+      setHtmlIfChanged("syncServerOverview", renderRuntimeEnvOverview(state));
     }
 
     function renderServerCardsV2(state) {
