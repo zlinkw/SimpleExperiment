@@ -17,7 +17,6 @@ exports.filterSchedulerState = filterSchedulerState;
 exports.schedulerMatcherMatchesPlan = schedulerMatcherMatchesPlan;
 exports.schedulerMatcherMatchesPending = schedulerMatcherMatchesPending;
 exports.schedulerMatcherMatchesItem = schedulerMatcherMatchesItem;
-exports.dedupeJsonRecords = dedupeJsonRecords;
 exports.ARTIFACT_REGISTRY_PATH = "simple_cluster/artifact_registry.json";
 function normalizeComparablePath(value) {
     return String(value || "")
@@ -179,15 +178,10 @@ function schedulerMatcherMatchesPending(_plan, _state, _index, _matcher) {
 function schedulerMatcherMatchesItem(_plan, _item, _matcher, _state) {
     return false;
 }
-function dedupeJsonRecords(records) {
-    const out = new Map();
-    for (const record of records) {
-        if (!record || !Object.keys(record).length)
-            continue;
-        out.set(JSON.stringify(record), record);
-    }
-    return Array.from(out.values());
-}
+// 服务器去重收敛说明（提交二）：服务器列表唯一收敛入口为
+// tunnel/XshellTunnelSetup.dedupeWorkerTunnels（按 host|user|port + savedSessionPath 合并）；
+// GPU 侧 normalizeServerGpu/mergeGpuServers 与诊断侧 dedupeAnomalies 各自保留，
+// 本文件通用 JSON 去重已删除，避免多源去重打架（删除台账合并改走调用方显式 Map 去重）。
 function schedulerRowKeys() {
     return ["running_experiments", "testing_experiments", "completed_experiments", "failed_experiments", "stopped_experiments"];
 }
