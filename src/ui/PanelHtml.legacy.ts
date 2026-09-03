@@ -50,8 +50,10 @@ export function renderPanelHtml(): string {
     .value, .pathCell { overflow-wrap: anywhere; }
     .toolbar, .actionGrid, .summaryLine, .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; align-items: center; min-width: 0; }
     .toolbar > *, .actionGrid > *, .summaryLine > *, .actions > * { min-width: 0; }
-    .toolbar .toolbarSep { color: #1F4E79; font-weight: 800; user-select: none; padding: 0 2px; }
+    .toolbar .toolbarSep { color: #1F4E79; font-weight: 800; user-select: none; padding: 0 4px; font-size: 18px; line-height: 1; }
     .toolbar > .toolbarSep { width: auto !important; flex: 0 0 auto; }
+    .toolbar[data-anchor="sync-actions"] { padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; }
+    .toolbar[data-anchor="sync-actions"] button.danger-filled { margin-left: auto; }
     .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
     .syncPublishPanel { display: grid; gap: 8px; min-width: 0; }
     .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
@@ -834,15 +836,12 @@ export function renderPanelHtml(): string {
     .workerDenseWorker code.tbUrl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: anywhere; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
-    .runtimeEnvOverview { display: grid; gap: 8px; padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; }
-    .runtimeEnvHead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; color: #1F4E79; font-size: 12px; font-weight: 800; }
-    .runtimeEnvHead .sub { color: #1F4E79; font-size: 11px; font-weight: 600; opacity: .75; }
-    .runtimeEnvOverview .pill { background: #EEF4FB; border-color: #BFD4EA; color: #1F4E79; }
-    .runtimeEnvTableWrap { overflow: auto; max-width: 100%; border: 1px solid #BFD4EA; border-radius: 6px; background: #FFFFFF; }
-    .runtimeEnvTable { border-collapse: collapse; width: auto; min-width: 0; table-layout: auto; font-size: 12px; }
-    .runtimeEnvTable th, .runtimeEnvTable td { border: 1px solid #BFD4EA; padding: 6px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-    .runtimeEnvTable th { background: hsl(210 60% 88%); color: #1F4E79; }
-    .runtimeEnvTable tbody tr:hover { filter: brightness(0.97); }
+    .serverChainOverview { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 8px 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; color: #1F4E79; font-size: 12px; font-weight: 700; }
+    .serverChainOverview b { color: #1F4E79; font-size: 12px; font-weight: 800; margin-right: 2px; }
+    .chainDot { display: inline-block; width: 12px; height: 12px; border-radius: 999px; background: #94A3B8; border: 1px solid rgba(15, 23, 42, 0.18); flex: 0 0 auto; }
+    .chainDot.ok { background: #16A34A; border-color: #16A34A; }
+    .chainDot.warn { background: #D97706; border-color: #D97706; }
+    .chainDot.error { background: #DC2626; border-color: #DC2626; }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
     .topologyHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #111827; font-size: 13px; font-weight: 850; }
     .topologyHeader span { color: #64748B; font-size: 11px; font-weight: 650; }
@@ -1218,7 +1217,6 @@ export function renderPanelHtml(): string {
         <div class="section-head">
           <div class="section-title">
             <h2>运行环境准备</h2>
-            <div class="section-desc">三步完成：1连隧道 2传代码 3检测</div>
           </div>
         </div>
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
@@ -6920,47 +6918,21 @@ export function renderPanelHtml(): string {
       const connText = conflicts.length ? ("冲突 " + conflicts.length) : setupReady.ready ? "连接就绪" : "连接待配";
       const syncText = syncReady.ready ? "上传就绪" : (syncReady.summary || "待上传");
       const agentText = agent.ready ? "就绪" : agent.status;
+      const connCls = conflicts.length ? "error" : (setupReady.ready ? "ok" : "warn");
+      const syncCls = syncReady.ready ? "ok" : "warn";
+      const agentCls = agent.ready ? "ok" : "warn";
       return '<div class="serverChainOverview" data-anchor="settings-chain-overview" title="运行环境准备单链：部署Agent到上传到检测，全绿自动跳转实验卡">' +
         '<b>' + esc(modeLabel) + '</b>' +
-        '<span class="chainStep" data-chain-step="connect" title="' + escAttr(setupReady.summary || connText) + '">1 连接：</span>' +
-        '<button type="button" class="secondary" data-section-target="sync" data-anchor-target="sync-servers" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</button>' +
-        '<span class="chainStep" data-chain-step="upload" title="' + escAttr(syncText) + '">2 上传：</span>' +
-        '<button type="button" class="secondary" data-section-target="settings" data-anchor-target="settings-chain-overview" title="' + escAttr(syncText) + '">' + esc(syncText) + '</button>' +
-        '<span class="chainStep" data-chain-step="ready" title="' + escAttr(agent.detail || agentText) + '">3 就绪：</span>' +
-        '<button type="button" class="secondary" data-section-target="settings" data-anchor-target="settings-chain-overview" title="' + escAttr(agent.detail || agentText) + '">' + esc(agentText) + '</button>' +
+        '<span class="chainDot ' + connCls + '" data-chain-step="connect" title="' + escAttr(setupReady.summary || connText) + '"></span>' +
+        '<span class="chainDot ' + syncCls + '" data-chain-step="upload" title="' + escAttr(syncText) + '"></span>' +
+        '<span class="chainDot ' + agentCls + '" data-chain-step="ready" title="' + escAttr(agent.detail || agentText) + '"></span>' +
       '</div>';
-    }
-
-    function runtimeEnvTableWidths(count) {
-      var widths = [150, 110, 110, 80];
-      var out = [];
-      for (var i = 0; i < count; i++) out.push(widths[i % widths.length]);
-      return out.map(function(w) { return Math.max(60, Math.min(400, Number(w) || 120)); });
-    }
-
-    function renderRuntimeEnvOverview(state) {
-      var setup = (state && state.setup) || {};
-      var workers = asArray(setup.workerTunnels || []);
-      var cols = ["服务器", "本地端口", "远端端口", "GPU上限"];
-      var widths = runtimeEnvTableWidths(cols.length);
-      var cg = widths.map(function(w, idx) { return '<col data-col-key="runtime-' + idx + '" style="width:' + w + 'px">'; }).join("") + '<col data-col-key="__gear" style="width:28px">';
-      var head = "<tr>" + cols.map(function(label, idx) { var w = widths[idx]; return '<th data-col-key="runtime-' + idx + '" style="width:' + w + 'px; min-width:' + w + 'px; max-width:' + w + 'px;">' + esc(label) + "</th>"; }).join("") + '<th style="width:28px;min-width:28px;">' + esc("设置") + "</th></tr>";
-      var body = "";
-      if (!workers.length) body = '<tr><td colspan="5">暂无服务器，请到设置区服务器卡片新增服务器。</td></tr>';
-      else body = workers.map(function(worker, idx) {
-        var name = worker.displayName || worker.id || ("worker-" + idx);
-        var local = worker.localForwardPort || "-";
-        var remote = worker.remoteTelemetryPort || worker.remoteAgentPort || "-";
-        var gpu = worker.maxConcurrentGpus || 1;
-        return "<tr>" + "<td>" + esc(name) + "</td>" + "<td>" + esc(String(local)) + "</td>" + "<td>" + esc(String(remote)) + "</td>" + "<td>" + esc(String(gpu)) + "</td>" + "<td></td>" + "</tr>";
-      }).join("");
-      return '<section class="runtimeEnvOverview" data-anchor="sync-runtime-env" title="运行环境详情总览"><div class="runtimeEnvHead"><b>运行环境详情</b><span class="sub">高密度表格</span></div><div class="runtimeEnvTableWrap"><table class="runtimeEnvTable"><colgroup>' + cg + "</colgroup><thead>" + head + "</thead><tbody>" + body + "</tbody></table></div></section>";
     }
 
     function renderSyncSection(state) {
       setHtmlIfChanged("syncChainOverview", renderServerChainOverview(state));
-      // 两卡合一：sync 卡内仅留运行环境详情高密度表，单 Worker 紧凑卡/对象总览小方格已收敛（设置区复用不受影响）。
-      setHtmlIfChanged("syncServerOverview", renderRuntimeEnvOverview(state));
+      // 运行表已下线：sync 卡内仅留链速览+toolbar，容器置空避免空白断层。
+      setHtmlIfChanged("syncServerOverview", "");
     }
 
     function renderServerCardsV2(state) {
