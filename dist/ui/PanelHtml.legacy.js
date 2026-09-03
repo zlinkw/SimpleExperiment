@@ -978,6 +978,21 @@ function renderPanelHtml() {
     .workerDenseWorker .wport { color: #0F172A; font-size: 12px; font-weight: 700; white-space: nowrap; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
+    .opsDense { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; font-size: 11px; }
+    .commandCenter.opsDense { gap: 6px; padding: 8px; }
+    .commandCenter.opsDense .objectStrip { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(118px, max-content); overflow-x: auto; gap: 6px; padding: 6px; }
+    .commandCenter.opsDense .objectTile { padding: 4px 6px; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; border-radius: 6px; }
+    .commandCenter.opsDense .objectGlyph { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; }
+    .commandCenter.opsDense .objectTileHead b { font-size: 11px; }
+    .commandCenter.opsDense .objectTileStatus { font-size: 11px; }
+    .commandCenter.opsDense .workflowStageRail { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 6px; }
+    .commandCenter.opsDense .workflowStage { min-height: 0; padding: 4px 6px; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; border-radius: 6px; }
+    .commandCenter.opsDense .workflowStageIndex { width: 22px; height: 22px; font-size: 11px; }
+    .commandCenter.opsDense .workflowStageBody { gap: 2px; }
+    .commandCenter.opsDense .workflowStageBody b { font-size: 11px; }
+    .commandCenter.opsDense .workflowStageDetail { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+    .commandCenter.opsDense .workflowStageStatus { font-size: 10px; }
+    .commandCenter.opsDense .workflowBlockerBar { gap: 4px; }
     .serverTopologyMap { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #F8FAFC; }
     .topologyHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #111827; font-size: 13px; font-weight: 850; }
     .topologyHeader span { color: #64748B; font-size: 11px; font-weight: 650; }
@@ -6531,7 +6546,7 @@ function renderPanelHtml() {
     }
 
     function renderCommandCenter(state, summary) {
-      return '<section id="workbenchCommandCenter" class="commandCenter" data-anchor="overview-command-center" title="工作台命令中心">' +
+      return '<section id="workbenchCommandCenter" class="commandCenter opsDense" data-anchor="overview-command-center" title="工作台命令中心">' +
         '<div class="commandCenterHead"><b>实验工作台</b><span class="muted">连接、同步、运行、结果</span></div>' +
         '<div class="statusLegend" aria-label="状态图例"><span class="legendItem"><span class="legendDot good"></span>正常</span><span class="legendItem"><span class="legendDot info"></span>运行 / 信息</span><span class="legendItem"><span class="legendDot warn"></span>等待 / 注意</span><span class="legendItem"><span class="legendDot error"></span>异常 / 失败</span></div>' +
         renderWorkbenchObjectStrip(state) +
@@ -6550,8 +6565,10 @@ function renderPanelHtml() {
       const runGateTone = projectReadiness.blocking ? projectReadiness.tone : sync.failure ? "error" : automaticSyncPending ? "info" : projectReadiness.tone || "good";
       const runGateStatus = projectReadiness.blocking ? projectReadiness.status : sync.failure ? "同步失败" : automaticSyncPending ? "运行时自动同步" : projectReadiness.status;
       const runGateDetail = automaticSyncPending ? projectReadiness.detail + "；确认运行后会自动生成代码指纹，并同步 Hub 与参与 Worker。" : projectReadiness.detail;
+      const xshellPort = String(((state || {}).setup || {}).localForwardPort || "");
+      const xshellDetail = xshellPort ? ("本机只访问本地端口 " + xshellPort + "，Hub/Worker 远端访问都由 Xshell 已保存会话提供。") : "本机经 Xshell 已保存会话访问远端 Hub/Worker，本地端口按每服务器配置动态解析。";
       const rows = [
-        ["1", "Xshell 隧道", summary.hubOk && !summary.conflicts.length ? "good" : "warn", summary.hubOk ? "可达" : "待检测", "本机只访问 127.0.0.1:<localPort>，Hub/Worker 远端访问都由 Xshell 已保存会话提供。"],
+        ["1", "Xshell 隧道", summary.hubOk && !summary.conflicts.length ? "good" : "warn", summary.hubOk ? "可达" : "待检测", xshellDetail],
         ["2", "实时推送", streamOk ? "good" : "warn", streamOk ? labelStatus(realtime.streamStatus) : "待连接", "Agent 通过 WebSocket/SSE 长连接推送 GPU、任务、日志和操作事件；不会用高频短轮询代替。"],
         ["3", "运行门禁", runGateTone, runGateStatus, runGateDetail],
         ["4", "调度执行", summary.failed ? "error" : (summary.running ? "info" : summary.queued ? "warn" : ""), summary.running ? (summary.running + " 运行") : summary.queued ? (summary.queued + " 排队") : "空闲", "Hub 只负责调度和索引；Worker 本机执行任务并推送终态，排队不受 GPU 总任务数限制。"],
@@ -6563,9 +6580,11 @@ function renderPanelHtml() {
     }
 
     function workflowStage(index, title, tone, status, detail) {
-      return '<article class="workflowStage ' + escAttr(tone || "") + '" title="' + escAttr(detail) + '">' +
+      const fullDetail = String(detail === undefined || detail === null ? (status || title) : detail);
+      const fullTitle = String(title || "") + "：" + String(status || "-") + "｜" + fullDetail;
+      return '<article class="workflowStage ' + escAttr(tone || "") + '" title="' + escAttr(fullTitle) + '">' +
         '<span class="workflowStageIndex">' + esc(index) + '</span>' +
-        '<span class="workflowStageBody"><b>' + esc(title) + '</b><span>' + esc(detail) + '</span><span class="workflowStageStatus">' + esc(status || "-") + '</span></span>' +
+        '<span class="workflowStageBody"><b>' + esc(title) + '</b><span class="workflowStageDetail">' + esc(compactText(fullDetail, 40)) + '</span><span class="workflowStageStatus">' + esc(status || "-") + '</span></span>' +
         '</article>';
     }
 
@@ -6602,19 +6621,38 @@ function renderPanelHtml() {
       const claims = asArray(((state.resultSummary || {}).claimEvidencePreview || {}).claims || []);
       const unsupportedClaims = claims.filter((row) => String(row.status || "").toLowerCase() !== "supported").length;
       const tiles = [
-        objectTile("Hub", "H", HUB_HEALTHY_STATUS_TOKENS?.has(String(health.state || "").toLowerCase()) ? "good" : "warn", labelStatus(health.state || "待检测")),
-        objectTile("Worker", "W", workers.length ? "good" : "warn", String(workers.length)),
-        objectTile("GPU", "G", gpuStats.mine ? "mine" : (gpuStats.total ? "good" : "warn"), gpuStats.total ? (gpuStats.free + "/" + gpuStats.total) : "待检测"),
-        objectTile("任务", "T", taskStats.failed ? "error" : (taskStats.running ? "good" : taskStats.queued ? "warn" : "good"), taskStats.running ? (taskStats.running + " 运行") : taskStats.queued ? (taskStats.queued + " 排队") : "空闲"),
-        objectTile("计划", "P", plans.length ? "good" : "warn", plans.length ? (plans.length + " 个") : "待接入"),
-        objectTile("结果", "R", resultFiles.length ? "good" : "warn", resultFiles.length ? (resultFiles.length + " 个") : "待解析"),
-        objectTile("操作", "O", operationStats.failed ? "error" : operationStats.running ? "info" : "good", operationStats.failed ? (operationStats.failed + " 失败") : operationStats.running ? (operationStats.running + " 进行中") : "空闲")
+        objectTile("Hub", "H", HUB_HEALTHY_STATUS_TOKENS?.has(String(health.state || "").toLowerCase()) ? "good" : "warn", labelStatus(health.state || "待检测"), "Hub：" + labelStatus(health.state || "待检测") + " (" + String(health.state || "待检测") + ")"),
+        objectTile("Worker", "W", workers.length ? "good" : "warn", String(workers.length), opsCountTitle("Worker", String(workers.length), "", workers)),
+        objectTile("GPU", "G", gpuStats.mine ? "mine" : (gpuStats.total ? "good" : "warn"), gpuStats.total ? (gpuStats.free + "/" + gpuStats.total) : "待检测", "GPU：" + (gpuStats.total ? (gpuStats.free + "/" + gpuStats.total) : "待检测")),
+        objectTile("任务", "T", taskStats.failed ? "error" : (taskStats.running ? "good" : taskStats.queued ? "warn" : "good"), taskStats.running ? (taskStats.running + " 运行") : taskStats.queued ? (taskStats.queued + " 排队") : "空闲", "任务：" + (taskStats.running ? (taskStats.running + " 运行") : taskStats.queued ? (taskStats.queued + " 排队") : "空闲")),
+        objectTile("计划", "P", plans.length ? "good" : "warn", plans.length ? (plans.length + " 个") : "待接入", opsCountTitle("计划", plans.length ? (plans.length + " 个") : "待接入", "", plans)),
+        objectTile("结果", "R", resultFiles.length ? "good" : "warn", resultFiles.length ? (resultFiles.length + " 个") : "待解析", opsCountTitle("结果", resultFiles.length ? (resultFiles.length + " 个") : "待解析", "", resultFiles)),
+        objectTile("操作", "O", operationStats.failed ? "error" : operationStats.running ? "info" : "good", operationStats.failed ? (operationStats.failed + " 失败") : operationStats.running ? (operationStats.running + " 进行中") : "空闲", "操作：" + (operationStats.failed ? (operationStats.failed + " 失败") : operationStats.running ? (operationStats.running + " 进行中") : "空闲"))
       ];
       return '<div class="objectStrip" title="对象状态">' + tiles.join("") + '</div>';
     }
 
-    function objectTile(label, glyph, tone, status) {
-      return '<article class="objectTile ' + escAttr(tone || "") + '" title="' + escAttr(label + "：" + (status || "-")) + '">' +
+    function opsItemName(item) {
+      if (item === undefined || item === null) return "";
+      if (typeof item === "string") return item;
+      return String(item.displayName || item.name || item.title || item.path || item.file || item.id || "");
+    }
+    function opsTopNames(items, limit) {
+      const names = asArray(items).map(opsItemName).filter(Boolean);
+      const top = names.slice(0, Math.max(1, Number(limit) || 3));
+      const omitted = Math.max(0, names.length - top.length);
+      return { top: top, omitted: omitted, total: names.length };
+    }
+    function opsCountTitle(label, statusText, rawText, items) {
+      const info = opsTopNames(items, 3);
+      let title = String(label || "") + "：" + String(statusText || "-");
+      if (rawText && String(rawText) !== String(statusText)) title += " (" + String(rawText) + ")";
+      if (info.total) title += "｜" + info.top.join("、") + (info.omitted ? "…等共" + info.total + "个" : "");
+      return title;
+    }
+    function objectTile(label, glyph, tone, status, hint) {
+      const title = hint ? String(hint) : (String(label || "") + "：" + String(status || "-"));
+      return '<article class="objectTile ' + escAttr(tone || "") + '" title="' + escAttr(title) + '">' +
         '<span class="objectGlyph" aria-hidden="true">' + esc(glyph) + '</span>' +
         '<span class="objectTileBody"><span class="objectTileHead"><b>' + esc(label) + '</b><span class="objectTileStatus">' + esc(status || "-") + '</span></span></span>' +
       '</article>';
