@@ -8679,47 +8679,75 @@ function renderPanelHtml() {
     function renderGpuDenseTable(state){
       gpuDenseLoadPersist();
     }
-    function gpuDenseRenderGear(){
-      var picker = document.getElementById("gpuDenseColumnsPicker");
-      if(picker){
-        var cols = gpuDenseState.colConfig || GPU_DENSE_DEFAULT_COLS;
-        picker.innerHTML = cols.map(function(c){
-          return '<label><input type="checkbox" data-gear-col="' + escAttr(c.key) + '" ' + (c.visible?"checked":"") + '> ' + esc(c.label) + ' (' + esc(c.key) + ')</label>';
-        }).join("");
-        if(!picker.dataset.gearDelegated){
-          picker.dataset.gearDelegated="1";
-          picker.addEventListener("change", function(e){
-            var t=e.target;
-            if(!t || !t.matches || !t.matches('input[data-gear-col]')) return;
-            var k=t.getAttribute("data-gear-col");
-            var target=(gpuDenseState.colConfig||[]).find(function(x){ return x.key===k; });
-            if(target) target.visible=t.checked;
-            gpuDenseSavePersist();
-            renderGpuSection(lastState || {});
-          });
-        }
-      }
-      var slider = document.getElementById("gpuDenseRowHeightSlider");
-      var val = document.getElementById("gpuDenseRowHeightValue");
-      if(slider){
-        slider.value=String(gpuDenseState.globalRowHeight);
-        if(val) val.textContent=slider.value+"px";
-        if(!slider.dataset.boundInput){
-          slider.dataset.boundInput="1";
-          slider.addEventListener("input", function(){
-            var v=Math.max(24, Math.min(48, Number(slider.value)||32));
-            gpuDenseState.globalRowHeight=v;
-            gpuDenseState.rowHeights={};
-            if(val) val.textContent=v+"px";
-            var curValEl=document.getElementById("gpuDenseRowHeightValue");
-            if(curValEl) curValEl.textContent=v+"px";
-            gpuDenseSavePersist();
-            var rs=document.querySelectorAll("tr.gpuDenseRow");
-            rs.forEach(function(tr){ tr.style.height=v+"px"; });
-          });
-        }
-      }
-    }
+     function bindGpuDenseGearControls(){
+       var picker = document.getElementById("gpuDenseColumnsPicker");
+       if(picker && !picker.dataset.gearDelegated){
+         picker.dataset.gearDelegated="1";
+         picker.addEventListener("change", function(e){
+           var t=e.target;
+           if(!t || !t.matches || !t.matches('input[data-gear-col]')) return;
+           var k=t.getAttribute("data-gear-col");
+           var target=(gpuDenseState.colConfig||[]).find(function(x){ return x.key===k; });
+           if(target) target.visible=t.checked;
+           gpuDenseSavePersist();
+           renderGpuSection(lastState || {});
+         });
+       }
+       var gearBtn = document.getElementById("gpuDenseSettingsBtn");
+       var gear = document.getElementById("gpuDenseGear");
+       if(gearBtn && gear && !gearBtn.dataset.boundGear){
+         gearBtn.dataset.boundGear="1";
+         gearBtn.addEventListener("click", function(){ gear.hidden = !gear.hidden; if(!gear.hidden) gpuDenseRenderGear(); });
+       }
+       var gearClose = document.getElementById("gpuDenseGearClose");
+       if(gearClose && gear && !gearClose.dataset.boundClose){
+         gearClose.dataset.boundClose="1";
+         gearClose.addEventListener("click", function(){ gear.hidden = true; });
+       }
+       var mergeBtn = document.getElementById("gpuMergeToggle");
+       if(mergeBtn && !mergeBtn.dataset.bound){
+         mergeBtn.dataset.bound="1";
+         mergeBtn.addEventListener("click", function(){ gpuDenseState.mergeServer = !gpuDenseState.mergeServer; gpuDenseSavePersist(); renderGpuSection(lastState || {}); });
+       }
+       if(mergeBtn) mergeBtn.textContent = gpuDenseState.mergeServer ? "合并:开" : "合并:关";
+       var slider = document.getElementById("gpuDenseRowHeightSlider");
+       var val = document.getElementById("gpuDenseRowHeightValue");
+       if(slider){
+         slider.value = String(gpuDenseState.globalRowHeight);
+         if(val) val.textContent = slider.value + "px";
+         if(!slider.dataset.boundInput){
+           slider.dataset.boundInput="1";
+           slider.addEventListener("input", function(){
+             var v=Math.max(24, Math.min(48, Number(slider.value)||32));
+             gpuDenseState.globalRowHeight=v;
+             gpuDenseState.rowHeights={};
+             var curValEl=document.getElementById("gpuDenseRowHeightValue");
+             if(curValEl) curValEl.textContent=v+"px";
+             if(val) val.textContent=v+"px";
+             gpuDenseSavePersist();
+             var rs=document.querySelectorAll("tr.gpuDenseRow");
+             if(!rs || !rs.length) return;
+             rs.forEach(function(tr){ tr.style.height=v+"px"; });
+           });
+         }
+       }
+     }
+     function gpuDenseRenderGear(){
+       var picker = document.getElementById("gpuDenseColumnsPicker");
+       if(picker){
+         var cols = gpuDenseState.colConfig || GPU_DENSE_DEFAULT_COLS;
+         picker.innerHTML = cols.map(function(c){
+           return '<label><input type="checkbox" data-gear-col="' + escAttr(c.key) + '" ' + (c.visible?"checked":"") + '> ' + esc(c.label) + ' (' + esc(c.key) + ')</label>';
+         }).join("");
+       }
+       var slider = document.getElementById("gpuDenseRowHeightSlider");
+       var val = document.getElementById("gpuDenseRowHeightValue");
+       if(slider){
+         slider.value=String(gpuDenseState.globalRowHeight);
+         if(val) val.textContent=slider.value+"px";
+       }
+       bindGpuDenseGearControls();
+     }
     function renderGpuSection(state) {
       var model = gpuViewModelForState(state || {});
       var servers = model.servers;
@@ -8742,48 +8770,9 @@ function renderPanelHtml() {
         var headEl = document.getElementById("gpuDenseHead");
         var bodyEl = document.getElementById("gpuDenseBody");
         if(!wrap || !headEl || !bodyEl) return;
-        if(!wrap.dataset.bound){
-          wrap.dataset.bound = "1";
-          var mergeBtn = document.getElementById("gpuMergeToggle");
-          if(mergeBtn && !mergeBtn.dataset.bound){
-            mergeBtn.dataset.bound="1";
-            mergeBtn.addEventListener("click", function(){ gpuDenseState.mergeServer = !gpuDenseState.mergeServer; gpuDenseSavePersist(); renderGpuSection(lastState || state); });
-          }
-        }
-        var mergeBtn2 = document.getElementById("gpuMergeToggle");
-        if(mergeBtn2) mergeBtn2.textContent = gpuDenseState.mergeServer ? "合并:开" : "合并:关";
-        var gearBtn = document.getElementById("gpuDenseSettingsBtn");
-        var gear = document.getElementById("gpuDenseGear");
-        var gearClose = document.getElementById("gpuDenseGearClose");
-        if(gearBtn && gear && !gearBtn.dataset.boundGear){
-          gearBtn.dataset.boundGear="1";
-          gearBtn.addEventListener("click", function(){ gear.hidden = !gear.hidden; if(!gear.hidden) gpuDenseRenderGear(); });
-        }
-        if(gearClose && gear && !gearClose.dataset.boundClose){
-          gearClose.dataset.boundClose="1";
-          gearClose.addEventListener("click", function(){ gear.hidden = true; });
-        }
-        var slider = document.getElementById("gpuDenseRowHeightSlider");
-        var sliderVal = document.getElementById("gpuDenseRowHeightValue");
-        if(slider){
-          slider.value = String(gpuDenseState.globalRowHeight);
-          if(sliderVal) sliderVal.textContent = slider.value + "px";
-          if(!slider.dataset.boundInput){
-            slider.dataset.boundInput="1";
-            slider.addEventListener("input", function(){
-              var v=Math.max(24, Math.min(48, Number(slider.value)||32));
-              gpuDenseState.globalRowHeight=v;
-              gpuDenseState.rowHeights={};
-              if(sliderVal) sliderVal.textContent=v+"px";
-              var curVal=document.getElementById("gpuDenseRowHeightValue");
-              if(curVal) curVal.textContent=v+"px";
-              gpuDenseSavePersist();
-              var rs=document.querySelectorAll("tr.gpuDenseRow");
-              rs.forEach(function(tr){ tr.style.height=v+"px"; });
-            });
-          }
-        }
-        var visibleCols = gpuDenseVisibleCols();
+         if(!wrap.dataset.bound) wrap.dataset.bound="1";
+         bindGpuDenseGearControls();
+         var visibleCols = gpuDenseVisibleCols();
         var headHtml = "<tr>" + visibleCols.map(function(col){
           var w = gpuDenseState.colWidths[col.key] || col.width;
           w = Math.max(60, Math.min(400, Number(w)||col.width));
@@ -9120,15 +9109,31 @@ function renderPanelHtml() {
         }
         server.gpuCount += 1;
         (series.points || []).forEach((point) => {
-          const util = finiteHistoryPercent(point.gpuUtilPercent);
-          if (util === null) return;
-          const bucket = Number(point.bucketEpoch);
-          if (!Number.isFinite(bucket)) return;
-          const current = server.points?.get(bucket);
-          if (!current || util > current.gpuUtilPercent || (util === current.gpuUtilPercent && current.imputed && point.imputed !== true)) {
-            server.points.set(bucket, { timestamp: point.timestamp, bucketEpoch: bucket, gpuUtilPercent: util, gpuId: series.gpuId, gapBefore: point.gapBefore === true, imputed: point.imputed === true, gpuCount: 0 });
-          }
-        });
+           const util = finiteHistoryPercent(point.gpuUtilPercent);
+           const mem = finiteHistoryPercent(point.memoryUtilPercent);
+           const memUsed = Number(point.memoryUsedMb);
+           const memTotal = Number(point.memoryTotalMb);
+           if (util === null && mem === null) return;
+           const bucket = Number(point.bucketEpoch);
+           if (!Number.isFinite(bucket)) return;
+           const current = server.points?.get(bucket);
+           const utilVal = util !== null ? util : -1;
+           const memVal = mem !== null ? mem : -1;
+           const curUtil = current ? Number(current.gpuUtilPercent) : -1;
+           const curMem = current && Number.isFinite(Number(current.memoryUtilPercent)) ? Number(current.memoryUtilPercent) : -1;
+           const isBetter = !current || utilVal > curUtil || memVal > curMem || (utilVal === curUtil && current.imputed && point.imputed !== true);
+           if (isBetter) {
+             const nextUtil = util !== null ? util : (current ? current.gpuUtilPercent : null);
+             const nextMem = mem !== null ? mem : (current ? current.memoryUtilPercent : null);
+             const nextUsed = Number.isFinite(memUsed) ? memUsed : (current && Number.isFinite(Number(current.memoryUsedMb)) ? Number(current.memoryUsedMb) : (Number.isFinite(memUsed) ? memUsed : null));
+             const nextTotal = Number.isFinite(memTotal) ? memTotal : (current && Number.isFinite(Number(current.memoryTotalMb)) ? Number(current.memoryTotalMb) : (Number.isFinite(memTotal) ? memTotal : null));
+             server.points.set(bucket, { timestamp: point.timestamp, bucketEpoch: bucket, gpuUtilPercent: nextUtil !== null ? nextUtil : utilVal, memoryUtilPercent: nextMem, memoryUsedMb: nextUsed, memoryTotalMb: nextTotal, gpuId: series.gpuId, gapBefore: point.gapBefore === true, imputed: point.imputed === true, gpuCount: 0 });
+           } else if (current && mem !== null && mem > curMem) {
+             current.memoryUtilPercent = mem;
+             if (Number.isFinite(memUsed)) current.memoryUsedMb = memUsed;
+             if (Number.isFinite(memTotal)) current.memoryTotalMb = memTotal;
+           }
+         });
       });
       const names = new Map(asArray(servers).map((server) => [String(server.serverId || server.workerId || ""), gpuServerDisplayName(state || {}, server)]));
       const value = Array.from(byServer.values()).map((server) => ({
@@ -9414,19 +9419,19 @@ function renderPanelHtml() {
       if (!context) return;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       context.clearRect(0, 0, width, height);
-      const padding = { left: 36, right: 12, top: 12, bottom: 24 };
-      const plotWidth = Math.max(1, width - padding.left - padding.right);
-      const plotHeight = Math.max(1, height - padding.top - padding.bottom);
-      context.font = "10px sans-serif";
-      context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
-      context.strokeStyle = "rgba(127,127,127,.24)";
-      context.lineWidth = 1;
-      for (let tick = 0; tick <= 4; tick += 1) {
-        const value = tick * 25;
-        const y = padding.top + plotHeight - plotHeight * value / 100;
-        context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
-        context.fillText(String(value), 4, y + 3);
-      }
+       const padding = { left: 36, right: 46, top: 12, bottom: 24 };
+       const plotWidth = Math.max(1, width - padding.left - padding.right);
+       const plotHeight = Math.max(1, height - padding.top - padding.bottom);
+       context.font = "10px sans-serif";
+       context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
+       context.strokeStyle = "rgba(127,127,127,.24)";
+       context.lineWidth = 1;
+       for (let tick = 0; tick <= 4; tick += 1) {
+         const value = tick * 25;
+         const y = padding.top + plotHeight - plotHeight * value / 100;
+         context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
+         context.fillText(String(value), 4, y + 3);
+       }
       const timeRange = gpuHistoryTimeRange(series);
       if (!timeRange) {
         context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
@@ -9440,21 +9445,45 @@ function renderPanelHtml() {
       const needsFisheye = (maxTime - minTime) > RECENT_WINDOW;
       const focused = canvas.dataset.focusSeries || "";
       // 1天窗口过滤：仅绘制最近 24h
-      const windowStart = maxTime - 24 * 3600;
-      const filteredSeries = series.map((item) => {
-        const filteredPoints = (item.points || []).filter((p) => Number(p.bucketEpoch) >= windowStart);
-        return Object.assign({}, item, { points: filteredPoints.length ? filteredPoints : item.points });
-      });
-      asArray(filteredSeries).forEach((item) => {
-        const serverStyle = gpuHistoryServerStyle(item.serverId);
-        const pointIndex = gpuHistoryPointIndex(item.points || []);
-        const filteredRows = pointIndex.rows.filter((p) => Number(p.bucketEpoch) >= windowStart);
-        const rows = filteredRows.length ? filteredRows : pointIndex.rows;
-        const lines = kind === "gpu"
-          ? [{ field: "gpuUtilPercent", color: "#2563EB", dash: [], focus: "util" }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], focus: "memory" }]
-          : [{ field: "gpuUtilPercent", color: serverStyle.color, dash: serverStyle.dash, focus: item.serverId }];
-        lines.forEach((line) => drawHistoryLine(context, rows, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, pointIndex.expectedStep));
-      });
+       const windowStart = maxTime - 24 * 3600;
+       const filteredSeries = series.map((item) => {
+         const filteredPoints = (item.points || []).filter((p) => Number(p.bucketEpoch) >= windowStart);
+         return Object.assign({}, item, { points: filteredPoints.length ? filteredPoints : item.points });
+       });
+       let maxMem = 1;
+       asArray(filteredSeries).forEach((item) => {
+         (item.points || []).forEach((p) => {
+           const tot = Number(p.memoryTotalMb);
+           const used = Number(p.memoryUsedMb);
+           const v = Number.isFinite(tot) && tot > 0 ? tot : (Number.isFinite(used) ? used : 0);
+           if (v > maxMem) maxMem = v;
+         });
+       });
+       maxMem = Math.max(1, maxMem);
+       context.save();
+       context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
+       context.font = "10px sans-serif";
+       context.textAlign = "right";
+       for (let tick = 0; tick <= 4; tick += 1) {
+         const memVal = Math.round(maxMem * tick / 4);
+         const y = padding.top + plotHeight - plotHeight * tick / 4;
+         context.fillText(memVal + " MB", width - 2, y + 3);
+       }
+       context.textAlign = "left";
+       context.restore();
+       asArray(filteredSeries).forEach((item) => {
+         const serverStyle = gpuHistoryServerStyle(item.serverId);
+         const pointIndex = gpuHistoryPointIndex(item.points || []);
+         const filteredRows = pointIndex.rows.filter((p) => Number(p.bucketEpoch) >= windowStart);
+         const rows = filteredRows.length ? filteredRows : pointIndex.rows;
+         const lines = kind === "gpu"
+           ? [{ field: "gpuUtilPercent", color: "#2563EB", dash: [], focus: "util" }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], focus: "memory" }]
+           : [{ field: "gpuUtilPercent", color: serverStyle.color, dash: serverStyle.dash, focus: item.serverId }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], focus: item.serverId }];
+         lines.forEach((line) => {
+           const yScale = line.field === "memoryUtilPercent" ? "mem" : "util";
+           drawHistoryLine(context, rows, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, pointIndex.expectedStep, maxMem, yScale);
+         });
+       });
       if (needsFisheye) {
         const splitX = padding.left + plotWidth * (1 - RECENT_RATIO);
         context.save();
@@ -9483,58 +9512,75 @@ function renderPanelHtml() {
       context.fillText(endLabel, width - padding.right - endWidth, height - 7);
     }
 
-    function drawHistoryLine(context, points, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, expectedStep) {
-      const dimmed = focused && focused !== line.focus;
-      context.save();
-      context.globalAlpha = dimmed ? 0.2 : 1;
-      context.strokeStyle = line.color;
-      context.fillStyle = line.color;
-      context.lineWidth = dimmed ? 1 : 1.3;
-      context.lineJoin = "round";
-      context.lineCap = "round";
-      context.setLineDash(line.dash || []);
-      let segment = [];
-      const flushSegment = () => {
-        if (!segment.length) return;
-        if (segment.length === 1) {
-          context.beginPath();
-          context.moveTo(segment[0].x, segment[0].y);
-          context.lineTo(segment[0].x, segment[0].y);
-          context.stroke();
-        } else if (segment.length === 2) {
-          context.beginPath();
-          context.moveTo(segment[0].x, segment[0].y);
-          context.lineTo(segment[1].x, segment[1].y);
-          context.stroke();
-        } else {
-          context.beginPath();
-          context.moveTo(segment[0].x, segment[0].y);
-          for (let i = 0; i < segment.length - 1; i++) {
-            const p0 = i > 0 ? segment[i - 1] : segment[0];
-            const p1 = segment[i];
-            const p2 = segment[i + 1];
-            const p3 = i + 2 < segment.length ? segment[i + 2] : p2;
-            const cp1x = p1.x + (p2.x - p0.x) / 6;
-            const cp1y = p1.y + (p2.y - p0.y) / 6;
-            const cp2x = p2.x - (p3.x - p1.x) / 6;
-            const cp2y = p2.y - (p3.y - p1.y) / 6;
-            context.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-          }
-          context.stroke();
-        }
-        segment = [];
-      };
-      points.forEach((point) => {
-        const value = finiteHistoryPercent(point[line.field]);
-        const time = Number(point.bucketEpoch);
-        if (value === null || !Number.isFinite(time)) { flushSegment(); return; }
-        const x = padding.left + gpuHistoryTimeTransform(time, minTime, maxTime, plotWidth);
-        const y = padding.top + plotHeight - value / 100 * plotHeight;
-        segment.push({ x, y });
-      });
-      flushSegment();
-      context.restore();
-    }
+     function drawHistoryLine(context, points, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, expectedStep, maxMem, yScale) {
+       const effectiveMaxMem = Math.max(1, Number(maxMem) || 1);
+       const scale = yScale || (line.field === "memoryUtilPercent" ? "mem" : "util");
+       const dimmed = focused && focused !== line.focus;
+       context.save();
+       context.globalAlpha = dimmed ? 0.2 : 1;
+       context.strokeStyle = line.color;
+       context.fillStyle = line.color;
+       context.lineWidth = dimmed ? 1 : 1.3;
+       context.lineJoin = "round";
+       context.lineCap = "round";
+       context.setLineDash(line.dash || []);
+       let segment = [];
+       const flushSegment = () => {
+         if (!segment.length) return;
+         if (segment.length === 1) {
+           context.beginPath();
+           context.moveTo(segment[0].x, segment[0].y);
+           context.lineTo(segment[0].x, segment[0].y);
+           context.stroke();
+         } else if (segment.length === 2) {
+           context.beginPath();
+           context.moveTo(segment[0].x, segment[0].y);
+           context.lineTo(segment[1].x, segment[1].y);
+           context.stroke();
+         } else {
+           context.beginPath();
+           context.moveTo(segment[0].x, segment[0].y);
+           for (let i = 0; i < segment.length - 1; i++) {
+             const p0 = i > 0 ? segment[i - 1] : segment[0];
+             const p1 = segment[i];
+             const p2 = segment[i + 1];
+             const p3 = i + 2 < segment.length ? segment[i + 2] : p2;
+             const cp1x = p1.x + (p2.x - p0.x) / 6;
+             const cp1y = p1.y + (p2.y - p0.y) / 6;
+             const cp2x = p2.x - (p3.x - p1.x) / 6;
+             const cp2y = p2.y - (p3.y - p1.y) / 6;
+             context.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+           }
+           context.stroke();
+         }
+         segment = [];
+       };
+       points.forEach((point) => {
+         const time = Number(point.bucketEpoch);
+         if (!Number.isFinite(time)) { flushSegment(); return; }
+         let y;
+         if (scale === "mem") {
+           let memVal = Number(point.memoryUsedMb);
+           if (!Number.isFinite(memVal)) {
+             const pct = finiteHistoryPercent(point.memoryUtilPercent);
+             const total = Number(point.memoryTotalMb);
+             if (pct !== null && Number.isFinite(total) && total > 0) memVal = pct / 100 * total;
+             else if (pct !== null) memVal = pct / 100 * effectiveMaxMem;
+             else { flushSegment(); return; }
+           }
+           const ratio = Math.max(0, Math.min(1, memVal / effectiveMaxMem));
+           y = padding.top + plotHeight - ratio * plotHeight;
+         } else {
+           const value = finiteHistoryPercent(point[line.field]);
+           if (value === null) { flushSegment(); return; }
+           y = padding.top + plotHeight - value / 100 * plotHeight;
+         }
+         const x = padding.left + gpuHistoryTimeTransform(time, minTime, maxTime, plotWidth);
+         segment.push({ x, y });
+       });
+       flushSegment();
+       context.restore();
+     }
 
     function drawHistoryMarker(context, marker, x, y) {
       const size = 3;
