@@ -1020,9 +1020,13 @@ export function renderPanelHtml(): string {
     .statusCardCollapsed { max-height: 56px; min-height: 44px; overflow: hidden !important; cursor: context-menu; }
     .statusCardCollapsed > *:not(:first-child) { display: none !important; }
     .statusCardCollapsed::after { content: "右键展开"; position: absolute; right: 9px; bottom: 6px; padding: 1px 6px; border-radius: 999px; border: 1px solid #CBD5E1; background: rgba(248,250,252,.95); color: #64748B; font-size: 11px; font-weight: 700; pointer-events: none; }
-    .publishActionDeck { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 7px; align-items: stretch; margin-top: 8px; }
+    .publishActionDeck { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 7px; align-items: stretch; margin-top: 8px; }
     .publishActionAnchor { display: grid; min-width: 0; scroll-margin-top: 12px; }
     .publishActionDeck button { width: 100%; min-width: 0; justify-content: center; }
+    .publishActionGroup { display: grid; gap: 6px; align-content: start; padding: 8px; border: 1px solid #E2E8F0; border-radius: 10px; background: rgba(248,250,252,.9); min-width: 0; }
+    .publishActionGroup > .muted { font-size: 11px; font-weight: 700; color: #64748B; }
+    .publishActionButtons { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; }
+    .publishActionButtons .publishActionAnchor { display: grid; min-width: 0; }
     .actionGrid.statusOnly { color: #64748B; font-size: 12px; line-height: 1.45; }
     .ops-flow.is-hidden { display: none; }
     @media (max-width: 1320px) { #cardDeck { --tree-col: 250px; --inspector-col: 330px; --main-min: 360px; } .taskWorkbench, .resultWorkbench { grid-template-columns: 1fr; } .taskDetailPane, .traceDetailPane { position: static; } }
@@ -1045,6 +1049,7 @@ export function renderPanelHtml(): string {
       .planQuickGrid { grid-template-columns: 1fr; }
       .toolbar, .workflowActions, .actionGrid, .publishActionDeck, .serverBadges { grid-template-columns: 1fr; justify-content: stretch; }
       .toolbar > *, .workflowActions > *, .actionGrid > *, .publishActionDeck > *, .serverBadges > * { width: 100%; }
+      .publishActionButtons { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -8374,7 +8379,7 @@ export function renderPanelHtml(): string {
           '<span class="publishActionAnchor" data-anchor="' + escAttr(syncCommandAnchor(item[1])) + '">' + actionButton(item[0], item[1], item[2] || {}) + '</span>'
         ).join("");
         return '<div class="publishActionGroup" data-anchor="' + escAttr(syncCommandAnchor(group.commands[0])) + '" title="' + escAttr(group.name) + '">' +
-          '<div class="muted">' + esc(group.name) + '</div>' + buttons + '</div>';
+          '<div class="muted">' + esc(group.name) + '</div><div class="publishActionButtons">' + buttons + '</div></div>';
       }).join("");
     }
 
