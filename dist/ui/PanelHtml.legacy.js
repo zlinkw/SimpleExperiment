@@ -55,8 +55,8 @@ function renderPanelHtml() {
     .toolbar > *, .actionGrid > *, .summaryLine > *, .actions > * { min-width: 0; }
     .toolbar .toolbarSep { color: #1F4E79; font-weight: 800; user-select: none; padding: 0 4px; font-size: 18px; line-height: 1; }
     .toolbar > .toolbarSep { width: auto !important; flex: 0 0 auto; }
-    .toolbar[data-anchor="sync-actions"] { padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; }
-    .toolbar[data-anchor="sync-actions-danger"] { padding: 2px 0; background: transparent; border: none; margin: 8px 0 0; justify-content: flex-end; }
+    .toolbar[data-anchor="sync-actions"] { padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+    .toolbar[data-anchor="sync-actions"] button { flex: 1 1 0; min-width: 0; width: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
     .syncPublishPanel { display: grid; gap: 8px; min-width: 0; }
     .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
@@ -1079,6 +1079,9 @@ function renderPanelHtml() {
       .planQuickGrid { grid-template-columns: 1fr; }
       .toolbar, .workflowActions, .actionGrid, .publishActionDeck, .serverBadges { grid-template-columns: 1fr; justify-content: stretch; }
       .toolbar > *, .workflowActions > *, .actionGrid > *, .publishActionDeck > *, .serverBadges > * { width: 100%; }
+      .toolbar[data-anchor="sync-actions"] { flex-wrap: nowrap; overflow-x: auto; }
+      .toolbar[data-anchor="sync-actions"] > *, .toolbar[data-anchor="sync-actions"] > button { width: auto; flex: 1 1 0; white-space: nowrap; }
+      .toolbar[data-anchor="sync-actions"] > .toolbarSep { width: auto !important; flex: 0 0 auto; }
       .publishActionButtons { grid-template-columns: 1fr; }
     }
   </style>
@@ -1246,9 +1249,7 @@ function renderPanelHtml() {
           <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">一键上传到所有服务器</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
-        </div>
-        <div class="toolbar" data-anchor="sync-actions-danger">
-          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
+          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
         </div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
@@ -5814,7 +5815,7 @@ function renderPanelHtml() {
     function syncTreeObjects() {
       return [
         treeObjectItem("sync", "运行环境准备链", "总览", "", "三步链速览：连接/上传/就绪，各卡左色条显示状态；全绿自动跳转实验卡。", "settings-chain-overview", "", "运行环境准备 连接 上传 就绪 chain overview 三步链"),
-        treeObjectItem("sync", "三步动作", "入口", "", "部署Agent→启动全部隧道→一键上传→检测全部；前4钮在蓝框内，危险覆盖独立并级。", "sync-actions", "", "运行环境准备 部署Agent 启动隧道 上传 检测 sync-actions 三步动作"),
+        treeObjectItem("sync", "三步动作", "入口", "", "部署Agent→启动全部隧道→一键上传→检测全部→危险覆盖同在蓝框内横向一行；危险钮保留 sync-actions-danger 锚点。", "sync-actions", "", "运行环境准备 部署Agent 启动隧道 上传 检测 sync-actions 三步动作"),
         treeObjectItem("sync", "服务器总览", "入口", "", "服务器总览容器；运行表已下线，卡内仅留链速览与动作。", "sync-servers", "", "运行环境准备 服务器总览 sync-servers"),
         treeObjectItem("sync", "一键上传到所有服务器", "入口", "", "提交并推送到 GitHub 后并行上传到所有服务器；无 remote 时通过 GitHub CLI 创建仓库。", "sync-publish-github", "", "publishGithub GitHub remote 创建 仓库"),
         treeObjectItem("sync", "同步到 GitHub", "入口", "", "提交并推送当前工作区改动到已配置 GitHub remote。", "sync-github-push", "", "syncGithub git add commit push"),
