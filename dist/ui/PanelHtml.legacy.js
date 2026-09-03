@@ -4203,7 +4203,6 @@ function renderPanelHtml() {
       }
       if (isTerminalUiStatus(data.status)) {
         if (String(data.status).toLowerCase() === "completed") clearConfigDraftsForCommand(data.command, item || {});
-        if (String(data.command || "") === "savePlan" && String(data.status).toLowerCase() === "completed") planPreviewEditLockUntil = 0;
         if (pendingKey) {
           delete pendingActions[pendingKey];
           pendingButtonKeys.delete(pendingKey);
@@ -8085,7 +8084,7 @@ function renderPanelHtml() {
       refreshRunModeNote(state);
       const plans = (state.plans && state.plans.length ? state.plans : state.recentPlans) || [];
       const planProjectChanged = setHtmlIfChanged("planDetectedProject", renderPlanRunWorkbench(state, plans) + renderDetectedProject(state));
-      const recentPlansChanged = shouldKeepPlanPreviewDraft(state) ? false : setHtmlIfChanged("recentPlans", renderPlanCards(state, plans));
+      const recentPlansChanged = setHtmlIfChanged("recentPlans", renderPlanCards(state, plans));
       if (planProjectChanged) bindPlanInspectControls();
       if (recentPlansChanged) bindPlanSelectionControls();
       renderDraftPlanSection(state);
@@ -11417,7 +11416,6 @@ function renderPanelHtml() {
               '<button class="taskActionButton secondary" data-command="openPlan" data-file="' + escAttr(file) + '">打开 YAML</button>' +
               (plan.restoreEnvironmentDir ? '<button class="taskActionButton secondary" data-command="openPlan" data-file="' + escAttr(plan.restoreEnvironmentDir) + '" title="打开归档时保存的依赖环境清单">环境快照</button>' : '') +
               (plan.restoreParameterDir ? '<button class="taskActionButton secondary" data-command="openPlan" data-file="' + escAttr(plan.restoreParameterDir) + '" title="打开归档时保存的入口脚本和 CLI 默认参数">参数快照</button>' : '') +
-              (editable ? '<button class="taskActionButton secondary" data-command="savePlan" data-file="' + escAttr(file) + '" data-save-plan="' + index + '">保存</button>' : '') +
               '<button class="taskActionButton secondary" data-command="validatePlan" data-plan-file="' + escAttr(file) + '">校验</button>' +
               '<button class="taskActionButton secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(file) + '">预演</button>' +
               '<button class="taskActionButton" data-command="runPlan" data-plan-file="' + escAttr(file) + '" data-confirm="true">校验并提交运行</button>' +
@@ -11425,7 +11423,7 @@ function renderPanelHtml() {
             '</div>' +
           '</div>' +
           '<div class="taskFacts">' +
-            planPathMetric("套件", plan.suite || "-") +
+            taskMetric("套件", plan.suite || "-") +
             planPathMetric("基础配置", plan.baseConfig || plan.configSource || "-") +
             taskMetric("seeds", arrayText(plan.seeds || [])) +
             taskMetric("cases", compactPlanArrayText(plan.cases || [], plan.casesTotalCount, plan.casesOmittedCount)) +
@@ -11436,7 +11434,7 @@ function renderPanelHtml() {
             (archiveReadiness.resultCount ? taskMetric("结果取舍", "有效 " + archiveReadiness.archivedCount + " / 未纳入 " + archiveReadiness.notIncludedCount) : "") +
           '</div>' +
           (plan.parseError ? '<div class="status-failed">' + esc(plan.parseError) + '</div>' : "") +
-          (editable ? '<textarea id="plan-preview-' + index + '" class="wide" rows="8" data-plan-preview="true" data-plan-file="' + escAttr(file) + '">' + esc(text) + '</textarea><div class="planPreviewLinks" data-plan-preview-links="' + index + '"></div>' : textNotice) +
+          textNotice +
         '</div>';
       };
       const listHtml = (entries) => '<div class="taskCardList">' + entries.map(cardHtml).join("") + '</div>';
@@ -14544,11 +14542,6 @@ function renderPanelHtml() {
       if (button.dataset.file) {
         payload.file = button.dataset.file;
         payload.planFile = payload.planFile || button.dataset.file;
-      }
-      if (button.dataset.savePlan) {
-        payload.savePlan = button.dataset.savePlan;
-        const input = el("plan-preview-" + button.dataset.savePlan);
-        if (input) payload.text = input.value;
       }
       if (button.dataset.runKey) payload.runKey = button.dataset.runKey;
       if (button.dataset.taskUiKey) payload.taskUiKey = button.dataset.taskUiKey;
