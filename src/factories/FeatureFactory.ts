@@ -21,6 +21,18 @@ type FeatureModule = Record<string, unknown> & {
   default?: (args: unknown, ctx: FactoryContext) => Promise<unknown>;
 };
 
+// 定案：长任务超时默认不处理，由用户人工处理。run-plan/reproduce-plan 队列 timeoutMs 保持 0（禁用），不设 600s；
+// OperationQueue 侧 timeoutMs=0 即禁用定时器（falsy 不设 timer），租约冲突仅阻塞提交不杀长任务（后台化），UI 提示用户手动中止/清理。
+function isLongRunningPlanArgs(args: unknown): boolean {
+  try {
+    const text = JSON.stringify(args || "").toLowerCase();
+    return text.includes("run-plan") || text.includes("reproduce-plan")
+      || text.includes("runplan") || text.includes("reproduceplan");
+  } catch {
+    return false;
+  }
+}
+
 export type FeatureKind =
   | "planBuilder"
   | "results"
@@ -54,8 +66,11 @@ class GenericFeatureHandler implements FeatureHandler {
   async execute(args: unknown, ctx: FactoryContext & { signal?: AbortSignal }): Promise<unknown> {
     return this.impl(args, ctx);
   }
-  queueSpec(_args: unknown): Pick<import("../core/OperationQueue").OperationSpec, "priority" | "exclusiveKeys" | "coalesceKey" | "timeoutMs"> {
-    return { priority: 0 as unknown as import("../core/OperationQueue").OperationSpec["priority"], exclusiveKeys: [this.kind] as string[], coalesceKey: undefined, timeoutMs: 30000 };
+  queueSpec(args: unknown): Pick<import("../core/OperationQueue").OperationSpec, "priority" | "exclusiveKeys" | "coalesceKey" | "timeoutMs"> {
+    // run-plan/reproduce-plan 长任务禁用队列超时（timeoutMs=0=禁用，用户手动中止/清理）；
+    // runOperations kind 默认即长任务，其余短任务保持 30s。不设 600s 默认杀。
+    const longRunning = this.kind === "runOperations" || isLongRunningPlanArgs(args);
+    return { priority: 0 as unknown as import("../core/OperationQueue").OperationSpec["priority"], exclusiveKeys: [this.kind] as string[], coalesceKey: undefined, timeoutMs: longRunning ? 0 : 30000 };
   }
 }
 

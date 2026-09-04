@@ -91,6 +91,9 @@ cases:
 - `mode` 必须显式为 `train_test`、`train` 或 `test`。
 - `seeds` 不能为空；只跑一次也写 `seeds: [0]`。
 - 所选模式需要的入口命令必须有值：`train_test` 需要 `runner.train_command` 和 `runner.test_command`，`train` 需要训练命令，`test` 需要测试命令。
+- 命令形态向 MultiModal 对齐：train 仅传 `--output-dir`（不直接写大表），test 双写 `--output-dir {output_dir} --result-csv {result_csv}`（per-job 双 csv + 追加最终大表 `experiments/results/<method>.csv`）。
+- 每 job 固定产出 `metrics_summary.csv` + `metrics_case.csv`（双 csv），外加 `stdout.log` + `stderr.log`（双 log）；最终大表为 `experiments/results/<method>.csv`（按实验类型命名，如 `baseline.csv`）。
+- 试探/调试输出先落 `tmp/` 试探区，确认后再进入上述标准路径；`tmp/` 不进入归档、统计与论文证据。
 - 结果路径必须是项目内相对路径，扩展名为 `.csv`、`.json`、`.txt`、`.log` 或 `.out`。
 - 推荐 `paper.result_csv: "{output_dir}/metrics_summary.csv"`，并在 `expectedResults` 中声明同一文件。
 - 不同 case 和 seed 不得写同一个结果文件；共享 CSV 会破坏并发、归档和统计配对。
@@ -146,7 +149,10 @@ experiment_id,suite,method,dataset,split,seed,metric,value
 - `value` 必须是有限数值；不得写 `NaN`、`Infinity` 或空字符串。
 - 同一指标的不同 split、seed 或 method 分别成行。
 - 文件使用 UTF-8，首行为表头；CSV 列名可通过 `csvColumnMapping` 兼容映射。
-- 可选的 `metrics_case.csv` 用于病例级或样本级分析，必填列为 `experiment_id,case_id,dataset,split,method`。
+- per-job 双 csv：`metrics_summary.csv`（指标长表）+ `metrics_case.csv`（病例/样本级，必填列为 `experiment_id,case_id,dataset,split,method`）。
+- per-job 双 log：`stdout.log` + `stderr.log`（由 run_wrapper 捕获）。
+- 最终大表：`experiments/results/<method>.csv`（只按实验类型命名，如 `baseline.csv`；test 命令经 `--result-csv` 追加写入）。
+- 历史兼容文件名（`results.csv`/`metrics.csv`/`classification_report.*`/`train.log`/`summary.txt` 等白名单与符号推断）仅作识别红单参考，不作为新实验标准输出；新实验一律用上述双 csv + 大表 + 双 log。
 - 每个任务目录必须有 `env_snapshot.json` 和 `config_snapshot.yaml`。
 - `artifact_manifest.json` 推荐提供；大权重和数据集只记录路径，不默认同步回本机。
 

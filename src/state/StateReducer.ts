@@ -102,7 +102,24 @@ function mergeRows(previous: any[], incoming: any[], seq?: number): any[] {
   return Array.from(map.values());
 }
 
+function normalizeRowKey(row: any): string | undefined {
+  const runKey = row.runKey || row.run_key || row.run_id || row.global_job_id;
+  const sessionId = row.sessionId || row.session_id;
+  if (runKey) return String(runKey);
+  if (sessionId) return String(sessionId);
+  const stable = row.file || row.key || row.id;
+  if (stable) return String(stable);
+  return undefined;
+}
+
 function rowKey(row: any): string {
-  return String(row.runKey || row.run_key || row.global_job_id || row.run_id || row.sessionId || row.session_id || row.file || row.key || row.id || JSON.stringify(row));
+  const normalized = normalizeRowKey(row);
+  if (normalized) return normalized;
+  try {
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn("[StateReducer] missing row key, row dropped from merge (runKey/run_key/run_id/sessionId/file/key/id all absent).");
+    }
+  } catch { /* ignore logging failure */ }
+  return "__missing_row_key__";
 }
 

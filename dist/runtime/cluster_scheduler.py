@@ -32,9 +32,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.4.92"
-RUNTIME_VERSION = "0.4.92"
-PLUGIN_VERSION = "0.4.92"
+SCHEDULER_VERSION = "0.4.93"
+RUNTIME_VERSION = "0.4.93"
+PLUGIN_VERSION = "0.4.93"
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -473,26 +473,20 @@ RESULT_ALIAS_VARIANTS = {
     "log_file": ("log_file", "logFile"),
 }
 
+# 终版5文件契约（2026-09）：{output_dir}/metrics_summary.csv、{output_dir}/metrics_case.csv、
+# {output_dir}/stdout.log、{output_dir}/stderr.log、experiments/results/<method>.csv（+Plan声明路径）。
+# ROOT 仅保留前4种契约 basename；第5种大表走 PREFIX experiments/results 声明前缀。
 RESULT_ROOT_FILES = {
-    "metrics_summary.csv", "metrics_case.csv", "results.csv", "result.csv",
-    "metrics.csv", "summary.csv", "scores.csv", "score.csv",
-    "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv",
-    "metrics.json", "summary.json", "result.json", "results.json",
-    "classification_report.json", "summary.txt", "result.txt", "results.txt",
-    "classification_report.txt", "stdout.log", "stderr.log", "train.log",
-    "test.log", "console.log", "output.out",
+    "metrics_summary.csv", "metrics_case.csv",
+    "stdout.log", "stderr.log",
 }
 
 RESULT_TOP_DIRS = {
-    "work_dirs", "exports", "results", "outputs", "runs", "logs",
-    "test_results", "lightning_logs", "custom_results", "reports",
-    "artifacts", "evals", "eval", "evaluation", "predictions", "submissions",
+    "work_dirs", "results", "outputs",
 }
 
 RESULT_PREFIX_PAIRS = {
-    ("experiments", "results"), ("experiments", "runs"),
-    ("simple_cluster", "results"), ("simple_cluster", "logs"),
-    ("simple_cluster", "tmux_logs"), ("simple_cluster", "archive"),
+    ("experiments", "results"),
 }
 
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
@@ -843,12 +837,17 @@ def normalize_result_candidate(value: Any) -> str:
     lowered = [part.lower() for part in parts]
     if not lowered or any(part == ".." for part in lowered):
         return ""
-    if len(lowered) == 1 and lowered[0] in RESULT_ROOT_FILES:
+    # 终版判定同步：4种契约 basename 任意深度放行；experiments/results/ 前缀任意 basename 放行；其余拒绝
+    if lowered[-1] in RESULT_ROOT_FILES:
         return "/".join(parts)
     if tuple(lowered) in RESULT_EXACT_PAIRS:
         return "/".join(parts)
     if lowered[0] in RESULT_TOP_DIRS:
-        return "/".join(parts)
+        if lowered[-1] in RESULT_ROOT_FILES:
+            return "/".join(parts)
+        if len(lowered) >= 2 and tuple(lowered[:2]) in RESULT_PREFIX_PAIRS:
+            return "/".join(parts)
+        return ""
     if len(lowered) >= 2 and tuple(lowered[:2]) in RESULT_PREFIX_PAIRS:
         return "/".join(parts)
     return ""
@@ -3703,10 +3702,15 @@ def main() -> None:
                 # 严格单发：每次 probe 仅取1个空闲GPU派1个job，派完立即重探，避免批量透支空卡规则
                 while queue:
                     busy_slots = {**active, **testing}
-                    probe = probe_idle_gpus(worker, busy_slots)
+                    try:
+                        probe = probe_idle_gpus(worker, busy_slots)
+                    except Exception as exc:
+                        dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker.get("name"), "status": "probe_error", "checked_at": now(), "error": str(exc)})
+                        _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={exc} will_try_next_worker")
+                        break
                     dispatch_probe.append(probe)
                     if probe.get("error"):
-                        _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={probe.get('error')}")
+                        _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={probe.get('error')} will_try_next_worker")
                         break
                     idle_ids = list(probe.get("idle_gpu_ids") or [])
                     if not idle_ids:
@@ -3762,6 +3766,20 @@ def main() -> None:
                         dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "dispatched", "checked_at": now(), "session": session})
                         _append_scheduler_log( f"[{now()}] dispatch experiment={experiment_index} server={worker['name']} gpu={gpu_id} session={session}")
                     except Exception as exc:
+                        err_text = str(exc)
+                        # tmux/会话阻塞降级：单 worker 跳过（重排队头实验换下个 worker），不直接判失败
+                        if "tmux" in err_text.lower() or "session" in err_text.lower():
+                            dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "launch_skipped_tmux", "checked_at": now(), "error": err_text})
+                            _append_scheduler_log( f"[{now()}] dispatch_skip_tmux worker={worker['name']} experiment={experiment_index} error={err_text[:160]} requeued")
+                            try:
+                                queue.appendleft(experiment_index)
+                            except Exception:
+                                queue.append(experiment_index)
+                            try:
+                                write_current_state()
+                            except Exception:
+                                pass
+                            break
                         dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "launch_failed", "checked_at": now(), "error": str(exc)})
                         failed.append({
                             "experiment_index": experiment_index,
@@ -3786,7 +3804,8 @@ def main() -> None:
                     scheduler_wait_reason = "; ".join(errors[:3]) if errors else "no_idle_gpu_from_hub_probe"
                     if latest and errors and len(errors) == len(latest):
                         no_dispatch_error_cycles += 1
-                        if no_dispatch_error_cycles >= 1:
+                        # 连续2轮全 error 才判整队失败，避免单轮网络抖动误杀
+                        if no_dispatch_error_cycles >= 2:
                             reason = scheduler_wait_reason or "all worker dispatch probes failed"
                             _append_scheduler_log( f"[{now()}] fail_pending reason={reason} fail_fast_cycles={no_dispatch_error_cycles}")
                             scheduler_fail_pending_queue(queue, failed, reason)

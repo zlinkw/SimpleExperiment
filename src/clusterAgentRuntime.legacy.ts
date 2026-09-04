@@ -735,8 +735,9 @@ def safe_project_path(root, value):
     parts = [p for p in rel.split("/") if p not in ("", ".")]
     if not parts or any(p == ".." for p in parts):
         raise ValueError("unsafe path")
-    root_result_files = ("metrics_summary.csv", "metrics_case.csv", "results.csv", "result.csv", "metrics.csv", "summary.csv", "scores.csv", "score.csv", "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv", "checkpoint_manifest.json", "artifact_manifest.json", "metrics.json", "summary.json", "result.json", "results.json", "classification_report.json", "summary.txt", "result.txt", "results.txt", "classification_report.txt", "stdout.log", "stderr.log", "train.log", "test.log", "console.log", "output.out")
-    if len(parts) == 1 and parts[0] in root_result_files:
+    # 终版5文件契约（2026-09）：4种契约 basename 任意深度放行，第5种大表走 experiments/results 前缀
+    root_result_files = ("metrics_summary.csv", "metrics_case.csv", "stdout.log", "stderr.log")
+    if parts[-1].lower() in root_result_files:
         pass
     elif parts[0] not in ("simple_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions", "tmp"):
         raise ValueError("path outside allowed project roots")
@@ -751,26 +752,18 @@ def safe_project_path(root, value):
         raise ValueError("protected file path")
     return target
 
+# 终版5文件契约（2026-09）：ROOT 仅 4 种契约 basename；TOP 仅 output_dir 宿主；PREFIX 仅 experiments/results。
 RESULT_ROOT_FILES = {
-    "metrics_summary.csv", "metrics_case.csv", "results.csv", "result.csv",
-    "metrics.csv", "summary.csv", "scores.csv", "score.csv",
-    "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv",
-    "metrics.json", "summary.json", "result.json", "results.json",
-    "classification_report.json", "summary.txt", "result.txt", "results.txt",
-    "classification_report.txt", "stdout.log", "stderr.log", "train.log",
-    "test.log", "console.log", "output.out",
+    "metrics_summary.csv", "metrics_case.csv",
+    "stdout.log", "stderr.log",
 }
 
 RESULT_TOP_DIRS = {
-    "work_dirs", "exports", "results", "outputs", "runs", "logs",
-    "test_results", "lightning_logs", "custom_results", "reports",
-    "artifacts", "evals", "eval", "evaluation", "predictions", "submissions",
+    "work_dirs", "results", "outputs",
 }
 
 RESULT_PREFIX_PAIRS = {
-    ("experiments", "results"), ("experiments", "runs"),
-    ("simple_cluster", "results"), ("simple_cluster", "logs"),
-    ("simple_cluster", "tmux_logs"), ("simple_cluster", "archive"),
+    ("experiments", "results"),
 }
 
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
@@ -794,12 +787,15 @@ def allowed_result_candidate(value):
     if not re.search(r"\.(csv|json|txt|log|out)$", parts[-1], re.I):
         return False
     lowered = [part.lower() for part in parts]
-    if len(lowered) == 1 and lowered[0] in RESULT_ROOT_FILES:
+    # 终版判定同步：4种契约 basename 任意深度放行；experiments/results/ 前缀任意 basename 放行
+    if lowered[-1] in RESULT_ROOT_FILES:
         return True
     if tuple(lowered) in RESULT_EXACT_PAIRS:
         return True
     if lowered[0] in RESULT_TOP_DIRS:
-        return True
+        if lowered[-1] in RESULT_ROOT_FILES:
+            return True
+        return len(lowered) >= 2 and tuple(lowered[:2]) in RESULT_PREFIX_PAIRS
     return len(lowered) >= 2 and tuple(lowered[:2]) in RESULT_PREFIX_PAIRS
 
 def parseable_result_candidate(value):
@@ -6212,13 +6208,10 @@ def default_result_candidates_for_dir(value):
     if not raw or re.search(r"/?[^/]+\.[A-Za-z0-9]{1,8}$", raw):
         return []
     prefix = "" if raw == "." else raw.strip("/") + "/"
+    # 脑补收敛（保留 metrics_case 版）：output_dir 仅脑补终版4文件，大表走 Plan 声明
     candidates = [
         prefix + "metrics_summary.csv",
-        prefix + "results.csv",
-        prefix + "metrics.csv",
-        prefix + "test_metrics.csv",
-        prefix + "classification_report.csv",
-        prefix + "summary.txt",
+        prefix + "metrics_case.csv",
         prefix + "stdout.log",
         prefix + "stderr.log",
     ]
@@ -9000,6 +8993,15 @@ def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
         if not alive:
             continue  # stale entry: drop from registry, reaped below
         sess = simple_tmux_name(f"sch-{op}")
+        # 先标记 aborted 并写受害者事件，再尝试 SIGTERM/杀 tmux，避免静默顶掉旧调度器
+        try:
+            append_event(root, {"type": "operation_progress", "operationId": op, "payload": {"opId": op, "status": "aborted", "message": f"被新 run-plan 调度器 {new_op_id} fence，旧调度器即将终止", "fencedBy": str(new_op_id), "workerIds": sorted(new_ids), "ownerWorkerId": owner}})
+        except Exception:
+            pass
+        try:
+            append_event(root, {"type": "scheduler_fenced_victim", "operationId": op, "payload": {"fencedOpId": op, "newOpId": str(new_op_id), "workerIds": sorted(new_ids), "ownerWorkerId": owner, "session": sess, "pid": int(entry.get("pid") or 0)}})
+        except Exception:
+            pass
         try:
             if tmux_session_alive(sess, root, None):
                 subprocess.run(["tmux", "kill-session", "-t", sess], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)

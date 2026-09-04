@@ -138,6 +138,7 @@ test("plan output evidence ignores comments and object ids", () => {
 });
 
 test("plan output evidence reads object style expected result paths", () => {
+  // 终版5文件契约（2026-09）：outputs/ 宿主下仅契约 basename 放行；classification_report.json/output.out 走声明不计入候选。
   const evidence = parsePlanOutputEvidence([
     "suite: object_results",
     "base_config: configs/base.yaml",
@@ -153,8 +154,6 @@ test("plan output evidence reads object style expected result paths", () => {
   ].join("\n"));
   assert.deepEqual(evidence.evidenceCandidates, [
     "outputs/object_case/metrics_summary.csv",
-    "outputs/object_case/classification_report.json",
-    "outputs/object_case/output.out",
   ]);
   assert.equal(evidence.outputSignals.some((item) => item.includes("outputs/object_case/metrics_summary.csv")), true);
   assert.equal(evidence.outputSignals.includes("命令参数: result_csv"), true);

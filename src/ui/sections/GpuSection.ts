@@ -13,6 +13,7 @@ export class GpuSection implements Section {
           <div class="section-desc">显存、利用率、温度、进程 — 密集大表（双击行展开曲线+进程）</div>
         </div>
         <div class="gpuDenseToolbar">
+          <button type="button" class="mini secondary" data-command="snapshot" title="刷新GPU状态">刷新</button>
           <button type="button" class="mini secondary" id="gpuMergeToggle" title="切换 服务器列 合并/打散">合并:开</button>
           <button type="button" class="mini secondary" id="gpuDenseSettingsBtn" title="自定义列与全局行高">⚙</button>
         </div>

@@ -185,8 +185,9 @@ my_project/
 - 入口：`train.py`、`test.py`、`main.py`、`run.py`、`scripts/*.py`、`experiments/*.py`
 - 配置：`configs/`、`config/`、`conf/`、`cfg/`、`experiments/configs/`、`experiments/config/` 下的 YAML、JSON、Python 配置，以及项目根目录常见的 `config.*`、`hparams.*`、`params.*`、`settings.*`
 - 环境：`environment.yml`、`requirements*.txt`、`pyproject.toml`、`Pipfile`、`uv.lock`、`poetry.lock`、`requirements/` 下的依赖清单
-- 结果：`metrics_summary.csv`、`results.csv`、`metrics.csv`、`summary.csv`、`classification_report.csv`
-- 日志：`stdout.log`、`stderr.log`、`train.log`、`test.log`、`summary.txt`
+- 结果（标准）：per-job `metrics_summary.csv` + `metrics_case.csv`，最终大表 `experiments/results/<method>.csv`；历史兼容（`results.csv`、`metrics.csv`、`summary.csv`、`classification_report.csv` 等）仅识别红单参考，不作新标准。
+- 日志（标准）：per-job `stdout.log` + `stderr.log`；历史兼容（`train.log`、`test.log`、`summary.txt` 等）仅识别红单参考。
+- 命令形态（MultiModal 对齐）：train 仅 `--output-dir`，test 双写 `--output-dir {output_dir} --result-csv {result_csv}`；试探输出先落 `tmp/`，确认后转正。
 - 轻量结果目录：`experiments/results`、`work_dirs`、`outputs`、`runs`、`logs`、`results`、`test_results`
 
 默认不会把 `datasets`、`checkpoints`、`weights`、`pretrained`、`.git` 等大目录作为结果下载或轻量同步目标。需要保留大文件时，应在 SimpleSFTP 或项目自己的数据管理流程中单独处理。

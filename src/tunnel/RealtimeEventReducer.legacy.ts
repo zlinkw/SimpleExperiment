@@ -384,9 +384,8 @@ function isTerminalOperationType(type: RealtimeEventType): boolean {
   return type === "operation_completed" || type === "operation_failed";
 }
 
-// A running operation that has exceeded the stale grace window (and whose plan no
-// longer has any scheduler snapshot state) can be promoted to a terminal "stale"
-// state by a watchdog. Terminal operations are never touched (no regression).
+// 定案：取消 stale 终态。超 grace 的 running 操作不再提升为 terminal stale，保持 running + staleReason 提示，
+// 由用户自行判断、手动中止/清理；STALE 阈值仅作提示。终态操作永不触碰。
 export function isStaleRunningOperation(operation: unknown, options: { startedAtMs?: number; staleAfterMs?: number; nowMs?: number } = {}): boolean {
   if (isTerminalOperation(operation)) return false;
   const item = (operation && typeof operation === "object" ? operation : {}) as Record<string, unknown>;
@@ -420,8 +419,9 @@ export function reconcileStaleRunningOperations(
     const noSchedulerState = !!planFiles && planFiles.size > 0 && !!planFile && !planFiles.has(planFile);
     out[id] = {
       ...item,
-      status: "stale",
+      status: "running",
       staleReason: noSchedulerState ? "no_scheduler_state_in_snapshot" : "running_exceeded_grace",
+      staleHint: "长时间无进展，未自动终结；请用户自行判断，必要时手动中止/清理。",
       reconciledAt: new Date(nowMs).toISOString(),
     };
   }

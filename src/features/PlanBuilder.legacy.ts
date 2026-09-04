@@ -566,59 +566,25 @@ const commandResultDirFlags = new Set([
     "trainer.default_root_dir",
     "trainer.default-root-dir",
 ]);
+// 终版5文件契约（2026-09）：{output_dir}/metrics_summary.csv、{output_dir}/metrics_case.csv、
+// {output_dir}/stdout.log、{output_dir}/stderr.log、experiments/results/<method>.csv（+Plan声明路径）。
+// 根文件名仅保留前4种契约 basename（任意目录深度均可）；第5种大表走 experiments/results/ 声明前缀，不靠脑补。
 const planResultRootFiles = new Set([
     "metrics_summary.csv",
     "metrics_case.csv",
-    "results.csv",
-    "result.csv",
-    "metrics.csv",
-    "summary.csv",
-    "scores.csv",
-    "score.csv",
-    "detailed_metrics.csv",
-    "test_metrics.csv",
-    "classification_report.csv",
-    "metrics.json",
-    "summary.json",
-    "result.json",
-    "results.json",
-    "classification_report.json",
-    "summary.txt",
-    "result.txt",
-    "results.txt",
-    "classification_report.txt",
     "stdout.log",
     "stderr.log",
-    "train.log",
-    "test.log",
-    "console.log",
-    "output.out",
 ]);
+// 白名单收敛：TopDirs 仅保留 output_dir 常用宿主（work_dirs/results/outputs），其余
+// lightning_logs/test_results/custom_results/reports/artifacts/evals/predictions 等一律走声明，不再默认放行。
+// PrefixPairs 仅保留 experiments/results（终版第5文件大表前缀）；simple_cluster/* 与 experiments/runs 走声明。
 const planResultTopDirs = new Set([
     "work_dirs",
-    "exports",
     "results",
     "outputs",
-    "runs",
-    "logs",
-    "test_results",
-    "lightning_logs",
-    "custom_results",
-    "reports",
-    "artifacts",
-    "evals",
-    "eval",
-    "evaluation",
-    "predictions",
-    "submissions",
 ]);
 const planResultPrefixPairs = new Set([
     "experiments/results",
-    "experiments/runs",
-    "simple_cluster/results",
-    "simple_cluster/logs",
-    "simple_cluster/tmux_logs",
-    "simple_cluster/archive",
 ]);
 const planResultExactPairs = new Set(["experiments/results.csv"]);
 export function parsePlanOutputEvidence(yaml, commands = {}) {
@@ -642,7 +608,7 @@ export function parsePlanOutputEvidence(yaml, commands = {}) {
         ...extractYamlStringValues(clean, key),
         ...extractYamlFlowMapValues(clean, key),
     ]).map(normalizePlanCandidateDir).filter(Boolean);
-    const outputCandidates = uniquePlanStrings([
+    const outputCandidates = dedupOutputCandidates([
         ...direct.map((item) => item.value),
         ...listed.map((item) => item.value),
         ...outputRules.map((item) => item.value),
@@ -668,12 +634,19 @@ export function parsePlanOutputEvidence(yaml, commands = {}) {
         ...extractYamlFlowMapValues(clean, ...commandKeys),
     ]);
     const commandCandidates = extractCommandResultCandidates(commandValues);
-    outputCandidates.push(...uniquePlanStrings(commandCandidates.map((item) => item.value)).filter((item) => !outputCandidates.includes(item)));
+    const knownOutputKeys = new Set(outputCandidates.map((item) => normalizeOutputCandidateKey(item)));
+    for (const item of dedupOutputCandidates(commandCandidates.map((entry) => entry.value))) {
+        const key = normalizeOutputCandidateKey(item);
+        if (!key || knownOutputKeys.has(key))
+            continue;
+        knownOutputKeys.add(key);
+        outputCandidates.push(item);
+    }
     for (const item of commandCandidates) {
         signals.add(`结果文件: runner_command=${item.value}`);
     }
     const combinedCommand = commandValues.join("\n");
-    if (/(?:\{(?:result_csv|resultCsv|results_csv|resultsCsv|metrics_csv|metricsCsv|summary_csv|summaryCsv|output_csv|outputCsv|result_json|resultJson|metrics_json|metricsJson|summary_txt|summaryTxt|log_file|logFile)\}|--(?:result|results|metrics|summary)[-_](?:csv|json)|metrics_summary\.csv|classification_report|scores\.csv|summary\.txt|stdout\.log|stderr\.log)/i.test(combinedCommand) || commandCandidates.length)
+    if (/(?:\{(?:result_csv|resultCsv|results_csv|resultsCsv|metrics_csv|metricsCsv|summary_csv|summaryCsv|output_csv|outputCsv|result_json|resultJson|metrics_json|metricsJson|summary_txt|summaryTxt|log_file|logFile)\}|--(?:result|results|metrics|summary)[-_](?:csv|json)|metrics_summary\.csv|metrics_case\.csv|stdout\.log|stderr\.log)/i.test(combinedCommand) || commandCandidates.length)
         signals.add("命令参数: result_csv");
     if (commandCandidates.some((item) => /\.(txt|log|out)$/i.test(item.value)) || hasCommandTextOutputTarget(combinedCommand) || /\b(tee)\b/i.test(clean))
         signals.add("文本日志: stdout/stderr");
@@ -681,7 +654,7 @@ export function parsePlanOutputEvidence(yaml, commands = {}) {
         ...extractYamlStringValues(clean, "metricRegex"),
         ...extractYamlFlowMapValues(clean, "metricRegex"),
     ].map((value) => stripYamlScalar(value)).filter(isMeaningfulYamlValue);
-    const evidenceCandidates = uniquePlanStrings([...listed, ...direct, ...outputRules, ...commandCandidates].map((item) => item.value).filter(isPlanParseableResultCandidate));
+    const evidenceCandidates = dedupOutputCandidates([...listed, ...direct, ...outputRules, ...commandCandidates].map((item) => item.value).filter(isPlanParseableResultCandidate));
     if (metricRegexValues.length && evidenceCandidates.length)
         signals.add("metricRegex: 自定义指标正则");
     return { outputCandidates, outputSignals: [...signals].sort(), evidenceCandidates };
@@ -697,9 +670,12 @@ export function parsePlanSummary(yaml) {
     const baseConfig = firstTopLevelPlanScalar(clean, anchors, "base_config", "config");
     const configSources = planConfigSources(clean);
     const existingCandidates = new Set(evidence.outputCandidates.map((item) => String(item || "").trim()).filter(Boolean));
+    const existingCandidateKeys = new Set(evidence.outputCandidates.map((item) => normalizeOutputCandidateKey(String(item || ""))).filter(Boolean));
     const outputSignals = evidence.outputSignals.filter((signal) => {
         const candidate = signal.match(/^结果文件:\s*[^=]+=([^=]+)$/)?.[1]?.trim();
-        return !candidate || existingCandidates.size === 0 || existingCandidates.has(candidate);
+        if (!candidate || existingCandidates.size === 0)
+            return true;
+        return existingCandidates.has(candidate) || existingCandidateKeys.has(normalizeOutputCandidateKey(candidate));
     });
     return {
         suite: firstTopLevelPlanScalar(clean, anchors, "suite"),
@@ -1211,7 +1187,7 @@ function extractCommandResultCandidates(commands) {
     }
     const seen = new Set();
     return out.filter((item) => {
-        const id = `${item.key}:${item.value}`;
+        const id = `${item.key}:${normalizeOutputCandidateKey(item.value) || String(item.value || "").trim().toLowerCase()}`;
         if (seen.has(id))
             return false;
         seen.add(id);
@@ -1229,13 +1205,11 @@ function defaultResultCandidatesForDir(value) {
     if (!dir || isPlanParseableResultCandidate(raw))
         return [];
     const prefix = dir === "." ? "" : `${dir}/`;
+    // 脑补收敛（二选一之保留 metrics_case 版）：output_dir 仅脑补终版4文件，
+    // 大表 experiments/results/<method>.csv 走 Plan 声明（expectedResults/paper.result_csv），不靠脑补。
     return [
         `${prefix}metrics_summary.csv`,
-        `${prefix}results.csv`,
-        `${prefix}metrics.csv`,
-        `${prefix}test_metrics.csv`,
-        `${prefix}classification_report.csv`,
-        `${prefix}summary.txt`,
+        `${prefix}metrics_case.csv`,
         `${prefix}stdout.log`,
         `${prefix}stderr.log`,
     ].filter(isPlanParseableResultCandidate);
@@ -1301,17 +1275,54 @@ function isPlanAllowedResultCandidate(value) {
         return false;
     const lowerParts = parts.map((part) => part.toLowerCase());
     const lower = lowerParts.join("/");
-    const rootName = lowerParts[0].replace(/^\*+/, "").replace(/\*+$/, "");
-    if (parts.length === 1 && (planResultRootFiles.has(lowerParts[0]) || planResultRootFiles.has(rootName)))
+    const base = lowerParts[lowerParts.length - 1];
+    // 终版契约判定同步：4种契约 basename 在任意目录深度直接放行（{output_dir}/…）；
+    // 第5文件 experiments/results/<method>.csv 走声明前缀（任意 basename）；其余一律拒绝。
+    if (planResultRootFiles.has(base))
         return true;
     if (planResultExactPairs.has(lower))
         return true;
-    if (planResultTopDirs.has(lowerParts[0]) || planResultTopDirs.has(rootName))
-        return true;
+    if (planResultTopDirs.has(lowerParts[0])) {
+        // 收敛补丁：TopDirs 宿主目录下也只放行契约 basename + experiments/results 前缀，大表/杂散文件走声明
+        if (planResultRootFiles.has(base))
+            return true;
+        return planResultPrefixPairs.has(lowerParts.slice(0, 2).join("/"));
+    }
     return planResultPrefixPairs.has(lowerParts.slice(0, 2).join("/"));
 }
 function uniquePlanStrings(values) {
     return [...new Set(values.map((item) => String(item || "").trim()).filter(Boolean))];
+}
+// 输出候选归一键（去重×2根因修复）：trim→反斜杠转正斜杠→占位符展开→小写；
+// 4种契约文件（metrics_summary.csv/metrics_case.csv/stdout.log/stderr.log）按小写basename折叠，
+// 大表（experiments/results/<method>.csv等）走全路径键，避免不同方法名被误折叠。
+export function normalizeOutputCandidateKey(value) {
+    const raw = String(value || "").trim().replace(/\\/g, "/");
+    if (!raw)
+        return "";
+    const expanded = expandPlanPathPlaceholders(raw.replace(/^\.\//, "").replace(/^\/+/, ""));
+    const lowered = expanded.toLowerCase().replace(/\/+/g, "/");
+    if (!lowered)
+        return "";
+    const base = lowered.split("/").pop() || lowered;
+    if (planResultRootFiles.has(base))
+        return `contract:${base}`;
+    return `path:${lowered}`;
+}
+function dedupOutputCandidates(values) {
+    const seen = new Set();
+    const out = [];
+    for (const raw of values || []) {
+        const text = String(raw || "").trim();
+        if (!text)
+            continue;
+        const key = normalizeOutputCandidateKey(text);
+        if (!key || seen.has(key))
+            continue;
+        seen.add(key);
+        out.push(text);
+    }
+    return out;
 }
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1905,4 +1916,5 @@ export {
   computePlanResultCoverage,
   dependencyBlockedReasons,
   readPlanConfigJson,
+  normalizeOutputCandidateKey,
 };

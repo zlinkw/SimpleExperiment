@@ -1,6 +1,7 @@
 // @ts-nocheck
 export function renderPanelHtml(): string {
     const nonce = String(Date.now());
+    const PLUGIN_VERSION: string = (() => { try { const pkg = require("../../package.json"); return String((pkg && pkg.version) || "").trim() || "unknown"; } catch { return "unknown"; } })();
     return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -103,6 +104,7 @@ export function renderPanelHtml(): string {
     .projectOnboardingNotice button { flex: 0 0 auto; }
     .workflowActions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }
     .workflowActions button { min-width: 0; padding: 5px 8px; font-size: 12px; }
+    .workflowActions button.mini { padding: 3px 6px; font-size: 11px; min-height: 22px; line-height: 1.2; }
     .section-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
     .section-stack { display: grid; gap: 16px; }
     #cardDeck { display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
@@ -162,7 +164,6 @@ export function renderPanelHtml(): string {
     .inspectorReadinessRow span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748B; }
     .inspectorReadinessRow.good span { color: #15803D; font-weight: 750; }
     .inspectorReadinessRow.warn span { color: #B45309; font-weight: 750; }
-    .inspectorBudgetNotice { margin-top: 6px; padding: 6px 8px; border: 1px dashed #CBD5E1; border-radius: 7px; background: #F8FAFC; color: #64748B; font-size: 11px; line-height: 1.4; }
     .inspectorTimeline { display: grid; gap: 7px; }
     .inspectorEvent { display: grid; gap: 3px; padding: 8px 9px; border: 1px solid #E2E8F0; border-left: 3px solid #94A3B8; border-radius: 7px; background: #FAFBFC; }
     .inspectorEvent.running, .inspectorEvent.accepted { border-left-color: #2563EB; }
@@ -969,8 +970,8 @@ export function renderPanelHtml(): string {
     .resourceTree:hover::after, .resourceTree:focus-within::after, body.layout-edit .resourceTree::after, body.resizing-layout .resourceTree::after { opacity: 0; }
     .workbenchInspector { grid-column: 5; grid-row: 1; position: relative; width: var(--inspector-col); max-height: none; min-height: 0; justify-self: end; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border-color: rgba(148, 163, 184, .30); border-radius: 12px; background: rgba(255, 255, 255, .86); backdrop-filter: blur(18px); box-shadow: 0 12px 30px rgba(15, 23, 42, .08); contain: layout paint; transform: translateX(calc(var(--inspector-col) - var(--inspector-peek))); transition: transform 180ms ease, box-shadow 140ms ease, opacity 140ms ease; z-index: 13; }
     .workbenchInspector::before { content: "详情"; position: absolute; top: 12px; left: 0; bottom: 12px; width: var(--inspector-peek); display: grid; place-items: center; padding: 8px 0; border-right: 1px solid rgba(148, 163, 184, .26); background: linear-gradient(180deg, rgba(248, 250, 252, .96), rgba(226, 232, 240, .92)); color: #475569; font-size: 11px; font-weight: 800; writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0; opacity: 1; transition: opacity 120ms ease; pointer-events: none; }
-    .workbenchInspector:hover, .workbenchInspector:focus-within, body.layout-edit .workbenchInspector, body.resizing-layout .workbenchInspector { transform: translateX(0); box-shadow: 0 16px 34px rgba(15, 23, 42, .12); }
-    .workbenchInspector:hover::before, .workbenchInspector:focus-within::before, body.layout-edit .workbenchInspector::before, body.resizing-layout .workbenchInspector::before { opacity: 0; }
+    .workbenchInspector:hover, .workbenchInspector:focus-within, body.layout-edit .workbenchInspector, body.resizing-layout .workbenchInspector, body.inspector-menu-open .workbenchInspector { transform: translateX(0); box-shadow: 0 16px 34px rgba(15, 23, 42, .12); }
+    .workbenchInspector:hover::before, .workbenchInspector:focus-within::before, body.layout-edit .workbenchInspector::before, body.resizing-layout .workbenchInspector::before, body.inspector-menu-open .workbenchInspector::before { opacity: 0; }
     body.tree-pinned .resourceTree, body.inspector-pinned .workbenchInspector { transform: translateX(0); box-shadow: 0 16px 34px rgba(15, 23, 42, .10); }
     body.tree-pinned .resourceTree::after, body.inspector-pinned .workbenchInspector::before { opacity: 0; }
     .drawerPinButton { position: absolute; top: 8px; z-index: 3; width: 24px; height: 24px; min-width: 24px; padding: 0; display: grid; place-items: center; border-radius: 7px; border: 1px solid rgba(148, 163, 184, .42); background: rgba(255,255,255,.92); color: #475569; font-size: 13px; line-height: 1; box-shadow: 0 8px 18px rgba(15,23,42,.08); }
@@ -1027,6 +1028,21 @@ export function renderPanelHtml(): string {
     .endpointMiniGrid, .serverObjectStats, .traceReadinessGrid, .taskReadinessGrid { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
     .pinnedActions { position: relative; z-index: 1; flex: 0 0 auto; display: grid; gap: 7px; max-height: 126px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 9px; border: 1px solid #E2E8F0; border-left: 4px solid #7C3AED; border-radius: 10px; background: rgba(255,255,255,.92); }
     .pinnedActions .workflowActions { margin: 0; }
+    .pinnedActions.inspectorCustomGroup { max-height: none; overflow: visible; }
+    .inspectorCustomGroup .workflowActions { margin: 0; overflow: visible; }
+    .inspectorCustomGroupHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+    .inspectorCustomGroupHead[data-inspector-goto] { cursor: pointer; }
+    .inspectorCustomGroupHead[data-inspector-goto]:hover .inspectorEyebrow { color: #7C3AED; text-decoration: underline; }
+    .inspectorCustomGroupHead .inspectorEyebrow { flex: 1 1 auto; min-width: 0; }
+    .inspectorCustomGroupHead .inspectorEyebrow[data-inspector-goto] { cursor: pointer; }
+    .inspectorCustomGroupHead .mini.inspectorCustomRowBtn { flex: 0 0 auto; align-self: flex-start; }
+    .section-head .gpuDenseToolbar { margin-left: auto; align-self: flex-start; }
+    .section-head .cardTools { align-self: flex-start; }
+    .inspectorAddHost { display: contents; }
+    .inspectorCustomEmpty { color: #64748B; font-size: 11px; }
+    .inspectorCustomRowBtn { flex: 0 0 auto; min-width: 26px; padding: 5px 6px; font-size: 11px; }
+    #inspectorAddMenu, .inspectorAddMenu { position: fixed; z-index: 9999; display: none; width: 300px; max-height: 320px; overflow: auto; padding: 10px; border: 1px solid #CBD5E1; border-radius: 10px; background: #FFFFFF; box-shadow: 0 18px 40px rgba(15,23,42,.18); }
+    #inspectorAddMenu.is-open, .inspectorAddMenu.is-open { display: grid; gap: 6px; }
     .inspectorBody { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; overflow-anchor: none; display: grid; gap: 10px; padding-right: 2px; }
     .inspectorActionRow { display: flex; align-items: stretch; gap: 6px; min-width: 0; }
     .inspectorActionRow > button[data-command] { flex: 1 1 auto; min-width: 0; }
@@ -1191,6 +1207,7 @@ export function renderPanelHtml(): string {
           <div class="section-desc">显存、利用率、温度、进程 — 密集大表（点击行展开 1天曲线+进程）</div>
         </div>
         <div class="gpuDenseToolbar">
+          <button type="button" class="mini secondary" data-command="snapshot" title="刷新GPU状态">刷新</button>
           <button type="button" class="mini secondary" id="gpuMergeToggle" title="切换服务器列合并/打散">合并:开</button>
           <button type="button" class="mini secondary" id="gpuDenseSettingsBtn" title="自定义列与全局行高">⚙</button>
         </div>
@@ -1365,6 +1382,7 @@ export function renderPanelHtml(): string {
   </div>
 
   <script nonce="${nonce}">
+    const PLUGIN_VERSION = "${PLUGIN_VERSION}";
     const vscode = acquireVsCodeApi();
     console.log("[webview] acquireVsCodeApi", !!vscode, typeof vscode?.postMessage);
     const LENIENT_RUN = true;
@@ -1665,7 +1683,7 @@ export function renderPanelHtml(): string {
     let pendingActionTimeouts = {};
     let loadingButtonCount = 0;
     // config-inspector/result-parse preview state removed with details deletion.
-    let currentUiLayout = { order: [], collapsed: {}, resourceTreeChildren: {}, manual: false, treePinned: false, inspectorPinned: false, detailActions: [], pinnedActions: [] };
+    let currentUiLayout = { order: [], collapsed: {}, resourceTreeChildren: {}, manual: false, treePinned: false, inspectorPinned: false, inspectorCustomGroups: {} };
     let lastAppliedUiLayoutKey = "";
     let selectedTaskPayloadVersion = 0;
     let selectedTaskPayloadCacheKey = "";
@@ -1848,6 +1866,8 @@ export function renderPanelHtml(): string {
     const GPU_HISTORY_OKLAB_CACHE_LIMIT = 256;
     const gpuHistoryRequestLastAt = new Map();
     let gpuHistoryDrawFrame = 0;
+    let lastSnapshotRequestAt = 0;
+    let lastSnapshotSection = "";
     let activeGpuHistoryTooltip = null;
     let gpuHistoryPointIndexCache = new WeakMap();
     const gpuHistoryOklabCache = new Map();
@@ -1885,7 +1905,6 @@ export function renderPanelHtml(): string {
     let webviewDomCommandAuditUpdatedAt = 0;
     let featureReadinessRowsCacheKey = "";
     let featureReadinessRowsCacheHtml = "";
-    let activeButtonActionSpec = null;
     let activeLayoutResize = null;
     const TASK_RENDER_LIMIT = 80;
     const PLAN_ACTIVE_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]);
@@ -1975,7 +1994,7 @@ export function renderPanelHtml(): string {
       "publish-github": "发布 GitHub", "sync-github": "同步 GitHub", "overwrite-github": "覆盖 GitHub", "upload-project-to-hub": "上传到 Hub", "upload-project-to-workers": "上传到 Worker", "distribute-code-to-workers": "分发 Worker 代码", "deploy-latest-agent": "部署 Agent",
       "configure-sftp-ignores": "配置 SFTP 忽略", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
     });
-    const RESOURCE_TREE_NEXT_STEPS = Object.freeze({ servers: "保存后检测", gpu: "查看 GPU", tmux: "检查会话", plans: "校验/预演", execution: "查看运行与操作", results: "解析/统计", sync: "发布/同步", diagnostics: "看诊断" });
+    // RESOURCE_TREE_NEXT_STEPS removed (dead next-step hints).
     const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ servers: "▧", gpu: "◫", tmux: "⬢", plans: "◇", execution: "▣", results: "▤", sync: "⇅", diagnostics: "⌁" });
     const RESOURCE_TREE_TONE_RANKS = Object.freeze({ error: 5, warn: 4, mine: 3, good: 2, info: 1 });
     const RESOURCE_TREE_TONE_HELP = Object.freeze({
@@ -2004,7 +2023,7 @@ export function renderPanelHtml(): string {
       servers: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["testAll", 4]]),
       gpu: new Map([["snapshot", 0], ["testAll", 1]]),
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
-      execution: new Map([["stopExperiment", 0], ["retryExperiment", 1], ["reassignWorkerTask", 2], ["archiveArtifacts", 3], ["deleteArtifacts", 4], ["selfCheck", 5], ["createDebugBundle", 6], ["clearOperations", 7]]),
+      execution: new Map([["retryExperiment", 0], ["reassignWorkerTask", 1], ["archiveArtifacts", 2], ["deleteArtifacts", 3], ["selfCheck", 4], ["createDebugBundle", 5], ["clearOperations", 6], ["snapshot", 7]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
       sync: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["publishGithub", 4], ["testAll", 5], ["syncGithub", 6], ["overwriteGithub", 7], ["uploadProjectToHub", 8], ["uploadProjectToWorkers", 9], ["distributeCodeToWorkers", 10], ["deployLatestAgent", 11], ["configureSftpIgnores", 12]]),
       tmux: new Map([["fetchTmuxList", 0], ["fetchTmuxCapture", 1], ["testAll", 2]]),
@@ -2376,6 +2395,54 @@ export function renderPanelHtml(): string {
         event.preventDefault();
         event.stopPropagation();
         toggleDrawerPinned(drawerPin.dataset.drawerPin);
+        if (drawerPin.dataset.drawerPin === "inspector") { try { closeInspectorAddMenu(); } catch (e) {} }
+        return;
+      }
+      const inspectorAdd = event.target.closest("[data-inspector-add]");
+      if (inspectorAdd) {
+        event.preventDefault();
+        event.stopPropagation();
+        const group = inspectorAdd.getAttribute("data-inspector-add") || "";
+        hidePinContextMenu();
+        openInspectorAddMenu(group, inspectorAdd);
+        return;
+      }
+      const inspectorGoto = event.target.closest("[data-inspector-goto]");
+      if (inspectorGoto && !event.target.closest("button[data-command]") && !event.target.closest("[data-inspector-add]") && !event.target.closest("[data-inspector-move]") && !event.target.closest("[data-inspector-del]")) {
+        const gotoSection = inspectorGoto.getAttribute("data-inspector-goto") || "";
+        if (gotoSection) { try { scrollMainColumnToSection(gotoSection); } catch (e) {} }
+        return;
+      }
+      const inspectorConfirm = event.target.closest("[data-inspector-confirm]");
+      if (inspectorConfirm) {
+        event.preventDefault();
+        event.stopPropagation();
+        confirmInspectorAddMenu(inspectorConfirm.getAttribute("data-inspector-confirm") || "");
+        return;
+      }
+      const inspectorCancel = event.target.closest("[data-inspector-cancel]");
+      if (inspectorCancel) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeInspectorAddMenu();
+        return;
+      }
+      const inspectorMove = event.target.closest("[data-inspector-move]");
+      if (inspectorMove) {
+        event.preventDefault();
+        event.stopPropagation();
+        hidePinContextMenu();
+        closeInspectorAddMenu();
+        moveInspectorCustomButton(inspectorMove.getAttribute("data-inspector-group") || "", inspectorMove.getAttribute("data-inspector-id") || "", inspectorMove.getAttribute("data-inspector-move") === "up" ? -1 : 1);
+        return;
+      }
+      const inspectorDel = event.target.closest("[data-inspector-del]");
+      if (inspectorDel) {
+        event.preventDefault();
+        event.stopPropagation();
+        hidePinContextMenu();
+        closeInspectorAddMenu();
+        deleteInspectorCustomButton(inspectorDel.getAttribute("data-inspector-group") || "", inspectorDel.getAttribute("data-inspector-del") || "");
         return;
       }
       const collapse = event.target.closest("[data-collapse-section]");
@@ -2390,17 +2457,7 @@ export function renderPanelHtml(): string {
         preserveScroll(() => applyUiLayout({ uiLayout: currentUiLayout }));
         if (!next) renderSectionIfVisible(lastState || {}, section, { force: true });
         refreshCardDecorations();
-        saveUiLayout();
-        return;
-      }
-      const pinMenuAction = event.target.closest("[data-pin-menu-action]");
-      if (pinMenuAction) {
-        event.preventDefault();
-        event.stopPropagation();
-        const action = pinMenuAction.dataset.pinMenuAction || "";
-        const spec = activeButtonActionSpec;
-        hidePinContextMenu();
-        handleButtonActionMenu(action, spec);
+        saveUiLayout({ preserveOrder: true });
         return;
       }
       const cardMenuAction = event.target.closest("[data-card-menu-action]");
@@ -2414,6 +2471,7 @@ export function renderPanelHtml(): string {
         return;
       }
       hidePinContextMenu();
+      try { var __inspectorMenu = document.getElementById("inspectorAddMenu"); if (__inspectorMenu && !event.target.closest("#inspectorAddMenu") && !event.target.closest("[data-inspector-add]")) closeInspectorAddMenu(); } catch (e) {}
       if (event.target.closest("#collapseAllSections")) {
         event.preventDefault();
         setAllSectionsCollapsed(true);
@@ -2426,7 +2484,19 @@ export function renderPanelHtml(): string {
       }
       const button = event.target.closest("button[data-command]");
       if (button && !button.disabled) {
+        try {
+          var inspectorGroupEl = button.closest ? button.closest("[data-custom-group]") : null;
+          if (inspectorGroupEl) {
+            var inspectorGroupTitle = inspectorGroupEl.getAttribute("data-custom-group") || "";
+            var inspectorGroupSections = inspectorSectionsForCustomGroup(inspectorGroupTitle);
+            var inspectorGroupFirst = inspectorGroupSections && inspectorGroupSections.length ? String(inspectorGroupSections[0] || "") : "";
+            var inspectorBtnGoto = button.getAttribute ? (button.getAttribute("data-inspector-goto") || "") : "";
+            var inspectorGotoTarget = inspectorBtnGoto || inspectorGroupFirst;
+            if (inspectorGotoTarget) scrollMainColumnToSection(inspectorGotoTarget);
+          }
+        } catch (e) {}
         const command = button.dataset.command;
+        if (command === "snapshot") { try { lastSnapshotRequestAt = Date.now(); var __snapCard = button.closest ? button.closest("[data-section]") : null; lastSnapshotSection = String((__snapCard && __snapCard.dataset && __snapCard.dataset.section) || (__snapCard && __snapCard.getAttribute ? __snapCard.getAttribute("data-section") : "") || ""); } catch (e) {} }
         if (command === "prepareAgents") { console.log("[webview] prepareAgents click", { state: lastState, readiness: serverSetupReadiness(lastState), blockers: agentPreparationBlockersFromState(lastState) }); }
         const payload = payloadFromButton(button);
         const pendingKey = pendingKeyForButton(button, command, payload);
@@ -2467,6 +2537,7 @@ export function renderPanelHtml(): string {
           payload.tbUrl = codeTrigger.dataset.tbUrl;
           payload.url = codeTrigger.dataset.tbUrl;
         }
+        if (command === "snapshot") { try { lastSnapshotRequestAt = Date.now(); var __codeSnapCard = codeTrigger.closest ? codeTrigger.closest("[data-section]") : null; lastSnapshotSection = String((__codeSnapCard && __codeSnapCard.dataset && __codeSnapCard.dataset.section) || (__codeSnapCard && __codeSnapCard.getAttribute ? __codeSnapCard.getAttribute("data-section") : "") || ""); } catch (e) {} }
         vscode.postMessage(Object.assign({ command }, payload));
         return;
       }
@@ -2491,14 +2562,12 @@ export function renderPanelHtml(): string {
         hidePinContextMenu();
         return;
       }
-      const spec = actionSpecFromButton(button);
-      if (!spec) return;
-      event.preventDefault();
-      showButtonActionContextMenu(spec, event.clientX, event.clientY);
+      hidePinContextMenu();
+      return;
     });
-    window.addEventListener("blur", () => hidePinContextMenu());
-    window.addEventListener("resize", () => scheduleGpuHistoryDraw());
-    window.addEventListener("scroll", () => hidePinContextMenu(), true);
+    window.addEventListener("blur", () => { hidePinContextMenu(); });
+    window.addEventListener("resize", () => { scheduleGpuHistoryDraw(); });
+    window.addEventListener("scroll", () => { hidePinContextMenu(); }, true);
     document.addEventListener("pointermove", (event) => {
       const canvas = event.target && event.target.closest ? event.target.closest("canvas.gpuHistoryCanvas") : null;
       updateGpuHistoryTooltip(canvas, event);
@@ -2607,7 +2676,7 @@ export function renderPanelHtml(): string {
       }
       if (!layoutEdit || !draggedSection) return;
       event.preventDefault();
-      saveUiLayout();
+      saveUiLayout({ preserveOrder: false });
     });
     document.addEventListener("dragend", () => {
       document.querySelectorAll(".section-card.dragging").forEach((card) => card.classList.remove("dragging"));
@@ -2707,6 +2776,7 @@ export function renderPanelHtml(): string {
       if (event.target && event.target.closest && event.target.closest("#workbenchInspector")) markWorkbenchInspectorInteraction(1600);
       if (event.target && event.target.id === "mainColumn") scheduleMainColumnSidePanelSync();
     }, true);
+    document.addEventListener("keydown", (event) => { if (event && event.key === "Escape") { try { closeInspectorAddMenu(); } catch (e) {} } });
     window.addEventListener("pointermove", (event) => updateLayoutResize(event));
     window.addEventListener("pointerup", () => finishLayoutResize());
     document.addEventListener("change", (event) => {
@@ -2828,6 +2898,9 @@ export function renderPanelHtml(): string {
         invalidateSelectedTaskPayload();
         clearCompletedPendingButtons(lastState);
         render(lastState);
+        try {
+          if (Date.now() - Number(lastSnapshotRequestAt || 0) < 15000) { var __snapSection = String(lastSnapshotSection || ""); lastSnapshotRequestAt = 0; lastSnapshotSection = ""; if (__snapSection === "gpu") refreshGpuHistoryAfterSnapshot(); }
+        } catch (e) {}
       }
       if (latestNavigationMessage) {
         if (PLAN_VIEW_SCOPE_VALUES.includes(latestNavigationMessage.taskPlanScope)) setTaskPlanScope(latestNavigationMessage.taskPlanScope);
@@ -2866,6 +2939,7 @@ export function renderPanelHtml(): string {
         try { renderTmuxOverview(tmuxListCache.sessions || []); } catch (e) {}
         applyLayoutColumns();
         schedulePostRenderMaintenance();
+        try { maybeAutoAdvanceFromSync(state); } catch (e) {}
         lastRenderErrorMessage = "";
       } catch (error) {
         const message = error && error.message ? String(error.message) : String(error);
@@ -4098,6 +4172,13 @@ export function renderPanelHtml(): string {
           setTracePlanScope("selected");
           navigateToResourceTarget(submittedTarget.section, submittedTarget.anchor, { force: true });
         }
+        try {
+          const doneCmd = String(data.command || "");
+          const doneStatus = String(data.status || "").toLowerCase();
+          if (doneStatus === "completed" && (doneCmd === "testAll" || doneCmd === "deployLatestAgent" || doneCmd === "prepareAgents" || doneCmd === "startAll" || doneCmd === "startAllConnections")) {
+            maybeAutoAdvanceFromSync(lastState || {});
+          }
+        } catch (e) {}
       }
     }
 
@@ -4332,7 +4413,7 @@ export function renderPanelHtml(): string {
       updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
       forceWorkbenchInspectorRender();
       renderWorkbenchInspector(lastState || {}, { force: true });
-      saveUiLayout();
+      saveUiLayout({ preserveOrder: false });
     }
 
     function moveResourceTreeChild(section, sourceAnchor, targetAnchor, before) {
@@ -4354,7 +4435,7 @@ export function renderPanelHtml(): string {
       updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
       forceWorkbenchInspectorRender();
       renderWorkbenchInspector(lastState || {}, { force: true });
-      saveUiLayout();
+      saveUiLayout({ preserveOrder: true });
     }
 
     function applyResourceTreeChildLayout(section) {
@@ -4391,6 +4472,7 @@ export function renderPanelHtml(): string {
       if (!deck) return;
       if (nextLayoutKey === lastAppliedUiLayoutKey) return;
       lastAppliedUiLayoutKey = nextLayoutKey;
+      const wasInspectorPinned = document.body.classList.contains("inspector-pinned");
       const cards = Array.from(deck.querySelectorAll(":scope > [data-section]"));
       const byId = new Map(cards.map((card) => [card.dataset.section, card]));
       const orderedSections = new Set(currentUiLayout.order);
@@ -4411,6 +4493,7 @@ export function renderPanelHtml(): string {
       });
       if (resourceTreeChildOrderSignature(currentUiLayout)) currentUiLayout.order.forEach((section) => applyResourceTreeChildLayout(section));
       applyLayoutColumns();
+      try { if (wasInspectorPinned && !currentUiLayout.inspectorPinned) closeInspectorAddMenu(); } catch (e) {}
     }
 
     function uiLayoutApplyKey(layout) {
@@ -4505,6 +4588,7 @@ export function renderPanelHtml(): string {
     }
 
     function scheduleMainColumnSidePanelSync() {
+      try { if (!document.body.classList.contains("inspector-pinned")) closeInspectorAddMenu(); } catch (e) {}
       if (Date.now() < resourceTreeScrollLockUntil) return;
       if (mainColumnSyncFrame) return;
       mainColumnSyncFrame = requestAnimationFrame(() => {
@@ -4936,16 +5020,19 @@ export function renderPanelHtml(): string {
       return endpoint + base;
     }
 
-    function saveUiLayout() {
-      currentUiLayout.order = Array.from(document.querySelectorAll("#mainColumn > [data-section]")).map((card) => card.dataset.section);
+    function saveUiLayout(options) {
+      var preserveOrder = !options || options.preserveOrder !== false;
+      if (!preserveOrder) {
+        currentUiLayout.order = Array.from(document.querySelectorAll("#mainColumn > [data-section]")).map((card) => card.dataset.section);
+      } else if (!Array.isArray(currentUiLayout.order) || !currentUiLayout.order.length) {
+        currentUiLayout.order = Array.from(document.querySelectorAll("#mainColumn > [data-section]")).map((card) => card.dataset.section);
+      }
       currentUiLayout.collapsed = Object.assign({}, currentUiLayout.collapsed, collapseStateFromDom());
       currentUiLayout.resourceTreeChildren = normalizeResourceTreeChildOrders(currentUiLayout.resourceTreeChildren || {});
       currentUiLayout.columns = normalizeLayoutColumns(currentUiLayout.columns || {});
       currentUiLayout.treePinned = Boolean(currentUiLayout.treePinned);
       currentUiLayout.inspectorPinned = Boolean(currentUiLayout.inspectorPinned);
-      currentUiLayout.pinnedCommands = normalizePinnedCommands(currentUiLayout.pinnedCommands || pinnedCommandDefaults);
-      currentUiLayout.detailActions = normalizeSavedButtonActions(currentUiLayout.detailActions, 40);
-      currentUiLayout.pinnedActions = normalizeSavedButtonActions(currentUiLayout.pinnedActions, 16);
+      currentUiLayout.inspectorCustomGroups = normalizeInspectorCustomGroups(currentUiLayout.inspectorCustomGroups);
       vscode.postMessage({ command: "saveUiLayout", layout: currentUiLayout });
     }
 
@@ -4963,7 +5050,14 @@ export function renderPanelHtml(): string {
       // 迁移旧布局：tasks / operations 卡片已合并为 execution；servers 已合入 sync
       const migratedIncoming = incoming.map((item) => (item === "tasks" || item === "operations" ? "execution" : item)).map((item) => (item === "servers" ? "sync" : item));
       const incomingSet = new Set(migratedIncoming);
-      const order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet?.has(item)));
+      const standardOrder = RESOURCE_TREE_SECTION_ORDER.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item));
+      let order;
+      if (layout.manual !== true) {
+        order = standardOrder.slice();
+      } else {
+        order = migratedIncoming.filter((item) => RESOURCE_TREE_SECTION_KEYS?.has(item)).concat(RESOURCE_TREE_SECTION_ORDER.filter((item) => !incomingSet?.has(item)));
+        if (order.length && order[order.length - 1] === "sync") order = standardOrder.slice();
+      }
       const rawCollapsed = layout.collapsed && typeof layout.collapsed === "object" ? layout.collapsed : {};
       const collapsed = Object.assign({ servers: false, settings: false, sync: false, diagnostics: true, execution: false }, rawCollapsed);
       // 迁移旧布局：tasks 或 operations 折叠则 execution 折叠（仅当 execution 未显式设置）；servers 折叠迁移到 sync
@@ -4979,10 +5073,8 @@ export function renderPanelHtml(): string {
       delete collapsed.servers;
       const resourceTreeChildren = normalizeResourceTreeChildOrders(layout.resourceTreeChildren || {});
       const columns = normalizeLayoutColumns(layout.columns || {});
-      const pinnedCommands = normalizePinnedCommands(Array.isArray(layout.pinnedCommands) ? layout.pinnedCommands : pinnedCommandDefaults);
-      const detailActions = normalizeSavedButtonActions(layout.detailActions, 40);
-      const pinnedActions = normalizeSavedButtonActions(layout.pinnedActions, 16);
-      return { order, collapsed, resourceTreeChildren, manual: Boolean(layout.manual), columns, treePinned: Boolean(layout.treePinned), inspectorPinned: Boolean(layout.inspectorPinned), pinnedCommands, detailActions, pinnedActions };
+      const inspectorCustomGroups = normalizeInspectorCustomGroups(layout.inspectorCustomGroups);
+      return { order, collapsed, resourceTreeChildren, manual: Boolean(layout.manual), columns, treePinned: Boolean(layout.treePinned), inspectorPinned: Boolean(layout.inspectorPinned), inspectorCustomGroups };
     }
 
     function normalizeResourceTreeChildOrders(input) {
@@ -5114,56 +5206,337 @@ export function renderPanelHtml(): string {
       return normalizeSavedButtonAction({ command, label: featureCommandLabel(command), section: "overview", payload: {}, id: "legacy:" + command });
     }
 
-    function detailActionsForSection(section) {
-      const target = normalizeActionSection(section);
-      return normalizeSavedButtonActions(currentUiLayout.detailActions, 40).filter((item) => normalizeActionSection(item.section) === target);
+    // legacy detail/pinned actions removed; inspectorCustomGroups is the supported path.
+
+    var INSPECTOR_CUSTOM_GROUP_SECTION_ORDER = ["sync", "plans", "gpu", "tmux", "execution", "results"];
+    var INSPECTOR_CUSTOM_GROUP_STATIC_TITLES = { sync: "运行环境准备", plans: "实验准备", gpu: "GPU 状态", tmux: "TMUX 会话 / 窗口 / 窗格", execution: "运行进度", results: "结果与归档" };
+    var INSPECTOR_CUSTOM_GROUP_LEGACY_SECTIONS = { "基础设施": ["sync"], "发布": ["sync"], "实验": ["plans", "results"], "运维": [], "执行": ["execution"], "资源": ["gpu"], "TMUX 会话": ["tmux"] };
+    var INSPECTOR_CUSTOM_GROUP_LEGACY_TARGETS = { "基础设施": ["运行环境准备"], "发布": ["运行环境准备"], "实验": ["实验准备", "结果与归档"], "运维": [], "执行": ["运行进度"], "资源": ["GPU 状态"], "TMUX 会话": ["TMUX 会话 / 窗口 / 窗格"] };
+
+    var INSPECTOR_CUSTOM_GROUP_FALLBACK = ["运行环境准备", "实验准备", "GPU 状态", "TMUX 会话 / 窗口 / 窗格", "运行进度", "结果与归档"];
+
+    function inspectorCustomGroupTitles() {
+      try {
+        var cards = null;
+        try { cards = document.querySelectorAll("#mainColumn>[data-section]"); } catch (e) { cards = null; }
+        if (cards && cards.length) {
+          var out = [];
+          var seenSec = {};
+          Array.prototype.forEach.call(cards, function(card) {
+            var sec = String((card && card.dataset && card.dataset.section) || (card && card.getAttribute ? card.getAttribute("data-section") : "") || "").trim();
+            if (!sec || sec === "servers" || sec === "settings" || sec === "diagnostics") return;
+            if (seenSec[sec]) return;
+            seenSec[sec] = true;
+            var title = String((card && card.dataset && card.dataset.title) || (card && card.getAttribute ? card.getAttribute("data-title") : "") || "").trim();
+            if (!title) title = String(INSPECTOR_CUSTOM_GROUP_STATIC_TITLES[sec] || "").trim();
+            if (!title || title === "诊断与自检") return;
+            if (out.indexOf(title) === -1) out.push(title);
+          });
+          if (out.length) return out;
+        }
+      } catch (e) {}
+      try {
+        var fb = [];
+        INSPECTOR_CUSTOM_GROUP_SECTION_ORDER.forEach(function(sec) {
+          var t = String(INSPECTOR_CUSTOM_GROUP_STATIC_TITLES[sec] || "").trim();
+          if (t && fb.indexOf(t) === -1) fb.push(t);
+        });
+        if (fb.length) return fb;
+      } catch (e) {}
+      return INSPECTOR_CUSTOM_GROUP_FALLBACK.slice();
     }
 
-    function isDetailActionSaved(spec) {
-      return normalizeSavedButtonActions(currentUiLayout.detailActions, 40).some((item) => savedActionSame(item, spec));
+    function inspectorSectionsForCustomGroup(groupTitle) {
+      var want = String(groupTitle || "");
+      // 诊断不显示右侧：旧 diagnostics 键直接丢弃（运维提示并入主列诊断卡，不在右侧建组）
+      if (want === "诊断与自检" || want === "diagnostics" || want === "运维") return [];
+      var out = [];
+      try {
+        var domMap = {};
+        try {
+          var cards = document.querySelectorAll("#mainColumn>[data-section]");
+          Array.prototype.forEach.call(cards, function(card) {
+            var sec = String((card && card.dataset && card.dataset.section) || (card && card.getAttribute ? card.getAttribute("data-section") : "") || "").trim();
+            var title = String((card && card.dataset && card.dataset.title) || (card && card.getAttribute ? card.getAttribute("data-title") : "") || "").trim();
+            if (!sec || !title) return;
+            if (sec === "servers" || sec === "settings") return;
+            if (!title) title = String(INSPECTOR_CUSTOM_GROUP_STATIC_TITLES[sec] || "").trim();
+            if (!title) return;
+            if (!domMap[title]) domMap[title] = [];
+            if (domMap[title].indexOf(sec) === -1) domMap[title].push(sec);
+          });
+        } catch (e) {}
+        if (domMap[want] && domMap[want].length) return domMap[want].slice();
+        Object.keys(INSPECTOR_CUSTOM_GROUP_STATIC_TITLES).forEach(function(sec) {
+          if (String(INSPECTOR_CUSTOM_GROUP_STATIC_TITLES[sec]) === want && out.indexOf(sec) === -1) out.push(sec);
+        });
+        if (out.length) return out;
+        var legacy = INSPECTOR_CUSTOM_GROUP_LEGACY_SECTIONS[want];
+        if (legacy && legacy.length) return legacy.slice();
+        try {
+          var model = typeof resourceTreeStaticModelCached === "function" ? resourceTreeStaticModelCached() : null;
+          if (model) {
+            Object.keys(model).forEach(function(section) {
+              var entry = model[section];
+              if (String((entry && entry.label) || "") === want && out.indexOf(section) === -1) out.push(section);
+            });
+            if (want === "基础设施" && out.indexOf("sync") === -1) out.push("sync");
+          }
+        } catch (e) {}
+      } catch (e) {}
+      return out;
     }
 
-    function isPinnedActionSaved(spec) {
-      if (!spec) return false;
-      const payloadEmpty = !Object.keys(spec.payload || {}).length;
-      if (payloadEmpty && normalizePinnedCommands(currentUiLayout.pinnedCommands || pinnedCommandDefaults).includes(spec.command)) return true;
-      return normalizeSavedButtonActions(currentUiLayout.pinnedActions, 16).some((item) => savedActionSame(item, spec));
+    function normalizeInspectorCustomGroups(input) {
+      var out = {};
+      var record = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+      Object.keys(record).forEach(function(group) {
+        var key = String(group || "").trim().slice(0, 40);
+        if (!key) return;
+        var list = normalizeSavedButtonActions(record[group], 40);
+        if (out[key] && out[key].length) {
+          list.forEach(function(item) {
+            var dup = false;
+            for (var i = 0; i < out[key].length; i++) { if (savedActionSame(out[key][i], item)) { dup = true; break; } }
+            if (!dup) out[key].push(item);
+          });
+        } else {
+          out[key] = list;
+        }
+      });
+      try {
+        Object.keys(INSPECTOR_CUSTOM_GROUP_LEGACY_TARGETS).forEach(function(oldKey) {
+          if (!record || !record[oldKey]) return;
+          var targets = INSPECTOR_CUSTOM_GROUP_LEGACY_TARGETS[oldKey] || [];
+          var srcList = out[oldKey] || normalizeSavedButtonActions(record[oldKey], 40);
+          targets.forEach(function(target) {
+            if (!target || target === oldKey) return;
+            if (!out[target] || !out[target].length) {
+              out[target] = (srcList || []).slice();
+            } else {
+              (srcList || []).forEach(function(item) {
+                var dup = false;
+                for (var i = 0; i < out[target].length; i++) { if (savedActionSame(out[target][i], item)) { dup = true; break; } }
+                if (!dup && out[target].length < 40) out[target].push(item);
+              });
+            }
+          });
+          if (targets.indexOf(oldKey) === -1) delete out[oldKey];
+        });
+      } catch (e) {}
+      // 诊断不显示右侧：丢弃旧 diagnostics 键（标题/section/运维遗留），运维提示并入主列诊断卡
+      try { delete out["诊断与自检"]; delete out["diagnostics"]; delete out["运维"]; } catch (e) {}
+      return out;
     }
 
-    function toggleDetailAction(spec) {
-      spec = normalizeSavedButtonAction(spec);
-      if (!spec) return;
-      const actions = normalizeSavedButtonActions(currentUiLayout.detailActions, 40);
-      currentUiLayout.detailActions = actions.some((item) => savedActionSame(item, spec))
-        ? actions.filter((item) => !savedActionSame(item, spec))
-        : actions.concat(spec).slice(-40);
-      saveUiLayout();
+    function inspectorCustomGroupsState() {
+      var raw = (currentUiLayout && currentUiLayout.inspectorCustomGroups) || {};
+      return normalizeInspectorCustomGroups(raw);
+    }
+
+    function inspectorCommandVisible(btn) {
+      try {
+        if (!btn || !btn.isConnected) return false;
+        if (btn.hasAttribute && btn.hasAttribute("hidden")) return false;
+        if (btn.closest && btn.closest("[hidden]")) return false;
+        var st = null;
+        try { st = window.getComputedStyle(btn); } catch (e) { st = null; }
+        if (st && (st.display === "none" || st.visibility === "hidden" || st.opacity === "0")) return false;
+        var card = (btn.closest && btn.closest("#mainColumn>[data-section]")) || null;
+        if (card) {
+          if (card.hasAttribute && card.hasAttribute("hidden")) return false;
+          var cst = null;
+          try { cst = window.getComputedStyle(card); } catch (e) { cst = null; }
+          if (cst && (cst.display === "none" || cst.visibility === "hidden")) return false;
+        }
+        if (btn.classList && btn.classList.contains("is-collapsed")) return false;
+        if (btn.offsetParent === null) {
+          var pos = st ? String(st.position || "") : "";
+          if (pos !== "fixed") return false;
+        }
+        return true;
+      } catch (e) { return false; }
+    }
+
+    function inspectorVisibleCommandsForSection(section) {
+      var out = new Set();
+      try {
+        if (typeof sectionIsCollapsed === "function" && sectionIsCollapsed(section)) return out;
+        var card = null;
+        try { card = document.querySelector('#mainColumn>[data-section="' + String(section || "") + '"]'); } catch (e) { card = null; }
+        if (!card) return out;
+        if (card.hasAttribute && card.hasAttribute("hidden")) return out;
+        var cs = null;
+        try { cs = window.getComputedStyle(card); } catch (e) { cs = null; }
+        if (cs && (cs.display === "none" || cs.visibility === "hidden")) return out;
+        var nodes = null;
+        try { nodes = card.querySelectorAll("[data-command]"); } catch (e) { nodes = null; }
+        if (!nodes) return out;
+        Array.prototype.forEach.call(nodes, function(b) {
+          if (!b) return;
+          var cmd = (b.dataset && b.dataset.command) || (b.getAttribute ? b.getAttribute("data-command") : "") || "";
+          if (!cmd) return;
+          if (!inspectorCommandVisible(b)) return;
+          out.add(String(cmd));
+        });
+      } catch (e) {}
+      return out;
+    }
+
+    function inspectorCustomCandidatePool(groupTitle) {
+      var seen = {};
+      var pool = [];
+      var sections = inspectorSectionsForCustomGroup(groupTitle);
+      if (!sections.length) return [];
+      var allowed = new Set();
+      sections.forEach(function(section) {
+        try {
+          var vis = inspectorVisibleCommandsForSection(section);
+          vis.forEach(function(cmd) { allowed.add(String(cmd)); });
+        } catch (e) {}
+      });
+      if (!allowed.size) return [];
+      var push = function(label, command, options) {
+        if (!command) return;
+        var finalLabel = label || featureCommandLabel(command) || command;
+        var dedupeKey = String(command) + "|" + String(finalLabel);
+        if (seen[dedupeKey]) return;
+        if (typeof webviewHandledCommands !== "undefined" && webviewHandledCommands && !webviewHandledCommands.has(command)) return;
+        if (!allowed.has(String(command))) return;
+        seen[dedupeKey] = true;
+        pool.push([finalLabel, command, options || {}]);
+      };
+      sections.forEach(function(section) {
+        try {
+          var actions = workbenchInspectorActions(section, { anchor: section });
+          (actions || []).forEach(function(item) { push(item[0], item[1], item[2] || {}); });
+        } catch (e) {}
+      });
+      pool.sort(function(a, b) { return String(a[0]).localeCompare(String(b[0])); });
+      return pool;
+    }
+
+    function renderInspectorCustomGroups() {
+      var titles = inspectorCustomGroupTitles();
+      var groups = inspectorCustomGroupsState();
+      return titles.map(function(title) {
+        var items = groups[title] || [];
+        var buttons = items.map(function(spec) {
+          var btn = inspectorSavedActionButton(spec);
+          var upBtn = '<button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-move="up" data-inspector-group="' + escAttr(title) + '" data-inspector-id="' + escAttr(spec.id) + '" title="上移">↑</button>';
+          var downBtn = '<button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-move="down" data-inspector-group="' + escAttr(title) + '" data-inspector-id="' + escAttr(spec.id) + '" title="下移">↓</button>';
+          var delBtn = '<button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-del="' + escAttr(spec.id) + '" data-inspector-group="' + escAttr(title) + '" title="删除">×</button>';
+          return '<span class="inspectorActionRow">' + btn + upBtn + downBtn + delBtn + '</span>';
+        }).join("");
+        var emptyHint = items.length ? "" : '<div class="inspectorCustomEmpty">暂无按钮，点击下方添加。</div>';
+        var inspectorGotoSection = "";
+        try { var inspectorGotoSections = inspectorSectionsForCustomGroup(title); if (inspectorGotoSections && inspectorGotoSections.length) inspectorGotoSection = String(inspectorGotoSections[0] || ""); } catch (e) {}
+        var inspectorGotoAttr = inspectorGotoSection ? ' data-inspector-goto="' + escAttr(inspectorGotoSection) + '"' : "";
+        var inspectorGotoTip = inspectorGotoSection ? ' title="点击定位到主列' + escAttr(inspectorGotoSection) + '卡片"' : "";
+        return '<div class="pinnedActions inspectorCustomGroup" data-custom-group="' + escAttr(title) + '"><div class="inspectorCustomGroupHead"' + inspectorGotoAttr + inspectorGotoTip + '><div class="inspectorEyebrow"' + inspectorGotoAttr + '>' + esc(title) + '（' + String(items.length) + '）</div><button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-add="' + escAttr(title) + '">+ 添加</button></div><div class="workflowActions">' + buttons + '</div>' + emptyHint + '</div>';
+      }).join("");
+    }
+
+    function saveInspectorCustomGroups(next) {
+      currentUiLayout = Object.assign({}, currentUiLayout, { inspectorCustomGroups: normalizeInspectorCustomGroups(next) });
+      saveUiLayout({ preserveOrder: true });
+      persistWebviewState({ inspectorCustomGroups: currentUiLayout.inspectorCustomGroups });
       forceWorkbenchInspectorRender();
       renderWorkbenchInspector(lastState || {}, { force: true });
     }
 
-    function togglePinnedAction(spec) {
-      spec = normalizeSavedButtonAction(spec);
-      if (!spec) return;
-      const payloadEmpty = !Object.keys(spec.payload || {}).length;
-      const legacy = normalizePinnedCommands(currentUiLayout.pinnedCommands || pinnedCommandDefaults);
-      if (payloadEmpty && legacy.includes(spec.command)) {
-        currentUiLayout.pinnedCommands = legacy.filter((item) => item !== spec.command);
-      } else {
-        const actions = normalizeSavedButtonActions(currentUiLayout.pinnedActions, 16);
-        currentUiLayout.pinnedActions = actions.some((item) => savedActionSame(item, spec))
-          ? actions.filter((item) => !savedActionSame(item, spec))
-          : actions.concat(spec).slice(-16);
-      }
-      saveUiLayout();
-      forceWorkbenchInspectorRender();
-      renderWorkbenchInspector(lastState || {}, { force: true });
+    function moveInspectorCustomButton(groupTitle, actionId, delta) {
+      var groups = inspectorCustomGroupsState();
+      var list = (groups[groupTitle] || []).slice();
+      var idx = -1;
+      for (var i = 0; i < list.length; i++) { if (String(list[i].id) === String(actionId)) { idx = i; break; } }
+      if (idx === -1) return;
+      var nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= list.length) return;
+      var tmp = list[idx];
+      list[idx] = list[nextIdx];
+      list[nextIdx] = tmp;
+      groups[groupTitle] = list;
+      markWorkbenchInspectorInteraction(1600);
+      saveInspectorCustomGroups(groups);
     }
 
-    function handleButtonActionMenu(action, spec) {
-      if (!spec) return;
-      if (action === "toggle-detail") toggleDetailAction(spec);
-      if (action === "toggle-pin") togglePinnedAction(spec);
+    function deleteInspectorCustomButton(groupTitle, actionId) {
+      var groups = inspectorCustomGroupsState();
+      var list = (groups[groupTitle] || []).filter(function(item) { return String(item.id) !== String(actionId); });
+      groups[groupTitle] = list;
+      markWorkbenchInspectorInteraction(1600);
+      saveInspectorCustomGroups(groups);
+    }
+
+    function openInspectorAddMenu(groupTitle, anchorEl) {
+      var existing = el("inspectorAddMenu");
+      if (existing && existing.getAttribute("data-inspector-menu-group") === String(groupTitle || "")) { closeInspectorAddMenu(); return; }
+      closeInspectorAddMenu();
+      var pool = inspectorCustomCandidatePool(groupTitle);
+      var groups = inspectorCustomGroupsState();
+      var picked = {};
+      (groups[groupTitle] || []).forEach(function(item) { picked[item.command + "|" + item.label] = true; });
+      var rows = pool.map(function(item, index) {
+        var label = item[0];
+        var command = item[1];
+        var key = command + "|" + label;
+        var checked = picked[key] ? " checked disabled" : "";
+        var help = "";
+        try { help = commandHelp(command) || ""; } catch (e) { help = ""; }
+        return '<label title="' + escAttr(help || command) + '"><input type="checkbox" data-inspector-pick="' + escAttr(command) + '" data-inspector-label="' + escAttr(label) + '" value="' + String(index) + '"' + checked + '> ' + esc(label) + ' <span class="muted">' + esc(command) + '</span></label>';
+      }).join("");
+      if (!rows) rows = '<div class="muted">主列暂无可见按钮（未渲染或已折叠），请先展开主列对应卡片。</div>';
+      var menu = document.createElement("div");
+      menu.id = "inspectorAddMenu";
+      menu.className = "inspectorAddMenu is-open";
+      menu.setAttribute("data-inspector-menu-group", groupTitle);
+      menu.innerHTML = '<div class="inspectorEyebrow">添加按钮到 ' + esc(groupTitle) + '</div><div style="display:grid;gap:4px;max-height:220px;overflow:auto;">' + rows + '</div><div style="display:flex;gap:6px;"><button type="button" data-inspector-confirm="' + escAttr(groupTitle) + '">确定</button><button type="button" class="secondary" data-inspector-cancel="1">取消</button></div>';
+      document.body.appendChild(menu);
+      try { document.body.classList.add("inspector-menu-open"); } catch (e) {}
+      try {
+        var rect = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
+        var menuWidth = 300;
+        var menuHeight = 320;
+        var left = rect ? rect.left : Math.max(8, window.innerWidth - menuWidth - 12);
+        var top = rect ? rect.bottom + 6 : 80;
+        if (rect) {
+          if (left + menuWidth > window.innerWidth - 8) left = Math.max(8, window.innerWidth - menuWidth - 8);
+          if (top + menuHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menuHeight - 6);
+          if (top < 8) top = 8;
+          if (left < 8) left = 8;
+        }
+        menu.style.left = Math.max(8, Math.round(left)) + "px";
+        menu.style.top = Math.max(8, Math.round(top)) + "px";
+      } catch (e) {}
+      markWorkbenchInspectorInteraction(5000);
+    }
+
+    function closeInspectorAddMenu() {
+      var menu = el("inspectorAddMenu");
+      if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+      try { document.body.classList.remove("inspector-menu-open"); } catch (e) {}
+    }
+
+    function confirmInspectorAddMenu(groupTitle) {
+      var menu = el("inspectorAddMenu");
+      if (!menu) return;
+      var picks = Array.from(menu.querySelectorAll("input[data-inspector-pick]:checked:not(:disabled)"));
+      if (!picks.length) { closeInspectorAddMenu(); return; }
+      var groups = inspectorCustomGroupsState();
+      var list = (groups[groupTitle] || []).slice();
+      picks.forEach(function(input) {
+        var command = input.getAttribute("data-inspector-pick") || "";
+        var label = input.getAttribute("data-inspector-label") || featureCommandLabel(command) || command;
+        var pool = inspectorCustomCandidatePool(groupTitle);
+        var found = null;
+        for (var i = 0; i < pool.length; i++) { if (String(pool[i][1]) === String(command) && String(pool[i][0]) === String(label)) { found = pool[i]; break; } }
+        var spec = normalizeSavedButtonAction({ command: command, label: label, section: "overview", payload: found ? (found[2] && found[2].payload ? found[2].payload : {}) : {}, confirm: found && found[2] ? Boolean(found[2].confirm) : false, danger: found && found[2] ? Boolean(found[2].danger) : false, batch: found && found[2] ? Boolean(found[2].batch) : false, configScope: found && found[2] ? String(found[2].configScope || "") : "" });
+        if (spec && !list.some(function(item) { return savedActionSame(item, spec); })) list.push(spec);
+      });
+      groups[groupTitle] = list.slice(0, 40);
+      closeInspectorAddMenu();
+      saveInspectorCustomGroups(groups);
     }
 
     function applyLayoutColumns() {
@@ -5179,15 +5552,18 @@ export function renderPanelHtml(): string {
       if (side !== "tree" && side !== "inspector") return;
       const key = side === "tree" ? "treePinned" : "inspectorPinned";
       currentUiLayout[key] = !currentUiLayout[key];
+      if (side === "inspector" && !currentUiLayout[key]) { try { closeInspectorAddMenu(); } catch (e) {} }
       applyDrawerPinState();
-      saveUiLayout();
+      saveUiLayout({ preserveOrder: true });
     }
 
     function applyDrawerPinState() {
+      const wasInspectorPinned = document.body.classList.contains("inspector-pinned");
       const treePinned = Boolean(currentUiLayout.treePinned);
       const inspectorPinned = Boolean(currentUiLayout.inspectorPinned);
       document.body.classList.toggle("tree-pinned", treePinned);
       document.body.classList.toggle("inspector-pinned", inspectorPinned);
+      if (wasInspectorPinned && !inspectorPinned) { try { closeInspectorAddMenu(); } catch (e) {} }
       document.querySelectorAll("[data-drawer-pin]").forEach((button) => {
         const pinned = button.dataset.drawerPin === "tree" ? treePinned : button.dataset.drawerPin === "inspector" ? inspectorPinned : false;
         const label = button.dataset.drawerPin === "tree" ? "左侧目录" : "右侧详情";
@@ -5210,9 +5586,10 @@ export function renderPanelHtml(): string {
     }
 
     function setAllSectionsCollapsed(collapsed) {
+      try { closeInspectorAddMenu(); } catch (e) {}
       document.querySelectorAll("#mainColumn > [data-section]").forEach((card) => card.classList.toggle("is-collapsed", collapsed));
       currentUiLayout.collapsed = collapseStateFromDom();
-      saveUiLayout();
+      saveUiLayout({ preserveOrder: true });
       renderResourceTree(lastState || {});
     }
 
@@ -5222,7 +5599,7 @@ export function renderPanelHtml(): string {
       currentUiLayout.collapsed = Object.assign({}, currentUiLayout.collapsed, { [section]: false });
       applyUiLayout({ uiLayout: currentUiLayout });
       renderSectionIfVisible(lastState || {}, section, { force: true });
-      saveUiLayout();
+      saveUiLayout({ preserveOrder: true });
     }
 
     function applyMainViewForSection(section) {
@@ -5255,32 +5632,7 @@ export function renderPanelHtml(): string {
       requestAnimationFrame(() => scrollToResourceTarget(activeResourceSection, activeResourceAnchor));
     }
 
-    function togglePinnedCommand(command) {
-      if (!command) return;
-      togglePinnedAction({ command, label: featureCommandLabel(command), section: activeResourceSection || "overview", payload: {} });
-    }
-
-    function showButtonActionContextMenu(spec, x, y) {
-      const menu = el("pinContextMenu");
-      if (!menu) return;
-      activeButtonActionSpec = normalizeSavedButtonAction(spec);
-      if (!activeButtonActionSpec) return;
-      const detailSaved = isDetailActionSaved(activeButtonActionSpec);
-      const pinned = isPinnedActionSaved(activeButtonActionSpec);
-      menu.innerHTML =
-        '<button type="button" data-pin-menu-action="toggle-detail" data-pin-command="' + escAttr(activeButtonActionSpec.command) + '" role="menuitem">' + esc(detailSaved ? "从当前工作详情移除" : "加入当前工作详情") + '</button>' +
-        '<button type="button" data-pin-menu-action="toggle-pin" data-pin-command="' + escAttr(activeButtonActionSpec.command) + '" role="menuitem">' + esc(pinned ? "从右侧置顶移除" : "加入右侧置顶") + '</button>';
-      setNativeTitle(menu, "右键操作：" + activeButtonActionSpec.label);
-      menu.hidden = false;
-      menu.classList.add("is-open");
-      menu.dataset.open = "1";
-      const width = 180;
-      const height = 76;
-      const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
-      const top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
-      menu.style.left = left + "px";
-      menu.style.top = top + "px";
-    }
+    // legacy pinned-command context menu removed; status-card menu (showStatusCardContextMenu) remains.
 
     function actionSpecFromButton(button) {
       if (!button) return null;
@@ -5400,6 +5752,7 @@ export function renderPanelHtml(): string {
 
     function updateLayoutResize(event) {
       if (!activeLayoutResize) return;
+      try { closeInspectorAddMenu(); } catch (e) {}
       const delta = event.clientX - activeLayoutResize.startX;
       const columns = normalizeLayoutColumns(activeLayoutResize.start);
       if (activeLayoutResize.kind === "tree") columns.tree = clampNumber(activeLayoutResize.start.tree + delta, 220, 420);
@@ -5412,7 +5765,7 @@ export function renderPanelHtml(): string {
       if (!activeLayoutResize) return;
       activeLayoutResize = null;
       document.body.classList.remove("resizing-layout");
-      saveUiLayout();
+      saveUiLayout({ preserveOrder: true });
     }
 
     function updateLayoutToggle() {
@@ -5421,7 +5774,8 @@ export function renderPanelHtml(): string {
     }
 
     function renderResourceTree(_state) {
-      const order = [...new Set(normalizeUiLayout(currentUiLayout).order)];
+      // 顶级=卡片标题直摆（无 label 分组头），顺序沿用 RESOURCE_TREE_SECTION_ORDER 经 normalizeUiLayout；servers 隐藏跳过（合入 sync）。
+      const order = [...new Set(normalizeUiLayout(currentUiLayout).order)].filter((section) => section !== "servers");
       const nextRenderKey = resourceTreeNextRenderKey(order);
       if (!resourceTreeNeedsRerender(nextRenderKey)) {
         updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
@@ -5444,7 +5798,7 @@ export function renderPanelHtml(): string {
       const body = el("resourceTreeBody");
       if (!body) return;
       setHtmlIfChanged(body, filtered.length ? filtered.map((group) =>
-        '<div class="tree-group ' + escAttr(group.tone || "") + '"><div class="tree-group-label" title="' + escAttr(resourceTreeGroupToneHelp(group.tone)) + '">' + esc(group.label) + '</div>' + group.items.map(renderResourceTreeNode).join("") + '</div>'
+        '<div class="tree-group ' + escAttr(group.tone || "") + '">' + group.items.map(renderResourceTreeNode).join("") + '</div>'
       ).join("") : '<div class="tree-empty">没有匹配条目。可以搜索“GPU / 任务 / GitHub / SFTP / Agent / 删除 / 归档”。</div>');
       const search = el("resourceTreeSearch");
       if (search && search.value !== resourceTreeFilter) search.value = resourceTreeFilter;
@@ -5458,19 +5812,20 @@ export function renderPanelHtml(): string {
     }
 
     function resourceTreeStaticModel() {
+      // 资源树顶级=主列卡片标题直摆（无 发布/实验/资源/执行/运维/基础设施 label 一级），顺序沿用 RESOURCE_TREE_SECTION_ORDER；servers 隐藏合入 sync。
       const item = (section, label, title, icon, detail, searchText, anchor) => {
         return treeItem(section, label, title, icon, "", "", searchText, anchor, detail);
       };
       return {
-        servers: { label: "基础设施", node: withResourceTreeChildren(item("servers", "服务器管理", "服务器管理", "▦", "Hub/Worker/端口", "Hub Worker Xshell 端口 调度"), serverTreeObjects()) },
-        settings: { label: "基础设施", node: withResourceTreeChildren(item("settings", "设置", "项目与服务器设置", "⚙", "结果目录、服务器、隧道与调度参数", "设置 结果 CSV 服务器 Hub Worker Xshell 端口 调度 参数"), settingsTreeObjects()) },
-        gpu: { label: "资源", node: withResourceTreeChildren(item("gpu", "GPU 状态", "GPU 总览", "◫", "GPU 总览", "GPU 显卡 显存 温度 利用率 我的任务 进程"), gpuTreeObjects()) },
-        tmux: { label: "TMUX 会话", icon: RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", node: withResourceTreeChildren(item("tmux", "TMUX 会话 / 窗口 / 窗格", "TMUX 会话 / 窗口 / 窗格", RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", "会话/窗口/窗格", "tmux 会话 窗口 窗格 会话总览"), tmuxTreeObjects()) },
-        plans: { label: "实验", node: withResourceTreeChildren(item("plans", "实验计划", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
-        execution: { label: "执行", node: withResourceTreeChildren(item("execution", "运行进度", "调度操作与实验任务统一视图", "▣", "操作+任务/日志/终态", "任务 日志 停止 重试 删除 归档 排队 运行 操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), executionTreeObjects()) },
-        results: { label: "实验", node: withResourceTreeChildren(item("results", "结果分析", "结果分析", "▤", "结果/统计/论文", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
-        sync: { label: "发布", node: withResourceTreeChildren(item("sync", "运行环境准备 · 发布与同步", "运行环境准备 发布同步", "⇅", "三步链/三步动作/总览 + GitHub/SFTP/Agent", "运行环境准备 部署Agent 启动隧道 检测 三步链 三步动作 Git GitHub SFTP 上传 分发 Agent 部署 发布 同步"), syncTreeObjects()) },
-        diagnostics: { label: "运维", node: withResourceTreeChildren(item("diagnostics", "诊断", "诊断", "⌁", "能力/端口/审计", "诊断 自检 调试 审计 能力 端口"), diagnosticTreeObjects()) }
+        servers: { label: "运行环境准备", node: withResourceTreeChildren(item("servers", "服务器管理", "服务器管理", "▦", "Hub/Worker/端口", "Hub Worker Xshell 端口 调度"), serverTreeObjects()) },
+        settings: { label: "设置", node: withResourceTreeChildren(item("settings", "设置", "项目与服务器设置", "⚙", "结果目录、服务器、隧道与调度参数", "设置 结果 CSV 服务器 Hub Worker Xshell 端口 调度 参数"), settingsTreeObjects()) },
+        gpu: { label: "GPU 状态", node: withResourceTreeChildren(item("gpu", "GPU 状态", "GPU 总览", "◫", "GPU 总览", "GPU 显卡 显存 温度 利用率 我的任务 进程"), gpuTreeObjects()) },
+        tmux: { label: "TMUX 会话 / 窗口 / 窗格", icon: RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", node: withResourceTreeChildren(item("tmux", "TMUX 会话 / 窗口 / 窗格", "TMUX 会话 / 窗口 / 窗格", RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", "会话/窗口/窗格", "tmux 会话 窗口 窗格 会话总览"), tmuxTreeObjects()) },
+        plans: { label: "实验准备", node: withResourceTreeChildren(item("plans", "实验准备", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
+        execution: { label: "运行进度", node: withResourceTreeChildren(item("execution", "运行进度", "调度操作与实验任务统一视图", "▣", "操作+任务/日志/终态", "任务 日志 停止 重试 删除 归档 排队 运行 操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), executionTreeObjects()) },
+        results: { label: "结果与归档", node: withResourceTreeChildren(item("results", "结果与归档", "结果分析", "▤", "结果/统计/论文", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
+        sync: { label: "运行环境准备", node: withResourceTreeChildren(item("sync", "运行环境准备", "运行环境准备 发布同步", "⇅", "三步链/三步动作/总览 + GitHub/SFTP/Agent", "运行环境准备 部署Agent 启动隧道 检测 三步链 三步动作 Git GitHub SFTP 上传 分发 Agent 部署 发布 同步"), syncTreeObjects()) },
+        diagnostics: { label: "诊断与自检", node: withResourceTreeChildren(item("diagnostics", "诊断与自检", "诊断", "⌁", "能力/端口/审计", "诊断 自检 调试 审计 能力 端口"), diagnosticTreeObjects()) }
       };
     }
 
@@ -5825,85 +6180,52 @@ export function renderPanelHtml(): string {
       return '<div class="tree-inspector-fact" title="' + escAttr(title || value || "") + '"><span>' + esc(label) + '</span><b>' + esc(value || "-") + '</b></div>';
     }
 
-    function resourceTreeNextStep(section, tone, meta) {
-      if (tone === "warn") return "处理提示";
-      if (meta && meta.anchor && meta.anchor !== section) return "已定位：" + (meta.label || "对象");
-      return RESOURCE_TREE_NEXT_STEPS[section] || "查看详情";
-    }
+    // resourceTreeNextStep removed (dead; depended on removed RESOURCE_TREE_NEXT_STEPS).
 
     function renderWorkbenchInspector(state, options) {
       options = options || { statusRefresh: true };
       const target = el("workbenchInspector");
       if (!target) return;
-      const section = activeResourceSection || "overview";
-      const meta = resourceTreeMeta[resourceTreeMetaKey(section, activeResourceAnchor)] || resourceTreeMeta[activeResourceAnchor] || resourceTreeMeta[section] || resourceTreeMeta.overview || { label: "概览", title: "运维总览", count: "", tone: "", detail: "选择左侧资源后查看当前对象详情。" };
-      const renderKey = section + "::" + (meta.anchor || activeResourceAnchor || section);
+      ensureWorkbenchInspectorShell(target);
+      const titles = inspectorCustomGroupTitles();
+      const groups = inspectorCustomGroupsState();
+      // renderKey版本单源：外层模板注入 PLUGIN_VERSION（取 package.json#version），内层直接使用注入值，零字面量
+      const renderKey = PLUGIN_VERSION + "::custom::" + titles.join("|") + "::" + titles.map(function(t) { return String(t) + "=" + String((groups[t] || []).length) + ":" + (groups[t] || []).map(function(s) { return s.id; }).join(","); }).join(";");
       const sameInspectorTarget = target.dataset.inspectorRenderKey === renderKey;
       const now = Date.now();
       const force = Boolean(options.force || now < workbenchInspectorForceRenderUntil);
-      if (!force && sameInspectorTarget && options.statusRefresh && workbenchInspectorShouldFreeze(target, sameInspectorTarget, now)) return;
-      const liveSignature = workbenchInspectorLiveSignature(state || {}, section, meta);
-      const statusRefresh = Boolean(options.statusRefresh && sameInspectorTarget && liveSignature !== workbenchInspectorLastLiveSignature);
-      if (!force && options.statusRefresh && sameInspectorTarget && !statusRefresh) return;
-      if (!force && !statusRefresh && workbenchInspectorShouldFreeze(target, sameInspectorTarget, now)) return;
+      if (!force && sameInspectorTarget && now - workbenchInspectorLastRenderAt < 800) return;
       const previousBodyTop = sameInspectorTarget ? Number(target.querySelector(".inspectorBody")?.scrollTop || 0) : 0;
-      const previousPinnedTop = Number(target.querySelector(".pinnedActions")?.scrollTop || 0);
-      const tone = meta.tone || inspectorToneForSection(state || {}, section);
-      const status = tone === "good" ? "正常" : tone === "warn" ? "需检查" : tone === "error" ? "异常" : tone === "mine" ? "我的任务" : "待查看";
-      const facts = workbenchInspectorFacts(state || {}, section, meta);
-      const actions = workbenchInspectorActions(section, meta);
-      const customActions = detailActionsForSection(section);
-      const visibleActions = budgetInspectorActions(actions, section, meta);
-      const visibleCustomActions = customActions.slice(0, INSPECTOR_CUSTOM_ACTION_RENDER_LIMIT);
-      const actionRows = visibleActions.map((item) => inspectorActionButton(item[0], item[1], Object.assign({ actionSection: section }, item[2] || {}))).join("") +
-        visibleCustomActions.map((item) => inspectorSavedActionButton(item)).join("") +
-        inspectorBudgetNotice("当前操作", actions.length + customActions.length, visibleActions.length + visibleCustomActions.length, "个");
-      const events = workbenchInspectorEvents(state || {}, meta, section);
-      const nextStep = resourceTreeNextStep(section, tone, meta);
-      ensureWorkbenchInspectorShell(target);
-      renderPinnedActions();
-      const nextHtml =
-        '<div class="inspectorHeader" title="' + escAttr(meta.detail || meta.title || "") + '">' +
-          '<div class="inspectorEyebrow">工作详情</div>' +
-          '<div class="inspectorTitle"><b>' + esc(meta.label || "概览") + '</b><span class="inspectorStatus ' + escAttr(tone || "") + '">' + esc(status) + '</span></div>' +
-          '<div class="inspectorSummary">' + esc(meta.title || "选择左侧资源树对象后，这里会显示当前区域的状态、下一步和常用操作。") + '</div>' +
-        '</div>' +
-        '<div class="inspectorGrid">' + facts.map((item) => inspectorFact(item[0], item[1], item[2])).join("") + '</div>' +
-        '<div class="inspectorHint" title="' + escAttr(nextStep) + '">' + esc(nextStep) + '</div>' +
-        '<div class="inspectorActions" title="常用操作"><div class="inspectorEyebrow">当前操作</div><div class="workflowActions">' + actionRows + '</div></div>' +
-        renderInspectorActionReadiness(section, visibleActions) +
-        renderInspectorTimeline(events);
+      const nextHtml = renderInspectorCustomGroups();
       if (sameInspectorTarget && nextHtml === workbenchInspectorLastHtml) {
         workbenchInspectorLastRenderAt = now;
-        workbenchInspectorLastLiveSignature = liveSignature;
         return;
       }
       const body = target.querySelector(".inspectorBody");
       setHtmlIfChanged(body, nextHtml);
+      try { refreshContextualActionButtons(state || {}, body); } catch (e) {}
       workbenchInspectorLastHtml = nextHtml;
       workbenchInspectorLastRenderAt = now;
-      workbenchInspectorLastLiveSignature = liveSignature;
+      workbenchInspectorLastLiveSignature = renderKey;
       target.dataset.inspectorRenderKey = renderKey;
-      const pinned = target.querySelector(".pinnedActions");
       if (body) body.scrollTop = previousBodyTop;
-      if (pinned) pinned.scrollTop = previousPinnedTop;
       requestAnimationFrame(() => {
         const currentBody = target.querySelector(".inspectorBody");
-        const currentPinned = target.querySelector(".pinnedActions");
         if (currentBody) currentBody.scrollTop = previousBodyTop;
-        if (currentPinned) currentPinned.scrollTop = previousPinnedTop;
       });
     }
 
     function ensureWorkbenchInspectorShell(target) {
       if (!target) return;
-      if (target.querySelector("#pinnedActionsHost") && target.querySelector(".inspectorBody")) {
+      if (target.querySelector(".inspectorBody")) {
         applyDrawerPinState();
         return;
       }
-      const shell = '<button type="button" class="drawerPinButton" data-drawer-pin="inspector" title="固定右侧详情" aria-label="固定右侧详情" aria-pressed="false">&#128204;</button><div id="pinnedActionsHost" class="pinnedActions" title="固定操作"></div><div class="inspectorBody"></div>';
+      const wasInspectorPinned = document.body.classList.contains("inspector-pinned");
+      const shell = '<button type="button" class="drawerPinButton" data-drawer-pin="inspector" title="固定右侧详情" aria-label="固定右侧详情" aria-pressed="false">&#128204;</button><div class="inspectorBody"></div>';
       target.innerHTML = shell;
       applyDrawerPinState();
+      try { if (wasInspectorPinned && !currentUiLayout.inspectorPinned) closeInspectorAddMenu(); } catch (e) {}
       markPostRenderDomChanged(shell);
       workbenchInspectorLastHtml = "";
     }
@@ -5923,12 +6245,7 @@ export function renderPanelHtml(): string {
       return now - workbenchInspectorLastRenderAt < 800;
     }
 
-    function workbenchInspectorLiveSignature(state, section, meta) {
-      const operations = workbenchInspectorOperationSignatureRows(state, section, meta);
-      const pending = workbenchInspectorPendingSignatureRows(section, meta);
-      const facts = workbenchInspectorFactSignature(state || {}, section, meta);
-      return stableSectionSignature({ section, anchor: meta && (meta.anchor || meta.id), tone: inspectorToneForSection(state || {}, section), operations, pending, facts });
-    }
+    // workbenchInspectorLiveSignature removed (dead chain with inspectorToneForSection).
 
     function workbenchInspectorPendingSignatureRows(section, meta) {
       const actionSection = inspectorActionSection(section, meta);
@@ -6007,26 +6324,9 @@ export function renderPanelHtml(): string {
       return INSPECTOR_ACTION_PRIORITIES[section] || INSPECTOR_ACTION_PRIORITY_COMMON;
     }
 
-    function inspectorBudgetNotice(label, total, visible, unit) {
-      const hidden = Math.max(0, Number(total || 0) - Number(visible || 0));
-      if (!hidden) return "";
-      const text = "已省略 " + hidden + " " + (unit || "项") + (label || "内容") + "；可通过中间列对应卡片、资源树定位或置顶常用按钮继续使用。";
-      return '<div class="inspectorBudgetNotice" title="' + escAttr(text) + '">' + esc(text) + '</div>';
-    }
+    // inspectorBudgetNotice removed (dead).
 
-    function renderInspectorActionReadiness(section, actions) {
-      const input = Array.isArray(actions) ? actions : [];
-      const visible = input.slice(0, INSPECTOR_READINESS_RENDER_LIMIT);
-      const rows = visible.map((item) => {
-        const label = item[0];
-        const command = item[1];
-        const options = item[2] || {};
-        const context = inspectorActionContext(lastState || {}, command, options);
-        const reason = disableReason(lastState, command, context);
-        return '<div class="inspectorReadinessRow ' + (reason ? "warn" : "good") + '" title="' + escAttr(reason || commandHelp(command) || "可执行") + '"><b>' + esc(label) + '</b><span>' + esc(reason ? compactText(reason, 48) : "可执行") + '</span></div>';
-      }).join("");
-      return '<div class="inspectorReadiness" title="可用性"><div class="inspectorEyebrow">可用性</div>' + rows + inspectorBudgetNotice("可用性检查", input.length, visible.length, "项") + '</div>';
-    }
+    // renderInspectorActionReadiness removed (dead empty shell).
 
     function inspectorActionContext(state, command, options) {
       if (!(options && options.batch)) return sanitizeActionPayload(options && options.payload || {});
@@ -6035,87 +6335,7 @@ export function renderPanelHtml(): string {
       return payload;
     }
 
-    function workbenchInspectorFacts(state, section, meta) {
-      const setup = state.setup || {};
-      const scheduler = state.schedulerConfig || {};
-      const workers = asArray(setup.workerTunnels || []);
-      const enabledWorkers = enabledWorkerTunnelsForState(state);
-      const gpuStats = overviewGpuStats(state);
-      const taskStats = overviewTaskStats(state);
-      const operationStats = overviewOperationStats(state);
-      const projectStats = overviewProjectStats(state);
-      const projectReadiness = overviewProjectReadiness(state);
-      const project = state.detectedProject || {};
-      const summary = state.resultsSummary || {};
-      const conflicts = asArray(state.tunnelPortConflicts || []);
-      const topology = state.topology || {};
-      const hubParticipates = topology.hubAllowed === true;
-      const schedulerOwner = topology.schedulerOwner || (hubParticipates ? "Hub 全局调度" : "Worker 本机调度");
-      const facts = {
-        overview: [
-          hubParticipates
-            ? ["Hub", labelStatus((state.health || {}).state || "unknown"), "Hub Agent 健康状态"]
-            : ["模式", topology.modeLabel || topologyModeLabel(topology.mode), schedulerOwner],
-          ["实时流", labelStatus((state.realtime || {}).streamStatus || "disconnected"), "WebSocket、SSE 或快照备用状态"],
-          ["Worker", String(enabledWorkers.length) + "/" + String(workers.length), "启用 Worker / 已配置 Worker"],
-          ["风险", conflicts.length ? String(conflicts.length) + " 个" : "无阻塞", "端口冲突、暂停网络或最近错误"]
-        ],
-        servers: [
-          ["活动端点", String(enabledWorkers.length), "当前仅包含启用 Worker"],
-          ["Worker", String(enabledWorkers.length), "启用后参与观测、同步和调度目标"],
-          ["调度", overviewSchedulerRange(scheduler), "pollSeconds + random(0, jitterSeconds)"],
-          ["端口冲突", String(conflicts.length), "必须先修复本机端口冲突"]
-        ],
-        gpu: [
-          ["总卡", String(gpuStats.total), "当前可见 GPU 总数"],
-          ["空闲", String(gpuStats.free), "无进程或无占用的 GPU"],
-          ["占用", String(gpuStats.busy), "已有任务或进程占用的 GPU"],
-          ["我的任务", String(gpuStats.mine), "按 currentUser、aliases 或命令关键词判断"]
-        ],
-        plans: [
-          ["Plan", String(projectReadiness.planCount), "识别到的实验计划数量"],
-          ["接入", projectReadiness.status, projectReadiness.detail],
-          ["结果线索", String(projectStats.resultSignals), "CSV、JSON、summary 或 stdout 等结果线索"],
-          ["主指标", pick(project.adapterRules || {}, ["primaryMetric"], "AUC"), "默认分类任务主指标"]
-        ],
-        execution: [
-          ["运行中任务", String(taskStats.running), schedulerOwner + "当前运行中任务"],
-          ["排队任务", String(taskStats.queued), "等待可用性上报或 GPU 资源租约"],
-          ["失败任务", String(taskStats.failed), "需要查看日志或重试的任务"],
-          ["进行中操作", String(operationStats.running), "已提交、排队、执行中等非终态操作"],
-          ["失败操作", String(operationStats.failed), "失败、卡住、不支持或错误等终态"],
-          ["选中", String(asArray((state.selection || {}).selectedRunKeys || []).length || (state.selection || {}).selectedRunKey || "-"), "用于批量停止、归档或删除"]
-        ],
-        results: [
-          ["结果文件", String(asArray(project.resultFiles || []).length), "识别到的轻量结果文件"],
-          ["最近解析", compactText(pick(summary, ["lastParsedAt", "last_parsed_at"], "-"), 18), (hubParticipates ? "Hub" : "Worker") + " 最近一次解析时间"],
-          ["缺证据", String(pick(summary, ["claimUnsupportedCount", "claim_unsupported_count"], 0)), "缺少本地证据的论文声明数量（unsupported）"],
-          ["需实验", String(pick(summary, ["claimNeedsExperimentCount", "claim_needs_experiment_count"], 0)), "仍需实验验证的论文声明数量（needs experiment）"]
-        ],
-        sync: [
-          hubParticipates
-            ? ["Hub 同步", labelStatus((state.codeSync || {}).hub || "待同步"), "本地项目到 Hub 的轻量代码同步状态"]
-            : ["运行模式", topology.modeLabel || topologyModeLabel(topology.mode), "当前只同步到启用 Worker"],
-          ["Worker 同步", labelStatus((state.codeSync || {}).workers || "待同步"), "本地项目到启用 Worker 的轻量代码同步状态"],
-          ["代码指纹", compactText((state.codeSync || {}).fingerprint || "-", 18), "提交运行前自动核验的代码指纹（fingerprint）"],
-          ["Agent", labelStatus((state.health || {}).agentVersionStatus || "待检测"), "部署最新版 Agent 后需要重启会话生效"]
-        ],
-        diagnostics: [
-          ["插件版本", String(state.extensionVersion || "-"), "当前 Webview/Extension 版本"],
-          [hubParticipates ? "Hub 操作" : "Worker 操作", hasCapability(state, "endpoints.actions") ? "可用" : "待升级", (hubParticipates ? "Hub" : "Worker") + " Agent 操作接口能力（action endpoint）"],
-          ["文件下载", hasCapability(state, "endpoints.fileDownload") ? "可用" : "待升级", "仅用于调试包或轻量文件"],
-          ["错误", String(asArray(state.actionErrors || []).length), "最近 UI/action 错误数量"],
-          ["目标矩阵", "可展开", "查看完成项、待验收项和真实集群烟测"]
-        ],
-        tmux: [
-          ["会话", String(((tmuxListCache && tmuxListCache.sessions) || (state.tmuxSessions) || []).length || "0"), "当前 tmux 会话数，刷新后更新"],
-          ["状态", (tmuxListCache && tmuxListCache.sessions && tmuxListCache.sessions.length ? "已列举" : "待刷新"), "是否已获取 tmux 列表"],
-          ["窗口/窗格", "见资源树", "扁平展示 NWPU3:0.0 等目标"],
-          ["刷新", tmuxListCache && tmuxListCache.fetchedAt ? String(tmuxListCache.fetchedAt).slice(0, 19) : "未刷新", "最近列举时间"]
-        ]
-      };
-      return workbenchInspectorObjectFacts(section, meta).concat(facts[section] || facts.overview).slice(0, 8);
-    }
+    // workbenchInspectorFacts removed (dead facts table).
 
     function workbenchInspectorObjectFacts(section, meta) {
       if (!meta || !meta.anchor || meta.anchor === section) return [];
@@ -6154,9 +6374,9 @@ export function renderPanelHtml(): string {
         overview: [["部署Agent", "prepareAgents"], ["检测全部", "testAll"], ["刷新数据", "snapshot"], ["暂停网络", "pauseAll"]],
         servers: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
         settings: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
-        gpu: [["刷新数据", "snapshot"], ["检测全部", "testAll"]],
+        gpu: [["刷新", "snapshot"], ["检测全部", "testAll"]],
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
-        execution: [["停止选中", "stopExperiment", { confirm: true, batch: true }], ["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"]],
+        execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
         sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["一键上传到所有服务器", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
@@ -6192,26 +6412,7 @@ export function renderPanelHtml(): string {
       return '<span class="inspectorActionRow savedAction" title="右键管理">' + actionButton(spec.label, spec.command, options) + '</span>';
     }
 
-    function renderPinnedActions() {
-      const legacy = normalizePinnedCommands(currentUiLayout.pinnedCommands || pinnedCommandDefaults).map(defaultPinnedSpec).filter(Boolean);
-      const custom = normalizeSavedButtonActions(currentUiLayout.pinnedActions, 16);
-      const specs = [];
-      legacy.concat(custom).forEach((spec) => {
-        if (!spec || specs.some((item) => savedActionSame(item, spec))) return;
-        specs.push(spec);
-      });
-      const buttons = specs.slice(0, 16).map((spec) => {
-        const inferredConfirm = spec.confirm || spec.command === "runPlan" || spec.command === "runAllPlans" || spec.command.includes("Github") || spec.command.includes("Project") || spec.command.includes("Agent");
-        return inspectorSavedActionButton(Object.assign({}, spec, { confirm: inferredConfirm }));
-      }).join("");
-      const html = '<div class="inspectorEyebrow">固定操作</div><div class="workflowActions">' + buttons + '</div>';
-      const target = el("pinnedActionsHost");
-      if (target) {
-        setHtmlIfChanged(target, html);
-        return "";
-      }
-      return '<div id="pinnedActionsHost" class="pinnedActions" title="固定操作">' + html + '</div>';
-    }
+    // renderPinnedActions removed (dead empty shell).
 
     function scrollToResourceTarget(section, anchor) {
       const main = el("mainColumn");
@@ -6224,6 +6425,48 @@ export function renderPanelHtml(): string {
         const top = main.scrollTop + targetBox.top - mainBox.top - 8;
         if (Math.abs(main.scrollTop - Math.max(0, top)) > 1) main.scrollTo({ top: Math.max(0, top), behavior: "auto" });
       }
+    }
+
+    let lastSyncChainGreen = false;
+    function isSyncChainGreen(state) {
+      try {
+        const setup = serverSetupReadiness(state);
+        const sync = projectCodeSyncReadiness(state);
+        const agent = publishAgentReadiness(state);
+        return Boolean(setup && setup.ready && sync && sync.ready && agent && agent.ready);
+      } catch (e) { return false; }
+    }
+    function scrollMainColumnToSection(next) {
+      const section = String(next || "plans");
+      try { expandResourceSection(section); } catch (e) {}
+      const run = () => {
+        if (Date.now() < resourceTreeScrollLockUntil) {
+          if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => scrollMainColumnToSection(section));
+          return;
+        }
+        const main = el("mainColumn");
+        const card = main ? main.querySelector('[data-section="' + cssEscape(section) + '"]') : null;
+        if (!main || !card) return;
+        resourceTreeScrollLockUntil = Date.now() + 650;
+        try {
+          const mainBox = main.getBoundingClientRect();
+          const cardBox = card.getBoundingClientRect();
+          const top = main.scrollTop + cardBox.top - mainBox.top - 8;
+          main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        } catch (e) {
+          try { card.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (ignored) {}
+        }
+        try { syncSidePanelsFromMainColumn(card, { statusRefresh: true, force: true }); } catch (e) {}
+        scheduleMainColumnSidePanelSync();
+      };
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+      else setTimeout(run, 0);
+    }
+    function maybeAutoAdvanceFromSync(state) {
+      const green = isSyncChainGreen(state);
+      const was = lastSyncChainGreen;
+      lastSyncChainGreen = green;
+      if (green && !was) scrollMainColumnToSection("plans");
     }
 
     function resolveResourceScrollTarget(section, anchor) {
@@ -6277,9 +6520,7 @@ export function renderPanelHtml(): string {
     }
 
     function renderInspectorTimeline(events) {
-      const rows = asArray(events);
-      if (!rows.length) return "";
-      return '<div class="inspectorTimeline" title="最近操作"><div class="inspectorEyebrow">最近操作</div>' + rows.map(renderInspectorEvent).join("") + '</div>';
+      return "";
     }
 
     function firstMatchingOperationRows(rows, meta, section, limit) {
@@ -6333,15 +6574,7 @@ export function renderPanelHtml(): string {
       return '<div class="inspectorFact" title="' + escAttr(title || value || "") + '"><span>' + esc(label) + '</span><b>' + esc(value || "-") + '</b></div>';
     }
 
-    function inspectorToneForSection(state, section) {
-      if (section === "gpu" && overviewGpuStats(state).mine) return "mine";
-      if (section === "execution" && (overviewTaskStats(state).failed || overviewOperationStats(state).failed)) return "error";
-      if (section === "servers" && asArray(state.tunnelPortConflicts || []).length) return "warn";
-      if (section === "plans") return overviewProjectReadiness(state).tone || "good";
-      if (section === "results" && !asArray((state.detectedProject || {}).resultFiles || []).length) return "warn";
-      if (section === "tmux" && !(((tmuxListCache && tmuxListCache.sessions) || (state.tmuxSessions) || []).length)) return "warn";
-      return "good";
-    }
+    // inspectorToneForSection removed (dead chain with workbenchInspectorLiveSignature).
 
     function setupResourceTreeObserver() {
       return;
@@ -8927,6 +9160,27 @@ export function renderPanelHtml(): string {
       vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));
       return true;
     }
+    function refreshGpuHistoryAfterSnapshot() {
+      try {
+        if (typeof gpuHistoryOverviewOpen !== "undefined" && gpuHistoryOverviewOpen) requestGpuHistory({ maxPoints: 96 });
+        try {
+          if (typeof expandedGpuHistoryKeys !== "undefined" && expandedGpuHistoryKeys && expandedGpuHistoryKeys.size) {
+            expandedGpuHistoryKeys.forEach(function(key) {
+              var parts = String(key || "").split("::");
+              if (parts.length >= 2 && parts[0] && parts[1]) requestGpuHistory({ serverId: parts[0], gpuId: parts[1], maxPoints: 288 });
+            });
+          }
+        } catch (e) {}
+        try {
+          var denseKey = (typeof gpuDenseState !== "undefined" && gpuDenseState) ? gpuDenseState.expandedKey : "";
+          if (denseKey) {
+            var denseParts = String(denseKey).split("::");
+            if (denseParts.length >= 2 && denseParts[0] && denseParts[1]) requestGpuHistory({ serverId: denseParts[0], gpuId: denseParts[1], maxPoints: 288 });
+          }
+        } catch (e) {}
+        scheduleGpuHistoryDraw();
+      } catch (e) {}
+    }
 
     function rememberGpuHistoryState(history) {
       const item = history && typeof history === "object" ? history : {};
@@ -10605,8 +10859,11 @@ export function renderPanelHtml(): string {
       };
       const basenames = new Set();
       const exactPaths = new Set();
+      const candidateKeys = new Set();
       const patterns = [];
       asArray(candidates).forEach((candidate) => {
+        const key = normalizeOutputCandidateKey(candidate);
+        if (key) candidateKeys.add(key);
         const pattern = normalizeResultCandidatePath(candidate);
         if (!pattern) return;
         if (!/[?*]/.test(pattern) && !pattern.includes(String.fromCharCode(123))) {
@@ -10649,12 +10906,14 @@ export function renderPanelHtml(): string {
           // Ignore malformed candidates while retaining valid matchers.
         }
       });
-      return { basenames, exactPaths, patterns };
+      return { basenames, exactPaths, candidateKeys, patterns };
     }
 
     function compiledResultCandidatesMatchFile(compiled, file) {
       const target = normalizeResultCandidatePath(file);
       if (!target) return false;
+      const targetKey = normalizeOutputCandidateKey(target);
+      if (targetKey && compiled.candidateKeys && compiled.candidateKeys.has(targetKey)) return true;
       const normalized = target.toLowerCase();
       const basename = (target.split("/").pop() || "").toLowerCase();
       return compiled.exactPaths?.has(normalized)
@@ -10695,7 +10954,7 @@ export function renderPanelHtml(): string {
       }
       let derived = rulesCache?.get(rulesSource);
       if (!derived) {
-        const candidates = uniqueText([
+        const candidates = dedupOutputCandidates([
           ...planOutputEvidenceCandidates(plan),
           ...adapterRuleResultCandidates(rulesSource)
         ]);
@@ -10713,7 +10972,7 @@ export function renderPanelHtml(): string {
       const partial = adapterRulesArePartial(rules);
       const classificationMetrics = uniqueText([rules.primaryMetric || "AUC", ...(rules.secondaryMetrics || []), ...(rules.classificationMetrics || ["accuracy", "F1", "AUPRC", "precision", "recall", "specificity", "balanced_accuracy", "loss"])]);
       const segmentationMetrics = uniqueText(rules.segmentationMetrics || ["Dice", "DSC", "IoU", "HD95", "ASD"]);
-      const candidateCsv = uniqueText(rules.candidateCsv || ["metrics_summary.csv", "results.csv", "work_dirs/results.csv", "experiments/results/*.csv", "test_results/summary.csv"]);
+      const candidateCsv = uniqueText(rules.candidateCsv || ["metrics_summary.csv", "work_dirs/*/metrics_summary.csv", "experiments/results/*.csv", "test_results/summary.csv"]);
       const configuredJson = uniqueText(asArray(rules.candidateJson).filter(isParseableResultCandidate));
       const candidateJson = configuredJson.length ? configuredJson : ["metrics.json", "result.json", "results.json"];
       const consoleLogs = uniqueText(rules.consoleLogs || ["stdout.log", "stderr.log"]);
@@ -10734,7 +10993,7 @@ export function renderPanelHtml(): string {
           projectRuleTextarea("secondaryMetrics", "辅助指标", asEditorList(rules.secondaryMetrics || ["accuracy", "F1", "AUPRC", "precision", "recall", "specificity"]), "每行或逗号分隔，用于论文表格和结果扫读。") +
           projectRuleTextarea("classificationMetrics", "分类指标池", asEditorList(classificationMetrics), "分类任务常用指标别名归一化范围。") +
           projectRuleTextarea("segmentationMetrics", "分割兼容指标", asEditorList(segmentationMetrics), "仅作为偶尔使用分割任务时的兼容指标。") +
-          projectRuleTextarea("candidateCsv", "候选 CSV", asEditorList(candidateCsv), "优先使用 metrics_summary.csv 长表，也兼容已有 results.csv 或 work_dirs 结果。") +
+          projectRuleTextarea("candidateCsv", "候选 CSV", asEditorList(candidateCsv), "优先使用 metrics_summary.csv 长表（含 work_dirs 通配）。") +
           projectRuleTextarea("candidateJson", "候选 JSON", asEditorList(candidateJson), "已有结构化结果文件可在这里登记。") +
           projectRuleTextarea("consoleLogs", "控制台日志", asEditorList(consoleLogs), "run_wrapper 会捕获 stdout/stderr；正则可从日志提取指标。") +
           projectRuleTextarea("textLogs", "文本 summary", asEditorList(textLogs), "summary.txt 或 console.log 等轻量文本结果。") +
@@ -10820,7 +11079,7 @@ export function renderPanelHtml(): string {
       if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
       const cached = adapterRuleResultCandidatesCache?.get(source);
       if (cached) return cached;
-      const value = uniqueText([
+      const value = dedupOutputCandidates([
         ...asArray(source.candidateCsv),
         ...asArray(source.candidateJson),
         ...asArray(source.consoleLogs),
@@ -10847,6 +11106,48 @@ export function renderPanelHtml(): string {
         seen.add(item.toLowerCase());
         return true;
       });
+    }
+
+    function normalizeOutputCandidateKey(value) {
+      var text = String(value || "").trim();
+      if (!text) return "";
+      text = text.split(String.fromCharCode(92)).join("/");
+      var cleaned = text;
+      while (cleaned.startsWith("./")) cleaned = cleaned.slice(2);
+      while (cleaned.startsWith("/")) cleaned = cleaned.slice(1);
+      var expanded = "";
+      var cursor = 0;
+      while (cursor < cleaned.length) {
+        var open = cleaned.indexOf("{", cursor);
+        if (open === -1) { expanded += cleaned.slice(cursor); break; }
+        var close = cleaned.indexOf("}", open + 1);
+        if (close === -1) { expanded += cleaned.slice(cursor); break; }
+        expanded += cleaned.slice(cursor, open) + "*";
+        cursor = close + 1;
+      }
+      var collapsed = expanded;
+      while (collapsed.includes("//")) collapsed = collapsed.split("//").join("/");
+      while (collapsed.includes("**")) collapsed = collapsed.split("**").join("*");
+      var lowered = collapsed.toLowerCase();
+      if (!lowered) return "";
+      var parts = lowered.split("/");
+      var base = parts[parts.length - 1] || lowered;
+      if (base === "metrics_summary.csv" || base === "metrics_case.csv" || base === "stdout.log" || base === "stderr.log") return "contract:" + base;
+      return "path:" + lowered;
+    }
+
+    function dedupOutputCandidates(values) {
+      var seen = new Set();
+      var out = [];
+      (values || []).forEach((raw) => {
+        var text = String(raw || "").trim();
+        if (!text) return;
+        var key = normalizeOutputCandidateKey(text);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        out.push(text);
+      });
+      return out;
     }
 
     function onboardingStep(title, ok, status, detail, options = {}) {
@@ -11269,10 +11570,10 @@ export function renderPanelHtml(): string {
       return '<div class="taskMetric"><span class="metric-label">' + esc(label) + '</span><span class="metric-value" title="' + escAttr(raw) + '">' + planPathButtonForMetric(raw) + '</span></div>';
     }
     function planOutputCandidatesMetric(label, candidates, totalCount, omittedCount) {
-      const values = asArray(candidates || []);
+      const values = dedupOutputCandidates(asArray(candidates || []));
       if (!values.length) return taskMetric(label, "未声明");
-      const total = Math.max(Number(totalCount || 0), values.length);
-      const omitted = Math.max(Number(omittedCount || 0), total - values.length);
+      const total = values.length + Math.max(Number(omittedCount || 0), 0);
+      const omitted = Math.max(0, total - values.length);
       const title = arrayText(values) + (omitted ? "；另有 " + omitted + " 项已省略" : "");
       const parts = values.map((item) => planPathButtonForMetric(item, 0)).join(", ");
       const suffix = omitted ? '<span class="muted">' + esc("；另有 " + omitted + " 项已省略") + '</span>' : "";
@@ -13962,7 +14263,7 @@ export function renderPanelHtml(): string {
       if (!source) return EMPTY_OUTPUT_DERIVATION_VALUES;
       const cached = planOutputCandidatesCache?.get(source);
       if (cached) return cached;
-      const value = uniqueText(asArray(source.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
+      const value = dedupOutputCandidates(asArray(source.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
       planOutputCandidatesCache.set(source, value);
       return value;
     }

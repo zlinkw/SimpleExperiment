@@ -56,7 +56,8 @@ export function inferExperimentConfigFromRun(files: FileMap, context: { runId?: 
   const configText = firstText(files, ["config_snapshot.yaml", "config_snapshot.yml", "config_snapshot.json"]);
   const command = firstText(files, ["command.txt"]) || scalarFromJson(env, "command") || scalarFromJson(artifact, "command") || findCommandInLogs(files);
   const stdout = firstText(files, ["stdout.log", "stderr.log", "train.log", "test.log"]);
-  const resultCsv = firstExistingPath(files, ["metrics_summary.csv", "results.csv", "metrics.csv"]) || scalarFromJson(artifact, "result_csv");
+  // 3csv 回退收敛（2026-09）：仅留 metrics_summary.csv；results.csv/metrics.csv 不再脑补，走 Plan 声明。
+  const resultCsv = firstExistingPath(files, ["metrics_summary.csv"]) || scalarFromJson(artifact, "result_csv");
   const resultRecord = context.resultRecord || {};
   const seed = field("seed", [scalarFromJson(env, "seed"), scalarFromConfig(configText, ["seed", "random_seed"]), scalarFromRecord(resultRecord, ["dimensions.seed", "seed"]), regex(command, /(?:--seed|seed=)\s*=?\s*([A-Za-z0-9_.-]+)/)]);
   const baseConfig = field("base_config", [scalarFromJson(env, "config"), scalarFromJson(artifact, "config"), regex(command, /(?:--config|--cfg)\s+([^\s]+)/), scalarFromConfig(configText, ["base_config", "config"])]);
@@ -104,7 +105,8 @@ export function inferExperimentConfigFromRun(files: FileMap, context: { runId?: 
 
 export function inferPlanFromRunDirectory(runDir: string, context: { resultRecord?: Record<string, unknown> } = {}): RecoveredExperimentConfig {
   const files: FileMap = {};
-  for (const name of ["artifact_manifest.json", "config_snapshot.yaml", "config_snapshot.yml", "config_snapshot.json", "env_snapshot.json", "command.txt", "stdout.log", "stderr.log", "train.log", "test.log", "metrics_summary.csv", "results.csv", "metrics.csv"]) {
+  // 回退收敛：仅扫描契约文件 metrics_summary.csv + 日志；results.csv/metrics.csv 走声明不扫描。
+  for (const name of ["artifact_manifest.json", "config_snapshot.yaml", "config_snapshot.yml", "config_snapshot.json", "env_snapshot.json", "command.txt", "stdout.log", "stderr.log", "train.log", "test.log", "metrics_summary.csv"]) {
     const target = path.join(runDir, name);
     if (fs.existsSync(target) && fs.statSync(target).isFile()) files[name] = fs.readFileSync(target, "utf8");
   }

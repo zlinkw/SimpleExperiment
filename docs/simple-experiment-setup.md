@@ -203,7 +203,7 @@ my_project/
 4. 缺少输出映射时生成轻量 adapter。
 5. 执行检测和输出契约检查。
 
-Plan 示例：
+Plan 示例（向 MultiModal 对齐：train 仅 `--output-dir`，test 双写）：
 
 ```yaml
 suite: demo
@@ -211,15 +211,21 @@ base_config: configs/smoke.yaml
 mode: train_test
 seeds: [0]
 runner:
-  train_command: python train.py --config {config} --seed {seed} --output_dir {output_dir}
-  test_command: python test.py --config {config} --seed {seed} --output_dir {output_dir}
+  train_command: python train.py --config {config} --seed {seed} --output-dir {output_dir}
+  test_command: python test.py --config {config} --seed {seed} --output-dir {output_dir} --result-csv {result_csv}
 naming:
   output_dir: "work_dirs/{case}/seed_{seed}"
 cases:
   - name: smoke
 paper:
-  result_csv: work_dirs/smoke/seed_0/metrics_summary.csv
+  result_csv: experiments/results/demo.csv
+expectedResults:
+  - "{output_dir}/metrics_summary.csv"
+  - "{output_dir}/metrics_case.csv"
+  - experiments/results/demo.csv
 ```
+
+标准输出：per-job 双 csv（`metrics_summary.csv` + `metrics_case.csv`）+ 双 log（`stdout.log` + `stderr.log`）+ 最终大表（`experiments/results/<method>.csv`，按实验类型命名）。试探输出先落 `tmp/`，确认后转正，不进归档。
 
 首次接项目先使用 smoke 配置和小规模 epoch/step。
 

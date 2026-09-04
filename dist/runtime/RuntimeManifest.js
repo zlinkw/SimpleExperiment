@@ -10,7 +10,7 @@ exports.verifyRuntimeHashes = verifyRuntimeHashes;
 const crypto_1 = require("crypto");
 // 单源：CURRENT_RUNTIME_VERSION 为 runtime 真值（远端 py 的 AGENT/RUNTIME/SCHEDULER_VERSION 由 build 动态注入，禁止手改）；pluginVersion 真值来自 package.json#version，自动同步
 exports.RUNTIME_MANIFEST_SCHEMA_VERSION = 1;
-exports.CURRENT_RUNTIME_VERSION = "0.4.92";
+exports.CURRENT_RUNTIME_VERSION = "0.4.93";
 function sha256Text(text) {
     return (0, crypto_1.createHash)("sha256").update(text, "utf8").digest("hex");
 }

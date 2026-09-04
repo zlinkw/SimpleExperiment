@@ -2,7 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.shouldAcceptVersionedState = shouldAcceptVersionedState;
 exports.mergeVersionedState = mergeVersionedState;
-const terminalStates = new Set(["completed", "failed", "stopped", "deleted", "delete_failed"]);
+// 定案：取消 stale 终态（stale 永不产生，仅作提示阈值，见 RunOperations.RUN_OPERATION_NO_LOG_GROWTH_STALE_MS）。
+// terminalStates 与 operationTerminalStatus 均去掉 stale；历史已落盘 stale 仅作兼容读（调用方自行判断），不再新产生。
+const terminalStates = new Set(["completed", "failed", "stopped", "deleted", "delete_failed", "timeout", "stalled", "error", "operation_completed", "operation_failed", "completed_with_errors", "cancelled", "canceled", "unsupported"]);
 function shouldAcceptVersionedState(previous, incoming) {
     if (!previous)
         return true;

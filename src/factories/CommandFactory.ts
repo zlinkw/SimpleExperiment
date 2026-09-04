@@ -84,8 +84,8 @@ export interface CommandFactory {
 
 function defaultHandlerFor(id: string): (...args: unknown[]) => unknown {
   return (...args: unknown[]) => {
-    // Phase1: 占位 handler，后续由 FeatureFactory / HostOperationLease 包装
-    return { command: id, args, ok: true, delegated: true } as unknown;
+    // 未绑定命令必须抛错，禁止返回假成功占位，避免面板静默“成功”实际未提交。
+    throw new Error(`未绑定命令处理器：${id}。请检查 handlerMap 注册或经 handleMessageCore/runActionCommandCore 通道调用。args=${JSON.stringify(args || []).slice(0, 200)}`);
   };
 }
 

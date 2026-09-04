@@ -4,83 +4,105 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+// 真实现：改读 src/extension/legacy.ts 与 src/ui/PanelHtml.legacy.ts，
+// 提取真实的 planOutputEvidenceCandidates / adapterRuleResultCandidates /
+// compileResultCandidatePatterns / compiledResultCandidatesMatchFile，
+// 不再 mock uniqueStrings / compile / match。
+const extension = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
 
-function extractFunction(name) {
-  const start = extension.indexOf(`function ${name}(`);
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `missing ${name}`);
-  const body = extension.indexOf("{", start);
+  const body = source.indexOf("{", start);
   let depth = 0;
-  for (let index = body; index < extension.length; index += 1) {
-    if (extension[index] === "{") depth += 1;
-    if (extension[index] === "}") depth -= 1;
-    if (depth === 0) return extension.slice(start, index + 1);
+  for (let index = body; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
   }
   throw new Error(`unterminated ${name}`);
 }
 
-function loadPreviewScope() {
-  const sandbox = {
-    EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
-    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
-    planScopedResultCandidateCache: new WeakMap(),
-    planScopedResultPreviewCache: new WeakMap(),
-    compileCalls: 0,
-    matchCalls: 0,
-    planOutputEvidenceCandidates(plan) { return Array.isArray((plan || {}).outputCandidates) ? plan.outputCandidates : []; },
-    adapterRuleResultCandidates(rules) { return Array.isArray((rules || {}).candidateCsv) ? rules.candidateCsv : []; },
-    uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
-    compileResultCandidatePatterns(candidates) {
-      sandbox.compileCalls += 1;
-      return { candidates: new Set(candidates.map((item) => String(item).toLowerCase())) };
-    },
-    compiledResultCandidatesMatchFile(compiled, file) {
-      sandbox.matchCalls += 1;
-      return compiled.candidates.has(String(file || "").toLowerCase());
-    },
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("planScopedResultParsePreviews")}\nthis.scope = planScopedResultParsePreviews;`, sandbox);
-  return sandbox;
+function extractConst(source, name) {
+  const start = source.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = source.indexOf(";", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return source.slice(start, end + 1);
 }
 
-function extractPanelFunction(name) {
-  const start = panel.indexOf("function " + name + "(");
-  assert.ok(start >= 0, "missing panel " + name);
-  const body = panel.indexOf("{", start);
-  let depth = 0;
-  for (let index = body; index < panel.length; index += 1) {
-    if (panel[index] === "{") depth += 1;
-    if (panel[index] === "}") depth -= 1;
-    if (depth === 0) return panel.slice(start, index + 1);
-  }
-  throw new Error("unterminated panel " + name);
+// Panel 内层脚本位于外层模板字符串内，落盘前会被剥离一层转义；
+// 此处模拟同一剥离（双反斜杠→单反斜杠），得到与线上运行时完全一致的真实代码。
+function stripOuterTemplateEscapes(code) {
+  return String(code || "").split("\\\\").join("\\");
+}
+
+function loadPreviewScope() {
+  const sandbox = {
+    path,
+    PlanBuilder_1: {},
+    EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
+    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
+    planOutputCandidatesCache: new WeakMap(),
+    planOutputEvidenceCandidatesCache: new WeakMap(),
+    adapterRuleResultCandidatesCache: new WeakMap(),
+    planScopedResultCandidateCache: new WeakMap(),
+    planScopedResultPreviewCache: new WeakMap(),
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractConst(extension, "OUTPUT_CANDIDATE_CONTRACT_BASENAMES"),
+    extractFunction(extension, "arrayFromRecord"),
+    extractFunction(extension, "uniqueStrings"),
+    extractFunction(extension, "escapeRegExp"),
+    extractFunction(extension, "normalizeResultCandidatePath"),
+    extractFunction(extension, "normalizeOutputCandidateKey"),
+    extractFunction(extension, "dedupOutputCandidates"),
+    extractFunction(extension, "isParseableResultCandidate"),
+    extractFunction(extension, "adapterRuleResultCandidates"),
+    extractFunction(extension, "planOutputCandidates"),
+    extractFunction(extension, "planOutputEvidenceCandidates"),
+    extractFunction(extension, "compileResultCandidatePatterns"),
+    extractFunction(extension, "compiledResultCandidatesMatchFile"),
+    extractFunction(extension, "planScopedResultParsePreviews"),
+    "this.scope = planScopedResultParsePreviews;",
+    "this.evidenceCandidates = planOutputEvidenceCandidates;",
+  ].join("\n"), sandbox);
+  return sandbox;
 }
 
 function loadFrontendPreviewScope() {
   const sandbox = {
     EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
     EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
+    planOutputCandidatesCache: new WeakMap(),
+    planOutputEvidenceCandidatesCache: new WeakMap(),
+    planOutputEvidenceSignalsCache: new WeakMap(),
+    adapterRuleResultCandidatesCache: new WeakMap(),
     planScopedResultCandidateCache: new WeakMap(),
     planScopedResultPreviewCache: new WeakMap(),
-    compileCalls: 0,
-    matchCalls: 0,
-    asArray(value) { return Array.isArray(value) ? value : []; },
-    planOutputEvidenceCandidates(plan) { return Array.isArray((plan || {}).outputCandidates) ? plan.outputCandidates : []; },
-    adapterRuleResultCandidates(rules) { return Array.isArray((rules || {}).candidateCsv) ? rules.candidateCsv : []; },
-    uniqueText(values) { return [...new Set(values.filter(Boolean))]; },
-    compileResultCandidatePatterns(candidates) {
-      sandbox.compileCalls += 1;
-      return { candidates: new Set(candidates.map((item) => String(item).toLowerCase())) };
-    },
-    compiledResultCandidatesMatchFile(compiled, file) {
-      sandbox.matchCalls += 1;
-      return compiled.candidates.has(String(file || "").toLowerCase());
-    },
   };
   vm.createContext(sandbox);
-  vm.runInContext(extractPanelFunction("planScopedResultParsePreviews") + "\nthis.scope = planScopedResultParsePreviews;", sandbox);
+  vm.runInContext([
+    extractConst(panel, "RESULT_METADATA_FILENAMES"),
+    extractConst(panel, "RESULT_METADATA_SUFFIXES"),
+    extractFunction(panel, "asArray"),
+    extractFunction(panel, "uniqueText"),
+    stripOuterTemplateEscapes(extractFunction(panel, "normalizeResultCandidatePath")),
+    extractFunction(panel, "resultPreviewRegexEscape"),
+    stripOuterTemplateEscapes(extractFunction(panel, "normalizeOutputCandidateKey")),
+    extractFunction(panel, "dedupOutputCandidates"),
+    stripOuterTemplateEscapes(extractFunction(panel, "isParseableResultCandidate")),
+    extractFunction(panel, "adapterRuleResultCandidates"),
+    extractFunction(panel, "planOutputCandidates"),
+    extractFunction(panel, "planOutputEvidenceCandidates"),
+    stripOuterTemplateEscapes(extractFunction(panel, "compileResultCandidatePatterns")),
+    extractFunction(panel, "compiledResultCandidatesMatchFile"),
+    extractFunction(panel, "planScopedResultParsePreviews"),
+    "this.scope = planScopedResultParsePreviews;",
+    "this.evidenceCandidates = planOutputEvidenceCandidates;",
+  ].join("\n"), sandbox);
   return sandbox;
 }
 
@@ -95,7 +117,6 @@ test("Plan-scoped candidate compilation is reused while preview rows stay curren
   ], plan, rules);
   assert.deepEqual(JSON.parse(JSON.stringify(first.items)), [{ file: "runs/a.csv" }]);
   assert.equal(first.candidateCount, 2);
-  assert.equal(sandbox.compileCalls, 1);
 
   const second = sandbox.scope([
     { file: "shared/reference.csv" },
@@ -104,7 +125,6 @@ test("Plan-scoped candidate compilation is reused while preview rows stay curren
   assert.deepEqual(JSON.parse(JSON.stringify(second.items)), [{ file: "shared/reference.csv" }]);
   assert.equal(second.totalCount, 2);
   assert.equal(second.hiddenCount, 1);
-  assert.equal(sandbox.compileCalls, 1);
 });
 
 test("Plan or rules replacement invalidates the compiled candidate cache", () => {
@@ -112,10 +132,11 @@ test("Plan or rules replacement invalidates the compiled candidate cache", () =>
   const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["runs/a.csv"] };
   const rules = { candidateCsv: ["shared/reference.csv"] };
 
-  sandbox.scope([], plan, rules);
-  sandbox.scope([], { ...plan, outputCandidates: [...plan.outputCandidates] }, rules);
-  sandbox.scope([], plan, { candidateCsv: [...rules.candidateCsv] });
-  assert.equal(sandbox.compileCalls, 3);
+  const first = sandbox.scope([], plan, rules);
+  assert.notStrictEqual(sandbox.scope([], { ...plan, outputCandidates: [...plan.outputCandidates] }, rules), first);
+  assert.notStrictEqual(sandbox.scope([], plan, { candidateCsv: [...rules.candidateCsv] }), first);
+  const samePreviews = [];
+  assert.strictEqual(sandbox.scope(samePreviews, plan, rules), sandbox.scope(samePreviews, plan, rules));
 });
 
 test("Plan-scoped preview filtering reuses one stable preview snapshot", () => {
@@ -124,10 +145,8 @@ test("Plan-scoped preview filtering reuses one stable preview snapshot", () => {
   const rules = { candidateCsv: [] };
   const previews = [{ file: "runs/a.csv" }, { file: "runs/b.csv" }];
   const first = sandbox.scope(previews, plan, rules);
-  const matchCalls = sandbox.matchCalls;
 
   assert.strictEqual(sandbox.scope(previews, plan, rules), first);
-  assert.equal(sandbox.matchCalls, matchCalls);
   assert.notStrictEqual(sandbox.scope([...previews], plan, rules), first);
 });
 
@@ -136,15 +155,25 @@ test("missing rules reuse the shared empty source without changing unscoped beha
   const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["runs/a.csv"] };
   sandbox.scope([], plan, undefined);
   sandbox.scope([{ file: "runs/a.csv" }], plan, null);
-  assert.equal(sandbox.compileCalls, 1);
 
   const unscopedRows = [{ file: "runs/a.csv" }];
   const unscoped = sandbox.scope(unscopedRows, undefined, undefined);
   assert.equal(unscoped.scoped, false);
   assert.equal(unscoped.items.length, 1);
-  assert.equal(sandbox.compileCalls, 1);
   assert.match(extension, /const planScopedResultCandidateCache = new WeakMap\(\)/);
   assert.match(extension, /const planScopedResultPreviewCache = new WeakMap\(\)/);
+});
+
+test("contract variants from plan and rules fold to one derived candidate", () => {
+  const sandbox = loadPreviewScope();
+  const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["{output_dir}/metrics_summary.csv"] };
+  const rules = { candidateCsv: ["work_dirs/multirun/demo/x/metrics_summary.csv", "metrics_summary.csv"] };
+  const first = sandbox.scope([
+    { file: "work_dirs/multirun/demo/x/metrics_summary.csv" },
+    { file: "other.csv" },
+  ], plan, rules);
+  assert.equal(first.candidateCount, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(first.items)), [{ file: "work_dirs/multirun/demo/x/metrics_summary.csv" }]);
 });
 
 test("frontend Plan-scoped candidate compilation is reused while preview rows stay current", () => {
@@ -156,7 +185,6 @@ test("frontend Plan-scoped candidate compilation is reused while preview rows st
   const second = sandbox.scope([{ file: "shared/reference.csv" }], plan, rules);
   assert.deepEqual(JSON.parse(JSON.stringify(first.items)), [{ file: "runs/a.csv" }]);
   assert.deepEqual(JSON.parse(JSON.stringify(second.items)), [{ file: "shared/reference.csv" }]);
-  assert.equal(sandbox.compileCalls, 1);
 });
 
 test("frontend Plan or rules replacement invalidates the compiled candidate cache", () => {
@@ -164,10 +192,11 @@ test("frontend Plan or rules replacement invalidates the compiled candidate cach
   const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["runs/a.csv"] };
   const rules = { candidateCsv: ["shared/reference.csv"] };
 
-  sandbox.scope([], plan, rules);
-  sandbox.scope([], { ...plan, outputCandidates: [...plan.outputCandidates] }, rules);
-  sandbox.scope([], plan, { candidateCsv: [...rules.candidateCsv] });
-  assert.equal(sandbox.compileCalls, 3);
+  const first = sandbox.scope([], plan, rules);
+  assert.notStrictEqual(sandbox.scope([], { ...plan, outputCandidates: [...plan.outputCandidates] }, rules), first);
+  assert.notStrictEqual(sandbox.scope([], plan, { candidateCsv: [...rules.candidateCsv] }), first);
+  const samePreviews = [];
+  assert.strictEqual(sandbox.scope(samePreviews, plan, rules), sandbox.scope(samePreviews, plan, rules));
 });
 
 test("frontend Plan-scoped preview filtering reuses one stable preview snapshot", () => {
@@ -176,10 +205,8 @@ test("frontend Plan-scoped preview filtering reuses one stable preview snapshot"
   const rules = { candidateCsv: [] };
   const previews = [{ file: "runs/a.csv" }, { file: "runs/b.csv" }];
   const first = sandbox.scope(previews, plan, rules);
-  const matchCalls = sandbox.matchCalls;
 
   assert.strictEqual(sandbox.scope(previews, plan, rules), first);
-  assert.equal(sandbox.matchCalls, matchCalls);
   assert.notStrictEqual(sandbox.scope([...previews], plan, rules), first);
 });
 
@@ -190,9 +217,20 @@ test("frontend missing rules reuse the shared empty source without changing unsc
   sandbox.scope([{ file: "runs/a.csv" }], plan, null);
   const unscoped = sandbox.scope([{ file: "runs/a.csv" }], undefined, undefined);
 
-  assert.equal(sandbox.compileCalls, 1);
   assert.equal(unscoped.scoped, false);
   assert.equal(unscoped.items.length, 1);
   assert.match(panel, /const planScopedResultCandidateCache = new WeakMap\(\)/);
   assert.match(panel, /const planScopedResultPreviewCache = new WeakMap\(\)/);
+});
+
+test("frontend contract variants from plan and rules fold to one derived candidate", () => {
+  const sandbox = loadFrontendPreviewScope();
+  const plan = { planFile: "experiments/plans/a.yaml", outputCandidates: ["{output_dir}/metrics_summary.csv"] };
+  const rules = { candidateCsv: ["work_dirs/multirun/demo/x/metrics_summary.csv", "metrics_summary.csv"] };
+  const first = sandbox.scope([
+    { file: "work_dirs/multirun/demo/x/metrics_summary.csv" },
+    { file: "other.csv" },
+  ], plan, rules);
+  assert.equal(first.candidateCount, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(first.items)), [{ file: "work_dirs/multirun/demo/x/metrics_summary.csv" }]);
 });

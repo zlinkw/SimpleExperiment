@@ -21,15 +21,18 @@ test("long-running plan operations include run and reproduce but exclude termina
   assert.equal(isLongRunningPlanOperation({ ...running, status: "completed" }), false);
 });
 
-test("orphan local runs become stale after the bounded reconciliation grace", () => {
+test("orphan local runs stays running with manual hint after the bounded reconciliation grace", () => {
   const evidence = { pidAlive: false, tmuxSessionAlive: false, schedulerStatesCount: 0, experimentTracesCount: 0, liveLogCount: 0 };
   const fresh = reconcileRunOperation(running, evidence, "workflow.plan", Date.parse(running.startedAt) + 1000);
   assert.equal(fresh.terminal, false);
   assert.equal(fresh.patch.reconcileEvidenceActive, false);
 
   const stale = reconcileRunOperation(running, evidence, "activation", Date.parse(running.startedAt) + 91_000);
-  assert.equal(stale.terminal, true);
-  assert.equal(stale.patch.status, "stale");
+  // 定案：取消 stale 终态，保持 running 由用户手动处理
+  assert.equal(stale.terminal, false);
+  assert.equal(stale.patch.status, "running");
+  assert.equal(stale.patch.finishedAt, undefined);
+  assert.match(stale.patch.message, /未自动终结/);
   assert.match(stale.patch.reconcileReason, /no_remote_activity$/);
 });
 
@@ -92,7 +95,7 @@ test("pid-alive with no activity stays running (real process trusted)", () => {
   assert.equal(active.patch.status, "running");
 });
 
-test("tmux-alive but no activity promotes to stale after the grace window", () => {
+test("tmux-alive but no activity stays running with manual hint after the grace window", () => {
   // First reconcile seeds reconcileNoActivitySince=now; simulate a later reconcile
   // where no activity has been observed for longer than the grace period.
   const seeded = reconcileRunOperation(running, {
@@ -110,7 +113,10 @@ test("tmux-alive but no activity promotes to stale after the grace window", () =
     schedulerStatesCount: 0,
     liveLogCount: 0,
   }, "activation", noActivitySince + 91_000);
-  assert.equal(stale.terminal, true);
-  assert.equal(stale.patch.status, "stale");
+  // 定案：取消 stale 终态，保持 running 由用户手动处理
+  assert.equal(stale.terminal, false);
+  assert.equal(stale.patch.status, "running");
+  assert.equal(stale.patch.finishedAt, undefined);
+  assert.match(stale.patch.message, /未自动终结/);
   assert.match(stale.patch.reconcileReason, /tmux_alive_no_activity$/);
 });

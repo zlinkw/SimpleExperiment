@@ -4,9 +4,12 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-const planBuilder = fs.readFileSync(path.join(__dirname, "../../src/features/PlanBuilder.ts"), "utf8");
+// 真实现：门面 src/extension.ts / src/ui/PanelHtml.ts 已不再包含逻辑，
+// 改读真实实现源 src/extension/legacy.ts、src/ui/PanelHtml.legacy.ts、
+// src/features/PlanBuilder.legacy.ts，并提取真实函数体，不再手写 mock。
+const extension = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
+const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
+const planBuilder = fs.readFileSync(path.join(__dirname, "../../src/features/PlanBuilder.legacy.ts"), "utf8");
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -21,24 +24,40 @@ function extractFunction(source, name) {
   throw new Error(`unterminated ${name}`);
 }
 
-function loadSignalFilter(source) {
+function extractPanelConst(name) {
+  const start = panel.indexOf(`const ${name} =`);
+  assert.ok(start >= 0, `missing ${name}`);
+  const end = panel.indexOf(";", start);
+  assert.ok(end > start, `unterminated ${name}`);
+  return panel.slice(start, end + 1);
+}
+
+function loadBackendSignalFilter() {
+  const sandbox = {
+    EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
+    planOutputEvidenceSignalsCache: new WeakMap(),
+    uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction(extension, "planOutputEvidenceSignals")}\nthis.filterSignals = planOutputEvidenceSignals;`, sandbox);
+  return (plan) => JSON.parse(JSON.stringify(sandbox.filterSignals(plan)));
+}
+
+function loadFrontendSignalFilter() {
   const sandbox = {
     EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
     planOutputEvidenceSignalsCache: new WeakMap(),
     asArray(value) { return Array.isArray(value) ? value : []; },
-    uniqueText(values) {
-      const seen = new Set();
-      return values.filter((item) => {
-        const key = String(item || "").toLowerCase();
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    },
-    uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction(source, "planOutputEvidenceSignals")}\nthis.filterSignals = planOutputEvidenceSignals;`, sandbox);
+  vm.runInContext([
+    extractPanelConst("RESULT_METADATA_FILENAMES"),
+    extractPanelConst("RESULT_METADATA_SUFFIXES"),
+    extractFunction(panel, "asArray"),
+    extractFunction(panel, "uniqueText"),
+    extractFunction(panel, "planOutputEvidenceSignals"),
+    "this.filterSignals = planOutputEvidenceSignals;",
+  ].join("\n"), sandbox);
   return (plan) => JSON.parse(JSON.stringify(sandbox.filterSignals(plan)));
 }
 
@@ -59,6 +78,6 @@ test("plan output evidence signals accept result dir and command param labels", 
     ],
   };
   const expected = plan.outputSignals.slice(0, 4);
-  assert.deepEqual(loadSignalFilter(panel)(plan), expected);
-  assert.deepEqual(loadSignalFilter(extension)(plan), expected);
+  assert.deepEqual(loadFrontendSignalFilter()(plan), expected);
+  assert.deepEqual(loadBackendSignalFilter()(plan), expected);
 });

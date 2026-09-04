@@ -134,7 +134,26 @@ type WebviewActionCommand =
     | "cleanupDrafts";
     // Update commands are intentionally local-only and do not enter the remote action map.
 const viewId = "simpleExperiment.panel";
-const LENIENT_RUN = true;
+// 输出门禁/拓扑失败默认硬阻断：仅显式开关（环境变量 SIMPLE_EXPERIMENT_LENIENT_RUN=1）才软通过，
+// 且软通过必须落盘原因（simple_cluster/tmp/lenient-soft-pass.log + recordActionError）。
+const LENIENT_RUN = typeof process !== "undefined" && (process.env.SIMPLE_EXPERIMENT_LENIENT_RUN === "1" || process.env.LENIENT_RUN === "1");
+function recordLenientSoftPass(host: any, scope: string, reason: string): void {
+    const line = `[${new Date().toISOString()}] [LENIENT_RUN] ${scope} soft-pass: ${reason}`;
+    try {
+        console.warn(line);
+    } catch { /* ignore */ }
+    try {
+        host?.recordActionError?.({ command: "lenientRunSoftPass", message: line, suggestion: "显式 LENIENT 软通过已记录，请在诊断错误中查看完整原因；关闭 SIMPLE_EXPERIMENT_LENIENT_RUN 可恢复硬阻断。" });
+    } catch { /* ignore */ }
+    try {
+        const root = host?.projectRoot || host?.workspaceRoot || process.cwd();
+        const file = fsNode ? path.join(String(root), "simple_cluster", "tmp", "lenient-soft-pass.log") : "";
+        if (file) {
+            fsNode.mkdirSync(path.dirname(file), { recursive: true });
+            fsNode.appendFileSync(file, line + "\n", "utf8");
+        }
+    } catch { /* ignore */ }
+}
 const LOCAL_API_PREFERRED_PORT = 19765;
 const API_DISCOVERY_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleExperiment");
 const API_DISCOVERY_PATH = path.join(API_DISCOVERY_DIR, "api.json");
@@ -271,9 +290,6 @@ const defaultUiLayout = {
     columns: { tree: 280, inspector: 360 },
     treePinned: false,
     inspectorPinned: false,
-    pinnedCommands: ["testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureSftpIgnores"],
-    detailActions: [],
-    pinnedActions: [],
 };
 const LOCAL_OPERATION_RECORD_LIMIT = 120;
 const STATE_OPERATION_RECORD_LIMIT = 120;
@@ -401,16 +417,8 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
     "inspectDataset", "createOfflineBundle", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig",
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
-const PINNED_UI_COMMANDS = new Set([
-    "startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan",
-    "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable",
-    "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "plotResultsToPpt",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers",
-    "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck",
-    "createDebugBundle", "pauseAll", "resumeNetwork",
-]);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
-    ...defaultUiLayout.pinnedCommands,
+    "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureSftpIgnores",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
     "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
@@ -429,7 +437,6 @@ const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
     "conflictMode",
 ]);
-const normalizePinnedCommandsCache = new WeakMap();
 const normalizeUiButtonActionsCache = new WeakMap();
 const UI_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 4;
 const actionCommandMap = {
@@ -4792,7 +4799,6 @@ export class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         const layout = normalizeUiLayout(recordField(message, "layout"));
         // Project layout is authoritative for the open workspace.
-        // globalState only keeps a pinnedCommands template for brand-new projects.
         this.projectUiLayout = projectUiLayoutState(layout);
         await Promise.all([
             this.context.globalState.update(keys.uiLayout, globalUiLayoutState(layout)),
@@ -4951,15 +4957,15 @@ export class RealtimeTunnelPanelProvider {
             const outputGateReason = projectOutputGateReason(this.localPlanMetadata.detectedProject, plan);
             if (outputGateReason) {
                 if (LENIENT_RUN) {
-                    console.warn(`[LENIENT_RUN] outputGate soft warn: ${outputGateReason}`);
+                    recordLenientSoftPass(this, "outputGate", String(outputGateReason));
                 } else {
                     throw new Error(outputGateReason);
                 }
             }
             await this.ensureWorkerPoolPlanTarget(body, operationResultPlanFile(body) || plan?.planFile || command);
             if (LENIENT_RUN) {
-                try { this.assertExecutionWorkersReady(body.options?.workers); } catch (error) { console.warn(`[LENIENT_RUN] assertExecutionWorkersReady soft warn: ${errorMessage(error)}`); }
-                try { this.assertExecutionAgentProjectsReady(body); } catch (error) { console.warn(`[LENIENT_RUN] assertExecutionAgentProjectsReady soft warn: ${errorMessage(error)}`); }
+                try { this.assertExecutionWorkersReady(body.options?.workers); } catch (error) { recordLenientSoftPass(this, "assertExecutionWorkersReady", errorMessage(error)); }
+                try { this.assertExecutionAgentProjectsReady(body); } catch (error) { recordLenientSoftPass(this, "assertExecutionAgentProjectsReady", errorMessage(error)); }
             } else {
                 this.assertExecutionWorkersReady(body.options?.workers);
                 this.assertExecutionAgentProjectsReady(body);
@@ -4979,7 +4985,7 @@ export class RealtimeTunnelPanelProvider {
             const preflightOk = await this.runPlanPreflight(body, "当前计划");
             if (!preflightOk) {
                 if (LENIENT_RUN) {
-                    console.warn(`[LENIENT_RUN] runPlanPreflight soft warn: preflight not ok, continue to submit`);
+                    recordLenientSoftPass(this, "runPlanPreflight", "preflight not ok, continue to submit");
                 } else {
                     return;
                 }
@@ -7942,16 +7948,15 @@ export class RealtimeTunnelPanelProvider {
                             //  - reconciled.dead（进程确实死了）
                             //  - 探测预算耗尽且进程仍“活”（tmux/python）但无真实活动（假存活）
                             //  - 探测预算耗尽且证据采集是网络错误（无法确认存活，超时应收口，不可无限 running）
+                            // 定案：取消 stale 终态。强制收口不再标记 terminal stale，改为非终态 running + 提示用户自行判断、手动中止/清理。
                             const forceStale = reconciled.dead || (probeAttempt >= this.operationStatusProbeMaxAttempts && (evProcessAlive && !evHasActivity || networkError));
                             if (forceStale) {
                                 this.localOperations[opId] = {
                                     ...rec,
-                                    status: "stale",
-                                    message: rec.message || (networkError ? "调度状态探测持续失败（网络错误），已标记为 stale；请刷新运行状态或查看 Agent 日志。" : "调度进程已退出/无活动证据，已标记为 stale；请刷新运行状态或查看 Agent 日志。"),
+                                    status: "running",
+                                    message: rec.message || (networkError ? "调度状态探测持续失败（网络错误），未自动终结；请用户自行判断，必要时手动中止/清理，或刷新运行状态、查看 Agent 日志。" : "调度进程已退出/无活动证据，未自动终结；请用户自行判断，必要时手动中止/清理，或刷新运行状态、查看 Agent 日志。"),
                                     updatedAt: new Date().toISOString(),
                                 };
-                                this.clearOperationStatusProbe(opId);
-                                this.clearOperationWatchdog(opId);
                                 this.markLocalOperationsDirty();
                                 this.postState();
                             }
@@ -8044,9 +8049,8 @@ export class RealtimeTunnelPanelProvider {
             evidence = result && typeof result === "object" ? result : {};
         }
         catch (error) {
-            // 网络错误不应被当作“进程已死”，但仍需返回 networkError 以允许调用方在
-            // 探测预算耗尽时按超时收口为 stale（否则会因无证据而不触发 forceStale，
-            // 导致操作永久卡在 running）。
+            // 网络错误不应被当作“进程已死”，但仍需返回 networkError 供调用方提示；
+            // 定案：取消 stale 终态，保持 running 由用户手动处理，不再按超时收口为 stale。
             const msg = errorMessage(error).toLowerCase();
             const networkError = /network|timeout|etimedout|econnreset|enotfound|econnrefused|getaddrinfo|fetch failed|abort|canceled|ECONN|socket|handshake|502|503|504|reset|unreachable|dns/i.test(msg);
             return { terminal: false, dead: false, evidence: {}, networkError };
@@ -8318,19 +8322,20 @@ export class RealtimeTunnelPanelProvider {
                 if (!operationTerminal(this.localOperations[operationId])) {
                     const now = new Date().toISOString();
                     const orphan = !terminatedSessions.length && !terminatedPids.length;
+                    // 定案：取消 stale 终态；orphan（无可杀 pid/tmux）保持 running，由用户自行判断、手动中止/清理，不再标记 stale。
                     this.localOperations[operationId] = {
                         ...row,
-                        status: orphan ? "stale" : resultStatus(record) === "failed" ? "failed" : "completed",
+                        status: orphan ? "running" : resultStatus(record) === "failed" ? "failed" : "completed",
                         message: orphan
-                            ? "停止对账未发现活动 pid/tmux；本地提交操作已标记 stale。"
+                            ? "停止对账未发现活动 pid/tmux；未自动终结，请用户自行判断，必要时手动中止/清理。"
                             : stringFromRecord(record, ["message"]) || "已请求终止对应调度进程。",
-                        finishedAt: now,
+                        finishedAt: orphan ? (row as any).finishedAt : now,
                         reconciledAt: now,
                         reconcileReason: orphan ? "stop:no_remote_activity" : "stop:terminated",
                         checkedWorkerId: workerId,
                         updatedAt: now,
                     };
-                    reconciledOperations.push(operationId);
+                    if (!orphan) reconciledOperations.push(operationId);
                 }
             }
         }
@@ -12851,7 +12856,7 @@ export class RealtimeTunnelPanelProvider {
     }
     currentUiLayoutState() {
         const globalLayout = normalizeUiLayout(this.context.globalState.get(keys.uiLayout) || {});
-        // Project file wins for project-specific layout. Global only seeds missing pinnedCommands.
+        // Project file wins for project-specific layout.
         if (this.projectUiLayout) {
             const projectLayout = normalizeUiProjectLayoutState(this.projectUiLayout, defaultUiLayout);
             return mergeUiLayoutState(globalLayout, projectLayout);
@@ -13038,7 +13043,7 @@ export class RealtimeTunnelPanelProvider {
             codeSync: {},
             remotePathConfirmations: { count: 0, stateFile: "" },
             pptPathConfirmations: { count: 0, stateFile: "" },
-            uiLayout: { order: [], collapsed: {}, resourceTreeChildren: {}, manual: false, treePinned: false, inspectorPinned: false, detailActions: [], pinnedActions: [] },
+            uiLayout: { order: [], collapsed: {}, resourceTreeChildren: {}, manual: false, treePinned: false, inspectorPinned: false },
             selection: { selectedPlanId: "", selectedExperimentIds: [], selectedRunKeys: [], selectedRunKey: "", selectedArchiveKeys: [], hiddenLegacyTaskUiKeys: [], selectedLogRunKey: "" },
             planFileInput: "",
             recentPlans: [],
@@ -13747,7 +13752,8 @@ function operationStatusOf(value) {
     const item = value;
     return String(item.status || item.state || item.type || "");
 }
-const OPERATION_TERMINAL_STATUSES = new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stale", "stalled", "unsupported", "error"]);
+const OPERATION_TERMINAL_STATUSES = new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stalled", "unsupported", "error"]);
+// 定案：取消 stale 终态（stale 永不新产生；历史 stale 仅兼容读，由用户自行判断；STALE 阈值仅作提示）。
 const OPERATION_FAILURE_TERMINAL_STATUSES = new Set(["completed_with_errors", "failed", "operation_failed", "stalled", "unsupported", "error"]);
 const OPERATION_CANCELLED_TERMINAL_STATUSES = new Set(["cancelled", "canceled"]);
 const REMOTE_ACTION_PENDING_STATUSES = new Set(["accepted", "submitted", "queued", "pending", "running", "progress", "in_progress", "operation_started"]);
@@ -14988,12 +14994,27 @@ function resolvePlanFileFromPlanList(plans, hint, fallbackHints = []) {
     return pathLike || candidates[0];
 }
 function compactPlanArrayForWebview(value, limit) {
-    const items = Array.isArray(value) ? value : [];
+    // 先去重后切片：幂等折叠归一键相同的输出候选，避免 ×2 膨胀计数
+    const items = dedupWebviewListItems(Array.isArray(value) ? value : []);
     return {
         items: items.slice(0, limit),
         totalCount: items.length,
         omittedCount: Math.max(0, items.length - limit),
     };
+}
+function dedupWebviewListItems(values) {
+    const seen = new Set();
+    const out = [];
+    for (const raw of values || []) {
+        const text = typeof raw === "string" ? raw.trim() : raw;
+        const probe = typeof raw === "string" ? normalizeOutputCandidateKey(raw) : "";
+        const key = probe || (typeof raw === "string" ? text.toLowerCase() : JSON.stringify(raw));
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        out.push(raw);
+    }
+    return out;
 }
 const detectedProjectArrayLimits = {
     configs: 120,
@@ -16546,9 +16567,7 @@ function normalizeUiLayout(input) {
         columns: normalizeUiLayoutColumns(input.columns),
         treePinned: Boolean(input.treePinned),
         inspectorPinned: Boolean(input.inspectorPinned),
-        pinnedCommands: normalizePinnedCommands(input.pinnedCommands),
-        detailActions: normalizeUiButtonActions(input.detailActions, 40),
-        pinnedActions: normalizeUiButtonActions(input.pinnedActions, 16),
+        inspectorCustomGroups: normalizeInspectorCustomGroups(input.inspectorCustomGroups),
     };
 }
 function normalizeResourceTreeChildOrders(input) {
@@ -16568,10 +16587,9 @@ function normalizeResourceTreeChildOrders(input) {
     return out;
 }
 function globalUiLayoutState(layout) {
-    // Global template only: never store project order/columns/collapsed here.
-    return {
-        pinnedCommands: layout.pinnedCommands,
-    };
+    // Global template only: project layout is authoritative; keep empty for brand-new projects.
+    void layout;
+    return {};
 }
 function projectUiLayoutState(layout) {
     return {
@@ -16582,14 +16600,11 @@ function projectUiLayoutState(layout) {
         columns: layout.columns,
         treePinned: layout.treePinned,
         inspectorPinned: layout.inspectorPinned,
-        pinnedCommands: layout.pinnedCommands,
-        detailActions: layout.detailActions,
-        pinnedActions: layout.pinnedActions,
+        inspectorCustomGroups: layout.inspectorCustomGroups,
     };
 }
 function mergeUiLayoutState(globalLayout, projectLayout) {
-    // Project fields override. pinnedCommands prefer project when present, else global template.
-    const projectPinned = Array.isArray(projectLayout.pinnedCommands) ? projectLayout.pinnedCommands : undefined;
+    // Project fields override; inspectorCustomGroups prefer project when present, else global.
     return {
         ...globalLayout,
         order: Array.isArray(projectLayout.order) ? normalizeUiLayout({ order: projectLayout.order }).order : globalLayout.order,
@@ -16599,14 +16614,11 @@ function mergeUiLayoutState(globalLayout, projectLayout) {
         columns: normalizeUiLayoutColumns(projectLayout.columns || globalLayout.columns),
         treePinned: typeof projectLayout.treePinned === "boolean" ? projectLayout.treePinned : globalLayout.treePinned,
         inspectorPinned: typeof projectLayout.inspectorPinned === "boolean" ? projectLayout.inspectorPinned : globalLayout.inspectorPinned,
-        pinnedCommands: normalizePinnedCommands(projectPinned && projectPinned.length ? projectPinned : globalLayout.pinnedCommands),
-        detailActions: normalizeUiButtonActions(projectLayout.detailActions || globalLayout.detailActions, 40),
-        pinnedActions: normalizeUiButtonActions(projectLayout.pinnedActions || globalLayout.pinnedActions, 16),
+        inspectorCustomGroups: normalizeInspectorCustomGroups(projectLayout.inspectorCustomGroups || globalLayout.inspectorCustomGroups),
     };
 }
 function normalizeUiProjectLayoutState(input, fallback) {
     const record = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-    const hasPinned = Array.isArray(record.pinnedCommands);
     return {
         order: Array.isArray(record.order) ? normalizeUiLayout({ order: record.order }).order : fallback.order,
         collapsed: normalizeUiLayout({ collapsed: record.collapsed || fallback.collapsed }).collapsed,
@@ -16615,9 +16627,7 @@ function normalizeUiProjectLayoutState(input, fallback) {
         columns: normalizeUiLayoutColumns(record.columns || fallback.columns),
         treePinned: typeof record.treePinned === "boolean" ? record.treePinned : fallback.treePinned,
         inspectorPinned: typeof record.inspectorPinned === "boolean" ? record.inspectorPinned : fallback.inspectorPinned,
-        pinnedCommands: normalizePinnedCommands(hasPinned ? record.pinnedCommands : fallback.pinnedCommands),
-        detailActions: normalizeUiButtonActions(record.detailActions || fallback.detailActions, 40),
-        pinnedActions: normalizeUiButtonActions(record.pinnedActions || fallback.pinnedActions, 16),
+        inspectorCustomGroups: normalizeInspectorCustomGroups(record.inspectorCustomGroups || fallback.inspectorCustomGroups),
     };
 }
 function normalizeUiLayoutColumns(input) {
@@ -16627,20 +16637,25 @@ function normalizeUiLayoutColumns(input) {
         inspector: clampUiNumber(record.inspector, 280, 520, defaultUiLayout.columns.inspector),
     };
 }
-function normalizePinnedCommands(input) {
-    const source = Array.isArray(input) ? input : defaultUiLayout.pinnedCommands;
-    const cached = normalizePinnedCommandsCache.get(source);
-    if (cached)
-        return cached;
-    const unique = [];
-    for (const command of source.map((item) => String(item || ""))) {
-        if (PINNED_UI_COMMANDS.has(command) && !unique.includes(command))
-            unique.push(command);
+function normalizeInspectorCustomGroups(input) {
+    const record = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const out = {};
+    for (const [group, raw] of Object.entries(record)) {
+        const key = String(group || "").trim().slice(0, 40);
+        if (!key)
+            continue;
+        // 强力迁移：旧诊断/运维键直接丢弃（与前端 PanelHtml.legacy.ts#5298-5299 对齐，已确认保留的新组不受影响）
+        if (key === "诊断与自检" || key === "diagnostics" || key === "运维")
+            continue;
+        out[key] = normalizeUiButtonActions(raw, 40);
     }
-    const normalized = unique.slice(0, 8);
-    normalizePinnedCommandsCache.set(source, normalized);
-    normalizePinnedCommandsCache.set(normalized, normalized);
-    return normalized;
+    try {
+        delete out["诊断与自检"];
+        delete out["diagnostics"];
+        delete out["运维"];
+    }
+    catch { }
+    return out;
 }
 function normalizeUiButtonActions(input, limit) {
     if (!Array.isArray(input))
@@ -16922,7 +16937,7 @@ function adapterRuleResultCandidates(rules) {
     const cached = adapterRuleResultCandidatesCache.get(source);
     if (cached)
         return cached;
-    const value = uniqueStrings([
+    const value = dedupOutputCandidates([
         ...arrayFromRecord(source, "candidateCsv"),
         ...arrayFromRecord(source, "candidateJson"),
         ...arrayFromRecord(source, "consoleLogs"),
@@ -16932,7 +16947,7 @@ function adapterRuleResultCandidates(rules) {
     return value;
 }
 function inferredPlanAdapterRuleCandidates(rules) {
-    return uniqueStrings([
+    return dedupOutputCandidates([
         ...arrayFromRecord(rules, "inferredPlanCandidateCsv"),
         ...arrayFromRecord(rules, "inferredPlanCandidateJson"),
         ...arrayFromRecord(rules, "inferredPlanConsoleLogs"),
@@ -16967,6 +16982,41 @@ function resultPreviewHasRecords(item) {
 function normalizeResultCandidatePath(value) {
     return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
 }
+// 输出候选归一键（去重×2根因修复）：优先复用 PlanBuilder.normalizeOutputCandidateKey，
+// trim→反斜杠转正斜杠→占位符展开→小写；4种契约文件按小写basename折叠，大表走全路径键。
+const OUTPUT_CANDIDATE_CONTRACT_BASENAMES = new Set(["metrics_summary.csv", "metrics_case.csv", "stdout.log", "stderr.log"]);
+function normalizeOutputCandidateKey(value) {
+    try {
+        if (typeof PlanBuilder_1.normalizeOutputCandidateKey === "function")
+            return PlanBuilder_1.normalizeOutputCandidateKey(value);
+    } catch {}
+    const raw = String(value || "").trim().replace(/\\/g, "/");
+    if (!raw)
+        return "";
+    const expanded = String(raw.replace(/^\.\//, "").replace(/^\/+/, "")).replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, "*").replace(/\{([A-Za-z0-9_.-]+)\}/g, "*").replace(/\*+/g, "*").replace(/\/+/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+    const lowered = expanded.toLowerCase();
+    if (!lowered)
+        return "";
+    const base = lowered.split("/").pop() || lowered;
+    if (OUTPUT_CANDIDATE_CONTRACT_BASENAMES.has(base))
+        return `contract:${base}`;
+    return `path:${lowered}`;
+}
+function dedupOutputCandidates(values) {
+    const seen = new Set();
+    const out = [];
+    for (const raw of values || []) {
+        const text = String(raw || "").trim();
+        if (!text)
+            continue;
+        const key = normalizeOutputCandidateKey(text);
+        if (!key || seen.has(key))
+            continue;
+        seen.add(key);
+        out.push(text);
+    }
+    return out;
+}
 function compileResultCandidatePatterns(candidates, plan) {
     plan = plan || {};
     const known = {
@@ -16976,8 +17026,12 @@ function compileResultCandidatePatterns(candidates, plan) {
     };
     const basenames = new Set();
     const exactPaths = new Set();
+    const candidateKeys = new Set();
     const patterns = [];
     for (const candidate of candidates) {
+        const key = normalizeOutputCandidateKey(candidate);
+        if (key)
+            candidateKeys.add(key);
         const pattern = normalizeResultCandidatePath(candidate);
         if (!pattern)
             continue;
@@ -17025,12 +17079,16 @@ function compileResultCandidatePatterns(candidates, plan) {
             // Ignore malformed candidates while retaining valid matchers.
         }
     }
-    return { basenames, exactPaths, patterns };
+    return { basenames, exactPaths, candidateKeys, patterns };
 }
 function compiledResultCandidatesMatchFile(compiled, file) {
     const target = normalizeResultCandidatePath(file);
     if (!target)
         return false;
+    // 派生比较键：契约文件先按归一键折叠比较，避免 {output_dir}/ 与 work_dirs/ 双写形态漏匹配
+    const targetKey = normalizeOutputCandidateKey(target);
+    if (targetKey && compiled.candidateKeys && compiled.candidateKeys.has(targetKey))
+        return true;
     const normalized = target.toLowerCase();
     return compiled.exactPaths.has(normalized)
         || compiled.basenames.has(path.posix.basename(target).toLowerCase())
@@ -17069,7 +17127,7 @@ function planScopedResultParsePreviews(previews, plan, rules) {
     }
     let derived = rulesCache.get(rulesSource);
     if (!derived) {
-        const candidates = uniqueStrings([
+        const candidates = dedupOutputCandidates([
             ...planOutputEvidenceCandidates(plan),
             ...adapterRuleResultCandidates(rulesSource),
         ]);
@@ -17089,7 +17147,7 @@ function planOutputCandidates(plan) {
     const cached = planOutputCandidatesCache.get(source);
     if (cached)
         return cached;
-    const value = uniqueStrings((source.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
+    const value = dedupOutputCandidates((source.outputCandidates || []).map((item) => String(item || "").trim()).filter(Boolean));
     planOutputCandidatesCache.set(source, value);
     return value;
 }
@@ -19105,35 +19163,29 @@ async function inferProjectAdapterRules(root, configFiles, factory, planFiles = 
         if ((evidence.outputCandidates || []).length)
             planSignals.add(`plan:${path.basename(item.file)}:outputCandidates=${(evidence.outputCandidates || []).length}`);
     }
+    // 终版5文件契约（2026-09）：符号推断仅允许契约分支（DefaultDeepLearningAdapter → metrics_summary/stdout/stderr）。
+    // 以下脑补分支已删除/降级为提示信号，不再产生候选文件，杂散结果走 Plan 声明：
+    // - append_results / collect_results（work_dirs/results.csv、test_results/summary.txt）→ 降为 hint，不加 csv
+    // - Registry/build_model/build_dataset → 降为 hint，不加 csv/json/txt
+    // - Trainer/LightningModule（lightning_logs/*/metrics.csv、logs/*/metrics.csv）→ 删除
+    // - classification_report（.csv/.txt）→ 删除
     if (factory.files.includes("experiments/common.py") || factory.symbols.includes("append_results")) {
-        csv.add("experiments/results/*.csv");
-        csv.add("work_dirs/results.csv");
+        planSignals.add("hint: experiments/common.py or append_results() detected; results must be declared in Plan (experiments/results/<method>.csv).");
     }
     if (factory.files.includes("experiments/collect_results.py")) {
-        textLogs.add("work_dirs/*/test_results/summary.txt");
-        csv.add("work_dirs/results.csv");
+        planSignals.add("hint: experiments/collect_results.py detected; results must be declared in Plan.");
     }
     if (factory.files.includes("experiments/simple_adapter/factory_hooks.py") || factory.symbols.includes("DefaultDeepLearningAdapter")) {
         csv.add("metrics_summary.csv");
         csv.add("work_dirs/*/metrics_summary.csv");
-        csv.add("work_dirs/results.csv");
         consoleLogs.add("stdout.log");
         consoleLogs.add("stderr.log");
     }
     if (factory.symbols.includes("Registry") || factory.symbols.includes("build_model") || factory.symbols.includes("build_dataset")) {
-        csv.add("work_dirs/*/metrics_summary.csv");
-        csv.add("work_dirs/*/results.csv");
-        json.add("work_dirs/*/metrics.json");
-        textLogs.add("work_dirs/*/summary.txt");
+        planSignals.add("hint: Registry/build_model/build_dataset detected; results must be declared in Plan.");
     }
-    if (factory.symbols.includes("Trainer") || factory.symbols.includes("LightningModule")) {
-        csv.add("lightning_logs/*/metrics.csv");
-        csv.add("logs/*/metrics.csv");
-    }
-    if (factory.symbols.includes("classification_report")) {
-        csv.add("classification_report.csv");
-        textLogs.add("classification_report.txt");
-    }
+    // Trainer/LightningModule 分支已删除：lightning_logs/*/metrics.csv、logs/*/metrics.csv 不再脑补，走 Plan 声明。
+    // classification_report 分支已删除：classification_report.csv/.txt 不再脑补，走 Plan 声明。
     const hasSegmentationTask = [...taskSignals].some((item) => /segmentation|seg\b/i.test(item));
     const hasClassificationTask = [...taskSignals].some((item) => /classification|multimodal_classification/i.test(item));
     const taskType = hasSegmentationTask && !hasClassificationTask ? "segmentation" : "classification";
@@ -19195,14 +19247,14 @@ function mergeProjectAdapterRules(explicitRules, inferredRules) {
         secondaryMetrics: explicitRules.secondaryMetrics?.length ? explicitRules.secondaryMetrics : inferredRules.secondaryMetrics,
         classificationMetrics: explicitRules.classificationMetrics?.length ? explicitRules.classificationMetrics : inferredRules.classificationMetrics,
         segmentationMetrics: explicitRules.segmentationMetrics?.length ? explicitRules.segmentationMetrics : inferredRules.segmentationMetrics,
-        candidateCsv: unionList(explicitRules.candidateCsv, inferredRules.candidateCsv),
-        candidateJson: unionList(explicitRules.candidateJson, inferredRules.candidateJson),
-        consoleLogs: unionList(explicitRules.consoleLogs, inferredRules.consoleLogs),
-        textLogs: unionList(explicitRules.textLogs, inferredRules.textLogs),
-        inferredPlanCandidateCsv: unionList(inferredRules.inferredPlanCandidateCsv),
-        inferredPlanCandidateJson: unionList(inferredRules.inferredPlanCandidateJson),
-        inferredPlanConsoleLogs: unionList(inferredRules.inferredPlanConsoleLogs),
-        inferredPlanTextLogs: unionList(inferredRules.inferredPlanTextLogs),
+        candidateCsv: dedupOutputCandidates(unionList(explicitRules.candidateCsv, inferredRules.candidateCsv)),
+        candidateJson: dedupOutputCandidates(unionList(explicitRules.candidateJson, inferredRules.candidateJson)),
+        consoleLogs: dedupOutputCandidates(unionList(explicitRules.consoleLogs, inferredRules.consoleLogs)),
+        textLogs: dedupOutputCandidates(unionList(explicitRules.textLogs, inferredRules.textLogs)),
+        inferredPlanCandidateCsv: dedupOutputCandidates(unionList(inferredRules.inferredPlanCandidateCsv)),
+        inferredPlanCandidateJson: dedupOutputCandidates(unionList(inferredRules.inferredPlanCandidateJson)),
+        inferredPlanConsoleLogs: dedupOutputCandidates(unionList(inferredRules.inferredPlanConsoleLogs)),
+        inferredPlanTextLogs: dedupOutputCandidates(unionList(inferredRules.inferredPlanTextLogs)),
         metricRegex: explicitRules.metricRegex || inferredRules.metricRegex,
         csvColumnMapping: hasMap(explicitRules.csvColumnMapping) ? explicitRules.csvColumnMapping : inferredRules.csvColumnMapping,
         metricAliases: hasMap(explicitRules.metricAliases) ? explicitRules.metricAliases : inferredRules.metricAliases,
@@ -20347,12 +20399,13 @@ function guidedPlanResultPathReview(command, suite, fallbackExtension = ".csv", 
     }
     if (explicitPaths.length)
         return { path: explicitPaths[0].path, source: explicitPaths[0].source, needsReview: false };
+    // 引导回退收敛（2026-09）：仅保留终版契约回退 .csv→metrics_summary.csv、.log→stdout.log；
+    // .json/.txt/.out 一律收敛到 metrics_summary.csv（needsReview=true 提示声明 experiments/results 大表）。
+    if (extension !== ".csv" && extension !== ".log")
+        extension = ".csv";
     const defaultFile = {
         ".csv": "metrics_summary.csv",
-        ".json": "metrics.json",
-        ".txt": "summary.txt",
         ".log": "stdout.log",
-        ".out": "output.out",
     }[extension] || "metrics_summary.csv";
     if (resultAliasUsed)
         return { path: `${resultDir}/${safeSuite}/{case}_seed{seed}${extension}`, source: "命令中的结果占位参数，使用设置中的 CSV 默认目录", needsReview: false };

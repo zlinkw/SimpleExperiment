@@ -7,8 +7,8 @@ const vm = require("node:vm");
 
 const { runOperationMatchesTarget } = require("../../dist/features/RunOperations");
 
-const extensionSource = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-const terminalStatuses = new Set(["completed", "failed", "cancelled", "stale"]);
+const extensionSource = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
+const terminalStatuses = new Set(["completed", "failed", "cancelled"]);
 const operationTerminal = (row) => terminalStatuses.has(String(row?.status || ""));
 
 function extractMethod(source, signature) {
@@ -29,7 +29,7 @@ function extractMethod(source, signature) {
     if (source[index] === "{") depth += 1;
     if (source[index] === "}") {
       depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
+      if (depth === 0) return source.slice(start, index + 1).replace(/(\w|\)|\]|\}) as [A-Za-z_$][\w$]*/g, "$1");
     }
   }
   throw new Error(`unterminated method ${signature}`);
@@ -56,11 +56,23 @@ function createContext(extra = {}) {
     },
     operationResultPlanFile: (row) => String(row?.planFile || row?.plan || row?.options?.planFile || ""),
     usableSelectionKey: (value) => String(value || "").trim(),
-    operationTerminal: (row) => ["completed", "failed", "cancelled", "stale"].includes(String(row?.status || "")),
+    operationTerminal: (row) => ["completed", "failed", "cancelled"].includes(String(row?.status || "")),
     makeOpId: (prefix) => `${prefix}-${Math.random().toString(16).slice(2)}`,
     resultStatus: (record) => String(record?.status || ""),
     stringFromRecord: (record, keys) => keys.map((key) => String(record?.[key] || "")).find(Boolean) || "",
     LONG_RUNNING_OPERATION_ACTIONS: new Set(["run-plan", "reproduce-plan"]),
+    sanitizeAllowedGpuIds: (ids) => {
+      const raw = Array.isArray(ids) ? ids : typeof ids === "string" ? String(ids).split(/[,\s]+/) : [];
+      const trimmed = raw.map((item) => String(item || "").trim()).filter(Boolean);
+      if (!trimmed.length) return [];
+      if (trimmed.length === 1 && (trimmed[0] === "-" || trimmed[0] === "--")) return [];
+      if (trimmed.some((value) => value === "-" || value === "--")) return [];
+      const invalid = trimmed.filter((value) => !/^\d+$/.test(value));
+      if (invalid.length) return [];
+      return [...new Set(trimmed)];
+    },
+    normalizeCondaEnvSetting: (value) => String(value ?? "").trim(),
+    errorMessage: (error) => String((error && error.message) || error || ""),
     ...extra,
   };
   vm.createContext(context);
@@ -103,7 +115,7 @@ test("single-worker stop routes by Plan to the sole Worker without Hub", async (
   assert.equal(provider.localOperations["run-plan-old"].status, "completed");
 });
 
-test("single-worker orphan stop marks the submission stale when no process is terminated", async () => {
+test("single-worker orphan stop stays running with manual hint when no process is terminated", async () => {
   const operation = {
     operationId: "run-plan-orphan",
     type: "run-plan",
@@ -131,11 +143,14 @@ test("single-worker orphan stop marks the submission stale when no process is te
   const result = await contextStop(provider, { planFile: "experiments/plans/orphan.yaml" });
 
   assert.equal(result.stopped, 0);
-  assert.equal(provider.localOperations["run-plan-orphan"].status, "stale");
+  // 定案：取消 stale 终态，orphan 保持 running 由用户手动处理
+  assert.equal(provider.localOperations["run-plan-orphan"].status, "running");
+  assert.equal(provider.localOperations["run-plan-orphan"].finishedAt, undefined);
+  assert.match(provider.localOperations["run-plan-orphan"].message, /未自动终结/);
   assert.equal(provider.localOperations["run-plan-orphan"].reconcileReason, "stop:no_remote_activity");
 });
 
-test("single-worker stop still matches a reconciled stale submission", async () => {
+test("single-worker stop still matches a reconciled submission staying running with manual hint", async () => {
   const calls = [];
   const operation = {
     operationId: "run-plan-stale",
@@ -167,7 +182,9 @@ test("single-worker stop still matches a reconciled stale submission", async () 
   assert.deepEqual(calls.map((call) => call.action), ["stop-scheduler-operation"]);
   assert.equal(result.stopped, 0);
   assert.deepEqual([...result.matchedOperations], ["run-plan-stale"]);
-  assert.equal(provider.localOperations["run-plan-stale"].status, "stale");
+  // 定案：历史 stale 输入经兼容匹配后转为 running 提示，不再保持 stale 终态
+  assert.equal(provider.localOperations["run-plan-stale"].status, "running");
+  assert.match(provider.localOperations["run-plan-stale"].message, /未自动终结/);
 });
 
 async function contextStop(provider, body) {
@@ -342,7 +359,8 @@ test("project.prepare merges partial Worker rows without resetting concurrency",
   const worker = merged.find((row) => row.id === "nwpu3");
 
   assert.equal(worker.maxConcurrentGpus, 4);
-  assert.deepEqual([...worker.allowedGpuIds], ["0", "1", "1"]);
+  // legacy.ts sanitizeAllowedGpuIds 去重（Set），["0","1","1"]→["0","1"]
+  assert.deepEqual([...worker.allowedGpuIds], ["0", "1"]);
   assert.equal(worker.condaEnv, "zlk");
 });
 

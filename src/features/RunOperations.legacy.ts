@@ -79,14 +79,18 @@ export function runOperationLogShowsError(evidence: RemoteRunEvidence): boolean 
 }
 
 export function isLongRunningPlanOperation(record: RunOperationRecord): boolean {
+  // 定案：stale 已取消终态且永不新产生；历史已落盘 stale 视为非长任务（兼容读，不复活为 running）。
+  const statusText = String(record?.status || record?.state || "").trim().toLowerCase();
+  if (statusText === "stale") return false;
   return LONG_RUNNING_PLAN_ACTIONS.has(String(record?.type || "").toLowerCase())
     && !operationTerminalStatus(record?.status || record?.state);
 }
 
 export function operationTerminalStatus(value: unknown): boolean {
+  // 定案：去掉 stale（兼容读：历史 stale 由调用方自行判断，永不新产生；STALE 阈值仅作提示见 RUN_OPERATION_NO_LOG_GROWTH_STALE_MS）。
   return new Set([
     "completed", "operation_completed", "completed_with_errors", "failed", "operation_failed",
-    "cancelled", "canceled", "stalled", "unsupported", "error", "stale",
+    "cancelled", "canceled", "stalled", "unsupported", "error",
   ]).has(String(value || "").trim().toLowerCase());
 }
 
@@ -121,10 +125,10 @@ function schedulerLogShowsBusyWaiting(evidence: any): boolean {
   return false;
 }
 
-// 判断是否应因“无日志增长且已超时”而收口为 stale：
+// 判断是否“无日志增长且已超时”需提示用户自行判断：
 // 操作启动超过 180s，且日志在 180s 内无新增长（liveLogUpdatedAt 过期/缺失视为不新鲜）。
-// 用于 pidAlive / tmuxAlive&&hasActivity 分支，避免挂死或“假执行中”无限占用 running。
-// 补充：调度期 dispatch_probe(目前无空卡)+running>0 或 passive_interrupt_requeue 属于正常忙等待，禁止判 stalled。
+// 定案：仅作提示阈值，不终结（调用方返回非终态 running + 手动中止/清理提示）；stale 永不新产生。
+// 补充：调度期 dispatch_probe(目前无空卡)+running>0 或 passive_interrupt_requeue 属于正常忙等待，禁止提示。
 function runOperationShouldStaleByStall(evidence: any, record: any, remote: any, nowMs: number): boolean {
   if (schedulerLogShowsPassiveRequeue(evidence) || schedulerLogShowsBusyWaiting(evidence)) return false;
   const startedTs = Date.parse(String(record.startedAt || remote.startedAt || "")) || 0;
@@ -179,23 +183,22 @@ export function reconcileRunOperation(
     || Number(evidence.workerTasksCount || 0) > 0
     || Number(evidence.liveLogCount || 0) > 0,
   );
-  // A real worker/python pid proves the scheduler process is alive: keep waiting,
-  // BUT cap the wait at 180s — if the pid is alive yet the log has shown no growth
-  // for >180s (hung/stalled process), stop waiting and mark stale instead of
-  // letting it sit on "running" forever.
+  // 定案：取消 stale 终态。pid 存活但日志 180s 无增长仅提示，不终结；保持 running，由用户自行判断、手动中止/清理。
+  // STALE 阈值（RUN_OPERATION_NO_LOG_GROWTH_STALE_MS）仅作提示阈值。
   if (pidAlive) {
     if (runOperationShouldStaleByStall(evidence, record, remote, nowMs)) {
       return {
-        terminal: true,
+        terminal: false,
         patch: {
           ...base,
-          status: "stale",
-          message: "调度进程 pid 存活但日志超过 180s 无新增长，疑似挂死；已标记 stale。",
-          finishedAt: checkedAt,
+          status: remoteStatus || "running",
+          message: "调度进程 pid 存活但日志超过 180s 无新增长，疑似挂死；未自动终结，请用户自行判断，必要时手动中止/清理。",
           reconciledAt: checkedAt,
           reconcileReason: `${reason}:pid_alive_stalled`,
           startedAt: record.startedAt || remote.startedAt || "",
           updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+          reconcileNoActivitySince: 0,
+          reconcileCheckedAt: checkedAt,
         },
       };
     }
@@ -217,18 +220,19 @@ export function reconcileRunOperation(
     }
     const noActivitySince = Number((record as any).reconcileNoActivitySince) || nowMs;
     if (nowMs - noActivitySince > RUN_OPERATION_RECONCILE_GRACE_MS) {
+      // 定案：取消 stale 终态；tmux 存活无活动仅提示，不终结，由用户自行判断、手动中止/清理。
       return {
-        terminal: true,
+        terminal: false,
         patch: {
           ...base,
-          status: "stale",
-          message: "tmux 会话存活但调度器长时间无任何活动证据，判定为启动失败（命令可能被启动竞态丢弃）。",
-          finishedAt: checkedAt,
+          status: remoteStatus || "running",
+          message: "tmux 会话存活但调度器长时间无任何活动证据，疑似启动失败（命令可能被启动竞态丢弃）；未自动终结，请用户自行判断，必要时手动中止/清理。",
           reconciledAt: checkedAt,
           reconcileReason: `${reason}:tmux_alive_no_activity`,
           startedAt: record.startedAt || remote.startedAt || "",
           updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
           reconcileNoActivitySince: noActivitySince,
+          reconcileCheckedAt: checkedAt,
         },
       };
     }
@@ -244,20 +248,20 @@ export function reconcileRunOperation(
     };
   }
   if (tmuxAlive && hasActivity) {
-    // 历史有活动但仍可能“假执行中”（如残留 state.json、挂死的 tmux python）。
-    // 若启动已超过 180s 且日志无新增长，判定为挂死并转 stale，避免长期 running。
+    // 定案：取消 stale 终态；有历史活动但 180s 日志无增长仅提示，不终结，由用户自行判断、手动中止/清理。
     if (runOperationShouldStaleByStall(evidence, record, remote, nowMs)) {
       return {
-        terminal: true,
+        terminal: false,
         patch: {
           ...base,
-          status: "stale",
-          message: "tmux 存活且有历史活动，但启动超过 180s 且日志无新增长，判定为挂死/假执行中；已标记 stale。",
-          finishedAt: checkedAt,
+          status: remoteStatus || "running",
+          message: "tmux 存活且有历史活动，但启动超过 180s 且日志无新增长，疑似挂死/假执行中；未自动终结，请用户自行判断，必要时手动中止/清理。",
           reconciledAt: checkedAt,
           reconcileReason: `${reason}:tmux_alive_stalled`,
           startedAt: record.startedAt || remote.startedAt || "",
           updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+          reconcileNoActivitySince: 0,
+          reconcileCheckedAt: checkedAt,
         },
       };
     }
@@ -300,17 +304,18 @@ export function reconcileRunOperation(
   const reference = Date.parse(referenceRaw);
   const age = Number.isFinite(reference) ? nowMs - reference : nowMs - (Date.parse(String(record.startedAt || "")) || 0);
   if (age > RUN_OPERATION_RECONCILE_GRACE_MS) {
+    // 定案：取消 stale 终态；远端进程不可见且无活动仅提示，不终结，由用户自行判断、手动中止/清理（stale 永不新产生）。
     return {
-      terminal: true,
+      terminal: false,
       patch: {
         ...base,
-        status: "stale",
-        message: "远端调度进程已退出（pid/tmux 均不可见）且无活动证据；本地提交操作已标记 stale。",
-        finishedAt: checkedAt,
+        status: "running",
+        message: "远端调度进程已退出（pid/tmux 均不可见）且无活动证据；未自动终结，请用户自行判断，必要时手动中止/清理。",
         reconciledAt: checkedAt,
         reconcileReason: `${reason}:no_remote_activity`,
         startedAt: record.startedAt || remote.startedAt || "",
         updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+        reconcileCheckedAt: checkedAt,
       },
     };
   }
