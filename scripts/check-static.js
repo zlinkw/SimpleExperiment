@@ -141,9 +141,7 @@ function checkTestCommand(planText) {
   // 经注入降级：同 plan 含 test.results_csv:/paper.result_csv:（含 paper: { result_csv: } 同行写法）+
   // expectedResults 大表（experiments/results/）时，调度经 result_csv 回退链注入 --result-csv，不阻断 → warning
   const clean = stripYamlComments(planText);
-  const hasInjectionField = /(test\.results_csv|paper\.result_csv)\s*:/i.test(clean)
-    || /(paper|test)\s*:\s*\{[^}\n]*results?_csv\s*:/i.test(clean)
-    || /(paper|test)\s*:/i.test(clean) && /^\s*results?_csv\s*:/im.test(clean);
+  const hasInjectionField = hasInjectionFieldOf(clean);
   const hasExpectedBigTable = /expectedResults\s*:/i.test(clean) && /experiments\/results\//i.test(clean);
   if (hasInjectionField && hasExpectedBigTable) {
     return {
@@ -195,6 +193,15 @@ function stripYamlComments(text) {
     }
     return line;
   }).join("\n");
+}
+
+// 注入三写法单源（checkTestCommand:141-156 与 checkOutputContract:443-445 同轨复用，禁双轨漂移）：
+// 点分键 test.results_csv:/paper.result_csv: ｜ paper:/test: 同行 {result_csv:} ｜ paper:/test: 块 + 顶格 results_csv:
+function hasInjectionFieldOf(clean) {
+  const s = String(clean || "");
+  return /(test\.results_csv|paper\.result_csv)\s*:/i.test(s)
+    || /(paper|test)\s*:\s*\{[^}\n]*results?_csv\s*:/i.test(s)
+    || (/(paper|test)\s*:/i.test(s) && /^\s*results?_csv\s*:/im.test(s));
 }
 
 function planModeOf(text) {
@@ -392,7 +399,7 @@ function checkTemplateVariables(planText) {
 }
 
 // ---------------------------------------------------------------------------
-// G3+G4 checkOutputContract：双 csv 双 log 缺 → critical；大表缺 → critical；
+// G3+G4 checkOutputContract：双 csv 双 log 缺 → critical（C1：case_csv 经 run_wrapper 自动采集时降 warning）；大表缺 → critical；
 //     快照缺 → warning；剥注释；单声明永不算过
 // ---------------------------------------------------------------------------
 function checkOutputContract(planText, mode, opts) {
@@ -415,8 +422,15 @@ function checkOutputContract(planText, mode, opts) {
   if (!hasSummaryCsv) {
     out.push({ severity: "critical", id: "output_contract_missing_summary_csv", message: "输出契约缺 metrics_summary.csv（per-job 双 csv 之一）", suggestion: "在 expectedResults/candidateCsv/命令中声明 {output_dir}/metrics_summary.csv" });
   }
+  // C1 豁免（与 stdout/stderr 自动捕获、snapshot 自动产出同模式；big_table via_injection 同口径 critical→warning）：
+  // 项目级 run_wrapper 经 collect_outputs 自动采集 per-job 双 csv（result_writer 双 csv），未声明时降 warning；
+  // 无 wrapper 时仍 critical（确无声明不断言通过）。
   if (!hasCaseCsv) {
-    out.push({ severity: "critical", id: "output_contract_missing_case_csv", message: "输出契约缺 metrics_case.csv（per-job 双 csv 之一）", suggestion: "在 expectedResults/candidateCsv/命令中声明 {output_dir}/metrics_case.csv" });
+    if (hasRunWrapper) {
+      out.push({ severity: "warning", id: "output_contract_case_csv_via_wrapper", message: `metrics_case.csv 未声明但经 run_wrapper 自动采集（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 metrics_case.csv 采集（collect_outputs per-job 双 csv），无需在 plan 内重复声明；如需消除此提醒可在 expectedResults/candidateCsv 中显式声明 {output_dir}/metrics_case.csv" });
+    } else {
+      out.push({ severity: "critical", id: "output_contract_missing_case_csv", message: "输出契约缺 metrics_case.csv（per-job 双 csv 之一）", suggestion: "在 expectedResults/candidateCsv/命令中声明 {output_dir}/metrics_case.csv" });
+    }
   }
   if (!hasStdout) {
     if (hasRunWrapper) {
@@ -433,21 +447,50 @@ function checkOutputContract(planText, mode, opts) {
     }
   }
   // 大表缺 → critical：test 上下文需 experiments/results 追加 + --result-csv 接线
+  // B1 豁免：expectedResults 含 paper 大表（experiments/results/）且经 test.results_csv/
+  // paper.result_csv 注入时，调度经 result_csv 回退链注入 --result-csv，不阻断 → 不报 critical，
+  // 仅保留 checkTestCommand:151 的 test_command_via_injection warning（与 120 注入语义一致）。
   if (mode !== "train") {
     const { test } = extractCommandBlobs(clean);
     const bigTableDeclared = /experiments\/results\//i.test(clean);
     const wired = /--result-csv[=\s]+[^\s"']*/i.test(test || "") && /\{result_csv\}|\{resultCsv\}/.test(test || "");
-    if (!bigTableDeclared || !wired) {
+    // B1 二合一复用：注入三写法经 hasInjectionFieldOf 单源同轨（禁双轨）；新增 paper+expected大表且(test.results_csv|candidateCsv)命中亦降 warning
+    const hasInjectionFieldB1 = hasInjectionFieldOf(clean);
+    const hasCandidateCsvHit = /candidateCsv\s*:/i.test(clean);
+    const hasPaperResultCsv = /paper\.result_csv\s*:/i.test(clean)
+      || /paper\s*:\s*\{[^}\n]*results?_csv\s*:/i.test(clean)
+      || (/paper\s*:/i.test(clean) && /^\s*results?_csv\s*:/im.test(clean));
+    const hasTestResultsCsvHit = /test\.results_csv\s*:/i.test(clean)
+      || /test\s*:\s*\{[^}\n]*results?_csv\s*:/i.test(clean)
+      || (/test\s*:/i.test(clean) && /^\s*results?_csv\s*:/im.test(clean));
+    const hasExpectedBigTable = /expectedResults\s*:/i.test(clean) && /experiments\/results\//i.test(clean);
+    const viaInjectionExempt = Boolean(hasInjectionFieldB1 && bigTableDeclared);
+    const bigTableViaDowngrade = Boolean(hasPaperResultCsv && hasExpectedBigTable && (hasTestResultsCsvHit || hasCandidateCsvHit));
+    const viaBigTable = Boolean(viaInjectionExempt || bigTableViaDowngrade);
+    if ((!bigTableDeclared || !wired)) {
       const missing = [!bigTableDeclared ? "experiments/results/<method>.csv 声明" : null, !wired ? "test --result-csv {result_csv} 接线" : null].filter(Boolean).join(" 与 ");
-      out.push({ severity: "critical", id: "output_contract_missing_big_table", message: `输出契约缺大表追加（${missing}）`, suggestion: "test 双写 --output-dir {output_dir} --result-csv {result_csv}，且大表声明为 experiments/results/<method>.csv" });
+      if (viaBigTable) {
+        out.push({ severity: "warning", id: "output_contract_big_table_via_injection", message: `输出契约缺大表追加（${missing}，经注入/candidateCsv，不阻断）`, suggestion: "确认 result_csv 回退链注入或 candidateCsv 大表声明；或补齐 test --result-csv {result_csv} 与 experiments/results/<method>.csv" });
+      } else {
+        out.push({ severity: "critical", id: "output_contract_missing_big_table", message: `输出契约缺大表追加（${missing}）`, suggestion: "test 双写 --output-dir {output_dir} --result-csv {result_csv}，且大表声明为 experiments/results/<method>.csv" });
+      }
     }
   }
-  // 快照缺 → warning
+  // 快照缺 → warning；B2 复用 projectWrapperOk：run_wrapper 覆盖时转 info 并注明来源
+  // （与 stdout/stderr 豁免同模式；projectWrapperOk 区分项目级 vs plan 内，判定仍以 hasRunWrapper 为准）。
   if (!/env_snapshot\.json/i.test(clean)) {
-    out.push({ severity: "warning", id: "output_contract_missing_env_snapshot", message: "缺少 env_snapshot.json 快照声明", suggestion: "经 run_wrapper 自动产出 env_snapshot.json，或在 outputs 中声明" });
+    if (hasRunWrapper) {
+      out.push({ severity: "info", id: "output_contract_env_snapshot_via_wrapper", message: `env_snapshot.json 未声明但经 run_wrapper 自动产出（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 env_snapshot.json 产出，无需在 plan 内重复声明；如需消除此提醒可在 outputs 中显式声明 env_snapshot.json" });
+    } else {
+      out.push({ severity: "warning", id: "output_contract_missing_env_snapshot", message: "缺少 env_snapshot.json 快照声明", suggestion: "经 run_wrapper 自动产出 env_snapshot.json，或在 outputs 中声明" });
+    }
   }
   if (!/config_snapshot\.yaml/i.test(clean)) {
-    out.push({ severity: "warning", id: "output_contract_missing_config_snapshot", message: "缺少 config_snapshot.yaml 快照声明", suggestion: "经 run_wrapper 自动产出 config_snapshot.yaml，或在 outputs 中声明" });
+    if (hasRunWrapper) {
+      out.push({ severity: "info", id: "output_contract_config_snapshot_via_wrapper", message: `config_snapshot.yaml 未声明但经 run_wrapper 自动产出（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 config_snapshot.yaml 产出，无需在 plan 内重复声明；如需消除此提醒可在 outputs 中显式声明 config_snapshot.yaml" });
+    } else {
+      out.push({ severity: "warning", id: "output_contract_missing_config_snapshot", message: "缺少 config_snapshot.yaml 快照声明", suggestion: "经 run_wrapper 自动产出 config_snapshot.yaml，或在 outputs 中声明" });
+    }
   }
   // 单声明永不算过：仅 paper.result_csv / expectedResults / output_dir 声明、命令无接线 → critical
   const hasDeclaration = /(result_csv|output_dir|expectedResults)\s*:/i.test(clean);
@@ -720,11 +763,14 @@ function checkPlottingContract(planText, projectDir, rel) {
 // O1 候选收敛：仅提取候选键域内的产物值（同行行内值/数组 + 后续 `- item` 列表块），
 // 供 G8-4 扩展名判定；cases/secondaryMetrics 等非候选列表不再计入。
 // 三键复用：summaryCsv/caseCsv/manifest 并入同一键正则，统一经 extractCandidateValues 提取，不再另起三路单值正则（防双轨漂移）。
-const CANDIDATE_LIST_KEYS_RE = /^\s*(candidateCsv|candidateJson|consoleLogs|textLogs|summaryCsv|caseCsv|manifest)\s*:(.*)$/i;
+const CANDIDATE_LIST_KEYS_RE = /^\s*(candidateCsv|candidateJson|consoleLogs|textLogs|summaryCsv|caseCsv|manifest|test\.results_csv|paper\.result_csv)\s*:(.*)$/i;
 const ARTIFACT_TOKEN_RE = /["']?([^\s"'#,[\]{}]+\.[A-Za-z0-9]+)["']?/g;
 
 function extractCandidateValues(clean) {
   const vals = [];
+  // B3 归一 + posix 化：候选值统一 trim + 反斜杠→/（Windows 路径归一），占位检查前先归一；
+  // test.results_csv / paper.result_csv 点分键已并入 CANDIDATE_LIST_KEYS_RE 同轨提取。
+  const normCand = (v) => String(v == null ? "" : v).trim().replace(/\\/g, "/");
   const lines = String(clean || "").split(/\r?\n/);
   let inCandBlock = false;
   for (const line of lines) {
@@ -732,7 +778,7 @@ function extractCandidateValues(clean) {
     if (keyHit) {
       ARTIFACT_TOKEN_RE.lastIndex = 0;
       let tm;
-      while ((tm = ARTIFACT_TOKEN_RE.exec(keyHit[2] || "")) !== null) vals.push(tm[1]);
+      while ((tm = ARTIFACT_TOKEN_RE.exec(keyHit[2] || "")) !== null) vals.push(normCand(tm[1]));
       inCandBlock = true;
       continue;
     }
@@ -742,7 +788,7 @@ function extractCandidateValues(clean) {
       if (item) {
         ARTIFACT_TOKEN_RE.lastIndex = 0;
         let im;
-        while ((im = ARTIFACT_TOKEN_RE.exec(item[1])) !== null) vals.push(im[1]);
+        while ((im = ARTIFACT_TOKEN_RE.exec(item[1])) !== null) vals.push(normCand(im[1]));
         continue;
       }
       inCandBlock = false;
@@ -831,6 +877,7 @@ function checkSimpleProject(projectDir) {
   // .csv/.json/.jsonl/.txt/.log/.out/.md/.markdown（config_diff.json 具名放行）。
   const candVals = extractCandidateValues(clean);
   for (const v of candVals) {
+    if (/\*/.test(v)) continue; // 通配候选先跳过/豁免再判扩展名与路径（与 extractRemotePathCandidates 通配跳过同轨）
     if (/\{/.test(v)) continue; // 占位路径跳过扩展名判定
     if (/config_diff\.json$/i.test(v)) continue; // 具名放行：配置差分快照
     if (!/\.(csv|json|jsonl|txt|log|out|md|markdown)$/i.test(v)) {
@@ -980,6 +1027,16 @@ function main() {
       if (/^train_command/.test(id)) return planLineOf(text, /train_command|trainCommand|command\s*:/i);
       if (/^test_command/.test(id)) return planLineOf(text, /test_command|testCommand\s*:/i);
       if (/^template/.test(id)) return planLineOf(text, /train_command|test_command|trainCommand|testCommand\s*:/i);
+      // B3 行锚 key 行：同类 id 按 key 行精确定位（先于通用 output_contract 分支命中）。
+      if (/missing_case_csv/.test(id)) return planLineOf(text, /metrics_case/i);
+      if (/case_csv_via_wrapper/.test(id)) return planLineOf(text, /metrics_case/i);
+      if (/missing_summary_csv/.test(id)) return planLineOf(text, /metrics_summary/i);
+      if (/missing_big_table/.test(id)) return planLineOf(text, /experiments\/results/i);
+      if (/big_table_via_injection/.test(id)) return planLineOf(text, /experiments\/results/i);
+      if (/env_snapshot/.test(id)) return planLineOf(text, /env_snapshot/i);
+      if (/config_snapshot/.test(id)) return planLineOf(text, /config_snapshot/i);
+      if (/tensorboard/.test(id)) return planLineOf(text, /tensorboard|SummaryWriter/i);
+      if (/missing_case\b|cases_missing|cases_empty/.test(id)) return planLineOf(text, /cases|experiments\s*:/i);
       if (/^output_contract|^output_interface/.test(id)) return planLineOf(text, /expectedResults|result_csv|output_dir|consoleLogs\s*:/i);
       if (/^concurrency/.test(id)) return planLineOf(text, /naming|job_name|sweep_dir|output_dir\s*:/i);
       if (/suite/.test(id)) return planLineOf(text, /suite\s*:/i);
@@ -1147,7 +1204,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1462";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1561";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:151",
     test_command_missing_result_csv: "scripts/check-static.js:159",
@@ -1164,13 +1221,17 @@ function main() {
     template_train_writes_big_table: "scripts/check-static.js:386",
     output_contract_missing_summary_csv: "scripts/check-static.js:416",
     output_contract_missing_case_csv: "scripts/check-static.js:419",
+    output_contract_case_csv_via_wrapper: "scripts/check-static.js:430",
     output_contract_missing_stdout_log: "scripts/check-static.js:425",
     output_contract_missing_stderr_log: "scripts/check-static.js:432",
     output_contract_stdout_via_wrapper: "scripts/check-static.js:423",
     output_contract_stderr_via_wrapper: "scripts/check-static.js:430",
     output_contract_missing_big_table: "scripts/check-static.js:442",
+    output_contract_big_table_via_injection: "scripts/check-static.js:449",
     output_contract_missing_env_snapshot: "scripts/check-static.js:447",
     output_contract_missing_config_snapshot: "scripts/check-static.js:450",
+    output_contract_env_snapshot_via_wrapper: "scripts/check-static.js:449",
+    output_contract_config_snapshot_via_wrapper: "scripts/check-static.js:457",
     output_contract_declaration_only: "scripts/check-static.js:457",
     concurrency_job_placeholder: "scripts/check-static.js:484",
     concurrency_same_file: "scripts/check-static.js:492",
@@ -1212,7 +1273,7 @@ function main() {
     test_command: "scripts/check-static.js:220",
     result_output: "scripts/check-static.js:222",
   };
-  // 注册表：静态表全量键即唯一可信源（62 项：55 检查位 + 7 legacy 裸 id 锚点）。
+  // 注册表：静态表全量键即唯一可信源（66 项：59 检查位 + 7 legacy 裸 id 锚点）。
   const CHECK_STATIC_ID_REGISTRY = new Set(Object.keys(CHECK_STATIC_ID_SRC));
   let CHECK_STATIC_SELF_LINES = null; // 自身源码行缓存（动态提取每进程只读一次）
   function resolveCheckStaticIdSrc(refId) {
@@ -1285,6 +1346,44 @@ function main() {
         "expectedResults:",
         "  - \"experiments/results/demo.csv\"",
         "log_file: \"simple_cluster/work_dirs/run.log\"",
+      ];
+    }
+    // B3 独立模板：missing_case / tensorboard 各走独立正例（置于通用分支之前，禁止被通用收敛吞并）。
+    if (refId === "output_contract_missing_case_csv") {
+      return [
+        "# 正例：per-job 双 csv 之 metrics_case.csv（missing_case 独立模板，key 行见 metrics_case）",
+        "expectedResults:",
+        "  - \"{output_dir}/metrics_case.csv\"",
+        "paper:",
+        "  result_csv: \"{output_dir}/metrics_summary.csv\"",
+      ];
+    }
+    if (refId === "output_contract_case_csv_via_wrapper") {
+      return [
+        "# 正例：metrics_case.csv 经 run_wrapper 自动采集（case_csv_via_wrapper 独立模板，key 行见 metrics_case）",
+        "expectedResults:",
+        "  - \"{output_dir}/metrics_case.csv\"",
+        "# 或依赖项目级 run_wrapper collect_outputs 自动采集 per-job 双 csv，无需重复声明",
+      ];
+    }
+    if (refId === "output_contract_big_table_via_injection") {
+      return [
+        "# 正例：大表经注入/candidateCsv 降级（big_table_via_injection 独立模板，key 行见 experiments/results）",
+        "paper:",
+        "  result_csv: \"{output_dir}/metrics_summary.csv\"",
+        "expectedResults:",
+        "  - \"experiments/results/demo.csv\"",
+        "outputs:",
+        "  candidateCsv:",
+        "    - \"experiments/results/demo.csv\"",
+      ];
+    }
+    if (refId === "simple_project_no_tensorboard" || refId === "output_interface_tensorboard") {
+      return [
+        "# 正例：TensorBoard 通道（tensorboard 独立模板，key 行见 tensorboardLogDirs/SummaryWriter）",
+        "tensorboardLogDirs:",
+        "  - \"{output_dir}/runs\"",
+        "# 或入口代码使用 SummaryWriter 并在远端安装 tensorboard",
       ];
     }
     if (/^(mode_invalid|mode|seeds_missing|seeds_empty|seeds|cases_missing|cases_empty|cases|base_config_missing|base_config_not_found|base_config|config|train_command_missing|train_command|test_command_missing|test_command|result_output_missing|result_output|suite)/.test(refId)) {
