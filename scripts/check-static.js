@@ -16,7 +16,7 @@
  *   本脚本为静态文本启发式（不做 AST），发现缺失即 failed 并给出修复文案。
  *
  * 用法：
- *   node scripts/check-static.js [--project <dir>] [--fail-on-warning] [--json] [--write-md|--report-md] [--quiet-wrapper]
+  *   node scripts/check-static.js [--project <dir>] [--fail-on-warning] [--json] [--write-md|--report-md] [--quiet-wrapper] [--quiet-info]
  *   npm run check:static -- --project <dir>
  *
  * 约束：
@@ -63,7 +63,7 @@ const { isSafeRemotePath } = require("../dist/tunnel/FileTransferTypes");
 const { safeRemoteProjectChild } = require("../dist/security/RemotePathPolicy");
 
 function parseArgs(argv) {
-  const out = { project: ROOT, failOnWarning: false, json: false, writeMd: false, quietWrapper: false };
+  const out = { project: ROOT, failOnWarning: false, json: false, writeMd: false, quietWrapper: false, quietInfo: false };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--project" && argv[i + 1]) { out.project = path.resolve(argv[i + 1]); i += 1; }
@@ -71,6 +71,7 @@ function parseArgs(argv) {
     else if (a === "--json") out.json = true;
     else if (a === "--write-md" || a === "--report-md") out.writeMd = true;
     else if (a === "--quiet-wrapper") out.quietWrapper = true;
+    else if (a === "--quiet-info") out.quietInfo = true;
   }
   return out;
 }
@@ -1173,11 +1174,11 @@ function main() {
     if (foldedWrapper.length > 0 && !args.quietWrapper) {
       const wnote = projectWrapper.ok ? "项目级 run_wrapper" : "plan 内 run_wrapper/runWrapper";
       const wcount = foldedWrapper.length;
-      const wscope = wcount >= 5 ? "5项口径" : "4项口径";
+      const wscope = foldedWrapper.includes("output_contract_config_snapshot_via_wrapper") ? "5项口径" : "4项口径";
       pushPlan(infos, {
         severity: "info",
         id: "output_contract_wrapper_summary",
-        message: `run_wrapper 已覆盖 ${wcount} 项输出契约（${foldedWrapper.sort().join("、")}，已豁免，来源：${wnote}，明细已折叠，共${wcount}项/${wscope}）`,
+        message: `run_wrapper 已覆盖 ${wcount} 项输出契约（${foldedWrapper.sort().join("、")}，已豁免，来源：${wnote}，明细已折叠，共${wcount}项/${wscope}；计入依据：同文件同plan折叠，wcount=foldedWrapper.length）`,
         suggestion: "wrapper 经 collect_outputs 自动采集/捕获，无需重复声明；如需消除此提醒可显式声明对应产物，或加 --quiet-wrapper 抑制本汇总",
       });
     }
@@ -1264,6 +1265,18 @@ function main() {
   for (const e of simpleProjectFindings.errors || []) pushDedup(errors, e);
   for (const w of simpleProjectFindings.warnings) pushDedup(warnings, w);
   for (const i of simpleProjectFindings.infos) pushDedup(infos, i);
+  // --quiet-info 展示层抑制（判定条件/severity/桶位不变；默认不抑制；quiet-wrapper 行为不变）：
+  // 仅抑制 tensorboard 两项 info（simple_project_no_tensorboard/output_interface_tensorboard）与 version_undeclared info。
+  if (args.quietInfo) {
+    const QUIET_INFO_IDS = new Set([
+      "simple_project_no_tensorboard",
+      "output_interface_tensorboard",
+      "simple_project_version_undeclared",
+    ]);
+    for (let i = infos.length - 1; i >= 0; i -= 1) {
+      if (infos[i] && QUIET_INFO_IDS.has(infos[i].id)) infos.splice(i, 1);
+    }
+  }
   if (wrapperCoveredCount > 0 && projectWrapper.ok) {
     pushDedup(infos, { file: "(project)", severity: "info", id: "output_interface_project_wrapper", message: `${wrapperCoveredCount} 个 plan 内未见显式输出接口，但项目级 runWrapper 已存在（${projectWrapper.source}），视为通过`, suggestion: "如需消除此提醒，可在 plan 命令中显式使用 simple_adapter/run_wrapper 包裹，或调用 collect_outputs/write_metrics_summary/write_standard_outputs" });
   }
@@ -1336,7 +1349,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1747";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1763";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",
@@ -1521,12 +1534,12 @@ function main() {
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
         "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
-        "# 4项口径：output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper（metrics_case.csv/stdout.log/stderr.log/env_snapshot.json，无 config_snapshot 时为 4 项）",
+        "# 4项口径（成员式判定，以 message 为准）：output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper（metrics_case.csv/stdout.log/stderr.log/env_snapshot.json，不含 config_snapshot_via_wrapper 时为 4 项）",
         "# 正例：run_wrapper 覆盖 5 项输出契约（wrapper_summary 独立模板·5项口径，明细已折叠为 1 条，共5项）",
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
         "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
-        "# 5项口径：metrics_case.csv/stdout.log/stderr.log/env_snapshot.json/config_snapshot.yaml",
+        "# 5项口径（成员式判定，以 message 为准）：metrics_case.csv/stdout.log/stderr.log/env_snapshot.json/config_snapshot.yaml（含 config_snapshot_via_wrapper 时为 5 项）",
         "# 项目级 experiments/simple_adapter/run_wrapper.py 存在时自动采集上述产物",
       ];
     }
