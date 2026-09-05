@@ -1714,6 +1714,8 @@ function main() {
     else for (const f of rep.planFiles) lines.push(`- ${escCell(f)}`);
     const normFileOf = (f) => String(f == null ? "" : f).replace(/\\/g, "/"); // 复用 normRel 归一语义（\→/）
     const oneLineFull = (v) => String(v == null ? "" : v).replace(/\r/g, "").replace(/\n/g, " "); // 全量单行化，禁截断（不用 escCell 截断语义）
+    // infos 表 message 瘦身：表格 message 单元格截断长串（如折叠 ID 清单），保留前 60 字符 + …；明细块 message 保持 oneLineFull 全量禁截断。
+    const slimCell = (v) => { const s = escCell(v); return s.length > 60 ? s.slice(0, 60) + "…" : s; }; // infos 表格 message 瘦身（前 60 字符 + …）
     const byFileId = (a, b) => {
       const fa = normFileOf(a.file); const fb = normFileOf(b.file);
       if (fa < fb) return -1; if (fa > fb) return 1;
@@ -1728,16 +1730,18 @@ function main() {
       lines.push("| file | severity | id | message | suggestion |");
       lines.push("| --- | --- | --- | --- | --- |");
       for (const r of [...rows].sort(byFileId)) {
-        lines.push(`| ${escCell(normFileOf(r.file))} | ${escCell(r.severity)} | ${escCell(refIdOf(r))} | ${escCell(r.message)} | ${escCell(r.suggestion || MD_SUGGESTION_FALLBACK)} |`);
+        const msgCell = title === "infos" ? slimCell(r.message) : escCell(r.message); // 仅 infos 表 message 瘦身，errors/warnings 保持全量
+        lines.push(`| ${escCell(normFileOf(r.file))} | ${escCell(r.severity)} | ${escCell(refIdOf(r))} | ${msgCell} | ${escCell(r.suggestion || MD_SUGGESTION_FALLBACK)} |`);
       }
     };
     section("errors", rep.errors);
     section("warnings", rep.warnings);
     section("infos", rep.infos);
     // 明细：每个 finding 恰一个 ### 块（块数 == finding 总数），含文件:行号映射 + 参考模板源码块。
-    // 去重标记：全局首现全量、之后 [DUP]；同 file+id 首个 [NEW]、之后 [DUP]。
-    // O4 渲染归一折叠：[DUP] 块字段仍全量（定位不断链），参考模板折叠为单行并指向首个
-    // [NEW] 块；refTemplateFor 照常调用（G9 不编造：未注册 id 照抛错，禁止静默回退）。
+    // 去重标记：全局首现全量、之后 [DUP]；同 file+id 首个 [NEW]、之后 [DUP]（标题标记口径不变）。
+    // O4 渲染归一折叠：参考模板按 id 全局折叠（首个同 id 块全量、之后单行引用），与 file 无关；
+    // refTemplateFor 照常调用（G9 不编造：未注册 id 照抛错，禁止静默回退）。
+    // diff 围栏已删除（非 unified 不可 apply，只留模板 yaml 围栏）；无行号 loc 写 file#L0（不再 bare file）。
     const FENCE = String.fromCharCode(96, 96, 96);
     // 2. 明细按 file 分组 + severity 排序：桶序 errors>warnings>infos 不变，桶内按 file、id 排序。
     const errSorted = [...rep.errors].sort(byFileId);
@@ -1750,6 +1754,7 @@ function main() {
     ];
     const seenGlobal = new Set();
     const seenFileId = new Map();
+    const seenIdTpl = new Set(); // 模板按 id 全局折叠：首个同 id 块全量、之后单行引用
     lines.push("");
     lines.push(`## findings明细 (${all.length})`);
     all.forEach((item) => {
@@ -1767,7 +1772,7 @@ function main() {
       const sug = r.suggestion || MD_SUGGESTION_FALLBACK;
       const msgFull = oneLineFull(r.message);
       const sugFull = oneLineFull(sug);
-      const loc = r.line != null ? `${file}#L${String(r.line)}` : file;
+      const loc = r.line != null ? `${file}#L${String(r.line)}` : `${file}#L0`; // 无行号时写 file#L0（不再 bare file），loc 统一正斜杠经 normFileOf 归一
       lines.push("");
       lines.push(`### [${item.sec}][\`${refId}\`] ${loc} ${mark}`);
       lines.push(`- 文件: ${escCell(file)}`);
@@ -1775,22 +1780,19 @@ function main() {
       lines.push(`- 参考: ${escCell(src)}`);
       lines.push(`- message: ${msgFull}`);
       lines.push(`- suggestion: ${sugFull}`);
-      lines.push(`${FENCE}diff`);
-      lines.push(`- ${msgFull}`);
-      lines.push(`+ ${sugFull}`);
-      lines.push(FENCE);
-      if (isDup) lines.push("- 去重: [DUP] 与首现块同 finding，详见首个同 file+id 全量块。");
+      if (isDup) lines.push("- 去重: [DUP] 与首现块同 finding，详见首个同 id 全量块。");
       // plotting 说明：绘图契约五文件（result_registry/statistics/paper_table/case_level/dataset_profile）
       // 共用同一 id（plotting_contract_missing_file），五缺项各为独立缺文件；
-      // [DUP] 仅为同 file+id 去重标记，不代表重复计数，定位以各块 message 中的 key 为准。
-      if (refId === "plotting_contract_missing_file") lines.push("- 说明: 绘图契约五文件共用同一 id，五缺项各为独立缺文件，[DUP] 仅为同 file+id 去重标记（key 见 message）。");
+      // [DUP] 仅为同 id 去重标记，不代表重复计数，定位以各块 message 中的 key 为准。
+      if (refId === "plotting_contract_missing_file") lines.push("- 说明: 绘图契约五文件共用同一 id，五缺项各为独立缺文件，[DUP] 仅为同 id 去重标记（key 见 message）。");
       lines.push(`#### 参考模板 (\`${refId}\`)`);
       lines.push(`${FENCE}yaml`);
-      // O4 折叠 + G9 不编造：先照常取模板（未注册照抛错），[DUP] 块再折叠为单行。
+      // O4 折叠 + G9 不编造：先照常取模板（未注册照抛错），同 id 首个块全量、之后折叠为单行引用。
       const tplLines = refTemplateFor(refId);
-      if (mark === "[DUP]") {
-        lines.push(`# [DUP] 模板已折叠，完整正例见首个同 file+id [NEW] 块：${tplLines.join(" / ")}`);
+      if (seenIdTpl.has(refId)) {
+        lines.push(`# [DUP] 模板已折叠，完整正例见首个同 id [NEW] 块：${refId}`);
       } else {
+        seenIdTpl.add(refId);
         for (const t of tplLines) lines.push(t);
       }
       lines.push(FENCE);
