@@ -32,9 +32,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.4.93"
-RUNTIME_VERSION = "0.4.93"
-PLUGIN_VERSION = "0.4.93"
+SCHEDULER_VERSION = "0.4.94"
+RUNTIME_VERSION = "0.4.94"
+PLUGIN_VERSION = "0.4.94"
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -948,8 +948,8 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
     naming = plan.get("naming") or {}
     runner = plan_runner(plan)
     plan_expected_results = expected_result_candidates(plan)
-    sweep_dir_tpl = str(naming.get("sweep_dir") or "work_dirs/multirun/" + "$" + "{suite}")
-    job_name_tpl = str(naming.get("job_name") or "$" + "{index}_" + "$" + "{case}_seed" + "$" + "{seed}")
+    sweep_dir_tpl = str(naming.get("sweep_dir") or "work_dirs/multirun/{suite}")
+    job_name_tpl = str(naming.get("job_name") or "{index}_{case}_seed{seed}")
     plan_paper = plan.get("paper") if isinstance(plan.get("paper"), dict) else {}
 
     def load_config_cached(path: str) -> dict[str, Any]:
@@ -993,7 +993,7 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
                 case_base_config_path = render_template(case_base_config_path, values)
                 values.update({"base_config": case_base_config_path, "base_config_path": case_base_config_path})
             job_name = render_template(job_name_tpl, values)
-            experiment_name = render_template(str(naming.get("experiment_name") or "$" + "{suite}/" + "$" + "{case}/seed_" + "$" + "{seed}"), {**values, "job_name": job_name})
+            experiment_name = render_template(str(naming.get("experiment_name") or "{suite}/{case}/seed_{seed}"), {**values, "job_name": job_name})
             values.update({"job_name": job_name, "experiment_name": experiment_name})
             output_tpl = text_field(case_item, *OUTPUT_DIR_KEYS) or text_field(plan, *OUTPUT_DIR_KEYS)
             output_dir = render_template(output_tpl, values) if output_tpl else (Path(render_template(sweep_dir_tpl, values)) / job_name).as_posix()

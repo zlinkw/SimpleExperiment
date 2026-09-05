@@ -4,8 +4,16 @@ const path = require("node:path");
 const test = require("node:test");
 
 const root = path.join(__dirname, "../..");
-const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
+function readFirst(candidates) {
+  for (const candidate of candidates) {
+    const full = path.join(root, candidate);
+    if (fs.existsSync(full)) return fs.readFileSync(full, "utf8");
+  }
+  assert.fail(`missing source, tried: ${candidates.join(", ")}`);
+}
+// Factory refactor v0.4.92+: logic lives in legacy files, facades only re-export.
+const extension = readFirst(["src/extension/legacy.ts", "src/extension.ts"]);
+const panel = readFirst(["src/ui/PanelHtml.legacy.ts", "src/ui/PanelHtml.ts"]);
 
 function block(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -23,20 +31,49 @@ function objectKeys(source) {
   return [...source.matchAll(/^\s+([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]);
 }
 
-test("all declared webview commands pass the extension safety whitelist", () => {
-  const webviewCommands = new Set([
+function webviewCommands() {
+  return new Set([
     ...quotedValues(block(panel, "const webviewHandledCommands = new Set([", "]);")),
     ...objectKeys(block(panel, "const uiCapabilityMap = {", "};")),
   ]);
-  const safeCommands = new Set([
+}
+
+function safeCommands() {
+  return new Set([
     ...quotedValues(block(extension, "const uiActionCommands = new Set<WebviewActionCommand>([", "]);")),
     ...quotedValues(block(extension, "const SAFE_WEBVIEW_COMMANDS = new Set([", "]);")),
   ]);
+}
 
-  const missing = [...webviewCommands].filter((command) => !safeCommands.has(command)).sort();
+test("all declared webview commands pass the extension safety whitelist", () => {
+  const webview = webviewCommands();
+  const safe = safeCommands();
+
+  const missing = [...webview].filter((command) => !safe.has(command)).sort();
   assert.deepEqual(missing, []);
-  assert.ok(safeCommands.has("openSetupGuide"));
-  assert.ok(safeCommands.has("openAdvancedCommandsSetting"));
+  assert.ok(safe.has("openSetupGuide"));
+  assert.ok(safe.has("openAdvancedCommandsSetting"));
+});
+
+test("extension safety whitelist stays covered by webview declarations (reverse)", () => {
+  const webview = webviewCommands();
+  const safeOnly = new Set(quotedValues(block(extension, "const SAFE_WEBVIEW_COMMANDS = new Set([", "]);")));
+  // Extension-only: panel bootstrap handshake (never webview-originated).
+  const KNOWN_EXTENSION_ONLY = new Set([
+    "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
+  ]);
+  // Pre-existing gaps (follow-up, not this change): declared in SAFE whitelist and
+  // sent by webview buttons, but missing from webviewHandledCommands. Any NEW gap fails.
+  const KNOWN_GAPS_TODO = new Set([
+    "startTensorBoard", "runDraftDebug", "promoteDraft", "rejectDraft",
+    "reviewDraft", "cleanupDrafts", "resetPptPathConfirmations",
+  ]);
+  const uncovered = [...safeOnly].filter((command) => !webview.has(command) && !KNOWN_EXTENSION_ONLY.has(command) && !KNOWN_GAPS_TODO.has(command)).sort();
+  assert.deepEqual(uncovered, []);
+  for (const command of ["runCheckStatic", "openLastCheckStaticReport", "copyLastCheckStaticReport"]) {
+    assert.ok(webview.has(command), `webview must declare ${command}`);
+    assert.ok(safeOnly.has(command), `SAFE whitelist must contain ${command}`);
+  }
 });
 
 test("configuration entry handlers remain reachable and unknown commands remain rejected", () => {

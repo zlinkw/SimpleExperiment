@@ -219,6 +219,9 @@ cases:
   - name: smoke
 paper:
   result_csv: experiments/results/demo.csv
+# 口径说明（与主契约统一）：此处为最终大表覆盖写法（回退链第 1 级直接字段命中大表，test 经 --result-csv 追加）；
+# 新手 per-job 默认写法为 `paper.result_csv: "{output_dir}/metrics_summary.csv"`（见 docs/plugin-project-contract.md “paper.result_csv 口径统一”）。
+# `naming.output_dir` 优先级高于 `sweep_dir/job_name` 拼接；`cases` 中 `name:` 与 `case:` 等价归一。
 expectedResults:
   - "{output_dir}/metrics_summary.csv"
   - "{output_dir}/metrics_case.csv"

@@ -73,6 +73,9 @@ export const COMMAND_MANIFEST: ReadonlyArray<Omit<CommandDescriptor, "handler">>
   { id: "simpleExperiment.importOfflineBundle", title: "SimpleExperiment：导入离线包" },
   { id: "simpleExperiment.clearCache", title: "SimpleExperiment：清除缓存" },
   { id: "simpleExperiment.verifyAgentVersion", title: "SimpleExperiment：校验 Agent 版本" },
+  { id: "simpleExperiment.openLastCheckStaticReport", title: "SimpleExperiment：打开静态检查报告" },
+  { id: "simpleExperiment.copyLastCheckStaticReport", title: "SimpleExperiment：复制静态检查报告" },
+  { id: "simpleExperiment.runCheckStatic", title: "SimpleExperiment：检查项目接入" },
 ];
 
 export interface CommandFactory {

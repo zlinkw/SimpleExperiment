@@ -26,7 +26,23 @@ const entrypoints = [packageJson.main, ...Object.values(packageJson.bin || {})]
   .map((entry) => String(entry).replace(/^\.\//, "").replace(/\\/g, "/"));
 const missing = [];
 const visited = new Set();
-const queue = entrypoints.map((entry) => ({ file: entry, chain: [entry] }));
+// spawn 候选（非 require 直连，经 child_process.spawnSync 运行时加载）：
+// src/extension/legacy.ts#runCheckStaticFromUi 双候选归一后命中 scripts/check-static.js，
+// 必须随包发布，否则用户侧报“check-static 脚本缺失”。此处断言磁盘存在即必须收录，
+// 并纳入 require 闭包队列做传递验证（P0：不硬编码任何端口/IP，只校验路径收录）。
+const spawnCandidates = ["scripts/check-static.js"];
+for (const candidate of spawnCandidates) {
+  const absolute = path.join(root, candidate);
+  if (!fs.existsSync(absolute)) continue;
+  const normalized = candidate.replace(/\\/g, "/");
+  if (!packaged.has(normalized) && !packaged.has(`extension/${normalized}`)) {
+    missing.push({ importer: "spawn:src/extension/legacy.ts#runCheckStaticFromUi", required: normalized, chain: ["spawn", normalized] });
+  }
+}
+const queue = [...entrypoints.map((entry) => ({ file: entry, chain: [entry] })),
+  ...spawnCandidates
+    .filter((candidate) => fs.existsSync(path.join(root, candidate)))
+    .map((candidate) => ({ file: candidate, chain: ["spawn", candidate] }))];
 
 while (queue.length) {
   const item = queue.shift();

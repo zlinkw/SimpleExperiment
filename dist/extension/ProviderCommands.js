@@ -48,6 +48,9 @@ function resolveCommandHandlerMap(provider) {
     bind("simpleExperiment.prepareAgents", "prepareAgentsForFirstRun");
     bind("simpleExperiment.verifyAgentVersion", "verifyAgentVersionManually");
     bind("simpleExperiment.openSetupGuide", "openSetupGuide");
+    bind("simpleExperiment.openLastCheckStaticReport", "openLastCheckStaticReportFromUi");
+    bind("simpleExperiment.copyLastCheckStaticReport", "copyLastCheckStaticReportFromUi");
+    bind("simpleExperiment.runCheckStatic", "runCheckStaticFromUi");
     return map;
 }
 function registerProviderCommands(deps, vscodeContext) {

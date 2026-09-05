@@ -71,3 +71,17 @@
 - 插件会同时兼容 camelCase 和 snake_case，但新增输出应优先使用本文档字段。
 - `pValue`、`adjustedPValue` 和 `ci` 可为空；`significant` 应为布尔值或可解析布尔文本。
 - PPT 插件不要扫描原始数据集或 checkpoint 目录；只读取上述 JSON/CSV/Markdown 摘要。
+
+## 列级 Schema（类型-空值-口径）
+
+| 文件/字段 | 类型 | 空允许 | 口径/生产者 |
+|---|---|---|---|
+| `result_registry.json: resultId/experimentId/suite/method/dataset/split/fold/seed` | string/int（seed int） | 否 | Scheduler 归档时写入；`fold` 无折时记 `0` |
+| `result_registry.json: metrics/dimensions/sourceFiles` | object/array | 否 | `sourceFiles` 指归档内相对路径 |
+| `statistics.json: suite/group/metric` | string | 否 | Scheduler 归档聚合写入 |
+| `statistics.json: mean/std/ci/pValue/adjustedPValue` | number | `ci/pValue/adjustedPValue` 可空 | `mean/std` 聚合必填有限数值 |
+| `statistics.json: significant` | boolean\|可解析文本 | 可空 | `true/false/1/0/yes/no` 均接受 |
+| `simple_results_table.csv: method/dataset/split/metric` | string | 否 | 由归档大表生成，`mean/std:number` 必填 |
+| `case_level_index.json: case_id/patient_id/method/dataset/split/metric/value/subgroup/error_type` | string/number（value 有限数值） | `patient_id/subgroup/error_type` 可空 | 与 per-job `metrics_case.csv` 同源（`experiment_id,case_id,dataset,split,method` 必填列展开），Scheduler 归档时建索引 |
+| `profile.json: dataset/split/class/case_id/patient_id/classDistribution/splitDistribution` | string/object | 分布对象可空 | 轻量画像，不含原始数据 |
+| 通用 | `timestamp:ISO8601, epoch/step:int` | 可空 | 缺失不阻断绘图 |

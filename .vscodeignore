@@ -15,6 +15,7 @@ CONTEXT.md
 .tmp/**
 .vscode/**
 scripts/**
+!scripts/check-static.js
 test/**
 scenarios/**
 *.vsix

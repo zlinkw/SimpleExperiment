@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.4.93",
+  "version": "0.4.94",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -50,7 +50,10 @@
     "onCommand:simpleExperiment.openTunnelStatus",
     "onCommand:simpleExperiment.runXshellRealIntegrationCheck",
     "onCommand:simpleExperiment.manualRefresh",
-    "onCommand:simpleExperiment.importOfflineBundle"
+    "onCommand:simpleExperiment.importOfflineBundle",
+    "onCommand:simpleExperiment.openLastCheckStaticReport",
+    "onCommand:simpleExperiment.copyLastCheckStaticReport",
+    "onCommand:simpleExperiment.runCheckStatic"
   ],
   "main": "./dist/extension.js",
   "bin": {
@@ -203,6 +206,21 @@
         "command": "simpleExperiment.verifyAgentVersion",
         "title": "SimpleExperiment：校验 Agent 版本",
         "icon": "$(check)"
+      },
+      {
+        "command": "simpleExperiment.openLastCheckStaticReport",
+        "title": "SimpleExperiment：打开静态检查报告",
+        "icon": "$(file)"
+      },
+      {
+        "command": "simpleExperiment.copyLastCheckStaticReport",
+        "title": "SimpleExperiment：复制静态检查报告",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "simpleExperiment.runCheckStatic",
+        "title": "SimpleExperiment：检查项目接入",
+        "icon": "$(checklist)"
       }
     ],
     "menus": {
@@ -698,7 +716,8 @@
     "smoke": "npm run build && npm run lint && node -c dist/extension.js && node -c dist/panel.js && node dist/cli.js status && npm run package",
     "acceptance": "node scripts/acceptance.js",
     "compact:plan": "node scripts/compact-target-mode-plan.js",
-    "check:tmux-guard": "node scripts/check-tmux-guard.js"
+    "check:tmux-guard": "node scripts/check-tmux-guard.js",
+    "check:static": "node scripts/check-static.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

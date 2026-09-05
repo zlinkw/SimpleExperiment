@@ -19,6 +19,10 @@ class DiagnosticsSection {
         </div>
       </div>
       <div id="diagnosticActions" class="actionGrid"></div>
+      <div class="toolbar" title="静态检查报告：failed 自动落盘，passed 加 --write-md/--report-md">
+        <button data-command="openLastCheckStaticReport" type="button">打开静态检查报告</button>
+        <button data-command="copyLastCheckStaticReport" type="button">复制静态检查报告</button>
+      </div>
       <div id="targetCompletionMatrix" data-anchor="diagnostics-targets"></div>
       <div id="featureReadiness" data-anchor="diagnostics-audit"></div>
       <div id="actionErrors" data-anchor="diagnostics-errors"></div>

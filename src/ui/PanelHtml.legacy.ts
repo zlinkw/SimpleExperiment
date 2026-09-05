@@ -1149,6 +1149,10 @@ export function renderPanelHtml(): string {
         </div>
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
         <div id="syncServerOverview" data-anchor="sync-servers"></div>
+        <div class="toolbar" data-anchor="sync-check-actions">
+          <button type="button" data-command="runCheckStatic" title="检查项目接入：先清空 simple_cluster/check_reports 内 check-static-*.md，再跑 check-static 写最新，报告位置可打开/复制">检查项目接入</button>
+          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
+        </div>
         <div class="toolbar" data-anchor="sync-actions">
           <button type="button" data-command="prepareAgents" title="第1步先部署：上传最新版 Agent 到全部服务器 runtime，无需隧道在线">部署Agent</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
@@ -1157,9 +1161,6 @@ export function renderPanelHtml(): string {
           <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">一键上传到所有服务器</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
-        </div>
-        <div class="toolbar sync-actions-danger-wrap" data-anchor="sync-actions-danger-wrap">
-          <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
         </div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
@@ -1320,6 +1321,10 @@ export function renderPanelHtml(): string {
         </div>
       </div>
       <div id="diagnosticActions" class="actionGrid"></div>
+      <div class="toolbar" title="静态检查报告：failed 自动落盘，passed 加 --write-md/--report-md">
+        <button data-command="openLastCheckStaticReport" type="button">打开静态检查报告</button>
+        <button data-command="copyLastCheckStaticReport" type="button">复制静态检查报告</button>
+      </div>
       <div id="targetCompletionMatrix" data-anchor="diagnostics-targets"></div>
       <div id="featureReadiness" data-anchor="diagnostics-audit"></div>
       <div id="actionErrors" data-anchor="diagnostics-errors"></div>
@@ -1945,7 +1950,7 @@ export function renderPanelHtml(): string {
     const RESOURCE_TREE_TONE_VALUES = new Set(["good", "info", "warn", "error", "mine"]);
     const INSPECTOR_OPERATION_SECTIONS = new Set(["execution"]);
     // 白名单仅保留纯瞬时选择/状态查询，其余非瞬时操作均进入 setButtonLoading 转圈（prepareAgents/deployLatestAgent/testAll/runPlan 等长任务已覆盖，openTensorBoard 等需转圈）
-    const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]);
+    const COMMANDS_WITHOUT_LOADING = new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status", "runCheckStatic", "openLastCheckStaticReport", "copyLastCheckStaticReport"]);
     const TERMINAL_UI_STATUSES = new Set(["completed", "submitted", "failed", "cancelled", "stalled"]);
     const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
     const SELECTED_PLAN_RUN_COMMANDS = new Set(["runPlan", "reproducePlan"]);
@@ -2255,7 +2260,7 @@ export function renderPanelHtml(): string {
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
-      "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
+      "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
@@ -4211,6 +4216,8 @@ export function renderPanelHtml(): string {
     }
 
     function refreshTerminalUi(command) {
+      var __refreshCmd = String(command || "");
+      if (__refreshCmd === "runCheckStatic" || __refreshCmd === "openLastCheckStaticReport" || __refreshCmd === "copyLastCheckStaticReport") return;
       const state = lastState || {};
       applyPendingButtonStates();
       refreshPlanActionButtons(state, el("planQuickGrid"));
@@ -4990,6 +4997,9 @@ export function renderPanelHtml(): string {
         showLogHistory: "查看历史日志",
         openFullLog: "打开完整日志",
         copyText: "复制文本",
+        runCheckStatic: "检查项目接入",
+        openLastCheckStaticReport: "打开静态检查报告",
+        copyLastCheckStaticReport: "复制静态检查报告",
         start: "启动 Hub",
         startAll: "启动全部",
         showRegistry: "端点清单",
@@ -5662,7 +5672,7 @@ export function renderPanelHtml(): string {
 
     function buttonDatasetActionPayload(button) {
       const payload = {};
-      ["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "target", "session", "window"].forEach((key) => {
+      ["endpointId", "planFile", "planRevision", "planId", "file", "report", "name", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "target", "session", "window"].forEach((key) => {
         if (button.dataset[key]) payload[key] = button.dataset[key];
       });
       if (button.dataset.batchSelected === "true") payload.batchSelected = "true";
@@ -7116,10 +7126,24 @@ export function renderPanelHtml(): string {
       '</div>';
     }
 
+    function renderCheckStaticReports(state) {
+      var reports = (state && state.checkStaticReports) ? state.checkStaticReports : [];
+      var list = [];
+      var i = 0;
+      for (i = 0; i < reports.length; i += 1) {
+        var nm = String(reports[i] || "");
+        if (!nm) continue;
+        if (nm.indexOf("..") >= 0 || nm.indexOf("/") >= 0) continue;
+        list.push('<button type="button" class="mini secondary" data-command="openLastCheckStaticReport" data-report="' + escAttr(nm) + '" data-file="' + escAttr("simple_cluster/check_reports/" + nm) + '" title="' + escAttr("simple_cluster/check_reports/" + nm + " 点击打开对应报告") + '">' + esc(nm) + '</button>');
+      }
+      var head = '<div class="muted">静态检查报告（' + String(list.length) + '）：点击文件名打开对应报告；检查按钮每次先清空旧报告再写最新。</div>';
+      if (!list.length) return head + '<div class="muted">暂无报告，点击上方检查项目接入生成。</div>';
+      return head + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' + list.join("") + '</div>';
+    }
+
     function renderSyncSection(state) {
       setHtmlIfChanged("syncChainOverview", renderServerChainOverview(state));
-      // 运行表已下线：sync 卡内仅留链速览+toolbar，容器置空避免空白断层。
-      setHtmlIfChanged("syncServerOverview", "");
+      setHtmlIfChanged("syncServerOverview", renderCheckStaticReports(state));
     }
 
     function renderServerCardsV2(state) {
@@ -14089,6 +14113,7 @@ export function renderPanelHtml(): string {
       return disableReason(state, command, context);
     }
     function disableReason(state, command, context) {
+      if (command === "runCheckStatic" || command === "openLastCheckStaticReport" || command === "copyLastCheckStaticReport") return "";
       context = context || {};
       const isLenient = typeof isLenientRun !== "undefined" ? isLenientRun : (typeof LENIENT_RUN !== "undefined" ? LENIENT_RUN : true);
       if (!state.__softWarnings) state.__softWarnings = [];
@@ -14435,6 +14460,8 @@ export function renderPanelHtml(): string {
         payload.file = button.dataset.file;
         payload.planFile = payload.planFile || button.dataset.file;
       }
+      if (button.dataset.report) { payload.report = button.dataset.report; payload.file = payload.file || button.dataset.report; payload.name = payload.name || button.dataset.report; }
+      if (button.dataset.name && (command === "openLastCheckStaticReport")) { payload.report = payload.report || button.dataset.name; payload.file = payload.file || button.dataset.name; payload.name = button.dataset.name; }
       if (button.dataset.runKey) payload.runKey = button.dataset.runKey;
       if (button.dataset.taskUiKey) payload.taskUiKey = button.dataset.taskUiKey;
       if (button.dataset.experimentId) payload.experimentId = button.dataset.experimentId;

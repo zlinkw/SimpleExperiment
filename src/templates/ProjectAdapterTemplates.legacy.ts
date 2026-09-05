@@ -752,7 +752,6 @@ export function projectOnboardingConfigTemplate(projectName) {
         "    - stdout.log",
         "    - stderr.log",
         "  textLogs:",
-        "    - summary.txt",
         "    - console.log",
         "  candidateCsv:",
         "    - metrics_summary.csv",

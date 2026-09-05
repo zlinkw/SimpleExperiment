@@ -365,7 +365,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
+    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -507,6 +507,9 @@ const GUIDED_PLAN_OUTPUT_DIR_FLAGS = new Set([
     "default-root-dir", "defaultrootdir", "dirpath", "hydra.run.dir", "hydra.sweep.dir", "logger.save-dir", "trainer.default-root-dir",
 ]);
 let provider;
+const CHECK_STATIC_REPORT_REL_PATH = "simple_cluster/check_reports/check-static-latest.md";
+const CHECK_STATIC_REPORT_DIR_REL = "simple_cluster/check_reports";
+const CHECK_STATIC_CHECKER_SOURCE = "scripts/check-static.js";
 function activate(context) {
     return activateExtension(context);
 }
@@ -514,7 +517,7 @@ async function activateExtension(context) {
     await (0, RenamedExtensionStateMigration_1.migrateRenamedExtensionState)(context).catch(() => undefined);
     provider = new RealtimeTunnelPanelProvider(context);
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
     context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
@@ -4616,6 +4619,15 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "copyText":
                 await this.copyTextFromUi(message);
+                break;
+            case "openLastCheckStaticReport":
+                await this.openLastCheckStaticReportFromUi(message);
+                break;
+            case "copyLastCheckStaticReport":
+                await this.copyLastCheckStaticReportFromUi();
+                break;
+            case "runCheckStatic":
+                await this.runCheckStaticFromUi();
                 break;
             case "verifyAgentVersion":
                 await this.verifyAgentVersionManually();
@@ -11392,6 +11404,156 @@ class RealtimeTunnelPanelProvider {
         await vscode.env.clipboard.writeText(text);
         void vscode.window.showInformationMessage(`已复制：${text.slice(0, 120)}${text.length > 120 ? "..." : ""}`);
     }
+    // check-static 报告列表：simple_cluster 下属路径属排除前缀（plan 扫描跳过），此处不做排除校验，
+    // 仅经 safeWorkspaceChildPath 做 .. 逃逸拒绝后 readdir 过滤 check-static-*.md，供 sync 卡报告区 postState 下发。
+    // 不做任何网络探测（P0 禁硬编码端口/IP）。
+    listCheckStaticReportsSync() {
+        try {
+            const root = workspaceRoot();
+            if (!root)
+                return [];
+            const dirFull = safeWorkspaceChildPath(root, CHECK_STATIC_REPORT_DIR_REL);
+            let entries = [];
+            try {
+                entries = fsNode.readdirSync(dirFull);
+            }
+            catch {
+                return [];
+            }
+            const out = [];
+            for (const name of entries || []) {
+                if (typeof name !== "string")
+                    continue;
+                if (name !== "check-static-latest.md" && !/^check-static-.*\.md$/.test(name))
+                    continue;
+                if (name.indexOf("..") >= 0 || name.indexOf("/") >= 0 || name.indexOf("\\") >= 0)
+                    continue;
+                out.push(name);
+            }
+            out.sort();
+            const latestIdx = out.indexOf("check-static-latest.md");
+            if (latestIdx > 0) {
+                out.splice(latestIdx, 1);
+                out.unshift("check-static-latest.md");
+            }
+            return out;
+        }
+        catch {
+            return [];
+        }
+    }
+    // check-static 最新报告：simple_cluster 下属路径属排除前缀（plan 扫描跳过），此处不做排除校验，
+    // 仅经 safeWorkspaceChildPath 做 .. 逃逸拒绝后复用 openWorkspaceFile 打开。
+    // 支持带参：sync 卡报告区可点击文件名（message.report/message.file/message.name），经 allowlist 校验后打开对应报告。
+    async openLastCheckStaticReportFromUi(message) {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const raw = message && (message.report || message.file || message.name);
+        let rel = CHECK_STATIC_REPORT_REL_PATH;
+        if (raw) {
+            const base = String(raw).split("/").pop().split("\\").pop().trim();
+            if (!base || (base !== "check-static-latest.md" && !/^check-static-.*\.md$/.test(base)))
+                throw new Error(`非法报告名：${String(raw).slice(0, 120)}（仅允许 simple_cluster/check_reports 下 check-static-*.md）`);
+            rel = `${CHECK_STATIC_REPORT_DIR_REL}/${base}`;
+        }
+        const full = safeWorkspaceChildPath(root, rel);
+        const stat = await fs.stat(full).catch(() => undefined);
+        if (!stat || !stat.isFile())
+            throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
+        await openWorkspaceFile(rel);
+    }
+    async copyLastCheckStaticReportFromUi() {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const rel = CHECK_STATIC_REPORT_REL_PATH;
+        const full = safeWorkspaceChildPath(root, rel);
+        const stat = await fs.stat(full).catch(() => undefined);
+        if (!stat || !stat.isFile())
+            throw new Error(`静态检查报告不存在：${rel}（即 ${CHECK_STATIC_REPORT_REL_PATH}），请先运行 npm run check:static（failed 自动落盘，passed 加 --write-md/--report-md）。`);
+        const text = await fs.readFile(full, "utf8");
+        await vscode.env.clipboard.writeText(text);
+        void vscode.window.showInformationMessage(`已复制静态检查报告（${rel}，${text.length} 字符）`);
+    }
+    // runCheckStatic：sync 工具栏“检查项目接入”入口。
+    // 先清空 simple_cluster/check_reports 内 check-static-*.md（仅该前缀，不碰其他报告），
+    // 再跑 check-static --write-md 写最新（failed 自动落盘，passed 靠 --write-md 落盘），
+    // 最后显示报告位置 + 打开/复制（复用 open/copy 三件套）。不做任何网络探测（P0 禁硬编码端口/IP）。
+    async runCheckStaticFromUi() {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const rel = CHECK_STATIC_REPORT_REL_PATH;
+        const dirRel = "simple_cluster/check_reports";
+        const dirFull = safeWorkspaceChildPath(root, dirRel);
+        await fs.mkdir(dirFull, { recursive: true }).catch(() => undefined);
+        let cleared = 0;
+        try {
+            const entries = await fs.readdir(dirFull).catch(() => []);
+            for (const name of entries || []) {
+                if (!/^check-static-.*\.md$/.test(name))
+                    continue;
+                const full = path.join(dirFull, name);
+                const inner = path.relative(dirFull, full);
+                if (!inner || inner.startsWith("..") || path.isAbsolute(inner))
+                    continue;
+                await fs.unlink(full).catch(() => undefined);
+                cleared += 1;
+            }
+        }
+        catch { }
+        const candidates = [];
+        try {
+            if (this.context?.extensionPath)
+                candidates.push(path.join(String(this.context.extensionPath), "scripts", "check-static.js"));
+        }
+        catch { }
+        try {
+            candidates.push(path.join(__dirname, "..", "..", "scripts", "check-static.js"));
+        }
+        catch { }
+        let script = "";
+        for (const c of candidates) {
+            try {
+                const st = fsNode.statSync(c);
+                if (st && st.isFile()) {
+                    script = c;
+                    break;
+                }
+            }
+            catch { }
+        }
+        if (!script)
+            throw new Error(`check-static 脚本缺失（候选：${candidates.join("；")}），请确认扩展安装完整。`);
+        let output = "";
+        let exitCode = 0;
+        try {
+            const cp = require("child_process");
+            const res = cp.spawnSync(process.execPath, [script, "--project", root, "--write-md"], { encoding: "utf8", timeout: 120000 });
+            output = String((res && res.stdout) || "") + String((res && res.stderr) || "");
+            exitCode = Number((res && res.status) ?? 0);
+            if (res && res.error)
+                output += String(res.error && res.error.message ? res.error.message : res.error);
+        }
+        catch (exc) {
+            throw new Error(`静态检查运行失败：${String(exc?.message || exc).slice(0, 500)}`);
+        }
+        const full = safeWorkspaceChildPath(root, rel);
+        const stat = await fs.stat(full).catch(() => undefined);
+        if (!stat || !stat.isFile())
+            throw new Error(`静态检查已运行（已清空${cleared}个旧报告，exit=${exitCode}）但未生成报告：${rel}。输出：${output.slice(0, 800)}`);
+        const overall = exitCode === 0 ? "passed" : "failed";
+        try {
+            this.postState(true);
+        }
+        catch { }
+        const pick = await vscode.window.showInformationMessage(`静态检查完成（${overall}，已清空${cleared}个旧报告），报告：${rel}`, "打开报告", "复制报告");
+        if (pick === "打开报告")
+            await this.openLastCheckStaticReportFromUi();
+        else if (pick === "复制报告")
+            await this.copyLastCheckStaticReportFromUi();
+    }
     async fetchTmuxCaptureFromUi(message) {
         const _pfxRaw = this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || "simple";
         const _pfx = (0, AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix)(_pfxRaw);
@@ -13070,6 +13232,7 @@ class RealtimeTunnelPanelProvider {
                 fileTransfers: Object.keys(fileTransfers).length,
             }),
             lastError: webviewLastError,
+            checkStaticReports: this.listCheckStaticReportsSync(),
         };
     }
     currentUiLayoutState() {

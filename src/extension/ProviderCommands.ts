@@ -52,6 +52,9 @@ export function resolveCommandHandlerMap(provider: Record<string, (...args: unkn
   bind("simpleExperiment.prepareAgents", "prepareAgentsForFirstRun");
   bind("simpleExperiment.verifyAgentVersion", "verifyAgentVersionManually");
   bind("simpleExperiment.openSetupGuide", "openSetupGuide");
+  bind("simpleExperiment.openLastCheckStaticReport", "openLastCheckStaticReportFromUi");
+  bind("simpleExperiment.copyLastCheckStaticReport", "copyLastCheckStaticReportFromUi");
+  bind("simpleExperiment.runCheckStatic", "runCheckStaticFromUi");
   return map;
 }
 
