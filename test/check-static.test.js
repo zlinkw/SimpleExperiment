@@ -613,6 +613,8 @@ test("MD增强：每finding一###块+参考模板+行号映射+去重标记+path
   const md2 = fs.readFileSync(path.join(dir2, REL), "utf8");
   assert.ok(md2.includes("plotting_contract_missing_file") && md2.includes("[NEW]"), "同 file+id 首 [NEW]");
   assert.ok(md2.includes("[DUP]"), "同 file+id 后 [DUP]");
+  assert.ok(!/#L0/.test(md2), "无行号标题省略#L0（bare file）");
+  assert.ok(/^### \[warnings\][\[`plotting_contract_missing_file`[\]`]+ [^#\s]+ \[(NEW|DUP)\]/m.test(md2), "无行号标题为 bare file（不带#L）");
 });
 
 test("ID_SRC动态锚点+未注册抛错+plotting DUP说明", () => {
@@ -652,7 +654,8 @@ test("ID_SRC动态锚点+未注册抛错+plotting DUP说明", () => {
   assert.ok(r.errors.some((e) => e.id === "mode"), "legacy 裸 id mode 应进入报告");
   const md = fs.readFileSync(path.join(dir, "simple_cluster/check_reports/check-static-latest.md"), "utf8");
   assert.ok(md.includes("`mode`"), "MD 含 mode 明细块（id 反引号 code）");
-  assert.ok(/^### \[errors\]\[`mode`\] \S+#L\d+ \[NEW\]|^### \[errors\]\[`mode`\] \S+ \[(NEW|DUP)\]/m.test(md), "MD 标题为 ### [severity][id] file#Lx [NEW/DUP]");
+  assert.ok(/^### \[errors\]\[`mode`\] \S+#L\d+ \[NEW\]|^### \[errors\]\[`mode`\] \S+ \[(NEW|DUP)\]/m.test(md), "MD 标题为 ### [severity][id] file#Lx [NEW/DUP]（有行号带#L，无行号时 bare file 省略#L0）");
+  assert.ok(!/#L0/.test(md), "有行号标题带#Lx，无#L0 残留");
   assert.ok(/scripts\/check-static\.js:\d+/.test(md), "MD 行号锚点动态生成");
   // plotting DUP 说明：五缺文件块均带五文件共用 id 解释
   const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "csid-plot-"));
@@ -760,6 +763,7 @@ test("O4渲染归一折叠+G9抛错保留：DUP 模板折叠但块数/字段/抛
   assert.equal(md.split("\n").filter((l) => l.startsWith("#### 参考模板")).length, total, "每块仍恰一模板头");
   assert.ok(md.includes("[NEW]"), "首现 [NEW] 全量多行模板");
   assert.ok(md.includes("[DUP] 模板已折叠"), "后随 [DUP] 模板折叠为单行");
+  assert.ok(/见第\d+块（MD行L\d+）/.test(md), "DUP 模板引用指向首块块号+MD行号");
   assert.ok(!/\r/.test(md), "CRLF 归一为 LF");
   // G9 不编造：双抛错保留（源码级）+ "-" 兜底唯一回退保留
   const scriptSrc = fs.readFileSync(SCRIPT, "utf8");
@@ -897,6 +901,8 @@ test("降噪：via齐备降info+D1抑制+wrapper折叠+quiet旗", () => {
   write(path.join(wdir, "experiments", "simple_adapter", "run_wrapper.py"), "# ok\n");
   const rw = runCheck(wdir);
   assert.equal(rw.infos.filter((i) => i.id === "output_contract_wrapper_summary").length, 1, "5 明细折叠为 1 汇总");
+  assert.ok(String(rw.infos.find((i) => i.id === "output_contract_wrapper_summary").suggestion || "").includes("--quiet-wrapper"), "wrapper 汇总 suggestion 注明 --quiet-wrapper CLI 示例");
+  assert.ok(String(rw.infos.find((i) => i.id === "output_contract_wrapper_summary").suggestion || "").includes("node scripts/check-static.js --project <dir> --write-md --quiet-wrapper"), "wrapper 汇总 suggestion 含完整 CLI 示例");
   const rwq = runCheck(wdir, ["--quiet-wrapper"]);
   assert.ok(!rwq.infos.some((i) => i.id === "output_contract_wrapper_summary"), "--quiet-wrapper 抑制汇总");
   assert.ok(!rwq.infos.some((i) => /_via_wrapper$/.test(i.id || "")), "--quiet-wrapper 下无明细");

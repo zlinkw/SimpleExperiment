@@ -17,7 +17,9 @@
  *
  * 用法：
   *   node scripts/check-static.js [--project <dir>] [--fail-on-warning] [--json] [--write-md|--report-md] [--quiet-wrapper] [--quiet-info]
- *   npm run check:static -- --project <dir>
+  *   示例（抑制 wrapper 汇总）：node scripts/check-static.js --project <dir> --write-md --quiet-wrapper
+  *   示例（抑制 tensorboard/version 噪音）：node scripts/check-static.js --project <dir> --write-md --quiet-info
+  *   npm run check:static -- --project <dir>
  *
  * 约束：
  * - 不碰 src/ui/PanelHtml* 内层脚本（P0 外层模板剥离坑）。
@@ -892,7 +894,7 @@ function checkSimpleProject(projectDir) {
   };
   // tensorboard 无消费只 info（无依赖不阻断；展示层降级，判定条件不变，明确不升级 critical）
   if (!/tensorboardLogDirs/i.test(clean)) {
-    push("info", "simple_project_no_tensorboard", "simple_project 缺少 tensorboardLogDirs", "在 experiments/simple_project.yaml 中补充 tensorboardLogDirs（TensorBoard 日志目录），否则 TensorBoard 通道不可用");
+    push("info", "simple_project_no_tensorboard", "simple_project 缺少 tensorboardLogDirs", "在 experiments/simple_project.yaml 中补充 tensorboardLogDirs（TensorBoard 日志目录），否则 TensorBoard 通道不可用；如需抑制此提醒，示例：node scripts/check-static.js --project <dir> --write-md --quiet-info");
   }
   // manifest 缺声明只 warning（Schema 默认 artifact_manifest.json，落 {output_dir}/ 下）
   if (!/manifest\s*:/i.test(clean)) {
@@ -910,7 +912,7 @@ function checkSimpleProject(projectDir) {
     }
   } else {
     // 无版本声明时回退为 info（不阻断、不告警，仅提示可声明 version 以启用版本门）
-    push("info", "simple_project_version_undeclared", "simple_project 未声明 version（回退：跳过版本门）", "如需启用版本门，在 experiments/simple_project.yaml 顶层补充 version: <x.y.z>（>=0.4.2）");
+    push("info", "simple_project_version_undeclared", "simple_project 未声明 version（回退：跳过版本门）", "如需启用版本门，在 experiments/simple_project.yaml 顶层补充 version: <x.y.z>（>=0.4.2）；如需抑制此提醒，示例：node scripts/check-static.js --project <dir> --write-md --quiet-info");
   }
   // G8-1 SimpleSFTP >= 0.2.4：文件内 simpleSftp/simple-sftp 版本声明低于基线 → critical
   const sftpMatch = /simple[-_]?sftp[^0-9]*(\d+)\.(\d+)\.(\d+)/i.exec(text);
@@ -1179,7 +1181,7 @@ function main() {
         severity: "info",
         id: "output_contract_wrapper_summary",
         message: `run_wrapper 已覆盖 ${wcount} 项输出契约（${foldedWrapper.sort().join("、")}，已豁免，来源：${wnote}，明细已折叠，共${wcount}项/${wscope}；计入依据：同文件同plan折叠，wcount=foldedWrapper.length）`,
-        suggestion: "wrapper 经 collect_outputs 自动采集/捕获，无需重复声明；如需消除此提醒可显式声明对应产物，或加 --quiet-wrapper 抑制本汇总（明细ID已豁免折叠：output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper/output_contract_config_snapshot_via_wrapper）",
+        suggestion: "wrapper 经 collect_outputs 自动采集/捕获，无需重复声明；如需消除此提醒可显式声明对应产物，或加 --quiet-wrapper 抑制本汇总（明细ID已豁免折叠：output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper/output_contract_config_snapshot_via_wrapper）；示例：node scripts/check-static.js --project <dir> --write-md --quiet-wrapper",
       });
     }
     // G10 分片大表错位（多分片 + paper 大表名不对齐 + test 缺分片接线 → warning）
@@ -1228,7 +1230,7 @@ function main() {
       // tensorboard 降噪：仅 plan 含 SummaryWriter（大小写敏感精确）时落 infos，否则直接抑制不落桶；
       // simple_project_no_tensorboard 保持不动（缺声明仍 info）；severity 仍 info。
       if (text.includes("SummaryWriter")) {
-        pushPlan(infos, { severity: "info", id: "output_interface_tensorboard", message: iface.note, suggestion: "在远端执行 pip show tensorboard 确认，或改用 run_wrapper 捕获" });
+        pushPlan(infos, { severity: "info", id: "output_interface_tensorboard", message: iface.note, suggestion: "在远端执行 pip show tensorboard 确认，或改用 run_wrapper 捕获；如需抑制此提醒，示例：node scripts/check-static.js --project <dir> --write-md --quiet-info" });
       }
     }
     const testCmdFinding = checkTestCommand(text);
@@ -1353,7 +1355,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1824";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1843";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",
@@ -1713,9 +1715,16 @@ function main() {
     if (!rep.planFiles.length) lines.push("- (none)");
     else for (const f of rep.planFiles) lines.push(`- ${escCell(f)}`);
     const normFileOf = (f) => String(f == null ? "" : f).replace(/\\/g, "/"); // 复用 normRel 归一语义（\→/）
-    const oneLineFull = (v) => String(v == null ? "" : v).replace(/\r/g, "").replace(/\n/g, " "); // 全量单行化，禁截断（不用 escCell 截断语义）
-    // infos 表 message 瘦身：表格 message 单元格截断长串（如折叠 ID 清单），保留前 60 字符 + …；明细块 message 保持 oneLineFull 全量禁截断。
-    const slimCell = (v) => { const s = escCell(v); return s.length > 60 ? s.slice(0, 60) + "…" : s; }; // infos 表格 message 瘦身（前 60 字符 + …）
+    const oneLineFull = (v) => String(v == null ? "" : v).replace(/\r/g, "").replace(/\n/g, " "); // 全量单行化，禁截断
+    // 豁免口径去重附录（呈现层短引用，JSON/byId/计数不变）：
+    // A1=来源说明（已豁免+来源二分+projectWrapperOk），A2=计入依据（同文件同plan折叠+wcount口径），A3=明细ID清单（5 via_wrapper IDs）。
+    const APPENDIX_A3_IDS = "output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper/output_contract_config_snapshot_via_wrapper";
+    const shortAppendix = (s) => String(s == null ? "" : s)
+      .replace(/（[^）]*?，已豁免，来源：[^）]*?，明细已折叠，共(\d+)项\/([^；）]+)；计入依据：[^）]*?）/g, "（共$1项/$2[附录A1][附录A2][附录A3]）")
+      .replace(/（已豁免，来源：[^）]*?projectWrapperOk=(?:true|false)）/g, "（已豁免[附录A1]）")
+      .replace(/（已豁免，详见 output_contract_wrapper_summary）/g, "（[附录A2]）")
+      .replace(/（明细ID已豁免折叠：[^）]*?）/g, "（[附录A3]）")
+      .replace(/output_contract_(?:case_csv|stdout|stderr|env_snapshot|config_snapshot)_via_wrapper(?:[、/]output_contract_(?:case_csv|stdout|stderr|env_snapshot|config_snapshot)_via_wrapper)+/g, "[附录A3]");
     const byFileId = (a, b) => {
       const fa = normFileOf(a.file); const fb = normFileOf(b.file);
       if (fa < fb) return -1; if (fa > fb) return 1;
@@ -1730,8 +1739,8 @@ function main() {
       lines.push("| file | severity | id | message | suggestion |");
       lines.push("| --- | --- | --- | --- | --- |");
       for (const r of [...rows].sort(byFileId)) {
-        const msgCell = title === "infos" ? slimCell(r.message) : escCell(r.message); // 仅 infos 表 message 瘦身，errors/warnings 保持全量
-        lines.push(`| ${escCell(normFileOf(r.file))} | ${escCell(r.severity)} | ${escCell(refIdOf(r))} | ${msgCell} | ${escCell(r.suggestion || MD_SUGGESTION_FALLBACK)} |`);
+        // 全桶不截断：message/suggestion 均 escCell 全量；豁免长串以附录短引用呈现（JSON 原文不变）。
+        lines.push(`| ${escCell(normFileOf(r.file))} | ${escCell(r.severity)} | ${escCell(refIdOf(r))} | ${escCell(shortAppendix(r.message))} | ${escCell(shortAppendix(r.suggestion || MD_SUGGESTION_FALLBACK))} |`);
       }
     };
     section("errors", rep.errors);
@@ -1739,9 +1748,9 @@ function main() {
     section("infos", rep.infos);
     // 明细：每个 finding 恰一个 ### 块（块数 == finding 总数），含文件:行号映射 + 参考模板源码块。
     // 去重标记：全局首现全量、之后 [DUP]；同 file+id 首个 [NEW]、之后 [DUP]（标题标记口径不变）。
-    // O4 渲染归一折叠：参考模板按 id 全局折叠（首个同 id 块全量、之后单行引用），与 file 无关；
+    // O4 渲染归一折叠：参考模板按 id 全局折叠（首个同 id 块全量并记录块序号+MD行号、之后单行引用指向首块），与 file 无关；
     // refTemplateFor 照常调用（G9 不编造：未注册 id 照抛错，禁止静默回退）。
-    // diff 围栏已删除（非 unified 不可 apply，只留模板 yaml 围栏）；无行号 loc 写 file#L0（不再 bare file）。
+    // diff 围栏已删除（非 unified 不可 apply，只留模板 yaml 围栏）；无行号 loc 写 bare file（省略#L0，- 行号:行保持省略）。
     const FENCE = String.fromCharCode(96, 96, 96);
     // 2. 明细按 file 分组 + severity 排序：桶序 errors>warnings>infos 不变，桶内按 file、id 排序。
     const errSorted = [...rep.errors].sort(byFileId);
@@ -1754,10 +1763,10 @@ function main() {
     ];
     const seenGlobal = new Set();
     const seenFileId = new Map();
-    const seenIdTpl = new Set(); // 模板按 id 全局折叠：首个同 id 块全量、之后单行引用
+    const seenIdTpl = new Map(); // 模板按 id 全局折叠：首个同 id 块全量并记块序号+MD行号、之后单行引用指向首块
     lines.push("");
     lines.push(`## findings明细 (${all.length})`);
-    all.forEach((item) => {
+    all.forEach((item, idx) => {
       const r = item.r;
       const refId = refIdOf(r);
       const file = normFileOf(r.file || "(none)");
@@ -1770,11 +1779,12 @@ function main() {
       const mark = isDup || n > 1 ? "[DUP]" : "[NEW]";
       const src = resolveCheckStaticIdSrc(refId);
       const sug = r.suggestion || MD_SUGGESTION_FALLBACK;
-      const msgFull = oneLineFull(r.message);
-      const sugFull = oneLineFull(sug);
-      const loc = r.line != null ? `${file}#L${String(r.line)}` : `${file}#L0`; // 无行号时写 file#L0（不再 bare file），loc 统一正斜杠经 normFileOf 归一
+      const msgFull = oneLineFull(shortAppendix(r.message));
+      const sugFull = oneLineFull(shortAppendix(sug));
+      const loc = r.line != null ? `${file}#L${String(r.line)}` : file; // 无行号时 bare file 省略#L0（- 行号:行保持省略），loc 统一正斜杠经 normFileOf 归一
       lines.push("");
       lines.push(`### [${item.sec}][\`${refId}\`] ${loc} ${mark}`);
+      const headingMdLine = lines.length; // 该块标题的 MD 行号（1-based，供 DUP 折叠引用）
       lines.push(`- 文件: ${escCell(file)}`);
       if (r.line != null) lines.push(`- 行号: ${escCell(String(r.line))}（plan 行锚，位置 ${escCell(loc)}）`);
       lines.push(`- 参考: ${escCell(src)}`);
@@ -1787,12 +1797,13 @@ function main() {
       if (refId === "plotting_contract_missing_file") lines.push("- 说明: 绘图契约五文件共用同一 id，五缺项各为独立缺文件，[DUP] 仅为同 id 去重标记（key 见 message）。");
       lines.push(`#### 参考模板 (\`${refId}\`)`);
       lines.push(`${FENCE}yaml`);
-      // O4 折叠 + G9 不编造：先照常取模板（未注册照抛错），同 id 首个块全量、之后折叠为单行引用。
+      // O4 折叠 + G9 不编造：先照常取模板（未注册照抛错），同 id 首个块全量、之后折叠为指向首块块号+MD行号的单行引用。
       const tplLines = refTemplateFor(refId);
       if (seenIdTpl.has(refId)) {
-        lines.push(`# [DUP] 模板已折叠，完整正例见首个同 id [NEW] 块：${refId}`);
+        const first = seenIdTpl.get(refId);
+        lines.push(`# [DUP] 模板已折叠，完整正例见第${first.blockNo}块（MD行L${first.mdLine}）：${refId}`);
       } else {
-        seenIdTpl.add(refId);
+        seenIdTpl.set(refId, { blockNo: idx + 1, mdLine: headingMdLine });
         for (const t of tplLines) lines.push(t);
       }
       lines.push(FENCE);
@@ -1811,6 +1822,12 @@ function main() {
       for (const l of JSON.stringify(summaryJson, null, 2).split("\n")) lines.push(l);
     }
     lines.push(FENCE);
+    lines.push("");
+    // 附录（豁免口径去重展开，呈现层短引用展开；判定/severity/桶位/计数口径不变）。
+    lines.push("## 附录（豁免口径，去重展开）");
+    lines.push("- 附录A1（来源说明）：已豁免指经 run_wrapper 自动采集/捕获/产出、无需在 plan 内重复声明；来源二分为“项目级 run_wrapper”（experiments/simple_adapter/run_wrapper.py 存在，projectWrapperOk=true）与“plan 内 run_wrapper/runWrapper”（plan 文本显式引用，projectWrapperOk=false）；判定仍以 hasRunWrapper 为准（任一覆盖即豁免）。");
+    lines.push("- 附录A2（计入依据）：同文件同 plan 的 via_wrapper info 折叠为 1 条 output_contract_wrapper_summary（findings 总数同步减少；--quiet-wrapper 则连汇总一并抑制）；wcount=foldedWrapper.length，含 output_contract_case_csv_via_wrapper 时为 5 项口径、否则为 4 项口径。");
+    lines.push(`- 附录A3（明细ID清单）：${APPENDIX_A3_IDS}。`);
     lines.push("");
     // O4 渲染归一：CRLF 归一为 LF，连续空行折叠为单个空行。
     return lines.join("\n").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n");
