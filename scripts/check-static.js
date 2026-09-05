@@ -446,21 +446,21 @@ function checkOutputContract(planText, mode, opts) {
   // 无 wrapper 时仍 critical（确无声明不断言通过）。
   if (!hasCaseCsv) {
     if (hasRunWrapper) {
-      out.push({ severity: "info", id: "output_contract_case_csv_via_wrapper", message: `metrics_case.csv 未声明但经 run_wrapper 自动采集（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 metrics_case.csv 采集（collect_outputs per-job 双 csv），无需在 plan 内重复声明；如需消除此提醒可在 expectedResults/candidateCsv 中显式声明 {output_dir}/metrics_case.csv" });
+      out.push({ severity: "info", id: "output_contract_case_csv_via_wrapper", message: `metrics_case.csv 未声明但经 run_wrapper 自动采集（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 metrics_case.csv 采集（collect_outputs per-job 双 csv），无需在 plan 内重复声明；如需消除此提醒可在 expectedResults/candidateCsv 中显式声明 {output_dir}/metrics_case.csv（已豁免，详见 output_contract_wrapper_summary）" });
     } else {
       out.push({ severity: "critical", id: "output_contract_missing_case_csv", message: "输出契约缺 metrics_case.csv（per-job 双 csv 之一）", suggestion: "在 expectedResults/candidateCsv/命令中声明 {output_dir}/metrics_case.csv" });
     }
   }
   if (!hasStdout) {
     if (hasRunWrapper) {
-      out.push({ severity: "info", id: "output_contract_stdout_via_wrapper", message: `stdout.log 未声明但经 run_wrapper 自动捕获（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 stdout.log 捕获，无需在 plan 内重复声明；如需消除此提醒可在 consoleLogs 中显式声明 stdout.log" });
+      out.push({ severity: "info", id: "output_contract_stdout_via_wrapper", message: `stdout.log 未声明但经 run_wrapper 自动捕获（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 stdout.log 捕获，无需在 plan 内重复声明；如需消除此提醒可在 consoleLogs 中显式声明 stdout.log（已豁免，详见 output_contract_wrapper_summary）" });
     } else {
       out.push({ severity: "critical", id: "output_contract_missing_stdout_log", message: "输出契约缺 stdout.log（per-job 双 log 之一）", suggestion: "经 run_wrapper 捕获 stdout.log，或在 consoleLogs 中声明" });
     }
   }
   if (!hasStderr) {
     if (hasRunWrapper) {
-      out.push({ severity: "info", id: "output_contract_stderr_via_wrapper", message: `stderr.log 未声明但经 run_wrapper 自动捕获（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 stderr.log 捕获，无需在 plan 内重复声明；如需消除此提醒可在 consoleLogs 中显式声明 stderr.log" });
+      out.push({ severity: "info", id: "output_contract_stderr_via_wrapper", message: `stderr.log 未声明但经 run_wrapper 自动捕获（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 stderr.log 捕获，无需在 plan 内重复声明；如需消除此提醒可在 consoleLogs 中显式声明 stderr.log（已豁免，详见 output_contract_wrapper_summary）" });
     } else {
       out.push({ severity: "critical", id: "output_contract_missing_stderr_log", message: "输出契约缺 stderr.log（per-job 双 log 之一）", suggestion: "经 run_wrapper 捕获 stderr.log，或在 consoleLogs 中声明" });
     }
@@ -499,14 +499,14 @@ function checkOutputContract(planText, mode, opts) {
   // （与 stdout/stderr 豁免同模式；projectWrapperOk 区分项目级 vs plan 内，判定仍以 hasRunWrapper 为准）。
   if (!/env_snapshot\.json/i.test(clean)) {
     if (hasRunWrapper) {
-      out.push({ severity: "info", id: "output_contract_env_snapshot_via_wrapper", message: `env_snapshot.json 未声明但经 run_wrapper 自动产出（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 env_snapshot.json 产出，无需在 plan 内重复声明；如需消除此提醒可在 outputs 中显式声明 env_snapshot.json" });
+      out.push({ severity: "info", id: "output_contract_env_snapshot_via_wrapper", message: `env_snapshot.json 未声明但经 run_wrapper 自动产出（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 env_snapshot.json 产出，无需在 plan 内重复声明；如需消除此提醒可在 outputs 中显式声明 env_snapshot.json（已豁免，详见 output_contract_wrapper_summary）" });
     } else {
       out.push({ severity: "warning", id: "output_contract_missing_env_snapshot", message: "缺少 env_snapshot.json 快照声明", suggestion: "经 run_wrapper 自动产出 env_snapshot.json，或在 outputs 中声明" });
     }
   }
   if (!/config_snapshot\.yaml/i.test(clean)) {
     if (hasRunWrapper) {
-      out.push({ severity: "info", id: "output_contract_config_snapshot_via_wrapper", message: `config_snapshot.yaml 未声明但经 run_wrapper 自动产出（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 config_snapshot.yaml 产出，无需在 plan 内重复声明；如需消除此提醒可在 outputs 中显式声明 config_snapshot.yaml" });
+      out.push({ severity: "info", id: "output_contract_config_snapshot_via_wrapper", message: `config_snapshot.yaml 未声明但经 run_wrapper 自动产出（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 config_snapshot.yaml 产出，无需在 plan 内重复声明；如需消除此提醒可在 outputs 中显式声明 config_snapshot.yaml（已豁免，详见 output_contract_wrapper_summary）" });
     } else {
       out.push({ severity: "warning", id: "output_contract_missing_config_snapshot", message: "缺少 config_snapshot.yaml 快照声明", suggestion: "经 run_wrapper 自动产出 config_snapshot.yaml，或在 outputs 中声明" });
     }
@@ -1174,12 +1174,12 @@ function main() {
     if (foldedWrapper.length > 0 && !args.quietWrapper) {
       const wnote = projectWrapper.ok ? "项目级 run_wrapper" : "plan 内 run_wrapper/runWrapper";
       const wcount = foldedWrapper.length;
-      const wscope = foldedWrapper.includes("output_contract_config_snapshot_via_wrapper") ? "5项口径" : "4项口径";
+      const wscope = foldedWrapper.includes("output_contract_case_csv_via_wrapper") ? "5项口径" : "4项口径";
       pushPlan(infos, {
         severity: "info",
         id: "output_contract_wrapper_summary",
         message: `run_wrapper 已覆盖 ${wcount} 项输出契约（${foldedWrapper.sort().join("、")}，已豁免，来源：${wnote}，明细已折叠，共${wcount}项/${wscope}；计入依据：同文件同plan折叠，wcount=foldedWrapper.length）`,
-        suggestion: "wrapper 经 collect_outputs 自动采集/捕获，无需重复声明；如需消除此提醒可显式声明对应产物，或加 --quiet-wrapper 抑制本汇总",
+        suggestion: "wrapper 经 collect_outputs 自动采集/捕获，无需重复声明；如需消除此提醒可显式声明对应产物，或加 --quiet-wrapper 抑制本汇总（明细ID已豁免折叠：output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper/output_contract_config_snapshot_via_wrapper）",
       });
     }
     // G10 分片大表错位（多分片 + paper 大表名不对齐 + test 缺分片接线 → warning）
@@ -1225,7 +1225,11 @@ function main() {
         wrapperCoveredCount += 1;
       }
     } else if (iface.note) {
-      pushPlan(infos, { severity: "info", id: "output_interface_tensorboard", message: iface.note, suggestion: "在远端执行 pip show tensorboard 确认，或改用 run_wrapper 捕获" });
+      // tensorboard 降噪：仅 plan 含 SummaryWriter（大小写敏感精确）时落 infos，否则直接抑制不落桶；
+      // simple_project_no_tensorboard 保持不动（缺声明仍 info）；severity 仍 info。
+      if (text.includes("SummaryWriter")) {
+        pushPlan(infos, { severity: "info", id: "output_interface_tensorboard", message: iface.note, suggestion: "在远端执行 pip show tensorboard 确认，或改用 run_wrapper 捕获" });
+      }
     }
     const testCmdFinding = checkTestCommand(text);
     if (testCmdFinding) {
@@ -1534,12 +1538,12 @@ function main() {
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
         "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
-        "# 4项口径（成员式判定，以 message 为准）：output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper（metrics_case.csv/stdout.log/stderr.log/env_snapshot.json，不含 config_snapshot_via_wrapper 时为 4 项）",
+        "# 4项口径（成员式判定，以 message 为准）：output_contract_config_snapshot_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper（config_snapshot.yaml/stdout.log/stderr.log/env_snapshot.json，不含 output_contract_case_csv_via_wrapper 时为 4 项）",
         "# 正例：run_wrapper 覆盖 5 项输出契约（wrapper_summary 独立模板·5项口径，明细已折叠为 1 条，共5项）",
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
         "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
-        "# 5项口径（成员式判定，以 message 为准）：metrics_case.csv/stdout.log/stderr.log/env_snapshot.json/config_snapshot.yaml（含 config_snapshot_via_wrapper 时为 5 项）",
+        "# 5项口径（成员式判定，以 message 为准）：4项 + output_contract_case_csv_via_wrapper（metrics_case.csv，含 output_contract_case_csv_via_wrapper 时为 5 项）",
         "# 项目级 experiments/simple_adapter/run_wrapper.py 存在时自动采集上述产物",
       ];
     }
