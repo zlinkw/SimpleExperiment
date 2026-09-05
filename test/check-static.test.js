@@ -192,6 +192,10 @@ test("G3+G4输出契约：双csv双log/大表critical/快照warning/剥注释/�
   const rVia = runCheck(dirVia);
   assert.ok(rVia.warnings.some((w) => w.id === "test_command_via_injection"), "注入路径应降 warning(test_command_via_injection)");
   assert.ok(!rVia.errors.some((e) => e.id === "test_command_missing_result_csv"), "注入路径不报 critical");
+  // D1 折叠/二合一：同 plan 已报 test_command_via_injection 时 big_table_via_injection 降 info，findings 总数不变
+  assert.ok(rVia.infos.some((i) => i.id === "output_contract_big_table_via_injection"), "同 plan 有注入主项时大表折叠为 info");
+  assert.ok(!rVia.warnings.some((w) => w.id === "output_contract_big_table_via_injection"), "折叠后大表不再记 warning");
+  assert.ok(/test_command_via_injection/.test(rVia.infos.find((i) => i.id === "output_contract_big_table_via_injection").message), "折叠 message 指向 test_command_via_injection");
   // 无注入对照：缺 --result-csv 且无大表 → critical（不给 comparison 加参：签名仍为单 planText）
   const dirNo = fs.mkdtempSync(path.join(os.tmpdir(), "cs34no-"));
   write(path.join(dirNo, "configs", "base.yaml"), "x: 1\n");
@@ -282,9 +286,10 @@ test("G8 simple_project：版本/wrapper/扩展/别名/entrypoints", () => {
   assert.ok(r.errors.some((e) => e.id === "simple_project_runwrapper_missing"), "runWrapper 缺失 critical");
   assert.ok(r.errors.some((e) => e.id === "simple_project_candidate_extension"), "候选扩展名 critical");
   assert.ok(r.errors.some((e) => e.id === "simple_project_entrypoint_unrenderable"), "entrypoints 不可渲染 critical");
-  // tensorboard 无依赖只 warning：缺 tensorboardLogDirs 应为 warning 而非 error
-  assert.ok(r.warnings.some((w) => w.id === "simple_project_no_tensorboard"), "tensorboard 缺只 warning");
+  // tensorboard 无消费只 info：缺 tensorboardLogDirs 应为 info 而非 error/warning
+  assert.ok(r.infos.some((i) => i.id === "simple_project_no_tensorboard"), "tensorboard 缺只 info");
   assert.ok(!r.errors.some((e) => e.id === "simple_project_no_tensorboard"), "tensorboard 不升级 critical");
+  assert.ok(!r.warnings.some((w) => w.id === "simple_project_no_tensorboard"), "tensorboard 不再记 warning");
   // 版本门只认行首 5 字段：simpleSftp/agentVersion 永不触发 version_old，无匹配回退 info_undeclared
   assert.ok(![...r.errors, ...r.warnings].some((f) => f.id === "simple_project_version_old"), "simpleSftp/agentVersion 不触发 version_old");
   assert.ok(r.infos.some((i) => i.id === "simple_project_version_undeclared"), "无版本声明回退 info_undeclared");
@@ -815,6 +820,8 @@ test("报告头/candidate放宽/run_wrapper豁免/120注入语义", () => {
   assert.ok(!r1.errors.some((e) => e.id === "output_contract_missing_stderr_log"), "有 wrapper 时 stderr 豁免");
   assert.ok(r1.infos.some((i) => i.id === "output_contract_stdout_via_wrapper"), "豁免 stdout 记 info");
   assert.ok(r1.infos.some((i) => i.id === "output_contract_stderr_via_wrapper"), "豁免 stderr 记 info");
+  assert.ok(r1.infos.some((i) => i.id === "output_contract_case_csv_via_wrapper"), "豁免 case_csv 记 info（与 stdout/stderr 对齐）");
+  assert.ok(!r1.warnings.some((w) => w.id === "output_contract_case_csv_via_wrapper"), "豁免 case_csv 不再记 warning");
   // 120等11行语义：注入降 warning（G3 已覆盖，此处显式回归 via_injection 不报 critical）
   const via = fs.mkdtempSync(path.join(os.tmpdir(), "csnew-120-"));
   write(path.join(via, "configs", "base.yaml"), "x: 1\n");

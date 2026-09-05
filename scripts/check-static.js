@@ -422,12 +422,12 @@ function checkOutputContract(planText, mode, opts) {
   if (!hasSummaryCsv) {
     out.push({ severity: "critical", id: "output_contract_missing_summary_csv", message: "输出契约缺 metrics_summary.csv（per-job 双 csv 之一）", suggestion: "在 expectedResults/candidateCsv/命令中声明 {output_dir}/metrics_summary.csv" });
   }
-  // C1 豁免（与 stdout/stderr 自动捕获、snapshot 自动产出同模式；big_table via_injection 同口径 critical→warning）：
-  // 项目级 run_wrapper 经 collect_outputs 自动采集 per-job 双 csv（result_writer 双 csv），未声明时降 warning；
+  // C1 豁免（与 stdout/stderr 自动捕获、snapshot 自动产出同模式；wrapper 覆盖时记 info，与 stdout/stderr via_wrapper 对齐）：
+  // 项目级 run_wrapper 经 collect_outputs 自动采集 per-job 双 csv（result_writer 双 csv），未声明时记 info（展示层降级，判定条件不变）；
   // 无 wrapper 时仍 critical（确无声明不断言通过）。
   if (!hasCaseCsv) {
     if (hasRunWrapper) {
-      out.push({ severity: "warning", id: "output_contract_case_csv_via_wrapper", message: `metrics_case.csv 未声明但经 run_wrapper 自动采集（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 metrics_case.csv 采集（collect_outputs per-job 双 csv），无需在 plan 内重复声明；如需消除此提醒可在 expectedResults/candidateCsv 中显式声明 {output_dir}/metrics_case.csv" });
+      out.push({ severity: "info", id: "output_contract_case_csv_via_wrapper", message: `metrics_case.csv 未声明但经 run_wrapper 自动采集（已豁免，来源：${wrapperSourceNote}，projectWrapperOk=${projectWrapperOk ? "true" : "false"}）`, suggestion: "run_wrapper 已覆盖 metrics_case.csv 采集（collect_outputs per-job 双 csv），无需在 plan 内重复声明；如需消除此提醒可在 expectedResults/candidateCsv 中显式声明 {output_dir}/metrics_case.csv" });
     } else {
       out.push({ severity: "critical", id: "output_contract_missing_case_csv", message: "输出契约缺 metrics_case.csv（per-job 双 csv 之一）", suggestion: "在 expectedResults/candidateCsv/命令中声明 {output_dir}/metrics_case.csv" });
     }
@@ -449,7 +449,7 @@ function checkOutputContract(planText, mode, opts) {
   // 大表缺 → critical：test 上下文需 experiments/results 追加 + --result-csv 接线
   // B1 豁免：expectedResults 含 paper 大表（experiments/results/）且经 test.results_csv/
   // paper.result_csv 注入时，调度经 result_csv 回退链注入 --result-csv，不阻断 → 不报 critical，
-  // 仅保留 checkTestCommand:151 的 test_command_via_injection warning（与 120 注入语义一致）。
+  // 仅保留 checkTestCommand:149 的 test_command_via_injection warning；同 plan 已报该项时本 finding 经 D1 折叠降 info（二合一，判定条件不变）。
   if (mode !== "train") {
     const { test } = extractCommandBlobs(clean);
     const bigTableDeclared = /experiments\/results\//i.test(clean);
@@ -816,9 +816,9 @@ function checkSimpleProject(projectDir) {
   const push = (sev, id, message, suggestion) => {
     findings[sev === "critical" ? "errors" : sev === "warning" ? "warnings" : "infos"].push({ file: rel, severity: sev, id, message, suggestion });
   };
-  // tensorboard 无依赖只 warning（0 回归保留 + 明确不升级）
+  // tensorboard 无消费只 info（无依赖不阻断；展示层降级，判定条件不变，明确不升级 critical）
   if (!/tensorboardLogDirs/i.test(clean)) {
-    push("warning", "simple_project_no_tensorboard", "simple_project 缺少 tensorboardLogDirs", "在 experiments/simple_project.yaml 中补充 tensorboardLogDirs（TensorBoard 日志目录），否则 TensorBoard 通道不可用");
+    push("info", "simple_project_no_tensorboard", "simple_project 缺少 tensorboardLogDirs", "在 experiments/simple_project.yaml 中补充 tensorboardLogDirs（TensorBoard 日志目录），否则 TensorBoard 通道不可用");
   }
   // manifest 缺声明只 warning（Schema 默认 artifact_manifest.json，落 {output_dir}/ 下）
   if (!/manifest\s*:/i.test(clean)) {
@@ -1016,7 +1016,7 @@ function main() {
   for (const file of planFiles) {
     const rel = normRel(projectDir, file);
     const text = fs.readFileSync(file, "utf8");
-    // plan 行锚：按 finding id 首段映射到 plan 键行（未命中回 1），随 finding.line 落 JSON，MD 明细渲染 `- 行号:` 不断链。
+    // plan 行锚：按 finding id 首段映射到 plan 键行（未命中回 1），随 finding.line 落 JSON，MD 明细渲染 `- 行号:` 不断链。plan行锚说明：B3 精确分支先于通用 output_contract 分支命中；新增 id 须同步 anchorFor + CHECK_STATIC_ID_SRC + refTemplateFor，否则抛错，禁止静默指向旧行号。
     const anchorFor = (f) => {
       if (f && f.line != null) return f.line;
       const id = String((f && (f.id || f.path)) || "");
@@ -1103,11 +1103,22 @@ function main() {
         wrapperCoveredCount += 1;
       }
     } else if (iface.note) {
-      pushPlan(warnings, { severity: "warning", id: "output_interface_tensorboard", message: iface.note, suggestion: "在远端执行 pip show tensorboard 确认，或改用 run_wrapper 捕获" });
+      pushPlan(infos, { severity: "info", id: "output_interface_tensorboard", message: iface.note, suggestion: "在远端执行 pip show tensorboard 确认，或改用 run_wrapper 捕获" });
     }
     const testCmdFinding = checkTestCommand(text);
     if (testCmdFinding) {
-      pushPlan(testCmdFinding.severity === "critical" ? errors : warnings, { ...testCmdFinding });
+      pushPlan(testCmdFinding.severity === "critical" ? errors : testCmdFinding.severity === "info" ? infos : warnings, { ...testCmdFinding });
+    }
+    // D1 展示层折叠/二合一：同 plan 已报 test_command_via_injection 时，big_table_via_injection 由 warning 降 info
+    // （判定条件不变：checkOutputContract 原样 warning 落桶，此处按同文件同 plan 折叠转 info；findings 总数不变）。
+    if (testCmdFinding && testCmdFinding.id === "test_command_via_injection") {
+      for (let i = warnings.length - 1; i >= 0; i -= 1) {
+        const w = warnings[i];
+        if (w && w.file === rel && w.id === "output_contract_big_table_via_injection") {
+          warnings.splice(i, 1);
+          pushPlan(infos, { ...w, severity: "info", message: `${w.message}（已折叠/二合一：同 plan 已报 test_command_via_injection，详见该项）` });
+        }
+      }
     }
     for (const f of checkPaths(extractRemotePathCandidates(text), projectLabel)) {
       pushPlan(f.severity === "critical" ? errors : warnings, { ...f });
@@ -1204,9 +1215,9 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1561";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1572";
   const CHECK_STATIC_ID_SRC = {
-    test_command_via_injection: "scripts/check-static.js:151",
+    test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",
     mode_invalid: "scripts/check-static.js:287",
     seeds_missing: "scripts/check-static.js:295",
@@ -1227,7 +1238,7 @@ function main() {
     output_contract_stdout_via_wrapper: "scripts/check-static.js:423",
     output_contract_stderr_via_wrapper: "scripts/check-static.js:430",
     output_contract_missing_big_table: "scripts/check-static.js:442",
-    output_contract_big_table_via_injection: "scripts/check-static.js:449",
+    output_contract_big_table_via_injection: "scripts/check-static.js:473",
     output_contract_missing_env_snapshot: "scripts/check-static.js:447",
     output_contract_missing_config_snapshot: "scripts/check-static.js:450",
     output_contract_env_snapshot_via_wrapper: "scripts/check-static.js:449",
@@ -1245,7 +1256,7 @@ function main() {
     result_schema_summary_bad_value: "scripts/check-static.js:610",
     plotting_contract_missing_file: "scripts/check-static.js:696",
     plotting_contract_bad_fields: "scripts/check-static.js:705",
-    simple_project_no_tensorboard: "scripts/check-static.js:775",
+    simple_project_no_tensorboard: "scripts/check-static.js:821",
     simple_project_no_manifest: "scripts/check-static.js:779",
     simple_project_version_old: "scripts/check-static.js:789",
     simple_project_version_undeclared: "scripts/check-static.js:793",
@@ -1263,8 +1274,8 @@ function main() {
     suite_missing: "scripts/check-static.js:1036",
     output_interface_train_only: "scripts/check-static.js:1042",
     output_interface_missing: "scripts/check-static.js:1044",
-    output_interface_tensorboard: "scripts/check-static.js:1049",
-    output_interface_project_wrapper: "scripts/check-static.js:1079",
+    output_interface_tensorboard: "scripts/check-static.js:1106",
+    output_interface_project_wrapper: "scripts/check-static.js:1147",
     mode: "scripts/check-static.js:219",
     seeds: "scripts/check-static.js:219",
     cases: "scripts/check-static.js:219",
