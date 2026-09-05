@@ -165,12 +165,16 @@ class TestCheckStaticReport(unittest.TestCase):
         ids1_info = {i.get("id") for i in r1["infos"]}
         self.assertNotIn("output_contract_missing_stdout_log", ids1_err)
         self.assertNotIn("output_contract_missing_stderr_log", ids1_err)
-        self.assertIn("output_contract_stdout_via_wrapper", ids1_info)
-        self.assertIn("output_contract_stderr_via_wrapper", ids1_info)
+        # W1 折叠：5 条 via_wrapper 明细折叠为 1 条 wrapper 汇总 info
+        self.assertIn("output_contract_wrapper_summary", ids1_info)
+        for detail in ("output_contract_stdout_via_wrapper", "output_contract_stderr_via_wrapper",
+                       "output_contract_case_csv_via_wrapper", "output_contract_env_snapshot_via_wrapper",
+                       "output_contract_config_snapshot_via_wrapper"):
+            self.assertNotIn(detail, ids1_info)
         # 豁免 id 已注册:MD 明细可渲染行号锚点
         md = (d1 / REL).read_text(encoding="utf-8") if (d1 / REL).exists() else None
         if md is not None:
-            self.assertIn("output_contract_stdout_via_wrapper", md)
+            self.assertIn("output_contract_wrapper_summary", md)
 
     def test_line120_injection_semantics_kept(self):
         # 120等11行语义:经 test.results_csv/paper.result_csv + expectedResults 大表注入
@@ -233,8 +237,8 @@ class TestCheckStaticReport(unittest.TestCase):
         bad = [e for e in rep["errors"] if e.get("id") == "simple_project_candidate_extension"]
         self.assertEqual(bad, [], f"O1:notes.markdown 应放行且 secondaryMetrics 不计入,实际 {bad}")
         infos = {i.get("id"): i for i in rep["infos"]}
-        self.assertIn("output_contract_stdout_via_wrapper", infos)
-        self.assertIn("豁免，来源", infos["output_contract_stdout_via_wrapper"].get("message", ""))
+        self.assertIn("output_contract_wrapper_summary", infos)
+        self.assertIn("豁免，来源", infos["output_contract_wrapper_summary"].get("message", ""))
         script_src = SCRIPT.read_text(encoding="utf-8")
         legacy_src = (REPO / "src" / "extension" / "legacy.ts").read_text(encoding="utf-8")
         self.assertIn('CHECKER_SOURCE = "scripts/check-static.js"', script_src)
@@ -243,6 +247,77 @@ class TestCheckStaticReport(unittest.TestCase):
         if md:
             self.assertIn("- checkerSource: scripts/check-static.js", md)
             self.assertIn("summary: errors=", md)
+
+    def test_wrapper_summary_quiet_flag(self):
+        base_plan = "\n".join([
+            "suite: s",
+            "mode: train",
+            "base_config: configs/base.yaml",
+            "seeds: [0]",
+            "cases:",
+            "  - name: a",
+            "naming:",
+            '  job_name: "{index}_{case}_seed{seed}"',
+            'runner: { train_command: "python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}" }',
+            "expectedResults:",
+            '  - "{output_dir}/metrics_summary.csv"',
+            "  - experiments/results/m.csv",
+            "",
+        ])
+        d = Path(tempfile.mkdtemp(prefix="cs-py-wq-"))
+        write(d / "configs" / "base.yaml", "x: 1\n")
+        write(d / "experiments" / "plans" / "p.yaml", base_plan)
+        write(d / "experiments" / "simple_adapter" / "run_wrapper.py", "# ok\n")
+        rep = run_check(d)
+        infos = [i.get("id") for i in rep["infos"]]
+        self.assertIn("output_contract_wrapper_summary", infos)
+        self.assertEqual(sum(1 for i in infos if str(i).endswith("_via_wrapper")), 0)
+        rep_q = run_check(d, extra=("--quiet-wrapper",))
+        infos_q = [i.get("id") for i in rep_q["infos"]]
+        self.assertNotIn("output_contract_wrapper_summary", infos_q)
+
+    def test_via_complete_downgrades_to_info_and_sharded(self):
+        via = "\n".join([
+            "suite: s", "mode: test", "base_config: configs/base.yaml", "seeds: [0]",
+            "cases:", "  - name: a",
+            "paper:", '  result_csv: "{output_dir}/metrics_summary.csv"',
+            'test.results_csv: "{output_dir}/metrics_summary.csv"',
+            "expectedResults:", '  - "{output_dir}/metrics_summary.csv"',
+            "  - experiments/results/m.csv",
+            "outputs:", "  candidateCsv:", '    - "experiments/results/m.csv"',
+            'runner: { test_command: "python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}" }',
+            "",
+        ])
+        d = Path(tempfile.mkdtemp(prefix="cs-py-viai-"))
+        write(d / "configs" / "base.yaml", "x: 1\n")
+        write(d / "experiments" / "plans" / "p.yaml", via)
+        r = run_check(d)
+        self.assertTrue(any(i.get("id") == "test_command_via_injection" for i in r["infos"]))
+        self.assertFalse(any(w.get("id") == "test_command_via_injection" for w in r["warnings"]))
+        self.assertFalse(any(f.get("id") == "output_contract_big_table_via_injection"
+                             for f in r["warnings"] + r["infos"]))
+        # G10:多分片 + paper 大表名不对齐 + 缺接线 -> warning；带接线反例不报
+        shard = "\n".join([
+            "suite: s", "mode: test", "base_config: configs/base.yaml", "seeds: [0]",
+            "cases:", "  - name: shard_a", "  - name: shard_b",
+            "paper:", '  result_csv: "{output_dir}/metrics_summary.csv"',
+            "expectedResults:", '  - "{output_dir}/metrics_summary.csv"',
+            "  - experiments/results/paper_all.csv",
+            'runner: { test_command: "python test.py --config {config} --output-dir {output_dir}" }',
+            "",
+        ])
+        d2 = Path(tempfile.mkdtemp(prefix="cs-py-shard-"))
+        write(d2 / "configs" / "base.yaml", "x: 1\n")
+        write(d2 / "experiments" / "plans" / "p.yaml", shard)
+        r2 = run_check(d2)
+        self.assertTrue(any(w.get("id") == "sharded_big_table_mismatch" for w in r2["warnings"]))
+        d3 = Path(tempfile.mkdtemp(prefix="cs-py-shardok-"))
+        write(d3 / "configs" / "base.yaml", "x: 1\n")
+        write(d3 / "experiments" / "plans" / "p.yaml",
+              shard.replace("--output-dir {output_dir}\" }", "--output-dir {output_dir} --case {case} --seed {seed}\" }"))
+        r3 = run_check(d3)
+        self.assertFalse(any(f.get("id") == "sharded_big_table_mismatch"
+                             for f in r3["warnings"] + r3["errors"]))
 
 
 if __name__ == "__main__":

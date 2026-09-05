@@ -16,7 +16,7 @@
  *   本脚本为静态文本启发式（不做 AST），发现缺失即 failed 并给出修复文案。
  *
  * 用法：
- *   node scripts/check-static.js [--project <dir>] [--fail-on-warning] [--json]
+ *   node scripts/check-static.js [--project <dir>] [--fail-on-warning] [--json] [--write-md|--report-md] [--quiet-wrapper]
  *   npm run check:static -- --project <dir>
  *
  * 约束：
@@ -63,13 +63,14 @@ const { isSafeRemotePath } = require("../dist/tunnel/FileTransferTypes");
 const { safeRemoteProjectChild } = require("../dist/security/RemotePathPolicy");
 
 function parseArgs(argv) {
-  const out = { project: ROOT, failOnWarning: false, json: false, writeMd: false };
+  const out = { project: ROOT, failOnWarning: false, json: false, writeMd: false, quietWrapper: false };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--project" && argv[i + 1]) { out.project = path.resolve(argv[i + 1]); i += 1; }
     else if (a === "--fail-on-warning") out.failOnWarning = true;
     else if (a === "--json") out.json = true;
     else if (a === "--write-md" || a === "--report-md") out.writeMd = true;
+    else if (a === "--quiet-wrapper") out.quietWrapper = true;
   }
   return out;
 }
@@ -144,6 +145,23 @@ function checkTestCommand(planText) {
   const hasInjectionField = hasInjectionFieldOf(clean);
   const hasExpectedBigTable = /expectedResults\s*:/i.test(clean) && /experiments\/results\//i.test(clean);
   if (hasInjectionField && hasExpectedBigTable) {
+    // G3-info 复用：paper + 任一 test.results_csv/candidateCsv 齐备时，result_csv 回退链已闭环 → info；
+    // 否则注入缺口未闭环 → warning（判定条件不变，仅桶位移；与 B1 同轨）。
+    const hasCandidateCsvHitC = /candidateCsv\s*:/i.test(clean);
+    const hasPaperResultCsvC = /paper\.result_csv\s*:/i.test(clean)
+      || /paper\s*:\s*\{[^}\n]*results?_csv\s*:/i.test(clean)
+      || (/paper\s*:/i.test(clean) && /^\s*results?_csv\s*:/im.test(clean));
+    const hasTestResultsCsvHitC = /test\.results_csv\s*:/i.test(clean)
+      || /test\s*:\s*\{[^}\n]*results?_csv\s*:/i.test(clean)
+      || (/test\s*:/i.test(clean) && /^\s*results?_csv\s*:/im.test(clean));
+    if (hasPaperResultCsvC && (hasTestResultsCsvHitC || hasCandidateCsvHitC)) {
+      return {
+        severity: "info",
+        id: "test_command_via_injection",
+        message: `test_command 缺少 ${missing}（经注入/candidateCsv 齐备，不阻断）`,
+        suggestion: "result_csv 回退链注入已齐备（paper + test.results_csv/candidateCsv），确认后参照 baseline.yaml:13 补齐",
+      };
+    }
     return {
       severity: "warning",
       id: "test_command_via_injection",
@@ -499,6 +517,38 @@ function checkOutputContract(planText, mode, opts) {
   if (hasDeclaration && !hasWire) {
     out.push({ severity: "critical", id: "output_contract_declaration_only", message: "仅声明 result_csv/output_dir/expectedResults，无命令接线，不算通过", suggestion: "train 接 --output-dir {output_dir}；test 接 --output-dir {output_dir} --result-csv {result_csv}" });
   }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// G10 分片大表错位：多 case 分片 + expectedResults 仅指向 paper 级大表
+// （experiments/results/ 且无分片名对齐的表），且 test 未带 --case/--seed 分片接线时，
+// 分片名无法路由到 paper 大表 → warning。单分片 / test 已带分片接线 / 无大表声明时不报
+// （静态文本启发式；anchorFor + CHECK_STATIC_ID_SRC + refTemplateFor 三同步）。
+// ---------------------------------------------------------------------------
+function checkShardedBigTable(planText, mode) {
+  const out = [];
+  if (mode === "train") return out;
+  const clean = stripYamlComments(planText);
+  if (!/expectedResults\s*:/i.test(clean)) return out;
+  const bigTables = [...clean.matchAll(/experiments\/results\/([^\s"'}\]]+)/gi)]
+    .map((m) => String(m[1]).replace(/[,;\]]+$/, "")).filter(Boolean);
+  if (!bigTables.length) return out;
+  const caseNames = [...clean.matchAll(/^\s*-\s*(?:case|name)\s*:\s*["']?([^\s"'#}\]]+)/gim)]
+    .map((m) => String(m[1]).trim()).filter(Boolean);
+  if (caseNames.length < 2 && !isMultiJob(clean)) return out;
+  // case 分片名 vs paper 大表名：任一分片名命中任一大表名即算对齐（大小写不敏感）
+  const lowerTables = bigTables.join("\n").toLowerCase();
+  if (caseNames.some((c) => c && lowerTables.includes(String(c).toLowerCase()))) return out;
+  // test 已带分片接线（--case/--seed 或 {case}/{seed}）即视为可路由，不报
+  const { test } = extractCommandBlobs(clean);
+  if (/--case\b|--seed\b|\{case\}|\{seed\}/.test(test || "")) return out;
+  out.push({
+    severity: "warning",
+    id: "sharded_big_table_mismatch",
+    message: `case 分片（${caseNames.slice(0, 4).join("、")}${caseNames.length > 4 ? "…" : ""}）与 paper 大表（${bigTables.slice(0, 2).join("、")}）名不对齐且 test 缺 --case/--seed 分片接线（expectedResults 仅指向 paper 大表）`,
+    suggestion: "test 补齐 --case {case} --seed {seed} 分片接线（真实正例）；或按分片命名大表 experiments/results/<case>.csv",
+  });
   return out;
 }
 
@@ -1033,6 +1083,14 @@ function main() {
       if (/missing_summary_csv/.test(id)) return planLineOf(text, /metrics_summary/i);
       if (/missing_big_table/.test(id)) return planLineOf(text, /experiments\/results/i);
       if (/big_table_via_injection/.test(id)) return planLineOf(text, /experiments\/results/i);
+      if (/sharded_big_table/.test(id)) return planLineOf(text, /experiments\/results/i);
+      if (/wrapper_summary/.test(id)) {
+        const wlines = String(text || "").split(/\r?\n/);
+        for (let li = 0; li < wlines.length; li += 1) {
+          if (/run_wrapper|runWrapper/i.test(wlines[li])) return li + 1;
+        }
+        return planLineOf(text, /expectedResults|result_csv|output_dir\s*:/i);
+      }
       if (/env_snapshot/.test(id)) return planLineOf(text, /env_snapshot/i);
       if (/config_snapshot/.test(id)) return planLineOf(text, /config_snapshot/i);
       if (/tensorboard/.test(id)) return planLineOf(text, /tensorboard|SummaryWriter/i);
@@ -1067,6 +1125,37 @@ function main() {
     const planHasRunWrapper = projectWrapper.ok || /run_wrapper(\.py)?/i.test(text) || /runWrapper\s*:/i.test(text);
     for (const f of checkOutputContract(text, mode, { hasRunWrapper: planHasRunWrapper, projectWrapperOk: projectWrapper.ok })) {
       pushPlan(f.severity === "critical" ? errors : f.severity === "info" ? infos : warnings, { ...f });
+    }
+    // W1 展示层折叠：同 plan 的 5 条 via_wrapper info（case_csv/stdout/stderr/env/config）折叠为 1 条
+    // wrapper 汇总 info（判定条件不变：checkOutputContract 原样落桶，此处按同文件同 plan 折叠；findings 总数同步减少；
+    // --quiet-wrapper 则连汇总一并抑制）。
+    const WRAPPER_DETAIL_IDS = new Set([
+      "output_contract_case_csv_via_wrapper",
+      "output_contract_stdout_via_wrapper",
+      "output_contract_stderr_via_wrapper",
+      "output_contract_env_snapshot_via_wrapper",
+      "output_contract_config_snapshot_via_wrapper",
+    ]);
+    const foldedWrapper = [];
+    for (let i = infos.length - 1; i >= 0; i -= 1) {
+      const fi = infos[i];
+      if (fi && fi.file === rel && WRAPPER_DETAIL_IDS.has(fi.id)) {
+        foldedWrapper.push(fi.id);
+        infos.splice(i, 1);
+      }
+    }
+    if (foldedWrapper.length > 0 && !args.quietWrapper) {
+      const wnote = projectWrapper.ok ? "项目级 run_wrapper" : "plan 内 run_wrapper/runWrapper";
+      pushPlan(infos, {
+        severity: "info",
+        id: "output_contract_wrapper_summary",
+        message: `run_wrapper 已覆盖 ${foldedWrapper.length} 项输出契约（${foldedWrapper.sort().join("、")}，已豁免，来源：${wnote}，明细已折叠）`,
+        suggestion: "wrapper 经 collect_outputs 自动采集/捕获，无需重复声明；如需消除此提醒可显式声明对应产物，或加 --quiet-wrapper 抑制本汇总",
+      });
+    }
+    // G10 分片大表错位（多分片 + paper 大表名不对齐 + test 缺分片接线 → warning）
+    for (const f of checkShardedBigTable(text, mode)) {
+      pushPlan(f.severity === "critical" ? errors : warnings, { ...f });
     }
     // 并发风险（G5 6 根禁写 + G8 job_name）
     for (const f of checkConcurrencyRisks(text, mode)) {
@@ -1109,14 +1198,14 @@ function main() {
     if (testCmdFinding) {
       pushPlan(testCmdFinding.severity === "critical" ? errors : testCmdFinding.severity === "info" ? infos : warnings, { ...testCmdFinding });
     }
-    // D1 展示层折叠/二合一：同 plan 已报 test_command_via_injection 时，big_table_via_injection 由 warning 降 info
-    // （判定条件不变：checkOutputContract 原样 warning 落桶，此处按同文件同 plan 折叠转 info；findings 总数不变）。
+    // D1 直接合并：同 plan 已报 test_command_via_injection 时，big_table_via_injection 直接 suppress
+    // （判定条件不变：checkOutputContract 原样 warning 落桶，此处按同文件同 plan 直接丢弃，不落 infos；
+    // 仅保留 test_command_via_injection 1 条；findings 总数同步减少）。
     if (testCmdFinding && testCmdFinding.id === "test_command_via_injection") {
       for (let i = warnings.length - 1; i >= 0; i -= 1) {
         const w = warnings[i];
         if (w && w.file === rel && w.id === "output_contract_big_table_via_injection") {
           warnings.splice(i, 1);
-          pushPlan(infos, { ...w, severity: "info", message: `${w.message}（已折叠/二合一：同 plan 已报 test_command_via_injection，详见该项）` });
         }
       }
     }
@@ -1215,7 +1304,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1572";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1701";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",
@@ -1239,6 +1328,8 @@ function main() {
     output_contract_stderr_via_wrapper: "scripts/check-static.js:430",
     output_contract_missing_big_table: "scripts/check-static.js:442",
     output_contract_big_table_via_injection: "scripts/check-static.js:473",
+    output_contract_wrapper_summary: "scripts/check-static.js:1151",
+    sharded_big_table_mismatch: "scripts/check-static.js:548",
     output_contract_missing_env_snapshot: "scripts/check-static.js:447",
     output_contract_missing_config_snapshot: "scripts/check-static.js:450",
     output_contract_env_snapshot_via_wrapper: "scripts/check-static.js:449",
@@ -1377,11 +1468,48 @@ function main() {
         "# 或依赖项目级 run_wrapper collect_outputs 自动采集 per-job 双 csv，无需重复声明",
       ];
     }
+    if (refId === "test_command_via_injection") {
+      return [
+        "# 正例：test 缺 --result-csv 但经注入闭环（via_injection 独立模板，key 行见 test_command）",
+        "paper:",
+        "  result_csv: \"{output_dir}/metrics_summary.csv\"",
+        "runner:",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
+        "expectedResults:",
+        "  - \"experiments/results/demo.csv\"",
+        "outputs:",
+        "  candidateCsv:",
+        "    - \"experiments/results/demo.csv\"",
+      ];
+    }
+    if (refId === "output_contract_wrapper_summary") {
+      return [
+        "# 正例：run_wrapper 覆盖 5 项输出契约（wrapper_summary 独立模板，明细已折叠为 1 条）",
+        "runner:",
+        "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
+        "# 项目级 experiments/simple_adapter/run_wrapper.py 存在时自动采集 metrics_case.csv/stdout.log/stderr.log/env_snapshot.json/config_snapshot.yaml",
+      ];
+    }
+    if (refId === "sharded_big_table_mismatch") {
+      return [
+        "# 正例：多分片 case 经 --case/--seed 路由到大表（sharded_big_table_mismatch 独立模板）",
+        "cases:",
+        "  - name: smoke",
+        "  - name: public",
+        "runner:",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
+        "expectedResults:",
+        "  - \"experiments/results/demo.csv\"",
+      ];
+    }
     if (refId === "output_contract_big_table_via_injection") {
       return [
         "# 正例：大表经注入/candidateCsv 降级（big_table_via_injection 独立模板，key 行见 experiments/results）",
         "paper:",
         "  result_csv: \"{output_dir}/metrics_summary.csv\"",
+        "runner:",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
         "expectedResults:",
         "  - \"experiments/results/demo.csv\"",
         "outputs:",
@@ -1407,7 +1535,7 @@ function main() {
         "  - name: smoke",
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir}\"",
-        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --result-csv {result_csv}\"",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
       ];
     }
     if (/^template_/.test(refId)) {
@@ -1415,6 +1543,7 @@ function main() {
         "# 16 白名单变量 + test 可加 {checkpoint}；双分隔符放行；train 禁直写大表",
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
       ];
     }
     if (/^(output_contract_|test_command_|output_interface_)/.test(refId)) {
@@ -1422,7 +1551,7 @@ function main() {
         "paper:",
         "  result_csv: \"{output_dir}/metrics_summary.csv\"",
         "runner:",
-        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --result-csv {result_csv}\"",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
         "expectedResults:",
         "  - \"{output_dir}/metrics_summary.csv\"",
         "  - \"experiments/results/demo.csv\"",

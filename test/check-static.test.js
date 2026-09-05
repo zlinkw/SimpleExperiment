@@ -192,10 +192,10 @@ test("G3+G4输出契约：双csv双log/大表critical/快照warning/剥注释/�
   const rVia = runCheck(dirVia);
   assert.ok(rVia.warnings.some((w) => w.id === "test_command_via_injection"), "注入路径应降 warning(test_command_via_injection)");
   assert.ok(!rVia.errors.some((e) => e.id === "test_command_missing_result_csv"), "注入路径不报 critical");
-  // D1 折叠/二合一：同 plan 已报 test_command_via_injection 时 big_table_via_injection 降 info，findings 总数不变
-  assert.ok(rVia.infos.some((i) => i.id === "output_contract_big_table_via_injection"), "同 plan 有注入主项时大表折叠为 info");
-  assert.ok(!rVia.warnings.some((w) => w.id === "output_contract_big_table_via_injection"), "折叠后大表不再记 warning");
-  assert.ok(/test_command_via_injection/.test(rVia.infos.find((i) => i.id === "output_contract_big_table_via_injection").message), "折叠 message 指向 test_command_via_injection");
+  // D1 直接合并：同 plan 已报 test_command_via_injection 时 big_table_via_injection 直接 suppress（不落 infos），仅保留主项 1 条 warning，findings 总数同步减少
+  assert.ok(!rVia.infos.some((i) => i.id === "output_contract_big_table_via_injection"), "同 plan 有注入主项时大表直接 suppress，不落 infos");
+  assert.ok(!rVia.warnings.some((w) => w.id === "output_contract_big_table_via_injection"), "合并后大表不再记 warning");
+  assert.ok(rVia.warnings.some((w) => w.id === "test_command_via_injection"), "仅保留 test_command_via_injection 1 条 warning");
   // 无注入对照：缺 --result-csv 且无大表 → critical（不给 comparison 加参：签名仍为单 planText）
   const dirNo = fs.mkdtempSync(path.join(os.tmpdir(), "cs34no-"));
   write(path.join(dirNo, "configs", "base.yaml"), "x: 1\n");
@@ -818,9 +818,8 @@ test("报告头/candidate放宽/run_wrapper豁免/120注入语义", () => {
   const r1 = runCheck(rw1);
   assert.ok(!r1.errors.some((e) => e.id === "output_contract_missing_stdout_log"), "有 wrapper 时 stdout 豁免");
   assert.ok(!r1.errors.some((e) => e.id === "output_contract_missing_stderr_log"), "有 wrapper 时 stderr 豁免");
-  assert.ok(r1.infos.some((i) => i.id === "output_contract_stdout_via_wrapper"), "豁免 stdout 记 info");
-  assert.ok(r1.infos.some((i) => i.id === "output_contract_stderr_via_wrapper"), "豁免 stderr 记 info");
-  assert.ok(r1.infos.some((i) => i.id === "output_contract_case_csv_via_wrapper"), "豁免 case_csv 记 info（与 stdout/stderr 对齐）");
+  assert.ok(r1.infos.some((i) => i.id === "output_contract_wrapper_summary"), "豁免 5 明细折叠为 1 条 wrapper 汇总 info");
+  assert.ok(!r1.infos.some((i) => /_via_wrapper$/.test(i.id || "")), "明细 via_wrapper 不再逐条落 infos");
   assert.ok(!r1.warnings.some((w) => w.id === "output_contract_case_csv_via_wrapper"), "豁免 case_csv 不再记 warning");
   // 120等11行语义：注入降 warning（G3 已覆盖，此处显式回归 via_injection 不报 critical）
   const via = fs.mkdtempSync(path.join(os.tmpdir(), "csnew-120-"));
@@ -853,7 +852,7 @@ test("checkerSource/O1 markdown收敛/O2豁免明确/MD直观(禁改归档)", ()
   const r = runCheck(dir, ["--write-md"]);
   assert.equal(r.checkerSource, "scripts/check-static.js", "JSON checkerSource");
   assert.ok(!r.errors.some((e) => e.id === "simple_project_candidate_extension"), "O1 markdown放行且secondaryMetrics不计入");
-  const std = r.infos.find((i) => i.id === "output_contract_stdout_via_wrapper");
+  const std = r.infos.find((i) => i.id === "output_contract_wrapper_summary");
   assert.ok(std && std.message.includes("豁免，来源"), "O2 豁免来源明确");
   const scriptSrc = fs.readFileSync(SCRIPT, "utf8");
   const legacySrc = fs.readFileSync(path.join(REPO, "src", "extension", "legacy.ts"), "utf8");
@@ -862,4 +861,106 @@ test("checkerSource/O1 markdown收敛/O2豁免明确/MD直观(禁改归档)", ()
   const md = fs.readFileSync(path.join(dir, "simple_cluster/check_reports/check-static-latest.md"), "utf8");
   assert.ok(md.includes("- checkerSource: scripts/check-static.js"), "MD直观checkerSource");
   assert.ok(md.includes("summary: errors="), "MD直观summary行");
+});
+
+test("降噪：via齐备降info+D1抑制+wrapper折叠+quiet旗", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "csquiet-"));
+  write(path.join(dir, "configs", "base.yaml"), "x: 1\n");
+  // paper + test.results_csv + candidateCsv 齐备：缺 --result-csv 降 info，大表 warning 被 D1 直接抑制
+  write(path.join(dir, "experiments", "plans", "p.yaml"), [
+    "suite: s", "mode: test", "base_config: configs/base.yaml", "seeds: [0]",
+    "cases:", "  - name: a",
+    "paper:", '  result_csv: "{output_dir}/metrics_summary.csv"',
+    'test.results_csv: "{output_dir}/metrics_summary.csv"',
+    "expectedResults:", '  - "{output_dir}/metrics_summary.csv"',
+    "  - experiments/results/m.csv",
+    "outputs:", "  candidateCsv:", '    - "experiments/results/m.csv"',
+    'runner: { test_command: "python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}" }',
+    "",
+  ].join("\n"));
+  const r = runCheck(dir);
+  assert.ok(r.infos.some((i) => i.id === "test_command_via_injection"), "齐备时 via 降 info");
+  assert.ok(!r.warnings.some((w) => w.id === "test_command_via_injection"), "齐备时 via 不再记 warning");
+  assert.ok(![...r.warnings, ...r.infos].some((f) => f.id === "output_contract_big_table_via_injection"), "D1 直接抑制大表 findings");
+  // wrapper 折叠：项目级 wrapper 下 5 明细 → 1 汇总；--quiet-wrapper 连汇总都抑制
+  const wdir = fs.mkdtempSync(path.join(os.tmpdir(), "csquietw-"));
+  write(path.join(wdir, "configs", "base.yaml"), "x: 1\n");
+  write(path.join(wdir, "experiments", "plans", "p.yaml"), [
+    "suite: s", "mode: train", "base_config: configs/base.yaml", "seeds: [0]",
+    "cases:", "  - name: a",
+    "naming:", '  job_name: "{index}_{case}_seed{seed}"',
+    'runner: { train_command: "python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}" }',
+    "expectedResults:", '  - "{output_dir}/metrics_summary.csv"',
+    "  - experiments/results/m.csv", "",
+  ].join("\n"));
+  write(path.join(wdir, "experiments", "simple_adapter", "run_wrapper.py"), "# ok\n");
+  const rw = runCheck(wdir);
+  assert.equal(rw.infos.filter((i) => i.id === "output_contract_wrapper_summary").length, 1, "5 明细折叠为 1 汇总");
+  const rwq = runCheck(wdir, ["--quiet-wrapper"]);
+  assert.ok(!rwq.infos.some((i) => i.id === "output_contract_wrapper_summary"), "--quiet-wrapper 抑制汇总");
+  assert.ok(!rwq.infos.some((i) => /_via_wrapper$/.test(i.id || "")), "--quiet-wrapper 下无明细");
+});
+
+test("G10分片大表错位：多分片+paper大表+缺接线warning", () => {
+  const base = (testCmd) => [
+    "suite: s", "mode: test", "base_config: configs/base.yaml", "seeds: [0]",
+    "cases:", "  - name: shard_a", "  - name: shard_b",
+    "paper:", '  result_csv: "{output_dir}/metrics_summary.csv"',
+    "expectedResults:", '  - "{output_dir}/metrics_summary.csv"',
+    "  - experiments/results/paper_all.csv",
+    `runner: { test_command: "${testCmd}" }`,
+    "# 产物： metrics_summary.csv metrics_case.csv stdout.log stderr.log env_snapshot.json config_snapshot.yaml",
+    "",
+  ].join("\n");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "csg10-"));
+  write(path.join(dir, "configs", "base.yaml"), "x: 1\n");
+  write(path.join(dir, "experiments", "plans", "p.yaml"), base("python test.py --config {config} --output-dir {output_dir}"));
+  const r = runCheck(dir);
+  assert.ok(r.warnings.some((w) => w.id === "sharded_big_table_mismatch"), "多分片名不对齐且缺接线应 warning");
+  // 反例：test 带 --case/--seed 接线 → 不报
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "csg10ok-"));
+  write(path.join(dir2, "configs", "base.yaml"), "x: 1\n");
+  write(path.join(dir2, "experiments", "plans", "p.yaml"), base("python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}"));
+  const r2 = runCheck(dir2);
+  assert.ok(![...r2.warnings, ...r2.errors].some((f) => f.id === "sharded_big_table_mismatch"), "带分片接线不报");
+  // 反例：goodPlan（双分片+接线齐备）不报
+  const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), "csg10good-"));
+  write(path.join(dir3, "configs", "base.yaml"), "x: 1\n");
+  write(path.join(dir3, "experiments", "plans", "p.yaml"), goodPlan("ok"));
+  const r3 = runCheck(dir3);
+  assert.ok(![...r3.warnings, ...r3.errors].some((f) => f.id === "sharded_big_table_mismatch"), "goodPlan 不报");
+  // MD 可渲染：新 id 行号锚点 + 独立正例模板
+  const md = fs.readFileSync(path.join(dir, "simple_cluster/check_reports/check-static-latest.md"), "utf8");
+  assert.ok(md.includes("sharded_big_table_mismatch"), "MD 含新 id 明细");
+  assert.ok(/scripts\/check-static\.js:\d+/.test(md), "MD 行号锚点");
+});
+
+test("MultiModal降噪：wrapper+注入项目 warnings 0/errors 0/overall passed", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "csmmq-"));
+  write(path.join(dir, "configs", "base.yaml"), "lr: 0.01\n");
+  write(path.join(dir, "experiments", "simple_adapter", "run_wrapper.py"), "# ok\n");
+  const injPlan = (suite) => [
+    `suite: ${suite}`,
+    "mode: test",
+    "base_config: configs/base.yaml",
+    "seeds: [0]",
+    "naming:", '  job_name: "{index}_{case}_seed{seed}"',
+    "paper:", '  result_csv: "{output_dir}/metrics_summary.csv"',
+    'test.results_csv: "{output_dir}/metrics_summary.csv"',
+    "cases:", "  - name: a",
+    "runner:", `  test_command: "python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}"`,
+    "expectedResults:", '  - "{output_dir}/metrics_summary.csv"',
+    '  - "{output_dir}/metrics_case.csv"',
+    "  - experiments/results/m.csv",
+    "outputs:", "  candidateCsv:", '    - "experiments/results/m.csv"',
+    "",
+  ].join("\n");
+  write(path.join(dir, "experiments", "plans", "inj1.yaml"), injPlan("mm_inj1"));
+  write(path.join(dir, "experiments", "plans", "inj2.yaml"), injPlan("mm_inj2"));
+  write(path.join(dir, "experiments", "plans", "good.yaml"), goodPlan("mm_good"));
+  const r = runCheck(dir);
+  assert.equal(r.summary.errors, 0, `errors 应 0，实际 ${JSON.stringify(r.errors.map((e) => e.id))}`);
+  assert.equal(r.summary.warnings, 0, `warnings 应 0，实际 ${JSON.stringify(r.warnings.map((w) => w.id))}`);
+  assert.equal(r.overall, "passed", "overall=passed");
+  assert.ok(r.summary.infos <= 12, `infos 应大幅下降（3 plans 预期≤12），实际 ${r.summary.infos}`);
 });
