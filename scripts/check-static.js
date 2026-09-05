@@ -563,12 +563,14 @@ function checkFinalCsvAggregation(planText) {
   if (!/final\.csv/i.test(clean)) return out;
   if (!/image_only|shard/i.test(clean)) return out;
   if (!/paper\s*:[\s\S]{0,400}?final\.csv/i.test(clean)) return out;
-  if (/aggregat|final\.yaml|merge\s*:|reduce\s*:/i.test(clean)) return out;
+  // 聚合豁免：final.yaml/statistics/plotting 已声明聚合即豁免（statistics/plotting 聚合路径与 final.yaml 同轨）；
+  // warning 口径不动（本提示恒为 info，sharded warning 原样保留）。
+  if (/aggregat|final\.yaml|merge\s*:|reduce\s*:|statistics|plotting/i.test(clean)) return out;
   out.push({
     severity: "info",
     id: "final_csv_aggregation_hint",
-    message: "paper final.csv 与分片 image_only/shard 明细不对齐（分片产物缺聚合到 final.csv，final.yaml 聚合提示）",
-    suggestion: "在 final.yaml 或聚合步骤中将各分片 image_only 产物汇总为 paper final.csv；或确认分片命名与 final.csv 对齐",
+    message: "paper final.csv 与分片 image_only/shard 明细不对齐（分片产物缺聚合到 final.csv，final.yaml/statistics/plotting 聚合提示）",
+    suggestion: "在 final.yaml 或聚合步骤（statistics/plotting 聚合路径）中将各分片 image_only 产物汇总为 paper final.csv；或确认分片命名与 final.csv 对齐",
   });
   return out;
 }
@@ -1519,7 +1521,7 @@ function main() {
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
         "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
-        "# 4项口径：metrics_case.csv/stdout.log/stderr.log/env_snapshot.json（无 config_snapshot 时为 4 项）",
+        "# 4项口径：output_contract_case_csv_via_wrapper/output_contract_stdout_via_wrapper/output_contract_stderr_via_wrapper/output_contract_env_snapshot_via_wrapper（metrics_case.csv/stdout.log/stderr.log/env_snapshot.json，无 config_snapshot 时为 4 项）",
         "# 正例：run_wrapper 覆盖 5 项输出契约（wrapper_summary 独立模板·5项口径，明细已折叠为 1 条，共5项）",
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
@@ -1535,7 +1537,7 @@ function main() {
         "  result_csv: \"{output_dir}/final.csv\"",
         "expectedResults:",
         "  - \"{output_dir}/final.csv\"",
-        "# final.yaml 聚合各分片 image_only 明细后汇总为 final.csv",
+        "# final.yaml 聚合各分片 image_only 明细后汇总为 final.csv（statistics/plotting 聚合路径同轨豁免）",
       ];
     }
     if (refId === "sharded_big_table_mismatch") {
