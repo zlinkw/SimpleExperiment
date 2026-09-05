@@ -1353,7 +1353,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1763";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1824";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",
@@ -1668,8 +1668,32 @@ function main() {
     if (refId === "-") return GOOD_PLAN_REF; // 无 id 无 path 的兜底形状（理论不可达），保留全量基线快照
     throw new Error(`[check-static] 参考模板未注册: ${refId}（请在 refTemplateFor 中为该 finding id 补充正例片段，禁止静默回退 GOOD_PLAN_REF）`);
   };
+  // frontmatter 回读：首部 --- 块可 parse，计数以 report 对象为准（渲染层不重算口径）。
+  const parseCheckStaticFrontmatter = (md) => {
+    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(String(md || ""));
+    if (!m) return null;
+    const get = (k) => {
+      const r = new RegExp("^" + k + ":\\s*(.+?)\\s*$", "m").exec(m[1]);
+      if (!r) return null;
+      return String(r[1]).replace(/^"(.*)"$/, "$1");
+    };
+    const num = (k) => { const v = get(k); return v == null ? null : Number(v); };
+    return { overall: get("overall"), errors: num("errors"), warnings: num("warnings"), infos: num("infos"), plans: num("plans"), generatedAt: get("generatedAt"), toolVersion: get("toolVersion"), checkerSource: get("checkerSource") };
+  };
   const renderCheckStaticMarkdown = (rep) => {
     const lines = [];
+    // 1. YAML frontmatter（--- 块，可经 parseCheckStaticFrontmatter 回读；计数以 rep 对象为准不变）。
+    lines.push("---");
+    lines.push(`overall: ${rep.overall}`);
+    lines.push(`errors: ${rep.summary.errors}`);
+    lines.push(`warnings: ${rep.summary.warnings}`);
+    lines.push(`infos: ${rep.summary.infos}`);
+    lines.push(`plans: ${rep.summary.plans}`);
+    lines.push(`generatedAt: "${String(rep.generatedAt || "")}"`);
+    lines.push(`toolVersion: "${String(rep.toolVersion || "")}"`);
+    lines.push(`checkerSource: "${String(rep.checkerSource || CHECKER_SOURCE)}"`);
+    lines.push("---");
+    lines.push("");
     lines.push("# check-static 报告");
     lines.push("");
     lines.push(`- overall: ${rep.overall}`);
@@ -1688,14 +1712,23 @@ function main() {
     lines.push("## planFiles");
     if (!rep.planFiles.length) lines.push("- (none)");
     else for (const f of rep.planFiles) lines.push(`- ${escCell(f)}`);
+    const normFileOf = (f) => String(f == null ? "" : f).replace(/\\/g, "/"); // 复用 normRel 归一语义（\→/）
+    const oneLineFull = (v) => String(v == null ? "" : v).replace(/\r/g, "").replace(/\n/g, " "); // 全量单行化，禁截断（不用 escCell 截断语义）
+    const byFileId = (a, b) => {
+      const fa = normFileOf(a.file); const fb = normFileOf(b.file);
+      if (fa < fb) return -1; if (fa > fb) return 1;
+      const ia = refIdOf(a); const ib = refIdOf(b);
+      if (ia < ib) return -1; if (ia > ib) return 1;
+      return 0;
+    };
     const section = (title, rows) => {
       lines.push("");
       lines.push(`## ${title} (${rows.length})`);
       if (!rows.length) { lines.push("- (none)"); return; }
       lines.push("| file | severity | id | message | suggestion |");
       lines.push("| --- | --- | --- | --- | --- |");
-      for (const r of rows) {
-        lines.push(`| ${escCell(r.file)} | ${escCell(r.severity)} | ${escCell(refIdOf(r))} | ${escCell(r.message)} | ${escCell(r.suggestion || MD_SUGGESTION_FALLBACK)} |`);
+      for (const r of [...rows].sort(byFileId)) {
+        lines.push(`| ${escCell(normFileOf(r.file))} | ${escCell(r.severity)} | ${escCell(refIdOf(r))} | ${escCell(r.message)} | ${escCell(r.suggestion || MD_SUGGESTION_FALLBACK)} |`);
       }
     };
     section("errors", rep.errors);
@@ -1706,19 +1739,23 @@ function main() {
     // O4 渲染归一折叠：[DUP] 块字段仍全量（定位不断链），参考模板折叠为单行并指向首个
     // [NEW] 块；refTemplateFor 照常调用（G9 不编造：未注册 id 照抛错，禁止静默回退）。
     const FENCE = String.fromCharCode(96, 96, 96);
+    // 2. 明细按 file 分组 + severity 排序：桶序 errors>warnings>infos 不变，桶内按 file、id 排序。
+    const errSorted = [...rep.errors].sort(byFileId);
+    const warnSorted = [...rep.warnings].sort(byFileId);
+    const infoSorted = [...rep.infos].sort(byFileId);
     const all = [
-      ...rep.errors.map((r) => ({ sec: "errors", r })),
-      ...rep.warnings.map((r) => ({ sec: "warnings", r })),
-      ...rep.infos.map((r) => ({ sec: "infos", r })),
+      ...errSorted.map((r) => ({ sec: "errors", r })),
+      ...warnSorted.map((r) => ({ sec: "warnings", r })),
+      ...infoSorted.map((r) => ({ sec: "infos", r })),
     ];
     const seenGlobal = new Set();
     const seenFileId = new Map();
     lines.push("");
     lines.push(`## findings明细 (${all.length})`);
-    all.forEach((item, idx) => {
+    all.forEach((item) => {
       const r = item.r;
       const refId = refIdOf(r);
-      const file = r.file || "(none)";
+      const file = normFileOf(r.file || "(none)");
       const key = `${file}::${r.severity}::${refId}::${String(r.message || "").slice(0, 120)}`;
       const isDup = seenGlobal.has(key);
       if (!isDup) seenGlobal.add(key);
@@ -1728,20 +1765,26 @@ function main() {
       const mark = isDup || n > 1 ? "[DUP]" : "[NEW]";
       const src = resolveCheckStaticIdSrc(refId);
       const sug = r.suggestion || MD_SUGGESTION_FALLBACK;
+      const msgFull = oneLineFull(r.message);
+      const sugFull = oneLineFull(sug);
+      const loc = r.line != null ? `${file}#L${String(r.line)}` : file;
       lines.push("");
-      lines.push(`### ${idx + 1}. [${item.sec}] ${escCell(file)} ${escCell(refId)} ${mark}`);
+      lines.push(`### [${item.sec}][\`${refId}\`] ${loc} ${mark}`);
       lines.push(`- 文件: ${escCell(file)}`);
-      if (r.line != null) lines.push(`- 行号: ${escCell(String(r.line))}（plan 行锚，位置 ${escCell(file)}#L${escCell(String(r.line))}）`);
+      if (r.line != null) lines.push(`- 行号: ${escCell(String(r.line))}（plan 行锚，位置 ${escCell(loc)}）`);
       lines.push(`- 参考: ${escCell(src)}`);
-      lines.push(`- severity: ${escCell(r.severity)}`);
-      lines.push(`- message: ${escCell(r.message)}`);
-      lines.push(`- suggestion: ${escCell(sug)}`);
+      lines.push(`- message: ${msgFull}`);
+      lines.push(`- suggestion: ${sugFull}`);
+      lines.push(`${FENCE}diff`);
+      lines.push(`- ${msgFull}`);
+      lines.push(`+ ${sugFull}`);
+      lines.push(FENCE);
       if (isDup) lines.push("- 去重: [DUP] 与首现块同 finding，详见首个同 file+id 全量块。");
       // plotting 说明：绘图契约五文件（result_registry/statistics/paper_table/case_level/dataset_profile）
       // 共用同一 id（plotting_contract_missing_file），五缺项各为独立缺文件；
       // [DUP] 仅为同 file+id 去重标记，不代表重复计数，定位以各块 message 中的 key 为准。
       if (refId === "plotting_contract_missing_file") lines.push("- 说明: 绘图契约五文件共用同一 id，五缺项各为独立缺文件，[DUP] 仅为同 file+id 去重标记（key 见 message）。");
-      lines.push(`#### 参考模板 (${escCell(refId)})`);
+      lines.push(`#### 参考模板 (\`${refId}\`)`);
       lines.push(`${FENCE}yaml`);
       // O4 折叠 + G9 不编造：先照常取模板（未注册照抛错），[DUP] 块再折叠为单行。
       const tplLines = refTemplateFor(refId);
@@ -1752,6 +1795,20 @@ function main() {
       }
       lines.push(FENCE);
     });
+    lines.push("");
+    // 4. 文末 json summary 机器块（human 看表 AI 读块；计数以 rep 对象为准，byId 按 refId 计数）。
+    lines.push("## summary-json（机器可读）");
+    lines.push(`${FENCE}json`);
+    {
+      const byId = {};
+      for (const item of all) {
+        const id = refIdOf(item.r);
+        byId[id] = (byId[id] || 0) + 1;
+      }
+      const summaryJson = { overall: rep.overall, errors: rep.summary.errors, warnings: rep.summary.warnings, infos: rep.summary.infos, plans: rep.summary.plans, byId };
+      for (const l of JSON.stringify(summaryJson, null, 2).split("\n")) lines.push(l);
+    }
+    lines.push(FENCE);
     lines.push("");
     // O4 渲染归一：CRLF 归一为 LF，连续空行折叠为单个空行。
     return lines.join("\n").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n");

@@ -651,7 +651,8 @@ test("ID_SRC动态锚点+未注册抛错+plotting DUP说明", () => {
   const r = runCheck(dir);
   assert.ok(r.errors.some((e) => e.id === "mode"), "legacy 裸 id mode 应进入报告");
   const md = fs.readFileSync(path.join(dir, "simple_cluster/check_reports/check-static-latest.md"), "utf8");
-  assert.ok(md.includes(" mode "), "MD 含 mode 明细块");
+  assert.ok(md.includes("`mode`"), "MD 含 mode 明细块（id 反引号 code）");
+  assert.ok(/^### \[errors\]\[`mode`\] \S+#L\d+ \[NEW\]|^### \[errors\]\[`mode`\] \S+ \[(NEW|DUP)\]/m.test(md), "MD 标题为 ### [severity][id] file#Lx [NEW/DUP]");
   assert.ok(/scripts\/check-static\.js:\d+/.test(md), "MD 行号锚点动态生成");
   // plotting DUP 说明：五缺文件块均带五文件共用 id 解释
   const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "csid-plot-"));
