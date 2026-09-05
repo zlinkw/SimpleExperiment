@@ -553,6 +553,27 @@ function checkShardedBigTable(planText, mode) {
 }
 
 // ---------------------------------------------------------------------------
+// final.yaml 聚合提示：paper final.csv 与分片 image_only 等不对齐时加 info 聚合提示
+// （轻量判定：仅文本关键字启发式，不碰 warning 口径；sharded warning 原样保留。
+// anchorFor + CHECK_STATIC_ID_SRC + refTemplateFor 三同步）。
+// ---------------------------------------------------------------------------
+function checkFinalCsvAggregation(planText) {
+  const out = [];
+  const clean = stripYamlComments(planText);
+  if (!/final\.csv/i.test(clean)) return out;
+  if (!/image_only|shard/i.test(clean)) return out;
+  if (!/paper\s*:[\s\S]{0,400}?final\.csv/i.test(clean)) return out;
+  if (/aggregat|final\.yaml|merge\s*:|reduce\s*:/i.test(clean)) return out;
+  out.push({
+    severity: "info",
+    id: "final_csv_aggregation_hint",
+    message: "paper final.csv 与分片 image_only/shard 明细不对齐（分片产物缺聚合到 final.csv，final.yaml 聚合提示）",
+    suggestion: "在 final.yaml 或聚合步骤中将各分片 image_only 产物汇总为 paper final.csv；或确认分片命名与 final.csv 对齐",
+  });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // G5 并发根写 + G8 job_name：占位 <JOB> + 同文件 + 6 根禁写 + job_name 缺失 → critical
 // 6 根：".", "/", "", "work_dirs", "debug_runs", "runs"（归一化后比较，
 //   "./"→".", "work_dirs/"→"work_dirs"，模板占位含 { 即跳过存在性判定）。
@@ -1089,8 +1110,11 @@ function main() {
         for (let li = 0; li < wlines.length; li += 1) {
           if (/run_wrapper|runWrapper/i.test(wlines[li])) return li + 1;
         }
-        return planLineOf(text, /expectedResults|result_csv|output_dir\s*:/i);
+        // 回退改锚 runner 行（runner/train_command/test_command，对应 baseline12-13/aoept10-11 口径，不再回退 paper 行）。
+        return planLineOf(text, /runner\s*:|train_command|test_command/i);
       }
+      // final.yaml 聚合提示行锚：paper final.csv 聚合位（paper/result_csv/final.csv/expectedResults）。
+      if (/final_csv_aggregation/.test(id)) return planLineOf(text, /paper\s*:|result_csv|final\.csv|expectedResults/i);
       if (/env_snapshot/.test(id)) return planLineOf(text, /env_snapshot/i);
       if (/config_snapshot/.test(id)) return planLineOf(text, /config_snapshot/i);
       if (/tensorboard/.test(id)) return planLineOf(text, /tensorboard|SummaryWriter/i);
@@ -1146,16 +1170,22 @@ function main() {
     }
     if (foldedWrapper.length > 0 && !args.quietWrapper) {
       const wnote = projectWrapper.ok ? "项目级 run_wrapper" : "plan 内 run_wrapper/runWrapper";
+      const wcount = foldedWrapper.length;
+      const wscope = wcount >= 5 ? "5项口径" : "4项口径";
       pushPlan(infos, {
         severity: "info",
         id: "output_contract_wrapper_summary",
-        message: `run_wrapper 已覆盖 ${foldedWrapper.length} 项输出契约（${foldedWrapper.sort().join("、")}，已豁免，来源：${wnote}，明细已折叠）`,
+        message: `run_wrapper 已覆盖 ${wcount} 项输出契约（${foldedWrapper.sort().join("、")}，已豁免，来源：${wnote}，明细已折叠，共${wcount}项/${wscope}）`,
         suggestion: "wrapper 经 collect_outputs 自动采集/捕获，无需重复声明；如需消除此提醒可显式声明对应产物，或加 --quiet-wrapper 抑制本汇总",
       });
     }
     // G10 分片大表错位（多分片 + paper 大表名不对齐 + test 缺分片接线 → warning）
     for (const f of checkShardedBigTable(text, mode)) {
       pushPlan(f.severity === "critical" ? errors : warnings, { ...f });
+    }
+    // final.yaml 聚合提示（paper final.csv vs 分片 image_only 不对齐 → info；warning 口径不变）
+    for (const f of checkFinalCsvAggregation(text)) {
+      pushPlan(infos, { ...f });
     }
     // 并发风险（G5 6 根禁写 + G8 job_name）
     for (const f of checkConcurrencyRisks(text, mode)) {
@@ -1304,7 +1334,7 @@ function main() {
   // ID_SRC 行号：静态表为兜底锚点（已重锚到本次实际行号），运行时由 resolveCheckStaticIdSrc
   // 动态提取优先（构造位 `id: "<id>"` > `=== "<id>"` 判定位 > 首个含引号 id 的行），
   // 兜底锚 CHECK_STATIC_ID_SRC_FALLBACK（落盘 writeFileSync 行，随源码移动重锚），未注册 id 直接抛错，禁止静默指向旧行号。
-  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1701";
+  const CHECK_STATIC_ID_SRC_FALLBACK = "scripts/check-static.js:1747";
   const CHECK_STATIC_ID_SRC = {
     test_command_via_injection: "scripts/check-static.js:149",
     test_command_missing_result_csv: "scripts/check-static.js:159",
@@ -1328,8 +1358,9 @@ function main() {
     output_contract_stderr_via_wrapper: "scripts/check-static.js:430",
     output_contract_missing_big_table: "scripts/check-static.js:442",
     output_contract_big_table_via_injection: "scripts/check-static.js:473",
-    output_contract_wrapper_summary: "scripts/check-static.js:1151",
+    output_contract_wrapper_summary: "scripts/check-static.js:1177",
     sharded_big_table_mismatch: "scripts/check-static.js:548",
+    final_csv_aggregation_hint: "scripts/check-static.js:569",
     output_contract_missing_env_snapshot: "scripts/check-static.js:447",
     output_contract_missing_config_snapshot: "scripts/check-static.js:450",
     output_contract_env_snapshot_via_wrapper: "scripts/check-static.js:449",
@@ -1484,11 +1515,27 @@ function main() {
     }
     if (refId === "output_contract_wrapper_summary") {
       return [
-        "# 正例：run_wrapper 覆盖 5 项输出契约（wrapper_summary 独立模板，明细已折叠为 1 条）",
+        "# 正例：run_wrapper 覆盖 4 项输出契约（wrapper_summary 独立模板·4项口径，明细已折叠为 1 条，共4项）",
         "runner:",
         "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
         "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
-        "# 项目级 experiments/simple_adapter/run_wrapper.py 存在时自动采集 metrics_case.csv/stdout.log/stderr.log/env_snapshot.json/config_snapshot.yaml",
+        "# 4项口径：metrics_case.csv/stdout.log/stderr.log/env_snapshot.json（无 config_snapshot 时为 4 项）",
+        "# 正例：run_wrapper 覆盖 5 项输出契约（wrapper_summary 独立模板·5项口径，明细已折叠为 1 条，共5项）",
+        "runner:",
+        "  train_command: \"python train.py --config {config} --output-dir {output_dir} --case {case} --seed {seed}\"",
+        "  test_command: \"python test.py --config {config} --output-dir {output_dir} --case {case} --seed {seed} --result-csv {result_csv}\"",
+        "# 5项口径：metrics_case.csv/stdout.log/stderr.log/env_snapshot.json/config_snapshot.yaml",
+        "# 项目级 experiments/simple_adapter/run_wrapper.py 存在时自动采集上述产物",
+      ];
+    }
+    if (refId === "final_csv_aggregation_hint") {
+      return [
+        "# 正例：分片 image_only 经 final.yaml 聚合到 paper final.csv（final_csv_aggregation_hint 独立模板，info 聚合提示）",
+        "paper:",
+        "  result_csv: \"{output_dir}/final.csv\"",
+        "expectedResults:",
+        "  - \"{output_dir}/final.csv\"",
+        "# final.yaml 聚合各分片 image_only 明细后汇总为 final.csv",
       ];
     }
     if (refId === "sharded_big_table_mismatch") {
