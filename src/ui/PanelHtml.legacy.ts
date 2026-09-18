@@ -1087,6 +1087,43 @@ export function renderPanelHtml(): string {
       .toolbar[data-anchor="sync-actions"] > .toolbarSep { width: auto !important; flex: 0 0 auto; }
       .publishActionButtons { grid-template-columns: 1fr; }
     }
+    /* 自定义多行悬浮说明：
+       webview 原生 title 属性对长文本/换行渲染不稳定（只显示部分路径或不显示），
+       改用 ::after 渲染，white-space: pre-line 保留 &#10; 换行。
+       JS 启动时把所有 button[title] 转写为 button[data-tip] 并移除 title（避免双重气泡）。*/
+    [data-tip] { position: relative; }
+    [data-tip]:hover::after, [data-tip]:focus-visible::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(30, 30, 30, 0.95);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-line;
+      word-break: break-word;
+      text-align: left;
+      max-width: 360px;
+      min-width: 60px;
+      z-index: 99999;
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    [data-tip]:hover::before, [data-tip]:focus-visible::before {
+      content: "";
+      position: absolute;
+      bottom: calc(100% + 1px);
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: rgba(30, 30, 30, 0.95);
+      z-index: 99999;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -1387,6 +1424,15 @@ export function renderPanelHtml(): string {
   </div>
 
   <script nonce="${nonce}">
+    // webview 原生 title 在长文本/含换行时渲染不稳定（只显示部分或完全不显示），
+    // 启动时把所有 button[title] 转写到 data-tip 并移除 title，统一交给自定义 CSS tooltip。
+    try {
+      document.querySelectorAll("button[title]").forEach((b) => {
+        const t = b.getAttribute("title");
+        if (t && !b.hasAttribute("data-tip")) b.setAttribute("data-tip", t);
+        b.removeAttribute("title");
+      });
+    } catch (e) {}
     const PLUGIN_VERSION = "${PLUGIN_VERSION}";
     const vscode = acquireVsCodeApi();
     console.log("[webview] acquireVsCodeApi", !!vscode, typeof vscode?.postMessage);
