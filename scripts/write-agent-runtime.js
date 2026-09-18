@@ -67,19 +67,51 @@ const manifestOut = path.join(root, "dist/runtime/RuntimeManifest.json");
 const agentContent = fs.readFileSync(path.join(root, "dist/runtime/cluster_agent.py"), "utf8");
 const schedulerContent = fs.readFileSync(path.join(root, "dist/runtime/cluster_scheduler.py"), "utf8");
 function sha256TextRuntime(text) { return crypto.createHash("sha256").update(text, "utf8").digest("hex"); }
+// installedAt 语义：组件内容实际发生变化的时间。version/sha256/remotePath 均未变时沿用原值，
+// 否则每次构建都会刷新时间戳，使已跟踪的 dist 产物产生无意义的 diff。
+const previousManifest = (() => {
+  if (!fs.existsSync(manifestOut)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(manifestOut, "utf8"));
+  } catch {
+    return null;
+  }
+})();
+function resolveInstalledAt(key, fingerprint) {
+  const prev = previousManifest && previousManifest.components ? previousManifest.components[key] : null;
+  if (
+    prev &&
+    prev.version === fingerprint.version &&
+    prev.sha256 === fingerprint.sha256 &&
+    prev.remotePath === fingerprint.remotePath &&
+    typeof prev.installedAt === "string" &&
+    prev.installedAt
+  ) {
+    return prev.installedAt;
+  }
+  return new Date().toISOString();
+}
+const hubAgentFingerprint = { version: unifiedVersion, sha256: sha256TextRuntime(agentContent), remotePath: "simple_cluster/runtime/cluster_agent.py" };
+const schedulerFingerprint = { version: unifiedVersion, sha256: sha256TextRuntime(schedulerContent), remotePath: "simple_cluster/runtime/cluster_scheduler.py" };
 const expectedManifest = {
   schemaVersion: 1,
   pluginVersion: unifiedVersion,
   runtimeVersion: unifiedVersion,
   unifiedVersion: unifiedVersion,
   components: {
-    hub_agent: { version: unifiedVersion, sha256: sha256TextRuntime(agentContent), remotePath: "simple_cluster/runtime/cluster_agent.py", installedAt: new Date().toISOString() },
-    cluster_scheduler: { version: unifiedVersion, sha256: sha256TextRuntime(schedulerContent), remotePath: "simple_cluster/runtime/cluster_scheduler.py", installedAt: new Date().toISOString() },
+    hub_agent: { ...hubAgentFingerprint, installedAt: resolveInstalledAt("hub_agent", hubAgentFingerprint) },
+    cluster_scheduler: { ...schedulerFingerprint, installedAt: resolveInstalledAt("cluster_scheduler", schedulerFingerprint) },
   },
 };
-fs.mkdirSync(path.dirname(manifestOut), { recursive: true });
-fs.writeFileSync(manifestOut, JSON.stringify(expectedManifest, null, 2) + "\n", "utf8");
-console.log(`[agent-runtime] wrote ${path.relative(root, manifestOut)} unified=${unifiedVersion}`);
+const manifestText = JSON.stringify(expectedManifest, null, 2) + "\n";
+const previousManifestText = fs.existsSync(manifestOut) ? fs.readFileSync(manifestOut, "utf8") : "";
+if (previousManifestText === manifestText) {
+  console.log(`[agent-runtime] kept ${path.relative(root, manifestOut)} unified=${unifiedVersion}`);
+} else {
+  fs.mkdirSync(path.dirname(manifestOut), { recursive: true });
+  fs.writeFileSync(manifestOut, manifestText, "utf8");
+  console.log(`[agent-runtime] wrote ${path.relative(root, manifestOut)} unified=${unifiedVersion}`);
+}
 
 const templates = path.join(root, "dist/templates/project-adapter");
 if (!fs.existsSync(templates)) {
