@@ -1099,39 +1099,30 @@ function renderPanelHtml() {
     /* 自定义多行悬浮说明：
        webview 原生 title 属性对长文本/换行渲染不稳定（只显示部分路径或不显示），
        改用 ::after 渲染，white-space: pre-line 保留 &#10; 换行。
-       JS 启动时把所有 button[title] 转写为 button[data-tip] 并移除 title（避免双重气泡）。*/
-    [data-tip] { position: relative; }
+       JS 把 button[title] 转写为 button[data-tip] 并移除 title（避免双重气泡），
+       悬停时用 CSS 变量 --tip-x/--tip-y/--tip-transform 定位，避免被视口边缘遮挡。
+       面板内容是动态渲染的，JS 用 MutationObserver 持续转译新插入的按钮。*/
     [data-tip]:hover::after, [data-tip]:focus-visible::after {
       content: attr(data-tip);
-      position: absolute;
-      bottom: calc(100% + 6px);
-      left: 50%;
-      transform: translateX(-50%);
+      position: fixed;
+      left: var(--tip-x, 50vw);
+      top: var(--tip-y, 0px);
+      transform: var(--tip-transform, translate(-50%, -100%));
+      width: max-content;
+      max-width: min(900px, calc(100vw - 24px));
+      min-width: 60px;
       background: rgba(30, 30, 30, 0.95);
       color: #fff;
-      padding: 6px 10px;
-      border-radius: 4px;
+      padding: 8px 12px;
+      border-radius: 5px;
       font-size: 12px;
-      line-height: 1.5;
+      line-height: 1.6;
       white-space: pre-line;
       word-break: break-word;
       text-align: left;
-      max-width: 360px;
-      min-width: 60px;
       z-index: 99999;
       pointer-events: none;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    }
-    [data-tip]:hover::before, [data-tip]:focus-visible::before {
-      content: "";
-      position: absolute;
-      bottom: calc(100% + 1px);
-      left: 50%;
-      transform: translateX(-50%);
-      border: 5px solid transparent;
-      border-top-color: rgba(30, 30, 30, 0.95);
-      z-index: 99999;
-      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.35);
     }
   </style>
 </head>
@@ -1434,14 +1425,59 @@ function renderPanelHtml() {
 
   <script nonce="${nonce}">
     // webview 原生 title 在长文本/含换行时渲染不稳定（只显示部分或完全不显示），
-    // 启动时把所有 button[title] 转写到 data-tip 并移除 title，统一交给自定义 CSS tooltip。
-    try {
-      document.querySelectorAll("button[title]").forEach((b) => {
-        const t = b.getAttribute("title");
-        if (t && !b.hasAttribute("data-tip")) b.setAttribute("data-tip", t);
-        b.removeAttribute("title");
-      });
-    } catch (e) {}
+    // 统一改用自定义 CSS tooltip：把 button[title] 转写到 data-tip 并移除 title。
+    // 面板区块是动态重渲染的，所以用 MutationObserver 持续转译新插入的按钮，
+    // 否则后渲染出来的按钮会既没有原生 title 也没有自定义气泡。
+    (function () {
+      try {
+        // 面板里带 title 的不止 button（还有大量 span / div / a 等说明性元素），
+        // 统一转译全部 [title]，否则非按钮元素仍走原生 tooltip、显示依旧异常。
+        var upgradeTitles = function () {
+          var list = document.querySelectorAll("[title]");
+          for (var i = 0; i < list.length; i++) {
+            var b = list[i];
+            var t = b.getAttribute("title");
+            if (!t) { b.removeAttribute("title"); continue; }
+            if (!b.hasAttribute("data-tip")) b.setAttribute("data-tip", t);
+            b.removeAttribute("title");
+          }
+        };
+        upgradeTitles();
+        if (typeof MutationObserver === "function") {
+          var scheduled = false;
+          var observer = new MutationObserver(function () {
+            if (scheduled) return;
+            scheduled = true;
+            setTimeout(function () { scheduled = false; upgradeTitles(); }, 30);
+          });
+          observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        }
+        // 悬停时按视口边界计算气泡位置：默认按钮上方居中，
+        // 上方空间不足转下方，左右溢出则贴边对齐，避免被视口边缘裁掉。
+        var placeTip = function (el) {
+          var r = el.getBoundingClientRect();
+          var vw = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 1200;
+          var maxW = Math.min(900, vw - 24);
+          var cx = r.left + r.width / 2;
+          var below = r.top < 130;
+          var x = cx;
+          var tx = "-50%";
+          var half = Math.min(maxW, 460) / 2;
+          if (cx - half < 12) { x = 12; tx = "0"; }
+          else if (cx + half > vw - 12) { x = vw - 12; tx = "-100%"; }
+          var y = below ? r.bottom + 8 : r.top - 8;
+          var ty = below ? "0" : "-100%";
+          el.style.setProperty("--tip-x", x + "px");
+          el.style.setProperty("--tip-y", y + "px");
+          el.style.setProperty("--tip-transform", "translate(" + tx + ", " + ty + ")");
+        };
+        document.addEventListener("mouseover", function (e) {
+          var target = e.target;
+          var btn = target && target.closest ? target.closest("[data-tip]") : null;
+          if (btn) placeTip(btn);
+        }, true);
+      } catch (e) {}
+    })();
     const PLUGIN_VERSION = "${PLUGIN_VERSION}";
     const vscode = acquireVsCodeApi();
     console.log("[webview] acquireVsCodeApi", !!vscode, typeof vscode?.postMessage);
