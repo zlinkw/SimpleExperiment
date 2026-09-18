@@ -1157,7 +1157,7 @@ function renderPanelHtml() {
     <div id="renderError" class="status-failed"></div>
     <div id="initialStateNotice" class="initial-state-notice" role="status" aria-live="polite">
       <span id="initialStateMessage">正在读取本地面板状态...</span>
-      <button id="initialStateRetry" class="secondary" type="button" hidden>重新读取</button>
+      <button id="initialStateRetry" title="重新读取本地面板状态&#10;首次打开或恢复失败时可用" class="secondary" type="button" hidden>重新读取</button>
     </div>
 
     <main id="cardDeck" class="section-grid">
@@ -1231,8 +1231,8 @@ function renderPanelHtml() {
           <div class="runModeBar">
             <span class="muted">运行类型</span>
             <div class="runModeSwitch" role="group" aria-label="运行类型">
-              <button type="button" data-run-mode="formal" class="is-active" aria-pressed="true">正式运行</button>
-              <button type="button" data-run-mode="debug" aria-pressed="false">Debug</button>
+              <button type="button" data-run-mode="formal" title="切换为正式运行模式&#10;提交后进入正式调度与归档流程" class="is-active" aria-pressed="true">正式运行</button>
+              <button type="button" data-run-mode="debug" title="切换为调试模式&#10;输出隔离到 debug 目录，不进入正式归档与统计" aria-pressed="false">Debug</button>
             </div>
             <span id="runModeNote" class="runModeNote">完整执行 Plan，结果进入正式闭环</span>
           </div>
@@ -1260,7 +1260,7 @@ function renderPanelHtml() {
         </div>
       </div>
       <div id="gpuDenseGear" class="gpuDenseGear" hidden>
-        <div class="gpuDenseGearHead"><b>自定义列</b><button type="button" class="mini secondary" id="gpuDenseGearClose">关闭</button></div>
+        <div class="gpuDenseGearHead"><b>自定义列</b><button type="button" class="mini secondary" id="gpuDenseGearClose" title="关闭当前自定义列编辑弹窗">关闭</button></div>
         <div id="gpuDenseColumnsPicker" class="gpuDenseColumnsPicker"></div>
         <div class="gpuDenseGearRow">
           <span>全局行高</span>
@@ -1282,8 +1282,8 @@ function renderPanelHtml() {
            <div class="section-desc">默认展示所有窗口卡片，点击卡片切换 capture-pane；窗口数量按服务器 GPU 数量动态生成</div>
          </div>
          <div class="cardTools">
-           <button id="tmuxRefreshBtn" class="secondary" type="button">刷新 capture</button>
-           <button id="tmuxListBtn" class="secondary" type="button">列出 sessions</button>
+           <button id="tmuxRefreshBtn" title="重新拉取 tmux 捕获面板的内容" class="secondary" type="button">刷新 capture</button>
+           <button id="tmuxListBtn" title="列出服务器上所有 tmux 会话，供 capture 面板选择" class="secondary" type="button">列出 sessions</button>
            <select id="tmuxWindowSelect" title="选择 tmux 目标（session:window.pane）" style="display:none"><option value="">正在列出...</option></select>
          </div>
        </div>
@@ -1299,9 +1299,9 @@ function renderPanelHtml() {
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
         <b style="font-size:12px;">可复制的 tmux 附着指令（当嵌入 xterm 异常时手动打开）</b>
         <div style="display:grid;gap:4px;font-family:Consolas,monospace;font-size:11px;">
-          <div>Agent 附着会话：<code id="tmuxCmdAgent">ssh <user>@<host> -t "tmux attach -t zlk-worker-agent"</code> <button class="secondary" type="button" data-copy-target="tmuxCmdAgent">复制</button></div>
-          <div>调度显示会话：<code id="tmuxCmdSch">tmux attach -t zlk-sch-&lt;opId&gt;</code> <button class="secondary" type="button" data-copy-target="tmuxCmdSch">复制</button></div>
-          <div>GPU 窗口：<code id="tmuxCmdGpu">tmux attach -t simple-gpu-0</code> <button class="secondary" type="button" data-copy-target="tmuxCmdGpu">复制</button> <code>simple-gpu-0..3</code></div>
+          <div>Agent 附着会话：<code id="tmuxCmdAgent">ssh <user>@<host> -t "tmux attach -t zlk-worker-agent"</code> <button class="secondary" type="button" data-copy-target="tmuxCmdAgent" title="把 Agent 附着指令复制到剪贴板">复制</button></div>
+          <div>调度显示会话：<code id="tmuxCmdSch">tmux attach -t zlk-sch-&lt;opId&gt;</code> <button class="secondary" type="button" data-copy-target="tmuxCmdSch" title="把调度显示附着指令复制到剪贴板">复制</button></div>
+          <div>GPU 窗口：<code id="tmuxCmdGpu">tmux attach -t simple-gpu-0</code> <button class="secondary" type="button" data-copy-target="tmuxCmdGpu" title="把 GPU 窗口附着指令复制到剪贴板">复制</button> <code>simple-gpu-0..3</code></div>
         </div>
       </div>
     </section>
@@ -1411,9 +1411,9 @@ function renderPanelHtml() {
       </div>
       <div class="settingsLayoutTools" data-anchor="settings-layout">
         <b>界面布局</b>
-        <button id="layoutEditToggle" class="secondary" type="button">管理布局</button>
-        <button id="collapseAllSections" class="secondary" type="button">一键折叠</button>
-        <button id="expandAllSections" class="secondary" type="button">一键展开</button>
+        <button id="layoutEditToggle" title="进入布局编辑模式&#10;可调整面板宽度、列配置与区块顺序" class="secondary" type="button">管理布局</button>
+        <button id="collapseAllSections" title="折叠所有卡片（仅保留标题），快速浏览面板" class="secondary" type="button">一键折叠</button>
+        <button id="expandAllSections" title="展开所有卡片，查看完整内容" class="secondary" type="button">一键展开</button>
         <button data-command="resetUiLayout" class="secondary" type="button" title="恢复默认布局&#10;重置面板宽度、区块折叠状态与列配置">恢复默认布局</button>
       </div>
       <div class="settingsCommandTools" data-anchor="settings-advanced-commands">
@@ -4746,7 +4746,7 @@ function renderPanelHtml() {
           tools.dataset.cardToolsSig = nextSig;
           tools.innerHTML =
             '<span class="dragHandle" draggable="true" title="拖动排序">拖动</span>' +
-            '<button class="collapseBtn" type="button" data-collapse-section="' + escAttr(section) + '">' + (collapsed ? "展开" : "折叠") + '</button>';
+            '<button class="collapseBtn" type="button" data-collapse-section title="折叠或展开该卡片（按当前状态自动切换）"="' + escAttr(section) + '">' + (collapsed ? "展开" : "折叠") + '</button>';
         }
         card.draggable = layoutEdit;
       });
@@ -5498,7 +5498,7 @@ function renderPanelHtml() {
         try { var inspectorGotoSections = inspectorSectionsForCustomGroup(title); if (inspectorGotoSections && inspectorGotoSections.length) inspectorGotoSection = String(inspectorGotoSections[0] || ""); } catch (e) {}
         var inspectorGotoAttr = inspectorGotoSection ? ' data-inspector-goto="' + escAttr(inspectorGotoSection) + '"' : "";
         var inspectorGotoTip = inspectorGotoSection ? ' title="点击定位到主列' + escAttr(inspectorGotoSection) + '卡片"' : "";
-        return '<div class="pinnedActions inspectorCustomGroup" data-custom-group="' + escAttr(title) + '"><div class="inspectorCustomGroupHead"' + inspectorGotoAttr + inspectorGotoTip + '><div class="inspectorEyebrow"' + inspectorGotoAttr + '>' + esc(title) + '（' + String(items.length) + '）</div><button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-add="' + escAttr(title) + '">+ 添加</button></div><div class="workflowActions">' + buttons + '</div>' + emptyHint + '</div>';
+        return '<div class="pinnedActions inspectorCustomGroup" data-custom-group="' + escAttr(title) + '"><div class="inspectorCustomGroupHead"' + inspectorGotoAttr + inspectorGotoTip + '><div class="inspectorEyebrow"' + inspectorGotoAttr + '>' + esc(title) + '（' + String(items.length) + '）</div><button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-add title="添加一行新按钮到自定义操作组"="' + escAttr(title) + '">+ 添加</button></div><div class="workflowActions">' + buttons + '</div>' + emptyHint + '</div>';
       }).join("");
     }
 
@@ -5556,7 +5556,7 @@ function renderPanelHtml() {
       menu.id = "inspectorAddMenu";
       menu.className = "inspectorAddMenu is-open";
       menu.setAttribute("data-inspector-menu-group", groupTitle);
-      menu.innerHTML = '<div class="inspectorEyebrow">添加按钮到 ' + esc(groupTitle) + '</div><div style="display:grid;gap:4px;max-height:220px;overflow:auto;">' + rows + '</div><div style="display:flex;gap:6px;"><button type="button" data-inspector-confirm="' + escAttr(groupTitle) + '">确定</button><button type="button" class="secondary" data-inspector-cancel="1">取消</button></div>';
+      menu.innerHTML = '<div class="inspectorEyebrow">添加按钮到 ' + esc(groupTitle) + '</div><div style="display:grid;gap:4px;max-height:220px;overflow:auto;">' + rows + '</div><div style="display:flex;gap:6px;"><button type="button" data-inspector-confirm title="确认添加按钮到当前操作组"="' + escAttr(groupTitle) + '">确定</button><button type="button" class="secondary" data-inspector-cancel title="取消添加按钮，关闭弹窗"="1">取消</button></div>';
       document.body.appendChild(menu);
       try { document.body.classList.add("inspector-menu-open"); } catch (e) {}
       try {
@@ -5742,7 +5742,7 @@ function renderPanelHtml() {
       const label = statusCardLabel(card);
       menu.innerHTML =
         '<button type="button" data-card-menu-action="' + escAttr(collapsed ? "expand" : "collapse") + '" data-card-key="' + escAttr(key) + '" role="menuitem">' + esc(collapsed ? "展开此卡片" : "折叠此卡片") + '</button>' +
-        '<button type="button" data-card-menu-action="expand" data-card-key="__all__" role="menuitem">展开全部状态卡片</button>';
+        '<button type="button" data-card-menu-action="expand" title="展开所有状态卡片，查看完整状态详情" data-card-key="__all__" role="menuitem">展开全部状态卡片</button>';
       setNativeTitle(menu, "右键状态卡片：" + label);
       menu.hidden = false;
       menu.classList.add("is-open");
@@ -7482,7 +7482,7 @@ function renderPanelHtml() {
         (denseSingle ? renderSingleWorkerDenseCard(state) : (renderServerTopologyMap(state) +
         renderServerObjectOverview(state))) +
         '<div class="toolbar">' +
-          '<button type="button" data-section-target="settings" data-anchor-target="settings-servers">设置</button>' +
+          '<button type="button" data-section-target="settings" title="跳转到设置区" data-anchor-target="settings-servers">设置</button>' +
           '<button data-command="addWorkerConfig" title="在设置区追加一块空白服务器表单&#10;填写远端路径与环境后，需再点「保存」才会生效">新增服务器</button>' +
           '<button data-command="startAll" class="secondary" title="第 1 步 · 连隧道&#10;启动全部 Xshell 隧道，建立本机到服务器的端口转发">' + esc(hubParticipates ? "启动全部隧道" : "启动 Worker 隧道") + '</button>' +
           '<button data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">' + esc(hubParticipates ? "部署Agent" : "部署 Worker Agent") + '</button>' +
@@ -8590,7 +8590,7 @@ function renderPanelHtml() {
       }
       const executionStage = planExecutionStage(state || {}, selectedPlan);
       if (executionStage.phase === "debug-review") {
-        return '<div class="planRunActions"><button class="mini secondary" type="button" data-section-target="execution" data-anchor-target="execution">查看 Debug 任务</button><button class="mini" data-command="runPlan" data-force-formal="true" data-debug-mode="false" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="确认 Debug 日志和配置后&#10;重新同步、校验、预演并提交正式实验计划">正式运行</button></div>';
+        return '<div class="planRunActions"><button class="mini secondary" type="button" data-section-target="execution" title="跳转到运行进度区块，查看 Debug 任务详情" data-anchor-target="execution">查看 Debug 任务</button><button class="mini" data-command="runPlan" data-force-formal="true" data-debug-mode="false" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="确认 Debug 日志和配置后&#10;重新同步、校验、预演并提交正式实验计划">正式运行</button></div>';
       }
       const plan = planFromContext(state || {}, { planFile: selectedPlan }) || {};
       const activity = planActiveRunEvidence(state || {}, selectedPlan, plan);
@@ -8603,7 +8603,7 @@ function renderPanelHtml() {
           ? (historicalOnly ? "旧 revision 的 " : "") + activity.taskCount + " 个任务仍在排队或运行"
           : (historicalOnly ? "旧 revision 的 " : "") + activity.operationCount + " 个运行提交仍未结束";
         const scopeAttr = historicalOnly && activity.taskCount ? ' data-task-plan-scope="all"' : "";
-        return '<div class="planRunActions"><button class="mini" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '"' + scopeAttr + '>' + label + '</button><span class="muted">' + esc(summary) + (historicalOnly ? "；为保护旧任务，当前版本暂不能提交。" : "，已阻止重复提交。") + '</span></div>';
+        return '<div class="planRunActions"><button class="mini" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '"' + scopeAttr + ' title="跳转到运行进度，查看重复提交的运行" aria-label="跳转到运行进度，查看重复提交的运行">' + label + '</button><span class="muted">' + esc(summary) + (historicalOnly ? "；为保护旧任务，当前版本暂不能提交。" : "，已阻止重复提交。") + '</span></div>';
       }
       if (planFirstRunRecommended(state || {}, selectedPlan, plan, executionStage, true)) {
         return '<div class="planRunActions">' + renderProjectFirstRunActions(true, selectedPlan) + '</div>';
@@ -9106,7 +9106,7 @@ function renderPanelHtml() {
             else cell = '<td data-col="' + escAttr(col.key) + '" style="background:' + bg + ';">-</td>';
             return cell;
           }).join("");
-          var expandToggle = '<td style="background:' + bg + '; width:28px; text-align:center;"><button type="button" class="mini secondary gpuDenseExpandBtn" data-expand-key="' + escAttr(row.key) + '">' + (isExpanded?"收起":"展开") + '</button></td>';
+          var expandToggle = '<td style="background:' + bg + '; width:28px; text-align:center;"><button type="button" class="mini secondary gpuDenseExpandBtn" data-expand-key="' + escAttr(row.key) + '" title="展开或收起该 GPU 的详细状态行">' + (isExpanded?"收起":"展开") + '</button></td>';
           bodyHtml += '<tr class="gpuDenseRow' + (isExpanded?" is-expanded":"") + '" data-row-key="' + escAttr(row.key) + '" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '" style="height:' + h + 'px; background:' + bg + '; box-shadow:inset 3px 0 0 ' + accent + '; position:relative;">' + colsHtml + expandToggle + '</tr>';
           if(isExpanded){
             var colspan = visibleCols.length + 1;
@@ -12118,8 +12118,8 @@ function renderPanelHtml() {
         : "";
       const scopeBar = scope.selectedPlanFile
         ? '<div class="taskScopeBar"><span class="muted">记录范围</span><div class="taskScopeSwitch" role="group" aria-label="实验记录范围">' +
-            '<button type="button" data-trace-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前 Plan ' + scope.selectedCount + '</button>' +
-            '<button type="button" data-trace-plan-scope="all" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部记录 ' + scope.totalCount + '</button>' +
+            '<button type="button" data-trace-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '" title="只显示当前 Plan 的实验记录">当前 Plan ' + scope.selectedCount + '</button>' +
+            '<button type="button" data-trace-plan-scope="all" title="显示全部实验记录（含其他 Plan 的归档候选）" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部记录 ' + scope.totalCount + '</button>' +
           '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.unscopedCount ? '；未归属 ' + scope.unscopedCount : '') + '</span></div>'
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部实验记录。</span></div>';
       setHtmlIfChanged("traceTable", scopeBar + (rows.length ? traceNotice + '<div class="traceList">' + visibleRows.map((row) => renderTraceCard(row, selected)).join("") + '</div>' : '<div class="muted">' + (scope.scoped ? '当前 Plan 暂无实验记录；可切换“全部记录”查看历史或未归属记录。' : '暂无实验记录。') + '</div>') +
@@ -12403,8 +12403,8 @@ function renderPanelHtml() {
       const versionCount = scope.selectedCount;
       const scopeBar = scope.selectedPlanFile
         ? '<div class="taskScopeBar"><span class="muted">任务范围</span><div class="taskScopeSwitch" role="group" aria-label="任务范围">' +
-            '<button type="button" data-task-plan-scope="selected" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + versionCount + '</button>' +
-            '<button type="button" data-task-plan-scope="all" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
+            '<button type="button" data-task-plan-scope="selected" title="只显示当前版本的运行任务" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + versionCount + '</button>' +
+            '<button type="button" data-task-plan-scope="all" title="显示全部运行任务（含其他 Plan）" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
           '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
       let taskSummaryHtml = scopeBar + renderTaskPlanCompletionNext(state, scope) + (rows.length
@@ -13566,15 +13566,15 @@ function renderPanelHtml() {
     }
 
     function resultArchiveNextAction(count) {
-      return '<div class="projectQuickNext"><span>下一步</span><b>待归档 ' + esc(String(count)) + ' 条实验记录</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces">选择实验记录</button></div>';
+      return '<div class="projectQuickNext"><span>下一步</span><b>待归档 ' + esc(String(count)) + ' 条实验记录</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces" title="跳转到结果与归档，选择要归档的实验记录">选择实验记录</button></div>';
     }
 
     function resultArchiveBlockedNextAction(count) {
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(String(count)) + ' 条记录缺少 Worker，暂不可归档</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces">查看记录</button></div>';
+      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(String(count)) + ' 条记录缺少 Worker，暂不可归档</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces" title="跳转到结果与归档，查看缺少 Worker 的实验记录">查看记录</button></div>';
     }
 
     function resultReviewNextAction(count) {
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(String(count)) + ' 条预览结果尚未决定</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces">归档或排除</button></div>';
+      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(String(count)) + ' 条预览结果尚未决定</b><button class="mini" type="button" data-section-target="results" data-anchor-target="results-traces" title="跳转到结果与归档，决定预览结果的归档与排除">归档或排除</button></div>';
     }
 
     function resultEvidenceTraceStatsForRows(rows) {
@@ -14997,10 +14997,10 @@ function renderPanelHtml() {
       return missing.length ? "缺少：" + missing.join("、") : "已满足运行前置条件";
     }
 
-    function projectSectionNextAction(status, label, section, anchor, options) {
-      const taskScope = options && options.taskPlanScope === "all" ? ' data-task-plan-scope="all"' : options && options.taskPlanScope === "selected" ? ' data-task-plan-scope="selected"' : "";
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" type="button" data-section-target="' + escAttr(section) + '" data-anchor-target="' + escAttr(anchor) + '"' + taskScope + '>' + esc(label) + '</button></div>';
-    }
+function projectSectionNextAction(status, label, section, anchor, options) {
+  const taskScope = options && options.taskPlanScope === "all" ? ' data-task-plan-scope="all"' : options && options.taskPlanScope === "selected" ? ' data-task-plan-scope="selected"' : "";
+  return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" type="button" data-section-target="' + escAttr(section) + '" data-anchor-target="' + escAttr(anchor) + '" title="跳转到对应区块，处理「' + escAttr(label) + '」" aria-label="跳转到对应区块，处理「' + escAttr(label) + '」"' + taskScope + '>' + esc(label) + '</button></div>';
+}
 
     function projectNextAction(status, label, command, payload) {
       const data = payload || {};
@@ -15008,7 +15008,7 @@ function renderPanelHtml() {
       const planAttr = data.planFile ? ' data-plan-file="' + escAttr(data.planFile) + '"' : "";
       const actionReason = debugModeDisableReason(command) || simpleSftpCommandDisableReason(lastState || {}, command);
       const disabledAttr = actionReason ? ' disabled title="' + escAttr(actionReason) + '" aria-label="' + escAttr(label + "：" + actionReason) + '"' : "";
-      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" data-command="' + escAttr(command) + '"' + fileAttr + planAttr + disabledAttr + '>' + esc(label) + '</button></div>';
+      return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" data-command="' + escAttr(command) + '"' + fileAttr + planAttr + disabledAttr + ' title="处理「' + escAttr(label) + '」" aria-label="处理「' + escAttr(label) + '」">' + esc(label) + '</button></div>';
     }
 
     function refreshRunModeUi() {
