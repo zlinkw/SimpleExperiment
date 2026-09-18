@@ -11,6 +11,7 @@ exports.getProvider = getProvider;
 const ServiceFactory_1 = require("../factories/ServiceFactory");
 const ExtensionContext_1 = require("./ExtensionContext");
 const ProviderCommands_1 = require("./ProviderCommands");
+const GitBackupSetup_1 = require("./GitBackupSetup");
 let _provider;
 function tryRequire(id) {
     try {
@@ -80,6 +81,16 @@ async function activateExtension(context) {
         (0, ProviderCommands_1.registerProviderCommands)({ factoryContext, commandFactory: services.commands, provider }, context);
     }
     catch { }
+    // 注册 git 提交备份命令（独立注册，不耦合 legacy provider）
+    try {
+        (0, GitBackupSetup_1.registerGitBackupCommands)(context);
+    }
+    catch { }
+    // 把既有的面板式 GitHub 同步方法补上命令面板入口（仅转发 provider 方法）
+    try {
+        (0, GitBackupSetup_1.registerGitHubSyncCommands)(context, provider);
+    }
+    catch { }
     // 复刻原 activate 的后置启动逻辑（简化版，保持可运行）
     try {
         provider?.startLocalApiServer?.();
@@ -97,6 +108,10 @@ async function activateExtension(context) {
         void provider?.checkRemoteAgentVersionAndNotify?.(false);
     }
     catch { } }, 8000);
+    // 自动配置 git 提交备份：条件不满足只提示、不写入 hook
+    setTimeout(() => {
+        void (0, GitBackupSetup_1.maybeAutoInstallGitBackup)(context).catch(() => undefined);
+    }, 3000);
     // 配置变更监听（与原逻辑一致）
     try {
         const vscode = tryRequire("vscode");

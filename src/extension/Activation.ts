@@ -7,6 +7,7 @@ import type { FactoryContext } from "../factories/types";
 import { DefaultServiceFactory } from "../factories/ServiceFactory";
 import { toFactoryContext } from "./ExtensionContext";
 import { registerProviderCommands } from "./ProviderCommands";
+import { maybeAutoInstallGitBackup, registerGitBackupCommands, registerGitHubSyncCommands } from "./GitBackupSetup";
 
 let _provider: unknown | undefined;
 
@@ -74,11 +75,29 @@ export async function activateExtension(context: Record<string, unknown> & { sub
     registerProviderCommands({ factoryContext, commandFactory: services.commands as any, provider }, context);
   } catch {}
 
+  // 注册 git 提交备份命令（独立注册，不耦合 legacy provider）
+  try {
+    registerGitBackupCommands(context as unknown as Parameters<typeof registerGitBackupCommands>[0]);
+  } catch {}
+
+  // 把既有的面板式 GitHub 同步方法补上命令面板入口（仅转发 provider 方法）
+  try {
+    registerGitHubSyncCommands(
+      context as unknown as Parameters<typeof registerGitHubSyncCommands>[0],
+      provider as Record<string, unknown> | undefined
+    );
+  } catch {}
+
   // 复刻原 activate 的后置启动逻辑（简化版，保持可运行）
   try { provider?.startLocalApiServer?.(); } catch {}
   try { void provider?.reconcileStalePlanRunOperations?.({ reason: "activation" }); } catch {}
   try { void provider?.runActivationOnboarding?.(); } catch {}
   setTimeout(() => { try { void provider?.checkRemoteAgentVersionAndNotify?.(false); } catch {} }, 8000);
+
+  // 自动配置 git 提交备份：条件不满足只提示、不写入 hook
+  setTimeout(() => {
+    void maybeAutoInstallGitBackup(context as unknown as Parameters<typeof maybeAutoInstallGitBackup>[0]).catch(() => undefined);
+  }, 3000);
 
   // 配置变更监听（与原逻辑一致）
   try {

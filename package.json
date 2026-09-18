@@ -53,7 +53,12 @@
     "onCommand:simpleExperiment.importOfflineBundle",
     "onCommand:simpleExperiment.openLastCheckStaticReport",
     "onCommand:simpleExperiment.copyLastCheckStaticReport",
-    "onCommand:simpleExperiment.runCheckStatic"
+    "onCommand:simpleExperiment.runCheckStatic",
+    "onCommand:simpleExperiment.setupGitBackup",
+    "onCommand:simpleExperiment.removeGitBackup",
+    "onCommand:simpleExperiment.showGitBackupStatus",
+    "onCommand:simpleExperiment.syncToGitHub",
+    "onCommand:simpleExperiment.publishToGitHub"
   ],
   "main": "./dist/extension.js",
   "bin": {
@@ -62,6 +67,31 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "simpleExperiment.syncToGitHub",
+        "title": "SimpleExperiment：同步到 GitHub",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "simpleExperiment.publishToGitHub",
+        "title": "SimpleExperiment：发布到 GitHub",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "simpleExperiment.setupGitBackup",
+        "title": "SimpleExperiment：配置提交自动备份",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "simpleExperiment.removeGitBackup",
+        "title": "SimpleExperiment：移除提交自动备份",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "simpleExperiment.showGitBackupStatus",
+        "title": "SimpleExperiment：查看备份状态",
+        "icon": "$(info)"
+      },
       {
         "command": "simpleExperiment.openPanel",
         "title": "SimpleExperiment：打开面板",
@@ -317,6 +347,21 @@
     "configuration": {
       "title": "SimpleExperiment",
       "properties": {
+        "simpleExperiment.gitBackup.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用提交自动备份：打开项目时自动安装 post-commit hook，提交后推送当前分支到远程。"
+        },
+        "simpleExperiment.gitBackup.remote": {
+          "type": "string",
+          "default": "origin",
+          "description": "自动备份使用的 git remote 名称。"
+        },
+        "simpleExperiment.gitBackup.verifyRemoteAccess": {
+          "type": "boolean",
+          "default": true,
+          "description": "安装前校验远程可达性与推送凭据；校验失败时不写入 hook。"
+        },
         "simpleExperiment.topologyMode": {
           "type": "string",
           "default": "",
@@ -496,15 +541,8 @@
                 "type": "string"
               },
               "maxConcurrentGpus": {
-                "type": "number",
-                "default": 1
-              },
-              "allowedGpuIds": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "default": []
+                "type": ["number", "string"],
+                "default": "auto"
               },
               "privateKeyPath": {
                 "type": "string"
