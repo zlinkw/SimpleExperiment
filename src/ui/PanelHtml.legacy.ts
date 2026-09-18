@@ -1416,21 +1416,29 @@ export function renderPanelHtml(): string {
 
   <script nonce="${nonce}">
     // webview 原生 title 在长文本/含换行时渲染不稳定（只显示部分或完全不显示），
-    // 统一改用自定义 CSS tooltip：把 button[title] 转写到 data-tip 并移除 title。
-    // 面板区块是动态重渲染的，所以用 MutationObserver 持续转译新插入的按钮，
-    // 否则后渲染出来的按钮会既没有原生 title 也没有自定义气泡。
+    // 且会把悬浮定位到元素附近导致表格行、卡片错位变形。
+    // 正确策略：只对操作元素（button / a）做自定义黑框气泡；
+    // 其他带 title 的非操作、非表单元素（tr/td/span/div/section/article/h*/b/i/summary/details）
+    // 一律移除 title，避免冗余悬浮与布局错位。
+    // 表单元素（input / select / textarea / label）和代码元素（pre / code）的 title 保留（原生表单提示）。
     (function () {
       try {
-        // 面板里带 title 的不止 button（还有大量 span / div / a 等说明性元素），
-        // 统一转译全部 [title]，否则非按钮元素仍走原生 tooltip、显示依旧异常。
+        var GARBAGE_TAGS = "tr,td,th,span,div,section,article,h1,h2,h3,h4,h5,h6,b,i,u,strong,em,summary,details";
         var upgradeTitles = function () {
-          var list = document.querySelectorAll("[title]");
-          for (var i = 0; i < list.length; i++) {
-            var b = list[i];
+          // 1. 操作元素 -> 自定义气泡
+          var ops = document.querySelectorAll("button[title], a[title]");
+          for (var i = 0; i < ops.length; i++) {
+            var b = ops[i];
             var t = b.getAttribute("title");
-            if (!t) { b.removeAttribute("title"); continue; }
+            if (!t) continue;
             if (!b.hasAttribute("data-tip")) b.setAttribute("data-tip", t);
             b.removeAttribute("title");
+          }
+          // 2. 冗余元素 -> 直接移除 title（不显示任何悬浮框）
+          var garbage = document.querySelectorAll(GARBAGE_TAGS + "[title]");
+          for (var j = 0; j < garbage.length; j++) {
+            garbage[j].removeAttribute("title");
+            garbage[j].removeAttribute("data-tip");
           }
         };
         upgradeTitles();
