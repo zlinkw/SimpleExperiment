@@ -1793,7 +1793,7 @@ class RealtimeTunnelPanelProvider {
             operationId,
             type: "bootstrap-project",
             status: "pending",
-            message: "后台项目接入已排队",
+            message: "后台工作区识别已排队",
             startedAt: new Date().toISOString(),
             selectedServerIds: stringArrayField(params, "serverIds"),
             topologyMode: String(params.topologyMode || params.mode || "").trim(),
@@ -1827,7 +1827,7 @@ class RealtimeTunnelPanelProvider {
             operationId,
             type: "bootstrap-project",
             status: "running",
-            message: "后台项目接入正在执行",
+            message: "后台工作区识别正在执行",
             startedAt,
         };
         this.markLocalOperationsDirty();
@@ -1851,7 +1851,7 @@ class RealtimeTunnelPanelProvider {
             operationId,
             type: "bootstrap-project",
             status: "succeeded",
-            message: "项目接入、Agent 准备与 Plan 校验已完成。",
+            message: "工作区识别、Agent 准备与 Plan 校验已完成。",
             startedAt,
             finishedAt: new Date().toISOString(),
         };
@@ -3125,7 +3125,7 @@ class RealtimeTunnelPanelProvider {
             const projectPromptShown = Number(this.context.workspaceState.get(keys.projectOnboardingPrompt, 0));
             if (projectPromptShown >= 1)
                 return;
-            const choice = await vscode.window.showWarningMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}，但尚未完成项目接入。接入项目后，首次上传前会再次确认本地与远端预期位置。`, { modal: true }, "识别工作区", "打开面板", "不再提示");
+            const choice = await vscode.window.showWarningMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}，但尚未完成工作区识别。识别后，首次上传前会再次确认本地与远端预期位置。`, { modal: true }, "识别工作区", "打开面板", "不再提示");
             if (choice === "识别工作区")
                 await this.bootstrapProjectFromUi();
             else if (choice === "打开面板")
@@ -3147,10 +3147,10 @@ class RealtimeTunnelPanelProvider {
         const needsSftp = !simpleSftp.ready;
         const needsWorker = !needsSftp && serverSetupComplete && enabledWorkerCount < 1;
         const message = needsSftp
-            ? `首次使用 SimpleExperiment：配套 SimpleSFTP 未就绪。${simpleSftp.message} 安装并重载窗口后再接入项目。`
+            ? `首次使用 SimpleExperiment：配套 SimpleSFTP 未就绪。${simpleSftp.message} 安装并重载窗口后再识别工作区。`
             : needsWorker
                 ? "首次使用 SimpleExperiment：Hub 已配置，但正式运行、复现和批量运行还缺少至少一个启用的执行 Worker。请在“设置 > 服务器”手动添加。"
-                : "首次使用 SimpleExperiment：服务器相关配置不会通过弹窗从零填写。请前往“设置 > 服务器”配置 Xshell 会话和项目父目录；项目接入时只确认会话前缀等项目参数。";
+                : "首次使用 SimpleExperiment：服务器相关配置不会通过弹窗从零填写。请前往“设置 > 服务器”配置 Xshell 会话和项目父目录；工作区识别时只确认会话前缀等项目参数。";
         const choice = needsSftp
             ? await vscode.window.showInformationMessage(message, "打开配置说明", "打开扩展管理", "不再提示")
             : needsWorker
@@ -3174,7 +3174,7 @@ class RealtimeTunnelPanelProvider {
     async markProjectOnboardingComplete(projectContext) {
         const assertCurrent = () => {
             if (projectContext && !this.projectContextIsCurrent(projectContext))
-                throw new UiCommandCancelled("工作区已切换，项目接入完成标记已取消。");
+                throw new UiCommandCancelled("工作区已切换，识别完成标记已取消。");
         };
         assertCurrent();
         if (projectContext?.root || workspaceRoot()) {
@@ -9855,7 +9855,7 @@ class RealtimeTunnelPanelProvider {
             ignoreFocusOut: true,
         });
         if (!picked)
-            throw new UiCommandCancelled("项目接入已取消，未选择 Plan。");
+            throw new UiCommandCancelled("工作区识别已取消，未选择 Plan。");
         return picked.plan;
     }
     async bootstrapProjectFromUi() {
@@ -9929,7 +9929,7 @@ class RealtimeTunnelPanelProvider {
             workerCount: this.enabledWorkerConfigs().length,
         });
         if (remainingPrerequisite) {
-            const open = await vscode.window.showWarningMessage(`新项目接入仍停留在基础设施配置：${remainingPrerequisite.message}`, "打开服务器设置", "稍后");
+            const open = await vscode.window.showWarningMessage(`新工作区识别仍停留在基础设施配置：${remainingPrerequisite.message}`, "打开服务器设置", "稍后");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (open === "打开服务器设置")
@@ -10049,7 +10049,7 @@ class RealtimeTunnelPanelProvider {
         const stopAtProjectPanel = async (completion) => {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
-            const open = await vscode.window.showWarningMessage(`项目接入仍停留在当前步骤：${completion.message}`, "打开实验准备", "稍后");
+            const open = await vscode.window.showWarningMessage(`工作区识别仍停留在当前步骤：${completion.message}`, "打开实验准备", "稍后");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (open === "打开实验准备")
@@ -19268,7 +19268,7 @@ async function detectLocalProjectForActionGate(root, planDir, previous = {}) {
         outputContractFiles: files.filter((file) => /(^|\/)(metrics_summary\.csv|metrics_case\.csv)$/i.test(file)),
         resultParsePreviews: await previewLocalResultFiles(root, files, adapterRules),
         metadataRefreshMode: "action_gate",
-        metadataPartialReason: "运行/校验前只执行轻量扫描；完整项目接入摘要由后台刷新。",
+        metadataPartialReason: "运行/校验前只执行轻量扫描；完整工作区识别摘要由后台刷新。",
     };
 }
 const DEFAULT_TRAIN_TEMPLATE = "{python} train.py --config {config} --output_dir {output_dir}";
