@@ -19,7 +19,7 @@ test("remote root policies are exposed in the plugin settings page", () => {
   assert.match(panel, /class="remoteRootPolicyFields"/);
   assert.match(panel, /data-key="allowedRoots"/);
   assert.match(panel, /data-key="deniedRoots"/);
-  assert.match(panel, /<button class="secondary" data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy">保存<\/button>/);
+  assert.match(panel, /<button class="secondary" data-command="saveRemoteRootPolicy"[^>]*>保存<\/button>/);
   assert.match(panel, /textarea\.remoteRootPolicyInput \{ width: 100%; height: 100%; min-height: 0;/);
   assert.match(extension, /remoteRootPolicy: remoteRootPolicyConfig\(\)/);
 });

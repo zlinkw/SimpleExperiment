@@ -15,7 +15,7 @@ test("plan workflow exposes validate dry-run and run through tunnel actions", ()
   assert.match(source, /async runPlanPreflight\(body, label, authority = \{\}\)[\s\S]*postPlanSchedulerAction\("validate-plan"[\s\S]*\.\.\.authority[\s\S]*postPlanSchedulerAction\("dry-run-plan"[\s\S]*\.\.\.authority/);
   const html = readSource("src/ui/PanelHtml.ts");
   assert.match(html, /planFileInput/);
-  assert.match(html, /data-command="validatePlan">校验<\/button>/);
-  assert.match(html, /data-command="dryRunPlan" class="secondary">预演<\/button>/);
-  assert.match(html, /data-command="runPlan" data-confirm="true">校验并提交运行<\/button>/);
+  assert.match(html, /data-command="validatePlan"[^>]*>校验<\/button>/);
+  assert.match(html, /data-command="dryRunPlan"[^>]*>预演<\/button>/);
+  assert.match(html, /data-command="runPlan"[^>]*>校验并提交运行<\/button>/);
 });

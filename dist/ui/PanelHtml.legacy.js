@@ -1109,8 +1109,8 @@ function renderPanelHtml() {
         <span class="status-chip status-completed">仅本机端口</span>
         <button data-command="verifyAgentVersion" class="secondary" type="button" title="校验 Agent 版本：对比本地与远端 Agent 版本并提示升级">校验 Agent 版本</button>
         <button data-command="clearCache" class="secondary" type="button" title="清除缓存：删除 tmp/cluster_scheduler 与 tmux_logs 等 MANAGED 前缀内临时文件">清除缓存</button>
-        <button data-command="pauseAll" class="secondary" type="button">暂停全部网络</button>
-        <button data-command="resumeNetwork" class="secondary" type="button">恢复网络</button>
+        <button data-command="pauseAll" class="secondary" type="button" title="暂停全部网络活动：挂起隧道与实时流，已提交的远端任务不受影响。">暂停全部网络</button>
+        <button data-command="resumeNetwork" class="secondary" type="button" title="恢复网络：重新建立此前暂停的隧道与实时流。">恢复网络</button>
         <button data-command="openSetupGuide" class="secondary" type="button" title="打开安装与服务器目录配置说明">配置说明</button>
         <button type="button" class="secondary topbarIconButton" data-section-target="settings" data-anchor-target="settings" title="设置" aria-label="设置">&#9881;</button>
       </div>
@@ -1159,7 +1159,7 @@ function renderPanelHtml() {
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
         <div id="syncServerOverview" data-anchor="sync-servers"></div>
         <div class="toolbar" data-anchor="sync-check-actions">
-          <button type="button" data-command="runCheckStatic" title="检查项目配置：先清空 simple_cluster/check_reports 内 check-static-*.md，再跑 check-static 写最新，报告位置可打开/复制">检查项目配置</button>
+          <button type="button" data-command="runCheckStatic" title="检查项目配置：运行静态检查并生成项目接入报告，覆盖 Plan 结构、输出接口与路径安全；报告写入 simple_cluster/check_reports/，可用「打开静态检查报告」查看。">检查项目配置</button>
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
         </div>
         <div class="toolbar" data-anchor="sync-actions">
@@ -1181,8 +1181,8 @@ function renderPanelHtml() {
             <div class="section-desc">Plan、校验、预演、运行</div>
           </div>
           <div class="toolbar">
-            <button data-command="bootstrapProject">识别工作区</button>
-            <button data-command="snapshot" class="secondary">刷新识别</button>
+            <button data-command="bootstrapProject" title="扫描工作区：识别 experiments/plans 下的 Plan 与项目配置，并检查服务器、Agent 等前置条件；已有 Plan 不会重复写入。">识别工作区</button>
+            <button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区，更新 Plan 列表与项目接入状态，不修改任何文件。">刷新识别</button>
           </div>
         </div>
         <div id="planDetectedProject" data-anchor="plans-detected"></div>
@@ -1199,10 +1199,10 @@ function renderPanelHtml() {
             </div>
             <span id="runModeNote" class="runModeNote">完整执行 Plan，结果进入正式闭环</span>
           </div>
-          <button data-command="validatePlan">校验</button>
-          <button data-command="dryRunPlan" class="secondary">预演</button>
-          <button data-command="runPlan" data-confirm="true">校验并提交运行</button>
-          <button data-command="runAllPlans" data-confirm="true" class="secondary">运行全部计划</button>
+          <button data-command="validatePlan" title="校验 Plan：检查契约、输出接口与配置完整性，不运行任务；未通过时列出缺失项与修复建议。">校验</button>
+          <button data-command="dryRunPlan" class="secondary" title="预演运行：展开 case × seed 的任务数、远端路径、Worker 与并发上限，不提交任务。">预演</button>
+          <button data-command="runPlan" data-confirm="true" title="校验并提交运行：先同步代码到参与服务器，再校验与预演，通过后提交后台调度。提交前会弹出强确认窗口核对远端路径、任务数、模式与 Worker。">校验并提交运行</button>
+          <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前 Plan 目录下的全部计划，每个 Plan 仍走完整的校验与预演门禁。">运行全部计划</button>
         </div>
         <div id="recentPlans" data-anchor="plans-list"></div>
         <div id="draftPlans" data-anchor="draft-list"></div>
@@ -1331,8 +1331,8 @@ function renderPanelHtml() {
       </div>
       <div id="diagnosticActions" class="actionGrid"></div>
       <div class="toolbar" title="静态检查报告：failed 自动落盘，passed 加 --write-md/--report-md">
-        <button data-command="openLastCheckStaticReport" type="button">打开静态检查报告</button>
-        <button data-command="copyLastCheckStaticReport" type="button">复制静态检查报告</button>
+        <button data-command="openLastCheckStaticReport" type="button" title="打开最近一次静态检查报告（simple_cluster/check_reports/），查看 Plan 结构、输出接口与路径安全的问题清单。">打开静态检查报告</button>
+        <button data-command="copyLastCheckStaticReport" type="button" title="复制最近一次静态检查报告的内容到剪贴板。">复制静态检查报告</button>
       </div>
       <div id="targetCompletionMatrix" data-anchor="diagnostics-targets"></div>
       <div id="featureReadiness" data-anchor="diagnostics-audit"></div>
@@ -1340,10 +1340,10 @@ function renderPanelHtml() {
       <details class="advanced">
         <summary>高级诊断</summary>
         <div class="toolbar" title="插件不内置 SSH；Hub 和 Worker 连接由 Xshell 本地端口转发提供">
-          <button data-command="startHub" type="button">启动 Hub</button>
-          <button data-command="startWorker" type="button">启动 Worker</button>
-          <button data-command="configurePorts" class="secondary" type="button">配置端口</button>
-          <button data-command="repairPorts" class="secondary" type="button">处理端口冲突</button>
+          <button data-command="startHub" type="button" title="启动 Hub：在 Hub 服务器上启动调度器与 Agent，负责统一调度与结果聚合。">启动 Hub</button>
+          <button data-command="startWorker" type="button" title="启动 Worker：在 Worker 服务器上启动 Agent，接收调度任务并上报 GPU 状态。">启动 Worker</button>
+          <button data-command="configurePorts" class="secondary" type="button" title="配置隧道端口：分配或调整 Hub / Worker 的本地转发端口。">配置端口</button>
+          <button data-command="repairPorts" class="secondary" type="button" title="处理端口冲突：检测被占用的隧道端口并重新分配。">处理端口冲突</button>
         </div>
         <h3>配置来源</h3>
         <div id="configurationSources" data-anchor="diagnostics-config-sources"></div>
@@ -1377,14 +1377,14 @@ function renderPanelHtml() {
         <button id="layoutEditToggle" class="secondary" type="button">管理布局</button>
         <button id="collapseAllSections" class="secondary" type="button">一键折叠</button>
         <button id="expandAllSections" class="secondary" type="button">一键展开</button>
-        <button data-command="resetUiLayout" class="secondary" type="button">恢复默认布局</button>
+        <button data-command="resetUiLayout" class="secondary" type="button" title="恢复默认布局：重置面板宽度、区块折叠状态与列配置。">恢复默认布局</button>
       </div>
       <div class="settingsCommandTools" data-anchor="settings-advanced-commands">
         <div>
           <b>高级命令</b>
           <span class="muted">默认隐藏旧兼容、诊断和实时流命令</span>
         </div>
-        <button data-command="openAdvancedCommandsSetting" class="secondary" type="button">打开命令设置</button>
+        <button data-command="openAdvancedCommandsSetting" class="secondary" type="button" title="打开命令设置：控制命令面板中高级命令的显示范围。">打开命令设置</button>
       </div>
       <div id="remoteRootPolicySettings" data-anchor="settings-remote-root-policy"></div>
       <div id="pluginUpdateSettings" data-anchor="settings-plugin-update"></div>
@@ -6723,7 +6723,7 @@ function renderPanelHtml() {
     function legacySftpNoticeForState(state) {
       const simpleSftp = simpleSftpReadinessForState(state);
       if (!simpleSftp.ready || !simpleSftp.legacyInstalled) return "";
-      return '<div class="notice warning legacySftpNotice" title="旧版扩展可能保留旧状态栏按钮；卸载旧版后请执行 Developer: Reload Window。"><b>检测到旧版 SFTP</b> 新版 SimpleSFTP 已可用，但旧版仍安装' + (simpleSftp.legacyVersion ? "（" + esc(simpleSftp.legacyVersion) + "）" : "") + '。卸载旧版并重载窗口后只保留新版界面。 <button class="mini secondary" type="button" data-command="openSetupGuide">查看处理说明</button></div>';
+      return '<div class="notice warning legacySftpNotice" title="旧版扩展可能保留旧状态栏按钮；卸载旧版后请执行 Developer: Reload Window。"><b>检测到旧版 SFTP</b> 新版 SimpleSFTP 已可用，但旧版仍安装' + (simpleSftp.legacyVersion ? "（" + esc(simpleSftp.legacyVersion) + "）" : "") + '。卸载旧版并重载窗口后只保留新版界面。 <button class="mini secondary" type="button" data-command="openSetupGuide" title="打开该步骤的处理说明，含配置步骤与常见问题排查指引。">查看处理说明</button></div>';
     }
 
     function simpleSftpCommandDisableReason(state, command) {
@@ -7188,7 +7188,7 @@ function renderPanelHtml() {
             taskDetailLine("启用 Worker", esc(String(topology.workerCount || 0))) +
           '</div>' +
           (topologyIssues.length ? '<div class="status-warning">' + esc(topologyIssues.join("；")) + '</div>' : '') +
-          '<div class="toolbar"><button data-command="saveTopologyMode" data-config-scope="topology">保存拓扑</button></div>' +
+          '<div class="toolbar"><button data-command="saveTopologyMode" data-config-scope="topology" title="保存拓扑模式：在单 Worker / Hub-Worker 之间切换，影响调度方式与代码上传路径。">保存拓扑</button></div>' +
           '<div class="muted">模式变更会显示强确认。仅 Worker 旧项目必须明确选择；旧 Hub 配置在无 Hub 模式下保留但不参与运行。</div>' +
         '</div>'
       );
@@ -7200,7 +7200,7 @@ function renderPanelHtml() {
             configInput("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀", setup.remoteTmuxSessionPrefix || "simple") +
             configInput("hub", "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", setup.condaEnv || "") +
           '</div>' +
-          '<div class="toolbar"><button data-command="saveHubConfig" data-config-scope="hub">保存默认值</button></div>' +
+          '<div class="toolbar"><button data-command="saveHubConfig" data-config-scope="hub" title="保存 Hub 配置：写入服务器地址与认证方式等项目级参数。">保存默认值</button></div>' +
           '<div class="muted">前缀应用于新生成的 Agent tmux 会话；已有会话需重新写入启动命令或重新准备 Agent。</div>' +
         '</div>'
       );
@@ -7224,8 +7224,8 @@ function renderPanelHtml() {
           '</div>' +
           renderSchedulerGlossary() +
           '<div class="toolbar">' +
-            '<button data-command="saveSchedulerConfig" data-config-scope="scheduler">保存策略</button>' +
-            '<button data-command="snapshot" class="secondary">刷新数据</button>' +
+            '<button data-command="saveSchedulerConfig" data-config-scope="scheduler" title="保存调度策略：写入并发上限、GPU 空闲阈值与上报周期。">保存策略</button>' +
+            '<button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区，更新 Plan 列表与项目接入状态，不修改任何文件。">刷新数据</button>' +
           '</div>' +
           '<div class="muted">所有自动轮询和可用性上报都使用正向随机抖动。TTL 表示 Hub 本地缓存有效期，不是轮询频率。实时事件延迟只影响停止、删除、归档和任务状态推送聚合。</div>' +
         '</div>'
@@ -7253,11 +7253,11 @@ function renderPanelHtml() {
           renderServerDestinationPreview(hubAgent, "hub") +
           renderSchedulerDependencyStatus(((state.probe || {}).schedulerDependencies), hubName) +
           '<div class="toolbar">' +
-            '<button data-command="saveHubConfig" data-config-scope="hub">保存 Hub</button>' +
-            '<button data-command="configureSessions" class="secondary">扫描选择会话</button>' +
-            '<button data-command="startTunnelEndpoint" data-endpoint-id="hub" data-confirm="true" class="secondary">启动隧道</button>' +
-            (topology.workerCount > 0 ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="' + escAttr(noHubMode) + '" data-confirm="true" class="secondary">停用 Hub</button>' : '') +
-            '<button data-command="test" class="secondary">检测</button>' +
+            '<button data-command="saveHubConfig" data-config-scope="hub" title="保存 Hub 配置：写入服务器地址与认证方式等项目级参数。">保存 Hub</button>' +
+            '<button data-command="configureSessions" class="secondary" title="扫描本机 Xshell 会话，勾选要纳入插件托管的连接。">扫描选择会话</button>' +
+            '<button data-command="startTunnelEndpoint" data-endpoint-id="hub" data-confirm="true" class="secondary" title="启动该端点的隧道，建立本机到服务器的端口转发。">启动隧道</button>' +
+            (topology.workerCount > 0 ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="' + escAttr(noHubMode) + '" data-confirm="true" class="secondary" title="保存拓扑模式：在单 Worker / Hub-Worker 之间切换，影响调度方式与代码上传路径。">停用 Hub</button>' : '') +
+            '<button data-command="test" class="secondary" title="检测该端点的隧道连通性，失败时提示原因。">检测</button>' +
           '</div>' +
         '</div>'
       );
@@ -7271,7 +7271,7 @@ function renderPanelHtml() {
             taskDetailLine("自动备份", "禁用") +
           '</div>' +
           '<div class="toolbar">' +
-            (setup.savedSessionPath && setup.agentProjectDir ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="hub_worker" data-confirm="true">恢复 Hub</button>' : '') +
+            (setup.savedSessionPath && setup.agentProjectDir ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="hub_worker" data-confirm="true" title="保存拓扑模式：在单 Worker / Hub-Worker 之间切换，影响调度方式与代码上传路径。">恢复 Hub</button>' : '') +
             '<button data-command="openTensorBoard" data-endpoint-id="hub" class="secondary" title="单 Worker 模式下仍可为 Hub 打开 TensorBoard（复用 Worker 隧道的本地端口+1000）">打开 TensorBoard</button>' +
           '</div>' +
           renderTensorBoardLinkRow("hub", (setup.workerTunnels && setup.workerTunnels[0] ? setup.workerTunnels[0].localForwardPort : 0) || setup.localForwardPort) +
@@ -7313,9 +7313,9 @@ function renderPanelHtml() {
           renderSchedulerDependencyStatus((((state.workerProbes || {})[worker.id] || {}).schedulerDependencies), worker.displayName || worker.id) +
           '<div class="toolbar">' +
             '<button data-command="addWorkerConfig" class="secondary" title="新增一台服务器：在设置区追加一块空服务器表单后填写保存">新增服务器</button>' +
-            '<button data-command="saveWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-config-scope="' + escAttr(scope) + '">保存服务器</button>' +
-            '<button data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(worker.id) + '" data-confirm="true" class="secondary">启动隧道</button>' +
-            '<button data-command="deleteWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-danger="true" class="secondary">删除</button>' +
+            '<button data-command="saveWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-config-scope="' + escAttr(scope) + '" title="保存该 Worker 的配置：远端路径、Conda 环境与并发占卡上限。">保存服务器</button>' +
+            '<button data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(worker.id) + '" data-confirm="true" class="secondary" title="启动该端点的隧道，建立本机到服务器的端口转发。">启动隧道</button>' +
+            '<button data-command="deleteWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-danger="true" class="secondary" title="删除该 Worker 配置；已上传到远端的文件不会被删除。">删除</button>' +
             '</div><div class="muted">并发占卡上限留空或 auto 表示占用全部显卡；显式值限制同时占用的卡数，不限制排队总量。四态：可用/目前无空卡/暂无显卡数据/GPU查询失败。</div>' +
           '</div>'
         );
@@ -7328,7 +7328,7 @@ function renderPanelHtml() {
         '<span class="muted">' + (pathConfirmationCount
           ? '当前项目已记住 ' + esc(String(pathConfirmationCount)) + ' 个远端路径'
           : '当前项目没有关闭提醒的远端路径') + '</span>' +
-        '<button type="button" class="secondary" data-command="resetRemotePathConfirmations"' + (pathConfirmationCount ? '' : ' disabled') + '>恢复提醒</button>' +
+        '<button type="button" class="secondary" data-command="resetRemotePathConfirmations"' + (pathConfirmationCount ? '' : ' disabled') + ' title="清除远端路径确认记录：下次上传前会重新确认本地与远端的对应位置。">恢复提醒</button>' +
       '</div>';
       const pptPathConfirmationState = state.pptPathConfirmations || {};
       const pptPathConfirmationCount = Math.max(0, Number(pptPathConfirmationState.count || 0));
@@ -7338,7 +7338,7 @@ function renderPanelHtml() {
         '<span class="muted">' + (pptPathConfirmationCount
           ? '当前项目已记住 ' + esc(String(pptPathConfirmationCount)) + ' 个 PPT 目标'
           : '当前项目没有关闭提醒的 PPT 目标') + '</span>' +
-        '<button type="button" class="secondary" data-command="resetPptPathConfirmations"' + (pptPathConfirmationCount ? '' : ' disabled') + '>恢复提醒</button>' +
+        '<button type="button" class="secondary" data-command="resetPptPathConfirmations"' + (pptPathConfirmationCount ? '' : ' disabled') + ' title="清除 PPT 路径确认记录：下次绘图前会重新确认输出位置。">恢复提醒</button>' +
       '</div>';
       // 冲突仅连接步：settings 区不再重复 conflictNote，冲突只进单链第1步(连接)。
       const xshellBudgetNote = renderXshellSessionBudgetNote(state);
@@ -7437,10 +7437,10 @@ function renderPanelHtml() {
         renderServerObjectOverview(state))) +
         '<div class="toolbar">' +
           '<button type="button" data-section-target="settings" data-anchor-target="settings-servers">设置</button>' +
-          '<button data-command="addWorkerConfig">新增服务器</button>' +
-          '<button data-command="startAll" class="secondary">' + esc(hubParticipates ? "启动全部隧道" : "启动 Worker 隧道") + '</button>' +
-          '<button data-command="prepareAgents">' + esc(hubParticipates ? "部署Agent" : "部署 Worker Agent") + '</button>' +
-          '<button data-command="testAll" class="secondary">' + esc(hubParticipates ? "检测全部" : "检测 Worker") + '</button>' +
+          '<button data-command="addWorkerConfig" title="新增一个 Worker 配置项，用于多机并行调度。">新增服务器</button>' +
+          '<button data-command="startAll" class="secondary" title="按顺序启动全部连接：先建立隧道，再拉起各服务器 Agent。">' + esc(hubParticipates ? "启动全部隧道" : "启动 Worker 隧道") + '</button>' +
+          '<button data-command="prepareAgents" title="准备 Agent：上传并启动全部服务器上的 Agent，完成首次连通性检测。">' + esc(hubParticipates ? "部署Agent" : "部署 Worker Agent") + '</button>' +
+          '<button data-command="testAll" class="secondary" title="检测全部：验证隧道、Agent 与调度依赖是否就绪，失败项会列出原因。">' + esc(hubParticipates ? "检测全部" : "检测 Worker") + '</button>' +
         '</div>');
     }
 
@@ -7462,7 +7462,7 @@ function renderPanelHtml() {
       const tbLocal = local >= 1024 ? local + 1000 : 0;
       const tbUrl = tbLocal ? 'http://127.0.0.1:' + tbLocal : '';
       if (!tbUrl) return '待启动';
-      return '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;white-space:normal;min-width:0;max-width:100%;"><code class="tbUrl" style="cursor:pointer;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;user-select:all;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:anywhere;" title="点击直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code><button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" style="padding:3px 8px;">打开</button></span>';
+      return '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;white-space:normal;min-width:0;max-width:100%;"><code class="tbUrl" style="cursor:pointer;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;user-select:all;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:anywhere;" title="点击直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code><button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" style="padding:3px 8px;" title="在浏览器中打开 TensorBoard 地址。">打开</button></span>';
     }
     function renderTensorBoardLinksForRunning() {
       try {
@@ -7475,7 +7475,7 @@ function renderPanelHtml() {
         if (hubLocal >= 1024) {
           const hubTb = hubLocal + 1000;
           const hubUrl = 'http://127.0.0.1:' + hubTb;
-          links.push('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">打开</button></span>');
+          links.push('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="复制 TensorBoard 地址到剪贴板。">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="在浏览器中打开 TensorBoard 地址。">打开</button></span>');
         }
         for (const w of workers) {
           const wid = String(w.id || '');
@@ -7483,7 +7483,7 @@ function renderPanelHtml() {
           if (wLocal >= 1024) {
             const wTb = wLocal + 1000;
             const wUrl = 'http://127.0.0.1:' + wTb;
-            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">打开</button></span>');
+            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="复制 TensorBoard 地址到剪贴板。">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="在浏览器中打开 TensorBoard 地址。">打开</button></span>');
           }
         }
         if (!links.length) {
@@ -7491,7 +7491,7 @@ function renderPanelHtml() {
           if (fbLocal >= 1024) {
             const fbTb = fbLocal + 1000;
             const fbUrl = 'http://127.0.0.1:' + fbTb;
-            links.push('<span class="pill">TB ' + esc(fbUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '">打开</button></span>');
+            links.push('<span class="pill">TB ' + esc(fbUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '" title="复制 TensorBoard 地址到剪贴板。">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '" title="在浏览器中打开 TensorBoard 地址。">打开</button></span>');
           }
         }
         // TB 按当前设置自动识别：Hub/Worker 各自按 localForwardPort+1000 生成，始终可点（不写死服务器名/端口）
@@ -7501,13 +7501,13 @@ function renderPanelHtml() {
         const hasWorkerNow = links.some((l) => l.includes(" TB ") && !l.includes("Hub TB"));
         if (!hasHubNow && hubLocalForTB >= 1024) {
           const hubUrl = 'http://127.0.0.1:' + (hubLocalForTB + 1000);
-          links.unshift('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub">打开</button></span>');
+          links.unshift('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="复制 TensorBoard 地址到剪贴板。">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="在浏览器中打开 TensorBoard 地址。">打开</button></span>');
         }
         if (!hasWorkerNow && workerLocalForTB >= 1024) {
           const wUrl = 'http://127.0.0.1:' + (workerLocalForTB + 1000);
           const wid = String(workers[0].id || "worker");
           if (!links.some((l) => l.includes(wUrl))) {
-            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '">打开</button></span>');
+            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="复制 TensorBoard 地址到剪贴板。">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="在浏览器中打开 TensorBoard 地址。">打开</button></span>');
           }
         }
         if (!links.length) return '';
@@ -7608,7 +7608,7 @@ function renderPanelHtml() {
           '</div>' +
           '<div class="remoteRootPolicyFooter">' +
             '<span>每行一个绝对 POSIX 路径。保存后作用于当前工作区。</span>' +
-            '<button class="secondary" data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy">保存</button>' +
+            '<button class="secondary" data-command="saveRemoteRootPolicy" data-config-scope="remotePolicy" title="保存远端根目录白名单与黑名单，限定插件可读写的远端路径范围。">保存</button>' +
           '</div>' +
         '</div>');
     }
@@ -7620,7 +7620,7 @@ function renderPanelHtml() {
       setHtmlIfChanged("resultCsvDirectorySettings",
         '<div class="settingsLayoutTools" title="已有 Plan 的显式结果路径始终优先">' +
           '<b>实验结果 CSV 目录</b>' +
-          '<div class="pptPathInputRow"><input class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="工作区相对目录：' + escAttr(value) + '"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button">保存</button></div>' +
+          '<div class="pptPathInputRow"><input class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="工作区相对目录：' + escAttr(value) + '"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button" title="选择结果 CSV 所在目录（项目级设置）。">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button" title="保存结果 CSV 目录设置，后续结果解析与绘图按此查找。">保存</button></div>' +
           '<span class="muted">新 Plan 与未显式声明结果路径的任务使用；已有 Plan 路径不变</span>' +
         '</div>');
     }
@@ -8129,9 +8129,9 @@ function renderPanelHtml() {
       const visibleWorkers = workers.slice(0, DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT);
       const cards = [agentSessionCard("Hub", "hub", hub, "simple-hub-agent")].concat(visibleWorkers.map((worker) => agentSessionCard("Worker", worker.displayName || worker.id, worker, "-")));
       setHtmlIfChanged("agentSessions", '<div class="toolbar">' +
-        '<button data-command="prepareAgents">准备 Agent 并启动</button>' +
-        '<button data-command="writeAgentCommands" class="secondary">写入自动启动命令</button>' +
-        '<button data-command="startAllConnections" class="secondary">启动连接</button>' +
+        '<button data-command="prepareAgents" title="准备 Agent：上传并启动全部服务器上的 Agent，完成首次连通性检测。">准备 Agent 并启动</button>' +
+        '<button data-command="writeAgentCommands" class="secondary" title="把 Agent 启动命令写入 Xshell 会话，便于手动启动与排查。">写入自动启动命令</button>' +
+        '<button data-command="startAllConnections" class="secondary" title="启动全部连接：建立所有服务器隧道并拉起 Agent。">启动连接</button>' +
         '</div>' +
         '<div class="endpointCardGrid">' + cards.join("") + '</div>' +
         diagnosticBudgetNotice("Worker Agent 会话", workers.length, DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT, "个") +
@@ -8146,7 +8146,7 @@ function renderPanelHtml() {
       const cls = disabled ? "disabled" : (configured ? "ok" : "warn");
       const endpointId = role === "Hub" ? "hub" : (item.id || name);
       const action = configured && !disabled
-        ? '<button class="mini" data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(endpointId) + '" data-confirm="true">启动隧道</button>'
+        ? '<button class="mini" data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(endpointId) + '" data-confirm="true" title="启动该端点的隧道，建立本机到服务器的端口转发。">启动隧道</button>'
         : '<span class="muted" title="不可启动">不可启动</span>';
       return '<article class="endpointStatusCard ' + cls + '" title="' + escAttr(role + "：" + status) + '">' +
         '<div class="endpointCardHead"><div><b>' + esc(role + " · " + (name || endpointId)) + '</b><div class="endpointCardSub" title="' + escAttr(item.sessionPath || "") + '">' + esc(compactPath(item.sessionPath || "未选择 Xshell 会话")) + '</div></div>' +
@@ -8192,10 +8192,10 @@ function renderPanelHtml() {
         return '<div class="task-card is-completed" data-draft-plan="' + escAttr(file) + '">' +
           '<div class="planCardHead"><div class="taskTitle"><b>' + esc(file) + '</b>' + badge + debugInfo + '</div>' +
           '<div class="planCardActions">' +
-            '<button class="taskActionButton secondary" data-command="runDraftDebug" data-draft-plan-path="' + escAttr(file) + '">Debug 运行</button>' +
-            '<button class="taskActionButton secondary" data-command="reviewDraft" data-draft-plan-path="' + escAttr(file) + '">标记已审阅</button>' +
-            '<button class="taskActionButton secondary" data-command="promoteDraft" data-draft-plan-path="' + escAttr(file) + '">Promote Draft</button>' +
-            '<button class="taskActionButton secondary" data-command="rejectDraft" data-draft-plan-path="' + escAttr(file) + '">Reject</button>' +
+            '<button class="taskActionButton secondary" data-command="runDraftDebug" data-draft-plan-path="' + escAttr(file) + '" title="调试运行草稿：输出隔离到 debug 目录，不写入正式归档与统计；首次接新项目建议先用它验证。">Debug 运行</button>' +
+            '<button class="taskActionButton secondary" data-command="reviewDraft" data-draft-plan-path="' + escAttr(file) + '" title="查看待审草稿的校验结果与预演信息。">标记已审阅</button>' +
+            '<button class="taskActionButton secondary" data-command="promoteDraft" data-draft-plan-path="' + escAttr(file) + '" title="把草稿提升为正式 Plan，写入 experiments/plans。">Promote Draft</button>' +
+            '<button class="taskActionButton secondary" data-command="rejectDraft" data-draft-plan-path="' + escAttr(file) + '" title="丢弃该草稿，不写入 experiments/plans。">Reject</button>' +
           '</div></div>' +
           '<div class="taskFacts">' +
             taskMetric("配置", configList) +
@@ -8205,7 +8205,7 @@ function renderPanelHtml() {
             (draft.issues && draft.issues.length ? '<div class="muted">问题: ' + esc(draft.issues.map(function(i){return i.message;}).join("; ")) + '</div>' : "") +
           '</div></div>';
       }).join("");
-      const cleanup = (draftState.cleanupCandidates||[]).length ? '<div class="muted">清理候选 ' + draftState.cleanupCandidates.length + ' 个：' + esc(draftState.cleanupCandidates.map(function(c){return c.path;}).join(", ")) + '</div><button class="taskActionButton secondary" data-command="cleanupDrafts">清理 Rejected/Stale</button>' : "";
+      const cleanup = (draftState.cleanupCandidates||[]).length ? '<div class="muted">清理候选 ' + draftState.cleanupCandidates.length + ' 个：' + esc(draftState.cleanupCandidates.map(function(c){return c.path;}).join(", ")) + '</div><button class="taskActionButton secondary" data-command="cleanupDrafts" title="清理已处理的草稿记录。">清理 Rejected/Stale</button>' : "";
       return '<div class="section-card" style="margin-top:10px"><h3>草稿 PLAN（Draft）<span class="pill">独立发现</span></h3><div class="muted">草稿仅支持 Debug 隔离运行，输出位于 simple_cluster/debug_runs/，不进入归档/统计/论文/PPT。</div><div class="taskCardList">' + rows + '</div>' + cleanup + (draftState.error ? '<pre>' + esc(draftState.error) + '</pre>' : "") + '</div>';
     }
 
@@ -8539,7 +8539,7 @@ function renderPanelHtml() {
       if (!outputReady) {
         const adapterAction = adapterConfig
           ? projectPathButton("打开接入配置", adapterConfig)
-          : '<button class="mini secondary" data-command="generateOutputAdapter">生成接入模板</button>';
+          : '<button class="mini secondary" data-command="generateOutputAdapter" title="生成输出接入模板 experiments/simple_project.yaml，声明结果捕获规则（result_csv / metrics_summary.csv / stdout 捕获）。">生成接入模板</button>';
         return '<div class="planRunActions">' + projectNextAction("补全输出后再运行", "打开 Plan", "openPlan", { file: selectedPlan }) + adapterAction + '</div>';
       }
       const executionStage = planExecutionStage(state || {}, selectedPlan);
@@ -8562,7 +8562,7 @@ function renderPanelHtml() {
       if (planFirstRunRecommended(state || {}, selectedPlan, plan, executionStage, true)) {
         return '<div class="planRunActions">' + renderProjectFirstRunActions(true, selectedPlan) + '</div>';
       }
-      return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '">单独预演</button><label class="muted" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;" title="勾选后提交时带 --overwrite 覆盖已有产物（metrics_summary.csv / checkpoint / train.log 等），不勾选则自动跳过已完成任务；GPU 调度不受历史产物影响"><input type="checkbox" id="overwriteExistingToggle" data-overwrite-toggle="true" /> 覆盖已有产物</label><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并弹窗确认覆盖/跳过">调度前检测已有产物时弹窗确认</span></div>';
+      return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '" title="校验 Plan：检查契约、输出接口与配置完整性，不运行任务；未通过时列出缺失项与修复建议。">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="预演运行：展开 case × seed 的任务数、远端路径、Worker 与并发上限，不提交任务。">单独预演</button><label class="muted" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;" title="勾选后提交时带 --overwrite 覆盖已有产物（metrics_summary.csv / checkpoint / train.log 等），不勾选则自动跳过已完成任务；GPU 调度不受历史产物影响"><input type="checkbox" id="overwriteExistingToggle" data-overwrite-toggle="true" /> 覆盖已有产物</label><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并弹窗确认覆盖/跳过">调度前检测已有产物时弹窗确认</span></div>';
     }
 
     function renderProjectFirstRunActions(show, planFile) {
@@ -12048,7 +12048,7 @@ function renderPanelHtml() {
         '<div class="gpuServerHead"><b>' + esc(row.experimentName) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span></div>' +
         '<div class="muted">' + clippedCell(row.plan, "wide", compactPath(row.plan)) + ' · ' + esc(workerName(row.serverId)) + ' · GPU ' + esc(arrayText(row.gpuIds)) + '</div>' +
         '<div class="progress-line"><div class="progress-bar"><div class="progress-fill busy" style="width:' + pct + '%"></div></div><span>' + esc(row.progress) + '</span></div>' +
-        '<div class="summaryLine"><span class="pill">' + esc(row.duration) + '</span>' + live + '<button class="mini" data-command="selectLogRunKey" data-run-key="' + escAttr(taskLogActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '">日志</button></div>' +
+        '<div class="summaryLine"><span class="pill">' + esc(row.duration) + '</span>' + live + '<button class="mini" data-command="selectLogRunKey" data-run-key="' + escAttr(taskLogActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" title="选择要查看的日志来源（按运行记录切换）。">日志</button></div>' +
         warning +
       '</div>';
     }
@@ -12936,7 +12936,7 @@ function renderPanelHtml() {
         const schedulerCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">调度器日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + schedulerContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
         const programCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">程序运行日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + programContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
         return '<div class="operationLogsWindowed"><div style="display:grid;grid-template-columns:1fr;gap:8px">' + schedulerCard + programCard + '</div></div>';
-      } catch (e) { return '<div class="operationLogsWindowed" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '">打开完整日志</button></div>'; }
+      } catch (e) { return '<div class="operationLogsWindowed" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看该任务的历史日志列表。">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开完整日志文件。">打开完整日志</button></div>'; }
     }
 
     function renderRemoteResultInspectionActions(files, planFile, limit, details) {

@@ -20,7 +20,7 @@ export class SyncSection implements Section {
       <div id="syncServerOverview" data-anchor="sync-servers"></div>
       <div id="syncCheckStaticReports" data-anchor="sync-check-reports"></div>
       <div class="toolbar" data-anchor="sync-check-actions">
-        <button type="button" data-command="runCheckStatic" title="检查项目配置：先清空 simple_cluster/check_reports 内 check-static-*.md，再跑 check-static 写最新，报告位置可打开/复制">检查项目配置</button>
+        <button type="button" data-command="runCheckStatic" title="检查项目配置：运行静态检查并生成项目接入报告，覆盖 Plan 结构、输出接口与路径安全；报告写入 simple_cluster/check_reports/，可用「打开静态检查报告」查看。">检查项目配置</button>
         <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
       </div>
       <div class="toolbar" data-anchor="sync-actions">
