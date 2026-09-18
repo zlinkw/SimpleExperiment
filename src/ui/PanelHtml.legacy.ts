@@ -1150,7 +1150,7 @@ export function renderPanelHtml(): string {
         <div id="syncChainOverview" data-anchor="settings-chain-overview"></div>
         <div id="syncServerOverview" data-anchor="sync-servers"></div>
         <div class="toolbar" data-anchor="sync-check-actions">
-          <button type="button" data-command="runCheckStatic" title="检查项目接入：先清空 simple_cluster/check_reports 内 check-static-*.md，再跑 check-static 写最新，报告位置可打开/复制">检查项目接入</button>
+          <button type="button" data-command="runCheckStatic" title="检查项目配置：先清空 simple_cluster/check_reports 内 check-static-*.md，再跑 check-static 写最新，报告位置可打开/复制">检查项目配置</button>
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
         </div>
         <div class="toolbar" data-anchor="sync-actions">
@@ -4997,7 +4997,7 @@ export function renderPanelHtml(): string {
         showLogHistory: "查看历史日志",
         openFullLog: "打开完整日志",
         copyText: "复制文本",
-        runCheckStatic: "检查项目接入",
+        runCheckStatic: "检查项目配置",
         openLastCheckStaticReport: "打开静态检查报告",
         copyLastCheckStaticReport: "复制静态检查报告",
         start: "启动 Hub",
@@ -7138,7 +7138,7 @@ export function renderPanelHtml(): string {
         list.push('<button type="button" class="mini secondary" data-command="openLastCheckStaticReport" data-report="' + escAttr(nm) + '" data-file="' + escAttr("simple_cluster/check_reports/" + nm) + '" title="' + escAttr("simple_cluster/check_reports/" + nm + " 点击打开对应报告") + '">' + esc(nm) + '</button>');
       }
       var head = '<div class="muted">静态检查报告（' + String(list.length) + '）：点击文件名打开对应报告；检查按钮每次先清空旧报告再写最新。</div>';
-      if (!list.length) return head + '<div class="muted">暂无报告，点击上方检查项目接入生成。</div>';
+      if (!list.length) return head + '<div class="muted">暂无报告，点击上方检查项目配置生成。</div>';
       return head + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' + list.join("") + '</div>';
     }
 

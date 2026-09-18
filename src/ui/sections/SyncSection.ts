@@ -20,7 +20,7 @@ export class SyncSection implements Section {
       <div id="syncServerOverview" data-anchor="sync-servers"></div>
       <div id="syncCheckStaticReports" data-anchor="sync-check-reports"></div>
       <div class="toolbar" data-anchor="sync-check-actions">
-        <button type="button" data-command="runCheckStatic" title="检查项目接入：先清空 simple_cluster/check_reports 内 check-static-*.md，再跑 check-static 写最新，报告位置可打开/复制">检查项目接入</button>
+        <button type="button" data-command="runCheckStatic" title="检查项目配置：先清空 simple_cluster/check_reports 内 check-static-*.md，再跑 check-static 写最新，报告位置可打开/复制">检查项目配置</button>
         <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
       </div>
       <div class="toolbar" data-anchor="sync-actions">
@@ -51,7 +51,7 @@ function renderSync(state){
     list.push('<button type="button" class="mini secondary" data-command="openLastCheckStaticReport" data-report="' + esc(nm) + '" data-file="' + esc("simple_cluster/check_reports/" + nm) + '" title="' + esc("simple_cluster/check_reports/" + nm) + '">' + esc(nm) + '</button>');
   }
   var head='<div class="muted">静态检查报告（' + String(list.length) + '）：点击文件名打开对应报告；检查按钮每次先清空旧报告再写最新。</div>';
-  box.innerHTML = list.length ? head + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' + list.join("") + '</div>' : head + '<div class="muted">暂无报告，点击上方检查项目接入生成。</div>';
+  box.innerHTML = list.length ? head + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' + list.join("") + '</div>' : head + '<div class="muted">暂无报告，点击上方检查项目配置生成。</div>';
 }
 `;
   }

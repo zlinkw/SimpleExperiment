@@ -22,6 +22,10 @@ scenarios/**
 review_report.md
 **/*.vsix
 **/review_report.md
+
+# 打包/测试日志与备份文件（不入包）
+*.log
+*.bak
 dist/runtime/__pycache__/**
 dist/test/**
 dist/testing/**

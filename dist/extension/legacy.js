@@ -11449,7 +11449,7 @@ class RealtimeTunnelPanelProvider {
         await vscode.env.clipboard.writeText(text);
         void vscode.window.showInformationMessage(`已复制静态检查报告（${rel}，${text.length} 字符）`);
     }
-    // runCheckStatic：sync 工具栏“检查项目接入”入口。
+    // runCheckStatic：sync 工具栏“检查项目配置”入口。
     // 先清空 simple_cluster/check_reports 内 check-static-*.md（仅该前缀，不碰其他报告），
     // 再跑 check-static --write-md 写最新（failed 自动落盘，passed 靠 --write-md 落盘），
     // 最后显示报告位置 + 打开/复制（复用 open/copy 三件套）。不做任何网络探测（P0 禁硬编码端口/IP）。
