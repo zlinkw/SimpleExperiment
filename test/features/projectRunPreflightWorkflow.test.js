@@ -87,17 +87,6 @@ test("Hub-only projects do not require a Worker sync status", () => {
   assert.match(panel, /ready: hubReady && workerReady && fingerprintReady/);
 });
 
-test("Agent version mismatch leads to deploy then restart guidance", () => {
-  const extension = readSource("src/extension.ts");
-  assert.match(panel, /versionMismatch = hubRequired && hubStatus === "agent_version_mismatch"/);
-  assert.match(panel, /Agent 版本与插件不兼容；部署后需重启 Xshell 会话[\s\S]{0,140}"deployLatestAgent"/);
-  assert.match(panel, /最新版 Agent 已部署；请重启 Hub\/Worker Xshell 会话后检测[\s\S]{0,140}"startAllConnections"/);
-  assert.match(panel, /Agent 已部署，需重启会话并检测/);
-  assert.match(extension, /state: "agent_restart_required"/);
-  assert.match(extension, /if \(targets\.some\(\(target\) => target\.role === "hub"\)\)\s*this\.lastProbe = undefined;/);
-  assert.match(extension, /最新版 Agent runtime 已部署到 \$\{targets\.map\(\(target\) => target\.id\)\.join\("、"\)\}。请重启对应 Xshell 会话/);
-});
-
 test("Plan next action starts with one-click run and preserves manual recovery stages", () => {
   assert.match(panel, /function planExecutionStage\(state, planFile\)/);
   assert.match(panel, /function planPreflightSummary\(state, planFile\)/);

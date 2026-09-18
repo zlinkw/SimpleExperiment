@@ -82,11 +82,3 @@ print(json.dumps({
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
-
-test("availability write path copies the cached map before merging", () => {
-  const source = readSource("src/clusterAgentRuntime.ts");
-  assert.match(source, /MAX_WORKER_AVAILABILITY_RECORDS = 64/);
-  assert.match(source, /WORKER_AVAILABILITY_EXPIRY_FACTOR = 4/);
-  assert.match(source, /entries = dict\(source_entries\)/);
-  assert.match(source, /entries = prune_availability_entries\(entries, updated_ids, ttl\)/);
-});

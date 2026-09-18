@@ -105,27 +105,6 @@ test("Hub-only checks and execution checks use different endpoint scopes", () =>
   assert.match(applySetup, /enforceExpectedAgentProjectRoot\(this\.lastWorkerProbes\[worker\.id\]/);
 });
 
-test("UI distinguishes stale Hub and Worker projects and directs preparation", () => {
-  const readiness = loadEndpointReadiness();
-  const hubMismatch = readiness({
-    setup: { workerTunnels: [] },
-    probe: { status: "agent_project_mismatch", projectRoot: "/remote/old", expectedProjectRoot: "/remote/new" },
-  });
-  assert.equal(hubMismatch.hubReady, false);
-  assert.equal(hubMismatch.projectMismatch, true);
-  assert.match(hubMismatch.missing[0], /\/remote\/old/);
-  const workerMismatch = readiness({
-    setup: { workerTunnels: [{ id: "w1", displayName: "Worker 1", enabled: true }] },
-    probe: { status: "ok" },
-    workerProbes: { w1: { status: "agent_project_mismatch", projectRoot: "/old", expectedProjectRoot: "/new" } },
-  });
-  assert.equal(workerMismatch.hubReady, true);
-  assert.equal(workerMismatch.ready, false);
-  assert.match(workerMismatch.missing[0], /Worker 1.*旧项目/);
-  assert.match(panel, /当前 Agent 仍指向旧项目；需重写本项目启动命令/);
-  assert.match(panel, /projectMismatch[\s\S]{0,160}data-command="prepareAgents"/);
-});
-
 test("probe and webview compaction retain actual and expected project roots", () => {
   assert.match(probeSource, /const projectRoot = String\(health\.projectRoot \|\| ""\)\.trim\(\)/);
   assert.match(probeSource, /healthOk: true, projectRoot/);

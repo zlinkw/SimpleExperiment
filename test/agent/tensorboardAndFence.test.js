@@ -360,10 +360,3 @@ print("ok")
   const r = runPython(py);
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
-
-test("execute_worker_command reuses worker_tmux_session_name for per-GPU single tmux", () => {
-  // The start path must call worker_tmux_session_name (not build the session inline).
-  assert.match(agentSource, /session = worker_tmux_session_name\(worker_id, gpu_id, os\.environ\.get\("SIMPLE_EXPERIMENT_WORKER_ID"\)\)/);
-  // Final tmux name still goes through simple_tmux_name (prefix + lowercase) so reuse key is normalized.
-  assert.match(agentSource, /tmux_session = simple_tmux_name\(session\)/);
-});

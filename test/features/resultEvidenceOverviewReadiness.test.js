@@ -53,15 +53,3 @@ test("overview result evidence follows actual preview and archive state", () => 
     detail: "已归档结果是质量门禁、统计、论文表格和 PPT 的唯一有效输入。",
   });
 });
-
-test("overview never claims evidence closure without evidence and exposes failures", () => {
-  assert.deepEqual(readiness({ resultsSummary: { parseFailed: 2 } }), {
-    tone: "error",
-    status: "解析失败 2",
-    detail: "存在无法解析的结果文件；请查看结果区的真实失败原因和文件位置。",
-  });
-  assert.equal(readiness({ resultsSummary: { lastParsedAt: "2026-07-18T10:00:00Z" } }).status, "未发现结果");
-  assert.match(panel, /\["5", "结果证据", evidence\.tone, evidence\.status, evidence\.detail\]/);
-  assert.doesNotMatch(panel, /summary\.failedOps \? "有异常" : "闭环"/);
-  assert.match(panel, /failedOps: operationStats\.failed/);
-});

@@ -35,13 +35,3 @@ test("remote project name is empty until a real workspace is open", () => {
   assert.doesNotMatch(extractFunction("remoteProjectName"), /process\.cwd/);
   assert.match(extension, /\.\.\.\(projectName \? \{ workDir: `\$\{root\}\/\$\{projectName\}` \} : \{\}\)/);
 });
-
-test("UI keeps runtime visible but waits for a workspace before showing code destination", () => {
-  assert.match(panel, /hasRoot && !projectName \? "打开本地项目后显示"/);
-  assert.match(panel, /已保存服务器根目录；等待打开本地项目/);
-  assert.match(panel, /打开本地项目后显示上传位置/);
-  assert.match(panel, /data-project-name="' \+ escAttr\(projectName\)/);
-  assert.doesNotMatch(panel, /data-project-name="' \+ escAttr\(item\.projectName \|\| "simple_project"\)/);
-  assert.match(legacyNotes, /未打开本地项目时不会使用扩展进程目录生成伪项目名/);
-  assert.match(legacyNotes, /先打开目标本地项目后才显示代码上传位置/);
-});

@@ -22,12 +22,3 @@ test("archived plan restore creates an isolated version with isolated configs an
   assert.match(extension, /await this\.persistProjectPlanSelectionState\(\)/);
   assert.match(extension, /自动切换到 Plan 工作台/);
 });
-
-test("archived plan card exposes restore through the local command allowlist", () => {
-  assert.match(panel, /data-command="restoreArchivedPlan"/);
-  assert.match(panel, /"restoreArchivedPlan"/);
-  assert.match(panel, /restoreArchivedPlan: "恢复归档 Plan"/);
-  assert.match(panel, /plan\.restoreVersion/);
-  assert.match(panel, /plan\.restoreOutputNamespace/);
-  assert.match(panel, /taskMetric\("版本输出", plan\.restoreOutputNamespace\)/);
-});

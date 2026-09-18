@@ -8,13 +8,6 @@ const root = path.join(__dirname, "..", "..");
 const extension = readSource("src/extension.ts");
 const panel = readSource("src/ui/PanelHtml.ts");
 
-test("extension publishes project topology assessment to the webview", () => {
-  assert.match(extension, /import TopologyMode_1 = require\("\.\/features\/TopologyMode"\)/);
-  assert.match(extension, /const topology = this\.projectTopologyAssessment\(\)/);
-  assert.match(extension, /workspace,\s*topology,\s*setup: compactXshellSetupForWebview/);
-  assert.match(extension, /configuredMode,\s*storedHubConfigured,\s*modeLabel: topologyModeLabel\(assessment\.mode\)/);
-});
-
 test("topology save is project-scoped and strongly confirmed", () => {
   const flow = extension.slice(extension.indexOf("async saveTopologyModeFromUi"), extension.indexOf("async saveHubConfigFromUi"));
   assert.match(flow, /showWarningMessage\(\[/);

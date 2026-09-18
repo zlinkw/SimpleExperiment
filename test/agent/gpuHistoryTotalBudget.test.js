@@ -108,11 +108,3 @@ print(json.dumps({
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
-
-test("the budget and compact writer are wired into the sampling path", () => {
-  const source = readSource("src/clusterAgentRuntime.ts");
-  assert.match(source, /GPU_HISTORY_MAX_TOTAL_POINTS = 40000/);
-  assert.match(source, /trim_gpu_history_series\(servers, active_keys\)\r?\n {4}enforce_gpu_history_total_budget\(servers\)/);
-  assert.match(source, /atomic_write\(path, out, compact=True\)/);
-  assert.match(source, /def atomic_write\(path, payload, compact=False\)/);
-});

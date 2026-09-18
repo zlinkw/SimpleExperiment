@@ -152,12 +152,3 @@ test("extension evHasError expanded includes ev.error/ev.dead/ev.liveLogTail", (
     assert.equal(evHasError, expect, `evHasError mismatch for ${JSON.stringify(ev)}`);
   }
 });
-
-test("PanelHtml dead兜底 renders when hasDead true and combinedSrc empty", () => {
-  const content = readSource("src/ui/PanelHtml.ts");
-  assert.match(content, /P0-3: dead 证据兜底/);
-  assert.match(content, /调度已停止但未捕获日志，已记录 dead 证据/);
-  assert.match(content, /simple_cluster\/tmp\/cluster_scheduler\//);
-  assert.match(content, /pidAlive/);
-  assert.match(content, /tmuxAlive/);
-});

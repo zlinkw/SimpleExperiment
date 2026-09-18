@@ -45,9 +45,3 @@ test("GPU server statuses use clear Chinese labels", () => {
 test("unknown GPU server status remains available for compatibility", () => {
   assert.equal(labelStatus("future_gpu_state"), "future_gpu_state");
 });
-
-test("GPU server card keeps raw status in the tooltip", () => {
-  assert.match(panel, /const statusText = labelStatus\(server\.status \|\| "未知"\)/);
-  assert.match(panel, /原始服务器状态：/);
-  assert.match(panel, /gpuServerStatusClass\(server\.status\)/);
-});

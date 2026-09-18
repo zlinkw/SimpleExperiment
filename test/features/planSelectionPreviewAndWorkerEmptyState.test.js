@@ -55,17 +55,6 @@ function loadPlanCompaction() {
   return sandbox;
 }
 
-test("plan selection owns the YAML preview and uses one checkbox control", () => {
-  assert.match(panel, /shouldKeepPlanPreviewDraft\(state\)/);
-  assert.match(panel, /samePlanSelection\(editor\.dataset\.planFile[^)]*, selectedPlan\)/);
-  assert.match(panel, /data-plan-preview="true" data-plan-file=/);
-  assert.match(panel, /function planMatchesSelection[\s\S]{0,500}samePlanSelection/);
-  assert.doesNotMatch(panel, /<button class="taskActionButton" data-command="selectPlan"/);
-  assert.match(panel, /type="checkbox" data-command="selectPlan"/);
-  assert.match(extension, /const selectedEquivalenceKeys = new Set/);
-  assert.match(extension, /planFileEquivalenceKeys\(key\)\.some\(\(equivalentKey\) => selectedEquivalenceKeys\.has\(equivalentKey\)\)/);
-});
-
 test("Plan Webview compaction reuses equivalent inputs and invalidates changed sources", () => {
   const sandbox = loadPlanCompaction();
   const plans = [

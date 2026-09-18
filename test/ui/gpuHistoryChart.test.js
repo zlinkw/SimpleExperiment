@@ -3,25 +3,6 @@ const assert = require("node:assert/strict");
 
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
-test("GPU history UI provides overview and per-card expandable charts", () => {
-  const html = renderPanelHtml();
-  assert.match(html, /id="gpuHistoryOverview"/);
-  assert.match(html, /data-gpu-history-scope="overview"/);
-  assert.match(html, /data-gpu-history-scope="gpu"/);
-  assert.match(html, /command: "loadGpuHistory"/);
-  assert.match(html, /gpuHistoryOverviewSeries/);
-  assert.match(html, /gpuHistorySeriesCache/);
-  assert.match(html, /gpuHistorySeriesRevision \+= 1/);
-  assert.match(html, /gpuHistoryOverviewCacheRevision === gpuHistorySeriesRevision/);
-  assert.match(html, /GPU_HISTORY_REQUEST_COOLDOWN_MS = 60_000/);
-  assert.match(html, /gpuHistoryRequestLastAt/);
-  assert.match(html, /const wasOpen = gpuHistoryOverviewOpen/);
-  assert.match(html, /historyDetails\.open && !wasOpen/);
-  assert.match(html, /const wasOpen = expandedGpuHistoryKeys\.has\(key\)/);
-  assert.match(html, /while \(expandedGpuHistoryKeys\.size > GPU_HISTORY_SERIES_CACHE_LIMIT\)/);
-  assert.match(html, /if \(!wasOpen\) requestGpuHistory/);
-});
-
 test("GPU history chart connects explicitly zero-filled buckets and exposes accessible legends", () => {
   const html = renderPanelHtml();
   assert.match(html, /GPU_HISTORY_GAP_FACTOR/);

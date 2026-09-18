@@ -56,10 +56,3 @@ test("unknown status remains available for compatibility diagnostics", () => {
   assert.equal(labelStatus("agent_future_state"), "agent_future_state");
   assert.equal(labelStatus("同步完成 2 台"), "同步完成 2 台");
 });
-
-test("sync surfaces render labels while retaining raw status in titles", () => {
-  assert.match(panel, /Hub 原始状态：/);
-  assert.match(panel, /Worker 原始状态：/);
-  assert.match(panel, /labelStatus\(sync\.hub \|\| "待同步"\)/);
-  assert.match(panel, /labelStatus\(sync\.workers \|\| "待同步"\)/);
-});

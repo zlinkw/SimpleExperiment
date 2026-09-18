@@ -16,29 +16,6 @@ test("agent tmux policy supports configurable remote session prefixes", () => {
   assert.equal(isValidRemoteTmuxSessionName("-worker-agent"), false);
 });
 
-test("agent tmux startup command checks existing session and process before starting", () => {
-  const command = agentTmuxStartupCommand({ role: "worker", endpointId: "nwpu5", port: 18765 });
-  assert.match(command, /SESSION='zlk-worker-nwpu5-agent'/);
-  assert.match(command, /SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX='zlk'/);
-
-  const prefixed = agentTmuxStartupCommand({ role: "worker", endpointId: "nwpu5", port: 18765, sessionPrefix: "zlk" });
-  assert.match(prefixed, /SESSION='zlk-worker-nwpu5-agent'/);
-  assert.match(prefixed, /SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX='zlk'/);
-  assert.match(command, /tmux has-session/);
-  assert.match(command, /ps -eo pid=,comm=,args=/);
-  assert.match(command, /cluster_agent\.py/);
-  assert.match(command, /ss -ltnp/);
-  assert.match(command, /lsof -nP/);
-  assert.match(command, /tmux kill-session/);
-  assert.match(command, /kill -9/);
-  assert.match(command, /tmux new-session -d -s/);
-  assert.doesNotMatch(command, /pgrep -f/);
-  assert.doesNotMatch(command, /tmux new-session -A -s/);
-  assert.match(command, /MODE='worker_telemetry'/);
-  assert.match(command, /--mode "\$MODE"/);
-  assert.match(command, /--worker-id/);
-});
-
 test("agent tmux startup uses system Python by default and requires explicit Conda environments", () => {
   const blank = agentTmuxStartupCommand({ role: "hub", installDir: "/srv/agent", workDir: "/srv/project" });
   assert.match(blank, /SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1/);

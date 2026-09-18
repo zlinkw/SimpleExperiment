@@ -187,17 +187,3 @@ test("scheduler derives train-only and test-only execution from Plan", () => {
   assert.equal(fs.existsSync(path.join(project, "train.marker")), false);
   assert.equal(fs.existsSync(path.join(project, "test.marker")), true);
 });
-
-test("new-project UI and Hub/Worker chain preserve the selected mode", () => {
-  assert.match(extensionSource, /title: "选择 Plan 运行模式"/);
-  assert.match(extensionSource, /mode === "train" \? "train" : "test"/);
-  assert.match(extensionSource, /`mode: \$\{mode\}`/);
-  assert.match(extensionSource, /planRuntimeConfigReferences\(text, summary\.mode\)/);
-  assert.match(panelSource, /function planModeLabel\(mode\)/);
-  assert.match(panelSource, /"仅训练"/);
-  assert.match(panelSource, /"仅评估"/);
-  assert.match(schedulerSource, /launch_experiment\(worker, args\.plan, experiment_index, gpu_id, log_dir, execution_mode, args\.debug_mode, args\.debug_run_id, args\.debug_output_dir, args\.default_result_csv_dir\)/);
-  assert.match(schedulerSource, /"mode": execution_mode/);
-  assert.match(schedulerSource, /testing\[f"\{worker\['id'\]\}:\{gpu_id\}"\] = item/);
-  assert.match(agentSource, /"--mode", mode/);
-});

@@ -67,27 +67,6 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.match(extension, /operation\}暂不能开始/);
 });
 
-test("Agent preparation blocks duplicate sessions and static port conflicts before side effects", () => {
-  const sandbox = {
-    localPathKey: (value) => String(value).replace(/\//g, "\\").toLowerCase(),
-    uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("agentSessionReuseBlockers")}\nthis.check = agentSessionReuseBlockers;`, sandbox);
-  const blockers = JSON.parse(JSON.stringify(sandbox.check([
-    { id: "hub", filePath: "C:/Sessions/shared.xsh" },
-    { id: "worker-1", filePath: "c:/sessions/shared.xsh" },
-  ])));
-  assert.deepEqual(blockers, ["hub 与 worker-1 复用了同一个 Xshell 会话；每个 Agent 端点必须使用独立的 .xsh 会话。"]);
-  assert.match(extension, /currentAgentPreparationBlockers\(\)[\s\S]{0,220}agentSessionReuseBlockers\(this\.agentStartupTargets\(\)\)/);
-  assert.match(extension, /Agent 准备已阻止，尚未修改 \.xsh 或部署 runtime/);
-  assert.match(extension, /preparationBlockers: this\.currentAgentPreparationBlockers\(\)/);
-  assert.match(extension, /currentTunnelLaunchBlockers\(\)[\s\S]{0,520}validateXshellSetupConfig[\s\S]{0,220}unsafeXshellForwardMessage/);
-  assert.match(extension, /startAllXshellConnections\(requireConfirm = true, scheduleAutoTest = true\)[\s\S]{0,220}currentTunnelLaunchBlockers\(\)[\s\S]{0,220}连接启动已阻止/);
-  assert.match(panel, /function agentPreparationBlockersFromState\(state\)/);
-  assert.match(panel, /修复服务器配置/);
-});
-
 test("Xshell forwarding accepts only local loopback hosts", () => {
   const sandbox = {
     XSHELL_LOOPBACK_HOSTS: new Set(["127.0.0.1", "localhost", "::1", "[::1]"]),

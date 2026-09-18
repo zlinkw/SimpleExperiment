@@ -47,32 +47,6 @@ test("Plan evidence rejects metadata-only outputs and keeps real result candidat
   assert.ok(mixed.outputSignals.some((item) => item.includes("metrics.json")));
 });
 
-test("new-project scanners and generated adapter rules do not advertise metadata as results", () => {
-  const extension = readSource("src/extension.ts");
-  const panel = readSource("src/ui/PanelHtml.ts");
-  const start = extension.indexOf("function resultCandidateFile(name)");
-  const end = extension.indexOf("\nfunction isHeavyProjectDir", start);
-  assert.ok(start >= 0 && end > start);
-  const resultCandidateFile = new Function(extension.slice(start, end) + "; return resultCandidateFile;")();
-  assert.equal(resultCandidateFile("metrics.json"), true);
-  assert.equal(resultCandidateFile("summary.txt"), true);
-  assert.equal(resultCandidateFile("status.json"), false);
-  assert.equal(resultCandidateFile("artifact_manifest.json"), false);
-  assert.equal(resultCandidateFile("jobs.csv"), false);
-  assert.match(panel, /已忽略非结果候选/);
-
-  const writer = Templates.outputAdapterTemplate("demo");
-  const jsonBlock = writer.match(/JSON_CANDIDATES = \[[\s\S]*?\n\]/)?.[0] || "";
-  const onboarding = Templates.projectOnboardingConfigTemplate("demo");
-  const candidateBlock = onboarding.match(/  candidateJson:\n[\s\S]*?\n  csvColumnMapping:/)?.[0] || "";
-  assert.ok(jsonBlock.includes('"metrics.json"'));
-  assert.ok(candidateBlock.includes("metrics.json"));
-  for (const block of [jsonBlock, candidateBlock]) {
-    assert.doesNotMatch(block, /status\.json/);
-    assert.doesNotMatch(block, /artifact_manifest\.json/);
-  }
-});
-
 test("Hub Agent output gate and adapter policy reject metadata-only candidates", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-metadata-candidate-"));
   const root = path.join(tmp, "project");

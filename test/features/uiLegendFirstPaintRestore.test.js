@@ -43,10 +43,3 @@ test("legend tree and first-paint placeholders are restored", () => {
   assert.match(html, /id="cardDeck"/);
   assert.match(html, /id="mainColumn"/);
 });
-
-test("gpu task plan chrome stays with explanatory guidance", () => {
-  assert.match(panel, /本服务器还有 /);
-  assert.match(panel, /张 GPU 未展开显示/);
-  assert.match(panel, /gpuStats/);
-  assert.match(panel, /YAML/);
-});

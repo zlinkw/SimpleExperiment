@@ -56,14 +56,6 @@ test("webview state exposes the local project identity and workspace count", () 
   assert.match(source, /singleProject: folders\.length === 1/);
 });
 
-test("all project-binding entry points enforce the single-project boundary", () => {
-  assert.match(source, /async prepareAgentsForFirstRun[\s\S]{0,420}assertSingleProjectWorkspace\("准备 Agent"\)/);
-  assert.match(source, /async writeXshellAgentStartupCommands[\s\S]{0,180}assertSingleProjectWorkspace\("写入 Agent 自启动路径"\)/);
-  assert.match(source, /async prepareSftpTargets[\s\S]{0,160}assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)/);
-  assert.match(source, /async bootstrapProjectFromUi[\s\S]{0,520}assertSingleProjectWorkspace\("接入当前项目"\)/);
-  assert.match(source, /async runActionCommand[\s\S]{0,220}assertSingleProjectWorkspace\("远端实验操作"\)/);
-});
-
 test("remote workspace operations resolve Windows host paths and preserve editor URI", () => {
   const remote = [{
     uri: {

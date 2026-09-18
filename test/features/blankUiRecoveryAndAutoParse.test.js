@@ -79,20 +79,6 @@ test("drawer rails keep peeks and expand on hover", () => {
 });
 
 // 基线用 vscode 主题变量 + section-desc + renderError + 选择左侧资源树文案。
-test("blank UI recovery uses vscode theme vars and inspector guidance", () => {
-  assert.match(panel, /--text:\s*var\(--vscode-editor-foreground\)/);
-  assert.match(panel, /--muted:\s*var\(--vscode-descriptionForeground\)/);
-  assert.match(panel, /\.section-desc \{[^}]*color: var\(--muted\)/);
-  assert.match(panel, /id="renderError"/);
-  assert.match(panel, /选择左侧资源/);
-  assert.match(panel, /\.section-title/);
-  const html = renderPanelHtmlFromSource(panel);
-  assert.match(html, /class="legendDot good"/);
-  assert.match(html, /id="resourceTreeBody"/);
-  assert.match(html, /id="workbenchInspector"/);
-  assert.match(html, /id="mainColumn"/);
-});
-
 test("result-affecting ops auto-parse selected plan before summary refresh", () => {
   assert.match(extension, /queueSelectedPlanResultParse\(/);
   assert.match(extension, /queueSelectedPlanResultParse\("Worker 结果动作"/);

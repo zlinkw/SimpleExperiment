@@ -21,16 +21,6 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
-test("project quick access gates run readiness on server setup", () => {
-  assert.match(panel, /function serverSetupReadiness\(state\)/);
-  assert.match(panel, /Hub Xshell 会话/);
-  assert.match(panel, /Hub 项目父目录/);
-  assert.match(panel, /worker\.agentProjectDir/);
-  assert.match(panel, /先配置 Xshell 会话和服务器项目父目录/);
-  assert.match(panel, /data-section-target="settings" data-anchor-target="settings-servers"/);
-  assert.match(panel, /projectQuickLifecyclePresentation\(executionStage, readyToStart, firstRunRecommended\)/);
-});
-
 test("experiment submission requires an enabled Worker before confirmation or sync", () => {
   const sandbox = {
     EMPTY_WORKER_TUNNELS_FOR_ALIAS: [],

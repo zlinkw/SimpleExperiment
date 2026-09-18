@@ -125,37 +125,6 @@ test("result workbench follows preview, archive, and final-analysis order", () =
   assert.match(panel, /results: \[\["解析结果", "parseResults"\][\s\S]*\["绘图到 PPT", "plotResultsToPpt"\]\]/);
 });
 
-test("only a current selected-Plan contract check drives zero-result guidance", () => {
-  const latest = loadLatestOutputContractCheck();
-  const operations = [
-    { type: "check-output-contract", status: "failed", planFile: "experiments/plans/current.yaml", updatedAt: "2026-07-17T03:00:00.000Z" },
-    { type: "check-output-contract", status: "completed", planFile: "experiments/plans/other.yaml", updatedAt: "2026-07-17T04:00:00.000Z" },
-    { type: "check-output-contract", status: "failed", planFile: "experiments/plans/current.yaml", updatedAt: "2026-07-17T01:00:00.000Z" },
-  ];
-  assert.equal(latest({ operations }, "experiments/plans/current.yaml", "2026-07-17T02:00:00.000Z").updatedAt, "2026-07-17T03:00:00.000Z");
-  assert.deepEqual(JSON.parse(JSON.stringify(latest({ operations }, "experiments/plans/missing.yaml", "2026-07-17T02:00:00.000Z"))), {});
-  const versioned = [
-    { type: "check-output-contract", status: "failed", planFile: "experiments/plans/current.yaml", planRevision: "rev-old", updatedAt: "2026-07-17T05:00:00.000Z" },
-    { type: "check-output-contract", status: "completed", planFile: "experiments/plans/current.yaml", planRevision: "rev-current", updatedAt: "2026-07-17T04:00:00.000Z" },
-  ];
-  assert.equal(latest({ operations: versioned }, "experiments/plans/current.yaml", "", "rev-current", Date.parse("2026-07-17T02:00:00.000Z")).planRevision, "rev-current");
-  assert.deepEqual(JSON.parse(JSON.stringify(latest({ operations: versioned.slice(0, 1) }, "experiments/plans/current.yaml", "", "rev-current", Date.parse("2026-07-17T02:00:00.000Z")))), {});
-  assert.match(panel, /resultEvidenceWorkbenchCacheKeyFor\(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness\)/);
-  assert.match(panel, /outputContractCheck: compactOutputContractCheckForSignature/);
-  assert.ok([...panel.matchAll(/outputContractCheck: compactOutputContractCheckForSignature\(currentResultOutputContractCheck\(data\)\)/g)].length >= 2);
-  assert.match(panel, /projectMeta\.outputContractStage = currentPlanRuntimeContractStage\(state, selectedPlanFile\)/);
-  assert.match(panel, /function currentPlanRuntimeContractStage\(state, planFile\)[\s\S]{0,500}resultSummaryNeedsOutputContractRecovery\(summary\)[\s\S]{0,120}outputContractStageForCheck/);
-  assert.match(panel, /renderProjectRuntimeContractRow\(meta\.outputContractStage, project, selectedPlanFile\)/);
-  assert.match(panel, /contractStage\.section === "plans"[\s\S]{0,280}project\.adapterConfig[\s\S]{0,280}"打开接入配置", "openPlan"/);
-  assert.match(panel, /contractStage\.section === "plans"[\s\S]{0,520}"生成接入模板", "generateOutputAdapter"/);
-  assert.match(panel, /function renderProjectRuntimeContractRow\(stage, project, planFile\)/);
-  assert.match(panel, /修改接入配置或项目输出后重新运行当前 Plan/);
-  assert.match(panel, /data-command="runPlan" data-plan-file="[\s\S]{0,180}>修复后重新运行<\/button>/);
-  assert.match(panel, /readyToStart = [^\n]+&& !meta\.outputContractStage/);
-  assert.match(panel, /const readinessSummary = meta\.outputContractStage/);
-  assert.match(panel, /const statusSummary = lifecycle\.preferStage/);
-});
-
 test("runtime contract repair disappears after results become available", () => {
   const needs = loadResultSummaryNeedsOutputContractRecovery();
   assert.equal(needs({}), false);

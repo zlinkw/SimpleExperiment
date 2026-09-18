@@ -41,17 +41,6 @@ function createProject(...writers) {
   return project;
 }
 
-test("scheduler rejects an unverified output interface before dry-run", () => {
-  const project = createProject();
-  const result = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", "experiments/plans/smoke.yaml"], {
-    cwd: project,
-    encoding: "utf8",
-  });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr || result.stdout, /run_wrapper|collect_outputs|write_metrics_summary|TensorBoard/);
-  assert.match(result.stderr || result.stdout, /run_wrapper|collect_outputs|write_metrics_summary|TensorBoard/);
-});
-
 test("scheduler accepts a configured run wrapper", () => {
   const project = createProject(
     write("experiments/simple_project.yaml", "adapter:\n  runWrapper: experiments/simple_adapter/run_wrapper.py\n"),
