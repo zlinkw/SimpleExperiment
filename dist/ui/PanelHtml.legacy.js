@@ -1104,28 +1104,32 @@ function renderPanelHtml() {
        JS 把 button[title] 转写为 button[data-tip] 并移除 title（避免双重气泡），
        悬停时用 CSS 变量 --tip-x/--tip-y/--tip-transform 定位，避免被视口边缘遮挡。
        面板内容是动态渲染的，JS 用 MutationObserver 持续转译新插入的按钮。*/
-    [data-tip]:hover::after, [data-tip]:focus-visible::after {
-      content: attr(data-tip);
+    /* 注意：不能用 [data-tip]::after + position:fixed。
+       面板里有 .topbar{backdrop-filter:blur} 与多处 contain:layout paint，
+       它们都会创建新的包含块，使内部 fixed 伪元素相对祖先定位（而非视口），
+       导致气泡飘到远处，且 contain:paint 还会把它裁掉。
+       因此改为挂在 body 下的真实 DOM 元素（见 #globalTip）。*/
+    #globalTip {
       position: fixed;
-      left: var(--tip-x, 50vw);
-      top: var(--tip-y, 0px);
-      transform: var(--tip-transform, translate(-50%, -100%));
+      left: 0;
+      top: 0;
       width: max-content;
       max-width: min(900px, calc(100vw - 24px));
       min-width: 60px;
-      background: rgba(30, 30, 30, 0.95);
-      color: #fff;
       padding: 8px 12px;
       border-radius: 5px;
+      background: rgba(30, 30, 30, 0.95);
+      color: #fff;
       font-size: 12px;
       line-height: 1.6;
       white-space: pre-line;
       word-break: break-word;
       text-align: left;
-      z-index: 99999;
+      z-index: 2147483647;
       pointer-events: none;
       box-shadow: 0 4px 12px rgba(0,0,0,0.35);
     }
+    #globalTip[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -1219,7 +1223,7 @@ function renderPanelHtml() {
         <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
           <div class="field wide">
             <label>计划文件</label>
-            <input id="planFileInput" class="wide" placeholder="experiments/plans/example.yaml">
+            <select id="planFileInput" class="wide" title="从已识别的实验计划中选择；列表来自工作区扫描结果"></select>
           </div>
           <div class="runModeBar">
             <span class="muted">运行类型</span>
@@ -1460,30 +1464,56 @@ function renderPanelHtml() {
           });
           observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
         }
-        // 悬停时按视口边界计算气泡位置：默认按钮上方居中，
-        // 上方空间不足转下方，左右溢出则贴边对齐，避免被视口边缘裁掉。
-        var placeTip = function (el) {
+        // 气泡挂在 body 下（脱离 .topbar / contain 容器），先写入内容并显示，
+// 再量出真实尺寸定位，避免估算导致的偏移。
+        var tipEl = null;
+        var ensureTipEl = function () {
+          if (tipEl) return tipEl;
+          tipEl = document.getElementById("globalTip");
+          if (!tipEl) {
+            tipEl = document.createElement("div");
+            tipEl.id = "globalTip";
+            tipEl.hidden = true;
+            (document.body || document.documentElement).appendChild(tipEl);
+          }
+          return tipEl;
+        };
+        var showTip = function (el) {
+          var text = el.getAttribute("data-tip") || "";
+          if (!text) return;
+          var tip = ensureTipEl();
+          tip.textContent = text;
+          tip.hidden = false;
           var r = el.getBoundingClientRect();
           var vw = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 1200;
-          var maxW = Math.min(900, vw - 24);
-          var cx = r.left + r.width / 2;
-          var below = r.top < 130;
-          var x = cx;
-          var tx = "-50%";
-          var half = Math.min(maxW, 460) / 2;
-          if (cx - half < 12) { x = 12; tx = "0"; }
-          else if (cx + half > vw - 12) { x = vw - 12; tx = "-100%"; }
-          var y = below ? r.bottom + 4 : r.top - 4;
-          var ty = below ? "0" : "-100%";
-          el.style.setProperty("--tip-x", x + "px");
-          el.style.setProperty("--tip-y", y + "px");
-          el.style.setProperty("--tip-transform", "translate(" + tx + ", " + ty + ")");
+          var vh = window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 800;
+          var tw = tip.offsetWidth || 240;
+          var th = tip.offsetHeight || 40;
+          var left = r.left + r.width / 2 - tw / 2;
+          if (left < 12) left = 12;
+          if (left + tw > vw - 12) left = Math.max(12, vw - 12 - tw);
+          var top = r.top - th - 6;
+          if (top < 8) top = r.bottom + 6;
+          if (top + th > vh - 8) top = Math.max(8, vh - 8 - th);
+          tip.style.left = left + "px";
+          tip.style.top = top + "px";
+        };
+        var hideTip = function () {
+          var tip = ensureTipEl();
+          tip.hidden = true;
         };
         document.addEventListener("mouseover", function (e) {
           var target = e.target;
-          var btn = target && target.closest ? target.closest("[data-tip]") : null;
-          if (btn) placeTip(btn);
+          var el = target && target.closest ? target.closest("[data-tip]") : null;
+          if (el) showTip(el);
         }, true);
+        document.addEventListener("mouseout", function (e) {
+          var target = e.target;
+          var el = target && target.closest ? target.closest("[data-tip]") : null;
+          if (el) hideTip();
+        }, true);
+        // 滚动时立即隐藏，避免气泡与按钮脱节
+        window.addEventListener("scroll", hideTip, true);
       } catch (e) {}
     })();
     const PLUGIN_VERSION = "${PLUGIN_VERSION}";
@@ -8247,7 +8277,33 @@ function renderPanelHtml() {
       '</article>';
     }
 
+    // 计划文件下拉框：把工作区扫描到的 plan 填充为可选项，省去手输路径。
+    // 当前值若不在列表中（例如刚手填或尚未扫描到），补一条保留，避免选中态丢失。
+    function planFileOf(plan) {
+      return String((plan && (plan.file || plan.planFile || plan.path)) || "").trim();
+    }
+    function refreshPlanFileOptions(state) {
+      var sel = el("planFileInput");
+      if (!sel) return;
+      var plans = (state && (state.plans && state.plans.length ? state.plans : state.recentPlans)) || [];
+      var files = [];
+      for (var i = 0; i < plans.length; i++) {
+        var f = planFileOf(plans[i]);
+        if (f && files.indexOf(f) === -1) files.push(f);
+      }
+      var current = String(sel.value || state.planFileInput || (state.selection && state.selection.selectedPlanId) || "");
+      var html = '<option value="">（请选择计划文件）</option>';
+      for (var j = 0; j < files.length; j++) {
+        html += '<option value="' + escAttr(files[j]) + '">' + esc(files[j]) + "</option>";
+      }
+      if (current && files.indexOf(current) === -1) {
+        html += '<option value="' + escAttr(current) + '">' + esc(current) + "（当前）</option>";
+      }
+      if (sel.innerHTML !== html) sel.innerHTML = html;
+      if (current) sel.value = current;
+    }
     function renderPlanSection(state) {
+      refreshPlanFileOptions(state);
       if (document.activeElement !== el("planFileInput")) el("planFileInput").value = state.planFileInput || (state.selection && state.selection.selectedPlanId) || "";
       refreshRunModeNote(state);
       const plans = (state.plans && state.plans.length ? state.plans : state.recentPlans) || [];
