@@ -8269,7 +8269,8 @@ export function renderPanelHtml(): string {
     }
 
     // 计划文件下拉框：把工作区扫描到的 plan 填充为可选项，省去手输路径。
-    // 当前值若不在列表中（例如刚手填或尚未扫描到），补一条保留，避免选中态丢失。
+    // 当前选中的 plan 置顶，方便查看；其余按工作区扫描的默认顺序排列，
+    // 每次刷新都重新置顶（而不是累加），换选择时新选项上提、剩余恢复默认顺序。
     function planFileOf(plan) {
       return String((plan && (plan.file || plan.planFile || plan.path)) || "").trim();
     }
@@ -8277,17 +8278,27 @@ export function renderPanelHtml(): string {
       var sel = el("planFileInput");
       if (!sel) return;
       var plans = (state && (state.plans && state.plans.length ? state.plans : state.recentPlans)) || [];
-      var files = [];
+      var defaultOrder = [];
       for (var i = 0; i < plans.length; i++) {
         var f = planFileOf(plans[i]);
-        if (f && files.indexOf(f) === -1) files.push(f);
+        if (f && defaultOrder.indexOf(f) === -1) defaultOrder.push(f);
       }
       var current = String(sel.value || state.planFileInput || (state.selection && state.selection.selectedPlanId) || "");
-      var html = '<option value="">（请选择计划文件）</option>';
-      for (var j = 0; j < files.length; j++) {
-        html += '<option value="' + escAttr(files[j]) + '">' + esc(files[j]) + "</option>";
+      // 当前选项置顶（若仍在工作区扫描结果中）；其余保持默认顺序
+      var ordered;
+      if (current && defaultOrder.indexOf(current) !== -1) {
+        ordered = [current];
+        for (var k = 0; k < defaultOrder.length; k++) {
+          if (defaultOrder[k] !== current) ordered.push(defaultOrder[k]);
+        }
+      } else {
+        ordered = defaultOrder;
       }
-      if (current && files.indexOf(current) === -1) {
+      var html = '<option value="">（请选择计划文件）</option>';
+      for (var j = 0; j < ordered.length; j++) {
+        html += '<option value="' + escAttr(ordered[j]) + '">' + esc(ordered[j]) + "</option>";
+      }
+      if (current && ordered.indexOf(current) === -1) {
         html += '<option value="' + escAttr(current) + '">' + esc(current) + "（当前）</option>";
       }
       if (sel.innerHTML !== html) sel.innerHTML = html;
