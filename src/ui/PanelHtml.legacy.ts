@@ -14329,7 +14329,7 @@ export function renderPanelHtml(): string {
     function projectOutputGateFixes(missing, project) {
       const adapterReady = Boolean((project || {}).adapterConfig);
       const fixes = {
-        "接入配置": adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
+        "接入配置": adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备”选择 Plan 后点击“生成接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
         "计划输出": "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置",
         "候选结果规则": "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
         "标准结果契约": "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",

@@ -17257,7 +17257,7 @@ function projectOutputGateDiagnostics(project, plan) {
     const checks = [
         { label: "计划强契约", ok: contractReady, fix: planContractFixText(plan) },
         { label: "配置文件", ok: configReady, fix: `在工作区创建或在 Plan 中改为可用配置：${configFile || "configs/*.yaml"}` },
-        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" },
+        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备”选择 Plan 后点击“生成接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置" },
         { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果" },
         { label: "标准结果契约", ok: planContractCount > 0 || ruleCandidateCount > 0 || (projectContractCount > 0 && planReady), fix: "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化" },
@@ -17341,7 +17341,7 @@ function projectOutputGateFixes(missing, plan, project) {
     const fixes = {
         计划强契约: planContractFixText(plan),
         配置文件: `在工作区创建或在 Plan 中改为可用配置：${String(plan?.baseConfig || plan?.base_config || "configs/*.yaml")}`,
-        接入配置: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备 > 项目接入”点击“生成输出接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
+        接入配置: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备”选择 Plan 后点击“生成接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 中声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
         计划输出: "在 plan 的 paper.result_csv、当前 mode 实际执行命令的结果参数或 expectedResults 中写明可解析结果位置",
         候选结果规则: "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
         标准结果契约: "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",
