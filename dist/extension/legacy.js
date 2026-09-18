@@ -518,7 +518,7 @@ async function activateExtension(context) {
     provider = new RealtimeTunnelPanelProvider(context);
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
-    context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "接入当前项目", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
+    context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "识别工作区", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
     void RemoteRootPolicyPrefill_1.prefillRemoteRootPolicy(context, context.globalState.get(keys.setupConfig), vscode).catch(() => undefined);
@@ -587,8 +587,8 @@ function setupGuideNextStep(options) {
         };
     }
     return {
-        message: "配置说明已打开。服务器和本地项目已就绪；下一步：接入当前项目。",
-        action: "接入当前项目",
+        message: "配置说明已打开。服务器和本地项目已就绪；下一步：识别工作区。",
+        action: "识别工作区",
     };
 }
 const SETUP_GUIDE_MAX_STEPS = 4;
@@ -2233,7 +2233,7 @@ class RealtimeTunnelPanelProvider {
         this.recordActionError({
             command: `onboarding:${step}`,
             message,
-            suggestion: "请重新打开 SimpleExperiment 面板或从命令面板执行“接入当前项目”。",
+            suggestion: "请重新打开 SimpleExperiment 面板或从命令面板执行“识别工作区”。",
         });
         this.postState(true);
     }
@@ -2565,8 +2565,8 @@ class RealtimeTunnelPanelProvider {
         if (connectionChanged
             && !(0, TunnelGateway_1.isRealtimeConnectionMode)(previousMode)
             && (0, TunnelGateway_1.isRealtimeConnectionMode)(currentMode)) {
-            const next = await vscode.window.showInformationMessage("SimpleExperiment 已切换为 Xshell 实时隧道模式，连接状态已立即刷新。", "继续接入当前项目");
-            if (next === "继续接入当前项目" && workspaceRoot())
+            const next = await vscode.window.showInformationMessage("SimpleExperiment 已切换为 Xshell 实时隧道模式，连接状态已立即刷新。", "继续识别工作区");
+            if (next === "继续识别工作区" && workspaceRoot())
                 await this.bootstrapProjectFromUi();
         }
     }
@@ -3125,8 +3125,8 @@ class RealtimeTunnelPanelProvider {
             const projectPromptShown = Number(this.context.workspaceState.get(keys.projectOnboardingPrompt, 0));
             if (projectPromptShown >= 1)
                 return;
-            const choice = await vscode.window.showWarningMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}，但尚未完成项目接入。接入项目后，首次上传前会再次确认本地与远端预期位置。`, { modal: true }, "接入当前项目", "打开面板", "不再提示");
-            if (choice === "接入当前项目")
+            const choice = await vscode.window.showWarningMessage(`SimpleExperiment 已就绪，当前项目为 ${path.basename(root)}，但尚未完成项目接入。接入项目后，首次上传前会再次确认本地与远端预期位置。`, { modal: true }, "识别工作区", "打开面板", "不再提示");
+            if (choice === "识别工作区")
                 await this.bootstrapProjectFromUi();
             else if (choice === "打开面板")
                 await vscode.commands.executeCommand(`${viewId}.focus`);
@@ -3557,8 +3557,8 @@ class RealtimeTunnelPanelProvider {
                 }
                 if (_bgShowMessage) {
                     const topologySummary = _bgTopology.hubAllowed ? `Hub + ${_bgExpectedTargets - 1} 个 Worker` : `${_bgExpectedTargets} 个 Worker（无 Hub）`;
-                    const next = await vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接接入当前项目。`, "接入当前项目", "打开面板");
-                    if (next === "接入当前项目")
+                    const next = await vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接识别工作区。`, "识别工作区", "打开面板");
+                    if (next === "识别工作区")
                         await this.bootstrapProjectFromUi();
                     else if (next === "打开面板")
                         await vscode.commands.executeCommand("simpleExperiment.openPanel");
@@ -5405,7 +5405,7 @@ class RealtimeTunnelPanelProvider {
                 await this.openWorkspaceFolderForContinuation("配置说明", "setupGuide");
                 return;
             }
-            if (choice === "接入当前项目") {
+            if (choice === "识别工作区") {
                 await this.bootstrapProjectFromUi();
                 return;
             }
@@ -9862,10 +9862,10 @@ class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
         if (!root) {
-            await this.openWorkspaceFolderForContinuation("接入当前项目", "bootstrapProject");
+            await this.openWorkspaceFolderForContinuation("识别工作区", "bootstrapProject");
             return;
         }
-        assertSingleProjectWorkspace("接入当前项目");
+        assertSingleProjectWorkspace("识别工作区");
         await this.refreshLocalPlanMetadata({ post: false, force: true });
         if (!this.projectContextIsCurrent(projectContext))
             return;
@@ -9885,64 +9885,19 @@ class RealtimeTunnelPanelProvider {
         })();
         const initialProjectState = Boolean(hasExistingOnDisk || this.localPlanMetadata.error);
         // 检测到已有时不直接阻断，弹出双按钮供用户选择（3D）
+        // 检测到已有 Plan 时仅做信息提示：Plan 属于项目资产，插件只负责识别与管理，
+        // 不提供任何删除入口（原「清空并接入」会删除 experiments/plans/*.yaml 与 simple_cluster/ui/*.json）
         if (hasExistingOnDisk && plans.length > 0) {
-            const pick = await vscode.window.showInformationMessage(`检测到已有 ${plans.length} 个 Plan：增量接入保留现有内容并继续；清空并接入将删除 experiments/plans/*.yaml 与 simple_cluster/ui/*.json 后重新开始（不可恢复）。`, "增量接入", "清空并接入", "查看现有");
+            const pick = await vscode.window.showInformationMessage(`已识别到 ${plans.length} 个 Plan，将纳入管理并继续。`, "继续", "查看现有");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (pick === "查看现有") {
                 await this.openPanelAt("plans", "plans-detected");
                 return;
             }
-            // 关闭通知或按 ESC：视为取消接入，不做任何改动（原实现会静默按增量接入继续）
-            if (pick !== "增量接入" && pick !== "清空并接入")
+            // 关闭通知或按 ESC：视为取消，不做任何改动
+            if (pick !== "继续")
                 return;
-            if (pick === "清空并接入") {
-                const confirm = await vscode.window.showWarningMessage(`确认清空当前项目的 UI 状态与草稿计划？将删除 simple_cluster/ui/*.json 与 experiments/plans/*.yaml|*.yml，操作不可恢复。`, { modal: true }, "确认清空", "取消");
-                if (confirm !== "确认清空")
-                    return;
-                try {
-                    this.planFileInput = "";
-                    this.selectedPlanId = "";
-                    await this.persistProjectPlanSelectionState();
-                    const fsSync = require("fs");
-                    // 清理 simple_cluster/ui/ 全部 UI 状态文件（至少含 plan_selection.json、flow_state.json、task_selection.json、local_plan_metadata.json、ui_layout.json，遍历 *.json 删除）
-                    const uiDir = path.join(root, "simple_cluster", "ui");
-                    if (fsSync.existsSync(uiDir)) {
-                        for (const name of fsSync.readdirSync(uiDir)) {
-                            if (!name.endsWith(".json"))
-                                continue;
-                            // 保留项已无，全部删除；按提示词至少含上述 5 项
-                            try {
-                                fsSync.unlinkSync(path.join(uiDir, name));
-                            }
-                            catch { }
-                        }
-                        try {
-                            if (fsSync.readdirSync(uiDir).length === 0)
-                                fsSync.rmdirSync(uiDir);
-                        }
-                        catch { }
-                    }
-                    // 清理 experiments/plans/ 下所有 *.yaml/*.yml 草稿
-                    const plansDir = path.join(root, "experiments", "plans");
-                    if (fsSync.existsSync(plansDir)) {
-                        for (const name of fsSync.readdirSync(plansDir)) {
-                            if (!(name.endsWith(".yaml") || name.endsWith(".yml")))
-                                continue;
-                            try {
-                                fsSync.unlinkSync(path.join(plansDir, name));
-                            }
-                            catch { }
-                        }
-                    }
-                }
-                catch { }
-                // 重置后重新加载（幂等：仅 status!=="unchanged" 才写入）
-                await this.refreshLocalPlanMetadata({ post: false, force: true });
-                if (!this.projectContextIsCurrent(projectContext))
-                    return;
-                plans = this.localPlanMetadata.plans || [];
-            }
         }
         let preferDebugFirstRun = false;
         for (let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step += 1) {
@@ -10066,7 +10021,7 @@ class RealtimeTunnelPanelProvider {
         }
         this.postState();
         if (selectionChanged)
-            this.queueSelectedPlanResultParse("接入当前项目切换计划", planFile);
+            this.queueSelectedPlanResultParse("识别工作区切换计划", planFile);
         const currentCompletion = () => {
             const currentWorkers = this.enabledWorkerConfigs();
             const { activeRun, finishedRun } = currentRunState();
@@ -18151,8 +18106,8 @@ function projectOnboardingStateForWebview(options) {
         : completed
             ? `当前项目 ${projectName} 已完成接入。`
             : projectReady
-                ? `当前项目 ${projectName} 尚未完成接入；点击“接入当前项目”继续。`
-                : `当前项目 ${projectName} 尚未完成接入；先补全：${missingItems.join("、")}，然后点击“接入当前项目”。`;
+                ? `当前项目 ${projectName} 尚未完成接入；点击“识别工作区”继续。`
+                : `当前项目 ${projectName} 尚未完成接入；先补全：${missingItems.join("、")}，然后点击“识别工作区”。`;
     const value = {
         required: hasProject && !completed,
         completed,

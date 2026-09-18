@@ -54,8 +54,8 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.doesNotMatch(flow, /\["non_simple_remote_command", "different_simple_agent_session"\]\.includes/);
   assert.match(flow, /tunnelTestCompletion\(this\.setupConfig, this\.lastProbe, this\.lastHealth, this\.lastWorkerProbes, topology\.hubAllowed\)/);
   assert.match(flow, /当前拓扑端点健康检测未通过/);
-  assert.match(flow, /if \(showMessage\) \{[\s\S]{0,420}"接入当前项目", "打开面板"/);
-  assert.match(flow, /next === "接入当前项目"\)\s*await this\.bootstrapProjectFromUi\(\)/);
+  assert.match(flow, /if \(showMessage\) \{[\s\S]{0,420}"识别工作区", "打开面板"/);
+  assert.match(flow, /next === "识别工作区"\)\s*await this\.bootstrapProjectFromUi\(\)/);
   assert.match(flow, /if \(!workspaceRoot\(\)\) \{[\s\S]{0,180}openWorkspaceFolderForContinuation\("准备 Agent", "prepareAgents"\)[\s\S]{0,80}return false/);
   assert.match(extension, /pending\.action === "prepareAgents"[\s\S]{0,100}prepareAgentsForFirstRun\(true\)/);
   assert.match(flow, /当前项目 SimpleSFTP 目标不完整/);

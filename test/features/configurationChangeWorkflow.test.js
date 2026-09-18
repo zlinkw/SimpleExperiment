@@ -21,5 +21,5 @@ test("connection setting changes refresh the live client without reloading VS Co
   assert.match(flow, /await this\.ensureRealtimeConnected\("configuration changed"\)/);
   assert.match(flow, /this\.postState\(true\)/);
   assert.match(flow, /SimpleExperiment 已切换为 Xshell 实时隧道模式/);
-  assert.match(flow, /next === "继续接入当前项目"[\s\S]{0,100}this\.bootstrapProjectFromUi\(\)/);
+  assert.match(flow, /next === "继续识别工作区"[\s\S]{0,100}this\.bootstrapProjectFromUi\(\)/);
 });

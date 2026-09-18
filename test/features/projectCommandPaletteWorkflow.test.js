@@ -14,16 +14,16 @@ function command(command) {
 
 test("command palette exposes the three primary new-project entry points", () => {
   assert.equal(command("simpleExperiment.quickSetup").title, "SimpleExperiment：检查服务器配置");
-  assert.equal(command("simpleExperiment.bootstrapProject").title, "SimpleExperiment：接入当前项目");
+  assert.equal(command("simpleExperiment.bootstrapProject").title, "SimpleExperiment：识别工作区");
   assert.equal(command("simpleExperiment.prepareAgents").title, "SimpleExperiment：准备 Agent 并启动");
   assert.ok(packageJson.activationEvents.includes("onCommand:simpleExperiment.bootstrapProject"));
   assert.ok(packageJson.activationEvents.includes("onCommand:simpleExperiment.prepareAgents"));
-  assert.match(extension, /hostCommand\("simpleExperiment\.bootstrapProject", "bootstrap-project", "接入当前项目", \(\) => provider\?\.bootstrapProjectFromUi\(\)\)/);
+  assert.match(extension, /hostCommand\("simpleExperiment\.bootstrapProject", "bootstrap-project", "识别工作区", \(\) => provider\?\.bootstrapProjectFromUi\(\)\)/);
   assert.match(extension, /hostCommand\("simpleExperiment\.prepareAgents", "prepare-agents", "准备 Agent 并启动", \(\) => provider\?\.prepareAgentsForFirstRun\(\)\)/);
   const bootstrapStart = extension.indexOf("async bootstrapProjectFromUi()");
   const bootstrapEnd = extension.indexOf("async generateOutputAdapterFromUi()", bootstrapStart);
   const bootstrap = extension.slice(bootstrapStart, bootstrapEnd);
-  assert.match(bootstrap, /if \(!root\) \{[\s\S]{0,220}openWorkspaceFolderForContinuation\("接入当前项目", "bootstrapProject"\)[\s\S]{0,80}return;/);
+  assert.match(bootstrap, /if \(!root\) \{[\s\S]{0,220}openWorkspaceFolderForContinuation\("识别工作区", "bootstrapProject"\)[\s\S]{0,80}return;/);
   assert.doesNotMatch(bootstrap, /throw new Error\("需要先打开工作区。"\)/);
   assert.match(extension, /async openWorkspaceFolderForContinuation\(operation, action, payload = \{\}\)/);
   assert.match(extension, /canSelectFolders: true[\s\S]{0,100}canSelectMany: false/);

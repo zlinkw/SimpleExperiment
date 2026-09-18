@@ -1094,7 +1094,7 @@ export function renderPanelHtml(): string {
     <header class="topbar" aria-label="状态图例与全局快捷操作">
       <div class="statusLegend" aria-label="状态颜色图例"><span class="legendItem"><span class="legendDot good"></span>正常</span><span class="legendItem"><span class="legendDot info"></span>运行 / 信息</span><span class="legendItem"><span class="legendDot warn"></span>等待 / 注意</span><span class="legendItem"><span class="legendDot error"></span>异常 / 失败</span><span class="legendItem"><span class="legendDot mine"></span>我的任务 / 重点</span></div>
       <div class="topbar-actions">
-        <button data-command="bootstrapProject" type="button" title="识别当前项目并继续到唯一下一步；已有 Plan 和接入配置不会重复写入">接入当前项目</button>
+        <button data-command="bootstrapProject" type="button" title="识别当前项目并继续到唯一下一步；已有 Plan 和接入配置不会重复写入">识别工作区</button>
         <span class="status-chip">Xshell</span>
         <span class="status-chip">全局配置</span>
         <span class="status-chip status-completed">仅本机端口</span>
@@ -1172,7 +1172,7 @@ export function renderPanelHtml(): string {
             <div class="section-desc">Plan、校验、预演、运行</div>
           </div>
           <div class="toolbar">
-            <button data-command="bootstrapProject">接入当前项目</button>
+            <button data-command="bootstrapProject">识别工作区</button>
             <button data-command="snapshot" class="secondary">刷新识别</button>
           </div>
         </div>
@@ -2973,7 +2973,7 @@ export function renderPanelHtml(): string {
       const detail = String(item.detail || ("当前项目 " + projectName + " 尚未完成接入；首次上传前仍会确认本地与远端预期位置。"));
       setHtmlIfChanged(target,
         '<div class="projectOnboardingNoticeBody"><b>当前项目待接入</b><span>' + esc(detail) + '</span></div>' +
-        '<button type="button" data-command="bootstrapProject" title="识别当前项目并继续接入">接入当前项目</button>'
+        '<button type="button" data-command="bootstrapProject" title="识别当前项目并继续接入">识别工作区</button>'
       );
     }
 
@@ -6776,7 +6776,7 @@ export function renderPanelHtml(): string {
       if (!selectedPlan) {
         return planCount
           ? result("待选择 Plan", "已发现 " + planCount + " 个 Plan；必须明确选择本次运行目标。")
-          : result("待创建 Plan", "当前项目尚无实验 Plan；使用“接入当前项目”创建首个可运行计划。");
+          : result("待创建 Plan", "当前项目尚无实验 Plan；使用“识别工作区”创建首个可运行计划。");
       }
       const contractStage = currentPlanRuntimeContractStage(state, planFile);
       if (contractStage) {
@@ -8522,7 +8522,7 @@ export function renderPanelHtml(): string {
 
     function renderPlanRunActions(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage) {
       if (!selectedPlan) {
-        return '<div class="planRunActions">' + projectNextAction("选择或创建实验计划", "接入当前项目", "bootstrapProject") + '</div>';
+        return '<div class="planRunActions">' + projectNextAction("选择或创建实验计划", "识别工作区", "bootstrapProject") + '</div>';
       }
       if (runtimeContractStage) {
         return '<div class="planRunActions">' + renderRuntimeContractRecoveryActions(runtimeContractStage, { adapterConfig }, selectedPlan) + '</div>';
@@ -10617,7 +10617,7 @@ export function renderPanelHtml(): string {
       const infrastructureDetail = !simpleSftp.ready ? simpleSftp.message : !server.ready ? server.summary : !worker.ready ? worker.summary : "SimpleSFTP、Hub 与执行 Worker 已就绪";
       const planReady = Boolean(selectedPlanFile) && outputGate.ok;
       const planDetail = !selectedPlanFile
-        ? (asArray((meta || {}).plans || (project || {}).plans).length ? "先明确选择本次实验 Plan" : "接入当前项目并创建首个 Plan")
+        ? (asArray((meta || {}).plans || (project || {}).plans).length ? "先明确选择本次实验 Plan" : "识别工作区并创建首个 Plan")
         : outputGate.ok ? selectedPlanFile + "；输出位置已声明" : "待补齐：" + asArray(outputGate.missing).join("、");
       const endpointDetail = infrastructureReady ? endpoint.summary : "完成基础设施配置后检测当前项目 Agent";
       const agentReady = infrastructureReady && endpoint.ready;
@@ -13941,7 +13941,7 @@ export function renderPanelHtml(): string {
         startAll: "启动全部隧道",
         startAgents: "启动全部隧道",
         writeAgentCommands: "写入自启动",
-        bootstrapProject: "接入当前项目",
+        bootstrapProject: "识别工作区",
         generatePlanGuide: "生成 Plan 模板",
         generateOutputAdapter: "生成接入模板",
         saveProjectAdapterRules: "保存接入规则",

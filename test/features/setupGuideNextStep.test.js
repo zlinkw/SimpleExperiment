@@ -34,7 +34,7 @@ test("setup guide offers the only next action supported by current readiness", (
   });
   assert.equal(nextStep({ setupComplete: true, workerCount: 0, workspaceOpen: true }).action, "添加 Worker");
   assert.equal(nextStep({ setupComplete: true, workerCount: 1, workspaceOpen: false }).action, "选择项目并继续");
-  assert.equal(nextStep({ setupComplete: true, workerCount: 1, workspaceOpen: true }).action, "接入当前项目");
+  assert.equal(nextStep({ setupComplete: true, workerCount: 1, workspaceOpen: true }).action, "识别工作区");
 
   const start = source.indexOf("async openSetupGuide()");
   const end = source.indexOf("async openPanelAt(", start);
@@ -48,6 +48,6 @@ test("setup guide offers the only next action supported by current readiness", (
   assert.match(handler, /choice === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers"\)/);
   assert.match(handler, /choice === "添加 Worker"[\s\S]{0,100}this\.addWorkerConfigFromUi\(false\)[\s\S]{0,40}continue/);
   assert.match(handler, /choice === "选择项目并继续"[\s\S]{0,140}openWorkspaceFolderForContinuation\("配置说明", "setupGuide"\)/);
-  assert.match(handler, /choice === "接入当前项目"[\s\S]{0,80}this\.bootstrapProjectFromUi\(\)/);
+  assert.match(handler, /choice === "识别工作区"[\s\S]{0,80}this\.bootstrapProjectFromUi\(\)/);
   assert.match(source, /pending\.action === "setupGuide"[\s\S]{0,100}openSetupGuide\(\)/);
 });

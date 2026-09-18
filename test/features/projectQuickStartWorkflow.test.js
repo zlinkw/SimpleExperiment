@@ -64,8 +64,8 @@ test("quick project onboarding preserves granular actions and follows gate order
   assert.match(panel, /renderProjectOnboardingNotice\(state\)/);
   assert.match(panel, /item\.required === true/);
   assert.match(panel, /当前项目待接入/);
-  assert.match(panel, /data-command="bootstrapProject"[^>]*>接入当前项目/);
-  assert.equal([...panel.matchAll(/data-command="bootstrapProject"[^>]*>接入当前项目/g)].length, 3);
+  assert.match(panel, /data-command="bootstrapProject"[^>]*>识别工作区/);
+  assert.equal([...panel.matchAll(/data-command="bootstrapProject"[^>]*>识别工作区/g)].length, 3);
   assert.match(panel, /<details class="projectQuickDetails"><summary>环境、服务器、连接与同步详情<\/summary>/);
   assert.match(panel, /const primaryRows = \[/);
   assert.match(panel, /const infrastructureRows = \[/);
@@ -152,7 +152,7 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /async pickProjectBootstrapPlan\(plans\)/);
   assert.match(extension, /title: "选择要接入并运行的 Plan"/);
   assert.match(extension, /插件不会默认使用列表第一项/);
-  assert.match(extension, /selectionChanged[\s\S]{0,900}queueSelectedPlanResultParse\("接入当前项目切换计划", planFile\)/);
+  assert.match(extension, /selectionChanged[\s\S]{0,900}queueSelectedPlanResultParse\("识别工作区切换计划", planFile\)/);
   assert.match(extension, /async pickPlanBaseConfig\(configs, options = \{\}\)/);
   assert.match(extension, /async pickGuidedPlanEntry\(root, entries, stage\)/);
   assert.match(extension, /title: stage === "test" \? "选择评估入口" : "选择训练入口"/);
