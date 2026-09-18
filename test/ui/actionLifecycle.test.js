@@ -149,10 +149,10 @@ test("webview command lifecycle reuses fixed status and command sets", () => {
   assert.match(source, /const TERMINAL_UI_STATUSES = new Set\(/);
   assert.match(source, /const SUBMITTED_RUN_COMMANDS = new Set\(/);
   assert.match(source, /const CONFIG_SAVE_COMMANDS = new Set\(/);
-  assert.match(source, /COMMANDS_WITHOUT_LOADING\.has\(String\(command \|\| ""\)\)/);
-  assert.match(source, /TERMINAL_UI_STATUSES\.has\(String\(status \|\| ""\)\.toLowerCase\(\)\)/);
-  assert.match(source, /SUBMITTED_RUN_COMMANDS\.has\(normalizedCommand\)/);
-  assert.match(source, /CONFIG_SAVE_COMMANDS\.has\(String\(command \|\| ""\)\)/);
+  assert.match(source, /COMMANDS_WITHOUT_LOADING\??\.has\(String\(command \|\| ""\)\)/);
+  assert.match(source, /TERMINAL_UI_STATUSES\??\.has\(String\(status \|\| ""\)\.toLowerCase\(\)\)/);
+  assert.match(source, /SUBMITTED_RUN_COMMANDS\??\.has\(normalizedCommand\)/);
+  assert.match(source, /CONFIG_SAVE_COMMANDS\??\.has\(String\(command \|\| ""\)\)/);
 });
 
 test("pending action scope selectors reuse fixed keys and data attributes", () => {

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const {
   applyRealtimeEvent,
@@ -91,7 +92,7 @@ test("realtime compaction reuses state branches that are already within budget",
 });
 
 test("realtime compaction reuses fixed status rank tables", () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "..", "src", "tunnel", "RealtimeEventReducer.ts"), "utf8");
+  const source = readSource("src/tunnel/RealtimeEventReducer.ts");
   assert.match(source, /const realtimeRecordStatusRanks = new Map<string, number>\(\[/);
   assert.match(source, /const genericRowStatusRanks = new Map<string, number>\(\[/);
   assert.match(source, /return realtimeRecordStatusRanks\.get\(genericStatus\(row\)\) \?\? 2/);

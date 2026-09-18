@@ -7,7 +7,7 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const extension = readSource("src/extension.ts");
 const panel = readSource("src/ui/PanelHtml.ts");
-const probeSource = fs.readFileSync(path.join(__dirname, "../../src/tunnel/XshellTunnelPortProbe.ts"), "utf8");
+const probeSource = readSource("src/tunnel/XshellTunnelPortProbe.ts");
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -80,7 +80,7 @@ test("matching roots pass while missing or stale roots become a dedicated mismat
 test("Agent root gates reuse fixed endpoint readiness statuses", () => {
   assert.match(extension, /const AGENT_READY_HEALTH_STATES = new Set\(\["agent_ok", "file_api_unavailable"\]\)/);
   assert.match(extension, /const ENDPOINT_READY_PROBE_STATUSES = new Set\(\["ok", "file_api_unavailable"\]\)/);
-  assert.match(extractFunction(extension, "enforceExpectedAgentProjectRoot"), /ENDPOINT_READY_PROBE_STATUSES\.has\(validatedStatus\)/);
+  assert.match(extractFunction(extension, "enforceExpectedAgentProjectRoot"), /ENDPOINT_READY_PROBE_STATUSES\??\.has\(validatedStatus\)/);
   assert.match(extractFunction(extension, "assertAgentProjectProbeReady"), /ENDPOINT_READY_PROBE_STATUSES\.has/);
   assert.doesNotMatch(extension, /\["ok", "file_api_unavailable"\]\.includes/);
 });

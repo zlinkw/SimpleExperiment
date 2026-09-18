@@ -146,7 +146,7 @@ test("current Plan revision evidence cache preserves false values and stays boun
 
 test("Plan run evidence lookups reuse the fixed operation type set", () => {
   for (const name of ["planActiveRunEvidence", "planExecutionStage", "currentPlanRevisionRunEvidenceForState"]) {
-    assert.match(extractFunction(name), /PLAN_RUN_OPERATION_TYPES\.has\(/, name);
+    assert.match(extractFunction(name), /PLAN_RUN_OPERATION_TYPES\??\.has\(/, name);
   }
   assert.equal((panel.match(/const PLAN_RUN_OPERATION_TYPES = new Set/g) || []).length, 1);
   assert.doesNotMatch(panel, /\["run-plan", "reproduce-plan"\]\.includes\(/);

@@ -139,7 +139,7 @@ test("panel reuses fixed resource section tone and inspector lookups", () => {
 
   assert.match(panel, /const RESOURCE_TREE_TONE_VALUES = new Set\(\["good", "info", "warn", "error", "mine"\]\)/);
   assert.match(panel, /const INSPECTOR_OPERATION_SECTIONS = new Set\(\["execution"\]\)/);
-  assert.match(panel, /RESOURCE_TREE_SECTION_KEYS\.has\(value\)/);
-  assert.match(panel, /RESOURCE_TREE_TONE_VALUES\.has\(value\)/);
+  assert.match(panel, /RESOURCE_TREE_SECTION_KEYS\??\.has\(value\)/);
+  assert.match(panel, /RESOURCE_TREE_TONE_VALUES\??\.has\(value\)/);
   assert.equal((panel.match(/INSPECTOR_OPERATION_SECTIONS\.has/g) || []).length, 4);
 });

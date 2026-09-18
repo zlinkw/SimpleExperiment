@@ -68,7 +68,7 @@ test("preview CSV keeps all parsed records while effective CSV keeps archived re
 
 test("result consumers and PPT reject preview CSV as a final plot source", () => {
   const agent = readSource("src/clusterAgentRuntime.ts");
-  const ppt = fs.readFileSync(path.join(__dirname, "../../src/PptPlotBridge.ts"), "utf8");
+  const ppt = readSource("src/PptPlotBridge.ts");
   assert.match(agent, /summary\["inclusionPolicy"\] = "archived_only"/);
   assert.match(agent, /str\(record\.get\("finalEvidenceState"\) or ""\)\.lower\(\) == "archived"/);
   assert.match(agent, /results_preview_all\.csv/);

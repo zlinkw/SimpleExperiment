@@ -62,7 +62,7 @@ test("task rendering reuses fixed live queued and active status sets", () => {
   assert.match(panelSource, /const TASK_ACTIVE_STATUSES = new Set\(\[\.\.\.TASK_LIVE_STATUS_TOKENS, \.\.\.TASK_QUEUED_STATUSES\]\)/);
   assert.doesNotMatch(panelSource, /\["running", "testing"\]\.includes/);
   assert.doesNotMatch(panelSource, /\["queued", "pending"\]\.includes/);
-  assert.match(extractFunction("schedulerSourceRowNeedsAttention"), /TASK_ACTIVE_STATUSES\.has\(status\)/);
+  assert.match(extractFunction("schedulerSourceRowNeedsAttention"), /TASK_ACTIVE_STATUSES\??\.has\(status\)/);
 });
 
 test("task views reuse cached selection sets and invalidate on changed sources", () => {

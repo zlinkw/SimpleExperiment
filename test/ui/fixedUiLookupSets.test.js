@@ -47,7 +47,7 @@ test("frequent UI lookup paths reuse fixed command sets", () => {
 
 test("artifact scoped UI actions reuse one command set", () => {
   for (const name of ["contextRefreshPayloadFromButton", "traceActionDisableReason", "rowActionButton", "rowActionDisableReason", "disableReason", "payloadFromButton", "taskActionKeyForCommand"]) {
-    assert.match(extractFunction(name), /ARTIFACT_SCOPE_COMMANDS\.has\(command\)/, name);
+    assert.match(extractFunction(name), /ARTIFACT_SCOPE_COMMANDS\??\.has\(command\)/, name);
   }
   assert.doesNotMatch(panel, /\["archiveArtifacts", "deleteArtifacts"\]\.includes\(command\)/);
 });
@@ -55,24 +55,24 @@ test("artifact scoped UI actions reuse one command set", () => {
 test("Plan execution checks reuse selected and submitted run command sets", () => {
   const disabled = extractFunction("disableReason");
   assert.match(panel, /const SUBMITTED_RUN_COMMANDS = new Set\(\[\.\.\.SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"\]\)/);
-  assert.equal((disabled.match(/SELECTED_PLAN_RUN_COMMANDS\.has\(command\)/g) || []).length, 3);
-  assert.equal((disabled.match(/SUBMITTED_RUN_COMMANDS\.has\(command\)/g) || []).length, 3);
-  assert.match(extractFunction("runModeForButton"), /SELECTED_PLAN_RUN_COMMANDS\.has\(String\(command \|\| ""\)\)/);
+  assert.equal((disabled.match(/SELECTED_PLAN_RUN_COMMANDS\??\.has\(command\)/g) || []).length, 3);
+  assert.equal((disabled.match(/SUBMITTED_RUN_COMMANDS\??\.has\(command\)/g) || []).length, 3);
+  assert.match(extractFunction("runModeForButton"), /SELECTED_PLAN_RUN_COMMANDS\??\.has\(String\(command \|\| ""\)\)/);
   assert.doesNotMatch(panel, /\["runPlan", "reproducePlan"\]\.includes\(/);
   assert.doesNotMatch(panel, /\["runPlan", "reproducePlan", "runAllPlans"\]\.includes\(/);
 });
 
 test("task control checks reuse one fixed command set", () => {
-  assert.match(extractFunction("rowActionDisableReason"), /TASK_CONTROL_COMMANDS\.has\(command\)/);
-  assert.match(extractFunction("disableReason"), /TASK_CONTROL_COMMANDS\.has\(command\)/);
+  assert.match(extractFunction("rowActionDisableReason"), /TASK_CONTROL_COMMANDS\??\.has\(command\)/);
+  assert.match(extractFunction("disableReason"), /TASK_CONTROL_COMMANDS\??\.has\(command\)/);
   assert.doesNotMatch(panel, /\["stopExperiment", "retryExperiment"\]\.includes\(command\)/);
 });
 
 test("selected Plan prerequisites reuse composed command sets", () => {
   const disabled = extractFunction("disableReason");
   assert.match(panel, /const SELECTED_PLAN_ACTION_COMMANDS = new Set\(\[\.\.\.PLAN_PREFLIGHT_COMMANDS, \.\.\.SELECTED_PLAN_RUN_COMMANDS\]\)/);
-  assert.match(disabled, /SELECTED_PLAN_ACTION_COMMANDS\.has\(command\)/);
-  assert.match(disabled, /PLAN_PREFLIGHT_COMMANDS\.has\(command\)/);
+  assert.match(disabled, /SELECTED_PLAN_ACTION_COMMANDS\??\.has\(command\)/);
+  assert.match(disabled, /PLAN_PREFLIGHT_COMMANDS\??\.has\(command\)/);
   assert.doesNotMatch(disabled, /\["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"\]\.includes/);
   assert.doesNotMatch(disabled, /\["validatePlan", "dryRunPlan"\]\.includes/);
 });
@@ -80,30 +80,30 @@ test("selected Plan prerequisites reuse composed command sets", () => {
 test("Plan payload builders reuse base and restore-aware command sets", () => {
   assert.match(panel, /const PLAN_FILE_PAYLOAD_COMMANDS = new Set\(\[\.\.\.SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "savePlan"\]\)/);
   assert.match(panel, /const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set\(\[\.\.\.PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"\]\)/);
-  assert.match(extractFunction("contextRefreshPayloadFromButton"), /PLAN_FILE_PAYLOAD_COMMANDS\.has\(command\)/);
-  assert.match(extractFunction("payloadFromButton"), /RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS\.has\(command\)/);
+  assert.match(extractFunction("contextRefreshPayloadFromButton"), /PLAN_FILE_PAYLOAD_COMMANDS\??\.has\(command\)/);
+  assert.match(extractFunction("payloadFromButton"), /RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS\??\.has\(command\)/);
 });
 
 test("Hub health summaries reuse composed status sets", () => {
   assert.match(panel, /const OVERVIEW_HEALTHY_STATUS_TOKENS = new Set\(\[\.\.\.HUB_HEALTHY_STATUS_TOKENS, "online"\]\)/);
   assert.match(panel, /const HUB_OPERATION_READY_STATUS_TOKENS = new Set\(\[\.\.\.HUB_HEALTHY_STATUS_TOKENS, "file_api_unavailable"\]\)/);
-  assert.match(extractFunction("overviewHealthText"), /OVERVIEW_HEALTHY_STATUS_TOKENS\.has\(health\)/);
-  assert.match(extractFunction("projectEndpointReadiness"), /HUB_OPERATION_READY_STATUS_TOKENS\.has\(hubStatus\)/);
+  assert.match(extractFunction("overviewHealthText"), /OVERVIEW_HEALTHY_STATUS_TOKENS\??\.has\(health\)/);
+  assert.match(extractFunction("projectEndpointReadiness"), /HUB_OPERATION_READY_STATUS_TOKENS\??\.has\(hubStatus\)/);
 });
 
 test("Plan mode labels reuse backend-aligned alias sets", () => {
   assert.match(panel, /const PLAN_TRAIN_MODE_TOKENS = new Set\(\["train", "training", "train_only"\]\)/);
   assert.match(panel, /const PLAN_TEST_MODE_TOKENS = new Set\(\["test", "eval", "evaluate", "evaluation", "test_only", "eval_only"\]\)/);
   const source = extractFunction("planModeLabel");
-  assert.match(source, /PLAN_TRAIN_MODE_TOKENS\.has\(value\)/);
-  assert.match(source, /PLAN_TEST_MODE_TOKENS\.has\(value\)/);
+  assert.match(source, /PLAN_TRAIN_MODE_TOKENS\??\.has\(value\)/);
+  assert.match(source, /PLAN_TEST_MODE_TOKENS\??\.has\(value\)/);
   assert.doesNotMatch(source, /\.includes\(value\)/);
 });
 
 test("sync readiness reuses one fixed non-ready status set", () => {
   assert.match(panel, /const SYNC_NOT_READY_STATUS_TOKENS = new Set\(\["-", "待同步", "pending", "running", "in_progress", "unknown", "同步中", "执行中", "已跳过", "未参与本次同步"\]\)/);
   const source = extractFunction("syncStatusOk");
-  assert.match(source, /SYNC_NOT_READY_STATUS_TOKENS\.has\(text\)/);
+  assert.match(source, /SYNC_NOT_READY_STATUS_TOKENS\??\.has\(text\)/);
   assert.doesNotMatch(source, /\["-", "待同步"/);
 
   const sandbox = {
@@ -118,7 +118,7 @@ test("sync readiness reuses one fixed non-ready status set", () => {
 test("realtime signal checks reuse one fixed status set", () => {
   assert.match(panel, /const REALTIME_SIGNAL_STATUS_TOKENS = new Set\(\["websocket", "sse", "polling", "mixed"\]\)/);
   const source = extractFunction("hasRealtimeSignal");
-  assert.match(source, /REALTIME_SIGNAL_STATUS_TOKENS\.has\(status\)/);
+  assert.match(source, /REALTIME_SIGNAL_STATUS_TOKENS\??\.has\(status\)/);
   assert.doesNotMatch(source, /\["websocket", "sse", "polling", "mixed"\]\.includes/);
 
   const sandbox = {
@@ -160,10 +160,10 @@ test("remote action boundaries reuse fixed health and topology sets", () => {
   assert.match(panel, /const NO_HUB_TOPOLOGY_MODES = new Set\(\["single_worker", "worker_pool"\]\)/);
 
   const disabled = extractFunction("disableReason");
-  assert.match(disabled, /REMOTE_ACTION_DISCONNECTED_HEALTH_STATES\.has\(health\)/);
+  assert.match(disabled, /REMOTE_ACTION_DISCONNECTED_HEALTH_STATES\??\.has\(health\)/);
   assert.doesNotMatch(disabled, /\["local_port_closed", "agent_unreachable", "not_configured"\]\.includes/);
 
   const noHub = extractFunction("missingNoHubWorkerResultCapabilities");
-  assert.match(noHub, /NO_HUB_TOPOLOGY_MODES\.has\(String\(topology\.mode \|\| ""\)\)/);
+  assert.match(noHub, /NO_HUB_TOPOLOGY_MODES\??\.has\(String\(topology\.mode \|\| ""\)\)/);
   assert.doesNotMatch(noHub, /\["single_worker", "worker_pool"\]\.includes/);
 });

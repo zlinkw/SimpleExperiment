@@ -13,7 +13,7 @@ const agentSource = readSource("src/clusterAgentRuntime.ts");
 const schedulerSource = readSource("src/clusterSchedulerRuntime.ts");
 const extensionSource = readSource("src/extension.ts");
 const panelSource = readSource("src/ui/PanelHtml.ts");
-const probeSource = fs.readFileSync(path.join(root, "src/tunnel/XshellTunnelPortProbe.ts"), "utf8");
+const probeSource = readSource("src/tunnel/XshellTunnelPortProbe.ts");
 const utf8PythonEnv = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
 
 test("scheduler reports actionable PyYAML guidance without a traceback", () => {

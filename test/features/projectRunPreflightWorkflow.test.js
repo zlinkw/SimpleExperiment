@@ -119,7 +119,7 @@ test("Plan next action starts with one-click run and preserves manual recovery s
 
 test("submitted Plan runs navigate directly to the task list", () => {
   assert.match(panel, /function submittedCommandTarget\(command, status\)/);
-  assert.match(extractFunction(panel, "submittedCommandTarget"), /SUBMITTED_RUN_COMMANDS\.has\(normalizedCommand\)/);
+  assert.match(extractFunction(panel, "submittedCommandTarget"), /SUBMITTED_RUN_COMMANDS\??\.has\(normalizedCommand\)/);
   assert.match(panel, /return \{ section: "execution", anchor: "execution" \}/);
   assert.match(panel, /submittedTarget = submittedCommandTarget\(data\.command, data\.status\)/);
   assert.match(panel, /navigateToResourceTarget\(submittedTarget\.section, submittedTarget\.anchor, \{ force: true \}\)/);

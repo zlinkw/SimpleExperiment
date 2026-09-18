@@ -141,8 +141,8 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
   );
   assert.match(source, /const GUIDED_PLAN_RESULT_FLAG_EXTENSIONS = new Map\(/);
   assert.match(source, /const GUIDED_PLAN_OUTPUT_DIR_FLAGS = new Set\(/);
-  assert.match(source, /GUIDED_PLAN_RESULT_FLAG_EXTENSIONS\.has\(flag\)/);
-  assert.match(source, /GUIDED_PLAN_OUTPUT_DIR_FLAGS\.has\(key\)/);
+  assert.match(source, /GUIDED_PLAN_RESULT_FLAG_EXTENSIONS\??\.has\(flag\)/);
+  assert.match(source, /GUIDED_PLAN_OUTPUT_DIR_FLAGS\??\.has\(key\)/);
   assert.equal(sandbox.api.planResultPathValidationMessage("{output_dir}/metrics.json"), undefined);
   assert.match(sandbox.api.planResultPathValidationMessage("../metrics.csv"), /不能离开项目目录/);
   assert.match(sandbox.api.planResultPathValidationMessage("C:/tmp/metrics.csv"), /相对路径/);

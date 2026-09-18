@@ -15,8 +15,8 @@ test("operation terminal and result actions refresh results with planFile", () =
   assert.match(source, /const planHint = operationResultPlanFile\(finalResult\) \|\| body\?\.options\?\.planFile \|\| body\?\.planFile \|\| "";[\s\S]{0,240}await this\.refreshResultsSummary\(planHint\)/);
   assert.match(source, /const RESULT_PARSE_COMMANDS = new Set\(\["parseResults", "refreshResults"\]\)/);
   assert.match(source, /const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set\(\[\s*\.\.\.RESULT_PARSE_COMMANDS,/);
-  assert.match(source, /IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS\.has\(command\)/);
-  assert.match(source, /!RESULT_PARSE_COMMANDS\.has\(command\)/);
+  assert.match(source, /IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS\??\.has\(command\)/);
+  assert.match(source, /!RESULT_PARSE_COMMANDS\??\.has\(command\)/);
   assert.doesNotMatch(source, /\["parseResults", "refreshResults", "runQualityGate"/);
   assert.match(source, /reconcileProjectPlanSelection\(plans\)/);
   assert.match(source, /const keys = new Set\(list\.flatMap\(\(plan\) => planIdentityKeys\(plan\)\)\)/);
@@ -29,7 +29,7 @@ test("operation terminal and result actions refresh results with planFile", () =
     "LONG_RUNNING_OPERATION_ACTIONS",
   ]) assert.match(statusHelpers, new RegExp(`${name}\\.has`));
   assert.doesNotMatch(statusHelpers, /function operation(?:TerminalStatus|FailureTerminalStatus|CancelledTerminalStatus|LongRunningAction)[\s\S]{0,180}return new Set/);
-  assert.match(source, /function actionAffectsResultsSummary\(action\) \{\s*return RESULT_SUMMARY_AFFECTING_ACTIONS\.has\(action\)/);
+  assert.match(source, /function actionAffectsResultsSummary\(action\) \{\s*return RESULT_SUMMARY_AFFECTING_ACTIONS\??\.has\(action\)/);
   // long-running run-plan should not block the UI wait loop by being treated as summary-wait action
   assert.doesNotMatch(resultActions, /"run-plan"/);
 });

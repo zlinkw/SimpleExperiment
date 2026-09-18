@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("./_helpers/sourceReader");
 
 const {
   COMPARISON_REGISTRY_PATH,
@@ -107,7 +108,7 @@ test("comparison analyzer computes baseline improvement, lower better, paired te
 });
 
 test("comparison paired values build both method maps in one row traversal", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/features/Comparison.ts"), "utf8");
+  const source = readSource("src/features/Comparison.ts");
   const body = source.match(/function pairedValues[\s\S]*?\n}\n\nfunction pairedTTest/)?.[0] || "";
   assert.match(body, /for \(const row of rows\)/);
   assert.match(body, /row\.methodId === a \? amap : row\.methodId === b \? bmap/);

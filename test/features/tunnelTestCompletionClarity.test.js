@@ -83,5 +83,5 @@ test("scheduler dependency failure keeps otherwise healthy endpoints incomplete"
 
 test("tunnel completion reuses fixed Hub readiness statuses", () => {
   assert.match(extension, /const HUB_READY_STATUSES = new Set\(\[\.\.\.ENDPOINT_READY_PROBE_STATUSES, "agent_ok"\]\)/);
-  assert.match(extractFunction("tunnelTestCompletion"), /HUB_READY_STATUSES\.has\(hubStatus\)/);
+  assert.match(extractFunction("tunnelTestCompletion"), /HUB_READY_STATUSES\??\.has\(hubStatus\)/);
 });

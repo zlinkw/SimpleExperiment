@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const { checkProjectOutputContract, builtInOutputContracts } = require("../dist/features/Quality.js");
 const { importLegacyPlanYamlToRegistry } = require("../dist/features/PlanBuilder.js");
+const { readSource } = require("./_helpers/sourceReader");
 const {
   buildCompletenessMatrix,
   buildOutputCapabilityMatrix,
@@ -81,7 +82,7 @@ test("completeness matrix finds missing results and quality failures", () => {
 });
 
 test("completeness matrix groups scoped results once and preserves result order", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/features/SmallScale.ts"), "utf8");
+  const source = readSource("src/features/SmallScale.ts");
   const body = source.match(/export function buildCompletenessMatrix[\s\S]*?\n}\n\nexport function completenessMatrixToMarkdown/)?.[0] || "";
   assert.match(body, /const resultKeys = new Map<string, ExperimentResultRecord\[\]>/);
   assert.match(body, /const plannedItems = planKeys\.get\(key\)/);
@@ -113,7 +114,7 @@ test("completeness matrix groups scoped results once and preserves result order"
 });
 
 test("completeness matrix indexes gates and lifecycles without duplicate cell matches", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/features/SmallScale.ts"), "utf8");
+  const source = readSource("src/features/SmallScale.ts");
   const body = source.match(/export function buildCompletenessMatrix[\s\S]*?\n}\n\nexport function completenessMatrixToMarkdown/)?.[0] || "";
   assert.match(body, /const gateResultsByExperiment = new Map/);
   assert.match(body, /const lifecyclesByExperiment = new Map/);
@@ -216,7 +217,7 @@ test("small-scale report summarizes missing actions", () => {
 });
 
 test("output capability matrix maps missing files and columns to disabled features", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/features/SmallScale.ts"), "utf8");
+  const source = readSource("src/features/SmallScale.ts");
   const body = source.match(/export function buildOutputCapabilityMatrix[\s\S]*?\n}\n\nfunction completenessStatus/)?.[0] || "";
   assert.match(body, /const missingFileIds = new Set<string>\(\)/);
   assert.match(body, /const missingColumnNames = new Set<string>\(\)/);

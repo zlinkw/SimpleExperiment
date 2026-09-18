@@ -79,7 +79,7 @@ test("extension safety whitelist stays covered by webview declarations (reverse)
 test("configuration entry handlers remain reachable and unknown commands remain rejected", () => {
   assert.match(extension, /case "openSetupGuide":[\s\S]{0,100}this\.openSetupGuide\(\)/);
   assert.match(extension, /case "openAdvancedCommandsSetting":[\s\S]{0,180}workbench\.action\.openSettings/);
-  assert.match(extension, /return SAFE_WEBVIEW_COMMANDS\.has\(command\) \|\| uiActionCommands\.has\(command\) \? command : ""/);
+  assert.match(extension, /return SAFE_WEBVIEW_COMMANDS\??\.has\(command\) \|\| uiActionCommands\.has\(command\) \? command : ""/);
   assert.match(extension, /if \(rawCommand && !command\)[\s\S]{0,120}未知或未放行的前端命令/);
 });
 
@@ -89,6 +89,6 @@ test("webview command routing reuses module-level fixed sets", () => {
   assert.match(extension, /const COMMANDS_WITHOUT_UI_STATUS = new Set\(/);
   assert.match(extension, /const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set\(/);
   assert.doesNotMatch(safeCommand + statusHelpers, /new Set\(|\["startAllConnections", "testAll", "snapshot"\]/);
-  assert.match(statusHelpers, /COMMANDS_WITHOUT_UI_STATUS\.has\(command\)/);
+  assert.match(statusHelpers, /COMMANDS_WITHOUT_UI_STATUS\??\.has\(command\)/);
   assert.match(statusHelpers, /LOCAL_COMMAND_RELEASES_AFTER_TRIGGER\.has/);
 });

@@ -50,7 +50,7 @@ test("experiment submission requires an enabled Worker before confirmation or sy
   assert.equal(sandbox.check({ setup: { workerTunnels: [{ id: "w1", enabled: true }] } }).ready, true);
   assert.match(panel, /projectQuickRow\("运行目标", workerReadiness\.summary/);
   assert.match(panel, /至少配置并启用一个执行 Worker/);
-  assert.match(extractFunction(panel, "disableReason"), /SUBMITTED_RUN_COMMANDS\.has\(command\).*executionWorkerReadiness/s);
+  assert.match(extractFunction(panel, "disableReason"), /SUBMITTED_RUN_COMMANDS\??\.has\(command\).*executionWorkerReadiness/s);
   assert.match(extension, /assertExecutionWorkersReady\(workers = this\.workerActionTargets\(\)\)/);
   assert.match(extension, /至少需要配置并启用一个 Worker 才能运行实验/);
 });

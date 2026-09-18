@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("./_helpers/sourceReader");
 
 const {
   applyResultRevision,
@@ -86,7 +87,7 @@ test("advanced aggregation supports ci95, median, relative improvement, and lowe
 });
 
 test("advanced leaderboard partitions filtered records before row aggregation", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/features/Results.ts"), "utf8");
+  const source = readSource("src/features/Results.ts");
   const body = source.match(/export function buildAdvancedLeaderboard[\s\S]*?\n}\n\nexport function renderPaperTableTemplate/)?.[0] || "";
   assert.match(body, /const itemsByGroup = new Map<string, ExperimentResultRecord\[\]>/);
   assert.match(body, /for \(const record of filtered\)/);
@@ -118,7 +119,7 @@ test("advanced leaderboard and paper template export use schema directions", () 
 });
 
 test("paper table template indexes schema metrics once with first definition priority", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/features/Results.ts"), "utf8");
+  const source = readSource("src/features/Results.ts");
   const body = source.match(/export function renderPaperTableTemplate[\s\S]*?\n}\n\nexport function buildResultDashboard/)?.[0] || "";
   assert.match(body, /const schemaMetricsByKey = new Map<string, ResultMetricDefinition>/);
   assert.match(body, /if \(!schemaMetricsByKey\.has\(metric\.key\)\)/);
@@ -170,7 +171,7 @@ test("dashboard, search DSL, import/export, and consistency checker work", () =>
 });
 
 test("result dashboard derives counts and suite best records in one traversal", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/features/Results.ts"), "utf8");
+  const source = readSource("src/features/Results.ts");
   const body = source.match(/export function buildResultDashboard[\s\S]*?\n}\n\nexport function filterResultsByDsl/)?.[0] || "";
   assert.match(body, /for \(const record of records\)/);
   assert.match(body, /const bestBySuite = new Map/);

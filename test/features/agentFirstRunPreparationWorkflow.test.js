@@ -50,7 +50,7 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.ok(deploy < launch);
   assert.ok(launch < detect);
   assert.match(extension, /const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set\(\["non_simple_remote_command", "different_simple_agent_session"\]\)/);
-  assert.match(flow, /AGENT_STARTUP_BLOCKED_SKIP_REASONS\.has\(item\.skippedReason\)/);
+  assert.match(flow, /AGENT_STARTUP_BLOCKED_SKIP_REASONS\??\.has\(item\.skippedReason\)/);
   assert.doesNotMatch(flow, /\["non_simple_remote_command", "different_simple_agent_session"\]\.includes/);
   assert.match(flow, /tunnelTestCompletion\(this\.setupConfig, this\.lastProbe, this\.lastHealth, this\.lastWorkerProbes, topology\.hubAllowed\)/);
   assert.match(flow, /当前拓扑端点健康检测未通过/);
@@ -104,7 +104,7 @@ test("Xshell forwarding accepts only local loopback hosts", () => {
 
   assert.match(extension, /const XSHELL_LOOPBACK_HOSTS = new Set\(\["127\.0\.0\.1", "localhost", "::1", "\[::1\]"\]\)/);
   const source = extractFunction("xshellForwardHostIsLoopback");
-  assert.match(source, /XSHELL_LOOPBACK_HOSTS\.has\(text\)/);
+  assert.match(source, /XSHELL_LOOPBACK_HOSTS\??\.has\(text\)/);
   assert.doesNotMatch(source, /text === "127\.0\.0\.1"/);
 });
 

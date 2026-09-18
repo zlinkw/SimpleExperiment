@@ -17,9 +17,9 @@ test("backend Worker action confirmation reuses one fixed command set", () => {
   const body = methodBody("async runActionCommandCore(command, message)", "async runPlanPreflight(body, label, authority = {})");
   assert.match(source, /const WORKER_ARTIFACT_COMMANDS = new Set\(\["archiveArtifacts", "deleteArtifacts"\]\)/);
   assert.match(source, /const WORKER_ACTION_CONFIRM_COMMANDS = new Set\(\["stopExperiment", \.\.\.WORKER_ARTIFACT_COMMANDS\]\)/);
-  assert.equal((body.match(/WORKER_ACTION_CONFIRM_COMMANDS\.has\(command\)/g) || []).length, 2);
+  assert.equal((body.match(/WORKER_ACTION_CONFIRM_COMMANDS\??\.has\(command\)/g) || []).length, 2);
   assert.doesNotMatch(body, /\["stopExperiment", "archiveArtifacts", "deleteArtifacts"\]\.includes\(command\)/);
-  assert.match(methodBody("canFallbackTaskActionToHub(command, body, missingWorkerCapabilities)", "async postMultiWorkerTunnelAction(workerIds, action, body, options)"), /WORKER_ARTIFACT_COMMANDS\.has\(command\)/);
+  assert.match(methodBody("canFallbackTaskActionToHub(command, body, missingWorkerCapabilities)", "async postMultiWorkerTunnelAction(workerIds, action, body, options)"), /WORKER_ARTIFACT_COMMANDS\??\.has\(command\)/);
 });
 
 test("backend action routing reuses composed confirmation and scheduler sets", () => {
@@ -33,8 +33,8 @@ test("backend action routing reuses composed confirmation and scheduler sets", (
     assert.match(body, new RegExp(`${constant}\\.has\\(command\\)`), constant);
   }
   const watchdog = methodBody("uiCommandWatchdogMs(command)", "private postUiCommandStatus(clientActionId, status, command, message)");
-  assert.match(watchdog, /PLAN_PREFLIGHT_COMMANDS\.has\(command\)/);
-  assert.match(watchdog, /PLAN_SUBMISSION_COMMANDS\.has\(command\)/);
+  assert.match(watchdog, /PLAN_PREFLIGHT_COMMANDS\??\.has\(command\)/);
+  assert.match(watchdog, /PLAN_SUBMISSION_COMMANDS\??\.has\(command\)/);
   assert.doesNotMatch(body, /\["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"\]\.includes\(command\)/);
   assert.doesNotMatch(body, /\["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"\]\.includes\(command\)/);
   assert.doesNotMatch(source, /command === "validatePlan" \|\| command === "dryRunPlan"/);
@@ -43,9 +43,9 @@ test("backend action routing reuses composed confirmation and scheduler sets", (
 
 test("backend primitive parsing reuses fixed value and type sets", () => {
   assert.match(source, /const BOOLEAN_TRUE_TEXTS = new Set\(\["1", "true", "yes", "on"\]\)/);
-  assert.match(methodBody("function booleanField(message, key)", "function adapterRuleResultCandidates(rules)"), /BOOLEAN_TRUE_TEXTS\.has\(text\)/);
+  assert.match(methodBody("function booleanField(message, key)", "function adapterRuleResultCandidates(rules)"), /BOOLEAN_TRUE_TEXTS\??\.has\(text\)/);
   assert.match(source, /const JSON_PRIMITIVE_TYPES = new Set\(\["string", "number", "boolean"\]\)/);
-  assert.match(methodBody("function extractJsonParams(text)", "function extractPythonConfigParams(text)"), /entry === null \|\| JSON_PRIMITIVE_TYPES\.has\(typeof entry\)/);
+  assert.match(methodBody("function extractJsonParams(text)", "function extractPythonConfigParams(text)"), /entry === null \|\| JSON_PRIMITIVE_TYPES\??\.has\(typeof entry\)/);
 });
 
 test("backend action payload reads one scheduler snapshot", () => {

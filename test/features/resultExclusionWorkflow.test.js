@@ -71,7 +71,7 @@ test("current Plan revision can exclude results without deleting preview data or
 test("result exclusion is wired through Hub action, debug gate, and current revision UI", () => {
   const extension = readSource("src/extension.ts");
   const panel = readSource("src/ui/PanelHtml.ts");
-  const tunnel = fs.readFileSync(path.join(__dirname, "../../src/tunnel/TunnelClient.ts"), "utf8");
+  const tunnel = readSource("src/tunnel/TunnelClient.ts");
   const agent = readSource("src/clusterAgentRuntime.ts");
   assert.match(extension, /excludeResults: "exclude-results"/);
   assert.match(extension, /const RESULT_REPARSE_ACTIONS = new Set\(\[[^\]]*"exclude-results"/);

@@ -8,7 +8,7 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const source = readSource("src/extension.ts");
 const panel = readSource("src/ui/PanelHtml.ts");
-const bridge = fs.readFileSync(path.join(__dirname, "../../src/PptPlotBridge.ts"), "utf8");
+const bridge = readSource("src/PptPlotBridge.ts");
 
 function loadHelpers() {
   const start = source.indexOf("const PROJECT_PPT_PATH_CONFIRMATIONS_PATH");

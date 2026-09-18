@@ -73,9 +73,9 @@ test("checkpoint policies reuse fixed path and boolean lookups", () => {
   assert.match(source, /const CHECKPOINT_FORBIDDEN_PATH_SEGMENTS = new Set\(/);
   assert.match(source, /const CHECKPOINT_ALLOWED_ROOTS = new Set\(/);
   assert.match(source, /const CHECKPOINT_TRUE_TOKENS = new Set\(/);
-  assert.match(source, /CHECKPOINT_FORBIDDEN_PATH_SEGMENTS\.has\(part\)/);
-  assert.match(source, /CHECKPOINT_ALLOWED_ROOTS\.has\(lowered\[0\]\)/);
-  assert.match(source, /CHECKPOINT_TRUE_TOKENS\.has\(String\(value\)\.toLowerCase\(\)\)/);
+  assert.match(source, /CHECKPOINT_FORBIDDEN_PATH_SEGMENTS\??\.has\(part\)/);
+  assert.match(source, /CHECKPOINT_ALLOWED_ROOTS\??\.has\(lowered\[0\]\)/);
+  assert.match(source, /CHECKPOINT_TRUE_TOKENS\??\.has\(String\(value\)\.toLowerCase\(\)\)/);
 
   const records = checkpointRecordsFromManifest({
     checkpoints: [{ path: "outputs/demo/model.pth", paper_ready: "paper_ready" }],

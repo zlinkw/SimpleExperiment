@@ -32,7 +32,7 @@ function runCli(args, extraEnv = {}) {
 const root = path.resolve(__dirname, "../..");
 const { LocalApiServer, confirmationRequired, loopbackRequest, parseRemoteAddress } = require("../../dist/api/LocalApiServer.js");
 const extensionSource = readSource("src/extension.ts");
-const apiServerSource = fs.readFileSync(path.join(root, "src/api/LocalApiServer.ts"), "utf8");
+const apiServerSource = readSource("src/api/LocalApiServer.ts");
 const workflow = require("../../dist/features/ApiWorkflow.js");
 const topologyMode = require("../../dist/features/TopologyMode.js");
 
@@ -295,7 +295,7 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
   assert.match(extensionSource, /LOCAL_API_PREFERRED_PORT = 19765/);
   assert.match(extensionSource, /API_DISCOVERY_PATH = path\.join\(API_DISCOVERY_DIR, "api\.json"\)/);
   assert.match(extensionSource, /const API_CONFIRM_COMMANDS = new Set\(/);
-  assert.match(extensionSource, /API_CONFIRM_COMMANDS\.has\(command\) && params\.confirm !== true/);
+  assert.match(extensionSource, /API_CONFIRM_COMMANDS\??\.has\(command\) && params\.confirm !== true/);
   assert.match(extensionSource, /throw confirmationRequired\(/);
   assert.match(extensionSource, /new LocalApiServerClass\(/);
   assert.match(extensionSource, /"config\.set": async \(params\) => this\.apiConfigSet\(params\)/);
@@ -609,8 +609,8 @@ test("SimpleExperiment parameterized onboarding uses one structured confirmation
   assert.match(extensionSource, /preview: \{\s*operation: "startAllConnections",\s*topology/s);
   assert.match(extensionSource, /ports,\s*remoteRoots:/);
   assert.match(extensionSource, /command === "testAll" && params\.uiMode !== true/);
-  assert.match(extensionSource, /PLAN_PREFLIGHT_COMMANDS\.has\(command\)/);
-  assert.match(extensionSource, /API_PARAMETERIZED_CONNECTION_COMMANDS\.has\(command\)/);
+  assert.match(extensionSource, /PLAN_PREFLIGHT_COMMANDS\??\.has\(command\)/);
+  assert.match(extensionSource, /API_PARAMETERIZED_CONNECTION_COMMANDS\??\.has\(command\)/);
   assert.match(extensionSource, /if \(command === "prepareAgents"\)/);
   assert.match(extensionSource, /PROJECT_FLOW_STATE_PATH = "simple_cluster\/ui\/flow_state\.json"/);
   assert.match(extensionSource, /savedSessionPath: "",\s*agentProjectDir: "",/);

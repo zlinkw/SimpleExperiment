@@ -30,7 +30,7 @@ test("realtime log tails are capped by record count and tail size", () => {
 test("extension and multi endpoint clients compact logs before webview state", () => {
   const root = path.resolve(__dirname, "..", "..");
   const extension = readSource("src/extension.ts");
-  const multi = fs.readFileSync(path.join(root, "src", "tunnel", "MultiEndpointRealtimeClient.ts"), "utf8");
+  const multi = readSource("src/tunnel/MultiEndpointRealtimeClient.ts");
   assert.match(extension, /(?:compactRealtimeLogs|\(0,\s*RealtimeEventReducer_1\.compactRealtimeLogs\))\(firstRecord\(realtimeState\?\.logs\)/);
   assert.match(multi, /compactRealtimeLogs\(\{/);
 });

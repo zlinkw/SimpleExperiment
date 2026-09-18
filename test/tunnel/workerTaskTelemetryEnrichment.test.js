@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const { enrichSchedulerRows, mergeAuthorityRealtimeStates } = require("../../dist/tunnel/AuthorityMergePolicy.js");
 const { createRealtimeState } = require("../../dist/tunnel/RealtimeEventReducer.js");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("worker task telemetry enriches hub scheduler rows only", () => {
   const warnings = [];
@@ -45,7 +46,7 @@ test("authority merge reuses latest worker task for scheduler and trace enrichme
   assert.equal(merged.experimentTraces[0].localPid, 20);
   assert.equal(merged.experimentTraces[0].liveStatus, "log_updating");
 
-  const source = fs.readFileSync(path.join(__dirname, "../../src/tunnel/AuthorityMergePolicy.ts"), "utf8");
+  const source = readSource("src/tunnel/AuthorityMergePolicy.ts");
   assert.match(source, /const workerTasksByRunKey = indexWorkerTasks\(workerTasks\)/);
   assert.match(source, /enrichSchedulerRows\([^;]+workerTasksByRunKey\)/);
   assert.match(source, /enrichTraceRows\([^;]+workerTasksByRunKey\)/);

@@ -10,9 +10,9 @@ const root = path.join(__dirname, "../..");
 const extension = readSource("src/extension.ts");
 const panel = readSource("src/ui/PanelHtml.ts");
 const agent = readSource("src/clusterAgentRuntime.ts");
-const fileClient = fs.readFileSync(path.join(root, "src/tunnel/FileTransferClient.ts"), "utf8");
-const realtimeClient = fs.readFileSync(path.join(root, "src/tunnel/RealtimeTunnelClient.ts"), "utf8");
-const multiClient = fs.readFileSync(path.join(root, "src/tunnel/MultiEndpointRealtimeClient.ts"), "utf8");
+const fileClient = readSource("src/tunnel/FileTransferClient.ts");
+const realtimeClient = readSource("src/tunnel/RealtimeTunnelClient.ts");
+const multiClient = readSource("src/tunnel/MultiEndpointRealtimeClient.ts");
 const { isSafeRemotePath } = require("../../src/tunnel/FileTransferTypes.ts");
 const { FileTransferClient } = require("../../dist/tunnel/FileTransferClient.js");
 

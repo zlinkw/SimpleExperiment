@@ -110,5 +110,5 @@ test("file transfer terminal classification reuses one fixed set", () => {
   for (const status of ["completed", "failed", "cancelled", "canceled"]) assert.equal(sandbox.isTerminal({ status }), true, status);
   for (const status of ["running", "queued", "unknown", ""]) assert.equal(sandbox.isTerminal({ status }), false, status);
   assert.match(extension, /const WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES = new Set\(/);
-  assert.match(extractFunction("isTerminalTransferForWebview"), /WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES\.has\(status\)/);
+  assert.match(extractFunction("isTerminalTransferForWebview"), /WEBVIEW_FILE_TRANSFER_TERMINAL_STATUSES\??\.has\(status\)/);
 });

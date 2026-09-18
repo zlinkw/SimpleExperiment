@@ -4,9 +4,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
+const { readSource } = require("./_helpers/sourceReader");
 
 test("PptPlotBridge source remains TypeScript instead of copied compiler output", () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "src", "PptPlotBridge.ts"), "utf8");
+  const source = readSource("src/PptPlotBridge.ts");
   assert.match(source, /import \* as fs from "fs\/promises";/);
   assert.match(source, /export class PptPlotBridge/);
   assert.match(source, /export async function buildPptPlotRequest/);
@@ -16,7 +17,7 @@ test("PptPlotBridge source remains TypeScript instead of copied compiler output"
 });
 
 test("PptPlotBridge reuses fixed readiness host and source lookups", () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "src", "PptPlotBridge.ts"), "utf8");
+  const source = readSource("src/PptPlotBridge.ts");
   const rawSourceStart = source.indexOf("function isRawSingleRunPlotSource(");
   const rawSourceEnd = source.indexOf("\nasync function assertPptLightweightSource", rawSourceStart);
   const rawSource = source.slice(rawSourceStart, rawSourceEnd);
@@ -29,9 +30,9 @@ test("PptPlotBridge reuses fixed readiness host and source lookups", () => {
   assert.match(source, /const PPT_NON_RAW_SOURCE_PATHS = new Set\(\[/);
   assert.equal((source.match(/PPT_BLOCKING_READINESS_STATES\.has/g) || []).length, 2);
   assert.doesNotMatch(source, /\["incompatible", "token_missing", "token_invalid"\]\.includes/);
-  assert.match(rawSource, /PPT_NON_RAW_SOURCE_PATHS\.has\(text\)/);
+  assert.match(rawSource, /PPT_NON_RAW_SOURCE_PATHS\??\.has\(text\)/);
   assert.doesNotMatch(rawSource, /\.map\(\(item\) => item\.toLowerCase\(\)\)\.includes/);
-  assert.match(baseUrl, /PPT_LOOPBACK_HOSTNAMES\.has\(url\.hostname\)/);
+  assert.match(baseUrl, /PPT_LOOPBACK_HOSTNAMES\??\.has\(url\.hostname\)/);
 });
 
 test("PptPlotBridge builds stable request schema and resolves md to sibling json", async () => {

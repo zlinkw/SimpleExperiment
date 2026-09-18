@@ -7,7 +7,7 @@ const { readSource } = require("../_helpers/sourceReader");
 const root = path.join(__dirname, "../..");
 const extension = readSource("src/extension.ts");
 const panel = readSource("src/ui/PanelHtml.ts");
-const ppt = fs.readFileSync(path.join(root, "src/PptPlotBridge.ts"), "utf8");
+const ppt = readSource("src/PptPlotBridge.ts");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const legacyNotes = fs.readFileSync(path.join(root, "docs/technical-notes.md"), "utf8");
 

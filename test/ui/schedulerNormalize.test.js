@@ -4,7 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { normalizeSchedulerRows, taskStatusRank, formatDuration } = require("../../dist/ui/WebviewRenderState.js");
-const source = fs.readFileSync(path.join(__dirname, "../../src/ui/WebviewRenderState.ts"), "utf8");
+const { readSource } = require("../_helpers/sourceReader");
+const source = readSource("src/ui/WebviewRenderState.ts");
 
 function functionSource(name) {
   const start = source.indexOf("function " + name + "(");

@@ -62,7 +62,7 @@ test("local preview parses nested JSON dimensions and metric lists", () => {
 });
 
 test("result parser reuses fixed JSON metadata and segmentation metric lookups", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/features/Results.ts"), "utf8");
+  const source = readSource("src/features/Results.ts");
   assert.match(source, /const jsonNonMetricNames = new Set\(\[/);
   assert.match(source, /const segmentationMetricNames = new Set\(\["DSC", "Dice", "IoU", "HD95", "ASD"\]\)/);
   assert.match(source, /return !jsonNonMetricNames\.has\(normalized\)/);

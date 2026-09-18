@@ -2,10 +2,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const cli = fs.readFileSync(path.join(root, "src/cli.ts"), "utf8");
+const cli = readSource("src/cli.ts");
 const runCli = fs.readFileSync(path.join(root, "src/runCli.ts"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const legacyNotes = fs.readFileSync(path.join(root, "docs/technical-notes.md"), "utf8");
