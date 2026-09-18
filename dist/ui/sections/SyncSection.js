@@ -25,13 +25,13 @@ class SyncSection {
         <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区，未提交改动会丢失">从 GitHub 覆盖本机</button>
       </div>
       <div class="toolbar" data-anchor="sync-actions">
-        <button type="button" data-command="prepareAgents" title="第1步先部署：上传最新版 Agent 到全部服务器 runtime，无需隧道在线">部署Agent</button>
+        <button type="button" data-command="prepareAgents" title="第1步先部署：上传最新版 Agent 到全部服务器的 runtime 并启动，无需隧道在线">部署Agent</button>
         <span class="toolbarSep" aria-hidden="true">→</span>
         <button type="button" data-command="startAll" class="secondary" title="第1步连隧道：启动全部 Xshell 隧道，建立本机到服务器的端口转发">启动全部隧道</button>
         <span class="toolbarSep" aria-hidden="true">→</span>
         <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：先提交推送到 GitHub（未配置会引导 VSCode GitHub 登录），再通过 SimpleSFTP 上传到所有 Worker。无 Hub 模式下跳过 Hub 上传。">发布到git并上传worker</button>
         <span class="toolbarSep" aria-hidden="true">→</span>
-        <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
+        <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖，失败项会列出原因">检测全部</button>
       </div>
     </section>`;
     }
