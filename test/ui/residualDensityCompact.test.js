@@ -7,7 +7,7 @@ const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml
 
 test("functional entry points and drawer rails remain in baseline", () => {
   assert.match(panelSource, /class="section-desc"/);
-  assert.match(panelSource, /id="experimentActions"/);
+  // experimentActions 区块已移除：原 div 无渲染函数（预留空位），用户反馈「不知道干嘛的」，确认移除。
   assert.match(panelSource, /id="resultActions"/);
   assert.match(panelSource, /id="artifactActions"/);
   assert.match(panelSource, /id="pptPlotConfig"/);

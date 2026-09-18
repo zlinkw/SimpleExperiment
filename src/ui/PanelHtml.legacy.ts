@@ -447,6 +447,8 @@ export function renderPanelHtml(): string {
     .tree-inspector-fact b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
     .tree-inspector-action { display: none; margin-top: 4px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--vscode-focusBorder) 8%, var(--vscode-input-background) 92%); color: var(--muted); font-size: 11px; line-height: 1.4; }
     .planQuickGrid { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: end; }
+    .planQuickActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+    .planQuickActions > button { justify-self: start; width: auto; flex: 0 0 auto; }
     .runModeBar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
     .runModeSwitch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle-bg); }
     .runModeSwitch button { min-height: 26px; padding: 3px 9px; border-color: transparent; background: transparent; color: var(--muted); }
@@ -1218,15 +1220,13 @@ export function renderPanelHtml(): string {
             </div>
             <span id="runModeNote" class="runModeNote">完整执行 Plan，结果进入正式闭环</span>
           </div>
+          <div class="planQuickActions">
           <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
           <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
           <button data-command="runPlan" data-confirm="true" title="校验并提交运行&#10;先同步代码到参与服务器，再校验与预演，通过后提交后台调度&#10;提交前会弹出确认窗口核对远端路径、任务数、模式与 Worker">校验并提交运行</button>
           <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前实验计划目录下的全部计划&#10;每个计划仍会走完整的校验与预演门禁">运行全部计划</button>
         </div>
         <div id="recentPlans" data-anchor="plans-list"></div>
-        <div id="draftPlans" data-anchor="draft-list"></div>
-        <h3>实验操作</h3>
-        <div id="experimentActions" class="actionGrid"></div>
       </section>
 
         <section class="section-card" data-section="gpu" data-anchor="gpu" data-title="GPU 状态">
@@ -1464,7 +1464,7 @@ export function renderPanelHtml(): string {
           var half = Math.min(maxW, 460) / 2;
           if (cx - half < 12) { x = 12; tx = "0"; }
           else if (cx + half > vw - 12) { x = vw - 12; tx = "-100%"; }
-          var y = below ? r.bottom + 8 : r.top - 8;
+          var y = below ? r.bottom + 4 : r.top - 4;
           var ty = below ? "0" : "-100%";
           el.style.setProperty("--tip-x", x + "px");
           el.style.setProperty("--tip-y", y + "px");
@@ -5106,10 +5106,6 @@ export function renderPanelHtml(): string {
         selectPlan: "选择计划",
         selectExperiment: "选择任务",
         selectLogRunKey: "查看日志",
-        runDraftDebug: "草稿 Debug 隔离运行（输出至 simple_cluster/debug_runs）",
-        promoteDraft: "转正草稿：将 tmp/plan 与 tmp/config 复制到 experiments/plans 与 configs（需确认 diff 与冲突）",
-        rejectDraft: "拒绝草稿：标记为 rejected",
-        reviewDraft: "标记草稿已审阅：进入 ready_for_review",
         cleanupDrafts: "清理已拒绝或过期且未被引用的草稿文件"
       });
 
@@ -8253,12 +8249,8 @@ export function renderPanelHtml(): string {
       renderDraftPlanSection(state);
     }
     function renderDraftPlanSection(state) {
-      const draftState = state.draftPlans || { enabled: false, drafts: [], cleanupCandidates: [], error: "", updatedAt: "" };
-      if (!draftState.enabled) {
-        setHtmlIfChanged("draftPlans", "");
-        return;
-      }
-      setHtmlIfChanged("draftPlans", renderDraftCards(draftState));
+      // 草稿 PLAN（Draft）UI 已停用：后续都通过校验 + 预演 + 正式运行完成确认，
+      // 不再展示 Draft / Promote / Reject 等入口。底层命令保留以兼容外部调用。
     }
     function renderDraftCards(draftState) {
       const drafts = Array.isArray(draftState.drafts) ? draftState.drafts : [];
