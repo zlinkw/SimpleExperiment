@@ -9886,13 +9886,16 @@ class RealtimeTunnelPanelProvider {
         const initialProjectState = Boolean(hasExistingOnDisk || this.localPlanMetadata.error);
         // 检测到已有时不直接阻断，弹出双按钮供用户选择（3D）
         if (hasExistingOnDisk && plans.length > 0) {
-            const pick = await vscode.window.showInformationMessage(`检测到已有 ${plans.length} 个Plan，是否增量接入而非清空？`, "清空并接入", "查看现有");
+            const pick = await vscode.window.showInformationMessage(`检测到已有 ${plans.length} 个 Plan：增量接入保留现有内容并继续；清空并接入将删除 experiments/plans/*.yaml 与 simple_cluster/ui/*.json 后重新开始（不可恢复）。`, "增量接入", "清空并接入", "查看现有");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (pick === "查看现有") {
                 await this.openPanelAt("plans", "plans-detected");
                 return;
             }
+            // 关闭通知或按 ESC：视为取消接入，不做任何改动（原实现会静默按增量接入继续）
+            if (pick !== "增量接入" && pick !== "清空并接入")
+                return;
             if (pick === "清空并接入") {
                 const confirm = await vscode.window.showWarningMessage(`确认清空当前项目的 UI 状态与草稿计划？将删除 simple_cluster/ui/*.json 与 experiments/plans/*.yaml|*.yml，操作不可恢复。`, { modal: true }, "确认清空", "取消");
                 if (confirm !== "确认清空")
