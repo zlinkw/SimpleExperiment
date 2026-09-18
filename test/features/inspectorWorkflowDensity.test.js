@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 基线保留 workflow 阶段、对象条、通信路径与抽屉 rails，不做 display:none 隐藏。
 test("inspector and workflow keep render helpers and drawer rails", () => {

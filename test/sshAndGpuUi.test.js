@@ -3,7 +3,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const extensionSource = fs.readFileSync(path.join(__dirname, "..", "src", "extension.ts"), "utf8");
+const { readSource } = require("./_helpers/sourceReader");
+
+const extensionSource = readSource("src/extension.ts");
 
 test("extension exposes tunnel-only connection UI", () => {
   assert.match(extensionSource, /检查服务器配置/);

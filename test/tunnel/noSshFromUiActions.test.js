@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("new realtime UI snapshots use the localhost client", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const methods = [
     ["manualGpuSnapshot", "manualSchedulerSnapshot", /client\.getGpu\(\)/],
     ["manualSchedulerSnapshot", "manualTracesSnapshot", /client\.getScheduler\(\)/],
@@ -20,6 +21,6 @@ test("new realtime UI snapshots use the localhost client", () => {
     assert.match(body, clientCall, method);
     assert.doesNotMatch(body, /\b(?:runSsh|execFile|spawn)\s*\(/i, method);
   }
-  const panel = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const panel = readSource("src/ui/PanelHtml.ts");
   assert.doesNotMatch(panel, /\b(?:direct_ssh|runSsh|execFile|spawn)\s*\(/i);
 });

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("scheduler agent state dir resolution is memoized per absolute project and configured pair", () => {
   const schedulerPath = path.join(__dirname, "../../dist/runtime/cluster_scheduler.py");
@@ -68,7 +69,7 @@ print(json.dumps({
 });
 
 test("scheduler state dir cache keeps the derivation split between compute and lookup", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterSchedulerRuntime.ts"), "utf8");
+  const source = readSource("src/clusterSchedulerRuntime.ts");
   assert.match(source, /def compute_scheduler_agent_state_dir\(project_dir: str \| Path = "\.", configured: str = ""\)/);
   assert.match(source, /if not raw\.is_absolute\(\):\n {8}return compute_scheduler_agent_state_dir\(project_dir, configured\)/);
   assert.match(source, /AGENT_STATE_DIR_CACHE\[cache_key\] = resolved/);

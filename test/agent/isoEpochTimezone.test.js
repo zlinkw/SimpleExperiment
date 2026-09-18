@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
 
@@ -55,7 +56,7 @@ test("ages stay correct on eastern and western host offsets", () => {
 });
 
 test("epoch parsing uses calendar.timegm rather than local mktime", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /calendar\.timegm\(time\.strptime\(text, "%Y-%m-%dT%H:%M:%SZ"\)\)/);
   assert.doesNotMatch(source, /time\.mktime\(time\.strptime/);
 });

@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("extension compacts scheduler state payload for all-day webview runs", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const runtimeEvidence = source.match(/private buildPlanRuntimeEvidenceState\(\)[\s\S]*?return \{ connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations \};/)?.[0] || "";
   const compact = source.match(/function compactSchedulerStates[\s\S]*?function operationsRecord/)?.[0] || "";
 

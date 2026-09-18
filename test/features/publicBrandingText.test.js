@@ -2,10 +2,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
-const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
+const extension = readSource("src/extension.ts");
+const panel = readSource("src/ui/PanelHtml.ts");
 const ppt = fs.readFileSync(path.join(root, "src/PptPlotBridge.ts"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const legacyNotes = fs.readFileSync(path.join(root, "docs/technical-notes.md"), "utf8");

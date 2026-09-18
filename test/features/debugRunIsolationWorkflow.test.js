@@ -5,14 +5,15 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
 const schedulerRuntime = path.join(root, "dist/runtime/cluster_scheduler.py");
 const agentRuntime = path.join(root, "dist/runtime/cluster_agent.py");
-const schedulerSource = fs.readFileSync(path.join(root, "src/clusterSchedulerRuntime.ts"), "utf8");
-const agentSource = fs.readFileSync(path.join(root, "src/clusterAgentRuntime.ts"), "utf8");
-const extensionSource = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
-const panelSource = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
+const schedulerSource = readSource("src/clusterSchedulerRuntime.ts");
+const agentSource = readSource("src/clusterAgentRuntime.ts");
+const extensionSource = readSource("src/extension.ts");
+const panelSource = readSource("src/ui/PanelHtml.ts");
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);

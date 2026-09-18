@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 const {
@@ -158,7 +159,7 @@ test("GPU history reset rejects stale async success and failure state", async ()
 });
 
 test("Extension exposes GPU history only through explicit on-demand state", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /case "loadGpuHistory"/);
   assert.match(source, /this\.gpuHistoryState\.load\(query/);
   assert.match(source, /endpoints\.gpuHistory !== true/);

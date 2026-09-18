@@ -2,8 +2,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 test("tree and onboarding keep object entries and step text", () => {
   assert.match(panel, /\.onboardingStep span \{[^}]*color: var\(--muted\)/);

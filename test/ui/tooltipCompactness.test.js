@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "..", "..");
 
 test("native title tooltips avoid design notes and long explanations", () => {
-  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const banned = [
     "参考 Kubernetes",
     "GitLens",
@@ -29,7 +30,7 @@ test("native title tooltips avoid design notes and long explanations", () => {
 });
 
 test("native title maintenance skips unchanged global scans and tracks dynamic writes", () => {
-  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   assert.match(source, /const compactKey = \[postRenderDomVersion, nativeTitleMutationVersion\]\.join\("::"\)/);
   assert.match(source, /if \(compactKey === lastNativeTitleCompactKey\) return/);
   assert.match(source, /function setNativeTitle\(node, value\)/);

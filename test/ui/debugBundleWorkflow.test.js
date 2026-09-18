@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("debug bundle workflow creates through action and downloads through its bounded file path", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /createDebugBundle: "create-debug-bundle"/);
   assert.match(source, /case "downloadDebugBundle":\s*await this\.downloadDebugBundle\(\)/);
   const download = source.match(/async downloadDebugBundle\(\)[\s\S]*?async downloadRemoteResultFromUi/)?.[0] || "";

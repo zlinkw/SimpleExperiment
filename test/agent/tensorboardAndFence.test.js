@@ -4,11 +4,12 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 const agentPath = path.join(root, "dist", "runtime", "cluster_agent.py");
-const agentSource = fs.readFileSync(path.join(root, "src", "clusterAgentRuntime.ts"), "utf8");
-const extensionSource = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+const agentSource = readSource("src/clusterAgentRuntime.ts");
+const extensionSource = readSource("src/extension.ts");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
 function runPython(script) {

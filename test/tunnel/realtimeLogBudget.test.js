@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { applyRealtimeEvent, createRealtimeState, compactRealtimeLogs, REALTIME_LOG_RECORD_LIMIT, REALTIME_LOG_TEXT_LIMIT } = require("../../dist/tunnel/RealtimeEventReducer.js");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("realtime log tails are capped by record count and tail size", () => {
   let state = createRealtimeState();
@@ -28,7 +29,7 @@ test("realtime log tails are capped by record count and tail size", () => {
 
 test("extension and multi endpoint clients compact logs before webview state", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
   const multi = fs.readFileSync(path.join(root, "src", "tunnel", "MultiEndpointRealtimeClient.ts"), "utf8");
   assert.match(extension, /(?:compactRealtimeLogs|\(0,\s*RealtimeEventReducer_1\.compactRealtimeLogs\))\(firstRecord\(realtimeState\?\.logs\)/);
   assert.match(multi, /compactRealtimeLogs\(\{/);

@@ -7,8 +7,9 @@ const test = require("node:test");
 const vm = require("node:vm");
 const PlanArchive = require("../../dist/features/PlanArchive.js");
 const { isSafeRemotePath } = require("../../src/tunnel/FileTransferTypes.ts");
+const { readSource } = require("../_helpers/sourceReader");
 
-const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const source = readSource("src/extension.ts");
 
 function extractFunction(name) {
   const start = source.indexOf(`function ${name}(`);

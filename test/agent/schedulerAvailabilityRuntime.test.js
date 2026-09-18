@@ -4,6 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
+const { readSource } = require("../_helpers/sourceReader");
+
 const root = path.join(__dirname, "../..");
 const runtimePath = path.join(root, "dist/runtime/cluster_scheduler.py");
 
@@ -81,14 +83,14 @@ print(json.dumps({"fresh": fresh, "expired": expired, "skewed": skewed}))
 });
 
 test("direct availability snapshots are merged through atomic state replacement", () => {
-  const source = fs.readFileSync(path.join(root, "src/clusterSchedulerRuntime.ts"), "utf8");
+  const source = readSource("src/clusterSchedulerRuntime.ts");
   assert.match(source, /def persist_worker_availability\(path: str, row: dict\[str, Any\]\)/);
   assert.match(source, /atomic_write_json\(state_path, \{/);
   assert.match(source, /refresh_missing_worker_availability\(workers, args\.availability_path\)/);
 });
 
 test("scheduler availability reads the loopback-only unauthenticated readiness route", () => {
-  const source = fs.readFileSync(path.join(root, "src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /route == "\/api\/worker\/availability":/);
   assert.match(source, /if not self\.localhost_only\(\):\s*self\.send_json\(\{"error": "localhost only"\}, status=403\)/);
 });

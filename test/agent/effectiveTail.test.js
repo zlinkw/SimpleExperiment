@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("_has_sched_kw expanded includes Killed/OOM/exit code (case-insensitive)", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -153,7 +154,7 @@ test("extension evHasError expanded includes ev.error/ev.dead/ev.liveLogTail", (
 });
 
 test("PanelHtml dead兜底 renders when hasDead true and combinedSrc empty", () => {
-  const content = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const content = readSource("src/ui/PanelHtml.ts");
   assert.match(content, /P0-3: dead 证据兜底/);
   assert.match(content, /调度已停止但未捕获日志，已记录 dead 证据/);
   assert.match(content, /simple_cluster\/tmp\/cluster_scheduler\//);

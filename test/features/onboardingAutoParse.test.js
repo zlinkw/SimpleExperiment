@@ -2,9 +2,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("onboarding actions queue plan-scoped result parse", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /queuePlanScopedResultParse\(reason, planFile, planId\)/);
   assert.match(source, /queuePlanScopedResultParse\("切换计划"/);
   assert.match(source, /queuePlanScopedResultParse\("生成计划模板"/);

@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
 
@@ -109,7 +110,7 @@ print(json.dumps({
 });
 
 test("the budget and compact writer are wired into the sampling path", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /GPU_HISTORY_MAX_TOTAL_POINTS = 40000/);
   assert.match(source, /trim_gpu_history_series\(servers, active_keys\)\r?\n {4}enforce_gpu_history_total_budget\(servers\)/);
   assert.match(source, /atomic_write\(path, out, compact=True\)/);

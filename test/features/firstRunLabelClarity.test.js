@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 test("new project entry labels explain config and execution paths in Chinese", () => {
   assert.match(panel, /projectQuickRow\("当前配置"/);

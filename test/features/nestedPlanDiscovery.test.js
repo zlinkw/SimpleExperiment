@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 function write(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -47,7 +48,7 @@ test("agent discover_plan_files walks nested plan subfolders", () => {
 });
 
 test("extension archive keeps nested plan subfolder under _archived", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /bundleParent = path\.join\(planRoot, "_archived", path\.dirname\(relativeFromPlanDir\)\)/);
   assert.match(source, /walkYaml\(dir\)/);
   assert.match(source, /isArchivedPlanFile\(root, planDir, fullPath\)/);

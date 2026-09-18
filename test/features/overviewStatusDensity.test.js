@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 基线：overviewStatusCard 渲染 mini grid（flex 可见），details popover，app-shell 主行流高位。
 test("overview status cards keep mini grid and details popover", () => {

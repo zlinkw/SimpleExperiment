@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("webview state exposes realtime fields as first class fields", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   for (const field of ["gpu", "schedulerStates", "experimentTraces", "logs", "operations", "fileTransfers"]) {
     assert.match(source, new RegExp(`\\b${field}\\b`), field);
   }
@@ -24,7 +25,7 @@ test("webview state exposes realtime fields as first class fields", () => {
 });
 
 test("webview state sends compact lastKnownGood instead of duplicating bulk realtime fields", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const block = source.match(/private compactLastKnownGood[\s\S]*?private compactDiagnostics/)?.[0] || "";
   assert.match(block, /gpuServers/);
   assert.match(block, /schedulerRows/);

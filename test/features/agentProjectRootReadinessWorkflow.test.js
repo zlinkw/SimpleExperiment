@@ -3,9 +3,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const extension = readSource("src/extension.ts");
+const panel = readSource("src/ui/PanelHtml.ts");
 const probeSource = fs.readFileSync(path.join(__dirname, "../../src/tunnel/XshellTunnelPortProbe.ts"), "utf8");
 
 function extractFunction(source, name) {

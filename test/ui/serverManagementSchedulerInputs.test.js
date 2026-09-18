@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -19,8 +20,8 @@ function extractFunction(source, name) {
 
 test("all visible panel commands have extension handlers", () => {
   const root = path.join(__dirname, "..", "..");
-  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
-  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const html = readSource("src/ui/PanelHtml.ts");
+  const extension = readSource("src/extension.ts");
 
   const commands = new Set();
   for (const match of html.matchAll(/data-command="([A-Za-z][A-Za-z0-9]+)"/g)) commands.add(match[1]);
@@ -45,7 +46,7 @@ test("all visible panel commands have extension handlers", () => {
 
 test("visible command buttons receive Chinese hover explanations", () => {
   const root = path.join(__dirname, "..", "..");
-  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const html = readSource("src/ui/PanelHtml.ts");
 
   assert.match(html, /function decorateCommandTooltips/);
   assert.match(html, /document\.querySelectorAll\("button:not\(\[data-tooltip-ready='1'\]\)"\)/);
@@ -68,7 +69,7 @@ test("visible command buttons receive Chinese hover explanations", () => {
 
 test("command help reuses one immutable map and preserves endpoint context", () => {
   const root = path.join(__dirname, "..", "..");
-  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const html = readSource("src/ui/PanelHtml.ts");
   const helper = extractFunction(html, "commandHelp");
 
   assert.match(html, /const COMMAND_HELP_TEXT = Object\.freeze\(\{/);
@@ -90,7 +91,7 @@ test("command help reuses one immutable map and preserves endpoint context", () 
 
 test("server management config fields receive Chinese hover explanations", () => {
   const root = path.join(__dirname, "..", "..");
-  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const html = readSource("src/ui/PanelHtml.ts");
 
   assert.match(html, /function configHelp/);
   assert.match(html, /hubDisplayName: "面板中显示的 Hub 名称/);
@@ -103,7 +104,7 @@ test("server management config fields receive Chinese hover explanations", () =>
 
 test("server overview and settings reuse status indexes", () => {
   const root = path.join(__dirname, "..", "..");
-  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const html = readSource("src/ui/PanelHtml.ts");
   const helper = html.slice(html.indexOf("function serverStatusIndexesForState"), html.indexOf("function renderServerObjectOverview"));
   const overview = html.slice(html.indexOf("function renderServerObjectOverview"), html.indexOf("function serverObjectSummaryItem"));
   const settings = html.slice(html.indexOf("function renderServerCardsV2"), html.indexOf("function renderServerCards(state)"));

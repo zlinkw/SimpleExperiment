@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
@@ -15,7 +16,7 @@ function loadRealtimeUiSignatures(source) {
 }
 
 test("extension coalesces ordinary webview state posts and flushes on visibility", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const postStateBlock = source.match(/private postState[\s\S]*?private flushStatePost/)?.[0] || "";
   const flushBlock = source.match(/private flushStatePost[\s\S]*?private integration/)?.[0] || "";
 
@@ -59,7 +60,7 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
 });
 
 test("extension skips heartbeat-only realtime webview posts and keeps content changes", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const createClientBlock = source.match(/private createClient\(\): MultiEndpointRealtimeClient[\s\S]*?private shouldPushLocalAvailabilityFromRealtime/)?.[0] || "";
   const postGateBlock = source.match(/private shouldPostRealtimeStateForWebview[\s\S]*?private realtimeUiStateRefsFor/)?.[0] || "";
   const refsBlock = source.match(/private realtimeUiStateRefsFor[\s\S]*?private realtimeRefreshPolicy/)?.[0] || "";
@@ -89,7 +90,7 @@ test("extension skips heartbeat-only realtime webview posts and keeps content ch
 });
 
 test("realtime state signatures stay bounded and sample across large values", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const { field: signature, topLevel } = loadRealtimeUiSignatures(source);
   assert.equal(signature({ b: 2, a: 1 }), signature({ a: 1, b: 2 }));
 
@@ -115,7 +116,7 @@ test("realtime state signatures stay bounded and sample across large values", ()
 });
 
 test("local availability push stays server-only and project-state-free", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const loopBlock = source.match(/startAvailabilityPushLoop[\s\S]*?availabilityPushMinIntervalMs/)?.[0] || "";
   const pushBlock = source.match(/private async pushLocalWorkerAvailability[\s\S]*?private localWorkerAvailabilityRows/)?.[0] || "";
   const rowsBlock = source.match(/private localWorkerAvailabilityRows[\s\S]*?private resetClient/)?.[0] || "";
@@ -143,7 +144,7 @@ test("local availability push stays server-only and project-state-free", () => {
 });
 
 test("stalled ui command status still observes late terminal result", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const block = source.match(/private async withUiCommandStatus[\s\S]*?private postUiCommandStatus/)?.[0] || "";
   assert.match(block, /result\.status === "stalled"/);
   assert.match(block, /guardedWork\.then\(\(lateResult\) =>/);

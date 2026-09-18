@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 // Widening the read-modify-write window with a sleep (not a barrier) keeps the test valid for a
 // serialised implementation: a barrier would deadlock precisely because the lock works.
@@ -133,7 +134,7 @@ print(json.dumps({
 });
 
 test("event and worker command appends share one reentrant critical section", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /EVENT_APPEND_LOCK = threading\.RLock\(\)/);
   assert.match(source, /with EVENT_APPEND_LOCK:\r?\n {8}seq = read_seq\(root\) \+ 1/);
   assert.match(source, /write_seq\(root, seq\)\r?\n {8}compact_journal\(root\)/);

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("transfer records derive percent and flag abandoned running transfers", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -57,7 +58,7 @@ print(json.dumps({
 });
 
 test("stall detection reuses the UTC-safe age helper", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /TRANSFER_STALL_SECONDS = 120/);
   assert.match(source, /age = iso_age_seconds\(out\.get\("updatedAt"\)\)/);
   assert.match(source, /out\["percent"\] = round\(min\(100\.0, max\(0\.0, done \* 100\.0 \/ total\)\), 1\)/);

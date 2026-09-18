@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 基线：empty-state 用统一虚线占位（无 compact 变体），结果用 evidence workbench + statusInfoPopover details。
 test("main path empty states stay readable and result workbench renders", () => {

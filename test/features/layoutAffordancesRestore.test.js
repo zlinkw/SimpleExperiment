@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function renderPanelHtmlFromSource(source) {
   const cleaned = source
@@ -27,7 +28,7 @@ function assertScriptParses(html) {
 }
 
 test("drawer UI baseline keeps layout edit and tree inspector affordances", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const html = renderPanelHtmlFromSource(source);
   assert.match(html, /id="layoutEditToggle"/);
   assert.match(html, /id="resourceTreeInspector"/);
@@ -43,7 +44,7 @@ test("drawer UI baseline keeps layout edit and tree inspector affordances", () =
 });
 
 test("main panel layout reuses one order membership index", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const start = source.indexOf("function applyUiLayout(");
   const end = source.indexOf("function uiLayoutApplyKey(", start);
   const applyLayout = source.slice(start, end);

@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 基线：端口接入适配器保留 FwdReq 说明、project 规则编辑器与 openPlan 入口。
 test("server worker port adapter keeps project rule editors and openPlan", () => {

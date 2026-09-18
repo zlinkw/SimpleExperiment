@@ -5,8 +5,9 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const { parsePlanOutputEvidence } = require("../../dist/features/PlanBuilder");
+const { readSource } = require("../_helpers/sourceReader");
 
-const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const source = readSource("src/extension.ts");
 
 function extractFunction(name) {
   const asyncStart = source.indexOf(`async function ${name}(`);

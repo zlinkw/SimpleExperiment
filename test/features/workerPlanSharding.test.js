@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const { createWorkerPlanShardSet, workerPlanShardSetMatches } = require("../../dist/features/WorkerPlanSharding.js");
+const { readSource } = require("../_helpers/sourceReader");
 const root = path.join(__dirname, "..", "..");
 
 function extensionFunction(source, name) {
@@ -46,7 +47,7 @@ test("Worker pool sharding rejects incomplete identity", () => {
 });
 
 test("Extension asks for one Plan target and submits the complete Plan to that Worker", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const methodStart = source.indexOf("async postWorkerPoolPlanAction");
   const method = source.slice(methodStart, source.indexOf("assertTopologyActualWorkRoots", methodStart));
   assert.match(method, /ensureWorkerPoolPlanTarget\(body, options\.title \|\| action\)/);
@@ -71,7 +72,7 @@ test("Extension asks for one Plan target and submits the complete Plan to that W
 });
 
 test("no-Hub result fanout preserves every Worker outcome before reporting failure", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const methodStart = source.indexOf("async postNoHubResultAction");
   const method = source.slice(methodStart, source.indexOf("assertTopologyActualWorkRoots", methodStart));
   assert.match(method, /for \(const workerId of workerIds\)/);
@@ -113,7 +114,7 @@ test("no-Hub result fanout preserves every Worker outcome before reporting failu
 });
 
 test("Worker Agent accepts manual full-Plan targets and gates legacy shard requests", () => {
-  const source = fs.readFileSync(path.join(root, "src", "clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /topology_mode != "single_worker" and topology_mode != "worker_pool"/);
   assert.match(source, /owner != current_worker or worker_ids != \[owner\]/);
   assert.match(source, /dispatch_policy = str\(options\.get\("workerPoolDispatchPolicy"\)/);
@@ -126,7 +127,7 @@ test("Worker Agent accepts manual full-Plan targets and gates legacy shard reque
 });
 
 test("Scheduler limits dry-run and execution queues to assigned indices", () => {
-  const source = fs.readFileSync(path.join(root, "src", "clusterSchedulerRuntime.ts"), "utf8");
+  const source = readSource("src/clusterSchedulerRuntime.ts");
   assert.match(source, /parser\.add_argument\("--only-indices", default=""\)/);
   assert.match(source, /jobs = \[job for job in jobs if int\(job\.index\) in allowed\]/);
   assert.match(source, /missing = sorted\(allowed\.difference\(int\(job\.index\) for job in jobs\)\)/);

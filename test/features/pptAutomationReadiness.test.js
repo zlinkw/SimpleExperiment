@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const {
   PptPlotBridge,
@@ -105,8 +106,8 @@ test("PPT automation HTTP failures map to actionable states", async () => {
 });
 
 test("result UI exposes PPT readiness without entering experiment gates", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
+  const panel = readSource("src/ui/PanelHtml.ts");
   assert.match(extension, /void this\.refreshPptAutomationReadiness\(false\)/);
   assert.match(extension, /pptAutomation: this\.pptAutomationReadiness/);
   const refresh = extension.match(/async refreshPptAutomationReadiness\(start\)[\s\S]*?async openPptAutomationGuide/)?.[0] || "";

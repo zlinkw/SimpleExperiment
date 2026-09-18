@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("audit tail reads a bounded window instead of the whole journal", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -90,7 +91,7 @@ print(json.dumps({
 });
 
 test("audit tail falls back to the tmp journal and stays byte bounded", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /AUDIT_TAIL_MAX_BYTES = 1024 \* 1024/);
   assert.match(source, /def audit_tail_byte_budget\(line_limit\)/);
   assert.doesNotMatch(source, /f\.readlines\(\)\[-lines:\]/);

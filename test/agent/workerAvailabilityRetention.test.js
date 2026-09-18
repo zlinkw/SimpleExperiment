@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("worker availability entries expire by TTL and stay bounded", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -83,7 +84,7 @@ print(json.dumps({
 });
 
 test("availability write path copies the cached map before merging", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /MAX_WORKER_AVAILABILITY_RECORDS = 64/);
   assert.match(source, /WORKER_AVAILABILITY_EXPIRY_FACTOR = 4/);
   assert.match(source, /entries = dict\(source_entries\)/);

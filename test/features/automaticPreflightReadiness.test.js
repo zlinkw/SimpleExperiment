@@ -2,9 +2,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
+const extension = readSource("src/extension.ts");
 
 test("run gate presents automatic sync validation and dry-run as informational", () => {
   assert.match(panel, /\["同步代码", syncReady \? "good" : "info"/);

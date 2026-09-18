@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -27,7 +28,7 @@ function extractConst(source, name) {
 
 test("webview terminal uiCommandStatus clears button loading by client action", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const handler = source.match(/function handleUiCommandStatus[\s\S]*?function clearCompletedPendingButtons/)?.[0] || "";
   assert.match(handler, /clientActionId/);
   assert.match(handler, /isTerminalUiStatus\(data\.status\)/);
@@ -39,7 +40,7 @@ test("webview terminal uiCommandStatus clears button loading by client action", 
 
 test("webview command watchdog is scoped to client action id", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const clickHandler = source.match(/document\.addEventListener\("click"[\s\S]*?vscode\.postMessage/)?.[0] || "";
   const clearBlock = source.match(/function clearPendingActionTimeout[\s\S]*?function clearButtonsForPending/)?.[0] || "";
   assert.match(source, /let pendingActionTimeouts = \{\}/);
@@ -52,7 +53,7 @@ test("webview command watchdog is scoped to client action id", () => {
 
 test("extension action operations use stable ids and watchdog terminal states", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /operationId\?: string/);
   assert.match(source, /request\.operationId = request\.opId/);
   assert.match(source, /scheduleOperationWatchdog\(request\.opId, action\)/);
@@ -64,7 +65,7 @@ test("extension action operations use stable ids and watchdog terminal states", 
 
 test("extension compacts operation payload without dropping active operations", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const runtimeEvidence = source.match(/private buildPlanRuntimeEvidenceState\(\)[\s\S]*?return \{ connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations \};/)?.[0] || "";
   const compact = source.match(/function compactOperationRecords[\s\S]*?function operationTerminal/)?.[0] || "";
 
@@ -86,7 +87,7 @@ test("extension compacts operation payload without dropping active operations", 
 
 test("local operation persistence is dirty-gated, single-flight, and project-scoped", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const queue = source.match(/private queueProjectLocalOperationsStatePersistence\(\)[\s\S]*?async persistProjectLocalOperationsState/)?.[0] || "";
 
   assert.match(queue, /this\.localOperationsPersistPromise \|\| !this\.localOperationsDirty/);
@@ -100,7 +101,7 @@ test("local operation persistence is dirty-gated, single-flight, and project-sco
 
 test("local toolbar commands wait for extension terminal status", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /function localCommandReleasesAfterTrigger/);
   assert.match(source, /const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set\(\["startAllConnections", "testAll", "snapshot"\]\)/);
   assert.match(source, /return LOCAL_COMMAND_RELEASES_AFTER_TRIGGER\.has/);
@@ -110,7 +111,7 @@ test("local toolbar commands wait for extension terminal status", () => {
 
 test("webview repeated render does not preserve disabled state for loading buttons", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   assert.match(source, /const alreadyLoading = button\.classList\.contains\("is-loading"\)/);
   assert.match(source, /if \(!alreadyLoading\) button\.dataset\.wasDisabled/);
   assert.match(source, /delete button\.dataset\.clientActionId/);
@@ -118,7 +119,7 @@ test("webview repeated render does not preserve disabled state for loading butto
 
 test("webview command lifecycle reuses fixed status and command sets", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const sandbox = {
     COMMANDS_WITHOUT_LOADING: new Set(["selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status"]),
     TERMINAL_UI_STATUSES: new Set(["completed", "submitted", "failed", "cancelled", "stalled"]),
@@ -156,7 +157,7 @@ test("webview command lifecycle reuses fixed status and command sets", () => {
 
 test("pending action scope selectors reuse fixed keys and data attributes", () => {
   const root = path.resolve(__dirname, "..", "..");
-  const source = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const sandbox = { cssEscape: (value) => String(value) };
   vm.createContext(sandbox);
   vm.runInContext([

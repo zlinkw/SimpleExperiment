@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("panel delegates uploads to SimpleSFTP and limits direct file access to result inspection", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /"simpleSftp\.uploadWorkspace"/);
   assert.match(source, /"simpleSftp\.uploadFiles"/);
   assert.match(source, /async downloadRemoteResultFromUi\(message\)/);

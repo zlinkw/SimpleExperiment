@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const extension = readSource("src/extension.ts");
 
 test("all accepted Plan submissions open the current task monitor", () => {
   const start = extension.indexOf("async runActionCommandCore(command, message)");

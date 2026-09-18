@@ -3,10 +3,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
-const panel = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
-const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
+const extension = readSource("src/extension.ts");
 
 function extractFunction(name) {
   const start = extension.indexOf(`function ${name}(`);

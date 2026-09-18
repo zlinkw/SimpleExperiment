@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
 
@@ -95,7 +96,7 @@ print(json.dumps({
 });
 
 test("the wait deadline is a named runtime constant", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /WORKER_ACTION_WAIT_TIMEOUT_SECONDS = 30/);
   assert.match(source, /deadline = time\.time\(\) \+ WORKER_ACTION_WAIT_TIMEOUT_SECONDS/);
   assert.match(source, /remaining_ms = int\(\(deadline - time\.time\(\)\) \* 1000\)/);

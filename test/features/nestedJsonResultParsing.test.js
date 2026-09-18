@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 
 const Results = require("../../dist/features/Results");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractAgent(source) {
   const start = source.indexOf("#!/usr/bin/env python3");
@@ -78,7 +79,7 @@ test("Hub Agent keeps nested JSON dimensions and split metrics", () => {
   fs.mkdirSync(resultDir, { recursive: true });
   fs.writeFileSync(path.join(resultDir, "results.json"), JSON.stringify(nestedResult()), "utf8");
 
-  const agentSource = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const agentSource = readSource("src/clusterAgentRuntime.ts");
   const agentPath = path.join(root, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(agentSource), "utf8");
   const script = path.join(root, "check.py");

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
@@ -20,7 +21,7 @@ test("remaining remote feature audit is migrated to tunnel-only sources", () => 
     }
   }
 
-  const text = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
+  const text = readSource("src/extension.ts");
   for (const oldName of ["RemoteExecutionService", "RuntimeManager", "RemoteFileStore", "FakeRemoteCommandRunner", "writeRemoteBase64"]) {
     assert.equal(text.includes(oldName), false, `${oldName} still wired into the active extension`);
   }

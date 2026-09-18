@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 const schedulerRuntime = path.join(root, "dist", "runtime", "cluster_scheduler.py");
@@ -97,7 +98,7 @@ print(json.dumps({
 });
 
 test("scheduler source wires recursive config rendering after case overrides", () => {
-  const source = fs.readFileSync(path.join(root, "src", "clusterSchedulerRuntime.ts"), "utf8");
+  const source = readSource("src/clusterSchedulerRuntime.ts");
   assert.match(source, /def render_config_templates\(value: Any, values: dict\[str, Any\]\) -> Any:/);
   assert.match(source, /for key, value in overrides\.items\(\):\r?\n {16}set_dotted\(cfg, str\(key\), value\)\r?\n {12}cfg = render_config_templates\(cfg, values\)/);
 });

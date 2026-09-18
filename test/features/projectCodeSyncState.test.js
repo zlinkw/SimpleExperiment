@@ -4,9 +4,10 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function loadHelpers() {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const start = source.indexOf("const PROJECT_CODE_SYNC_PATH");
   const end = source.indexOf("function compactLocalPlansForWebview");
   assert.ok(start > 0 && end > start, "code sync helpers missing");
@@ -31,7 +32,7 @@ function loadHelpers() {
 }
 
 function loadSyncRoleStatus() {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const start = source.indexOf("const NON_SUCCESSFUL_SYNC_STATUSES");
   const end = source.indexOf("function persistedTunnelGatewayConfig", start);
   assert.ok(start > 0 && end > start, "sync role status helper missing");
@@ -81,7 +82,7 @@ test("project code sync normalize keeps error and drops empty rows", () => {
 });
 
 test("extension wires project code sync load/persist helpers", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /simple_cluster\/ui\/code_sync\.json/);
   assert.match(source, /loadProjectCodeSyncState/);
   assert.match(source, /persistProjectCodeSyncState/);

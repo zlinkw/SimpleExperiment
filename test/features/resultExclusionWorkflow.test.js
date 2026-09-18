@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractAgent(source) {
   const start = source.indexOf("#!/usr/bin/env python3");
@@ -13,7 +14,7 @@ function extractAgent(source) {
 }
 
 test("current Plan revision can exclude results without deleting preview data or artifacts", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-exclude-"));
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(source), "utf8");
@@ -68,10 +69,10 @@ test("current Plan revision can exclude results without deleting preview data or
 });
 
 test("result exclusion is wired through Hub action, debug gate, and current revision UI", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
+  const panel = readSource("src/ui/PanelHtml.ts");
   const tunnel = fs.readFileSync(path.join(__dirname, "../../src/tunnel/TunnelClient.ts"), "utf8");
-  const agent = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const agent = readSource("src/clusterAgentRuntime.ts");
   assert.match(extension, /excludeResults: "exclude-results"/);
   assert.match(extension, /const RESULT_REPARSE_ACTIONS = new Set\(\[[^\]]*"exclude-results"/);
   assert.match(extension, /function actionRequiresResultReparse\(action\) \{\s*return RESULT_REPARSE_ACTIONS\.has/);

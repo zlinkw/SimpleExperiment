@@ -2,10 +2,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
 const config = JSON.parse(fs.readFileSync(path.join(root, "tsconfig.json"), "utf8"));
-const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
+const extension = readSource("src/extension.ts");
 const ignore = fs.readFileSync(path.join(root, ".vscodeignore"), "utf8");
 const legacyName = ["Moba", "Xterm"].join("");
 

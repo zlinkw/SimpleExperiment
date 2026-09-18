@@ -3,12 +3,13 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
-const agentSource = fs.readFileSync(path.join(root, "src/clusterAgentRuntime.ts"), "utf8");
+const extension = readSource("src/extension.ts");
+const panel = readSource("src/ui/PanelHtml.ts");
+const agentSource = readSource("src/clusterAgentRuntime.ts");
 
 test("public setup defaults to system Python without changing explicit Conda environments", () => {
   const setup = require(path.join(root, "dist/tunnel/XshellTunnelSetup.js"));

@@ -3,8 +3,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const extension = readSource("src/extension.ts");
 const { RealtimeTunnelClient } = require("../../dist/tunnel/RealtimeTunnelClient.js");
 const { MultiEndpointRealtimeClient } = require("../../dist/tunnel/MultiEndpointRealtimeClient.js");
 

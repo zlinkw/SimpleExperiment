@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("agent writes invalidate cached read-only snapshots even under coarse file timestamps", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -61,7 +62,7 @@ print(json.dumps({
 });
 
 test("agent write helpers drop cached runtime JSON entries", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /def invalidate_runtime_json_cache\(path\)/);
   assert.match(source, /replace_with_retry\(tmp, path\)/);
   assert.match(source, / {8}raise\r?\n {4}invalidate_runtime_json_cache\(path\)/);

@@ -4,9 +4,10 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function loadHelpers() {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const start = source.indexOf("const PROJECT_UI_LAYOUT_PATH");
   const end = source.indexOf("function compactLocalPlansForWebview");
   assert.ok(start > 0 && end > start, "helper slice missing");
@@ -68,7 +69,7 @@ test("project ui layout state persists under simple_cluster/ui", async () => {
 });
 
 test("extension wires project ui layout helpers", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /simple_cluster\/ui\/ui_layout\.json/);
   assert.match(source, /loadProjectUiLayoutState/);
   assert.match(source, /persistProjectUiLayoutState/);

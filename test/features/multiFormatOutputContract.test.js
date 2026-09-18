@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractAgent(source) {
   const start = source.indexOf("#!/usr/bin/env python3");
@@ -37,7 +38,7 @@ function snapshots(root, directory) {
 test("output contract accepts declared CSV, JSON, and text results without cross-plan or metadata leakage", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-output-contract-"));
   const root = path.join(tmp, "project");
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(source), "utf8");
 

@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("all visible panel commands have extension handlers", () => {
   const root = path.join(__dirname, "..", "..");
-  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
-  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const html = readSource("src/ui/PanelHtml.ts");
+  const extension = readSource("src/extension.ts");
 
   const commands = new Set();
   for (const match of html.matchAll(/data-command="([A-Za-z][A-Za-z0-9]+)"/g)) commands.add(match[1]);

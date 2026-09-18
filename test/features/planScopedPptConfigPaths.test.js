@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractAgent(source) {
   const start = source.indexOf("#!/usr/bin/env python3");
@@ -17,7 +18,7 @@ function pyString(value) {
 }
 
 test("ppt plot config buttons bind a statistics source path", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   // 统计源必须来自当前 Plan 的最终结果摘要，不能固定绑定旧的全局路径。
   assert.match(source, /function renderPptPlotConfig\(state\) \{[\s\S]*data-command="plotResultsToPpt"/);
   assert.match(source, /function pptPlotButton\(label, sourcePath, sourceLabel, extra\)/);
@@ -27,7 +28,7 @@ test("ppt plot config buttons bind a statistics source path", () => {
 });
 
 test("export plotting contract stamps summary plottingContractPath", () => {
-  const agent = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const agent = readSource("src/clusterAgentRuntime.ts");
   const py = fs.readFileSync(path.join(__dirname, "../../dist/runtime/cluster_agent.py"), "utf8");
   for (const source of [agent, py]) {
     assert.match(source, /summary\["plottingContractPath"\] = rel/);

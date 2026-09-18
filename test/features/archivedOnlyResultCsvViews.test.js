@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractAgent(source) {
   const start = source.indexOf("#!/usr/bin/env python3");
@@ -13,7 +14,7 @@ function extractAgent(source) {
 }
 
 test("preview CSV keeps all parsed records while effective CSV keeps archived records only", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-csv-views-"));
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(source), "utf8");
@@ -66,7 +67,7 @@ test("preview CSV keeps all parsed records while effective CSV keeps archived re
 });
 
 test("result consumers and PPT reject preview CSV as a final plot source", () => {
-  const agent = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const agent = readSource("src/clusterAgentRuntime.ts");
   const ppt = fs.readFileSync(path.join(__dirname, "../../src/PptPlotBridge.ts"), "utf8");
   assert.match(agent, /summary\["inclusionPolicy"\] = "archived_only"/);
   assert.match(agent, /str\(record\.get\("finalEvidenceState"\) or ""\)\.lower\(\) == "archived"/);

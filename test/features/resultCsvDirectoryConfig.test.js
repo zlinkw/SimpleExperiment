@@ -4,11 +4,13 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 
+const { readSource } = require("../_helpers/sourceReader");
+
 const root = path.join(__dirname, "../..");
-const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
-const agent = fs.readFileSync(path.join(root, "src/clusterAgentRuntime.ts"), "utf8");
-const scheduler = fs.readFileSync(path.join(root, "src/clusterSchedulerRuntime.ts"), "utf8");
+const extension = readSource("src/extension.ts");
+const panel = readSource("src/ui/PanelHtml.ts");
+const agent = readSource("src/clusterAgentRuntime.ts");
+const scheduler = readSource("src/clusterSchedulerRuntime.ts");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
 test("result CSV directory is project-scoped and editable from Settings", () => {

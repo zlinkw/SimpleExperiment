@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractAgent(source) {
   const start = source.indexOf("#!/usr/bin/env python3");
@@ -17,7 +18,7 @@ function pyString(value) {
 }
 
 test("anomaly diagnosis writes under plan-scoped anomaly dir", () => {
-  const agent = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const agent = readSource("src/clusterAgentRuntime.ts");
   const py = fs.readFileSync(path.join(__dirname, "../../dist/runtime/cluster_agent.py"), "utf8");
   for (const source of [agent, py]) {
     assert.match(source, /anomaly_rel = plan_results_artifact_relpath\(plan_norm, f"anomaly\/\{safe\}"\)/);
@@ -79,7 +80,7 @@ test("anomaly diagnosis writes under plan-scoped anomaly dir", () => {
 });
 
 test("result evidence workbench keeps ppt plot buttons with artifact paths", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   // Plot actions must use the selected Plan's final artifacts, never global fallback paths.
   assert.match(source, /function pptPlotButton\(label, sourcePath, sourceLabel, extra\)/);
   assert.match(source, /const statisticsSourcePath = statisticsReady \? meaningfulValue\(statisticsPath\) : "";/);

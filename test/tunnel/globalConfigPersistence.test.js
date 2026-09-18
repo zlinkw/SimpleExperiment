@@ -1,16 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("tunnel setup is persisted globally instead of per workspace", () => {
-  const source = fs.readFileSync("src/extension.ts", "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /globalState\.get\(keys\.setupConfig\)/);
   assert.match(source, /globalState\.update\(keys\.setupConfig, persistedXshellSetupConfig\(this\.setupConfig\)\)/);
   assert.doesNotMatch(source, /workspaceState\.get\([^)]*setupConfig/);
 });
 
 test("session defaults keep the last panel save unless a non-default user setting changes", () => {
-  const source = fs.readFileSync("src/extension.ts", "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /setupConfigurationSignature: "simpleExperiment\.setupConfigurationSignature"/);
   assert.match(source, /hasStoredSignature && storedSignature === this\.sessionDefaultConfigurationSignature\(sessionDefaults\)/);
   assert.match(source, /const explicit = \(0, ConfigurationSettings_1\.explicitConfigurationValue\)\(config, key, savedValue === undefined \? fallback : savedValue\)/);

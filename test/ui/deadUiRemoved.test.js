@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panelSource = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 抽屉基线：渲染与缓存辅助器全部保留，但用 translateX 抽屉而非 absolute rails。
 const liveFns = [

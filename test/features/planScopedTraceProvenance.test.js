@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 function extractAgent(source) {
   const start = source.indexOf("#!/usr/bin/env python3");
@@ -18,7 +19,7 @@ function writeJson(file, value) {
 }
 
 test("Agent enriches experiment traces with unambiguous Plan revision provenance", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   const built = fs.readFileSync(path.join(__dirname, "../../dist/runtime/cluster_agent.py"), "utf8");
   for (const text of [source, built]) {
     assert.match(text, /def enrich_trace_plan_provenance\(root, rows, scheduler=None\):/);

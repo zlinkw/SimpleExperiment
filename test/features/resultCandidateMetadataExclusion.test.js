@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const PlanBuilder = require("../../dist/features/PlanBuilder.js");
 const Templates = require("../../dist/templates/ProjectAdapterTemplates.js");
+const { readSource } = require("../_helpers/sourceReader");
 
 function metadataPlan(extraResults = []) {
   return [
@@ -47,8 +48,8 @@ test("Plan evidence rejects metadata-only outputs and keeps real result candidat
 });
 
 test("new-project scanners and generated adapter rules do not advertise metadata as results", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
+  const panel = readSource("src/ui/PanelHtml.ts");
   const start = extension.indexOf("function resultCandidateFile(name)");
   const end = extension.indexOf("\nfunction isHeavyProjectDir", start);
   assert.ok(start >= 0 && end > start);
@@ -84,7 +85,7 @@ test("Hub Agent output gate and adapter policy reject metadata-only candidates",
     "    - work_dirs/metadata_only/artifact_manifest.json",
   ].join("\n"), "utf8");
 
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   const agentPath = path.join(tmp, "cluster_agent.py");
   fs.writeFileSync(agentPath, extractAgent(source), "utf8");
   const script = path.join(tmp, "check.py");

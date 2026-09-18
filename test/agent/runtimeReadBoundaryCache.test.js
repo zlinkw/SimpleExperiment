@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("read-only result summary and diagnostics reads reuse the runtime JSON cache", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -80,7 +81,7 @@ print(json.dumps({
 });
 
 test("result summary route reads cached while parse decisions keep uncached reads", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /def read_results_summary\(root, plan=None, cached=False\)/);
   assert.match(source, /read_summary = read_runtime_json_cached if cached else read_json/);
   assert.match(source, /read_results_summary\(root, plan or None, True\)/);

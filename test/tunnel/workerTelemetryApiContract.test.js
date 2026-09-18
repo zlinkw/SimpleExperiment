@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { MultiEndpointRealtimeClient, mergeWorkerResultsSummaries } = require("../../dist/tunnel/MultiEndpointRealtimeClient.js");
 const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
+const { readSource } = require("../_helpers/sourceReader");
 
 const {
   workerTelemetryAllowedEvents,
@@ -17,7 +18,7 @@ const {
 } = require("../../dist/tunnel/WorkerTelemetryApi.js");
 
 function panelFunction(name) {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `missing ${name}`);
   const body = source.indexOf("{", start);
@@ -113,7 +114,7 @@ test("partial Worker summaries stay worker-pool scoped and disclose missing endp
   assert.deepEqual(merged.availableWorkerIds, ["worker-a"]);
   assert.deepEqual(merged.unavailableWorkerIds, ["worker-b"]);
   assert.match(merged.message, /不是全局结果/);
-  const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const panel = readSource("src/ui/PanelHtml.ts");
   assert.match(panel, /function renderWorkerResultAggregateWarning\(summary\)/);
   assert.match(panel, /当前数字仅代表可用 Worker 的只读部分视图/);
 });

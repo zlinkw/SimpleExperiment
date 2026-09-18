@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("agent read-only telemetry APIs reuse runtime JSON cache without sharing write reads", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -75,7 +76,7 @@ print(json.dumps({
 });
 
 test("hub telemetry routes use cached read-only runtime snapshots", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /read_availability_cache\(root, True\)/);
   assert.match(source, /read_runtime_json_cached\(path_for\(root, "gpu_snapshot\.json"\), \{\}\)/);
   assert.match(source, /read_runtime_json_cached\(path_for\(root, "cluster_snapshot\.json"\), \{\}\)/);

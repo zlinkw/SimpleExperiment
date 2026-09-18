@@ -3,10 +3,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 const agentPath = path.join(root, "dist", "runtime", "cluster_agent.py");
-const agentSource = fs.readFileSync(path.join(root, "src", "clusterAgentRuntime.ts"), "utf8");
+const agentSource = readSource("src/clusterAgentRuntime.ts");
 
 function runPython(script) {
   const os = require("os");

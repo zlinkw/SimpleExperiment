@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { readSource } = require("../_helpers/sourceReader");
 
 test("result candidate normalization is memoized without changing its verdicts", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
@@ -89,7 +90,7 @@ print(json.dumps({
 });
 
 test("result candidate cache keeps the pure derivation reachable", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.ts"), "utf8");
+  const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /MAX_RESULT_CANDIDATE_CACHE_RECORDS = 512/);
   assert.match(source, /def compute_result_candidate\(value\)/);
   assert.match(source, /key = value if isinstance\(value, str\) else None/);

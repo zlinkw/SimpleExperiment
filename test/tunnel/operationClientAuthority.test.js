@@ -2,8 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
-const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const source = readSource("src/extension.ts");
 
 test("operation probes and watchdogs retain their initiating client authority", () => {
   const scheduleStart = source.indexOf("scheduleOperationWatchdog(opId");

@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 test("result next action requires persisted quality gate evidence before statistics", () => {
   assert.match(panel, /qualityGatePath: pick\(item, \["qualityGatePath", "quality_gate_path"\]/);

@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const {
   compareSemanticVersions,
@@ -11,8 +12,8 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 
-const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
-const extensionSource = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const panelSource = readSource("src/ui/PanelHtml.ts");
+const extensionSource = readSource("src/extension.ts");
 
 function release(version, names = [`simple-${version}.vsix`, `simple-${version}.vsix.sha256`]) {
   return {

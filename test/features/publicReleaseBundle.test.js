@@ -2,13 +2,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const packageScript = fs.readFileSync(path.join(root, "scripts/package-public.ps1"), "utf8");
 const installScript = fs.readFileSync(path.join(root, "scripts/install-public-release.ps1"), "utf8");
-const extension = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
+const extension = readSource("src/extension.ts");
+const panel = readSource("src/ui/PanelHtml.ts");
 const vsixIgnore = fs.readFileSync(path.join(root, ".vscodeignore"), "utf8");
 
 test("public release declares paired SimpleSFTP dependency", () => {

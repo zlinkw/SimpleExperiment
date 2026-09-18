@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { promisify } = require("node:util");
+const { readSource } = require("../_helpers/sourceReader");
 
 const execFileAsync = promisify(execFile);
 
@@ -30,7 +31,7 @@ function runCli(args, extraEnv = {}) {
 
 const root = path.resolve(__dirname, "../..");
 const { LocalApiServer, confirmationRequired, loopbackRequest, parseRemoteAddress } = require("../../dist/api/LocalApiServer.js");
-const extensionSource = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
+const extensionSource = readSource("src/extension.ts");
 const apiServerSource = fs.readFileSync(path.join(root, "src/api/LocalApiServer.ts"), "utf8");
 const workflow = require("../../dist/features/ApiWorkflow.js");
 const topologyMode = require("../../dist/features/TopologyMode.js");

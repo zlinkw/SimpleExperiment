@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+const source = readSource("src/extension.ts");
 const flush = source.match(/private flushStatePost[\s\S]*?private scheduleStatePostRetry/)?.[0] || "";
 const retry = source.match(/private scheduleStatePostRetry[\s\S]*?private integration/)?.[0] || "";
 

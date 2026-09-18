@@ -3,9 +3,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function loadLayoutHelpers() {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const defaultUiSectionOrderStart = source.indexOf("const defaultUiSectionOrder");
   const defaultUiSectionOrderEnd = source.indexOf("const defaultUiLayout =");
   const defaultStart = source.indexOf("const defaultUiLayout =");
@@ -38,7 +39,7 @@ test("servers config stays expanded near primary workflow by default", () => {
 });
 
 test("topbar keeps tunnel/network actions for novice recovery", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   // start/test 全局动作在分区卡片里渲染（overview/ servers-sessions）。
   assert.match(source, /data-command="startAllConnections"/);
   assert.match(source, /data-command="testAll"/);

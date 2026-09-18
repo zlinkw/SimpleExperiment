@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("result workflow actions and evidence summary are wired without duplicated middle-column buttons", () => {
-  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
   for (const action of ["parse-results", "refresh-results", "run-quality-gate", "run-statistics", "export-paper-table", "check-claim-evidence"]) {
     assert.match(extension, new RegExp(action));
   }
@@ -49,7 +50,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(extension, /后续同一错误会合并显示/);
   assert.doesNotMatch(extension, /lastResultsSummaryDirtyKey/);
 
-  const html = fs.readFileSync(path.join(root, "src", "ui", "PanelHtml.ts"), "utf8");
+  const html = readSource("src/ui/PanelHtml.ts");
   assert.match(html, /id="resultActions"/);
   assert.match(html, /el\("resultActions"\)\.className = "actionGrid statusOnly"/);
   assert.match(html, /results: \[\["解析结果", "parseResults"\], \["刷新结果", "refreshResults"\]/);

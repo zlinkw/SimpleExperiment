@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function renderPanelHtmlFromSource(source) {
   const cleaned = source
@@ -26,13 +27,13 @@ function extractScript(html) {
 }
 
 function loadRenderedPanelScript() {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   return extractScript(renderPanelHtmlFromSource(source));
 }
 
 test("panel and extension output gates share nextStep and parseable candidate regex", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-  const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
+  const panel = readSource("src/ui/PanelHtml.ts");
   const script = loadRenderedPanelScript();
   for (const source of [extension, panel]) {
     assert.match(source, /nextStep/);

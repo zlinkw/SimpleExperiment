@@ -3,8 +3,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panelSource = readSource("src/ui/PanelHtml.ts");
 
 function extractFunction(name) {
   const start = panelSource.indexOf(`function ${name}(`);

@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("active extension uses localhost clients and verified Xshell sessions instead of direct remote runners", () => {
-  const extension = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
   const launcher = fs.readFileSync(path.join(root, "src", "tunnel", "XshellSessionLauncher.ts"), "utf8");
   for (const item of ["RemoteExecutionService", "RuntimeService", "RemoteFileStore", "FakeRemoteCommandRunner", "runSsh(", "connectSshSessions", "closeControlMasterSessions"]) {
     assert.equal(extension.includes(item), false, item);
@@ -39,7 +40,7 @@ test("package UI does not expose direct fallback commands", () => {
 });
 
 test("extension command registration exposes only Xshell tunnel command ids", () => {
-  const text = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const text = readSource("src/extension.ts");
   const registered = Array.from(text.matchAll(/(?:registerCommand|hostCommand)\("([^"]+)"/g)).map((match) => match[1]);
   assert.equal(registered.filter((id) => /Tunnel/i.test(id)).every((id) => !/configure.*RealtimeTunnel/i.test(id) || /Xshell/i.test(id)), true);
   assert.equal(registered.some((id) => /LegacySsh|legacySsh/i.test(id)), false);

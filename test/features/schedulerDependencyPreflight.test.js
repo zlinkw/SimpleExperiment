@@ -4,14 +4,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
 const schedulerPath = path.join(root, "dist/runtime/cluster_scheduler.py");
 const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
-const agentSource = fs.readFileSync(path.join(root, "src/clusterAgentRuntime.ts"), "utf8");
-const schedulerSource = fs.readFileSync(path.join(root, "src/clusterSchedulerRuntime.ts"), "utf8");
-const extensionSource = fs.readFileSync(path.join(root, "src/extension.ts"), "utf8");
-const panelSource = fs.readFileSync(path.join(root, "src/ui/PanelHtml.ts"), "utf8");
+const agentSource = readSource("src/clusterAgentRuntime.ts");
+const schedulerSource = readSource("src/clusterSchedulerRuntime.ts");
+const extensionSource = readSource("src/extension.ts");
+const panelSource = readSource("src/ui/PanelHtml.ts");
 const probeSource = fs.readFileSync(path.join(root, "src/tunnel/XshellTunnelPortProbe.ts"), "utf8");
 const utf8PythonEnv = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
 

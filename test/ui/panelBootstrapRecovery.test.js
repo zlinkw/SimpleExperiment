@@ -4,8 +4,9 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { renderPanelBootstrapDocument } = require("../../dist/ui/PanelBootstrap.js");
-const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const { readSource } = require("../_helpers/sourceReader");
+const extension = readSource("src/extension.ts");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 test("panel host rendering falls back to a recovery document", () => {
   const normal = renderPanelBootstrapDocument(() => "<main>ready</main>", () => "recovery");

@@ -3,8 +3,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -47,7 +48,7 @@ function loadPlanExecutionStage() {
 }
 
 test("project next action follows the real preflight order", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
   assert.match(panel, /function projectEndpointReadiness\(state\)/);
   assert.match(panel, /function projectCodeSyncReadiness\(state\)/);
   assert.match(panel, /检测 Xshell 隧道与 Hub\/Worker Agent[\s\S]{0,120}"testAll"/);
@@ -87,7 +88,7 @@ test("Hub-only projects do not require a Worker sync status", () => {
 });
 
 test("Agent version mismatch leads to deploy then restart guidance", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
   assert.match(panel, /versionMismatch = hubRequired && hubStatus === "agent_version_mismatch"/);
   assert.match(panel, /Agent 版本与插件不兼容；部署后需重启 Xshell 会话[\s\S]{0,140}"deployLatestAgent"/);
   assert.match(panel, /最新版 Agent 已部署；请重启 Hub\/Worker Xshell 会话后检测[\s\S]{0,140}"startAllConnections"/);
@@ -126,7 +127,7 @@ test("submitted Plan runs navigate directly to the task list", () => {
 });
 
 test("editing a Plan invalidates older validation and dry-run operations", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
   assert.match(panel, /function operationMatchesPlanVersion\(row, planRevision, planUpdatedAt\)/);
   assert.match(panel, /rowRevision = String\(\(row \|\| \{\}\)\.planRevision \|\|/);
   assert.match(panel, /operationAt >= planUpdatedAt/);
@@ -227,7 +228,7 @@ test("Plan next action advances from validation to dry-run, run, and monitoring"
 });
 
 test("editing a Plan invalidates older validation and dry-run operations", () => {
-  const extension = fs.readFileSync(path.join(__dirname, "../../src/extension.ts"), "utf8");
+  const extension = readSource("src/extension.ts");
   assert.match(panel, /function operationMatchesPlanVersion\(row, planRevision, planUpdatedAt\)/);
   assert.match(panel, /operationAt >= planUpdatedAt/);
   assert.match(extension, /updatedAt: stat\?\.mtime\?\.toISOString\?\.\(\)/);

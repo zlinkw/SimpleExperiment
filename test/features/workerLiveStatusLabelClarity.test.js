@@ -2,8 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("../_helpers/sourceReader");
 
-const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+const panel = readSource("src/ui/PanelHtml.ts");
 
 test("task timeline labels Worker live status without changing task status logic", () => {
   assert.match(panel, /const workerLiveStatus = rawWorkerLiveStatus \? labelStatus\(rawWorkerLiveStatus\) : "等待推送"/);

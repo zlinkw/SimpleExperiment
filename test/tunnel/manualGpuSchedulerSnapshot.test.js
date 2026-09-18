@@ -2,11 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.resolve(__dirname, "..", "..");
 
 test("manual ui snapshots call tunnel client APIs", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /case "manualGpuSnapshot":[\s\S]+manualGpuSnapshot/);
   assert.match(source, /case "manualSchedulerSnapshot":[\s\S]+manualSchedulerSnapshot/);
   assert.match(source, /case "manualTracesSnapshot":[\s\S]+manualTracesSnapshot/);
@@ -16,7 +17,7 @@ test("manual ui snapshots call tunnel client APIs", () => {
 });
 
 test("manual ui snapshots bind completion to the initiating client", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   const methods = [
     ["manualGpuSnapshot", "loadGpuHistoryFromUi"],
     ["manualSchedulerSnapshot", "manualTracesSnapshot"],
@@ -32,7 +33,7 @@ test("manual ui snapshots bind completion to the initiating client", () => {
 });
 
 test("select log run key updates selection and refreshes live output", () => {
-  const source = fs.readFileSync(path.join(root, "src", "extension.ts"), "utf8");
+  const source = readSource("src/extension.ts");
   assert.match(source, /case "selectLogRunKey":/);
   assert.match(source, /this\.selectedLogRunKey = stringField/);
   assert.match(source, /fetchSelectedLiveOutput\(this\.selectedLogRunKey/);

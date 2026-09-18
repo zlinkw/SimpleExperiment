@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { readSource } = require("../_helpers/sourceReader");
 
 function renderPanelHtmlFromSource(source) {
   const cleaned = source
@@ -27,7 +28,7 @@ function assertScriptParses(html) {
 }
 
 test("drawer UI baseline keeps hover side rails and full tree hierarchy", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.ts"), "utf8");
+  const source = readSource("src/ui/PanelHtml.ts");
   const html = renderPanelHtmlFromSource(source);
   assert.match(html, /var\(--tree-col\)/);
   assert.match(html, /var\(--inspector-col\)/);
