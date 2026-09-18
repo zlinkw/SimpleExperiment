@@ -124,8 +124,7 @@ function normalizeXshellWorkerTunnelConfig(input = {}, index = 0, fallbackRemote
         agentProjectDir: input.agentProjectDir?.trim() || undefined,
         agentInstallDir: input.agentInstallDir?.trim() || undefined,
         condaEnv: input.condaEnv === undefined ? undefined : normalizeCondaEnvName(input.condaEnv),
-        maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1),
-        allowedGpuIds: normalizeAllowedGpuIds(input.allowedGpuIds),
+        maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1) === 1 && input.maxConcurrentGpus !== 1 ? "auto" : normalizePositiveInt(input.maxConcurrentGpus, 1),
         authMethod: normalizeAuthMethod(input.authMethod),
         enabled: input.enabled !== false,
         gpuIdleUtilThreshold: normalizeIdleUtilThreshold(input.gpuIdleUtilThreshold),
@@ -135,6 +134,10 @@ function normalizeXshellWorkerTunnelConfig(input = {}, index = 0, fallbackRemote
     };
 }
 function normalizeAllowedGpuIds(input) {
+    // 兼容空壳：allowed 语义已删除，始终返回 []，保留 sanitize 校验告警
+    return sanitizeAllowedGpuIdsCompat(input);
+}
+function sanitizeAllowedGpuIdsCompat(input) {
     const raw = Array.isArray(input) ? input : typeof input === "string" ? String(input).split(/[,\s]+/) : [];
     const trimmed = raw.map((item) => String(item || "").trim()).filter(Boolean);
     if (!trimmed.length)

@@ -2206,6 +2206,44 @@ def gpu_process_pids(worker: dict[str, Any], gpu_id: str) -> list[str]:
     return []
 
 
+def gpu_is_busy(row: dict[str, Any], thr_util: Any = None, thr_mem: Any = None) -> bool:
+    """三端镜像判忙：util<thr 且 mem<thr 为空闲；缺字段回退进程数（默认5%/200MB）"""
+    try:
+        u_thr = float(thr_util) if thr_util is not None else 5.0
+        m_thr = float(thr_mem) if thr_mem is not None else 200.0
+        util = None
+        for k in ("utilizationPercent", "utilization", "gpu_util", "utilizationGpu", "utilization_gpu", "gpuUtil", "util"):
+            if k in row and row.get(k) is not None:
+                try:
+                    v = float(row.get(k))
+                    if v == v:
+                        util = v
+                        break
+                except Exception:
+                    continue
+        mem = None
+        for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used", "used", "memUsedMb", "usedMb"):
+            if k in row and row.get(k) is not None:
+                try:
+                    v = float(row.get(k))
+                    if v == v:
+                        mem = v
+                        break
+                except Exception:
+                    continue
+        if util is not None and mem is not None:
+            return not (float(util) < u_thr and float(mem) < m_thr)
+        procs = row.get("processes") or row.get("procs") or []
+        if isinstance(procs, list) and len(procs) > 0:
+            return True
+        try:
+            return int(row.get("processCount") or row.get("process_count") or 0) > 0
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -> dict[str, Any]:
     stamp = now()
     probe: dict[str, Any] = {
@@ -2217,19 +2255,20 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
         "error": "",
     }
     availability = worker.get("_availability") if isinstance(worker.get("_availability"), dict) else {}
+    # 5步重排：1缺失 2硬错 3stale 4零卡 5重算
     if not availability:
         probe["error"] = "Worker 可用性缓存缺失"
         probe["structuredError"] = {
             "workerId": str(worker.get("id") or ""),
             "expectedStateKey": str(worker.get("_availability_state_key") or ""),
             "lastSeenAt": None,
-            "ttlSeconds": int(worker.get("worker_status_ttl_seconds") or 45),
+            "ttlSeconds": int(worker.get("worker_status_ttl_seconds") or 180),
             "agentStatus": str(worker.get("_agent_status") or "unknown"),
             "suggestedAction": "确认 Agent 在线后点击检测全部；调度器会自动刷新；仍失败时检查 Xshell 隧道与 localForwardPort。",
         }
         return probe
     updated_at = str(availability.get("updatedAt") or "")
-    ttl = int(availability.get("ttlSeconds") or worker.get("workerStatusTtlSeconds") or worker.get("worker_status_ttl_seconds") or worker.get("sessionCheckMinSeconds") or 45)
+    ttl = int(availability.get("ttlSeconds") or worker.get("workerStatusTtlSeconds") or worker.get("worker_status_ttl_seconds") or worker.get("sessionCheckMinSeconds") or 180)
     age = availability_age_seconds(worker)
     if age is None or age > ttl:
         probe["error"] = f"worker availability stale age={age if age is not None else 'unknown'} ttl={ttl}"
@@ -2242,25 +2281,15 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
             "suggestedAction": "确认 Agent 在线并等待一次有界刷新；若持续过期，检查本机时钟和 Xshell 隧道。",
         }
         return probe
+    # 2硬错：GPU查询失败直通（换人不失败，由熔断统一计数）
+    if str(availability.get("reason") or "") == "GPU查询失败" or str(availability.get("gpuError") or "").strip():
+        probe["error"] = str(availability.get("gpuError") or "GPU查询失败")
+        probe["structuredError"] = {"workerId": str(worker.get("id") or ""), "kind": "GPU_QUERY_FAILED", "gpuError": str(availability.get("gpuError") or "")}
+        return probe
     if availability.get("available") is False:
         probe["error"] = str(availability.get("reason") or "worker unavailable")
         return probe
-    raw_allowed = [str(item).strip() for item in worker.get("allowed_gpu_ids", []) if str(item).strip()]
-    # 语义修复：空、"-"、"--" 均表示全部允许；仅数字 ID 透传；非法值告警并置空，避免 not_allowed 全拒
-    if not raw_allowed:
-        allowed: set[str] = set()
-    elif len(raw_allowed) == 1 and raw_allowed[0] in ("-", "--"):
-        allowed = set()
-    elif any(item in ("-", "--") for item in raw_allowed):
-        print(f"[allowed_gpu_ids] 非法占位 {raw_allowed!r} 已置空为全部允许", flush=True)
-        allowed = set()
-    else:
-        invalid = [item for item in raw_allowed if not item.isdigit()]
-        if invalid:
-            print(f"[allowed_gpu_ids] 非法 GPU ID {invalid!r} 已置空为全部允许，仅数字 0..N 有效", flush=True)
-            allowed = set()
-        else:
-            allowed = set(raw_allowed)
+    # allowed分支已删除：空=全部允许，不再按 allowed_gpu_ids 过滤
     # 每服务器空卡阈值：worker 优先，availability 透传次之，全局默认值兜底
     thr_util = worker.get("gpu_idle_util_threshold")
     if thr_util is None:
@@ -2301,44 +2330,8 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
                     continue
             if not gid:
                 continue
-            # 动态阈值判定，与 agent 侧 gpu_row_busy 一致
-            busy_flag = False
-            try:
-                util = None
-                for k in ("utilizationPercent", "utilization", "gpu_util", "utilizationGpu", "utilization_gpu"):
-                    if k in row and row.get(k) is not None:
-                        try:
-                            v = float(row.get(k))
-                            if v == v:
-                                util = v
-                                break
-                        except Exception:
-                            continue
-                mem = None
-                for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used", "used"):
-                    if k in row and row.get(k) is not None:
-                        try:
-                            v = float(row.get(k))
-                            if v == v:
-                                mem = v
-                                break
-                        except Exception:
-                            continue
-                if util is not None and mem is not None:
-                    u_thr = float(thr_util) if thr_util is not None else 5.0
-                    m_thr = float(thr_mem) if thr_mem is not None else 200.0
-                    busy_flag = not (float(util) < u_thr and float(mem) < m_thr)
-                else:
-                    procs = row.get("processes") or row.get("procs") or []
-                    if isinstance(procs, list) and len(procs) > 0:
-                        busy_flag = True
-                    else:
-                        try:
-                            busy_flag = int(row.get("processCount") or row.get("process_count") or 0) > 0
-                        except Exception:
-                            busy_flag = False
-            except Exception:
-                busy_flag = False
+            # 动态阈值判定：复用 gpu_is_busy（三端镜像，与 agent 侧一致）
+            busy_flag = gpu_is_busy(row, thr_util, thr_mem)
             if busy_flag:
                 recomputed_busy.add(gid)
             else:
@@ -2353,7 +2346,20 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
     # 快照滞后窗口修复：合并 active 占用，即使快照判 idle，已占即 busy（双重保险）
     busy_gpus_from_active = {str(item.get("gpu_id") or "").strip() for item in active.values() if str(item.get("worker_id") or "") == str(worker.get("id") or "") and str(item.get("gpu_id") or "").strip()}
     busy = busy | busy_gpus_from_active
-    capacity = max(1, int(worker.get("max_concurrent_gpus") or worker.get("maxConcurrentGpus") or availability.get("capacityLimit") or 1))
+    # capacity=auto：空/0 → total 总数；显式 clamp 1..总数；total=0 则 cap=0
+    try:
+        _cap_raw = worker.get("max_concurrent_gpus")
+        if _cap_raw is None:
+            _cap_raw = worker.get("maxConcurrentGpus")
+        if _cap_raw is None:
+            _cap_raw = availability.get("capacityLimit")
+        _total = len(availability_available) + len(busy)
+        if _cap_raw is None or (isinstance(_cap_raw, str) and _cap_raw.strip().lower() in ("", "auto")) or float(_cap_raw or 0) == 0:
+            capacity = _total
+        else:
+            capacity = max(1, min(int(float(_cap_raw)), _total)) if _total > 0 else 0
+    except Exception:
+        capacity = len(availability_available) + len(busy)
     active_count = sum(1 for item in active.values() if str(item.get("worker_id") or "") == str(worker.get("id") or ""))
     if active_count >= capacity:
         probe["rejected"].append({"reason": "capacity_limit", "active": active_count, "capacity": capacity})
@@ -2365,8 +2371,6 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
             reason = "active_slot"
         elif gpu_id in busy_gpus_from_active:
             reason = "active_slot"
-        elif allowed and gpu_id not in allowed:
-            reason = "not_allowed"
         elif gpu_id in busy:
             reason = "busy"
         if reason:
@@ -2386,6 +2390,19 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
 
 def idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -> list[str]:
     return list(probe_idle_gpus(worker, active).get("idle_gpu_ids") or [])
+
+
+DISPATCH_PROBE_MAX_RECORDS = 200
+
+
+def _record_probe(dispatch_probe: list[dict[str, Any]], probe: dict[str, Any]) -> None:
+    """dispatch_probe 有界追加：超 MAX200 丢弃最旧；快探路径禁止调用本函数"""
+    try:
+        dispatch_probe.append(probe)
+        while len(dispatch_probe) > DISPATCH_PROBE_MAX_RECORDS:
+            dispatch_probe.pop(0)
+    except Exception:
+        pass
 
 
 def worker_cpu_usage_percent(worker: dict[str, Any]) -> float:
@@ -2452,9 +2469,9 @@ def availability_is_fresh(worker: dict[str, Any]) -> bool:
         return False
     age = availability_age_seconds(worker)
     try:
-        ttl = max(1, int(availability.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 45))
+        ttl = max(1, int(availability.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 180))
     except Exception:
-        ttl = 45
+        ttl = 180
     return age is not None and age <= ttl
 
 
@@ -2483,6 +2500,13 @@ def fetch_worker_availability(worker: dict[str, Any]) -> dict[str, Any]:
     row["source"] = str(row.get("source") or "worker_agent_direct_refresh")
     row["receivedAt"] = now()
     row["ttlSeconds"] = max(30, int(row.get("ttlSeconds") or worker.get("worker_status_ttl_seconds") or 180))
+    # fetch回写 gpuError：透传远端错误供 probe 熔断计数
+    try:
+        _ge = str(row.get("gpuError") or row.get("gpu_error") or row.get("error") or "")
+        if _ge:
+            row["gpuError"] = _ge
+    except Exception:
+        pass
     return row
 
 
@@ -3515,6 +3539,18 @@ def main() -> None:
         action = str(control.get("action") or "")
         if not action:
             return False
+        if action == "config_updated":
+            # P7热加载：重读 worker 阈值/TTL，不中断调度
+            try:
+                read_availability_cache(str(availability_path) if "availability_path" in dir() else "", workers, 180)
+            except Exception:
+                pass
+            _append_scheduler_log(f"[{now()}] control config_updated reloaded")
+            try:
+                atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_action": action})
+            except Exception:
+                pass
+            return False
         if action == "abort_cleanup":
             _append_scheduler_log( f"[{now()}] control abort_cleanup")
             manual_type = manual_interruption_type({"type": "scheduler_control"}, control) or "manual_stop_bad_code_or_no_effect"
@@ -3705,10 +3741,10 @@ def main() -> None:
                     try:
                         probe = probe_idle_gpus(worker, busy_slots)
                     except Exception as exc:
-                        dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker.get("name"), "status": "probe_error", "checked_at": now(), "error": str(exc)})
+                        _record_probe(dispatch_probe, {"worker_id": worker["id"], "worker_name": worker.get("name"), "status": "probe_error", "checked_at": now(), "error": str(exc)})
                         _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={exc} will_try_next_worker")
                         break
-                    dispatch_probe.append(probe)
+                    _record_probe(dispatch_probe, probe)
                     if probe.get("error"):
                         _append_scheduler_log( f"[{now()}] dispatch_probe worker={worker.get('name')} error={probe.get('error')} will_try_next_worker")
                         break
@@ -3763,13 +3799,13 @@ def main() -> None:
                                     queue.append(experiment_index)
                                 continue
                             active[key] = item
-                        dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "dispatched", "checked_at": now(), "session": session})
+                        _record_probe(dispatch_probe, {"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "dispatched", "checked_at": now(), "session": session})
                         _append_scheduler_log( f"[{now()}] dispatch experiment={experiment_index} server={worker['name']} gpu={gpu_id} session={session}")
                     except Exception as exc:
                         err_text = str(exc)
                         # tmux/会话阻塞降级：单 worker 跳过（重排队头实验换下个 worker），不直接判失败
                         if "tmux" in err_text.lower() or "session" in err_text.lower():
-                            dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "launch_skipped_tmux", "checked_at": now(), "error": err_text})
+                            _record_probe(dispatch_probe, {"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "launch_skipped_tmux", "checked_at": now(), "error": err_text})
                             _append_scheduler_log( f"[{now()}] dispatch_skip_tmux worker={worker['name']} experiment={experiment_index} error={err_text[:160]} requeued")
                             try:
                                 queue.appendleft(experiment_index)
@@ -3780,7 +3816,7 @@ def main() -> None:
                             except Exception:
                                 pass
                             break
-                        dispatch_probe.append({"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "launch_failed", "checked_at": now(), "error": str(exc)})
+                        _record_probe(dispatch_probe, {"worker_id": worker["id"], "worker_name": worker["name"], "gpu_id": gpu_id, "experiment_index": experiment_index, "status": "launch_failed", "checked_at": now(), "error": str(exc)})
                         failed.append({
                             "experiment_index": experiment_index,
                             "worker_id": worker["id"],
@@ -3800,11 +3836,13 @@ def main() -> None:
             if queue or active or testing:
                 if queue and not active and not testing:
                     latest = dispatch_probe[-len(workers):] if workers else []
-                    errors = [str(item.get("error") or "") for item in latest if item.get("error")]
+                    # P4熔断：仅 GPU_QUERY_FAILED / probe_error 硬错计数；TTL/stale/无空卡仅换人不失败
+                    hard = [item for item in latest if (str((item.get("structuredError") or {}).get("kind") or "") == "GPU_QUERY_FAILED") or str(item.get("status") or "") == "probe_error" or "GPU查询失败" in str(item.get("error") or "")]
+                    errors = [str(item.get("error") or "") for item in hard if item.get("error")]
                     scheduler_wait_reason = "; ".join(errors[:3]) if errors else "no_idle_gpu_from_hub_probe"
-                    if latest and errors and len(errors) == len(latest):
+                    if latest and hard and len(hard) == len(latest):
                         no_dispatch_error_cycles += 1
-                        # 连续2轮全 error 才判整队失败，避免单轮网络抖动误杀
+                        # 全员硬错连续2轮才fail，否则清零
                         if no_dispatch_error_cycles >= 2:
                             reason = scheduler_wait_reason or "all worker dispatch probes failed"
                             _append_scheduler_log( f"[{now()}] fail_pending reason={reason} fail_fast_cycles={no_dispatch_error_cycles}")

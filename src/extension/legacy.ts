@@ -1383,11 +1383,8 @@ export class RealtimeTunnelPanelProvider {
                     agentProjectDir: String(row.agentProjectDir || row.remoteRoot || row.remotePath || "").trim() || undefined,
                     condaEnv: normalizeCondaEnvSetting(row.condaEnv ?? existing?.condaEnv) || undefined,
                     maxConcurrentGpus: row.maxConcurrentGpus === undefined
-                        ? Number(existing?.maxConcurrentGpus || 1)
-                        : Math.max(1, Math.trunc(Number(row.maxConcurrentGpus) || 1)),
-                    allowedGpuIds: Array.isArray(row.allowedGpuIds)
-                        ? sanitizeAllowedGpuIds(row.allowedGpuIds)
-                        : existing?.allowedGpuIds ? sanitizeAllowedGpuIds(existing.allowedGpuIds) : [],
+                        ? (existing?.maxConcurrentGpus ?? "auto")
+                        : (row.maxConcurrentGpus === "auto" || row.maxConcurrentGpus === "" || Number(row.maxConcurrentGpus) === 0 ? "auto" : Math.max(1, Math.trunc(Number(row.maxConcurrentGpus) || 1))),
                     authMethod: row.authMethod === "key" ? "key" : "password",
                     enabled: row.enabled !== false,
                 };
@@ -1599,11 +1596,8 @@ export class RealtimeTunnelPanelProvider {
                 enabled: worker.enabled !== false,
                 condaEnv: worker.condaEnv === undefined ? existing.condaEnv : normalizeCondaEnvSetting(worker.condaEnv),
                 maxConcurrentGpus: worker.maxConcurrentGpus === undefined
-                    ? Number(existing.maxConcurrentGpus || 1)
-                    : Math.max(1, Math.trunc(Number(worker.maxConcurrentGpus) || 1)),
-                allowedGpuIds: Array.isArray(worker.allowedGpuIds)
-                    ? sanitizeAllowedGpuIds(worker.allowedGpuIds)
-                    : existing.allowedGpuIds ? sanitizeAllowedGpuIds(existing.allowedGpuIds) : [],
+                    ? (existing.maxConcurrentGpus ?? "auto")
+                    : (worker.maxConcurrentGpus === "auto" || worker.maxConcurrentGpus === "" || Number(worker.maxConcurrentGpus) === 0 ? "auto" : Math.max(1, Math.trunc(Number(worker.maxConcurrentGpus) || 1))),
             });
         }
         return [...byId.values()];
@@ -5310,8 +5304,7 @@ export class RealtimeTunnelPanelProvider {
                     label: worker.label || worker.id,
                     role: "worker",
                     remotePath: worker.remotePath,
-                    maxConcurrentGpus: config?.maxConcurrentGpus || 1,
-                    allowedGpuIds: config?.allowedGpuIds || [],
+                    maxConcurrentGpus: config?.maxConcurrentGpus ?? "auto",
                     condaEnv: effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
                 };
             }),
@@ -5795,27 +5788,51 @@ export class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`GitHub 同步完成：${timestampCommitMessage(taskName, [])}`);
     }
     async publishToGitHub(taskName) {
-        this.notifyLocalActionStarted("一键上传到所有服务器", "正在创建或推送远程仓库，并提交当前工作区改动。");
+        this.notifyLocalActionStarted("发布到git并上传worker", "正在创建或推送远程仓库，并提交当前工作区改动；完成后会把代码同步到所有 Worker。");
         // 拓扑感知：single_worker(无 Hub)跳过 Hub 相关同步要求，仅提示 Worker 侧入口。
         const topology = this.projectTopologyAssessment();
         const hubRequired = topology.hubAllowed === true && topology.mode === "hub_worker";
+        // 1. 先拿 VSCode GitHub 认证：createIfNone=true 时未配置会弹系统登录引导用户手动连接。
+        const token = await this.githubUpdateToken(true);
         const repo = await this.primaryGitRepository();
         if (gitRepositoryHasRemote(repo)) {
             await this.syncToGitHub(false, taskName);
-            return;
         }
-        const root = workspaceRoot();
-        if (!root)
-            throw new Error("请先打开一个工作区，再执行 GitHub 发布。");
-        await vscode.commands.executeCommand("git.stageAll");
-        if (gitRepositoryHasChanges(repo)) {
-            const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
-            assertNonEmptyCommitMessage(message);
-            repo.inputBox.value = message;
-            await repo.commit(message);
+        else {
+            const root = workspaceRoot();
+            if (!root)
+                throw new Error("请先打开一个工作区，再执行 GitHub 发布。");
+            await vscode.commands.executeCommand("git.stageAll");
+            if (gitRepositoryHasChanges(repo)) {
+                const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
+                assertNonEmptyCommitMessage(message);
+                repo.inputBox.value = message;
+                await repo.commit(message);
+            }
+            // 无 remote 必须用 gh CLI 创建仓库；缺失时给可点击安装引导。
+            const cp = require("child_process");
+            const probe = cp.spawnSync("gh", ["--version"], { encoding: "utf8", timeout: 5000 });
+            const ghMissing = probe.error || probe.status !== 0;
+            if (ghMissing) {
+                const choice = await vscode.window.showErrorMessage(`未检测到 gh CLI（GitHub 官方命令行）。首次发布需要它创建仓库。请先安装 gh 并执行 \`gh auth login\`，然后重试。`, { modal: true }, "打开安装页", "查看文档");
+                if (choice === "打开安装页")
+                    await vscode.env.openExternal(vscode.Uri.parse("https://cli.github.com/"));
+                else if (choice === "查看文档")
+                    await vscode.env.openExternal(vscode.Uri.parse("https://docs.github.com/zh/github-cli/github-cli/setting-up-the-github-cli"));
+                throw new Error("gh CLI 未安装或未登录，无法创建远程仓库；已引导打开安装页，请安装后重新执行「发布到git并上传worker」。");
+            }
+            await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
         }
-        await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
-        void vscode.window.showInformationMessage(hubRequired ? "GitHub 发布完成。" : "GitHub 发布完成（无 Hub 模式已跳过 Hub，可用 Worker 上传入口继续同步）。");
+        // 2. GitHub 推送完成后，串联 Worker 上传（不弹二次确认，串联动作由本按钮兜底）。
+        try {
+            await this.uploadProjectToWorkers(false);
+        }
+        catch (uploadErr) {
+            void vscode.window.showErrorMessage(`GitHub 已发布，但 Worker 上传失败：${errorMessage(uploadErr)}。可单独使用「上传到 Worker」入口重试。`);
+            throw uploadErr;
+        }
+        void vscode.window.showInformationMessage(hubRequired ? "发布完成：GitHub + 所有 Worker。" : "发布完成：GitHub + 所有 Worker（无 Hub 模式已跳过 Hub）。");
+        void token;
     }
     async overwriteFromGitHub() {
         await confirmUiCommand("从 GitHub 覆盖本机", "将执行 git reset --hard 和 git clean，删除本地未提交改动。", true);
@@ -7364,8 +7381,7 @@ export class RealtimeTunnelPanelProvider {
                 localForwardPort: numberPatch(patch, "localForwardPort", worker.localForwardPort),
                 remoteAgentPort: remoteTelemetryPort,
                 remoteTelemetryPort,
-                maxConcurrentGpus: numberRangePatch(patch, "maxConcurrentGpus", worker.maxConcurrentGpus || 1, 1, 64),
-                allowedGpuIds: sanitizeAllowedGpuIds(stringArrayPatch(patch, "allowedGpuIds", worker.allowedGpuIds || [])),
+                maxConcurrentGpus: autoOrNumberRangePatch(patch, "maxConcurrentGpus", worker.maxConcurrentGpus ?? "auto", 1, 64),
                 enabled: boolishPatch(patch, "enabled", worker.enabled !== false),
                 gpuIdleUtilThreshold: optionalNumberRangePatch(patch, "gpuIdleUtilThreshold", worker.gpuIdleUtilThreshold, 0, 100),
                 gpuIdleMemThresholdMb: optionalNumberRangePatch(patch, "gpuIdleMemThresholdMb", worker.gpuIdleMemThresholdMb, 0, 8192),
@@ -8518,8 +8534,7 @@ export class RealtimeTunnelPanelProvider {
                 worker_name: worker.label,
                 project_dir: worker.remotePath,
                 agent_runtime_dir: dirs.installDir,
-                max_concurrent_gpus: config?.maxConcurrentGpus || 1,
-                allowed_gpu_ids: config?.allowedGpuIds || [],
+                max_concurrent_gpus: config?.maxConcurrentGpus ?? "auto",
                 gpuIdleUtilThreshold: config?.gpuIdleUtilThreshold ?? globalUtil,
                 gpu_idle_util_threshold: config?.gpuIdleUtilThreshold ?? globalUtil,
                 gpuIdleMemThresholdMb: config?.gpuIdleMemThresholdMb ?? globalMem,
@@ -12200,7 +12215,7 @@ export class RealtimeTunnelPanelProvider {
             gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)) || 5)),
             gpuIdleMemThresholdMb: Math.max(0, Math.min(8192, Number(config.get("scheduler.gpuIdleMemThresholdMb", 200)) || 200)),
             sessionCheckMinSeconds: Math.max(1, Math.min(60, Number(config.get("scheduler.sessionCheckMinSeconds", 5)) || 5)),
-            workerStatusTtlSeconds: Math.max(10, Number(config.get("scheduler.workerStatusTtlSeconds", 45)) || 45),
+            workerStatusTtlSeconds: Math.max(10, Number(config.get("scheduler.workerStatusTtlSeconds", 180)) || 180),
             localAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.localAvailabilityPushSeconds", 10)) || 10),
             workerAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.workerAvailabilityPushSeconds", 10)) || 10),
             operationEventMaxDelayMs: Math.max(100, Number(config.get("scheduler.operationEventMaxDelayMs", 200)) || 200),
@@ -12280,19 +12295,31 @@ export class RealtimeTunnelPanelProvider {
     }
     private localWorkerAvailabilityRows(ttlSeconds) {
         const gpu = (this.lastRealtimeState?.gpu || {});
+        const sched = this.schedulerSettings() as unknown as { gpuIdleUtilThreshold?: number; gpuIdleMemThresholdMb?: number };
+        const defUtil = Number(sched.gpuIdleUtilThreshold ?? 5);
+        const defMem = Number(sched.gpuIdleMemThresholdMb ?? 200);
         return this.enabledWorkerConfigs().map((worker) => {
             const rows = Array.isArray(gpu[worker.id]) ? gpu[worker.id] : [];
-            const allowed = new Set(sanitizeAllowedGpuIds(worker.allowedGpuIds || []));
-            const availableGpuIds = [];
-            const busyGpuIds = [];
+            const thrU = Number(worker.gpuIdleUtilThreshold ?? defUtil);
+            const thrM = Number(worker.gpuIdleMemThresholdMb ?? defMem);
+            const availableGpuIds: string[] = [];
+            const busyGpuIds: string[] = [];
             for (const row of rows) {
                 const item = row && typeof row === "object" ? row : {};
                 const gpuId = String(item.index ?? item.gpu_id ?? item.gpuId ?? item.id ?? "").trim();
-                if (!gpuId || (allowed.size && !allowed.has(gpuId)))
+                if (!gpuId)
                     continue;
-                const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : [];
-                const processCount = Number(item.processCount ?? item.process_count ?? processes.length);
-                if (processCount > 0)
+                const util = Number(item.utilizationPercent ?? item.utilization ?? item.gpu_util ?? NaN);
+                const mem = Number(item.memoryUsedMb ?? item.memory_used_mb ?? item.memoryUsed ?? NaN);
+                let busy: boolean;
+                if (Number.isFinite(util) && Number.isFinite(mem))
+                    busy = !(util < thrU && mem < thrM);
+                else {
+                    const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : [];
+                    const processCount = Number(item.processCount ?? item.process_count ?? processes.length);
+                    busy = processCount > 0;
+                }
+                if (busy)
                     busyGpuIds.push(gpuId);
                 else
                     availableGpuIds.push(gpuId);
@@ -12302,11 +12329,16 @@ export class RealtimeTunnelPanelProvider {
                 available: availableGpuIds.length > 0,
                 availableGpuIds,
                 busyGpuIds,
-                reason: availableGpuIds.length ? "ok" : (rows.length ? "all_busy_or_disallowed" : "no_local_gpu_snapshot"),
+                reason: availableGpuIds.length ? "可用" : (rows.length ? "目前无空卡" : "暂无显卡数据"),
                 source: "local_aggregator",
                 updatedAt: new Date().toISOString(),
                 ttlSeconds,
-                capacityLimit: worker.maxConcurrentGpus || 1,
+                capacityLimit: worker.maxConcurrentGpus ?? "auto",
+                capacitySource: (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto") ? "auto" : "explicit",
+                totalGpus: availableGpuIds.length + busyGpuIds.length,
+                gpuError: "",
+                gpuIdleUtilThreshold: thrU,
+                gpuIdleMemThresholdMb: thrM,
             };
         });
     }
@@ -15701,7 +15733,6 @@ function compactWorkerSetupForWebview(worker) {
         agentProjectDir: worker.agentProjectDir,
         condaEnv: worker.condaEnv,
         maxConcurrentGpus: worker.maxConcurrentGpus,
-        allowedGpuIds: worker.allowedGpuIds,
         enabled: worker.enabled,
     });
 }
@@ -17490,8 +17521,18 @@ function numberRangePatch(patch, key, fallback, min, max) {
         return fallback;
     return Math.max(min, Math.min(max, Math.trunc(value)));
 }
-function optionalNumberRangePatch(patch, key, fallback, min, max) {
+function autoOrNumberRangePatch(patch, key, fallback, min, max) {
     if (!Object.prototype.hasOwnProperty.call(patch, key))
+        return fallback;
+    const value = patch[key];
+    if (value === undefined || value === null || (typeof value === "string" && (value.trim() === "" || value.trim().toLowerCase() === "auto")) || Number(value) === 0)
+        return "auto";
+    const num = Number(value);
+    if (!Number.isFinite(num))
+        return fallback;
+    return Math.max(min, Math.min(max, Math.trunc(num)));
+}
+function optionalNumberRangePatch(patch, key, fallback, min, max) {    if (!Object.prototype.hasOwnProperty.call(patch, key))
         return fallback;
     const value = patch[key];
     if (value === undefined || value === null || (typeof value === "string" && value.trim() === ""))
@@ -20096,16 +20137,15 @@ function planRunTargetLocations(values) {
         const label = String(item.label || item.id || item.role || "目标").trim();
         const role = String(item.role || "worker").trim().toLowerCase();
         const remotePath = normalizeRemoteWorkRoot(item.remotePath || item.path || "");
-        const capacityValue = Number(item.maxConcurrentGpus || item.max_concurrent_gpus || 1);
-        const maxConcurrentGpus = Number.isFinite(capacityValue) && capacityValue > 0 ? Math.trunc(capacityValue) : 1;
-        const allowedGpuIds = sanitizeAllowedGpuIds(Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : []);
+        const rawCap = item.maxConcurrentGpus ?? item.max_concurrent_gpus ?? "auto";
+        const maxConcurrentGpus = (rawCap === "auto" || rawCap === "" || rawCap === null || rawCap === undefined || Number(rawCap) === 0) ? "auto" : (Number.isFinite(Number(rawCap)) && Number(rawCap) > 0 ? Math.trunc(Number(rawCap)) : "auto");
         const rawCondaEnv = String(item.condaEnv || item.conda_env || "").trim();
         const condaEnv = rawCondaEnv === "-" || rawCondaEnv === "--" ? "" : rawCondaEnv;
         const key = `${role}:${label.toLowerCase()}:${remotePath}`;
         if (!label || seen.has(key))
             continue;
         seen.add(key);
-        out.push({ id: String(item.id || "").trim(), label, role, remotePath, maxConcurrentGpus, allowedGpuIds, condaEnv });
+        out.push({ id: String(item.id || "").trim(), label, role, remotePath, maxConcurrentGpus, condaEnv });
     }
     if (source) {
         planRunTargetLocationsCache.set(source, out);
@@ -20115,11 +20155,11 @@ function planRunTargetLocations(values) {
 }
 function planRunWorkerCapacitySummary(target) {
     const item = target && typeof target === "object" ? target : {};
-    const limit = Math.max(1, Math.trunc(Number(item.maxConcurrentGpus || item.max_concurrent_gpus || 1) || 1));
-    const allowed = sanitizeAllowedGpuIds(Array.isArray(item.allowedGpuIds) ? item.allowedGpuIds : Array.isArray(item.allowed_gpu_ids) ? item.allowed_gpu_ids : []);
+    const rawCap = item.maxConcurrentGpus ?? item.max_concurrent_gpus ?? "auto";
+    const limit = (rawCap === "auto" || rawCap === "" || Number(rawCap) === 0) ? "全部" : String(Math.max(1, Math.trunc(Number(rawCap) || 1)));
     const rawCondaEnv = String(item.condaEnv || item.conda_env || "").trim();
     const condaEnv = rawCondaEnv === "-" || rawCondaEnv === "--" ? "" : rawCondaEnv;
-    return `${String(item.label || item.id || "Worker")}：执行环境 ${executionEnvironmentLabel(condaEnv)}；并发占卡上限 ${limit}；允许 GPU ${allowed.length ? allowed.join("、") : "不限"}`;
+    return `${String(item.label || item.id || "Worker")}：执行环境 ${executionEnvironmentLabel(condaEnv)}；并发占卡上限 ${limit}`;
 }
 function planRunKnownJobCount(plan) {
     const item = plan && typeof plan === "object" ? plan : {};
@@ -20146,9 +20186,10 @@ function planRunScaleSummary(plan) {
 function planRunConfiguredCapacitySummary(jobCount, targets) {
     const workers = planRunTargetLocations(targets).filter((target) => target.role === "worker");
     const capacity = workers.reduce((sum, target) => {
-        const limit = Math.max(1, Math.trunc(Number(target.maxConcurrentGpus || 1) || 1));
-        const allowedCount = Array.isArray(target.allowedGpuIds) ? target.allowedGpuIds.length : 0;
-        return sum + (allowedCount ? Math.min(limit, allowedCount) : limit);
+        const raw = target.maxConcurrentGpus ?? "auto";
+        if (raw === "auto" || raw === "" || Number(raw) === 0) return sum;
+        const limit = Math.max(1, Math.trunc(Number(raw) || 1));
+        return sum + limit;
     }, 0);
     if (!workers.length)
         return "静态配置容量：未配置 Worker，无法运行任务";

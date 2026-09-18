@@ -1167,7 +1167,7 @@ function renderPanelHtml() {
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="startAll" class="secondary" title="第1步连隧道：启动全部 Xshell 隧道，建立本机到服务器的端口转发">启动全部隧道</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
-          <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">一键上传到所有服务器</button>
+          <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：先提交推送到 GitHub（未配置会引导 VSCode GitHub 登录），再通过 SimpleSFTP 上传到所有 Worker。无 Hub 模式下跳过 Hub 上传。">发布到git并上传worker</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
         </div>
@@ -4915,7 +4915,7 @@ function renderPanelHtml() {
         runPlan: "校验并提交运行",
         runAllPlans: "运行全部计划",
         archivePlan: "归档计划",
-        publishGithub: "一键上传到所有服务器",
+        publishGithub: "发布到git并上传worker",
         syncGithub: "同步 GitHub",
         overwriteGithub: "GitHub 覆盖本机",
         uploadProjectToHub: "上传到 Hub",
@@ -6047,7 +6047,7 @@ function renderPanelHtml() {
         treeObjectItem("settings", "结果 CSV 目录", "设置", "", "配置新 Plan 和默认结果 CSV 的工作区相对目录。", "settings-result-csv", "", "结果 CSV 文件夹 路径 浏览 result_csv"),
         treeObjectItem("settings", "调度与上报", "设置", "", "配置 scheduler poll、jitter、TTL、可用性上报和 Worker 控制节流。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds workerActionMinIntervalMs workerActionMaxConcurrent"),
         treeObjectItem("settings", "Hub 设置", "设置", "", "配置 Hub 控制面、隧道、Agent 和项目父目录。", "servers-hub", "", "Hub 隧道 Agent 端口 项目父目录"),
-        treeObjectItem("settings", "Worker 设置", "设置", "", "配置 Worker、GPU 上限、会话和端口。", "settings-servers", "", "Worker GPU 上限 allowedGpuIds localForwardPort")
+        treeObjectItem("settings", "Worker 设置", "设置", "", "配置 Worker、GPU 上限、会话和端口。", "settings-servers", "", "Worker GPU 上限 maxConcurrentGpus localForwardPort")
       ];
     }
 
@@ -6397,7 +6397,7 @@ function renderPanelHtml() {
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
-        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["一键上传到所有服务器", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
+        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
@@ -6889,7 +6889,7 @@ function renderPanelHtml() {
         const status = worker.enabled === false ? "禁用" : (probe.status || "已配置");
         const localPort = worker.localForwardPort || assignment.localForwardPort || "-";
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
-        const allowed = Array.isArray(worker.allowedGpuIds) && worker.allowedGpuIds.length ? worker.allowedGpuIds.join(",") : "不限";
+        const capLabel = (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto" || worker.maxConcurrentGpus === 0) ? "全部" : String(worker.maxConcurrentGpus);
         cards.push(serverObjectCard({
           kind: "worker",
           role: "Worker 对象",
@@ -6908,8 +6908,7 @@ function renderPanelHtml() {
             ["本地隧道", "127.0.0.1:" + localPort, "插件访问的 Worker 本机端口"],
             ["远端 Agent", "127.0.0.1:" + remotePort, "Worker 服务器本机 Agent 端口"],
             ["TensorBoard", tensorBoardOverviewStatValue(String(worker.id), localPort), "复用 xshell 隧道 local+1000，可直接复制/打开"],
-            ["GPU 上限", worker.maxConcurrentGpus || 1, "只限制并发占卡，不限制排队总量"],
-            ["允许 GPU", compactText(allowed, 28), allowed]
+            ["GPU 上限", capLabel, "空/0=auto=全部显卡数；显式值 clamp 1..总数"],
           ]
         }));
       });
@@ -6972,6 +6971,8 @@ function renderPanelHtml() {
       if (conflict) return conflict.severity === "error" ? "error" : "warn";
       if (enabled === false) return "disabled";
       const value = String(status || "").toLowerCase();
+      // GPU四态着色：可用→ok，目前无空卡→warn，暂无显卡数据→warn，GPU查询失败→error
+      if (value.includes("gpu") && value.includes("fail")) return "error";
       if (value.includes("ok") || value.includes("online") || value.includes("connected") || value.includes("agent_ok") || value.includes("已配置")) return "ok";
       if (value.includes("mismatch") || value.includes("unreachable") || value.includes("closed") || value.includes("failed") || value.includes("error") || value.includes("不可达")) return "error";
       return "warn";
@@ -7299,8 +7300,7 @@ function renderPanelHtml() {
             configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
             configInput(scope, "sshConfigAlias", "登录别名", worker.sshConfigAlias || "") +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
-            configInput(scope, "maxConcurrentGpus", "并发占卡上限", worker.maxConcurrentGpus || 1, "number") +
-            configInput(scope, "allowedGpuIds", "允许 GPU 列表", Array.isArray(worker.allowedGpuIds) ? worker.allowedGpuIds.join(", ") : "", "text", "wide") +
+            configInput(scope, "maxConcurrentGpus", "并发占卡上限(auto=全部)", worker.maxConcurrentGpus ?? "auto", "text") +
             '<div class="muted" style="grid-column: 1 / -1; padding: 6px 0 2px; font-size: 11px;">空卡识别阈值：利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡（留空跟随全局 5% / 200MB）</div>' +
             '<div class="thresholdRow"><div class="label">空卡利用率阈值 %（利用率 &lt; 阈值 视为空闲）</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleUtilThreshold') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleUtilThreshold ?? "") + '" placeholder="默认 5（&lt;5% 空闲）" type="number" min="0" max="100" style="width:100%; min-width:120px; box-sizing:border-box;" title="利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡" /></div></div>' +
             '<div class="thresholdRow"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡" /></div></div>' +
@@ -7316,7 +7316,7 @@ function renderPanelHtml() {
             '<button data-command="saveWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-config-scope="' + escAttr(scope) + '">保存服务器</button>' +
             '<button data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(worker.id) + '" data-confirm="true" class="secondary">启动隧道</button>' +
             '<button data-command="deleteWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-danger="true" class="secondary">删除</button>' +
-            '</div><div class="muted">允许 GPU 列表留空表示不限制；多个 GPU ID 用逗号或空格分隔。并发占卡上限只限制同一台 Worker 同时占用的卡数，不限制排队总量。</div>' +
+            '</div><div class="muted">并发占卡上限留空或 auto 表示占用全部显卡；显式值限制同时占用的卡数，不限制排队总量。四态：可用/目前无空卡/暂无显卡数据/GPU查询失败。</div>' +
           '</div>'
         );
       });
@@ -7404,7 +7404,7 @@ function renderPanelHtml() {
         const statusClassValue = serverObjectStatusClass(status, conflictById.get(String(worker.id)), worker.enabled !== false);
         const localPort = worker.localForwardPort || assignment.localForwardPort || "-";
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
-        const allowed = Array.isArray(worker.allowedGpuIds) && worker.allowedGpuIds.length ? worker.allowedGpuIds.join(",") : "不限";
+        const capLabel = (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto" || worker.maxConcurrentGpus === 0) ? "全部" : String(worker.maxConcurrentGpus);
         const tbHtml = tensorBoardOverviewStatValue(String(worker.id), localPort);
         return '<div class="workerDenseWorker ' + escAttr(statusClassValue) + '" title="Worker ' + escAttr(worker.displayName || worker.id) + '">' +
           '<b class="wname">' + esc(worker.displayName || worker.id) + '</b>' +
@@ -7415,9 +7415,8 @@ function renderPanelHtml() {
           '<span class="wport" title="插件访问的 Worker 本机端口 127.0.0.1:' + escAttr(localPort) + '">本地:' + esc(localPort) + '</span>' +
           '<span class="wport" title="Worker 服务器本机 Agent 端口 127.0.0.1:' + escAttr(remotePort) + '">远端:' + esc(remotePort) + '</span>' +
           '<span class="wport" title="复用 xshell 隧道 local+1000，可直接复制/打开">TB ' + tbHtml + '</span>' +
-          '<span class="wport" title="只限制并发占卡，不限制排队总量">GPU上限' + esc(worker.maxConcurrentGpus || 1) + '</span>' +
-          '<span class="wport" title="' + escAttr(allowed) + '">允许' + esc(compactText(allowed, 28)) + '</span>' +
-        '</div>';
+          '<span class="wport" title="空/0=auto=全部显卡数">GPU上限' + esc(capLabel) + '</span>' +
+          '</div>';
       }).join("");
       const foot = '<div class="workerDenseFoot" title="策略与目录">' +
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>' +
@@ -7962,8 +7961,7 @@ function renderPanelHtml() {
         localForwardPort: "插件访问的 127.0.0.1 本地转发端口",
         remoteTelemetryPort: "Worker 上由 Agent 监听的远端端口",
         enabled: "启用",
-        maxConcurrentGpus: "GPU 并发上限",
-        allowedGpuIds: "允许 GPU ID",
+        maxConcurrentGpus: "GPU 并发上限(auto=全部)",
         gpuIdleUtilThreshold: "空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存双条件且关系）",
         gpuIdleMemThresholdMb: "空卡显存阈值：显存占用 < 阈值 才视为空闲（与利用率双条件且关系）",
         sessionCheckMinSeconds: "会话检测最小间隔（秒），越小越灵敏"
@@ -8497,11 +8495,12 @@ function renderPanelHtml() {
     function planConfiguredWorkerCapacity(state) {
       const workers = enabledWorkerTunnelsForState(state);
       return workers.reduce((sum, worker) => {
-        const limitValue = Number(worker.maxConcurrentGpus || worker.max_concurrent_gpus || 1);
-        const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.trunc(limitValue) : 1;
-        const allowed = Array.isArray(worker.allowedGpuIds) ? worker.allowedGpuIds : Array.isArray(worker.allowed_gpu_ids) ? worker.allowed_gpu_ids : [];
-        const allowedCount = new Set(allowed.map((value) => String(value || "").trim()).filter(Boolean)).size;
-        return sum + (allowedCount ? Math.min(limit, allowedCount) : limit);
+        const raw = worker.maxConcurrentGpus ?? worker.max_concurrent_gpus ?? "auto";
+        const total = Number(worker.totalGpus ?? worker.total_gpus ?? 0);
+        if (raw === "auto" || raw === "" || raw === null || raw === undefined || Number(raw) === 0) return sum + (Number.isFinite(total) && total > 0 ? total : 0);
+        const limitValue = Number(raw);
+        const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.trunc(limitValue) : 0;
+        return sum + limit;
       }, 0);
     }
 

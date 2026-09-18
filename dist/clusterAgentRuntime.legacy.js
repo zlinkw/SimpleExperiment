@@ -77,6 +77,20 @@ GPU_HISTORY_MAX_TOTAL_POINTS = _env_int("SIMPLE_GPU_HISTORY_MAX_TOTAL_POINTS", 4
 GPU_IDLE_UTIL_THRESHOLD = int(os.environ.get("SIMPLE_GPU_IDLE_UTIL_THRESHOLD") or 5)
 GPU_IDLE_MEM_THRESHOLD_MB = int(os.environ.get("SIMPLE_GPU_IDLE_MEM_THRESHOLD") or 200)
 
+def reload_worker_runtime_config(env=None):
+    """P7热加载：重读每服务器阈值/TTL环境变量，返回新配置并更新全局默认"""
+    global GPU_IDLE_UTIL_THRESHOLD, GPU_IDLE_MEM_THRESHOLD_MB
+    source = os.environ if env is None else env
+    try:
+        GPU_IDLE_UTIL_THRESHOLD = int(source.get("SIMPLE_GPU_IDLE_UTIL_THRESHOLD") or GPU_IDLE_UTIL_THRESHOLD)
+    except Exception:
+        pass
+    try:
+        GPU_IDLE_MEM_THRESHOLD_MB = int(source.get("SIMPLE_GPU_IDLE_MEM_THRESHOLD") or GPU_IDLE_MEM_THRESHOLD_MB)
+    except Exception:
+        pass
+    return {"gpuIdleUtilThreshold": GPU_IDLE_UTIL_THRESHOLD, "gpuIdleMemThresholdMb": GPU_IDLE_MEM_THRESHOLD_MB}
+
 # 已旁路5秒窗口：瞬时双阈值，无历史平均，不再维护滑动窗口
 def _记录显卡利用率(gpu_id, util, now=None):
     """旁路：瞬时判空不再写入历史，保留兼容空函数"""
@@ -1980,9 +1994,9 @@ def gpu_row_busy(row, util_threshold=None, mem_threshold=None):
         # 每服务器覆盖优先，否则用全局阈值（默认 5% / 200MB）
         thr_util = float(util_threshold) if util_threshold is not None else float(GPU_IDLE_UTIL_THRESHOLD)
         thr_mem = float(mem_threshold) if mem_threshold is not None else float(GPU_IDLE_MEM_THRESHOLD_MB)
-        # 读取利用率：兼容多个字段名
+        # 读取利用率：兼容多个字段名（三端镜像：agent/scheduler/plugin统一）
         util = None
-        for k in ("utilizationPercent", "utilization", "gpu_util", "utilizationGpu", "utilization_gpu", "gpuUtilPercent", "gpu_util_percent"):
+        for k in ("utilizationPercent", "utilization", "gpu_util", "utilizationGpu", "utilization_gpu", "gpuUtilPercent", "gpu_util_percent", "gpuUtil", "util"):
             if k in row and row.get(k) is not None:
                 try:
                     v = float(row.get(k))
@@ -1991,9 +2005,9 @@ def gpu_row_busy(row, util_threshold=None, mem_threshold=None):
                         break
                 except Exception:
                     continue
-        # 读取显存占用 MB：兼容多个字段名
+        # 读取显存占用 MB：兼容多个字段名（三端镜像）
         mem = None
-        for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used", "used", "usedMemoryMb", "used_memory_mb", "memory_used_mb"):
+        for k in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used", "used", "usedMemoryMb", "used_memory_mb", "memUsedMb", "usedMb", "mem_used_mb"):
             if k in row and row.get(k) is not None:
                 try:
                     v = float(row.get(k))
@@ -2059,18 +2073,36 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
             busy.append(gpu_id)
         else:
             available.append(gpu_id)
-    # 中文化 reason：可用 / 目前无空卡 / 暂无显卡数据（去英文缩写）
+    # 中文化 reason 四值：可用 / 目前无空卡 / 暂无显卡数据 / GPU查询失败
+    gpu_error = ""
+    try:
+        gpu_error = str(gpu_payload.get("gpuError") or gpu_payload.get("gpu_error") or gpu_payload.get("error") or "") if isinstance(gpu_payload, dict) else ""
+    except Exception:
+        gpu_error = ""
     if available:
         reason = "可用"
+    elif gpu_error and not busy and not rows:
+        reason = "GPU查询失败"
     elif busy:
         reason = "目前无空卡"
     else:
         reason = "暂无显卡数据"
-    # Concurrency limit = number of GPUs this worker can occupy at once (total GPU count),
-    # not a hardcoded 1. An explicit capacity_limit (or the scheduler's per-worker
-    # max_concurrent_gpus) can still lower it.
+    # capacity=auto 语义：空/0 → auto=total 总数；显式 clamp 1..总数；total=0 则 cap=0
     total_gpus = len(available) + len(busy)
-    cap = int(capacity_limit) if capacity_limit else max(1, total_gpus)
+    capacity_source = "auto"
+    try:
+        cap_raw = capacity_limit
+        if cap_raw is None or (isinstance(cap_raw, str) and cap_raw.strip().lower() in ("", "auto")) or float(cap_raw or 0) == 0:
+            cap = total_gpus
+            capacity_source = "auto"
+        else:
+            cap = max(1, min(int(float(cap_raw)), total_gpus)) if total_gpus > 0 else 0
+            capacity_source = "explicit"
+    except Exception:
+        cap = total_gpus
+        capacity_source = "auto"
+    if total_gpus == 0:
+        cap = 0
     result = {
         "workerId": str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
         "available": bool(available),
@@ -2080,6 +2112,9 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
         "source": source,
         "updatedAt": now_iso(),
         "capacityLimit": cap,
+        "capacitySource": capacity_source,
+        "totalGpus": total_gpus,
+        "gpuError": gpu_error,
         "gpuIdleUtilThreshold": int(thr_util) if thr_util is not None else int(GPU_IDLE_UTIL_THRESHOLD),
         "gpuIdleMemThresholdMb": int(thr_mem) if thr_mem is not None else int(GPU_IDLE_MEM_THRESHOLD_MB),
         "gpus": rows,
@@ -2088,7 +2123,7 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
     if kwargs.get("sessionCheckMinSeconds") is not None or kwargs.get("session_check_min_seconds") is not None:
         result["sessionCheckMinSeconds"] = int(kwargs.get("sessionCheckMinSeconds") or kwargs.get("session_check_min_seconds") or 5)
     if kwargs.get("workerStatusTtlSeconds") is not None or kwargs.get("worker_status_ttl_seconds") is not None:
-        result["workerStatusTtlSeconds"] = int(kwargs.get("workerStatusTtlSeconds") or kwargs.get("worker_status_ttl_seconds") or 45)
+        result["workerStatusTtlSeconds"] = int(kwargs.get("workerStatusTtlSeconds") or kwargs.get("worker_status_ttl_seconds") or 180)
     return result
 
 def api_worker_availability(root):
@@ -2141,8 +2176,11 @@ def write_availability_batch(root, payload):
         merged["workerId"] = worker_id
         merged["source"] = str(row.get("source") or payload.get("source") or "local_aggregator")
         merged["updatedAt"] = str(row.get("updatedAt") or payload.get("generatedAt") or now)
-        # 去TTL：移除 ttlSeconds 字段，删除前兼容清理
+        # 去TTL：移除 ttlSeconds 字段，删除前兼容清理；保留 P1 新字段供调度器消费
         merged.pop("ttlSeconds", None)
+        for _k in ("gpuError", "totalGpus", "capacitySource", "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb"):
+            if _k in row and _k not in merged:
+                merged[_k] = row.get(_k)
         entries[worker_id] = merged
         updated_ids.add(worker_id)
     entries = prune_availability_entries(entries, updated_ids)

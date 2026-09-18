@@ -154,3 +154,14 @@ code --install-extension "D:\GitRepo\MCP\zlk-cluster-orchestrator\simple-experim
 相关代码：`src/tunnel/XshellTunnelPortProbe.ts`（`resolveProbeBase/fetchHealthWithFallback`）、`src/tunnel/TunnelGateway.ts`（`normalizeHost/localBaseUrl`）、`src/tunnel/XshellTunnelSetup.ts`（动态 host）、`src/extension.ts#verifyDeployedAgentRuntime`（动态 `base` + 兼容降级）、`src/clusterAgentRuntime.ts`（`route in ("/api/health","/health")` 与 worker_telemetry 白名单）。
 
 > 交叉引用：`AGENTS.md#P0 — 禁止硬编码隧道端口/IP`、`docs/adr/003-tunnel-dynamic-endpoint.md`。
+
+### 6. GPU 空闲判定与调度容量（P1–P4/Q3/P7）
+
+- **判忙统一（三端镜像）**：`util < 5% 且显存 < 200MB` 为空闲，任一 ≥ 阈值即忙；每服务器 `gpuIdleUtilThreshold/gpuIdleMemThresholdMb` 覆盖，全局默认 5%/200MB；字段缺失回退进程数（`processes/procs/processCount`）。
+- **capacity=auto**：`maxConcurrentGpus` 空/`auto`/0 表示占用全部显卡（=总数）；显式值 clamp `1..总数`；总数 0 则 cap 0；存量显式 `1` 保留为显式。
+- **reason 四值**：`可用 / 目前无空卡 / 暂无显卡数据 / GPU查询失败`；`gpuError/totalGpus/capacitySource` 随可用性透传，`write_availability_batch` 保留。
+- **调度探活 5 步**：缺失 → 硬错（`GPU_QUERY_FAILED`）→ stale → 零卡 → 重算（`gpu_is_busy`）；`allowed_gpu_ids` 分支已删除；`dispatch_probe` 有界 MAX200（`_record_probe`），快探（5s 短睡前探）不记入。
+- **熔断（P4）**：仅 `GPU_QUERY_FAILED`/`probe_error` 硬错计数，全员硬错连续 2 轮才 fail 整队，否则清零；TTL/stale/无空卡仅换人不失败（Q3：TTL 默认 180s 仅换人）。
+- **热加载（P7）**：`reload_worker_runtime_config()` 重读阈值/TTL；`control.json` 写入 `{"action":"config_updated"}` 触发调度器不中断重载。
+- **面板**：Worker 表单无“允许 GPU”输入；`并发占卡上限(auto=全部)` 为文本框（`auto`/空/0=全部，min 0）；GPU 状态四态着色（可用 ok / 目前无空卡 warn / 暂无显卡数据 warn / GPU查询失败 error）；P0 禁止裸斜杠（`\\s` 等双写）。
+- **门禁**：`npm run build` + `node -c dist/extension.js && node -c dist/ui/PanelHtml.js` + `vm.Script` 零异常。

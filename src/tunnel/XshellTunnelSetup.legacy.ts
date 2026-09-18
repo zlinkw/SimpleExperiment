@@ -39,8 +39,9 @@ export interface XshellWorkerTunnelConfig {
   agentProjectDir?: string;
   agentInstallDir?: string;
   condaEnv?: string;
-  maxConcurrentGpus: number;
-  allowedGpuIds: string[];
+  maxConcurrentGpus: number | string;
+  /** @deprecated allowed 语义已删除，仅兼容旧配置读取，始终视为空=全部允许 */
+  allowedGpuIds?: string[];
   authMethod: XshellAuthMethod;
   enabled: boolean;
   gpuIdleUtilThreshold?: number;
@@ -218,8 +219,7 @@ export function normalizeXshellWorkerTunnelConfig(
     agentProjectDir: input.agentProjectDir?.trim() || undefined,
     agentInstallDir: input.agentInstallDir?.trim() || undefined,
     condaEnv: input.condaEnv === undefined ? undefined : normalizeCondaEnvName(input.condaEnv),
-    maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1),
-    allowedGpuIds: normalizeAllowedGpuIds(input.allowedGpuIds),
+    maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1) === 1 && input.maxConcurrentGpus !== 1 ? "auto" : normalizePositiveInt(input.maxConcurrentGpus, 1),
     authMethod: normalizeAuthMethod(input.authMethod),
     enabled: input.enabled !== false,
     gpuIdleUtilThreshold: normalizeIdleUtilThreshold((input as unknown as { gpuIdleUtilThreshold?: unknown }).gpuIdleUtilThreshold),
@@ -230,6 +230,11 @@ export function normalizeXshellWorkerTunnelConfig(
 }
 
 function normalizeAllowedGpuIds(input: unknown): string[] {
+  // 兼容空壳：allowed 语义已删除，始终返回 []，保留 sanitize 校验告警
+  return sanitizeAllowedGpuIdsCompat(input);
+}
+
+function sanitizeAllowedGpuIdsCompat(input: unknown): string[] {
   const raw: unknown[] = Array.isArray(input) ? input : typeof input === "string" ? String(input).split(/[,\s]+/) : [];
   const trimmed = raw.map((item) => String(item || "").trim()).filter(Boolean);
   if (!trimmed.length) return [];

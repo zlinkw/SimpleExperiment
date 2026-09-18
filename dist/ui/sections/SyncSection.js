@@ -29,7 +29,7 @@ class SyncSection {
         <span class="toolbarSep" aria-hidden="true">→</span>
         <button type="button" data-command="startAll" class="secondary" title="第1步连隧道：启动全部 Xshell 隧道，建立本机到服务器的端口转发">启动全部隧道</button>
         <span class="toolbarSep" aria-hidden="true">→</span>
-        <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：提交推送到 GitHub 后并行上传到所有服务器">一键上传到所有服务器</button>
+        <button type="button" data-command="publishGithub" data-confirm="true" title="第2步传代码：先提交推送到 GitHub（未配置会引导 VSCode GitHub 登录），再通过 SimpleSFTP 上传到所有 Worker。无 Hub 模式下跳过 Hub 上传。">发布到git并上传worker</button>
         <span class="toolbarSep" aria-hidden="true">→</span>
         <button type="button" data-command="testAll" class="secondary" title="第3步检测：检测全部服务器隧道、Agent 与调度依赖">检测全部</button>
       </div>
