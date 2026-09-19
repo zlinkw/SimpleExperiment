@@ -388,10 +388,6 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "checkPluginUpdates",
     "installPluginUpdates",
     "abortScheduler",
-    "openTensorBoard",
-    "startTensorBoard",
-    "copyTensorBoardUrl",
-    "openTensorBoardUrl",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",

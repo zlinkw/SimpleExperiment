@@ -276,6 +276,14 @@ test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the lo
   assert.match(extensionSource, /postWorkerAction|postAction/);
 });
 
+test("local TensorBoard commands use the UI handler when invoked through the API", () => {
+  const actionSet = extensionSource.match(/const uiActionCommands = new Set<WebviewActionCommand>\(\[([\s\S]*?)\]\);/)?.[1] || "";
+  for (const command of ["openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl"]) {
+    assert.doesNotMatch(actionSet, new RegExp(`"${command}"`));
+  }
+  assert.match(extensionSource, /if \(uiActionCommands\.has\(command\)\)\s*return await this\.runActionCommand\(command, message\);\s*return await this\.handleMessageCore\(message, command\);/);
+});
+
 test("fence_stale_run_plans: overlapping fences old, non-overlapping coexists, zombie reap", () => {
   const script = `
 import importlib.util, pathlib, os, tempfile, json, time, subprocess, sys
