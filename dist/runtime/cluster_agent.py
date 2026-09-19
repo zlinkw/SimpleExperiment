@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, base64, calendar, csv, fnmatch, glob, hashlib, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, subprocess, sys, threading, time, traceback, urllib.request, zipfile
+import argparse, base64, calendar, csv, fnmatch, glob, hashlib, http.client, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, subprocess, sys, threading, time, traceback, urllib.request, zipfile
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.3"
-RUNTIME_VERSION = "0.5.3"
-PLUGIN_VERSION = "0.5.3"
+AGENT_VERSION = "0.5.4"
+RUNTIME_VERSION = "0.5.4"
+PLUGIN_VERSION = "0.5.4"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -239,6 +239,7 @@ RUNTIME_FILE_INDEX_CACHE_LOCK = threading.Lock()
 WORKER_ACTION_LOCK = threading.Lock()
 WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
+TENSORBOARD_PROXY_PORTS = {}
 SCHEDULER_DEPENDENCY_CACHE = {}
 SCHEDULER_DEPENDENCY_CACHE_LOCK = threading.Lock()
 
@@ -8771,6 +8772,10 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
     if action == "get-tensorboard-status":
         alive = tmux_session_alive(tb_session, root, None)
         listening = tb_port_listening(port) if alive else False
+        if listening:
+            TENSORBOARD_PROXY_PORTS[tb_session] = port
+        else:
+            TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
         return terminal_action(
             root, action, operation_id, op_id, "completed",
             ("运行中" if listening else ("会话存在但未监听端口" if alive else "未运行")),
@@ -8778,6 +8783,7 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
         )
 
     if action == "stop-tensorboard":
+        TENSORBOARD_PROXY_PORTS.pop(tb_session, None)
         if tmux_session_alive(tb_session, root, None):
             stopped = subprocess.run(["tmux", "kill-session", "-t", tb_session], cwd=root,
                                      capture_output=True, text=True, timeout=5)
@@ -8807,6 +8813,7 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
             f"TensorBoard 会话启动失败：{exc}",
             {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir},
         )
+    TENSORBOARD_PROXY_PORTS[tb_session] = port
     return terminal_action(
         root, action, operation_id, op_id, "completed",
         f"已重启 TensorBoard 会话 {tb_session}（{launch_source}），端口 {port}，等待就绪",
@@ -9773,6 +9780,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/actions/start-tensorboard",
             "/api/actions/stop-tensorboard",
             "/api/actions/get-tensorboard-status",
+            "/api/tensorboard/proxy",
         ]
         return {
             "openapi": "3.0.0",
@@ -9812,6 +9820,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/files/upload-complete",
             "/api/files/transfer-status",
             "/api/workers/uplink/events",
+            "/api/tensorboard/proxy",
         ] + ACTION_PATHS},
         "x-simple-capabilities": api_capabilities(root, token_required, mode),
     }
@@ -10910,6 +10919,43 @@ def serve_http(args):
             self.end_headers()
             self.wfile.write(body)
 
+        def proxy_tensorboard(self, parsed):
+            params = parse_qs(parsed.query)
+            try:
+                port = int((params.get("port") or ["0"])[0])
+                session = tb_tmux_session_name((params.get("sessionPrefix") or [""])[0])
+                target = str((params.get("path") or ["/"])[0])
+                if port < 1024 or port > 65535 or TENSORBOARD_PROXY_PORTS.get(session) != port:
+                    return self.send_json({"error": "TensorBoard 会话未授权或未运行"}, status=403)
+                if not target.startswith("/") or target.startswith("//") or any(ord(ch) < 32 for ch in target):
+                    return self.send_json({"error": "invalid TensorBoard path"}, status=400)
+                length = int(self.headers.get("Content-Length") or 0)
+                if length < 0 or length > 1024 * 1024:
+                    return self.send_json({"error": "TensorBoard request too large"}, status=413)
+                body = self.rfile.read(length) if length else None
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
+                try:
+                    headers = {"Accept": self.headers.get("Accept") or "*/*"}
+                    if body:
+                        headers["Content-Type"] = self.headers.get("Content-Type") or "application/octet-stream"
+                    conn.request(self.command, target, body=body, headers=headers)
+                    upstream = conn.getresponse()
+                    data = upstream.read(16 * 1024 * 1024 + 1)
+                    if len(data) > 16 * 1024 * 1024:
+                        return self.send_json({"error": "TensorBoard response too large"}, status=413)
+                    self.send_response(upstream.status)
+                    for name in ("Content-Type", "Location", "Set-Cookie", "Cache-Control"):
+                        value = upstream.getheader(name)
+                        if value:
+                            self.send_header(name, value)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                finally:
+                    conn.close()
+            except Exception as exc:
+                return self.send_json({"error": f"TensorBoard proxy failed: {exc}"}, status=502)
+
         def send_bytes(self, data, name="download.bin", status=200, sha256=""):
             self.send_response(status)
             self.send_header("Content-Type", "application/octet-stream")
@@ -11047,8 +11093,10 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/tmux/capture", "/api/tmux/list") and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy") and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
+            if route == "/api/tensorboard/proxy":
+                return self.proxy_tensorboard(parsed)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
                 result = api_operation(root, operation_id)
@@ -11273,8 +11321,10 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window") and worker_action not in WORKER_RESULT_ACTIONS:
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy") and worker_action not in WORKER_RESULT_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
+            if route == "/api/tensorboard/proxy":
+                return self.proxy_tensorboard(urlparse(self.path))
             length = int(self.headers.get("Content-Length") or 0)
             raw_body = self.rfile.read(length)
             payload = {}

@@ -7002,7 +7002,7 @@ function renderPanelHtml() {
           stats: [
             ["本地隧道", "127.0.0.1:" + (setup.localForwardPort || hubAssignment.localForwardPort || "-"), "插件访问的本机端口"],
             ["远端 Agent", "127.0.0.1:" + (setup.remoteAgentPort || hubAssignment.remoteServicePort || "-"), "Hub 服务器本机 Agent 端口"],
-            ["TensorBoard", tensorBoardOverviewStatValue("hub", setup.localForwardPort || hubAssignment.localForwardPort), "复用 xshell 隧道 local+1000，可直接复制/打开"],
+            ["TensorBoard", tensorBoardOverviewStatValue("hub", setup.localForwardPort || hubAssignment.localForwardPort), "复用 Agent 隧道，插件自动建立本机浏览器入口"],
             ["项目父目录", compactPath(setup.agentProjectDir || "-"), setup.agentProjectDir || "未配置"],
             ["会话来源", setup.savedSessionPath ? "Xshell .xsh" : "未选择", setup.savedSessionPath || "未选择 Xshell 隧道会话"]
           ]
@@ -7031,7 +7031,7 @@ function renderPanelHtml() {
           stats: [
             ["本地隧道", "127.0.0.1:" + localPort, "插件访问的 Worker 本机端口"],
             ["远端 Agent", "127.0.0.1:" + remotePort, "Worker 服务器本机 Agent 端口"],
-            ["TensorBoard", tensorBoardOverviewStatValue(String(worker.id), localPort), "复用 xshell 隧道 local+1000，可直接复制/打开"],
+            ["TensorBoard", tensorBoardOverviewStatValue(String(worker.id), localPort), "复用 Agent 隧道，插件自动建立本机浏览器入口"],
             ["GPU 上限", capLabel, "空/0=auto=全部显卡数；显式值 clamp 1..总数"],
           ]
         }));
@@ -7538,7 +7538,7 @@ function renderPanelHtml() {
           '<span class="pill" title="' + escAttr(status) + '">' + esc(serverObjectStatusLabel(status, statusClassValue)) + '</span>' +
           '<span class="wport" title="插件访问的 Worker 本机端口 127.0.0.1:' + escAttr(localPort) + '">本地:' + esc(localPort) + '</span>' +
           '<span class="wport" title="Worker 服务器本机 Agent 端口 127.0.0.1:' + escAttr(remotePort) + '">远端:' + esc(remotePort) + '</span>' +
-          '<span class="wport" title="复用 xshell 隧道 local+1000，可直接复制/打开">TB ' + tbHtml + '</span>' +
+          '<span class="wport" title="复用 Agent 隧道，插件自动建立本机浏览器入口">TB ' + tbHtml + '</span>' +
           '<span class="wport" title="空/0=auto=全部显卡数">GPU上限' + esc(capLabel) + '</span>' +
           '</div>';
       }).join("");
@@ -7569,74 +7569,28 @@ function renderPanelHtml() {
     }
 
     function renderTensorBoardLinkRow(endpointId, agentLocalPort) {
-      const local = Number(agentLocalPort || 0);
-      const tbLocal = local >= 1024 ? local + 1000 : 0;
-      const tbUrl = tbLocal ? 'http://127.0.0.1:' + tbLocal : 'http://127.0.0.1:6006(待启动)';
-      const hasLink = tbLocal >= 1024;
       return '<div class="tensorBoardLinkRow" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
         '<span class="muted">TensorBoard:</span>' +
-        '<code class="tbUrl" style="user-select:all;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;cursor:pointer;" title="点击/ Ctrl+左键 直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code>' +
-        (hasLink ? '<button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" title="复制 TensorBoard 访问地址到剪贴板&#10;可直接粘贴到浏览器打开">复制</button>' : '') +
-        (hasLink ? '<button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" title="在默认浏览器中打开 TensorBoard 页面">打开</button>' : '') +
-        '<span class="muted" style="font-size:12px;">复用 xshell 隧道 ' + esc(String(local || "-")) + '→' + esc(String(tbLocal || "-")) + '</span>' +
+        '<button class="mini secondary" data-command="openTensorBoard" data-endpoint-id="' + escAttr(endpointId) + '" title="重启此服务器的 TensorBoard 并在本机浏览器打开">打开</button>' +
+        '<span class="muted" style="font-size:12px;">本机地址由插件启动时分配，复用 Agent 隧道</span>' +
       '</div>';
     }
     function tensorBoardOverviewStatValue(endpointId, agentLocalPort) {
-      const local = Number(agentLocalPort || 0);
-      const tbLocal = local >= 1024 ? local + 1000 : 0;
-      const tbUrl = tbLocal ? 'http://127.0.0.1:' + tbLocal : '';
-      if (!tbUrl) return '待启动';
-      return '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;white-space:normal;min-width:0;max-width:100%;"><code class="tbUrl" style="cursor:pointer;background:var(--vscode-textCodeBlock-background);padding:2px 6px;border-radius:4px;user-select:all;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:anywhere;" title="点击直接用默认浏览器打开" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '">' + esc(tbUrl) + '</code><button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(tbUrl) + '" data-endpoint-id="' + escAttr(endpointId) + '" style="padding:3px 8px;" title="在默认浏览器中打开 TensorBoard 页面">打开</button></span>';
+      return '<button class="mini secondary" data-command="openTensorBoard" data-endpoint-id="' + escAttr(endpointId) + '" title="重启此服务器的 TensorBoard 并在本机浏览器打开">打开 TensorBoard</button>';
     }
     function renderTensorBoardLinksForRunning() {
-      try {
-        const st = (typeof lastState !== 'undefined' ? lastState : null) || {};
-        const assignments = st.tunnelPortAssignments || [];
-        const setupAny = st.setup || {};
-        const hubLocal = Number((assignments.find((a) => a.endpointId === 'hub')?.localForwardPort) || setupAny.localForwardPort || 0);
-        const workers = (setupAny.workerTunnels || []);
-        const links = [];
-        if (hubLocal >= 1024) {
-          const hubTb = hubLocal + 1000;
-          const hubUrl = 'http://127.0.0.1:' + hubTb;
-          links.push('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="复制 TensorBoard 访问地址到剪贴板&#10;可直接粘贴到浏览器打开">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="在默认浏览器中打开 TensorBoard 页面">打开</button></span>');
-        }
-        for (const w of workers) {
-          const wid = String(w.id || '');
-          const wLocal = Number((assignments.find((a) => a.endpointId === wid)?.localForwardPort) || w.localForwardPort || 0);
-          if (wLocal >= 1024) {
-            const wTb = wLocal + 1000;
-            const wUrl = 'http://127.0.0.1:' + wTb;
-            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="复制 TensorBoard 访问地址到剪贴板&#10;可直接粘贴到浏览器打开">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="在默认浏览器中打开 TensorBoard 页面">打开</button></span>');
-          }
-        }
-        if (!links.length) {
-          const fbLocal = Number(setupAny.localForwardPort || (workers[0] && workers[0].localForwardPort) || 0);
-          if (fbLocal >= 1024) {
-            const fbTb = fbLocal + 1000;
-            const fbUrl = 'http://127.0.0.1:' + fbTb;
-            links.push('<span class="pill">TB ' + esc(fbUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '" title="复制 TensorBoard 访问地址到剪贴板&#10;可直接粘贴到浏览器打开">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(fbUrl) + '" title="在默认浏览器中打开 TensorBoard 页面">打开</button></span>');
-          }
-        }
-        // TB 按当前设置自动识别：Hub/Worker 各自按 localForwardPort+1000 生成，始终可点（不写死服务器名/端口）
-        const hubLocalForTB = Number(setupAny.localForwardPort || 0);
-        const workerLocalForTB = Number((workers[0] && workers[0].localForwardPort) || 0);
-        const hasHubNow = links.some((l) => l.includes("Hub TB"));
-        const hasWorkerNow = links.some((l) => l.includes(" TB ") && !l.includes("Hub TB"));
-        if (!hasHubNow && hubLocalForTB >= 1024) {
-          const hubUrl = 'http://127.0.0.1:' + (hubLocalForTB + 1000);
-          links.unshift('<span class="pill">Hub TB ' + esc(hubUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="复制 TensorBoard 访问地址到剪贴板&#10;可直接粘贴到浏览器打开">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(hubUrl) + '" data-endpoint-id="hub" title="在默认浏览器中打开 TensorBoard 页面">打开</button></span>');
-        }
-        if (!hasWorkerNow && workerLocalForTB >= 1024) {
-          const wUrl = 'http://127.0.0.1:' + (workerLocalForTB + 1000);
-          const wid = String(workers[0].id || "worker");
-          if (!links.some((l) => l.includes(wUrl))) {
-            links.push('<span class="pill">' + esc(wid) + ' TB ' + esc(wUrl) + ' <button class="mini secondary" data-command="copyTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="复制 TensorBoard 访问地址到剪贴板&#10;可直接粘贴到浏览器打开">复制</button> <button class="mini secondary" data-command="openTensorBoardUrl" data-tb-url="' + escAttr(wUrl) + '" data-endpoint-id="' + escAttr(wid) + '" title="在默认浏览器中打开 TensorBoard 页面">打开</button></span>');
-          }
-        }
-        if (!links.length) return '';
-        return '<div class="tensorBoardRunningLinks" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span class="muted">TensorBoard（任务运行中，点击复制/打开，无需进设置）：</span>' + links.join('') + '</div>';
-      } catch (e) { return ''; }
+      const st = lastState || {};
+      const setup = st.setup || {};
+      const endpoints = [];
+      if ((st.topology || {}).hubAllowed === true) endpoints.push({ id: "hub", name: setup.hubDisplayName || "Hub" });
+      enabledWorkerTunnelsForState(st).forEach((worker) => {
+        endpoints.push({ id: String(worker.id || ""), name: worker.displayName || worker.name || worker.id });
+      });
+      if (!endpoints.length) return "";
+      return '<div class="tensorBoardRunningLinks" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span class="muted">TensorBoard:</span>' +
+        endpoints.filter((item) => item.id).map((item) =>
+          '<button class="mini secondary" data-command="openTensorBoard" data-endpoint-id="' + escAttr(item.id) + '" title="重启 TensorBoard 并在本机浏览器打开">' + esc(String(item.name)) + ' · 打开</button>'
+        ).join("") + '</div>';
     }
 
     function renderSchedulerDependencyStatus(dependency, label) {
@@ -9077,11 +9031,7 @@ function renderPanelHtml() {
       const endpoints = [];
       if ((state.topology || {}).hubAllowed === true) endpoints.push({ id: "hub", name: setup.hubDisplayName || setup.hubHost || "Hub", localForwardPort: setup.localForwardPort });
       workers.forEach((worker) => endpoints.push({ id: String(worker.id || ""), name: worker.displayName || worker.name || worker.id, localForwardPort: worker.localForwardPort }));
-      const assignments = asArray(state.tunnelPortAssignments || []);
       const html = endpoints.filter((item) => item.id).map((item) => {
-        const assignment = assignments.find((row) => String(row.endpointId || "") === item.id) || {};
-        const port = Number(assignment.localForwardPort || item.localForwardPort || 0);
-        const tbPort = port >= 1024 && port <= 64535 ? port + 1000 : 0;
         const status = gpuTensorboardStatus[item.id];
         const running = !!status?.running;
         const command = running ? "stopTensorBoard" : "openTensorBoard";
@@ -9090,7 +9040,7 @@ function renderPanelHtml() {
           gpuTensorboardRequested.add(item.id);
           setTimeout(() => vscode.postMessage({ command: "getTensorBoardStatus", endpointId: item.id }), 0);
         }
-        return '<button type="button" class="mini secondary" role="switch" aria-checked="' + running + '" data-command="' + command + '" data-endpoint-id="' + escAttr(item.id) + '" data-local-port="' + escAttr(String(tbPort)) + '" title="' + escAttr(status?.error || (running ? "关闭此服务器的 TensorBoard tmux 会话" : "重建此服务器的 TensorBoard tmux 会话并在浏览器打开")) + '">' + esc(String(item.name)) + ' · TensorBoard ' + label + '</button>';
+        return '<button type="button" class="mini secondary" role="switch" aria-checked="' + running + '" data-command="' + command + '" data-endpoint-id="' + escAttr(item.id) + '" title="' + escAttr(status?.error || (running ? "关闭此服务器的 TensorBoard tmux 会话" : "重建此服务器的 TensorBoard tmux 会话并在浏览器打开")) + '">' + esc(String(item.name)) + ' · TensorBoard ' + label + '</button>';
       }).join("");
       setHtmlIfChanged("gpuTensorboardControls", html);
     }

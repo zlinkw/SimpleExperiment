@@ -192,7 +192,62 @@ print('ok')
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-test("openTensorBoardFromUi restarts <prefix>_tb, polls get-tensorboard-status ~10s, uses localPort = agentLocalForwardPort+1000, surfaces error", () => {
+test("worker Agent proxies TensorBoard pages only for an active session and valid token", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, threading, types, urllib.request, urllib.error
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(agent)
+class TensorBoard(BaseHTTPRequestHandler):
+    def log_message(self, *args): pass
+    def do_GET(self):
+        body = b'tensorboard page'
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+tb = ThreadingHTTPServer(('127.0.0.1', 0), TensorBoard)
+threading.Thread(target=tb.serve_forever, daemon=True).start()
+agent.start_worker_telemetry_sampler = lambda *a, **k: None
+agent.start_gpu_log_tail_sampler = lambda *a, **k: None
+agent.start_worker_hub_uplink = lambda *a, **k: None
+agent.start_worker_local_command_processor = lambda *a, **k: None
+servers = []
+class CapturedServer(ThreadingHTTPServer):
+    def serve_forever(self):
+        servers.append(self)
+        threading.Thread(target=lambda: ThreadingHTTPServer.serve_forever(self), daemon=True).start()
+agent.ThreadingHTTPServer = CapturedServer
+with tempfile.TemporaryDirectory() as root:
+    agent.serve_http(types.SimpleNamespace(host='127.0.0.1', port=0, token='secret', mode='worker_telemetry', project_dir=root, worker_id='test'))
+    local = servers[0]
+    agent.TENSORBOARD_PROXY_PORTS['owner_tb'] = tb.server_port
+    url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/proxy?port={tb.server_port}&sessionPrefix=owner&path=%2Fdata%2Fplugin'
+    req = urllib.request.Request(url, headers={'X-Simple-Agent-Token': 'secret'})
+    assert urllib.request.urlopen(req, timeout=5).read() == b'tensorboard page'
+    try:
+        urllib.request.urlopen(url, timeout=5)
+        raise AssertionError('missing token accepted')
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 401, exc.code
+    agent.TENSORBOARD_PROXY_PORTS.clear()
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        raise AssertionError('inactive session accepted')
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 403, exc.code
+    local.shutdown(); local.server_close()
+tb.shutdown(); tb.server_close()
+print('proxy ok')
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /proxy ok/);
+});
+
+test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the local Agent proxy", () => {
   // Check package.json config
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.port"].default, 6006);
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.logdir"].default, "work_dirs");
@@ -205,7 +260,8 @@ test("openTensorBoardFromUi restarts <prefix>_tb, polls get-tensorboard-status ~
   assert.match(extensionSource, /await new Promise.*1000/);
   assert.match(extensionSource, /get-tensorboard-status/);
   assert.match(extensionSource, /status\.listening/);
-  assert.match(extensionSource, /agentLocal \+ 1000|localPort = .*\+ 1000/);
+  assert.match(extensionSource, /tensorboardProxy\.open\(endpointId, endpoint, remotePort, sessionPrefix\)/);
+  assert.match(extensionSource, /fetch\(url, \{ signal: AbortSignal\.timeout\(5000\) \}\)/);
   assert.match(extensionSource, /TB 启动失败，请检查服务器 start_tb\.sh \/ 端口占用/);
   // body contains only non-absolute fields
   assert.match(extensionSource, /sessionPrefix.*port.*logdir.*condaEnv.*tmuxSession/);

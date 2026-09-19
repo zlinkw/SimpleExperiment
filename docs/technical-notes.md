@@ -861,7 +861,7 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 - `标准结果契约`：推荐使用 `metrics_summary.csv`、`metrics_case.csv` 或输出接入模板；`artifact_manifest.json`、`env_snapshot.json`、`config_snapshot.yaml` 只作为运行与环境证据，不能单独充当实验结果。
 - `解析预览`：只表示已有结果是否能解析出指标。首次运行尚无结果时，只要当前 Plan 或接入规则已经声明可解析结果位置，就不会因缺少预览而阻断。
 
-硬阻断条件是：缺少 `接入配置 / 计划输出`，缺少候选或契约声明，或 Scheduler 输出接口报告未找到 wrapper / adapter call / TensorBoard scalar 任一验证通道。TensorBoard 路线要求远端 Python 能导入 `tensorboard`；任务结束后 Scheduler 会用其 EventAccumulator 读取每个 tag 的最终 scalar，写入 Plan 声明的标准 CSV，并补齐快照文件。Dry-run 成功后会删除本次 worker 临时输入；超过 24 小时的同名 runtime worker 临时文件也会按精确文件名清理，不会扫描或删除其他路径。
+硬阻断条件是：缺少 `接入配置 / 计划输出`，缺少候选或契约声明，或 Scheduler 输出接口报告未找到 wrapper / adapter call / TensorBoard scalar 任一验证通道。TensorBoard 路线要求远端 Python 能导入 `tensorboard`；任务结束后 Scheduler 会用其 EventAccumulator 读取每个 tag 的最终 scalar，写入任务目录的 `tensorboard_scalars.csv`，仅在任务目录没有 `metrics_summary.csv` 时生成标准结果文件，并补齐快照。不会向项目级共享结果表追加 scalar 行。Dry-run 成功后会删除本次 worker 临时输入；超过 24 小时的同名 runtime worker 临时文件也会按精确文件名清理，不会扫描或删除其他路径。
 
 如果门禁失败，错误会按缺失项给出中文修复动作：生成 `experiments/simple_project.yaml`、补候选 CSV / JSON / 控制台日志 / 文本日志 / 正则规则、让测试代码输出 `metrics_summary.csv`，或保存规则后刷新识别并查看解析预览。
 

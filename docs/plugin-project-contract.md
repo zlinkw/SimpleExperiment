@@ -134,7 +134,7 @@ Scheduler 会在 validate-plan 和 dry-run-plan 阶段检查“代码真的会�
 ### 通道 A：run_wrapper（推荐）
 
 - `experiments/simple_project.yaml` 配置 `adapter.runWrapper` 指向已存在的 `experiments/simple_adapter/run_wrapper.py`。
-- 使用插件生成的 wrapper 包裹训练/测试命令，捕获 stdout/stderr，并生成标准结果和快照。
+- 使用插件生成的 wrapper 包裹训练/测试命令，实时透传 stdout/stderr，追加写入同一任务日志，并生成标准结果和快照。项目可以按指标格式修改生成的 wrapper。
 - 自定义 wrapper 也必须在命令结束后生成 `metrics_summary.csv`、`env_snapshot.json` 和 `config_snapshot.yaml`。
 
 ### 通道 B：显式 adapter 调用
@@ -158,7 +158,7 @@ write_metrics_summary(
 
 - 入口使用 TensorBoard `SummaryWriter` 或等价 writer 写 scalar。
 - 远端环境必须能导入 `tensorboard`。
-- 任务成功后 Scheduler 会读取每个 tag 的最终 scalar，转换成 Plan 声明的标准 CSV，并补齐配置和环境快照。
+- 任务成功后 Scheduler 会读取每个 tag 的最终 scalar，写入任务目录的 `tensorboard_scalars.csv`；当任务目录尚无 `metrics_summary.csv` 时，同时生成该标准结果文件，并补齐配置和环境快照。不会向项目级共享结果表追加 scalar 行。
 - 最小可运行片段（C-TensorBoard，tag 即列名）：
 
 ```python
@@ -167,8 +167,8 @@ writer = SummaryWriter(log_dir=output_dir)
 writer.add_scalar("AUC/test", 0.91, global_step=100)
 writer.add_scalar("accuracy/test", 0.85, global_step=100)
 writer.close()
-# tag 映射：`AUC/test` 取末段 `AUC` 为 metric 列，final scalar 为 value 列；
-# split 从 tag 倒数第二段推断（无则用 Plan case split），seed/suite/method 由 Scheduler 补齐。
+# tag 原样写入 metric 列，最终 scalar 写入 value 列；
+# split 使用 Plan case 上下文，seed/suite/method 由 Scheduler 补齐。
 ```
 
 - 通道 A 最小判定：`simple_project.yaml` 中 `adapter.runWrapper` 存在且命令经 wrapper 包裹后产出 `metrics_summary.csv + env_snapshot.json + config_snapshot.yaml`；自定义 wrapper 同样必须在命令结束后生成这三件套（见通道 A 原三条）。
