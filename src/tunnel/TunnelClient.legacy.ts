@@ -130,6 +130,9 @@ const actionPurpose: Partial<Record<TunnelAction, TunnelRequestPurpose>> = {
   "delete-artifacts": "manual_refresh",
   "reconcile-deletions": "manual_refresh",
   "self-check": "diagnostics",
+  "start-tensorboard": "run_plan",
+  "stop-tensorboard": "stop",
+  "get-tensorboard-status": "manual_refresh",
   "create-debug-bundle": "diagnostics",
   "rescan-results": "manual_refresh",
 };

@@ -3068,6 +3068,7 @@ function renderPanelHtml() {
         if (item.type === "tensorboardSwitchStatus") {
           gpuTensorboardStatus[String(item.endpointId || "")] = { running: !!item.running, error: String(item.error || "") };
           renderGpuTensorboardControls(lastState || {});
+          renderOperationSection(lastState || {});
           continue;
         }
         if (item.type === "state") latestStateMessage = item;
@@ -7629,7 +7630,7 @@ function renderPanelHtml() {
       if (!endpoints.length) return "";
       return '<div class="tensorBoardRunningLinks" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span class="muted">TensorBoard:</span>' +
         endpoints.filter((item) => item.id).map((item) =>
-          '<button class="mini secondary" data-command="openTensorBoard" data-endpoint-id="' + escAttr(item.id) + '" title="重启 TensorBoard 并在本机浏览器打开">' + esc(String(item.name)) + ' · 打开</button>'
+          '<button type="button" class="mini secondary" role="switch" aria-checked="' + !!gpuTensorboardStatus[item.id]?.running + '" data-command="' + (gpuTensorboardStatus[item.id]?.running ? 'stopTensorBoard' : 'openTensorBoard') + '" data-endpoint-id="' + escAttr(item.id) + '" title="' + escAttr(gpuTensorboardStatus[item.id]?.error || '与 GPU 状态卡片共用 TensorBoard 开关') + '">' + esc(String(item.name)) + ' · ' + (gpuTensorboardStatus[item.id]?.running ? '关闭' : '开启') + '</button>'
         ).join("") + '</div>';
     }
 
@@ -12519,33 +12520,24 @@ function renderPanelHtml() {
       const view = operationViewModelForState(state);
       const ops = (state && state.operations) ? Object.values(state.operations) : [];
       const currentPlan = String(state && (state.planFileInput || (state.selection && state.selection.selectedPlanId) || "") || "");
-      const currentPlanKey = currentPlan.replace(/^.*\\//,"").replace(".yaml","").replace(".yml","").trim();
-      const hasActiveOp = ops.some((op) => {
+      const currentPlanPath = currentPlan.replaceAll(String.fromCharCode(92), "/").replace("./", "");
+      const activeOps = ops.filter((op) => {
         const st = String(op.status || op.state || "").toLowerCase();
         const tp = String(op.type || op.action || "").toLowerCase();
         const pf = String(op.planFile || op.plan || "");
         const isRunPlan = tp.includes("run-plan") || tp.includes("runplan") || tp.includes("workflow");
         const isActiveStatus = ["running","started","waiting_confirmation"].some(s => st === s || st.includes(s)) || /waiting/.test(st);
-        const planMatch = !currentPlan || !currentPlanKey || pf.includes(currentPlanKey) || pf === currentPlan || pf.includes(currentPlan);
-        return isRunPlan && isActiveStatus && planMatch;
+        const planPath = pf.replaceAll(String.fromCharCode(92), "/").replace("./", "");
+        const planMatch = !!currentPlanPath && (planPath === currentPlanPath || planPath.endsWith("/" + currentPlanPath));
+        return isRunPlan && isActiveStatus && planMatch && op.reconcileEvidenceActive !== false;
       });
-      const schedStates = (state && state.schedulerStates) || [];
-      const hasRunningSched = schedStates.some((s) => ((s.running_experiments||[]).length + (s.testing_experiments||[]).length + (s.pending_experiments||[]).length) > 0);
-      const abortEnabled = hasRunningSched || hasActiveOp;
-      const activeOp = ops.find((op) => {
-        const st = String(op.status || op.state || "").toLowerCase();
-        const tp = String(op.type || op.action || "").toLowerCase();
-        const pf = String(op.planFile || op.plan || "");
-        const isRunPlan = tp.includes("run-plan") || tp.includes("runplan") || tp.includes("workflow");
-        const isActiveStatus = ["running","started","waiting_confirmation"].some(s => st === s || st.includes(s)) || /waiting/.test(st);
-        const planMatch = !currentPlan || !currentPlanKey || pf.includes(currentPlanKey) || pf === currentPlan || pf.includes(currentPlan);
-        return isRunPlan && isActiveStatus && planMatch;
-      }) || ops.find((op) => /running|started|waiting/.test(String(op.status||"").toLowerCase())) || ops[0] || {};
+      const activeOp = activeOps.sort((a, b) => String(b.updatedAt || b.startedAt || '').localeCompare(String(a.updatedAt || a.startedAt || '')))[0] || {};
       const abortOpId = String(activeOp.operationId || activeOp.id || "");
-      const abortPlan = String(activeOp.planFile || activeOp.plan || currentPlan || "");
+      const abortPlan = String(activeOp.planFile || activeOp.plan || "");
+      const abortEnabled = !!abortOpId && !!abortPlan;
       const globalAbort = '<div class="operationActions" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
         + '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止该实验的运行任务&#10;' + (abortEnabled ? '当前有运行中调度，可点击中止' : '当前无运行中调度，按钮暂不可用') + '&#10;无需先选中任务行；中止成功后会清理本机调度日志与调度会话">中止/清理</button>'
-        + '<button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" title="强制中止调度器，结束本机调度进程并清理状态文件&#10;仅在调度器卡死时作为兜底恢复手段&#10;已提交到远端的任务不受影响">备用清理</button>'
+        + '<button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button>'
         + '<button class="mini secondary" data-command="clearOperations" data-confirm="true" title="清空本机运行进度历史&#10;清除面板上的操作记录与本地缓存&#10;远端审计日志保留，刷新后会重新拉取">清空历史</button>'
         + '<button class="mini secondary" data-command="snapshot" title="手动刷新运行状态&#10;重新拉取调度状态与操作记录">刷新运行状态</button>'
         + '<span class="muted" style="font-size:11px;">' + (abortEnabled ? '与运行状态解耦，可中止' : '暂无可中止调度') + ' · 点击刷新可重拉状态</span></div>';

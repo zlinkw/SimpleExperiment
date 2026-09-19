@@ -4859,7 +4859,7 @@ class RealtimeTunnelPanelProvider {
         }
         await this.ensureManualStopReason(command, body);
         if (command === "stopExperiment") {
-            const routed = await this.stopExperimentRouted(body);
+            const routed = await this.stopExperimentRouted({ ...body, operationId: stringField(message, "operationId"), remoteOperationId: stringField(message, "remoteOperationId") });
             if (routed !== undefined)
                 return routed;
         }
@@ -8397,17 +8397,11 @@ class RealtimeTunnelPanelProvider {
             && (!operationTerminal(item) || String(item.status || "").trim().toLowerCase() === "stale")
             && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
             && this.stopExperimentMatchesTarget(item, target)));
-        if (!candidates.length && !Object.values(target).some(Boolean))
-            candidates = this.longRunningPlanRunOperations();
-        const mustUseWorker = Boolean(explicitWorker) || !topology.hubAllowed;
-        if (!candidates.length && !mustUseWorker)
-            return undefined;
+        if (!target.operationId || !target.planFile)
+            throw new Error("缺少明确的运行记录和 Plan，已阻止中止操作。");
+        if (!candidates.length)
+            throw new Error(`未找到 ${target.planFile} 的活动调度记录 ${target.operationId}，未发送停止命令。`);
         const byOwner = new Map();
-        if (!candidates.length && mustUseWorker) {
-            const owner = explicitWorker || String(this.enabledWorkerConfigs()[0]?.id || "");
-            if (owner)
-                byOwner.set(owner, []);
-        }
         for (const record of candidates) {
             const owner = explicitWorker
                 || this.runOperationWorkerId(record)
@@ -8457,8 +8451,11 @@ class RealtimeTunnelPanelProvider {
                 confirm: false,
             });
             const record = result && typeof result === "object" ? result : {};
-            terminatedSessions.push(...stringArrayField(record, ["terminatedSessions", "terminated_sessions"]));
-            terminatedPids.push(...stringArrayField(record, ["terminatedPids", "terminated_pids"]));
+            const confirmed = Array.isArray(record.matchedOperations) ? record.matchedOperations : Array.isArray(record.matched_operations) ? record.matched_operations : [];
+            if (resultStatus(record) === "failed" || !confirmed.map(String).includes(String(request.targetOperationId || "")))
+                throw new Error(stringFromRecord(record, ["message"]) || "远端未确认停止目标，已保留本地运行状态。");
+            terminatedSessions.push(...stringArrayField(record, "terminatedSessions"), ...stringArrayField(record, "terminated_sessions"));
+            terminatedPids.push(...stringArrayField(record, "terminatedPids"), ...stringArrayField(record, "terminated_pids"));
             remainingActiveEvidence.push(...(Array.isArray(record.remainingActiveEvidence) ? record.remainingActiveEvidence : []));
             for (const row of rows) {
                 const operationId = String(row.operationId || "");
@@ -9607,6 +9604,8 @@ class RealtimeTunnelPanelProvider {
         }
         for (const candidate of candidatePlans)
             this.assertExecutionAgentProjectsReady(candidate.body);
+        if (candidatePlans.length > 1 && topology.mode === "single_worker")
+            throw new Error("单 Worker 当前仅支持一个活动 Plan 调度器；运行全部计划需要串行队列，请逐个启动。未提交任何 Plan。");
         const currentState = this.buildPlanRuntimeEvidenceState();
         const activePlans = candidatePlans
             .map((candidate) => ({ planFile: candidate.planFile, activity: activePlanRunEvidence(currentState, candidate.planFile, candidate.plan) }))
@@ -11096,28 +11095,10 @@ class RealtimeTunnelPanelProvider {
             this.postState();
     }
     async abortSchedulerFromUi(message) {
-        const fallbackOp = (() => {
-            try {
-                const ops = this.longRunningPlanRunOperations?.();
-                if (Array.isArray(ops) && ops.length)
-                    return ops[0];
-            }
-            catch { }
-            try {
-                const all = Object.values(this.localOperations || {});
-                const cand = all.find((v) => v && typeof v === "object" && !operationTerminal(v) && LONG_RUNNING_OPERATION_ACTIONS.has(String(v.type || "").toLowerCase()));
-                if (cand)
-                    return cand;
-            }
-            catch { }
-            return undefined;
-        })();
-        const fallbackOpId = String(fallbackOp?.operationId || fallbackOp?.id || "").trim();
-        const fallbackPlan = String(fallbackOp?.planFile || fallbackOp?.plan || "").trim();
-        const operationId = String(message?.operationId || message?.operation_id || message?.id || fallbackOpId).trim() || fallbackOpId;
-        const planFile = String(message?.planFile || message?.plan_file || fallbackPlan).trim() || fallbackPlan;
+        const operationId = String(message?.operationId || message?.operation_id || message?.id || "").trim();
+        const planFile = String(message?.planFile || message?.plan_file || "").trim();
         if (!operationId || !planFile) {
-            const msg = !fallbackOp ? "当前无运行中任务（longRunningPlanRunOperations 为空），无法确定中止目标" : `无法解析 operationId/planFile（operationId=${operationId || "(空)"} planFile=${planFile || "(空)"}）`;
+            const msg = `无法解析明确的中止目标（operationId=${operationId || "(空)"} planFile=${planFile || "(空)"}）`;
             void vscode.window.showWarningMessage(msg);
             throw new Error(msg);
         }
@@ -11142,6 +11123,8 @@ class RealtimeTunnelPanelProvider {
                 workerId,
                 action: "stop-scheduler-operation",
             });
+            if (!result || !Array.isArray(result.matchedOperations) || !result.matchedOperations.includes(operationId))
+                throw new Error("远端未确认目标调度器，已保留运行记录。");
             // 若仍有残留活动证据（tmux/pid 仍存活），再发一次 stop 触发服务端 SIGKILL 兜底分支。
             let remaining = (result && Array.isArray(result.remainingActiveEvidence) ? result.remainingActiveEvidence : []) || [];
             if (remaining.length) {
@@ -11295,11 +11278,11 @@ class RealtimeTunnelPanelProvider {
             const started = await this.postTensorboardAction(endpointId, "start-tensorboard", body);
             if (started?.status === "failed")
                 throw new Error(String(started.message || "远端启动失败"));
-            // Poll readiness (server-side port probe) up to ~10s before opening the tunnel.
+            // Poll readiness (server-side port probe) up to ~10s without exhausting the tunnel budget.
             let status = undefined;
             let sessionUp = false;
-            for (let i = 0; i < 10; i++) {
-                await new Promise((r) => setTimeout(r, 1000));
+            for (let i = 0; i < 5; i++) {
+                await new Promise((r) => setTimeout(r, 2000));
                 try {
                     status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { ...body, opId: makeOpId("get-tensorboard-status") });
                 }
@@ -11366,16 +11349,25 @@ class RealtimeTunnelPanelProvider {
         const client = this.client;
         const opId = body?.opId || makeOpId(action);
         const fullBody = { opId, ...body, endpointId };
-        if (endpointId === "hub") {
-            return await client.postAction(action, fullBody);
+        for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+                if (endpointId === "hub")
+                    return await client.postAction(action, fullBody);
+                if (typeof client.postWorkerAction === "function")
+                    return await client.postWorkerAction(endpointId, action, fullBody);
+                const epClient = client.clients?.get?.(endpointId);
+                if (epClient && typeof epClient.postAction === "function")
+                    return await epClient.postAction(action, fullBody);
+                throw new Error("无法定位 Worker 客户端以控制 TensorBoard");
+            }
+            catch (error) {
+                const decision = error?.decision;
+                if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || "")))
+                    throw error;
+                await new Promise((resolve) => setTimeout(resolve, Math.min(2000, Math.max(250, Number(decision?.retryAfterMs || 1000)) + 50)));
+            }
         }
-        if (typeof client.postWorkerAction === "function") {
-            return await client.postWorkerAction(endpointId, action, fullBody);
-        }
-        const epClient = client.clients?.get?.(endpointId);
-        if (epClient && typeof epClient.postAction === "function")
-            return await epClient.postAction(action, fullBody);
-        throw new Error("无法定位 Worker 客户端以控制 TensorBoard");
+        throw new Error("TensorBoard 请求未能发送");
     }
     async copyTensorBoardUrlFromUi(message) {
         const endpointId = String(message?.endpointId || "hub").trim();

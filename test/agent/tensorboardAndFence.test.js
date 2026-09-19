@@ -277,8 +277,8 @@ test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the Ag
   assert.match(extensionSource, /async openTensorBoardFromUi/);
   assert.match(extensionSource, /postTensorboardAction/);
   assert.match(extensionSource, /start-tensorboard/);
-  assert.match(extensionSource, /for \(let i = 0; i < 10; i\+\+\)/);
-  assert.match(extensionSource, /await new Promise.*1000/);
+   assert.match(extensionSource, /for \(let i = 0; i < 5; i\+\+\)/);
+   assert.match(extensionSource, /await new Promise.*2000/);
   assert.match(extensionSource, /get-tensorboard-status/);
   assert.match(extensionSource, /status\.listening/);
   assert.match(extensionSource, /const url = `http:\/\/\$\{browserHost\}:\$\{endpoint\.localPort\}\/api\/tensorboard\/ui\/`/);
@@ -300,7 +300,7 @@ test("local TensorBoard commands use the UI handler when invoked through the API
   assert.match(extensionSource, /case "prepareAgents":\s*await this\.prepareAgentsForFirstRun\(message\.uiMode !== true\)/);
 });
 
-test("fence_stale_run_plans: overlapping fences old, non-overlapping coexists, zombie reap", () => {
+test("fence_stale_run_plans: overlapping live scheduler blocks replacement without killing it", () => {
   const script = `
 import importlib.util, pathlib, os, tempfile, json, time, subprocess, sys
 agent_path = pathlib.Path(${JSON.stringify(agentPath)})
@@ -339,7 +339,7 @@ with tempfile.TemporaryDirectory() as tmp:
     agent._is_pid_alive = fake_pid_alive
     agent.tmux_available = fake_tmux_available
     # we want to test reap logic directly, so keep original reap for now but mock tmux ls
-    # Test 1: overlapping workerIds -> fence old
+    # Test 1: overlapping workerIds -> block replacement
     # register old plan op-old with worker w1
     old_op = "op-old-111"
     new_op = "op-new-222"
@@ -373,22 +373,21 @@ with tempfile.TemporaryDirectory() as tmp:
         alive_pids.discard(int(pid))
     os.kill = fake_os_kill
 
-    # Now fence with new_op overlapping w1 and same owner worker-1
+    # New scheduler must leave old scheduler and its training tasks alone.
     result = agent.fence_stale_run_plans(root, new_op, ["w1"], "worker-1")
-    assert old_op in result["fenced"], f"expected fenced {old_op}, got {result}"
-    assert other_op not in result["fenced"], "non-overlapping should not be fenced"
-    # old session should be killed
-    assert agent.simple_tmux_name(f"sch-{old_op}") not in alive_sessions
-    assert 12345 not in alive_pids
+    assert old_op in result["blocked"], f"expected blocked {old_op}, got {result}"
+    assert other_op not in result["blocked"], "non-overlapping should not be blocked"
+    assert agent.simple_tmux_name(f"sch-{old_op}") in alive_sessions
+    assert 12345 in alive_pids
     # other should remain
     assert agent.simple_tmux_name(f"sch-{other_op}") in alive_sessions
-    # registry should have removed old, kept other
+    # registry preserves both live schedulers
     reg = agent._read_run_plan_registry(root)
     ops = [e["opId"] for e in reg]
-    assert old_op not in ops
+    assert old_op in ops
     assert other_op in ops
 
-    # Test 2: same owner even with different workerIds -> fence
+    # Test 2: same owner even with different workerIds -> block
     alive_sessions.add(agent.simple_tmux_name(f"sch-{other_op}"))
     # re-add old-like entry with same owner but different worker
     owner_op = "op-owner-444"
@@ -396,9 +395,13 @@ with tempfile.TemporaryDirectory() as tmp:
     alive_pids.add(12347)
     agent.register_active_run_plan(root, owner_op, 12347, agent.simple_tmux_name(f"sch-{owner_op}"), ["w9"], "worker-1")
     result2 = agent.fence_stale_run_plans(root, "op-new-555", ["w10"], "worker-1")
-    assert owner_op in result2["fenced"], f"same owner should fence, got {result2}"
+    assert owner_op in result2["blocked"], f"same owner should block, got {result2}"
 
     # Test 3: zombie reap -> session not in registry but tmux ls shows it
+    # An unregistered yet live scheduler must survive the reaper.
+    live_unregistered = agent._tmux_prefix() + "-sch-starting999"
+    alive_sessions.add(live_unregistered)
+    agent._tmux_pane_python_running = lambda session, env: session == live_unregistered
     zombie_sess = agent._tmux_prefix() + "-sch-zombie999"
     alive_sessions.add(zombie_sess)
     # ensure zombie not in registry
@@ -408,6 +411,7 @@ with tempfile.TemporaryDirectory() as tmp:
     reaped = agent._reap_zombie_scheduler_sessions(root, known)
     assert zombie_sess in reaped, f"zombie should be reaped, got {reaped}"
     assert zombie_sess not in alive_sessions
+    assert live_unregistered in alive_sessions
 
     # restore
     agent.tmux_session_alive = orig_tmux_alive
@@ -426,6 +430,73 @@ print("fence ok")
 test("stop-scheduler-operation deregisters and reaps with remaining registry, not empty set", () => {
   assert.match(agentSource, /remaining = set\(str\(e\.get\("opId"\) or ""\) for e in _read_run_plan_registry\(root\)/);
   assert.match(agentSource, /_reap_zombie_scheduler_sessions\(root, remaining\)/);
+});
+
+test("stop-scheduler-operation leaves every GPU task intact when target scheduler is absent", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, os, json
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as tmp:
+    agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
+    root = os.path.join(tmp, "project"); os.makedirs(root)
+    snapshot = agent.path_for(root, "worker_task_snapshot.json")
+    original = {"schemaVersion": 1, "tasks": [{"status": "running", "planFile": "experiments/plans/other.yaml", "pid": 321, "tmuxSession": "zlk-gpu-0"}]}
+    agent.atomic_write(snapshot, original)
+    agent.scheduler_process_evidence = lambda *args: {"pidAlive": False, "tmuxSessionAlive": False, "tmuxShellAlive": False, "checkedPid": 0, "checkedTmuxSession": "zlk-sch-target"}
+    agent._is_pid_alive = lambda pid: True
+    def forbidden(*args, **kwargs): raise AssertionError("unrelated process terminated")
+    agent.subprocess.run = forbidden
+    agent.os.kill = forbidden
+    result = agent.stop_scheduler_operation(root, {"targetOperationId": "target", "operationId": "stop-1", "opId": "stop-1", "planFile": "experiments/plans/current.yaml"})
+    assert result["status"] == "failed", result
+    assert result["matchedOperations"] == [], result
+    assert agent.read_json(snapshot, {})["tasks"] == original["tasks"]
+print("unmatched stop preserved GPU tasks")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("stop-scheduler-operation terminates only tasks from the selected Plan", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, os
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as tmp:
+    agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
+    root = os.path.join(tmp, "project"); os.makedirs(root)
+    snapshot = agent.path_for(root, "worker_task_snapshot.json")
+    agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [
+        {"status": "running", "planFile": "experiments/plans/current.yaml", "pid": 101, "tmuxSession": "zlk-gpu-0"},
+        {"status": "running", "planFile": "experiments/plans/other.yaml", "pid": 202, "tmuxSession": "zlk-gpu-1"},
+    ]})
+    calls = []; probes = iter([True, False])
+    def evidence(*args):
+        live = next(probes)
+        return {"pidAlive": False, "tmuxSessionAlive": live, "tmuxShellAlive": live, "checkedPid": 0, "checkedTmuxSession": "zlk-sch-target"}
+    agent.scheduler_process_evidence = evidence
+    agent.read_operation_events = lambda *args: [{"payload": {"planFile": "experiments/plans/current.yaml"}}]
+    agent.tmux_session_alive = lambda session, cwd=None, env=None: True
+    agent._reap_zombie_scheduler_sessions = lambda *args: []
+    agent._is_pid_alive = lambda pid: True
+    def fake_run(args, **kwargs):
+        calls.append(tuple(args))
+        class Result: returncode = 0; stderr = b""
+        return Result()
+    agent.subprocess.run = fake_run
+    agent.os.kill = lambda pid, sig: calls.append(("kill", pid))
+    result = agent.stop_scheduler_operation(root, {"targetOperationId": "target", "operationId": "stop-1", "opId": "stop-1", "planFile": "experiments/plans/current.yaml"})
+    assert result["status"] == "completed", result
+    assert ("tmux", "kill-session", "-t", "zlk-gpu-0") in calls, calls
+    assert ("tmux", "kill-session", "-t", "zlk-gpu-1") not in calls, calls
+    assert ("kill", 202) not in calls, calls
+    tasks = agent.read_json(snapshot, {})["tasks"]
+    assert tasks[0]["status"] == "stopped" and tasks[1]["status"] == "running", tasks
+print("scoped stop preserved other Plan")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
 test("extension and agent never hardcode absolute server paths or tmux names", () => {

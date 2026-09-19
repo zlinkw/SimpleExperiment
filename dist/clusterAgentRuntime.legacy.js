@@ -9047,6 +9047,9 @@ def _reap_zombie_scheduler_sessions(root, known_op_ids):
             op = name[len(prefix + "-sch-"):]
             if op in known:
                 continue
+            # A scheduler can start before its registry write. Never reap an unregistered live pane.
+            if _tmux_pane_python_running(name, None):
+                continue
             try:
                 subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
                 reaped.append(name)
@@ -9090,14 +9093,11 @@ def _reap_orphan_gpu_sessions(root, force_all=False):
 
 
 def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
-    # Prevent two run-plan schedulers from independently allocating the same worker's GPUs. When a
-    # new run-plan starts, any OLDER live scheduler that targets an overlapping worker (or the same
-    # owner) is fenced (tmux + pid killed); the newest scheduler wins. Zombie sch-* sessions are also
-    # reaped so a dead scheduler cannot keep a stale worker_availability.json claim alive.
+    # Never replace a live scheduler implicitly: its dispatched training tasks outlive its tmux.
     entries = _read_run_plan_registry(root)
     new_ids = set(str(w) for w in (new_worker_ids or []))
     owner = str(new_owner or "").strip()
-    fenced = []
+    blocked = []
     kept = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -9116,31 +9116,11 @@ def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
         alive = tmux_session_alive(simple_tmux_name(f"sch-{op}"), root, None) or _is_pid_alive(entry.get("pid"))
         if not alive:
             continue  # stale entry: drop from registry, reaped below
-        sess = simple_tmux_name(f"sch-{op}")
-        # 先标记 aborted 并写受害者事件，再尝试 SIGTERM/杀 tmux，避免静默顶掉旧调度器
-        try:
-            append_event(root, {"type": "operation_progress", "operationId": op, "payload": {"opId": op, "status": "aborted", "message": f"被新 run-plan 调度器 {new_op_id} fence，旧调度器即将终止", "fencedBy": str(new_op_id), "workerIds": sorted(new_ids), "ownerWorkerId": owner}})
-        except Exception:
-            pass
-        try:
-            append_event(root, {"type": "scheduler_fenced_victim", "operationId": op, "payload": {"fencedOpId": op, "newOpId": str(new_op_id), "workerIds": sorted(new_ids), "ownerWorkerId": owner, "session": sess, "pid": int(entry.get("pid") or 0)}})
-        except Exception:
-            pass
-        try:
-            if tmux_session_alive(sess, root, None):
-                subprocess.run(["tmux", "kill-session", "-t", sess], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-        except Exception:
-            pass
-        pid = int(entry.get("pid") or 0)
-        if _is_pid_alive(pid):
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except Exception:
-                pass
-        fenced.append(op)
+        blocked.append(op)
+        kept.append(entry)
     reaped = _reap_zombie_scheduler_sessions(root, [e.get("opId") for e in kept if isinstance(e, dict)])
     _write_run_plan_registry(root, kept)
-    return {"fenced": fenced, "reapedZombies": reaped}
+    return {"blocked": blocked, "reapedZombies": reaped}
 
 
 def register_active_run_plan(root, op_id, pid, tmux_session, worker_ids, owner):
@@ -9252,9 +9232,11 @@ def handle_action(root, action, payload, operation_id, op_id):
         worker_ids = [str(w.get("id") or "").strip() for w in workers if isinstance(w, dict)]
         scheduler_owner_w = str(action_operation_fields(payload).get("schedulerOwnerWorkerId") or "").strip()
         fence_result = fence_stale_run_plans(root, op_id, worker_ids, scheduler_owner_w)
-        if fence_result.get("fenced") or fence_result.get("reapedZombies"):
+        if fence_result.get("blocked"):
+            return terminal_action(root, action, operation_id, op_id, "failed", "同一 Worker 已有活动 Plan 调度器：" + ", ".join(fence_result["blocked"]) + "。请先明确中止旧 Plan，或等它完成。", {"schedulerStarted": False, "blockingOperations": fence_result["blocked"], "planFile": plan}, request=payload)
+        if fence_result.get("reapedZombies"):
             try:
-                append_event(root, {"type": "scheduler_fenced", "operationId": operation_id, "payload": {"fenced": fence_result.get("fenced") or [], "reapedZombies": fence_result.get("reapedZombies") or [], "newOpId": op_id, "workerIds": worker_ids, "ownerWorkerId": scheduler_owner_w}})
+                append_event(root, {"type": "scheduler_zombies_reaped", "operationId": operation_id, "payload": {"reapedZombies": fence_result.get("reapedZombies") or [], "newOpId": op_id}})
             except Exception:
                 pass
         workers_path = state_child_path(root, "actions", f"{op_id}-workers.json")
@@ -10719,8 +10701,14 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
 def stop_scheduler_operation(root, payload):
     wanted = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
     plan = action_plan_file(payload)
+    if not wanted or not plan:
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "缺少明确的调度记录或 Plan，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
     events = read_operation_events(root, wanted, 100) if wanted else []
     latest_payload = next((event.get("payload") for event in reversed(events) if isinstance(event.get("payload"), dict)), {})
+    recorded_plan = re.sub(r"^\./", "", str(latest_payload.get("planFile") or latest_payload.get("plan") or "").replace("\\", "/"))
+    requested_plan = re.sub(r"^\./", "", str(plan).replace("\\", "/"))
+    if recorded_plan and recorded_plan != requested_plan:
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度记录与 Plan 不匹配，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
     target_pid = payload.get("pid") or latest_payload.get("pid")
     target_session = payload.get("tmuxSession") or latest_payload.get("tmuxSession") or latest_payload.get("session")
     if not target_session and wanted:
@@ -10759,6 +10747,8 @@ def stop_scheduler_operation(root, payload):
     if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
     elif after["tmuxShellAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
     matched = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"] or before["tmuxShellAlive"])
+    if not matched:
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "未找到目标 Plan 的活动调度进程，未清理 GPU 任务。", {"matchedOperations": [], "planFile": plan, "checkedPid": after["checkedPid"], "checkedTmuxSession": after["checkedTmuxSession"]}, request=payload)
     try:
         if wanted:
             deregister_active_run_plan(root, wanted)
@@ -10771,14 +10761,27 @@ def stop_scheduler_operation(root, payload):
     try:
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        foreign_sessions = set()
+        for task in tasks:
+            if not isinstance(task, dict) or str(task.get("status") or "").lower() != "running":
+                continue
+            sess = str(task.get("tmuxSession") or "").strip()
+            if not sess:
+                continue
+            task_plan = re.sub(r"^\./", "", str(task.get("planFile") or task.get("plan") or "").replace("\\", "/"))
+            if task_plan != requested_plan:
+                foreign_sessions.add(sess)
         dirty = False
         for task in tasks:
             if not isinstance(task, dict):
                 continue
             if str(task.get("status") or "").lower() != "running":
                 continue
+            task_plan = re.sub(r"^\./", "", str(task.get("planFile") or task.get("plan") or "").replace("\\", "/"))
+            if task_plan != requested_plan:
+                continue
             sess = str(task.get("tmuxSession") or "").strip()
-            if sess and tmux_session_alive(sess, cwd=root):
+            if sess and sess not in foreign_sessions and tmux_session_alive(sess, cwd=root):
                 try:
                     subprocess.run(["tmux", "kill-session", "-t", sess], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, cwd=root)
                     if sess not in terminated_sessions:
@@ -10806,13 +10809,6 @@ def stop_scheduler_operation(root, payload):
                 append_event(root, {"type": "worker_task_stopped", "payload": {"reason": "scheduler_aborted", "terminatedSessions": terminated_sessions}})
             except Exception:
                 pass
-    except Exception:
-        pass
-    try:
-        reaped_gpu = _reap_orphan_gpu_sessions(root, force_all=True)
-        for g in reaped_gpu:
-            if g not in terminated_sessions:
-                terminated_sessions.append(g)
     except Exception:
         pass
     message = "已终止匹配的调度进程" if matched else ("未找到活动调度进程" if not errors else "停止调度进程失败")
