@@ -24,6 +24,7 @@ export interface RemoteRunEvidence {
   };
   pidAlive?: unknown;
   tmuxSessionAlive?: unknown;
+  tmuxPythonRunning?: unknown;
   checkedPid?: unknown;
   checkedTmuxSession?: unknown;
   schedulerStatesCount?: unknown;
@@ -210,7 +211,9 @@ export function reconcileRunOperation(
     experimentTracesCount: Number(evidence.experimentTracesCount || 0),
     liveLogCount: Number(evidence.liveLogCount || 0),
   };
-  const base = { ...record, ...counts, reconcileEvidenceActive: Boolean(evidence.pidAlive || evidence.tmuxSessionAlive || Number(evidence.schedulerStatesCount || 0) > 0 || Number(evidence.experimentTracesCount || 0) > 0), lastReconciledAt: checkedAt };
+  const tmuxTarget = String(evidence.checkedTmuxSession || (record as any).tmuxSession || "").trim();
+  const pidAlive = Boolean(evidence.pidAlive) && !(tmuxTarget && evidence.tmuxPythonRunning === false);
+  const base = { ...record, ...counts, reconcileEvidenceActive: Boolean(pidAlive || evidence.tmuxSessionAlive || Number(evidence.schedulerStatesCount || 0) > 0 || Number(evidence.experimentTracesCount || 0) > 0), lastReconciledAt: checkedAt };
   if (operationTerminalStatus(remoteStatus)) {
     return {
       terminal: true,
@@ -226,7 +229,6 @@ export function reconcileRunOperation(
       },
     };
   }
-  const pidAlive = Boolean(evidence.pidAlive);
   const tmuxAlive = Boolean(evidence.tmuxSessionAlive);
   // 关键修复：dispatch_probe(目前无空卡)+running>0 为 GPU 忙正常等待，passive_interrupt_requeue 为主动重入队，均视为有效活动，禁止 90s 误判为假存活
   const busyWaitingActive = schedulerLogShowsBusyWaiting(evidence as any) || schedulerLogShowsPassiveRequeue(evidence as any);

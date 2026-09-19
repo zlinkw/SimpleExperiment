@@ -154,6 +154,16 @@ test("a missing known scheduler is shown as interrupted and can recover when it 
   assert.equal(recovered.patch.status, "running");
 });
 
+test("a live tmux shell without scheduler Python is interrupted after grace", () => {
+  const startedAt = "2026-09-19T10:00:00Z";
+  const result = reconcileRunOperation({ ...running, startedAt, pid: 42, tmuxSession: "scheduler-a" }, {
+    checkedPid: 42, checkedTmuxSession: "scheduler-a", pidAlive: true,
+    tmuxSessionAlive: false, tmuxPythonRunning: false,
+    logTail: "wait pending=26 running=3",
+  }, "activation", Date.parse(startedAt) + 120_000);
+  assert.equal(result.patch.status, "interrupted");
+});
+
 test("old running events cannot hide a newer interrupted scheduler check", () => {
   const checked = { status: "interrupted", message: "调度中断", updatedAt: "2026-09-19T12:00:00Z", evidence: { pidAlive: false } };
   const merged = mergeReconciledRunOperation(checked, { status: "running", message: "started", updatedAt: "2026-09-19T10:00:00Z" });
