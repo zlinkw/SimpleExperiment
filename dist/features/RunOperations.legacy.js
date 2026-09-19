@@ -5,6 +5,7 @@ exports.runOperationLogShowsError = runOperationLogShowsError;
 exports.isLongRunningPlanOperation = isLongRunningPlanOperation;
 exports.operationTerminalStatus = operationTerminalStatus;
 exports.restorePlanOperationsFromWorkerTasks = restorePlanOperationsFromWorkerTasks;
+exports.mergeReconciledRunOperation = mergeReconciledRunOperation;
 exports.hasRemoteRunActivity = hasRemoteRunActivity;
 exports.reconcileRunOperation = reconcileRunOperation;
 exports.runOperationMatchesTarget = runOperationMatchesTarget;
@@ -116,6 +117,19 @@ function restorePlanOperationsFromWorkerTasks(existing, snapshot, workerId) {
         };
     }
     return result;
+}
+function mergeReconciledRunOperation(previous, incoming) {
+    const merged = { ...previous, ...incoming };
+    if (String(previous?.status || "") !== "interrupted" || String(incoming?.status || incoming?.state || "") !== "running")
+        return merged;
+    return {
+        ...merged,
+        status: "interrupted",
+        message: previous.message,
+        updatedAt: previous.updatedAt,
+        evidence: previous.evidence,
+        lastReconciledAt: previous.lastReconciledAt,
+    };
 }
 function hasRemoteRunActivity(evidence) {
     // passive_interrupt_requeue / dispatch_probe(目前无空卡)+running>0 / wait+running>0 均为有效进展，即使 liveLogCount 被去噪也视为活动

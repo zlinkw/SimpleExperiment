@@ -135,6 +135,19 @@ export function restorePlanOperationsFromWorkerTasks(
   return result;
 }
 
+export function mergeReconciledRunOperation(previous: Record<string, any>, incoming: Record<string, any>): Record<string, any> {
+  const merged = { ...previous, ...incoming };
+  if (String(previous?.status || "") !== "interrupted" || String(incoming?.status || incoming?.state || "") !== "running") return merged;
+  return {
+    ...merged,
+    status: "interrupted",
+    message: previous.message,
+    updatedAt: previous.updatedAt,
+    evidence: previous.evidence,
+    lastReconciledAt: previous.lastReconciledAt,
+  };
+}
+
 export function hasRemoteRunActivity(evidence: RemoteRunEvidence): boolean {
   // passive_interrupt_requeue / dispatch_probe(目前无空卡)+running>0 / wait+running>0 均为有效进展，即使 liveLogCount 被去噪也视为活动
   if (schedulerLogShowsBusyWaiting(evidence as any) || schedulerLogShowsPassiveRequeue(evidence as any)) return true;

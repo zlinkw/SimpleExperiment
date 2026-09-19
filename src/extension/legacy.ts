@@ -13845,7 +13845,7 @@ function mergeOperationRecords(...records) {
         for (const [key, value] of Object.entries(record || {})) {
             if (operationTerminal((out as any)[key]) && !operationTerminal(value))
                 continue;
-            (out as any)[key] = { ...((out as any)[key] || {}), ...(value as any) };
+            (out as any)[key] = RunOperations_1.mergeReconciledRunOperation((out as any)[key] || {}, (value as any) || {});
         }
     }
     // 修复：若 evidence.liveLogTail 非空且 row.logTail 为空，同步回填到 row，确保 extension->面板 链路不断（尾部优先）

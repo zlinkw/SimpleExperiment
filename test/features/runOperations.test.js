@@ -6,6 +6,7 @@ const {
   reconcileRunOperation,
   runOperationMatchesTarget,
   restorePlanOperationsFromWorkerTasks,
+  mergeReconciledRunOperation,
 } = require("../../dist/features/RunOperations");
 
 const running = {
@@ -151,4 +152,14 @@ test("a missing known scheduler is shown as interrupted and can recover when it 
     operation: { status: "running" },
   }, "tunnel_reconnected", Date.parse(startedAt) + 130_000);
   assert.equal(recovered.patch.status, "running");
+});
+
+test("old running events cannot hide a newer interrupted scheduler check", () => {
+  const checked = { status: "interrupted", message: "调度中断", updatedAt: "2026-09-19T12:00:00Z", evidence: { pidAlive: false } };
+  const merged = mergeReconciledRunOperation(checked, { status: "running", message: "started", updatedAt: "2026-09-19T10:00:00Z" });
+  assert.equal(merged.status, "interrupted");
+  assert.equal(merged.message, "调度中断");
+  assert.equal(merged.updatedAt, checked.updatedAt);
+  assert.deepEqual(merged.evidence, checked.evidence);
+  assert.equal(mergeReconciledRunOperation(checked, { status: "failed" }).status, "failed");
 });
