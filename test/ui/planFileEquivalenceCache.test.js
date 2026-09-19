@@ -64,5 +64,5 @@ test("Plan selection comparison reuses cached key sets", () => {
   assert.match(entry, /keySet: new Set\(keys\)/);
   assert.match(entry, /PLAN_FILE_EQUIVALENCE_CACHE_LIMIT/);
   assert.doesNotMatch(compare, /new Set\(/);
-  assert.match(compare, /rightEntry\.keySet\.has\(key\)/);
+  assert.match(compare, /rightEntry\.keySet\?\.has\(key\)/);
 });

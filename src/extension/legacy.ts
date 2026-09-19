@@ -18342,6 +18342,7 @@ function activePlanRunEvidence(state, planFile, plan) {
         const rowPlan = payloads.map((item) => operationResultPlanFile(item)).find(Boolean);
         const schedulerFinished = payloads.some((item) => item.schedulerFinished === true || item.scheduler_finished === true);
         const active = !schedulerFinished
+            && row.reconcileEvidenceActive !== false
             && /(?:^|\s)(?:run-plan|reproduce-plan)(?:\s|$)/.test(action)
             && samePlanSelection(rowPlan, selectedPlan)
             && ACTIVE_PLAN_RUN_STATUSES.has(operationStatusToken(operationStatusOf(row)));

@@ -41,7 +41,7 @@ test("webview terminal uiCommandStatus clears button loading by client action", 
 test("webview command watchdog is scoped to client action id", () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/ui/PanelHtml.ts");
-  const clickHandler = source.match(/document\.addEventListener\("click"[\s\S]*?vscode\.postMessage/)?.[0] || "";
+  const clickHandler = source.match(/const pendingKey = pendingKeyForButton\(button, command, payload\);[\s\S]*?vscode\.postMessage\(Object\.assign\(\{ command \}, payload\)\)/)?.[0] || "";
   const clearBlock = source.match(/function clearPendingActionTimeout[\s\S]*?function clearButtonsForPending/)?.[0] || "";
   assert.match(source, /let pendingActionTimeouts = \{\}/);
   assert.match(clickHandler, /pendingActionTimeouts\[clientActionId\] = setTimeout/);
@@ -106,7 +106,7 @@ test("local toolbar commands wait for extension terminal status", () => {
   assert.match(source, /const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set\(\["startAllConnections", "testAll", "snapshot"\]\)/);
   assert.match(source, /return LOCAL_COMMAND_RELEASES_AFTER_TRIGGER\.has/);
   assert.match(source, /已触发本地 VS Code 操作/);
-  assert.match(source, /Promise\.race\(\[guardedWork, timeout\]\)/);
+  assert.match(source, /Promise\.race\(\[guardedWork, new Promise\(/);
 });
 
 test("webview repeated render does not preserve disabled state for loading buttons", () => {

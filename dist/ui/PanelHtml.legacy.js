@@ -2741,16 +2741,24 @@ function renderPanelHtml() {
       const canvas = event.target && event.target.closest ? event.target.closest("canvas.gpuHistoryCanvas") : null;
       updateGpuHistoryTooltip(canvas, event);
     });
+    let lastDispatchedPlanFile = "";
+    const dispatchPlanSelection = (event) => {
+      const value = event.target.value || "";
+      if (value !== lastDispatchedPlanFile) {
+        lastDispatchedPlanFile = value;
+        vscode.postMessage({ command: "selectPlan", planFile: value });
+      }
+    };
     el("planFileInput").addEventListener("input", (event) => {
       const value = event.target.value || "";
       if (lastState) lastState.planFileInput = value;
+      dispatchPlanSelection(event);
+      setTimeout(() => refreshPlanFileOptions(lastState || {}), 0);
       refreshPlanActionButtons(lastState || {}, el("planQuickGrid"));
       refreshContextualActionButtons(lastState || {}, el("workbenchInspector"));
       refreshContextualActionButtons(lastState || {}, el("pinnedActionsHost"));
     });
-    el("planFileInput").addEventListener("change", (event) => {
-      vscode.postMessage({ command: "selectPlan", planFile: event.target.value });
-    });
+    el("planFileInput").addEventListener("change", dispatchPlanSelection);
     el("layoutEditToggle").addEventListener("click", () => {
       if (!layoutEdit && currentMainView === "settings") switchMainView("workspace");
       layoutEdit = !layoutEdit;
@@ -8272,44 +8280,72 @@ function renderPanelHtml() {
     }
 
     // 计划文件下拉框：把工作区扫描到的 plan 填充为可选项，省去手输路径。
-    // 当前选中的 plan 置顶，方便查看；其余按工作区扫描的默认顺序排列，
-    // 每次刷新都重新置顶（而不是累加），换选择时新选项上提、剩余恢复默认顺序。
+    // 当前选中的 plan 必须是 options[0]（闭合框/打开列表都看见它）；
+    // 其余按工作区扫描的默认顺序排列。换选择时新选项上提、剩余恢复默认顺序。
     function planFileOf(plan) {
-      return String((plan && (plan.file || plan.planFile || plan.path)) || "").trim();
+      var raw = String((plan && (plan.file || plan.planFile || plan.path || plan.planId)) || "").trim();
+      return raw.split(String.fromCharCode(92)).join("/");
+    }
+    function collectPlanFileDefaultOrder(state) {
+      var sources = [];
+      if (state) {
+        if (state.plans && state.plans.length) sources.push(state.plans);
+        if (state.recentPlans && state.recentPlans.length) sources.push(state.recentPlans);
+        if (state.localPlans && state.localPlans.length) sources.push(state.localPlans);
+        var projectPlans = state.detectedProject && state.detectedProject.plans;
+        if (projectPlans && projectPlans.length) sources.push(projectPlans);
+      }
+      var defaultOrder = [];
+      for (var s = 0; s < sources.length; s++) {
+        var list = sources[s] || [];
+        for (var i = 0; i < list.length; i++) {
+          var f = planFileOf(list[i]);
+          if (f && defaultOrder.indexOf(f) === -1) defaultOrder.push(f);
+        }
+      }
+      return defaultOrder;
+    }
+    function resolvePlanFileCurrent(sel, state) {
+      var raw = String((sel && sel.value) || (state && (state.planFileInput || (state.selection && state.selection.selectedPlanId))) || "").trim();
+      return raw.split(String.fromCharCode(92)).join("/");
+    }
+    function matchPlanFileInOrder(current, defaultOrder) {
+      if (!current) return "";
+      if (defaultOrder.indexOf(current) !== -1) return current;
+      for (var i = 0; i < defaultOrder.length; i++) {
+        if (samePlanSelection(current, defaultOrder[i])) return defaultOrder[i];
+      }
+      return "";
     }
     function refreshPlanFileOptions(state) {
       var sel = el("planFileInput");
       if (!sel) return;
-      var plans = (state && (state.plans && state.plans.length ? state.plans : state.recentPlans)) || [];
-      var defaultOrder = [];
-      for (var i = 0; i < plans.length; i++) {
-        var f = planFileOf(plans[i]);
-        if (f && defaultOrder.indexOf(f) === -1) defaultOrder.push(f);
+      var defaultOrder = collectPlanFileDefaultOrder(state);
+      var current = resolvePlanFileCurrent(sel, state);
+      var matched = matchPlanFileInOrder(current, defaultOrder);
+      var ordered = [];
+      var selectedValue = matched || current || "";
+      if (selectedValue) ordered.push(selectedValue);
+      for (var k = 0; k < defaultOrder.length; k++) {
+        if (defaultOrder[k] !== selectedValue) ordered.push(defaultOrder[k]);
       }
-      var current = String(sel.value || state.planFileInput || (state.selection && state.selection.selectedPlanId) || "");
-      // 当前选项置顶（若仍在工作区扫描结果中）；其余保持默认顺序
-      var ordered;
-      if (current && defaultOrder.indexOf(current) !== -1) {
-        ordered = [current];
-        for (var k = 0; k < defaultOrder.length; k++) {
-          if (defaultOrder[k] !== current) ordered.push(defaultOrder[k]);
-        }
-      } else {
-        ordered = defaultOrder;
-      }
-      var html = '<option value="">（请选择计划文件）</option>';
+      var html = "";
+      if (!selectedValue) html = '<option value="">（请选择计划文件）</option>';
       for (var j = 0; j < ordered.length; j++) {
-        html += '<option value="' + escAttr(ordered[j]) + '">' + esc(ordered[j]) + "</option>";
-      }
-      if (current && ordered.indexOf(current) === -1) {
-        html += '<option value="' + escAttr(current) + '">' + esc(current) + "（当前）</option>";
+        var label = ordered[j];
+        if (selectedValue && !matched && label === selectedValue) label = selectedValue + "（当前）";
+        html += '<option value="' + escAttr(ordered[j]) + '">' + esc(label) + "</option>";
       }
       if (sel.innerHTML !== html) sel.innerHTML = html;
-      if (current) sel.value = current;
+      sel.value = selectedValue;
     }
     function renderPlanSection(state) {
+      if (document.activeElement !== el("planFileInput")) {
+        const selectedPlanFile = state.planFileInput || (state.selection && state.selection.selectedPlanId) || "";
+        el("planFileInput").value = selectedPlanFile;
+        lastDispatchedPlanFile = selectedPlanFile;
+      }
       refreshPlanFileOptions(state);
-      if (document.activeElement !== el("planFileInput")) el("planFileInput").value = state.planFileInput || (state.selection && state.selection.selectedPlanId) || "";
       refreshRunModeNote(state);
       const plans = (state.plans && state.plans.length ? state.plans : state.recentPlans) || [];
       const planProjectChanged = setHtmlIfChanged("planDetectedProject", renderPlanRunWorkbench(state, plans));
@@ -14728,6 +14764,7 @@ function renderPanelHtml() {
         if (!PLAN_RUN_OPERATION_TYPES.has(String((row || {}).type || "").toLowerCase())
           || !samePlanSelection((row || {}).planFile || "", selectedPlan)
           || (row || {}).schedulerFinished
+          || (row || {}).reconcileEvidenceActive === false
           || !PLAN_ACTIVE_STATUSES.has(String((row || {}).status || "").toLowerCase())) continue;
         operationCount += 1;
         if (matchesCurrentVersion(row)) currentOperationCount += 1;
@@ -15878,6 +15915,7 @@ function projectSectionNextAction(status, label, section, anchor, options) {
           submissionAccepted: pick(row, ["submissionAccepted", "submission_accepted"], pick(payload, ["submissionAccepted", "submission_accepted"], false)) === true,
           schedulerStarted: pick(row, ["schedulerStarted", "scheduler_started"], pick(payload, ["schedulerStarted", "scheduler_started"], false)) === true,
           schedulerFinished: pick(row, ["schedulerFinished", "scheduler_finished"], pick(payload, ["schedulerFinished", "scheduler_finished"], false)) === true,
+          reconcileEvidenceActive: pick(row, ["reconcileEvidenceActive", "reconcile_evidence_active"], pick(payload, ["reconcileEvidenceActive", "reconcile_evidence_active"], undefined)),
           jobCount: pick(row, ["jobCount", "job_count"], pick(payload, ["jobCount", "job_count"], pick(validation, ["jobCount", "job_count"], "-"))),
           executionMode: pick(row, ["executionMode", "execution_mode"], pick(payload, ["executionMode", "execution_mode"], pick(validation, ["executionMode", "execution_mode"], "-"))),
           dispatchableCount: pick(row, ["dispatchableCount", "assignableNow"], pick(payload, ["dispatchableCount", "assignableNow"], pick(preview, ["dispatchableCount", "assignableNow"], "-"))),

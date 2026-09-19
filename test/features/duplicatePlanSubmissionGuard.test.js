@@ -151,6 +151,31 @@ test("backend blocks duplicate run operations and active scheduler tasks for the
   assert.equal(task.taskCount, 1);
 });
 
+test("confirmed inactive operation does not block the selected Plan", () => {
+  const planFile = "experiments/plans/comparison/concatenation.yaml";
+  const stale = { type: "run-plan", status: "running", planFile, reconcileEvidenceActive: false };
+  assert.equal(loadExtensionGuard()({ operations: { stale }, schedulerStates: [] }, planFile).active, false);
+  assert.equal(loadPanelGuard()({ operations: [stale], schedulerStates: [] }, planFile).active, false);
+  assert.equal(loadPanelGuard()({ operations: [{ ...stale, reconcileEvidenceActive: true }] }, planFile).active, true);
+});
+
+test("selected Plan stays first in dropdown after switching", () => {
+  const names = ["planFileOf", "collectPlanFileDefaultOrder", "resolvePlanFileCurrent", "matchPlanFileInOrder", "refreshPlanFileOptions"];
+  const select = { innerHTML: "", value: "" };
+  const sandbox = { el: () => select, esc: (value) => value, escAttr: (value) => value, samePlanSelection };
+  vm.createContext(sandbox);
+  vm.runInContext(names.map((name) => extractFunction(panel, name)).join("\n") + "\nthis.refresh = refreshPlanFileOptions;", sandbox);
+  const plans = [{ file: "experiments/plans/baseline.yaml" }, { file: "experiments/plans/comparison/concatenation.yaml" }];
+  sandbox.refresh({ plans, planFileInput: "experiments/plans/comparison/concatenation.yaml" });
+  assert.match(select.innerHTML, /^<option value="experiments\/plans\/comparison\/concatenation\.yaml">/);
+  assert.equal(select.value, "experiments/plans/comparison/concatenation.yaml");
+  select.value = "experiments/plans/baseline.yaml";
+  sandbox.refresh({ plans });
+  assert.match(select.innerHTML, /^<option value="experiments\/plans\/baseline\.yaml">/);
+  assert.equal(select.value, "experiments/plans/baseline.yaml");
+  assert.match(panel, /reconcileEvidenceActive: pick\(row,/);
+});
+
 test("backend protects active old revisions without misclassifying them as current", () => {
   const guard = loadExtensionGuard();
   const planFile = "experiments/plans/smoke.yaml";
@@ -214,7 +239,7 @@ test("webview disables duplicate submission using the same Plan-scoped activity 
   assert.equal(guard({ schedulerStates: [{ status: "queued", planFile }] }, planFile).taskCount, 1);
   assert.equal(guard({ operations: [{ type: "run-plan", status: "completed", planFile }] }, planFile).active, false);
   const planActivity = extractFunction(panel, "planActiveRunEvidence");
-  assert.match(planActivity, /planActiveRunEvidenceCache\.has\(cacheKey\)/);
+  assert.match(planActivity, /planActiveRunEvidenceCache\?\.has\(cacheKey\)/);
   assert.match(planActivity, /for \(const row of operationRowsForState/);
   assert.match(planActivity, /for \(const row of schedulerRowsForState/);
   assert.doesNotMatch(planActivity, /\.filter\(/);
