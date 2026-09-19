@@ -11612,7 +11612,14 @@ function renderPanelHtml() {
 
     function planVisibleRows(state, plans) {
       const rows = asArray(plans || []).map((plan, index) => ({ plan, index }));
-      if (rows.length <= PLAN_RENDER_LIMIT) return rows;
+      if (rows.length <= PLAN_RENDER_LIMIT) {
+        const selected = [];
+        const remaining = [];
+        rows.forEach((entry) => {
+          (planMatchesSelection(state, entry.plan) ? selected : remaining).push(entry);
+        });
+        return selected.concat(remaining);
+      }
       const out = [];
       const seen = new Set();
       function add(entry) {
