@@ -169,7 +169,7 @@ WORKER_RESULT_ACTIONS = {
     "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run",
     "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "exclude-results",
     "sync-artifacts", "complete-three-way",
-    "start-tensorboard", "get-tensorboard-status",
+    "start-tensorboard", "stop-tensorboard", "get-tensorboard-status",
 }
 ACTION_PATHS = [
     "/api/actions/run-plan",
@@ -217,6 +217,7 @@ ACTION_PATHS = [
     "/api/actions/archive-worker-artifacts",
     "/api/actions/finalize-worker-operation",
     "/api/actions/start-tensorboard",
+    "/api/actions/stop-tensorboard",
     "/api/actions/get-tensorboard-status",
     "/api/actions/clear-cache",
     "/api/actions/clearCache",
@@ -8776,6 +8777,18 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
             {"tmuxSession": tb_session, "port": port, "running": alive, "listening": listening, "logPath": log_rel},
         )
 
+    if action == "stop-tensorboard":
+        if tmux_session_alive(tb_session, root, None):
+            stopped = subprocess.run(["tmux", "kill-session", "-t", tb_session], cwd=root,
+                                     capture_output=True, text=True, timeout=5)
+            if stopped.returncode != 0:
+                return terminal_action(root, action, operation_id, op_id, "failed",
+                                       f"关闭 TensorBoard 会话失败：{stopped.stderr.strip()}",
+                                       {"tmuxSession": tb_session, "running": True, "listening": False})
+        return terminal_action(root, action, operation_id, op_id, "completed",
+                               f"TensorBoard 会话 {tb_session} 已关闭",
+                               {"tmuxSession": tb_session, "running": False, "listening": False})
+
     # start-tensorboard: kill any previous session (cost ~0) then recreate a fresh one.
     try:
         subprocess.run(["tmux", "kill-session", "-t", tb_session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
@@ -9686,7 +9699,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         status = "failed" if any(item.get("severity") == "critical" for item in report.get("causes") or []) else "completed"
         label = "配置对比" if action == "compare-with-best-config" else "异常诊断"
         return terminal_action(root, action, operation_id, op_id, status, f"{label}完成：{len(report.get('causes') or [])} 条原因", {"anomalyDiagnosis": report, "anomalyPath": report.get("outputFiles", {}).get("jsonPath"), "configDiffPath": report.get("outputFiles", {}).get("configDiffPath")}, request=payload)
-    if action in ("start-tensorboard", "get-tensorboard-status"):
+    if action in ("start-tensorboard", "stop-tensorboard", "get-tensorboard-status"):
         return tensorboard_action(root, action, payload, operation_id, op_id)
     if action == "cancel-operation":
         return terminal_action(root, action, operation_id, op_id, "cancelled", "操作已取消")
@@ -9758,6 +9771,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/actions/run-plan",
             "/api/actions/reproduce-plan",
             "/api/actions/start-tensorboard",
+            "/api/actions/stop-tensorboard",
             "/api/actions/get-tensorboard-status",
         ]
         return {

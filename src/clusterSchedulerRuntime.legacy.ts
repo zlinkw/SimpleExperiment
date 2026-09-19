@@ -1244,14 +1244,22 @@ def collect_tensorboard_metrics(job: Job) -> dict[str, Any]:
             "step": int(scalar.step),
             "timestamp": timestamp,
         })
-    added = merge_tensorboard_csv(Path(job.result_csv), rows) if rows else 0
+    # TensorBoard scalars are diagnostic data. Never append them to a project-owned
+    # result table: its schema (for example protocol_version) may be different.
+    scalar_csv = output_dir / "tensorboard_scalars.csv"
+    added = merge_tensorboard_csv(scalar_csv, rows) if rows else 0
+    # Keep the TensorBoard-only output route useful without touching an existing
+    # metrics_summary.csv written by the project's adapter or test entrypoint.
+    summary_csv = output_dir / "metrics_summary.csv"
+    if rows and not summary_csv.exists():
+        merge_tensorboard_csv(summary_csv, rows)
     config_target = output_dir / "config_snapshot.yaml"
     env_target = output_dir / "env_snapshot.json"
     if not config_target.exists():
         config_target.write_text(yaml.safe_dump(job.config, allow_unicode=True, sort_keys=False), encoding="utf-8")
     if not env_target.exists():
         write_env_snapshot(env_target, job)
-    return {"ok": bool(rows), "eventCount": event_count, "metricCount": len(rows), "addedRows": added, "resultCsv": job.result_csv}
+    return {"ok": bool(rows), "eventCount": event_count, "metricCount": len(rows), "addedRows": added, "resultCsv": str(scalar_csv)}
 
 
 def append_jobs_csv(jobs: list[Job], path: Path = Path("experiments/results/jobs.csv"), plan_file: str = "") -> None:
@@ -1616,6 +1624,7 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
         except Exception:
             pass
     env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     if bool(getattr(args, "debug_mode", False)):
         env["SIMPLE_EXPERIMENT_DEBUG"] = "1"
         env["SIMPLE_EXPERIMENT_DEBUG_RUN_ID"] = str(getattr(args, "debug_run_id", "") or "debug")

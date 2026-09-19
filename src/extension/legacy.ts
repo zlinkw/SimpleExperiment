@@ -399,7 +399,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
+    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -4657,6 +4657,12 @@ export class RealtimeTunnelPanelProvider {
             case "openTensorBoard":
             case "startTensorBoard":
                 await this.openTensorBoardFromUi(message);
+                break;
+            case "stopTensorBoard":
+                await this.stopTensorBoardFromUi(message);
+                break;
+            case "getTensorBoardStatus":
+                await this.getTensorBoardStatusFromUi(message);
                 break;
             case "copyTensorBoardUrl":
                 await this.copyTensorBoardUrlFromUi(message);
@@ -11129,6 +11135,7 @@ export class RealtimeTunnelPanelProvider {
     }
     async openTensorBoardFromUi(message: any) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
+        let remoteReady = false;
         let localPort = Number(message?.localPort || 0);
         if (!localPort || localPort < 1024) {
             const agentAssignment = (this as any).assignmentById?.get?.(endpointId) || (this as any).tunnelPortAssignments?.find?.((a: any) => a.endpointId === endpointId);
@@ -11137,10 +11144,10 @@ export class RealtimeTunnelPanelProvider {
             else {
                 const worker = (this as any).setupConfig?.workerTunnels?.find?.((w: any) => w.id === endpointId);
                 const fallbackLocal = Number(worker?.localForwardPort || (this as any).setupConfig?.localForwardPort || 0);
-                localPort = fallbackLocal >= 1024 ? fallbackLocal + 1000 : 6006;
+                localPort = fallbackLocal >= 1024 ? fallbackLocal + 1000 : 0;
             }
-            if (!localPort || localPort < 1024) localPort = 6006;
         }
+        if (!Number.isInteger(localPort) || localPort < 1024 || localPort > 65535) throw new Error(`未找到 ${endpointId} 的 TensorBoard 本地转发端口，请检查服务器隧道配置`);
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
         const rawPrefix = String(cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || (this as any).setupConfig?.sessionPrefix || (this as any).setupConfig?.remoteTmuxSessionPrefix || "simple").trim() || "simple";
         // 统一归一：与 agent 侧 tb_tmux_session_name / write_snapshots 完全一致（小写、非法→-、截32）
@@ -11162,7 +11169,8 @@ export class RealtimeTunnelPanelProvider {
         const body: any = { sessionPrefix, port: remotePort, logdir, condaEnv, tmuxSession: tbSession, session: tbSession };
         try {
             // Always restart a fresh TB session so the panel shows the latest state (low cost).
-            await this.postTensorboardAction(endpointId, "start-tensorboard", body);
+            const started = await this.postTensorboardAction(endpointId, "start-tensorboard", body);
+            if (started?.status === "failed") throw new Error(String(started.message || "远端启动失败"));
             // Poll readiness (server-side port probe) up to ~10s before opening the tunnel.
             let status: any = undefined;
             let sessionUp = false;
@@ -11179,19 +11187,52 @@ export class RealtimeTunnelPanelProvider {
             const listening = !!(status && status.listening);
             if (!listening) {
                 void vscode.window.showErrorMessage(`TB 启动失败，请检查服务器 start_tb.sh / 端口占用（${url}）`);
+                this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false, error: "远端端口未就绪" });
+                return;
             } else {
-                const logPath = status?.logPath || `simple_cluster/tmux_logs/${tbSession}.log`;
-                void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${remotePort} ${tbSession} @ ${endpointId}，日志 ${logPath}）`, "复制链接", "浏览器打开").then((sel) => {
-                    if (sel === "复制链接") vscode.env.clipboard.writeText(url);
-                    if (sel === "浏览器打开") vscode.env.openExternal(vscode.Uri.parse(url));
-                });
+                remoteReady = true;
+                this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: true });
             }
+            const tunnelReady = await new Promise<boolean>((resolve) => {
+                const socket = require("node:net").createConnection({ host: "127.0.0.1", port: localPort });
+                socket.setTimeout(2000);
+                socket.once("connect", () => { socket.destroy(); resolve(true); });
+                socket.once("error", () => { socket.destroy(); resolve(false); });
+                socket.once("timeout", () => { socket.destroy(); resolve(false); });
+            });
+            if (!tunnelReady) throw new Error(`远端 TensorBoard 已启动，但本机 ${url} 不可达；请在 ${endpointId} 的 Xshell 会话配置此端口转发`);
             await vscode.env.openExternal(vscode.Uri.parse(url));
+            const logPath = status?.logPath || `simple_cluster/tmux_logs/${tbSession}.log`;
+            void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${remotePort} ${tbSession} @ ${endpointId}，日志 ${logPath}）`, "复制链接").then((sel) => {
+                if (sel === "复制链接") vscode.env.clipboard.writeText(url);
+            });
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
+            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: remoteReady, error: msg });
             void vscode.window.showErrorMessage(`启动 TensorBoard 失败：${msg}`);
             throw e;
         }
+    }
+    async getTensorBoardStatusFromUi(message: any) {
+        const endpointId = String(message?.endpointId || "").trim();
+        if (!endpointId) return;
+        const cfg = vscode.workspace.getConfiguration("simpleExperiment");
+        const sessionPrefix = String(cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || (this as any).setupConfig?.sessionPrefix || "simple");
+        try {
+            const status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { sessionPrefix, port: Number(cfg.get("tensorboard.port") as any) || 6006 });
+            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: !!status?.running, listening: !!status?.listening });
+        } catch (e) {
+            this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false, error: String(e) });
+        }
+    }
+    async stopTensorBoardFromUi(message: any) {
+        const endpointId = String(message?.endpointId || "").trim();
+        if (!endpointId) throw new Error("缺少服务器 ID");
+        const cfg = vscode.workspace.getConfiguration("simpleExperiment");
+        const sessionPrefix = String(cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || (this as any).setupConfig?.sessionPrefix || "simple");
+        const stopped = await this.postTensorboardAction(endpointId, "stop-tensorboard", { sessionPrefix });
+        if (stopped?.status === "failed") throw new Error(String(stopped.message || "远端关闭失败"));
+        this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false });
     }
 
     private async postTensorboardAction(endpointId: string, action: string, body: any): Promise<any> {
@@ -11206,7 +11247,7 @@ export class RealtimeTunnelPanelProvider {
         }
         const epClient = client.clients?.get?.(endpointId);
         if (epClient && typeof epClient.postAction === "function") return await epClient.postAction(action, fullBody);
-        throw new Error("无法定位 Worker 客户端以重启 TensorBoard");
+        throw new Error("无法定位 Worker 客户端以控制 TensorBoard");
     }
     async copyTensorBoardUrlFromUi(message: any) {
         const url = String(message?.tbUrl || message?.url || "").trim();
@@ -11504,11 +11545,7 @@ export class RealtimeTunnelPanelProvider {
         const targetUrl = url || `http://127.0.0.1:${Number(message?.localPort || 0) || 6006}`;
         // Restart a fresh TB session on the server first so the link always points at the latest
         // state; then open the local tunnel URL. Failure surfaces a non-silent error.
-        try {
-            await this.openTensorBoardFromUi({ endpointId, localPort: Number(targetUrl.split(":").pop() || 0) });
-        } catch {}
-        await vscode.env.openExternal(vscode.Uri.parse(targetUrl));
-        void vscode.window.showInformationMessage(`已用默认浏览器打开：${targetUrl}（已自动重启 <prefix>_tb tmux，有则 kill 后重建，无则新建）`);
+        await this.openTensorBoardFromUi({ endpointId, localPort: Number(targetUrl.split(":").pop() || 0) });
     }
     async showLogHistoryFromUi(message: any) {
         const opId = String(message?.operationId || message?.id || "").trim();

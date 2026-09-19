@@ -162,13 +162,34 @@ print("tb_discover_launch ok")
 });
 
 test("tensorboard actions are registered in WORKER_RESULT_ACTIONS and ACTION_PATHS and handle_action routes", () => {
-  assert.match(agentSource, /"start-tensorboard", "get-tensorboard-status"/);
+  assert.match(agentSource, /"start-tensorboard", "stop-tensorboard", "get-tensorboard-status"/);
   assert.match(agentSource, /\/api\/actions\/start-tensorboard/);
+  assert.match(agentSource, /\/api\/actions\/stop-tensorboard/);
   assert.match(agentSource, /\/api\/actions\/get-tensorboard-status/);
-  assert.match(agentSource, /if action in \("start-tensorboard", "get-tensorboard-status"\):\s*\n\s*return tensorboard_action/);
+  assert.match(agentSource, /if action in \("start-tensorboard", "stop-tensorboard", "get-tensorboard-status"\):\s*\n\s*return tensorboard_action/);
   // verify dist py also contains routing
   const distPy = fs.readFileSync(agentPath, "utf8");
   assert.match(distPy, /tensorboard_action\(root, action, payload/);
+});
+
+test("stop-tensorboard only kills the configured TensorBoard session", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, types
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(agent)
+calls = []
+agent.tmux_session_alive = lambda session, root, env: session == 'owner_tb'
+agent.subprocess.run = lambda args, **kwargs: (calls.append(args) or types.SimpleNamespace(returncode=0, stderr=''))
+agent.terminal_action = lambda root, action, operation_id, op_id, status, message, extra: {'status': status, **extra}
+with tempfile.TemporaryDirectory() as root:
+    result = agent.tensorboard_action(root, 'stop-tensorboard', {'sessionPrefix': 'Owner'}, 'op', 'id')
+assert result['status'] == 'completed' and result['running'] is False, result
+assert calls == [['tmux', 'kill-session', '-t', 'owner_tb']], calls
+print('ok')
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
 test("openTensorBoardFromUi restarts <prefix>_tb, polls get-tensorboard-status ~10s, uses localPort = agentLocalForwardPort+1000, surfaces error", () => {

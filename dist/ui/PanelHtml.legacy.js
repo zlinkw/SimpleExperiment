@@ -841,6 +841,8 @@ function renderPanelHtml() {
     .workerDenseWorker b.wname { color: #111827; font-size: 12px; font-weight: 800; min-width: 0; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .workerDenseWorker .wport { color: #0F172A; font-size: 12px; font-weight: 700; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
     .workerDenseWorker code.tbUrl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: anywhere; }
+    .gpuTensorboardControls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+    .gpuTensorboardControls button[aria-checked="true"] { border-color: #16A34A; color: #15803D; }
     .workerDenseFoot { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .workerDenseFoot .pill { font-size: 11px; padding: 1px 7px; background: #F1F5F9; color: #475569; }
     .serverChainOverview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; color: #1F4E79; font-size: 12px; font-weight: 700; }
@@ -1266,6 +1268,7 @@ function renderPanelHtml() {
       </div>
       <div id="gpuHistoryOverview" data-anchor="gpu-history-overview"></div>
       <div id="gpuSummary" data-anchor="gpu-summary"></div>
+      <div id="gpuTensorboardControls" class="gpuTensorboardControls" aria-label="各服务器 TensorBoard 开关"></div>
       <div id="gpuDenseTableWrap" class="gpuDenseTableWrap"><table id="gpuDenseTable" class="gpuDenseTable"><colgroup id="gpuDenseCols"></colgroup><thead id="gpuDenseHead"></thead><tbody id="gpuDenseBody"></tbody></table></div>
       <div id="gpuGrid" class="gpuServerStack" data-anchor="gpu-grid" style="display:none"></div>
     </section>
@@ -2389,7 +2392,7 @@ function renderPanelHtml() {
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
-      "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
+      "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
@@ -3020,6 +3023,11 @@ function renderPanelHtml() {
           const meta = el("tmuxCaptureMeta");
           if (pre) pre.textContent = decodeCapturedText(item.text || item.capture || "");
           if (meta) meta.textContent = String(item.window || "") + " @ " + String(item.fetchedAt || new Date().toLocaleTimeString());
+          continue;
+        }
+        if (item.type === "tensorboardSwitchStatus") {
+          gpuTensorboardStatus[String(item.endpointId || "")] = { running: !!item.running, error: String(item.error || "") };
+          renderGpuTensorboardControls(lastState || {});
           continue;
         }
         if (item.type === "state") latestStateMessage = item;
@@ -9061,6 +9069,31 @@ function renderPanelHtml() {
        if(gear){ gear.style.display=gear.hidden?"none":""; }
        bindGpuDenseGearControls();
      }
+    const gpuTensorboardStatus = {};
+    const gpuTensorboardRequested = new Set();
+    function renderGpuTensorboardControls(state) {
+      const setup = (state || {}).setup || {};
+      const workers = enabledWorkerTunnelsForState(state || {});
+      const endpoints = [];
+      if ((state.topology || {}).hubAllowed === true) endpoints.push({ id: "hub", name: setup.hubDisplayName || setup.hubHost || "Hub", localForwardPort: setup.localForwardPort });
+      workers.forEach((worker) => endpoints.push({ id: String(worker.id || ""), name: worker.displayName || worker.name || worker.id, localForwardPort: worker.localForwardPort }));
+      const assignments = asArray(state.tunnelPortAssignments || []);
+      const html = endpoints.filter((item) => item.id).map((item) => {
+        const assignment = assignments.find((row) => String(row.endpointId || "") === item.id) || {};
+        const port = Number(assignment.localForwardPort || item.localForwardPort || 0);
+        const tbPort = port >= 1024 && port <= 64535 ? port + 1000 : 0;
+        const status = gpuTensorboardStatus[item.id];
+        const running = !!status?.running;
+        const command = running ? "stopTensorBoard" : "openTensorBoard";
+        const label = running ? "关闭" : "开启";
+        if (!gpuTensorboardRequested.has(item.id)) {
+          gpuTensorboardRequested.add(item.id);
+          setTimeout(() => vscode.postMessage({ command: "getTensorBoardStatus", endpointId: item.id }), 0);
+        }
+        return '<button type="button" class="mini secondary" role="switch" aria-checked="' + running + '" data-command="' + command + '" data-endpoint-id="' + escAttr(item.id) + '" data-local-port="' + escAttr(String(tbPort)) + '" title="' + escAttr(status?.error || (running ? "关闭此服务器的 TensorBoard tmux 会话" : "重建此服务器的 TensorBoard tmux 会话并在浏览器打开")) + '">' + esc(String(item.name)) + ' · TensorBoard ' + label + '</button>';
+      }).join("");
+      setHtmlIfChanged("gpuTensorboardControls", html);
+    }
     function renderGpuSection(state) {
       var model = gpuViewModelForState(state || {});
       var servers = model.servers;
@@ -9078,6 +9111,7 @@ function renderPanelHtml() {
         : '<div class="muted">暂无 GPU 数据。请确认 Xshell 隧道与 Hub Agent 可用。</div>';
       setHtmlIfChanged("gpuHistoryOverview", renderGpuHistoryOverview(state, servers));
       setHtmlIfChanged("gpuSummary", summaryHtml);
+      renderGpuTensorboardControls(state);
       (function renderDense(){
         var wrap = document.getElementById("gpuDenseTableWrap");
         var headEl = document.getElementById("gpuDenseHead");

@@ -136,10 +136,13 @@ test("TensorBoard final scalars are converted to the standard result contract", 
     "sys.modules['cluster_scheduler'] = scheduler",
     "spec.loader.exec_module(scheduler)",
     "scheduler.tensorboard_conversion_available = lambda: True",
-    "job = scheduler.Job(index=0, suite='smoke', case='baseline', seed=0, config={'seed': 0}, output_dir='work_dirs/smoke', result_csv='work_dirs/smoke/metrics_summary.csv', train_command='', test_command='python test.py --output-dir work_dirs/smoke', run_wrapper='', wrap_output=False, base_config_path='configs/base.yaml', template_values={'experiment_id':'smoke/baseline/seed_0','method':'baseline','dataset':'demo','split':'test'}, result_aliases={})",
+    "os.makedirs('experiments/results', exist_ok=True)",
+    "formal = 'experiments/results/baseline.csv'",
+    "open(formal, 'w', encoding='utf-8').write('protocol_version,metric,value\\n2,AUC,0.8\\n')",
+    "job = scheduler.Job(index=0, suite='smoke', case='baseline', seed=0, config={'seed': 0}, output_dir='work_dirs/smoke', result_csv=formal, train_command='', test_command='python test.py --output-dir work_dirs/smoke', run_wrapper='', wrap_output=False, base_config_path='configs/base.yaml', template_values={'experiment_id':'smoke/baseline/seed_0','method':'baseline','dataset':'demo','split':'test'}, result_aliases={})",
     "report = scheduler.collect_tensorboard_metrics(job)",
     "csv_text = open('work_dirs/smoke/metrics_summary.csv', encoding='utf-8').read()",
-    "print(json.dumps({'report': report, 'csv': csv_text, 'env': os.path.exists('work_dirs/smoke/env_snapshot.json'), 'config': os.path.exists('work_dirs/smoke/config_snapshot.yaml')}))",
+    "print(json.dumps({'report': report, 'csv': csv_text, 'scalar_csv': open('work_dirs/smoke/tensorboard_scalars.csv', encoding='utf-8').read(), 'formal': open(formal, encoding='utf-8').read(), 'env': os.path.exists('work_dirs/smoke/env_snapshot.json'), 'config': os.path.exists('work_dirs/smoke/config_snapshot.yaml')}))",
   ].join("\n");
   const result = spawnSync("python", ["-c", script], { cwd: project, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -148,6 +151,8 @@ test("TensorBoard final scalars are converted to the standard result contract", 
   assert.equal(payload.report.metricCount, 1);
   assert.equal(payload.report.addedRows, 1);
   assert.match(payload.csv, /AUC,0\.91,/);
+  assert.match(payload.scalar_csv, /AUC,0\.91,/);
+  assert.equal(payload.formal, "protocol_version,metric,value\n2,AUC,0.8\n");
   assert.equal(payload.env, true);
   assert.equal(payload.config, true);
 });
