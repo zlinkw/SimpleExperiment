@@ -91,6 +91,7 @@ export interface TunnelClient {
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
   getOperation(operationId: string): Promise<unknown>;
+  getWorkerTasks?(): Promise<unknown>;
   getRunEvidence?(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown>;
   postAction<T>(action: TunnelAction, body: unknown): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
@@ -216,6 +217,13 @@ export class HttpTunnelClient implements TunnelClient {
     const id = String(operationId || "").trim();
     if (!id) throw new Error("operationId is required.");
     return this.requestJson(`/api/operations/${encodeURIComponent(id)}`, "diagnostics", undefined, {
+      method: "GET",
+      userInitiated: true,
+    });
+  }
+
+  getWorkerTasks(): Promise<unknown> {
+    return this.requestJson("/api/worker/tasks", "manual_refresh", undefined, {
       method: "GET",
       userInitiated: true,
     });

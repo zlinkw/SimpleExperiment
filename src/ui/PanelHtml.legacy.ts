@@ -96,6 +96,7 @@ export function renderPanelHtml(): string {
     .topbar-actions { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; }
     .topbar-actions button { min-height: 24px; padding: 3px 8px; font-size: 12px; }
     .topbar-actions .topbarIconButton { width: 28px; height: 28px; min-width: 28px; padding: 0; font-size: 15px; }
+    .pluginVersionChip { font-variant-numeric: tabular-nums; color: #334155; background: #EEF2FF; border-color: #C7D2FE; }
     .projectOnboardingNotice { display: none; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #F59E0B; border-left: 4px solid #D97706; border-radius: 8px; background: #FFFBEB; color: #78350F; }
     .projectOnboardingNotice.is-visible { display: flex; }
     .projectOnboardingNoticeBody { min-width: 0; display: grid; gap: 2px; }
@@ -1141,6 +1142,7 @@ export function renderPanelHtml(): string {
         <button data-command="pauseAll" class="secondary" type="button" title="暂停全部网络活动&#10;挂起隧道与实时流，已提交的远端任务不受影响">暂停全部网络</button>
         <button data-command="resumeNetwork" class="secondary" type="button" title="恢复网络&#10;重新建立此前暂停的隧道与实时流">恢复网络</button>
         <button data-command="openSetupGuide" class="secondary" type="button" title="打开该步骤的处理说明&#10;含配置步骤与常见问题排查">配置说明</button>
+        <span class="status-chip pluginVersionChip" id="pluginVersionChip" title="当前插件版本">v${PLUGIN_VERSION}</span>
         <button type="button" class="secondary topbarIconButton" data-section-target="settings" data-anchor-target="settings" title="设置" aria-label="设置">&#9881;</button>
       </div>
     </header>
@@ -2200,7 +2202,7 @@ export function renderPanelHtml(): string {
     const MATCH_EVERY_OPERATION = () => true;
     const MATCH_NO_OPERATION = () => false;
     const OPERATION_ACTIVE_MATCH_TOKENS = Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]);
-    const OPERATION_FAILURE_MATCH_TOKENS = Object.freeze(["failed", "failure", "stalled", "timeout", "unsupported", "error"]);
+    const OPERATION_FAILURE_MATCH_TOKENS = Object.freeze(["failed", "failure", "stalled", "interrupted", "timeout", "unsupported", "error"]);
     const OPERATION_INFRASTRUCTURE_PATTERN = /self|debug|audit|diagnostic|agent|tunnel|port/;
     const OPERATION_SECTION_MATCH_PATTERNS = new Map([
       ["sync", /publish|github|upload|deploy|sftp|sync|distribute/],
@@ -13188,6 +13190,7 @@ export function renderPanelHtml(): string {
       if (text.includes("cancel")) return "已取消";
       if (text.includes("stop")) return "已停止";
       if (text.includes("stalled")) return "已超时";
+      if (text.includes("interrupted")) return "调度中断";
       if (text.includes("unsupported")) return "不支持";
       if (text.includes("fail") || text.includes("error")) return "失败";
       if (text.includes("complete") || text === "done") return "已完成";
@@ -15902,7 +15905,7 @@ function projectSectionNextAction(status, label, section, anchor, options) {
           tmuxSession: pick(row, ["tmuxSession", "tmux_session", "session"], pick(payload, ["tmuxSession", "tmux_session", "session"], "-")),
           searchText: operationSearchText(row, payload, manifest, threeWay)
         };
-      }).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)) || b.seq - a.seq);
+      }).sort((a, b) => Number(operationIsActive(b.status)) - Number(operationIsActive(a.status)) || String(b.updatedAt).localeCompare(String(a.updatedAt)) || b.seq - a.seq);
     }
 
     function normalizeUnparseableDetails(value, files) {

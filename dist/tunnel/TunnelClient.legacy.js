@@ -133,6 +133,12 @@ class HttpTunnelClient {
             userInitiated: true,
         });
     }
+    getWorkerTasks() {
+        return this.requestJson("/api/worker/tasks", "manual_refresh", undefined, {
+            method: "GET",
+            userInitiated: true,
+        });
+    }
     getRunEvidence(params = {}) {
         const query = new URLSearchParams();
         for (const [key, value] of Object.entries(params)) {

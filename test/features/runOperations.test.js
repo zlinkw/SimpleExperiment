@@ -5,6 +5,7 @@ const {
   isLongRunningPlanOperation,
   reconcileRunOperation,
   runOperationMatchesTarget,
+  restorePlanOperationsFromWorkerTasks,
 } = require("../../dist/features/RunOperations");
 
 const running = {
@@ -119,4 +120,35 @@ test("tmux-alive but no activity stays running with manual hint after the grace 
   assert.equal(stale.patch.finishedAt, undefined);
   assert.match(stale.patch.message, /未自动终结/);
   assert.match(stale.patch.reconcileReason, /tmux_alive_no_activity$/);
+});
+
+test("reconnect restores the live plan from the worker scheduler task without reviving old terminal history", () => {
+  const tasks = { tasks: [
+    { kind: "scheduler", action: "run-plan", operationId: "old", planFile: "experiments/plans/a.yaml", status: "running", startedAt: "2026-09-18T10:00:00Z" },
+    { kind: "scheduler", action: "run-plan", operationId: "current", planFile: "experiments/plans/a.yaml", status: "running", pid: 42, tmuxSession: "scheduler-a", startedAt: "2026-09-19T10:00:00Z" },
+    { kind: "worker-task", action: "run-plan", operationId: "child", planFile: "experiments/plans/a.yaml", status: "running" },
+  ] };
+  const restored = restorePlanOperationsFromWorkerTasks({ old: { status: "failed", type: "run-plan" } }, tasks, "nwpu3");
+  assert.equal(restored.old.status, "failed");
+  assert.equal(restored.current.status, "running");
+  assert.equal(restored.current.pid, 42);
+  assert.equal(restored.current.tmuxSession, "scheduler-a");
+  assert.equal(restored.current.schedulerOwnerWorkerId, "nwpu3");
+  assert.equal(restored.child, undefined);
+  assert.equal(restorePlanOperationsFromWorkerTasks({ current: { status: "interrupted" } }, tasks, "nwpu3").current.status, "interrupted");
+});
+
+test("a missing known scheduler is shown as interrupted and can recover when it reappears", () => {
+  const startedAt = "2026-09-19T10:00:00Z";
+  const missing = reconcileRunOperation({ ...running, startedAt, pid: 42 }, {
+    checkedPid: 42, pidAlive: false, tmuxSessionAlive: false,
+    workerTasksCount: 5, logTail: "wait pending=26 running=3",
+  }, "activation", Date.parse(startedAt) + 120_000);
+  assert.equal(missing.terminal, false);
+  assert.equal(missing.patch.status, "interrupted");
+  const recovered = reconcileRunOperation(missing.patch, {
+    checkedPid: 42, pidAlive: true, tmuxSessionAlive: true,
+    operation: { status: "running" },
+  }, "tunnel_reconnected", Date.parse(startedAt) + 130_000);
+  assert.equal(recovered.patch.status, "running");
 });

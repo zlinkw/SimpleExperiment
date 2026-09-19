@@ -299,6 +299,13 @@ export class MultiEndpointRealtimeClient {
     return client.getOperation(operationId);
   }
 
+  async getWorkerTasks(workerId: string): Promise<unknown> {
+    const client = this.clients.get(workerId);
+    const endpoint = this.endpointById.get(workerId);
+    if (!client || endpoint?.role !== "worker") throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
+    return client.getWorkerTasks();
+  }
+
   async getRunEvidence(workerId: string | undefined, params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {
     const client = workerId ? this.clients.get(workerId) : this.hubClient();
     const endpoint = workerId ? this.endpointById.get(workerId) : undefined;

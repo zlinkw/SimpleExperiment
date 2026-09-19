@@ -593,7 +593,10 @@ async function activateExtension(context) {
         vscode,
     ).catch(() => undefined);
     provider.startLocalApiServer();
-    void provider.reconcileStalePlanRunOperations({ reason: "activation" }).catch(() => undefined);
+    void provider.projectBootstrapPromise.then(async () => {
+        await provider?.restoreRemotePlanOperations();
+        await provider?.reconcileStalePlanRunOperations({ reason: "activation" });
+    }).catch(() => undefined);
     void provider.runActivationOnboarding();
     setTimeout(() => void provider?.checkRemoteAgentVersionAndNotify(false).catch(() => undefined), 8000);
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
@@ -746,6 +749,7 @@ export class RealtimeTunnelPanelProvider {
     private planRuntimeEvidenceCache;
     private localOperationsPersistPromise?: Promise<void>;
     private runOperationReconcilePromise?: Promise<{ reconciled: string[]; checked: string[] }>;
+    private remotePlanRestorePromise?: Promise<void>;
     private runOperationReconcilePollTimer?: any;
     private evidenceAutoPollTimer?: any;
     private evidenceAutoPollInFlight = false;
@@ -3144,6 +3148,10 @@ export class RealtimeTunnelPanelProvider {
             await client.connect();
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
+            void this.projectBootstrapPromise.then(async () => {
+                await this.restoreRemotePlanOperations();
+                await this.reconcileStalePlanRunOperations({ reason: "tunnel_reconnected" });
+            }).catch(() => undefined);
             const diagnostics = client.diagnostics();
             const unavailable = diagnostics.endpoints.length > 0 && diagnostics.endpoints.every((endpoint) => endpoint.streamStatus === "disconnected");
             this.lastError = unavailable ? "tunnel_unavailable" : undefined;
@@ -7964,6 +7972,31 @@ export class RealtimeTunnelPanelProvider {
             && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
             && !operationTerminal(item)
         ));
+    }
+    async restoreRemotePlanOperations() {
+        if (this.remotePlanRestorePromise) return this.remotePlanRestorePromise;
+        if (!this.isRealtimeMode()) return;
+        const projectContext = this.captureProjectContext();
+        const client = this.client;
+        const workers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
+        const restore = (async () => {
+            const snapshots = await Promise.allSettled(workers.map((workerId) => client.getWorkerTasks(workerId)));
+            if (!this.projectContextIsCurrent(projectContext) || client !== this.client) return;
+            let operations = this.localOperations;
+            for (let index = 0; index < snapshots.length; index += 1) {
+                const snapshot = snapshots[index];
+                if (snapshot.status !== "fulfilled") continue;
+                operations = RunOperations_1.restorePlanOperationsFromWorkerTasks(operations, snapshot.value, workers[index]);
+            }
+            if (JSON.stringify(operations) !== JSON.stringify(this.localOperations)) {
+                this.localOperations = compactOperationRecords(operations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+                this.markLocalOperationsDirty();
+                this.postState();
+            }
+        })();
+        this.remotePlanRestorePromise = restore;
+        try { await restore; }
+        finally { if (this.remotePlanRestorePromise === restore) this.remotePlanRestorePromise = undefined; }
     }
     runOperationWorkerId(record) {
         const explicit = String(record?.schedulerOwnerWorkerId || record?.resultOwnerWorkerId || "").trim();

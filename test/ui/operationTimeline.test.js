@@ -6,6 +6,9 @@ const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
 test("operation progress renders as a VS Code timeline", () => {
   const html = renderPanelHtml();
+  const version = require("../../package.json").version;
+  assert.match(html, new RegExp(`id="pluginVersionChip"[^>]*>v${version.replaceAll(".", "\\.")}</span>`));
+  assert.match(html, /sort\(\(a, b\) => Number\(operationIsActive\(b\.status\)\) - Number\(operationIsActive\(a\.status\)\)/);
   assert.match(html, /\.operationTimeline \{ display: grid; gap: 6px; \}/);
   assert.match(html, /\.operationItem \{/);
   assert.match(html, /\.operationDot/);

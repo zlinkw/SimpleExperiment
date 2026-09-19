@@ -94,6 +94,47 @@ export function operationTerminalStatus(value: unknown): boolean {
   ]).has(String(value || "").trim().toLowerCase());
 }
 
+export function restorePlanOperationsFromWorkerTasks(
+  existing: Record<string, any>,
+  snapshot: unknown,
+  workerId: string,
+): Record<string, any> {
+  const result = { ...existing };
+  const tasks = snapshot && typeof snapshot === "object" && Array.isArray((snapshot as any).tasks)
+    ? (snapshot as any).tasks as Array<Record<string, unknown>> : [];
+  for (const task of tasks) {
+    if (!task || typeof task !== "object" || String(task.kind || "") !== "scheduler") continue;
+    const type = String(task.action || "").toLowerCase();
+    if (!LONG_RUNNING_PLAN_ACTIONS.has(type)) continue;
+    const operationId = String(task.operationId || "").trim();
+    const planFile = String(task.planFile || task.plan || "").trim();
+    if (!operationId || !planFile) continue;
+    const previous = result[operationId] || {};
+    if (operationTerminalStatus(previous.status || previous.state)) continue;
+    const rawStatus = String(task.status || "running").toLowerCase();
+    const status = rawStatus === "running" && previous.status === "interrupted"
+      ? "interrupted" : (rawStatus === "stopped" ? "cancelled" : rawStatus);
+    const terminal = operationTerminalStatus(status);
+    const changedAt = String((terminal ? task.finishedAt : undefined) || task.startedAt || "");
+    result[operationId] = {
+      ...previous,
+      operationId,
+      type,
+      status,
+      planFile,
+      schedulerOwnerWorkerId: String(task.workerId || workerId),
+      resultOwnerWorkerId: String(task.resultOwnerWorkerId || task.workerId || workerId),
+      pid: Number(task.pid || previous.pid || 0),
+      tmuxSession: String(task.tmuxSession || previous.tmuxSession || ""),
+      logPath: String(task.logPath || previous.logPath || ""),
+      startedAt: String(previous.startedAt || task.startedAt || ""),
+      updatedAt: terminal ? changedAt : String(previous.updatedAt || changedAt),
+      ...(terminal ? { finishedAt: String(task.finishedAt || changedAt) } : {}),
+    };
+  }
+  return result;
+}
+
 export function hasRemoteRunActivity(evidence: RemoteRunEvidence): boolean {
   // passive_interrupt_requeue / dispatch_probe(目前无空卡)+running>0 / wait+running>0 均为有效进展，即使 liveLogCount 被去噪也视为活动
   if (schedulerLogShowsBusyWaiting(evidence as any) || schedulerLogShowsPassiveRequeue(evidence as any)) return true;
@@ -297,6 +338,23 @@ export function reconcileRunOperation(
         reconcileReason: `${reason}:dead_process_with_error_log`,
         startedAt: record.startedAt || remote.startedAt || "",
         updatedAt: record.updatedAt || remote.updatedAt || checkedAt,
+      },
+    };
+  }
+  const knownScheduler = Number(evidence.checkedPid || (record as any).pid || 0) > 0
+    || Boolean(evidence.checkedTmuxSession || (record as any).tmuxSession);
+  const startedMs = Date.parse(String(record.startedAt || remote.startedAt || ""));
+  if (knownScheduler && Number.isFinite(startedMs) && nowMs - startedMs > RUN_OPERATION_RECONCILE_GRACE_MS) {
+    return {
+      terminal: false,
+      patch: {
+        ...base,
+        status: "interrupted",
+        message: "远端调度进程和 tmux 会话均不可见；调度已中断，已派发的 Worker 任务可能仍在运行。",
+        reconciledAt: checkedAt,
+        reconcileCheckedAt: checkedAt,
+        reconcileReason: `${reason}:scheduler_missing`,
+        updatedAt: checkedAt,
       },
     };
   }

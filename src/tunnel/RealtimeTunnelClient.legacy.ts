@@ -198,6 +198,10 @@ export class RealtimeTunnelClient {
     return this.http.getOperation(operationId);
   }
 
+  getWorkerTasks(): Promise<unknown> {
+    return this.http.getWorkerTasks();
+  }
+
   getRunEvidence(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {
     return this.http.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
   }
