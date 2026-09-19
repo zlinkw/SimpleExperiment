@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.7"
-RUNTIME_VERSION = "0.5.7"
-PLUGIN_VERSION = "0.5.7"
+AGENT_VERSION = "0.5.8"
+RUNTIME_VERSION = "0.5.8"
+PLUGIN_VERSION = "0.5.8"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -4254,7 +4254,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "sseEvents": True,
                 "actions": True,
                 "fileList": False,
-                "fileDownload": False,
+                "fileDownload": True,
                 "fileUploadChunk": False,
             },
             "actionEndpoints": {
@@ -11094,7 +11094,7 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy") and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/files/stat", "/api/files/download", "/api/files/download-range", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy") and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
             if route == "/api/tensorboard/proxy":
                 return self.proxy_tensorboard(parsed)

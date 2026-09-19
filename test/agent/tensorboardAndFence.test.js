@@ -222,8 +222,14 @@ class CapturedServer(ThreadingHTTPServer):
         threading.Thread(target=lambda: ThreadingHTTPServer.serve_forever(self), daemon=True).start()
 agent.ThreadingHTTPServer = CapturedServer
 with tempfile.TemporaryDirectory() as root:
+    result_path = pathlib.Path(root) / 'experiments' / 'results' / 'concatenation.csv'
+    result_path.parent.mkdir(parents=True)
+    result_path.write_bytes(b'protocol_version,value\\n1,0.5\\n')
     agent.serve_http(types.SimpleNamespace(host='127.0.0.1', port=0, token='secret', mode='worker_telemetry', project_dir=root, worker_id='test'))
     local = servers[0]
+    result_url = f'http://127.0.0.1:{local.server_port}/api/files/download?path=experiments%2Fresults%2Fconcatenation.csv'
+    result_req = urllib.request.Request(result_url, headers={'X-Simple-Agent-Token': 'secret'})
+    assert urllib.request.urlopen(result_req, timeout=5).read() == result_path.read_bytes()
     agent.tmux_session_alive = lambda *a, **k: False
     status_url = f'http://127.0.0.1:{local.server_port}/api/actions/get-tensorboard-status'
     status_req = urllib.request.Request(status_url, data=json.dumps({'opId': 'tb-status', 'sessionPrefix': 'owner'}).encode(), headers={'X-Simple-Agent-Token': 'secret', 'Content-Type': 'application/json'}, method='POST')
@@ -282,6 +288,7 @@ test("local TensorBoard commands use the UI handler when invoked through the API
     assert.doesNotMatch(actionSet, new RegExp(`"${command}"`));
   }
   assert.match(extensionSource, /if \(uiActionCommands\.has\(command\)\)\s*return await this\.runActionCommand\(command, message\);\s*return await this\.handleMessageCore\(message, command\);/);
+  assert.match(extensionSource, /case "prepareAgents":\s*await this\.prepareAgentsForFirstRun\(message\.uiMode !== true\)/);
 });
 
 test("fence_stale_run_plans: overlapping fences old, non-overlapping coexists, zombie reap", () => {

@@ -4382,7 +4382,7 @@ class RealtimeTunnelPanelProvider {
                 await this.startAllXshellConnections();
                 break;
             case "prepareAgents":
-                await this.prepareAgentsForFirstRun();
+                await this.prepareAgentsForFirstRun(message.uiMode !== true);
                 break;
             case "testAll":
                 await this.testTunnel(true);
