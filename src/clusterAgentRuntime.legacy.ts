@@ -169,8 +169,8 @@ WORKER_RESULT_ACTIONS = {
     "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run",
     "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "exclude-results",
     "sync-artifacts", "complete-three-way",
-    "start-tensorboard", "stop-tensorboard", "get-tensorboard-status",
 }
+WORKER_TENSORBOARD_ACTIONS = {"start-tensorboard", "stop-tensorboard", "get-tensorboard-status"}
 ACTION_PATHS = [
     "/api/actions/run-plan",
     "/api/actions/stop-scheduler-operation",
@@ -4269,6 +4269,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "reproduce-plan": True,
                 "stop-scheduler-operation": True,
                 **{name: True for name in WORKER_RESULT_ACTIONS},
+                **{name: True for name in WORKER_TENSORBOARD_ACTIONS},
             },
         }
     return {
@@ -11321,7 +11322,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy") and worker_action not in WORKER_RESULT_ACTIONS:
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy") and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy":
                 return self.proxy_tensorboard(urlparse(self.path))

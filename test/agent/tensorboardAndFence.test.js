@@ -161,8 +161,9 @@ print("tb_discover_launch ok")
   assert.match(r.stdout, /tb_discover_launch ok/);
 });
 
-test("tensorboard actions are registered in WORKER_RESULT_ACTIONS and ACTION_PATHS and handle_action routes", () => {
-  assert.match(agentSource, /"start-tensorboard", "stop-tensorboard", "get-tensorboard-status"/);
+test("tensorboard actions are worker controls with no result ownership requirement", () => {
+  assert.match(agentSource, /WORKER_TENSORBOARD_ACTIONS = \{"start-tensorboard", "stop-tensorboard", "get-tensorboard-status"\}/);
+  assert.match(agentSource, /\*\*\{name: True for name in WORKER_TENSORBOARD_ACTIONS\}/);
   assert.match(agentSource, /\/api\/actions\/start-tensorboard/);
   assert.match(agentSource, /\/api\/actions\/stop-tensorboard/);
   assert.match(agentSource, /\/api\/actions\/get-tensorboard-status/);
@@ -194,7 +195,7 @@ print('ok')
 
 test("worker Agent proxies TensorBoard pages only for an active session and valid token", () => {
   const script = `
-import importlib.util, pathlib, tempfile, threading, types, urllib.request, urllib.error
+import importlib.util, pathlib, tempfile, threading, types, urllib.request, urllib.error, json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
 agent = importlib.util.module_from_spec(spec)
@@ -223,6 +224,11 @@ agent.ThreadingHTTPServer = CapturedServer
 with tempfile.TemporaryDirectory() as root:
     agent.serve_http(types.SimpleNamespace(host='127.0.0.1', port=0, token='secret', mode='worker_telemetry', project_dir=root, worker_id='test'))
     local = servers[0]
+    agent.tmux_session_alive = lambda *a, **k: False
+    status_url = f'http://127.0.0.1:{local.server_port}/api/actions/get-tensorboard-status'
+    status_req = urllib.request.Request(status_url, data=json.dumps({'opId': 'tb-status', 'sessionPrefix': 'owner'}).encode(), headers={'X-Simple-Agent-Token': 'secret', 'Content-Type': 'application/json'}, method='POST')
+    status = json.load(urllib.request.urlopen(status_req, timeout=5))
+    assert status['status'] == 'completed' and status['running'] is False, status
     agent.TENSORBOARD_PROXY_PORTS['owner_tb'] = tb.server_port
     url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/proxy?port={tb.server_port}&sessionPrefix=owner&path=%2Fdata%2Fplugin'
     req = urllib.request.Request(url, headers={'X-Simple-Agent-Token': 'secret'})

@@ -8,6 +8,8 @@
 | --- | --- | --- | --- | --- | --- |
 | `/data/qgking/zlk/MultiModal/cluster_agent.py` | file | SimpleSFTP 将本应部署到 Agent runtime 目录的文件写到了项目根目录；正式运行时使用 `/data/qgking/zlk/simple_agent/simple_cluster/runtime/cluster_agent.py`。 | 上传可能覆盖同名旧文件。删除前须核实远端内容、调用方及运行中的进程；本清单不授权删除。 | 2026-09-19 | 待审核 |
 | `/data/qgking/zlk/MultiModal/cluster_scheduler.py` | file | 同次目标解析错误将 Scheduler 文件写到了项目根目录；正式运行时使用 `/data/qgking/zlk/simple_agent/simple_cluster/runtime/cluster_scheduler.py`。 | 上传可能覆盖同名旧文件。删除前须核实远端内容、调用方及运行中的进程；本清单不授权删除。 | 2026-09-19 | 待审核 |
+| `/data/qgking/zlk/simple_agent/cluster_agent.py` | file | 再次上传时文件落在 Agent 安装目录根部，而正式运行时使用 `simple_cluster/runtime/cluster_agent.py`。 | 上传可能覆盖同名旧文件。删除前须核实远端内容、调用方及运行中的进程；本清单不授权删除。 | 2026-09-19 | 待审核 |
+| `/data/qgking/zlk/simple_agent/cluster_scheduler.py` | file | 同次上传将 Scheduler 文件落在 Agent 安装目录根部，而正式运行时使用 `simple_cluster/runtime/cluster_scheduler.py`。 | 上传可能覆盖同名旧文件。删除前须核实远端内容、调用方及运行中的进程；本清单不授权删除。 | 2026-09-19 | 待审核 |
 
 ## 状态说明
 
