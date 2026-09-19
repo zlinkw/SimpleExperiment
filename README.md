@@ -13,6 +13,8 @@ SimpleExperiment 是一个 VS Code 插件，用 Xshell 本地隧道、远端 Age
 
 ## 组件
 
+TensorBoard event 日志的目录层级和跨 seed 汇总要求见 [插件实验曲线页面与日志目录](docs/tensorboard-viewer.md)。
+
 | 组件 | 作用 |
 | --- | --- |
 | SimpleExperiment | 服务器配置、拓扑选择、Plan 校验/预演/运行、Agent 与任务监控、结果分析入口。 |

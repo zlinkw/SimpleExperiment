@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, base64, calendar, csv, fnmatch, glob, hashlib, http.client, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, subprocess, sys, threading, time, traceback, urllib.request, zipfile
+import argparse, base64, calendar, csv, fnmatch, glob, hashlib, http.client, importlib.util, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, struct, subprocess, sys, threading, time, traceback, urllib.request, zipfile
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.22"
-RUNTIME_VERSION = "0.5.22"
-PLUGIN_VERSION = "0.5.22"
+AGENT_VERSION = "0.5.23"
+RUNTIME_VERSION = "0.5.23"
+PLUGIN_VERSION = "0.5.23"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -8855,6 +8855,301 @@ def tb_find_events_dir(root, max_depth=5):
 
 TENSORBOARD_BROWSER_PREFIX = "/api/tensorboard/ui"
 
+# Scalar reader belongs to the Agent runtime, not to the project's TensorBoard
+# installation. Only the two documented scalar encodings are accepted.
+SCALAR_FILE_CACHE = {}
+SCALAR_CATALOG_CACHE = {}
+SCALAR_CACHE_LOCK = threading.RLock()
+
+def scalar_child(root, relative):
+    base = os.path.realpath(root)
+    target = os.path.realpath(os.path.join(base, str(relative)))
+    if os.path.commonpath((base, target)) != base or target == base:
+        raise ValueError("scalar path escapes project root")
+    return target
+
+def scalar_fields(data):
+    pos = 0
+    while pos < len(data):
+        key, pos = scalar_varint(data, pos)
+        field, wire = key >> 3, key & 7
+        if field == 0:
+            raise ValueError("invalid protobuf field")
+        if wire == 0:
+            value, pos = scalar_varint(data, pos)
+        elif wire == 1:
+            value = data[pos:pos + 8]
+            pos += 8
+        elif wire == 2:
+            size, pos = scalar_varint(data, pos)
+            if size > len(data) - pos:
+                raise ValueError("truncated protobuf field")
+            value = data[pos:pos + size]
+            pos += size
+        elif wire == 5:
+            value = data[pos:pos + 4]
+            pos += 4
+        else:
+            raise ValueError("unsupported protobuf wire type")
+        if pos > len(data):
+            raise ValueError("truncated protobuf field")
+        yield field, wire, value
+
+def scalar_varint(data, pos):
+    value = 0
+    for shift in range(0, 70, 7):
+        if pos >= len(data):
+            raise ValueError("truncated protobuf varint")
+        byte = data[pos]
+        pos += 1
+        value |= (byte & 127) << shift
+        if not byte & 128:
+            return value, pos
+    raise ValueError("protobuf varint too long")
+
+def scalar_tensor(data):
+    dtype, content, number, shape = 0, b"", None, []
+    for field, wire, value in scalar_fields(data):
+        if field == 1 and wire == 0:
+            dtype = value
+        elif field == 2 and wire == 2:
+            for shape_field, shape_wire, dimension in scalar_fields(value):
+                if shape_field == 2 and shape_wire == 2:
+                    for dim_field, dim_wire, size in scalar_fields(dimension):
+                        if dim_field == 1 and dim_wire == 0:
+                            shape.append(size)
+        elif field == 4 and wire == 2:
+            content = value
+        elif field == 5 and wire == 5 and number is None:
+            number = struct.unpack("<f", value)[0]
+        elif field == 5 and wire == 2 and len(value) >= 4 and number is None:
+            number = struct.unpack("<f", value[:4])[0]
+        elif field == 6 and wire == 1 and number is None:
+            number = struct.unpack("<d", value)[0]
+        elif field == 6 and wire == 2 and len(value) >= 8 and number is None:
+            number = struct.unpack("<d", value[:8])[0]
+        elif field in (7, 10) and wire == 0 and number is None:
+            number = int(value)
+        elif field in (7, 10) and wire == 2 and number is None:
+            number, _ = scalar_varint(value, 0)
+    if any(size != 1 for size in shape):
+        return None
+    if content:
+        if dtype == 1 and len(content) >= 4:
+            number = struct.unpack("<f", content[:4])[0]
+        elif dtype == 2 and len(content) >= 8:
+            number = struct.unpack("<d", content[:8])[0]
+        elif dtype == 3 and len(content) >= 4:
+            number = struct.unpack("<i", content[:4])[0]
+        elif dtype == 9 and len(content) >= 8:
+            number = struct.unpack("<q", content[:8])[0]
+    return float(number) if number is not None and math.isfinite(float(number)) else None
+
+def scalar_event(data):
+    step, summaries = 0, []
+    for field, wire, value in scalar_fields(data):
+        if field == 2 and wire == 0:
+            step = int(value)
+        elif field == 5 and wire == 2:
+            summaries.append(value)
+    out = []
+    for summary in summaries:
+        for field, wire, value in scalar_fields(summary):
+            if field != 1 or wire != 2:
+                continue
+            tag, number = "", None
+            for item_field, item_wire, item in scalar_fields(value):
+                if item_field == 1 and item_wire == 2:
+                    tag = item.decode("utf-8", errors="replace")
+                elif item_field == 2 and item_wire == 5:
+                    number = struct.unpack("<f", item)[0]
+                elif item_field == 8 and item_wire == 2:
+                    number = scalar_tensor(item)
+            if tag and number is not None and math.isfinite(number):
+                out.append((tag, step, number))
+    return out
+
+def scalar_crc32c(data):
+    crc = 0xffffffff
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ (0x82f63b78 if crc & 1 else 0)
+    return (~crc) & 0xffffffff
+
+def scalar_masked_crc(data):
+    crc = scalar_crc32c(data)
+    return (((crc >> 15) | (crc << 17)) + 0xa282ead8) & 0xffffffff
+
+def scalar_file_points(file_path):
+    stat = os.stat(file_path)
+    with SCALAR_CACHE_LOCK:
+        entry = SCALAR_FILE_CACHE.get(file_path)
+        identity = (stat.st_dev, stat.st_ino)
+        if entry is None or entry["identity"] != identity or stat.st_size < entry["offset"] or (stat.st_size == entry["size"] and stat.st_mtime_ns != entry["mtime"]):
+            entry = {"identity": identity, "offset": 0, "size": 0, "mtime": 0, "points": {}, "unsupported": False, "prefix": b""}
+        with open(file_path, "rb") as stream:
+            prefix = entry.get("prefix", b"")
+            if prefix and stream.read(len(prefix)) != prefix:
+                entry = {"identity": identity, "offset": 0, "size": 0, "mtime": 0, "points": {}, "unsupported": False, "prefix": b""}
+            stream.seek(entry["offset"])
+            start_offset = stream.tell()
+            while stream.tell() + 16 <= stat.st_size and stream.tell() - start_offset < 16 * 1024 * 1024:
+                start = stream.tell()
+                header = stream.read(12)
+                length = struct.unpack("<Q", header[:8])[0]
+                if length > 16 * 1024 * 1024:
+                    entry["unsupported"] = True
+                    break
+                if start + 16 + length > stat.st_size:
+                    break  # writer has not finished this record
+                data = stream.read(length)
+                checksum = stream.read(4)
+                if scalar_masked_crc(header[:8]) != struct.unpack("<I", header[8:])[0] or scalar_masked_crc(data) != struct.unpack("<I", checksum)[0]:
+                    entry["unsupported"] = True
+                    break
+                try:
+                    for tag, step, value in scalar_event(data):
+                        entry["points"].setdefault(tag, {})[step] = value
+                except ValueError:
+                    entry["unsupported"] = True
+                    break
+                entry["offset"] = stream.tell()
+            stream.seek(0)
+            entry["prefix"] = stream.read(min(4096, stat.st_size))
+        for tag, points in list(entry["points"].items()):
+            if len(points) > 20000:
+                entry["points"][tag] = dict(sorted(points.items())[-20000:])
+        entry["size"], entry["mtime"] = stat.st_size, stat.st_mtime_ns
+        SCALAR_FILE_CACHE[file_path] = entry
+        if len(SCALAR_FILE_CACHE) > 64:
+            for old in list(SCALAR_FILE_CACHE)[:16]:
+                SCALAR_FILE_CACHE.pop(old, None)
+        return entry
+
+def scalar_scheduler_module():
+    file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cluster_scheduler.py")
+    spec = importlib.util.spec_from_file_location("simple_scalar_scheduler", file_path)
+    if spec is None or spec.loader is None:
+        raise ValueError("scheduler runtime unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+def scalar_catalog(root, logdir="work_dirs"):
+    if pathlib.Path(logdir).is_absolute():
+        raise ValueError("scalar logdir must be project-relative")
+    log_root = scalar_child(root, logdir)
+    plan_dir = scalar_child(root, "experiments/plans")
+    plan_files = sorted(pathlib.Path(plan_dir).rglob("*.yaml"))[:500] if os.path.isdir(plan_dir) else []
+    signature = tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in plan_files)
+    with SCALAR_CACHE_LOCK:
+        cached = SCALAR_CATALOG_CACHE.get((root, logdir))
+        if cached and cached[0] == signature and time.time() - cached[1] < 15:
+            return cached[2]
+    try:
+        scheduler = scalar_scheduler_module()
+        # build_jobs computes output_dir before reading model configs. Catalog needs
+        # only its Plan naming metadata, so skip config I/O and avoid changing cwd.
+        scheduler.load_config = lambda path, inheritance_stack=(): {}
+    except Exception:
+        scheduler = None
+    plans, known = [], set()
+    for plan_path in plan_files:
+        try:
+            if scheduler is None:
+                continue
+            relative = plan_path.relative_to(root).as_posix()
+            plan = scheduler.load_plan(plan_path)
+            jobs = scheduler.jobs_for_args(plan, argparse.Namespace())
+            cases = {}
+            for job in jobs:
+                output = str(job.output_dir).replace("\\", "/").strip("/")
+                event_root = scalar_child(root, output + "/tb_logs")
+                if os.path.commonpath((log_root, event_root)) != log_root:
+                    continue
+                known.add(output + "/tb_logs")
+                cases.setdefault(str(job.case), []).append({"seed": str(job.seed), "outputDir": output})
+            if cases:
+                plans.append({"planFile": relative, "suite": str(plan.get("suite") or plan_path.stem), "cases": [{"case": name, "expectedSeeds": len({item["seed"] for item in outputs}), "outputs": outputs} for name, outputs in cases.items()]})
+        except Exception:
+            continue
+    unassigned = {}
+    visited = 0
+    for directory in (logdir,):
+        base = scalar_child(root, directory)
+        if not os.path.isdir(base):
+            continue
+        for current, dirs, files in os.walk(base, followlinks=False):
+            visited += 1
+            dirs[:] = [name for name in dirs if not name.startswith(".") and not os.path.islink(os.path.join(current, name)) and len(pathlib.Path(current).relative_to(base).parts) < 6]
+            if visited > 5000:
+                break
+            if not any(name.startswith("events.out.tfevents.") for name in files):
+                continue
+            relative = pathlib.Path(current).relative_to(root).as_posix()
+            if relative in known:
+                continue
+            parent = pathlib.Path(current).parent
+            run = parent if pathlib.Path(current).name == "tb_logs" else pathlib.Path(current)
+            # A case-level tb_logs written by project mean scripts is already aggregated.
+            # It must never become an additional seed in this viewer.
+            if run != pathlib.Path(current) and not re.search(r"(?:^|[_-])seed[_-]?\d+$", run.name, re.I):
+                try:
+                    if any(re.search(r"(?:^|[_-])seed[_-]?\d+$", child.name, re.I) for child in run.iterdir() if child.is_dir()):
+                        continue
+                except OSError:
+                    pass
+            match = re.search(r"(?:^|[_-])seed[_-]?(\d+)$", run.name, re.I)
+            seed = match.group(1) if match else ""
+            case = (run.parent / re.sub(r"[_-]?seed[_-]?\d+$", "", run.name, flags=re.I)).relative_to(root).as_posix() if seed else run.relative_to(root).as_posix()
+            unassigned.setdefault(case, []).append({"seed": seed, "outputDir": run.relative_to(root).as_posix(), "eventDir": relative})
+    if unassigned:
+        plans.append({"planFile": "__unassigned__", "suite": "未归属", "cases": [{"case": name, "expectedSeeds": 0, "outputs": outputs} for name, outputs in sorted(unassigned.items())]})
+    result = {"schemaVersion": 1, "plans": plans, "truncated": visited > 5000 or len(plan_files) == 500}
+    with SCALAR_CACHE_LOCK:
+        SCALAR_CATALOG_CACHE[(root, logdir)] = (signature, time.time(), result)
+    return result
+
+def scalar_query(root, payload):
+    if isinstance(payload.get("groups"), list):
+        groups = []
+        for group in payload["groups"][:8]:
+            if not isinstance(group, dict):
+                continue
+            query = {"planFile": group.get("planFile"), "case": group.get("case"), "tag": payload.get("tag"), "logdir": payload.get("logdir")}
+            groups.append({"planFile": query["planFile"], "case": query["case"], **scalar_query(root, query)})
+        return {"schemaVersion": 1, "groups": groups}
+    plan_file = str(payload.get("planFile") or "")
+    case_name = str(payload.get("case") or "")
+    tag_filter = str(payload.get("tag") or "")
+    catalog = scalar_catalog(root, str(payload.get("logdir") or "work_dirs"))
+    group = next((case for plan in catalog["plans"] if plan["planFile"] == plan_file for case in plan["cases"] if case["case"] == case_name), None)
+    if group is None:
+        return {"schemaVersion": 1, "tags": [], "series": [], "unsupportedFiles": [], "expectedSeeds": 0}
+    rows, tags, unsupported = [], set(), []
+    for output in group["outputs"]:
+        event_dir = scalar_child(root, output.get("eventDir") or (output["outputDir"] + "/tb_logs"))
+        if not os.path.isdir(event_dir):
+            continue
+        merged = {}
+        files = sorted((p for p in pathlib.Path(event_dir).glob("events.out.tfevents.*") if p.is_file() and not p.is_symlink()), key=lambda p: (p.stat().st_mtime_ns, p.name))
+        updated = 0
+        # A fresh event file is a new run for this seed. Never blend unique
+        # steps left in an older file with the replacement run.
+        for file_path in files[-1:]:
+            entry = scalar_file_points(str(file_path))
+            if entry["unsupported"]:
+                unsupported.append(file_path.name)
+            updated = max(updated, entry["mtime"])
+            for name, points in entry["points"].items():
+                merged.setdefault(name, {}).update(points)
+        tags.update(merged)
+        if tag_filter and tag_filter in merged:
+            rows.append({"seed": output["seed"], "updatedAt": updated, "points": [[step, value] for step, value in sorted(merged[tag_filter].items())][-20000:]})
+    return {"schemaVersion": 1, "tags": sorted(tags), "series": rows, "unsupportedFiles": unsupported[:10], "expectedSeeds": group["expectedSeeds"]}
+
 
 def tb_discover_launch(root, logdir_hint, port, explicit_script):
     # Adaptive launcher owned by the agent (ships with the runtime, not a user setting):
@@ -11284,10 +11579,15 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/files/stat", "/api/files/download", "/api/files/download-range", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/files/stat", "/api/files/download", "/api/files/download-range", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy", "/api/tensorboard/scalars/catalog") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(parsed)
+            if route == "/api/tensorboard/scalars/catalog":
+                try:
+                    return self.send_json(scalar_catalog(root, (parse_qs(parsed.query).get("logdir") or ["work_dirs"])[0]))
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=500)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
                 result = api_operation(root, operation_id)
@@ -11512,7 +11812,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
@@ -11524,6 +11824,15 @@ def serve_http(args):
                     payload = json.loads(raw_body.decode("utf-8") or "{}")
                 except Exception:
                     return self.send_json({"error": "invalid json"}, status=400)
+            if route == "/api/tensorboard/scalars/query":
+                try:
+                    if not isinstance(payload, dict):
+                        raise ValueError("invalid scalar query")
+                    return self.send_json(scalar_query(root, payload))
+                except ValueError as exc:
+                    return self.send_json({"error": str(exc)}, status=400)
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=500)
             # tmux 关窗：经 agent 管理窗口模拟用户键入 send-keys（禁 bash -l，禁窗口外主 shell 直调）
             if route == "/api/tmux/kill-window":
                 if not self.localhost_only():

@@ -141,6 +141,9 @@ class LocalApiServer {
     port = 0;
     startedAt = "";
     disposed = false;
+    scalarViewer;
+    viewerTickets = new Map();
+    viewerSessions = new Map();
     constructor(options) {
         this.name = options.name;
         this.version = options.version;
@@ -153,6 +156,14 @@ class LocalApiServer {
         this.discoveryPath = options.discoveryPath || "";
         this.sseTimeoutMs = positiveNumber(options.sseTimeoutMs, DEFAULT_SSE_TIMEOUT_MS);
         this.maxEvents = Math.max(1, Math.min(1024, positiveNumber(options.maxEvents, DEFAULT_MAX_EVENTS)));
+        this.scalarViewer = options.scalarViewer;
+    }
+    viewerUrl(endpointId = "") {
+        if (!this.server || !this.port || !this.scalarViewer)
+            throw new Error("Scalar viewer is unavailable");
+        const ticket = crypto.randomBytes(24).toString("hex");
+        this.viewerTickets.set(ticket, { expires: Date.now() + 60_000, endpointId });
+        return `http://${this.host}:${this.port}/tensorboard/?ticket=${ticket}&server=${encodeURIComponent(endpointId)}`;
     }
     async start() {
         if (this.disposed)
@@ -201,6 +212,10 @@ class LocalApiServer {
         }
         const url = new URL(request.url || "/", `http://${this.host}`);
         const pathname = url.pathname.replace(/\/+$/, "") || "/";
+        if (pathname === "/tensorboard" || pathname === "/tensorboard/api" || pathname.startsWith("/api/tensorboard/ui")) {
+            await this.handleScalarViewer(request, response, url, pathname);
+            return;
+        }
         if (!this.authorized(request)) {
             sendJson(response, 401, { ok: false, error: "UNAUTHORIZED" });
             return;
@@ -226,6 +241,76 @@ class LocalApiServer {
             return;
         }
         sendJson(response, 404, { ok: false, error: "NOT_FOUND" });
+    }
+    async handleScalarViewer(request, response, url, pathname) {
+        if (!this.scalarViewer)
+            return sendJson(response, 404, { error: "NOT_FOUND" });
+        const now = Date.now();
+        for (const [key, value] of this.viewerTickets)
+            if (value.expires < now)
+                this.viewerTickets.delete(key);
+        for (const [key, value] of this.viewerSessions)
+            if (value.expires < now)
+                this.viewerSessions.delete(key);
+        const ticket = url.searchParams.get("ticket") || "";
+        const issued = this.viewerTickets.get(ticket);
+        let referrerEndpoint = "";
+        try {
+            referrerEndpoint = new URL(String(request.headers.referer || "")).searchParams.get("server") || "";
+        }
+        catch { }
+        const requestedEndpoint = url.searchParams.get("server") || referrerEndpoint || issued?.endpointId || "";
+        const cookieName = `simple_scalar_session_${crypto.createHash("sha256").update(requestedEndpoint).digest("hex").slice(0, 12)}`;
+        const cookie = new RegExp(`(?:^|;\\s*)${cookieName}=([a-f0-9]{48})`).exec(String(request.headers.cookie || ""))?.[1] || "";
+        let session = this.viewerSessions.get(cookie);
+        let authorized = Boolean(session && session.expires > now && session.endpointId === requestedEndpoint);
+        if (pathname === "/tensorboard" && request.method === "GET") {
+            if (!authorized && issued && issued.expires > now && issued.endpointId === requestedEndpoint) {
+                this.viewerTickets.delete(ticket);
+                const session = crypto.randomBytes(24).toString("hex");
+                this.viewerSessions.set(session, { expires: now + 24 * 60 * 60 * 1000, endpointId: issued.endpointId });
+                response.setHeader("Set-Cookie", `${cookieName}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`);
+                authorized = true;
+            }
+            if (!authorized)
+                return sendJson(response, 401, { error: "VIEWER_SESSION_EXPIRED" });
+            response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; base-uri 'none'" });
+            response.end(this.scalarViewer.html.replaceAll("__SCALAR_VIEWER_SERVER__", JSON.stringify(requestedEndpoint).replace(/</g, "\\u003c")));
+            return;
+        }
+        if (!authorized)
+            return sendJson(response, 401, { error: "VIEWER_SESSION_EXPIRED" });
+        const origin = String(request.headers.origin || "");
+        if (request.method === "POST" && origin !== `http://${this.host}:${this.port}`)
+            return sendJson(response, 403, { error: "INVALID_ORIGIN" });
+        if (pathname === "/tensorboard/api" && request.method === "POST") {
+            const params = normalParams(await readJsonBody(request));
+            try {
+                sendJson(response, 200, await this.scalarViewer.query(params, session?.endpointId || ""));
+            }
+            catch (error) {
+                sendJson(response, 502, { error: error instanceof Error ? error.message : String(error), retryAfterMs: Number(error?.decision?.retryAfterMs || 0) });
+            }
+            return;
+        }
+        if (pathname.startsWith("/api/tensorboard/ui") && (request.method === "GET" || request.method === "POST")) {
+            const body = request.method === "POST" ? await new Promise((resolve, reject) => {
+                const chunks = [];
+                let size = 0;
+                request.on("data", (chunk) => { size += chunk.length; if (size > MAX_BODY_BYTES)
+                    reject(new Error("PAYLOAD_TOO_LARGE"));
+                else
+                    chunks.push(chunk); });
+                request.on("end", () => resolve(Buffer.concat(chunks)));
+                request.on("error", reject);
+            }) : undefined;
+            url.searchParams.delete("server");
+            const result = await this.scalarViewer.native(request.method, url.pathname + url.search, body, String(request.headers["content-type"] || ""), session?.endpointId || "");
+            response.writeHead(result.status, { "Content-Type": result.contentType, "Content-Length": result.body.length, "Cache-Control": "no-store" });
+            response.end(result.body);
+            return;
+        }
+        sendJson(response, 404, { error: "NOT_FOUND" });
     }
     async handleRpc(request, response) {
         const payload = await readJsonBody(request);

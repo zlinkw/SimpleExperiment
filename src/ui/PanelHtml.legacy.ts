@@ -2405,7 +2405,7 @@ export function renderPanelHtml(): string {
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
       "selectPlan", "selectExperiment",
-      "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
+      "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
@@ -7429,7 +7429,7 @@ export function renderPanelHtml(): string {
           '</div>' +
           '<div class="toolbar">' +
             (setup.savedSessionPath && setup.agentProjectDir ? '<button data-command="saveTopologyMode" data-config-scope="topology" data-topology-mode="hub_worker" data-confirm="true" title="保存拓扑模式&#10;在单 Worker 与 Hub-Worker 之间切换&#10;会影响调度方式与代码上传路径">恢复 Hub</button>' : '') +
-            '<button data-command="openTensorBoard" data-endpoint-id="hub" class="secondary" title="打开 TensorBoard 页面&#10;单 Worker 模式下也可为 Hub 打开，复用 Worker 隧道的本机端口">打开 TensorBoard</button>' +
+            '<button data-command="openScalarViewer" data-endpoint-id="hub" class="secondary" title="打开插件实验曲线页面">打开曲线</button>' +
           '</div>' +
           renderTensorBoardLinkRow("hub", (setup.workerTunnels && setup.workerTunnels[0] ? setup.workerTunnels[0].localForwardPort : 0) || setup.localForwardPort) +
           '<div class="muted">切换并保存为 Hub 可用模式后，原 Hub 字段和操作会重新显示；当前 Hub 配置不会被清除。</div>' +
@@ -7604,12 +7604,12 @@ export function renderPanelHtml(): string {
     function renderTensorBoardLinkRow(endpointId, agentLocalPort) {
       return '<div class="tensorBoardLinkRow" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
         '<span class="muted">TensorBoard:</span>' +
-        '<button class="mini secondary" data-command="openTensorBoard" data-endpoint-id="' + escAttr(endpointId) + '" title="重启此服务器的 TensorBoard 并在本机浏览器打开">打开</button>' +
+        '<button class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(endpointId) + '" title="打开插件实验曲线页面">打开曲线</button>' +
         '<span class="muted" style="font-size:12px;">本机地址由插件启动时分配，复用 Agent 隧道</span>' +
       '</div>';
     }
     function tensorBoardOverviewStatValue(endpointId, agentLocalPort) {
-      return '<button class="mini secondary" data-command="openTensorBoard" data-endpoint-id="' + escAttr(endpointId) + '" title="重启此服务器的 TensorBoard 并在本机浏览器打开">打开 TensorBoard</button>';
+      return '<button class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(endpointId) + '" title="打开插件实验曲线页面">打开曲线</button>';
     }
     function renderTensorBoardLinksForRunning() {
       const st = lastState || {};
@@ -7622,7 +7622,7 @@ export function renderPanelHtml(): string {
       if (!endpoints.length) return "";
       return '<div class="tensorBoardRunningLinks" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span class="muted">TensorBoard:</span>' +
         endpoints.filter((item) => item.id).map((item) =>
-          '<button type="button" class="mini secondary" role="switch" aria-checked="' + !!gpuTensorboardStatus[item.id]?.running + '" data-command="' + (gpuTensorboardStatus[item.id]?.running ? 'stopTensorBoard' : 'openTensorBoard') + '" data-endpoint-id="' + escAttr(item.id) + '" title="' + escAttr(gpuTensorboardStatus[item.id]?.error || '与 GPU 状态卡片共用 TensorBoard 开关') + '">' + esc(String(item.name)) + ' · ' + (gpuTensorboardStatus[item.id]?.running ? '关闭' : '开启') + '</button>'
+          '<button type="button" class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(item.id) + '" title="打开插件实验曲线页面">' + esc(String(item.name)) + ' · 打开曲线</button>'
         ).join("") + '</div>';
     }
 
@@ -9095,13 +9095,7 @@ export function renderPanelHtml(): string {
       const html = endpoints.filter((item) => item.id).map((item) => {
         const status = gpuTensorboardStatus[item.id];
         const running = !!status?.running;
-        const command = running ? "stopTensorBoard" : "openTensorBoard";
-        const label = running ? "关闭" : "开启";
-        if (!gpuTensorboardRequested.has(item.id)) {
-          gpuTensorboardRequested.add(item.id);
-          setTimeout(() => vscode.postMessage({ command: "getTensorBoardStatus", endpointId: item.id }), 0);
-        }
-        return '<button type="button" class="mini secondary" role="switch" aria-checked="' + running + '" data-command="' + command + '" data-endpoint-id="' + escAttr(item.id) + '" title="' + escAttr(status?.error || (running ? "关闭此服务器的 TensorBoard tmux 会话" : "重建此服务器的 TensorBoard tmux 会话并在浏览器打开")) + '">' + esc(String(item.name)) + ' · TensorBoard ' + label + '</button>';
+        return '<button type="button" class="mini secondary" data-command="openScalarViewer" data-endpoint-id="' + escAttr(item.id) + '" title="打开插件实验曲线页面，标量按所有可用 Worker 汇总">' + esc(String(item.name)) + ' · 打开曲线</button>';
       }).join("");
       setHtmlIfChanged("gpuTensorboardControls", html);
     }

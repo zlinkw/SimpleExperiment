@@ -15,6 +15,7 @@ exports.defaultRequestBudgetConfig = {
         diagnostics: 60_000,
         events: 0,
         file_transfer: 0,
+        tensorboard_scalar: 1_000,
     },
 };
 class RequestBudgetDeniedError extends Error {

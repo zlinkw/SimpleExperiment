@@ -8,7 +8,8 @@ export type TunnelRequestPurpose =
   | "parse_results"
   | "diagnostics"
   | "events"
-  | "file_transfer";
+  | "file_transfer"
+  | "tensorboard_scalar";
 
 export type RequestBudgetBlockReason =
   | "paused"
@@ -69,6 +70,7 @@ export const defaultRequestBudgetConfig: RequestBudgetConfig = {
     diagnostics: 60_000,
     events: 0,
     file_transfer: 0,
+    tensorboard_scalar: 1_000,
   },
 };
 

@@ -32,7 +32,7 @@ test("global stop targets only the active operation for the selected Plan", () =
   assert.doesNotMatch(html, /data-operation-id="ebmc"/);
 });
 
-test("running progress TensorBoard button follows GPU card switch state", () => {
+test("running progress and GPU card use the same curve viewer entry", () => {
   const status = { nwpu3: { running: true } };
   const sandbox = {
     lastState: { topology: { hubAllowed: false }, setup: {} },
@@ -43,7 +43,7 @@ test("running progress TensorBoard button follows GPU card switch state", () => 
   };
   vm.createContext(sandbox);
   vm.runInContext(extract("renderTensorBoardLinksForRunning", "renderSchedulerDependencyStatus") + "\nthis.render = renderTensorBoardLinksForRunning;", sandbox);
-  assert.match(sandbox.render(), /data-command="stopTensorBoard"[^>]*>NWPU3 · 关闭/);
+  assert.match(sandbox.render(), /data-command="openScalarViewer"[^>]*>NWPU3 · 打开曲线/);
   status.nwpu3.running = false;
-  assert.match(sandbox.render(), /data-command="openTensorBoard"[^>]*>NWPU3 · 开启/);
+  assert.match(sandbox.render(), /data-command="openScalarViewer"[^>]*>NWPU3 · 打开曲线/);
 });

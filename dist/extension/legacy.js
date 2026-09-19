@@ -65,6 +65,8 @@ const TunnelDiagnostics_1 = require("../tunnel/TunnelDiagnostics");
 const TunnelOnlyPolicy_1 = require("../tunnel/TunnelOnlyPolicy");
 const MultiEndpointRealtimeClient_1 = require("../tunnel/MultiEndpointRealtimeClient");
 const PanelHtml_1 = require("../ui/PanelHtml");
+const ScalarViewerHtml_1 = require("../tensorboard/ScalarViewerHtml");
+const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -361,7 +363,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "abortScheduler", "clearOperations", "clearCache", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
+    "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -783,6 +785,11 @@ class RealtimeTunnelPanelProvider {
             preferredPort: LOCAL_API_PREFERRED_PORT,
             discoveryPath: API_DISCOVERY_PATH,
             methods: this.createLocalApiMethods(),
+            scalarViewer: {
+                html: ScalarViewerHtml_1.scalarViewerHtml,
+                query: (params, endpointId) => this.scalarViewerQuery(params, endpointId),
+                native: (method, route, body, contentType, endpointId) => this.scalarNativeProxy(method, route, body, contentType, endpointId),
+            },
         });
         this.localApiServer = server;
         this.context.subscriptions.push({
@@ -4593,6 +4600,9 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "abortScheduler":
                 await this.abortSchedulerFromUi(message);
+                break;
+            case "openScalarViewer":
+                await this.openScalarViewerFromUi(message);
                 break;
             case "openTensorBoard":
             case "startTensorBoard":
@@ -11253,7 +11263,120 @@ class RealtimeTunnelPanelProvider {
         }
         catch { }
     }
-    async openTensorBoardFromUi(message) {
+    async openScalarViewerFromUi(message) {
+        const endpointId = String(message?.endpointId || "").trim();
+        const server = this.startLocalApiServer();
+        for (let attempt = 0; attempt < 20; attempt++) {
+            try {
+                const opened = await vscode.env.openExternal(vscode.Uri.parse(server.viewerUrl(endpointId)));
+                if (!opened)
+                    throw new Error("本机浏览器未接受曲线页面");
+                return;
+            }
+            catch (error) {
+                if (attempt === 19)
+                    throw error;
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        }
+    }
+    scalarEndpoints() {
+        const entries = [...(this.client?.endpointById?.entries?.() || [])];
+        return entries.filter(([, endpoint]) => endpoint?.localPort && endpoint?.role !== "hub");
+    }
+    async scalarAgentFetch(endpointId, method, route, body, contentType = "application/json") {
+        const endpoint = this.client?.endpointById?.get?.(endpointId);
+        if (!endpoint)
+            throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
+        const host = String(endpoint.localHost || "127.0.0.1");
+        TunnelGateway_1.assertLocalhost(host);
+        const base = `http://${host.includes(":") ? `[${host}]` : host}:${Number(endpoint.localPort)}`;
+        const headers = {};
+        if (endpoint.token)
+            headers["X-Simple-Agent-Token"] = String(endpoint.token);
+        if (body !== undefined)
+            headers["Content-Type"] = contentType;
+        const response = await fetch(base + route, {
+            method, headers, body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
+            signal: AbortSignal.timeout(20_000), redirect: route.startsWith("/api/tensorboard/ui") ? "follow" : "manual",
+        });
+        return response;
+    }
+    async scalarJson(endpointId, method, route, body) {
+        const response = await this.scalarAgentFetch(endpointId, method, route, body);
+        if (!response.ok)
+            throw new Error(`${endpointId} 标量查询 HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`);
+        return await response.json();
+    }
+    async scalarViewerQuery(params, selectedEndpointId = "") {
+        const action = String(params?.action || "");
+        if (action === "native.open") {
+            const endpointId = selectedEndpointId || this.scalarEndpoints()[0]?.[0];
+            if (!endpointId)
+                throw new Error("无可用 Worker");
+            await this.openTensorBoardFromUi({ endpointId }, false);
+            return { ok: true, endpointId };
+        }
+        const endpoints = this.scalarEndpoints();
+        if (!endpoints.length)
+            throw new Error("没有配置 Worker Agent 隧道");
+        if (!["catalog", "tags", "series"].includes(action))
+            throw new Error("未知标量操作");
+        const logdir = String(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.logdir") || "work_dirs");
+        const groups = action === "series" ? (Array.isArray(params.groups) ? params.groups.slice(0, 8) : []) : [];
+        const payload = action === "series" ? { groups, tag: String(params.tag || ""), logdir } : { planFile: String(params.planFile || ""), case: String(params.case || ""), tag: "", logdir };
+        if (action === "series" && (!payload.tag || !groups.length))
+            throw new Error("缺少指标或实验");
+        if (action === "tags" && (!payload.planFile || !payload.case))
+            throw new Error("缺少 Plan 或实验");
+        const operation = async () => await Promise.allSettled(endpoints.map(async ([id]) => ({ id, data: await this.scalarJson(id, action === "catalog" ? "GET" : "POST", action === "catalog" ? `/api/tensorboard/scalars/catalog?logdir=${encodeURIComponent(logdir)}` : "/api/tensorboard/scalars/query", action === "catalog" ? undefined : payload) })));
+        let settled;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                settled = await this.budget.run("tensorboard_scalar", operation, { visibleBypass: true });
+                break;
+            }
+            catch (error) {
+                const retryAfter = Number(error?.decision?.retryAfterMs || 0);
+                if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError) || attempt === 2 || retryAfter > 1500)
+                    throw error;
+                await new Promise((resolve) => setTimeout(resolve, Math.max(100, retryAfter + 30)));
+            }
+        }
+        const success = settled.filter((row) => row.status === "fulfilled").map((row) => row.value);
+        const offlineServers = endpoints.map(([id]) => id).filter((id) => !success.some((row) => row.id === id));
+        if (!success.length)
+            throw new Error(`所有 Worker 标量查询失败：${settled.map((row) => row.reason?.message || "").join("; ")}`);
+        if (action === "catalog")
+            return { plans: success.flatMap((row) => row.data.plans || []), offlineServers };
+        if (action === "tags")
+            return { tags: [...new Set(success.flatMap((row) => row.data.tags || []))].sort(), unsupportedFiles: success.flatMap((row) => row.data.unsupportedFiles || []), offlineServers };
+        const charts = groups.map((group) => {
+            const rows = [];
+            const expectedSeeds = Math.max(0, ...success.flatMap((result) => (result.data.groups || []).filter((item) => item.planFile === group.planFile && item.case === group.case).map((item) => Number(item.expectedSeeds || 0))));
+            for (const result of success) {
+                const item = (result.data.groups || []).find((entry) => entry.planFile === group.planFile && entry.case === group.case);
+                for (const series of item?.series || [])
+                    rows.push({ ...series, serverId: result.id });
+            }
+            const reliable = rows.filter((row) => row.seed);
+            const aggregated = (0, ScalarAggregation_1.aggregateSeedScalars)(reliable);
+            const rawOnly = rows.filter((row) => !row.seed).map((row, index) => ({ seed: `未归属 ${row.serverId} ${index + 1}`, serverId: row.serverId, points: row.points }));
+            return { planFile: group.planFile, case: group.case, expectedSeeds, points: aggregated.points, seeds: [...aggregated.seeds, ...rawOnly], rawOnly: !reliable.length };
+        });
+        return { charts, offlineServers, unsupportedFiles: success.flatMap((row) => (row.data.groups || []).flatMap((group) => group.unsupportedFiles || [])) };
+    }
+    async scalarNativeProxy(method, route, body, contentType, selectedEndpointId = "") {
+        const endpointId = selectedEndpointId || this.scalarEndpoints()[0]?.[0];
+        if (!endpointId)
+            throw new Error("无可用 Worker");
+        const response = await this.scalarAgentFetch(endpointId, method, route, body, contentType);
+        const data = Buffer.from(await response.arrayBuffer());
+        if (data.length > 32 * 1024 * 1024)
+            throw new Error("TensorBoard 响应过大");
+        return { status: response.status, body: data, contentType: response.headers.get("content-type") || "application/octet-stream" };
+    }
+    async openTensorBoardFromUi(message, openExternal = true) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
         let remoteReady = false;
         const endpoint = this.client?.endpointById?.get?.(endpointId);
@@ -11316,12 +11439,14 @@ class RealtimeTunnelPanelProvider {
             const proxyCheck = await fetch(url, { signal: AbortSignal.timeout(5000) });
             if (!proxyCheck.ok)
                 throw new Error(`Agent 隧道中的 TensorBoard 入口返回 HTTP ${proxyCheck.status}；请在 ${endpointId} 部署最新 Agent`);
-            await vscode.env.openExternal(vscode.Uri.parse(url));
+            if (openExternal)
+                await vscode.env.openExternal(vscode.Uri.parse(url));
             const logPath = status?.logPath || `simple_cluster/tmux_logs/${tbSession}.log`;
-            void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${remotePort} ${tbSession} @ ${endpointId}，日志 ${logPath}）`, "复制链接").then((sel) => {
-                if (sel === "复制链接")
-                    vscode.env.clipboard.writeText(url);
-            });
+            if (openExternal)
+                void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${remotePort} ${tbSession} @ ${endpointId}，日志 ${logPath}）`, "复制链接").then((sel) => {
+                    if (sel === "复制链接")
+                        vscode.env.clipboard.writeText(url);
+                });
         }
         catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
