@@ -79,6 +79,20 @@ function createContext(extra = {}) {
   return context;
 }
 
+test("Plan stop supplies its reason without waiting for a VS Code picker", async () => {
+  let pickerCalls = 0;
+  const context = createContext({
+    vscode: { window: { showQuickPick: async () => { pickerCalls += 1; throw new Error("unexpected picker"); } } },
+  });
+  const source = extensionSource.replace("async ensureManualStopReason(command, body)", "async ensureManualStopReason(command, body, message = {})");
+  const method = extractMethod(source, "async ensureManualStopReason(command, body, message = {})");
+  vm.runInContext(`const methods = { ${method} }; this.ensureManualStopReason = methods.ensureManualStopReason;`, context);
+  const body = { planFile: "experiments/plans/current.yaml" };
+  await context.ensureManualStopReason("stopExperiment", body, { operationId: "run-plan-current", planFile: body.planFile });
+  assert.equal(pickerCalls, 0);
+  assert.equal(body.stopReason, "scheduler_aborted");
+});
+
 test("single-worker stop routes by Plan to the sole Worker without Hub", async () => {
   const calls = [];
   const operation = {

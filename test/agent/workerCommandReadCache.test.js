@@ -72,3 +72,67 @@ print(json.dumps({
   assert.equal(result.cursorOldInactive, false);
   assert.equal(result.cursorActive, true);
 });
+
+test("single Worker command processor does not replay old commands after Agent restart", (t) => {
+  const python = process.env.PYTHON || "python";
+  const probe = spawnSync(python, ["--version"], { encoding: "utf8" });
+  if (probe.error || probe.status !== 0) {
+    t.skip("python unavailable");
+    return;
+  }
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-command-restart-"));
+  const script = path.join(project, "command-restart.py");
+  fs.writeFileSync(script, `
+import importlib.util, json, pathlib, os
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(path.join(root, "dist", "runtime", "cluster_agent.py"))}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+root = ${JSON.stringify(project)}
+agent.AGENT_STATE_DIR = os.path.join(root, "state")
+worker = "nwpu3"
+agent._read_run_plan_registry = lambda root: [{"pid": 123}]
+agent._is_pid_alive = lambda pid: True
+queue = pathlib.Path(agent.worker_command_path(root, worker))
+queue.parent.mkdir(parents=True, exist_ok=True)
+with queue.open("w", encoding="utf-8") as handle:
+    for name in ("old-start", "old-stop"):
+        handle.write(json.dumps({"commandId": name, "action": "start-worker-task" if name == "old-start" else "stop-worker-task"}) + "\\n")
+executed = []
+agent.execute_worker_command = lambda root, command, worker_id: executed.append(command["commandId"])
+agent.time.sleep = lambda seconds: (_ for _ in ()).throw(SystemExit())
+class OneCycleThread:
+    def __init__(self, target=None, **kwargs): self.target = target
+    def start(self):
+        try: self.target()
+        except SystemExit: pass
+agent.threading.Thread = OneCycleThread
+agent.start_worker_local_command_processor(root, worker, 1, 0)
+assert executed == ["old-start", "old-stop"], executed
+executed.clear()
+agent.WORKER_COMMAND_CURSOR_CACHE.clear()
+agent.start_worker_local_command_processor(root, worker, 1, 0)
+assert executed == [], f"replayed after restart: {executed}"
+with queue.open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps({"commandId": "new-start", "action": "start-worker-task"}) + "\\n")
+agent.start_worker_local_command_processor(root, worker, 1, 0)
+assert executed == ["new-start"], executed
+executed.clear()
+queue.write_text(json.dumps({"commandId": "rotated-start", "action": "start-worker-task"}) + "\\n", encoding="utf-8")
+agent.WORKER_COMMAND_CURSOR_CACHE.clear()
+agent.start_worker_local_command_processor(root, worker, 1, 0)
+assert executed == ["rotated-start"], executed
+executed.clear()
+old_root = os.path.join(root, "old-project")
+os.makedirs(old_root)
+agent.AGENT_STATE_DIR = os.path.join(old_root, "state")
+agent._read_run_plan_registry = lambda root: []
+old_queue = pathlib.Path(agent.worker_command_path(old_root, worker))
+old_queue.parent.mkdir(parents=True, exist_ok=True)
+old_queue.write_text(json.dumps({"commandId": "abandoned-start", "action": "start-worker-task"}) + "\\n", encoding="utf-8")
+agent.start_worker_local_command_processor(old_root, worker, 1, 0)
+assert executed == [], f"abandoned Plan replayed during cursor migration: {executed}"
+print("durable queue cursor ok")
+`, "utf8");
+  const run = spawnSync(python, [script], { cwd: root, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.match(run.stdout, /durable queue cursor ok/);
+});

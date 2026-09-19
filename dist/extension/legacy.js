@@ -4857,7 +4857,7 @@ class RealtimeTunnelPanelProvider {
             await this.refreshLocalPlanMetadataForAction(body);
             this.stampPlanRevision(body);
         }
-        await this.ensureManualStopReason(command, body);
+        await this.ensureManualStopReason(command, body, message);
         if (command === "stopExperiment") {
             const routed = await this.stopExperimentRouted({ ...body, operationId: stringField(message, "operationId"), remoteOperationId: stringField(message, "remoteOperationId") });
             if (routed !== undefined)
@@ -5423,12 +5423,19 @@ class RealtimeTunnelPanelProvider {
         body.planRevision = revision;
         body.options = { ...(body.options || {}), planRevision: revision };
     }
-    async ensureManualStopReason(command, body) {
+    async ensureManualStopReason(command, body, message = {}) {
         if (command !== "stopExperiment")
             return;
         const current = String(body.manualStopType || body.stopReason || body.options?.manualStopType || body.options?.stopReason || "").trim();
         if (current)
             return;
+        if ((stringField(message, "operationId") || stringField(message, "remoteOperationId"))
+            && (operationResultPlanFile(body) || stringField(message, "planFile"))) {
+            body.manualStopType = "scheduler_aborted";
+            body.stopReason = "scheduler_aborted";
+            body.options = { ...(body.options || {}), manualStopType: "scheduler_aborted", stopReason: "scheduler_aborted", stopSource: "user" };
+            return;
+        }
         const picked = await vscode.window.showQuickPick([
             { label: "代码有误或效果不好，停止后不再自动重跑", value: "manual_stop_bad_code_or_no_effect" },
             { label: "模型已收敛，停止后作为待审核完成任务", value: "manual_stop_converged" },

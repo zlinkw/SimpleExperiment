@@ -1009,6 +1009,63 @@ def worker_command_path(root, worker_id):
     safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(worker_id or "worker"))[:80] or "worker"
     return path_for(root, f"worker_commands_{safe}.jsonl")
 
+def worker_command_checkpoint_path(root, worker_id):
+    return worker_command_path(root, worker_id)[:-6] + ".cursor.json"
+
+def worker_command_queue_identity(path):
+    stat = os.stat(path)
+    prefix_length = min(512, stat.st_size)
+    with open(path, "rb") as handle:
+        prefix = handle.read(prefix_length)
+    return {"device": stat.st_dev, "inode": stat.st_ino, "size": stat.st_size,
+            "prefixLength": prefix_length, "prefixSha256": hashlib.sha256(prefix).hexdigest()}
+
+def load_worker_command_checkpoint(root, worker_id):
+    checkpoint = read_json(worker_command_checkpoint_path(root, worker_id), {})
+    if not isinstance(checkpoint, dict) or not checkpoint:
+        return 0
+    try:
+        identity = worker_command_queue_identity(worker_command_path(root, worker_id))
+        prefix_length = int(checkpoint.get("prefixLength") or 0)
+        with open(worker_command_path(root, worker_id), "rb") as handle:
+            old_prefix = handle.read(prefix_length)
+        if (int(checkpoint.get("device", -1)) != identity["device"]
+                or int(checkpoint.get("inode", -1)) != identity["inode"]
+                or identity["size"] < int(checkpoint.get("size") or 0)
+                or hashlib.sha256(old_prefix).hexdigest() != checkpoint.get("prefixSha256")):
+            return 0
+        return max(0, int(checkpoint.get("queueSeq") or 0))
+    except Exception:
+        return 0
+
+def save_worker_command_checkpoint(root, worker_id, sequence):
+    identity = worker_command_queue_identity(worker_command_path(root, worker_id))
+    atomic_write(worker_command_checkpoint_path(root, worker_id), {
+        "schemaVersion": SCHEMA_VERSION, "queueSeq": int(sequence), **identity, "updatedAt": now_iso(),
+    })
+
+def initial_worker_command_checkpoint(root, worker_id):
+    checkpoint_path = worker_command_checkpoint_path(root, worker_id)
+    if os.path.isfile(checkpoint_path):
+        return load_worker_command_checkpoint(root, worker_id)
+    queue_path = worker_command_path(root, worker_id)
+    if not os.path.isfile(queue_path):
+        return 0
+    # A new Agent must not replay an old Plan's commands when no scheduler owns them.
+    try:
+        for entry in _read_run_plan_registry(root):
+            if not isinstance(entry, dict):
+                continue
+            if _is_pid_alive(entry.get("pid")) or tmux_session_alive(str(entry.get("tmuxSession") or ""), cwd=root):
+                return 0  # Preserve unprocessed commands belonging to the live scheduler.
+        with open(queue_path, "rb") as handle:
+            sequence = sum(1 for _ in handle)
+        if sequence:
+            save_worker_command_checkpoint(root, worker_id, sequence)
+        return sequence
+    except Exception:
+        return 0  # An uncertain queue is retried through the existing task-id guard.
+
 def enqueue_worker_command(root, worker_id, command):
     worker_id = str(worker_id or "").strip()
     if not worker_id:
@@ -1205,7 +1262,8 @@ def prune_agent_state(root, force=False):
                 base = os.path.basename(path)
                 size = int(st.st_size or 0)
                 mtime = float(st.st_mtime or now)
-                if base not in protected:
+                protected_entry = base in protected or (base.startswith("worker_commands_") and base.endswith(".cursor.json"))
+                if not protected_entry:
                     is_tmp = ".tmp." in base or ".upload." in base or rel.startswith("uploads/")
                     if (is_tmp and mtime < tmp_cutoff) or (STATE_RETENTION_SECONDS > 0 and mtime < cutoff):
                         try:
@@ -1213,14 +1271,14 @@ def prune_agent_state(root, force=False):
                             continue
                         except Exception:
                             pass
-                entries.append((mtime, size, path, base))
+                entries.append((mtime, size, path, base, protected_entry))
         total = sum(item[1] for item in entries)
         if MAX_AGENT_STATE_BYTES > 0 and total > MAX_AGENT_STATE_BYTES:
             target = int(MAX_AGENT_STATE_BYTES * 0.85)
-            for _, size, path, base in sorted(entries):
+            for _, size, path, base, protected_entry in sorted(entries):
                 if total <= target:
                     break
-                if base in protected:
+                if protected_entry:
                     continue
                 try:
                     os.remove(path)
@@ -3408,6 +3466,48 @@ def worker_task_was_stopped(root, task):
     current = current_worker_task(root, task)
     return str(current.get("status") or "") == "stopped" or bool(current.get("manualStopType") or current.get("stopReason"))
 
+def reconcile_worker_tasks_after_restart(root):
+    """Recover terminal task state after the previous Agent's waiter threads disappear."""
+    data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+    tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+    events = []
+    for task in tasks:
+        if not isinstance(task, dict) or str(task.get("status") or "").lower() != "running":
+            continue
+        pane_id = str(task.get("pid") or "").strip()
+        session = str(task.get("tmuxSession") or "").strip()
+        if not re.fullmatch(r"%[0-9]+", pane_id) or not session:
+            continue
+        exit_rel = str(task.get("exitCodePath") or "").strip()
+        exit_path = ""
+        if exit_rel:
+            try:
+                exit_path = safe_project_path(root, exit_rel)
+            except Exception:
+                pass
+        if exit_path and exit_code_ready(exit_path):
+            exit_code = read_task_exit_code(exit_path)
+            task["status"] = "completed" if exit_code == 0 else "failed"
+            task["exitCode"] = exit_code
+        else:
+            try:
+                pane = subprocess.run(["tmux", "display-message", "-p", "-t", pane_id, "#{session_name}"],
+                                      capture_output=True, text=True, timeout=3, cwd=root)
+            except Exception:
+                continue  # Missing tmux service is not proof that the task exited.
+            if pane.returncode == 0 and pane.stdout.strip() == session:
+                continue
+            task["status"] = "failed"
+            task["error"] = "Agent 重启后未找到原任务 tmux pane，且没有完成退出码。"
+        task["finishedAt"] = now_iso()
+        task["reconciledAt"] = task["finishedAt"]
+        events.append(("worker_task_completed" if task["status"] == "completed" else "worker_task_failed", dict(task)))
+    if events:
+        atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+        for event_type, task in events:
+            append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
+    return {"changed": len(events)}
+
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
     command_id = str(command.get("commandId") or command.get("operationId") or f"cmd-{int(time.time() * 1000)}")
@@ -3853,21 +3953,25 @@ def start_worker_local_command_processor(root, worker_id, poll_seconds=5, jitter
         return False
 
     def loop():
-        last_seq = 0
+        last_seq = initial_worker_command_checkpoint(root, worker_id)
         while True:
             try:
                 commands = read_worker_commands(root, worker_id, last_seq, 50)
                 for command in commands:
                     if not isinstance(command, dict):
                         continue
-                    last_seq = max(last_seq, int(command.get("queueSeq") or last_seq))
+                    command_seq = max(last_seq, int(command.get("queueSeq") or last_seq))
                     command_id = command.get("commandId") or command.get("operationId")
                     if command_id and already_processed(command_id):
+                        last_seq = command_seq
+                        save_worker_command_checkpoint(root, worker_id, last_seq)
                         continue
                     try:
                         execute_worker_command(root, command, worker_id)
                     except Exception as exc:
                         append_event(root, {"type": "worker_command_exec_error", "workerId": worker_id, "payload": {"error": str(exc), "commandId": str(command_id)}})
+                    last_seq = command_seq
+                    save_worker_command_checkpoint(root, worker_id, last_seq)
                 jitter = random.random() * jitter_seconds if jitter_seconds else 0
                 time.sleep(poll_seconds + jitter)
             except Exception as exc:
@@ -10935,6 +11039,8 @@ def serve_http(args):
     # never reads.
     os.environ["SIMPLE_EXPERIMENT_WORKER_ID"] = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
     prune_agent_state(root, force=True)
+    if mode == "worker_telemetry":
+        reconcile_worker_tasks_after_restart(root)
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 60), getattr(args, "jitter_seconds", 30))
