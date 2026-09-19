@@ -2337,9 +2337,6 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
         probe["error"] = str(availability.get("gpuError") or "GPU查询失败")
         probe["structuredError"] = {"workerId": str(worker.get("id") or ""), "kind": "GPU_QUERY_FAILED", "gpuError": str(availability.get("gpuError") or "")}
         return probe
-    if availability.get("available") is False:
-        probe["error"] = str(availability.get("reason") or "worker unavailable")
-        return probe
     # allowed分支已删除：空=全部允许，不再按 allowed_gpu_ids 过滤
     # 每服务器空卡阈值：worker 优先，availability 透传次之，全局默认值兜底
     thr_util = worker.get("gpu_idle_util_threshold")
@@ -2358,6 +2355,9 @@ def probe_idle_gpus(worker: dict[str, Any], active: dict[str, dict[str, Any]]) -
         thr_mem = availability.get("gpu_idle_mem_threshold") if isinstance(availability, dict) else None
     # 若 availability 含原始 gpus 列表，则用每服务器阈值重算 busy/available，避免全局阈值误判
     raw_gpus = availability.get("gpus") if isinstance(availability.get("gpus"), list) else None
+    if not raw_gpus and availability.get("available") is False:
+        probe["error"] = str(availability.get("reason") or "worker unavailable")
+        return probe
     if raw_gpus is not None:
         recomputed_available: list[str] = []
         recomputed_busy: set[str] = set()
@@ -3772,7 +3772,7 @@ def main() -> None:
             _is_signal_dispatch = _pending_signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END) and (time.monotonic() - _last_signal_monotonic) < (_scheduler_signal_debounce_seconds + 2.0)
             if _is_signal_dispatch:
                 try:
-                    _force_refresh = _pending_signal_type == SCHEDULER_SIGNAL_FIRST_RUN
+                    _force_refresh = _pending_signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END)
                     refresh_worker_availability_for_signal(workers, args.availability_path, force=_force_refresh)
                     _append_scheduler_log( f"[{now()}] availability_signal_path type={_pending_signal_type} force={_force_refresh}")
                 except Exception as _e:
@@ -3961,9 +3961,9 @@ def main() -> None:
                                 _pending_signal_type = _sig
                                 _signal_storm_count = 0
                                 _append_scheduler_log( f"[{now()}] signal_wake type={_sig} slept={slept:.1f}/{sleep_target:.1f} prioritize_signal")
-                                # 信号路径直连：first_run 强制全量刷新（忽略 fresh），task_end 仅 stale
+                                # 首跑和任务结束都直连刷新，避免刚释放的 GPU 被旧快照遮住。
                                 try:
-                                    _force_wake = _sig == SCHEDULER_SIGNAL_FIRST_RUN
+                                    _force_wake = _sig in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END)
                                     refresh_worker_availability_for_signal(workers, args.availability_path, force=_force_wake)
                                 except Exception:
                                     try:
@@ -4002,6 +4002,9 @@ def main() -> None:
                     # 60s阻塞修复：每次 5s 唤醒前快探 idle，若 queue 非空且有 idle 立即 break 去 dispatch（不等 60s 耗尽）
                     if queue:
                         try:
+                            # Worker 在运行中每几秒写一次 GPU 快照；睡眠期间也要读取，
+                            # 否则 fast probe 一直使用派发时的旧占用列表直到 60 秒轮询。
+                            read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
                             _busy_for_probe = {**active, **testing}
                             _any_idle = False
                             for _w in workers:

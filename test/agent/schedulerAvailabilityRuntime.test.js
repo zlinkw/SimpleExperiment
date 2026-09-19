@@ -57,6 +57,95 @@ print(json.dumps({
   assert.equal(value.source, "worker_agent_direct_refresh");
 });
 
+test("task completion refreshes a fresh but busy snapshot before dispatch", () => {
+  const value = runPython(`
+class Response:
+    def __enter__(self): return self
+    def __exit__(self, *args): return False
+    def read(self, size=-1):
+        return json.dumps({"workers": [{
+            "workerId": "nwpu3", "available": True,
+            "availableGpuIds": ["1"], "busyGpuIds": ["0", "2", "3"],
+            "updatedAt": module.now(), "ttlSeconds": 60,
+        }]}).encode()
+module.urllib.request.urlopen = lambda url, timeout=5: Response()
+worker = {"id": "nwpu3", "local_agent_url": "http://127.0.0.1:12345",
+          "_availability": {"available": False, "availableGpuIds": [],
+                            "busyGpuIds": ["0", "1", "2", "3"],
+                            "updatedAt": module.now(), "ttlSeconds": 60}}
+module.note_availability_receipt(worker, dict(worker["_availability"]))
+before = module.probe_idle_gpus(worker, {}).get("idle_gpu_ids")
+module.refresh_worker_availability_for_signal([worker], force=True)
+after = module.probe_idle_gpus(worker, {}).get("idle_gpu_ids")
+print(json.dumps({"before": before, "after": after}))
+`);
+  assert.deepEqual(value.before, []);
+  assert.deepEqual(value.after, ["1"]);
+  const source = readSource("src/clusterSchedulerRuntime.ts");
+  assert.match(source, /_force_refresh = _pending_signal_type in \(SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END\)/);
+  assert.match(source, /_force_wake = _sig in \(SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END\)/);
+  assert.match(source, /read_availability_cache\(args\.availability_path, workers, worker_status_ttl_seconds\)\s+_busy_for_probe/);
+});
+
+test("worker telemetry samples GPU occupancy within six seconds during a plan", () => {
+  const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
+  const script = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("agent_runtime_under_test", ${JSON.stringify(agentPath)})
+module = importlib.util.module_from_spec(spec)
+sys.modules["agent_runtime_under_test"] = module
+spec.loader.exec_module(module)
+module.random.random = lambda: 1.0
+print(json.dumps({"running": module.worker_gpu_sample_delay(60, 30, True),
+                  "idle": module.worker_gpu_sample_delay(60, 30, False)}))
+`;
+  const result = spawnSync("python", ["-c", script], {
+    encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const value = JSON.parse(result.stdout);
+  assert.ok(value.running <= 6, JSON.stringify(value));
+  assert.equal(value.idle, 90);
+});
+
+test("worker sampler wakes within five seconds when a plan starts during idle wait", () => {
+  const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
+  const script = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("agent_runtime_under_test", ${JSON.stringify(agentPath)})
+module = importlib.util.module_from_spec(spec)
+sys.modules["agent_runtime_under_test"] = module
+spec.loader.exec_module(module)
+module.random.random = lambda: 1.0
+slept = []
+module.time.sleep = lambda duration: slept.append(duration)
+module.has_running_plan = lambda root: bool(slept)
+module.wait_for_worker_gpu_sample("/project", 60, 30, False)
+print(json.dumps(slept))
+`;
+  const result = spawnSync("python", ["-c", script], {
+    encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout), [5]);
+});
+
+test("scheduler recomputes raw GPU rows when cached available flag is stale", () => {
+  const value = runPython(`
+worker = {"id": "nwpu3", "_availability": {
+    "available": False, "reason": "目前无空卡", "availableGpuIds": [],
+    "busyGpuIds": ["0", "1"], "gpus": [
+        {"index": 0, "utilizationPercent": 0, "memoryUsedMb": 355},
+        {"index": 1, "utilizationPercent": 0, "memoryUsedMb": 10}],
+    "updatedAt": module.now(), "ttlSeconds": 60}}
+module.note_availability_receipt(worker, dict(worker["_availability"]))
+probe = module.probe_idle_gpus(worker, {})
+print(json.dumps({"idle": probe.get("idle_gpu_ids"), "error": probe.get("error")}))
+`);
+  assert.deepEqual(value.idle, ["1"]);
+  assert.equal(value.error, "");
+});
+
 test("availability freshness uses local receipt time and rejects extreme clock skew", () => {
   const value = runPython(`
 import time

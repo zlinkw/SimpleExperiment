@@ -441,6 +441,8 @@ export function renderPanelHtml(): string {
     .tmuxOverviewItem { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-editor-background); font-size: 12px; }
     .tmuxOverviewItem.is-active { border-color: var(--vscode-focusBorder); background: #EEF2FF; }
     .tmuxOverviewItem.missing { border-style: dashed; background: #F8FAFC; color: var(--muted); }
+    .tmuxPaneButton { padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--vscode-editor-background); color: var(--vscode-foreground); font-size: 11px; cursor: pointer; }
+    .tmuxPaneButton.is-active { border-color: var(--vscode-focusBorder); background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
     .tree-inspector-facts { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 4px; }
     .tree-inspector-fact { display: grid; gap: 2px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-input-background); }
     .tree-inspector-fact span { color: var(--muted); font-size: 10px; }
@@ -1536,6 +1538,7 @@ export function renderPanelHtml(): string {
     const TMUX_POLL_MS = 5000;
     let tmuxListCache = { sessions: [], fetchedAt: "" };
     let tmuxWindowFilter = String((restoredWebviewState && restoredWebviewState.tmuxWindowFilter) || "all");
+    let tmuxSelectedPaneTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedPaneTarget) || "");
     let tmuxLastCaptureTarget = "";
     function normalizeTmuxWindowFilter(value) {
       const v = String(value || "all").trim();
@@ -1704,7 +1707,9 @@ export function renderPanelHtml(): string {
           if (foundWin.panes) {
             for (let pi = 0; pi < foundWin.panes.length; pi++) {
               const pane = foundWin.panes[pi] || {};
-              grid += '<span style="padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;"><code>' + esc(pane.target || found) + '</code> ' + esc(pane.command || "") + (pane.active ? " *" : "") + '</span>';
+              const paneTarget = String(pane.target || "");
+              const selectedPane = tmuxSelectedPaneTarget.indexOf(found + ".") === 0 ? tmuxSelectedPaneTarget === paneTarget : !!pane.active;
+              grid += '<button type="button" class="tmuxPaneButton' + (selectedPane ? ' is-active' : '') + '" data-tmux-pane="' + escAttr(paneTarget) + '" aria-pressed="' + (selectedPane ? 'true' : 'false') + '" title="查看窗格 ' + escAttr(paneTarget) + '"><code>' + esc(paneTarget || found) + '</code> ' + esc(pane.command || "") + (pane.active ? " *" : "") + '</button>';
             }
           }
           grid += '</div>';
@@ -1737,7 +1742,21 @@ export function renderPanelHtml(): string {
     }
     function tmuxResolveCaptureTarget() {
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
-      if (activeFilter !== "all") return activeFilter;
+      if (activeFilter !== "all") {
+        if (tmuxSelectedPaneTarget && tmuxSelectedPaneTarget.indexOf(activeFilter + ".") === 0) {
+          const sessions = tmuxListCache.sessions || [];
+          for (let si = 0; si < sessions.length; si++) {
+            const wins = sessions[si].windows || [];
+            for (let wi = 0; wi < wins.length; wi++) {
+              if (String(sessions[si].name || "") + ":" + String(wins[wi].index || "0") !== activeFilter) continue;
+              const panes = wins[wi].panes || [];
+              if (panes.some(function(p){ return p.target === tmuxSelectedPaneTarget; })) return tmuxSelectedPaneTarget;
+            }
+          }
+          tmuxSelectedPaneTarget = "";
+        }
+        return activeFilter;
+      }
       const sel = el("tmuxWindowSelect");
       if (sel && sel.value) return sel.value.trim();
       const cands = getTmuxWindowCandidates(tmuxListCache.sessions || []);
@@ -2459,6 +2478,15 @@ export function renderPanelHtml(): string {
         } catch (e) {
           try { refreshTmuxList(); } catch (err) {}
         }
+        return;
+      }
+      const tmuxPaneButton = event.target.closest("button[data-tmux-pane]");
+      if (tmuxPaneButton) {
+        event.preventDefault();
+        tmuxSelectedPaneTarget = String(tmuxPaneButton.getAttribute("data-tmux-pane") || "");
+        persistWebviewState({ tmuxSelectedPaneTarget: tmuxSelectedPaneTarget });
+        renderTmuxOverview(tmuxListCache.sessions || []);
+        refreshTmuxCapture();
         return;
       }
       const tmuxFilterTarget = event.target.closest("[data-tmux-filter]");

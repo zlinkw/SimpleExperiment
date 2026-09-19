@@ -3900,6 +3900,26 @@ def sampler_sleep_seconds(interval, jitter_seconds=30.0):
     jitter = max(0.0, float(jitter_seconds or 0.0))
     return interval + (random.random() * jitter if jitter else 0.0)
 
+def worker_gpu_sample_delay(interval, jitter_seconds, has_plan):
+    active_interval = min(interval, 5.0) if has_plan else max(interval, 30.0)
+    active_jitter = min(max(0.0, float(jitter_seconds or 0.0)), 1.0) if has_plan else jitter_seconds
+    return sampler_sleep_seconds(active_interval, active_jitter)
+
+def wait_for_worker_gpu_sample(root, interval, jitter_seconds, has_plan):
+    delay = worker_gpu_sample_delay(interval, jitter_seconds, has_plan)
+    if has_plan:
+        time.sleep(delay)
+        return
+    # 空闲期仍按原间隔采样，但每 5 秒检查是否有新 Plan，避免启动后等待整轮 60 秒。
+    deadline = time.monotonic() + delay
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(5.0, remaining))
+        if has_running_plan(root):
+            return
+
 def has_running_plan(root):
     # 计划未接入时返回 False，调用方应 30s 休眠且不探活；有运行中任务/调度态时返回 True
     try:
@@ -3947,7 +3967,7 @@ def payload_cache_changed(cache, key, payload):
     return True
 
 def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
-    # 5秒平均利用率<5%判空：默认1秒采样以支撑5秒窗口
+    # 运行中最多 5 秒采一次。serve 的通用默认值是 60 秒，不能用于空卡调度。
     interval = sampler_interval_seconds(poll_seconds, 1.0)
     heartbeat_interval = max(60.0, interval)
     worker_id_local = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
@@ -3981,7 +4001,7 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
                     append_event(root, {"type": "worker_health", "source": "worker_telemetry", "payload": {"status": "degraded", "lastError": str(exc), "generatedAt": now_iso()}})
                 except Exception:
                     pass
-            time.sleep(sampler_sleep_seconds(interval if has_plan else max(interval, 30.0), jitter_seconds))
+            wait_for_worker_gpu_sample(root, interval, jitter_seconds, has_plan)
     thread = threading.Thread(target=loop, name="simple-worker-telemetry-sampler", daemon=True)
     thread.start()
     return thread
