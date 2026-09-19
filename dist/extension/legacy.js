@@ -8399,8 +8399,11 @@ class RealtimeTunnelPanelProvider {
             && this.stopExperimentMatchesTarget(item, target)));
         if (!target.operationId || !target.planFile)
             throw new Error("缺少明确的运行记录和 Plan，已阻止中止操作。");
-        if (!candidates.length)
-            throw new Error(`未找到 ${target.planFile} 的活动调度记录 ${target.operationId}，未发送停止命令。`);
+        if (!candidates.length) {
+            if (!explicitWorker && topology.mode !== "single_worker")
+                throw new Error(`未找到 ${target.planFile} 的活动调度归属 ${target.operationId}，未发送停止命令。`);
+            candidates = [{ operationId: target.operationId, planFile: target.planFile, type: "run-plan", status: "running" }];
+        }
         const byOwner = new Map();
         for (const record of candidates) {
             const owner = explicitWorker

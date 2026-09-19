@@ -51,6 +51,7 @@ test("abortSchedulerFromUi clears scoped caches and tmp instead of wiping everyt
 test("normal stop forwards the clicked operation id through actionBody", () => {
   assert.match(extensionSource, /stopExperimentRouted\(\{ \.\.\.body, operationId: stringField\(message, "operationId"\)/);
   assert.match(extensionSource, /confirmed\.map\(String\)\.includes\(String\(request\.targetOperationId/);
+  assert.match(extensionSource, /candidates = \[\{ operationId: target\.operationId, planFile: target\.planFile, type: "run-plan"/, "reloaded single Worker can stop an explicit remote operation");
 });
 
 test("stop-scheduler-operation handler reaps empty shells via raw session-alive", () => {
