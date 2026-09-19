@@ -3584,19 +3584,21 @@ export class RealtimeTunnelPanelProvider {
         const answer = await vscode.window.showWarningMessage(agentStartupWriteConfirmationDetail(targets, runtimeTargets, true), { modal: true }, "确认准备并启动");
         if (answer !== "确认准备并启动")
             throw new UiCommandCancelled("Agent 准备已取消。");
-        const profileResult = await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
-        if (profileResult.targetCount < expectedTargets)
-            throw new Error(`当前项目 SimpleSFTP 目标写入不完整：需要 ${expectedTargets} 个，当前 ${profileResult.targetCount} 个。尚未修改 .xsh 或上传 runtime。`);
-        const commandResults = await this.writeXshellAgentStartupCommands(false, false);
-        const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
-        if (blocked.length)
-            throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "准备 Agent", cancellable: false }, async (progress) => {
+            progress.report({ message: "配置 SimpleSFTP 目标" });
+            const profileResult = await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
+            if (profileResult.targetCount < expectedTargets)
+                throw new Error(`当前项目 SimpleSFTP 目标写入不完整：需要 ${expectedTargets} 个，当前 ${profileResult.targetCount} 个。尚未修改 .xsh 或上传 runtime。`);
+            progress.report({ message: "写入 Xshell Agent 自启动命令" });
+            const commandResults = await this.writeXshellAgentStartupCommands(false, false);
+            const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
+            if (blocked.length)
+                throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
             progress.report({ message: "部署 runtime" });
             const deployed = await this.deployLatestAgentRuntime(false, true, [], true);
             progress.report({ message: "启动 Xshell 会话" });
             await this.startAllXshellConnections(false, false);
-            const deadline = Date.now() + 20000;
+            const deadline = Date.now() + 60000;
             let completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
             let verification: { fatal: string[]; warnings: string[] } = { fatal: [], warnings: ["等待 Agent 就绪"] };
             while (Date.now() < deadline) {
@@ -4715,11 +4717,12 @@ export class RealtimeTunnelPanelProvider {
                 return { status: "cancelled", message: errorMessage(error) };
             return { status: "failed", message: errorMessage(error) };
         });
-        const timeout = new Promise((resolve) => {
-            timer = setTimeout(() => resolve({ status: "stalled", message: `本地命令 ${Math.round(watchdogMs / 1000)}s 内未结束，按钮已恢复；后台操作可能仍在继续。`, watchdog: true }), watchdogMs);
-            timer.unref?.();
-        });
-        const result: any = await Promise.race([guardedWork, timeout]);
+        const result: any = watchdogMs > 0
+            ? await Promise.race([guardedWork, new Promise((resolve) => {
+                timer = setTimeout(() => resolve({ status: "stalled", message: `本地命令 ${Math.round(watchdogMs / 1000)}s 内未结束，按钮已恢复；后台操作可能仍在继续。`, watchdog: true }), watchdogMs);
+                timer.unref?.();
+            })])
+            : await guardedWork;
         if (timer)
             clearTimeout(timer);
         if (result.status === "cancelled") {
@@ -4772,6 +4775,8 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     uiCommandWatchdogMs(command) {
+        // Agent 准备含 SFTP 部署、Xshell 启动和就绪检测，进度通知及各阶段自身超时负责终态。
+        if (command === "prepareAgents") return 0;
         if (command === "fetchTmuxList" || command === "fetchTmuxCapture" || command === "killTmuxWindow") return 8000;
         if (command === "runAllPlans") {
             const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));

@@ -2646,6 +2646,7 @@ function renderPanelHtml() {
             pendingActions[pendingKey] = pendingItem;
             pendingActionsById[clientActionId] = pendingItem;
             setButtonLoading(button, pendingKey);
+            if (command !== "prepareAgents") {
             pendingActionTimeouts[clientActionId] = setTimeout(() => {
               const item = pendingActionsById[clientActionId];
               if (item && Date.now() - Number(item.startedAt || 0) >= 45000) {
@@ -2660,6 +2661,7 @@ function renderPanelHtml() {
                 refreshTerminalUi(command);
               }
             }, 45500);
+            }
           }
           vscode.postMessage(Object.assign({ command }, payload));
         }

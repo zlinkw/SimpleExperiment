@@ -3179,9 +3179,8 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
             if proc_gs.returncode != 0:
                 ctx = _build_tmux_error_context(gpu_window, proc_gs.returncode, proc_gs.stderr, proc_gs.stdout, cwd, attempts_gs, env)
                 raise RuntimeError(f"tmux new-session failed for gpu_window {gpu_window!r} rc={proc_gs.returncode} stderr={_truncate_text(err, 2000)!r}; cwd={str(cwd)!r}; attempts={attempts_gs}; {ctx}; blocking task dispatch")
-        import time as _t
-        # 新建窗口后等待 5秒让 bashrc 相关脚本执行完毕，再发送 conda 激活等指令（统一 5秒规则）
-        _t.sleep(5)
+        # new-session 已同步创建 tmux 会话。任务由独立 split-window pane 运行，
+        # 无须等待基础 shell 的 bashrc，也不向该 shell 发送训练命令。
     try:
         # 修复 GPU pane 无 conda：若 SIMPLE_EXPERIMENT_CONDA_ENV 是绝对路径且 $CONDA_ENV/bin/python 存在，则直接用该 python 和 PATH 包含 $CONDA_ENV/bin，不走 conda activate（兜底 conda 已清洗 PATH 的情况）
         _conda_env_name = simple_conda_env_name(env) if isinstance(env, dict) else ""
@@ -3242,14 +3241,15 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         except Exception:
             pass
         _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}"
-        # 复用窗口场景下 split-window 前同样等待 5秒，确保 bashrc 就绪后再执行含 conda 激活的指令（统一 5秒规则）
-        if _activation and _activation != "true":
-            try:
-                import time as _t_split
-                _t_split.sleep(5)
-            except Exception:
-                pass
-        result = subprocess.run(["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-c", _cmd], capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
+        split_args = ["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-c", _cmd]
+        for split_attempt in range(3):
+            result = subprocess.run(split_args, capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
+            if result.returncode == 0:
+                break
+            split_error = ((result.stderr or "") + " " + (result.stdout or "")).lower()
+            if split_attempt >= 2 or not any(text in split_error for text in ("no such session", "can't find session", "can't find window")):
+                break
+            time.sleep(0.2)
         if result.returncode != 0:
             ctx_sw = _build_tmux_error_context(gpu_window, result.returncode, result.stderr, result.stdout, cwd, 1, env)
             raise RuntimeError(f"tmux split-window failed for {gpu_window!r} rc={result.returncode} stderr={_truncate_text(result.stderr, 2000)!r} stdout={_truncate_text(result.stdout, 2000)!r}; cwd={str(cwd)!r}; cmd={_truncate_text(_cmd, 800)!r}; {ctx_sw}; blocking task dispatch")
