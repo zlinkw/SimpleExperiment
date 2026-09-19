@@ -347,7 +347,9 @@ export async function probeWorkerTelemetryTunnel(
     const ok = validation.ok && streamApiOk && gpuApiOk && workerTasksApiOk;
     const modeSuggestion = mode && mode !== "worker_telemetry"
       ? `${host}:${config.localForwardPort} 返回的是 ${mode} Agent，不是 Worker Telemetry。请重新写入 Agent 自动启动命令并重启该 Worker tmux。`
-      : "请在 Worker 上启动 cluster_agent.py serve --mode worker_telemetry。";
+      : validation.ok
+        ? "Worker Telemetry 缺少 GPU、任务或实时事件接口，请检查 Agent 日志。"
+        : `Worker Telemetry 能力不匹配：${validation.warnings.join("；")}`;
     return {
       ...baseResult,
       tcpOpen: true,

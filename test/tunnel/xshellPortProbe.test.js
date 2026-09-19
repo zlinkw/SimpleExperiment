@@ -33,7 +33,7 @@ test("xshell port probe reports local port closed", async () => {
   assert.match(result.message, /未打开|closed/);
 });
 
-test("worker telemetry port probe accepts read-only worker api", async () => {
+test("worker telemetry port probe accepts an Agent with install-rich and SSE", async () => {
   const schedulerDependencies = { ok: true, missingModules: [] };
   const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
@@ -43,7 +43,8 @@ test("worker telemetry port probe accepts read-only worker api", async () => {
       apiVersion: "1",
       agentVersion: "0.2.0",
       mode: "worker_telemetry",
-      endpoints: { health: true, capabilities: true, gpu: true, workerTasks: true, liveOutput: true, diagnostics: true, websocketEvents: false, sseEvents: true, actions: false, fileList: false, fileDownload: false, fileUploadChunk: false },
+      endpoints: { health: true, capabilities: true, gpu: true, workerTasks: true, liveOutput: true, diagnostics: true, websocketEvents: false, sseEvents: true, actions: true, fileList: false, fileDownload: true, fileUploadChunk: false },
+      actionEndpoints: { "start-worker-task": true, "install-rich": true },
     }));
     res.statusCode = 404;
     res.end("{}");

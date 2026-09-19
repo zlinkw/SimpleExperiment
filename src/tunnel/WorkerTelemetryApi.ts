@@ -23,7 +23,6 @@ export const workerTelemetryRequiredEndpoints = [
   "/api/results/summary",
   "/api/live-output?runKey=<key>&since=<offset>",
   "/api/diagnostics",
-  "WS /api/events?since=<seq>",
   "GET /api/events/sse?since=<seq>",
 ] as const;
 
@@ -36,6 +35,7 @@ export const workerTelemetryActionNames = [
   "start-tensorboard",
   "stop-tensorboard",
   "get-tensorboard-status",
+  "install-rich",
 ] as const;
 
 export const workerLocalSchedulerActionNames = [

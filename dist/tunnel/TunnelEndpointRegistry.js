@@ -112,7 +112,6 @@ function workerEndpoint(worker, assignment, probe) {
                 "endpoints.health",
                 "endpoints.gpu",
                 "endpoints.workerTasks",
-                "endpoints.websocketEvents",
                 "endpoints.sseEvents",
                 "endpoints.liveOutput",
                 "endpoints.diagnostics",

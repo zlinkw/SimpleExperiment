@@ -21,7 +21,6 @@ exports.workerTelemetryRequiredEndpoints = [
     "/api/results/summary",
     "/api/live-output?runKey=<key>&since=<offset>",
     "/api/diagnostics",
-    "WS /api/events?since=<seq>",
     "GET /api/events/sse?since=<seq>",
 ];
 exports.workerTelemetryActionNames = [
@@ -33,6 +32,7 @@ exports.workerTelemetryActionNames = [
     "start-tensorboard",
     "stop-tensorboard",
     "get-tensorboard-status",
+    "install-rich",
 ];
 exports.workerLocalSchedulerActionNames = [
     "validate-plan",
