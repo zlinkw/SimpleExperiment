@@ -26,7 +26,6 @@ import OfflineImport_1 = require("../tunnel/OfflineImport");
 import TunnelDiagnostics_1 = require("../tunnel/TunnelDiagnostics");
 import TunnelOnlyPolicy_1 = require("../tunnel/TunnelOnlyPolicy");
 import MultiEndpointRealtimeClient_1 = require("../tunnel/MultiEndpointRealtimeClient");
-import TensorBoardLocalProxy_1 = require("../tunnel/TensorBoardLocalProxy");
 import PanelHtml_1 = require("../ui/PanelHtml");
 const { renderPanelHtml } = PanelHtml_1;
 import PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
@@ -821,7 +820,6 @@ export class RealtimeTunnelPanelProvider {
     gpuOwnerConfigCache;
     resultCsvDirectory = resultCsvDirSafe();
     topologyRuntimeMode = "";
-    tensorboardProxy = new TensorBoardLocalProxy_1.TensorBoardLocalProxy();
     constructor(context) {
         this.context = context;
         this.pluginUpdateStatus = this.refreshStoredPluginUpdateStatus(this.context.globalState.get(keys.pluginUpdateStatus));
@@ -3074,7 +3072,6 @@ export class RealtimeTunnelPanelProvider {
     }
     async dispose() {
         this.clearPanelReadyWatchdog();
-        await this.tensorboardProxy.dispose();
         this.disposeSelectedPlanFileWatchers();
         if (this.localApiServer) {
             await this.localApiServer.dispose().catch(() => undefined);
@@ -4996,6 +4993,8 @@ export class RealtimeTunnelPanelProvider {
                     return;
                 }
             }
+            if (preflightOk && body.debugMode !== true)
+                await this.confirmPlanExistingOutputs(plan, body, preflightOk);
             try {
                 const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
                 if (pf) {
@@ -5114,7 +5113,7 @@ export class RealtimeTunnelPanelProvider {
                 failPreflight(check, "预演未返回终态", "-");
                 return false;
             }
-            return Boolean(previewed);
+            return previewed ? validated : false;
         }
         catch (error) {
             if (isUiCommandCancelled(error) || isUiCommandRemotePending(error))
@@ -5123,64 +5122,33 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(failPreflight(check, raw, raw));
         }
     }
-    async detectLocalExistingOutputs(plan, body) {
-        const root = workspaceRoot();
-        if (!root)
-            return [];
-        const markers = ["metrics_summary.csv", "metrics.csv", "results.csv", "summary.csv", "best_model.pth", "checkpoint.pth", "latest.pth", "train.log", "stdout.log", "stderr.log", "artifact_manifest.json", "checkpoint_manifest.json"];
-        const out = [];
-        const checkRoots = ["work_dirs", "experiments/results", "experiments/runs", "outputs", "results", "simple_cluster/results", "simple_cluster/logs", "simple_cluster/tmp/cluster_scheduler", "simple_cluster/tmp"];
-        for (const rel of checkRoots) {
-            const full = path.join(root, rel);
-            try {
-                const stat = await fs.stat(full).catch(() => null);
-                if (!stat)
-                    continue;
-                if (stat.isDirectory()) {
-                    const entries = await fs.readdir(full).catch(() => []);
-                    if (!entries.length)
-                        continue;
-                    const hit = entries.filter((n) => markers.includes(n) || n.endsWith(".csv") || n.endsWith(".pth") || n.endsWith(".log"));
-                    if (hit.length || entries.length > 0) {
-                        // shallow check for markers inside work_dirs/multirun
-                        let hasMarker = hit.length > 0;
-                        if (!hasMarker) {
-                            // check one level deep for marker
-                            for (const e of entries.slice(0, 20)) {
-                                const sub = path.join(full, e);
-                                try {
-                                    const s = await fs.stat(sub).catch(() => null);
-                                    if (s && s.isDirectory()) {
-                                        const subEntries = await fs.readdir(sub).catch(() => []);
-                                        if (subEntries.some((n) => markers.includes(n)))
-                                            hasMarker = true;
-                                    }
-                                } catch { }
-                            }
-                        }
-                        if (hasMarker || entries.length > 5)
-                            out.push({ output_dir: rel, markers: hit.slice(0, 5), totalFiles: entries.length });
-                    }
-                } else if (stat.isFile()) {
-                    out.push({ output_dir: rel, markers: [path.basename(rel)], totalFiles: 1 });
-                }
-            } catch { }
-        }
-        // suite 精确检测：work_dirs/multirun/{suite} 等
-        try {
-            const suite = String(plan?.suite || body?.options?.suite || "").trim();
-            if (suite) {
-                for (const rel of [`work_dirs/multirun/${suite}`, `work_dirs/${suite}`, `experiments/results/${suite}.csv`, `experiments/results/${suite}`]) {
-                    const full = path.join(root, rel);
-                    try {
-                        await fs.stat(full);
-                        if (!out.some((x) => x.output_dir === rel))
-                            out.push({ output_dir: rel, markers: ["suite_match"], totalFiles: 1 });
-                    } catch { }
-                }
-            }
-        } catch { }
-        return out.slice(0, 10);
+    async confirmPlanExistingOutputs(plan, body, validated) {
+        const validation = validated?.validation || validated?.result?.validation;
+        if (!validation || !Array.isArray(validation.existing))
+            throw new Error("Agent 未返回当前 Plan 的历史产物清单；请部署最新版 Agent 后重新校验。未提交运行。");
+        const existing = validation.existing;
+        if (!existing.length)
+            return;
+        const planFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || "当前 Plan";
+        const jobPaths = existing.map((entry) => String(entry.output_dir || "").trim()).filter(Boolean);
+        if (jobPaths.length !== existing.length)
+            throw new Error("当前 Plan 的历史产物路径不完整；未提交运行。");
+        const resultPaths = uniqueStrings((validation.jobs || []).map((entry) => String(entry.result_csv || "").trim()).filter(Boolean));
+        const detail = [
+            `Plan：${planFile}`,
+            `已有产物的任务：${existing.length}/${validation.job_count || validation.jobs?.length || "?"}`,
+            "覆盖范围仅为以下当前 Plan 的任务输出目录：",
+            ...jobPaths.map((value) => `- ${value}`),
+            `结果表：${resultPaths.join("、") || "按 Plan 配置"}（只由本 Plan 任务写入对应结果行）`,
+            "覆盖将重训当前 Plan 的所有任务；其他 Plan 的任务目录不在范围内。",
+        ].join("\n");
+        const pick = await vscode.window.showWarningMessage(detail, { modal: true }, "覆盖并重训当前 Plan", "跳过已有", "取消");
+        if (!pick || pick === "取消")
+            throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
+        const overwrite = pick === "覆盖并重训当前 Plan";
+        body.options = { ...(body.options || {}), overwriteExisting: overwrite, overwrite };
+        body.overwriteExisting = overwrite;
+        body.overwrite = overwrite;
     }
     async confirmPlanRunSubmission(command, plan, debugMode = false, body) {
         const remoteTargets = this.planRunRemoteTargets(body);
@@ -5191,28 +5159,6 @@ export class RealtimeTunnelPanelProvider {
         console.log("[diag] confirmPlanRunSubmission first dialog after", { command, answer });
         if (answer !== label)
             throw new UiCommandCancelled(command === "reproducePlan" ? "复现实验已取消。" : "运行计划已取消。");
-        // 解耦历史产物：调度前检测输出目录是否已有产物（metrics_summary.csv / checkpoint / train.log 等），显式询问覆盖/跳过
-        const existing = await this.detectLocalExistingOutputs(plan, body);
-        if (existing.length) {
-            const detail = existing.slice(0, 3).map((e) => `${e.output_dir}${e.markers.length ? ` (${e.markers.join(", ")})` : ""}`).join("；");
-            console.log("[diag] confirmPlanRunSubmission second dialog before", { existingCount: existing.length, detail });
-            const pick = await vscode.window.showWarningMessage(`检测到已有历史产物 ${existing.length} 处（${detail}${existing.length > 3 ? " 等" : ""}），是否重新运行覆盖？“覆盖”将带 --overwrite 强制重跑并覆盖旧文件；“跳过已有”将保留 --resume 行为自动跳过已完成任务（GPU 调度不受历史产物影响）。`, { modal: true }, "覆盖重新运行", "跳过已有", "取消");
-            console.log("[diag] confirmPlanRunSubmission second dialog after", { pick });
-            if (!pick) {
-                await vscode.window.showInformationMessage("已取消：未选择历史产物处理方式");
-                throw new UiCommandCancelled("已取消：用户未选择历史产物处理方式。");
-            }
-            if (pick === "取消")
-                throw new UiCommandCancelled("已取消：用户未选择历史产物处理方式。");
-            if (pick === "覆盖重新运行") {
-                body.options = { ...(body.options || {}), overwriteExisting: true, overwrite: true };
-                body.overwriteExisting = true;
-                body.overwrite = true;
-            } else {
-                body.options = { ...(body.options || {}), overwriteExisting: false, overwrite: false };
-                body.overwriteExisting = false;
-            }
-        }
     }
 
     async collectRunGitProvenance(root) {
@@ -11148,7 +11094,10 @@ export class RealtimeTunnelPanelProvider {
         // TB session name is derived from the configured prefix; never hardcoded to a server/user.
         // The actual launch command is discovered adaptively by the agent (no server path in settings).
         const tbSession = String(cfg.get("tensorboard.tmuxSession") as any || `${normPrefix}_tb`);
-        let url = this.tensorboardProxy.url(endpointId) || "本机入口待建立";
+        const localHost = String(endpoint.localHost || "127.0.0.1");
+        TunnelGateway_1.assertLocalhost(localHost);
+        const browserHost = localHost.includes(":") ? `[${localHost}]` : localHost;
+        const url = `http://${browserHost}:${endpoint.localPort}/api/tensorboard/ui/`;
         const body: any = { sessionPrefix, port: remotePort, logdir, condaEnv, tmuxSession: tbSession, session: tbSession };
         try {
             // Always restart a fresh TB session so the panel shows the latest state (low cost).
@@ -11176,9 +11125,8 @@ export class RealtimeTunnelPanelProvider {
                 remoteReady = true;
                 this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: true });
             }
-            url = await this.tensorboardProxy.open(endpointId, endpoint, remotePort, sessionPrefix);
             const proxyCheck = await fetch(url, { signal: AbortSignal.timeout(5000) });
-            if (!proxyCheck.ok) throw new Error(`本机 TensorBoard 入口返回 HTTP ${proxyCheck.status}；请在 ${endpointId} 部署最新 Agent`);
+            if (!proxyCheck.ok) throw new Error(`Agent 隧道中的 TensorBoard 入口返回 HTTP ${proxyCheck.status}；请在 ${endpointId} 部署最新 Agent`);
             await vscode.env.openExternal(vscode.Uri.parse(url));
             const logPath = status?.logPath || `simple_cluster/tmux_logs/${tbSession}.log`;
             void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${remotePort} ${tbSession} @ ${endpointId}，日志 ${logPath}）`, "复制链接").then((sel) => {
@@ -11186,7 +11134,6 @@ export class RealtimeTunnelPanelProvider {
             });
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            if (!remoteReady) await this.tensorboardProxy.close(endpointId);
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: remoteReady, error: msg });
             void vscode.window.showErrorMessage(`启动 TensorBoard 失败：${msg}`);
             throw e;
@@ -11211,7 +11158,6 @@ export class RealtimeTunnelPanelProvider {
         const sessionPrefix = String((this as any).setupConfig?.sessionPrefix || (this as any).setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
         const stopped = await this.postTensorboardAction(endpointId, "stop-tensorboard", { sessionPrefix });
         if (stopped?.status === "failed") throw new Error(String(stopped.message || "远端关闭失败"));
-        await this.tensorboardProxy.close(endpointId);
         this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: false });
     }
 
@@ -11231,8 +11177,12 @@ export class RealtimeTunnelPanelProvider {
     }
     async copyTensorBoardUrlFromUi(message: any) {
         const endpointId = String(message?.endpointId || "hub").trim();
-        const targetUrl = this.tensorboardProxy.url(endpointId);
-        if (!targetUrl) throw new Error(`${endpointId} 的 TensorBoard 尚未在本机启动`);
+        const endpoint = (this.client as any)?.endpointById?.get?.(endpointId);
+        if (!endpoint) throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
+        const localHost = String(endpoint.localHost || "127.0.0.1");
+        TunnelGateway_1.assertLocalhost(localHost);
+        const browserHost = localHost.includes(":") ? `[${localHost}]` : localHost;
+        const targetUrl = `http://${browserHost}:${endpoint.localPort}/api/tensorboard/ui/`;
         await vscode.env.clipboard.writeText(targetUrl);
         void vscode.window.showInformationMessage(`已复制 TensorBoard 链接（${endpointId}）：${targetUrl}`);
     }

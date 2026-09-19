@@ -1751,6 +1751,7 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
     output_interface = output_interface_report(project_root, jobs)
     if not output_interface["ok"]:
         raise SystemExit("输出接口预检失败：" + "；".join(output_interface["missing"]))
+    existing = detect_existing_outputs(jobs)
     payload = {
         "ok": True,
         "plan": args.plan,
@@ -1758,6 +1759,8 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         "execution_mode": mode,
         "job_count": len(jobs),
         "outputInterface": output_interface,
+        "existingCount": len(existing),
+        "existing": existing,
         "jobs": [
             {
                 "index": job.index,

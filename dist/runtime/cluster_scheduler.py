@@ -32,9 +32,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.9"
-RUNTIME_VERSION = "0.5.9"
-PLUGIN_VERSION = "0.5.9"
+SCHEDULER_VERSION = "0.5.10"
+RUNTIME_VERSION = "0.5.10"
+PLUGIN_VERSION = "0.5.10"
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -1751,6 +1751,7 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
     output_interface = output_interface_report(project_root, jobs)
     if not output_interface["ok"]:
         raise SystemExit("输出接口预检失败：" + "；".join(output_interface["missing"]))
+    existing = detect_existing_outputs(jobs)
     payload = {
         "ok": True,
         "plan": args.plan,
@@ -1758,6 +1759,8 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         "execution_mode": mode,
         "job_count": len(jobs),
         "outputInterface": output_interface,
+        "existingCount": len(existing),
+        "existing": existing,
         "jobs": [
             {
                 "index": job.index,

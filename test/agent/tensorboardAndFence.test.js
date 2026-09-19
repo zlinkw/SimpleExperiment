@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory() as tmp:
     explicit_path = os.path.join(tmp, "tmp", "my_tb.sh")
     os.makedirs(os.path.dirname(explicit_path), exist_ok=True)
     with open(explicit_path, "w") as f:
-        f.write("#!/bin/bash\\necho hi")
+        f.write("#!/bin/bash\\ntensorboard --path_prefix /api/tensorboard/ui")
     args, src, _ = assert_discover(tmp, "work_dirs", 6006, explicit_rel, "my_tb.sh", lambda x: x is None)
     assert args[0] == "bash" and "my_tb.sh" in args[1], args
 
@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory() as tmp:
             if parent and not os.path.exists(parent):
                 os.makedirs(parent, exist_ok=True)
             with open(cand, "w") as f:
-                f.write("#!/bin/bash")
+                f.write("#!/bin/bash\\ntensorboard --path_prefix /api/tensorboard/ui")
             args, src, _ = agent.tb_discover_launch(tmp2, "work_dirs", 6006, "")
             if should_find:
                 assert os.path.normpath(src) == os.path.normpath(cand), f"expected {cand}, got {src}"
@@ -106,6 +106,8 @@ with tempfile.TemporaryDirectory() as tmp:
         assert src == "tensorboard"
         assert logdir == hint
         assert "--logdir" in args and str(6006) in args
+        assert args[args.index("--path_prefix") + 1] == "/api/tensorboard/ui"
+        assert args[args.index("--host") + 1] == "127.0.0.1"
 
     # 4) hint missing, events dir exists -> uses events dir
     with tempfile.TemporaryDirectory() as tmp4:
@@ -239,6 +241,8 @@ with tempfile.TemporaryDirectory() as root:
     url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/proxy?port={tb.server_port}&sessionPrefix=owner&path=%2Fdata%2Fplugin'
     req = urllib.request.Request(url, headers={'X-Simple-Agent-Token': 'secret'})
     assert urllib.request.urlopen(req, timeout=5).read() == b'tensorboard page'
+    browser_url = f'http://127.0.0.1:{local.server_port}/api/tensorboard/ui/'
+    assert urllib.request.urlopen(browser_url, timeout=5).read() == b'tensorboard page'
     try:
         urllib.request.urlopen(url, timeout=5)
         raise AssertionError('missing token accepted')
@@ -250,6 +254,11 @@ with tempfile.TemporaryDirectory() as root:
         raise AssertionError('inactive session accepted')
     except urllib.error.HTTPError as exc:
         assert exc.code == 403, exc.code
+    try:
+        urllib.request.urlopen(browser_url, timeout=5)
+        raise AssertionError('inactive browser route accepted')
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 403, exc.code
     local.shutdown(); local.server_close()
 tb.shutdown(); tb.server_close()
 print('proxy ok')
@@ -259,7 +268,7 @@ print('proxy ok')
   assert.match(result.stdout, /proxy ok/);
 });
 
-test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the local Agent proxy", () => {
+test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the Agent tunnel URL", () => {
   // Check package.json config
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.port"].default, 6006);
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tensorboard.logdir"].default, "work_dirs");
@@ -272,7 +281,7 @@ test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the lo
   assert.match(extensionSource, /await new Promise.*1000/);
   assert.match(extensionSource, /get-tensorboard-status/);
   assert.match(extensionSource, /status\.listening/);
-  assert.match(extensionSource, /tensorboardProxy\.open\(endpointId, endpoint, remotePort, sessionPrefix\)/);
+  assert.match(extensionSource, /const url = `http:\/\/\$\{browserHost\}:\$\{endpoint\.localPort\}\/api\/tensorboard\/ui\/`/);
   assert.match(extensionSource, /fetch\(url, \{ signal: AbortSignal\.timeout\(5000\) \}\)/);
   assert.match(extensionSource, /TB 启动失败，请检查服务器 start_tb\.sh \/ 端口占用/);
   // body contains only non-absolute fields
@@ -427,6 +436,12 @@ test("extension and agent never hardcode absolute server paths or tmux names", (
   assert.match(extensionSource, /tbSession/);
   // Ensure no absolute server path in tb_discover_launch candidates (they are relative to root)
   assert.match(agentSource, /for rel in \("tmp\/start_tb\.sh", "start_tb\.sh", "scripts\/start_tb\.sh", "simple_cluster\/tmp\/start_tb\.sh"\)/);
+});
+
+test("TensorBoard browser URL uses the existing Agent tunnel without a local listener", () => {
+  assert.match(extensionSource, /\/api\/tensorboard\/ui\//);
+  assert.doesNotMatch(extensionSource, /tensorboardProxy\.open\(/);
+  assert.match(agentSource, /TENSORBOARD_BROWSER_PREFIX = "\/api\/tensorboard\/ui"/);
 });
 
 test("worker_tmux_session_name: single-machine degenerates to gpu-<gpu>, multi-machine keeps worker", () => {

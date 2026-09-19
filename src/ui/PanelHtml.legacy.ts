@@ -73,7 +73,7 @@ export function renderPanelHtml(): string {
     .gpuServerStack { display: grid; grid-template-columns: 1fr; gap: 10px; min-width: 0; width: 100%; box-sizing: border-box; }
     .gpuDenseToolbar{ display:flex; gap:6px; align-items:center; }
     .gpuDenseTableWrap{ overflow:auto; max-width:100%; border:1px solid var(--border); border-radius:6px; background: var(--card-bg); }
-    .gpuDenseTable{ border-collapse:collapse; width:100%; min-width:100%; table-layout:fixed; font-size:12px; }
+    .gpuDenseTable{ border-collapse:collapse; width:100%; table-layout:fixed; font-size:12px; }
     .gpuDenseTable th, .gpuDenseTable td{ border:1px solid var(--border); padding:6px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
     .gpuDenseTable th{ background:var(--subtle-bg); user-select:none; cursor:pointer; }
     .gpuDenseTable th .colResizer{ position:absolute; right:0; top:0; width:6px; height:100%; cursor:col-resize; background:transparent; }
@@ -9068,23 +9068,24 @@ export function renderPanelHtml(): string {
          try{
            var denseTable = document.getElementById("gpuDenseTable");
            var denseCols = document.getElementById("gpuDenseCols");
+           var gearWidth = 64;
+           var denseTotal = denseWidths.reduce(function(sum, width){ return sum + width; }, gearWidth);
+           if(denseTable) denseTable.style.minWidth = denseTotal + "px";
            if(denseTable && !denseCols){
              denseCols = document.createElement("colgroup");
              denseCols.id = "gpuDenseCols";
              denseTable.insertBefore(denseCols, denseTable.firstChild);
            }
            if(denseCols){
-             var cgHtml = denseWidths.map(function(ww, idx){ return '<col data-col-key="' + escAttr(visibleCols[idx].key) + '" style="width:' + ww + 'px">'; }).join("") + '<col data-col-key="__gear" style="width:28px">';
+             var cgHtml = denseWidths.map(function(ww, idx){ return '<col data-col-key="' + escAttr(visibleCols[idx].key) + '" style="width:' + (ww * 100 / denseTotal) + '%">'; }).join("") + '<col data-col-key="__gear" style="width:' + (gearWidth * 100 / denseTotal) + '%">';
              if(denseCols.innerHTML !== cgHtml) denseCols.innerHTML = cgHtml;
            }
-         }catch(cgE){}
-         var headHtml = "<tr>" + visibleCols.map(function(col){
-          var w = gpuDenseState.colWidths[col.key] || col.width;
-          w = Math.max(60, Math.min(400, Number(w)||col.width));
+        }catch(cgE){}
+        var headHtml = "<tr>" + visibleCols.map(function(col){
           var sortIdx = (gpuDenseState.sorts||[]).findIndex(function(s){ return s.key===col.key; });
           var sortMark = sortIdx>=0 ? (gpuDenseState.sorts[sortIdx].dir==="asc" ? " \\u25B2"+(sortIdx+1) : " \\u25BC"+(sortIdx+1)) : "";
-          return '<th data-col-key="' + escAttr(col.key) + '" style="width:' + w + 'px; min-width:' + w + 'px; max-width:' + w + 'px;">' + esc(col.label) + sortMark + '<span class="colResizer" data-resize-col="' + escAttr(col.key) + '"></span></th>';
-        }).join("") + '<th style="width:28px;min-width:28px;">\\u2699</th></tr>';
+          return '<th data-col-key="' + escAttr(col.key) + '">' + esc(col.label) + sortMark + '<span class="colResizer" data-resize-col="' + escAttr(col.key) + '"></span></th>';
+        }).join("") + '<th>\\u2699</th></tr>';
         if(headEl.innerHTML !== headHtml) headEl.innerHTML = headHtml;
         var flat = [];
         var scores = gpuDenseGetScores(state);
@@ -9184,7 +9185,7 @@ export function renderPanelHtml(): string {
             else cell = '<td data-col="' + escAttr(col.key) + '" style="background:' + bg + ';">-</td>';
             return cell;
           }).join("");
-          var expandToggle = '<td style="background:' + bg + '; width:28px; text-align:center;"><button type="button" class="mini secondary gpuDenseExpandBtn" data-expand-key="' + escAttr(row.key) + '" title="展开或收起该 GPU 的详细状态行">' + (isExpanded?"收起":"展开") + '</button></td>';
+          var expandToggle = '<td style="background:' + bg + '; text-align:center;"><button type="button" class="mini secondary gpuDenseExpandBtn" data-expand-key="' + escAttr(row.key) + '" title="展开或收起该 GPU 的详细状态行">' + (isExpanded?"收起":"展开") + '</button></td>';
           bodyHtml += '<tr class="gpuDenseRow' + (isExpanded?" is-expanded":"") + '" data-row-key="' + escAttr(row.key) + '" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '" style="height:' + h + 'px; background:' + bg + '; box-shadow:inset 3px 0 0 ' + accent + '; position:relative;">' + colsHtml + expandToggle + '</tr>';
           if(isExpanded){
             var colspan = visibleCols.length + 1;
@@ -9272,7 +9273,7 @@ export function renderPanelHtml(): string {
               }catch(cgE2){}
               bodyEl.querySelectorAll('td[data-col="' + cssEscape(colKey) + '"]').forEach(function(td){ td.style.width=nw+"px"; td.style.minWidth=nw+"px"; td.style.maxWidth=nw+"px"; });
             }
-            function onUp(){ document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); }
+            function onUp(){ document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); renderGpuSection(lastState || state); }
             document.addEventListener("mousemove", onMove);
             document.addEventListener("mouseup", onUp);
           });

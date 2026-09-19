@@ -164,6 +164,7 @@ ACTION_NAMES = [
     "delete-worker-artifacts",
     "archive-worker-artifacts",
     "finalize-worker-operation",
+    "install-rich",
 ]
 WORKER_RESULT_ACTIONS = {
     "refresh-results", "rescan-results", "parse-results", "run-quality-gate", "run-statistics",
@@ -174,6 +175,7 @@ WORKER_RESULT_ACTIONS = {
     "sync-artifacts", "complete-three-way",
 }
 WORKER_TENSORBOARD_ACTIONS = {"start-tensorboard", "stop-tensorboard", "get-tensorboard-status"}
+WORKER_ENV_ACTIONS = {"install-rich"}
 ACTION_PATHS = [
     "/api/actions/run-plan",
     "/api/actions/stop-scheduler-operation",
@@ -222,6 +224,7 @@ ACTION_PATHS = [
     "/api/actions/start-tensorboard",
     "/api/actions/stop-tensorboard",
     "/api/actions/get-tensorboard-status",
+    "/api/actions/install-rich",
     "/api/actions/clear-cache",
     "/api/actions/clearCache",
 ]
@@ -4273,6 +4276,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "stop-scheduler-operation": True,
                 **{name: True for name in WORKER_RESULT_ACTIONS},
                 **{name: True for name in WORKER_TENSORBOARD_ACTIONS},
+                **{name: True for name in WORKER_ENV_ACTIONS},
             },
         }
     return {
@@ -8725,6 +8729,9 @@ def tb_find_events_dir(root, max_depth=5):
     return None
 
 
+TENSORBOARD_BROWSER_PREFIX = "/api/tensorboard/ui"
+
+
 def tb_discover_launch(root, logdir_hint, port, explicit_script):
     # Adaptive launcher owned by the agent (ships with the runtime, not a user setting):
     #   1) explicit override if provided (relative to root or absolute),
@@ -8734,26 +8741,30 @@ def tb_discover_launch(root, logdir_hint, port, explicit_script):
         try:
             script = explicit_script if os.path.isabs(explicit_script) else safe_project_path(root, explicit_script)
             if os.path.isfile(script):
+                if TENSORBOARD_BROWSER_PREFIX not in pathlib.Path(script).read_text(encoding="utf-8", errors="replace"):
+                    raise RuntimeError(f"TensorBoard 脚本需设置 --path_prefix {TENSORBOARD_BROWSER_PREFIX}: {script}")
                 return ["bash", script], script, None
+        except RuntimeError:
+            raise
         except Exception:
             pass
     for rel in ("tmp/start_tb.sh", "start_tb.sh", "scripts/start_tb.sh", "simple_cluster/tmp/start_tb.sh"):
         try:
-            cand = safe_project_path(root, rel)
+            script = safe_project_path(root, rel)
+            if os.path.isfile(script) and TENSORBOARD_BROWSER_PREFIX in pathlib.Path(script).read_text(encoding="utf-8", errors="replace"):
+                return ["bash", script], script, None
         except Exception:
-            continue
-        if os.path.isfile(cand):
-            return ["bash", cand], cand, None
+            pass
     hint = (logdir_hint or "work_dirs").strip() or "work_dirs"
     try:
         hint_path = hint if os.path.isabs(hint) else safe_project_path(root, hint)
     except Exception:
         hint_path = ""
     if hint_path and os.path.isdir(hint_path):
-        return ["tensorboard", "--logdir", hint_path, "--port", str(port), "--host", "0.0.0.0"], "tensorboard", hint_path
+        return ["tensorboard", "--logdir", hint_path, "--port", str(port), "--host", "127.0.0.1", "--path_prefix", TENSORBOARD_BROWSER_PREFIX, "--load_fast=false"], "tensorboard", hint_path
     events_dir = tb_find_events_dir(root)
     logdir = events_dir or root
-    return ["tensorboard", "--logdir", logdir, "--port", str(port), "--host", "0.0.0.0"], "tensorboard", logdir
+    return ["tensorboard", "--logdir", logdir, "--port", str(port), "--host", "127.0.0.1", "--path_prefix", TENSORBOARD_BROWSER_PREFIX, "--load_fast=false"], "tensorboard", logdir
 
 
 def tensorboard_action(root, action, payload, operation_id, op_id):
@@ -8817,12 +8828,43 @@ def tensorboard_action(root, action, payload, operation_id, op_id):
             f"TensorBoard 会话启动失败：{exc}",
             {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir},
         )
+    TENSORBOARD_PROXY_PORTS.clear()
     TENSORBOARD_PROXY_PORTS[tb_session] = port
     return terminal_action(
         root, action, operation_id, op_id, "completed",
         f"已重启 TensorBoard 会话 {tb_session}（{launch_source}），端口 {port}，等待就绪",
         {"tmuxSession": tb_session, "port": port, "logPath": log_rel, "launchSource": launch_source, "resolvedLogdir": resolved_logdir, "running": True, "listening": False},
     )
+
+
+def install_rich_action(root, payload, operation_id, op_id):
+    conda_env = str(payload.get("condaEnv") or "").strip()
+    if not conda_env.startswith("/"):
+        return terminal_action(root, "install-rich", operation_id, op_id, "failed", "需要训练环境的绝对路径")
+    env = simple_runtime_env(os.environ.copy())
+    env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
+    env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1"
+    python = simple_runtime_python(env)
+    if not os.path.isfile(python) or not os.access(python, os.X_OK):
+        return terminal_action(root, "install-rich", operation_id, op_id, "failed", f"训练环境 Python 不可执行：{python}")
+    try:
+        installed = subprocess.run([python, "-m", "pip", "install", "rich>=14.3,<15"], cwd=root,
+                                   capture_output=True, text=True, timeout=240, env=env)
+        if installed.returncode != 0:
+            return terminal_action(root, "install-rich", operation_id, op_id, "failed",
+                                   f"rich 安装失败，pip 退出码 {installed.returncode}",
+                                   {"python": python, "pipOutputTail": (installed.stdout + installed.stderr)[-1500:]})
+        checked = subprocess.run([python, "-c", "import importlib.metadata; print(importlib.metadata.version('rich'))"],
+                                 cwd=root, capture_output=True, text=True, timeout=15, env=env)
+        version = checked.stdout.strip()
+        parts = [int(value) for value in re.findall(r"\d+", version)[:2]]
+        if checked.returncode != 0 or len(parts) < 2 or parts[0] != 14 or parts[1] < 3:
+            return terminal_action(root, "install-rich", operation_id, op_id, "failed",
+                                   f"pip 已执行，但 rich 版本验证失败：{version or checked.stderr[-300:]}")
+        return terminal_action(root, "install-rich", operation_id, op_id, "completed",
+                               f"训练环境已安装 rich {version}", {"python": python, "version": version})
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return terminal_action(root, "install-rich", operation_id, op_id, "failed", f"rich 安装失败：{exc}")
 
 
 def _resolve_tmux_prefix(options=None, command=None, env=None):
@@ -9430,10 +9472,8 @@ def handle_action(root, action, payload, operation_id, op_id):
                         if _busy_or_passive_progress:
                             _last_progress = _now
                             _last_size = _size
-                        if _elapsed > _hard_max:
-                            _rc = 255
-                            _launch_failed = True
-                            break
+                        # A Plan may legitimately run for hours. Startup is already guarded by
+                        # the no-progress checks below; elapsed runtime alone is not failure.
                         # Fast-fail: launch window passed, python is dead (no exit code yet)
                         # and the pane has shown no activity for _no_progress seconds. Surface
                         # the failure now instead of waiting up to hard_max (600s), so the panel
@@ -9455,10 +9495,7 @@ def handle_action(root, action, payload, operation_id, op_id):
                     rc = _rc
                     launch_failed = _launch_failed
                 elif used_tmux:
-                    _start = time.time()
                     while tmux_session_alive(tmux_session, root, env):
-                        if time.time() - _start > _hard_max:
-                            break
                         time.sleep(5)
                     rc = 255
                     launch_failed = False
@@ -9712,6 +9749,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         return terminal_action(root, action, operation_id, op_id, status, f"{label}完成：{len(report.get('causes') or [])} 条原因", {"anomalyDiagnosis": report, "anomalyPath": report.get("outputFiles", {}).get("jsonPath"), "configDiffPath": report.get("outputFiles", {}).get("configDiffPath")}, request=payload)
     if action in ("start-tensorboard", "stop-tensorboard", "get-tensorboard-status"):
         return tensorboard_action(root, action, payload, operation_id, op_id)
+    if action == "install-rich":
+        return install_rich_action(root, payload, operation_id, op_id)
     if action == "cancel-operation":
         return terminal_action(root, action, operation_id, op_id, "cancelled", "操作已取消")
     if action in ("deploy-runtime", "restart-agent"):
@@ -9784,7 +9823,9 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/actions/start-tensorboard",
             "/api/actions/stop-tensorboard",
             "/api/actions/get-tensorboard-status",
+            "/api/actions/install-rich",
             "/api/tensorboard/proxy",
+            "/api/tensorboard/ui/{path}",
         ]
         return {
             "openapi": "3.0.0",
@@ -9825,6 +9866,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/files/transfer-status",
             "/api/workers/uplink/events",
             "/api/tensorboard/proxy",
+            "/api/tensorboard/ui/{path}",
         ] + ACTION_PATHS},
         "x-simple-capabilities": api_capabilities(root, token_required, mode),
     }
@@ -10926,9 +10968,16 @@ def serve_http(args):
         def proxy_tensorboard(self, parsed):
             params = parse_qs(parsed.query)
             try:
-                port = int((params.get("port") or ["0"])[0])
-                session = tb_tmux_session_name((params.get("sessionPrefix") or [""])[0])
-                target = str((params.get("path") or ["/"])[0])
+                browser_route = parsed.path == TENSORBOARD_BROWSER_PREFIX or parsed.path.startswith(TENSORBOARD_BROWSER_PREFIX + "/")
+                if browser_route:
+                    if len(TENSORBOARD_PROXY_PORTS) != 1:
+                        return self.send_json({"error": "TensorBoard 会话未就绪或不唯一"}, status=403)
+                    session, port = next(iter(TENSORBOARD_PROXY_PORTS.items()))
+                    target = parsed.path + (("?" + parsed.query) if parsed.query else "")
+                else:
+                    port = int((params.get("port") or ["0"])[0])
+                    session = tb_tmux_session_name((params.get("sessionPrefix") or [""])[0])
+                    target = str((params.get("path") or ["/"])[0])
                 if port < 1024 or port > 65535 or TENSORBOARD_PROXY_PORTS.get(session) != port:
                     return self.send_json({"error": "TensorBoard 会话未授权或未运行"}, status=403)
                 if not target.startswith("/") or target.startswith("//") or any(ord(ch) < 32 for ch in target):
@@ -11069,6 +11118,9 @@ def serve_http(args):
             if not self.localhost_only():
                 self.send_json({"error": "localhost only"}, status=403)
                 return True
+            browser_path = urlparse(self.path).path
+            if browser_path == TENSORBOARD_BROWSER_PREFIX or browser_path.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
+                return False
             if not self.authorized():
                 self.send_json({"error": "unauthorized"}, status=401)
                 return True
@@ -11097,9 +11149,9 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/files/stat", "/api/files/download", "/api/files/download-range", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy") and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/files/stat", "/api/files/download", "/api/files/download-range", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
-            if route == "/api/tensorboard/proxy":
+            if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(parsed)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
@@ -11325,9 +11377,9 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy") and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS:
+                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
-            if route == "/api/tensorboard/proxy":
+            if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
             length = int(self.headers.get("Content-Length") or 0)
             raw_body = self.rfile.read(length)
