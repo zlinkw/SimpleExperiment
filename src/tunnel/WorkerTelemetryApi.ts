@@ -34,6 +34,7 @@ export const workerTelemetryActionNames = [
   "delete-worker-artifacts",
   "archive-worker-artifacts",
   "start-tensorboard",
+  "stop-tensorboard",
   "get-tensorboard-status",
 ] as const;
 

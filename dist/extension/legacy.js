@@ -3536,46 +3536,39 @@ class RealtimeTunnelPanelProvider {
         const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
         if (blocked.length)
             throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
-        // 兼容旧测试文本顺序：保留 deploy 字符串在 start 之前（实际已延后到后台执行，避免误报）
-        void "deployLatestAgentRuntime(false, true)";
-        await this.startAllXshellConnections(false, false);
-        // 按钮主流程结束：立即 return，转圈结束；通知相关的部署与检测延后到后台，避免 fetch failed / local_port_closed 误报并发
-        const _bgTopology = topology;
-        const _bgExpectedTargets = expectedTargets;
-        const _bgShowMessage = showMessage;
-        void (async () => {
-            try {
-                await sleep(3000);
-                await this.deployLatestAgentRuntime(false, true);
-                await sleep(2000);
-                void "testTunnel(true)"; // 保留文本顺序供旧测试检索，实际走延后 silent 分支避免与手动立响冲突
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "准备 Agent", cancellable: false }, async (progress) => {
+            progress.report({ message: "部署 runtime" });
+            const deployed = await this.deployLatestAgentRuntime(false, true, [], true);
+            progress.report({ message: "启动 Xshell 会话" });
+            await this.startAllXshellConnections(false, false);
+            const deadline = Date.now() + 20000;
+            let completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
+            let verification = { fatal: [], warnings: ["等待 Agent 就绪"] };
+            while (Date.now() < deadline) {
+                progress.report({ message: "检测 Worker Agent" });
                 await this.testTunnel(false);
-                const completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, _bgTopology.hubAllowed);
-                if (!completion.ready) {
-                    const msg = `Agent 已部署并启动，但当前拓扑端点健康检测未通过：${completion.issues.join("；") || completion.message}。请按提示修复 Conda/Python 依赖、当前项目代码目录或端口后再次检测。`;
-                    this.recordActionError({ command: "prepareAgents", message: msg, suggestion: actionErrorSuggestion(msg) });
-                    this.postState();
-                    void vscode.window.showWarningMessage(msg);
-                    return;
+                completion = tunnelTestCompletion(this.setupConfig, this.lastProbe, this.lastHealth, this.lastWorkerProbes, topology.hubAllowed);
+                if (completion.ready) {
+                    verification = await this.verifyDeployedAgentRuntime(deployed.targets, deployed.manifest);
+                    if (!verification.fatal.length && !verification.warnings.length)
+                        break;
                 }
-                if (_bgShowMessage) {
-                    const topologySummary = _bgTopology.hubAllowed ? `Hub + ${_bgExpectedTargets - 1} 个 Worker` : `${_bgExpectedTargets} 个 Worker（无 Hub）`;
-                    const next = await vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接识别工作区。`, "识别工作区", "打开面板");
-                    if (next === "识别工作区")
-                        await this.bootstrapProjectFromUi();
-                    else if (next === "打开面板")
-                        await vscode.commands.executeCommand("simpleExperiment.openPanel");
-                }
+                if (Date.now() + 750 >= deadline)
+                    break;
+                await sleep(750);
             }
-            catch (error) {
-                const msg = errorMessage(error);
-                this.recordActionError({ command: "prepareAgents", message: msg, suggestion: actionErrorSuggestion(msg) });
-                this.postState();
-                console.warn("[prepareAgents background] failed", error);
-            }
-        })();
+            if (!completion.ready)
+                throw new Error(`Agent 已部署并启动，但当前拓扑端点健康检测未通过：${completion.issues.join("；") || completion.message}。请检查 Worker 会话、Conda 环境和端口。`);
+            if (verification.fatal.length || verification.warnings.length)
+                throw new Error(`Agent runtime 部署校验失败：${[...verification.fatal, ...verification.warnings].join("；")}`);
+        });
         if (showMessage) {
-            void vscode.window.showInformationMessage("Agent 准备已触发：已写入配置并启动会话，后台正在部署 runtime 并检测隧道（约5秒后出结果）。");
+            const topologySummary = topology.hubAllowed ? `Hub + ${expectedTargets - 1} 个 Worker` : `${expectedTargets} 个 Worker（无 Hub）`;
+            const next = await vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接识别工作区。`, "识别工作区", "打开面板");
+            if (next === "识别工作区")
+                await this.bootstrapProjectFromUi();
+            else if (next === "打开面板")
+                await vscode.commands.executeCommand("simpleExperiment.openPanel");
         }
         return true;
     }
@@ -5823,7 +5816,7 @@ class RealtimeTunnelPanelProvider {
             startedAction: { title: "分发代码到所有 Worker", detail: "正在把本地最新轻量代码同步到所有启用 Worker。" },
         });
     }
-    async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = []) {
+    async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = [], deferVerification = false) {
         console.log("[diag] deployLatestAgentRuntime entry", { showMessage, pathConfirmed, serverIds });
         console.log("[diag] prepareSftpTargets before", { serverIds });
         await this.prepareSftpTargets("deployLatestAgentRuntime", "simpleSftp.uploadFiles", serverIds);
@@ -5849,12 +5842,13 @@ class RealtimeTunnelPanelProvider {
             "cluster_scheduler.py": RuntimeManifest_1.sha256Text(schedulerText),
         };
         manifest.deployedAt = new Date().toISOString();
-        try {
-            const preCheck = await this.verifyDeployedAgentRuntime(targets, manifest);
-            if (preCheck.fatal.length)
-                console.warn(`[deploy] 远端旧版检测：${preCheck.fatal.join("；")}，将覆盖部署新版`);
-        }
-        catch {
+        if (!deferVerification) {
+            try {
+                const preCheck = await this.verifyDeployedAgentRuntime(targets, manifest);
+                if (preCheck.fatal.length)
+                    console.warn(`[deploy] 远端旧版检测：${preCheck.fatal.join("；")}，将覆盖部署新版`);
+            }
+            catch { }
         }
         if (!pathConfirmed) {
             await this.confirmRemoteWriteTargets("上传 Agent runtime", targets);
@@ -5882,6 +5876,8 @@ class RealtimeTunnelPanelProvider {
         }
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
+        if (deferVerification)
+            return { targets, manifest };
         // 手动触发(showMessage=true)：单次 verify 立即返回，避免 fetch failed/ECONNREFUSED 无意义延迟；仅自动触发(showMessage=false)才轮询重试
         let verifyIssues;
         let _verifyOk;
@@ -5987,6 +5983,7 @@ class RealtimeTunnelPanelProvider {
             const shaMsg = _shaDetails.length ? ` 二次核验：${_shaDetails.join("； ")}` : "";
             void vscode.window.showInformationMessage(`最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话，再点击“检测全部”。${shaMsg}`);
         }
+        return { targets, manifest };
     }
     async verifyDeployedAgentRuntime(targets, manifest) {
         const token = this.tunnelConfig && this.tunnelConfig.token;

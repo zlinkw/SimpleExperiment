@@ -29,7 +29,7 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.ok(start >= 0 && end > start);
   const flow = extension.slice(start, end);
   const sftp = flow.indexOf('ensureSimpleSftpReadyForSetup("准备 Agent")');
-  const workspace = flow.indexOf("if (!workspaceRoot())");
+  const workspace = flow.search(/if\s*\(!workspaceRoot\(\)\)/);
   const sync = flow.indexOf('syncXshellConfigBeforeNetwork("prepare agents for first run")');
   const preflight = flow.indexOf("currentAgentPreparationBlockers()");
   const confirm = flow.indexOf("确认准备并启动");
@@ -37,9 +37,9 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   const blocked = flow.indexOf("Agent 自启动命令未就绪");
   const profiles = flow.indexOf("writeSftpManagerServerProfiles(");
   const pathConfirm = flow.indexOf("confirmRemoteWriteTargets");
-  const deploy = flow.indexOf("deployLatestAgentRuntime(false, true)");
+  const deploy = flow.indexOf("deployLatestAgentRuntime(false, true, [], true)");
   const launch = flow.indexOf("startAllXshellConnections(false, false)");
-  const detect = flow.indexOf("testTunnel(true)");
+  const detect = flow.indexOf("this.testTunnel(false)");
   assert.ok(sftp >= 0 && sftp < workspace && workspace < sync);
   assert.ok(sync >= 0 && sync < preflight);
   assert.ok(preflight < confirm);
@@ -49,6 +49,8 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.ok(blocked < deploy);
   assert.ok(deploy < launch);
   assert.ok(launch < detect);
+  assert.match(flow, /withProgress\(\{ location: vscode\.ProgressLocation\.Notification, title: "准备 Agent"/);
+  assert.doesNotMatch(flow, /await sleep\(3000\)|await sleep\(2000\)/);
   assert.match(extension, /const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set\(\["non_simple_remote_command", "different_simple_agent_session"\]\)/);
   assert.match(flow, /AGENT_STARTUP_BLOCKED_SKIP_REASONS\??\.has\(item\.skippedReason\)/);
   assert.doesNotMatch(flow, /\["non_simple_remote_command", "different_simple_agent_session"\]\.includes/);
@@ -56,7 +58,7 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.match(flow, /当前拓扑端点健康检测未通过/);
   assert.match(flow, /if \(showMessage\) \{[\s\S]{0,420}"识别工作区", "打开面板"/);
   assert.match(flow, /next === "识别工作区"\)\s*await this\.bootstrapProjectFromUi\(\)/);
-  assert.match(flow, /if \(!workspaceRoot\(\)\) \{[\s\S]{0,180}openWorkspaceFolderForContinuation\("准备 Agent", "prepareAgents"\)[\s\S]{0,80}return false/);
+  assert.match(flow, /if\s*\(!workspaceRoot\(\)\)\s*\{[\s\S]{0,180}openWorkspaceFolderForContinuation\("准备 Agent",\s*"prepareAgents"\)[\s\S]{0,120}UiCommandCancelled/);
   assert.match(extension, /pending\.action === "prepareAgents"[\s\S]{0,100}prepareAgentsForFirstRun\(true\)/);
   assert.match(flow, /当前项目 SimpleSFTP 目标不完整/);
   assert.match(flow, /尚未修改 \.xsh 或上传 runtime/);

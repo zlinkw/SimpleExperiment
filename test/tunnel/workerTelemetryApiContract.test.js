@@ -42,6 +42,7 @@ test("worker telemetry permits bounded worker controls plus local scheduler acti
     "POST /api/actions/delete-worker-artifacts",
     "POST /api/actions/archive-worker-artifacts",
     "POST /api/actions/start-tensorboard",
+    "POST /api/actions/stop-tensorboard",
     "POST /api/actions/get-tensorboard-status",
   ].sort());
   assert.deepEqual([...workerLocalSchedulerActionNames], ["validate-plan", "dry-run-plan", "run-plan", "reproduce-plan", "stop-scheduler-operation"]);
@@ -74,6 +75,7 @@ test("worker capabilities accept local scheduler actions and reject other Hub ac
   assert.equal(validateWorkerTelemetryCapabilities({ ...base, actionEndpoints: { "start-worker-task": true, "retry-worker-task": true } }).ok, true);
   assert.equal(validateWorkerTelemetryCapabilities({ ...base, actionEndpoints: { "run-plan": true, "validate-plan": true } }).ok, true);
   assert.equal(validateWorkerTelemetryCapabilities({ ...base, actionEndpoints: { "parse-results": true, "archive-artifacts": true } }).ok, true);
+  assert.equal(validateWorkerTelemetryCapabilities({ ...base, actionEndpoints: { "start-tensorboard": true, "stop-tensorboard": true, "get-tensorboard-status": true } }).ok, true);
   assert.equal(validateWorkerTelemetryCapabilities({ ...base, actionEndpoints: { "deploy-runtime": true } }).ok, false);
 });
 
