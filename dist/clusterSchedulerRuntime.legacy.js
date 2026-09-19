@@ -1603,14 +1603,53 @@ def surface_original_error(job: "Job", phase: str) -> None:
             pass
 
 
+def result_table_covers_job(job: Job) -> bool:
+    """Resume only when every per-job metric was published to the shared result table."""
+    summary = Path(job.output_dir) / "metrics_summary.csv"
+    table = Path(job.result_csv)
+    if not summary.is_file() or not table.is_file():
+        return False
+    try:
+        with summary.open("r", encoding="utf-8-sig", newline="") as stream:
+            source = csv.DictReader(stream)
+            if not {"metric", "eval_protocol"}.issubset(source.fieldnames or []):
+                return False
+            expected = {
+                (str(row.get("eval_protocol") or "").strip(), str(row.get("metric") or "").strip())
+                for row in source if str(row.get("metric") or "").strip()
+            }
+        if not expected:
+            return False
+        with table.open("r", encoding="utf-8-sig", newline="") as stream:
+            published = csv.DictReader(stream)
+            fields = set(published.fieldnames or [])
+            if not {"metric", "eval_protocol"}.issubset(fields):
+                return False
+            if "job_dir" in fields:
+                same_job = lambda row: Path(str(row.get("job_dir") or "")).as_posix().rstrip("/") == Path(job.output_dir).as_posix().rstrip("/")
+            elif {"case", "seed"}.issubset(fields):
+                same_job = lambda row: str(row.get("case") or "") == job.case and str(row.get("seed") or "") == str(job.seed)
+            else:
+                return False
+            actual = {
+                (str(row.get("eval_protocol") or "").strip(), str(row.get("metric") or "").strip())
+                for row in published if same_job(row) and str(row.get("metric") or "").strip()
+            }
+        return expected.issubset(actual)
+    except (OSError, UnicodeError, csv.Error, ValueError):
+        return False
+
+
 def run_job(job: Job, args: argparse.Namespace) -> None:
     manifest = Path(job.output_dir) / "artifact_manifest.json"
     overwrite = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
-    # 解耦：调度/显卡状态不再受历史产物阻塞；仅当 --resume 且非 --overwrite 时才跳过已完成的 manifest
+    # 历史产物存在但正式结果未完整发布时必须重跑，避免恢复模式静默遗漏种子。
     if not overwrite and args.resume and manifest.exists() and args.mode != "test":
-        info = has_existing_artifacts(job.output_dir)
-        print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir} markers={info.get('markers') or []} (use --overwrite to force rerun)", flush=True)
-        return
+        if result_table_covers_job(job):
+            info = has_existing_artifacts(job.output_dir)
+            print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir} markers={info.get('markers') or []} (use --overwrite to force rerun)", flush=True)
+            return
+        print(f"[simple-experiment-runtime] rerun incomplete published results index={job.index} output={job.output_dir} result_csv={job.result_csv}", flush=True)
     if overwrite and manifest.exists():
         print(f"[simple-experiment-runtime] overwrite existing job index={job.index} output={job.output_dir}", flush=True)
     config_path = write_job_config(job)
