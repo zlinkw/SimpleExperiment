@@ -8465,7 +8465,7 @@ class RealtimeTunnelPanelProvider {
                 matchedOperations.push(operationId);
                 if (!operationTerminal(this.localOperations[operationId])) {
                     const now = new Date().toISOString();
-                    const orphan = !terminatedSessions.length && !terminatedPids.length;
+                    const orphan = !terminatedSessions.length && !terminatedPids.length && Number(record.stoppedTaskCount || 0) === 0;
                     // 定案：取消 stale 终态；orphan（无可杀 pid/tmux）保持 running，由用户自行判断、手动中止/清理，不再标记 stale。
                     this.localOperations[operationId] = {
                         ...row,

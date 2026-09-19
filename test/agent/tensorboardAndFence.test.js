@@ -488,12 +488,88 @@ with tempfile.TemporaryDirectory() as tmp:
     agent.os.kill = lambda pid, sig: calls.append(("kill", pid))
     result = agent.stop_scheduler_operation(root, {"targetOperationId": "target", "operationId": "stop-1", "opId": "stop-1", "planFile": "experiments/plans/current.yaml"})
     assert result["status"] == "completed", result
-    assert ("tmux", "kill-session", "-t", "zlk-gpu-0") in calls, calls
+    assert ("kill", 101) in calls, calls
+    assert ("tmux", "kill-session", "-t", "zlk-gpu-0") not in calls, calls
     assert ("tmux", "kill-session", "-t", "zlk-gpu-1") not in calls, calls
     assert ("kill", 202) not in calls, calls
     tasks = agent.read_json(snapshot, {})["tasks"]
     assert tasks[0]["status"] == "stopped" and tasks[1]["status"] == "running", tasks
 print("scoped stop preserved other Plan")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("stop-scheduler-operation handles tmux pane ids and persists every matching task", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, os, types
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as tmp:
+    agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
+    root = os.path.join(tmp, "project"); os.makedirs(root)
+    snapshot = agent.path_for(root, "worker_task_snapshot.json")
+    plan = "experiments/plans/current.yaml"
+    agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [
+        {"commandId": "run-a", "status": "running", "planFile": plan, "pid": "%97", "tmuxSession": "zlk-gpu-0"},
+        {"commandId": "run-b", "status": "running", "planFile": plan, "pid": "%99", "tmuxSession": "zlk-gpu-1"},
+        {"commandId": "run-other", "status": "running", "planFile": "experiments/plans/other.yaml", "pid": "%101", "tmuxSession": "zlk-gpu-2"},
+    ]})
+    probes = iter([True, False])
+    def evidence(*args):
+        live = next(probes)
+        return {"pidAlive": False, "tmuxSessionAlive": live, "tmuxShellAlive": live, "checkedPid": 0, "checkedTmuxSession": "zlk-sch-target"}
+    agent.scheduler_process_evidence = evidence
+    agent.read_operation_events = lambda *args: [{"payload": {"planFile": plan}}]
+    agent._reap_zombie_scheduler_sessions = lambda *args: []
+    agent.tmux_session_alive = lambda *args, **kwargs: True
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append(tuple(args))
+        if args[:4] == ["tmux", "display-message", "-p", "-t"]:
+            return types.SimpleNamespace(returncode=0, stdout={"%97": "zlk-gpu-0", "%99": "zlk-gpu-1", "%101": "zlk-gpu-2"}.get(args[4], ""), stderr=b"")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr=b"")
+    agent.subprocess.run = fake_run
+    agent.os.kill = lambda *args: (_ for _ in ()).throw(AssertionError("tmux pane id passed to os.kill"))
+    result = agent.stop_scheduler_operation(root, {"targetOperationId": "target", "operationId": "stop-1", "opId": "stop-1", "planFile": plan})
+    tasks = agent.read_json(snapshot, {})["tasks"]
+    assert result["status"] == "completed", result
+    assert [task["status"] for task in tasks] == ["stopped", "stopped", "running"], tasks
+    assert ("tmux", "kill-pane", "-t", "%97") in calls and ("tmux", "kill-pane", "-t", "%99") in calls, calls
+    assert ("tmux", "kill-pane", "-t", "%101") not in calls, calls
+    assert ("tmux", "kill-session", "-t", "zlk-gpu-2") not in calls, calls
+print("pane-scoped stop persisted all tasks")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("stop-scheduler-operation can finish stale Plan cleanup after its scheduler exited", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, os, types
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as tmp:
+    agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
+    root = os.path.join(tmp, "project"); os.makedirs(root)
+    plan = "experiments/plans/current.yaml"
+    snapshot = agent.path_for(root, "worker_task_snapshot.json")
+    agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [
+        {"commandId": "run-a", "status": "running", "planFile": plan, "pid": "%97", "tmuxSession": "zlk-gpu-0"},
+        {"commandId": "run-other", "status": "running", "planFile": "experiments/plans/other.yaml", "pid": "%99", "tmuxSession": "zlk-gpu-1"},
+    ]})
+    agent.scheduler_process_evidence = lambda *args: {"pidAlive": False, "tmuxSessionAlive": False, "tmuxShellAlive": False, "checkedPid": 0, "checkedTmuxSession": "zlk-sch-target"}
+    agent.read_operation_events = lambda *args: [{"payload": {"planFile": plan}}]
+    agent._reap_zombie_scheduler_sessions = lambda *args: []
+    def stale_pane(args, **kwargs):
+        assert args[:4] == ["tmux", "display-message", "-p", "-t"], args
+        return types.SimpleNamespace(returncode=1, stdout="", stderr=b"")
+    agent.subprocess.run = stale_pane
+    result = agent.stop_scheduler_operation(root, {"targetOperationId": "target", "operationId": "stop-2", "opId": "stop-2", "planFile": plan})
+    tasks = agent.read_json(snapshot, {})["tasks"]
+    assert result["status"] == "completed", result
+    assert [task["status"] for task in tasks] == ["stopped", "running"], tasks
+print("stale Plan cleanup completed")
 `;
   const result = runPython(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);

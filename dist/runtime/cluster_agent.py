@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.19"
-RUNTIME_VERSION = "0.5.19"
-PLUGIN_VERSION = "0.5.19"
+AGENT_VERSION = "0.5.20"
+RUNTIME_VERSION = "0.5.20"
+PLUGIN_VERSION = "0.5.20"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -10746,9 +10746,17 @@ def stop_scheduler_operation(root, payload):
     # P1: 双活判定需同时检查 shellAlive，避免空壳（has-session 但无 python）被误判为已清理
     if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
     elif after["tmuxShellAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
-    matched = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"] or before["tmuxShellAlive"])
-    if not matched:
+    matched_scheduler = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"] or before["tmuxShellAlive"])
+    # A previous stop can have removed the scheduler while leaving its Worker records behind.
+    # Repair that Plan only when its journal identifies it and no newer scheduler is live.
+    if not matched_scheduler and recorded_plan != requested_plan:
         return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "未找到目标 Plan 的活动调度进程，未清理 GPU 任务。", {"matchedOperations": [], "planFile": plan, "checkedPid": after["checkedPid"], "checkedTmuxSession": after["checkedTmuxSession"]}, request=payload)
+    if not matched_scheduler:
+        for entry in _read_run_plan_registry(root):
+            if not isinstance(entry, dict) or str(entry.get("opId") or "") == wanted:
+                continue
+            if _is_pid_alive(entry.get("pid")) or tmux_session_alive(str(entry.get("tmuxSession") or ""), cwd=root):
+                return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "另一个调度器仍在运行，不能按旧记录清理 Worker 任务。", {"matchedOperations": [], "planFile": plan}, request=payload)
     try:
         if wanted:
             deregister_active_run_plan(root, wanted)
@@ -10757,20 +10765,12 @@ def stop_scheduler_operation(root, payload):
         _reap_zombie_scheduler_sessions(root, remaining)
     except Exception:
         pass
-    # 中止同时终止关联 GPU 任务 pane/会话，防止调度停止后 GPU 任务继续运行；回收孤儿 GPU 窗口与调度同生命周期
+    # A Worker task's pid can be a tmux pane id such as %97. Stop that exact pane;
+    # fixed GPU sessions can contain a newer or unrelated task and must be preserved.
+    stopped_task_count = 0
     try:
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
-        foreign_sessions = set()
-        for task in tasks:
-            if not isinstance(task, dict) or str(task.get("status") or "").lower() != "running":
-                continue
-            sess = str(task.get("tmuxSession") or "").strip()
-            if not sess:
-                continue
-            task_plan = re.sub(r"^\./", "", str(task.get("planFile") or task.get("plan") or "").replace("\\", "/"))
-            if task_plan != requested_plan:
-                foreign_sessions.add(sess)
         dirty = False
         for task in tasks:
             if not isinstance(task, dict):
@@ -10781,27 +10781,38 @@ def stop_scheduler_operation(root, payload):
             if task_plan != requested_plan:
                 continue
             sess = str(task.get("tmuxSession") or "").strip()
-            if sess and sess not in foreign_sessions and tmux_session_alive(sess, cwd=root):
+            task_pid = str(task.get("pid") or "").strip()
+            pane_id = task_pid if re.fullmatch(r"%[0-9]+", task_pid) else ""
+            task_error = False
+            if pane_id and sess:
                 try:
-                    subprocess.run(["tmux", "kill-session", "-t", sess], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, cwd=root)
-                    if sess not in terminated_sessions:
-                        terminated_sessions.append(sess)
-                    dirty = True
-                except Exception:
-                    pass
-            pid = int(task.get("pid") or 0)
-            if pid and _is_pid_alive(pid):
+                    owner = subprocess.run(["tmux", "display-message", "-p", "-t", pane_id, "#{session_name}"], capture_output=True, text=True, timeout=3, cwd=root)
+                    if owner.returncode == 0 and owner.stdout.strip() == sess:
+                        killed = subprocess.run(["tmux", "kill-pane", "-t", pane_id], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=5, cwd=root)
+                        if killed.returncode == 0:
+                            terminated_sessions.append(pane_id)
+                        else:
+                            errors.append((killed.stderr or b"tmux kill-pane failed").decode("utf-8", errors="replace").strip())
+                            task_error = True
+                except Exception as exc:
+                    errors.append(str(exc))
+                    task_error = True
+            pid = int(task_pid) if task_pid.isdecimal() else 0
+            if pid > 0 and _is_pid_alive(pid):
                 try:
                     os.kill(pid, signal.SIGTERM)
                     if pid not in terminated_pids:
                         terminated_pids.append(pid)
-                    dirty = True
-                except Exception:
-                    pass
+                except Exception as exc:
+                    errors.append(str(exc))
+                    task_error = True
+            if task_error:
+                continue
             task["status"] = "stopped"
             task["finishedAt"] = now_iso()
             task["stopReason"] = "scheduler_aborted"
             task["manualStopType"] = "scheduler_aborted"
+            stopped_task_count += 1
             dirty = True
         if dirty:
             atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
@@ -10809,14 +10820,16 @@ def stop_scheduler_operation(root, payload):
                 append_event(root, {"type": "worker_task_stopped", "payload": {"reason": "scheduler_aborted", "terminatedSessions": terminated_sessions}})
             except Exception:
                 pass
-    except Exception:
-        pass
-    message = "已终止匹配的调度进程" if matched else ("未找到活动调度进程" if not errors else "停止调度进程失败")
-    status = "completed" if matched and not remaining_active and not errors else ("failed" if remaining_active or (errors and not matched) else "completed")
+    except Exception as exc:
+        errors.append(f"Worker 任务清理失败：{exc}")
+    matched = matched_scheduler or stopped_task_count > 0
+    message = "已中止调度并清理当前 Plan 任务" if matched_scheduler else ("已清理当前 Plan 的残留任务" if stopped_task_count else "未找到活动调度或 Worker 任务")
+    status = "completed" if matched and not remaining_active and not errors else "failed"
     return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), str(payload.get("opId") or payload.get("operationId") or f"stop-{int(time.time() * 1000)}"), status, message, {
         "matchedOperations": [wanted] if wanted else [],
         "terminatedSessions": terminated_sessions,
         "terminatedPids": terminated_pids,
+        "stoppedTaskCount": stopped_task_count,
         "remainingActiveEvidence": remaining_active,
         "checkedPid": after["checkedPid"],
         "checkedTmuxSession": after["checkedTmuxSession"],
