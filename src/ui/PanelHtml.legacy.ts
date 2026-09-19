@@ -654,6 +654,7 @@ export function renderPanelHtml(): string {
     .task-card.is-failed, .task-card.is-stopped { --task-status-color: #DC2626; --task-border-color: #FCA5A5; }
     .task-card.delete-pending { --task-status-color: #DC2626; --task-border-color: #FCA5A5; --task-bg: #FEF2F2; }
     .task-card.selectedRow { outline: 1px solid var(--vscode-focusBorder); }
+    .task-card.plan-card.selectedRow { --task-status-color: var(--warning); outline: none; }
     .taskCardHead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; align-items: start; }
     .taskSelectBox { position: relative; z-index: 1; flex: 0 0 16px; align-self: start; }
     .taskTitle { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
@@ -11570,7 +11571,7 @@ export function renderPanelHtml(): string {
         const archiveReadiness = planArchiveUiReadiness(state, file);
         const title = plan.name || file.split(/[\\\\/]/).pop() || file;
         const textNotice = "";
-        return '<div class="task-card is-' + (plan.parseError ? "failed" : (plan.planContractOk === false ? "failed" : "completed")) + (selected ? " selectedRow" : "") + '" data-anchor="' + escAttr(treeAnchorId("plan", file || plan.planId || title)) + '">' +
+        return '<div class="task-card plan-card is-' + (plan.parseError ? "failed" : (plan.planContractOk === false ? "failed" : "completed")) + (selected ? " selectedRow" : "") + '" data-anchor="' + escAttr(treeAnchorId("plan", file || plan.planId || title)) + '">' +
           '<div class="planCardHead">' +
             '<input class="taskSelectBox" type="checkbox" data-command="selectPlan" data-plan-file="' + escAttr(file) + '" data-plan-id="' + escAttr(plan.planId || file) + '"' + (selected ? " checked" : "") + '>' +
           '<div class="taskTitle"><button class="mini projectPathButton" data-command="openPlan" data-file="' + escAttr(file) + '" title="' + escAttr(file) + '">' + esc(title) + '</button><span class="pill">' + esc(planTaskScaleSummary(plan)) + '</span><span class="pill">' + esc(planModeLabel(plan.mode)) + '</span>' + (plan.restoreVersion ? '<span class="pill">' + esc(plan.restoreVersion) + '</span>' : "") + '</div>' +
