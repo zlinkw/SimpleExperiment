@@ -2,6 +2,13 @@
 
 本文件只记录需要整体删除的完整文件或目录候选，不记录文件内部的局部内容调整。清单不授权 Codex 删除、移动、清空或暂存删除任何项目文件；用户应逐项审核，并仅由用户本人手动删除。后续发现确认无用的完整文件或目录时，继续追加准确的仓库相对路径，禁止使用通配符代替路径。
 
+## 2026-09-19 远端误上传候选
+
+| 路径 | 类型 | 原因 | 风险与依赖 | 发现日期 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| `/data/qgking/zlk/MultiModal/cluster_agent.py` | file | SimpleSFTP 将本应部署到 Agent runtime 目录的文件写到了项目根目录；正式运行时使用 `/data/qgking/zlk/simple_agent/simple_cluster/runtime/cluster_agent.py`。 | 上传可能覆盖同名旧文件。删除前须核实远端内容、调用方及运行中的进程；本清单不授权删除。 | 2026-09-19 | 待审核 |
+| `/data/qgking/zlk/MultiModal/cluster_scheduler.py` | file | 同次目标解析错误将 Scheduler 文件写到了项目根目录；正式运行时使用 `/data/qgking/zlk/simple_agent/simple_cluster/runtime/cluster_scheduler.py`。 | 上传可能覆盖同名旧文件。删除前须核实远端内容、调用方及运行中的进程；本清单不授权删除。 | 2026-09-19 | 待审核 |
+
 ## 状态说明
 
 - `待审核`：证据表明文件大概率无用，但尚未由用户确认。
