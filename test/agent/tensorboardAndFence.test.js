@@ -499,6 +499,29 @@ print("scoped stop preserved other Plan")
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
+test("worker telemetry health reports its serving session and fresh GPU snapshot", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, os
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as tmp:
+    agent.AGENT_STATE_DIR = os.path.join(tmp, "state")
+    root = os.path.join(tmp, "project"); os.makedirs(root)
+    started = agent.now_iso()
+    agent.atomic_write(agent.path_for(root, "agent.session.json"), {"startedAt": started, "agentVersion": agent.AGENT_VERSION})
+    agent.atomic_write(agent.path_for(root, "gpu_snapshot.json"), {"generatedAt": started, "gpu": [{"gpuId": 0}]})
+    agent.inspect_agent = lambda root: {"running": False, "startedAt": ""}
+    health = agent.api_health(root, "worker_telemetry")
+    assert health["status"] == "ok", health
+    assert health["startedAt"] == started, health
+    assert health["snapshotAge"] < 5, health
+    assert health["workerCount"] == 1, health
+print("worker telemetry health ok")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test("extension and agent never hardcode absolute server paths or tmux names", () => {
   // Check that tb session name is derived from prefix, not hardcoded
   assert.match(agentSource, /tb_tmux_session_name\(prefix\)/);

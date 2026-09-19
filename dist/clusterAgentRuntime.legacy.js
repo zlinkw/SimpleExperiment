@@ -4212,10 +4212,13 @@ def api_snapshot(root):
     }
 
 def api_health(root, mode="realtime"):
-    snapshot = read_runtime_json_cached(path_for(root, "cluster_snapshot.json"), {})
+    serving = mode in ("worker_telemetry", "hub_control")
+    snapshot_name = "gpu_snapshot.json" if mode == "worker_telemetry" else "cluster_snapshot.json"
+    snapshot = read_runtime_json_cached(path_for(root, snapshot_name), {})
     health = inspect_agent(root)
     age = iso_age_seconds(snapshot.get("generatedAt"))
-    started_at = health.get("startedAt") or now_iso()
+    session = read_runtime_json_cached(path_for(root, "agent.session.json"), {}) if serving else {}
+    started_at = session.get("startedAt") or health.get("startedAt") or now_iso()
     uptime = iso_age_seconds(started_at)
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -4232,9 +4235,9 @@ def api_health(root, mode="realtime"):
         "projectRoot": os.path.abspath(root),
         "agentInstallDir": agent_install_dir(root),
         "agentStateDir": agent_dir(root),
-        "status": "ok" if health.get("running") is not False else "degraded",
+        "status": "ok" if serving or health.get("running") is not False else "degraded",
         "snapshotAge": age if age is not None else 999999,
-        "workerCount": len(snapshot.get("workers") or []),
+        "workerCount": (1 if snapshot.get("gpu") or snapshot.get("gpus") else 0) if mode == "worker_telemetry" else len(snapshot.get("workers") or []),
         "schedulerDependencies": scheduler_dependency_health(root),
         "checkedAt": now_iso(),
     }
