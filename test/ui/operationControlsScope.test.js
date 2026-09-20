@@ -12,10 +12,10 @@ function extract(startName, endName) {
 }
 
 test("global stop targets only the active operation for the selected Plan", () => {
-  let html = "";
+  const html = {};
   const sandbox = {
     operationViewModelForState: () => ({ rows: [] }),
-    setHtmlIfChanged: (_id, value) => { html = value; },
+    setHtmlIfChanged: (id, value) => { html[id] = value; },
     escAttr: String,
     esc: String,
   };
@@ -28,8 +28,8 @@ test("global stop targets only the active operation for the selected Plan", () =
       concat: { operationId: "concat", type: "run-plan", status: "running", planFile: "experiments/plans/comparison/concatenation.yaml" },
     },
   });
-  assert.match(html, /data-command="stopExperiment" data-operation-id="concat"/);
-  assert.doesNotMatch(html, /data-operation-id="ebmc"/);
+  assert.match(html.executionControls, /data-command="stopExperiment" data-operation-id="concat"/);
+  assert.doesNotMatch(html.executionControls, /data-operation-id="ebmc"/);
 });
 
 test("running progress and GPU card use the same curve viewer entry", () => {

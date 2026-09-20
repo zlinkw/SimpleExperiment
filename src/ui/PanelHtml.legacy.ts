@@ -379,6 +379,32 @@ export function renderPanelHtml(): string {
     .taskProgressCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
     .taskProgressCard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--subtle-bg); display: grid; gap: 6px; }
     .operationTimeline { display: grid; gap: 6px; }
+    .executionControls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 7px 0; }
+    .executionPlanList { display: grid; gap: 7px; margin: 8px 0; }
+    .executionPlanRow { min-width: 0; border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 8px; background: var(--vscode-editor-background); }
+    .executionPlanRow.running { border-left-color: var(--info); }
+    .executionPlanRow.failed { border-left-color: var(--danger); }
+    .executionPlanRow.completed { border-left-color: var(--success); }
+    .executionPlanRow > summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 11px; cursor: pointer; list-style: none; }
+    .executionPlanRow > summary::-webkit-details-marker { display: none; }
+    .executionPlanRow > summary::before { content: "▸"; color: var(--muted); }
+    .executionPlanRow[open] > summary::before { content: "▾"; }
+    .executionPlanRow > summary:hover { background: color-mix(in srgb, var(--vscode-focusBorder) 6%, transparent); }
+    .executionPlanName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
+    .executionPlanCount { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .executionPlanDetails { display: grid; gap: 9px; padding: 8px 11px 11px; border-top: 1px solid var(--border); }
+    .executionPlanDetails h3 { margin: 3px 0; font-size: 12px; }
+    .executionPlanDetails .taskCardList { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 7px; }
+    .executionArchive, .executionFullRecords, .diagnosticAllChecks { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--subtle-bg); }
+    .executionArchive > summary, .executionFullRecords > summary, .diagnosticAllChecks > summary { cursor: pointer; padding: 8px 11px; font-weight: 700; }
+    .executionArchive > .executionPlanList, .executionFullRecords > div, .diagnosticAllChecks > div { margin: 8px 10px 10px; }
+    .diagnosticOverview { display: grid; gap: 7px; margin: 9px 0; }
+    .diagnosticServerRow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.5fr); gap: 9px; align-items: center; padding: 7px 10px; border: 1px solid var(--border); border-left: 4px solid var(--success); border-radius: 7px; background: var(--vscode-editor-background); }
+    .diagnosticServerRow.warn { border-left-color: var(--warning); }
+    .diagnosticServerRow.error { border-left-color: var(--danger); }
+    .diagnosticServerRow span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+    .diagnosticIssue { padding: 7px 10px; border-left: 3px solid var(--danger); border-radius: 5px; background: color-mix(in srgb, var(--danger) 7%, var(--vscode-editor-background)); overflow-wrap: anywhere; }
+    .diagnosticIssue.ok { border-left-color: var(--success); background: color-mix(in srgb, var(--success) 6%, var(--vscode-editor-background)); }
     .operationItem {
       position: relative;
       display: grid;
@@ -1351,20 +1377,25 @@ export function renderPanelHtml(): string {
       <div class="section-head">
           <div class="section-title">
             <h2>运行进度</h2>
-            <div class="section-desc">调度操作与实验任务统一视图（关联字段：planFile / revision / opId）· 调度报错自动透传并转为终态</div>
+            <div class="section-desc">按 Plan 查看进度；展开单行查看任务和日志</div>
           </div>
           <div class="section-head-actions">
-            <span class="pill" title="原“操作进度”与“任务运行状态”已原生合并为单一卡片">已合并</span>
+            <span class="pill" title="运行中和异常置顶；完成记录折叠">按 Plan</span>
           </div>
       </div>
-      <div id="operationList" data-anchor="execution-operations"></div>
-      <div id="taskSummary" data-anchor="execution-tasks"></div>
-      <div id="taskBatchActions" class="actionGrid"></div>
-      <div id="taskProgressCards" data-anchor="tasks-progress"></div>
-      <div class="taskWorkbench">
-        <div id="taskTable" data-anchor="tasks-list"></div>
-        <aside id="taskDetailPane" class="taskDetailPane" aria-live="polite"></aside>
-      </div>
+      <div id="executionControls" class="executionControls"></div>
+      <div id="executionPlanList" data-anchor="execution-operations"></div>
+      <details class="executionFullRecords" data-details-key="execution-full-records">
+        <summary>完整操作与任务记录</summary>
+        <div id="operationList"></div>
+        <div id="taskSummary" data-anchor="execution-tasks"></div>
+        <div id="taskBatchActions" class="actionGrid"></div>
+        <div id="taskProgressCards" data-anchor="tasks-progress"></div>
+        <div class="taskWorkbench">
+          <div id="taskTable" data-anchor="tasks-list"></div>
+          <aside id="taskDetailPane" class="taskDetailPane" aria-live="polite"></aside>
+        </div>
+      </details>
       <div hidden data-anchor="tasks"></div>
       <div hidden data-anchor="operations"></div>
       <div hidden data-anchor="tasks-summary"></div>
@@ -1403,17 +1434,21 @@ export function renderPanelHtml(): string {
       <div class="section-head">
         <div class="section-title">
           <h2>诊断与自检</h2>
-          <div class="section-desc">能力、端口、JSON</div>
+          <div class="section-desc">服务器健康状态与待处理问题</div>
         </div>
       </div>
-      <div id="diagnosticActions" class="actionGrid"></div>
-      <div class="toolbar" title="静态检查报告：failed 自动落盘，passed 加 --write-md/--report-md">
+      <div id="diagnosticOverview" class="diagnosticOverview"></div>
+      <details class="diagnosticAllChecks" data-details-key="diagnostics-all-checks">
+        <summary>全部检查记录与工具</summary>
+        <div id="diagnosticActions" class="actionGrid"></div>
+        <div class="toolbar" title="静态检查报告：failed 自动落盘，passed 加 --write-md/--report-md">
         <button data-command="openLastCheckStaticReport" type="button" title="打开最近一次静态检查报告&#10;报告位于 simple_cluster/check_reports/&#10;含实验计划结构、输出接口与路径安全的问题清单">打开静态检查报告</button>
         <button data-command="copyLastCheckStaticReport" type="button" title="复制最近一次静态检查报告的内容到剪贴板&#10;报告位于 simple_cluster/check_reports/">复制静态检查报告</button>
-      </div>
-      <div id="targetCompletionMatrix" data-anchor="diagnostics-targets"></div>
-      <div id="featureReadiness" data-anchor="diagnostics-audit"></div>
-      <div id="actionErrors" data-anchor="diagnostics-errors"></div>
+        </div>
+        <div id="targetCompletionMatrix" data-anchor="diagnostics-targets"></div>
+        <div id="featureReadiness" data-anchor="diagnostics-audit"></div>
+        <div id="actionErrors" data-anchor="diagnostics-errors"></div>
+      </details>
       <details class="advanced">
         <summary>高级诊断</summary>
         <div class="toolbar" title="插件不内置 SSH；Hub 和 Worker 连接由 Xshell 本地端口转发提供">
@@ -4284,11 +4319,45 @@ export function renderPanelHtml(): string {
     }
 
     function renderDiagnosticSection(state) {
+      renderDiagnosticOverview(state);
       renderTargetCompletionMatrix(state);
       renderFeatureReadiness(state);
       renderCapabilities(state);
       renderActionErrors(state);
       renderDiagnosticDetailsJson(state);
+    }
+
+    function renderDiagnosticOverview(state) {
+      const probes = state.workerProbes || {};
+      const configuredWorkers = asArray((state.setup || {}).workerTunnels).filter((item) => item && item.enabled !== false).map((item) => String(item.id || "")).filter(Boolean);
+      const workerIds = Array.from(new Set([...configuredWorkers, ...Object.keys(probes)]));
+      const issues = [];
+      const servers = workerIds.map((id) => {
+        const probe = probes[id] || {};
+        const healthy = String(probe.status || "").toLowerCase() === "ok";
+        const status = healthy ? "正常" : (probe.status ? "需检查" : "待检测");
+        const detail = healthy ? "Agent 已连接" : compactText(String(probe.message || probe.error || probe.status || "尚无检测结果"), 110);
+        if (!healthy) issues.push(workerName(id) + "：" + detail);
+        return '<div class="diagnosticServerRow ' + (healthy ? "" : "warn") + '"><b>' + esc(workerName(id)) + '</b><span class="' + (healthy ? "status-completed" : "status-warning") + '">' + esc(status) + '</span><span title="' + escAttr(detail) + '">' + esc(detail) + '</span></div>';
+      });
+      const topology = state.topology || {};
+      const health = state.health || {};
+      if (topology.hubAllowed) {
+        const hubOk = String(health.status || health.state || "") === "agent_ok";
+        const detail = String(health.message || (hubOk ? "Agent 已连接" : "尚未通过检测"));
+        if (!hubOk) issues.push("Hub：" + detail);
+        servers.unshift('<div class="diagnosticServerRow ' + (hubOk ? "" : "warn") + '"><b>Hub</b><span class="' + (hubOk ? "status-completed" : "status-warning") + '">' + (hubOk ? "正常" : "需检查") + '</span><span title="' + escAttr(detail) + '">' + esc(compactText(detail, 110)) + '</span></div>');
+      }
+      asArray((state.tunnelPortConflicts || {}).conflicts || state.tunnelPortConflicts).forEach((conflict) => {
+        if (String((conflict || {}).severity || "").toLowerCase() === "error") issues.push("端口：" + String(conflict.message || conflict.suggestion || "检测到冲突"));
+      });
+      asArray(state.actionErrors).filter((row) => {
+        const when = Date.parse((row || {}).timestamp || "");
+        return when && Date.now() - when < 15 * 60 * 1000;
+      }).slice(-2).forEach((row) => issues.push("最近操作：" + String(row.message || "未知错误")));
+      const serverHtml = servers.length ? servers.join("") : '<div class="diagnosticServerRow warn"><b>服务器</b><span class="status-warning">待检测</span><span>尚无 Worker 检测结果</span></div>';
+      const issueHtml = issues.length ? issues.slice(0, 4).map((item) => '<div class="diagnosticIssue">' + esc(compactText(item, 220)) + '</div>').join("") : '<div class="diagnosticIssue ok">当前无待处理的连接或端口问题</div>';
+      setHtmlIfChanged("diagnosticOverview", serverHtml + issueHtml + (issues.length > 4 ? '<div class="muted">另有 ' + esc(issues.length - 4) + ' 项；展开完整检查记录查看。</div>' : ""));
     }
 
     function renderDiagnosticDetailsJson(state) {
@@ -4498,6 +4567,12 @@ export function renderPanelHtml(): string {
       activeResourceSection = nextSection;
       activeResourceAnchor = nextAnchor;
       updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
+      let parentDetails = resolveResourceScrollTarget(activeResourceSection, activeResourceAnchor)?.closest?.("details");
+      while (parentDetails) {
+        parentDetails.open = true;
+        if (parentDetails.dataset.detailsKey) detailsOpenState[parentDetails.dataset.detailsKey] = true;
+        parentDetails = parentDetails.parentElement?.closest?.("details");
+      }
       scrollToResourceTarget(activeResourceSection, activeResourceAnchor);
       if (targetChanged || (options && options.force)) {
         forceWorkbenchInspectorRender();
@@ -12633,6 +12708,55 @@ export function renderPanelHtml(): string {
       return [row.id, row.archiveKey].some((value) => selected?.has(String(value || "")));
     }
 
+    function renderExecutionPlanList(state) {
+      const groups = new Map();
+      const getGroup = (path) => {
+        const planFile = String(path || "").trim();
+        const key = normalizePlanSelectionKey(planFile).toLowerCase() || "unassigned";
+        if (!groups.has(key)) groups.set(key, { key, planFile, operations: [], tasks: [] });
+        return groups.get(key);
+      };
+      operationRowsForState(state).forEach((row) => {
+        const planFile = row.planFile || row.plan;
+        if (planFile) getGroup(planFile).operations.push(row);
+      });
+      taskSectionViewModelForState(state).allRows.forEach((row) => getGroup(taskPlanFile(row)).tasks.push(row));
+      const selected = taskSelectionSetsForState(state);
+      const items = Array.from(groups.values()).map((group) => {
+        const active = group.tasks.some((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) || TASK_QUEUED_STATUSES?.has(taskStatusToken(row.status))) || group.operations.some((row) => operationIsActive(row.status));
+        const failed = group.tasks.some((row) => taskFailureLikeStatus(row.status)) || group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row));
+        const tone = active ? "running" : failed ? "failed" : "completed";
+        const completed = group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status))).length;
+        const running = group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
+        const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
+        const stamp = [...group.operations, ...group.tasks].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || "") || 0), 0);
+        return { ...group, tone, completed, running, label, stamp };
+      });
+      items.sort((a, b) => ({ running: 0, failed: 1, completed: 2 }[a.tone] - { running: 0, failed: 1, completed: 2 }[b.tone]) || b.stamp - a.stamp || a.label.localeCompare(b.label));
+      const renderPlan = (group) => {
+        const detailKey = "execution-plan-" + encodeURIComponent(group.key);
+        const count = group.tasks.length ? ("任务 " + group.completed + "/" + group.tasks.length + (group.running ? " · 运行 " + group.running : "")) : ("操作 " + group.operations.length);
+        const sortedOps = group.operations.slice().sort((a, b) => String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || "")));
+        const sortedTasks = group.tasks.slice().sort((a, b) => {
+          const priority = (row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) ? 0 : taskFailureLikeStatus(row.status) ? 1 : 2;
+          return priority(a) - priority(b) || String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || ""));
+        });
+        const opRows = sortedOps.slice(0, 4);
+        const taskRows = sortedTasks.slice(0, 20);
+        const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
+        const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
+        const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录可在下方“完整操作与任务记录”中查看。</div>' : "";
+        return '<details class="executionPlanRow ' + group.tone + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '>' +
+          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? "异常" : "已结束") + '</b></summary>' +
+          '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' + opHtml + taskHtml + more + '</div></details>';
+      };
+      const current = items.filter((item) => item.tone !== "completed");
+      const history = items.filter((item) => item.tone === "completed");
+      const historyKey = "execution-completed-plans";
+      const historyHtml = history.length ? '<details class="executionArchive" data-details-key="' + historyKey + '"' + detailsOpenAttr(historyKey, false) + '><summary>已结束的 Plan · ' + history.length + '</summary><div class="executionPlanList">' + history.map(renderPlan).join("") + '</div></details>' : "";
+      setHtmlIfChanged("executionPlanList", (current.length ? '<div class="executionPlanList">' + current.map(renderPlan).join("") + '</div>' : (history.length ? "" : '<div class="muted">暂无 Plan 运行记录。</div>')) + historyHtml);
+    }
+
     function renderOperationSection(state) {
       const view = operationViewModelForState(state);
       const ops = (state && state.operations) ? Object.values(state.operations) : [];
@@ -12652,13 +12776,9 @@ export function renderPanelHtml(): string {
       const abortOpId = String(activeOp.operationId || activeOp.id || "");
       const abortPlan = String(activeOp.planFile || activeOp.plan || "");
       const abortEnabled = !!abortOpId && !!abortPlan;
-      const globalAbort = '<div class="operationActions" style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
-        + '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止该实验的运行任务&#10;' + (abortEnabled ? '当前有运行中调度，可点击中止' : '当前无运行中调度，按钮暂不可用') + '&#10;无需先选中任务行；中止成功后会清理本机调度日志与调度会话">中止/清理</button>'
-        + '<button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button>'
-        + '<button class="mini secondary" data-command="clearOperations" data-confirm="true" title="清空本机运行进度历史&#10;清除面板上的操作记录与本地缓存&#10;远端审计日志保留，刷新后会重新拉取">清空历史</button>'
-        + '<button class="mini secondary" data-command="snapshot" title="手动刷新运行状态&#10;重新拉取调度状态与操作记录">刷新运行状态</button>'
-        + '<span class="muted" style="font-size:11px;">' + (abortEnabled ? '与运行状态解耦，可中止' : '暂无可中止调度') + ' · 点击刷新可重拉状态</span></div>';
-      setHtmlIfChanged("operationList", globalAbort + (view.rows.length
+      setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止当前 Plan 的运行任务">中止当前 Plan</button><button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
+      const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button><button class="mini secondary" data-command="clearOperations" data-confirm="true" title="清空本机运行进度历史；远端记录保留">清空历史</button></div>';
+      setHtmlIfChanged("operationList", advancedActions + (view.rows.length
         ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + (view.visibleRows.length
           ? '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'
           : '<div class="empty-state">当前筛选下没有操作记录。</div>')
@@ -12695,6 +12815,7 @@ export function renderPanelHtml(): string {
     }
 
     function renderExecutionSection(state) {
+      renderExecutionPlanList(state);
       renderOperationSection(state);
       renderTaskSection(state);
     }

@@ -15,20 +15,25 @@ class ExecutionSection {
       <div class="section-head">
           <div class="section-title">
             <h2>运行进度</h2>
-            <div class="section-desc">调度操作与实验任务统一视图（关联字段：planFile / revision / opId）· 调度报错自动透传并转为终态</div>
+            <div class="section-desc">按 Plan 查看进度；展开单行查看任务和日志</div>
           </div>
           <div class="section-head-actions">
-            <span class="pill" title="原“操作进度”与“任务运行状态”已原生合并为单一卡片">已合并</span>
+            <span class="pill" title="运行中和异常置顶；完成记录折叠">按 Plan</span>
           </div>
       </div>
-      <div id="operationList" data-anchor="execution-operations"></div>
-      <div id="taskSummary" data-anchor="execution-tasks"></div>
-      <div id="taskBatchActions" class="actionGrid"></div>
-      <div id="taskProgressCards" data-anchor="tasks-progress"></div>
-      <div class="taskWorkbench">
-        <div id="taskTable" data-anchor="tasks-list"></div>
-        <aside id="taskDetailPane" class="taskDetailPane" aria-live="polite"></aside>
-      </div>
+      <div id="executionControls" class="executionControls"></div>
+      <div id="executionPlanList" data-anchor="execution-operations"></div>
+      <details class="executionFullRecords" data-details-key="execution-full-records">
+        <summary>完整操作与任务记录</summary>
+        <div id="operationList"></div>
+        <div id="taskSummary" data-anchor="execution-tasks"></div>
+        <div id="taskBatchActions" class="actionGrid"></div>
+        <div id="taskProgressCards" data-anchor="tasks-progress"></div>
+        <div class="taskWorkbench">
+          <div id="taskTable" data-anchor="tasks-list"></div>
+          <aside id="taskDetailPane" class="taskDetailPane" aria-live="polite"></aside>
+        </div>
+      </details>
       <div hidden data-anchor="tasks"></div>
       <div hidden data-anchor="operations"></div>
       <div hidden data-anchor="tasks-summary"></div>

@@ -14,17 +14,21 @@ export class DiagnosticsSection implements Section {
       <div class="section-head">
         <div class="section-title">
           <h2>诊断与自检</h2>
-          <div class="section-desc">能力、端口、JSON</div>
+          <div class="section-desc">服务器健康状态与待处理问题</div>
         </div>
       </div>
-      <div id="diagnosticActions" class="actionGrid"></div>
-      <div class="toolbar" title="静态检查报告：failed 自动落盘，passed 加 --write-md/--report-md">
-        <button data-command="openLastCheckStaticReport" type="button">打开静态检查报告</button>
-        <button data-command="copyLastCheckStaticReport" type="button">复制静态检查报告</button>
-      </div>
-      <div id="targetCompletionMatrix" data-anchor="diagnostics-targets"></div>
-      <div id="featureReadiness" data-anchor="diagnostics-audit"></div>
-      <div id="actionErrors" data-anchor="diagnostics-errors"></div>
+      <div id="diagnosticOverview" class="diagnosticOverview"></div>
+      <details class="diagnosticAllChecks" data-details-key="diagnostics-all-checks">
+        <summary>全部检查记录与工具</summary>
+        <div id="diagnosticActions" class="actionGrid"></div>
+        <div class="toolbar" title="静态检查报告：failed 自动落盘，passed 加 --write-md/--report-md">
+          <button data-command="openLastCheckStaticReport" type="button">打开静态检查报告</button>
+          <button data-command="copyLastCheckStaticReport" type="button">复制静态检查报告</button>
+        </div>
+        <div id="targetCompletionMatrix" data-anchor="diagnostics-targets"></div>
+        <div id="featureReadiness" data-anchor="diagnostics-audit"></div>
+        <div id="actionErrors" data-anchor="diagnostics-errors"></div>
+      </details>
       <details class="advanced">
         <summary>高级诊断</summary>
         <div class="toolbar" title="插件不内置 SSH；Hub 和 Worker 连接由 Xshell 本地端口转发提供">
