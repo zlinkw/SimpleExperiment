@@ -4,12 +4,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readSource } = require("../_helpers/sourceReader");
 
-const source = readSource("src/extension.ts");
-const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension.js"), "utf8");
+const source = readSource("src/extension/legacy.ts");
+const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
 
 test("SimpleExperiment routes UI side effects through the shared host lease", () => {
-  assert.match(source, /require\("\.\/core\/HostOperationLease"\)/);
-  assert.match(compiled, /require\("\.\/core\/HostOperationLease"\)/);
+  assert.match(source, /require\("\.\.\/core\/HostOperationLease"\)/);
+  assert.match(compiled, /require\("\.\.\/core\/HostOperationLease"\)/);
   assert.match(source, /this\.hostOperationLease\.run\(/);
   assert.match(source, /hostOperationLeaseActionForUiCommand\(command\)/);
   assert.match(source, /runActionCommandCore\(command, message\)/);

@@ -3574,11 +3574,15 @@ class RealtimeTunnelPanelProvider {
         });
         if (showMessage) {
             const topologySummary = topology.hubAllowed ? `Hub + ${expectedTargets - 1} 个 Worker` : `${expectedTargets} 个 Worker（无 Hub）`;
-            const next = await vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接识别工作区。`, "识别工作区", "打开面板");
-            if (next === "识别工作区")
-                await this.bootstrapProjectFromUi();
-            else if (next === "打开面板")
-                await vscode.commands.executeCommand("simpleExperiment.openPanel");
+            void vscode.window.showInformationMessage(`Agent 首次准备完成：${topologySummary} 已部署、启动并通过检测。下一步可直接识别工作区。`, "识别工作区", "打开面板")
+                .then((next) => {
+                if (next === "识别工作区")
+                    return vscode.commands.executeCommand("simpleExperiment.bootstrapProject");
+                if (next === "打开面板")
+                    return vscode.commands.executeCommand("simpleExperiment.openPanel");
+                return undefined;
+            })
+                .catch((error) => console.warn("Agent 准备完成提示后续操作失败", error));
         }
         return true;
     }

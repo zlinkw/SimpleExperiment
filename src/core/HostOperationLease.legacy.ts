@@ -164,7 +164,7 @@ export class HostOperationLeaseManager {
                     return this.createHandle(inspection.record, fallbackSession);
                 }
             }
-            if (inspection.expiresAtMs > this.now())
+            if (inspection.expiresAtMs > this.now() && !ownerProcessDefinitelyGone(inspection.record))
                 throw new HostOperationLeaseConflictError(inspection.record || malformedLeaseRecord(this.leasePath, inspection.expiresAtMs));
 
             const movedPath = `${this.leasePath}.expired-${crypto.randomUUID()}`;
@@ -420,6 +420,19 @@ function malformedLeaseRecord(leasePath: string, expiresAtMs: number): HostOpera
 
 function parseTimestamp(value: string): number {
     return Date.parse(value);
+}
+
+function ownerProcessDefinitelyGone(record: HostOperationLeaseRecord | undefined): boolean {
+    if (!record || record.processId <= 0 || !record.windowId.startsWith(`${os.hostname()}:${record.processId}:`))
+        return false;
+    try {
+        process.kill(record.processId, 0);
+        return false;
+    }
+    catch (error) {
+        // EPERM and unknown probe failures cannot prove that an owner is gone.
+        return hasErrorCode(error, "ESRCH");
+    }
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

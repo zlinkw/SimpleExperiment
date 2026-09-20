@@ -131,6 +131,30 @@ test("expired lease supports crash recovery without force-removing an active lea
   }
 });
 
+test("restart recovers a lease immediately when its local extension host process is gone", async () => {
+  const fixture = leaseFixture();
+  try {
+    const deadPid = 2147483647;
+    const old = await fixture.manager(`${os.hostname()}:${deadPid}:old-window`, {
+      processId: deadPid,
+      ttlMs: 30_000,
+      heartbeatMs: 0,
+    }).acquire(fixture.input("simple-local.simple-experiment", "prepareAgents"));
+    const replacement = await fixture.manager(`${os.hostname()}:${process.pid}:new-window`, {
+      processId: process.pid,
+      ttlMs: 30_000,
+      heartbeatMs: 0,
+    }).acquire(fixture.input("simple-local.simple-experiment", "prepareAgents"));
+    assert.equal(replacement.record.actionType, "prepareAgents");
+    assert.equal(replacement.record.windowId, `${os.hostname()}:${process.pid}:new-window`);
+    await old.release();
+    await replacement.assertHeld();
+    await replacement.release();
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("both plugins reenter the same window lease and release only after the final holder", async () => {
   const fixture = leaseFixture();
   try {
