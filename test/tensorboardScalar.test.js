@@ -57,12 +57,13 @@ test("hover details show one compact comparison row per case without an inner ve
   const context = vm.createContext({ document });
   vm.runInContext(elSource + hoverSource + "globalThis.renderHoverDetails=renderHoverDetails;globalThis.hoverCard=hoverCard", context);
   const tooltip = new Element("div");
+  const plannedSeeds = [42, 43, 44, 45, 46].map(seed => ({ seed }));
   const card = {
     tooltip, markers: [], smooth: { value: "0.4" },
     plot: { bounds: { x0: 1, x1: 3 }, left: 0, right: 100 },
     displaySeries: [
-      { color: "#3766df", means: [0.8], row: { case: "bus_p30", points: [{ step: 2, mean: 0.79, std: 0.01, n: 2, seeds: { 42: 0.78, 43: 0.8 } }], expectedSeeds: 5 } },
-      { color: "#d97706", means: [0.75], row: { case: "bus_p40", points: [{ step: 2, mean: 0.74, std: null, n: 1, seeds: { 44: 0.74 } }], expectedSeeds: 5 } },
+      { color: "#3766df", means: [0.8], row: { case: "bus_p30", points: [{ step: 2, mean: 0.79, std: 0.01, n: 2, seeds: { 42: 0.78, 43: 0.8 } }], expectedSeeds: 5, seeds: plannedSeeds } },
+      { color: "#d97706", means: [0.75], row: { case: "bus_p40", points: [{ step: 2, mean: 0.74, std: null, n: 1, seeds: { 44: 0.74 } }], expectedSeeds: 5, seeds: plannedSeeds } },
     ],
   };
   context.hoverCard(card, { offsetX: 50, offsetY: 200 });
@@ -70,33 +71,34 @@ test("hover details show one compact comparison row per case without an inner ve
   const table = tooltip.children[0];
   assert.equal(table.tag, "table");
   assert.equal(table.children[0].tag, "colgroup");
-  assert.equal(table.children[0].children.length, 7);
+  assert.equal(table.children[0].children.length, 11);
   assert.equal(table.style.props["--hover-case-width"], "9ch");
   assert.equal(table.style.props["--hover-step-width"], "6ch");
-  assert.equal(table.style.props["--hover-seeds-width"], "23ch");
+  assert.equal(table.style.props["--hover-seed-width"], "12ch");
+  assert.deepEqual(table.children[1].children[0].children.slice(6).map(cell => cell.textContent), ["42", "43", "44", "45", "46"]);
   const rows = table.children[2].children;
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].children.length, 7);
-  const firstSeedList = rows[0].children[6].children[0];
-  assert.equal(firstSeedList.children.length, 2);
-  assert.equal(firstSeedList.children[0].children[0].tag, "strong");
-  assert.equal(firstSeedList.children[0].children[0].textContent, "42:");
-  assert.equal(firstSeedList.children[0].children[1].textContent, "0.7800");
+  assert.equal(rows[0].children.length, 11);
+  assert.deepEqual(rows[0].children.slice(6).map(cell => cell.textContent), ["0.7800", "0.8000", "—", "—", "—"]);
+  assert.deepEqual(rows[1].children.slice(6).map(cell => cell.textContent), ["—", "—", "0.7400", "—", "—"]);
   assert.match(rows[0].title, /bus_p30.*step 2.*数值 0\.790000.*平滑 0\.800000.*标准差 0\.010000.*seed 2\/5.*42:0\.7800.*43:0\.8000/);
   assert.match(rows[1].title, /bus_p40.*标准差 —.*seed 1\/5.*44:0\.7400/);
   const css = scalarDashboardHtml.match(/<style>([\s\S]*?)<\/style>/)[1];
   assert.doesNotMatch(css, /\.tooltip\{[^}]*overflow-y:auto/);
   assert.match(css, /col\.step-column\{width:var\(--hover-step-width,6ch\)\}/);
-  assert.match(css, /col\.seed-column\{width:var\(--hover-seeds-width,36ch\)\}/);
-  assert.match(css, /\.hover-seed-list\{[^}]*gap:14px/);
-  assert.match(css, /\.hover-seed-key\{[^}]*font-weight:800;color:#2452a6/);
+  assert.match(css, /col\.seed-value-column\{width:var\(--hover-seed-width,12ch\)\}/);
+  assert.match(css, /th\.seed-value-column\{font-weight:800;color:#2452a6/);
   assert.doesNotMatch(css, /\.step-column\{display:none\}/);
+  card.displaySeries[0].row.points.push({ step: 3, mean: 0.8, std: null, n: 1, seeds: { 42: 0.8 } });
+  context.hoverCard(card, { offsetX: 100, offsetY: 200 });
+  assert.deepEqual(tooltip.children[0].children[1].children[0].children.slice(6).map(cell => cell.textContent), ["42", "43", "44", "45", "46"]);
+  assert.deepEqual(tooltip.children[0].children[2].children[0].children.slice(6).map(cell => cell.textContent), ["0.8000", "—", "—", "—", "—"]);
   context.renderHoverDetails(card, Array.from({ length: 20 }, (_, index) => ({ case: "case_" + index, color: "#3766df", step: 7, mean: index, n: 1, expectedSeeds: 5 })));
   assert.equal(tooltip.children[0].children[2].children.length, 20);
   tooltip.clientWidth = 320;
   context.renderHoverDetails(card, [{ case: "very_long_case_name_for_small_cards", color: "#3766df", step: 7, mean: 0.7, seeds: { 42: 0.7, 43: 0.71, 44: 0.72 } }]);
   assert.equal(tooltip.children[0].style.props["--hover-case-width"], "18ch");
-  assert.equal(tooltip.children[0].style.props["--hover-seeds-width"], "21ch");
+  assert.equal(tooltip.children[0].style.props["--hover-seed-width"], "12ch");
   card.markers = [{ x: 50, y: 200, detail: { case: "bus_p30", color: "#3766df", label: "均值 最大", step: 2, value: 0.79 } }];
   context.hoverCard(card, { offsetX: 50, offsetY: 200 });
   assert.match(tooltip.children[0].children[2].children[0].title, /bus_p30 · 均值 最大.*step 2.*数值 0\.790000/);
