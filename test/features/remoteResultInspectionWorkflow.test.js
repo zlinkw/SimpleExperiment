@@ -252,10 +252,21 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
   assert.match(panel, /resultFileButton\("打开完整预览", previewCsvPath, resultPlanFile\)/);
   assert.match(panel, /resultFileButton\("打开有效结果", effectiveResultsCsvPath, resultPlanFile\)/);
-  assert.match(panel, /function resultFileButton\(label, file, planFile, workerId\)/);
+  assert.match(panel, /function resultFileButton\(label, file, planFile, workerId, help, showUnavailable\)/);
   assert.match(panel, /data-command="openResultArtifact" data-remote-path=/);
   const buttonHelper = panel.slice(panel.indexOf("function resultFileButton"), panel.indexOf("function renderResultNextAction"));
   assert.doesNotMatch(buttonHelper, /data-command="openPlan"/);
+});
+
+test("Plan concise table is the primary result entry with scoped explanations", () => {
+  assert.match(panel, /当前 Plan 简洁汇总/);
+  assert.match(panel, /查看简洁汇总 CSV/);
+  assert.match(panel, /查看简洁汇总 Markdown/);
+  assert.match(panel, /一行对应一个方法 × 数据集 × 训练比例 × 评估端点/);
+  assert.match(panel, /data-details-key="result-trace-files"/);
+  assert.match(panel, /data-details-key="result-project-summary"/);
+  assert.match(panel, /尚未生成简洁汇总/);
+  assert.match(panel, /重建当前 Plan 汇总/);
 });
 
 test("bulk sync uses one action, one overwrite decision and the Agent tunnel for each file", () => {
