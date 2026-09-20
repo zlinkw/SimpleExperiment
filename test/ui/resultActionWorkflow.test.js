@@ -58,8 +58,9 @@ test("result workflow actions and evidence summary are wired without duplicated 
     assert.match(html, new RegExp(`"${command}"`));
   }
 
-  assert.match(html, /id="traceTable"/);
-  assert.match(html, /class="resultWorkbench"/);
+  assert.match(html, /id="resultSummary"/);
+  assert.doesNotMatch(html, /id="traceTable"/);
+  assert.doesNotMatch(html, /class="resultWorkbench"/);
   assert.match(html, /resultEvidenceWorkbench/);
   assert.match(html, /function renderResultEvidenceWorkbench/);
   assert.match(html, /pairedComparisons/);
@@ -81,7 +82,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.doesNotMatch(html, /论文证据明细：显示/);
   assert.doesNotMatch(html, /正式论文建议复核统计检验/);
   assert.doesNotMatch(html, /需要至少两个方法在相同/);
-  assert.match(html, /id="traceDetailPane"/);
+  assert.doesNotMatch(html, /id="traceDetailPane"/);
   assert.match(html, /function renderTraceCard/);
   assert.match(html, /function renderTraceDetailPane/);
   assert.match(html, /tracePath/);

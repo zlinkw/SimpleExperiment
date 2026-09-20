@@ -1395,20 +1395,15 @@ export function renderPanelHtml(): string {
           <div class="section-desc">查看总表、同步原始数据、按列拆表</div>
         </div>
       </div>
-      <div class="resultWorkbench">
-        <div class="resultMainPane">
-          <h3>结果摘要</h3>
-          <div id="resultSummary" data-anchor="results-summary"></div>
-          <div class="contractQuickLinks" data-anchor="results-contract">
-            <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
-            <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
-            <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
-            <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
-          </div>
-          <h3>实验记录</h3>
-          <div id="traceTable" data-anchor="results-traces"></div>
+      <div class="resultMainPane">
+        <h3>结果摘要</h3>
+        <div id="resultSummary" data-anchor="results-summary"></div>
+        <div class="contractQuickLinks" data-anchor="results-contract">
+          <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
+          <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
+          <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
+          <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
         </div>
-        <aside id="traceDetailPane" class="traceDetailPane" aria-live="polite"></aside>
       </div>
       <details class="resultArtifactGroup" data-details-key="results-ppt-plot">
         <summary>绘图到 PPT（可选）</summary>
@@ -3405,7 +3400,6 @@ export function renderPanelHtml(): string {
       } else if (section === "plans") {
         renderPlanSection(state);
       } else if (section === "results") {
-        renderTraceSection(state);
         renderResultSummary(state);
       } else if (section === "gpu") {
         renderGpuSection(state);
@@ -6464,7 +6458,6 @@ export function renderPanelHtml(): string {
         treeObjectItem("results", "检查点清理预案", "入口", "", "生成检查点清理预演和保留报告。", "results-checkpoints", "", "checkpoint manifest delete_plan retention_report dry-run"),
         treeObjectItem("results", "配置反推", "入口", "", "从 run 目录、日志、manifest 和 snapshot 反推出可复现实验配置与 recovered plan。", "results-recovery", "", "recovered plan config snapshot env_snapshot command"),
         treeObjectItem("results", "异常定位", "入口", "", "把异常结果与同组最优 run/config 对比，输出排序原因和配置差异。", "results-anomaly", "", "anomaly best config diff OOM NaN Traceback"),
-        treeObjectItem("results", "实验记录", "入口", "", "查看实验记录、归档终态和删除状态。", "results-traces", "", "trace archive delete manifest"),
         treeObjectItem("results", "PPT 绘图契约", "入口", "", "查看结果索引、统计结果、论文表格、样本级结果和数据集画像稳定字段。", "results-plotting", "", "PPT plotting contract my_ppt_app statistics paper table case level")
       ];
     }
