@@ -112,4 +112,7 @@ group = queried["groups"][0]
 assert set(group["seriesByTag"]) == {"accuracy", "loss"}
 assert group["seriesByTag"]["accuracy"][0]["points"] == [[1, 0.25], [2, 0.75]]
 assert group["seriesByTag"]["loss"][0]["points"] == [[1, 2.0], [2, 1.0]]
+with patch.object(agent, "scalar_catalog", return_value={"plans": []}):
+    groups = [{"planFile": "plan.yaml", "case": f"case-{index}"} for index in range(21)]
+    assert len(agent.scalar_query("/virtual/project", {"groups": groups})["groups"]) == 20
 print("scalar agent records: pass")

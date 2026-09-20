@@ -20,7 +20,8 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
   ${scalarChartMathScript}
   const tree=document.getElementById('tree'),content=document.getElementById('content'),groupRoot=document.getElementById('groups'),status=document.getElementById('status');
   const scalarPage=document.getElementById('scalarPage'),sidebarHandle=document.getElementById('sidebarHandle'),caseSearch=document.getElementById('caseSearch'),selectedOnly=document.getElementById('selectedOnly'),selectionSummary=document.getElementById('selectionSummary');
-  const palette=['#3766df','#d97706','#0a9b71','#bb3ba8','#d23d48','#6355c8','#087eaa','#a06328'];
+  const palette=['#3766df','#d97706','#0a9b71','#bb3ba8','#d23d48','#6355c8','#087eaa','#a06328','#5b8f25','#e56b9f','#137c6b','#b05b16','#7b4fc4','#ba7f12','#d8508b','#4c879e','#8f581c','#4f8b60','#bc6f64','#5762a0'];
+  const maxComparisonCases=19;
   const interval=document.getElementById('interval'),columns=document.getElementById('columns'),auto=document.getElementById('autoRefresh'),band=document.getElementById('band'),raw=document.getElementById('raw');
   let catalog=[],active=null,comparison=new Map(),cards=new Map(),observer=null,generation=0,refreshing=false,pending=false,lastRequest=0,backoff=0,nativeStarted=false;
   const planOpen=new Map();
@@ -57,12 +58,12 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
         main.onclick=()=>void selectCase(item);
         const compare=el('button','compare-toggle'+(isCompared?' is-selected':''),isActive?'主图中':isCompared?'移出对比':'+ 加入对比');
         compare.type='button';compare.disabled=isActive||!active;compare.setAttribute('aria-pressed',String(isCompared));compare.title=isActive?'当前主图自动显示':!active?'先选择一个主图':'叠加或移除该 case 的同名指标均值';
-        compare.onclick=()=>{if(isCompared)comparison.delete(itemKey);else if(comparison.size>=7){message('最多比较 7 个附加 case',true);return}else comparison.set(itemKey,item);renderTree();queueRefresh()};
+        compare.onclick=()=>{if(isCompared)comparison.delete(itemKey);else if(comparison.size>=maxComparisonCases){message('最多比较 '+maxComparisonCases+' 个附加 case（含主图共 20 个）',true);return}else comparison.set(itemKey,item);renderTree();queueRefresh()};
         row.appendChild(main);row.appendChild(compare);details.appendChild(row);
       });
     });
     if(!shown)tree.appendChild(el('p','muted',query?'没有匹配的 Plan 或 case':only?'尚未选择主图或对比 case':'暂无 case'));
-    selectionSummary.textContent=(active?'主图：'+active.case:'尚未选择主图')+' · 对比 '+comparison.size+'/7';
+    selectionSummary.textContent=(active?'主图：'+active.case:'尚未选择主图')+' · 对比 '+comparison.size+'/'+maxComparisonCases;
     document.getElementById('clearComparisons').disabled=comparison.size===0;
   }
   async function loadCatalog(){try{const result=await call('catalog');catalog=mergeCatalog(result);renderTree();message('目录已更新'+(result.offlineServers?.length?' · 离线 '+result.offlineServers.join(', '):''))}catch(error){message('目录读取失败：'+error.message,true)}}

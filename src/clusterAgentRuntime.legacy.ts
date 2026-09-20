@@ -9115,7 +9115,7 @@ def scalar_catalog(root, logdir="work_dirs"):
 def scalar_query(root, payload):
     if isinstance(payload.get("groups"), list):
         groups = []
-        for group in payload["groups"][:8]:
+        for group in payload["groups"][:20]:
             if not isinstance(group, dict):
                 continue
             query = {"planFile": group.get("planFile"), "case": group.get("case"), "tag": payload.get("tag"), "tags": payload.get("tags"), "logdir": payload.get("logdir")}

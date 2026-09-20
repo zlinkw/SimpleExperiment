@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 const { aggregateSeedScalars } = require("../dist/tensorboard/ScalarAggregation");
 const { smoothScalarValues, scalarExtreme } = require("../dist/tensorboard/ScalarChartMath");
@@ -35,6 +36,8 @@ test("case selection loads every metric and viewer script compiles", () => {
   assert.match(script, /renderCards\(tags\)/);
   assert.match(script, /call\('series',\{groups,tags\}\)/);
   assert.match(script, /scalarExtreme\(values,kind\)/);
+  assert.match(script, /maxComparisonCases=19/);
+  assert.match(fs.readFileSync(path.join(__dirname, "../dist/extension/legacy.js"), "utf8"), /params\.groups\.slice\(0, 20\)/);
 });
 
 test("old and tensor scalar records, incomplete tail, overwrite and CRC", () => {

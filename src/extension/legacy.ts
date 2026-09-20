@@ -11179,7 +11179,7 @@ export class RealtimeTunnelPanelProvider {
         if (!endpoints.length) throw new Error("没有配置 Worker Agent 隧道");
         if (!["catalog", "tags", "series"].includes(action)) throw new Error("未知标量操作");
         const logdir = String(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.logdir") || "work_dirs");
-        const groups = action === "series" ? (Array.isArray(params.groups) ? params.groups.slice(0, 8) : []) : [];
+        const groups = action === "series" ? (Array.isArray(params.groups) ? params.groups.slice(0, 20) : []) : [];
         const tags = action === "series" ? [...new Set((Array.isArray(params.tags) ? params.tags : [params.tag]).filter((tag: unknown) => typeof tag === "string" && tag.length > 0 && tag.length < 512))].slice(0, 32) : [];
         const payload = action === "series" ? { groups, tags, logdir } : { planFile: String(params.planFile || ""), case: String(params.case || ""), tag: "", logdir };
         if (action === "series" && (!tags.length || !groups.length)) throw new Error("缺少指标或实验");
