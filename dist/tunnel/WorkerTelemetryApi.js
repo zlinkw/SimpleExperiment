@@ -62,6 +62,7 @@ exports.workerResultActionNames = [
     "diagnose-result-anomaly",
     "compare-with-best-config",
     "archive-artifacts",
+    "archive-plan-copy",
     "exclude-results",
     "sync-artifacts",
     "complete-three-way",

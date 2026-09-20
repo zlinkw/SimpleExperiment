@@ -412,6 +412,15 @@ export class MultiEndpointRealtimeClient {
     return task;
   }
 
+  async downloadWorkerFile(workerId: string, remotePath: string, localPath: string, options: DownloadOptions = {}): Promise<FileTransferTask> {
+    const endpoint = this.endpointById.get(workerId);
+    const client = this.clients.get(workerId);
+    if (!client || endpoint?.role !== "worker") throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
+    const task = await client.downloadFile(remotePath, localPath, options);
+    this.updateMergedState();
+    return task;
+  }
+
   async uploadFile(localPath: string, remotePath: string): Promise<FileTransferTask> {
     const task = await this.hubClient().uploadFile(localPath, remotePath);
     this.updateMergedState();
@@ -696,6 +705,16 @@ export function mergeWorkerResultsSummaries(
   const unavailableWorkerIds = expectedWorkers.filter((workerId) => !workerIds.includes(workerId));
   const incompleteAggregate = unavailableWorkerIds.length > 0;
   const workerSetRevisions = [...new Set(accepted.map(({ summary }) => String(summary.workerSetRevision || "").trim()).filter(Boolean))];
+  const workerResultTables = accepted.map(({ workerId, summary }) => ({
+    workerId,
+    rawResultCsvPath: String(summary.rawResultCsvPath || ""),
+    aggregateCsvPath: String(summary.aggregateCsvPath || ""),
+    projectAggregateCsvPath: String(summary.projectAggregateCsvPath || ""),
+    aggregateStatus: String(summary.aggregateStatus || ""),
+    aggregateMessage: String(summary.aggregateMessage || ""),
+    columnMappingPreview: summary.columnMappingPreview || {},
+  }));
+  const singleTables = workerResultTables.length === 1 ? workerResultTables[0] : undefined;
   return {
     schemaVersion: 1,
     generatedAt: latest(accepted.map(({ summary }) => String(summary.generatedAt || summary.generated_at || "") || undefined)),
@@ -704,6 +723,16 @@ export function mergeWorkerResultsSummaries(
     ...(workerSetRevisions.length === 1 ? { workerSetRevision: workerSetRevisions[0] } : {}),
     topologyMode: expectedWorkers.length > 1 ? "worker_pool" : "single_worker",
     workerIds,
+    workerResultTables,
+    ...(singleTables ? {
+      rawResultCsvPath: singleTables.rawResultCsvPath,
+      aggregateCsvPath: singleTables.aggregateCsvPath,
+      projectAggregateCsvPath: singleTables.projectAggregateCsvPath,
+      aggregateStatus: singleTables.aggregateStatus,
+      aggregateMessage: singleTables.aggregateMessage,
+      columnMappingPreview: singleTables.columnMappingPreview,
+      resultOwnerWorkerId: singleTables.workerId,
+    } : {}),
     expectedWorkerIds: expectedWorkers,
     availableWorkerIds: workerIds,
     unavailableWorkerIds,

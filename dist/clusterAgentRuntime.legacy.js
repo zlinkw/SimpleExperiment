@@ -128,6 +128,7 @@ ACTION_NAMES = [
     "validate-plan",
     "dry-run-plan",
     "archive-artifacts",
+    "archive-plan-copy",
     "exclude-results",
     "sync-artifacts",
     "complete-three-way",
@@ -171,7 +172,7 @@ WORKER_RESULT_ACTIONS = {
     "export-paper-table", "check-claim-evidence", "check-output-contract", "parse-case-level",
     "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",
     "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run",
-    "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "exclude-results",
+    "diagnose-result-anomaly", "compare-with-best-config", "archive-artifacts", "archive-plan-copy", "exclude-results",
     "sync-artifacts", "complete-three-way",
 }
 WORKER_TENSORBOARD_ACTIONS = {"start-tensorboard", "stop-tensorboard", "get-tensorboard-status"}
@@ -185,6 +186,7 @@ ACTION_PATHS = [
     "/api/actions/validate-plan",
     "/api/actions/dry-run-plan",
     "/api/actions/archive-artifacts",
+    "/api/actions/archive-plan-copy",
     "/api/actions/exclude-results",
     "/api/actions/sync-artifacts",
     "/api/actions/complete-three-way",
@@ -761,7 +763,7 @@ def safe_project_path(root, value):
     root_result_files = ("metrics_summary.csv", "metrics_case.csv", "stdout.log", "stderr.log")
     if parts[-1].lower() in root_result_files:
         pass
-    elif parts[0] not in ("simple_cluster", "work_dirs", "experiments", "exports", "results", "paper", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions", "tmp"):
+    elif parts[0] not in ("simple_cluster", "work_dirs", "experiments", "configs", "archives", "exports", "results", "paper", "outputs", "runs", "logs", "test_results", "lightning_logs", "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions", "tmp"):
         raise ValueError("path outside allowed project roots")
     target = os.path.abspath(os.path.join(root, *parts))
     root_abs = os.path.abspath(root)
@@ -781,7 +783,8 @@ RESULT_ROOT_FILES = {
 }
 
 RESULT_TOP_DIRS = {
-    "work_dirs", "results", "outputs",
+    "work_dirs", "results", "outputs", "runs", "logs", "test_results", "lightning_logs",
+    "custom_results", "reports", "artifacts", "evals", "eval", "evaluation", "predictions", "submissions",
 }
 
 RESULT_PREFIX_PAIRS = {
@@ -815,9 +818,7 @@ def allowed_result_candidate(value):
     if tuple(lowered) in RESULT_EXACT_PAIRS:
         return True
     if lowered[0] in RESULT_TOP_DIRS:
-        if lowered[-1] in RESULT_ROOT_FILES:
-            return True
-        return len(lowered) >= 2 and tuple(lowered[:2]) in RESULT_PREFIX_PAIRS
+        return len(lowered) >= 2
     return len(lowered) >= 2 and tuple(lowered[:2]) in RESULT_PREFIX_PAIRS
 
 def parseable_result_candidate(value):
@@ -4509,7 +4510,7 @@ def action_debug_run_id(payload):
     return str(body.get("debugRunId") or body.get("debug_run_id") or options.get("debugRunId") or options.get("debug_run_id") or "").strip()
 
 DEBUG_BLOCKED_ACTIONS = {
-    "archive-artifacts", "archive-worker-artifacts", "exclude-results", "sync-artifacts", "complete-three-way",
+    "archive-artifacts", "archive-worker-artifacts", "archive-plan-copy", "exclude-results", "sync-artifacts", "complete-three-way",
     "delete-artifacts", "delete-worker-artifacts", "reconcile-deletions", "parse-results",
     "refresh-results", "rescan-results", "run-quality-gate", "run-statistics", "export-paper-table",
     "check-claim-evidence", "check-output-contract", "parse-case-level", "run-leakage-check",
@@ -5241,7 +5242,7 @@ def parse_csv_result_file(root, source_rel, policy=None):
         return []
     policy = policy or read_project_metric_policy(root)
     path = safe_project_path(root, source_rel)
-    text = open(path, "r", encoding="utf-8", errors="replace").read()
+    text = open(path, "r", encoding="utf-8-sig", errors="replace").read()
     rows = read_csv_dicts(text)
     if not rows:
         return []
@@ -5254,6 +5255,13 @@ def parse_csv_result_file(root, source_rel, policy=None):
         if wanted and wanted.lower() in lower_headers:
             return lower_headers[wanted.lower()]
         return next((lower_headers.get(item) for item in fallbacks if lower_headers.get(item)), None)
+    dimension_columns = {name: mapped_col(name, [name, name + "_name", name + "_id", "random_seed" if name == "seed" else name]) for name in ("case", "seed", "split", "dataset", "method")}
+    def canonical_row(row):
+        result = dict(row)
+        for name, column in dimension_columns.items():
+            if column and result.get(column) not in (None, ""):
+                result[name] = result[column]
+        return result
     metric_col = mapped_col("metric", ["metric", "metric_name", "name", "m"])
     value_col = mapped_col("value", ["value", "score", "result"])
     records = []
@@ -5264,6 +5272,7 @@ def parse_csv_result_file(root, source_rel, policy=None):
             value = coerce_metric_value(row.get(value_col))
             if not metric or not is_number(value):
                 continue
+            row = canonical_row(row)
             experiment_id, run_key = record_identity(source_rel, row, i)
             key = (experiment_id, run_key)
             item = grouped.setdefault(key, {"row": row, "metrics": {}, "index": i})
@@ -5273,11 +5282,15 @@ def parse_csv_result_file(root, source_rel, policy=None):
                 records.append(make_result_record(source_rel, item["row"], item["metrics"], item["index"]))
         return records
     metric_headers = []
+    mapped_dimension_headers = {column for column in dimension_columns.values() if column}
     for h in headers:
         normalized = metric_name(h, aliases)
+        if h in mapped_dimension_headers:
+            continue
         if normalized in KNOWN_METRICS or (h not in DIMENSION_COLUMNS and h.lower() not in NON_METRIC_COLUMNS and any(is_number(coerce_metric_value(row.get(h))) for row in rows[:20])):
             metric_headers.append(h)
-    for i, row in enumerate(rows):
+    for i, source_row in enumerate(rows):
+        row = canonical_row(source_row)
         metrics = {}
         for h in metric_headers:
             metric = metric_name(h, aliases)
@@ -5571,6 +5584,253 @@ def write_atomic_csv(path, header, rows):
         writer.writerows(rows)
     os.replace(tmp, path)
 
+def plan_result_identity(root, plan):
+    try:
+        text = uncommented_yaml_text(open(safe_project_path(root, plan), "r", encoding="utf-8").read())
+    except Exception:
+        return [], []
+    seeds = [str(value).strip() for value in yaml_list(text, "seeds") if str(value).strip()]
+    cases = [yaml_clean_value(value) for value in re.findall(r"^\s*-\s*case\s*:\s*([^\n#]+)", yaml_section_text(text, "cases"), re.M)]
+    return list(dict.fromkeys(seeds)), list(dict.fromkeys(value for value in cases if value))
+
+def result_seed_key(value):
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return ""
+    try:
+        number = float(text)
+        if math.isfinite(number) and number.is_integer():
+            return str(int(number))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return text
+
+def result_column_mapping_preview(root, source, policy):
+    try:
+        with open(safe_project_path(root, source), "r", encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream)
+            headers = reader.fieldnames or []
+            samples = [row for _, row in zip(range(20), reader)]
+    except Exception:
+        return {"source": source, "headers": [], "mapping": {}}
+    lookup = {str(header).lower(): header for header in headers}
+    configured = policy.get("csvColumnMapping") or {}
+    defaults = {"case": ("case", "case_name", "case_id"), "seed": ("seed", "random_seed"), "split": ("split", "partition"), "dataset": ("dataset", "data_name"), "method": ("method", "model_name"), "metric": ("metric", "metric_name"), "value": ("value", "score", "result")}
+    mapping = {}
+    for name, aliases in defaults.items():
+        preferred = str(configured.get(name) or "").lower()
+        match = lookup.get(preferred) if preferred else None
+        mapping[name] = match or next((lookup[alias] for alias in aliases if alias in lookup), "")
+    excluded = set(value for value in mapping.values() if value)
+    metrics = [{"column": header, "metric": metric_name(header, policy.get("metricAliases") or {})} for header in headers if header not in excluded and any(is_number(coerce_metric_value(row.get(header))) for row in samples)]
+    return {"source": source, "headers": headers[:120], "mapping": mapping, "metricColumns": metrics[:120], "configured": configured}
+
+def write_project_seed_aggregate(root, current_summary=None):
+    parent = safe_project_path(root, "simple_cluster/results/by_plan")
+    headers, rows = [], []
+    if os.path.isdir(parent):
+        for slug in sorted(os.listdir(parent))[:500]:
+            source = os.path.join(parent, slug, "seed_mean_std.csv")
+            saved = current_summary if plan_summary_slug((current_summary or {}).get("planFile")) == slug else read_json(os.path.join(parent, slug, "summary.json"), {})
+            if not isinstance(saved, dict) or saved.get("aggregateStatus") != "ready" or saved.get("aggregateCsvPath") != f"simple_cluster/results/by_plan/{slug}/seed_mean_std.csv":
+                continue
+            if not os.path.isfile(source) or os.path.islink(source) or not safe_small_file(source):
+                continue
+            with open(source, "r", encoding="utf-8", newline="") as stream:
+                reader = csv.DictReader(stream)
+                for header in reader.fieldnames or []:
+                    if header not in headers:
+                        headers.append(header)
+                rows.extend(dict(row) for row in reader if len(rows) < 50000)
+    output = "simple_cluster/results/project_seed_mean_std.csv"
+    if not headers:
+        headers = ["plan_file", "case", "expected_seed_count", "available_seeds", "complete"]
+    write_atomic_csv(safe_project_path(root, output), headers, [[row.get(header, "") for header in headers] for row in rows])
+    return output
+
+def write_plan_seed_aggregate(root, summary, policy):
+    plan = normalize_result_candidate(summary.get("planFile") or "")
+    if not plan:
+        return
+    expected_seeds, expected_cases = plan_result_identity(root, plan)
+    expected_seeds = list(dict.fromkeys(result_seed_key(item) for item in expected_seeds))
+    declared = [item for item in plan_declared_result_candidates(root, plan) if str(item).lower().endswith(".csv")]
+    records = [record for record in (summary.get("results") or []) if isinstance(record, dict)]
+    source_records = {}
+    for record in records:
+        source_files = record.get("sourceFiles") or []
+        source = normalize_result_candidate((source_files[0] or {}).get("path") if source_files and isinstance(source_files[0], dict) else "")
+        if source and source.lower().endswith(".csv"):
+            source_records.setdefault(source, []).append(record)
+    candidates = [source for source in declared if source in source_records]
+    if not candidates:
+        summary["aggregateStatus"] = "no_declared_csv"
+        summary["aggregateMessage"] = "Plan 未声明可解析的原始 CSV；请配置结果路径。"
+        return
+    source = max(candidates, key=lambda item: (sum(bool((row.get("dimensions") or {}).get("case") and (row.get("dimensions") or {}).get("seed") not in (None, "")) for row in source_records[item]), -declared.index(item)))
+    summary["rawResultCsvPath"] = source
+    summary["columnMappingPreview"] = result_column_mapping_preview(root, source, policy)
+    relevant = []
+    missing_identity = 0
+    for record in source_records[source]:
+        dimensions = record.get("dimensions") or {}
+        case = str(dimensions.get("case") or "").strip()
+        seed = result_seed_key(dimensions.get("seed"))
+        if case and expected_cases and case not in expected_cases:
+            continue
+        if seed and expected_seeds and seed not in expected_seeds:
+            continue
+        if not case or not seed:
+            missing_identity += 1
+            continue
+        relevant.append(record)
+    if missing_identity:
+        summary["aggregateStatus"] = "mapping_required"
+        summary["aggregateMessage"] = f"原始表有 {missing_identity} 条记录缺少可信 case 或 seed；请检查列映射。"
+        return
+    if not relevant:
+        summary["aggregateStatus"] = "no_matching_rows"
+        summary["aggregateMessage"] = "原始表没有与当前 Plan case/seed 对应的有效指标。"
+        return
+    group_keys = ("case", "dataset", "split", "fold", "method")
+    groups = {}
+    metric_names = set()
+    for record in relevant:
+        dims = record.get("dimensions") or {}
+        key = tuple(str(dims.get(name) if dims.get(name) is not None else "") for name in group_keys)
+        seed = result_seed_key(dims.get("seed"))
+        bucket = groups.setdefault(key, {})
+        seed_metrics = bucket.setdefault(seed, {})
+        for metric, payload in (record.get("metrics") or {}).items():
+            value = coerce_metric_value(payload.get("value") if isinstance(payload, dict) else payload)
+            if is_number(value) and math.isfinite(float(value)):
+                seed_metrics[str(metric)] = float(value)
+                metric_names.add(str(metric))
+    metric_names = ordered_metric_list(metric_names, policy)
+    header = ["plan_file", *group_keys, "expected_seed_count", "available_seeds", "complete"]
+    for metric in metric_names:
+        header.extend((metric + "_mean", metric + "_std", metric + "_n", metric + "_coverage"))
+    rows = []
+    for key, seeds in sorted(groups.items()):
+        expected = len(expected_seeds) if expected_seeds else len(seeds)
+        available = len(seeds)
+        row = [plan, *key, expected, available, "complete" if available == expected else "incomplete"]
+        for metric in metric_names:
+            values = [values[metric] for values in seeds.values() if metric in values]
+            count = len(values)
+            if count != expected:
+                row[header.index("complete")] = "incomplete"
+            row.extend((statistics.mean(values) if count else "", statistics.stdev(values) if count > 1 else "", count, f"{count}/{expected}"))
+        rows.append(row)
+    output = plan_results_artifact_relpath(plan, "seed_mean_std.csv")
+    write_atomic_csv(safe_project_path(root, output), header, rows)
+    summary["aggregateCsvPath"] = output
+    summary["aggregateStatus"] = "ready"
+    summary["aggregateRowCount"] = len(rows)
+    summary["aggregateIncompleteCount"] = sum(row[header.index("complete")] == "incomplete" for row in rows)
+    summary["aggregateMessage"] = f"已生成 {len(rows)} 行；不完整 {summary['aggregateIncompleteCount']} 行。"
+
+def archive_plan_copy_action(root, plan, snapshot_name=""):
+    plan = normalize_result_candidate(plan)
+    if not plan or not plan.lower().endswith((".yaml", ".yml")):
+        raise ValueError("需要当前 Plan YAML 路径")
+    plan_path = safe_project_path(root, plan)
+    if not os.path.isfile(plan_path):
+        raise ValueError("当前 Plan 文件不存在")
+    plan_text = uncommented_yaml_text(open(plan_path, "r", encoding="utf-8").read())
+    expected_seeds, expected_cases = plan_result_identity(root, plan)
+    if not expected_seeds or not expected_cases:
+        raise ValueError("Plan 缺少可信 cases 或 seeds，已阻止宽范围归档")
+    summary = read_results_summary(root, plan)
+    if summary.get("aggregateStatus") != "ready":
+        raise ValueError("当前 Plan 汇总表尚未生成；请先解析结果并检查列映射")
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(os.path.basename(plan))[0]).strip("._-")[:80] or "plan"
+    stamp = re.sub(r"[^A-Za-z0-9._-]+", "_", str(snapshot_name or "")).strip("._-")[:80] or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"_{time.time_ns() % 1000000000:09d}"
+    archive_rel = f"archives/{token}/{stamp}"
+    archive_root = safe_project_path(root, archive_rel)
+    os.makedirs(archive_root, exist_ok=False)
+    files, skipped, total_bytes = [], [], 0
+    max_file_bytes, max_total_bytes, max_files = 4 * 1024 * 1024, 128 * 1024 * 1024, 800
+    raw_source = normalize_result_candidate(summary.get("rawResultCsvPath") or "")
+    seeds = set(result_seed_key(seed) for seed in expected_seeds)
+    cases = set(expected_cases)
+    def add(source_rel, filtered=False, required=False):
+        nonlocal total_bytes
+        source_rel = normalize_result_candidate(source_rel)
+        if not source_rel or any(item["source"] == source_rel for item in files):
+            return
+        if len(files) >= max_files:
+            skipped.append({"source": source_rel, "reason": "文件数量上限"})
+            return
+        try:
+            source = safe_project_path(root, source_rel)
+            if not os.path.isfile(source) or os.path.islink(source):
+                raise ValueError("文件缺失或为链接")
+            size = os.path.getsize(source)
+            if size > max_file_bytes or total_bytes + size > max_total_bytes:
+                raise ValueError("超过轻量归档容量上限")
+            target_rel = f"{archive_rel}/files/{source_rel}"
+            target = safe_project_path(root, target_rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if filtered:
+                mapping = (summary.get("columnMappingPreview") or {}).get("mapping") or {}
+                case_col, seed_col = mapping.get("case"), mapping.get("seed")
+                with open(source, "r", encoding="utf-8-sig", newline="") as stream:
+                    reader = csv.DictReader(stream)
+                    if not case_col or not seed_col or case_col not in (reader.fieldnames or []) or seed_col not in (reader.fieldnames or []):
+                        raise ValueError("原始表缺少可信 case/seed 列映射")
+                    kept = [row for row in reader if str(row.get(case_col) or "").strip() in cases and result_seed_key(row.get(seed_col)) in seeds]
+                    header = reader.fieldnames or []
+                if not kept:
+                    raise ValueError("原始表没有当前 Plan 行")
+                write_atomic_csv(target, header, [[row.get(name, "") for name in header] for row in kept])
+            else:
+                shutil.copy2(source, target)
+            copied_bytes = os.path.getsize(target)
+            total_bytes += copied_bytes
+            files.append({"source": source_rel, "path": target_rel, "bytes": copied_bytes, "sha256": sha256_file(target)})
+        except Exception as exc:
+            if required:
+                raise ValueError(f"必需的当前 Plan 归档文件无法复制：{source_rel}：{exc}") from exc
+            skipped.append({"source": source_rel, "reason": str(exc)})
+    add(plan, required=True)
+    for key in ("base_config", "config"):
+        config = str(yaml_scalar(plan_text, key, "") or "").strip()
+        if config and "{" not in config:
+            add(config)
+    if os.path.isfile(os.path.join(root, "experiments", "simple_project.yaml")):
+        add("experiments/simple_project.yaml")
+    add(summary.get("aggregateCsvPath"), required=True)
+    for field in ("summaryPath", "previewCsvPath"):
+        add(summary.get(field))
+    if raw_source:
+        add(raw_source, filtered=True, required=True)
+    sweep = str(yaml_scalar(plan_text, "sweep_dir", "") or "").replace("{suite}", str(yaml_scalar(plan_text, "suite", "") or ""))
+    if sweep and "{" not in sweep:
+        try:
+            sweep_root = safe_project_path(root, sweep)
+            if os.path.isdir(sweep_root) and not os.path.islink(sweep_root):
+                visited = 0
+                for directory, subdirs, names in os.walk(sweep_root, followlinks=False):
+                    visited += 1
+                    if visited > 2000:
+                        skipped.append({"source": sweep, "reason": "目录数量上限"})
+                        break
+                    subdirs[:] = [name for name in subdirs if name not in ("checkpoints", "weights", "events", ".git", "__pycache__") and not os.path.islink(os.path.join(directory, name))]
+                    for name in names:
+                        if name in ("stdout.log", "stderr.log", "metrics_summary.csv", "metrics_case.csv") or name.endswith((".yaml", ".yml", ".log", ".out")):
+                            relative_job_path = os.path.relpath(os.path.join(directory, name), sweep_root).replace("\\", "/")
+                            belongs_to_case = any(re.search(r"(?:^|[/_-])" + re.escape(case) + r"(?=$|[/_.-])", relative_job_path) for case in cases)
+                            belongs_to_seed = any(re.search(r"(?:^|[/_-])(?:seed|s)[_-]?" + re.escape(seed) + r"(?=$|[/_.-])", relative_job_path, re.I) or re.search(r"(?:^|/)" + re.escape(seed) + r"(?=/)", relative_job_path) for seed in seeds)
+                            if belongs_to_case and belongs_to_seed:
+                                add(relpath(root, os.path.join(directory, name)))
+        except Exception as exc:
+            skipped.append({"source": sweep, "reason": str(exc)})
+    manifest_rel = f"{archive_rel}/manifest.json"
+    manifest = {"schemaVersion": 1, "planFile": plan, "createdAt": now_iso(), "scope": {"cases": expected_cases, "seeds": expected_seeds}, "files": files, "skipped": skipped, "totalBytes": total_bytes, "rawResultFiltered": True, "note": "仅复制轻量 Plan、配置、结果表和日志；不复制 checkpoint。"}
+    atomic_write(safe_project_path(root, manifest_rel), manifest)
+    return {"archivePath": archive_rel, "manifestPath": manifest_rel, "files": [manifest_rel, *[item["path"] for item in files]], "fileCount": len(files), "skipped": skipped, "totalBytes": total_bytes}
+
 def result_csv_rows(records):
     rows = []
     for record in records or []:
@@ -5622,6 +5882,8 @@ def write_results_summary_v2(root, summary):
         if plan and not summary.get("planFile"):
             summary["planFile"] = plan
         write_result_csv_views(root, summary, plan)
+        if plan:
+            summary["projectAggregateCsvPath"] = write_project_seed_aggregate(root, summary)
     target = safe_project_path(root, summary_rel)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, summary)
@@ -6657,6 +6919,7 @@ def parse_results_action(root, selected=None, plan=None, plan_revision="", owner
     }
     apply_result_ownership(summary, ownership)
     apply_final_evidence_summary(root, summary)
+    write_plan_seed_aggregate(root, summary, policy)
     claim_report = evaluate_claim_evidence(root, summary)
     apply_claim_evidence_summary(summary, claim_report)
     target = write_results_summary_v2(root, summary)
@@ -9561,6 +9824,12 @@ def handle_action(root, action, payload, operation_id, op_id):
         return terminal_action(root, action, operation_id, op_id, status, str(result.get("message") or result.get("status") or ""), result)
     if action == "self-check":
         return terminal_action(root, action, operation_id, op_id, "completed", "自检完成", {"diagnostics": api_diagnostics(root)})
+    if action == "archive-plan-copy":
+        try:
+            result = archive_plan_copy_action(root, action_plan_file(payload), payload.get("snapshotName"))
+            return terminal_action(root, action, operation_id, op_id, "completed", f"当前 Plan 轻量副本已写入 {result['archivePath']}", result, request=payload)
+        except Exception as exc:
+            return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
     if action in ("refresh-results", "rescan-results", "parse-results"):
         selected = action_values(payload, "selectedRunKeys", "selectedArchiveKeys", "selectedExperimentIds", "runKey", "archiveKey", "experimentId", "remotePath", "path") + action_task_target_values(payload)
         operation_fields = action_operation_fields(payload)

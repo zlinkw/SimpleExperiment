@@ -199,6 +199,8 @@ experiment_id,suite,method,dataset,split,seed,metric,value
 - `value` 必须是有限数值；不得写 `NaN`、`Infinity` 或空字符串。
 - 同一指标的不同 split、seed 或 method 分别成行。
 - 文件使用 UTF-8，首行为表头；CSV 列名可通过 `csvColumnMapping` 兼容映射。
+- 插件的通用跨 seed 汇总接受宽表或 `metric,value` 长表；Plan 须声明原始 CSV 路径、`cases` 和 `seeds`。原始行须有可信的 case 与 seed 列。列名可在 `outputs.csvColumnMapping` 按 `标准字段: 原始列名` 映射；缺失身份时停止汇总并保留原始表供检查。
+- 汇总表按当前 Plan 的 case、dataset、split、fold、method 分组，对同一 seed 的最新记录去重；每个指标写出 mean、样本 std、参与 seed 数及 `n/计划 seed 数`。`n<2` 的标准差留空；不修改项目原始表。当前 Plan 的表和当前 Worker 的项目总表分别生成。
 - per-job 双 csv：`metrics_summary.csv`（指标长表）+ `metrics_case.csv`（病例/样本级，必填列为 `experiment_id,case_id,dataset,split,method`）。
 - `metrics_case.csv` 列级 Schema：`experiment_id:string 必填`、`case_id:string 必填`、`dataset:string 必填`、`split:string 必填`、`method:string 必填`、`metric:string 可空（单行多指标时必填）`、`value:number 有限数值可空（缺失记空行不记 NaN/Inf）`、`label/pred/score:string|number 可空`；宽容策略：缺可选列不阻断，缺必填列阻断；`csvColumnMapping` 仅做列名兼容，不掩盖缺列。
 - `metrics_summary.csv` 扩展列口径：`mean/std/ci/pValue/adjustedPValue:number 可空`、`significant:boolean|可解析文本`、`unit:string 可空`、`higher_is_better:boolean 可空`、`epoch/step:int 可空`、`timestamp:ISO8601 可空`；`value` 必填有限数值。

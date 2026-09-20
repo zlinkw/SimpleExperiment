@@ -5,7 +5,7 @@ import { TunnelHealth } from "./TunnelHealth";
 export const tunnelActions = [
   "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
   "stop-scheduler-operation",
-  "archive-artifacts", "exclude-results", "sync-artifacts", "complete-three-way", "delete-artifacts", "reconcile-deletions",
+  "archive-artifacts", "archive-plan-copy", "exclude-results", "sync-artifacts", "complete-three-way", "delete-artifacts", "reconcile-deletions",
   "parse-results", "refresh-results", "self-check", "rescan-results", "run-quality-gate", "run-statistics", "export-paper-table",
   "check-claim-evidence", "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
   "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",

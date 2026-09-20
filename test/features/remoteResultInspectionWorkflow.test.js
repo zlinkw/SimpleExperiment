@@ -169,7 +169,7 @@ test("extension and workbench expose a confirmed download-and-open path", () => 
   assert.match(panel, /downloadRemoteResult: \["endpoints\.fileDownload"\]/);
   assert.match(panel, /data-command="downloadRemoteResult" data-remote-path=/);
   assert.match(panel, /outputContractUnparseableFileList: item\.unparseableFileList/);
-  assert.match(panel, /renderRemoteResultInspectionActions\(stage\.unparseableFileList, planFile, 2, stage\.unparseableDetails\)/);
+  assert.match(panel, /renderRemoteResultInspectionActions\(row\.unparseableFileList, row\.planFile, 3, row\.unparseableDetails\)/);
   assert.match(panel, /class="operationFileReason"/);
   assert.match(panel, /compactText\(error, 120\)/);
   assert.match(panel, /outputContractUnparseableDetails: item\.unparseableDetails/);
@@ -178,7 +178,7 @@ test("extension and workbench expose a confirmed download-and-open path", () => 
 test("preview and effective CSV buttons open result artifacts without changing Plan selection", () => {
   const handler = extension.slice(extension.indexOf("async openResultArtifactFromUi"), extension.indexOf("async openAuditTail"));
   assert.match(extension, /case "openResultArtifact":\s*await this\.openResultArtifactFromUi\(message\)/);
-  assert.match(extension, /"downloadRemoteResult", "openResultArtifact", "openAuditTail"/);
+  assert.match(extension, /"downloadRemoteResult", "openResultArtifact", "editResultColumnMapping", "openAuditTail"/);
   assert.match(handler, /this\.filterResultsSummaryForPlan\(this\.resultsSummary, planFile\)/);
   assert.match(handler, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(handler, /const client = this\.client/);
@@ -196,7 +196,7 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
   assert.match(panel, /resultFileButton\("打开完整预览", previewCsvPath, resultPlanFile\)/);
   assert.match(panel, /resultFileButton\("打开有效结果", effectiveResultsCsvPath, resultPlanFile\)/);
-  assert.match(panel, /function resultFileButton\(label, file, planFile\)/);
+  assert.match(panel, /function resultFileButton\(label, file, planFile, workerId\)/);
   assert.match(panel, /data-command="openResultArtifact" data-remote-path=/);
   const buttonHelper = panel.slice(panel.indexOf("function resultFileButton"), panel.indexOf("function renderResultNextAction"));
   assert.doesNotMatch(buttonHelper, /data-command="openPlan"/);

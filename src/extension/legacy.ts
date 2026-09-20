@@ -393,9 +393,9 @@ const uiActionCommands = new Set<WebviewActionCommand>([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
-    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+    "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
@@ -424,7 +424,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll",
     "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
     "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
-    "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "runAllPlans",
+    "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "editResultColumnMapping", "runAllPlans",
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
@@ -4553,6 +4553,9 @@ export class RealtimeTunnelPanelProvider {
             case "archivePlan":
                 await this.archivePlanFromUi(message);
                 break;
+            case "archivePlanCopy":
+                await this.archivePlanCopyFromUi(message);
+                break;
             case "restoreArchivedPlan":
                 await this.restoreArchivedPlanFromUi(message);
                 break;
@@ -4679,6 +4682,9 @@ export class RealtimeTunnelPanelProvider {
                 break;
             case "openResultArtifact":
                 await this.openResultArtifactFromUi(message);
+                break;
+            case "editResultColumnMapping":
+                await this.editResultColumnMappingFromUi();
                 break;
             case "openAuditTail":
                 await this.openAuditTail();
@@ -9133,6 +9139,102 @@ export class RealtimeTunnelPanelProvider {
         if (generation === this.projectContextGeneration && root === workspaceRoot())
             this.postState();
     }
+    async archivePlanCopyFromUi(message) {
+        const context = this.captureProjectContext();
+        const root = context.root;
+        const client = this.client;
+        if (!root)
+            throw new Error("请先打开当前实验项目。");
+        const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
+        if (!planFile)
+            throw new Error("请先选择当前 Plan。");
+        const summary = this.filterResultsSummaryForPlan(this.resultsSummary, planFile);
+        const tableSummaries = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+        if (tableSummaries.length ? tableSummaries.some((item) => item?.aggregateStatus !== "ready") : summary?.aggregateStatus !== "ready")
+            throw new Error(`当前 Plan 汇总尚未就绪：${summary?.aggregateMessage || "请先解析结果并检查列映射"}`);
+        const enabledWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
+        const owningWorkers = Array.isArray(summary?.availableWorkerIds) ? summary.availableWorkerIds.map(String) : [];
+        const workers = owningWorkers.length ? enabledWorkers.filter((id) => owningWorkers.some((owner) => owner.toLowerCase() === id.toLowerCase())) : enabledWorkers;
+        if (!workers.length || typeof client.downloadWorkerFile !== "function")
+            throw new Error("没有可用的 Worker 隧道，无法保存远端和本地双份归档。");
+        for (const workerId of workers) {
+            const missing = this.missingWorkerActionCapabilities(workerId, "archive-plan-copy");
+            if (missing.length)
+                throw new Error(`${workerId} Agent 尚不支持轻量归档：${missing.join("、")}。请部署最新版 Agent。`);
+        }
+        const token = path.parse(planFile).name.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._-]+|[._-]+$/g, "").slice(0, 80) || "plan";
+        const snapshotName = new Date().toISOString().replace(/[-:.]/g, "").replace("Z", "Z") + "_" + crypto.randomBytes(3).toString("hex");
+        const archiveRelative = path.posix.join("archives", token, snapshotName);
+        const localArchive = safeWorkspaceChildPath(root, archiveRelative);
+        const workerTargets = workers.map((workerId) => {
+            const worker = this.enabledWorkerConfigs().find((item) => String(item.id || "") === workerId);
+            const configuredRoot = String(worker?.remotePath || worker?.remoteRoot || this.setupConfig.remotePath || "").trim();
+            const workDir = this.agentRuntimeDirs(configuredRoot).workDir;
+            if (!workDir || !workDir.startsWith("/"))
+                throw new Error(`${workerId} 的远端项目根目录未解析，已阻止归档。`);
+            return `${workerId}：${workDir}/${archiveRelative}/`;
+        });
+        const confirmation = await vscode.window.showWarningMessage([
+            "【当前 Plan 轻量归档副本】",
+            `Plan：${planFile}`,
+            `Worker：${workers.join("、")}`,
+            "远端目标：",
+            ...workerTargets,
+            `本地目标：${localArchive}`,
+            "范围：Plan YAML、关联配置、仅当前 Plan case/seed 的原始 CSV、均值/标准差表、轻量日志。",
+            "单文件上限 4 MB；总量上限 128 MB；原文件保持不变。",
+        ].join("\n"), { modal: true }, "确认复制归档");
+        if (confirmation !== "确认复制归档")
+            throw new UiCommandCancelled("轻量归档已取消。");
+        if (!this.projectContextIsCurrent(context) || client !== this.client)
+            throw new UiCommandCancelled("工作区或连接已切换，轻量归档已取消。");
+        const completed = [];
+        for (const workerId of workers) {
+            const opId = makeOpId("archive-plan-copy");
+            const options = { topologyMode: enabledWorkers.length > 1 ? "worker_pool" : "single_worker", resultOwnerWorkerId: workerId, automaticBackup: false };
+            let result = await client.postWorkerAction(workerId, "archive-plan-copy", { opId, operationId: opId, planFile, snapshotName, confirm: true, options });
+            if (remoteActionPendingStatus(resultStatus(result))) {
+                for (let attempt = 0; attempt < 45 && remoteActionPendingStatus(resultStatus(result)); attempt += 1) {
+                    await sleep(1000);
+                    if (!this.projectContextIsCurrent(context) || client !== this.client)
+                        throw new UiCommandCancelled("连接已切换；远端归档状态可在操作进度查看。");
+                    result = await client.getWorkerOperation(workerId, opId);
+                }
+            }
+            if (!result || resultStatus(result) !== "completed")
+                throw new Error(`${workerId} 归档未完成：${stringFromRecord(result || {}, ["message", "error", "status"]) || "超时"}`);
+            const archivePath = String(result.archivePath || "");
+            if (archivePath !== archiveRelative)
+                throw new Error(`${workerId} 返回的归档路径与请求不一致。`);
+            const listed = Array.isArray(result.files) ? result.files.map(String) : [];
+            const manifestPath = path.posix.join(archiveRelative, "manifest.json");
+            if (!listed.includes(manifestPath) || listed.length > 801 || listed.some((file) => !file.startsWith(archiveRelative + "/")))
+                throw new Error(`${workerId} 返回的归档文件清单无效。`);
+            const workerLocal = safeWorkspaceChildPath(root, path.posix.join(archiveRelative, safePlanToken(workerId)));
+            for (const remoteFile of listed) {
+                const inside = path.posix.relative(archiveRelative, remoteFile);
+                const localFile = safeArchiveBundleChildPath(workerLocal, inside);
+                await fs.mkdir(path.dirname(localFile), { recursive: true });
+                await client.downloadWorkerFile(workerId, remoteFile, localFile, { maxBytes: 4 * 1024 * 1024 });
+                if (!this.projectContextIsCurrent(context) || client !== this.client)
+                    throw new UiCommandCancelled("连接已切换；远端副本已保留，本地下载未完成。");
+            }
+            const manifest = JSON.parse(await fs.readFile(path.join(workerLocal, "manifest.json"), "utf8"));
+            if (manifest.planFile !== planFile || !Array.isArray(manifest.files))
+                throw new Error(`${workerId} 归档清单与当前 Plan 不一致。`);
+            for (const item of manifest.files) {
+                const remoteFile = String(item.path || "");
+                const inside = path.posix.relative(archiveRelative, remoteFile);
+                if (!remoteFile.startsWith(archiveRelative + "/") || inside.startsWith(".."))
+                    throw new Error(`${workerId} 归档清单包含越界路径。`);
+                const localFile = safeArchiveBundleChildPath(workerLocal, inside);
+                if (await sha256File(localFile) !== String(item.sha256 || ""))
+                    throw new Error(`${workerId} 本地归档校验失败：${inside}`);
+            }
+            completed.push(workerId);
+        }
+        void vscode.window.showInformationMessage(`当前 Plan 已在 ${completed.join("、")} 和本地复制轻量归档：${archiveRelative}`);
+    }
     async archivePlanFromUi(message) {
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
@@ -10932,6 +11034,19 @@ export class RealtimeTunnelPanelProvider {
         const allowed = resultSummaryInspectionCandidates(summary, planFile);
         if (!allowed.includes(artifactPath))
             throw new Error("该文件不属于当前 Plan 的最新结果摘要，已阻止打开。");
+        const requestedWorkerId = stringField(message, "workerId");
+        const workerTables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+        if (workerTables.length > 1 && !requestedWorkerId)
+            throw new Error("多 Worker 结果文件必须指定所属 Worker。");
+        if (requestedWorkerId) {
+            const owned = workerTables.find((item) => String(item?.workerId || "").toLowerCase() === requestedWorkerId.toLowerCase());
+            if (!owned || ![owned.rawResultCsvPath, owned.aggregateCsvPath, owned.projectAggregateCsvPath].includes(artifactPath))
+                throw new Error("文件与指定 Worker 的当前 Plan 不匹配。");
+        }
+        const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
+        const owner = String(requestedWorkerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
+        const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (availableWorkers.length === 1 ? availableWorkers[0] : "");
+        const useWorker = Boolean(workerId && typeof client.downloadWorkerFile === "function");
         const localArtifactPath = safeWorkspaceChildPath(root, artifactPath);
         const localStat = await fs.stat(localArtifactPath).catch(() => undefined);
         if (!isCurrent())
@@ -10943,7 +11058,7 @@ export class RealtimeTunnelPanelProvider {
             await this.openWorkspaceFileForProjectContext(artifactPath, projectContext, client);
             return;
         }
-        const missing = this.missingCapabilities(["endpoints.fileDownload"]);
+        const missing = useWorker ? [] : this.missingCapabilities(["endpoints.fileDownload"]);
         if (missing.length) {
             if (hasLocalFile) {
                 await this.openWorkspaceFileForProjectContext(artifactPath, projectContext, client);
@@ -10964,7 +11079,7 @@ export class RealtimeTunnelPanelProvider {
             `工作区同路径文件：${hasLocalFile ? localArtifactPath : "不存在"}`,
             `大小上限：${Math.round(REMOTE_RESULT_INSPECTION_MAX_BYTES / 1024 / 1024)} MB`,
             "",
-            "下载只通过当前 Hub 的 Xshell 本地隧道读取文件，不会修改远端结果，也不会切换当前 Plan。",
+            `下载只通过 ${useWorker ? workerId + " Worker" : "Hub"} 的现有 Agent 隧道读取文件，不会修改远端结果，也不会切换当前 Plan。`,
         ].join("\n"), { modal: true }, ...choices);
         if (!isCurrent())
             return;
@@ -10977,12 +11092,35 @@ export class RealtimeTunnelPanelProvider {
         await fs.mkdir(path.dirname(localCopyPath), { recursive: true });
         if (!isCurrent())
             return;
-        await client.downloadFile(artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        if (useWorker)
+            await client.downloadWorkerFile(workerId, artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        else
+            await client.downloadFile(artifactPath, localCopyPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
         if (!isCurrent())
             return;
         const opened = await this.openWorkspaceFileForProjectContext(localRelative, projectContext, client);
         if (opened && isCurrent())
             void vscode.window.showInformationMessage(`结果只读副本已打开：${localRelative}`);
+    }
+    async editResultColumnMappingFromUi() {
+        const context = this.captureProjectContext();
+        if (!context.root)
+            throw new Error("请先打开当前实验项目。");
+        const relative = "experiments/simple_project.yaml";
+        const target = safeWorkspaceChildPath(context.root, relative);
+        if (!(await fs.stat(target).then((stat) => stat.isFile()).catch(() => false))) {
+            const templates = await this.loadProjectAdapterTemplateFiles(safePlanToken(path.basename(context.root)));
+            const content = templates.find((item) => item.relativePath === "simple_project.yaml")?.text;
+            if (!content)
+                throw new Error("缺少项目接入配置模板。");
+            if (!this.projectContextIsCurrent(context))
+                return;
+            await fs.mkdir(path.dirname(target), { recursive: true });
+            await fs.writeFile(target, content, { encoding: "utf8", flag: "wx" });
+        }
+        if (!this.projectContextIsCurrent(context))
+            return;
+        await this.openWorkspaceFileForProjectContext(relative, context, this.client);
     }
     async openAuditTail() {
         const projectContext = this.captureProjectContext();
@@ -21804,6 +21942,10 @@ function resultSummaryInspectionCandidates(summary, planFile) {
     const claimEvidence = item.claimEvidence && typeof item.claimEvidence === "object" ? item.claimEvidence : item.claim_evidence && typeof item.claim_evidence === "object" ? item.claim_evidence : {};
     return uniqueStrings([
         item.previewCsvPath,
+        item.rawResultCsvPath,
+        item.aggregateCsvPath,
+        item.projectAggregateCsvPath,
+        ...(Array.isArray(item.workerResultTables) ? item.workerResultTables.flatMap((row) => [row.rawResultCsvPath, row.aggregateCsvPath, row.projectAggregateCsvPath]) : []),
         item.preview_csv_path,
         item.effectiveResultsCsvPath,
         item.effective_results_csv_path,

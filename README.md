@@ -245,6 +245,12 @@ Debug 运行会把输出隔离到 debug 目录，不会写入正式归档或统�
 3. 人工筛选哪些记录归档。
 4. 只有已归档记录进入质量门禁、统计摘要、论文表格、claim evidence 和 PPT 绘图。
 
+当前 Plan 的结果区另提供“打开原始 seed 表”“打开均值/标准差表”“重建汇总”和“复制轻量归档”。原始表保持不变；汇总表从 Plan 声明的 CSV 按 case、seed 分组，自动识别数值指标，并计算样本标准差。缺少 seed 时仍输出该行并标记 `n/计划 seed 数`。项目总表汇集当前 Worker 已生成的各 Plan 汇总；多 Worker 时各 Worker 的项目总表分别保留，不能把单个 Worker 的文件当作全局完整总表。
+
+“列映射预览”显示 CSV 表头与识别结果。“编辑列映射”打开 `experiments/simple_project.yaml`，在 `outputs.csvColumnMapping` 填写 `标准字段: 原始列名`，保存后点击“重建汇总”。缺少可信 case 或 seed 的行不会被猜测归入 Plan，汇总会暂停并提示映射。
+
+“复制轻量归档”在确认目标后，将当前 Plan、关联配置、按当前 Plan case/seed 筛选的原始结果、汇总表及轻量日志复制到 Worker 项目和本地工作区的 `archives/<Plan 名>/<时间>/`。不移动原文件，不复制 checkpoint；单文件上限 4 MB，总量上限 128 MB。原来的逐条结果筛选和旧归档入口仍可从高级证据区使用。
+
 标准结果建议包含 `metrics_summary.csv`、`env_snapshot.json` 和 `config_snapshot.yaml`。详细契约见 [plugin-project-contract.md](docs/plugin-project-contract.md)。
 
 ## 设置参考

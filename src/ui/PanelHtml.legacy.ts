@@ -2100,7 +2100,7 @@ export function renderPanelHtml(): string {
     const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
     const SELECTED_PLAN_RUN_COMMANDS = new Set(["runPlan", "reproducePlan"]);
     const SELECTED_PLAN_ACTION_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...SELECTED_PLAN_RUN_COMMANDS]);
-    const PLAN_FILE_PAYLOAD_COMMANDS = new Set([...SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "savePlan"]);
+    const PLAN_FILE_PAYLOAD_COMMANDS = new Set([...SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "archivePlanCopy", "savePlan"]);
     const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set([...PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"]);
     const SUBMITTED_RUN_COMMANDS = new Set([...SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"]);
     const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules", "saveRemoteRootPolicy"]);
@@ -2120,7 +2120,7 @@ export function renderPanelHtml(): string {
     });
     const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
-    const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
+    const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const COMMAND_ACTION_NAMES = Object.freeze({
       validatePlan: "validate-plan", dryRunPlan: "dry-run-plan", runPlan: "run-plan", stopExperiment: "stop-experiment", retryExperiment: "retry-experiment", reproducePlan: "reproduce-plan",
       parseResults: "parse-results", refreshResults: "refresh-results", runQualityGate: "run-quality-gate", runStatistics: "run-statistics", exportPaperTable: "export-paper-table", checkClaimEvidence: "check-claim-evidence",
@@ -2402,8 +2402,8 @@ export function renderPanelHtml(): string {
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
-      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
-      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "openAuditTail",
+      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "editResultColumnMapping", "openAuditTail",
       "selectPlan", "selectExperiment",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
       ...Object.keys(uiCapabilityMap)
@@ -4051,6 +4051,13 @@ export function renderPanelHtml(): string {
         qualityGatePath: pick(item, ["qualityGatePath", "quality_gate_path"], ""),
         qualityGateResultCount: pick(item, ["qualityGateResultCount", "quality_gate_result_count"], ""),
         previewCsvPath: pick(item, ["previewCsvPath", "preview_csv_path"], ""),
+        rawResultCsvPath: pick(item, ["rawResultCsvPath"], ""),
+        aggregateCsvPath: pick(item, ["aggregateCsvPath"], ""),
+        projectAggregateCsvPath: pick(item, ["projectAggregateCsvPath"], ""),
+        aggregateStatus: pick(item, ["aggregateStatus"], ""),
+        aggregateMessage: pick(item, ["aggregateMessage"], ""),
+        columnMappingPreview: item.columnMappingPreview || {},
+        workerResultTables: asArray(item.workerResultTables).map((row) => compactRecordForSignature(row, ["workerId", "rawResultCsvPath", "aggregateCsvPath", "projectAggregateCsvPath", "aggregateStatus", "aggregateMessage", "columnMappingPreview"])),
         previewResultCount: pick(item, ["previewResultCount", "preview_result_count", "resultCount", "result_count"], ""),
         effectiveResultsCsvPath: pick(item, ["effectiveResultsCsvPath", "effective_results_csv_path"], ""),
         effectiveArchivedResultCount: pick(item, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"], ""),
@@ -11199,7 +11206,7 @@ export function renderPanelHtml(): string {
       const consoleLogs = uniqueText(rules.consoleLogs || ["stdout.log", "stderr.log"]);
       const textLogs = uniqueText(rules.textLogs || ["summary.txt", "console.log"]);
       const aliases = mapToLines(rules.metricAliases || { acc: "accuracy", auroc: "AUC", roc_auc: "AUC", auprc: "AUPRC", macro_f1: "F1", val_loss: "loss", dice: "DSC" });
-      const mapping = mapToLines(rules.csvColumnMapping || { metric: "metric", value: "value", dataset: "dataset", seed: "seed" });
+      const mapping = mapToLines(rules.csvColumnMapping || { case: "case", seed: "seed", metric: "metric", value: "value", dataset: "dataset", split: "split" });
       const open = detailIsOpen("project-rule-editor", false);
       const summary = renderAdapterRuleSummary(Object.assign({}, rules, { classificationMetrics, segmentationMetrics, candidateCsv, candidateJson, consoleLogs, textLogs }));
       const partialNotice = partial
@@ -11219,7 +11226,7 @@ export function renderPanelHtml(): string {
           projectRuleTextarea("consoleLogs", "控制台日志", asEditorList(consoleLogs), "run_wrapper 会捕获 stdout/stderr；正则可从日志提取指标。") +
           projectRuleTextarea("textLogs", "文本 summary", asEditorList(textLogs), "summary.txt 或 console.log 等轻量文本结果。") +
           projectRuleInput("metricRegex", "控制台指标正则", rules.metricRegex || "", "留空使用默认深度学习指标正则；仅在项目输出格式特殊时填写。", "wide") +
-          projectRuleTextarea("csvColumnMapping", "CSV 列映射", mapping, "格式：原列名: 标准列名。常用标准列有 metric、value、dataset、seed。", "wide") +
+          projectRuleTextarea("csvColumnMapping", "CSV 列映射", mapping, "格式：标准字段名: 原始 CSV 列名。常用标准字段有 case、seed、metric、value、split。", "wide") +
           projectRuleTextarea("metricAliases", "指标别名", aliases, "格式：项目输出名: 标准指标名，例如 auroc: AUC。", "wide") +
           projectRuleTextarea("inferredSignalsReadonly", "自动推断线索", asEditorList(rules.inferredSignals || []), "只读参考：从配置、工厂模式、结果脚本和指标名推断出的线索。", "wide readonly") +
         '</div>' +
@@ -13237,15 +13244,7 @@ export function renderPanelHtml(): string {
     function renderResultSummary(state) {
       const summary = state.resultsSummary || {};
       renderPptPlotConfig(state);
-      setHtmlIfChanged("resultSummary", renderWorkerResultAggregateWarning(summary) + renderResultEvidenceWorkbench(state, summary) + [
-        row("最近解析", pick(summary, ["lastParsedAt", "last_parsed_at"], "-")),
-        row("解析失败数量", pick(summary, ["parseFailed", "parse_failed"], "-")),
-        row("质量警告", pick(summary, ["qualityWarnings", "quality_warnings"], "-")),
-        row("完整预览 CSV", pick(summary, ["previewCsvPath", "preview_csv_path"], "-")),
-        row("有效结果 CSV", pick(summary, ["effectiveResultsCsvPath", "effective_results_csv_path"], "-")),
-        row("统计更新时间", pick(summary, ["statisticsUpdatedAt", "statistics_updated_at"], "-")),
-        row("论文表格路径", pick(summary, ["paperTablePath", "paper_table_path", "exportPath"], "-"))
-      ].join(""));
+      setHtmlIfChanged("resultSummary", renderWorkerResultAggregateWarning(summary) + renderResultEvidenceWorkbench(state, summary));
     }
 
     function renderWorkerResultAggregateWarning(summary) {
@@ -13432,6 +13431,12 @@ export function renderPanelHtml(): string {
       const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");
       const qualityGatePath = pick(summary, ["qualityGatePath", "quality_gate_path"], "-");
       const previewCsvPath = pick(summary, ["previewCsvPath", "preview_csv_path"], "-");
+      const rawResultCsvPath = pick(summary, ["rawResultCsvPath"], "");
+      const aggregateCsvPath = pick(summary, ["aggregateCsvPath"], "");
+      const projectAggregateCsvPath = pick(summary, ["projectAggregateCsvPath"], "");
+      const aggregateMessage = pick(summary, ["aggregateMessage"], "");
+      const workerResultTables = asArray(summary.workerResultTables);
+      const multiWorkerTables = workerResultTables.length > 1;
       const resultPlanFile = pick(summary, ["planFile", "plan_file"], state.planFileInput || (state.selection || {}).selectedPlanId || "");
       const previewResultCount = Number(pick(summary, ["previewResultCount", "preview_result_count", "resultCount", "result_count"], asArray(summary.results).length)) || 0;
       const effectiveResultsCsvPath = pick(summary, ["effectiveResultsCsvPath", "effective_results_csv_path"], "-");
@@ -13558,10 +13563,20 @@ export function renderPanelHtml(): string {
       ].filter(Boolean).join("");
       const tableRows = rows.join("");
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
-        renderResultNextAction({ parsed, parsedRows, qualityGatePath: qualityReady ? qualityGatePath : "", statisticsPath: statisticsReady ? statisticsPath : "", claimStatus, claimIssueCount, paperTablePath: paperTableReady ? paperTablePath : "", plottingContractPath: analysisArtifacts.plottingContractPath, effectiveArchivedResultCount, pendingReviewCount, excludedResultCount, previewCsvPath, archivableCount: traceStats.archivable, archiveBlockedCount: traceStats.archiveBlocked, previewResultCount, outputContractStatus: outputContractCheck.status, outputContractMissingFiles: outputContractCheck.missingFiles, outputContractUnparseableFiles: outputContractCheck.unparseableFiles, outputContractMessage: outputContractCheck.message, autoParseStatus: autoParseReadiness.status, planFile: autoParseReadiness.planFile }) +
-        '<table class="planCompactTable gpuDenseTable"><tbody>' + tableRows + '</tbody></table>' +
-        (tableActions ? '<div class="pptPlotActions">' + tableActions + '</div>' : "") +
-        renderClaimEvidencePreviewCached(claimPreview) +
+        '<div class="pptPlotActions">' +
+          (multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("原始 seed 表", row.rawResultCsvPath, resultPlanFile, row.workerId) + resultFileButton("均值/标准差表", row.aggregateCsvPath, resultPlanFile, row.workerId) + resultFileButton("项目总表（该 Worker）", row.projectAggregateCsvPath, resultPlanFile, row.workerId)).join("") : resultFileButton("打开原始 seed 表", rawResultCsvPath, resultPlanFile) + resultFileButton("打开均值/标准差表", aggregateCsvPath, resultPlanFile) + resultFileButton("打开项目总表（当前 Worker）", projectAggregateCsvPath, resultPlanFile)) +
+          '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '">重建汇总</button>' +
+          '<button class="taskActionButton secondary" data-command="archivePlanCopy" data-plan-file="' + escAttr(resultPlanFile) + '">复制轻量归档</button>' +
+          '<button class="taskActionButton secondary" data-command="editResultColumnMapping">编辑列映射</button>' +
+        '</div>' +
+        '<div class="muted">' + esc(multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "解析当前 Plan 后生成独立汇总表；原始结果不会改动。") + '</div>' +
+        renderResultColumnMappingPreview(summary.columnMappingPreview) +
+        '<details data-details-key="result-advanced"' + detailsOpenAttr("result-advanced", false) + '><summary>高级证据与分析</summary>' +
+          renderResultNextAction({ parsed, parsedRows, qualityGatePath: qualityReady ? qualityGatePath : "", statisticsPath: statisticsReady ? statisticsPath : "", claimStatus, claimIssueCount, paperTablePath: paperTableReady ? paperTablePath : "", plottingContractPath: analysisArtifacts.plottingContractPath, effectiveArchivedResultCount, pendingReviewCount, excludedResultCount, previewCsvPath, archivableCount: traceStats.archivable, archiveBlockedCount: traceStats.archiveBlocked, previewResultCount, outputContractStatus: outputContractCheck.status, outputContractMissingFiles: outputContractCheck.missingFiles, outputContractUnparseableFiles: outputContractCheck.unparseableFiles, outputContractMessage: outputContractCheck.message, autoParseStatus: autoParseReadiness.status, planFile: autoParseReadiness.planFile }) +
+          '<table class="planCompactTable gpuDenseTable"><tbody>' + tableRows + '</tbody></table>' +
+          (tableActions ? '<div class="pptPlotActions">' + tableActions + '</div>' : "") +
+          renderClaimEvidencePreviewCached(claimPreview) +
+        '</details>' +
       '</div>';
       resultEvidenceWorkbenchCacheKey = cacheKey;
       resultEvidenceWorkbenchCacheHtml = html;
@@ -13577,10 +13592,20 @@ export function renderPanelHtml(): string {
       }, { unsupported: 0, needsExperiment: 0 });
     }
 
-    function resultFileButton(label, file, planFile) {
+    function resultFileButton(label, file, planFile, workerId) {
       const path = meaningfulValue(file);
       if (!path) return "";
-      return '<button class="taskActionButton secondary" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '" title="' + escAttr("打开当前 Plan 结果：" + path) + '">' + esc(label) + '</button>';
+      return '<button class="taskActionButton secondary" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr("打开当前 Plan 结果：" + path) + '">' + esc(label) + '</button>';
+    }
+
+    function renderResultColumnMappingPreview(preview) {
+      const item = preview && typeof preview === "object" ? preview : {};
+      const mapping = item.mapping && typeof item.mapping === "object" ? item.mapping : {};
+      if (!item.source) return "";
+      const fields = ["case", "seed", "split", "dataset", "method", "metric", "value"];
+      const rows = fields.map((field) => '<tr><th>' + esc(field) + '</th><td>' + esc(mapping[field] || "未识别") + '</td></tr>').join("");
+      const metrics = asArray(item.metricColumns).map((entry) => '<tr><th>' + esc((entry || {}).metric || "指标") + '</th><td>' + esc((entry || {}).column || "") + '</td></tr>').join("");
+      return '<details data-details-key="result-column-mapping"' + detailsOpenAttr("result-column-mapping", false) + '><summary>列映射预览 · ' + esc(item.source) + '</summary><table class="planCompactTable"><thead><tr><th>标准字段 / 指标</th><th>原始 CSV 列</th></tr></thead><tbody>' + rows + metrics + '</tbody></table><div class="muted">在 experiments/simple_project.yaml 的 outputs.csvColumnMapping 按“标准字段: 原始列名”调整身份列；指标名称可在 outputs.metricAliases 调整。保存后点“重建汇总”。</div></details>';
     }
 
     function renderResultNextAction(status) {
