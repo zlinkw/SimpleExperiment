@@ -8,9 +8,12 @@ const panelSource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml
 test("functional entry points and drawer rails remain in baseline", () => {
   assert.match(panelSource, /class="section-desc"/);
   // experimentActions 区块已移除：原 div 无渲染函数（预留空位），用户反馈「不知道干嘛的」，确认移除。
-  assert.match(panelSource, /id="resultActions"/);
-  assert.match(panelSource, /id="artifactActions"/);
+  assert.doesNotMatch(panelSource, /id="resultActions"/);
+  assert.doesNotMatch(panelSource, /id="artifactActions"/);
   assert.match(panelSource, /id="pptPlotConfig"/);
+  assert.match(panelSource, /<summary>绘图到 PPT（可选）<\/summary>/);
+  assert.ok(panelSource.indexOf('id="pptPlotConfig"') > panelSource.indexOf('id="traceTable"'));
+  assert.match(panelSource, /class="resultTableCards"/);
   // 单链第二步：旧 renderActionSections 已删除，新链为 renderServerChainOverview
   assert.doesNotMatch(panelSource, /function renderActionSections/);
   assert.match(panelSource, /function renderServerChainOverview/);

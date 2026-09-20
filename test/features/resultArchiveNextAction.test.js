@@ -6,7 +6,7 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
 
-test("completed result workflow distinguishes archive-ready and Worker-blocked records", () => {
+test("result panel hides legacy archive and delete entry points", () => {
   assert.match(panel, /archivableCount: traceStats\.archivable/);
   assert.match(panel, /archiveBlockedCount: traceStats\.archiveBlocked/);
   assert.match(panel, /archivedCount <= 0 && Number\(status\.archivableCount \|\| 0\) > 0[\s\S]{0,100}kind: "archive"/);
@@ -16,5 +16,7 @@ test("completed result workflow distinguishes archive-ready and Worker-blocked r
   assert.match(panel, /data-section-target="results" data-anchor-target="results-traces"[^>]*>选择实验记录/);
   assert.match(panel, /usableTaskKey\(item\.workerId\)\) stats\.archivable \+= 1;[\s\S]{0,80}else stats\.archiveBlocked \+= 1/);
   assert.match(panel, /function isArchivableTraceStatus\(status\)/);
-  assert.match(panel, /traceActionButton\("归档", "archiveArtifacts", row, true\)/);
+  assert.doesNotMatch(panel, /traceActionButton\("归档", "archiveArtifacts", row, true\)/);
+  assert.doesNotMatch(panel, /traceActionButton\("删除", "deleteArtifacts", row, true, true\)/);
+  assert.match(panel, /\["archive", "archive-blocked", "review"\]\.includes\(stage\.kind\)\) return ""/);
 });

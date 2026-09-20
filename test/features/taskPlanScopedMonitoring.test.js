@@ -269,7 +269,8 @@ test("task UI treats all scheduler failure terminals as visible retryable failur
   assert.equal(status.taskCardClass("canceled"), "is-stopped");
   assert.equal(status.taskCardClass("stalled"), "is-failed");
   assert.ok([...panel.matchAll(/\["重试", "retryExperiment", taskFailureLikeStatus\(row\.status\), true\]/g)].length >= 3);
-  assert.ok([...panel.matchAll(/\["归档", "archiveArtifacts", taskArchivableStatus\(row\.status\), true\]/g)].length >= 3);
+  assert.doesNotMatch(panel, /\["归档", "archiveArtifacts", taskArchivableStatus\(row\.status\), true\]/);
+  assert.doesNotMatch(panel, /\["删除", "deleteArtifacts", true, false, true\]/);
   assert.match(panel, /function taskStatusLabel\(status\)/);
   assert.match(panel, /const TASK_STATUS_LABELS = Object\.freeze\(\{/);
   assert.match(extractFunction("taskStatusLabel"), /TASK_STATUS_LABELS\[taskStatusToken\(raw\)\] \|\| raw/);

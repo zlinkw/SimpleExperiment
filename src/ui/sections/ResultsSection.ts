@@ -1,27 +1,22 @@
 import type { Section } from "./types";
 
 /**
- * ResultsSection - 结果归档板块
+ * ResultsSection - 结果文件板块
  * 提取自 PanelHtml.ts 1290-1332 section[data-section="results"]
  */
 export class ResultsSection implements Section {
   readonly id = "results";
-  readonly title = "结果与归档";
+  readonly title = "结果文件";
   readonly order = 6;
   renderHtml(_state?: unknown): string {
     return `
-      <section class="section-card" data-section="results" data-anchor="results" data-title="结果与归档">
+      <section class="section-card" data-section="results" data-anchor="results" data-title="结果文件">
         <div class="section-head">
           <div class="section-title">
-            <h2>结果与归档</h2>
-            <div class="section-desc">结果、归档、绘图</div>
+            <h2>结果文件</h2>
+            <div class="section-desc">查看总表、同步原始数据、按列拆表</div>
           </div>
         </div>
-        <h3>结果操作</h3>
-        <div id="pptPlotConfig" data-anchor="results-ppt-plot"></div>
-        <div id="resultActions" class="actionGrid"></div>
-        <h3>归档与删除</h3>
-        <div id="artifactActions" class="actionGrid"></div>
         <div class="resultWorkbench">
           <div class="resultMainPane">
             <h3>结果摘要</h3>
@@ -37,6 +32,10 @@ export class ResultsSection implements Section {
           </div>
           <aside id="traceDetailPane" class="traceDetailPane" aria-live="polite"></aside>
         </div>
+        <details class="resultArtifactGroup" data-details-key="results-ppt-plot">
+          <summary>绘图到 PPT（可选）</summary>
+          <div id="pptPlotConfig" data-anchor="results-ppt-plot"></div>
+        </details>
       </section>`;
   }
   renderCss(): string {

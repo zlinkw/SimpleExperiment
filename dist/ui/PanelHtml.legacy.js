@@ -566,7 +566,7 @@ function renderPanelHtml() {
     .traceTimelineItem.error::before { background: #DC2626; }
     .traceTimelineItem b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-foreground); }
     .traceTimelineItem span { color: var(--muted); line-height: 1.35; }
-    .resultEvidenceWorkbench { display: grid; gap: 10px; margin: 8px 0 12px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--card-bg) 92%, var(--vscode-input-background) 8%); }
+    .resultEvidenceWorkbench { display: grid; gap: 10px; margin: 8px 0 12px; min-width: 0; }
     .resultEvidenceRows { display: grid; gap: 6px; }
     .resultEvidenceRow { display: grid; grid-template-columns: minmax(92px, 140px) minmax(0, 1fr) auto auto; gap: 8px; align-items: center; min-width: 0; padding: 7px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 7px; background: #FAFBFC; color: #0F172A; }
     .resultEvidenceRow.good { border-left-color: #16A34A; }
@@ -958,8 +958,22 @@ function renderPanelHtml() {
     .settingsLayoutTools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .settingsLayoutTools b { margin-right: auto; font-size: 12px; }
     .resultMappingEditor { margin: 10px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
-    .resultFinalCard { display: grid; gap: 9px; margin: 10px 0; padding: 12px 14px; border: 1px solid var(--vscode-focusBorder, #4f6bed); border-radius: 9px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); }
-    .resultFinalCard b { font-size: 15px; }
+    .resultFinalCard { display: grid; gap: 14px; margin: 0 0 14px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--vscode-editor-background); }
+    .resultFinalHeader { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .resultFinalHeader h3 { margin: 0 0 4px; font-size: 16px; }
+    .resultFinalHeader p { margin: 0; color: var(--muted); line-height: 1.4; }
+    .resultFinalHeader button { white-space: nowrap; }
+    .resultTableCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 10px; }
+    .resultTableCard { display: grid; gap: 12px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--subtle-bg); }
+    .resultTableCard.primary { border-left: 4px solid var(--vscode-focusBorder, #4f6bed); }
+    .resultTableCardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .resultTableCardHead strong { overflow-wrap: anywhere; font-size: 14px; }
+    .resultTableCardHead span { color: var(--muted); white-space: nowrap; font-size: 12px; }
+    .resultTableCardPath { overflow-wrap: anywhere; color: var(--muted); font-size: 11px; font-family: Consolas, monospace; }
+    .resultTableCardActions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .resultTableCardActions button { flex: 1 1 105px; }
+    .resultPlanActions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 4px 0; }
+    .resultPlanActions b { margin-right: 4px; font-size: 12px; }
     .resultFinalCard .pptPlotActions { margin: 0; }
     .resultArtifactGroup { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
     .resultArtifactGroup summary { cursor: pointer; font-weight: 600; }
@@ -1354,18 +1368,13 @@ function renderPanelHtml() {
       <div hidden data-anchor="operations-list"></div>
     </section>
 
-    <section class="section-card" data-section="results" data-anchor="results" data-title="结果与归档">
+    <section class="section-card" data-section="results" data-anchor="results" data-title="结果文件">
       <div class="section-head">
         <div class="section-title">
-          <h2>结果与归档</h2>
-          <div class="section-desc">结果、归档、绘图</div>
+          <h2>结果文件</h2>
+          <div class="section-desc">查看总表、同步原始数据、按列拆表</div>
         </div>
       </div>
-      <h3>结果操作</h3>
-      <div id="pptPlotConfig" data-anchor="results-ppt-plot"></div>
-      <div id="resultActions" class="actionGrid"></div>
-      <h3>归档与删除</h3>
-      <div id="artifactActions" class="actionGrid"></div>
       <div class="resultWorkbench">
         <div class="resultMainPane">
           <h3>结果摘要</h3>
@@ -1381,6 +1390,10 @@ function renderPanelHtml() {
         </div>
         <aside id="traceDetailPane" class="traceDetailPane" aria-live="polite"></aside>
       </div>
+      <details class="resultArtifactGroup" data-details-key="results-ppt-plot">
+        <summary>绘图到 PPT（可选）</summary>
+        <div id="pptPlotConfig" data-anchor="results-ppt-plot"></div>
+      </details>
     </section>
 
     <section class="section-card" data-section="diagnostics" data-anchor="diagnostics" data-title="诊断与自检">
@@ -5490,11 +5503,11 @@ function renderPanelHtml() {
     // legacy detail/pinned actions removed; inspectorCustomGroups is the supported path.
 
     var INSPECTOR_CUSTOM_GROUP_SECTION_ORDER = ["sync", "plans", "gpu", "tmux", "execution", "results"];
-    var INSPECTOR_CUSTOM_GROUP_STATIC_TITLES = { sync: "运行环境准备", plans: "实验准备", gpu: "GPU 状态", tmux: "TMUX 会话 / 窗口 / 窗格", execution: "运行进度", results: "结果与归档" };
+    var INSPECTOR_CUSTOM_GROUP_STATIC_TITLES = { sync: "运行环境准备", plans: "实验准备", gpu: "GPU 状态", tmux: "TMUX 会话 / 窗口 / 窗格", execution: "运行进度", results: "结果文件" };
     var INSPECTOR_CUSTOM_GROUP_LEGACY_SECTIONS = { "基础设施": ["sync"], "发布": ["sync"], "实验": ["plans", "results"], "运维": [], "执行": ["execution"], "资源": ["gpu"], "TMUX 会话": ["tmux"] };
-    var INSPECTOR_CUSTOM_GROUP_LEGACY_TARGETS = { "基础设施": ["运行环境准备"], "发布": ["运行环境准备"], "实验": ["实验准备", "结果与归档"], "运维": [], "执行": ["运行进度"], "资源": ["GPU 状态"], "TMUX 会话": ["TMUX 会话 / 窗口 / 窗格"] };
+    var INSPECTOR_CUSTOM_GROUP_LEGACY_TARGETS = { "基础设施": ["运行环境准备"], "发布": ["运行环境准备"], "实验": ["实验准备", "结果文件"], "结果与归档": ["结果文件"], "运维": [], "执行": ["运行进度"], "资源": ["GPU 状态"], "TMUX 会话": ["TMUX 会话 / 窗口 / 窗格"] };
 
-    var INSPECTOR_CUSTOM_GROUP_FALLBACK = ["运行环境准备", "实验准备", "GPU 状态", "TMUX 会话 / 窗口 / 窗格", "运行进度", "结果与归档"];
+    var INSPECTOR_CUSTOM_GROUP_FALLBACK = ["运行环境准备", "实验准备", "GPU 状态", "TMUX 会话 / 窗口 / 窗格", "运行进度", "结果文件"];
 
     function inspectorCustomGroupTitles() {
       try {
@@ -5701,7 +5714,7 @@ function renderPanelHtml() {
       var titles = inspectorCustomGroupTitles();
       var groups = inspectorCustomGroupsState();
       return titles.map(function(title) {
-        var items = groups[title] || [];
+        var items = (groups[title] || []).filter(function(spec) { return !["archiveArtifacts", "deleteArtifacts", "archivePlanCopy"].includes(spec.command); });
         var buttons = items.map(function(spec) {
           var btn = inspectorSavedActionButton(spec);
           var upBtn = '<button type="button" class="mini secondary inspectorCustomRowBtn" data-inspector-move="up" data-inspector-group="' + escAttr(title) + '" data-inspector-id="' + escAttr(spec.id) + '" title="上移">↑</button>';
@@ -6104,7 +6117,7 @@ function renderPanelHtml() {
         tmux: { label: "TMUX 会话 / 窗口 / 窗格", icon: RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", node: withResourceTreeChildren(item("tmux", "TMUX 会话 / 窗口 / 窗格", "TMUX 会话 / 窗口 / 窗格", RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", "会话/窗口/窗格", "tmux 会话 窗口 窗格 会话总览"), tmuxTreeObjects()) },
         plans: { label: "实验准备", node: withResourceTreeChildren(item("plans", "实验准备", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
         execution: { label: "运行进度", node: withResourceTreeChildren(item("execution", "运行进度", "调度操作与实验任务统一视图", "▣", "操作+任务/日志/终态", "任务 日志 停止 重试 删除 归档 排队 运行 操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed"), executionTreeObjects()) },
-        results: { label: "结果与归档", node: withResourceTreeChildren(item("results", "结果与归档", "结果分析", "▤", "结果/统计/论文", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
+        results: { label: "结果文件", node: withResourceTreeChildren(item("results", "结果文件", "结果分析", "▤", "总表/方法表/原始数据", "结果 统计 质量门禁 论文 表格 CSV JSON"), resultTreeObjects()) },
         sync: { label: "运行环境准备", node: withResourceTreeChildren(item("sync", "运行环境准备", "运行环境准备 发布同步", "⇅", "三步链/三步动作/总览 + GitHub/SFTP/Agent", "运行环境准备 部署Agent 启动隧道 检测 三步链 三步动作 Git GitHub SFTP 上传 分发 Agent 部署 发布 同步"), syncTreeObjects()) },
         diagnostics: { label: "诊断与自检", node: withResourceTreeChildren(item("diagnostics", "诊断与自检", "诊断", "⌁", "能力/端口/审计", "诊断 自检 调试 审计 能力 端口"), diagnosticTreeObjects()) }
       };
@@ -6659,7 +6672,7 @@ function renderPanelHtml() {
         settings: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
         gpu: [["刷新", "snapshot"], ["检测全部", "testAll"]],
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
-        execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["归档", "archiveArtifacts", { confirm: true, batch: true }], ["删除", "deleteArtifacts", { confirm: true, danger: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
+        execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
         sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
@@ -10966,7 +10979,7 @@ function renderPanelHtml() {
         { title: "2. Plan 与输出", ok: planReady, status: planReady ? "已就绪" : selectedPlanFile ? "待输出" : "待选择", detail: planDetail, section: "plans", anchor: "plans-detected", action: "查看实验准备" },
         { title: "3. Agent 连接", ok: agentReady, status: agentReady ? "已连接" : "待检测", detail: endpointDetail, section: "sync", anchor: "sync-servers", action: "查看连接" },
         { title: "4. 运行与监控", ok: execution.ok, status: execution.status, detail: execution.detail, section: executionTarget.section, anchor: executionTarget.anchor, action: executionTarget.action },
-        { title: "5. 结果与归档", ok: result.tone === "good", status: result.status, detail: result.detail, section: "results", anchor: "results", action: "查看结果" }
+        { title: "5. 结果文件", ok: result.tone === "good", status: result.status, detail: result.detail, section: "results", anchor: "results", action: "查看结果" }
       ];
       const activeIndex = stepSpecs.findIndex((step) => !step.ok);
       const steps = stepSpecs.map((step, index) => onboardingStep(step.title, step.ok, step.status, step.detail, {
@@ -12067,8 +12080,6 @@ function renderPanelHtml() {
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
-        ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
-        ["删除", "deleteArtifacts", true, false, true],
         ["日志", "selectLogRunKey", Boolean(key), false],
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
@@ -12112,13 +12123,10 @@ function renderPanelHtml() {
       const key = taskActionKey(row);
       const workerId = resolveWorkerId(row.serverId);
       const stopReason = rowActionDisableReason(state, "stopExperiment", { runKey: key, experimentId: row.experimentId, archiveKey: row.archiveKey, workerId, experimentIndex: row.experimentIndex, rowAction: true });
-      const archiveReason = rowActionDisableReason(state, "archiveArtifacts", { runKey: key, experimentId: row.experimentId, archiveKey: row.archiveKey, workerId, experimentIndex: row.experimentIndex, rowAction: true });
-      const deleteReason = rowActionDisableReason(state, "deleteArtifacts", { runKey: key, experimentId: row.experimentId, archiveKey: row.archiveKey, workerId, experimentIndex: row.experimentIndex, rowAction: true });
       const items = [
         ["可操作标识", usableTaskKey(key) ? "已定位" : "缺失", usableTaskKey(key), key || "-"],
         ["Worker 直达", workerId && workerId !== "-" ? workerName(workerId) : "缺失", Boolean(workerId && workerId !== "-"), workerId || "-"],
-        ["停止/重试", stopReason ? "不可用" : "可用", !stopReason, stopReason || "可用"],
-        ["归档/删除", archiveReason || deleteReason ? "需检查" : "可用", !(archiveReason || deleteReason), archiveReason || deleteReason || "可用"]
+        ["停止/重试", stopReason ? "不可用" : "可用", !stopReason, stopReason || "可用"]
       ];
       return '<div class="taskReadinessGrid" title="任务检查">' + items.map((item) => {
         const ok = Boolean(item[2]);
@@ -12169,8 +12177,6 @@ function renderPanelHtml() {
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
-        ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
-        ["删除", "deleteArtifacts", true, false, true],
         ["打开日志", "selectLogRunKey", Boolean(key), false],
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
@@ -12225,8 +12231,6 @@ function renderPanelHtml() {
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
         ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
         ["解析", "parseResults", true, false],
-        ["归档", "archiveArtifacts", taskArchivableStatus(row.status), true],
-        ["删除", "deleteArtifacts", true, false, true],
         ["打开日志", "selectLogRunKey", Boolean(key), false],
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
       ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
@@ -12266,8 +12270,6 @@ function renderPanelHtml() {
         actionButton("停止选中", "stopExperiment", { confirm: true, batch: true }) +
         actionButton("重试选中", "retryExperiment", { confirm: true, batch: true, disabledReason: retryReason }) +
         actionButton("解析选中", "parseResults", { batch: true }) +
-        actionButton("归档选中", "archiveArtifacts", { confirm: true, batch: true }) +
-        actionButton("删除选中", "deleteArtifacts", { danger: true, batch: true }) +
         (legacyCount ? actionButton("清除选中旧任务", "clearLegacyTasks", { batch: true }) : "") +
         (allLegacyRows.length > legacyCount ? clearVisibleLegacyButton(allLegacyRows) : ""));
     }
@@ -12534,9 +12536,7 @@ function renderPanelHtml() {
           traceActionButton("对比最优配置", "compareWithBestConfig", row) +
           traceActionButton("检查同步清单", "syncArtifacts", row, true) +
           traceActionButton("三方校验", "completeThreeWay", row, true) +
-          traceActionButton("归档", "archiveArtifacts", row, true) +
           traceActionButton("排除但保留预览", "excludeResults", row, true) +
-          traceActionButton("删除", "deleteArtifacts", row, true, true) +
         '</div>' +
         renderTraceReadiness(row) +
         renderTraceTimeline(row) +
@@ -13555,11 +13555,17 @@ function renderPanelHtml() {
       const fields = selected?.header || [];
       const valueChoices = choices.map((value) => '<label data-result-split-value-row="' + escAttr(value) + '"' + (resultSplitSearchQuery && !value.toLowerCase().includes(resultSplitSearchQuery.trim().toLowerCase()) ? ' style="display:none"' : '') + '><input type="checkbox" data-result-split-value value="' + escAttr(value) + '"' + (resultSplitSelectedValues === null || resultSplitSelectedValues.includes(value) ? ' checked' : '') + '> ' + esc(value || "（空值）") + '</label>').join("");
       const columns = fields.map((name) => '<label><input type="checkbox" data-result-split-column value="' + escAttr(name) + '"' + (resultSplitSelectedColumns === null || resultSplitSelectedColumns.includes(name) ? ' checked' : '') + '> ' + esc(name) + '</label>').join("");
-      const localButtons = tables.map((row) => '<span class="resultTableRow"><b>' + esc(row.name === "final" ? "全项目 final" : row.name) + '</b><span class="muted">' + Number(row.rowCount || 0) + ' 行</span><button type="button" class="secondary" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="csv" title="打开此表的完整精度 CSV；文件位于 experiments/results/' + escAttr(row.name) + '/' + escAttr(row.name) + '.csv">打开 CSV</button><button type="button" class="secondary" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="md" title="打开相同结果的可读 Markdown，指标显示均值 ± 标准差。">打开 Markdown</button></span>').join("");
-      return '<div class="resultFinalCard resultTableBrowser"><b>全项目最终结果 · final</b>' +
-        '<div class="muted">主表：experiments/results/final/final.csv；各方法位于同名文件夹。首次请点“重建所有方法与 final”扫描全部 Plan 和 Worker；之后已查询 Plan 的结果刷新会自动更新本机表。原始 seed 与详细表放在方法文件夹。</div>' +
-        '<div class="pptPlotActions"><button type="button" data-command="rebuildProjectResultTables" title="逐个查询本地 Plan 在所有已启用 Worker 的结果摘要，按方法、case、seed 与端点重新计算均值和样本标准差；全部检查通过后写入 final 与各方法文件夹。不会运行训练，也不会改远端原始表。">重建所有方法与 final</button></div>' +
-        (tables.length ? '<div class="resultTableRow">' + localButtons + '</div>' : '<div class="muted">尚未生成总表。点击上方重建；当前 Plan 结果刷新后也会自动更新本机表。</div>') +
+      const tableCards = tables.slice().sort((a, b) => Number(b.name === "final") - Number(a.name === "final")).map((row) => {
+        const name = row.name === "final" ? "全项目总表" : row.name;
+        const path = "experiments/results/" + row.name + "/" + row.name;
+        return '<article class="resultTableCard' + (row.name === "final" ? ' primary' : '') + '"><div class="resultTableCardHead"><strong>' + esc(name) + '</strong><span>' + Number(row.rowCount || 0) + ' 行</span></div>' +
+          '<div class="resultTableCardPath">' + esc(path) + '.csv</div>' +
+          '<div class="resultTableCardActions"><button type="button" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="csv" title="打开 ' + escAttr(path) + '.csv，查看完整精度结果。">查看 CSV</button>' +
+          '<button type="button" class="secondary" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="md" title="打开 ' + escAttr(path) + '.md，按均值 ± 标准差阅读相同结果。">阅读版</button></div></article>';
+      }).join("");
+      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>全项目 final 与各方法结果分开保存。表格已在本机项目目录。</p></div>' +
+        '<button type="button" data-command="rebuildProjectResultTables" title="扫描全部 Plan 和已启用 Worker，按可信 case、seed 与端点重算均值和样本标准差，再更新本机 final 与各方法表。不会重新训练或改写远端原始表。">刷新所有结果</button></div>' +
+        (tables.length ? '<div class="resultTableCards">' + tableCards + '</div>' : '<div class="muted">尚无总表。点击“刷新所有结果”从 Plan 与 Worker 生成。</div>') +
         '<details class="resultArtifactGroup" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
         '<div class="resultTableRow"><label>来源表 <select id="resultSplitTable">' + tableOptions + '</select></label><label>按此列拆表 <select id="resultSplitField">' + options(fields, field) + '</select></label><input type="search" id="resultSplitSearch" value="' + escAttr(resultSplitSearchQuery) + '" placeholder="搜索词条"></div>' +
         '<div class="muted">勾选需要的词条，每个词条生成一张 CSV。可批量全选或取消当前搜索结果；输出放在所选表的 by_列名 子目录。</div>' +
@@ -13722,10 +13728,9 @@ function renderPanelHtml() {
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
         renderProjectResultTables(state) +
         '<details class="resultArtifactGroup" data-details-key="result-trace-files"' + detailsOpenAttr("result-trace-files", false) + '><summary>原始数据与详细追溯</summary><div class="muted">原始 seed 表保持不变；详细表用于核对每项指标的参与数。</div><div class="pptPlotActions">' + traceButtons + '</div></details>' +
-        '<div class="pptPlotActions">' +
+        '<div class="resultPlanActions"><b>当前 Plan</b>' +
           '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="仅同步当前 Plan 的原始 seed 表和详细聚合表到对应方法文件夹的 raw、detail 子目录；简洁结果由插件写入方法文件夹与全项目 final。已有本地文件时统一询问覆盖或仅补缺失；不改远端文件。">同步当前 Plan 原始与详细表</button>' +
           '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '" title="重新读取当前 Plan 声明的原始结果表，计算简洁 CSV、可读 Markdown 和详细汇总；不会重新训练，也不会改写原始 seed 表。">重建当前 Plan 汇总</button>' +
-          '<button class="taskActionButton secondary" data-command="archivePlanCopy" data-plan-file="' + escAttr(resultPlanFile) + '" title="复制当前 Plan 文件、配置、结果表与轻量日志到项目 archives 目录，保留一份可追溯快照；不复制模型 checkpoint。">复制当前 Plan 轻量归档</button>' +
           '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="在结果区直接选择原始 CSV 的 case、seed、指标、方法、数据集、比例和评估端点列；保存到插件设置，再重建当前 Plan 汇总。">设置结果列映射</button>' +
         '</div>' +
         '<div class="muted">' + esc(multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "解析当前 Plan 后生成独立汇总表；原始结果不会改动。") + '</div>' +
@@ -13794,9 +13799,7 @@ function renderPanelHtml() {
     function renderResultNextAction(status) {
       const stage = resultWorkflowStage(status);
       if (stage.kind === "await-run") return resultAwaitRunNextAction(stage);
-      if (stage.kind === "archive") return resultArchiveNextAction(stage.count);
-      if (stage.kind === "archive-blocked") return resultArchiveBlockedNextAction(stage.count);
-      if (stage.kind === "review") return resultReviewNextAction(stage.count);
+      if (["archive", "archive-blocked", "review"].includes(stage.kind)) return "";
       if (stage.kind === "section") return projectSectionNextAction(stage.message, stage.label, stage.section, stage.anchor || stage.section);
       if (stage.command === "plotResultsToPpt") {
         const automation = pptAutomationReadinessForState(lastState || {});
@@ -14411,6 +14414,7 @@ function renderPanelHtml() {
     }
 
     function actionButton(label, command, options) {
+      if (["archiveArtifacts", "deleteArtifacts", "archivePlanCopy"].includes(command)) return "";
       options = options || {};
       const savedPayload = sanitizeActionPayload(options.payload || {});
       const batchPayload = options.batch ? Object.assign({ batchSelected: "true" }, selectedTaskPayloadFromState(lastState || {})) : {};

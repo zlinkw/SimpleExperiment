@@ -39,7 +39,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(resetBlock, /clearTimeout\(this\.resultsSummaryRefreshTimer\)/);
   assert.match(resetBlock, /this\.resultsSummaryRefreshInFlight = false/);
   assert.match(resetBlock, /if \(this\.view\?\.visible\)\s*this\.retryPendingResultsSummaryOnVisible\(\)/);
-  assert.match(extension, /async dispose\(\)[\s\S]{0,1200}this\.resultsSummaryRefreshTimerGeneration \+= 1;[\s\S]{0,120}if \(this\.statePostTimer\)/);
+  assert.match(extension, /async dispose\(\)[\s\S]*?this\.resultsSummaryRefreshTimerGeneration \+= 1;\s*if \(this\.statePostTimer\)/);
   assert.match(extension, /scheduleResultsSummaryFailureRetryFromRealtime/);
   assert.match(extension, /markResultsSummaryDirtyKeyRefreshed\(dirtyKey\)/);
   assert.match(extension, /dirtyKey === this\.lastResultsSummaryRefreshedDirtyKey/);
@@ -51,8 +51,8 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.doesNotMatch(extension, /lastResultsSummaryDirtyKey/);
 
   const html = readSource("src/ui/PanelHtml.ts");
-  assert.match(html, /id="resultActions"/);
-  assert.match(html, /el\("resultActions"\)\.className = "actionGrid statusOnly"/);
+  assert.doesNotMatch(html, /id="resultActions"/);
+  assert.doesNotMatch(html, /id="artifactActions"/);
   assert.match(html, /results: \[\["解析结果", "parseResults"\], \["刷新结果", "refreshResults"\]/);
   for (const command of ["parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable"]) {
     assert.match(html, new RegExp(`"${command}"`));
@@ -68,7 +68,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   assert.match(html, /candidate \+ " vs " \+ baseline/);
   assert.match(html, /statisticsResultCount/);
   assert.match(html, /unsupported/);
-  assert.match(html, /needs experiment/);
+  assert.match(html, /needsExperiment/);
   assert.match(html, /function claimEvidenceStatusLabel/);
   assert.match(html, /claimDisplayStatus/);
   assert.match(html, /claimEvidenceStatus/);
