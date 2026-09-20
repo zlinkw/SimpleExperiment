@@ -6500,7 +6500,7 @@ export class RealtimeTunnelPanelProvider {
     async configureCodeSyncIncludes() {
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (!folder || vscode.workspace.workspaceFolders?.length !== 1)
-            throw new Error("请先单独打开一个项目工作区，再设置代码上传路径。");
+            throw new Error("请先单独打开一个项目工作区，再补充要上传的代码。");
         const root = folder.uri.fsPath;
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
         let current = [...new Set((config.get<string[]>("codeSync.includePaths", []) || []).map(String))].sort();
@@ -6511,7 +6511,7 @@ export class RealtimeTunnelPanelProvider {
                 { label: "$(list-selection) 查看已纳入文件", description: `${current.length} 条额外路径`, id: "preview" },
                 { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
                 { label: "$(check) 完成", id: "done" },
-            ], { title: "设置代码上传路径", placeHolder: "默认扫描项目源码；这里补充被排除目录中的源码或配置", ignoreFocusOut: true });
+            ], { title: "补充上传代码", placeHolder: "运行 Plan 缺模块时，在此选择额外上传的源码或配置", ignoreFocusOut: true });
             if (!action || action.id === "done") return;
             if (action.id === "preview") {
                 const files = await collectExplicitCodeFiles(root, current);
@@ -6540,7 +6540,7 @@ export class RealtimeTunnelPanelProvider {
                 current = [...new Set([...current, ...next])].sort();
             }
             await config.update("codeSync.includePaths", current, vscode.ConfigurationTarget.WorkspaceFolder);
-            await vscode.window.showInformationMessage(`代码上传路径已保存：${current.length} 条。下次同步会包含所选目录内的安全源码和配置。`);
+            await vscode.window.showInformationMessage(`已保存 ${current.length} 条补充代码路径。下次运行 Plan 前会上传其中的安全源码和配置。`);
         }
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
@@ -17407,8 +17407,8 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     uploadProjectToWorkers: "上传项目到 Worker",
     distributeCodeToWorkers: "分发代码到 Worker",
     deployLatestAgent: "部署 Agent runtime",
-    configureSftpIgnores: "配置 SFTP 忽略规则",
-    configureCodeSyncIncludes: "设置代码上传路径",
+    configureSftpIgnores: "设置跳过文件",
+    configureCodeSyncIncludes: "补充上传代码",
     downloadDebugBundle: "下载调试包",
     downloadRemoteResult: "下载远端结果",
     openResultArtifact: "打开或下载结果文件",

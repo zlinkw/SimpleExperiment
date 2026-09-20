@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.49",
+  "version": "0.5.50",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -411,7 +411,7 @@
             "type": "string"
           },
           "scope": "resource",
-          "description": "额外纳入代码上传清单的项目内相对文件或目录。可在面板“设置代码上传路径”交互式选择；只允许 Python 源码和命名明确的配置，数据、图像、缓存、权重与符号链接不可上传。"
+          "description": "运行 Plan 前额外上传的项目内源码文件或目录。可在面板“补充上传代码”中选择；与 SimpleSFTP 整项目传输的跳过规则分开。数据、图像、缓存、权重与符号链接不能上传。"
         },
         "simpleExperiment.remote.allowedRoots": {
           "type": "array",

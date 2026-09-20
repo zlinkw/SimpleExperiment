@@ -103,7 +103,14 @@ test("configured code paths add safe source from excluded directories without da
 
 test("code upload path action is available in the panel and saved as plugin configuration", () => {
   const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
+  const actionStart = panel.indexOf('<div class="toolbar" data-anchor="sync-check-actions">');
+  const actionRow = panel.slice(actionStart, panel.indexOf('<div class="toolbar" data-anchor="sync-actions">', actionStart));
   assert.match(panel, /data-command="configureCodeSyncIncludes"/);
+  assert.ok(actionRow.indexOf('data-command="overwriteGithub"') < actionRow.indexOf('data-command="configureCodeSyncIncludes"'));
+  assert.ok(actionRow.indexOf('data-command="configureCodeSyncIncludes"') < actionRow.indexOf('data-command="configureSftpIgnores"'));
+  assert.match(actionRow, /补充上传代码/);
+  assert.match(actionRow, /设置跳过文件/);
+  assert.match(actionRow, /后者不会挡住 Plan 的代码上传/);
   assert.match(source, /case "configureCodeSyncIncludes"/);
   assert.match(source, /config\.update\("codeSync\.includePaths", current, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
   assert.match(source, /buildLocalCodeManifest\(root, includePaths\)/);

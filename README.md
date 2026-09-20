@@ -238,7 +238,9 @@ paper:
 
 同一 Plan 有未结束任务时，重复提交会被阻止。修改 Plan 内容会产生新 revision，不会混用旧结果。
 
-运行环境准备区的“设置代码上传路径”可从当前工作区添加源码文件或目录、预览额外纳入的文件、移除路径。选择目录时只纳入 `.py`、`.pyi` 与文件名含 config、settings、schema、manifest、protocol 或 metadata 的 YAML/TOML/INI/CFG/JSON 配置。设置保存在插件的工作区设置 `simpleExperiment.codeSync.includePaths`，不要求项目提供专用 YAML。默认代码扫描继续生效；该设置用于补充默认排除目录中的必需源码。数据、患者文件、图像、缓存、权重、运行产物、符号链接与单文件超过 2 MB 的内容不能借此上传。同步前检查远端源码冲突，同步后核对所有上传的 Python 源码哈希。
+运行环境准备区的“补充上传代码”用于运行 Plan 时缺少模块或配置的情况：从当前工作区添加源码文件或目录、预览额外纳入的文件、移除路径。选择目录时只纳入 `.py`、`.pyi` 与文件名含 config、settings、schema、manifest、protocol 或 metadata 的 YAML/TOML/INI/CFG/JSON 配置。设置保存在插件的工作区设置 `simpleExperiment.codeSync.includePaths`，不要求项目提供专用 YAML。默认代码扫描继续生效。数据、患者文件、图像、缓存、权重、运行产物、符号链接与单文件超过 2 MB 的内容不能借此上传。同步前检查远端源码冲突，同步后核对所有上传的 Python 源码哈希。
+
+同一行的“设置跳过文件”用于 SimpleSFTP **整项目上传或下载**，例如跳过数据集和权重；规则按服务器保存。两项作用于不同的传输清单：跳过规则不会取消 Plan 运行前清单里的源码，也不能替代“补充上传代码”。
 
 ## 结果文件
 
@@ -264,7 +266,7 @@ paper:
 | --- | --- | --- |
 | `topologyMode` | 空 | `single_worker`、`worker_pool` 或 `hub_worker`。 |
 | `planDir` | `experiments/plans` | 相对工作区的 Plan 目录。 |
-| `codeSync.includePaths` | `[]` | 额外上传的项目内源码文件或目录，在“设置代码上传路径”中交互式维护。 |
+| `codeSync.includePaths` | `[]` | 运行 Plan 前额外上传的项目内源码文件或目录，在“补充上传代码”中交互式维护。 |
 | `resultCsvDir` | `experiments/results` | 新任务的结果 CSV 默认目录。 |
 | `projectAdapterRules` | `{}` | 当前工作区的输出接入、指标别名和列映射，由面板交互式设置。 |
 | `remote.allowedRoots` | 空 | 允许作为远端项目父目录的前缀白名单。 |

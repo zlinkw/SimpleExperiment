@@ -1289,7 +1289,10 @@ function renderPanelHtml() {
         <div class="toolbar" data-anchor="sync-check-actions">
           <button type="button" data-command="runCheckStatic" title="运行静态检查，生成项目接入报告&#10;覆盖实验计划结构、输出接口与路径安全&#10;报告写入 simple_cluster/check_reports/&#10;查看报告：到「诊断与自检」卡片点「打开静态检查报告」">检查项目配置</button>
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区&#10;未提交的改动会丢失，执行前会要求确认">从 GitHub 覆盖本机</button>
+          <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="运行 Plan 时缺少 Python 模块或配置？从当前项目选择要额外上传的文件或目录，并预览纳入清单。只补充安全的源码和配置；数据、图像、缓存和权重仍不能上传。此设置不受右侧的整项目跳过规则影响。">补充上传代码</button>
+          <button type="button" data-command="configureSftpIgnores" class="secondary" title="整项目上传或下载时，选择要跳过的目录和文件，例如数据集、缓存和权重。按服务器分别保存；不会从 Plan 运行前的代码清单中排除源码。配置前会确认服务器和远端路径。">设置跳过文件</button>
         </div>
+        <div class="muted">运行 Plan 缺模块？补充上传代码。整项目上传或下载要避开数据、权重？设置跳过文件。后者不会挡住 Plan 的代码上传。</div>
         <div class="toolbar" data-anchor="sync-actions">
           <button type="button" data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">部署Agent</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
@@ -1298,10 +1301,6 @@ function renderPanelHtml() {
           <button type="button" data-command="publishGithub" data-confirm="true" title="第 2 步 · 传代码&#10;先提交推送到 GitHub（未配置会引导登录）&#10;再通过 SimpleSFTP 上传到所有 Worker；无 Hub 模式会跳过 Hub 上传">发布到git并上传worker</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第 3 步 · 检测&#10;检测全部服务器隧道、Agent 与调度依赖&#10;失败项会列出原因">检测全部</button>
-        </div>
-        <div class="toolbar">
-          <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="从当前项目选择额外上传的源码文件或目录。目录只纳入 Python 源码与命名明确的配置文件；图像、患者数据、缓存和权重始终排除。选择后可预览清单。">设置代码上传路径</button>
-          <button type="button" data-command="configureSftpIgnores" class="secondary" title="配置每台服务器的 SimpleSFTP 上传忽略规则。代码上传清单还会独立保护数据、图像、缓存和权重文件；上传后核对源码哈希。">设置 SFTP 忽略目录</button>
         </div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
@@ -2248,7 +2247,7 @@ function renderPanelHtml() {
       "parse-case-level": "样本级解析", "run-leakage-check": "泄漏检查", "run-subgroup-analysis": "子组分析", "export-case-analysis": "导出样本级报告", "inspect-dataset": "检查数据集",
       "plan-checkpoint-retention": "检查点清理预案", "infer-config-from-run": "反推配置", "recover-plan-from-run": "恢复 Plan", "diagnose-result-anomaly": "异常诊断", "compare-with-best-config": "对比最优配置",
       "publish-github": "发布 GitHub", "sync-github": "同步 GitHub", "overwrite-github": "覆盖 GitHub", "upload-project-to-hub": "上传到 Hub", "upload-project-to-workers": "上传到 Worker", "distribute-code-to-workers": "分发 Worker 代码", "deploy-latest-agent": "部署 Agent",
-      "configure-sftp-ignores": "配置 SFTP 忽略", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
+      "configure-sftp-ignores": "设置跳过文件", "prepare-agents": "准备 Agent", "test-all": "检测全部连接", "start-all-connections": "启动全部连接", "start-all": "启动全部隧道", "self-check": "运行自检", "create-debug-bundle": "生成调试包"
     });
     // RESOURCE_TREE_NEXT_STEPS removed (dead next-step hints).
     const RESOURCE_TREE_SECTION_ICONS = Object.freeze({ servers: "▧", gpu: "◫", tmux: "⬢", plans: "◇", execution: "▣", results: "▤", sync: "⇅", diagnostics: "⌁" });
@@ -5312,8 +5311,8 @@ function renderPanelHtml() {
         uploadProjectToWorkers: "上传到 Worker",
         distributeCodeToWorkers: "分发到 Worker",
         deployLatestAgent: "部署 Agent runtime",
-        configureSftpIgnores: "配置 SFTP 忽略",
-        configureCodeSyncIncludes: "设置代码上传路径",
+        configureSftpIgnores: "设置跳过文件",
+        configureCodeSyncIncludes: "补充上传代码",
         resetRemotePathConfirmations: "恢复当前项目的上传路径确认提醒",
         saveTopologyMode: "保存项目拓扑模式",
         reassignWorkerTask: "把排队任务手动转移到另一台在线 Worker",
@@ -6785,7 +6784,7 @@ function renderPanelHtml() {
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
-        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["设置代码上传路径", "configureCodeSyncIncludes"], ["配置 SFTP 忽略", "configureSftpIgnores"]],
+        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["补充上传代码", "configureCodeSyncIncludes"], ["设置跳过文件", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
@@ -14353,8 +14352,8 @@ function renderPanelHtml() {
         distributeCodeToWorkers: "分发 Worker",
         deployLatestAgent: "部署 Agent",
         prepareAgents: "准备 Agent 并启动",
-        configureSftpIgnores: "SFTP 忽略",
-        configureCodeSyncIncludes: "代码上传路径",
+        configureSftpIgnores: "跳过文件",
+        configureCodeSyncIncludes: "补充代码",
         resetRemotePathConfirmations: "恢复路径提醒",
         validatePlan: "校验计划",
         dryRunPlan: "预演计划",
