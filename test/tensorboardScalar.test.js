@@ -37,10 +37,11 @@ test("case selection loads every metric and viewer script compiles", () => {
   assert.match(script, /call\('series',\{groups,tags\}\)/);
   assert.match(script, /scalarExtreme\(values,kind\)/);
   assert.match(script, /maxComparisonCases=19/);
+  assert.match(script, /h=Math\.max\(190,rect\.height\)/);
   assert.match(fs.readFileSync(path.join(__dirname, "../dist/extension/legacy.js"), "utf8"), /params\.groups\.slice\(0, 20\)/);
 });
 
-test("hover details keep each case, metric and seed value separate", () => {
+test("hover details show one compact comparison row per case without an inner vertical scroller", () => {
   const vm = require("node:vm");
   const script = scalarDashboardHtml.match(/<script>([\s\S]*?)<\/script>/)[1];
   const elSource = script.slice(script.indexOf("function el("), script.indexOf("function key("));
@@ -65,12 +66,22 @@ test("hover details keep each case, metric and seed value separate", () => {
     ],
   };
   context.hoverCard(card, { offsetX: 50, offsetY: 200 });
-  assert.equal(tooltip.children.length, 2);
-  assert.match(tooltip.textContent, /bus_p30.*step 2.*均值.*0\.790000.*平滑.*0\.800000.*标准差.*0\.010000.*参与 seed.*2\/5.*seed 42.*0\.7800.*seed 43.*0\.8000/);
-  assert.match(tooltip.textContent, /bus_p40.*标准差.*—.*参与 seed.*1\/5.*seed 44.*0\.7400/);
+  assert.equal(tooltip.children.length, 1);
+  const table = tooltip.children[0];
+  assert.equal(table.tag, "table");
+  const rows = table.children[1].children;
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].children.length, 7);
+  assert.match(rows[0].title, /bus_p30.*step 2.*数值 0\.790000.*平滑 0\.800000.*标准差 0\.010000.*seed 2\/5.*42:0\.7800.*43:0\.8000/);
+  assert.match(rows[1].title, /bus_p40.*标准差 —.*seed 1\/5.*44:0\.7400/);
+  const css = scalarDashboardHtml.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.doesNotMatch(css, /\.tooltip\{[^}]*overflow-y:auto/);
+  assert.match(css, /@container \(max-width:390px\).*step-column/);
+  context.renderHoverDetails(card, Array.from({ length: 20 }, (_, index) => ({ case: "case_" + index, color: "#3766df", step: 7, mean: index, n: 1, expectedSeeds: 5 })));
+  assert.equal(tooltip.children[0].children[1].children.length, 20);
   card.markers = [{ x: 50, y: 200, detail: { case: "bus_p30", color: "#3766df", label: "均值 最大", step: 2, value: 0.79 } }];
   context.hoverCard(card, { offsetX: 50, offsetY: 200 });
-  assert.match(tooltip.textContent, /bus_p30.*均值 最大.*step 2.*值.*0\.790000/);
+  assert.match(tooltip.children[0].children[1].children[0].title, /bus_p30 · 均值 最大.*step 2.*数值 0\.790000/);
 });
 
 test("old and tensor scalar records, incomplete tail, overwrite and CRC", () => {
