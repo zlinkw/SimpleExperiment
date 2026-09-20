@@ -594,7 +594,9 @@ async function activateExtension(context) {
         context.globalState.get(keys.setupConfig),
         vscode,
     ).catch(() => undefined);
-    provider.startLocalApiServer();
+    void provider.startLocalApiServer().catch((error) => {
+        console.warn(`SimpleExperiment local API failed to start: ${errorMessage(error)}`);
+    });
     void provider.projectBootstrapPromise.then(async () => {
         await provider?.restoreRemotePlanOperations();
         await provider?.reconcileStalePlanRunOperations({ reason: "activation" });
@@ -771,6 +773,7 @@ export class RealtimeTunnelPanelProvider {
     confirmedRemotePaths = [];
     confirmedPptPaths = [];
     private localApiServer;
+    private localApiServerPromise;
     apiFlowState = ApiWorkflow_1.defaultFlowState();
     apiFlowStateDirty = false;
     private apiFlowStatePersistPromise?: Promise<void>;
@@ -850,31 +853,49 @@ export class RealtimeTunnelPanelProvider {
         void Promise.resolve(this.context.globalState.update(keys.pluginUpdateStatus, refreshed)).catch(() => undefined);
         return refreshed;
     }
-    startLocalApiServer() {
+    async startLocalApiServer() {
         if (this.localApiServer)
             return this.localApiServer;
-        const server = new LocalApiServerClass({
-            name: "SimpleExperiment",
-            version: String(this.context?.extension?.packageJSON?.version || ""),
-            preferredPort: LOCAL_API_PREFERRED_PORT,
-            discoveryPath: API_DISCOVERY_PATH,
-            methods: this.createLocalApiMethods(),
-            scalarViewer: {
-                html: scalarDashboardHtml,
-                query: (params, endpointId) => this.scalarViewerQuery(params, endpointId),
-                native: (method, route, body, contentType, endpointId) => this.scalarNativeProxy(method, route, body, contentType, endpointId),
-            },
-        });
-        this.localApiServer = server;
-        this.context.subscriptions.push({
-            dispose: () => {
-                void server.dispose().catch(() => undefined);
-            },
-        });
-        void server.start().catch((error) => {
-            console.warn(`SimpleExperiment local API failed to start: ${errorMessage(error)}`);
-        });
-        return server;
+        if (this.localApiServerPromise)
+            return this.localApiServerPromise;
+        const pending = (async () => {
+            const scope = String(workspaceRoot() || "");
+            const secretName = "simpleExperiment.scalarViewerSigningKey.v1." + crypto.createHash("sha256").update(scope.toLowerCase()).digest("hex").slice(0, 24);
+            let signingKey = await this.context.secrets.get(secretName);
+            if (!/^[a-f0-9]{64}$/i.test(String(signingKey || ""))) {
+                signingKey = crypto.randomBytes(32).toString("hex");
+                await this.context.secrets.store(secretName, signingKey);
+            }
+            const preferredPort = Number(this.context.workspaceState.get("simpleExperiment.localApiPort")) || LOCAL_API_PREFERRED_PORT;
+            const server = new LocalApiServerClass({
+                name: "SimpleExperiment",
+                version: String(this.context?.extension?.packageJSON?.version || ""),
+                preferredPort,
+                preferredPortRetryMs: 3000,
+                discoveryPath: API_DISCOVERY_PATH,
+                methods: this.createLocalApiMethods(),
+                viewerSessionKey: signingKey,
+                viewerSessionScope: scope,
+                scalarViewer: {
+                    html: scalarDashboardHtml,
+                    query: (params, endpointId) => this.scalarViewerQuery(params, endpointId),
+                    native: (method, route, body, contentType, endpointId) => this.scalarNativeProxy(method, route, body, contentType, endpointId),
+                },
+            });
+            try {
+                const discovery = await server.start();
+                this.localApiServer = server;
+                this.context.subscriptions.push({ dispose: () => { void server.dispose().catch(() => undefined); } });
+                void this.context.workspaceState.update("simpleExperiment.localApiPort", discovery.port).then(undefined, () => undefined);
+                return server;
+            } catch (error) {
+                await server.dispose().catch(() => undefined);
+                throw error;
+            }
+        })();
+        this.localApiServerPromise = pending;
+        try { return await pending; }
+        finally { if (this.localApiServerPromise === pending) this.localApiServerPromise = undefined; }
     }
     createLocalApiMethods() {
         return {
@@ -3084,6 +3105,8 @@ export class RealtimeTunnelPanelProvider {
     async dispose() {
         this.clearPanelReadyWatchdog();
         this.disposeSelectedPlanFileWatchers();
+        if (this.localApiServerPromise)
+            await this.localApiServerPromise.catch(() => undefined);
         if (this.localApiServer) {
             await this.localApiServer.dispose().catch(() => undefined);
             this.localApiServer = undefined;
@@ -11131,7 +11154,7 @@ export class RealtimeTunnelPanelProvider {
     }
     async openScalarViewerFromUi(message: any) {
         const endpointId = String(message?.endpointId || "").trim();
-        const server = this.startLocalApiServer();
+        const server = await this.startLocalApiServer();
         for (let attempt = 0; attempt < 20; attempt++) {
             try {
                 const opened = await vscode.env.openExternal(vscode.Uri.parse(server.viewerUrl(endpointId)));

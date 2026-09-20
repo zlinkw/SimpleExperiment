@@ -30,7 +30,7 @@ test("smoothing preserves constant values and extreme markers use raw values", (
 
 test("case selection loads every metric and viewer script compiles", () => {
   const vm = require("node:vm");
-  const script = scalarDashboardHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1]?.replace("__SCALAR_VIEWER_SERVER__", "0");
+  const script = scalarDashboardHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1]?.replace("__SCALAR_VIEWER_SERVER__", "0").replace("__SCALAR_VIEWER_EPOCH__", '"test"');
   assert.ok(script);
   assert.doesNotThrow(() => new vm.Script(script));
   assert.match(script, /renderCards\(tags\)/);
@@ -38,6 +38,39 @@ test("case selection loads every metric and viewer script compiles", () => {
   assert.match(script, /scalarExtreme\(values,kind\)/);
   assert.match(script, /maxComparisonCases=19/);
   assert.match(fs.readFileSync(path.join(__dirname, "../dist/extension/legacy.js"), "utf8"), /params\.groups\.slice\(0, 20\)/);
+});
+
+test("hover details keep each case, metric and seed value separate", () => {
+  const vm = require("node:vm");
+  const script = scalarDashboardHtml.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const elSource = script.slice(script.indexOf("function el("), script.indexOf("function key("));
+  const hoverSource = script.slice(script.indexOf("function nearestIndex("), script.indexOf("document.getElementById('refresh')"));
+  class Element {
+    constructor(tag) { this.tag = tag; this.children = []; this.style = { setProperty: () => {} }; }
+    appendChild(child) { this.children.push(child); return child; }
+    replaceChildren(...children) { this.children = children.flatMap(child => child.tag === "fragment" ? child.children : [child]); }
+    set textContent(value) { this.text = value; }
+    get textContent() { return this.text || this.children.map(child => child.textContent).join(" "); }
+  }
+  const document = { createElement: tag => new Element(tag), createDocumentFragment: () => new Element("fragment") };
+  const context = vm.createContext({ document });
+  vm.runInContext(elSource + hoverSource + "globalThis.renderHoverDetails=renderHoverDetails;globalThis.hoverCard=hoverCard", context);
+  const tooltip = new Element("div");
+  const card = {
+    tooltip, markers: [], smooth: { value: "0.4" },
+    plot: { bounds: { x0: 1, x1: 3 }, left: 0, right: 100 },
+    displaySeries: [
+      { color: "#3766df", means: [0.8], row: { case: "bus_p30", points: [{ step: 2, mean: 0.79, std: 0.01, n: 2, seeds: { 42: 0.78, 43: 0.8 } }], expectedSeeds: 5 } },
+      { color: "#d97706", means: [0.75], row: { case: "bus_p40", points: [{ step: 2, mean: 0.74, std: null, n: 1, seeds: { 44: 0.74 } }], expectedSeeds: 5 } },
+    ],
+  };
+  context.hoverCard(card, { offsetX: 50, offsetY: 200 });
+  assert.equal(tooltip.children.length, 2);
+  assert.match(tooltip.textContent, /bus_p30.*step 2.*均值.*0\.790000.*平滑.*0\.800000.*标准差.*0\.010000.*参与 seed.*2\/5.*seed 42.*0\.7800.*seed 43.*0\.8000/);
+  assert.match(tooltip.textContent, /bus_p40.*标准差.*—.*参与 seed.*1\/5.*seed 44.*0\.7400/);
+  card.markers = [{ x: 50, y: 200, detail: { case: "bus_p30", color: "#3766df", label: "均值 最大", step: 2, value: 0.79 } }];
+  context.hoverCard(card, { offsetX: 50, offsetY: 200 });
+  assert.match(tooltip.textContent, /bus_p30.*均值 最大.*step 2.*值.*0\.790000/);
 });
 
 test("old and tensor scalar records, incomplete tail, overwrite and CRC", () => {
@@ -84,5 +117,69 @@ test("viewer ticket is single use and curve API requires a local browser session
     assert.deepEqual(nativeCalls.at(-1), { route: "/api/tensorboard/ui/data", endpointId: "worker-b" });
   } finally {
     await server.dispose();
+  }
+});
+
+test("an open scalar tab retains its authenticated tunnel proxy after local API restart", async () => {
+  const options = {
+    name: "test", version: "0", preferredPort: 29181,
+    viewerSessionKey: "a".repeat(64), viewerSessionScope: "project-a",
+    scalarViewer: { html: "<h1>__SCALAR_VIEWER_SERVER__</h1>", query: async () => ({ plans: [] }), native: async () => ({ status: 200, body: Buffer.from("ok"), contentType: "text/plain" }) },
+  };
+  const first = new LocalApiServer(options);
+  let second;
+  let otherScope;
+  try {
+    await first.start();
+    const entry = first.viewerUrl("worker-a");
+    const page = await fetch(entry);
+    const cookie = page.headers.get("set-cookie").split(";")[0];
+    const root = new URL(entry).origin;
+    assert.equal((await fetch(root + "/tensorboard/health?server=worker-a")).status, 401);
+    const firstEpoch = (await (await fetch(root + "/tensorboard/health?server=worker-a", { headers: { cookie } })).json()).epoch;
+    assert.match(firstEpoch, /^[a-f0-9]{24}$/);
+    await first.dispose();
+    second = new LocalApiServer(options);
+    await second.start();
+    const afterRestart = async (url, options) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try { return await fetch(url, options); }
+        catch (error) { if (attempt === 3) throw error; await new Promise(resolve => setTimeout(resolve, 20)); }
+      }
+    };
+    assert.equal((await afterRestart(entry, { headers: { cookie } })).status, 200);
+    const health = await afterRestart(root + "/tensorboard/health?server=worker-a", { headers: { cookie } });
+    assert.equal(health.status, 200);
+    assert.notEqual((await health.json()).epoch, firstEpoch);
+    const body = '{"action":"catalog"}';
+    const headers = { cookie, origin: root, "content-type": "application/json" };
+    assert.equal((await fetch(root + "/tensorboard/api?server=worker-a", { method: "POST", headers, body })).status, 200);
+    assert.equal((await fetch(root + "/tensorboard/api?server=worker-b", { method: "POST", headers, body })).status, 401);
+    const tampered = cookie.slice(0, -1) + (cookie.endsWith("a") ? "b" : "a");
+    assert.equal((await fetch(root + "/tensorboard/api?server=worker-a", { method: "POST", headers: { ...headers, cookie: tampered }, body })).status, 401);
+    await second.dispose();
+    second = undefined;
+    otherScope = new LocalApiServer({ ...options, viewerSessionScope: "project-b" });
+    await otherScope.start();
+    assert.equal((await afterRestart(root + "/tensorboard/api?server=worker-a", { method: "POST", headers, body })).status, 401);
+  } finally {
+    await first.dispose();
+    if (second) await second.dispose();
+    if (otherScope) await otherScope.dispose();
+  }
+});
+
+test("local viewer waits briefly to reuse its previous browser port", async () => {
+  const first = new LocalApiServer({ name: "test", version: "0", preferredPort: 29182 });
+  const second = new LocalApiServer({ name: "test", version: "0", preferredPort: 29182, preferredPortRetryMs: 800 });
+  try {
+    await first.start();
+    const pending = second.start();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await first.dispose();
+    assert.equal((await pending).port, 29182);
+  } finally {
+    await first.dispose();
+    await second.dispose();
   }
 });

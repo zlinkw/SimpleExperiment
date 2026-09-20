@@ -9,6 +9,8 @@ const DEFAULT_EVENT_BUFFER_LIMIT = 128;
 const DEFAULT_SSE_TIMEOUT_MS = 30_000;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_PORT = 65535;
+const VIEWER_SESSION_SECONDS = 30 * 24 * 60 * 60;
+const VIEWER_RENEW_SECONDS = 7 * 24 * 60 * 60;
 
 export type ApiParams = Record<string, unknown>;
 export type ApiHandler = (params: ApiParams, server: LocalApiServer) => unknown | Promise<unknown>;
@@ -33,7 +35,10 @@ interface LocalApiServerOptions {
   name: string;
   version: string;
   preferredPort?: number;
+  preferredPortRetryMs?: number;
   token?: string;
+  viewerSessionKey?: string;
+  viewerSessionScope?: string;
   methods?: Record<string, ApiHandler>;
   discoveryPath?: string;
   maxEvents?: number;
@@ -127,6 +132,7 @@ export class LocalApiServer {
   readonly version: string;
   readonly host = "127.0.0.1";
   readonly preferredPort: number;
+  readonly preferredPortRetryMs: number;
   readonly token: string;
   readonly methods: Record<string, ApiHandler>;
   readonly discoveryPath: string;
@@ -142,12 +148,15 @@ export class LocalApiServer {
   private disposed = false;
   private scalarViewer?: LocalApiServerOptions["scalarViewer"];
   private viewerTickets = new Map<string, { expires: number; endpointId: string }>();
-  private viewerSessions = new Map<string, { expires: number; endpointId: string }>();
+  private viewerSessionKey: Buffer;
+  private viewerSessionScope: string;
+  private readonly viewerEpoch = crypto.randomBytes(12).toString("hex");
 
   constructor(options: LocalApiServerOptions) {
     this.name = options.name;
     this.version = options.version;
     this.preferredPort = positivePort(options.preferredPort, 19766);
+    this.preferredPortRetryMs = Math.min(10_000, positiveNumber(options.preferredPortRetryMs, 0));
     this.token =
       options.token
         ? String(options.token)
@@ -157,6 +166,29 @@ export class LocalApiServer {
     this.sseTimeoutMs = positiveNumber(options.sseTimeoutMs, DEFAULT_SSE_TIMEOUT_MS);
     this.maxEvents = Math.max(1, Math.min(1024, positiveNumber(options.maxEvents, DEFAULT_MAX_EVENTS)));
     this.scalarViewer = options.scalarViewer;
+    this.viewerSessionKey = /^[a-f0-9]{64}$/i.test(options.viewerSessionKey || "")
+      ? Buffer.from(options.viewerSessionKey!, "hex") : crypto.randomBytes(32);
+    this.viewerSessionScope = String(options.viewerSessionScope || "");
+  }
+
+  private issueViewerSession(endpointId: string, now: number): string {
+    const expires = (now + VIEWER_SESSION_SECONDS * 1000).toString(16).padStart(12, "0");
+    const nonce = crypto.randomBytes(16).toString("hex");
+    const payload = `${expires}.${nonce}`;
+    const signature = crypto.createHmac("sha256", this.viewerSessionKey)
+      .update(`${payload}.${this.viewerSessionScope}.${endpointId}`).digest("hex");
+    return `${payload}.${signature}`;
+  }
+
+  private viewerSessionExpiry(value: string, endpointId: string, now: number): number {
+    const match = /^([a-f0-9]{12})\.([a-f0-9]{32})\.([a-f0-9]{64})$/.exec(value);
+    if (!match) return 0;
+    const expires = Number.parseInt(match[1], 16);
+    if (!Number.isSafeInteger(expires) || expires <= now) return 0;
+    const expected = crypto.createHmac("sha256", this.viewerSessionKey)
+      .update(`${match[1]}.${match[2]}.${this.viewerSessionScope}.${endpointId}`).digest();
+    const actual = Buffer.from(match[3], "hex");
+    return crypto.timingSafeEqual(actual, expected) ? expires : 0;
   }
 
   viewerUrl(endpointId = ""): string {
@@ -176,6 +208,17 @@ export class LocalApiServer {
 
   private async listen(): Promise<void> {
     const startPort = Math.max(1024, Math.min(this.preferredPort, MAX_PORT));
+    const preferredDeadline = Date.now() + this.preferredPortRetryMs;
+    while (Date.now() < preferredDeadline) {
+      try {
+        await this.listenOnce(startPort);
+        this.port = startPort;
+        return;
+      } catch (error) {
+        if (!isPortConflict(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
     for (let port = startPort; port <= MAX_PORT; port += 1) {
       try {
         await this.listenOnce(port);
@@ -213,7 +256,7 @@ export class LocalApiServer {
     }
     const url = new URL(request.url || "/", `http://${this.host}`);
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
-    if (pathname === "/tensorboard" || pathname === "/tensorboard/api" || pathname.startsWith("/api/tensorboard/ui")) {
+    if (pathname === "/tensorboard" || pathname === "/tensorboard/api" || pathname === "/tensorboard/health" || pathname.startsWith("/api/tensorboard/ui")) {
       await this.handleScalarViewer(request, response, url, pathname);
       return;
     }
@@ -248,36 +291,40 @@ export class LocalApiServer {
     if (!this.scalarViewer) return sendJson(response, 404, { error: "NOT_FOUND" });
     const now = Date.now();
     for (const [key, value] of this.viewerTickets) if (value.expires < now) this.viewerTickets.delete(key);
-    for (const [key, value] of this.viewerSessions) if (value.expires < now) this.viewerSessions.delete(key);
     const ticket = url.searchParams.get("ticket") || "";
     const issued = this.viewerTickets.get(ticket);
     let referrerEndpoint = "";
     try { referrerEndpoint = new URL(String(request.headers.referer || "")).searchParams.get("server") || ""; } catch {}
     const requestedEndpoint = url.searchParams.get("server") || referrerEndpoint || issued?.endpointId || "";
     const cookieName = `simple_scalar_session_${crypto.createHash("sha256").update(requestedEndpoint).digest("hex").slice(0, 12)}`;
-    const cookie = new RegExp(`(?:^|;\\s*)${cookieName}=([a-f0-9]{48})`).exec(String(request.headers.cookie || ""))?.[1] || "";
-    let session = this.viewerSessions.get(cookie);
-    let authorized = Boolean(session && session.expires > now && session.endpointId === requestedEndpoint);
+    const cookie = new RegExp(`(?:^|;\\s*)${cookieName}=([a-f0-9.]+)`).exec(String(request.headers.cookie || ""))?.[1] || "";
+    const expires = this.viewerSessionExpiry(cookie, requestedEndpoint, now);
+    let authorized = expires > now;
     if (pathname === "/tensorboard" && request.method === "GET") {
       if (!authorized && issued && issued.expires > now && issued.endpointId === requestedEndpoint) {
         this.viewerTickets.delete(ticket);
-        const session = crypto.randomBytes(24).toString("hex");
-        this.viewerSessions.set(session, { expires: now + 24 * 60 * 60 * 1000, endpointId: issued.endpointId });
-        response.setHeader("Set-Cookie", `${cookieName}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`);
+        response.setHeader("Set-Cookie", `${cookieName}=${this.issueViewerSession(requestedEndpoint, now)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${VIEWER_SESSION_SECONDS}`);
         authorized = true;
       }
       if (!authorized) return sendJson(response, 401, { error: "VIEWER_SESSION_EXPIRED" });
+      if (issued) this.viewerTickets.delete(ticket);
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; base-uri 'none'" });
-      response.end(this.scalarViewer.html.replaceAll("__SCALAR_VIEWER_SERVER__", JSON.stringify(requestedEndpoint).replace(/</g, "\\u003c")));
+      response.end(this.scalarViewer.html
+        .replaceAll("__SCALAR_VIEWER_SERVER__", JSON.stringify(requestedEndpoint).replace(/</g, "\\u003c"))
+        .replaceAll("__SCALAR_VIEWER_EPOCH__", JSON.stringify(this.viewerEpoch)));
       return;
     }
     if (!authorized) return sendJson(response, 401, { error: "VIEWER_SESSION_EXPIRED" });
+    if (expires - now < VIEWER_RENEW_SECONDS * 1000)
+      response.setHeader("Set-Cookie", `${cookieName}=${this.issueViewerSession(requestedEndpoint, now)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${VIEWER_SESSION_SECONDS}`);
+    if (pathname === "/tensorboard/health" && request.method === "GET")
+      return sendJson(response, 200, { ok: true, epoch: this.viewerEpoch, version: this.version });
     const origin = String(request.headers.origin || "");
     if (request.method === "POST" && origin !== `http://${this.host}:${this.port}`) return sendJson(response, 403, { error: "INVALID_ORIGIN" });
     if (pathname === "/tensorboard/api" && request.method === "POST") {
       const params = normalParams(await readJsonBody(request));
       try {
-        sendJson(response, 200, await this.scalarViewer.query(params, session?.endpointId || ""));
+        sendJson(response, 200, await this.scalarViewer.query(params, requestedEndpoint));
       } catch (error) {
         sendJson(response, 502, { error: error instanceof Error ? error.message : String(error), retryAfterMs: Number((error as any)?.decision?.retryAfterMs || 0) });
       }
@@ -292,7 +339,7 @@ export class LocalApiServer {
         request.on("error", reject);
       }) : undefined;
       url.searchParams.delete("server");
-      const result = await this.scalarViewer.native(request.method, url.pathname + url.search, body, String(request.headers["content-type"] || ""), session?.endpointId || "");
+      const result = await this.scalarViewer.native(request.method, url.pathname + url.search, body, String(request.headers["content-type"] || ""), requestedEndpoint);
       response.writeHead(result.status, { "Content-Type": result.contentType, "Content-Length": result.body.length, "Cache-Control": "no-store" });
       response.end(result.body);
       return;
