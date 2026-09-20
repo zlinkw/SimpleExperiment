@@ -1,3 +1,14 @@
+## 0.5.36 (2026-09-20)
+
+- 全项目结果重建采用手动请求预算查询每个 Plan，避免沿用后台快照的 60 秒间隔，导致本机 API 等待超时。
+- 结果区仅将插件生成的 `final/final` 和方法表作为简洁入口；同步当前 Plan 时仅下载原始 seed 与详细追溯表，不再生成重复的 `trace/<Plan>_final` 副本。
+
+## 0.5.35 (2026-09-20)
+
+- 全项目和各方法结果分别写入 experiments/results/final/ 与 experiments/results/<方法>/；跨 Worker 逐 seed 去重后重新计算均值和样本标准差。
+- 当前 Plan 的原始 seed、详细聚合及计算副本按方法放入 raw、detail、trace 子目录，批量同步仍限当前 Plan。
+- 结果区新增按列、搜索词条、手选或批量选择和保留列生成 CSV 子表；修复跨 Plan 查询没有传递 Plan 路径。
+
 ## 0.5.34 (2026-09-20)
 
 - 结果区将当前 Plan 简洁汇总提升为独立主卡片，明确区分 CSV 精确值与 Markdown 可读版；缺失文件时直接显示原因和重建入口。
@@ -217,8 +228,3 @@
 - Added structured workflow blockers with operation/server IDs and evidence counts; `autoPrepare` remains behind explicit confirmation.
 - Expanded reconciliation evidence to Worker task snapshots, taught single-Worker stops to target synthetic requests, and added bounded SIGKILL escalation.
 - Merged concurrent result parsing across host-operation lease conflicts instead of opening a duplicate parse.
-## 0.5.35 (2026-09-20)
-
-- 全项目和各方法结果分别写入 experiments/results/final/ 与 experiments/results/<方法>/；跨 Worker 逐 seed 去重后重新计算均值和样本标准差。
-- 当前 Plan 的原始 seed、详细聚合及计算副本按方法放入 raw、detail、trace 子目录，批量同步仍限当前 Plan。
-- 结果区新增按列、搜索词条、手选或批量选择和保留列生成 CSV 子表；修复跨 Plan 查询没有传递 Plan 路径。

@@ -119,8 +119,12 @@ class HttpTunnelClient {
         const params = new URLSearchParams({ runKey, since: String(Math.max(0, since)) });
         return this.getPath(`/api/live-output?${params.toString()}`);
     }
-    getResultsSummary(planFile = "") {
-        return this.getPath("/api/results/summary" + (planFile ? "?planFile=" + encodeURIComponent(planFile) : ""));
+    getResultsSummary(planFile = "", options = {}) {
+        const path = "/api/results/summary" + (planFile ? "?planFile=" + encodeURIComponent(planFile) : "");
+        return this.requestJson(path, options.userInitiated ? "manual_refresh" : "snapshot", undefined, {
+            method: "GET",
+            userInitiated: options.userInitiated,
+        });
     }
     getDiagnostics() {
         return this.getPath("/api/diagnostics");

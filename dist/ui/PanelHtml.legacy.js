@@ -13716,35 +13716,14 @@ function renderPanelHtml() {
         pptPlotButton("异常原因", analysisArtifacts.anomalyPath, "root cause/storyline", { unavailableReason: "请先运行异常诊断" })
       ].filter(Boolean).join("");
       const tableRows = rows.join("");
-      const finalHelpCsv = "当前 Plan 的最终简洁结果。每行对应方法、数据集、训练比例和评估端点；每个指标分别给出跨 seed 均值与样本标准差。jobs 列标记参与 seed 数。点击后经当前 Worker 的 Agent 隧道同步到本机 experiments/results，再打开 CSV；原始表不变。";
-      const finalHelpMarkdown = "与当前 Plan 简洁 CSV 相同的数据，指标合并显示为均值 ± 样本标准差，并四舍五入到四位小数，适合直接阅读。点击后同步到本机 experiments/results 并打开；精确数值请看 CSV。";
-      const finalCard = (row, workerId) => {
-        const available = meaningfulValue(row.finalCsvPath);
-        const scope = workerId ? " · " + workerId : "";
-        const count = Number(row.finalRowCount || 0);
-        return '<div class="resultFinalCard"><b>当前 Plan 计算结果' + esc(scope) + '</b>' +
-          '<div class="muted">一行对应一个方法 × 数据集 × 训练比例 × 评估端点。展示各指标的跨 seed 均值、样本标准差与参与数。' + (count ? '当前 ' + count + ' 行。' : '') + '</div>' +
-          '<div class="pptPlotActions">' +
-            resultFileButton("查看简洁汇总 CSV", row.finalCsvPath, resultPlanFile, workerId, finalHelpCsv, true) +
-            resultFileButton("查看简洁汇总 Markdown", row.finalMarkdownPath, resultPlanFile, workerId, finalHelpMarkdown, true) +
-          '</div>' +
-          (!available ? '<div class="muted">尚未生成简洁汇总。请确认新版 Agent 已启动，再点击下方“重建当前 Plan 汇总”；不会重新训练。</div>' : '') +
-        '</div>';
-      };
-      const finalCards = multiWorkerTables ? workerResultTables.map((row) => finalCard(row, row.workerId)).join("") : finalCard({ finalCsvPath, finalMarkdownPath, finalRowCount: summary.finalRowCount }, "");
-      const traceButtons = multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("原始 seed 数据 CSV", row.rawResultCsvPath, resultPlanFile, row.workerId, "项目训练或评估写出的逐 seed 原始数据。插件只下载本机副本，不改写服务器原表。") + resultFileButton("详细聚合与覆盖率 CSV", row.aggregateCsvPath, resultPlanFile, row.workerId, "按 Plan case 和其他身份列逐项聚合，保留每项指标的参与 seed 数与完整性，供检查简洁表的计算来源。") + resultFileButton("项目详细总表 CSV", row.projectAggregateCsvPath, resultPlanFile, row.workerId, "当前 Worker 上已生成的各 Plan 详细聚合表，不代表跨 Worker 合并。") ).join("") :
+      const traceButtons = multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("原始 seed 数据 CSV", row.rawResultCsvPath, resultPlanFile, row.workerId, "项目训练或评估写出的逐 seed 原始数据。插件只下载本机副本，不改写服务器原表。") + resultFileButton("详细聚合与覆盖率 CSV", row.aggregateCsvPath, resultPlanFile, row.workerId, "按 Plan case 和其他身份列逐项聚合，保留每项指标的参与 seed 数与完整性，供检查简洁表的计算来源。") ).join("") :
         resultFileButton("原始 seed 数据 CSV", rawResultCsvPath, resultPlanFile, "", "项目训练或评估写出的逐 seed 原始数据。插件只下载本机副本，不改写服务器原表。") +
-        resultFileButton("详细聚合与覆盖率 CSV", aggregateCsvPath, resultPlanFile, "", "当前 Plan 的详细计算依据，包含 case、端点、每项指标的均值、标准差、参与 seed 数及完整性。") +
-        resultFileButton("项目详细总表 CSV", projectAggregateCsvPath, resultPlanFile, "", "当前 Worker 上已生成的各 Plan 详细聚合表；不是跨 Worker 合并结果。");
-      const projectButtons = multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("项目简洁总表 CSV", row.projectFinalCsvPath, resultPlanFile, row.workerId, "汇集当前 Worker 上已生成的各 Plan 简洁表，并附带 plan_file 来源列；不同 Worker 分别保存。") + resultFileButton("项目简洁总表 Markdown", row.projectFinalMarkdownPath, resultPlanFile, row.workerId, "项目简洁总表的可读版，各指标显示均值 ± 样本标准差；仅包含当前 Worker。" )).join("") :
-        resultFileButton("项目简洁总表 CSV", projectFinalCsvPath, resultPlanFile, "", "汇集当前 Worker 上已生成的各 Plan 简洁表，并附带 plan_file 来源列；不修改任何原始结果。") +
-        resultFileButton("项目简洁总表 Markdown", projectFinalMarkdownPath, resultPlanFile, "", "项目简洁总表的可读版，各指标显示均值 ± 样本标准差；精确数值请看 CSV。");
+        resultFileButton("详细聚合与覆盖率 CSV", aggregateCsvPath, resultPlanFile, "", "当前 Plan 的详细计算依据，包含 case、端点、每项指标的均值、标准差、参与 seed 数及完整性。");
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
         renderProjectResultTables(state) +
-        finalCards +
         '<details class="resultArtifactGroup" data-details-key="result-trace-files"' + detailsOpenAttr("result-trace-files", false) + '><summary>原始数据与详细追溯</summary><div class="muted">原始 seed 表保持不变；详细表用于核对每项指标的参与数。</div><div class="pptPlotActions">' + traceButtons + '</div></details>' +
         '<div class="pptPlotActions">' +
-          '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="只同步当前 Plan 最新摘要列出的简洁表、原始表、详细表及相关结果到本机 experiments/results。已有本地文件时统一询问覆盖或仅补缺失；不改远端文件。">同步当前 Plan 全部结果到本机</button>' +
+          '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="仅同步当前 Plan 的原始 seed 表和详细聚合表到对应方法文件夹的 raw、detail 子目录；简洁结果由插件写入方法文件夹与全项目 final。已有本地文件时统一询问覆盖或仅补缺失；不改远端文件。">同步当前 Plan 原始与详细表</button>' +
           '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '" title="重新读取当前 Plan 声明的原始结果表，计算简洁 CSV、可读 Markdown 和详细汇总；不会重新训练，也不会改写原始 seed 表。">重建当前 Plan 汇总</button>' +
           '<button class="taskActionButton secondary" data-command="archivePlanCopy" data-plan-file="' + escAttr(resultPlanFile) + '" title="复制当前 Plan 文件、配置、结果表与轻量日志到项目 archives 目录，保留一份可追溯快照；不复制模型 checkpoint。">复制当前 Plan 轻量归档</button>' +
           '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="在结果区直接选择原始 CSV 的 case、seed、指标、方法、数据集、比例和评估端点列；保存到插件设置，再重建当前 Plan 汇总。">设置结果列映射</button>' +

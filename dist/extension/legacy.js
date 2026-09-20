@@ -11491,7 +11491,7 @@ class RealtimeTunnelPanelProvider {
                 try {
                     for (let attempt = 0; attempt < 4; attempt++) {
                         try {
-                            summary = await client.getResultsSummary(planFile);
+                            summary = await client.getResultsSummary(planFile, { userInitiated: true });
                             break;
                         }
                         catch (error) {
@@ -22653,7 +22653,7 @@ function resultSummaryInspectionCandidates(summary, planFile) {
 function resultSummarySyncCandidates(summary, planFile) {
     const inspected = new Set(resultSummaryInspectionCandidates(summary, planFile));
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
-    const fields = ["rawResultCsvPath", "aggregateCsvPath", "finalCsvPath", "finalMarkdownPath"];
+    const fields = ["rawResultCsvPath", "aggregateCsvPath"];
     const paths = uniqueStrings([
         ...fields.map((field) => summary?.[field]),
         ...tables.flatMap((table) => fields.map((field) => table?.[field])),
@@ -22669,7 +22669,7 @@ function resultSummarySyncCandidates(summary, planFile) {
         }
     };
     for (const remotePath of paths) {
-        const matchingTables = tables.filter((table) => [table.rawResultCsvPath, table.aggregateCsvPath, table.finalCsvPath, table.finalMarkdownPath].includes(remotePath));
+        const matchingTables = tables.filter((table) => [table.rawResultCsvPath, table.aggregateCsvPath].includes(remotePath));
         if (matchingTables.length) {
             for (const table of matchingTables)
                 add(remotePath, table.workerId);

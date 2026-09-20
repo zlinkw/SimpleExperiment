@@ -131,8 +131,6 @@ test("bulk sync keeps current Plan scope and separates identical paths from diff
     { remotePath: raw, workerId: "nwpu5" },
     { remotePath: aggregate, workerId: "nwpu3" },
     { remotePath: aggregate, workerId: "nwpu5" },
-    { remotePath: finalCsv, workerId: "nwpu3" },
-    { remotePath: finalCsv, workerId: "nwpu5" },
   ]);
   assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, "experiments/plans/comparison/other.yaml")), []);
 });
@@ -261,12 +259,12 @@ test("preview and effective CSV buttons open result artifacts without changing P
 
 test("Plan concise table is the primary result entry with scoped explanations", () => {
   assert.match(panel, /全项目最终结果 · final/);
-  assert.match(panel, /查看简洁汇总 CSV/);
-  assert.match(panel, /查看简洁汇总 Markdown/);
-  assert.match(panel, /一行对应一个方法 × 数据集 × 训练比例 × 评估端点/);
+  assert.match(panel, /data-command="openLocalResultTable"/);
+  assert.doesNotMatch(panel, /resultFileButton\("查看简洁汇总 CSV"/);
+  assert.match(panel, /同步当前 Plan 原始与详细表/);
   assert.match(panel, /data-details-key="result-trace-files"/);
   assert.match(panel, /data-details-key="result-split-tables"/);
-  assert.match(panel, /尚未生成简洁汇总/);
+  assert.match(panel, /尚未生成总表/);
   assert.match(panel, /重建当前 Plan 汇总/);
 });
 

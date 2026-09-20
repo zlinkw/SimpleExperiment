@@ -199,14 +199,14 @@ class MultiEndpointRealtimeClient {
         this.onState(this.mergedState);
         return experimentTraces;
     }
-    async getResultsSummary(planFile = "") {
+    async getResultsSummary(planFile = "", options = {}) {
         const hub = this.clients.get("hub");
         if (hub)
-            return hub.getResultsSummary(planFile);
+            return hub.getResultsSummary(planFile, options);
         const workerEndpoints = this.endpoints.filter((endpoint) => endpoint.role === "worker");
         const entries = await Promise.allSettled(workerEndpoints.map(async (endpoint) => ({
             workerId: endpoint.id,
-            summary: await this.clients.get(endpoint.id)?.getResultsSummary(planFile),
+            summary: await this.clients.get(endpoint.id)?.getResultsSummary(planFile, options),
         })));
         const fulfilled = entries
             .filter((entry) => entry.status === "fulfilled")

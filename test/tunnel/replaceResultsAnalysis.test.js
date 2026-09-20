@@ -40,6 +40,28 @@ test("results quality statistics paper and case analysis use Hub Agent API", asy
   }
 });
 
+test("manual all-Plan result rebuild bypasses the background snapshot cooldown", async () => {
+  let requests = 0;
+  const server = http.createServer((_req, res) => {
+    requests += 1;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ schemaVersion: 1, results: [] }));
+  });
+  await listen(server);
+  const client = new HttpTunnelClient(
+    { localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 },
+    new RequestBudget({ ...defaultRequestBudgetConfig, maxRequestsPerMinute: 100, minIntervalByPurpose: { snapshot: 60_000, manual_refresh: 0 }, disabledPurposes: [] }),
+  );
+  try {
+    await client.getResultsSummary("experiments/plans/a.yaml");
+    await assert.rejects(client.getResultsSummary("experiments/plans/b.yaml"), /cooldown/);
+    await client.getResultsSummary("experiments/plans/b.yaml", { userInitiated: true });
+    assert.equal(requests, 2);
+  } finally {
+    server.close();
+  }
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }
