@@ -2417,7 +2417,7 @@ function renderPanelHtml() {
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
-      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "editResultColumnMapping", "openAuditTail",
+      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "editResultColumnMapping", "openAuditTail",
       "selectPlan", "selectExperiment",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
       ...Object.keys(uiCapabilityMap)
@@ -13609,6 +13609,7 @@ function renderPanelHtml() {
       const tableRows = rows.join("");
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
         '<div class="pptPlotActions">' +
+          '<button class="taskActionButton" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="按当前 Plan 结果摘要同步所有结果文件到本机结果目录；已有文件只确认一次">一键同步所有结果</button>' +
           (multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("原始 seed 表", row.rawResultCsvPath, resultPlanFile, row.workerId) + resultFileButton("均值/标准差表", row.aggregateCsvPath, resultPlanFile, row.workerId) + resultFileButton("项目总表（该 Worker）", row.projectAggregateCsvPath, resultPlanFile, row.workerId)).join("") : resultFileButton("打开原始 seed 表", rawResultCsvPath, resultPlanFile) + resultFileButton("打开均值/标准差表", aggregateCsvPath, resultPlanFile) + resultFileButton("打开项目总表（当前 Worker）", projectAggregateCsvPath, resultPlanFile)) +
           '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '">重建汇总</button>' +
           '<button class="taskActionButton secondary" data-command="archivePlanCopy" data-plan-file="' + escAttr(resultPlanFile) + '">复制轻量归档</button>' +
@@ -14188,6 +14189,7 @@ function renderPanelHtml() {
         downloadDebugBundle: "下载调试包",
         downloadRemoteResult: "查看远端结果",
         openResultArtifact: "打开结果文件",
+        syncAllResultArtifacts: "同步全部结果文件",
         openAuditTail: "审计尾部",
         reconcileDeletions: "校准删除",
         openPlan: "打开文件",

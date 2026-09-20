@@ -361,7 +361,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "editResultColumnMapping", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
@@ -392,7 +392,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "editResultColumnMapping", "runAllPlans",
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
-    "downloadDebugBundle", "downloadRemoteResult", "openAuditTail", "selectPlan", "selectExperiment",
+    "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
@@ -4632,6 +4632,9 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "openResultArtifact":
                 await this.openResultArtifactFromUi(message);
+                break;
+            case "syncAllResultArtifacts":
+                await this.syncAllResultArtifactsFromUi(message);
                 break;
             case "editResultColumnMapping":
                 await this.editResultColumnMappingFromUi();
@@ -11270,6 +11273,128 @@ class RealtimeTunnelPanelProvider {
         const opened = await this.openWorkspaceFileForProjectContext(localRelative, projectContext, client);
         if (opened && isCurrent())
             void vscode.window.showInformationMessage(`结果文件已同步并打开：${localRelative}`);
+    }
+    async syncAllResultArtifactsFromUi(message) {
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
+        const client = this.client;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        if (!root)
+            throw new Error("请先打开当前实验项目。");
+        if (this.effectiveConnectionMode() === "offline_import")
+            throw new Error("离线模式无法同步远端结果文件。");
+        const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
+        if (!planFile)
+            throw new Error("无法确认结果文件所属 Plan，已阻止同步。");
+        await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }));
+        if (!isCurrent())
+            return;
+        await this.refreshResultsSummary(planFile);
+        if (!isCurrent())
+            return;
+        const summary = this.filterResultsSummaryForPlan(this.resultsSummary, planFile);
+        const candidates = resultSummarySyncCandidates(summary, planFile);
+        if (!candidates.length)
+            throw new Error("当前 Plan 没有可同步的结果文件；请先刷新或重建汇总。");
+        if (candidates.length > 64)
+            throw new Error(`当前 Plan 有 ${candidates.length} 个结果文件，超过单次同步上限 64；请分别打开需要的文件。`);
+        const workerTables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+        const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
+        const entries = [];
+        const destinations = new Set();
+        for (const candidate of candidates) {
+            const owner = String(candidate.workerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
+            const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (!owner && availableWorkers.length === 1 ? availableWorkers[0] : "");
+            if (workerTables.length > 1 && !workerId)
+                throw new Error(`无法确定 ${candidate.remotePath} 所属 Worker，已阻止批量同步。`);
+            if (owner && availableWorkers.length && !workerId)
+                throw new Error(`结果所属 Worker ${owner} 未启用，已阻止批量同步。`);
+            if (!workerId && this.missingCapabilities(["endpoints.fileDownload"]).length)
+                throw new Error("当前 Hub Agent 缺少结果文件下载能力。");
+            const localRelative = resultArtifactLocalRelativePath(candidate.remotePath, planFile, summary, this.resultCsvDirectory, workerTables.length > 1 ? workerId : "");
+            const localPath = safeWorkspaceChildPath(root, localRelative);
+            const destinationKey = localPath.toLowerCase();
+            if (destinations.has(destinationKey))
+                throw new Error(`多个结果文件对应同一本地路径：${localRelative}，已阻止覆盖。`);
+            destinations.add(destinationKey);
+            const existing = await fs.stat(localPath).catch(() => undefined);
+            if (existing && !existing.isFile())
+                throw new Error(`本地结果位置不是文件：${localRelative}`);
+            entries.push({ ...candidate, workerId, localRelative, localPath, exists: Boolean(existing) });
+        }
+        if (!isCurrent())
+            return;
+        const existingCount = entries.filter((entry) => entry.exists).length;
+        let overwrite = true;
+        if (existingCount) {
+            const answer = await vscode.window.showWarningMessage([
+                "【批量同步结果确认】",
+                `当前 Plan：${planFile}`,
+                `结果文件：${entries.length} 个，已有本地副本：${existingCount} 个`,
+                `本机目录：${safeWorkspaceChildPath(root, this.resultCsvDirectory)}`,
+                "每个文件最多 128 MB；仅下载当前 Plan 摘要列出的文件，远端文件不变。",
+            ].join("\n"), { modal: true }, "覆盖已有文件并同步", "只同步缺失文件");
+            if (!isCurrent())
+                return;
+            if (answer !== "覆盖已有文件并同步" && answer !== "只同步缺失文件")
+                throw new UiCommandCancelled("批量同步已取消。");
+            overwrite = answer === "覆盖已有文件并同步";
+        }
+        const selected = entries.filter((entry) => overwrite || !entry.exists);
+        if (!selected.length) {
+            void vscode.window.showInformationMessage(`当前 Plan 的 ${entries.length} 个结果文件已有本地副本。`);
+            return;
+        }
+        const failures = [];
+        let completed = 0;
+        let cancelled = false;
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "同步当前 Plan 全部结果", cancellable: true }, async (progress, token) => {
+            for (let index = 0; index < selected.length; index++) {
+                if (token.isCancellationRequested || !isCurrent()) {
+                    cancelled = true;
+                    break;
+                }
+                const entry = selected[index];
+                progress.report({ message: `${index + 1}/${selected.length} ${entry.workerId || "Hub"}: ${entry.remotePath}` });
+                try {
+                    await fs.mkdir(path.dirname(entry.localPath), { recursive: true });
+                    for (let attempt = 0; attempt < 4; attempt++) {
+                        try {
+                            if (entry.workerId)
+                                await client.downloadWorkerFile(entry.workerId, entry.remotePath, entry.localPath, { maxBytes: RESULT_ARTIFACT_MAX_BYTES });
+                            else
+                                await client.downloadFile(entry.remotePath, entry.localPath, { maxBytes: RESULT_ARTIFACT_MAX_BYTES });
+                            completed++;
+                            break;
+                        }
+                        catch (error) {
+                            const decision = error?.decision;
+                            if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || "")))
+                                throw error;
+                            const deadline = Date.now() + Math.min(61000, Math.max(500, Number(decision.retryAfterMs || 1000) + 100));
+                            progress.report({ message: `请求预算等待中：${entry.remotePath}` });
+                            while (Date.now() < deadline) {
+                                if (token.isCancellationRequested || !isCurrent()) {
+                                    cancelled = true;
+                                    return;
+                                }
+                                await sleep(Math.min(1000, deadline - Date.now()));
+                            }
+                        }
+                    }
+                }
+                catch (error) {
+                    failures.push(`${entry.workerId || "Hub"}:${entry.remotePath}：${errorMessage(error)}`);
+                }
+            }
+        });
+        if (!isCurrent())
+            return;
+        const summaryText = `当前 Plan 结果同步：成功 ${completed}/${selected.length}，跳过已有 ${entries.length - selected.length}，失败 ${failures.length}${cancelled ? "，已取消后续文件" : ""}。本机目录：${this.resultCsvDirectory}`;
+        if (failures.length)
+            void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
+        else
+            void vscode.window.showInformationMessage(summaryText);
     }
     async editResultColumnMappingFromUi() {
         const context = this.captureProjectContext();
@@ -22299,6 +22424,31 @@ function resultSummaryInspectionCandidates(summary, planFile) {
         item.claim_evidence_path,
         claimEvidence.path,
     ].map(normalizeRemoteResultInspectionPath).filter(Boolean));
+}
+function resultSummarySyncCandidates(summary, planFile) {
+    const paths = resultSummaryInspectionCandidates(summary, planFile);
+    const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+    const owner = String(summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
+    const entries = [];
+    const seen = new Set();
+    const add = (remotePath, workerId) => {
+        const key = `${String(workerId || "").toLowerCase()}|${remotePath}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            entries.push({ remotePath, workerId: String(workerId || "") });
+        }
+    };
+    for (const remotePath of paths) {
+        const matchingTables = tables.filter((table) => [table.rawResultCsvPath, table.aggregateCsvPath, table.projectAggregateCsvPath].includes(remotePath));
+        if (matchingTables.length) {
+            for (const table of matchingTables)
+                add(remotePath, table.workerId);
+        }
+        else {
+            add(remotePath, owner || (tables.length === 1 ? tables[0].workerId : ""));
+        }
+    }
+    return entries;
 }
 function remoteResultOperationPayloads(row) {
     const item = row && typeof row === "object" ? row : {};

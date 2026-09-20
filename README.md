@@ -251,6 +251,8 @@ Debug 运行会把输出隔离到 debug 目录，不会写入正式归档或统�
 
 结果区的“打开”按钮先确认远端来源与本机目标，再同步到本地项目的 `experiments/results/` 并打开。原始表保留原名；Plan 汇总命名为 `<Plan 名>_seed_mean_std.csv`，项目总表为 `project_seed_mean_std.csv`；多 Worker 时放在各自的 Worker 子目录。已有本地目标时会明确提示覆盖，也可只打开现有文件。旧的 `experiments/results.csv` 属于兼容候选文件，不是新的结果目录；插件不会自动删除或迁移已有文件。
 
+点击“一键同步所有结果”会按当前 Plan 的最新结果摘要，把已列出的原始表、Plan 汇总、项目总表和已有分析结果依次同步到同一结果目录；多 Worker 分目录保存。首次同步直接开始；已有本地文件时只确认一次，可覆盖全部或只下载缺失文件。单次最多 64 个文件，每个文件最多 128 MB；失败项会在完成后列出，不影响已成功同步的文件。
+
 “复制轻量归档”在确认目标后，将当前 Plan、关联配置、按当前 Plan case/seed 筛选的原始结果、汇总表及轻量日志复制到 Worker 项目和本地工作区的 `archives/<Plan 名>/<时间>/`。不移动原文件，不复制 checkpoint；单文件上限 4 MB，总量上限 128 MB。原来的逐条结果筛选和旧归档入口仍可从高级证据区使用。
 
 标准结果建议包含 `metrics_summary.csv`、`env_snapshot.json` 和 `config_snapshot.yaml`。详细契约见 [plugin-project-contract.md](docs/plugin-project-contract.md)。

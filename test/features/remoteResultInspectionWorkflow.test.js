@@ -47,7 +47,7 @@ function loadHelpers() {
     Date,
   };
   vm.createContext(sandbox);
-  vm.runInContext(extension.slice(start, end) + "\nthis.api = { REMOTE_RESULT_INSPECTION_MAX_BYTES, normalizeRemoteResultInspectionPath, remoteResultInspectionLocalRelativePath, resultArtifactLocalRelativePath, remoteResultInspectionCandidates, resultSummaryInspectionCandidates };", sandbox);
+  vm.runInContext(extension.slice(start, end) + "\nthis.api = { REMOTE_RESULT_INSPECTION_MAX_BYTES, normalizeRemoteResultInspectionPath, remoteResultInspectionLocalRelativePath, resultArtifactLocalRelativePath, remoteResultInspectionCandidates, resultSummaryInspectionCandidates, resultSummarySyncCandidates };", sandbox);
   return sandbox.api;
 }
 
@@ -98,6 +98,29 @@ test("result buttons sync to project results directory with stable Plan and Work
   assert.equal(target(summary.projectAggregateCsvPath, plan, summary), "experiments/results/project_seed_mean_std.csv");
   assert.equal(target(summary.aggregateCsvPath, plan, { workerResultTables: [{ workerId: "nwpu3", aggregateCsvPath: summary.aggregateCsvPath }] }, "experiments/results", "nwpu3"), "experiments/results/nwpu3/concatenation_seed_mean_std.csv");
   assert.match(target("simple_cluster/results/effective.csv", plan, summary), /^experiments\/results\/concatenation_effective_[a-f0-9]{8}\.csv$/);
+});
+
+test("bulk sync keeps current Plan scope and separates identical paths from different Workers", () => {
+  const { resultSummarySyncCandidates } = loadHelpers();
+  const plan = "experiments/plans/comparison/concatenation.yaml";
+  const raw = "experiments/results/concatenation.csv";
+  const aggregate = "simple_cluster/results/by_plan/concatenation/seed_mean_std.csv";
+  const summary = {
+    planFile: plan,
+    rawResultCsvPath: raw,
+    aggregateCsvPath: aggregate,
+    workerResultTables: [
+      { workerId: "nwpu3", rawResultCsvPath: raw, aggregateCsvPath: aggregate },
+      { workerId: "nwpu5", rawResultCsvPath: raw, aggregateCsvPath: aggregate },
+    ],
+  };
+  assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, plan), (item) => ({ ...item })), [
+    { remotePath: raw, workerId: "nwpu3" },
+    { remotePath: raw, workerId: "nwpu5" },
+    { remotePath: aggregate, workerId: "nwpu3" },
+    { remotePath: aggregate, workerId: "nwpu5" },
+  ]);
+  assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, "experiments/plans/comparison/other.yaml")), []);
 });
 
 test("remote result inspection is authorized by the matching Plan contract operation", () => {
@@ -195,7 +218,7 @@ test("extension and workbench expose a confirmed download-and-open path", () => 
 test("preview and effective CSV buttons open result artifacts without changing Plan selection", () => {
   const handler = extension.slice(extension.indexOf("async openResultArtifactFromUi"), extension.indexOf("async openAuditTail"));
   assert.match(extension, /case "openResultArtifact":\s*await this\.openResultArtifactFromUi\(message\)/);
-  assert.match(extension, /"downloadRemoteResult", "openResultArtifact", "editResultColumnMapping", "openAuditTail"/);
+  assert.match(extension, /"downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "editResultColumnMapping", "openAuditTail"/);
   assert.match(handler, /this\.filterResultsSummaryForPlan\(this\.resultsSummary, planFile\)/);
   assert.match(handler, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(handler, /const client = this\.client/);
@@ -220,6 +243,18 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.match(panel, /data-command="openResultArtifact" data-remote-path=/);
   const buttonHelper = panel.slice(panel.indexOf("function resultFileButton"), panel.indexOf("function renderResultNextAction"));
   assert.doesNotMatch(buttonHelper, /data-command="openPlan"/);
+});
+
+test("bulk sync uses one action, one overwrite decision and the Agent tunnel for each file", () => {
+  const handler = extension.slice(extension.indexOf("async syncAllResultArtifactsFromUi"), extension.indexOf("async editResultColumnMappingFromUi"));
+  assert.match(extension, /case "syncAllResultArtifacts":\s*await this\.syncAllResultArtifactsFromUi\(message\)/);
+  assert.match(panel, /data-command="syncAllResultArtifacts" data-plan-file=/);
+  assert.match(handler, /resultSummarySyncCandidates\(summary, planFile\)/);
+  assert.match(handler, /resultArtifactLocalRelativePath\(candidate\.remotePath, planFile, summary/);
+  assert.match(handler, /if \(existingCount\) \{/);
+  assert.match(handler, /client\.downloadWorkerFile\(entry\.workerId, entry\.remotePath, entry\.localPath/);
+  assert.match(handler, /client\.downloadFile\(entry\.remotePath, entry\.localPath/);
+  assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
 });
 
 test("operation details retain each parser error and add file-only fallbacks", () => {
