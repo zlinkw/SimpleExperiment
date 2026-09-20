@@ -142,7 +142,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   const prepareSftp = source.slice(source.indexOf("async prepareSftpTargets"), source.indexOf("    sftpServerOptions"));
 
   assert.ok(preparation.indexOf("confirmRemoteWriteTargets") < preparation.indexOf("writeXshellAgentStartupCommands"));
-  assert.match(preparation, /deployLatestAgentRuntime\(false, true\)/);
+  assert.match(preparation, /deployLatestAgentRuntime\(false, true, \[\], true\)/);
   assert.ok(startup.indexOf("confirmRemoteWriteTargets") < startup.indexOf("updateXshellSessionLoginCommand"));
   assert.match(startup, /写入 Agent 自启动路径/);
   assert.match(startup, /agentStartupWriteConfirmationDetail\(targets, runtimeTargets, false\)/);

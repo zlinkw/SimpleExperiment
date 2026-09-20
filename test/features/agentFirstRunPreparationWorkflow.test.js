@@ -30,7 +30,7 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   const flow = extension.slice(start, end);
   const sftp = flow.indexOf('ensureSimpleSftpReadyForSetup("准备 Agent")');
   const workspace = flow.search(/if\s*\(!workspaceRoot\(\)\)/);
-  const sync = flow.indexOf('syncXshellConfigBeforeNetwork("prepare agents for first run")');
+  const sync = flow.indexOf('syncXshellConfigBeforeNetwork("prepare agents for first run", { postState: false })');
   const preflight = flow.indexOf("currentAgentPreparationBlockers()");
   const confirm = flow.indexOf("确认准备并启动");
   const write = flow.indexOf("writeXshellAgentStartupCommands(false, false)");

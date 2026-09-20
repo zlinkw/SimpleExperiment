@@ -3589,7 +3589,6 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     async prepareAgentsForFirstRun(showMessage = true) {
-        console.log("[diag] prepareAgents entry", { showMessage, hasWorkspace: !!workspaceRoot(), sftp: (()=>{try{return simpleSftpIntegrationReadiness()}catch(e){return String(e)}})() });
         if(!await this.ensureSimpleSftpReadyForSetup("准备 Agent")){
           console.warn("[diag] prepareAgents blocked: SimpleSFTP not ready");
           throw new UiCommandCancelled("SimpleSFTP 未就绪，已取消准备 Agent。请先安装并重载窗口。");
@@ -3600,7 +3599,7 @@ export class RealtimeTunnelPanelProvider {
           throw new UiCommandCancelled("未选择项目，已取消准备 Agent。");
         }
         assertSingleProjectWorkspace("准备 Agent");
-        await this.syncXshellConfigBeforeNetwork("prepare agents for first run");
+        await this.syncXshellConfigBeforeNetwork("prepare agents for first run", { postState: false });
         const topology = this.assertTopologyReady("准备 Agent");
         this.assertTopologyActualWorkRoots("准备 Agent");
         const preparationBlockers = this.currentAgentPreparationBlockers();
@@ -3608,7 +3607,6 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(`Agent 准备已阻止，尚未修改 .xsh 或部署 runtime：${preparationBlockers.join("；")}`);
         const targets = this.agentStartupTargets();
         const expectedTargets = topology.hubAllowed ? 1 + this.enabledWorkerConfigs().length : this.enabledWorkerConfigs().length;
-        console.log("[diag] prepareAgents check", { expectedTargets, sftpTargets: this.sftpSharedTargets().length, runtimeTargets: this.agentRuntimeUploadTargets().length, blockers: this.currentAgentPreparationBlockers().length });
         if (targets.length !== expectedTargets)
             throw new Error(`Agent 准备目标不完整：需要 ${expectedTargets} 个，当前 ${targets.length} 个。请检查当前拓扑内所有服务器的 Xshell 会话和项目父目录。`);
         this.assertExecutionCondaEnvReady(this.workerActionTargets());
@@ -12662,21 +12660,21 @@ export class RealtimeTunnelPanelProvider {
             sessions: [...this.xshellLibrary.sessions, info].sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN")),
         };
     }
-    async syncConfiguredXshellSessions(_reason) {
+    async syncConfiguredXshellSessions(_reason, postStateOnUnchanged = true) {
         const synced = this.withXshellDerivedFields(this.setupConfig);
         if (JSON.stringify((0, XshellTunnelSetup_1.publicXshellSetupSummary)(synced)) === JSON.stringify((0, XshellTunnelSetup_1.publicXshellSetupSummary)(this.setupConfig))) {
-            this.postState();
+            if (postStateOnUnchanged) this.postState();
             return;
         }
         await this.applySetupDraft(synced, { syncAssignmentsFromFields: true });
     }
-    async syncXshellConfigBeforeNetwork(reason) {
+    async syncXshellConfigBeforeNetwork(reason, options = {}) {
         await Promise.all([
-            this.refreshXshellSessionLibrary(),
+            this.refreshXshellSessionLibrary({ postState: options.postState !== false }),
             this.refreshLocalSshConfig(),
         ]);
         await this.assertSshTransportIdentities(this.sftpSharedTargets());
-        await this.syncConfiguredXshellSessions(reason);
+        await this.syncConfiguredXshellSessions(reason, options.postState !== false);
     }
     withXshellDerivedFields(config) {
         const hubInfo = this.sessionInfoForPath(config.savedSessionPath);

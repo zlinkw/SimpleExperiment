@@ -2762,7 +2762,6 @@ function renderPanelHtml() {
         } catch (e) {}
         const command = button.dataset.command;
         if (command === "snapshot") { try { lastSnapshotRequestAt = Date.now(); var __snapCard = button.closest ? button.closest("[data-section]") : null; lastSnapshotSection = String((__snapCard && __snapCard.dataset && __snapCard.dataset.section) || (__snapCard && __snapCard.getAttribute ? __snapCard.getAttribute("data-section") : "") || ""); } catch (e) {} }
-        if (command === "prepareAgents") { console.log("[webview] prepareAgents click", { state: lastState, readiness: serverSetupReadiness(lastState), blockers: agentPreparationBlockersFromState(lastState) }); }
         const payload = payloadFromButton(button);
         if (command === "splitProjectResultTable") {
           payload.tableName = String(document.querySelector("#resultSplitTable")?.value || "");
