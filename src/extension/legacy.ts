@@ -6536,7 +6536,7 @@ export class RealtimeTunnelPanelProvider {
         // remote source is user work and must never be overwritten implicitly.
         for (const target of enabledTargets) {
             const rows = await this.inspectCodeSyncTarget(target, Object.keys(manifest));
-            const conflicts = rows.filter((row) => String(row.status || "").trim() || (row.gitAvailable === false && row.exists && String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase()));
+            const conflicts = codeSyncConflicts(rows, manifest);
             if (conflicts.length) {
                 const details = conflicts.map((row) => `${target.remotePath.replace(/\/+$/, "")}/${row.path} (${row.status || "无 Git 基线"})`);
                 if (details.length > 20)
@@ -23115,6 +23115,16 @@ async function buildLocalCodeManifest(root) {
     const workers = Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker());
     await Promise.all(workers);
     return manifest;
+}
+function codeSyncConflicts(rows, manifest) {
+    return rows.filter((row) => {
+        if (!row.exists) return false;
+        const dirty = Boolean(String(row.status || "").trim()) || row.gitAvailable === false;
+        if (!dirty) return false;
+        const remoteHash = String(row.sha256 || "").toLowerCase();
+        const localHash = String(manifest[row.path]?.sha256 || "").toLowerCase();
+        return !remoteHash || !localHash || remoteHash !== localHash;
+    });
 }
 function fingerprintFromManifest(manifest) {
     const stable = Object.keys(manifest).sort().map((key) => [key, manifest[key]]);
