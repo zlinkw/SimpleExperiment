@@ -1299,7 +1299,10 @@ function renderPanelHtml() {
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第 3 步 · 检测&#10;检测全部服务器隧道、Agent 与调度依赖&#10;失败项会列出原因">检测全部</button>
         </div>
-        <div class="toolbar"><button type="button" data-command="configureSftpIgnores" class="secondary" title="配置每台服务器的 SimpleSFTP 上传忽略规则。源码清单还会独立保护 data/ 内的图像、数组和权重文件；上传后会核对必需 Python 源码。">设置 SFTP 忽略目录</button></div>
+        <div class="toolbar">
+          <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="从当前项目选择额外上传的源码文件或目录。目录只纳入 Python 源码与命名明确的配置文件；图像、患者数据、缓存和权重始终排除。选择后可预览清单。">设置代码上传路径</button>
+          <button type="button" data-command="configureSftpIgnores" class="secondary" title="配置每台服务器的 SimpleSFTP 上传忽略规则。代码上传清单还会独立保护数据、图像、缓存和权重文件；上传后核对源码哈希。">设置 SFTP 忽略目录</button>
+        </div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
 
@@ -2221,7 +2224,7 @@ function renderPanelHtml() {
       gpuId: "data-gpu-id", endpointId: "data-endpoint-id", remotePath: "data-remote-path", file: "data-file", planFile: "data-plan-file", workerId: "data-worker-id",
       configScope: "data-config-scope", savePlan: "data-save-plan", batchSelected: "data-batch-selected"
     });
-    const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
+    const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "configureCodeSyncIncludes", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
     const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureSftpIgnores", "runPlan", "reproducePlan", "runAllPlans"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const COMMAND_ACTION_NAMES = Object.freeze({
@@ -2268,7 +2271,7 @@ function renderPanelHtml() {
       inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
       parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
       exportPaperTable: "results", exportPlottingContract: "results", plotResultsToPpt: "results", publishGithub: "sync", syncGithub: "sync", overwriteGithub: "sync", uploadProjectToHub: "sync",
-      uploadProjectToWorkers: "sync", distributeCodeToWorkers: "sync", deployLatestAgent: "sync", configureSftpIgnores: "sync", fetchTmuxList: "tmux", fetchTmuxCapture: "tmux", selfCheck: "diagnostics", createDebugBundle: "diagnostics", downloadDebugBundle: "diagnostics", openAuditTail: "diagnostics"
+      uploadProjectToWorkers: "sync", distributeCodeToWorkers: "sync", deployLatestAgent: "sync", configureSftpIgnores: "sync", configureCodeSyncIncludes: "sync", fetchTmuxList: "tmux", fetchTmuxCapture: "tmux", selfCheck: "diagnostics", createDebugBundle: "diagnostics", downloadDebugBundle: "diagnostics", openAuditTail: "diagnostics"
     });
     const INSPECTOR_ACTION_PRIORITY_COMMON = new Map([["prepareAgents", 0], ["startAllConnections", 1], ["testAll", 2], ["snapshot", 3], ["pauseAll", 4]]);
     const INSPECTOR_ACTION_PRIORITY_OPERATIONS = new Map([["selfCheck", 0], ["createDebugBundle", 1], ["downloadDebugBundle", 2], ["openAuditTail", 3]]);
@@ -2278,7 +2281,7 @@ function renderPanelHtml() {
       plans: new Map([["validatePlan", 0], ["dryRunPlan", 1], ["runPlan", 2], ["runAllPlans", 3], ["archivePlan", 4], ["generateOutputAdapter", 5]]),
       execution: new Map([["retryExperiment", 0], ["reassignWorkerTask", 1], ["archiveArtifacts", 2], ["deleteArtifacts", 3], ["selfCheck", 4], ["createDebugBundle", 5], ["clearOperations", 6], ["snapshot", 7]]),
       results: new Map([["parseResults", 0], ["refreshResults", 1], ["runQualityGate", 2], ["checkOutputContract", 3], ["runStatistics", 4], ["checkClaimEvidence", 5], ["exportPaperTable", 6], ["exportPlottingContract", 7], ["plotResultsToPpt", 8]]),
-      sync: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["publishGithub", 4], ["testAll", 5], ["syncGithub", 6], ["overwriteGithub", 7], ["uploadProjectToHub", 8], ["uploadProjectToWorkers", 9], ["distributeCodeToWorkers", 10], ["deployLatestAgent", 11], ["configureSftpIgnores", 12]]),
+      sync: new Map([["saveSchedulerConfig", 0], ["prepareAgents", 1], ["startAll", 2], ["startAllConnections", 3], ["publishGithub", 4], ["testAll", 5], ["syncGithub", 6], ["overwriteGithub", 7], ["uploadProjectToHub", 8], ["uploadProjectToWorkers", 9], ["distributeCodeToWorkers", 10], ["deployLatestAgent", 11], ["configureCodeSyncIncludes", 12], ["configureSftpIgnores", 13]]),
       tmux: new Map([["fetchTmuxList", 0], ["fetchTmuxCapture", 1], ["testAll", 2]]),
       diagnostics: INSPECTOR_ACTION_PRIORITY_OPERATIONS
     });
@@ -2386,7 +2389,7 @@ function renderPanelHtml() {
     const SCHEDULER_BUCKETS = Object.freeze(Object.keys(SCHEDULER_BUCKET_STATUSES));
     const TASK_RENDER_BUDGET_HINT = "超出渲染预算时按已选、运行或失败、排队、其余的顺序保留；折叠的任务仍参与计数与批量操作";
     const FEATURE_READINESS_GROUPS = [
-      ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]],
+      ["发布同步", ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureCodeSyncIncludes", "configureSftpIgnores"]],
       ["计划运行链路", ["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"]],
       ["Worker 手动控制", ["stopExperiment", "retryExperiment", "reassignWorkerTask", "archiveArtifacts", "deleteArtifacts"]],
       ["结果证据闭环", ["parseResults", "refreshResults", "excludeResults", "checkOutputContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "exportPlottingContract", "plotResultsToPpt"]],
@@ -2507,7 +2510,7 @@ function renderPanelHtml() {
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
-      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
+      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "configureCodeSyncIncludes", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
       "selectPlan", "selectExperiment",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
       ...Object.keys(uiCapabilityMap)
@@ -5310,6 +5313,7 @@ function renderPanelHtml() {
         distributeCodeToWorkers: "分发到 Worker",
         deployLatestAgent: "部署 Agent runtime",
         configureSftpIgnores: "配置 SFTP 忽略",
+        configureCodeSyncIncludes: "设置代码上传路径",
         resetRemotePathConfirmations: "恢复当前项目的上传路径确认提醒",
         saveTopologyMode: "保存项目拓扑模式",
         reassignWorkerTask: "把排队任务手动转移到另一台在线 Worker",
@@ -6781,7 +6785,7 @@ function renderPanelHtml() {
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
-        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["配置 SFTP 忽略", "configureSftpIgnores"]],
+        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["设置代码上传路径", "configureCodeSyncIncludes"], ["配置 SFTP 忽略", "configureSftpIgnores"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
@@ -14350,6 +14354,7 @@ function renderPanelHtml() {
         deployLatestAgent: "部署 Agent",
         prepareAgents: "准备 Agent 并启动",
         configureSftpIgnores: "SFTP 忽略",
+        configureCodeSyncIncludes: "代码上传路径",
         resetRemotePathConfirmations: "恢复路径提醒",
         validatePlan: "校验计划",
         dryRunPlan: "预演计划",

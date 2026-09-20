@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.48",
+  "version": "0.5.49",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -403,6 +403,15 @@
           "default": "experiments/plans",
           "scope": "resource",
           "description": "相对于工作区根目录的实验计划目录。"
+        },
+        "simpleExperiment.codeSync.includePaths": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "description": "额外纳入代码上传清单的项目内相对文件或目录。可在面板“设置代码上传路径”交互式选择；只允许 Python 源码和命名明确的配置，数据、图像、缓存、权重与符号链接不可上传。"
         },
         "simpleExperiment.remote.allowedRoots": {
           "type": "array",

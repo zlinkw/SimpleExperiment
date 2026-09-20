@@ -1,13 +1,14 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const { Readable } = require("node:stream");
 
 const source = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
-const start = source.indexOf("async function buildLocalCodeManifest(root)");
+const start = source.indexOf("async function buildLocalCodeManifest(root");
 const end = source.indexOf("function sftpUploadSucceeded(result, fingerprint)", start);
 assert.ok(start > 0 && end > start);
 test("data package source and nested source are included while data assets are excluded", async () => {
@@ -70,4 +71,40 @@ test("matching remote source is safe even when Git calls it modified or untracke
   const conflicts = sandbox.check(rows, manifest);
   assert.equal(conflicts.length, 1);
   assert.equal(conflicts[0].path, "data/multimodal_dataset.py");
+});
+
+test("configured code paths add safe source from excluded directories without data assets", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-code-includes-"));
+  try {
+    for (const [name, content] of Object.entries({
+      "data/auxiliary_views.py": "ok",
+      "datasets/custom_loader.py": "loader",
+      "datasets/protocol_config.yaml": "mode: pilot",
+      "datasets/raw/patient.npy": "secret",
+      "datasets/patients/subject.py": "secret",
+      "datasets/model.pt": "weights",
+      "work_dirs/secret.py": "secret",
+    })) {
+      const file = path.join(root, name);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+    }
+    const sandbox = { fs: fs.promises, fsNode: fs, path, crypto };
+    vm.runInNewContext(source.slice(start, end) + "; globalThis.buildLocalCodeManifest = buildLocalCodeManifest;", sandbox);
+    const manifest = await sandbox.buildLocalCodeManifest(root, ["datasets"]);
+    for (const file of ["data/auxiliary_views.py", "datasets/custom_loader.py", "datasets/protocol_config.yaml"]) assert.ok(manifest[file], file);
+    for (const file of ["datasets/raw/patient.npy", "datasets/patients/subject.py", "datasets/model.pt", "work_dirs/secret.py"]) assert.equal(manifest[file], undefined, file);
+    await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["work_dirs/secret.py"]), /受支持的源码|受保护/);
+    await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["../outside.py"]), /相对路径/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("code upload path action is available in the panel and saved as plugin configuration", () => {
+  const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
+  assert.match(panel, /data-command="configureCodeSyncIncludes"/);
+  assert.match(source, /case "configureCodeSyncIncludes"/);
+  assert.match(source, /config\.update\("codeSync\.includePaths", current, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
+  assert.match(source, /buildLocalCodeManifest\(root, includePaths\)/);
 });

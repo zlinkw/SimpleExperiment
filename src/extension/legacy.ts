@@ -124,6 +124,7 @@ type WebviewActionCommand =
     | "distributeCodeToWorkers"
     | "deployLatestAgent"
     | "configureSftpIgnores"
+    | "configureCodeSyncIncludes"
     | "clearLegacyTasks"
     | "clearOperations"
     | "selectExperiment"
@@ -384,6 +385,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "distributeCodeToWorkers",
     "deployLatestAgent",
     "configureSftpIgnores",
+    "configureCodeSyncIncludes",
     "clearLegacyTasks",
     "clearOperations",
     "selectExperiment",
@@ -398,7 +400,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "configureCodeSyncIncludes", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
@@ -419,7 +421,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
-    "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureSftpIgnores",
+    "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureSftpIgnores", "configureCodeSyncIncludes",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
     "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
@@ -511,6 +513,7 @@ const API_CONFIRM_COMMANDS = new Set([
     "distributeCodeToWorkers",
     "deployLatestAgent",
     "configureSftpIgnores",
+    "configureCodeSyncIncludes",
     "startAllConnections",
     "prepareAgents",
     "runDraftDebug",
@@ -4674,6 +4677,9 @@ export class RealtimeTunnelPanelProvider {
             case "configureSftpIgnores":
                 await this.configureSftpIgnores();
                 break;
+            case "configureCodeSyncIncludes":
+                await this.configureCodeSyncIncludes();
+                break;
             case "resetRemotePathConfirmations":
                 await this.resetRemotePathConfirmationsFromUi();
                 break;
@@ -6491,6 +6497,52 @@ export class RealtimeTunnelPanelProvider {
         if (record.ok === false)
             throw new Error(stringFromRecord(record, ["error", "message"]) || "SFTP 忽略规则配置失败。");
     }
+    async configureCodeSyncIncludes() {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder || vscode.workspace.workspaceFolders?.length !== 1)
+            throw new Error("请先单独打开一个项目工作区，再设置代码上传路径。");
+        const root = folder.uri.fsPath;
+        const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
+        let current = [...new Set((config.get<string[]>("codeSync.includePaths", []) || []).map(String))].sort();
+        while (true) {
+            const action = await vscode.window.showQuickPick([
+                { label: "$(file-add) 添加源码文件", description: "从当前项目选择一个或多个文件", id: "file" },
+                { label: "$(folder-opened) 添加源码目录", description: "只纳入目录内安全的源码和配置", id: "directory" },
+                { label: "$(list-selection) 查看已纳入文件", description: `${current.length} 条额外路径`, id: "preview" },
+                { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
+                { label: "$(check) 完成", id: "done" },
+            ], { title: "设置代码上传路径", placeHolder: "默认扫描项目源码；这里补充被排除目录中的源码或配置", ignoreFocusOut: true });
+            if (!action || action.id === "done") return;
+            if (action.id === "preview") {
+                const files = await collectExplicitCodeFiles(root, current);
+                if (!files.length) await vscode.window.showInformationMessage("尚未设置额外代码路径；默认源码仍会自动上传。");
+                else await vscode.window.showQuickPick(files.sort().map((file) => ({ label: file })), { title: `额外纳入 ${files.length} 个源码或配置文件`, placeHolder: "只读预览", ignoreFocusOut: true });
+                continue;
+            }
+            if (action.id === "remove") {
+                if (!current.length) continue;
+                const picked = await vscode.window.showQuickPick(current.map((file) => ({ label: file })), { title: "移除代码上传路径", canPickMany: true, ignoreFocusOut: true });
+                if (!picked?.length) continue;
+                const remove = new Set(picked.map((item) => item.label));
+                current = current.filter((file) => !remove.has(file));
+            } else {
+                const picked = await vscode.window.showOpenDialog({
+                    title: action.id === "directory" ? "选择需上传源码的目录" : "选择需上传的源码或配置文件",
+                    defaultUri: folder.uri,
+                    canSelectFiles: action.id === "file",
+                    canSelectFolders: action.id === "directory",
+                    canSelectMany: true,
+                    openLabel: "纳入代码上传",
+                });
+                if (!picked?.length) continue;
+                const next = picked.map((uri) => normalizedExplicitCodePath(root, path.relative(root, uri.fsPath)).relative);
+                await collectExplicitCodeFiles(root, next);
+                current = [...new Set([...current, ...next])].sort();
+            }
+            await config.update("codeSync.includePaths", current, vscode.ConfigurationTarget.WorkspaceFolder);
+            await vscode.window.showInformationMessage(`代码上传路径已保存：${current.length} 条。下次同步会包含所选目录内的安全源码和配置。`);
+        }
+    }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
@@ -6530,7 +6582,8 @@ export class RealtimeTunnelPanelProvider {
         const enabledTargets = targets.filter(Boolean);
         if (!enabledTargets.length)
             throw new Error("没有可用于代码同步的 Hub/Worker 目标。");
-        const manifest = await buildLocalCodeManifest(root);
+        const includePaths = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get<string[]>("codeSync.includePaths", []);
+        const manifest = await buildLocalCodeManifest(root, includePaths);
         assertCurrent();
         // Inspect every destination before the first upload. A dirty or untracked
         // remote source is user work and must never be overwritten implicitly.
@@ -17319,7 +17372,7 @@ const hostOperationUiCommands = new Set([
     "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject",
     "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath",
     "plotResultsToPpt", "startPptAutomation", "publishGithub", "syncGithub", "overwriteGithub",
-    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores",
+    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "configureCodeSyncIncludes",
     "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact",
 ]);
 function hostOperationLeaseActionForUiCommand(command) {
@@ -17355,6 +17408,7 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     distributeCodeToWorkers: "分发代码到 Worker",
     deployLatestAgent: "部署 Agent runtime",
     configureSftpIgnores: "配置 SFTP 忽略规则",
+    configureCodeSyncIncludes: "设置代码上传路径",
     downloadDebugBundle: "下载调试包",
     downloadRemoteResult: "下载远端结果",
     openResultArtifact: "打开或下载结果文件",
@@ -23093,8 +23147,8 @@ function samePath(a, b) {
         return false;
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
-async function buildLocalCodeManifest(root) {
-    const files = await walkCodeFiles(root);
+async function buildLocalCodeManifest(root, includePaths: string[] = []) {
+    const files = [...new Set([...(await walkCodeFiles(root)), ...(await collectExplicitCodeFiles(root, includePaths))])].sort();
     const manifest = {};
     const concurrency = 12;
     let nextIndex = 0;
@@ -23115,6 +23169,64 @@ async function buildLocalCodeManifest(root) {
     const workers = Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker());
     await Promise.all(workers);
     return manifest;
+}
+const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".idea", ".codex", "node_modules", "dist", "build", ".venv", "venv", "env", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache", ".tox", "raw", "processed", "patients", "patient", "subjects", "images", "image", "features", "feature_cache", "cache", "checkpoints", "checkpoint", "weights", "weight", "pretrained", "pretrained_ckpt", "runs", "work_dirs", "wandb", "tensorboard", "logs", "log", "outputs", "output", "results", "result", "backup", "tmp", ".tmp", "temp", "artifacts", "simple_cluster", "zlk_cluster"]);
+function normalizedExplicitCodePath(root: string, value: string): { relative: string; full: string } {
+    const relative = String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!relative || relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === ".."))
+        throw new Error(`代码上传路径必须是项目内相对路径：${value}`);
+    const full = path.resolve(root, ...relative.split("/"));
+    const check = path.relative(root, full).replace(/\\/g, "/");
+    if (check !== relative || check.startsWith("../") || check === "..")
+        throw new Error(`代码上传路径超出项目根目录：${value}`);
+    return { relative, full };
+}
+function safeExplicitCodeFile(relative: string): boolean {
+    const parts = relative.toLowerCase().split("/");
+    if (parts.slice(0, -1).some((part) => blockedExplicitCodeDirs.has(part))) return false;
+    const basename = parts[parts.length - 1];
+    if (basename.startsWith(".env")) return false;
+    if (/\.(py|pyi)$/.test(basename)) return true;
+    return /(?:^|[._-])(config|settings|schema|manifest|protocol|metadata)(?:[._-]|$)/.test(basename)
+        && /\.(yaml|yml|toml|ini|cfg|json)$/.test(basename);
+}
+async function collectExplicitCodeFiles(root: string, includePaths: string[]): Promise<string[]> {
+    if (!Array.isArray(includePaths) || !includePaths.length) return [];
+    const files = new Set<string>();
+    let visited = 0;
+    let matched = 0;
+    async function visit(relative: string, full: string, explicitFile: boolean): Promise<void> {
+        if (++visited > 20000) throw new Error("代码上传路径扫描超过 20000 项，请缩小所选目录。");
+        const info = await fs.lstat(full);
+        if (info.isSymbolicLink()) throw new Error(`代码上传路径包含符号链接：${relative}`);
+        if (info.isDirectory()) {
+            if (relative.toLowerCase().split("/").some((part) => blockedExplicitCodeDirs.has(part)))
+                throw new Error(`代码上传目录受保护：${relative}`);
+            for (const entry of await fs.readdir(full, { withFileTypes: true })) {
+                if (entry.isSymbolicLink()) continue;
+                const childRelative = `${relative}/${entry.name}`;
+                if (entry.isDirectory() && blockedExplicitCodeDirs.has(entry.name.toLowerCase())) continue;
+                await visit(childRelative, path.join(full, entry.name), false);
+            }
+            return;
+        }
+        if (!info.isFile()) return;
+        if (!safeExplicitCodeFile(relative)) {
+            if (explicitFile) throw new Error(`代码上传路径不是受支持的源码或配置：${relative}`);
+            return;
+        }
+        if (info.size > 2 * 1024 * 1024) throw new Error(`代码上传文件超过 2 MB：${relative}`);
+        matched++;
+        files.add(relative);
+    }
+    for (const value of includePaths) {
+        const { relative, full } = normalizedExplicitCodePath(root, value);
+        matched = 0;
+        const info = await fs.lstat(full).catch(() => { throw new Error(`代码上传路径不存在：${relative}`); });
+        await visit(relative, full, info.isFile());
+        if (matched === 0) throw new Error(`代码上传路径没有可上传源码或配置：${relative}`);
+    }
+    return [...files];
 }
 function codeSyncConflicts(rows, manifest) {
     return rows.filter((row) => {
