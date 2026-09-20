@@ -169,6 +169,7 @@ const keys = {
     uiProjectActions: "simpleExperiment.uiProjectActions",
     uiProjectLayout: "simpleExperiment.uiProjectLayout",
     hiddenLegacyTaskUiKeys: "simpleExperiment.hiddenLegacyTaskUiKeys",
+    executionHistoryCutoffs: "simpleExperiment.executionHistoryCutoffs",
     pptPlotConfig: "simpleExperiment.pptPlotConfig",
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
@@ -392,6 +393,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "stopAllPlans",
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
@@ -4632,6 +4634,9 @@ export class RealtimeTunnelPanelProvider {
                 break;
             case "clearOperations":
                 await this.clearOperationHistoryFromUi(message);
+                break;
+            case "stopAllPlans":
+                await this.stopAllPlansFromUi();
                 break;
             case "clearCache":
                 await this.clearCacheFromUi();
@@ -10903,35 +10908,47 @@ export class RealtimeTunnelPanelProvider {
     }
     async clearOperationHistoryFromUi(message) {
         const root = workspaceRoot();
-        if (!root)
-            throw new Error("请先打开当前实验项目。");
-        const confirm = await vscode.window.showWarningMessage("确认清空本机运行进度历史？将清空扩展内存、simple_cluster/ui/local_operations.json 与实时缓存中的操作记录；不会删除远端 events.jsonl 审计（刷新后会重新拉取）。此操作不可恢复。", { modal: true }, "确认清空", "取消");
-        if (confirm !== "确认清空")
-            return;
-        // P1: 有 running 时二次确认，避免误将“清空历史”当作“中止远端”使用，导致 30s 后 snapshot 回灌仍显示 running
-        try {
-            const runningOps: any[] = (typeof (this as any).longRunningPlanRunOperations === "function" ? (this as any).longRunningPlanRunOperations() : []);
-            if (Array.isArray(runningOps) && runningOps.length) {
-                const second = await vscode.window.showWarningMessage(`检测到仍有 ${runningOps.length} 个运行中任务（${runningOps.slice(0, 3).map((o: any) => String(o.operationId || o.id || "")).join("、")}${runningOps.length > 3 ? "…" : ""}），清空历史不会中止远端任务，刷新后会重新拉取。是否仍要清空本机历史？`, { modal: true }, "仍要清空", "取消");
-                if (second !== "仍要清空") return;
-            }
-        } catch {}
-        const generation = this.projectContextGeneration;
-        // 1. 内存：清空本地操作三角（extension 内存 + 后续持久化镜像）
-        this.localOperations = {};
-        this.markLocalOperationsDirty();
-        // 2. 持久化：清空 simple_cluster/ui/local_operations.json（空对象会触发 unlink，清理文件镜像）
-        await this.persistProjectLocalOperationsState(true);
-        // 3. 实时态缓存：清空 lastRealtimeState.operations（本地/实时历史，不触远端审计）
-        if (this.lastRealtimeState && typeof this.lastRealtimeState === "object")
-            (this.lastRealtimeState as any).operations = {};
-        // 4. 远端快照本地镜像：清空 lastSnapshot.operations，避免合并后 UI 仍显示远端操作
-        if (this.lastSnapshot && typeof this.lastSnapshot === "object")
-            (this.lastSnapshot as any).operations = {};
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
+        if (!root) throw new Error("请先打开当前实验项目。");
+        const planFile = stringField(message, "planFile").trim();
+        const label = planFile ? `Plan ${planFile}` : "所有 Plan";
+        const confirmed = await vscode.window.showWarningMessage(
+            `清除 ${label} 的已结束运行历史？运行中的任务继续显示；远端审计、日志和训练产物保留。`,
+            { modal: true }, "清除历史", "取消",
+        );
+        if (confirmed !== "清除历史") return;
+        const saved = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
+        const cutoffs = saved && typeof saved === "object" && !Array.isArray(saved) ? { ...saved as Record<string, string> } : {};
+        if (planFile) cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();
+        else cutoffs.all = new Date().toISOString();
+        await this.context.workspaceState.update(keys.executionHistoryCutoffs, cutoffs);
+        if (root !== workspaceRoot()) return;
         this.postState();
-        void vscode.window.showInformationMessage("已清空本机运行进度历史（远端审计保留，刷新可重新拉取）。");
+        void vscode.window.showInformationMessage(`已清除 ${label} 的本机历史视图；远端审计和产物保留。`);
+    }
+    async stopAllPlansFromUi() {
+        const runs = this.longRunningPlanRunOperations().filter((row: any) => row && operationResultPlanFile(row));
+        if (!runs.length) {
+            void vscode.window.showInformationMessage("当前没有可中止的运行中 Plan。");
+            return;
+        }
+        const confirmed = await vscode.window.showWarningMessage(
+            `中止 ${runs.length} 个运行中的 Plan？这会向各自 Worker 发送手动中止命令。`,
+            { modal: true }, "中止所有 Plan", "取消",
+        );
+        if (confirmed !== "中止所有 Plan") return;
+        const failures: string[] = [];
+        for (const row of runs) {
+            const operationId = String((row as any).operationId || (row as any).id || "");
+            const planFile = operationResultPlanFile(row);
+            if (!operationId || !planFile) continue;
+            try {
+                await this.stopExperimentRouted({ operationId, planFile, workerId: this.runOperationWorkerId(row), manualStopType: "scheduler_aborted" });
+            } catch (error) {
+                failures.push(`${planFile}: ${errorMessage(error)}`);
+            }
+        }
+        this.postState();
+        if (failures.length) void vscode.window.showErrorMessage(`部分 Plan 未能中止：${failures.join("；")}`);
     }
     async downloadDebugBundle() {
         const generation = this.projectContextGeneration;
@@ -12148,7 +12165,10 @@ export class RealtimeTunnelPanelProvider {
         }
         if (samePending && this.resultsSummaryRefreshTimer)
             return;
-        this.queueSelectedPlanResultParse(state.resultSummaryDirtyType || "realtime", state.resultSummaryDirtyPlanFile || this.pendingResultsSummaryDirtyPlanFile || "");
+        // A result_parsed event is emitted by parseResults itself. Re-parsing from the
+        // summary refresh path feeds that event back into another parse indefinitely.
+        // The Worker completion pipeline owns automatic parsing; this path only reads
+        // its updated summary.
         this.scheduleResultsSummaryTimer(state.resultSummaryDirtyType || "realtime", dirtyKey, 500);
     }
     async refreshResultsSummaryFromRealtime(reason, dirtyKey = this.pendingResultsSummaryDirtyKey) {
@@ -13486,6 +13506,7 @@ export class RealtimeTunnelPanelProvider {
             experimentTraces,
             logs,
             operations,
+            executionHistoryCutoffs: this.context.workspaceState.get(keys.executionHistoryCutoffs, {}),
             fileTransfers,
             codeSync: compactCodeSyncForWebview(this.lastCodeSyncState),
             remotePathConfirmations: {

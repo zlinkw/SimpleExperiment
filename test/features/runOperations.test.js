@@ -57,6 +57,18 @@ test("remote terminal or active evidence wins over the local pending record", ()
   assert.equal(active.patch.reconcileEvidenceActive, true);
 });
 
+test("historical scheduler snapshots do not make an exited process active", () => {
+  const result = reconcileRunOperation(running, {
+    pidAlive: true,
+    tmuxPythonRunning: false,
+    checkedTmuxSession: "zlk-sch-old",
+    tmuxSessionAlive: false,
+    schedulerStatesCount: 1,
+    experimentTracesCount: 5,
+  }, "activation", Date.parse(running.startedAt) + 120_000);
+  assert.equal(result.patch.reconcileEvidenceActive, false);
+});
+
 test("stop targets match plan, operation, run key, pid, or tmux identity", () => {
   assert.equal(runOperationMatchesTarget(running, { planFile: "experiments\\plans\\demo.yaml" }), true);
   assert.equal(runOperationMatchesTarget(running, { operationId: "run-plan-old" }), true);

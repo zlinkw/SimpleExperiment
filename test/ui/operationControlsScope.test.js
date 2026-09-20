@@ -18,6 +18,7 @@ test("global stop targets only the active operation for the selected Plan", () =
     setHtmlIfChanged: (id, value) => { html[id] = value; },
     escAttr: String,
     esc: String,
+    operationIsActive: (status) => status === "running",
   };
   vm.createContext(sandbox);
   vm.runInContext(extract("renderOperationSection", "renderTaskSection").replaceAll("\\\\", "\\") + "\nthis.render = renderOperationSection;", sandbox);
@@ -30,6 +31,8 @@ test("global stop targets only the active operation for the selected Plan", () =
   });
   assert.match(html.executionControls, /data-command="stopExperiment" data-operation-id="concat"/);
   assert.doesNotMatch(html.executionControls, /data-operation-id="ebmc"/);
+  assert.match(html.executionControls, /data-command="stopAllPlans"/);
+  assert.match(html.executionControls, /data-command="clearOperations"[^>]*>清除所有历史/);
 });
 
 test("running progress and GPU card use the same curve viewer entry", () => {

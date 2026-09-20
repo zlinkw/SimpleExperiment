@@ -9989,12 +9989,18 @@ def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
         if not overlap:
             kept.append(entry)
             continue
-        alive = tmux_session_alive(simple_tmux_name(f"sch-{op}"), root, None) or _is_pid_alive(entry.get("pid"))
+        session = str(entry.get("tmuxSession") or simple_tmux_name(f"sch-{op}"))
+        evidence = scheduler_process_evidence(root, entry.get("pid"), session)
+        # The registered pid can be the pane's shell. A surviving tmux window is
+        # deliberately kept for diagnosis, but must not reserve the Worker.
+        alive = bool(evidence.get("tmuxSessionAlive")) if entry.get("tmuxSession") else bool(evidence.get("pidAlive"))
         if not alive:
             continue  # stale entry: drop from registry, reaped below
         blocked.append(op)
         kept.append(entry)
-    reaped = _reap_zombie_scheduler_sessions(root, [e.get("opId") for e in kept if isinstance(e, dict)])
+    # Preserve completed/failed scheduler windows and their logs. Only an explicit
+    # user stop may destroy them.
+    reaped = []
     _write_run_plan_registry(root, kept)
     return {"blocked": blocked, "reapedZombies": reaped}
 

@@ -192,7 +192,9 @@ function reconcileRunOperation(record, evidence, reason, nowMs = Date.now()) {
     };
     const tmuxTarget = String(evidence.checkedTmuxSession || record.tmuxSession || "").trim();
     const pidAlive = Boolean(evidence.pidAlive) && !(tmuxTarget && evidence.tmuxPythonRunning === false);
-    const base = { ...record, ...counts, reconcileEvidenceActive: Boolean(pidAlive || evidence.tmuxSessionAlive || Number(evidence.schedulerStatesCount || 0) > 0 || Number(evidence.experimentTracesCount || 0) > 0), lastReconciledAt: checkedAt };
+    // Snapshot rows and experiment traces remain after the process exits. They
+    // describe history and cannot prove a scheduler is still reserving a Worker.
+    const base = { ...record, ...counts, reconcileEvidenceActive: Boolean(pidAlive || evidence.tmuxSessionAlive), lastReconciledAt: checkedAt };
     if (operationTerminalStatus(remoteStatus)) {
         return {
             terminal: true,

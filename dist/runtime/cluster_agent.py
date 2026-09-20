@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.42"
-RUNTIME_VERSION = "0.5.42"
-PLUGIN_VERSION = "0.5.42"
+AGENT_VERSION = "0.5.43"
+RUNTIME_VERSION = "0.5.43"
+PLUGIN_VERSION = "0.5.43"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -9986,12 +9986,18 @@ def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
         if not overlap:
             kept.append(entry)
             continue
-        alive = tmux_session_alive(simple_tmux_name(f"sch-{op}"), root, None) or _is_pid_alive(entry.get("pid"))
+        session = str(entry.get("tmuxSession") or simple_tmux_name(f"sch-{op}"))
+        evidence = scheduler_process_evidence(root, entry.get("pid"), session)
+        # The registered pid can be the pane's shell. A surviving tmux window is
+        # deliberately kept for diagnosis, but must not reserve the Worker.
+        alive = bool(evidence.get("tmuxSessionAlive")) if entry.get("tmuxSession") else bool(evidence.get("pidAlive"))
         if not alive:
             continue  # stale entry: drop from registry, reaped below
         blocked.append(op)
         kept.append(entry)
-    reaped = _reap_zombie_scheduler_sessions(root, [e.get("opId") for e in kept if isinstance(e, dict)])
+    # Preserve completed/failed scheduler windows and their logs. Only an explicit
+    # user stop may destroy them.
+    reaped = []
     _write_run_plan_registry(root, kept)
     return {"blocked": blocked, "reapedZombies": reaped}
 

@@ -1973,6 +1973,8 @@ export function renderPanelHtml(): string {
     let nextObjectReferenceId = 1;
     let operationRowsCacheInput = null;
     let operationRowsCacheRows = [];
+    let executionHistoryRowsCacheState = null;
+    let executionHistoryRowsCacheValue = [];
     const operationSearchHaystackCache = new WeakMap();
     const resourceTreeSearchTextCache = new WeakMap();
     const compactPathCache = new Map();
@@ -2484,6 +2486,7 @@ export function renderPanelHtml(): string {
     const explicitPlanFileCommands = new Set(["openPlan", "archivePlan", "restoreArchivedPlan"]);
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
+      "stopAllPlans",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
@@ -4462,8 +4465,23 @@ export function renderPanelHtml(): string {
     }
 
     function operationRowsForState(state) {
-      const input = ((state || {}).operations || {});
-      return operationRowsForInput(input);
+      const data = state || {};
+      if (data === executionHistoryRowsCacheState) return executionHistoryRowsCacheValue;
+      const rows = operationRowsForInput(data.operations || {});
+      executionHistoryRowsCacheState = data;
+      executionHistoryRowsCacheValue = rows.filter((row) => executionHistoryRowVisible(data, row, row.planFile || row.plan, operationIsActive(row.status) && row.reconcileEvidenceActive !== false));
+      return executionHistoryRowsCacheValue;
+    }
+
+    function executionHistoryRowVisible(state, row, planFile, active) {
+      if (active) return true;
+      const cutoffs = (state && state.executionHistoryCutoffs) || {};
+      const key = normalizePlanSelectionKey(planFile).toLowerCase();
+      const cutoff = Math.max(Date.parse(cutoffs.all || "") || 0, Date.parse(cutoffs[key] || "") || 0);
+      if (!cutoff) return true;
+      // Start time remains stable when a remote snapshot refreshes old history.
+      const started = Date.parse(row.startedAt || row.createdAt || row.finishedAt || row.updatedAt || "") || 0;
+      return started > cutoff;
     }
 
     function operationRowsForInput(input) {
@@ -10936,7 +10954,12 @@ export function renderPanelHtml(): string {
       const selection = data.selection || {};
       const selected = taskSelectionSetsForState(data);
       const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
-      const allRows = schedulerRowsForState(data).filter((row) => !hiddenLegacyTaskUiKeys?.has(String(row.uiKey || "")));
+      const allRows = schedulerRowsForState(data).filter((row) => {
+        if (hiddenLegacyTaskUiKeys?.has(String(row.uiKey || ""))) return false;
+        const status = taskStatusToken(row.status);
+        const active = TASK_LIVE_STATUS_TOKENS?.has(status) || TASK_QUEUED_STATUSES?.has(status);
+        return executionHistoryRowVisible(data, row, taskPlanFile(row), active);
+      });
       const selectedPlanFile = data.planFileInput || selection.selectedPlanId || "";
       const selectedPlan = selectedPlanFile ? planFromContext(data, { planFile: selectedPlanFile }) || {} : {};
       const scope = taskRowsForPlanScope(allRows, selectedPlanFile, taskPlanScope, selectedPlan);
@@ -12635,7 +12658,8 @@ export function renderPanelHtml(): string {
         const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录可在下方“完整操作与任务记录”中查看。</div>' : "";
         return '<details class="executionPlanRow ' + group.tone + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '>' +
           '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? "异常" : "已结束") + '</b></summary>' +
-          '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' + opHtml + taskHtml + more + '</div></details>';
+          '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' + opHtml + taskHtml + more +
+          (group.planFile ? '<button class="mini secondary" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + '</div></details>';
       };
       const current = items.filter((item) => item.tone !== "completed");
       const history = items.filter((item) => item.tone === "completed");
@@ -12663,8 +12687,15 @@ export function renderPanelHtml(): string {
       const abortOpId = String(activeOp.operationId || activeOp.id || "");
       const abortPlan = String(activeOp.planFile || activeOp.plan || "");
       const abortEnabled = !!abortOpId && !!abortPlan;
-      setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止当前 Plan 的运行任务">中止当前 Plan</button><button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
-      const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button><button class="mini secondary" data-command="clearOperations" data-confirm="true" title="清空本机运行进度历史；远端记录保留">清空历史</button></div>';
+      const anyActivePlan = ops.some((op) => {
+        const type = String(op.type || op.action || "").toLowerCase();
+        return (type.includes("run-plan") || type.includes("reproduce-plan")) && operationIsActive(op.status || op.state) && op.reconcileEvidenceActive !== false;
+      });
+      setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止当前选中 Plan 的运行任务">中止当前 Plan</button>' +
+        '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan ? '' : 'disabled') + ' title="手动中止全部运行中的 Plan；逐个向 Worker 发送停止命令">中止所有 Plan</button>' +
+        '<button class="mini secondary" data-command="clearOperations" title="仅清除本机已结束的 Plan 运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
+        '<button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
+      const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button></div>';
       setHtmlIfChanged("operationList", advancedActions + (view.rows.length
         ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + (view.visibleRows.length
           ? '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'

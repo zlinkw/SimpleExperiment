@@ -51,6 +51,7 @@ test("Plan overview prioritizes running work and folds completed plans", () => {
   assert.ok(html.indexOf("live.yaml") < html.indexOf("已结束的 Plan"));
   assert.match(html, /<summary>已结束的 Plan · 1<\/summary>/);
   assert.match(html, /任务与日志/);
+  assert.match(html, /data-command="clearOperations" data-plan-file="plans\/live.yaml"/);
 });
 
 test("diagnostics default to current server health and actionable issues", () => {
@@ -72,4 +73,18 @@ test("diagnostics default to current server health and actionable issues", () =>
   sandbox.render({ setup: { workerTunnels: [{ id: "nwpu3", enabled: true }] }, workerProbes: { nwpu3: { status: "timeout", message: "连接超时" } }, actionErrors: [] });
   assert.match(html, /连接超时/);
   assert.doesNotMatch(html, /当前无待处理的连接或端口问题/);
+});
+
+test("history clearing hides old terminal rows only in the selected Plan", () => {
+  const sandbox = { normalizePlanSelectionKey: (value) => String(value || "").replaceAll("\\", "/") };
+  vm.createContext(sandbox);
+  vm.runInContext(extract("executionHistoryRowVisible", "operationRowsForInput") + "\nthis.visible = executionHistoryRowVisible;", sandbox);
+  const state = { executionHistoryCutoffs: { "plans/a.yaml": "2026-09-21T10:00:00Z" } };
+  const old = { updatedAt: "2026-09-20T10:00:00Z" };
+  const newer = { updatedAt: "2026-09-21T10:01:00Z" };
+  assert.equal(sandbox.visible(state, old, "plans/a.yaml", false), false);
+  assert.equal(sandbox.visible(state, old, "plans/b.yaml", false), true);
+  assert.equal(sandbox.visible(state, old, "plans/a.yaml", true), true);
+  assert.equal(sandbox.visible(state, { ...old, status: "running", reconcileEvidenceActive: false }, "plans/a.yaml", false), false);
+  assert.equal(sandbox.visible(state, newer, "plans/a.yaml", false), true);
 });

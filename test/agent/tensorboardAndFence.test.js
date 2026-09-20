@@ -338,6 +338,11 @@ with tempfile.TemporaryDirectory() as tmp:
     agent.tmux_session_alive = fake_tmux_alive
     agent._is_pid_alive = fake_pid_alive
     agent.tmux_available = fake_tmux_available
+    agent.scheduler_process_evidence = lambda root_arg, pid, session: {
+        "tmuxShellAlive": session in alive_sessions,
+        "tmuxSessionAlive": session in alive_sessions and int(pid) in alive_pids,
+        "pidAlive": int(pid) in alive_pids,
+    }
     # we want to test reap logic directly, so keep original reap for now but mock tmux ls
     # Test 1: overlapping workerIds -> block replacement
     # register old plan op-old with worker w1
@@ -396,6 +401,15 @@ with tempfile.TemporaryDirectory() as tmp:
     agent.register_active_run_plan(root, owner_op, 12347, agent.simple_tmux_name(f"sch-{owner_op}"), ["w9"], "worker-1")
     result2 = agent.fence_stale_run_plans(root, "op-new-555", ["w10"], "worker-1")
     assert owner_op in result2["blocked"], f"same owner should block, got {result2}"
+
+    # A completed scheduler may leave its tmux shell and pid behind for logs.
+    # It must not block another Plan or be killed by the fence.
+    old_session = agent.simple_tmux_name(f"sch-{old_op}")
+    alive_pids.discard(12345)
+    result3 = agent.fence_stale_run_plans(root, "op-new-666", ["w1"], "worker-1")
+    assert old_op not in result3["blocked"], result3
+    assert old_op not in [e["opId"] for e in agent._read_run_plan_registry(root)]
+    assert old_session in alive_sessions, "completed scheduler window must be preserved"
 
     # Test 3: zombie reap -> session not in registry but tmux ls shows it
     # An unregistered yet live scheduler must survive the reaper.
