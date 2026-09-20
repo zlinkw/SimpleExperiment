@@ -495,7 +495,6 @@ export function renderPanelHtml(): string {
     .runModeSwitch button { min-height: 26px; padding: 3px 9px; border-color: transparent; background: transparent; color: var(--muted); }
     .runModeSwitch button.is-active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
     .runModeNote { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
-    body.debug-run-mode .runModeNote { color: var(--warning); }
     .workbench-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
     .workbench-summary .row { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); padding: 8px; grid-template-columns: 92px minmax(0, 1fr); }
     .statusInfoPopover { position: relative; justify-self: end; align-self: center; }
@@ -1291,14 +1290,6 @@ export function renderPanelHtml(): string {
             <label>计划文件</label>
             <select id="planFileInput" class="wide" title="从已识别的实验计划中选择；列表来自工作区扫描结果"></select>
           </div>
-          <div class="runModeBar">
-            <span class="muted">运行类型</span>
-            <div class="runModeSwitch" role="group" aria-label="运行类型">
-              <button type="button" data-run-mode="formal" title="切换为正式运行模式&#10;提交后进入正式调度与归档流程" class="is-active" aria-pressed="true">正式运行</button>
-              <button type="button" data-run-mode="debug" title="切换为调试模式&#10;输出隔离到 debug 目录，不进入正式归档与统计" aria-pressed="false">Debug</button>
-            </div>
-            <span id="runModeNote" class="runModeNote">完整执行 Plan，结果进入正式闭环</span>
-          </div>
           <div class="planQuickActions">
           <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
           <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
@@ -1936,7 +1927,7 @@ export function renderPanelHtml(): string {
     let activeResourceSection = "sync";
     let activeResourceAnchor = "sync";
     let currentMainView = "workspace";
-    let runMode = normalizeRunMode(restoredWebviewState.runMode);
+    let runMode = "formal";
     let lastWorkspaceResource = { section: "sync", anchor: "sync" };
     let activeResourceNode = null;
     let resourceTreeScrollLockUntil = 0;
@@ -2151,7 +2142,7 @@ export function renderPanelHtml(): string {
     const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
     const PLAN_EXECUTION_PHASE_LABELS = Object.freeze({
       select: "选择计划", ready: "可提交", validating: "校验中", validate: "校验待修复", "dry-running": "预演中", "dry-run": "预演待处理",
-      submitting: "提交中", run: "提交待处理", monitor: "运行中", "debug-review": "Debug 待复核", results: "结果待处理", review: "任务需处理"
+      submitting: "提交中", run: "提交待处理", monitor: "运行中", results: "结果待处理", review: "任务需处理"
     });
     const PROJECT_TASK_TYPE_LABELS = Object.freeze({
       classification: "分类", segmentation: "分割", regression: "回归", detection: "目标检测",
@@ -2507,13 +2498,6 @@ export function renderPanelHtml(): string {
       if (mainViewTarget) {
         event.preventDefault();
         switchMainView(mainViewTarget.dataset.mainView || "workspace");
-        return;
-      }
-      const runModeTarget = event.target.closest("button[data-run-mode]");
-      if (runModeTarget) {
-        event.preventDefault();
-        setRunMode(runModeTarget.dataset.runMode);
-        refreshRunModeUi();
         return;
       }
       const operationFilterTarget = event.target.closest("button[data-operation-filter]");
@@ -7121,7 +7105,7 @@ export function renderPanelHtml(): string {
         const terminalStatus = terminalPhase === "results"
           ? "结果待处理"
           : terminalPhase === "debug-review"
-            ? "Debug 待复核"
+            ? "历史任务待复核"
             : "任务需处理";
         return result(terminalStatus, terminalStage.status || "当前 Plan 已进入任务终态；查看对应入口。", { ready: true, blocking: terminalPhase === "review", tone: terminalTone });
       }
@@ -7152,7 +7136,7 @@ export function renderPanelHtml(): string {
         const status = phase === "validating" ? "校验中" : phase === "dry-running" ? "预演中" : phase === "submitting" ? "提交中" : "运行中";
         return result(status, stage.status, { ready: true, blocking: false, tone: "info" });
       }
-      if (phase === "debug-review") return result("Debug 待复核", stage.status, { ready: true, blocking: false, tone: "info" });
+      if (phase === "debug-review") return result("历史任务待复核", stage.status, { ready: true, blocking: false, tone: "info" });
       if (phase === "results") return result("结果待处理", stage.status, { ready: true, blocking: false, tone: "good" });
       if (phase === "review") return result("任务需处理", stage.status, { ready: true, blocking: true, tone: "error" });
       if (phase === "validate") return result("校验待修复", stage.status, { tone: "error" });
@@ -8571,7 +8555,7 @@ export function renderPanelHtml(): string {
     }
     function renderDraftCards(draftState) {
       const drafts = Array.isArray(draftState.drafts) ? draftState.drafts : [];
-      if (!drafts.length) return '<div class="muted">暂无草稿 PLAN（tmp/plan/**/*.yaml）。草稿仅用于 Debug 预览，转正后进入正式流程。</div>';
+      if (!drafts.length) return '<div class="muted">暂无草稿 PLAN（tmp/plan/**/*.yaml）。</div>';
       const rows = drafts.map(function(draft) {
         const file = draft.draftPlanPath || "";
         const status = draft.status || "draft";
@@ -8582,7 +8566,6 @@ export function renderPanelHtml(): string {
         return '<div class="task-card is-completed" data-draft-plan="' + escAttr(file) + '">' +
           '<div class="planCardHead"><div class="taskTitle"><b>' + esc(file) + '</b>' + badge + debugInfo + '</div>' +
           '<div class="planCardActions">' +
-            '<button class="taskActionButton secondary" data-command="runDraftDebug" data-draft-plan-path="' + escAttr(file) + '" title="调试运行草稿&#10;输出隔离到 debug 目录，不写入正式归档与统计&#10;首次接入新项目建议先用它验证">Debug 运行</button>' +
             '<button class="taskActionButton secondary" data-command="reviewDraft" data-draft-plan-path="' + escAttr(file) + '" title="查看待审草稿的校验结果与预演信息">标记已审阅</button>' +
             '<button class="taskActionButton secondary" data-command="promoteDraft" data-draft-plan-path="' + escAttr(file) + '" title="把草稿提升为正式实验计划&#10;写入 experiments/plans">Promote Draft</button>' +
             '<button class="taskActionButton secondary" data-command="rejectDraft" data-draft-plan-path="' + escAttr(file) + '" title="丢弃该草稿&#10;不会写入 experiments/plans">Reject</button>' +
@@ -8596,7 +8579,7 @@ export function renderPanelHtml(): string {
           '</div></div>';
       }).join("");
       const cleanup = (draftState.cleanupCandidates||[]).length ? '<div class="muted">清理候选 ' + draftState.cleanupCandidates.length + ' 个：' + esc(draftState.cleanupCandidates.map(function(c){return c.path;}).join(", ")) + '</div><button class="taskActionButton secondary" data-command="cleanupDrafts" title="清理已处理（通过或丢弃）的草稿记录&#10;只清理本地记录，不影响已生成的正式计划">清理 Rejected/Stale</button>' : "";
-      return '<div class="section-card" style="margin-top:10px"><h3>草稿 PLAN（Draft）<span class="pill">独立发现</span></h3><div class="muted">草稿仅支持 Debug 隔离运行，输出位于 simple_cluster/debug_runs/，不进入归档/统计/论文/PPT。</div><div class="taskCardList">' + rows + '</div>' + cleanup + (draftState.error ? '<pre>' + esc(draftState.error) + '</pre>' : "") + '</div>';
+      return '<div class="section-card" style="margin-top:10px"><h3>草稿 PLAN（Draft）<span class="pill">独立发现</span></h3><div class="muted">草稿不能直接运行；请先审阅并转为正式 Plan。</div><div class="taskCardList">' + rows + '</div>' + cleanup + (draftState.error ? '<pre>' + esc(draftState.error) + '</pre>' : "") + '</div>';
     }
 
     function refreshPlanActionButtons(state, scope) {
@@ -8904,9 +8887,6 @@ export function renderPanelHtml(): string {
         return '<div class="planRunActions">' + projectNextAction("补全输出后再运行", "打开 Plan", "openPlan", { file: selectedPlan }) + adapterAction + '</div>';
       }
       const executionStage = planExecutionStage(state || {}, selectedPlan);
-      if (executionStage.phase === "debug-review") {
-        return '<div class="planRunActions"><button class="mini secondary" type="button" data-section-target="execution" title="跳转到运行进度区块，查看 Debug 任务详情" data-anchor-target="execution">查看 Debug 任务</button><button class="mini" data-command="runPlan" data-force-formal="true" data-debug-mode="false" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="确认 Debug 日志和配置后&#10;重新同步、校验、预演并提交正式实验计划">正式运行</button></div>';
-      }
       const plan = planFromContext(state || {}, { planFile: selectedPlan }) || {};
       const activity = planActiveRunEvidence(state || {}, selectedPlan, plan);
       if (activity.active) {
@@ -8920,18 +8900,14 @@ export function renderPanelHtml(): string {
         const scopeAttr = historicalOnly && activity.taskCount ? ' data-task-plan-scope="all"' : "";
         return '<div class="planRunActions"><button class="mini" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '"' + scopeAttr + ' title="跳转到运行进度，查看重复提交的运行" aria-label="跳转到运行进度，查看重复提交的运行">' + label + '</button><span class="muted">' + esc(summary) + (historicalOnly ? "；为保护旧任务，当前版本暂不能提交。" : "，已阻止重复提交。") + '</span></div>';
       }
-      if (planFirstRunRecommended(state || {}, selectedPlan, plan, executionStage, true)) {
-        return '<div class="planRunActions">' + renderProjectFirstRunActions(true, selectedPlan) + '</div>';
-      }
       return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">单独预演</button><label class="muted" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;" title="勾选后提交时带 --overwrite 覆盖已有产物（metrics_summary.csv / checkpoint / train.log 等），不勾选则自动跳过已完成任务；GPU 调度不受历史产物影响"><input type="checkbox" id="overwriteExistingToggle" data-overwrite-toggle="true" /> 覆盖已有产物</label><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并弹窗确认覆盖/跳过">调度前检测已有产物时弹窗确认</span></div>';
     }
 
     function renderProjectFirstRunActions(show, planFile) {
       if (!show || !planFile) return "";
       const planAttr = ' data-plan-file="' + escAttr(planFile) + '"';
-      return '<div class="projectQuickNext firstRunActions"><span>首次运行</span><b>当前 Plan revision 尚无运行证据，建议先验证首个任务</b><div class="projectQuickActions">' +
-        '<button class="mini" data-command="runPlan" data-debug-mode="true" data-confirm="true"' + planAttr + ' title="只提交当前实验计划的首个任务&#10;产物进入 Debug 独立目录，不进入正式结果&#10;适合先跑通单个任务再正式运行">Debug 首跑</button>' +
-        '<button class="mini secondary" data-command="runPlan" data-debug-mode="false" data-confirm="true" data-force-formal="true"' + planAttr + ' title="同步、校验并预演后&#10;提交完整正式实验计划">正式运行</button>' +
+      return '<div class="projectQuickNext firstRunActions"><span>首次运行</span><b>当前 Plan revision 尚无运行证据</b><div class="projectQuickActions">' +
+        '<button class="mini" data-command="runPlan" data-confirm="true"' + planAttr + ' title="同步、校验并预演后提交完整实验计划">校验并提交运行</button>' +
       '</div></div>';
     }
 
@@ -10868,12 +10844,6 @@ export function renderPanelHtml(): string {
       const rows = scope.rows;
       if (!rows.every((row) => taskTerminalStatus((row || {}).status))) return undefined;
       const failedCount = rows.filter((row) => taskFailureLikeStatus((row || {}).status)).length;
-      const allDebug = rows.every((row) => debugRunRecord(row));
-      if (allDebug) {
-        return failedCount > 0
-          ? { kind: "review", message: "当前 Debug 任务已结束，" + failedCount + " 个失败、停止或取消；先查看日志并按需修正" }
-          : { kind: "debug-review", message: "Debug 首跑已完成；先复核日志和输出，确认无误后再正式运行" };
-      }
       const resultCount = taskPlanResultCount(state, scope.selectedPlanFile);
       if (resultCount > 0) {
         return {
@@ -10898,14 +10868,6 @@ export function renderPanelHtml(): string {
     function renderTaskPlanCompletionNext(state, scope) {
       const outcome = taskPlanCompletionState(state, scope);
       if (!outcome) return "";
-      if (outcome.kind === "debug-review") {
-        const target = taskDebugLogTarget(scope);
-        const logAction = target && target.runKey
-          ? '<button class="mini" data-command="selectLogRunKey" data-run-key="' + escAttr(target.runKey) + '" data-worker-id="' + escAttr(target.workerId || "") + '" title="打开当前实验计划的 Debug 首跑日志">打开 Debug 日志</button>'
-          : '<span class="muted">Debug 任务缺少可定位日志标识，请先从任务卡检查输出</span>';
-        const formalAction = '<button class="mini secondary" data-command="runPlan" data-debug-mode="false" data-force-formal="true" data-plan-file="' + escAttr((scope || {}).selectedPlanFile || "") + '" data-confirm="true" title="复核 Debug 日志后，同步、校验并预演&#10;再提交完整正式实验计划">正式运行</button>';
-        return '<div class="projectQuickNext"><span>Debug 复核</span><b>' + esc(outcome.message) + '</b><div class="projectQuickActions">' + logAction + formalAction + '</div></div>';
-      }
       if (outcome.kind === "review") {
         const target = taskFailureLogTarget(scope);
         const action = target && target.runKey
@@ -11048,10 +11010,8 @@ export function renderPanelHtml(): string {
       if (phase === "results") return { ok: true, status: "运行完成", detail };
       if (phase === "monitor") return { ok: false, status: "运行中", detail };
       if (PLAN_WORKFLOW_BUSY_PHASES?.has(phase)) return { ok: false, status: "处理中", detail };
-      if (phase === "debug-review") return { ok: false, status: "Debug 待复核", detail };
       if (phase === "review") return { ok: false, status: "任务需处理", detail };
       if (!readyToStart) return { ok: false, status: "待前置步骤", detail: "完成基础设施、Plan 输出和 Agent 检测后开始运行" };
-      if (firstRunRecommended) return { ok: false, status: "建议 Debug 首跑", detail: "先验证首个任务、实时日志和结果输出，再提交完整 Plan" };
       if (PLAN_WORKFLOW_READY_PHASES?.has(phase)) return { ok: true, status: "可提交", detail };
       return { ok: false, status: "待处理", detail };
     }
@@ -12184,7 +12144,7 @@ export function renderPanelHtml(): string {
       return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
         '<div class="taskCardHead">' +
           '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (checked ? " checked" : "") + '>' +
-          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + taskLivePills(row) + (row.debugMode ? '<span class="pill status-warning">Debug</span>' : '') + pendingBadge + '</div>' +
+          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + taskLivePills(row) + pendingBadge + '</div>' +
           '<div class="taskActions">' + actions + '</div>' +
         '</div>' +
         renderTaskLogDetails(state, row) +
@@ -12795,7 +12755,7 @@ export function renderPanelHtml(): string {
     }
 
     function normalizeRunMode(value) {
-      return String(value || "formal") === "debug" ? "debug" : "formal";
+      return "formal";
     }
 
     function setRunMode(value) {
@@ -14876,14 +14836,13 @@ export function renderPanelHtml(): string {
       const data = (button || {}).dataset || {};
       if (SELECTED_PLAN_RUN_COMMANDS?.has(String(command || ""))) {
         if (data.forceFormal === "true") return false;
-        if (data.debugMode !== undefined) return data.debugMode === "true";
       }
-      return String(fallbackMode || "formal") === "debug";
+      return false;
     }
     function payloadFromButton(button) {
       const payload = {};
       const command = button.dataset.command || "";
-      payload.debugMode = runModeForButton(button, command, runMode);
+      payload.debugMode = false;
       if (button.dataset.taskStatus) payload.taskStatus = button.dataset.taskStatus;
       if (button.dataset.endpointId) payload.endpointId = button.dataset.endpointId;
       if (button.dataset.configScope) {
@@ -15084,9 +15043,6 @@ export function renderPanelHtml(): string {
         return cachePlanExecutionStage(cacheKey, { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "execution", anchor: "execution" });
       }
       if (operationSucceeded(latestRun)) {
-        if (debugRunRecord(latestRun)) {
-          return cachePlanExecutionStage(cacheKey, { phase: "debug-review", status: "Debug 已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" });
-        }
         return cachePlanExecutionStage(cacheKey, { phase: "results", status: "调度已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" });
       }
       if (latestRun && operationIsFailureLike(latestRun.status) && runAccepted) {
@@ -15136,7 +15092,7 @@ export function renderPanelHtml(): string {
         return { phase: "review", status: "调度任务均已结束且存在失败、停止或取消记录；先查看任务并按需重试", label: "查看任务", section: "execution", anchor: "execution" };
       }
       if (matching.some((row) => debugRunRecord(row))) {
-        return { phase: "debug-review", status: "Debug 任务已完成；先查看任务与日志，确认无误后可正式运行", label: "查看 Debug 任务", section: "execution", anchor: "execution" };
+        return { phase: "review", status: "历史任务已完成；请查看任务与日志", label: "查看任务", section: "execution", anchor: "execution" };
       }
       return { phase: "results", status: "调度任务均已完成，进入结果解析、筛选与归档流程", label: "查看结果", section: "results", anchor: "results" };
     }
@@ -15438,7 +15394,7 @@ function projectSectionNextAction(status, label, section, anchor, options) {
     }
 
     function runModeActionLabel(mode, formalLabel) {
-      return String(mode || "formal") === "debug" ? "Debug 运行" : String(formalLabel || "校验并提交运行");
+      return String(formalLabel || "校验并提交运行");
     }
 
     function refreshRunModeNote(state) {
@@ -15447,15 +15403,10 @@ function projectSectionNextAction(status, label, section, anchor, options) {
     }
 
     function runModeGuidance(state) {
-      if (runMode === "debug") return "仅运行首个任务，实时日志与产物隔离；禁止归档、结果、统计、论文和 PPT";
       const planFile = String((state || {}).planFileInput || (((state || {}).selection || {}).selectedPlanId) || "").trim();
       if (!planFile) return "完整执行 Plan，结果进入正式闭环";
       const plan = planFromContext(state || {}, { planFile }) || {};
       const stage = planExecutionStage(state || {}, planFile);
-      if (stage.phase === "debug-review") return "Debug 已完成；先复核任务与日志，再正式运行完整 Plan";
-      if (["ready", "validate", "dry-run"].includes(String(stage.phase || "")) && !currentPlanRevisionRunEvidenceForState(state || {}, planFile, plan)) {
-        return "首次运行建议先选择 Debug：只提交首个任务，确认日志和输出后再正式运行";
-      }
       return "完整执行 Plan，结果进入正式闭环";
     }
 

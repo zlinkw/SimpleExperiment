@@ -140,20 +140,9 @@ def refresh_worker_availability_for_signal(workers: list[dict[str, Any]], availa
 
 
 def scheduler_should_fail_fast(failed: list[dict[str, Any]], active: dict[str, Any], testing: dict[str, Any]) -> bool:
-    if failed:
-        return True
-    for item in list(active.values()) + list(testing.values()):
-        tail = str(item.get("console_tail") or item.get("log_tail") or "")
-        if scheduler_log_shows_error(tail):
-            return True
-        if item.get("exit_code") not in (None, 0, "0"):
-            try:
-                if int(item.get("exit_code")) != 0:
-                    return True
-            except Exception:
-                if str(item.get("exit_code")).strip():
-                    return True
-    return False
+    # A log line containing "error" is not a terminal task result. finish_item
+    # records nonzero exits and explicit Worker failures in failed.
+    return bool(failed)
 
 
 def scheduler_fail_pending_queue(queue: deque, failed: list[dict[str, Any]], reason: str) -> int:
@@ -1692,6 +1681,8 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
 
 
 def run_job_mode(args: argparse.Namespace) -> None:
+    if args.debug_mode:
+        raise SystemExit("Debug 运行模式已移除，请使用正式 Plan 运行。")
     plan = load_plan(args.plan)
     args.mode = plan_execution_mode(plan, args.mode)
     jobs = jobs_for_args(plan, args)
@@ -3095,7 +3086,8 @@ def sync_state_once(args: argparse.Namespace) -> None:
                 else:
                     item["error"] = f"exit_code={exit_code if exit_code is not None else 'unknown'}"
                     failed.append(item)
-                kill_session(worker, str(item.get("session") or ""), "scheduler_sync_finished", "scheduler")
+                # Completed and failed task windows are kept for inspection;
+                # only an explicit user stop may terminate a task pane.
             except Exception as exc:
                 item["log_sync_error"] = str(exc)
                 kept.append(item)
@@ -3320,6 +3312,8 @@ def main() -> None:
     completed: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     stopped: list[dict[str, Any]] = []
+    not_dispatched: list[int] = []
+    fail_stop_reason = ""
     dispatch_probe: list[dict[str, Any]] = []
     scheduler_wait_reason = ""
     last_session_check: dict[str, float] = {}
@@ -3389,6 +3383,8 @@ def main() -> None:
             "completed_experiments": completed,
             "failed_experiments": failed,
             "stopped_experiments": stopped,
+            "not_dispatched_experiments": not_dispatched,
+            "dispatch_stopped_on_failure": bool(fail_stop_reason),
             "scheduler_error": error,
             "scheduler_wait_reason": scheduler_wait_reason,
             "dispatch_probe": dispatch_probe[-20:],
@@ -3753,20 +3749,13 @@ def main() -> None:
                 break
             if reap_finished_items():
                 write_current_state()
-            # 错误早停：任一 failed 或 logShowsError 即 while queue: failed.append 并 terminal failed（原子标记，原需3轮改1轮）
-            if scheduler_should_fail_fast(failed, active, testing):
-                _fail_reason = "fail_fast: 任一任务失败/日志报错触发，停整个 plan"
-                if failed:
-                    _fail_reason = str(failed[-1].get("error") or _fail_reason)[:200]
-                else:
-                    for _it in list(active.values()) + list(testing.values()):
-                        _tail = str(_it.get("console_tail") or _it.get("log_tail") or "")
-                        if scheduler_log_shows_error(_tail):
-                            _fail_reason = _tail.strip().splitlines()[-1][:200] if _tail.strip() else _fail_reason
-                            break
-                _append_scheduler_log( f"[{now()}] fail_fast_trigger pending={len(queue)} failed={len(failed)} reason={_fail_reason[:120]}")
-                scheduler_fail_pending_queue(queue, failed, _fail_reason)
-                write_current_state(_fail_reason)
+            if not fail_stop_reason and scheduler_should_fail_fast(failed, active, testing):
+                fail_stop_reason = str(failed[-1].get("error") or "任务明确失败，已停止派发新任务")[:200]
+                not_dispatched.extend(queue)
+                queue.clear()
+                _append_scheduler_log(f"[{now()}] dispatch_stopped_on_failure held={len(not_dispatched)} active={len(active) + len(testing)} reason={fail_stop_reason}")
+                write_current_state(fail_stop_reason)
+            if fail_stop_reason and not active and not testing:
                 break
             # 信号类型枚举与直连 vs 缓存分流：信号路径尽可能不利用缓存发信号（B路径 stale才直连 + C piggyback）
             _is_signal_dispatch = _pending_signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END) and (time.monotonic() - _last_signal_monotonic) < (_scheduler_signal_debounce_seconds + 2.0)
@@ -3786,8 +3775,12 @@ def main() -> None:
             _last_poll_monotonic = time.monotonic()
             _pending_signal_type = SCHEDULER_SIGNAL_POLL_TICK
             for worker in ordered_workers_for_dispatch(workers):
+                if failed:
+                    break
                 # 严格单发：每次 probe 仅取1个空闲GPU派1个job，派完立即重探，避免批量透支空卡规则
                 while queue:
+                    if failed:
+                        break
                     busy_slots = {**active, **testing}
                     try:
                         probe = probe_idle_gpus(worker, busy_slots)
@@ -3989,7 +3982,7 @@ def main() -> None:
                         write_current_state()
                         # 任务结束 piggyback：reap 产生新完成即视为 task_end 信号，触发立即 dispatch
                         if scheduler_should_fail_fast(failed, active, testing):
-                            _append_scheduler_log( f"[{now()}] fail_fast_in_sleep pending={len(queue)}")
+                            _append_scheduler_log(f"[{now()}] failure_detected_in_sleep pending={len(queue)}")
                             break
                         # 风暴合并：多个 finish 在去抖窗口内合并为一次 dispatch
                         _pending_signal_type = SCHEDULER_SIGNAL_TASK_END
@@ -4055,7 +4048,7 @@ def main() -> None:
         })
         raise
     _append_scheduler_log( f"[{now()}] scheduler_finish")
-    final_error = scheduler_abort_message
+    final_error = scheduler_abort_message or fail_stop_reason
     if queue and not active and not testing and not completed and not failed and not stopped:
         final_error = "Hub 调度器仍有排队实验但没有任何派发。请检查 dispatch_probe、availability cache 和 Worker command queue 运行细节。"
     write_current_state(final_error)
@@ -4074,6 +4067,7 @@ def main() -> None:
         "schedulerLog": str(args.scheduler_log or queue_log).replace("\\", "/"),
         "totalExperiments": len(jobs),
         "pendingCount": len(queue),
+        "notDispatchedCount": len(not_dispatched),
         "runningCount": len(active),
         "testingCount": len(testing),
         "completedCount": completed_count,

@@ -42,22 +42,15 @@ function runModeForButton(dataset, command, fallbackMode) {
   return sandbox.check({ dataset }, command, fallbackMode);
 }
 
-test("Debug mode is explicit and propagates across Local, Hub, Scheduler, and Worker", () => {
-  assert.match(panelSource, /data-run-mode="formal"/);
-  assert.match(panelSource, /data-run-mode="debug"/);
-  assert.match(panelSource, /payload\.debugMode = runModeForButton\(button, command, runMode\)/);
-  assert.match(panelSource, /debugMode: pick\(row, \["debugMode", "debug_mode"\]/);
-  assert.match(panelSource, /Debug 已完成；先查看任务与日志/);
-  assert.match(extensionSource, /const debugMode = booleanField\(message, "debugMode"\)/);
-  assert.match(extensionSource, /debugMode \? "Debug 运行" :/);
-  assert.match(agentSource, /"--debug-mode"/);
-  assert.match(agentSource, /"debugMode": debug_mode/);
-  assert.match(schedulerSource, /parser\.add_argument\("--debug-mode", action="store_true"\)/);
-  assert.match(schedulerSource, /"debugMode": bool\(args\.debug_mode\)/);
-  assert.match(schedulerSource, /"debugMode": bool\(debug_mode\)/);
+test("Debug run controls are absent and stale submissions are rejected", () => {
+  assert.doesNotMatch(panelSource, /data-run-mode="debug"|data-command="runDraftDebug"/);
+  assert.match(panelSource, /payload\.debugMode = false/);
+  assert.match(extensionSource, /if \(body\.debugMode === true\)\s*throw new Error\("Debug 运行模式已移除/);
+  assert.match(agentSource, /if debug_mode:\s*return terminal_action\(root, action, operation_id, op_id, "failed", "Debug 运行模式已移除/);
+  assert.match(schedulerSource, /if args\.debug_mode:\s*raise SystemExit\("Debug 运行模式已移除/);
 });
 
-test("Debug worker execution rewrites outputs under debug_runs", () => {
+test("Debug worker execution is rejected before any output is written", () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-debug-run-"));
   fs.mkdirSync(path.join(project, "configs"), { recursive: true });
   fs.mkdirSync(path.join(project, "experiments", "plans"), { recursive: true });
@@ -94,11 +87,11 @@ test("Debug worker execution rewrites outputs under debug_runs", () => {
     "",
   ].join("\n"), "utf8");
 
-  const result = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", plan, "--only-index", "0", "--debug-mode", "--debug-run-id", "debug-1"], { cwd: project, encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const result = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", plan, "--only-index", "0", "--debug-mode", "--debug-run-id", "debug-1"], { cwd: project, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  assert.notEqual(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stderr || result.stdout, /Debug 运行模式已移除/);
   const debugRoot = path.join(project, "simple_cluster", "debug_runs");
-  const markers = fs.readdirSync(debugRoot, { recursive: true }).filter((item) => String(item).endsWith("debug.marker"));
-  assert.equal(markers.length, 1);
+  assert.equal(fs.existsSync(debugRoot), false);
   assert.equal(fs.existsSync(path.join(project, "work_dirs")), false);
   assert.equal(fs.existsSync(path.join(project, "experiments", "results", "smoke.csv")), false);
   assert.equal(fs.existsSync(path.join(project, "experiments", "results", "hardcoded.csv")), false);
@@ -132,44 +125,23 @@ test("Debug requests cannot enter formal result, archive, delete, or PPT actions
   assert.equal(fs.existsSync(path.join(project, "work_dirs", "keep", "result.csv")), true);
 });
 
-test("first-run mode guidance recommends Debug without changing the formal default", () => {
-  assert.match(panelSource, /function runModeGuidance\(state\)/);
-  assert.match(panelSource, /function syncRunModeActionLabels\(root\)/);
-  assert.match(panelSource, /cache\.runModeActionLabelSig === signature/);
-  assert.match(panelSource, /\[String\(postRenderButtonDomVersion\), runMode, rootRefreshIdentity\(scope\)\]/);
-  assert.match(panelSource, /runModeActionLabel\(runMode, button\.dataset\.formalRunLabel\)/);
-  assert.match(panelSource, /data-force-formal="true"/);
-  assert.match(panelSource, /首次运行建议先选择 Debug：只提交首个任务/);
-  assert.match(panelSource, /Debug 已完成；先复核任务与日志，再正式运行完整 Plan/);
-  assert.match(panelSource, /refreshRunModeNote\(state\)/);
-  assert.match(panelSource, /refreshRunModeUi\(\)[\s\S]{0,900}renderSectionIfVisible\(state, "overview", \{ force: true \}\)/);
-  assert.match(panelSource, /button\[data-command="archivePlan"\][\s\S]{0,500}debugModeDisableReason\("archivePlan"\)/);
-  assert.match(panelSource, /function renderArchivedPlanCard\(plan\)[\s\S]{0,1800}debugModeDisableReason\("restoreArchivedPlan"\)/);
-  assert.match(panelSource, /restoreDisabled = restoreReason \? " disabled" : ""/);
-  assert.match(panelSource, /const debugReason = debugModeDisableReason\("plotResultsToPpt"\)/);
-  assert.match(panelSource, /function refreshPptPlotConfigDebugState\(state\)/);
-  assert.match(panelSource, /function pptPlotButton\(label, sourcePath, sourceLabel, extra\)[\s\S]{0,900}debugModeDisableReason\("plotResultsToPpt"\)/);
-  assert.match(panelSource, /\["validatePlan", "dryRunPlan", "runPlan", "runAllPlans"\]/);
-  assert.match(panelSource, /function resultAwaitRunNextAction\(stage\)[\s\S]{0,1100}disableReason\(state, "parseResults", \{ planFile \}\)/);
-  assert.match(panelSource, /function resultEvidenceWorkbenchCacheKeyFor\(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness\)[\s\S]{0,260}runMode:/);
-  assert.match(panelSource, /runMode = normalizeRunMode\(restoredWebviewState\.runMode\)/);
-  assert.match(panelSource, /return String\(value \|\| "formal"\) === "debug" \? "debug" : "formal"/);
-  assert.match(panelSource, /persistWebviewState\(\{ runMode \}\)/);
-  assert.match(panelSource, /function runModeForButton\(button, command, fallbackMode\)/);
+test("first run presents one full Plan submission action", () => {
+  assert.match(panelSource, /function renderProjectFirstRunActions\(show, planFile\)/);
+  assert.match(panelSource, /当前 Plan revision 尚无运行证据/);
+  assert.doesNotMatch(panelSource, /建议 Debug 首跑|Debug 首跑<\/button>/);
+  assert.match(panelSource, /let runMode = "formal"/);
 });
 
 test("run buttons keep clear labels and submit their explicit mode", () => {
   assert.equal(runModeActionLabel("formal", "校验并提交运行"), "校验并提交运行");
-  assert.equal(runModeActionLabel("debug", "校验并提交运行"), "Debug 运行");
+  assert.equal(runModeActionLabel("debug", "校验并提交运行"), "校验并提交运行");
   assert.equal(runModeActionLabel("formal", "重新提交"), "重新提交");
-  assert.equal(runModeForButton({ debugMode: "true" }, "runPlan", "formal"), true);
+  assert.equal(runModeForButton({ debugMode: "true" }, "runPlan", "formal"), false);
   assert.equal(runModeForButton({ debugMode: "false" }, "runPlan", "debug"), false);
   assert.equal(runModeForButton({ forceFormal: "true", debugMode: "true" }, "runPlan", "debug"), false);
-  assert.equal(runModeForButton({}, "validatePlan", "debug"), true);
+  assert.equal(runModeForButton({}, "validatePlan", "debug"), false);
   assert.match(panelSource, /function renderProjectFirstRunActions\(show, planFile\)/);
-  assert.match(panelSource, /data-command="runPlan" data-debug-mode="true" data-confirm="true"/);
-  assert.match(panelSource, /data-command="runPlan" data-debug-mode="false" data-confirm="true"/);
-  assert.match(panelSource, /建议 Debug 首跑/);
+  assert.doesNotMatch(panelSource, /data-command="runPlan" data-debug-mode="true"/);
 });
 
 test("Debug completion skips the formal automatic result pipeline", () => {

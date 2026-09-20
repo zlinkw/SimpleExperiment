@@ -2488,6 +2488,15 @@ def tmux_session_alive(session, cwd=None, env=None):
         return False
     return subprocess.run(["tmux", "has-session", "-t", session], cwd=cwd or None, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env).returncode == 0
 
+def tmux_task_pane_alive(pane, session, cwd=None, env=None):
+    if not str(pane or "").startswith("%"):
+        return tmux_session_alive(session, cwd, env)
+    try:
+        result = subprocess.run(["tmux", "display-message", "-p", "-t", str(pane), "#{pane_id}"], cwd=cwd or None, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=3, env=env)
+        return result.returncode == 0 and result.stdout.strip() == str(pane)
+    except Exception:
+        return False
+
 def tmux_pane_pid(session, cwd=None, env=None):
     try:
         result = subprocess.run(["tmux", "display-message", "-p", "-t", session, "#{pane_pid}"], cwd=cwd or None, text=True, capture_output=True, timeout=3, env=env)
@@ -3012,13 +3021,9 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # Simulate a human operator: open a detached tmux session (login shell so conda/profile
     # is available), mirror the pane to a log file (screen + log), then type 'conda activate',
     # 'cd', and finally the command. No nested 'bash -lc' quoting, no process substitution.
-    # per-GPU复用(1C)：若同GPU tmux已存在则 kill 后重建，保证任意时刻 tmux数 ≤ GPU数
+    # Never destroy an earlier task's terminal while starting a new one.
     if tmux_session_alive(session, cwd, env):
-        try:
-            subprocess.run(["tmux", "kill-session", "-t", session], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=5)
-            time.sleep(0.2)
-        except Exception:
-            pass
+        raise RuntimeError(f"tmux session already exists: {session}")
     shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
     # 宽松建窗：不再强制 bash -l，让 tmux 使用 default-shell，避免 .bashrc 加载慢/失败导致建窗超时
     shell_cmd = [shell]
@@ -3040,22 +3045,10 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
     if proc.returncode != 0:
         err = (proc.stderr or "") + (proc.stdout or "")
-        # 失败时若 stderr 含 duplicate session / session exists 则先 kill-session 再重试一次 new-session；其他错误直接抛 RuntimeError 带详细上下文并阻止调度
+        # A duplicate may belong to a failed run whose console must be retained.
         low = err.lower()
-        if "duplicate session" in low or "session exists" in low or "duplicate" in low:
-            try:
-                subprocess.run(["tmux", "kill-session", "-t", session], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=5)
-                time.sleep(0.3)
-            except Exception:
-                pass
-            proc2 = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
-            if proc2.returncode != 0:
-                err2 = (proc2.stderr or "") + (proc2.stdout or "")
-                ctx2 = _build_tmux_error_context(session, proc2.returncode, proc2.stderr, proc2.stdout, cwd, 2, env)
-                raise RuntimeError(f"tmux new-session failed after retry rc={proc2.returncode} stderr={_truncate_text(err2, 2000)!r} for {session!r}; cwd={str(cwd)!r}; attempts=2; {ctx2}")
-        else:
-            ctx = _build_tmux_error_context(session, proc.returncode, proc.stderr, proc.stdout, cwd, 1, env)
-            raise RuntimeError(f"tmux new-session failed rc={proc.returncode} stderr={_truncate_text(err, 2000)!r} for {session!r}; cwd={str(cwd)!r}; attempts=1; {ctx}")
+        ctx = _build_tmux_error_context(session, proc.returncode, proc.stderr, proc.stdout, cwd, 1, env)
+        raise RuntimeError(f"tmux new-session failed rc={proc.returncode} stderr={_truncate_text(err, 2000)!r} for {session!r}; cwd={str(cwd)!r}; attempts=1; {ctx}")
     # 新建窗口后等待 5秒让 bashrc 相关脚本执行完毕，再发送 conda 激活等指令（统一 5秒规则）
     time.sleep(5)
     # 日志直显 tmux 窗口：不再 pipe-pane tee，日志直接输出到 pane；log_path 仅用于 info 备份（FileHandler）
@@ -3222,23 +3215,9 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         proc_gs = subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
         if proc_gs.returncode != 0:
             err = (proc_gs.stderr or proc_gs.stdout or "")
-            # 尝试 kill 后重试一次，仍失败则升为调度器级错误，带详细上下文
+            # Do not kill a duplicate session: it may contain failed-task logs.
             low_gs = (err or "").lower()
             attempts_gs = 1
-            if "duplicate session" in low_gs or "session exists" in low_gs or "duplicate" in low_gs:
-                try:
-                    subprocess.run(["tmux", "kill-session", "-t", gpu_window], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, timeout=5)
-                    import time as _t2
-                    _t2.sleep(0.3)
-                except Exception:
-                    pass
-                proc_gs2 = subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
-                if proc_gs2.returncode != 0:
-                    err2 = (proc_gs2.stderr or proc_gs2.stdout or "")
-                    ctx2 = _build_tmux_error_context(gpu_window, proc_gs2.returncode, proc_gs2.stderr, proc_gs2.stdout, cwd, 2, env)
-                    raise RuntimeError(f"tmux new-session failed after retry for gpu_window {gpu_window!r} rc={proc_gs2.returncode} stderr={_truncate_text(err2, 2000)!r}; cwd={str(cwd)!r}; attempts=2; {ctx2}; blocking task dispatch")
-                proc_gs = proc_gs2
-                attempts_gs = 2
             if proc_gs.returncode != 0:
                 ctx = _build_tmux_error_context(gpu_window, proc_gs.returncode, proc_gs.stderr, proc_gs.stdout, cwd, attempts_gs, env)
                 raise RuntimeError(f"tmux new-session failed for gpu_window {gpu_window!r} rc={proc_gs.returncode} stderr={_truncate_text(err, 2000)!r}; cwd={str(cwd)!r}; attempts={attempts_gs}; {ctx}; blocking task dispatch")
@@ -3303,8 +3282,11 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
             os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
         except Exception:
             pass
-        _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}"
-        split_args = ["tmux", "split-window", "-t", gpu_window, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-c", _cmd]
+        _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
+        # Each task gets a separate window in the GPU session. A failed window
+        # remains visible; later plans can launch another window on this GPU.
+        window_name = "run-" + str(int(time.time() * 1000))
+        split_args = ["tmux", "new-window", "-d", "-t", gpu_window, "-n", window_name, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-c", _cmd]
         for split_attempt in range(3):
             result = subprocess.run(split_args, capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
             if result.returncode == 0:
@@ -3315,7 +3297,7 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
             time.sleep(0.2)
         if result.returncode != 0:
             ctx_sw = _build_tmux_error_context(gpu_window, result.returncode, result.stderr, result.stdout, cwd, 1, env)
-            raise RuntimeError(f"tmux split-window failed for {gpu_window!r} rc={result.returncode} stderr={_truncate_text(result.stderr, 2000)!r} stdout={_truncate_text(result.stdout, 2000)!r}; cwd={str(cwd)!r}; cmd={_truncate_text(_cmd, 800)!r}; {ctx_sw}; blocking task dispatch")
+            raise RuntimeError(f"tmux new-window failed for {gpu_window!r} rc={result.returncode} stderr={_truncate_text(result.stderr, 2000)!r} stdout={_truncate_text(result.stdout, 2000)!r}; cwd={str(cwd)!r}; cmd={_truncate_text(_cmd, 800)!r}; {ctx_sw}; blocking task dispatch")
         pane_id = (result.stdout or "").strip().splitlines()[-1].strip() if result.stdout else ""
         if not pane_id or pane_id == gpu_window:
             # pane 进入失败视为调度器级错误：无 pane_id 则无法监控任务，必须阻止派发
@@ -3529,12 +3511,16 @@ def execute_worker_command(root, command, worker_id):
             task_key = str(task.get("session") or task.get("runKey") or task.get("commandId") or task.get("operationId") or "").strip()
             if session and session not in (task_key, str(task.get("commandId") or ""), str(task.get("runKey") or "")):
                 continue
-            pid = int(task.get("pid") or 0)
+            raw_pid = str(task.get("pid") or "").strip()
+            pid = int(raw_pid) if raw_pid.isdigit() else 0
             matched.append(task)
             if task.get("tmuxSession"):
                 try:
-                    subprocess.run(["tmux", "kill-session", "-t", str(task.get("tmuxSession"))], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-                    stopped.append(str(task.get("tmuxSession")))
+                    pane = str(task.get("tmuxPane") or raw_pid).strip()
+                    target = pane if re.fullmatch(r"%[0-9]+", pane) else str(task.get("tmuxSession"))
+                    command_name = "kill-pane" if target == pane and pane.startswith("%") else "kill-session"
+                    subprocess.run(["tmux", command_name, "-t", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                    stopped.append(target)
                 except Exception:
                     pass
             if pid > 0:
@@ -3620,6 +3606,10 @@ def execute_worker_command(root, command, worker_id):
     experiment_index = int(command.get("experimentIndex") if command.get("experimentIndex") is not None else options.get("experimentIndex") or 0)
     gpu_id = str(command.get("gpuId") or options.get("gpuId") or "")
     debug_mode = any(action_bool(value) for value in (command.get("debugMode"), command.get("debug_mode"), options.get("debugMode"), options.get("debug_mode")))
+    if debug_mode:
+        result = {"commandId": command_id, "status": "failed", "message": "Debug 运行模式已移除，请使用正式 Plan 运行。"}
+        append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+        return result
     debug_run_id = str(command.get("debugRunId") or command.get("debug_run_id") or options.get("debugRunId") or options.get("debug_run_id") or "").strip()
     debug_output_dir = str(command.get("debugOutputDir") or command.get("debug_output_dir") or options.get("debugOutputDir") or options.get("debug_output_dir") or "").strip()
     default_result_csv_dir = str(command.get("defaultResultCsvDir") or command.get("default_result_csv_dir") or options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results").strip()
@@ -3738,6 +3728,7 @@ def execute_worker_command(root, command, worker_id):
         "resultOwnerWorkerId": worker_id,
         "status": "running",
         "pid": pid,
+        "tmuxPane": pid if used_tmux and str(pid).startswith("%") else "",
         "session": session,
         "tmuxSession": tmux_session if used_tmux else "",
         "exitCodePath": os.path.relpath(exit_code_path, project_dir).replace("\\", "/") if used_tmux else "",
@@ -3765,7 +3756,9 @@ def execute_worker_command(root, command, worker_id):
     append_event(root, {"type": "worker_task_started", "workerId": worker_id, "operationId": command_id, "payload": {**task, **result}})
     def wait_task():
         def _resolve_pane_id():
-            # 解析 pane_id 供回收，容错 gpu_window 场景
+            # Target the task pane, never the session's currently selected pane.
+            if str(task.get("tmuxPane") or "").startswith("%"):
+                return str(task["tmuxPane"])
             try:
                 rp = subprocess.run(["tmux", "list-panes", "-t", tmux_session, "-F", "#{pane_id}"], capture_output=True, text=True, timeout=3)
                 if rp.returncode == 0 and rp.stdout.strip():
@@ -3789,11 +3782,9 @@ def execute_worker_command(root, command, worker_id):
                 # Sessions are intentionally left open after the command finishes, so we must
                 # wait for the exit-code file (written by the launched command) rather than tmux
                 # liveness; otherwise a finished task would stay 'running' forever.
-                while not exit_code_ready(exit_code_path) and tmux_session_alive(tmux_session, project_dir, env):
+                while not exit_code_ready(exit_code_path) and tmux_task_pane_alive(task.get("tmuxPane"), tmux_session, project_dir, env):
                     time.sleep(3)
                 rc = read_task_exit_code(exit_code_path)
-                # 任务完成后 pane 回收（read_task_exit_code 后）
-                _recycle_after_task()
             else:
                 rc = proc.wait()
             if worker_task_was_stopped(root, task):
@@ -3801,8 +3792,7 @@ def execute_worker_command(root, command, worker_id):
             finished = {**task, "status": "completed" if rc == 0 else "failed", "exitCode": rc, "finishedAt": now_iso()}
             append_worker_task(root, finished)
             append_event(root, {"type": "worker_task_completed" if rc == 0 else "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": finished})
-            # 任务完成后 pane 回收（worker_task completed/failed）
-            if used_tmux:
+            if used_tmux and rc == 0:
                 _recycle_after_task()
         except Exception as exc:
             if worker_task_was_stopped(root, task):
@@ -3810,8 +3800,6 @@ def execute_worker_command(root, command, worker_id):
             failed = {**task, "status": "failed", "error": str(exc), "finishedAt": now_iso()}
             append_worker_task(root, failed)
             append_event(root, {"type": "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": failed})
-            if used_tmux:
-                _recycle_after_task()
     threading.Thread(target=wait_task, daemon=True, name=f"worker-task-{command_id}").start()
     return result
 
@@ -10137,6 +10125,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         plan = action_plan_file(payload)
         options = action_options(payload)
         debug_mode = action_debug_mode(payload)
+        if debug_mode:
+            return terminal_action(root, action, operation_id, op_id, "failed", "Debug 运行模式已移除，请使用正式 Plan 运行。", request=payload)
         default_result_csv_dir = str(options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results")
         if not plan:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少 planFile，无法启动计划。", request=payload)

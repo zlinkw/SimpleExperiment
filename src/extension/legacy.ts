@@ -759,6 +759,7 @@ export class RealtimeTunnelPanelProvider {
     private runOperationReconcilePollTimer?: any;
     private evidenceAutoPollTimer?: any;
     private evidenceAutoPollInFlight = false;
+    private readonly notifiedPlanFailures = new Set<string>();
     operationTimers = new Map();
     operationProbeTimers = new Map();
     private postLaunchAutoTestTimer?: ReturnType<typeof setTimeout>;
@@ -4561,8 +4562,7 @@ export class RealtimeTunnelPanelProvider {
                 await this.runAllPlansFromUi();
                 break;
             case "runDraftDebug":
-                await this.runDraftDebugFromUi(message);
-                break;
+                throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
             case "promoteDraft":
                 await this.promoteDraftFromUi(message);
                 break;
@@ -5052,9 +5052,11 @@ export class RealtimeTunnelPanelProvider {
                 this.assertExecutionAgentProjectsReady(body);
             }
             await this.assertPlanNotAlreadyActive(operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "", plan);
-            if (!await this.ensureSimpleSftpReadyForSetup(body.debugMode === true ? "Debug 首跑" : command === "reproducePlan" ? "复现实验" : "运行计划"))
+            if (body.debugMode === true)
+                throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
+            if (!await this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
-            await this.confirmPlanRunSubmission(command, plan, body.debugMode === true, body);
+            await this.confirmPlanRunSubmission(command, plan, false, body);
             const planFileForProvenance = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
             body.gitProvenance = await this.recordRunGitProvenance(
                 planFileForProvenance,
@@ -5071,7 +5073,7 @@ export class RealtimeTunnelPanelProvider {
                     return;
                 }
             }
-            if (preflightOk && body.debugMode !== true)
+            if (preflightOk)
                 await this.confirmPlanExistingOutputs(plan, body, preflightOk);
             try {
                 const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
@@ -8992,79 +8994,8 @@ export class RealtimeTunnelPanelProvider {
         return { targets: enabledTargets.map((target) => target.id), files: relativeFiles };
     }
 
-    async updateDraftDebugState(planFile, debugRunId, status, lifecycleStatus) {
-        try {
-            await DraftPlans_1.updateDraftMetadata(workspaceRoot(), planFile, (item) => ({
-                ...item,
-                lastDebugRunId: debugRunId || item.lastDebugRunId,
-                lastDebugStatus: status || item.lastDebugStatus,
-                status: lifecycleStatus || item.status,
-            }));
-            await this.refreshDraftPlans(true);
-        } catch {
-            // Run evidence remains authoritative even when project-local metadata persistence fails.
-        }
-    }
-
     async runDraftDebugFromUi(message) {
-        const projectContext = this.captureProjectContext();
-        const client = this.client;
-        const authority = { projectContext, authorityClient: client };
-        const assertCurrent = () => this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，草稿 Debug 已取消。");
-        assertCurrent();
-        const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile") || stringField(message, "file");
-        const record = await this.requireDraftRecord(planFile);
-        if (!["validated", "debug_completed", "ready_for_review"].includes(record.status))
-            throw new Error(`当前草稿状态不能启动 Debug：${record.status}`);
-        const body = this.actionBody({
-            ...message,
-            planFile: record.draftPlanPath,
-            planId: record.draftPlanPath,
-            selectedPlanId: record.draftPlanPath,
-            debugMode: true,
-        });
-        const topology = this.assertPlanTopologyReady("草稿 Debug 运行");
-        this.assertExecutionWorkersReady(body.options?.workers);
-        this.assertExecutionAgentProjectsReady(body);
-        if (!await this.ensureSimpleSftpReadyForSetup("草稿 Debug 首跑")) {
-            throw new UiCommandCancelled("草稿 Debug 已取消，SimpleSFTP 未就绪。");
-        }
-        assertCurrent();
-        const answer = await vscode.window.showWarningMessage(
-            `确认运行草稿 Debug？\nPLAN：${record.draftPlanPath}\n配置：${record.draftConfigPaths.join(", ") || "-"}\n输出：simple_cluster/debug_runs/<plan>/<debug-run>\n目标：${topology.mode}`,
-            { modal: true },
-            "运行 Debug",
-        );
-        if (answer !== "运行 Debug")
-            throw new UiCommandCancelled("草稿 Debug 已取消。");
-        assertCurrent();
-        await this.ensureCodeReadyForRun(projectContext, [body]);
-        assertCurrent();
-        await this.syncDraftFilesForRun(body, record);
-        assertCurrent();
-        this.stampPlanRevision(body, { revision: record.contentHash, updatedAt: record.updatedAt });
-        if (!await this.runPlanPreflight(body, `草稿 ${record.draftPlanPath}`, authority))
-            throw new Error("草稿校验或预演未返回有效结果，已阻止 Debug 提交。");
-        assertCurrent();
-        const opId = makeOpId("runDraftDebug");
-        body.opId = opId;
-        const submitted = await this.postPlanSchedulerAction("run-plan", body, {
-            title: `草稿 Debug ${record.draftPlanPath}`,
-            confirm: false,
-            danger: false,
-            requiresCapability: capabilityForAction("run-plan"),
-            ...authority,
-        });
-        const debugRunId = String(submitted?.debugRunId || opId);
-        await this.updateDraftDebugState(record.draftPlanPath, debugRunId, String(resultStatus(submitted) || "submitted"), "debug_running");
-        let finalResult = submitted;
-        if (remoteActionPendingStatus(resultStatus(submitted)))
-            finalResult = await this.waitForOperationTerminalResult("run-plan", submitted, `草稿 Debug ${record.draftPlanPath}`, 45_000, this.planSchedulerWorkerId(body), authority);
-        const finalStatus = String(resultStatus(finalResult) || "").toLowerCase();
-        const completed = ["completed", "success", "succeeded"].includes(finalStatus);
-        await this.updateDraftDebugState(record.draftPlanPath, debugRunId, finalStatus || "unknown", completed ? "debug_completed" : "debug_running");
-        this.throwIfRemoteActionPending("runDraftDebug", "run-plan", finalResult);
-        this.throwIfTerminalActionFailure("runDraftDebug", "run-plan", resultStatus(finalResult), finalResult);
+        throw new Error("Debug 运行模式已移除，请将草稿转为正式 Plan 后运行。");
     }
 
     async promoteDraftFromUi(message) {
@@ -9947,7 +9878,6 @@ export class RealtimeTunnelPanelProvider {
             if (pick !== "继续")
                 return;
         }
-        let preferDebugFirstRun = false;
         for (let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step += 1) {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
@@ -10014,7 +9944,6 @@ export class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         const planFile = String(selected?.planFile || selected?.file || selected?.planId || "");
-        preferDebugFirstRun = !currentPlanRevisionHasRunEvidence(this.buildPlanRuntimeEvidenceState(), selected);
         const selectionChanged = Boolean(planFile) && (!samePlanSelection(this.planFileInput || "", planFile) || !samePlanSelection(this.selectedPlanId || "", selected?.planId || planFile));
         if (planFile) {
             this.planFileInput = planFile;
@@ -10094,7 +10023,6 @@ export class RealtimeTunnelPanelProvider {
                 })),
                 activeRun,
                 finishedRun,
-                preferDebugFirstRun,
             });
         };
         const seenCompletions = new Set();
@@ -10202,8 +10130,6 @@ export class RealtimeTunnelPanelProvider {
             await this.openPanelAt("settings", "settings-servers");
             return false;
         }
-        if (next === "Debug 首跑")
-            await this.runActionCommand("runPlan", { planFile: context.planFile, planId: context.planId || context.planFile, selectedPlanId: context.planId || context.planFile, debugMode: true });
         if (next === "正式运行")
             await this.runActionCommand("runPlan", { planFile: context.planFile, planId: context.planId || context.planFile, selectedPlanId: context.planId || context.planFile, debugMode: false });
         if (next === "校验并提交运行")
@@ -12963,6 +12889,7 @@ export class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastRealtimeState = state;
+            void this.notifyPlanFailureOnce(state);
             this.scheduleResultsSummaryRefreshFromRealtime(state);
             const uiRefs = this.realtimeUiStateRefsFor(state);
             if (this.shouldPushLocalAvailabilityFromRealtime(uiRefs.gpu)) void this.pushLocalWorkerAvailability(false);
@@ -12970,6 +12897,32 @@ export class RealtimeTunnelPanelProvider {
         });
         client.setProtectedLogKeys(this.logProtectedKeys());
         return client;
+    }
+    private async notifyPlanFailureOnce(state): Promise<void> {
+        const rows = Array.isArray(state?.schedulerStates) ? state.schedulerStates : [];
+        const persistedKey = "simpleExperiment.notifiedPlanFailures";
+        const stored = this.context.workspaceState.get<string[]>(persistedKey, []);
+        const acknowledged = new Set(Array.isArray(stored) ? stored : []);
+        for (const row of rows) {
+            const failures = Array.isArray(row?.failed_experiments)
+                ? row.failed_experiments.filter((item) => item && item.failedBySignal !== true)
+                : [];
+            if (!failures.length) continue;
+            const plan = String(row.planFile || row.plan || "").trim();
+            const run = String(row.scheduler_session || row.operationId || row.startedAt || "").trim();
+            const key = [plan, String(row.planRevision || ""), run || String(failures[0]?.started_at || "")].join("|");
+            if (!plan || acknowledged.has(key) || this.notifiedPlanFailures.has(key)) continue;
+            this.notifiedPlanFailures.add(key);
+            const updated = [...acknowledged, key].slice(-200);
+            acknowledged.add(key);
+            await this.context.workspaceState.update(persistedKey, updated);
+            const first = failures[0] || {};
+            const detail = String(first.error || first.exit_code || "任务失败").slice(0, 200);
+            const choice = await vscode.window.showErrorMessage(
+                `Plan ${plan} 的任务 ${first.experiment_index ?? "?"} 失败：${detail}。已停止派发新任务；已运行任务继续完成，失败 tmux 窗口保留。`,
+                { modal: true }, "查看运行进度");
+            if (choice === "查看运行进度") await this.openPanelAt("operations", "operations-list");
+        }
     }
     private shouldPushLocalAvailabilityFromRealtime(signature) {
         if (this.lastAvailabilityGpuSignature === signature)
@@ -18860,14 +18813,6 @@ function projectBootstrapCompletion(options) {
             action: "准备 Agent 并启动",
         };
     }
-    if (options.preferDebugFirstRun === true) {
-        return {
-            state: "ready",
-            message: "当前 Plan revision 尚无真实运行证据，且 Hub/Worker 检测已完成。建议先用 Debug 验证首个任务、日志和结果输出；确认无误后再执行正式运行。",
-            action: "Debug 首跑",
-            secondaryAction: "正式运行",
-        };
-    }
     return {
         state: "ready",
         message: "当前 Plan 与 Hub/Worker 检测均已完成，可以使用“校验并提交运行”启动当前计划。",
@@ -20790,13 +20735,13 @@ function planRunConfirmationDetail(command, plan, remoteTargets) {
     const workers = targets.filter((target) => target.role === "worker");
     const output = planRunOutputLocationSummary(item);
     const expectedLocations = planRunExpectedRemoteLocations(output, targets);
-    const debugMode = item.debugMode === true;
+    const debugMode = false;
     const schedulerOwnerWorkerId = String(item.schedulerOwnerWorkerId || "").trim();
     const hasHubTarget = targets.some((target) => target.role === "hub");
     return [
-        debugMode ? "Debug 运行" : (command === "reproducePlan" ? "复现实验" : "运行计划"),
+        command === "reproducePlan" ? "复现实验" : "运行计划",
         `Plan：${planFile}`,
-        `运行类型：${debugMode ? "Debug（仅首个任务，独立目录，不进入正式结果链）" : "正式运行"}`,
+        "运行类型：正式运行",
         `模式：${guidedPlanModeLabel(item.mode)}`,
         `任务：${jobCount > 0 ? jobCount : "待校验"}`,
         planRunScaleSummary(item),
@@ -20804,7 +20749,7 @@ function planRunConfirmationDetail(command, plan, remoteTargets) {
         `配置：${baseConfig}`,
         "实际执行命令：",
         ...planRunCommandSummary(item).map((value) => `- ${value}`),
-        debugMode ? "Debug 输出：simple_cluster/debug_runs/<plan>/<run>/" : `结果位置（${output.source}）：${output.text}`,
+        `结果位置（${output.source}）：${output.text}`,
         `Worker：${workers.length ? workers.map((target) => target.label).join("、") : "未配置"}`,
         ...(schedulerOwnerWorkerId ? [`人工调度目标：${schedulerOwnerWorkerId}（该 Worker 独立调度完整 Plan）`] : []),
         "Worker 调度配置：",

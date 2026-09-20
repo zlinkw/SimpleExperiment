@@ -197,17 +197,16 @@ test("current Plan terminal tasks lead to results or explicit failure recovery",
   assert.match(results.message, /已解析 2 条结果/);
   assert.equal(completion({ resultsSummary: { planFile: "other.yaml", results: [{ planFile: "other.yaml" }] } }, scope([{ status: "completed" }])).kind, "waiting");
   const debugReview = JSON.parse(JSON.stringify(completion({ resultsSummary: { planFile, results: [{ planFile }] } }, scope([{ status: "completed", debugMode: true }]))));
-  assert.equal(debugReview.kind, "debug-review");
-  assert.match(debugReview.message, /复核日志和输出/);
+  assert.equal(debugReview.kind, "results");
   const debugFailed = JSON.parse(JSON.stringify(completion({}, scope([{ status: "failed", debugMode: true }]))));
   assert.equal(debugFailed.kind, "review");
-  assert.match(debugFailed.message, /Debug 任务已结束/);
+  assert.match(debugFailed.message, /失败、停止或取消/);
   const mixedFormal = JSON.parse(JSON.stringify(completion({}, scope([{ status: "completed", debugMode: true }, { status: "completed" }]))));
   assert.equal(mixedFormal.kind, "waiting");
   assert.match(panel, /data\.workerTelemetry, data\.resultsSummary/);
 });
 
-test("successful Debug completion opens log review and explicit formal run", () => {
+test("historical Debug completion has no special run action", () => {
   const target = loadDebugLogTarget();
   assert.deepEqual(target({ rows: [{ status: "completed", debugMode: true, logKey: "debug/run", serverId: "worker-a" }] }), {
     runKey: "debug/run",
@@ -216,10 +215,7 @@ test("successful Debug completion opens log review and explicit formal run", () 
   assert.deepEqual(target({ rows: [{ status: "completed", debugMode: true }] }), { manualReview: true });
   assert.equal(target({ rows: [{ status: "completed" }] }), undefined);
   const source = extractFunction("renderTaskPlanCompletionNext");
-  assert.match(source, /打开 Debug 日志/);
-  assert.match(source, /data-debug-mode="false" data-force-formal="true"/);
-  assert.match(source, />正式运行<\/button>/);
-  assert.ok(source.indexOf('outcome.kind === "debug-review"') < source.indexOf('outcome.kind === "review"'));
+  assert.doesNotMatch(source, /打开 Debug 日志|data-debug-mode="false" data-force-formal="true"|outcome.kind === "debug-review"/);
 });
 
 test("failed current-Plan tasks expose a direct log target without auto retry", () => {

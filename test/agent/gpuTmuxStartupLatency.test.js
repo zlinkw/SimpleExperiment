@@ -23,12 +23,13 @@ with tempfile.TemporaryDirectory() as root:
     with patch.object(agent, "tmux_session_alive", return_value=False), patch.object(agent.subprocess, "run", fake_run), patch.object(agent, "simple_conda_env_name", return_value="/env"), patch.object(agent, "simple_conda_env_python", return_value="/env/bin/python"), patch.object(agent.os.path, "isfile", return_value=True), patch.object(agent.os, "access", return_value=True), patch.object(agent.time, "sleep", side_effect=AssertionError("fixed startup sleep")):
         pane = agent.start_job_in_gpu_pane("zlk-gpu-0", ["python", "job.py"], root, {"SIMPLE_EXPERIMENT_CONDA_ENV": "/env"}, log, exit_code)
 assert pane == "%12", pane
-assert [item[1] for item in calls] == ["new-session", "split-window"], calls
+assert [item[1] for item in calls] == ["new-session", "new-window"], calls
+assert "exec bash" in calls[-1][-1], calls[-1]
 calls.clear()
 sleeps = []
 def retry_run(args, **kwargs):
     calls.append(args)
-    if args[1] == "split-window" and sum(item[1] == "split-window" for item in calls) == 1:
+    if args[1] == "new-window" and sum(item[1] == "new-window" for item in calls) == 1:
         return SimpleNamespace(returncode=1, stdout="", stderr="can't find session")
     return SimpleNamespace(returncode=0, stdout="%13\\n", stderr="")
 with tempfile.TemporaryDirectory() as root:
