@@ -193,6 +193,7 @@ ACTION_PATHS = [
     "/api/actions/delete-artifacts",
     "/api/actions/reconcile-deletions",
     "/api/actions/parse-results",
+    "/api/actions/save-result-policy",
     "/api/actions/refresh-results",
     "/api/actions/self-check",
     "/api/actions/rescan-results",
@@ -6745,18 +6746,16 @@ def plan_output_capture_evidence(root, plan):
         signals.append("runner_command_paths")
     if any(re.search(r"(^|/)(metrics_summary\.csv|metrics_case\.csv|classification_report\.csv|scores\.csv|results?\.csv|summary\.txt|stdout\.log|stderr\.log|output\.out)$", candidate, re.I) for candidate in [*expected, *direct_candidates, *command_candidates]):
         signals.append("standard_result_file")
-    adapter = os.path.join(root, "experiments", "simple_project.yaml")
-    if os.path.isfile(adapter):
-        policy = read_project_metric_policy(root)
-        if policy_explicit_result_candidates(policy):
-            signals.append("project_adapter")
+    policy = read_project_metric_policy(root)
+    if policy_explicit_result_candidates(policy):
+        signals.append("plugin_or_project_adapter")
     ok = bool(signals)
     return {
         "ok": ok,
         "signals": unique_values(signals),
         "expectedResults": unique_values([*declared_candidates, *expected, *command_candidates])[:20],
         "missing": [] if ok else ["接入配置", "计划输出", "候选结果规则"],
-        "message": "" if ok else "未识别到可用的结果捕获规则，已阻止运行实验。请在 plan 中声明 paper.result_csv、当前 mode 实际执行命令的结果参数、expectedResults、stdout/stderr 捕获，或生成 experiments/simple_project.yaml。",
+        "message": "" if ok else "未识别到可用的结果捕获规则，已阻止运行实验。请在 Plan 中声明 paper.result_csv、执行命令的结果参数、expectedResults 或 stdout/stderr 捕获；也可在插件设置中配置输出接入规则。",
     }
 
 def read_project_metric_policy(root):
@@ -6813,6 +6812,23 @@ def read_project_metric_policy(root):
                 policy["metricAliases"][str(key).lower()] = value
         except Exception:
             pass
+    plugin_policy = read_json(path_for(root, "result_policy.json"), {})
+    if isinstance(plugin_policy, dict):
+        for key in ("taskType", "primaryMetric", "metricRegex", "summaryCsv", "caseCsv"):
+            value = plugin_policy.get(key)
+            if isinstance(value, str) and value.strip():
+                policy[key] = value.strip()
+        for key in ("secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs"):
+            values = plugin_policy.get(key)
+            if isinstance(values, list):
+                policy[key] = [value.strip() for value in values if isinstance(value, str) and value.strip()][:100]
+        mapping = plugin_policy.get("csvColumnMapping")
+        if isinstance(mapping, dict):
+            policy["csvColumnMapping"] = {key: value.strip() for key, value in mapping.items() if key in ("case", "seed", "split", "dataset", "method", "metric", "value") and isinstance(value, str) and value.strip()}
+        aliases = plugin_policy.get("metricAliases")
+        if isinstance(aliases, dict):
+            policy["metricAliases"] = {str(key): metric_name(value) for key, value in aliases.items() if isinstance(value, str) and value.strip()}
+        policy["explicitResultCandidates"] = unique_values([*(policy.get("explicitResultCandidates") or []), *(policy.get("candidateCsv") or []), *(policy.get("candidateJson") or []), *(policy.get("consoleLogs") or []), *(policy.get("textLogs") or [])])
     policy["primaryMetric"] = metric_name(policy.get("primaryMetric") or "AUC")
     policy["secondaryMetrics"] = unique_metric_names(policy.get("secondaryMetrics") or [])
     policy["classificationMetrics"] = unique_metric_names([policy["primaryMetric"], *(policy.get("secondaryMetrics") or []), *(policy.get("classificationMetrics") or [])])
@@ -9824,6 +9840,38 @@ def handle_action(root, action, payload, operation_id, op_id):
         return terminal_action(root, action, operation_id, op_id, status, str(result.get("message") or result.get("status") or ""), result)
     if action == "self-check":
         return terminal_action(root, action, operation_id, op_id, "completed", "自检完成", {"diagnostics": api_diagnostics(root)})
+    if action == "save-result-policy":
+        try:
+            options = payload.get("options") or {}
+            rules = options.get("projectAdapterRules")
+            if not isinstance(rules, dict):
+                raise ValueError("projectAdapterRules must be an object")
+            mapping = rules.get("csvColumnMapping") or {}
+            if not isinstance(mapping, dict):
+                raise ValueError("csvColumnMapping must be an object")
+            allowed = ("case", "seed", "split", "dataset", "method", "metric", "value")
+            if any(key not in allowed or not isinstance(value, str) or len(value) > 120 or any(ch in value for ch in "\r\n\0") for key, value in mapping.items()):
+                raise ValueError("invalid csvColumnMapping field")
+            allowed_lists = ("secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs")
+            allowed_text = ("taskType", "primaryMetric", "metricRegex", "summaryCsv", "caseCsv")
+            allowed_maps = ("metricAliases",)
+            if any(key not in (*allowed_lists, *allowed_text, *allowed_maps, "csvColumnMapping") for key in rules):
+                raise ValueError("invalid projectAdapterRules field")
+            if any(not isinstance(rules.get(key), list) or len(rules[key]) > 100 or any(not isinstance(item, str) or len(item) > 240 for item in rules[key]) for key in allowed_lists if key in rules):
+                raise ValueError("invalid result policy list")
+            if any(not isinstance(rules.get(key), str) or len(rules[key]) > 1000 for key in allowed_text if key in rules):
+                raise ValueError("invalid result policy text")
+            aliases = rules.get("metricAliases") or {}
+            if not isinstance(aliases, dict) or len(aliases) > 200 or any(not isinstance(key, str) or not isinstance(value, str) or len(key) > 120 or len(value) > 120 for key, value in aliases.items()):
+                raise ValueError("invalid metric aliases")
+            target = path_for(root, "result_policy.json")
+            saved = {key: rules[key] for key in (*allowed_lists, *allowed_text, *allowed_maps) if key in rules}
+            saved["schemaVersion"] = 1
+            saved["csvColumnMapping"] = {key: mapping[key].strip() for key in allowed if mapping.get(key, "").strip()}
+            atomic_write(target, saved)
+            return terminal_action(root, action, operation_id, op_id, "completed", "结果接入规则已保存到 Agent 配置", {"csvColumnMapping": saved["csvColumnMapping"]}, request=payload)
+        except Exception as exc:
+            return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
     if action == "archive-plan-copy":
         try:
             result = archive_plan_copy_action(root, action_plan_file(payload), payload.get("snapshotName"))
@@ -12089,7 +12137,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))

@@ -49,10 +49,18 @@ test("Plan summary uses declared raw CSV, computes sample SD, and marks missing 
     "open(agent.safe_project_path(root, 'experiments/plans/mapped.yaml'), 'w', encoding='utf-8').write('suite: mapped\\nseeds: [1, 2]\\npaper:\\n  result_csv: experiments/results/mapped.csv\\ncases:\\n  - case: alpha\\n')",
     "open(agent.safe_project_path(root, 'experiments/results/mapped.csv'), 'w', encoding='utf-8').write('specimen,rng,accuracy\\nalpha,1,0.7\\nalpha,2,0.9\\n')",
     "mapped = agent.parse_results_action(root, plan='experiments/plans/mapped.yaml')",
+    `plugin_root = ${JSON.stringify(path.join(tmp, "plugin-project"))}`,
+    "import os",
+    "os.makedirs(os.path.join(plugin_root, 'experiments', 'plans'), exist_ok=True)",
+    "os.makedirs(os.path.join(plugin_root, 'experiments', 'results'), exist_ok=True)",
+    "open(agent.safe_project_path(plugin_root, 'experiments/plans/plugin.yaml'), 'w', encoding='utf-8').write('suite: plugin\\nseeds: [1, 2]\\npaper:\\n  result_csv: experiments/results/plugin.csv\\ncases:\\n  - case: alpha\\n')",
+    "open(agent.safe_project_path(plugin_root, 'experiments/results/plugin.csv'), 'w', encoding='utf-8').write('specimen,rng,accuracy\\nalpha,1,0.7\\nalpha,2,0.9\\n')",
+    "save_policy = agent.handle_action(plugin_root, 'save-result-policy', {'options': {'projectAdapterRules': {'csvColumnMapping': {'case': 'specimen', 'seed': 'rng'}}}}, 'policy-save', 'policy-save')",
+    "plugin_mapped = agent.parse_results_action(plugin_root, plan='experiments/plans/plugin.yaml')",
     "open(agent.safe_project_path(root, 'experiments/plans/missing.yaml'), 'w', encoding='utf-8').write('suite: missing\\nseeds: [1, 2]\\npaper:\\n  result_csv: experiments/results/missing.csv\\ncases:\\n  - case: alpha\\n')",
     "open(agent.safe_project_path(root, 'experiments/results/missing.csv'), 'w', encoding='utf-8').write('case,accuracy\\nalpha,0.7\\n')",
     "missing = agent.parse_results_action(root, plan='experiments/plans/missing.yaml')",
-    "print(json.dumps({'status': summary.get('aggregateStatus'), 'raw': summary.get('rawResultCsvPath'), 'rows': rows, 'incomplete': summary.get('aggregateIncompleteCount'), 'archivedRows': archived_rows, 'archive': archive['archivePath'], 'archiveSources': [item['source'] for item in archive_manifest['files']], 'mappedStatus': mapped.get('aggregateStatus'), 'mappedMetrics': mapped.get('metrics'), 'missingStatus': missing.get('aggregateStatus')}))",
+    "print(json.dumps({'status': summary.get('aggregateStatus'), 'raw': summary.get('rawResultCsvPath'), 'rows': rows, 'incomplete': summary.get('aggregateIncompleteCount'), 'archivedRows': archived_rows, 'archive': archive['archivePath'], 'archiveSources': [item['source'] for item in archive_manifest['files']], 'mappedStatus': mapped.get('aggregateStatus'), 'mappedMetrics': mapped.get('metrics'), 'savePolicyStatus': save_policy.get('status'), 'pluginMappedStatus': plugin_mapped.get('aggregateStatus'), 'pluginMappedMetrics': plugin_mapped.get('metrics'), 'missingStatus': missing.get('aggregateStatus')}))",
   ].join("\n"), "utf8");
   const result = spawnSync("python", [script], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -76,6 +84,9 @@ test("Plan summary uses declared raw CSV, computes sample SD, and marks missing 
   assert.equal(payload.archiveSources.some((item) => item.includes("foreign") || item.includes("seed9")), false);
   assert.equal(payload.mappedStatus, "ready");
   assert.equal(payload.mappedMetrics.includes("rng"), false);
+  assert.equal(payload.savePolicyStatus, "completed");
+  assert.equal(payload.pluginMappedStatus, "ready");
+  assert.equal(payload.pluginMappedMetrics.includes("rng"), false);
   assert.equal(payload.missingStatus, "mapping_required");
 });
 

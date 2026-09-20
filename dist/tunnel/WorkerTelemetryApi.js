@@ -33,6 +33,7 @@ exports.workerTelemetryActionNames = [
     "stop-tensorboard",
     "get-tensorboard-status",
     "install-rich",
+    "save-result-policy",
 ];
 exports.workerLocalSchedulerActionNames = [
     "validate-plan",

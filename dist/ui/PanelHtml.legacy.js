@@ -957,6 +957,9 @@ function renderPanelHtml() {
     .settingsBackButton { width: auto; height: 30px; min-width: 84px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
     .settingsLayoutTools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .settingsLayoutTools b { margin-right: auto; font-size: 12px; }
+    .resultMappingGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; width: 100%; }
+    .resultMappingField { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .resultMappingField input { min-width: 0; width: 100%; box-sizing: border-box; }
     .settingsCommandTools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .settingsCommandTools > div { display: grid; gap: 2px; margin-right: auto; min-width: min(100%, 280px); }
     .settingsCommandTools b { font-size: 12px; }
@@ -1429,6 +1432,8 @@ function renderPanelHtml() {
       <div id="remoteRootPolicySettings" data-anchor="settings-remote-root-policy"></div>
       <div id="pluginUpdateSettings" data-anchor="settings-plugin-update"></div>
       <div id="resultCsvDirectorySettings" data-anchor="settings-result-csv"></div>
+      <div id="resultColumnMappingSettings" data-anchor="settings-result-mapping"></div>
+      <div id="projectAdapterRuleSettings" data-anchor="settings-result-rules"></div>
       <div id="serverSettingsCards" data-anchor="settings-servers"></div>
     </section>
     </div>
@@ -2112,7 +2117,7 @@ function renderPanelHtml() {
     const PLAN_FILE_PAYLOAD_COMMANDS = new Set([...SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "archivePlanCopy", "savePlan"]);
     const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set([...PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"]);
     const SUBMITTED_RUN_COMMANDS = new Set([...SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"]);
-    const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules", "saveRemoteRootPolicy"]);
+    const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy"]);
     const SAVED_ACTION_PAYLOAD_KEYS = Object.freeze(["endpointId", "planFile", "planRevision", "planId", "file", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "batchSelected"]);
     const BUTTON_PAYLOAD_ATTRIBUTE_NAMES = Object.freeze({
       endpointId: "endpoint-id", planFile: "plan-file", planRevision: "plan-revision", planId: "plan-id", file: "file", runKey: "run-key", taskUiKey: "task-ui-key", experimentId: "experiment-id",
@@ -2411,7 +2416,7 @@ function renderPanelHtml() {
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
-      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+      "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "editResultColumnMapping", "openAuditTail",
       "selectPlan", "selectExperiment",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
@@ -3318,7 +3323,7 @@ function renderPanelHtml() {
 
     function sectionDependencyKey(data, section) {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
-      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig);
+      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.resultsSummary, data.detectedProject);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
@@ -3611,7 +3616,7 @@ function renderPanelHtml() {
         workerTelemetryStatus: compactRowsForSignature(data.workerTelemetryStatus, SECTION_SIGNATURE_ROW_LIMIT, ["workerId", "status", "state"]),
         remotePathConfirmations: compactRecordForSignature(data.remotePathConfirmations || {}, ["count", "stateFile"]),
         pptPathConfirmations: compactRecordForSignature(data.pptPathConfirmations || {}, ["count", "stateFile"]),
-        resultOutputConfig: compactRecordForSignature(data.resultOutputConfig || {}, ["csvDirectory"])
+        resultOutputConfig: compactRecordForSignature(data.resultOutputConfig || {}, ["csvDirectory", "columnMapping"])
       };
     }
 
@@ -5086,7 +5091,8 @@ function renderPanelHtml() {
         bootstrapProject: "识别当前项目；缺少计划时生成 Plan 模板，输出门禁缺失时生成接入模板，已有配置不会重复写入",
         generatePlanGuide: "生成 Plan 模板",
         generateOutputAdapter: "生成输出接入模板",
-        saveProjectAdapterRules: "保存 experiments/simple_project.yaml",
+        saveProjectAdapterRules: "保存插件接入规则",
+        saveResultColumnMapping: "保存结果列映射",
         validatePlan: "校验计划",
         dryRunPlan: "预演计划",
         runPlan: "校验并提交运行",
@@ -6218,6 +6224,8 @@ function renderPanelHtml() {
       return [
         treeObjectItem("settings", "界面布局", "设置", "", "管理卡片顺序、折叠状态和默认布局。", "settings-layout", "", "布局 排序 折叠 展开 恢复默认"),
         treeObjectItem("settings", "结果 CSV 目录", "设置", "", "配置新 Plan 和默认结果 CSV 的工作区相对目录。", "settings-result-csv", "", "结果 CSV 文件夹 路径 浏览 result_csv"),
+        treeObjectItem("settings", "结果列映射", "设置", "", "交互式关联标准字段和结果 CSV 列，保存到插件设置。", "settings-result-mapping", "", "列映射 case seed metric value"),
+        treeObjectItem("settings", "输出接入规则", "设置", "", "按需配置结果文件、日志和指标别名。", "settings-result-rules", "", "结果接入 指标 别名"),
         treeObjectItem("settings", "调度与上报", "设置", "", "配置 scheduler poll、jitter、TTL、可用性上报和 Worker 控制节流。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds workerActionMinIntervalMs workerActionMaxConcurrent"),
         treeObjectItem("settings", "Hub 设置", "设置", "", "配置 Hub 控制面、隧道、Agent 和项目父目录。", "servers-hub", "", "Hub 隧道 Agent 端口 项目父目录"),
         treeObjectItem("settings", "Worker 设置", "设置", "", "配置 Worker、GPU 上限、会话和端口。", "settings-servers", "", "Worker GPU 上限 maxConcurrentGpus localForwardPort")
@@ -7660,6 +7668,11 @@ function renderPanelHtml() {
       renderPluginUpdateSettings(state);
       renderRemoteRootPolicySettings(state);
       renderResultCsvDirectorySettings(state);
+      renderResultColumnMappingSettings(state);
+      const configuredRules = ((state || {}).resultOutputConfig || {}).adapterRules || {};
+      const detectedRules = (((state || {}).detectedProject || {}).adapterRules) || {};
+      if (!shouldKeepConfigDraftScope("projectAdapterRules"))
+        setHtmlIfChanged("projectAdapterRuleSettings", renderProjectRuleEditor(Object.assign({}, detectedRules, configuredRules)));
       return renderServerCardsV2(state);
     }
 
@@ -7749,6 +7762,32 @@ function renderPanelHtml() {
           '<b>实验结果 CSV 目录</b>' +
           '<div class="pptPathInputRow"><input class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="工作区相对目录：' + escAttr(value) + '"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button" title="选择结果表格文件所在目录（项目级设置）&#10;后续结果解析与绘图会按此目录查找">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button" title="保存结果表格文件目录设置&#10;后续结果解析与绘图会按此查找">保存</button></div>' +
           '<span class="muted">新 Plan 与未显式声明结果路径的任务使用；已有 Plan 路径不变</span>' +
+        '</div>');
+    }
+
+    function renderResultColumnMappingSettings(state) {
+      if (shouldKeepConfigDraftScope("resultMapping")) return;
+      const config = (state || {}).resultOutputConfig || {};
+      const mapping = config.columnMapping || {};
+      const preview = ((state || {}).resultsSummary || {}).columnMappingPreview || {};
+      const headers = asArray(preview.headers).map(String).filter(Boolean);
+      const fields = [
+        ["case", "实验 case"], ["seed", "随机 seed"], ["split", "数据划分"],
+        ["dataset", "数据集"], ["method", "方法"], ["metric", "指标名称"], ["value", "指标值"]
+      ];
+      const choices = headers.map((header) => '<option value="' + escAttr(header) + '"></option>').join("");
+      const rows = fields.map(([field, label]) => {
+        const value = String(configDraftValue("resultMapping", field, mapping[field] || ""));
+        const detected = String((preview.mapping || {})[field] || "");
+        return '<label class="resultMappingField"><span>' + esc(label) + ' <code>' + esc(field) + '</code></span><input list="resultColumnHeaders" data-config-input="resultMapping" data-key="' + escAttr(field) + '" value="' + escAttr(value) + '" placeholder="' + escAttr(detected || "自动识别") + '" title="留空则自动识别；可输入当前 CSV 的原始列名"></label>';
+      }).join("");
+      setHtmlIfChanged("resultColumnMappingSettings",
+        '<div class="settingsLayoutTools"><b>结果列映射</b>' +
+          '<span class="muted">从下方候选列选择或输入原始列名。留空自动识别；长表需指定指标名称和指标值。配置保存在插件工作区设置，并同步到 Agent。</span>' +
+          '<div class="resultMappingGrid">' + rows + '</div>' +
+          '<datalist id="resultColumnHeaders">' + choices + '</datalist>' +
+          '<span class="muted">' + (preview.source ? '预览来源：' + esc(preview.source) + ' · ' + headers.length + ' 列' : '先解析当前 Plan，可获得可选列名；现在也可手动输入。') + '</span>' +
+          '<button data-command="saveResultColumnMapping" data-config-scope="resultMapping" type="button">保存列映射</button>' +
         '</div>');
     }
 
@@ -8727,7 +8766,7 @@ function renderPanelHtml() {
       if (!outputReady) {
         const adapterAction = adapterConfig
           ? projectPathButton("打开接入配置", adapterConfig)
-          : '<button class="mini secondary" data-command="generateOutputAdapter" title="生成输出接入模板 experiments/simple_project.yaml&#10;声明结果捕获规则（result_csv / metrics_summary.csv / 标准输出捕获）">生成接入模板</button>';
+          : '<button class="mini secondary" data-command="generateOutputAdapter" title="生成可选的 Python 结果写入适配器；结果路径和列映射可在 Plan 与插件设置中配置">生成接入模板</button>';
         return '<div class="planRunActions">' + projectNextAction("补全输出后再运行", "打开 Plan", "openPlan", { file: selectedPlan }) + adapterAction + '</div>';
       }
       const executionStage = planExecutionStage(state || {}, selectedPlan);
@@ -11042,7 +11081,7 @@ function renderPanelHtml() {
       const rows = [
         { label: "计划强契约", ok: contractReady, fix: planContractFixText(plan) },
         { label: "配置文件", ok: configReady, fix: "在工作区创建或在当前 Plan 中改为可用配置。" },
-        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则；或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获。" : "点击“生成输出接入模板”，生成 experiments/simple_project.yaml；或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获。" },
+        { label: "接入配置", ok: explicitAdapterReady || planReady || ruleCandidateCount > 0, fix: "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则。" },
         { label: "计划输出", ok: planReady || ruleCandidateCount > 0, fix: "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置。" },
         { label: "候选结果规则", ok: candidateCount > 0 || planReady, fix: "在候选 CSV/JSON/控制台日志/文本 summary 中至少填写一类，或配置 metricRegex。" },
         { label: "标准结果契约", ok: planContractCount > 0 || ruleCandidateCount > 0 || (projectContractCount > 0 && planReady), fix: "推荐让测试代码输出 metrics_summary.csv，列为 experiment_id,suite,method,dataset,split,seed,metric,value。" },
@@ -11215,16 +11254,13 @@ function renderPanelHtml() {
       const consoleLogs = uniqueText(rules.consoleLogs || ["stdout.log", "stderr.log"]);
       const textLogs = uniqueText(rules.textLogs || ["summary.txt", "console.log"]);
       const aliases = mapToLines(rules.metricAliases || { acc: "accuracy", auroc: "AUC", roc_auc: "AUC", auprc: "AUPRC", macro_f1: "F1", val_loss: "loss", dice: "DSC" });
-      const mapping = mapToLines(rules.csvColumnMapping || { case: "case", seed: "seed", metric: "metric", value: "value", dataset: "dataset", split: "split" });
-      const open = detailIsOpen("project-rule-editor", false);
       const summary = renderAdapterRuleSummary(Object.assign({}, rules, { classificationMetrics, segmentationMetrics, candidateCsv, candidateJson, consoleLogs, textLogs }));
       const partialNotice = partial
-        ? '<div class="notice warning" title="规则摘要">规则较多，已启用摘要模式；打开 experiments/simple_project.yaml 编辑完整规则。</div>'
+        ? '<div class="notice warning" title="规则摘要">自动识别规则只显示摘要；保存前请核对下方字段。已保存的插件配置仍完整保留。</div>'
         : "";
       return '<details class="projectRuleEditor" data-details-key="project-rule-editor"' + detailsOpenAttr("project-rule-editor", false) + ' title="接入规则">' +
         '<summary>分类指标与输出捕获配置<span class="muted">' + esc(summary) + '</span></summary>' +
-        (open && partial ? partialNotice + '<div class="toolbar"><button class="secondary" data-command="openPlan" data-file="experiments/simple_project.yaml" title="保存输出接入配置到 experiments/simple_project.yaml&#10;声明结果捕获方式与候选结果规则，供运行前校验使用">打开完整接入配置</button></div>' :
-        open ? '<div class="projectRuleGrid">' +
+        (partialNotice + '<div class="projectRuleGrid">' +
           projectRuleInput("taskType", "任务类型", rules.taskType || "classification", "默认分类任务；分割只保留兼容入口。") +
           projectRuleInput("primaryMetric", "主指标", rules.primaryMetric || "AUC", "质量门禁、统计、论文表格默认围绕主指标组织。") +
           projectRuleTextarea("secondaryMetrics", "辅助指标", asEditorList(rules.secondaryMetrics || ["accuracy", "F1", "AUPRC", "precision", "recall", "specificity"]), "每行或逗号分隔，用于论文表格和结果扫读。") +
@@ -11235,14 +11271,14 @@ function renderPanelHtml() {
           projectRuleTextarea("consoleLogs", "控制台日志", asEditorList(consoleLogs), "run_wrapper 会捕获 stdout/stderr；正则可从日志提取指标。") +
           projectRuleTextarea("textLogs", "文本 summary", asEditorList(textLogs), "summary.txt 或 console.log 等轻量文本结果。") +
           projectRuleInput("metricRegex", "控制台指标正则", rules.metricRegex || "", "留空使用默认深度学习指标正则；仅在项目输出格式特殊时填写。", "wide") +
-          projectRuleTextarea("csvColumnMapping", "CSV 列映射", mapping, "格式：标准字段名: 原始 CSV 列名。常用标准字段有 case、seed、metric、value、split。", "wide") +
+          '<div class="projectRuleField wide"><span>CSV 列映射请使用上方“结果列映射”表单。</span></div>' +
           projectRuleTextarea("metricAliases", "指标别名", aliases, "格式：项目输出名: 标准指标名，例如 auroc: AUC。", "wide") +
           projectRuleTextarea("inferredSignalsReadonly", "自动推断线索", asEditorList(rules.inferredSignals || []), "只读参考：从配置、工厂模式、结果脚本和指标名推断出的线索。", "wide readonly") +
         '</div>' +
         '<div class="projectRuleActions">' +
-          '<span class="muted">本地接入配置：experiments/simple_project.yaml</span>' +
-          '<button data-command="saveProjectAdapterRules" data-config-scope="projectAdapterRules" title="保存输出接入配置到 experiments/simple_project.yaml&#10;声明结果捕获方式与候选结果规则，供运行前校验使用">保存接入规则</button>' +
-        '</div>' : '<div class="muted">接入规则按需展开。</div>') +
+          '<span class="muted">接入规则保存于插件工作区设置</span>' +
+          '<button data-command="saveProjectAdapterRules" data-config-scope="projectAdapterRules" title="保存输出接入配置到插件工作区设置并同步 Agent">保存接入规则</button>' +
+        '</div>') +
       '</details>';
     }
 
@@ -13616,7 +13652,7 @@ function renderPanelHtml() {
       const metrics = mapping.metric && mapping.value
         ? '<tr><th>长表指标</th><td>名称由 ' + esc(mapping.metric) + ' 列指定，数值取自 ' + esc(mapping.value) + ' 列</td></tr>'
         : asArray(item.metricColumns).map((entry) => '<tr><th>' + esc((entry || {}).metric || "指标") + '</th><td>' + esc((entry || {}).column || "") + '</td></tr>').join("");
-      return '<details data-details-key="result-column-mapping"' + detailsOpenAttr("result-column-mapping", false) + '><summary>列映射预览 · ' + esc(item.source) + '</summary><table class="planCompactTable"><thead><tr><th>标准字段 / 指标</th><th>原始 CSV 列</th></tr></thead><tbody>' + rows + metrics + '</tbody></table><div class="muted">在 experiments/simple_project.yaml 的 outputs.csvColumnMapping 按“标准字段: 原始列名”调整身份列；指标名称可在 outputs.metricAliases 调整。保存后点“重建汇总”。</div></details>';
+      return '<details data-details-key="result-column-mapping"' + detailsOpenAttr("result-column-mapping", false) + '><summary>列映射预览 · ' + esc(item.source) + '</summary><table class="planCompactTable"><thead><tr><th>标准字段 / 指标</th><th>原始 CSV 列</th></tr></thead><tbody>' + rows + metrics + '</tbody></table><div class="muted">点“编辑列映射”在插件设置中选择原始 CSV 列；保存后点“重建汇总”。</div></details>';
     }
 
     function renderResultNextAction(status) {
@@ -14562,7 +14598,7 @@ function renderPanelHtml() {
     function projectOutputGateFixes(missing, project) {
       const adapterReady = Boolean((project || {}).adapterConfig);
       const fixes = {
-        "接入配置": adapterReady ? "打开 experiments/simple_project.yaml 补充候选结果规则，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获" : "先在“实验准备”选择 Plan 后点击“生成接入模板”，生成 experiments/simple_project.yaml，或在当前 plan 声明 result_csv、metrics_summary.csv、stdout/stderr 捕获",
+        "接入配置": "在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则",
         "计划输出": "在 plan 的 paper.result_csv、runner.test_command --result-csv/--output-dir 或 expectedResults 中写明可解析结果位置",
         "候选结果规则": "补充 candidateCsv / candidateJson / consoleLogs / textLogs / metricRegex，或点击“保存接入规则”写入推断结果",
         "标准结果契约": "推荐让测试代码输出 metrics_summary.csv，或使用 run_wrapper 捕获 stdout/stderr 后归一化",

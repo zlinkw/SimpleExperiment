@@ -42,10 +42,12 @@ function loadHelpers() {
       return Number.isFinite(parsed) ? parsed : NaN;
     },
     safePlanToken: (value) => String(value || "experiment").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48) || "experiment",
+    normalizeResultCsvDir: (value) => String(value || "experiments/results").replace(/\\/g, "/"),
+    DEFAULT_RESULT_CSV_DIR: "experiments/results",
     Date,
   };
   vm.createContext(sandbox);
-  vm.runInContext(extension.slice(start, end) + "\nthis.api = { REMOTE_RESULT_INSPECTION_MAX_BYTES, normalizeRemoteResultInspectionPath, remoteResultInspectionLocalRelativePath, remoteResultInspectionCandidates, resultSummaryInspectionCandidates };", sandbox);
+  vm.runInContext(extension.slice(start, end) + "\nthis.api = { REMOTE_RESULT_INSPECTION_MAX_BYTES, normalizeRemoteResultInspectionPath, remoteResultInspectionLocalRelativePath, resultArtifactLocalRelativePath, remoteResultInspectionCandidates, resultSummaryInspectionCandidates };", sandbox);
   return sandbox.api;
 }
 
@@ -81,6 +83,21 @@ test("remote result inspection accepts only lightweight project files", () => {
   }
   const local = helpers.remoteResultInspectionLocalRelativePath("work_dirs/smoke/metrics_summary.csv", "experiments/plans/smoke.yaml", "2026-07-17T12:34:56.000Z");
   assert.match(local, /^simple_cluster\/downloads\/result_inspection\/experiments_plans_smoke\.yaml\/metrics_summary__[a-f0-9]{10}__20260717123456\.csv$/);
+});
+
+test("result buttons sync to project results directory with stable Plan and Worker names", () => {
+  const { resultArtifactLocalRelativePath: target } = loadHelpers();
+  const plan = "experiments/plans/comparison/concatenation.yaml";
+  const summary = {
+    rawResultCsvPath: "experiments/results/concatenation.csv",
+    aggregateCsvPath: "simple_cluster/results/by_plan/concatenation/seed_mean_std.csv",
+    projectAggregateCsvPath: "simple_cluster/results/project_seed_mean_std.csv",
+  };
+  assert.equal(target(summary.rawResultCsvPath, plan, summary), "experiments/results/concatenation.csv");
+  assert.equal(target(summary.aggregateCsvPath, plan, summary), "experiments/results/concatenation_seed_mean_std.csv");
+  assert.equal(target(summary.projectAggregateCsvPath, plan, summary), "experiments/results/project_seed_mean_std.csv");
+  assert.equal(target(summary.aggregateCsvPath, plan, { workerResultTables: [{ workerId: "nwpu3", aggregateCsvPath: summary.aggregateCsvPath }] }, "experiments/results", "nwpu3"), "experiments/results/nwpu3/concatenation_seed_mean_std.csv");
+  assert.match(target("simple_cluster/results/effective.csv", plan, summary), /^experiments\/results\/concatenation_effective_[a-f0-9]{8}\.csv$/);
 });
 
 test("remote result inspection is authorized by the matching Plan contract operation", () => {
@@ -186,8 +203,11 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.match(handler, /resultSummaryInspectionCandidates\(summary, planFile\)/);
   assert.match(handler, /"【结果文件位置确认】"/);
   assert.match(handler, /`远端来源：\$\{artifactPath\}`/);
-  assert.match(handler, /`预期本地只读副本：\$\{localCopyPath\}`/);
-  assert.match(handler, /client\.downloadFile\(artifactPath, localCopyPath, \{ maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES \}\)/);
+  assert.match(handler, /`本机结果位置：\$\{localCopyPath\}`/);
+  assert.match(handler, /resultArtifactLocalRelativePath\(artifactPath, planFile, summary, this\.resultCsvDirectory/);
+  assert.match(handler, /section: "settings", anchor: "settings-result-mapping"/);
+  assert.doesNotMatch(handler, /experiments\/simple_project\.yaml/);
+  assert.match(handler, /client\.downloadFile\(artifactPath, localCopyPath, \{ maxBytes: RESULT_ARTIFACT_MAX_BYTES \}\)/);
   assert.match(handler, /await this\.openWorkspaceFileForProjectContext\(localRelative, projectContext, client\)/);
   const opener = extension.slice(extension.indexOf("async openWorkspaceFileForProjectContext"), extension.indexOf("async openWorkspaceFolderForContinuation"));
   assert.match(opener, /const editorUri = workspaceEditorUriForFile\(file\)/);

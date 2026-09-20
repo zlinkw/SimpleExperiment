@@ -45,6 +45,7 @@ test("worker telemetry permits bounded worker controls plus local scheduler acti
     "POST /api/actions/stop-tensorboard",
     "POST /api/actions/get-tensorboard-status",
     "POST /api/actions/install-rich",
+    "POST /api/actions/save-result-policy",
   ].sort());
   assert.deepEqual([...workerLocalSchedulerActionNames], ["validate-plan", "dry-run-plan", "run-plan", "reproduce-plan", "stop-scheduler-operation"]);
   assert.ok(workerResultActionNames.includes("parse-results"));

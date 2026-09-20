@@ -36,6 +36,7 @@ export const workerTelemetryActionNames = [
   "stop-tensorboard",
   "get-tensorboard-status",
   "install-rich",
+  "save-result-policy",
 ] as const;
 
 export const workerLocalSchedulerActionNames = [

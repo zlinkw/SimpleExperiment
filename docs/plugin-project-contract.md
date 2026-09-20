@@ -29,7 +29,7 @@ project/
     plans/
       smoke.yaml
       main.yaml
-    simple_project.yaml
+    simple_project.yaml  # 仅旧项目兼容，可省略
     simple_adapter/
       result_writer.py
       run_wrapper.py
@@ -124,7 +124,7 @@ cases:
 ### 命令模板两种模式（变量对齐说明）
 
 - **模式一 Plan `runner.*_command`（MultiModal 对齐，面向单 job 执行）**：train 仅传 `--output-dir`（不直接写大表），test 双写 `--output-dir {output_dir} --result-csv {result_csv}`（per-job 双 csv + 追加最终大表 `experiments/results/<method>.csv`）。示例见本节骨架 `train_command/test_command`。
-- **模式二 `simple_project.entrypoints.*Template`（项目级默认模板，面向脚手架生成）**：以代码模板 `src/templates/ProjectAdapterTemplates.legacy.ts:743-744` 为准，使用 `{python}` 解释器占位、下划线风格 `--output_dir`、test 用 `{checkpoint}`（从 checkpoint 评估）而非 `--result-csv`。Scheduler 渲染时两种分隔符按入口 `argparse` 实际定义为准，不要混写；`{python}` 不可写死为字面量 `python`（conda 环境下由执行环境替换）。
+- **模式二 旧项目的 `simple_project.entrypoints.*Template`**：保留兼容读取。新项目优先在 Plan 中写实际命令，输出接入和列映射使用插件设置；不需要生成项目 YAML。历史模板使用 `{python}` 解释器占位、下划线风格 `--output_dir` 和 `{checkpoint}`，Scheduler 渲染时须按入口 `argparse` 实际定义选择参数形式。
 - 白名单外的 `{python}/{checkpoint}/{job_name}/{experiment_name}/{outputDir,resultCsv}` 均为合法变量；`{outputDir}` 是 `{output_dir}` 别名，`{resultCsv}` 是 `{result_csv}` 别名。
 
 ## 输出接口预检
@@ -133,7 +133,7 @@ Scheduler 会在 validate-plan 和 dry-run-plan 阶段检查“代码真的会�
 
 ### 通道 A：run_wrapper（推荐）
 
-- `experiments/simple_project.yaml` 配置 `adapter.runWrapper` 指向已存在的 `experiments/simple_adapter/run_wrapper.py`。
+- 在 Plan 的命令中明确调用项目已有的 `experiments/simple_adapter/run_wrapper.py`，或在旧项目的可选 `experiments/simple_project.yaml` 中声明 `adapter.runWrapper`。
 - 使用插件生成的 wrapper 包裹训练/测试命令，实时透传 stdout/stderr，追加写入同一任务日志，并生成标准结果和快照。项目可以按指标格式修改生成的 wrapper。
 - 自定义 wrapper 也必须在命令结束后生成 `metrics_summary.csv`、`env_snapshot.json` 和 `config_snapshot.yaml`。
 
@@ -171,7 +171,7 @@ writer.close()
 # split 使用 Plan case 上下文，seed/suite/method 由 Scheduler 补齐。
 ```
 
-- 通道 A 最小判定：`simple_project.yaml` 中 `adapter.runWrapper` 存在且命令经 wrapper 包裹后产出 `metrics_summary.csv + env_snapshot.json + config_snapshot.yaml`；自定义 wrapper 同样必须在命令结束后生成这三件套（见通道 A 原三条）。
+- 通道 A 最小判定：实际命令经 wrapper 包裹后产出 `metrics_summary.csv + env_snapshot.json + config_snapshot.yaml`；旧项目也可通过可选 YAML 声明 wrapper。自定义 wrapper 必须在命令结束后生成这三件套。
 
 以下情况不能视为有效输出接口：
 
@@ -210,9 +210,11 @@ experiment_id,suite,method,dataset,split,seed,metric,value
 - 每个任务目录必须有 `env_snapshot.json` 和 `config_snapshot.yaml`。
 - `artifact_manifest.json` 推荐提供；大权重和数据集只记录路径，不默认同步回本机。
 
-## simple_project.yaml
+## 插件输出接入设置与旧 YAML
 
-`experiments/simple_project.yaml` 是项目级接口契约，必须随 Git 提交。推荐字段：
+新项目在面板“设置 > 结果列映射”中选取 CSV 身份列，在“设置 > 输出接入规则”中配置候选结果、日志和指标别名。插件将规则保存在工作区 `simpleExperiment.projectAdapterRules` 设置中，并经 Agent 隧道同步到 Agent 自有状态目录；项目无需存在 `experiments/simple_project.yaml`。远端自动汇总从 Agent 状态读取同一规则，关闭本机不会丢失。
+
+下面的 YAML 仅用于旧项目兼容；已有文件仍会读取，但插件设置优先。插件不会在准备项目或校验 Plan 时自动创建它。
 
 ```yaml
 projectName: my_project
@@ -253,14 +255,14 @@ outputs:
     - "{output_dir}"
 ```
 
-硬性要求：
+采用旧 YAML 时的要求：
 
 - `runWrapper` 必须指向项目内存在的相对路径。
 - 候选路径必须落在允许的结果目录内，不能包含 `..` 或绝对路径。
 - `candidateCsv`、`candidateJson`、`consoleLogs`、`textLogs` 的扩展名必须可解析。
 - 指标别名最终应映射到项目声明的主指标或次指标。
 
-### `simple_project.yaml` Schema（必填-默认-校验时机）
+### 旧 `simple_project.yaml` Schema（兼容参考）
 
 | 字段 | 必填 | 默认（代码 `ProjectAdapterTemplates.legacy.ts:739-809`） | 说明 |
 |---|---|---|---|
@@ -339,7 +341,7 @@ Hub 是否可用始终由用户配置决定；不可用时必须手动切换到 
 4. 已有真实 `configs/*.yaml` 和 `experiments/plans/*.yaml`。
 5. 已选择 wrapper、显式 adapter 调用或 TensorBoard 三者之一，并在代码中落实。
 6. Plan 的 mode、seeds、cases、commands 和 per-job 结果路径完整。
-7. `experiments/simple_project.yaml` 与实际代码一致。
+7. Plan 结果位置与插件输出接入设置符合实际代码；若保留旧 `experiments/simple_project.yaml`，其内容也应一致。
 8. 数据、权重、缓存和密钥不会进入 Git 或默认代码同步。
 9. `plan.validate` 和 dry-run 通过；所有结构化 `missing` 已修复。
 10. 正式提交目标、拓扑和远端路径已经过人工确认。

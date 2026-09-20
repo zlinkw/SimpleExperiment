@@ -192,13 +192,13 @@ my_project/
   experiments/
     plans/
       baseline.yaml
-    simple_project.yaml
+    results/
   work_dirs/
   paper/
     claims.md
 ```
 
-最低可以只有 `train.py` / `test.py` 和一个 YAML Plan。缺少输出映射时，插件可以在 `experiments/simple_project.yaml` 生成轻量 adapter。
+最低可以只有可执行入口和一个 YAML Plan。结果目录默认是 `experiments/results/`。项目无需提供 `experiments/simple_project.yaml`；旧项目已有该文件时，插件仍兼容读取，但设置里的插件规则优先。插件不会在准备项目或校验 Plan 时自动创建该文件。
 
 Plan 放在 `experiments/plans/`，默认目录由 `simpleExperiment.planDir` 控制。基础示例：
 
@@ -247,7 +247,9 @@ Debug 运行会把输出隔离到 debug 目录，不会写入正式归档或统�
 
 当前 Plan 的结果区另提供“打开原始 seed 表”“打开均值/标准差表”“重建汇总”和“复制轻量归档”。原始表保持不变；汇总表从 Plan 声明的 CSV 按 case、seed 分组，自动识别数值指标，并计算样本标准差。缺少 seed 时仍输出该行并标记 `n/计划 seed 数`。项目总表汇集当前 Worker 已生成的各 Plan 汇总；多 Worker 时各 Worker 的项目总表分别保留，不能把单个 Worker 的文件当作全局完整总表。
 
-“列映射预览”显示 CSV 表头与识别结果。“编辑列映射”打开 `experiments/simple_project.yaml`，在 `outputs.csvColumnMapping` 填写 `标准字段: 原始列名`，保存后点击“重建汇总”。缺少可信 case 或 seed 的行不会被猜测归入 Plan，汇总会暂停并提示映射。
+“列映射预览”显示 CSV 表头与识别结果。“编辑列映射”进入插件设置，可从候选列选择或输入 case、seed、metric、value 等字段对应的原始列名；留空自动识别。设置中还可配置候选结果文件、日志和指标别名。规则保存在当前工作区的 `simpleExperiment.projectAdapterRules` 设置中，并通过现有 Agent 隧道写入各 Agent 自有状态目录，供本机关闭后的自动解析使用。保存后点击“重建汇总”。缺少可信 case 或 seed 的行不会被猜测归入 Plan。
+
+结果区的“打开”按钮先确认远端来源与本机目标，再同步到本地项目的 `experiments/results/` 并打开。原始表保留原名；Plan 汇总命名为 `<Plan 名>_seed_mean_std.csv`，项目总表为 `project_seed_mean_std.csv`；多 Worker 时放在各自的 Worker 子目录。已有本地目标时会明确提示覆盖，也可只打开现有文件。旧的 `experiments/results.csv` 属于兼容候选文件，不是新的结果目录；插件不会自动删除或迁移已有文件。
 
 “复制轻量归档”在确认目标后，将当前 Plan、关联配置、按当前 Plan case/seed 筛选的原始结果、汇总表及轻量日志复制到 Worker 项目和本地工作区的 `archives/<Plan 名>/<时间>/`。不移动原文件，不复制 checkpoint；单文件上限 4 MB，总量上限 128 MB。原来的逐条结果筛选和旧归档入口仍可从高级证据区使用。
 
@@ -262,6 +264,7 @@ Debug 运行会把输出隔离到 debug 目录，不会写入正式归档或统�
 | `topologyMode` | 空 | `single_worker`、`worker_pool` 或 `hub_worker`。 |
 | `planDir` | `experiments/plans` | 相对工作区的 Plan 目录。 |
 | `resultCsvDir` | `experiments/results` | 新任务的结果 CSV 默认目录。 |
+| `projectAdapterRules` | `{}` | 当前工作区的输出接入、指标别名和列映射，由面板交互式设置。 |
 | `remote.allowedRoots` | 空 | 允许作为远端项目父目录的前缀白名单。 |
 | `remote.deniedRoots` | 空 | 明确禁止的父目录前缀，优先级高于 allowed。 |
 | `simpleExperiment.showAdvancedCommands` | `false` | 在命令面板显示旧兼容和诊断命令。 |

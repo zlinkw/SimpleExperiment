@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.29",
+  "version": "0.5.30",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -427,6 +427,12 @@
           "default": "experiments/results",
           "scope": "resource",
           "description": "相对于工作区根目录的实验结果 CSV 默认目录。新 Plan 和未显式声明结果路径的任务使用此目录；已有 Plan 的显式结果路径优先。"
+        },
+        "simpleExperiment.projectAdapterRules": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "description": "当前工作区的结果捕获规则、指标别名及 CSV 列映射。通过 SimpleExperiment 面板交互式维护；插件同步到 Agent 自有状态目录，不要求项目存在 experiments/simple_project.yaml。"
         },
         "simpleExperiment.connectionMode": {
           "type": "string",
