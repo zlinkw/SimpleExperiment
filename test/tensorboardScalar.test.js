@@ -47,7 +47,7 @@ test("hover details show one compact comparison row per case without an inner ve
   const elSource = script.slice(script.indexOf("function el("), script.indexOf("function key("));
   const hoverSource = script.slice(script.indexOf("function nearestIndex("), script.indexOf("document.getElementById('refresh')"));
   class Element {
-    constructor(tag) { this.tag = tag; this.children = []; this.style = { setProperty: () => {} }; }
+    constructor(tag) { this.tag = tag; this.children = []; this.style = { props: {}, setProperty: (name, value) => { this.style.props[name] = value; } }; }
     appendChild(child) { this.children.push(child); return child; }
     replaceChildren(...children) { this.children = children.flatMap(child => child.tag === "fragment" ? child.children : [child]); }
     set textContent(value) { this.text = value; }
@@ -69,19 +69,30 @@ test("hover details show one compact comparison row per case without an inner ve
   assert.equal(tooltip.children.length, 1);
   const table = tooltip.children[0];
   assert.equal(table.tag, "table");
-  const rows = table.children[1].children;
+  assert.equal(table.children[0].tag, "colgroup");
+  assert.equal(table.children[0].children.length, 7);
+  assert.equal(table.style.props["--hover-case-width"], "9ch");
+  assert.equal(table.style.props["--hover-step-width"], "6ch");
+  assert.equal(table.style.props["--hover-seeds-width"], "23ch");
+  const rows = table.children[2].children;
   assert.equal(rows.length, 2);
   assert.equal(rows[0].children.length, 7);
   assert.match(rows[0].title, /bus_p30.*step 2.*数值 0\.790000.*平滑 0\.800000.*标准差 0\.010000.*seed 2\/5.*42:0\.7800.*43:0\.8000/);
   assert.match(rows[1].title, /bus_p40.*标准差 —.*seed 1\/5.*44:0\.7400/);
   const css = scalarDashboardHtml.match(/<style>([\s\S]*?)<\/style>/)[1];
   assert.doesNotMatch(css, /\.tooltip\{[^}]*overflow-y:auto/);
-  assert.match(css, /@container \(max-width:390px\).*step-column/);
+  assert.match(css, /col\.step-column\{width:var\(--hover-step-width,6ch\)\}/);
+  assert.match(css, /col\.seed-column\{width:var\(--hover-seeds-width,36ch\)\}/);
+  assert.doesNotMatch(css, /\.step-column\{display:none\}/);
   context.renderHoverDetails(card, Array.from({ length: 20 }, (_, index) => ({ case: "case_" + index, color: "#3766df", step: 7, mean: index, n: 1, expectedSeeds: 5 })));
-  assert.equal(tooltip.children[0].children[1].children.length, 20);
+  assert.equal(tooltip.children[0].children[2].children.length, 20);
+  tooltip.clientWidth = 320;
+  context.renderHoverDetails(card, [{ case: "very_long_case_name_for_small_cards", color: "#3766df", step: 7, mean: 0.7, seeds: { 42: 0.7, 43: 0.71, 44: 0.72 } }]);
+  assert.equal(tooltip.children[0].style.props["--hover-case-width"], "18ch");
+  assert.equal(tooltip.children[0].style.props["--hover-seeds-width"], "21ch");
   card.markers = [{ x: 50, y: 200, detail: { case: "bus_p30", color: "#3766df", label: "均值 最大", step: 2, value: 0.79 } }];
   context.hoverCard(card, { offsetX: 50, offsetY: 200 });
-  assert.match(tooltip.children[0].children[1].children[0].title, /bus_p30 · 均值 最大.*step 2.*数值 0\.790000/);
+  assert.match(tooltip.children[0].children[2].children[0].title, /bus_p30 · 均值 最大.*step 2.*数值 0\.790000/);
 });
 
 test("old and tensor scalar records, incomplete tail, overwrite and CRC", () => {
