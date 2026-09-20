@@ -149,3 +149,33 @@ test("choosing a code directory saves immediately without a second Finish picker
   assert.equal(pickerCalls, 1);
   assert.deepEqual(Array.from(saved), ["data"]);
 });
+
+test("protected code directory reports why it was not added", async () => {
+  const methodStart = source.indexOf("async configureCodeSyncIncludes() {");
+  const methodEnd = source.indexOf("async ensureCodeReadyForRun(", methodStart);
+  const root = path.resolve("virtual-project");
+  const notices = [];
+  let saved = false;
+  const sandbox = {
+    path,
+    errorMessage: (error) => error.message,
+    normalizedExplicitCodePath: (_root, relative) => ({ relative }),
+    collectExplicitCodeFiles: async () => { throw new Error("代码上传目录受保护：artifacts"); },
+    vscode: {
+      ConfigurationTarget: { WorkspaceFolder: 1 },
+      workspace: {
+        workspaceFolders: [{ uri: { fsPath: root } }],
+        getConfiguration: () => ({ get: () => [], update: async () => { saved = true; } }),
+      },
+      window: {
+        showQuickPick: async () => ({ id: "directory" }),
+        showOpenDialog: async () => [{ fsPath: path.join(root, "artifacts") }],
+        showErrorMessage: async (message) => { notices.push(message); },
+      },
+    },
+  };
+  vm.runInNewContext(`class Action { ${source.slice(methodStart, methodEnd)} }; globalThis.Action = Action;`, sandbox);
+  await assert.rejects(() => new sandbox.Action().configureCodeSyncIncludes(), /受保护/);
+  assert.equal(saved, false);
+  assert.match(notices[0], /未添加 artifacts.*受保护.*未更改/);
+});

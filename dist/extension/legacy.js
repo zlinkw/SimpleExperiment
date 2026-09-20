@@ -6594,17 +6594,30 @@ class RealtimeTunnelPanelProvider {
         const action = await vscode.window.showQuickPick([
             { label: "$(file-add) 添加源码文件", description: "选完即保存；可一次选多个文件", id: "file" },
             { label: "$(folder-opened) 添加源码目录", description: "选完即保存；只纳入安全的源码和配置", id: "directory" },
-            { label: "$(list-selection) 查看已纳入文件", description: `${current.length} 条额外路径`, id: "preview" },
+            { label: "$(list-selection) 查看已添加的路径", description: `${current.length} 条额外路径`, id: "preview" },
             { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
         ], { title: "补充上传代码", placeHolder: "选择一项操作；添加文件或目录后立即保存，无需再点完成", ignoreFocusOut: true });
         if (!action)
             return;
         if (action.id === "preview") {
-            const files = await collectExplicitCodeFiles(root, current);
-            if (!files.length)
-                void vscode.window.showInformationMessage("尚未设置额外代码路径；默认源码仍会自动上传。");
-            else
-                await vscode.window.showQuickPick(files.sort().map((file) => ({ label: file })), { title: `额外纳入 ${files.length} 个源码或配置文件`, placeHolder: "只读预览", ignoreFocusOut: true });
+            if (!current.length) {
+                void vscode.window.showInformationMessage("尚未添加代码上传路径；默认源码仍会自动上传。");
+                return;
+            }
+            const selected = await vscode.window.showQuickPick(current.map((relative) => ({ label: relative })), {
+                title: `已添加 ${current.length} 条代码上传路径`, placeHolder: "选择一条路径查看其中可上传的文件", ignoreFocusOut: true,
+            });
+            if (!selected)
+                return;
+            try {
+                const files = await collectExplicitCodeFiles(root, [selected.label]);
+                await vscode.window.showQuickPick(files.sort().map((file) => ({ label: file })), {
+                    title: `${selected.label}：${files.length} 个可上传文件`, placeHolder: "只读预览", ignoreFocusOut: true,
+                });
+            }
+            catch (error) {
+                void vscode.window.showErrorMessage(`无法预览 ${selected.label}：${errorMessage(error)}`);
+            }
             return;
         }
         let updated = current;
@@ -6623,19 +6636,34 @@ class RealtimeTunnelPanelProvider {
                 defaultUri: folder.uri,
                 canSelectFiles: action.id === "file",
                 canSelectFolders: action.id === "directory",
-                canSelectMany: true,
+                canSelectMany: action.id === "file",
                 openLabel: "添加并保存",
             });
-            if (!picked?.length)
+            if (!picked?.length) {
+                void vscode.window.showInformationMessage("未收到文件或目录选择结果，代码上传路径未更改。");
                 return;
-            const next = picked.map((uri) => normalizedExplicitCodePath(root, path.relative(root, uri.fsPath)).relative);
-            const safeFiles = await collectExplicitCodeFiles(root, next);
-            if (!safeFiles.length)
-                throw new Error("所选路径中没有可上传的安全源码或配置；请选 Python 源码或必要配置，数据和权重不会上传。");
-            updated = [...new Set([...current, ...next])].sort();
+            }
+            const selectedPaths = picked.map((uri) => path.relative(root, uri.fsPath).replace(/\\/g, "/"));
+            try {
+                const next = selectedPaths.map((relative) => normalizedExplicitCodePath(root, relative).relative);
+                const safeFiles = await collectExplicitCodeFiles(root, next);
+                if (!safeFiles.length)
+                    throw new Error("所选路径中没有可上传的安全源码或配置。请选 Python 源码或必要配置；数据和权重不会上传。");
+                updated = [...new Set([...current, ...next])].sort();
+            }
+            catch (error) {
+                await vscode.window.showErrorMessage(`未添加 ${selectedPaths.join("、") || "所选路径"}：${errorMessage(error)}。现有上传路径未更改。`, { modal: true });
+                throw error;
+            }
         }
-        await config.update("codeSync.includePaths", updated, vscode.ConfigurationTarget.WorkspaceFolder);
-        void vscode.window.showInformationMessage(`已保存 ${updated.length} 条补充代码路径。下次运行 Plan 前会上传其中的安全源码和配置。`);
+        try {
+            await config.update("codeSync.includePaths", updated, vscode.ConfigurationTarget.WorkspaceFolder);
+        }
+        catch (error) {
+            await vscode.window.showErrorMessage(`代码上传路径保存失败：${errorMessage(error)}`, { modal: true });
+            throw error;
+        }
+        void vscode.window.showInformationMessage(`已添加：${updated.filter((relative) => !current.includes(relative)).join("、") || "路径列表已更新"}。当前共 ${updated.length} 条；可点“补充上传代码 → 查看已添加的路径”核对。`);
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
@@ -23563,7 +23591,7 @@ async function collectExplicitCodeFiles(root, includePaths) {
             throw new Error(`代码上传路径包含符号链接：${relative}`);
         if (info.isDirectory()) {
             if (relative.toLowerCase().split("/").some((part) => blockedExplicitCodeDirs.has(part)))
-                throw new Error(`代码上传目录受保护：${relative}`);
+                throw new Error(`代码上传目录受保护：${relative}。此类目录可能包含数据或模型权重，请改选真正存放源码的目录。`);
             for (const entry of await fs.readdir(full, { withFileTypes: true })) {
                 if (entry.isSymbolicLink())
                     continue;
