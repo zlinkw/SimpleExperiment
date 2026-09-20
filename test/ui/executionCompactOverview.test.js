@@ -28,6 +28,9 @@ test("Plan overview prioritizes running work and folds completed plans", () => {
     taskPlanFile: (row) => row.planFile,
     taskSelectionSetsForState: () => ({}),
     normalizePlanSelectionKey: String,
+    samePlanSelection: (left, right) => left === right,
+    selectedExecutionPlanFile: "plans/live.yaml",
+    persistWebviewState: () => undefined,
     taskStatusToken: String,
     TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
     TASK_QUEUED_STATUSES: new Set(["queued"]),
@@ -52,6 +55,7 @@ test("Plan overview prioritizes running work and folds completed plans", () => {
   assert.match(html, /<summary>已结束的 Plan · 1<\/summary>/);
   assert.match(html, /任务与日志/);
   assert.match(html, /data-command="clearOperations" data-plan-file="plans\/live.yaml"/);
+  assert.match(html, /data-execution-plan-select="plans\/live.yaml" aria-pressed="true"/);
 });
 
 test("diagnostics default to current server health and actionable issues", () => {

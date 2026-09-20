@@ -73,6 +73,8 @@ function renderPanelHtml() {
     .summaryLink:hover, .summaryLink:focus-visible { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground, var(--text)); outline: none; }
     button { max-width: 100%; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 1px solid var(--vscode-button-background); padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; line-height: 1.25; text-align: center; white-space: normal; overflow-wrap: anywhere; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: transparent; border-color: var(--border); }
+    button.history-clear { color: #7C4A12; background: #FFF3D7; border-color: #D9A441; font-weight: 700; }
+    button.history-clear:hover { background: #FFE7B0; border-color: #B87915; }
     button.danger-filled { color: #FFFFFF; background: #DC2626; border-color: #DC2626; font-weight: 700; }
     button.danger-filled:hover { background: #B91C1C; border-color: #B91C1C; }
     button.danger-filled:disabled { opacity: .45; cursor: not-allowed; }
@@ -397,7 +399,10 @@ function renderPanelHtml() {
     .executionPlanRow.running { border-left-color: var(--info); }
     .executionPlanRow.failed { border-left-color: var(--danger); }
     .executionPlanRow.completed { border-left-color: var(--success); }
-    .executionPlanRow > summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 11px; cursor: pointer; list-style: none; }
+    .executionPlanRow.is-selected { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+    .executionPlanRow > summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 11px; cursor: pointer; list-style: none; }
+    .executionPlanSelect { min-width: 66px; white-space: nowrap; }
+    .executionPlanSelect.is-active { background: var(--vscode-focusBorder); border-color: var(--vscode-focusBorder); color: #FFFFFF; font-weight: 700; }
     .executionPlanRow > summary::-webkit-details-marker { display: none; }
     .executionPlanRow > summary::before { content: "▸"; color: var(--muted); }
     .executionPlanRow[open] > summary::before { content: "▾"; }
@@ -2145,6 +2150,7 @@ function renderPanelHtml() {
     let configParamFilterTimer = 0;
     let configParamFilterGeneration = 0;
     let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
+    let selectedExecutionPlanFile = String(restoredWebviewState.selectedExecutionPlanFile || "");
     let tracePlanScope = normalizePlanViewScope(restoredWebviewState.tracePlanScope);
     let webviewDomCommandAuditCache = null;
     let webviewDomCommandAuditCacheKey = "";
@@ -2629,6 +2635,16 @@ function renderPanelHtml() {
       if (taskPlanScopeTarget) {
         event.preventDefault();
         handleTaskPlanScopeClick(taskPlanScopeTarget);
+        return;
+      }
+      const executionPlanTarget = event.target.closest("button[data-execution-plan-select]");
+      if (executionPlanTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectedExecutionPlanFile = String(executionPlanTarget.dataset.executionPlanSelect || "");
+        persistWebviewState({ selectedExecutionPlanFile });
+        renderExecutionPlanList(lastState || {});
+        renderOperationSection(lastState || {});
         return;
       }
       const tracePlanScopeTarget = event.target.closest("button[data-trace-plan-scope]");
@@ -12652,8 +12668,13 @@ function renderPanelHtml() {
         return { ...group, tone, completed, running, label, stamp };
       });
       items.sort((a, b) => ({ running: 0, failed: 1, completed: 2 }[a.tone] - { running: 0, failed: 1, completed: 2 }[b.tone]) || b.stamp - a.stamp || a.label.localeCompare(b.label));
+      if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
+        selectedExecutionPlanFile = "";
+        persistWebviewState({ selectedExecutionPlanFile });
+      }
       const renderPlan = (group) => {
         const detailKey = "execution-plan-" + encodeURIComponent(group.key);
+        const isSelected = !!group.planFile && samePlanSelection(group.planFile, selectedExecutionPlanFile);
         const count = group.tasks.length ? ("任务 " + group.completed + "/" + group.tasks.length + (group.running ? " · 运行 " + group.running : "")) : ("操作 " + group.operations.length);
         const sortedOps = group.operations.slice().sort((a, b) => String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || "")));
         const sortedTasks = group.tasks.slice().sort((a, b) => {
@@ -12665,10 +12686,11 @@ function renderPanelHtml() {
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
         const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录可在下方“完整操作与任务记录”中查看。</div>' : "";
-        return '<details class="executionPlanRow ' + group.tone + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '>' +
-          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? "异常" : "已结束") + '</b></summary>' +
-          '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' + opHtml + taskHtml + more +
-          (group.planFile ? '<button class="mini secondary" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + '</div></details>';
+        return '<details class="executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '>' +
+          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? "异常" : "已结束") + '</b>' +
+          (group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '') + '</summary>' +
+          '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' +
+          (group.planFile ? '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + opHtml + taskHtml + more + '</div></details>';
       };
       const current = items.filter((item) => item.tone !== "completed");
       const history = items.filter((item) => item.tone === "completed");
@@ -12702,7 +12724,8 @@ function renderPanelHtml() {
       });
       setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止当前选中 Plan 的运行任务">中止当前 Plan</button>' +
         '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan ? '' : 'disabled') + ' title="手动中止全部运行中的 Plan；逐个向 Worker 发送停止命令">中止所有 Plan</button>' +
-        '<button class="mini secondary" data-command="clearOperations" title="仅清除本机已结束的 Plan 运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
+        '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
+        '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
         '<button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
       const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button></div>';
       setHtmlIfChanged("operationList", advancedActions + (view.rows.length
