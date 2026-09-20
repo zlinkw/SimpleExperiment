@@ -27,5 +27,21 @@ export function scalarExtreme(points: ChartSample[], direction: "max" | "min"): 
   return best;
 }
 
-// Both functions are bundled into the browser page; the viewer makes no TensorBoard API call.
-export const scalarChartMathScript = `const smoothScalarValues = ${smoothScalarValues.toString()};\nconst scalarExtreme = ${scalarExtreme.toString()};`;
+/** Keep the deviation centered on unsmoothed means; missing or single-seed steps split the band. */
+export function scalarStdSegments(points: { step: number; mean: number; std: number | null; n: number }[]): { step: number; low: number; high: number }[][] {
+  const segments: { step: number; low: number; high: number }[][] = [];
+  let segment: { step: number; low: number; high: number }[] = [];
+  for (const point of points) {
+    if (point.n >= 2 && point.std !== null && Number.isFinite(point.step) && Number.isFinite(point.mean) && Number.isFinite(point.std) && point.std >= 0) {
+      segment.push({ step: point.step, low: point.mean - point.std, high: point.mean + point.std });
+    } else if (segment.length) {
+      segments.push(segment);
+      segment = [];
+    }
+  }
+  if (segment.length) segments.push(segment);
+  return segments;
+}
+
+// These functions are bundled into the browser page; the viewer makes no TensorBoard API call.
+export const scalarChartMathScript = `const smoothScalarValues = ${smoothScalarValues.toString()};\nconst scalarExtreme = ${scalarExtreme.toString()};\nconst scalarStdSegments = ${scalarStdSegments.toString()};`;

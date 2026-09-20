@@ -11,7 +11,7 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
 #settings{display:none;position:absolute;right:14px;top:54px;background:#fff;border:1px solid #ccd6e4;box-shadow:0 8px 24px #1b29442b;padding:14px;border-radius:8px;z-index:4}#settings.open{display:block}#settings label{display:block;margin:5px 0}@media(max-width:760px){main{grid-template-columns:1fr}.sidebar-handle{display:none}aside{max-height:31vh;border-right:0;border-bottom:1px solid #dce3ed}.content{height:calc(69vh - 58px)}header{gap:5px;padding:6px}header h1{font-size:14px;margin-right:1px}header button{font-size:12px;padding:5px}}
 </style></head><body>
 <header><h1>实验曲线</h1><button id="scalarTab" class="active">标量</button><button id="nativeTab">图像 · 直方图 · 网络图</button><span class="spacer"></span><span id="status" class="status"></span><button id="refresh">⟳ 刷新</button><button id="settingsButton">⚙ 设置</button></header>
-<div id="settings"><strong>页面设置</strong><label>每行曲线 <input id="columns" type="number" min="1" max="6" step="1" value="3" style="width:65px"> 个</label><p class="muted">窗口较窄时自动减少列数；单张图可切换为单行显示。</p><hr><label><input id="autoRefresh" type="checkbox" checked> 自动刷新</label><label>间隔 <input id="interval" type="number" min="1" step="1" value="5" style="width:65px"> 秒</label><label><input id="band" type="checkbox"> 均值 ± 样本标准差</label><label><input id="raw" type="checkbox"> 显示 seed 原始曲线</label><p class="muted">平滑只改变画线；极值始终从原始记录计算。每张图可单独调整平滑和极值点。</p></div>
+<div id="settings"><strong>页面设置</strong><label>每行曲线 <input id="columns" type="number" min="1" max="6" step="1" value="3" style="width:65px"> 个</label><p class="muted">窗口较窄时自动减少列数；单张图可切换为单行显示。</p><hr><label><input id="autoRefresh" type="checkbox" checked> 自动刷新</label><label>间隔 <input id="interval" type="number" min="1" step="1" value="5" style="width:65px"> 秒</label><label><input id="band" type="checkbox"> 均值 ± 样本标准差</label><label><input id="raw" type="checkbox"> 显示 seed 原始曲线</label><p class="muted">粗实线是平滑均值；启用平滑时，细虚线是原始均值。阴影始终围绕原始均值绘制标准差，单 seed 或缺失的 step 不画阴影。极值始终从原始记录计算。</p></div>
 <main id="scalarPage"><aside><p class="muted sidebar-help">点击 case 显示全部指标；用“加入对比”叠加其他 case 的均值。</p><div class="sidebar-tools"><input id="caseSearch" type="search" placeholder="搜索 Plan 或 case" aria-label="搜索 Plan 或 case"><div class="sidebar-actions"><label><input id="selectedOnly" type="checkbox">仅看已选</label><button id="clearComparisons" type="button">清空对比</button></div><div id="selectionSummary" class="muted selection-summary">尚未选择主图</div></div><div id="tree" class="tree"></div></aside><div id="sidebarHandle" class="sidebar-handle" role="separator" aria-label="调整左侧栏宽度" aria-orientation="vertical" aria-valuemin="260" aria-valuemax="600" tabindex="0"></div><div id="content" class="content"><div id="heading" class="empty">从左侧选择一个 case。</div><div id="groups"></div></div></main>
 <div id="nativePage" hidden><iframe id="nativeFrame" class="native" title="TensorBoard 图像、直方图和网络图"></iframe></div>
 <script>
@@ -101,9 +101,86 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
   function checkControl(parent,label,checked){const wrap=el('label'),input=el('input');input.type='checkbox';input.checked=checked;wrap.appendChild(input);wrap.appendChild(el('span','',label));parent.appendChild(wrap);return input}
   async function refreshVisible(){if(refreshing){pending=true;return}if(!active||document.hidden||document.getElementById('scalarPage').hidden)return;const tags=visibleTags();if(!tags.length){pending=false;return}pending=false;refreshing=true;lastRequest=Date.now();const current=generation;const groups=[active,...[...comparison.values()].filter(item=>key(item)!==key(active))];try{const result=await call('series',{groups,tags});if(current!==generation)return;for(const tag of tags){const card=cards.get(tag);if(!card)continue;card.charts=(result.charts||[]).filter(row=>row.tag===tag);drawCard(card)}backoff=0;message('更新于 '+new Date().toLocaleTimeString()+(result.offlineServers?.length?' · 离线 '+result.offlineServers.join(', '):''));if(result.unsupportedFiles?.length)message('不支持的 event 文件：'+result.unsupportedFiles.join(', '),true)}catch(error){backoff=Math.min(60000,Math.max(1000,backoff?backoff*2:Number(error.retryAfterMs)||1000));message('刷新延后 '+Math.ceil(backoff/1000)+' 秒：'+error.message,true)}finally{refreshing=false;if(pending)setTimeout(()=>void refreshVisible(),Math.max(0,backoff))}}
   function chartSeries(card){card.displaySeries=card.charts.map((row,index)=>{const mean=(row.points||[]).map(point=>({step:point.step,value:point.mean,source:point}));const means=smoothScalarValues(mean.map(point=>point.value),Number(card.smooth.value));return{row,index,color:palette[index%palette.length],mean,means}});return card.displaySeries}
-  function limits(series,card){let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;const add=(x,y)=>{if(!Number.isFinite(x)||!Number.isFinite(y))return;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)};for(const line of series){line.mean.forEach((point,index)=>{add(point.step,point.value);add(point.step,line.means[index]);if(band.checked&&point.source.std!==null){add(point.step,line.means[index]-point.source.std);add(point.step,line.means[index]+point.source.std)}});if(raw.checked||card.seed.checked||line.row.rawOnly)(line.row.seeds||[]).forEach(seed=>(seed.points||[]).forEach(point=>add(point[0],point[1])))}if(x0===Infinity)return null;if(x0===x1)x1=x0+1;if(y0===y1){y0-=1;y1+=1}const pad=(y1-y0)*0.06;return{x0,x1,y0:y0-pad,y1:y1+pad}}
+  function limits(series,card){
+    let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+    const add=(x,y)=>{if(!Number.isFinite(x)||!Number.isFinite(y))return;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)};
+    for(const line of series){
+      line.mean.forEach((point,index)=>{add(point.step,point.value);add(point.step,line.means[index])});
+      if(band.checked)scalarStdSegments(line.row.points||[]).forEach(segment=>segment.forEach(point=>{add(point.step,point.low);add(point.step,point.high)}));
+      if(raw.checked||card.seed.checked||line.row.rawOnly)(line.row.seeds||[]).forEach(seed=>(seed.points||[]).forEach(point=>add(point[0],point[1])));
+    }
+    if(x0===Infinity)return null;
+    if(x0===x1)x1=x0+1;
+    if(y0===y1){y0-=1;y1+=1}
+    const pad=(y1-y0)*0.06;
+    return{x0,x1,y0:y0-pad,y1:y1+pad};
+  }
   function marker(ctx,x,y,kind,isSeed){ctx.save();ctx.fillStyle=kind==='max'?'#e44836':'#2563eb';ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.beginPath();if(isSeed){const size=5;if(kind==='max'){ctx.moveTo(x,y-size);ctx.lineTo(x-size,y+size);ctx.lineTo(x+size,y+size)}else{ctx.moveTo(x,y+size);ctx.lineTo(x-size,y-size);ctx.lineTo(x+size,y-size)}ctx.closePath()}else ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.restore()}
-  function drawCard(card){if(!card.details.open||!card.visible)return;const canvas=card.canvas,rect=canvas.getBoundingClientRect(),w=Math.max(300,rect.width),h=Math.max(190,rect.height),ratio=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);const ctx=canvas.getContext('2d');ctx.scale(ratio,ratio);ctx.clearRect(0,0,w,h);const series=chartSeries(card),bounds=limits(series,card);card.markers=[];card.legend.replaceChildren();if(!bounds){card.plot=null;card.hoverPoint=null;ctx.fillStyle='#64748b';ctx.fillText('暂无曲线数据',22,32);showHoverHint(card);return}const left=54,right=w-18,top=16,bottom=h-34,X=value=>left+(value-bounds.x0)/(bounds.x1-bounds.x0)*(right-left),Y=value=>bottom-(value-bounds.y0)/(bounds.y1-bounds.y0)*(bottom-top);card.plot={bounds,left,right};ctx.font='11px system-ui';ctx.strokeStyle='#dce4ed';ctx.fillStyle='#68778e';for(let index=0;index<=4;index++){const y=top+(bottom-top)*index/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();ctx.fillText((bounds.y1-(bounds.y1-bounds.y0)*index/4).toPrecision(3),4,y+4)}ctx.fillText(String(bounds.x0),left,bottom+20);ctx.fillText(String(bounds.x1),Math.max(left,right-40),bottom+20);for(const line of series){const row=line.row,points=line.mean,color=line.color,smoothed=line.means;const last=points.at(-1)?.source;const pill=el('span','pill',row.case+' · '+(row.rawOnly?'原始 '+row.seeds.length+' 条':points.length+' 个 step · 末步 '+(last?.n||0)+'/'+(row.expectedSeeds||'?')+' seed'));pill.title=row.rawOnly?'未归属日志：只显示可辨认的原始曲线。':'末步参与数表示最后一个 step 的有效 seed 数；其他 step 可有不同数量。';pill.style.borderLeft='4px solid '+color;card.legend.appendChild(pill);if(band.checked&&points.length){ctx.fillStyle=color+'29';ctx.beginPath();points.forEach((point,index)=>{const y=smoothed[index]+(point.source.std||0);if(!index)ctx.moveTo(X(point.step),Y(y));else ctx.lineTo(X(point.step),Y(y))});points.slice().reverse().forEach((point,index)=>{const sourceIndex=points.length-1-index;ctx.lineTo(X(point.step),Y(smoothed[sourceIndex]-(point.source.std||0)))});ctx.closePath();ctx.fill()}if(Number(card.smooth.value)>0&&points.length){ctx.strokeStyle=color+'55';ctx.lineWidth=1;trace(ctx,points.map(point=>[point.step,point.value]),X,Y)}if(points.length){ctx.strokeStyle=color;ctx.lineWidth=2;trace(ctx,points.map((point,index)=>[point.step,smoothed[index]]),X,Y)}const showRaw=raw.checked||row.rawOnly;if(showRaw)(row.seeds||[]).forEach(seed=>{ctx.strokeStyle=color+'66';ctx.lineWidth=1;const ys=smoothScalarValues((seed.points||[]).map(point=>point[1]),Number(card.smooth.value));trace(ctx,(seed.points||[]).map((point,index)=>[point[0],ys[index]]),X,Y)});const marked=(values,label,isSeed)=>{for(const kind of ['max','min']){if(kind==='max'&&!card.max.checked||kind==='min'&&!card.min.checked)continue;const hit=scalarExtreme(values,kind);if(!hit)continue;const x=X(hit.step),y=Y(hit.value);marker(ctx,x,y,kind,isSeed);card.markers.push({x,y,detail:{case:row.case,color,label:label+' '+(kind==='max'?'最大':'最小'),step:hit.step,value:hit.value}})}};marked(points.map(point=>({step:point.step,value:point.value})),'均值',false);if(card.seed.checked)(row.seeds||[]).forEach(seed=>marked((seed.points||[]).map(point=>({step:point[0],value:point[1]})),'seed '+seed.seed,true))}if(card.hoverPoint)hoverCard(card,card.hoverPoint);else showHoverHint(card)}
+  function drawCard(card){
+    if(!card.details.open||!card.visible)return;
+    const canvas=card.canvas,rect=canvas.getBoundingClientRect(),w=Math.max(300,rect.width),h=Math.max(190,rect.height),ratio=Math.min(2,devicePixelRatio||1);
+    canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);
+    const ctx=canvas.getContext('2d');ctx.scale(ratio,ratio);ctx.clearRect(0,0,w,h);
+    const series=chartSeries(card),bounds=limits(series,card);
+    card.markers=[];card.legend.replaceChildren();
+    if(!bounds){card.plot=null;card.hoverPoint=null;ctx.fillStyle='#64748b';ctx.fillText('暂无曲线数据',22,32);showHoverHint(card);return}
+    const left=54,right=w-18,top=16,bottom=h-34,X=value=>left+(value-bounds.x0)/(bounds.x1-bounds.x0)*(right-left),Y=value=>bottom-(value-bounds.y0)/(bounds.y1-bounds.y0)*(bottom-top);
+    card.plot={bounds,left,right};
+    ctx.font='11px system-ui';ctx.strokeStyle='#dce4ed';ctx.fillStyle='#68778e';
+    for(let index=0;index<=4;index++){const y=top+(bottom-top)*index/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();ctx.fillText((bounds.y1-(bounds.y1-bounds.y0)*index/4).toPrecision(3),4,y+4)}
+    ctx.fillText(String(bounds.x0),left,bottom+20);ctx.fillText(String(bounds.x1),Math.max(left,right-40),bottom+20);
+    for(const line of series){
+      const row=line.row,points=line.mean,color=line.color,last=points.at(-1)?.source;
+      const pill=el('span','pill',row.case+' · '+(row.rawOnly?'原始 '+row.seeds.length+' 条':points.length+' 个 step · 末步 '+(last?.n||0)+'/'+(row.expectedSeeds||'?')+' seed'));
+      pill.title=row.rawOnly?'未归属日志：只显示可辨认的原始曲线。':'末步参与数表示最后一个 step 的有效 seed 数；其他 step 可有不同数量。';
+      pill.style.borderLeft='4px solid '+color;card.legend.appendChild(pill);
+    }
+    // Fill every deviation band before any line, so a later case cannot cover an earlier line.
+    if(band.checked)for(const line of series){
+      ctx.fillStyle=line.color+'30';
+      for(const segment of scalarStdSegments(line.row.points||[])){
+        if(segment.length<2)continue;
+        ctx.beginPath();
+        segment.forEach((point,index)=>{if(!index)ctx.moveTo(X(point.step),Y(point.high));else ctx.lineTo(X(point.step),Y(point.high))});
+        segment.slice().reverse().forEach(point=>ctx.lineTo(X(point.step),Y(point.low)));
+        ctx.closePath();ctx.fill();
+      }
+    }
+    for(const line of series){
+      const showRaw=raw.checked||line.row.rawOnly;
+      if(showRaw)(line.row.seeds||[]).forEach(seed=>{
+        ctx.strokeStyle=line.color+'55';ctx.lineWidth=0.9;
+        const ys=smoothScalarValues((seed.points||[]).map(point=>point[1]),Number(card.smooth.value));
+        trace(ctx,(seed.points||[]).map((point,index)=>[point[0],ys[index]]),X,Y);
+      });
+    }
+    // A dashed raw mean stays distinct from the solid, heavier smoothed mean.
+    if(series.some(line=>line.mean.length)&&Number(card.smooth.value)>0)for(const line of series){
+      if(!line.mean.length)continue;
+      ctx.strokeStyle=line.color+'99';ctx.lineWidth=1.2;ctx.setLineDash([4,3]);
+      trace(ctx,line.mean.map(point=>[point.step,point.value]),X,Y);
+    }
+    ctx.setLineDash([]);
+    for(const line of series){
+      if(!line.mean.length)continue;
+      ctx.strokeStyle=line.color;ctx.lineWidth=2.6;
+      trace(ctx,line.mean.map((point,index)=>[point.step,line.means[index]]),X,Y);
+    }
+    for(const line of series){
+      const row=line.row,points=line.mean,color=line.color;
+      const marked=(values,label,isSeed)=>{
+        for(const kind of ['max','min']){
+          if(kind==='max'&&!card.max.checked||kind==='min'&&!card.min.checked)continue;
+          const hit=scalarExtreme(values,kind);if(!hit)continue;
+          const x=X(hit.step),y=Y(hit.value);marker(ctx,x,y,kind,isSeed);
+          card.markers.push({x,y,detail:{case:row.case,color,label:label+' '+(kind==='max'?'最大':'最小'),step:hit.step,value:hit.value}});
+        }
+      };
+      marked(points.map(point=>({step:point.step,value:point.value})),'均值',false);
+      if(card.seed.checked)(row.seeds||[]).forEach(seed=>marked((seed.points||[]).map(point=>({step:point[0],value:point[1]})),'seed '+seed.seed,true));
+    }
+    if(card.hoverPoint)hoverCard(card,card.hoverPoint);else showHoverHint(card);
+  }
   function trace(ctx,points,X,Y){ctx.beginPath();points.forEach((point,index)=>{if(!index)ctx.moveTo(X(point[0]),Y(point[1]));else ctx.lineTo(X(point[0]),Y(point[1]))});ctx.stroke()}
   function nearestIndex(points,step,readStep){let lo=0,hi=points.length;while(lo<hi){const mid=(lo+hi)>>1;if(readStep(points[mid])<step)lo=mid+1;else hi=mid}if(lo<=0)return 0;if(lo>=points.length)return points.length-1;return Math.abs(readStep(points[lo])-step)<Math.abs(readStep(points[lo-1])-step)?lo:lo-1}
   function showHoverHint(card){card.tooltip.replaceChildren(el('div','hover-hint','悬停曲线或极值点查看数值'))}
@@ -120,7 +197,8 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
     const seedChars=Math.max(12,...seedIds.map(seed=>textWidth(seed)+2),...entries.flatMap(entry=>Object.values(entry.seeds||{}).map(value=>Number(value).toPrecision(4).length+2)));
     table.style.setProperty('--hover-seed-width',Math.min(18,seedChars)+'ch');
     const columns=el('colgroup');['case-column','step-column','','extra-column','extra-column',''].forEach(cls=>columns.appendChild(el('col',cls)));seedIds.forEach(()=>columns.appendChild(el('col','seed-value-column')));table.appendChild(columns);
-    [['case',''],['step','step-column'],['数值',''],['平滑','extra-column'],['标准差','extra-column'],['参与','']].forEach(([label,cls])=>heading.appendChild(el('th',cls,label)));
+    const valueLabel=entries.every(entry=>entry.mean!==undefined)?'均值':entries.every(entry=>entry.label?.includes('最大')||entry.label?.includes('最小'))?'极值':'原值';
+    [['case',''],['step','step-column'],[valueLabel,''],['平滑','extra-column'],['标准差','extra-column'],['参与','']].forEach(([label,cls])=>heading.appendChild(el('th',cls,label)));
     seedIds.forEach(seed=>{const cell=el('th','seed-value-column',seed);cell.title='seed '+seed;heading.appendChild(cell)});
     head.appendChild(heading);table.appendChild(head);
     const body=el('tbody');
@@ -133,7 +211,7 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
       });
       const seedSummary=seedIds.map(seed=>seed+':'+(Object.prototype.hasOwnProperty.call(entry.seeds||{},seed)?Number(entry.seeds[seed]).toPrecision(4):'—')).join(' · ');
       seedIds.forEach(seed=>{const hasValue=Object.prototype.hasOwnProperty.call(entry.seeds||{},seed);const value=hasValue?Number(entry.seeds[seed]).toPrecision(4):'—';const cell=el('td','seed-value-column',value);cell.title='seed '+seed+': '+value;row.appendChild(cell)});
-      row.title='case '+values[0]+' · step '+values[1]+' · 数值 '+values[2]+' · 平滑 '+values[3]+' · 标准差 '+values[4]+' · seed '+values[5]+(seedSummary?' · '+seedSummary:'');
+      row.title='case '+values[0]+' · step '+values[1]+' · '+valueLabel+' '+values[2]+' · 平滑 '+values[3]+' · 标准差 '+values[4]+' · seed '+values[5]+(seedSummary?' · '+seedSummary:'');
       body.appendChild(row);
     }
     table.appendChild(body);card.tooltip.replaceChildren(table);

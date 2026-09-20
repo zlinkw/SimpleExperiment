@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.scalarChartMathScript = void 0;
 exports.smoothScalarValues = smoothScalarValues;
 exports.scalarExtreme = scalarExtreme;
+exports.scalarStdSegments = scalarStdSegments;
 /** TensorBoard-style debiased exponential moving average; the raw data is unchanged. */
 function smoothScalarValues(values, weight) {
     const amount = Math.max(0, Math.min(0.99, Number(weight) || 0));
@@ -29,5 +30,22 @@ function scalarExtreme(points, direction) {
     }
     return best;
 }
-// Both functions are bundled into the browser page; the viewer makes no TensorBoard API call.
-exports.scalarChartMathScript = `const smoothScalarValues = ${smoothScalarValues.toString()};\nconst scalarExtreme = ${scalarExtreme.toString()};`;
+/** Keep the deviation centered on unsmoothed means; missing or single-seed steps split the band. */
+function scalarStdSegments(points) {
+    const segments = [];
+    let segment = [];
+    for (const point of points) {
+        if (point.n >= 2 && point.std !== null && Number.isFinite(point.step) && Number.isFinite(point.mean) && Number.isFinite(point.std) && point.std >= 0) {
+            segment.push({ step: point.step, low: point.mean - point.std, high: point.mean + point.std });
+        }
+        else if (segment.length) {
+            segments.push(segment);
+            segment = [];
+        }
+    }
+    if (segment.length)
+        segments.push(segment);
+    return segments;
+}
+// These functions are bundled into the browser page; the viewer makes no TensorBoard API call.
+exports.scalarChartMathScript = `const smoothScalarValues = ${smoothScalarValues.toString()};\nconst scalarExtreme = ${scalarExtreme.toString()};\nconst scalarStdSegments = ${scalarStdSegments.toString()};`;

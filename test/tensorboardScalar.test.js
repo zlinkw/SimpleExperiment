@@ -4,7 +4,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { aggregateSeedScalars } = require("../dist/tensorboard/ScalarAggregation");
-const { smoothScalarValues, scalarExtreme } = require("../dist/tensorboard/ScalarChartMath");
+const { smoothScalarValues, scalarExtreme, scalarStdSegments } = require("../dist/tensorboard/ScalarChartMath");
 const { scalarDashboardHtml } = require("../dist/tensorboard/ScalarDashboardHtml");
 const { LocalApiServer } = require("../dist/api/LocalApiServer.legacy");
 
@@ -28,6 +28,19 @@ test("smoothing preserves constant values and extreme markers use raw values", (
   assert.deepEqual(scalarExtreme([{ step: 1, value: 2 }, { step: 2, value: NaN }, { step: 3, value: -1 }], "min"), { step: 3, value: -1 });
 });
 
+test("deviation stays on raw means and stops across missing or single-seed steps", () => {
+  assert.deepEqual(scalarStdSegments([
+    { step: 1, mean: 4, std: 1, n: 2 },
+    { step: 2, mean: 5, std: 2, n: 3 },
+    { step: 3, mean: 8, std: null, n: 1 },
+    { step: 4, mean: 7, std: 0.5, n: 2 },
+    { step: 5, mean: NaN, std: 0.4, n: 2 },
+  ]), [
+    [{ step: 1, low: 3, high: 5 }, { step: 2, low: 3, high: 7 }],
+    [{ step: 4, low: 6.5, high: 7.5 }],
+  ]);
+});
+
 test("case selection loads every metric and viewer script compiles", () => {
   const vm = require("node:vm");
   const script = scalarDashboardHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1]?.replace("__SCALAR_VIEWER_SERVER__", "0").replace("__SCALAR_VIEWER_EPOCH__", '"test"');
@@ -38,6 +51,8 @@ test("case selection loads every metric and viewer script compiles", () => {
   assert.match(script, /scalarExtreme\(values,kind\)/);
   assert.match(script, /maxComparisonCases=19/);
   assert.match(script, /h=Math\.max\(190,rect\.height\)/);
+  assert.ok(script.indexOf("if(band.checked)for(const line of series)") < script.indexOf("ctx.setLineDash([4,3])"));
+  assert.ok(script.indexOf("ctx.setLineDash([4,3])") < script.indexOf("ctx.lineWidth=2.6"));
   assert.match(fs.readFileSync(path.join(__dirname, "../dist/extension/legacy.js"), "utf8"), /params\.groups\.slice\(0, 20\)/);
 });
 
@@ -75,13 +90,14 @@ test("hover details show one compact comparison row per case without an inner ve
   assert.equal(table.style.props["--hover-case-width"], "9ch");
   assert.equal(table.style.props["--hover-step-width"], "6ch");
   assert.equal(table.style.props["--hover-seed-width"], "12ch");
+  assert.equal(table.children[1].children[0].children[2].textContent, "均值");
   assert.deepEqual(table.children[1].children[0].children.slice(6).map(cell => cell.textContent), ["42", "43", "44", "45", "46"]);
   const rows = table.children[2].children;
   assert.equal(rows.length, 2);
   assert.equal(rows[0].children.length, 11);
   assert.deepEqual(rows[0].children.slice(6).map(cell => cell.textContent), ["0.7800", "0.8000", "—", "—", "—"]);
   assert.deepEqual(rows[1].children.slice(6).map(cell => cell.textContent), ["—", "—", "0.7400", "—", "—"]);
-  assert.match(rows[0].title, /bus_p30.*step 2.*数值 0\.790000.*平滑 0\.800000.*标准差 0\.010000.*seed 2\/5.*42:0\.7800.*43:0\.8000/);
+  assert.match(rows[0].title, /bus_p30.*step 2.*均值 0\.790000.*平滑 0\.800000.*标准差 0\.010000.*seed 2\/5.*42:0\.7800.*43:0\.8000/);
   assert.match(rows[1].title, /bus_p40.*标准差 —.*seed 1\/5.*44:0\.7400/);
   const css = scalarDashboardHtml.match(/<style>([\s\S]*?)<\/style>/)[1];
   assert.doesNotMatch(css, /\.tooltip\{[^}]*overflow-y:auto/);
@@ -99,9 +115,12 @@ test("hover details show one compact comparison row per case without an inner ve
   context.renderHoverDetails(card, [{ case: "very_long_case_name_for_small_cards", color: "#3766df", step: 7, mean: 0.7, seeds: { 42: 0.7, 43: 0.71, 44: 0.72 } }]);
   assert.equal(tooltip.children[0].style.props["--hover-case-width"], "18ch");
   assert.equal(tooltip.children[0].style.props["--hover-seed-width"], "12ch");
+  context.renderHoverDetails(card, [{ case: "historical", color: "#3766df", label: "seed 42", step: 2, value: 0.75 }]);
+  assert.equal(tooltip.children[0].children[1].children[0].children[2].textContent, "原值");
   card.markers = [{ x: 50, y: 200, detail: { case: "bus_p30", color: "#3766df", label: "均值 最大", step: 2, value: 0.79 } }];
   context.hoverCard(card, { offsetX: 50, offsetY: 200 });
-  assert.match(tooltip.children[0].children[2].children[0].title, /bus_p30 · 均值 最大.*step 2.*数值 0\.790000/);
+  assert.equal(tooltip.children[0].children[1].children[0].children[2].textContent, "极值");
+  assert.match(tooltip.children[0].children[2].children[0].title, /bus_p30 · 均值 最大.*step 2.*极值 0\.790000/);
 });
 
 test("old and tensor scalar records, incomplete tail, overwrite and CRC", () => {
