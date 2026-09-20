@@ -674,6 +674,7 @@ class RealtimeTunnelPanelProvider {
     projectUiLayout;
     pluginUpdateStatus;
     localOperations = {};
+    resultParseInFlight = new Map();
     localOperationsDirty = false;
     localOperationsRevision = 0;
     planRuntimeEvidenceCache;

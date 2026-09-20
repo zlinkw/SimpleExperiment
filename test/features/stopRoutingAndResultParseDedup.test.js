@@ -255,6 +255,7 @@ test("result parse idempotency keys include workspace, Plan version, and owner",
 });
 
 test("concurrent result parses merge into one active operation", async () => {
+  assert.match(extensionSource, /resultParseInFlight = new Map\(\)/);
   const context = createContext({
     RESULT_PARSE_COMMANDS: new Set(["parseResults", "refreshResults"]),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
