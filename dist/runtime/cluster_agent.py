@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.23"
-RUNTIME_VERSION = "0.5.23"
-PLUGIN_VERSION = "0.5.23"
+AGENT_VERSION = "0.5.24"
+RUNTIME_VERSION = "0.5.24"
+PLUGIN_VERSION = "0.5.24"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -9118,17 +9118,21 @@ def scalar_query(root, payload):
         for group in payload["groups"][:8]:
             if not isinstance(group, dict):
                 continue
-            query = {"planFile": group.get("planFile"), "case": group.get("case"), "tag": payload.get("tag"), "logdir": payload.get("logdir")}
+            query = {"planFile": group.get("planFile"), "case": group.get("case"), "tag": payload.get("tag"), "tags": payload.get("tags"), "logdir": payload.get("logdir")}
             groups.append({"planFile": query["planFile"], "case": query["case"], **scalar_query(root, query)})
         return {"schemaVersion": 1, "groups": groups}
     plan_file = str(payload.get("planFile") or "")
     case_name = str(payload.get("case") or "")
     tag_filter = str(payload.get("tag") or "")
+    tag_values = payload.get("tags") if isinstance(payload.get("tags"), list) else []
+    tag_filters = list(dict.fromkeys(str(tag) for tag in tag_values if isinstance(tag, str) and tag))[:32]
+    if tag_filter and tag_filter not in tag_filters:
+        tag_filters.append(tag_filter)
     catalog = scalar_catalog(root, str(payload.get("logdir") or "work_dirs"))
     group = next((case for plan in catalog["plans"] if plan["planFile"] == plan_file for case in plan["cases"] if case["case"] == case_name), None)
     if group is None:
-        return {"schemaVersion": 1, "tags": [], "series": [], "unsupportedFiles": [], "expectedSeeds": 0}
-    rows, tags, unsupported = [], set(), []
+        return {"schemaVersion": 1, "tags": [], "series": [], "seriesByTag": {}, "unsupportedFiles": [], "expectedSeeds": 0}
+    series_by_tag, tags, unsupported = {tag: [] for tag in tag_filters}, set(), []
     for output in group["outputs"]:
         event_dir = scalar_child(root, output.get("eventDir") or (output["outputDir"] + "/tb_logs"))
         if not os.path.isdir(event_dir):
@@ -9146,9 +9150,10 @@ def scalar_query(root, payload):
             for name, points in entry["points"].items():
                 merged.setdefault(name, {}).update(points)
         tags.update(merged)
-        if tag_filter and tag_filter in merged:
-            rows.append({"seed": output["seed"], "updatedAt": updated, "points": [[step, value] for step, value in sorted(merged[tag_filter].items())][-20000:]})
-    return {"schemaVersion": 1, "tags": sorted(tags), "series": rows, "unsupportedFiles": unsupported[:10], "expectedSeeds": group["expectedSeeds"]}
+        for tag in tag_filters:
+            if tag in merged:
+                series_by_tag[tag].append({"seed": output["seed"], "updatedAt": updated, "points": [[step, value] for step, value in sorted(merged[tag].items())][-20000:]})
+    return {"schemaVersion": 1, "tags": sorted(tags), "series": series_by_tag.get(tag_filter, []), "seriesByTag": series_by_tag, "unsupportedFiles": unsupported[:10], "expectedSeeds": group["expectedSeeds"]}
 
 
 def tb_discover_launch(root, logdir_hint, port, explicit_script):

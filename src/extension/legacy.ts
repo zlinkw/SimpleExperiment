@@ -27,7 +27,7 @@ import TunnelDiagnostics_1 = require("../tunnel/TunnelDiagnostics");
 import TunnelOnlyPolicy_1 = require("../tunnel/TunnelOnlyPolicy");
 import MultiEndpointRealtimeClient_1 = require("../tunnel/MultiEndpointRealtimeClient");
 import PanelHtml_1 = require("../ui/PanelHtml");
-import { scalarViewerHtml } from "../tensorboard/ScalarViewerHtml";
+import { scalarDashboardHtml } from "../tensorboard/ScalarDashboardHtml";
 import { aggregateSeedScalars } from "../tensorboard/ScalarAggregation";
 const { renderPanelHtml } = PanelHtml_1;
 import PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
@@ -860,7 +860,7 @@ export class RealtimeTunnelPanelProvider {
             discoveryPath: API_DISCOVERY_PATH,
             methods: this.createLocalApiMethods(),
             scalarViewer: {
-                html: scalarViewerHtml,
+                html: scalarDashboardHtml,
                 query: (params, endpointId) => this.scalarViewerQuery(params, endpointId),
                 native: (method, route, body, contentType, endpointId) => this.scalarNativeProxy(method, route, body, contentType, endpointId),
             },
@@ -11176,8 +11176,9 @@ export class RealtimeTunnelPanelProvider {
         if (!["catalog", "tags", "series"].includes(action)) throw new Error("未知标量操作");
         const logdir = String(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.logdir") || "work_dirs");
         const groups = action === "series" ? (Array.isArray(params.groups) ? params.groups.slice(0, 8) : []) : [];
-        const payload = action === "series" ? { groups, tag: String(params.tag || ""), logdir } : { planFile: String(params.planFile || ""), case: String(params.case || ""), tag: "", logdir };
-        if (action === "series" && (!payload.tag || !groups.length)) throw new Error("缺少指标或实验");
+        const tags = action === "series" ? [...new Set((Array.isArray(params.tags) ? params.tags : [params.tag]).filter((tag: unknown) => typeof tag === "string" && tag.length > 0 && tag.length < 512))].slice(0, 32) : [];
+        const payload = action === "series" ? { groups, tags, logdir } : { planFile: String(params.planFile || ""), case: String(params.case || ""), tag: "", logdir };
+        if (action === "series" && (!tags.length || !groups.length)) throw new Error("缺少指标或实验");
         if (action === "tags" && (!payload.planFile || !payload.case)) throw new Error("缺少 Plan 或实验");
         const operation = async () => await Promise.allSettled(endpoints.map(async ([id]) => ({ id, data: await this.scalarJson(id, action === "catalog" ? "GET" : "POST", action === "catalog" ? `/api/tensorboard/scalars/catalog?logdir=${encodeURIComponent(logdir)}` : "/api/tensorboard/scalars/query", action === "catalog" ? undefined : payload) })));
         let settled: any;
@@ -11196,18 +11197,18 @@ export class RealtimeTunnelPanelProvider {
         if (!success.length) throw new Error(`所有 Worker 标量查询失败：${settled.map((row: any) => row.reason?.message || "").join("; ")}`);
         if (action === "catalog") return { plans: success.flatMap((row: any) => row.data.plans || []), offlineServers };
         if (action === "tags") return { tags: [...new Set(success.flatMap((row: any) => row.data.tags || []))].sort(), unsupportedFiles: success.flatMap((row: any) => row.data.unsupportedFiles || []), offlineServers };
-        const charts = groups.map((group: any) => {
+        const charts = tags.flatMap((tag: any) => groups.map((group: any) => {
             const rows: any[] = [];
             const expectedSeeds = Math.max(0, ...success.flatMap((result: any) => (result.data.groups || []).filter((item: any) => item.planFile === group.planFile && item.case === group.case).map((item: any) => Number(item.expectedSeeds || 0))));
             for (const result of success) {
                 const item = (result.data.groups || []).find((entry: any) => entry.planFile === group.planFile && entry.case === group.case);
-                for (const series of item?.series || []) rows.push({ ...series, serverId: result.id });
+                for (const series of item?.seriesByTag?.[tag] || []) rows.push({ ...series, serverId: result.id });
             }
             const reliable = rows.filter((row) => row.seed);
             const aggregated = aggregateSeedScalars(reliable);
             const rawOnly = rows.filter((row) => !row.seed).map((row, index) => ({ seed: `未归属 ${row.serverId} ${index + 1}`, serverId: row.serverId, points: row.points }));
-            return { planFile: group.planFile, case: group.case, expectedSeeds, points: aggregated.points, seeds: [...aggregated.seeds, ...rawOnly], rawOnly: !reliable.length };
-        });
+            return { tag, planFile: group.planFile, case: group.case, expectedSeeds, points: aggregated.points, seeds: [...aggregated.seeds, ...rawOnly], rawOnly: !reliable.length };
+        }));
         return { charts, offlineServers, unsupportedFiles: success.flatMap((row: any) => (row.data.groups || []).flatMap((group: any) => group.unsupportedFiles || [])) };
     }
     private async scalarNativeProxy(method: string, route: string, body: Buffer | undefined, contentType: string, selectedEndpointId = ""): Promise<{status: number; body: Buffer; contentType: string}> {

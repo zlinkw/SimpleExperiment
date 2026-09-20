@@ -17,6 +17,6 @@ Plan 位于项目根目录的 `experiments/plans/**/*.yaml`，能被当前插件
 
 历史 event 文件若无法匹配 Plan，只扫描所配置的日志目录，最多遍历 5000 个目录且最多向下六层。若历史日志放在 `runs/`，请把 `simpleExperiment.tensorboard.logdir` 设为 `runs`。只有运行目录末尾含 `_seed42`、`-seed42`、`seed_42` 等明确 seed 后缀时，才允许聚合。没有可信 seed 标识的日志只作为原始曲线展示。位于 case 目录直接下方的 `tb_logs/` 若有 seed 子目录，会视为项目预先写出的均值并跳过，避免重复求均值。请勿把其他汇总日志伪装成 seed 目录。
 
-页面按 Plan → case → 指标展开。首次打开只查询目录；展开 case 才读取指标，选中指标才请求可见曲线。默认只画按完全相同 step 对齐的跨 seed 均值，显示 `n/计划 seed 数`；可在设置中启用 seed 明细、样本标准差误差带。缺失、非有限值和离线 Worker 不计入对应 step；不会插值。每个 seed 的 `tb_logs/` 只读取最新的 event 文件；中断重跑时请覆盖、截短或重建该文件，或者创建更新的 event 文件，不要把旧运行继续附加在同一文件后面。页面按文件位置增量读取，并在文件重建时清除该文件缓存。
+页面按 Plan → case → 指标组织。首次打开只查询目录；点击 case 后自动列出并打开该 case 的**全部指标图**，滚动到可见区域时才批量读取对应曲线，折叠的图不再轮询。默认只画按完全相同 step 对齐的跨 seed 均值，显示 `n/计划 seed 数`；可在设置中启用 seed 明细、样本标准差误差带。每张图都能独立调整平滑程度，并显示或隐藏均值与各 seed 的最大值点、最小值点。均值点用圆形、seed 点用三角形；红色代表最大值，蓝色代表最小值。平滑采用 [TensorBoard 当前折线图的去偏指数移动平均](https://github.com/tensorflow/tensorboard/blob/master/tensorboard/components/vz_line_chart2/line-chart.ts)，仅影响绘制，极值仍从原始数据计算。悬停可查看原始均值、平滑值、样本标准差、参与 seed 数及各 seed 原值。缺失、非有限值和离线 Worker 不计入对应 step；不会插值。每个 seed 的 `tb_logs/` 只读取最新的 event 文件；中断重跑时请覆盖、截短或重建该文件，或者创建更新的 event 文件，不要把旧运行继续附加在同一文件后面。页面按文件位置增量读取，并在文件重建时清除该文件缓存。
 
 若未安装远端 TensorBoard，标量页仍可工作；图像、直方图、网络图标签需要远端训练环境中的 TensorBoard 包。该标签复用原有 tmux 启动和 Agent 隧道代理。标量解析不调用 TensorBoard Python 包或项目均值脚本；event 文件格式未来若改变，插件会报告不支持，而非假定兼容。

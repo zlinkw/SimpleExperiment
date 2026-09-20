@@ -65,7 +65,7 @@ const TunnelDiagnostics_1 = require("../tunnel/TunnelDiagnostics");
 const TunnelOnlyPolicy_1 = require("../tunnel/TunnelOnlyPolicy");
 const MultiEndpointRealtimeClient_1 = require("../tunnel/MultiEndpointRealtimeClient");
 const PanelHtml_1 = require("../ui/PanelHtml");
-const ScalarViewerHtml_1 = require("../tensorboard/ScalarViewerHtml");
+const ScalarDashboardHtml_1 = require("../tensorboard/ScalarDashboardHtml");
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
@@ -786,7 +786,7 @@ class RealtimeTunnelPanelProvider {
             discoveryPath: API_DISCOVERY_PATH,
             methods: this.createLocalApiMethods(),
             scalarViewer: {
-                html: ScalarViewerHtml_1.scalarViewerHtml,
+                html: ScalarDashboardHtml_1.scalarDashboardHtml,
                 query: (params, endpointId) => this.scalarViewerQuery(params, endpointId),
                 native: (method, route, body, contentType, endpointId) => this.scalarNativeProxy(method, route, body, contentType, endpointId),
             },
@@ -11324,8 +11324,9 @@ class RealtimeTunnelPanelProvider {
             throw new Error("未知标量操作");
         const logdir = String(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.logdir") || "work_dirs");
         const groups = action === "series" ? (Array.isArray(params.groups) ? params.groups.slice(0, 8) : []) : [];
-        const payload = action === "series" ? { groups, tag: String(params.tag || ""), logdir } : { planFile: String(params.planFile || ""), case: String(params.case || ""), tag: "", logdir };
-        if (action === "series" && (!payload.tag || !groups.length))
+        const tags = action === "series" ? [...new Set((Array.isArray(params.tags) ? params.tags : [params.tag]).filter((tag) => typeof tag === "string" && tag.length > 0 && tag.length < 512))].slice(0, 32) : [];
+        const payload = action === "series" ? { groups, tags, logdir } : { planFile: String(params.planFile || ""), case: String(params.case || ""), tag: "", logdir };
+        if (action === "series" && (!tags.length || !groups.length))
             throw new Error("缺少指标或实验");
         if (action === "tags" && (!payload.planFile || !payload.case))
             throw new Error("缺少 Plan 或实验");
@@ -11351,19 +11352,19 @@ class RealtimeTunnelPanelProvider {
             return { plans: success.flatMap((row) => row.data.plans || []), offlineServers };
         if (action === "tags")
             return { tags: [...new Set(success.flatMap((row) => row.data.tags || []))].sort(), unsupportedFiles: success.flatMap((row) => row.data.unsupportedFiles || []), offlineServers };
-        const charts = groups.map((group) => {
+        const charts = tags.flatMap((tag) => groups.map((group) => {
             const rows = [];
             const expectedSeeds = Math.max(0, ...success.flatMap((result) => (result.data.groups || []).filter((item) => item.planFile === group.planFile && item.case === group.case).map((item) => Number(item.expectedSeeds || 0))));
             for (const result of success) {
                 const item = (result.data.groups || []).find((entry) => entry.planFile === group.planFile && entry.case === group.case);
-                for (const series of item?.series || [])
+                for (const series of item?.seriesByTag?.[tag] || [])
                     rows.push({ ...series, serverId: result.id });
             }
             const reliable = rows.filter((row) => row.seed);
             const aggregated = (0, ScalarAggregation_1.aggregateSeedScalars)(reliable);
             const rawOnly = rows.filter((row) => !row.seed).map((row, index) => ({ seed: `未归属 ${row.serverId} ${index + 1}`, serverId: row.serverId, points: row.points }));
-            return { planFile: group.planFile, case: group.case, expectedSeeds, points: aggregated.points, seeds: [...aggregated.seeds, ...rawOnly], rawOnly: !reliable.length };
-        });
+            return { tag, planFile: group.planFile, case: group.case, expectedSeeds, points: aggregated.points, seeds: [...aggregated.seeds, ...rawOnly], rawOnly: !reliable.length };
+        }));
         return { charts, offlineServers, unsupportedFiles: success.flatMap((row) => (row.data.groups || []).flatMap((group) => group.unsupportedFiles || [])) };
     }
     async scalarNativeProxy(method, route, body, contentType, selectedEndpointId = "") {
