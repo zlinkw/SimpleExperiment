@@ -308,14 +308,19 @@ function tableCatalog(root, resultDir) {
     if (cached?.signature === signature)
         return cached.rows;
     const rows = files.flatMap(({ name, file }) => {
-        const stat = fs.statSync(file);
-        if (!stat.isFile() || stat.size > 32 * 1024 * 1024)
+        try {
+            const stat = fs.statSync(file);
+            if (!stat.isFile() || stat.size > 32 * 1024 * 1024)
+                return [];
+            const parsed = readCsv(fs.readFileSync(file, "utf8"));
+            const values = {};
+            for (const [i, field] of parsed.header.entries())
+                values[field] = [...new Set(parsed.rows.map((row) => row[i]))].slice(0, 200);
+            return [{ name, path: resultDir + "/" + name + "/" + name + ".csv", header: parsed.header, values, rowCount: parsed.rows.length }];
+        }
+        catch {
             return [];
-        const parsed = readCsv(fs.readFileSync(file, "utf8"));
-        const values = {};
-        for (const [i, field] of parsed.header.entries())
-            values[field] = [...new Set(parsed.rows.map((row) => row[i]))].slice(0, 200);
-        return [{ name, path: resultDir + "/" + name + "/" + name + ".csv", header: parsed.header, values, rowCount: parsed.rows.length }];
+        }
     });
     catalogCache.set(directory, { signature, rows });
     return rows;
