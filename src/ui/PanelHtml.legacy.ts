@@ -72,13 +72,25 @@ export function renderPanelHtml(): string {
     .cardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
     .gpuServerStack { display: grid; grid-template-columns: 1fr; gap: 10px; min-width: 0; width: 100%; box-sizing: border-box; }
     .gpuDenseToolbar{ display:flex; gap:6px; align-items:center; }
-    .gpuDenseTableWrap{ overflow:auto; max-width:100%; border:1px solid var(--border); border-radius:6px; background: var(--card-bg); }
-    .gpuDenseTable{ border-collapse:collapse; width:100%; table-layout:fixed; font-size:12px; }
-    .gpuDenseTable th, .gpuDenseTable td{ border:1px solid var(--border); padding:6px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
-    .gpuDenseTable th{ background:var(--subtle-bg); user-select:none; cursor:pointer; }
+    .gpuDenseTableWrap{ overflow:auto; max-width:100%; border:1px solid var(--border); border-radius:9px; background:var(--vscode-editor-background); }
+    .gpuDenseTable{ border-collapse:collapse; width:100%; table-layout:fixed; font-size:12px; color:var(--vscode-foreground); }
+    .gpuDenseTable th, .gpuDenseTable td{ border:1px solid color-mix(in srgb, var(--border) 72%, transparent); padding:6px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
+    .gpuDenseTable th{ background:color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-foreground) 12%); color:var(--vscode-foreground); font-weight:700; user-select:none; cursor:pointer; }
     .gpuDenseTable th .colResizer{ position:absolute; right:0; top:0; width:6px; height:100%; cursor:col-resize; background:transparent; }
-    .gpuDenseTable tbody tr:hover{ filter: brightness(0.97); }
-    .gpuDenseTable .expandRow td{ white-space:normal; padding:10px; }
+    .gpuDenseTable tbody tr.gpuDenseRow{ background:var(--vscode-editor-background); }
+    .gpuDenseTable tbody tr.gpuDenseRow.is-free{ background:color-mix(in srgb, var(--vscode-editor-background) 96%, #16A34A 4%); }
+    .gpuDenseTable tbody tr.gpuDenseRow.is-occupied{ background:color-mix(in srgb, var(--vscode-editor-background) 94%, #D97706 6%); }
+    .gpuDenseTable tbody tr.gpuDenseRow.is-mine{ background:color-mix(in srgb, var(--vscode-editor-background) 92%, #7C3AED 8%); }
+    .gpuDenseTable tbody tr.gpuDenseRow.mem-danger{ background:color-mix(in srgb, var(--vscode-editor-background) 91%, #DC2626 9%); }
+    .gpuDenseTable tbody tr.gpuDenseRow:hover{ background:color-mix(in srgb, var(--vscode-editor-background) 86%, var(--vscode-focusBorder) 14%); }
+    .gpuDenseTable tbody tr.gpuDenseRow td:first-child{ border-left:3px solid var(--gpu-server-accent, var(--vscode-focusBorder)); }
+    .gpuDenseTable tbody tr.gpuDenseRow td[data-col="mem"], .gpuDenseTable tbody tr.gpuDenseRow td[data-col="util"]{ font-variant-numeric:tabular-nums; }
+    .gpuDenseStatus{ display:inline-block; padding:2px 8px; border:1px solid; border-radius:999px; font-weight:700; }
+    .gpuDenseStatus.is-free{ color:var(--vscode-testing-iconPassed, #15803D); border-color:color-mix(in srgb, currentColor 28%, transparent); background:color-mix(in srgb, var(--vscode-editor-background) 88%, #16A34A 12%); }
+    .gpuDenseStatus.is-occupied{ color:var(--vscode-editorWarning-foreground, #B45309); border-color:color-mix(in srgb, currentColor 28%, transparent); background:color-mix(in srgb, var(--vscode-editor-background) 85%, #D97706 15%); }
+    .gpuDenseStatus.is-mine{ color:var(--vscode-textLink-foreground, #6D28D9); border-color:color-mix(in srgb, currentColor 28%, transparent); background:color-mix(in srgb, var(--vscode-editor-background) 85%, #7C3AED 15%); }
+    .gpuDenseStatus.mem-danger{ color:var(--vscode-errorForeground, #B91C1C); border-color:color-mix(in srgb, currentColor 28%, transparent); background:color-mix(in srgb, var(--vscode-editor-background) 85%, #DC2626 15%); }
+    .gpuDenseTable .expandRow td{ white-space:normal; padding:10px; background:var(--vscode-editor-background); }
     .gpuDenseTable .expandChartWrap canvas{ width:100%; height:160px; }
     .gpuDenseTable .processTable{ width:100%; border-collapse:collapse; font-size:12px; }
     .gpuDenseTable .processTable th, .gpuDenseTable .processTable td{ border:1px solid var(--border); padding:4px 6px; }
@@ -9079,19 +9091,12 @@ export function renderPanelHtml(): string {
       var cols = gpuDenseState.colConfig || GPU_DENSE_DEFAULT_COLS;
       return cols.filter(function(c){ return c.visible; });
     }
-    function gpuDenseServerColor(serverId){
-      var s = String(serverId||"");
-      var hash = 0; for(var i=0;i<s.length;i++) hash = ((hash<<5)-hash + s.charCodeAt(i))|0;
-      var hues = [210, 160, 38, 280, 15, 195, 120, 45];
-      var h = hues[Math.abs(hash)%hues.length];
-      return "hsl(" + h + " 34% 94%)";
-    }
     function gpuDenseServerAccent(serverId){
       var s = String(serverId||"");
       var hash = 0; for(var i=0;i<s.length;i++) hash = ((hash<<5)-hash + s.charCodeAt(i))|0;
       var hues = [210, 160, 38, 280, 15, 195, 120, 45];
       var h = hues[Math.abs(hash)%hues.length];
-      return "hsl(" + h + " 45% 78%)";
+      return "hsl(" + h + " 55% 48%)";
     }
     function gpuDenseRowKey(serverId, gpuIndex){
       return String(serverId||"") + "::" + String(gpuIndex||"");
@@ -9312,7 +9317,6 @@ export function renderPanelHtml(): string {
         servers.forEach(function(srv){
           var srvId = String(srv.serverId||srv.workerId||"");
           var disp = gpuServerDisplayName(state, srv);
-          var bg = gpuDenseServerColor(srvId);
           srv.gpuRows.forEach(function(gpu){
             var key = gpuDenseRowKey(srvId, gpu.index);
             var sc = scores[key];
@@ -9322,7 +9326,7 @@ export function renderPanelHtml(): string {
               sc = Math.max(0, Math.min(100, Math.round((100 - mem*0.35 - util*0.25 + 20)*10)/10));
             }
             var srvScore = serverCardScores[srvId];
-            flat.push({ serverId: srvId, displayName: disp, bg: bg, gpu: gpu, key: key, score: sc, serverScore: srvScore, serverObj: srv });
+            flat.push({ serverId: srvId, displayName: disp, gpu: gpu, key: key, score: sc, serverScore: srvScore, serverObj: srv });
           });
         });
         var sorts = gpuDenseState.sorts && gpuDenseState.sorts.length ? gpuDenseState.sorts : GPU_DENSE_DEFAULT_SORTS;
@@ -9347,11 +9351,11 @@ export function renderPanelHtml(): string {
         if(gpuDenseState.mergeServer){
           var cur = null;
           flat.forEach(function(row){
-            if(!cur || cur.serverId !== row.serverId){ cur = { serverId: row.serverId, bg: row.bg, displayName: row.displayName, rows: [] }; groups.push(cur); }
+            if(!cur || cur.serverId !== row.serverId){ cur = { serverId: row.serverId, displayName: row.displayName, rows: [] }; groups.push(cur); }
             cur.rows.push(row);
           });
         } else {
-          flat.forEach(function(row){ groups.push({ serverId: row.serverId, bg: row.bg, displayName: row.displayName, rows: [row] }); });
+          flat.forEach(function(row){ groups.push({ serverId: row.serverId, displayName: row.displayName, rows: [row] }); });
         }
         var bodyHtml = "";
         var globalH = gpuDenseState.globalRowHeight;
@@ -9363,8 +9367,10 @@ export function renderPanelHtml(): string {
           var h = gpuDenseState.rowHeights[row.key] || globalH;
           h = Math.max(24, Math.min(48, Number(h)||globalH));
           var isExpanded = gpuDenseState.expandedKey === row.key;
-          var bg = row.bg;
+          var bg = "transparent";
           var accent = gpuDenseServerAccent(row.serverId);
+          var mine = isMyGpu(row.gpu, ownerConfig);
+          var rowTone = Number(row.gpu.memoryPercent) >= 90 ? "mem-danger" : mine ? "is-mine" : row.gpu.busy ? "is-occupied" : "is-free";
           var colsHtml = visibleCols.map(function(col){
             var cell = "";
             if(col.key==="server"){
@@ -9386,12 +9392,12 @@ export function renderPanelHtml(): string {
             else if(col.key==="temp") cell = '<td data-col="temp" style="background:' + bg + ';">' + esc(row.gpu.temperature==="-"? "-": row.gpu.temperature+" C") + '</td>';
             else if(col.key==="proc") cell = '<td data-col="proc" style="background:' + bg + ';">' + esc(String(row.gpu.processCount)) + (Number(row.gpu.processOmittedCount)? ' (+'+esc(String(row.gpu.processOmittedCount))+' 省略)':'' ) + '</td>';
             else if(col.key==="runKey") cell = '<td data-col="runKey" style="background:' + bg + ';">' + esc(row.gpu.runKey||"-") + '</td>';
-            else if(col.key==="status") cell = '<td data-col="status" style="background:' + bg + ';">' + esc(row.gpu.busy?"占用":"空闲") + (isMyGpu(row.gpu, ownerConfig)?' 我的':'' ) + '</td>';
+            else if(col.key==="status") cell = '<td data-col="status"><span class="gpuDenseStatus ' + rowTone + '">' + esc(row.gpu.busy?"占用":"空闲") + (mine?' · 我的':'') + '</span></td>';
             else cell = '<td data-col="' + escAttr(col.key) + '" style="background:' + bg + ';">-</td>';
             return cell;
           }).join("");
           var expandToggle = '<td style="background:' + bg + '; text-align:center;"><button type="button" class="mini secondary gpuDenseExpandBtn" data-expand-key="' + escAttr(row.key) + '" title="展开或收起该 GPU 的详细状态行">' + (isExpanded?"收起":"展开") + '</button></td>';
-          bodyHtml += '<tr class="gpuDenseRow' + (isExpanded?" is-expanded":"") + '" data-row-key="' + escAttr(row.key) + '" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '" style="height:' + h + 'px; background:' + bg + '; box-shadow:inset 3px 0 0 ' + accent + '; position:relative;">' + colsHtml + expandToggle + '</tr>';
+          bodyHtml += '<tr class="gpuDenseRow ' + rowTone + (isExpanded?" is-expanded":"") + '" data-row-key="' + escAttr(row.key) + '" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '" style="height:' + h + 'px; --gpu-server-accent:' + escAttr(accent) + ';">' + colsHtml + expandToggle + '</tr>';
           if(isExpanded){
             var colspan = visibleCols.length + 1;
             var chartId = "gpuDenseChart-" + row.key.replace(/[^a-zA-Z0-9_-]+/g, "_");
