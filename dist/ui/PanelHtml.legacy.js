@@ -65,6 +65,9 @@ function renderPanelHtml() {
     .toolbar[data-anchor="sync-actions"] { padding: 10px; border: 1px solid #BFD4EA; border-left: 4px solid #1F4E79; border-radius: 8px; background: #EEF4FB; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
     .toolbar[data-anchor="sync-actions"] button { flex: 1 1 0; min-width: 0; width: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .contractQuickLinks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+    .resultRelatedTools { display: grid; gap: 7px; margin-top: 10px; padding: 9px 11px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: var(--vscode-editor-background); }
+    .resultRelatedToolsLabel { color: var(--muted); font-size: 11px; font-weight: 700; }
+    .resultRelatedTools .contractQuickLinks { margin: 0; }
     .syncPublishPanel { display: grid; gap: 8px; min-width: 0; }
     .summaryLink { display: inline-flex; align-items: center; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--subtle-bg); color: var(--text); text-decoration: none; font-size: 12px; }
     .summaryLink:hover, .summaryLink:focus-visible { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground, var(--text)); outline: none; }
@@ -989,27 +992,39 @@ function renderPanelHtml() {
     .settingsBackButton { width: auto; height: 30px; min-width: 84px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
     .settingsLayoutTools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .settingsLayoutTools b { margin-right: auto; font-size: 12px; }
-    .resultMappingEditor { margin: 10px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
-    .resultFinalCard { display: grid; gap: 14px; margin: 0 0 14px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--vscode-editor-background); }
-    .resultFinalHeader { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
-    .resultFinalHeader h3 { margin: 0 0 4px; font-size: 16px; }
-    .resultFinalHeader p { margin: 0; color: var(--muted); line-height: 1.4; }
+    .resultMappingEditor { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid #7C3AED; border-radius: 8px; background: var(--vscode-editor-background); }
+    .resultMainPane { min-width: 0; }
+    .resultFinalCard { display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--border); border-left: 4px solid var(--info); border-radius: 10px; background: var(--vscode-editor-background); }
+    .resultFinalHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+    .resultFinalHeader h3 { margin: 0 0 3px; font-size: 15px; line-height: 1.3; font-weight: 750; }
+    .resultFinalHeader p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
     .resultFinalHeader button { white-space: nowrap; }
-    .resultTableCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 10px; }
-    .resultTableCard { display: grid; gap: 12px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--subtle-bg); }
-    .resultTableCard.primary { border-left: 4px solid var(--vscode-focusBorder, #4f6bed); }
+    .resultTableCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 8px; }
+    .resultTableCard { display: grid; gap: 7px; min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-left: 4px solid var(--success); border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 93%, var(--success) 7%); }
+    .resultTableCard.primary { border-left-color: var(--info); background: color-mix(in srgb, var(--vscode-editor-background) 93%, var(--info) 7%); }
     .resultTableCardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-    .resultTableCardHead strong { overflow-wrap: anywhere; font-size: 14px; }
-    .resultTableCardHead span { color: var(--muted); white-space: nowrap; font-size: 12px; }
+    .resultTableCardHead strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 750; line-height: 1.3; }
+    .resultTableCardHead span { color: var(--muted); white-space: nowrap; font-size: 11px; font-variant-numeric: tabular-nums; }
     .resultTableCardPath { overflow-wrap: anywhere; color: var(--muted); font-size: 11px; font-family: Consolas, monospace; }
     .resultTableCardActions { display: flex; flex-wrap: wrap; gap: 6px; }
-    .resultTableCardActions button { flex: 1 1 105px; }
-    .resultPlanActions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 4px 0; }
-    .resultPlanActions b { margin-right: 4px; font-size: 12px; }
+    .resultTableCardActions button { flex: 1 1 105px; font-size: 12px; }
+    .resultPlanActions { display: grid; gap: 9px; margin: 0; padding: 11px 12px; border: 1px solid var(--border); border-left: 4px solid var(--success); border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--success) 5%); }
+    .resultPlanActionsTitle { display: flex; flex-wrap: wrap; gap: 5px 10px; align-items: baseline; }
+    .resultPlanActionsTitle strong { font-size: 13px; font-weight: 750; }
+    .resultPlanActionsTitle small, .resultPlanActionsHelp { color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+    .resultPlanActionButtons { display: flex; flex-wrap: wrap; gap: 6px; }
+    .resultPlanActionButtons button { font-size: 12px; }
     .resultFinalCard .pptPlotActions { margin: 0; }
-    .resultArtifactGroup { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
-    .resultArtifactGroup summary { cursor: pointer; font-weight: 600; }
+    .resultArtifactGroup { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: var(--vscode-editor-background); }
+    .resultArtifactGroup[data-details-key="result-split-tables"] { border-left-color: var(--info); }
+    .resultArtifactGroup[data-details-key="result-trace-files"] { border-left-color: var(--warning); }
+    .resultArtifactGroup[data-details-key="results-ppt-plot"] { border-left-color: #7C3AED; margin-top: 10px; }
+    .resultArtifactGroup summary { cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1.35; }
+    .resultArtifactGroup[open] > summary { margin-bottom: 9px; }
+    .resultArtifactGroup .muted { font-size: 11px; line-height: 1.45; }
     .resultArtifactGroup .pptPlotActions { margin: 8px 0 0; }
+    .resultEvidenceWorkbench > details[data-details-key="result-advanced"] { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: var(--vscode-editor-background); }
+    .resultEvidenceWorkbench > details[data-details-key="result-advanced"] > summary { cursor: pointer; font-size: 13px; font-weight: 700; }
     .resultTableBrowser { display: grid; gap: 10px; }
     .resultTableBrowser .resultTableRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .resultTableBrowser select, .resultTableBrowser input[type="search"] { min-width: 130px; max-width: 100%; }
@@ -1405,13 +1420,15 @@ function renderPanelHtml() {
         </div>
       </div>
       <div class="resultMainPane">
-        <h3>结果摘要</h3>
         <div id="resultSummary" data-anchor="results-summary"></div>
-        <div class="contractQuickLinks" data-anchor="results-contract">
-          <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
-          <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
-          <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
-          <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
+        <div class="resultRelatedTools" data-anchor="results-contract">
+          <span class="resultRelatedToolsLabel">相关检查</span>
+          <div class="contractQuickLinks">
+            <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
+            <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
+            <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
+            <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
+          </div>
         </div>
       </div>
       <details class="resultArtifactGroup" data-details-key="results-ppt-plot">
@@ -13725,12 +13742,11 @@ function renderPanelHtml() {
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
         renderProjectResultTables(state) +
         '<details class="resultArtifactGroup" data-details-key="result-trace-files"' + detailsOpenAttr("result-trace-files", false) + '><summary>原始数据与详细追溯</summary><div class="muted">原始 seed 表保持不变；详细表用于核对每项指标的参与数。</div><div class="pptPlotActions">' + traceButtons + '</div></details>' +
-        '<div class="resultPlanActions"><b>当前 Plan</b>' +
+        '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>当前 Plan</strong><small>' + esc(resultPlanFile ? compactPath(resultPlanFile) : "尚未选择 Plan") + '</small></div><div class="resultPlanActionButtons">' +
           '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="仅同步当前 Plan 的原始 seed 表和详细聚合表到对应方法文件夹的 raw、detail 子目录；简洁结果由插件写入方法文件夹与全项目 final。已有本地文件时统一询问覆盖或仅补缺失；不改远端文件。">同步当前 Plan 原始与详细表</button>' +
           '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '" title="重新读取当前 Plan 声明的原始结果表，计算简洁 CSV、可读 Markdown 和详细汇总；不会重新训练，也不会改写原始 seed 表。">重建当前 Plan 汇总</button>' +
           '<button class="taskActionButton secondary" data-open-result-mapping type="button" title="在结果区直接选择原始 CSV 的 case、seed、指标、方法、数据集、比例和评估端点列；保存到插件设置，再重建当前 Plan 汇总。">设置结果列映射</button>' +
-        '</div>' +
-        '<div class="muted">' + esc(multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "解析当前 Plan 后生成独立汇总表；原始结果不会改动。") + '</div>' +
+        '</div><div class="resultPlanActionsHelp">' + esc(multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "解析当前 Plan 后生成独立汇总表；原始结果不会改动。") + '</div></section>' +
         renderResultColumnMappingEditor(state, summary.columnMappingPreview) +
         '<details data-details-key="result-advanced"' + detailsOpenAttr("result-advanced", false) + '><summary>高级证据与分析</summary>' +
           renderResultNextAction({ parsed, parsedRows, qualityGatePath: qualityReady ? qualityGatePath : "", statisticsPath: statisticsReady ? statisticsPath : "", claimStatus, claimIssueCount, paperTablePath: paperTableReady ? paperTablePath : "", plottingContractPath: analysisArtifacts.plottingContractPath, effectiveArchivedResultCount, pendingReviewCount, excludedResultCount, previewCsvPath, archivableCount: traceStats.archivable, archiveBlockedCount: traceStats.archiveBlocked, previewResultCount, outputContractStatus: outputContractCheck.status, outputContractMissingFiles: outputContractCheck.missingFiles, outputContractUnparseableFiles: outputContractCheck.unparseableFiles, outputContractMessage: outputContractCheck.message, autoParseStatus: autoParseReadiness.status, planFile: autoParseReadiness.planFile }) +

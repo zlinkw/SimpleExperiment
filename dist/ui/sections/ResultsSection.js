@@ -19,13 +19,15 @@ class ResultsSection {
           </div>
         </div>
         <div class="resultMainPane">
-          <h3>结果摘要</h3>
           <div id="resultSummary" data-anchor="results-summary"></div>
-          <div class="contractQuickLinks" data-anchor="results-contract">
-            <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
-            <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
-            <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
-            <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
+          <div class="resultRelatedTools" data-anchor="results-contract">
+            <span class="resultRelatedToolsLabel">相关检查</span>
+            <div class="contractQuickLinks">
+              <a id="results-contract" class="summaryLink" href="#results-contract" title="metrics/case/env/artifact">输出契约</a>
+              <a id="results-dataset" class="summaryLink" data-anchor="results-dataset" href="#results-dataset" title="CSV/split/leakage">数据集画像</a>
+              <a id="results-checkpoints" class="summaryLink" data-anchor="results-checkpoints" href="#results-checkpoints" title="dry-run/retention">检查点清理预案</a>
+              <a id="results-plotting" class="summaryLink" data-anchor="results-plotting" href="#results-plotting" title="registry/statistics/table">PPT 绘图契约</a>
+            </div>
           </div>
         </div>
         <details class="resultArtifactGroup" data-details-key="results-ppt-plot">
