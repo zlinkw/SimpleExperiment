@@ -4075,6 +4075,7 @@ def main() -> None:
         "testingCount": len(testing),
         "completedCount": completed_count,
         "failedCount": failed_count,
+        "dispatchStoppedOnFailure": bool(fail_stop_reason),
         "stoppedCount": stopped_count,
         "schedulerError": final_error,
     })

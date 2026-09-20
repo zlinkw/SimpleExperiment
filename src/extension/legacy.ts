@@ -12889,7 +12889,7 @@ export class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastRealtimeState = state;
-            void this.notifyPlanFailureOnce(state);
+            void this.notifyPlanFailureOnce(state).catch(() => undefined);
             this.scheduleResultsSummaryRefreshFromRealtime(state);
             const uiRefs = this.realtimeUiStateRefsFor(state);
             if (this.shouldPushLocalAvailabilityFromRealtime(uiRefs.gpu)) void this.pushLocalWorkerAvailability(false);
@@ -12900,6 +12900,10 @@ export class RealtimeTunnelPanelProvider {
     }
     private async notifyPlanFailureOnce(state): Promise<void> {
         const rows = Array.isArray(state?.schedulerStates) ? state.schedulerStates : [];
+        const notices: Array<{ key: string; plan: string; task: string; detail: string }> = [];
+        const operationRows = state?.operations && typeof state.operations === "object"
+            ? (Array.isArray(state.operations) ? state.operations : Object.values(state.operations))
+            : [];
         const persistedKey = "simpleExperiment.notifiedPlanFailures";
         const stored = this.context.workspaceState.get<string[]>(persistedKey, []);
         const acknowledged = new Set(Array.isArray(stored) ? stored : []);
@@ -12910,16 +12914,30 @@ export class RealtimeTunnelPanelProvider {
             if (!failures.length) continue;
             const plan = String(row.planFile || row.plan || "").trim();
             const run = String(row.scheduler_session || row.operationId || row.startedAt || "").trim();
-            const key = [plan, String(row.planRevision || ""), run || String(failures[0]?.started_at || "")].join("|");
-            if (!plan || acknowledged.has(key) || this.notifiedPlanFailures.has(key)) continue;
+            const operationId = String(row.operationId || row.opId || "").trim() || (run.match(/run-plan-[A-Za-z0-9-]+/) || [])[0] || run;
+            const key = [plan, operationId || String(failures[0]?.started_at || "")].join("|");
+            const first = failures[0] || {};
+            notices.push({ key, plan, task: String(first.experiment_index ?? "?"), detail: String(first.error || first.exit_code || "任务失败").slice(0, 200) });
+        }
+        for (const row of operationRows) {
+            if (String(row?.type || row?.action || "").toLowerCase() !== "run-plan" || String(row?.status || "").toLowerCase() !== "failed") continue;
+            const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+            const latest = row.latestEvent?.payload && typeof row.latestEvent.payload === "object" ? row.latestEvent.payload : {};
+            const failedCount = Number(row.failedCount ?? payload.failedCount ?? latest.failedCount ?? 0);
+            if (!(failedCount > 0) || ![row, payload, latest].some((item) => item.dispatchStoppedOnFailure === true)) continue;
+            const plan = String(row.planFile || payload.planFile || latest.planFile || "").trim();
+            const operationId = String(row.operationId || row.opId || "").trim();
+            notices.push({ key: [plan, operationId].join("|"), plan, task: String(failedCount) + " 个", detail: String(row.schedulerError || payload.schedulerError || latest.schedulerError || row.message || "任务失败").slice(0, 200) });
+        }
+        for (const notice of notices) {
+            const { key, plan, task, detail } = notice;
+            if (!plan || !key || acknowledged.has(key) || this.notifiedPlanFailures.has(key)) continue;
             this.notifiedPlanFailures.add(key);
             const updated = [...acknowledged, key].slice(-200);
             acknowledged.add(key);
             await this.context.workspaceState.update(persistedKey, updated);
-            const first = failures[0] || {};
-            const detail = String(first.error || first.exit_code || "任务失败").slice(0, 200);
             const choice = await vscode.window.showErrorMessage(
-                `Plan ${plan} 的任务 ${first.experiment_index ?? "?"} 失败：${detail}。已停止派发新任务；已运行任务继续完成，失败 tmux 窗口保留。`,
+                `Plan ${plan} 的任务 ${task} 失败：${detail}。已停止派发新任务；已运行任务继续完成，失败 tmux 窗口保留。`,
                 { modal: true }, "查看运行进度");
             if (choice === "查看运行进度") await this.openPanelAt("operations", "operations-list");
         }
