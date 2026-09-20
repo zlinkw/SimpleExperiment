@@ -4804,7 +4804,7 @@ class RealtimeTunnelPanelProvider {
         if (command === "prepareAgents")
             return 0;
         if (command === "killTmuxWindow")
-            return 30_000;
+            return 0;
         if (command === "fetchTmuxList" || command === "fetchTmuxCapture")
             return 8000;
         if (command === "runAllPlans") {
@@ -6590,52 +6590,52 @@ class RealtimeTunnelPanelProvider {
             throw new Error("请先单独打开一个项目工作区，再补充要上传的代码。");
         const root = folder.uri.fsPath;
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
-        let current = [...new Set((config.get("codeSync.includePaths", []) || []).map(String))].sort();
-        while (true) {
-            const action = await vscode.window.showQuickPick([
-                { label: "$(file-add) 添加源码文件", description: "从当前项目选择一个或多个文件", id: "file" },
-                { label: "$(folder-opened) 添加源码目录", description: "只纳入目录内安全的源码和配置", id: "directory" },
-                { label: "$(list-selection) 查看已纳入文件", description: `${current.length} 条额外路径`, id: "preview" },
-                { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
-                { label: "$(check) 完成", id: "done" },
-            ], { title: "补充上传代码", placeHolder: "运行 Plan 缺模块时，在此选择额外上传的源码或配置", ignoreFocusOut: true });
-            if (!action || action.id === "done")
-                return;
-            if (action.id === "preview") {
-                const files = await collectExplicitCodeFiles(root, current);
-                if (!files.length)
-                    await vscode.window.showInformationMessage("尚未设置额外代码路径；默认源码仍会自动上传。");
-                else
-                    await vscode.window.showQuickPick(files.sort().map((file) => ({ label: file })), { title: `额外纳入 ${files.length} 个源码或配置文件`, placeHolder: "只读预览", ignoreFocusOut: true });
-                continue;
-            }
-            if (action.id === "remove") {
-                if (!current.length)
-                    continue;
-                const picked = await vscode.window.showQuickPick(current.map((file) => ({ label: file })), { title: "移除代码上传路径", canPickMany: true, ignoreFocusOut: true });
-                if (!picked?.length)
-                    continue;
-                const remove = new Set(picked.map((item) => item.label));
-                current = current.filter((file) => !remove.has(file));
-            }
-            else {
-                const picked = await vscode.window.showOpenDialog({
-                    title: action.id === "directory" ? "选择需上传源码的目录" : "选择需上传的源码或配置文件",
-                    defaultUri: folder.uri,
-                    canSelectFiles: action.id === "file",
-                    canSelectFolders: action.id === "directory",
-                    canSelectMany: true,
-                    openLabel: "纳入代码上传",
-                });
-                if (!picked?.length)
-                    continue;
-                const next = picked.map((uri) => normalizedExplicitCodePath(root, path.relative(root, uri.fsPath)).relative);
-                await collectExplicitCodeFiles(root, next);
-                current = [...new Set([...current, ...next])].sort();
-            }
-            await config.update("codeSync.includePaths", current, vscode.ConfigurationTarget.WorkspaceFolder);
-            await vscode.window.showInformationMessage(`已保存 ${current.length} 条补充代码路径。下次运行 Plan 前会上传其中的安全源码和配置。`);
+        const current = [...new Set((config.get("codeSync.includePaths", []) || []).map(String))].sort();
+        const action = await vscode.window.showQuickPick([
+            { label: "$(file-add) 添加源码文件", description: "选完即保存；可一次选多个文件", id: "file" },
+            { label: "$(folder-opened) 添加源码目录", description: "选完即保存；只纳入安全的源码和配置", id: "directory" },
+            { label: "$(list-selection) 查看已纳入文件", description: `${current.length} 条额外路径`, id: "preview" },
+            { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
+        ], { title: "补充上传代码", placeHolder: "选择一项操作；添加文件或目录后立即保存，无需再点完成", ignoreFocusOut: true });
+        if (!action)
+            return;
+        if (action.id === "preview") {
+            const files = await collectExplicitCodeFiles(root, current);
+            if (!files.length)
+                void vscode.window.showInformationMessage("尚未设置额外代码路径；默认源码仍会自动上传。");
+            else
+                await vscode.window.showQuickPick(files.sort().map((file) => ({ label: file })), { title: `额外纳入 ${files.length} 个源码或配置文件`, placeHolder: "只读预览", ignoreFocusOut: true });
+            return;
         }
+        let updated = current;
+        if (action.id === "remove") {
+            if (!current.length)
+                return;
+            const picked = await vscode.window.showQuickPick(current.map((file) => ({ label: file })), { title: "移除代码上传路径", canPickMany: true, ignoreFocusOut: true });
+            if (!picked?.length)
+                return;
+            const remove = new Set(picked.map((item) => item.label));
+            updated = current.filter((file) => !remove.has(file));
+        }
+        else {
+            const picked = await vscode.window.showOpenDialog({
+                title: action.id === "directory" ? "选择需上传源码的目录" : "选择需上传的源码或配置文件",
+                defaultUri: folder.uri,
+                canSelectFiles: action.id === "file",
+                canSelectFolders: action.id === "directory",
+                canSelectMany: true,
+                openLabel: "添加并保存",
+            });
+            if (!picked?.length)
+                return;
+            const next = picked.map((uri) => normalizedExplicitCodePath(root, path.relative(root, uri.fsPath)).relative);
+            const safeFiles = await collectExplicitCodeFiles(root, next);
+            if (!safeFiles.length)
+                throw new Error("所选路径中没有可上传的安全源码或配置；请选 Python 源码或必要配置，数据和权重不会上传。");
+            updated = [...new Set([...current, ...next])].sort();
+        }
+        await config.update("codeSync.includePaths", updated, vscode.ConfigurationTarget.WorkspaceFolder);
+        void vscode.window.showInformationMessage(`已保存 ${updated.length} 条补充代码路径。下次运行 Plan 前会上传其中的安全源码和配置。`);
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
@@ -12394,9 +12394,12 @@ class RealtimeTunnelPanelProvider {
         const target = String(message?.target || message?.window || message?.session || "").trim();
         if (!target)
             throw new Error("缺少关闭目标 target（期望 session:index）");
+        const answer = await vscode.window.showWarningMessage(`确定关闭 tmux 窗口 ${target}？窗口内的进程会终止。${message?.danger === "true" ? "这是 Agent 窗口，关闭后对应隧道暂时无法提供数据。" : ""}`, { modal: true }, "关闭窗口");
+        if (answer !== "关闭窗口")
+            throw new UiCommandCancelled("已取消关闭 tmux 窗口。");
         const session = String(message?.session || (target.indexOf(":") !== -1 ? target.slice(0, target.indexOf(":")) : target)).trim() || target;
         const win = String(message?.window || target).trim() || target;
-        const body = { target, window: win, session, confirm: message?.confirm === true || message?.confirm === "true" || message?.confirmed === true };
+        const body = { target, window: win, session, confirm: true };
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `关闭 tmux 窗口 ${target}`, cancellable: false }, async (progress) => {
             progress.report({ increment: 10, message: "等待 Agent 确认" });
             let result = null;

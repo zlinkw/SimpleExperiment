@@ -479,7 +479,8 @@ function renderPanelHtml() {
     .operationStatusCard span { color: var(--muted); font-size: var(--simple-font-sm); }
     .operationStatusCard b { font-size: var(--simple-font-status); font-weight: 850; font-variant-numeric: tabular-nums; }
     .tmuxFilterBar { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 6px; margin: 8px 0 6px; }
-    .tmuxWindowCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px; min-height: 42px; padding: 6px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; background: var(--vscode-input-background); color: var(--text); text-align: left; position: relative; }
+    .tmuxWindowWrap { position: relative; min-width: 0; }
+    .tmuxWindowCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px; min-height: 42px; width: 100%; padding: 6px 28px 6px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; background: var(--vscode-input-background); color: var(--text); text-align: left; position: relative; }
     .tmuxClose { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; line-height: 16px; text-align: center; font-size: 13px; font-weight: 700; border-radius: 50%; border: 1px solid var(--border); background: var(--subtle-bg); color: var(--muted); cursor: pointer; padding: 0; }
     .tmuxClose:hover { background: #DC2626; border-color: #DC2626; color: #FFFFFF; }
     .tmuxClose:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
@@ -1712,8 +1713,8 @@ function renderPanelHtml() {
         const title = c.synthetic ? (c.label + "（GPU 预期窗口，尚未创建 tmux 会话）") : (c.target + "  panes:" + c.panes + (c.active ? " *" : ""));
         const isAgentWin = String(c.target || "").indexOf("-agent") !== -1;
         const closeTitle = "关闭 tmux 窗口 " + c.target + (isAgentWin ? "（Agent 窗口，需二次确认）" : "");
-        const closeHtml = '<span class="tmuxClose" role="button" tabindex="0" aria-label="关闭 ' + escAttr(c.target) + '" title="' + escAttr(closeTitle) + '" data-tmux-close="' + escAttr(c.target) + '" data-confirm="确定关闭 tmux 窗口 ' + escAttr(c.target) + ' 吗？关闭后该窗口内进程将终止。"' + (isAgentWin ? ' data-danger="true"' : '') + '>×</span>';
-        html += '<button type="button" class="tmuxWindowCard ' + escAttr(klass) + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '" aria-pressed="' + (isActive ? "true" : "false") + '" title="' + escAttr(title) + '"><span>' + esc(c.label) + '</span><b>' + esc(c.target) + '</b>' + closeHtml + '</button>';
+        const closeHtml = '<button type="button" class="tmuxClose" aria-label="关闭 ' + escAttr(c.target) + '" title="' + escAttr(closeTitle) + '" data-tmux-close="' + escAttr(c.target) + '"' + (isAgentWin ? ' data-danger="true"' : '') + '>×</button>';
+        html += '<div class="tmuxWindowWrap"><button type="button" class="tmuxWindowCard ' + escAttr(klass) + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '" aria-pressed="' + (isActive ? "true" : "false") + '" title="' + escAttr(title) + '"><span>' + esc(c.label) + '</span><b>' + esc(c.target) + '</b></button>' + closeHtml + '</div>';
       }
       bar.innerHTML = html || '<span class="muted" style="font-size:11px;">暂无窗口</span>';
     }
@@ -2556,10 +2557,6 @@ function renderPanelHtml() {
         const rawClose = (tmuxCloseTarget.getAttribute && tmuxCloseTarget.getAttribute("data-tmux-close")) || ((tmuxCloseTarget.dataset && tmuxCloseTarget.dataset.tmuxClose) || "");
         const closeTarget = String(rawClose || "").trim();
         if (!closeTarget) return;
-        const confirmText = (tmuxCloseTarget.getAttribute && tmuxCloseTarget.getAttribute("data-confirm")) || ("确定关闭 tmux 窗口 " + closeTarget + " 吗？关闭后该窗口内进程将终止。");
-        let confirmed = true;
-        try { confirmed = window.confirm(confirmText); } catch (e) { confirmed = true; }
-        if (!confirmed) return;
         const sepIdx = closeTarget.indexOf(":");
         const closeSession = sepIdx !== -1 ? closeTarget.slice(0, sepIdx) : closeTarget;
         const closeDanger = tmuxCloseTarget.getAttribute && tmuxCloseTarget.getAttribute("data-danger") === "true";
@@ -2576,7 +2573,7 @@ function renderPanelHtml() {
               try { refreshTmuxList(); refreshTmuxCapture(); } catch (e) {}
             }
           }, 30000);
-          vscode.postMessage({ command: "killTmuxWindow", target: closeTarget, window: closeTarget, session: closeSession, confirm: true, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
+          vscode.postMessage({ command: "killTmuxWindow", target: closeTarget, window: closeTarget, session: closeSession, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
         } catch (e) {
           try { refreshTmuxList(); } catch (err) {}
         }

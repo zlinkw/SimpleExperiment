@@ -112,6 +112,40 @@ test("code upload path action is available in the panel and saved as plugin conf
   assert.match(actionRow, /设置跳过文件/);
   assert.match(actionRow, /后者不会挡住 Plan 的代码上传/);
   assert.match(source, /case "configureCodeSyncIncludes"/);
-  assert.match(source, /config\.update\("codeSync\.includePaths", current, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
+  assert.match(source, /config\.update\("codeSync\.includePaths", updated, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
   assert.match(source, /buildLocalCodeManifest\(root, includePaths\)/);
+});
+
+test("choosing a code directory saves immediately without a second Finish picker", async () => {
+  const methodStart = source.indexOf("async configureCodeSyncIncludes() {");
+  const methodEnd = source.indexOf("async ensureCodeReadyForRun(", methodStart);
+  assert.ok(methodStart > 0 && methodEnd > methodStart);
+  const root = path.resolve("virtual-project");
+  let pickerCalls = 0;
+  let saved;
+  const sandbox = {
+    path,
+    normalizedExplicitCodePath: (_root, relative) => ({ relative }),
+    collectExplicitCodeFiles: async () => ["data/auxiliary_views.py"],
+    vscode: {
+      Uri: { file: (fsPath) => ({ fsPath }) },
+      ConfigurationTarget: { WorkspaceFolder: 1 },
+      workspace: {
+        workspaceFolders: [{ uri: { fsPath: root } }],
+        getConfiguration: () => ({
+          get: () => [],
+          update: async (_key, value) => { saved = value; },
+        }),
+      },
+      window: {
+        showQuickPick: async () => { pickerCalls += 1; return { id: "directory" }; },
+        showOpenDialog: async () => [{ fsPath: path.join(root, "data") }],
+        showInformationMessage: async () => undefined,
+      },
+    },
+  };
+  vm.runInNewContext(`class Action { ${source.slice(methodStart, methodEnd)} }; globalThis.Action = Action;`, sandbox);
+  await new sandbox.Action().configureCodeSyncIncludes();
+  assert.equal(pickerCalls, 1);
+  assert.deepEqual(Array.from(saved), ["data"]);
 });
