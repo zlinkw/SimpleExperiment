@@ -119,8 +119,8 @@ class HttpTunnelClient {
         const params = new URLSearchParams({ runKey, since: String(Math.max(0, since)) });
         return this.getPath(`/api/live-output?${params.toString()}`);
     }
-    getResultsSummary() {
-        return this.getPath("/api/results/summary");
+    getResultsSummary(planFile = "") {
+        return this.getPath("/api/results/summary" + (planFile ? "?planFile=" + encodeURIComponent(planFile) : ""));
     }
     getDiagnostics() {
         return this.getPath("/api/diagnostics");

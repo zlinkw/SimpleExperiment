@@ -955,6 +955,11 @@ export function renderPanelHtml(): string {
     .resultArtifactGroup { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
     .resultArtifactGroup summary { cursor: pointer; font-weight: 600; }
     .resultArtifactGroup .pptPlotActions { margin: 8px 0 0; }
+    .resultTableBrowser { display: grid; gap: 10px; }
+    .resultTableBrowser .resultTableRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .resultTableBrowser select, .resultTableBrowser input[type="search"] { min-width: 130px; max-width: 100%; }
+    .resultSplitChoices { display: flex; flex-wrap: wrap; gap: 6px 12px; max-height: 180px; overflow: auto; }
+    .resultSplitChoices label { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; }
     .resultMappingEditor summary { cursor: pointer; font-weight: 700; }
     .resultMappingHelp { margin: 10px 0; line-height: 1.5; }
     .resultMappingGrid { display: grid; gap: 8px; width: 100%; }
@@ -1982,6 +1987,11 @@ export function renderPanelHtml(): string {
     let resultAnalysisArtifactsCacheSummary = null;
     let resultAnalysisArtifactsCacheValue = null;
     let resultEvidenceWorkbenchCacheKey = "";
+    let resultSplitTableName = "final";
+    let resultSplitFieldName = "rate_percent";
+    let resultSplitSelectedValues = null;
+    let resultSplitSelectedColumns = null;
+    let resultSplitSearchQuery = "";
     let resultEvidenceWorkbenchCacheHtml = "";
     let claimEvidencePreviewHtmlCacheKey = "";
     let claimEvidencePreviewHtmlCache = "";
@@ -2421,7 +2431,7 @@ export function renderPanelHtml(): string {
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
-      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "editResultColumnMapping", "openAuditTail",
+      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
       "selectPlan", "selectExperiment",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
       ...Object.keys(uiCapabilityMap)
@@ -2664,6 +2674,16 @@ export function renderPanelHtml(): string {
         openResultColumnMappingEditor();
         return;
       }
+      const splitToggle = event.target.closest("[data-result-split-toggle]");
+      if (splitToggle) {
+        event.preventDefault();
+        const checked = splitToggle.dataset.resultSplitToggle === "all";
+        document.querySelectorAll("#resultSplitValues input[data-result-split-value]").forEach((input) => {
+          if (input.closest("[data-result-split-value-row]").style.display !== "none") input.checked = checked;
+        });
+        resultSplitSelectedValues = [...document.querySelectorAll("#resultSplitValues input[data-result-split-value]:checked")].map((input) => input.value);
+        return;
+      }
       const button = event.target.closest("button[data-command]");
       if (button && !button.disabled) {
         try {
@@ -2681,6 +2701,16 @@ export function renderPanelHtml(): string {
         if (command === "snapshot") { try { lastSnapshotRequestAt = Date.now(); var __snapCard = button.closest ? button.closest("[data-section]") : null; lastSnapshotSection = String((__snapCard && __snapCard.dataset && __snapCard.dataset.section) || (__snapCard && __snapCard.getAttribute ? __snapCard.getAttribute("data-section") : "") || ""); } catch (e) {} }
         if (command === "prepareAgents") { console.log("[webview] prepareAgents click", { state: lastState, readiness: serverSetupReadiness(lastState), blockers: agentPreparationBlockersFromState(lastState) }); }
         const payload = payloadFromButton(button);
+        if (command === "splitProjectResultTable") {
+          payload.tableName = String(document.querySelector("#resultSplitTable")?.value || "");
+          payload.splitField = String(document.querySelector("#resultSplitField")?.value || "");
+          payload.splitValues = [...document.querySelectorAll("#resultSplitValues input[data-result-split-value]:checked")].map((input) => input.value);
+          payload.keepColumns = [...document.querySelectorAll("#resultSplitColumns input[data-result-split-column]:checked")].map((input) => input.value);
+        }
+        if (command === "openLocalResultTable") {
+          payload.tableName = String(button.dataset.tableName || "");
+          payload.format = String(button.dataset.format || "csv");
+        }
         const pendingKey = pendingKeyForButton(button, command, payload);
         if (!pendingButtonKeys?.has(pendingKey)) {
           if (commandNeedsLoading(command)) {
@@ -2691,7 +2721,7 @@ export function renderPanelHtml(): string {
             pendingActions[pendingKey] = pendingItem;
             pendingActionsById[clientActionId] = pendingItem;
             setButtonLoading(button, pendingKey);
-            if (command !== "prepareAgents") {
+            if (command !== "prepareAgents" && command !== "rebuildProjectResultTables") {
             pendingActionTimeouts[clientActionId] = setTimeout(() => {
               const item = pendingActionsById[clientActionId];
               if (item && Date.now() - Number(item.startedAt || 0) >= 45000) {
@@ -2944,6 +2974,13 @@ export function renderPanelHtml(): string {
     }, true);
     document.addEventListener("input", (event) => {
       const input = event.target;
+      if (input && input.id === "resultSplitSearch") {
+        const query = String(input.value || "").trim().toLowerCase();
+        resultSplitSearchQuery = String(input.value || "");
+        document.querySelectorAll("[data-result-split-value-row]").forEach((row) => {
+          row.style.display = String(row.dataset.resultSplitValueRow || "").toLowerCase().includes(query) ? "" : "none";
+        });
+      }
       if (input && input.dataset && input.dataset.configInput) {
         updateConfigDraft(input);
         updateServerDestinationPreview(input);
@@ -2954,6 +2991,25 @@ export function renderPanelHtml(): string {
       if (input && input.id === "resourceTreeSearch") {
         resourceTreeFilter = String(input.value || "").trim().toLowerCase();
         renderResourceTree(lastState || {});
+      }
+    });
+    document.addEventListener("change", (event) => {
+      if (event.target?.id === "resultSplitTable") {
+        resultSplitTableName = String(event.target.value || "");
+        resultSplitFieldName = "";
+        resultSplitSelectedValues = null;
+        resultSplitSelectedColumns = null;
+        resultSplitSearchQuery = "";
+        renderSectionIfVisible(lastState || {}, "results", { force: true });
+      } else if (event.target?.id === "resultSplitField") {
+        resultSplitFieldName = String(event.target.value || "");
+        resultSplitSelectedValues = null;
+        resultSplitSearchQuery = "";
+        renderSectionIfVisible(lastState || {}, "results", { force: true });
+      } else if (event.target?.matches?.("[data-result-split-value]")) {
+        resultSplitSelectedValues = [...document.querySelectorAll("#resultSplitValues input[data-result-split-value]:checked")].map((input) => input.value);
+      } else if (event.target?.matches?.("[data-result-split-column]")) {
+        resultSplitSelectedColumns = [...document.querySelectorAll("#resultSplitColumns input[data-result-split-column]:checked")].map((input) => input.value);
       }
     });
     document.addEventListener("pointerdown", (event) => {
@@ -3337,7 +3393,7 @@ export function renderPanelHtml(): string {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
       if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.resultsSummary, data.detectedProject);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
-      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation);
+      if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
       if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
@@ -3351,7 +3407,7 @@ export function renderPanelHtml(): string {
       if (section === "plans") return stableSectionJson({ detailsOpenState });
       if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
       if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs, taskPlanScope });
-      if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope });
+      if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableName, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
     }
@@ -3470,7 +3526,7 @@ export function renderPanelHtml(): string {
       }
       if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
       if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}), taskPlanScope });
-      if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope });
+      if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableName, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
     }
@@ -3549,6 +3605,7 @@ export function renderPanelHtml(): string {
           planFileInput: data.planFileInput,
           selectedPlan: compactSelectedResultPlanForSignature(data),
           resultsSummary: compactResultsSummaryForSignature(data.resultsSummary),
+          resultTables: data.resultOutputConfig?.tables || [],
           autoParseReadiness: resultAutoParseReadinessForState(data, data.resultsSummary || {}),
           outputContractCheck: compactOutputContractCheckForSignature(currentResultOutputContractCheck(data)),
           analysisArtifacts: resultAnalysisArtifactsForState(data, data.resultsSummary || {}),
@@ -13479,6 +13536,29 @@ export function renderPanelHtml(): string {
       return { tone: "warn", label: "需重跑", detail: "产物覆盖 " + covered + " 条，已归档 " + archived + " 条；" + (archived - covered) + " 条未纳入" };
     }
 
+    function renderProjectResultTables(state) {
+      const tables = asArray(((state || {}).resultOutputConfig || {}).tables);
+      const selected = tables.find((row) => row.name === resultSplitTableName) || tables.find((row) => row.name === "final") || tables[0];
+      const field = selected && selected.header.includes(resultSplitFieldName) ? resultSplitFieldName : selected && selected.header.includes("rate_percent") ? "rate_percent" : selected?.header?.[0] || "";
+      const choices = selected ? asArray((selected.values || {})[field]).slice(0, 100) : [];
+      const options = (items, chosen) => items.map((item) => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
+      const tableOptions = options(tables.map((row) => row.name), selected?.name || "");
+      const fields = selected?.header || [];
+      const valueChoices = choices.map((value) => '<label data-result-split-value-row="' + escAttr(value) + '"' + (resultSplitSearchQuery && !value.toLowerCase().includes(resultSplitSearchQuery.trim().toLowerCase()) ? ' style="display:none"' : '') + '><input type="checkbox" data-result-split-value value="' + escAttr(value) + '"' + (resultSplitSelectedValues === null || resultSplitSelectedValues.includes(value) ? ' checked' : '') + '> ' + esc(value || "（空值）") + '</label>').join("");
+      const columns = fields.map((name) => '<label><input type="checkbox" data-result-split-column value="' + escAttr(name) + '"' + (resultSplitSelectedColumns === null || resultSplitSelectedColumns.includes(name) ? ' checked' : '') + '> ' + esc(name) + '</label>').join("");
+      const localButtons = tables.map((row) => '<span class="resultTableRow"><b>' + esc(row.name === "final" ? "全项目 final" : row.name) + '</b><span class="muted">' + Number(row.rowCount || 0) + ' 行</span><button type="button" class="secondary" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="csv" title="打开此表的完整精度 CSV；文件位于 experiments/results/' + escAttr(row.name) + '/' + escAttr(row.name) + '.csv">打开 CSV</button><button type="button" class="secondary" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="md" title="打开相同结果的可读 Markdown，指标显示均值 ± 标准差。">打开 Markdown</button></span>').join("");
+      return '<div class="resultFinalCard resultTableBrowser"><b>全项目最终结果 · final</b>' +
+        '<div class="muted">主表：experiments/results/final/final.csv；各方法位于同名文件夹。首次请点“重建所有方法与 final”扫描全部 Plan 和 Worker；之后已查询 Plan 的结果刷新会自动更新本机表。原始 seed 与详细表放在方法文件夹。</div>' +
+        '<div class="pptPlotActions"><button type="button" data-command="rebuildProjectResultTables" title="逐个查询本地 Plan 在所有已启用 Worker 的结果摘要，按方法、case、seed 与端点重新计算均值和样本标准差；全部检查通过后写入 final 与各方法文件夹。不会运行训练，也不会改远端原始表。">重建所有方法与 final</button></div>' +
+        (tables.length ? '<div class="resultTableRow">' + localButtons + '</div>' : '<div class="muted">尚未生成总表。点击上方重建；当前 Plan 结果刷新后也会自动更新本机表。</div>') +
+        '<details class="resultArtifactGroup" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
+        '<div class="resultTableRow"><label>来源表 <select id="resultSplitTable">' + tableOptions + '</select></label><label>按此列拆表 <select id="resultSplitField">' + options(fields, field) + '</select></label><input type="search" id="resultSplitSearch" value="' + escAttr(resultSplitSearchQuery) + '" placeholder="搜索词条"></div>' +
+        '<div class="muted">勾选需要的词条，每个词条生成一张 CSV。可批量全选或取消当前搜索结果；输出放在所选表的 by_列名 子目录。</div>' +
+        '<div class="resultTableRow"><button type="button" class="secondary" data-result-split-toggle="all">全选当前词条</button><button type="button" class="secondary" data-result-split-toggle="none">取消当前词条</button></div>' +
+        '<div id="resultSplitValues" class="resultSplitChoices">' + valueChoices + '</div>' +
+        '<details><summary>选择子表保留的列（默认全部）</summary><div id="resultSplitColumns" class="resultSplitChoices">' + columns + '</div></details>' +
+        '<div class="pptPlotActions"><button type="button" data-command="splitProjectResultTable" title="按勾选词条分别写入 CSV。保留列可在上方展开选择；源表不变。">生成所选子表</button></div></details></div>';
+    }
     function renderResultEvidenceWorkbench(state, summary) {
       const traceScope = traceRowsForPlanScope(experimentTraceRowsForState(state), state, "selected");
       const traceStats = resultEvidenceTraceStatsForRows(traceScope.rows);
@@ -13486,7 +13566,7 @@ export function renderPanelHtml(): string {
       const autoParseReadiness = resultAutoParseReadinessForState(state, summary);
       const outputContractCheck = currentResultOutputContractCheck(state);
       const analysisArtifacts = resultAnalysisArtifactsForState(state, summary);
-      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {});
+      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {}) + stableSectionSignature((((state || {}).resultOutputConfig || {}).tables) || []) + resultSplitTableName + resultSplitFieldName;
       if (cacheKey === resultEvidenceWorkbenchCacheKey && resultEvidenceWorkbenchCacheHtml) return resultEvidenceWorkbenchCacheHtml;
       const parseFailed = pick(summary, ["parseFailed", "parse_failed"], "-");
       const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");
@@ -13633,7 +13713,7 @@ export function renderPanelHtml(): string {
         const available = meaningfulValue(row.finalCsvPath);
         const scope = workerId ? " · " + workerId : "";
         const count = Number(row.finalRowCount || 0);
-        return '<div class="resultFinalCard"><b>当前 Plan 简洁汇总' + esc(scope) + '</b>' +
+        return '<div class="resultFinalCard"><b>当前 Plan 计算结果' + esc(scope) + '</b>' +
           '<div class="muted">一行对应一个方法 × 数据集 × 训练比例 × 评估端点。展示各指标的跨 seed 均值、样本标准差与参与数。' + (count ? '当前 ' + count + ' 行。' : '') + '</div>' +
           '<div class="pptPlotActions">' +
             resultFileButton("查看简洁汇总 CSV", row.finalCsvPath, resultPlanFile, workerId, finalHelpCsv, true) +
@@ -13651,8 +13731,8 @@ export function renderPanelHtml(): string {
         resultFileButton("项目简洁总表 CSV", projectFinalCsvPath, resultPlanFile, "", "汇集当前 Worker 上已生成的各 Plan 简洁表，并附带 plan_file 来源列；不修改任何原始结果。") +
         resultFileButton("项目简洁总表 Markdown", projectFinalMarkdownPath, resultPlanFile, "", "项目简洁总表的可读版，各指标显示均值 ± 样本标准差；精确数值请看 CSV。");
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
+        renderProjectResultTables(state) +
         finalCards +
-        '<details class="resultArtifactGroup" data-details-key="result-project-summary"' + detailsOpenAttr("result-project-summary", false) + '><summary>跨 Plan 项目汇总</summary><div class="muted">汇集已生成的 Plan 表；多 Worker 时每台服务器单独保存。</div><div class="pptPlotActions">' + projectButtons + '</div></details>' +
         '<details class="resultArtifactGroup" data-details-key="result-trace-files"' + detailsOpenAttr("result-trace-files", false) + '><summary>原始数据与详细追溯</summary><div class="muted">原始 seed 表保持不变；详细表用于核对每项指标的参与数。</div><div class="pptPlotActions">' + traceButtons + '</div></details>' +
         '<div class="pptPlotActions">' +
           '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="只同步当前 Plan 最新摘要列出的简洁表、原始表、详细表及相关结果到本机 experiments/results。已有本地文件时统一询问覆盖或仅补缺失；不改远端文件。">同步当前 Plan 全部结果到本机</button>' +

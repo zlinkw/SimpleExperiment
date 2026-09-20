@@ -145,8 +145,8 @@ class RealtimeTunnelClient {
         this.protectedLogKeys = normalizeProtectedLogKeys(keys);
         this.state = (0, RealtimeEventReducer_1.compactRealtimeState)(this.state, { protectedLogKeys: this.protectedLogKeys });
     }
-    getResultsSummary() {
-        return this.http.getResultsSummary();
+    getResultsSummary(planFile = "") {
+        return this.http.getResultsSummary(planFile);
     }
     getDiagnostics() {
         return this.http.getDiagnostics();

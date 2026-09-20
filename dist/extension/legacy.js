@@ -67,6 +67,7 @@ const MultiEndpointRealtimeClient_1 = require("../tunnel/MultiEndpointRealtimeCl
 const PanelHtml_1 = require("../ui/PanelHtml");
 const ScalarDashboardHtml_1 = require("../tensorboard/ScalarDashboardHtml");
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
+const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -361,7 +362,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "editResultColumnMapping", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
@@ -392,7 +393,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "editResultColumnMapping", "runAllPlans",
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
-    "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "openAuditTail", "selectPlan", "selectExperiment",
+    "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
@@ -4635,6 +4636,15 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "syncAllResultArtifacts":
                 await this.syncAllResultArtifactsFromUi(message);
+                break;
+            case "rebuildProjectResultTables":
+                await this.rebuildProjectResultTablesFromUi();
+                break;
+            case "splitProjectResultTable":
+                await this.splitProjectResultTableFromUi(message);
+                break;
+            case "openLocalResultTable":
+                await this.openLocalResultTableFromUi(message);
                 break;
             case "editResultColumnMapping":
                 await this.editResultColumnMappingFromUi();
@@ -11232,7 +11242,7 @@ class RealtimeTunnelPanelProvider {
         const owner = String(requestedWorkerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
         const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (availableWorkers.length === 1 ? availableWorkers[0] : "");
         const useWorker = Boolean(workerId && typeof client.downloadWorkerFile === "function");
-        const localRelative = resultArtifactLocalRelativePath(artifactPath, planFile, summary, this.resultCsvDirectory, workerTables.length > 1 ? workerId : "");
+        const localRelative = methodResultArtifactLocalRelativePath(artifactPath, planFile, summary, DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
         const localArtifactPath = safeWorkspaceChildPath(root, localRelative);
         const localStat = await fs.stat(localArtifactPath).catch(() => undefined);
         if (!isCurrent())
@@ -11324,7 +11334,7 @@ class RealtimeTunnelPanelProvider {
                 throw new Error(`结果所属 Worker ${owner} 未启用，已阻止批量同步。`);
             if (!workerId && this.missingCapabilities(["endpoints.fileDownload"]).length)
                 throw new Error("当前 Hub Agent 缺少结果文件下载能力。");
-            const localRelative = resultArtifactLocalRelativePath(candidate.remotePath, planFile, summary, this.resultCsvDirectory, workerTables.length > 1 ? workerId : "");
+            const localRelative = methodResultArtifactLocalRelativePath(candidate.remotePath, planFile, summary, DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
             const localPath = safeWorkspaceChildPath(root, localRelative);
             const destinationKey = localPath.toLowerCase();
             if (destinations.has(destinationKey))
@@ -11344,7 +11354,7 @@ class RealtimeTunnelPanelProvider {
                 "【批量同步结果确认】",
                 `当前 Plan：${planFile}`,
                 `结果文件：${entries.length} 个，已有本地副本：${existingCount} 个`,
-                `本机目录：${safeWorkspaceChildPath(root, this.resultCsvDirectory)}`,
+                `本机目录：${safeWorkspaceChildPath(root, DEFAULT_RESULT_CSV_DIR)}`,
                 "每个文件最多 128 MB；仅下载当前 Plan 摘要列出的文件，远端文件不变。",
             ].join("\n"), { modal: true }, "覆盖已有文件并同步", "只同步缺失文件");
             if (!isCurrent())
@@ -11403,11 +11413,177 @@ class RealtimeTunnelPanelProvider {
         });
         if (!isCurrent())
             return;
-        const summaryText = `当前 Plan 结果同步：成功 ${completed}/${selected.length}，跳过已有 ${entries.length - selected.length}，失败 ${failures.length}${cancelled ? "，已取消后续文件" : ""}。本机目录：${this.resultCsvDirectory}`;
+        const summaryText = `当前 Plan 结果同步：成功 ${completed}/${selected.length}，跳过已有 ${entries.length - selected.length}，失败 ${failures.length}${cancelled ? "，已取消后续文件" : ""}。本机目录：${DEFAULT_RESULT_CSV_DIR}`;
         if (failures.length)
             void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
         else
             void vscode.window.showInformationMessage(summaryText);
+    }
+    async loadProjectTableRegistry(root) {
+        const file = safeWorkspaceChildPath(root, "simple_cluster/results/project_table_registry.json");
+        const source = await fs.readFile(file, "utf8").catch((error) => {
+            if (error?.code === "ENOENT")
+                return "";
+            throw error;
+        });
+        if (!source)
+            return ProjectResultTables.emptyTableRegistry();
+        const parsed = JSON.parse(source);
+        if (parsed?.schemaVersion !== 1 || !parsed.plans || typeof parsed.plans !== "object")
+            throw new Error("全项目结果注册表格式不支持，请检查 simple_cluster/results/project_table_registry.json。");
+        return parsed;
+    }
+    async writeProjectTableRegistry(root, registry) {
+        const tables = ProjectResultTables.buildTables(registry);
+        if (!tables.final)
+            throw new Error("尚无可写入的逐 seed 结果。");
+        const outputs = [];
+        for (const [name, table] of Object.entries(tables)) {
+            const folder = ProjectResultTables.safeTableName(name);
+            outputs.push([path.posix.join(DEFAULT_RESULT_CSV_DIR, folder, folder + ".csv"), ProjectResultTables.writeCsv(table.header, table.rows)]);
+            outputs.push([path.posix.join(DEFAULT_RESULT_CSV_DIR, folder, folder + ".md"), table.markdown]);
+        }
+        outputs.push(["simple_cluster/results/project_table_registry.json", JSON.stringify(registry, null, 2) + "\n"]);
+        for (const [relative, content] of outputs) {
+            const target = await safeResultOutputPath(root, relative);
+            await fs.mkdir(path.dirname(target), { recursive: true });
+            const temporary = target + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
+            await fs.writeFile(temporary, content, "utf8");
+            await fs.rename(temporary, target);
+        }
+        return tables;
+    }
+    async updateProjectResultTablesFromSummary(summary, planFile) {
+        const root = workspaceRoot();
+        if (!root || !planFile)
+            return;
+        const registry = await this.loadProjectTableRegistry(root);
+        const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
+        const expected = Array.isArray(metadata?.seeds) ? metadata.seeds.length : 0;
+        const next = ProjectResultTables.updateRegistry(registry, summary, planFile, expected);
+        next.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
+        if (JSON.stringify(next.plans[planFile]) === JSON.stringify(registry.plans[planFile]) && JSON.stringify(next.derivedMetric) === JSON.stringify(registry.derivedMetric))
+            return;
+        await this.writeProjectTableRegistry(root, next);
+    }
+    async rebuildProjectResultTablesFromUi() {
+        const context = this.captureProjectContext();
+        const root = context.root;
+        const client = this.client;
+        if (!root)
+            throw new Error("请先打开当前实验项目。");
+        if (this.effectiveConnectionMode() === "offline_import")
+            throw new Error("离线模式无法跨 Worker 重建总表。");
+        await this.refreshLocalPlanMetadataForAction(this.actionBody({}), { allPlans: true });
+        if (!this.projectContextIsCurrent(context) || client !== this.client)
+            return;
+        const plans = (this.localPlanMetadata.plans || []).filter((item) => item.planFile).slice(0, 500);
+        let registry = ProjectResultTables.emptyTableRegistry();
+        let included = 0;
+        const issues = [];
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重建全项目最终结果表", cancellable: true }, async (progress, token) => {
+            for (const [index, plan] of plans.entries()) {
+                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client)
+                    throw new UiCommandCancelled("全项目结果重建已取消，未覆盖现有表格。");
+                const planFile = String(plan.planFile);
+                progress.report({ message: (index + 1) + "/" + plans.length + " " + planFile });
+                let summary;
+                try {
+                    for (let attempt = 0; attempt < 4; attempt++) {
+                        try {
+                            summary = await client.getResultsSummary(planFile);
+                            break;
+                        }
+                        catch (error) {
+                            const decision = error?.decision;
+                            if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || "")))
+                                throw error;
+                            const delay = Math.min(61000, Math.max(500, Number(decision.retryAfterMs || 1000) + 100));
+                            progress.report({ message: "Agent 请求限流，等待 " + Math.ceil(delay / 1000) + " 秒：" + planFile });
+                            const deadline = Date.now() + delay;
+                            while (Date.now() < deadline) {
+                                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client)
+                                    throw new UiCommandCancelled("全项目结果重建已取消，未覆盖现有表格。");
+                                await sleep(Math.min(1000, deadline - Date.now()));
+                            }
+                        }
+                    }
+                }
+                catch (error) {
+                    issues.push(planFile + "：" + errorMessage(error));
+                    continue;
+                }
+                if (!summary?.workerResultTables?.some?.((row) => row.aggregateStatus === "ready"))
+                    continue;
+                try {
+                    registry = ProjectResultTables.updateRegistry(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
+                    included++;
+                }
+                catch (error) {
+                    issues.push(planFile + "：" + errorMessage(error));
+                }
+            }
+        });
+        if (!this.projectContextIsCurrent(context) || client !== this.client)
+            return;
+        if (issues.length)
+            throw new Error("全项目总表未覆盖；以下 Plan 需修复后重试：" + issues.slice(0, 5).join("；"));
+        if (!included)
+            throw new Error("没有已完成且可解析的 Plan；总表未改变。");
+        registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
+        await this.writeProjectTableRegistry(root, registry);
+        this.postState();
+        void vscode.window.showInformationMessage("已重建 " + included + " 个 Plan 的全项目最终结果表：experiments/results/final/final.csv");
+    }
+    async openLocalResultTableFromUi(message) {
+        const context = this.captureProjectContext();
+        if (!context.root)
+            throw new Error("请先打开当前实验项目。");
+        const name = String(message?.tableName || "");
+        const format = String(message?.format || "csv").toLowerCase();
+        if (!["csv", "md"].includes(format))
+            throw new Error("不支持的表格格式。");
+        const catalog = ProjectResultTables.tableCatalog(context.root, DEFAULT_RESULT_CSV_DIR);
+        if (!catalog.some((row) => row.name === name))
+            throw new Error("结果表不存在，请先重建全项目总表。");
+        await this.openWorkspaceFileForProjectContext(path.posix.join(DEFAULT_RESULT_CSV_DIR, name, name + "." + format), context, this.client);
+    }
+    async splitProjectResultTableFromUi(message) {
+        const context = this.captureProjectContext();
+        if (!context.root)
+            throw new Error("请先打开当前实验项目。");
+        const name = String(message?.tableName || "");
+        const table = ProjectResultTables.tableCatalog(context.root, DEFAULT_RESULT_CSV_DIR).find((row) => row.name === name);
+        if (!table)
+            throw new Error("请先选择已生成的总表或方法表。");
+        const field = String(message?.splitField || "");
+        const values = Array.isArray(message?.splitValues) ? message.splitValues.map(String) : [];
+        const columns = Array.isArray(message?.keepColumns) ? message.keepColumns.map(String) : [];
+        if (!table.header.includes(field) || values.some((value) => !table.values[field]?.includes(value)))
+            throw new Error("拆表列或词条不属于所选表格。");
+        const source = await fs.readFile(safeWorkspaceChildPath(context.root, table.path), "utf8");
+        const outputs = ProjectResultTables.splitCsvByValues(source, field, values, columns);
+        const folder = ProjectResultTables.safeTableName(field);
+        const paths = Object.keys(outputs).map((value) => path.posix.join(DEFAULT_RESULT_CSV_DIR, name, "by_" + folder, ProjectResultTables.safeTableName(value || "empty") + ".csv"));
+        if (new Set(paths.map((item) => item.toLowerCase())).size !== paths.length)
+            throw new Error("拆表词条对应同名文件，请调整选择。");
+        const targets = await Promise.all(paths.map((relative) => safeResultOutputPath(context.root, relative)));
+        const existing = (await Promise.all(targets.map((target) => fs.stat(target).then(() => true).catch(() => false)))).filter(Boolean).length;
+        if (existing) {
+            const answer = await vscode.window.showWarningMessage("将生成 " + targets.length + " 张子表，其中 " + existing + " 张已有同名文件。目标目录：" + path.posix.join(DEFAULT_RESULT_CSV_DIR, name, "by_" + folder), { modal: true }, "覆盖已有子表");
+            if (answer !== "覆盖已有子表")
+                throw new UiCommandCancelled("拆表已取消，文件未改变。");
+        }
+        if (!this.projectContextIsCurrent(context))
+            return;
+        for (const [index, value] of Object.keys(outputs).entries()) {
+            const target = targets[index];
+            await fs.mkdir(path.dirname(target), { recursive: true });
+            const temporary = target + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
+            await fs.writeFile(temporary, outputs[value], "utf8");
+            await fs.rename(temporary, target);
+        }
+        void vscode.window.showInformationMessage("已生成 " + paths.length + " 张子表，目录：" + path.posix.join(DEFAULT_RESULT_CSV_DIR, name, "by_" + folder));
     }
     async editResultColumnMappingFromUi() {
         const context = this.captureProjectContext();
@@ -12283,6 +12459,8 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.resultsSummary = summary;
+            if (planFile && summary?.workerResultTables?.some?.((row) => row.aggregateStatus === "ready"))
+                await this.updateProjectResultTablesFromSummary(summary, planFile).catch((error) => this.recordActionError({ command: "refreshResults", message: "全项目总表未更新：" + errorMessage(error), suggestion: "请核对原始结果的 case、seed 与 Worker 完整性。" }));
             this.lastError = undefined;
             this.lastResultsSummaryRealtimeErrorKey = "";
             this.lastResultsSummaryCapabilityWarningKey = "";
@@ -13603,6 +13781,12 @@ class RealtimeTunnelPanelProvider {
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
                 columnMapping: pluginProjectAdapterRules(workspaceRoot() || "").csvColumnMapping || {},
                 adapterRules: pluginProjectAdapterRules(workspaceRoot() || ""),
+                tables: (() => { try {
+                    return workspaceRoot() ? ProjectResultTables.tableCatalog(workspaceRoot(), DEFAULT_RESULT_CSV_DIR) : [];
+                }
+                catch {
+                    return [];
+                } })(),
             },
             detectedProject: webviewDetectedProject,
             plans: webviewPlans.plans,
@@ -22207,6 +22391,24 @@ function safeWorkspaceChildPath(root, file) {
         throw new Error(`只能访问工作区内文件：${file}`);
     return fullPath;
 }
+async function safeResultOutputPath(root, relative) {
+    const target = safeWorkspaceChildPath(root, relative);
+    const parts = path.relative(root, target).split(path.sep);
+    let current = root;
+    for (const [index, part] of parts.entries()) {
+        current = path.join(current, part);
+        const stat = await fs.lstat(current).catch((error) => {
+            if (error?.code === "ENOENT")
+                return undefined;
+            throw error;
+        });
+        if (!stat)
+            continue;
+        if (stat.isSymbolicLink() || (index < parts.length - 1 && !stat.isDirectory()) || (index === parts.length - 1 && !stat.isFile()))
+            throw new Error("结果目标含符号链接或非预期文件类型：" + relative);
+    }
+    return target;
+}
 async function existsAt(file) {
     try {
         await fs.access(file);
@@ -22329,38 +22531,36 @@ function remoteResultInspectionLocalRelativePath(remotePath, planFile, timestamp
     const stamp = String(timestamp || "").replace(/[^0-9]/g, "").slice(0, 14) || String(Date.now());
     return path.posix.join("simple_cluster", "downloads", "result_inspection", safePlanToken(planFile), `${name}__${remoteKey}__${stamp}${extension}`);
 }
-function resultArtifactLocalRelativePath(remotePath, planFile, summary, resultDir = DEFAULT_RESULT_CSV_DIR, workerId = "") {
+function methodResultArtifactLocalRelativePath(remotePath, planFile, summary, resultDir = DEFAULT_RESULT_CSV_DIR, workerId = "") {
     const normalized = normalizeRemoteResultInspectionPath(remotePath);
     if (!normalized)
         throw new Error("不支持的结果文件路径。");
     const base = normalizeResultCsvDir(resultDir);
+    const method = ProjectResultTables.methodForSummary(summary, planFile);
+    const plan = safePlanToken(path.posix.basename(planFile, path.posix.extname(planFile)));
     const worker = workerId ? safePlanToken(workerId) : "";
-    const targetDir = worker ? path.posix.join(base, worker) : base;
-    const planName = safePlanToken(path.posix.basename(planFile, path.posix.extname(planFile)));
-    const item = summary && typeof summary === "object" ? summary : {};
-    const tables = Array.isArray(item.workerResultTables) ? item.workerResultTables : [];
-    const ownerTable = tables.find((row) => String(row?.workerId || "").toLowerCase() === String(workerId || "").toLowerCase()) || {};
-    const matches = (key) => normalized === ownerTable[key] || normalized === item[key];
-    if (matches("aggregateCsvPath"))
-        return path.posix.join(targetDir, `${planName}_seed_mean_std.csv`);
-    if (matches("finalCsvPath"))
-        return path.posix.join(targetDir, `${planName}_final.csv`);
-    if (matches("finalMarkdownPath"))
-        return path.posix.join(targetDir, `${planName}_final.md`);
-    if (matches("projectAggregateCsvPath"))
-        return path.posix.join(targetDir, "project_seed_mean_std.csv");
-    if (matches("projectFinalCsvPath"))
-        return path.posix.join(targetDir, "project_final.csv");
-    if (matches("projectFinalMarkdownPath"))
-        return path.posix.join(targetDir, "project_final.md");
-    if (matches("rawResultCsvPath") && normalized.startsWith(`${base}/`) && !worker)
-        return normalized;
+    const folder = path.posix.join(base, method);
+    const target = (kind, file) => path.posix.join(folder, kind, ...(worker ? [worker] : []), file);
+    const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+    const owned = tables.find((row) => String(row?.workerId || "").toLowerCase() === String(workerId || "").toLowerCase()) || {};
+    const matches = (key) => normalized === owned[key] || normalized === summary?.[key];
     if (matches("rawResultCsvPath"))
-        return path.posix.join(targetDir, `${planName}_raw${path.posix.extname(normalized)}`);
+        return target("raw", plan + "_seed" + path.posix.extname(normalized));
+    if (matches("aggregateCsvPath"))
+        return target("detail", plan + "_seed_mean_std.csv");
+    if (matches("finalCsvPath"))
+        return target("trace", plan + "_final.csv");
+    if (matches("finalMarkdownPath"))
+        return target("trace", plan + "_final.md");
+    if (matches("projectAggregateCsvPath"))
+        return target("detail", "worker_project_seed_mean_std.csv");
+    if (matches("projectFinalCsvPath"))
+        return target("trace", "worker_project_final.csv");
+    if (matches("projectFinalMarkdownPath"))
+        return target("trace", "worker_project_final.md");
     const extension = path.posix.extname(normalized);
-    const name = safePlanToken(path.posix.basename(normalized, extension));
     const digest = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 8);
-    return path.posix.join(targetDir, `${planName}_${name}_${digest}${extension}`);
+    return target("trace", plan + "_" + safePlanToken(path.posix.basename(normalized, extension)) + "_" + digest + extension);
 }
 function remoteResultInspectionCandidates(operationGroups, planFile, planRevision = "", planUpdatedAt = "") {
     const selectedPlan = normalizePlanSelectionKey(planFile);
@@ -22451,8 +22651,13 @@ function resultSummaryInspectionCandidates(summary, planFile) {
     ].map(normalizeRemoteResultInspectionPath).filter(Boolean));
 }
 function resultSummarySyncCandidates(summary, planFile) {
-    const paths = resultSummaryInspectionCandidates(summary, planFile);
+    const inspected = new Set(resultSummaryInspectionCandidates(summary, planFile));
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+    const fields = ["rawResultCsvPath", "aggregateCsvPath", "finalCsvPath", "finalMarkdownPath"];
+    const paths = uniqueStrings([
+        ...fields.map((field) => summary?.[field]),
+        ...tables.flatMap((table) => fields.map((field) => table?.[field])),
+    ].filter((item) => inspected.has(item)));
     const owner = String(summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
     const entries = [];
     const seen = new Set();
@@ -22464,7 +22669,7 @@ function resultSummarySyncCandidates(summary, planFile) {
         }
     };
     for (const remotePath of paths) {
-        const matchingTables = tables.filter((table) => [table.rawResultCsvPath, table.aggregateCsvPath, table.projectAggregateCsvPath, table.finalCsvPath, table.finalMarkdownPath, table.projectFinalCsvPath, table.projectFinalMarkdownPath].includes(remotePath));
+        const matchingTables = tables.filter((table) => [table.rawResultCsvPath, table.aggregateCsvPath, table.finalCsvPath, table.finalMarkdownPath].includes(remotePath));
         if (matchingTables.length) {
             for (const table of matchingTables)
                 add(remotePath, table.workerId);

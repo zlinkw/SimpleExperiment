@@ -217,3 +217,8 @@
 - Added structured workflow blockers with operation/server IDs and evidence counts; `autoPrepare` remains behind explicit confirmation.
 - Expanded reconciliation evidence to Worker task snapshots, taught single-Worker stops to target synthetic requests, and added bounded SIGKILL escalation.
 - Merged concurrent result parsing across host-operation lease conflicts instead of opening a duplicate parse.
+## 0.5.35 (2026-09-20)
+
+- 全项目和各方法结果分别写入 experiments/results/final/ 与 experiments/results/<方法>/；跨 Worker 逐 seed 去重后重新计算均值和样本标准差。
+- 当前 Plan 的原始 seed、详细聚合及计算副本按方法放入 raw、detail、trace 子目录，批量同步仍限当前 Plan。
+- 结果区新增按列、搜索词条、手选或批量选择和保留列生成 CSV 子表；修复跨 Plan 查询没有传递 Plan 路径。

@@ -182,8 +182,8 @@ export class RealtimeTunnelClient {
     this.state = compactRealtimeState(this.state, { protectedLogKeys: this.protectedLogKeys });
   }
 
-  getResultsSummary(): Promise<unknown> {
-    return this.http.getResultsSummary();
+  getResultsSummary(planFile = ""): Promise<unknown> {
+    return this.http.getResultsSummary(planFile);
   }
 
   getDiagnostics(): Promise<unknown> {

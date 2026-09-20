@@ -87,7 +87,7 @@ export interface TunnelClient {
   getScheduler(): Promise<unknown>;
   getTraces(): Promise<unknown>;
   getLiveOutput(runKey: string, since?: number): Promise<unknown>;
-  getResultsSummary(): Promise<unknown>;
+  getResultsSummary(planFile?: string): Promise<unknown>;
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
   getOperation(operationId: string): Promise<unknown>;
@@ -205,8 +205,8 @@ export class HttpTunnelClient implements TunnelClient {
     return this.getPath(`/api/live-output?${params.toString()}`);
   }
 
-  getResultsSummary(): Promise<unknown> {
-    return this.getPath("/api/results/summary");
+  getResultsSummary(planFile = ""): Promise<unknown> {
+    return this.getPath("/api/results/summary" + (planFile ? "?planFile=" + encodeURIComponent(planFile) : ""));
   }
 
   getDiagnostics(): Promise<unknown> {
