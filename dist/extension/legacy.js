@@ -6247,40 +6247,6 @@ class RealtimeTunnelPanelProvider {
         const host = String(target.localForwardHost || target.localHost || "127.0.0.1").trim() || "127.0.0.1";
         return `http://${host}:${target.localForwardPort}`;
     }
-    async killRemoteAgentAndTmux() {
-        let targets = [];
-        try {
-            targets = this.agentRuntimeUploadTargets();
-        }
-        catch {
-            return;
-        }
-        if (!targets.length)
-            return;
-        const token = this.tunnelConfig && this.tunnelConfig.token;
-        for (const target of targets) {
-            const port = target.localForwardPort;
-            if (!port)
-                continue;
-            const base = this.resolveAgentBase(target);
-            const headers = token ? { "X-Simple-Agent-Token": String(token), "Content-Type": "application/json" } : { "Content-Type": "application/json" };
-            try {
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 6000);
-                timer.unref?.();
-                await fetch(`${base}/api/admin/kill-stale-runtime`, { method: "POST", headers, body: JSON.stringify({}), signal: controller.signal });
-                clearTimeout(timer);
-            }
-            catch { }
-            // fallback via local tmux if tunnel not reachable (best-effort, ignore errors)
-            try {
-                const fallbackCmd = `for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^((zlk|simple)-worker-.*-agent|.*sch-.*|(simple|zlk)-gpu-.*)' || true); do tmux kill-session -t "$s" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true`;
-                // no local exec needed – remote kill already attempted
-            }
-            catch { }
-        }
-        // P0 fix: remove fixed 800ms wait, parallel with deploy
-    }
     async ensureRemoteAgentVersionConsistent() {
         let result;
         try {
@@ -6291,15 +6257,14 @@ class RealtimeTunnelPanelProvider {
             throw err;
         }
         if (result && Array.isArray(result.fatal) && result.fatal.length) {
-            // P0 fix: background async, do not block withHostOperationLease
-            void this.killRemoteAgentAndTmux().catch(() => undefined);
+            // 版本差异不能自动清理调度器或 GPU tmux；用户需通过 Agent 准备流程仅重启 Agent 会话。
             void this.deployLatestAgentRuntime(false, true).catch(() => undefined);
             try {
                 this.lastHealth = {
                     state: "agent_restart_required",
                     status: "verifying",
                     checkedAt: new Date().toISOString(),
-                    message: "新版已部署，后台校验中（15s 内完成），请稍后点击“检测全部”验证。",
+                    message: "Agent 文件已更新；请通过“准备 Agent 并启动”重启 Agent 会话，再点击“检测全部”。训练与故障 tmux 保留。",
                     fatal: result.fatal,
                 };
                 this.postState();
