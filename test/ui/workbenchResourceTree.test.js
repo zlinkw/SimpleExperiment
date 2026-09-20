@@ -18,6 +18,17 @@ function between(source, start, end) {
   return endIndex < 0 ? source.slice(startIndex) : source.slice(startIndex, endIndex);
 }
 
+test("card decoration gives each collapse button its section id", () => {
+  const source = between(panelSource(), "    function decorateCards() {", "    function decorateCommandTooltips() {");
+  assert.ok(source);
+  const head = { tools: null, querySelector: () => head.tools, appendChild(node) { head.tools = node; } };
+  const card = { dataset: { section: "results" }, classList: { contains: () => false }, querySelector: () => head };
+  const document = { querySelectorAll: () => [card], createElement: () => ({ dataset: {}, innerHTML: "" }) };
+  vm.runInNewContext(source + "decorateCards()", { document, layoutEdit: false, escAttr: value => value });
+  assert.match(head.tools.innerHTML, /data-collapse-section="results"/);
+  assert.doesNotMatch(head.tools.innerHTML, /title="[^"]+"="results"/);
+});
+
 test("panel uses draggable three column workbench with searchable resource tree", () => {
   const source = panelSource();
 

@@ -4861,7 +4861,7 @@ export function renderPanelHtml(): string {
           tools.dataset.cardToolsSig = nextSig;
           tools.innerHTML =
             '<span class="dragHandle" draggable="true" title="拖动排序">拖动</span>' +
-            '<button class="collapseBtn" type="button" data-collapse-section title="折叠或展开该卡片（按当前状态自动切换）"="' + escAttr(section) + '">' + (collapsed ? "展开" : "折叠") + '</button>';
+            '<button class="collapseBtn" type="button" data-collapse-section="' + escAttr(section) + '" title="折叠或展开该卡片（按当前状态自动切换）">' + (collapsed ? "展开" : "折叠") + '</button>';
         }
         card.draggable = layoutEdit;
       });
