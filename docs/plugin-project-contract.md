@@ -214,6 +214,8 @@ experiment_id,suite,method,dataset,split,seed,metric,value
 
 新项目在面板“设置 > 结果列映射”中选取 CSV 身份列，在“设置 > 输出接入规则”中配置候选结果、日志和指标别名。插件将规则保存在工作区 `simpleExperiment.projectAdapterRules` 设置中，并经 Agent 隧道同步到 Agent 自有状态目录；项目无需存在 `experiments/simple_project.yaml`。远端自动汇总从 Agent 状态读取同一规则，关闭本机不会丢失。
 
+结果区就地映射表单支持 case、seed、方法、数据集、训练比例与评估端点。结果 CSV 可为“每行一个指标”的长表，也可为“每行一组指标”的宽表；case 和 seed 必须能与当前 Plan 对应。简洁表以方法、数据集、比例、端点为主身份，端点必须分行；同名行会补充 case 等维度。额外派生指标必须在插件设置中明确配置同 seed 的左右端点与指标，默认关闭。插件输出当前 Plan 的 `final.csv`、`final.md` 和保留追溯信息的 `seed_mean_std.csv`，不改写项目原始表。
+
 下面的 YAML 仅用于旧项目兼容；已有文件仍会读取，但插件设置优先。插件不会在准备项目或校验 Plan 时自动创建它。
 
 ```yaml

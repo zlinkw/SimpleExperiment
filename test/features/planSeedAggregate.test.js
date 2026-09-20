@@ -92,6 +92,60 @@ test("Plan summary uses declared raw CSV, computes sample SD, and marks missing 
   assert.equal(payload.missingStatus, "mapping_required");
 });
 
+test("final result separates evaluation endpoints and keeps the detailed table", () => {
+  const source = readSource("src/clusterAgentRuntime.ts");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-plan-final-"));
+  const agentPath = path.join(tmp, "cluster_agent.py");
+  fs.writeFileSync(agentPath, source.slice(source.indexOf("#!/usr/bin/env python3"), source.lastIndexOf("`;")), "utf8");
+  const root = path.join(tmp, "project");
+  fs.mkdirSync(path.join(root, "experiments", "plans"), { recursive: true });
+  fs.mkdirSync(path.join(root, "experiments", "results"), { recursive: true });
+  fs.writeFileSync(path.join(root, "experiments", "plans", "demo.yaml"), "suite: demo\nseeds: [42, 43]\npaper:\n  result_csv: experiments/results/raw.csv\ncases:\n  - case: alpha\n", "utf8");
+  const rows = ["experiment_id,case,seed,method,dataset,train_rate,eval_protocol,metric,value"];
+  for (const [seed, clean, low] of [[42, 0.8, 0.6], [43, 0.9, 0.7]]) {
+    for (const [endpoint, value] of [["clean", clean], ["p100_low", low]]) {
+      rows.push(`alpha_${seed},alpha,${seed},demo,dataset_x,0.3,${endpoint},balanced_accuracy,${value}`);
+    }
+  }
+  fs.writeFileSync(path.join(root, "experiments", "results", "raw.csv"), rows.join("\n") + "\n", "utf8");
+  const script = path.join(tmp, "check.py");
+  fs.writeFileSync(script, [
+    "import importlib.util, json, csv",
+    `spec = importlib.util.spec_from_file_location('agent', ${JSON.stringify(agentPath)})`,
+    "agent = importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(agent)",
+    `root = ${JSON.stringify(root)}`,
+    "plan = 'experiments/plans/demo.yaml'",
+    "plain = agent.parse_results_action(root, plan=plan)",
+    "plain_rows = list(csv.DictReader(open(agent.safe_project_path(root, plain['finalCsvPath']), encoding='utf-8')))",
+    "agent.handle_action(root, 'save-result-policy', {'options': {'projectAdapterRules': {'derivedMetric': {'metric': 'balanced_accuracy', 'leftEndpoint': 'clean', 'rightEndpoint': 'p100_low', 'scale': 100, 'outputName': 'balanced_accuracy_drop_pp'}}}}, 'policy', 'policy')",
+    "summary = agent.parse_results_action(root, plan=plan)",
+    "final = list(csv.DictReader(open(agent.safe_project_path(root, summary['finalCsvPath']), encoding='utf-8')))",
+    "detail = list(csv.DictReader(open(agent.safe_project_path(root, summary['aggregateCsvPath']), encoding='utf-8')))",
+    "markdown = open(agent.safe_project_path(root, summary['finalMarkdownPath']), encoding='utf-8').read()",
+    "project_final = list(csv.DictReader(open(agent.safe_project_path(root, summary['projectFinalCsvPath']), encoding='utf-8')))",
+    "print(json.dumps({'plain': plain_rows, 'final': final, 'detail': detail, 'markdown': markdown, 'finalPath': summary['finalCsvPath'], 'projectFinal': project_final}))",
+  ].join("\n"), "utf8");
+  const result = spawnSync("python", [script], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).pop());
+  assert.equal(payload.plain.length, 2);
+  assert.equal(payload.plain[0].rate_percent, "30");
+  assert.equal(payload.plain[0].jobs, "2");
+  assert.equal(Object.keys(payload.plain[0]).some((key) => key.includes("drop_pp")), false);
+  assert.equal(payload.final.length, 2);
+  assert.equal(payload.projectFinal.length, 2);
+  assert.equal(payload.projectFinal[0].plan_file, "experiments/plans/demo.yaml");
+  assert.equal(payload.detail.length, 2);
+  assert.deepEqual(payload.final.map((row) => row.eval_protocol), ["clean", "p100_low"]);
+  assert.ok(Math.abs(Number(payload.final[0].balanced_accuracy_mean) - 0.85) < 1e-12);
+  assert.ok(Math.abs(Number(payload.final[1].balanced_accuracy_mean) - 0.65) < 1e-12);
+  assert.ok(Math.abs(Number(payload.final[0].balanced_accuracy_drop_pp_mean) - 20) < 1e-8);
+  assert.equal(payload.final[0].balanced_accuracy_drop_pp_mean, payload.final[1].balanced_accuracy_drop_pp_mean);
+  assert.match(payload.markdown, /0\.8500 ± 0\.0707/);
+  assert.match(payload.finalPath, /\/final\.csv$/);
+});
+
 test("single Worker summary keeps file links and multi Worker summary keeps ownership", () => {
   const { mergeWorkerResultsSummaries } = require("../../dist/tunnel/MultiEndpointRealtimeClient");
   const planFile = "experiments/plans/demo.yaml";

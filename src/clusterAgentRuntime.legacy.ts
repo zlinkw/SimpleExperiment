@@ -5166,6 +5166,10 @@ def row_dimension_value(row, key):
         "fold": ("fold", "Fold", "cv_fold", "cvFold"),
         "seed": ("seed", "Seed", "random_seed", "randomSeed"),
         "case": ("case", "Case", "case_name", "caseName", "case_id", "caseId"),
+        "eval_protocol": ("eval_protocol", "evaluation_protocol", "test_endpoint", "endpoint"),
+        "rate_percent": ("rate_percent", "train_rate_percent"),
+        "train_rate": ("train_rate", "training_rate"),
+        "result_family": ("result_family", "family"),
         "model": ("model", "Model", "model_name", "modelName"),
         "tag": ("tag", "Tag", "label", "variant"),
         "suite": ("suite", "Suite", "study", "Study"),
@@ -5182,7 +5186,7 @@ def record_identity(source_rel, row, index=0):
     run_key = str(row.get("run_key") or row.get("runKey") or row.get("run") or "").strip()
     if not experiment_id:
         dimension_parts = []
-        for key in ("suite", "method", "dataset", "split", "fold", "seed", "case", "case_name", "model", "tag"):
+        for key in ("suite", "method", "dataset", "split", "fold", "seed", "case", "case_name", "eval_protocol", "rate_percent", "train_rate", "model", "tag"):
             value = row_dimension_value(row, "case" if key == "case_name" else key) or row.get(key) or row.get(str(key).capitalize())
             if value not in (None, ""):
                 dimension_parts.append(f"{key}={value}")
@@ -5196,7 +5200,7 @@ def make_result_record(source_rel, row, metrics, index=0):
     now = now_iso()
     suite = str(row_dimension_value(row, "suite") or row.get("study") or (source_rel.split("/")[1] if "/" in source_rel else "default"))
     dimensions = {}
-    for key in ("method", "dataset", "split", "fold", "seed", "case", "model", "tag"):
+    for key in ("method", "dataset", "split", "fold", "seed", "case", "model", "tag", "eval_protocol", "rate_percent", "train_rate", "result_family"):
         value = row_dimension_value(row, key)
         if value not in (None, ""):
             dimensions[key] = coerce_metric_value(value) if key in ("fold", "seed") else str(value)
@@ -5253,7 +5257,7 @@ def parse_csv_result_file(root, source_rel, policy=None):
         if wanted and wanted.lower() in lower_headers:
             return lower_headers[wanted.lower()]
         return next((lower_headers.get(item) for item in fallbacks if lower_headers.get(item)), None)
-    dimension_columns = {name: mapped_col(name, [name, name + "_name", name + "_id", "random_seed" if name == "seed" else name]) for name in ("case", "seed", "split", "dataset", "method")}
+    dimension_columns = {name: mapped_col(name, [name, name + "_name", name + "_id", "random_seed" if name == "seed" else name]) for name in ("case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "result_family")}
     def canonical_row(row):
         result = dict(row)
         for name, column in dimension_columns.items():
@@ -5272,7 +5276,7 @@ def parse_csv_result_file(root, source_rel, policy=None):
                 continue
             row = canonical_row(row)
             experiment_id, run_key = record_identity(source_rel, row, i)
-            key = (experiment_id, run_key)
+            key = (experiment_id, run_key, *(str(row_dimension_value(row, name) or "") for name in ("case", "seed", "dataset", "method", "eval_protocol", "rate_percent", "train_rate")))
             item = grouped.setdefault(key, {"row": row, "metrics": {}, "index": i})
             item["metrics"][metric] = metric_value(value, metric, value_col, source_rel)
         for item in grouped.values():
@@ -5613,7 +5617,7 @@ def result_column_mapping_preview(root, source, policy):
         return {"source": source, "headers": [], "mapping": {}}
     lookup = {str(header).lower(): header for header in headers}
     configured = policy.get("csvColumnMapping") or {}
-    defaults = {"case": ("case", "case_name", "case_id"), "seed": ("seed", "random_seed"), "split": ("split", "partition"), "dataset": ("dataset", "data_name"), "method": ("method", "model_name"), "metric": ("metric", "metric_name"), "value": ("value", "score", "result")}
+    defaults = {"case": ("case", "case_name", "case_id"), "seed": ("seed", "random_seed"), "split": ("split", "partition"), "dataset": ("dataset", "data_name"), "method": ("method", "model_name"), "eval_protocol": ("eval_protocol", "evaluation_protocol", "test_endpoint", "endpoint"), "rate_percent": ("rate_percent", "train_rate_percent"), "train_rate": ("train_rate", "training_rate"), "metric": ("metric", "metric_name"), "value": ("value", "score", "result")}
     mapping = {}
     for name, aliases in defaults.items():
         preferred = str(configured.get(name) or "").lower()
@@ -5655,6 +5659,185 @@ def write_project_seed_aggregate(root, current_summary=None):
         headers = ["plan_file", "case", "expected_seed_count", "available_seeds", "complete"]
     write_atomic_csv(safe_project_path(root, output), headers, [[row.get(header, "") for header in headers] for row in rows])
     return output
+
+def final_rate_percent(dimensions):
+    raw = str(dimensions.get("rate_percent") or dimensions.get("train_rate") or "").strip().rstrip("%")
+    if not raw:
+        return ""
+    try:
+        number = float(raw)
+        if not math.isfinite(number):
+            return ""
+        from_fraction = bool(dimensions.get("train_rate")) and (not dimensions.get("rate_percent") or str(dimensions.get("rate_percent")) == str(dimensions.get("train_rate")))
+        if from_fraction and 0 <= number <= 1:
+            number *= 100
+        return str(int(number)) if number.is_integer() else format(number, ".8g")
+    except (TypeError, ValueError, OverflowError):
+        return raw
+
+def final_metric_label(metric):
+    preferred = {"AUC": "roc_auc", "AUPRC": "auprc", "F1": "f1_score", "ECE": "ece", "brier": "brier_score"}
+    raw = preferred.get(str(metric), str(metric))
+    return re.sub(r"(?u)[^\w]+", "_", raw).strip("_").lower() or "metric"
+
+def write_atomic_text(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as stream:
+        stream.write(content)
+    os.replace(tmp, path)
+
+def result_markdown_table(headers, rows, title, notes=None):
+    escape = lambda value: str(value if value is not None else "").replace("|", chr(92) + "|").replace("\n", " ").replace("\r", " ")
+    lines = [f"# {title}", "", *(notes or []), "", "| " + " | ".join(escape(header) for header in headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
+    for row in rows:
+        lines.append("| " + " | ".join(escape(value) for value in row) + " |")
+    return "\n".join(lines) + "\n"
+
+def write_plan_final_summary(root, summary, policy, group_keys, groups, metric_names, expected_seeds):
+    plan = normalize_result_candidate(summary.get("planFile") or "")
+    derived = policy.get("derivedMetric") if isinstance(policy.get("derivedMetric"), dict) else {}
+    derived_metric = metric_name(derived.get("metric"), policy.get("metricAliases") or {}) if derived else ""
+    left, right = str(derived.get("leftEndpoint") or "").strip(), str(derived.get("rightEndpoint") or "").strip()
+    scale = float(derived.get("scale") or 1) if derived else 1
+    derived_name = str(derived.get("outputName") or "").strip() if derived else ""
+    if not (derived_metric and left and right and derived_name and "eval_protocol" in group_keys):
+        derived_metric = ""
+    metric_labels = {}
+    used_labels = set()
+    for metric in metric_names:
+        label = final_metric_label(metric)
+        original = label
+        suffix = 2
+        while label in used_labels:
+            label = f"{original}_{suffix}"
+            suffix += 1
+        used_labels.add(label)
+        metric_labels[metric] = label
+    if derived_metric:
+        derived_name = final_metric_label(derived_name)
+        if derived_name in used_labels:
+            raise ValueError("派生指标列名与已有指标重复，请修改输出列名。")
+    entries = []
+    for key, seeds in sorted(groups.items()):
+        dims = dict(zip(group_keys, key))
+        expected = len(expected_seeds) if expected_seeds else len(seeds)
+        counts = [sum(metric in values for values in seeds.values()) for metric in metric_names]
+        present_counts = [count for count in counts if count]
+        jobs = min(present_counts) if present_counts else len(seeds)
+        jobs_text = str(jobs) if jobs == expected else f"{jobs}/{expected}"
+        entries.append({"key": key, "dims": dims, "seeds": seeds, "jobs": jobs_text})
+    def entry_order(entry):
+        dims = entry["dims"]
+        rate = final_rate_percent(dims)
+        try:
+            rate_order = (0, float(rate))
+        except (TypeError, ValueError):
+            rate_order = (1, rate)
+        return (str(dims.get("result_family") or dims.get("method") or ""), str(dims.get("dataset") or ""), rate_order, str(dims.get("eval_protocol") or ""), str(dims.get("case") or ""))
+    entries.sort(key=entry_order)
+    display_fields = ["result_family"] + [name for name in ("dataset", "rate_percent", "eval_protocol") if any((entry["dims"].get(name) if name != "rate_percent" else final_rate_percent(entry["dims"])) for entry in entries)]
+    def display_value(entry, name):
+        dims = entry["dims"]
+        if name == "result_family":
+            return dims.get("result_family") or dims.get("method") or os.path.splitext(os.path.basename(plan))[0]
+        return final_rate_percent(dims) if name == "rate_percent" else dims.get(name, "")
+    for extra in ("case", "split", "fold", "model", "tag"):
+        identity = [tuple(display_value(entry, name) for name in display_fields) for entry in entries]
+        if len(identity) == len(set(identity)):
+            break
+        if extra in group_keys and extra not in display_fields:
+            display_fields.append(extra)
+    identity = [tuple(display_value(entry, name) for name in display_fields) for entry in entries]
+    if len(identity) != len(set(identity)):
+        raise ValueError("简洁表存在无法区分的行；请检查 Plan case 和结果维度。")
+    paired = {}
+    if derived_metric:
+        endpoint_index = group_keys.index("eval_protocol")
+        for entry in entries:
+            shared = entry["key"][:endpoint_index] + entry["key"][endpoint_index + 1:]
+            paired[(shared, entry["dims"].get("eval_protocol"))] = entry["seeds"]
+    header = [*display_fields, "jobs"]
+    for metric in metric_names:
+        header.extend((metric_labels[metric] + "_mean", metric_labels[metric] + "_sd"))
+    if derived_metric:
+        header.extend((derived_name + "_mean", derived_name + "_sd"))
+    rows = []
+    markdown_rows = []
+    for entry in entries:
+        row = [*(display_value(entry, name) for name in display_fields), entry["jobs"]]
+        md_row = list(row)
+        for metric in metric_names:
+            values = [values[metric] for values in entry["seeds"].values() if metric in values]
+            mean = statistics.mean(values) if values else ""
+            sd = statistics.stdev(values) if len(values) > 1 else ""
+            row.extend((mean, sd))
+            md_row.append((f"{mean:.4f} ± {sd:.4f}" if sd != "" else f"{mean:.4f}" if mean != "" else "—"))
+        if derived_metric:
+            endpoint_index = group_keys.index("eval_protocol")
+            shared = entry["key"][:endpoint_index] + entry["key"][endpoint_index + 1:]
+            left_seeds = paired.get((shared, left), {})
+            right_seeds = paired.get((shared, right), {})
+            values = [(left_seeds[seed][derived_metric] - right_seeds[seed][derived_metric]) * scale for seed in left_seeds.keys() & right_seeds.keys() if derived_metric in left_seeds[seed] and derived_metric in right_seeds[seed]]
+            mean = statistics.mean(values) if values else ""
+            sd = statistics.stdev(values) if len(values) > 1 else ""
+            row.extend((mean, sd))
+            md_row.append((f"{mean:.4f} ± {sd:.4f}" if sd != "" else f"{mean:.4f}" if mean != "" else "—"))
+        rows.append(row)
+        markdown_rows.append(md_row)
+    csv_rel = plan_results_artifact_relpath(plan, "final.csv")
+    md_rel = plan_results_artifact_relpath(plan, "final.md")
+    write_atomic_csv(safe_project_path(root, csv_rel), header, rows)
+    md_headers = [*display_fields, "jobs", *(metric_labels[metric] for metric in metric_names), *([derived_name] if derived_metric else [])]
+    notes = [f"Plan: {plan}. Rows: {len(rows)}. CSV keeps full precision; this table shows four decimals.", "", "Incomplete jobs values use available/expected seeds. Per-metric counts remain in seed_mean_std.csv."]
+    if derived_metric:
+        notes.extend(["", f"Derived {derived_name}: same-seed {left} minus {right} for {derived_metric}, multiplied by {scale:g}."])
+    write_atomic_text(safe_project_path(root, md_rel), result_markdown_table(md_headers, markdown_rows, f"{os.path.splitext(os.path.basename(plan))[0]} final results", notes))
+    summary["finalCsvPath"] = csv_rel
+    summary["finalMarkdownPath"] = md_rel
+    summary["finalRowCount"] = len(rows)
+
+def write_project_final_summary(root, current_summary=None):
+    parent = safe_project_path(root, "simple_cluster/results/by_plan")
+    headers, rows = ["plan_file"], []
+    if os.path.isdir(parent):
+        for slug in sorted(os.listdir(parent))[:500]:
+            source_rel = f"simple_cluster/results/by_plan/{slug}/final.csv"
+            source = safe_project_path(root, source_rel)
+            saved = current_summary if plan_summary_slug((current_summary or {}).get("planFile")) == slug else read_json(os.path.join(parent, slug, "summary.json"), {})
+            if not isinstance(saved, dict) or saved.get("aggregateStatus") != "ready" or saved.get("finalCsvPath") != source_rel:
+                continue
+            if not os.path.isfile(source) or os.path.islink(source) or not safe_small_file(source):
+                continue
+            with open(source, "r", encoding="utf-8", newline="") as stream:
+                reader = csv.DictReader(stream)
+                for header in reader.fieldnames or []:
+                    if header not in headers and header != "plan_file":
+                        headers.append(header)
+                for row in reader:
+                    if len(rows) >= 50000:
+                        break
+                    rows.append({"plan_file": saved.get("planFile") or "", **row})
+    csv_rel = "simple_cluster/results/project_final.csv"
+    md_rel = "simple_cluster/results/project_final.md"
+    write_atomic_csv(safe_project_path(root, csv_rel), headers, [[row.get(header, "") for header in headers] for row in rows])
+    markdown_headers = [header[:-5] if header.endswith("_mean") and header[:-5] + "_sd" in headers else header for header in headers if not header.endswith("_sd")]
+    markdown_rows = []
+    for row in rows:
+        cells = []
+        for header in headers:
+            if header.endswith("_sd"):
+                continue
+            value = row.get(header, "")
+            if header.endswith("_mean") and header[:-5] + "_sd" in headers:
+                try:
+                    value = f"{float(value):.4f} ± {float(row[header[:-5] + '_sd']):.4f}" if row.get(header[:-5] + "_sd") else f"{float(value):.4f}"
+                except (TypeError, ValueError):
+                    value = "—" if not value else str(value)
+            cells.append(value)
+        markdown_rows.append(cells)
+    write_atomic_text(safe_project_path(root, md_rel), result_markdown_table(markdown_headers, markdown_rows, "Project final results", ["CSV keeps full precision; this table shows four decimals."]))
+    return csv_rel, md_rel
 
 def write_plan_seed_aggregate(root, summary, policy):
     plan = normalize_result_candidate(summary.get("planFile") or "")
@@ -5700,7 +5883,7 @@ def write_plan_seed_aggregate(root, summary, policy):
         summary["aggregateStatus"] = "no_matching_rows"
         summary["aggregateMessage"] = "原始表没有与当前 Plan case/seed 对应的有效指标。"
         return
-    group_keys = ("case", "dataset", "split", "fold", "method")
+    group_keys = ("case", "dataset", "split", "fold", "method") + tuple(name for name in ("eval_protocol", "rate_percent", "train_rate", "result_family", "model", "tag") if any((record.get("dimensions") or {}).get(name) not in (None, "") for record in relevant))
     groups = {}
     metric_names = set()
     for record in relevant:
@@ -5737,6 +5920,7 @@ def write_plan_seed_aggregate(root, summary, policy):
     summary["aggregateRowCount"] = len(rows)
     summary["aggregateIncompleteCount"] = sum(row[header.index("complete")] == "incomplete" for row in rows)
     summary["aggregateMessage"] = f"已生成 {len(rows)} 行；不完整 {summary['aggregateIncompleteCount']} 行。"
+    write_plan_final_summary(root, summary, policy, group_keys, groups, metric_names, expected_seeds)
 
 def archive_plan_copy_action(root, plan, snapshot_name=""):
     plan = normalize_result_candidate(plan)
@@ -5809,6 +5993,8 @@ def archive_plan_copy_action(root, plan, snapshot_name=""):
     if os.path.isfile(os.path.join(root, "experiments", "simple_project.yaml")):
         add("experiments/simple_project.yaml")
     add(summary.get("aggregateCsvPath"), required=True)
+    add(summary.get("finalCsvPath"))
+    add(summary.get("finalMarkdownPath"))
     for field in ("summaryPath", "previewCsvPath"):
         add(summary.get(field))
     if raw_source:
@@ -5892,6 +6078,8 @@ def write_results_summary_v2(root, summary):
         write_result_csv_views(root, summary, plan)
         if plan:
             summary["projectAggregateCsvPath"] = write_project_seed_aggregate(root, summary)
+            if summary.get("aggregateStatus") == "ready" and summary.get("finalCsvPath"):
+                summary["projectFinalCsvPath"], summary["projectFinalMarkdownPath"] = write_project_final_summary(root, summary)
     target = safe_project_path(root, summary_rel)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, summary)
@@ -6778,6 +6966,7 @@ def read_project_metric_policy(root):
         "textLogs": [],
         "metricRegex": "",
         "csvColumnMapping": {},
+        "derivedMetric": {},
         "metricAliases": {},
         "summaryCsv": "metrics_summary.csv",
         "caseCsv": "metrics_case.csv",
@@ -6831,7 +7020,10 @@ def read_project_metric_policy(root):
                 policy[key] = [value.strip() for value in values if isinstance(value, str) and value.strip()][:100]
         mapping = plugin_policy.get("csvColumnMapping")
         if isinstance(mapping, dict):
-            policy["csvColumnMapping"] = {key: value.strip() for key, value in mapping.items() if key in ("case", "seed", "split", "dataset", "method", "metric", "value") and isinstance(value, str) and value.strip()}
+            policy["csvColumnMapping"] = {key: value.strip() for key, value in mapping.items() if key in ("case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value") and isinstance(value, str) and value.strip()}
+        derived = plugin_policy.get("derivedMetric")
+        if isinstance(derived, dict) and all(derived.get(key) for key in ("metric", "leftEndpoint", "rightEndpoint", "outputName")) and derived.get("scale") in (1, 100):
+            policy["derivedMetric"] = derived
         aliases = plugin_policy.get("metricAliases")
         if isinstance(aliases, dict):
             policy["metricAliases"] = {str(key): metric_name(value) for key, value in aliases.items() if isinstance(value, str) and value.strip()}
@@ -9856,13 +10048,13 @@ def handle_action(root, action, payload, operation_id, op_id):
             mapping = rules.get("csvColumnMapping") or {}
             if not isinstance(mapping, dict):
                 raise ValueError("csvColumnMapping must be an object")
-            allowed = ("case", "seed", "split", "dataset", "method", "metric", "value")
-            if any(key not in allowed or not isinstance(value, str) or len(value) > 120 or any(ch in value for ch in "\r\n\0") for key, value in mapping.items()):
+            allowed = ("case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value")
+            if any(key not in allowed or not isinstance(value, str) or len(value) > 120 or any(ch in value for ch in (chr(13), chr(10), chr(0))) for key, value in mapping.items()):
                 raise ValueError("invalid csvColumnMapping field")
             allowed_lists = ("secondaryMetrics", "classificationMetrics", "segmentationMetrics", "candidateCsv", "candidateJson", "consoleLogs", "textLogs")
             allowed_text = ("taskType", "primaryMetric", "metricRegex", "summaryCsv", "caseCsv")
             allowed_maps = ("metricAliases",)
-            if any(key not in (*allowed_lists, *allowed_text, *allowed_maps, "csvColumnMapping") for key in rules):
+            if any(key not in (*allowed_lists, *allowed_text, *allowed_maps, "csvColumnMapping", "derivedMetric") for key in rules):
                 raise ValueError("invalid projectAdapterRules field")
             if any(not isinstance(rules.get(key), list) or len(rules[key]) > 100 or any(not isinstance(item, str) or len(item) > 240 for item in rules[key]) for key in allowed_lists if key in rules):
                 raise ValueError("invalid result policy list")
@@ -9871,10 +10063,14 @@ def handle_action(root, action, payload, operation_id, op_id):
             aliases = rules.get("metricAliases") or {}
             if not isinstance(aliases, dict) or len(aliases) > 200 or any(not isinstance(key, str) or not isinstance(value, str) or len(key) > 120 or len(value) > 120 for key, value in aliases.items()):
                 raise ValueError("invalid metric aliases")
+            derived = rules.get("derivedMetric") or {}
+            if not isinstance(derived, dict) or (derived and (set(derived) != {"metric", "leftEndpoint", "rightEndpoint", "scale", "outputName"} or derived.get("scale") not in (1, 100) or any(not isinstance(derived.get(key), str) or not derived[key].strip() or len(derived[key]) > 120 or any(ch in derived[key] for ch in (chr(13), chr(10), chr(0))) for key in ("metric", "leftEndpoint", "rightEndpoint", "outputName")) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", derived["outputName"]))):
+                raise ValueError("invalid derivedMetric configuration")
             target = path_for(root, "result_policy.json")
             saved = {key: rules[key] for key in (*allowed_lists, *allowed_text, *allowed_maps) if key in rules}
             saved["schemaVersion"] = 1
             saved["csvColumnMapping"] = {key: mapping[key].strip() for key in allowed if mapping.get(key, "").strip()}
+            saved["derivedMetric"] = derived
             atomic_write(target, saved)
             return terminal_action(root, action, operation_id, op_id, "completed", "结果接入规则已保存到 Agent 配置", {"csvColumnMapping": saved["csvColumnMapping"]}, request=payload)
         except Exception as exc:

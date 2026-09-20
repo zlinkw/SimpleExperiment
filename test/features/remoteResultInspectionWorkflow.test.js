@@ -75,6 +75,7 @@ test("remote result inspection accepts only lightweight project files", () => {
     "reports/run/summary.txt",
     "logs/run/stdout.log",
     "artifacts/eval/output.out",
+    "simple_cluster/results/by_plan/demo/final.md",
   ]) {
     assert.equal(helpers.normalizeRemoteResultInspectionPath(file), file);
   }
@@ -92,10 +93,18 @@ test("result buttons sync to project results directory with stable Plan and Work
     rawResultCsvPath: "experiments/results/concatenation.csv",
     aggregateCsvPath: "simple_cluster/results/by_plan/concatenation/seed_mean_std.csv",
     projectAggregateCsvPath: "simple_cluster/results/project_seed_mean_std.csv",
+    finalCsvPath: "simple_cluster/results/by_plan/concatenation/final.csv",
+    finalMarkdownPath: "simple_cluster/results/by_plan/concatenation/final.md",
+    projectFinalCsvPath: "simple_cluster/results/project_final.csv",
+    projectFinalMarkdownPath: "simple_cluster/results/project_final.md",
   };
   assert.equal(target(summary.rawResultCsvPath, plan, summary), "experiments/results/concatenation.csv");
   assert.equal(target(summary.aggregateCsvPath, plan, summary), "experiments/results/concatenation_seed_mean_std.csv");
   assert.equal(target(summary.projectAggregateCsvPath, plan, summary), "experiments/results/project_seed_mean_std.csv");
+  assert.equal(target(summary.finalCsvPath, plan, summary), "experiments/results/concatenation_final.csv");
+  assert.equal(target(summary.finalMarkdownPath, plan, summary), "experiments/results/concatenation_final.md");
+  assert.equal(target(summary.projectFinalCsvPath, plan, summary), "experiments/results/project_final.csv");
+  assert.equal(target(summary.projectFinalMarkdownPath, plan, summary), "experiments/results/project_final.md");
   assert.equal(target(summary.aggregateCsvPath, plan, { workerResultTables: [{ workerId: "nwpu3", aggregateCsvPath: summary.aggregateCsvPath }] }, "experiments/results", "nwpu3"), "experiments/results/nwpu3/concatenation_seed_mean_std.csv");
   assert.match(target("simple_cluster/results/effective.csv", plan, summary), /^experiments\/results\/concatenation_effective_[a-f0-9]{8}\.csv$/);
 });
@@ -105,13 +114,15 @@ test("bulk sync keeps current Plan scope and separates identical paths from diff
   const plan = "experiments/plans/comparison/concatenation.yaml";
   const raw = "experiments/results/concatenation.csv";
   const aggregate = "simple_cluster/results/by_plan/concatenation/seed_mean_std.csv";
+  const finalCsv = "simple_cluster/results/by_plan/concatenation/final.csv";
   const summary = {
     planFile: plan,
     rawResultCsvPath: raw,
     aggregateCsvPath: aggregate,
+    finalCsvPath: finalCsv,
     workerResultTables: [
-      { workerId: "nwpu3", rawResultCsvPath: raw, aggregateCsvPath: aggregate },
-      { workerId: "nwpu5", rawResultCsvPath: raw, aggregateCsvPath: aggregate },
+      { workerId: "nwpu3", rawResultCsvPath: raw, aggregateCsvPath: aggregate, finalCsvPath: finalCsv },
+      { workerId: "nwpu5", rawResultCsvPath: raw, aggregateCsvPath: aggregate, finalCsvPath: finalCsv },
     ],
   };
   assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, plan), (item) => ({ ...item })), [
@@ -119,6 +130,8 @@ test("bulk sync keeps current Plan scope and separates identical paths from diff
     { remotePath: raw, workerId: "nwpu5" },
     { remotePath: aggregate, workerId: "nwpu3" },
     { remotePath: aggregate, workerId: "nwpu5" },
+    { remotePath: finalCsv, workerId: "nwpu3" },
+    { remotePath: finalCsv, workerId: "nwpu5" },
   ]);
   assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, "experiments/plans/comparison/other.yaml")), []);
 });
@@ -228,7 +241,7 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.match(handler, /`远端来源：\$\{artifactPath\}`/);
   assert.match(handler, /`本机结果位置：\$\{localCopyPath\}`/);
   assert.match(handler, /resultArtifactLocalRelativePath\(artifactPath, planFile, summary, this\.resultCsvDirectory/);
-  assert.match(handler, /section: "settings", anchor: "settings-result-mapping"/);
+  assert.match(handler, /owned\.finalCsvPath, owned\.finalMarkdownPath/);
   assert.doesNotMatch(handler, /experiments\/simple_project\.yaml/);
   assert.match(handler, /client\.downloadFile\(artifactPath, localCopyPath, \{ maxBytes: RESULT_ARTIFACT_MAX_BYTES \}\)/);
   assert.match(handler, /await this\.openWorkspaceFileForProjectContext\(localRelative, projectContext, client\)/);

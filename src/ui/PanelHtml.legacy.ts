@@ -4074,10 +4074,14 @@ export function renderPanelHtml(): string {
         rawResultCsvPath: pick(item, ["rawResultCsvPath"], ""),
         aggregateCsvPath: pick(item, ["aggregateCsvPath"], ""),
         projectAggregateCsvPath: pick(item, ["projectAggregateCsvPath"], ""),
+        finalCsvPath: pick(item, ["finalCsvPath"], ""),
+        finalMarkdownPath: pick(item, ["finalMarkdownPath"], ""),
+        projectFinalCsvPath: pick(item, ["projectFinalCsvPath"], ""),
+        projectFinalMarkdownPath: pick(item, ["projectFinalMarkdownPath"], ""),
         aggregateStatus: pick(item, ["aggregateStatus"], ""),
         aggregateMessage: pick(item, ["aggregateMessage"], ""),
         columnMappingPreview: item.columnMappingPreview || {},
-        workerResultTables: asArray(item.workerResultTables).map((row) => compactRecordForSignature(row, ["workerId", "rawResultCsvPath", "aggregateCsvPath", "projectAggregateCsvPath", "aggregateStatus", "aggregateMessage", "columnMappingPreview"])),
+        workerResultTables: asArray(item.workerResultTables).map((row) => compactRecordForSignature(row, ["workerId", "rawResultCsvPath", "aggregateCsvPath", "projectAggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "projectFinalCsvPath", "projectFinalMarkdownPath", "aggregateStatus", "aggregateMessage", "columnMappingPreview"])),
         previewResultCount: pick(item, ["previewResultCount", "preview_result_count", "resultCount", "result_count"], ""),
         effectiveResultsCsvPath: pick(item, ["effectiveResultsCsvPath", "effective_results_csv_path"], ""),
         effectiveArchivedResultCount: pick(item, ["effectiveArchivedResultCount", "effective_archived_result_count", "finalResultCount", "final_result_count"], ""),
@@ -13475,7 +13479,7 @@ export function renderPanelHtml(): string {
       const autoParseReadiness = resultAutoParseReadinessForState(state, summary);
       const outputContractCheck = currentResultOutputContractCheck(state);
       const analysisArtifacts = resultAnalysisArtifactsForState(state, summary);
-      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).columnMapping) || {});
+      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {});
       if (cacheKey === resultEvidenceWorkbenchCacheKey && resultEvidenceWorkbenchCacheHtml) return resultEvidenceWorkbenchCacheHtml;
       const parseFailed = pick(summary, ["parseFailed", "parse_failed"], "-");
       const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");
@@ -13484,6 +13488,10 @@ export function renderPanelHtml(): string {
       const rawResultCsvPath = pick(summary, ["rawResultCsvPath"], "");
       const aggregateCsvPath = pick(summary, ["aggregateCsvPath"], "");
       const projectAggregateCsvPath = pick(summary, ["projectAggregateCsvPath"], "");
+      const finalCsvPath = pick(summary, ["finalCsvPath"], "");
+      const finalMarkdownPath = pick(summary, ["finalMarkdownPath"], "");
+      const projectFinalCsvPath = pick(summary, ["projectFinalCsvPath"], "");
+      const projectFinalMarkdownPath = pick(summary, ["projectFinalMarkdownPath"], "");
       const aggregateMessage = pick(summary, ["aggregateMessage"], "");
       const workerResultTables = asArray(summary.workerResultTables);
       const multiWorkerTables = workerResultTables.length > 1;
@@ -13615,7 +13623,7 @@ export function renderPanelHtml(): string {
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
         '<div class="pptPlotActions">' +
           '<button class="taskActionButton" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="按当前 Plan 结果摘要同步所有结果文件到本机结果目录；已有文件只确认一次">一键同步所有结果</button>' +
-          (multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("原始 seed 表", row.rawResultCsvPath, resultPlanFile, row.workerId) + resultFileButton("均值/标准差表", row.aggregateCsvPath, resultPlanFile, row.workerId) + resultFileButton("项目总表（该 Worker）", row.projectAggregateCsvPath, resultPlanFile, row.workerId)).join("") : resultFileButton("打开原始 seed 表", rawResultCsvPath, resultPlanFile) + resultFileButton("打开均值/标准差表", aggregateCsvPath, resultPlanFile) + resultFileButton("打开项目总表（当前 Worker）", projectAggregateCsvPath, resultPlanFile)) +
+          (multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("简洁 CSV", row.finalCsvPath, resultPlanFile, row.workerId) + resultFileButton("可读 Markdown", row.finalMarkdownPath, resultPlanFile, row.workerId) + resultFileButton("项目简洁总表", row.projectFinalCsvPath, resultPlanFile, row.workerId) + resultFileButton("原始 seed 表", row.rawResultCsvPath, resultPlanFile, row.workerId) + resultFileButton("详细汇总", row.aggregateCsvPath, resultPlanFile, row.workerId)).join("") : resultFileButton("打开简洁 CSV", finalCsvPath, resultPlanFile) + resultFileButton("打开可读 Markdown", finalMarkdownPath, resultPlanFile) + resultFileButton("打开项目简洁总表", projectFinalCsvPath, resultPlanFile) + resultFileButton("打开项目 Markdown", projectFinalMarkdownPath, resultPlanFile) + resultFileButton("打开原始 seed 表", rawResultCsvPath, resultPlanFile) + resultFileButton("打开详细汇总", aggregateCsvPath, resultPlanFile) + resultFileButton("打开原项目总表", projectAggregateCsvPath, resultPlanFile)) +
           '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '">重建汇总</button>' +
           '<button class="taskActionButton secondary" data-command="archivePlanCopy" data-plan-file="' + escAttr(resultPlanFile) + '">复制轻量归档</button>' +
           '<button class="taskActionButton secondary" data-open-result-mapping type="button">编辑列映射</button>' +
@@ -13646,7 +13654,7 @@ export function renderPanelHtml(): string {
     function resultFileButton(label, file, planFile, workerId) {
       const path = meaningfulValue(file);
       if (!path) return "";
-      return '<button class="taskActionButton secondary" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr("打开当前 Plan 结果：" + path) + '">' + esc(label) + '</button>';
+      return '<button class="taskActionButton' + (/简洁|Markdown/.test(label) ? '' : ' secondary') + '" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr("打开当前 Plan 结果：" + path) + '">' + esc(label) + '</button>';
     }
 
     function renderResultColumnMappingEditor(state, preview) {
@@ -13665,14 +13673,19 @@ export function renderPanelHtml(): string {
         return '<label class="resultMappingField"><span><b>' + esc(label) + '</b><span class="muted" title="' + escAttr(help) + '"> ⓘ</span></span><select data-config-input="resultMapping" data-key="' + escAttr(field) + '" aria-label="' + escAttr(label) + '">' + options + '</select><span class="resultMappingSample" data-result-mapping-example="' + escAttr(field) + '">' + esc(sample) + '</span></label>';
       };
       const main = fieldRow("case", "实验 case", "用来匹配当前 Plan 的实验 case") + fieldRow("seed", "随机 seed", "用来跨 seed 计算均值和样本标准差") + fieldRow("metric", "指标名称", "长表的指标名称列；宽表留空") + fieldRow("value", "指标值", "长表的数值列；宽表留空");
-      const advanced = fieldRow("split", "数据划分", "例如 train、val 或 test") + fieldRow("dataset", "数据集", "数据集标识") + fieldRow("method", "方法", "模型或方法标识");
+      const advanced = fieldRow("split", "数据划分", "例如 train、val 或 test") + fieldRow("dataset", "数据集", "数据集标识") + fieldRow("method", "方法", "模型或方法标识") + fieldRow("eval_protocol", "评估端点", "例如 clean 或 p100_low；不同端点必须分行") + fieldRow("rate_percent", "比例百分数", "已经是 0 至 100 的比例") + fieldRow("train_rate", "训练比例", "0 至 1 的小数会转为百分数");
+      const derived = ((((state || {}).resultOutputConfig || {}).adapterRules) || {}).derivedMetric || {};
+      const derivedInput = (key, label, current, placeholder) => '<label class="resultMappingField"><span><b>' + esc(label) + '</b></span><input data-config-input="resultMapping" data-key="' + escAttr(key) + '" value="' + escAttr(configDraftValue("resultMapping", key, current || "")) + '" placeholder="' + escAttr(placeholder) + '"></label>';
+      const derivedForm = '<details class="resultMappingAdvanced" data-details-key="result-derived-metric"' + detailsOpenAttr("result-derived-metric", false) + '><summary>可选：同 seed 配对派生指标</summary><p class="muted">全部留空即关闭。只有同一 case、同一 seed 的两个端点都有指标时才计算；默认不会生成 BA drop。</p><div class="resultMappingGrid">' +
+        derivedInput("derivedMetricName", "指标名", derived.metric, "balanced_accuracy") + derivedInput("derivedLeftEndpoint", "左端点", derived.leftEndpoint, "clean") + derivedInput("derivedRightEndpoint", "右端点", derived.rightEndpoint, "p100_low") + derivedInput("derivedOutputName", "输出列名", derived.outputName, "balanced_accuracy_drop_pp") +
+        '<label class="resultMappingField"><span><b>倍率</b></span><select data-config-input="resultMapping" data-key="derivedScale"><option value="1"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "1" ? ' selected' : '') + '>1，原单位</option><option value="100"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "100" ? ' selected' : '') + '>100，百分点评估</option></select></label></div></details>';
       const metrics = asArray(item.metricColumns).slice(0, 12).map((entry) => esc((entry || {}).column || "")).filter(Boolean).join("、");
       return '<details id="resultColumnMappingEditor" class="resultMappingEditor" data-details-key="result-column-mapping-editor"' + detailsOpenAttr("result-column-mapping-editor", false) + '>' +
         '<summary>结果列映射 · ' + esc(item.source || "尚无结果表预览") + '</summary>' +
         '<div class="resultMappingHelp">选择原始 CSV 中对应的列；留在“自动识别”即可沿用当前识别结果。case 和 seed 用于匹配 Plan；长表设置指标名称与指标值，宽表把这两项留空，由数值列自动形成指标。</div>' +
         (headers.length ? '<div class="muted">已读取 ' + headers.length + ' 列，候选项展示前 20 行中的样例值。</div>' : '<div class="muted">先对当前 Plan 点击“重建汇总”，取得原始 CSV 列名后即可选择。</div>') +
         '<div class="resultMappingGrid">' + main + '</div>' +
-        '<details class="resultMappingAdvanced" data-details-key="result-column-mapping-advanced"' + detailsOpenAttr("result-column-mapping-advanced", false) + '><summary>其他字段：数据划分、数据集、方法</summary><div class="resultMappingGrid">' + advanced + '</div></details>' +
+        '<details class="resultMappingAdvanced" data-details-key="result-column-mapping-advanced"' + detailsOpenAttr("result-column-mapping-advanced", false) + '><summary>其他字段：数据集、方法、比例、评估端点</summary><div class="resultMappingGrid">' + advanced + '</div></details>' + derivedForm +
         (metrics ? '<div class="muted">当前识别的宽表数值列：' + metrics + '</div>' : "") +
         '<div class="resultMappingActions"><button data-command="saveResultColumnMapping" data-config-scope="resultMapping" type="button"' + (!headers.length ? ' disabled' : '') + '>保存映射</button><span class="muted">保存后点击上方“重建汇总”以重新计算当前 Plan。</span></div>' +
         '</details>';

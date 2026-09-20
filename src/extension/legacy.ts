@@ -10564,7 +10564,9 @@ export class RealtimeTunnelPanelProvider {
         if (!root)
             throw new Error("需要先打开工作区。");
         const patch = normalizeProjectAdapterRulesPatch(recordField(message, "patch"));
-        patch.csvColumnMapping = pluginProjectAdapterRules(root).csvColumnMapping || {};
+        const existingRules = pluginProjectAdapterRules(root);
+        patch.csvColumnMapping = existingRules.csvColumnMapping || {};
+        patch.derivedMetric = existingRules.derivedMetric || {};
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         await config.update("projectAdapterRules", patch, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(projectContext))
@@ -10584,7 +10586,7 @@ export class RealtimeTunnelPanelProvider {
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
         const patch = recordField(message, "patch");
-        const allowed = ["case", "seed", "split", "dataset", "method", "metric", "value"];
+        const allowed = ["case", "seed", "split", "dataset", "method", "eval_protocol", "rate_percent", "train_rate", "metric", "value"];
         const mapping = {};
         for (const field of allowed) {
             const value = String(patch[field] || "").trim();
@@ -10593,7 +10595,18 @@ export class RealtimeTunnelPanelProvider {
             if (value)
                 mapping[field] = value;
         }
-        const rules = { ...pluginProjectAdapterRules(context.root), csvColumnMapping: mapping };
+        const derivedFields = ["derivedMetricName", "derivedLeftEndpoint", "derivedRightEndpoint", "derivedOutputName"];
+        const derivedValues = derivedFields.map((field) => String(patch[field] || "").trim());
+        const hasDerived = derivedValues.some(Boolean);
+        if (hasDerived && derivedValues.some((value) => !value))
+            throw new Error("派生指标需同时选择指标、左端点、右端点及输出列名；不需要时请全部留空。");
+        if (hasDerived && (!/^[A-Za-z][A-Za-z0-9_]*$/.test(derivedValues[3]) || derivedValues[1] === derivedValues[2]))
+            throw new Error("派生指标输出列名只能用英文字母、数字和下划线，且两个端点须不同。");
+        const scale = Number(patch.derivedScale || 1);
+        if (hasDerived && scale !== 1 && scale !== 100)
+            throw new Error("派生指标倍率只允许 1 或 100。");
+        const derivedMetric = hasDerived ? { metric: derivedValues[0], leftEndpoint: derivedValues[1], rightEndpoint: derivedValues[2], scale, outputName: derivedValues[3] } : {};
+        const rules = { ...pluginProjectAdapterRules(context.root), csvColumnMapping: mapping, derivedMetric };
         await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(context.root)).update("projectAdapterRules", rules, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(context))
             return;
@@ -11090,7 +11103,7 @@ export class RealtimeTunnelPanelProvider {
             throw new Error("多 Worker 结果文件必须指定所属 Worker。");
         if (requestedWorkerId) {
             const owned = workerTables.find((item) => String(item?.workerId || "").toLowerCase() === requestedWorkerId.toLowerCase());
-            if (!owned || ![owned.rawResultCsvPath, owned.aggregateCsvPath, owned.projectAggregateCsvPath].includes(artifactPath))
+            if (!owned || ![owned.rawResultCsvPath, owned.aggregateCsvPath, owned.projectAggregateCsvPath, owned.finalCsvPath, owned.finalMarkdownPath, owned.projectFinalCsvPath, owned.projectFinalMarkdownPath].includes(artifactPath))
                 throw new Error("文件与指定 Worker 的当前 Plan 不匹配。");
         }
         const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
@@ -22021,7 +22034,7 @@ function normalizeRemoteResultInspectionPath(value) {
     const normalized = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
     if (!(0, FileTransferTypes_1.isSafeRemotePath)(normalized))
         return "";
-    return /\.(csv|json|txt|log|out)$/i.test(normalized) ? normalized : "";
+    return /\.(csv|md|json|txt|log|out)$/i.test(normalized) ? normalized : "";
 }
 function remoteResultInspectionLocalRelativePath(remotePath, planFile, timestamp = new Date().toISOString()) {
     const normalized = normalizeRemoteResultInspectionPath(remotePath);
@@ -22047,8 +22060,16 @@ function resultArtifactLocalRelativePath(remotePath, planFile, summary, resultDi
     const matches = (key) => normalized === ownerTable[key] || normalized === item[key];
     if (matches("aggregateCsvPath"))
         return path.posix.join(targetDir, `${planName}_seed_mean_std.csv`);
+    if (matches("finalCsvPath"))
+        return path.posix.join(targetDir, `${planName}_final.csv`);
+    if (matches("finalMarkdownPath"))
+        return path.posix.join(targetDir, `${planName}_final.md`);
     if (matches("projectAggregateCsvPath"))
         return path.posix.join(targetDir, "project_seed_mean_std.csv");
+    if (matches("projectFinalCsvPath"))
+        return path.posix.join(targetDir, "project_final.csv");
+    if (matches("projectFinalMarkdownPath"))
+        return path.posix.join(targetDir, "project_final.md");
     if (matches("rawResultCsvPath") && normalized.startsWith(`${base}/`) && !worker)
         return normalized;
     if (matches("rawResultCsvPath"))
@@ -22125,7 +22146,11 @@ function resultSummaryInspectionCandidates(summary, planFile) {
         item.rawResultCsvPath,
         item.aggregateCsvPath,
         item.projectAggregateCsvPath,
-        ...(Array.isArray(item.workerResultTables) ? item.workerResultTables.flatMap((row) => [row.rawResultCsvPath, row.aggregateCsvPath, row.projectAggregateCsvPath]) : []),
+        item.finalCsvPath,
+        item.finalMarkdownPath,
+        item.projectFinalCsvPath,
+        item.projectFinalMarkdownPath,
+        ...(Array.isArray(item.workerResultTables) ? item.workerResultTables.flatMap((row) => [row.rawResultCsvPath, row.aggregateCsvPath, row.projectAggregateCsvPath, row.finalCsvPath, row.finalMarkdownPath, row.projectFinalCsvPath, row.projectFinalMarkdownPath]) : []),
         item.preview_csv_path,
         item.effectiveResultsCsvPath,
         item.effective_results_csv_path,
@@ -22157,7 +22182,7 @@ function resultSummarySyncCandidates(summary, planFile) {
     };
     for (const remotePath of paths) {
         const matchingTables = tables.filter((table) =>
-            [table.rawResultCsvPath, table.aggregateCsvPath, table.projectAggregateCsvPath].includes(remotePath));
+            [table.rawResultCsvPath, table.aggregateCsvPath, table.projectAggregateCsvPath, table.finalCsvPath, table.finalMarkdownPath, table.projectFinalCsvPath, table.projectFinalMarkdownPath].includes(remotePath));
         if (matchingTables.length) {
             for (const table of matchingTables) add(remotePath, table.workerId);
         }

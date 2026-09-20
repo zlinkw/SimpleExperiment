@@ -16,8 +16,8 @@ test("panel inline script is valid JavaScript", () => {
   assert.doesNotThrow(() => new vm.Script(script, { filename: "panel-inline.js" }));
   assert.match(html, /id="gpuTensorboardControls"/);
   assert.match(script, /function renderGpuTensorboardControls\(state\)/);
-  assert.match(script, /role="switch" aria-checked=/);
-  assert.match(script, /command: "getTensorBoardStatus", endpointId: item.id/);
+  assert.match(script, /data-command="openScalarViewer" data-endpoint-id=/);
+  assert.match(script, /标量按所有可用 Worker 汇总/);
 });
 
 test("panel recovery page exposes a reload action and valid inline JavaScript", () => {
