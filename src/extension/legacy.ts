@@ -11267,7 +11267,7 @@ export class RealtimeTunnelPanelProvider {
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
         this.postState(true);
-        await this.view?.webview.postMessage({ type: "navigate", section: "settings", anchor: "settings-result-mapping" });
+        await this.view?.webview.postMessage({ type: "navigate", section: "results", anchor: "results", openResultMapping: true });
     }
     async openAuditTail() {
         const projectContext = this.captureProjectContext();

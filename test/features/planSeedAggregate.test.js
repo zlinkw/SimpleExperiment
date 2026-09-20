@@ -60,13 +60,15 @@ test("Plan summary uses declared raw CSV, computes sample SD, and marks missing 
     "open(agent.safe_project_path(root, 'experiments/plans/missing.yaml'), 'w', encoding='utf-8').write('suite: missing\\nseeds: [1, 2]\\npaper:\\n  result_csv: experiments/results/missing.csv\\ncases:\\n  - case: alpha\\n')",
     "open(agent.safe_project_path(root, 'experiments/results/missing.csv'), 'w', encoding='utf-8').write('case,accuracy\\nalpha,0.7\\n')",
     "missing = agent.parse_results_action(root, plan='experiments/plans/missing.yaml')",
-    "print(json.dumps({'status': summary.get('aggregateStatus'), 'raw': summary.get('rawResultCsvPath'), 'rows': rows, 'incomplete': summary.get('aggregateIncompleteCount'), 'archivedRows': archived_rows, 'archive': archive['archivePath'], 'archiveSources': [item['source'] for item in archive_manifest['files']], 'mappedStatus': mapped.get('aggregateStatus'), 'mappedMetrics': mapped.get('metrics'), 'savePolicyStatus': save_policy.get('status'), 'pluginMappedStatus': plugin_mapped.get('aggregateStatus'), 'pluginMappedMetrics': plugin_mapped.get('metrics'), 'missingStatus': missing.get('aggregateStatus')}))",
+    "print(json.dumps({'status': summary.get('aggregateStatus'), 'raw': summary.get('rawResultCsvPath'), 'rows': rows, 'preview': summary.get('columnMappingPreview'), 'incomplete': summary.get('aggregateIncompleteCount'), 'archivedRows': archived_rows, 'archive': archive['archivePath'], 'archiveSources': [item['source'] for item in archive_manifest['files']], 'mappedStatus': mapped.get('aggregateStatus'), 'mappedMetrics': mapped.get('metrics'), 'savePolicyStatus': save_policy.get('status'), 'pluginMappedStatus': plugin_mapped.get('aggregateStatus'), 'pluginMappedMetrics': plugin_mapped.get('metrics'), 'missingStatus': missing.get('aggregateStatus')}))",
   ].join("\n"), "utf8");
   const result = spawnSync("python", [script], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).pop());
   assert.equal(payload.status, "ready", JSON.stringify(payload));
   assert.equal(payload.raw, "experiments/results/raw.csv");
+  assert.deepEqual(payload.preview.sampleValues.case, ["alpha", "beta"]);
+  assert.deepEqual(payload.preview.sampleValues.seed, ["1", "2"]);
   assert.equal(payload.rows.length, 2);
   assert.equal(payload.incomplete, 2);
   const alpha = payload.rows.find((row) => row.case === "alpha");

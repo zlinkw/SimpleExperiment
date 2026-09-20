@@ -5621,7 +5621,17 @@ def result_column_mapping_preview(root, source, policy):
         mapping[name] = match or next((lookup[alias] for alias in aliases if alias in lookup), "")
     excluded = set(value for value in mapping.values() if value)
     metrics = [{"column": header, "metric": metric_name(header, policy.get("metricAliases") or {})} for header in headers if header not in excluded and any(is_number(coerce_metric_value(row.get(header))) for row in samples)]
-    return {"source": source, "headers": headers[:120], "mapping": mapping, "metricColumns": metrics[:120], "configured": configured}
+    sample_values = {}
+    for header in headers[:120]:
+        values = []
+        for row in samples:
+            value = str(row.get(header) or "").strip().replace("\r", " ").replace("\n", " ")[:48]
+            if value and value not in values:
+                values.append(value)
+            if len(values) >= 2:
+                break
+        sample_values[header] = values
+    return {"source": source, "headers": headers[:120], "mapping": mapping, "metricColumns": metrics[:120], "configured": configured, "sampleValues": sample_values}
 
 def write_project_seed_aggregate(root, current_summary=None):
     parent = safe_project_path(root, "simple_cluster/results/by_plan")

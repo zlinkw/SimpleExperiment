@@ -957,9 +957,16 @@ function renderPanelHtml() {
     .settingsBackButton { width: auto; height: 30px; min-width: 84px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
     .settingsLayoutTools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .settingsLayoutTools b { margin-right: auto; font-size: 12px; }
-    .resultMappingGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; width: 100%; }
-    .resultMappingField { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-    .resultMappingField input { min-width: 0; width: 100%; box-sizing: border-box; }
+    .resultMappingEditor { margin: 10px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+    .resultMappingEditor summary { cursor: pointer; font-weight: 700; }
+    .resultMappingHelp { margin: 10px 0; line-height: 1.5; }
+    .resultMappingGrid { display: grid; gap: 8px; width: 100%; }
+    .resultMappingField { display: grid; grid-template-columns: minmax(95px, 130px) minmax(160px, 1fr) minmax(170px, 1fr); align-items: center; gap: 8px; min-width: 0; }
+    .resultMappingField select { min-width: 0; width: 100%; box-sizing: border-box; }
+    .resultMappingSample { min-width: 0; overflow-wrap: anywhere; font-size: 12px; color: var(--vscode-descriptionForeground); }
+    .resultMappingAdvanced { margin: 10px 0; }
+    .resultMappingActions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    @container main-workflow (max-width: 760px) { .resultMappingField { grid-template-columns: 1fr; gap: 3px; padding: 6px 0; border-bottom: 1px solid var(--border); } }
     .settingsCommandTools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .settingsCommandTools > div { display: grid; gap: 2px; margin-right: auto; min-width: min(100%, 280px); }
     .settingsCommandTools b { font-size: 12px; }
@@ -2655,6 +2662,11 @@ function renderPanelHtml() {
         setAllSectionsCollapsed(false);
         return;
       }
+      if (event.target.closest("[data-open-result-mapping]")) {
+        event.preventDefault();
+        openResultColumnMappingEditor();
+        return;
+      }
       const button = event.target.closest("button[data-command]");
       if (button && !button.disabled) {
         try {
@@ -2939,6 +2951,7 @@ function renderPanelHtml() {
         updateConfigDraft(input);
         updateServerDestinationPreview(input);
         serverConfigEditLockUntil = Date.now() + 30000;
+        if (input.dataset.configInput === "resultMapping") updateResultMappingExample(input);
       }
       if (isPlanPreviewEditor(input)) planPreviewEditLockUntil = Date.now() + 45000;
       if (input && input.id === "resourceTreeSearch") {
@@ -2973,6 +2986,7 @@ function renderPanelHtml() {
         updateConfigDraft(input);
         updateServerDestinationPreview(input);
         serverConfigEditLockUntil = Date.now() + 30000;
+        if (input.dataset.configInput === "resultMapping") updateResultMappingExample(input);
       }
       if (!input || input.dataset?.key !== "savedSessionPath") return;
       const scope = input.dataset.configInput || "";
@@ -3094,6 +3108,7 @@ function renderPanelHtml() {
       if (latestNavigationMessage) {
         if (PLAN_VIEW_SCOPE_VALUES.includes(latestNavigationMessage.taskPlanScope)) setTaskPlanScope(latestNavigationMessage.taskPlanScope);
         navigateToResourceTarget(latestNavigationMessage.section, latestNavigationMessage.anchor, { force: true });
+        if (latestNavigationMessage.openResultMapping) openResultColumnMappingEditor();
       }
     }
 
@@ -7766,29 +7781,28 @@ function renderPanelHtml() {
     }
 
     function renderResultColumnMappingSettings(state) {
-      if (shouldKeepConfigDraftScope("resultMapping")) return;
-      const config = (state || {}).resultOutputConfig || {};
-      const mapping = config.columnMapping || {};
-      const preview = ((state || {}).resultsSummary || {}).columnMappingPreview || {};
-      const headers = asArray(preview.headers).map(String).filter(Boolean);
-      const fields = [
-        ["case", "实验 case"], ["seed", "随机 seed"], ["split", "数据划分"],
-        ["dataset", "数据集"], ["method", "方法"], ["metric", "指标名称"], ["value", "指标值"]
-      ];
-      const choices = headers.map((header) => '<option value="' + escAttr(header) + '"></option>').join("");
-      const rows = fields.map(([field, label]) => {
-        const value = String(configDraftValue("resultMapping", field, mapping[field] || ""));
-        const detected = String((preview.mapping || {})[field] || "");
-        return '<label class="resultMappingField"><span>' + esc(label) + ' <code>' + esc(field) + '</code></span><input list="resultColumnHeaders" data-config-input="resultMapping" data-key="' + escAttr(field) + '" value="' + escAttr(value) + '" placeholder="' + escAttr(detected || "自动识别") + '" title="留空则自动识别；可输入当前 CSV 的原始列名"></label>';
-      }).join("");
       setHtmlIfChanged("resultColumnMappingSettings",
         '<div class="settingsLayoutTools"><b>结果列映射</b>' +
-          '<span class="muted">从下方候选列选择或输入原始列名。留空自动识别；长表需指定指标名称和指标值。配置保存在插件工作区设置，并同步到 Agent。</span>' +
-          '<div class="resultMappingGrid">' + rows + '</div>' +
-          '<datalist id="resultColumnHeaders">' + choices + '</datalist>' +
-          '<span class="muted">' + (preview.source ? '预览来源：' + esc(preview.source) + ' · ' + headers.length + ' 列' : '先解析当前 Plan，可获得可选列名；现在也可手动输入。') + '</span>' +
-          '<button data-command="saveResultColumnMapping" data-config-scope="resultMapping" type="button">保存列映射</button>' +
+          '<span class="muted">列映射在当前 Plan 的结果区编辑，可直接查看 CSV 列名和样例值。配置保存在插件工作区设置。</span>' +
+          '<button data-command="editResultColumnMapping" type="button">转到结果区编辑</button>' +
         '</div>');
+    }
+
+    function openResultColumnMappingEditor() {
+      const editor = el("resultColumnMappingEditor");
+      if (!editor) return;
+      editor.open = true;
+      detailsOpenState["result-column-mapping-editor"] = true;
+      editor.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+
+    function updateResultMappingExample(input) {
+      if (!input || !input.dataset) return;
+      const example = document.querySelector('[data-result-mapping-example="' + cssEscape(input.dataset.key || "") + '"]');
+      if (!example) return;
+      const preview = (((lastState || {}).resultsSummary || {}).columnMappingPreview) || {};
+      const values = (preview.sampleValues || {})[input.value] || [];
+      example.textContent = input.value ? (values.length ? "样例：" + values.join(" / ") : "该列暂无非空样例") : "使用自动识别结果";
     }
 
     function updateConfigDraft(input) {
@@ -13470,7 +13484,7 @@ function renderPanelHtml() {
       const autoParseReadiness = resultAutoParseReadinessForState(state, summary);
       const outputContractCheck = currentResultOutputContractCheck(state);
       const analysisArtifacts = resultAnalysisArtifactsForState(state, summary);
-      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness);
+      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).columnMapping) || {});
       if (cacheKey === resultEvidenceWorkbenchCacheKey && resultEvidenceWorkbenchCacheHtml) return resultEvidenceWorkbenchCacheHtml;
       const parseFailed = pick(summary, ["parseFailed", "parse_failed"], "-");
       const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");
@@ -13613,10 +13627,10 @@ function renderPanelHtml() {
           (multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("原始 seed 表", row.rawResultCsvPath, resultPlanFile, row.workerId) + resultFileButton("均值/标准差表", row.aggregateCsvPath, resultPlanFile, row.workerId) + resultFileButton("项目总表（该 Worker）", row.projectAggregateCsvPath, resultPlanFile, row.workerId)).join("") : resultFileButton("打开原始 seed 表", rawResultCsvPath, resultPlanFile) + resultFileButton("打开均值/标准差表", aggregateCsvPath, resultPlanFile) + resultFileButton("打开项目总表（当前 Worker）", projectAggregateCsvPath, resultPlanFile)) +
           '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '">重建汇总</button>' +
           '<button class="taskActionButton secondary" data-command="archivePlanCopy" data-plan-file="' + escAttr(resultPlanFile) + '">复制轻量归档</button>' +
-          '<button class="taskActionButton secondary" data-command="editResultColumnMapping">编辑列映射</button>' +
+          '<button class="taskActionButton secondary" data-open-result-mapping type="button">编辑列映射</button>' +
         '</div>' +
         '<div class="muted">' + esc(multiWorkerTables ? "多 Worker 结果按服务器分别保存；各项目总表只覆盖对应 Worker。" : aggregateMessage || "解析当前 Plan 后生成独立汇总表；原始结果不会改动。") + '</div>' +
-        renderResultColumnMappingPreview(summary.columnMappingPreview) +
+        renderResultColumnMappingEditor(state, summary.columnMappingPreview) +
         '<details data-details-key="result-advanced"' + detailsOpenAttr("result-advanced", false) + '><summary>高级证据与分析</summary>' +
           renderResultNextAction({ parsed, parsedRows, qualityGatePath: qualityReady ? qualityGatePath : "", statisticsPath: statisticsReady ? statisticsPath : "", claimStatus, claimIssueCount, paperTablePath: paperTableReady ? paperTablePath : "", plottingContractPath: analysisArtifacts.plottingContractPath, effectiveArchivedResultCount, pendingReviewCount, excludedResultCount, previewCsvPath, archivableCount: traceStats.archivable, archiveBlockedCount: traceStats.archiveBlocked, previewResultCount, outputContractStatus: outputContractCheck.status, outputContractMissingFiles: outputContractCheck.missingFiles, outputContractUnparseableFiles: outputContractCheck.unparseableFiles, outputContractMessage: outputContractCheck.message, autoParseStatus: autoParseReadiness.status, planFile: autoParseReadiness.planFile }) +
           '<table class="planCompactTable gpuDenseTable"><tbody>' + tableRows + '</tbody></table>' +
@@ -13644,16 +13658,33 @@ function renderPanelHtml() {
       return '<button class="taskActionButton secondary" data-command="openResultArtifact" data-remote-path="' + escAttr(path) + '" data-plan-file="' + escAttr(planFile || "") + '"' + (workerId ? ' data-worker-id="' + escAttr(workerId) + '"' : "") + ' title="' + escAttr("打开当前 Plan 结果：" + path) + '">' + esc(label) + '</button>';
     }
 
-    function renderResultColumnMappingPreview(preview) {
+    function renderResultColumnMappingEditor(state, preview) {
       const item = preview && typeof preview === "object" ? preview : {};
-      const mapping = item.mapping && typeof item.mapping === "object" ? item.mapping : {};
-      if (!item.source) return "";
-      const fields = ["case", "seed", "split", "dataset", "method", "metric", "value"];
-      const rows = fields.map((field) => '<tr><th>' + esc(field) + '</th><td>' + esc(mapping[field] || "未识别") + '</td></tr>').join("");
-      const metrics = mapping.metric && mapping.value
-        ? '<tr><th>长表指标</th><td>名称由 ' + esc(mapping.metric) + ' 列指定，数值取自 ' + esc(mapping.value) + ' 列</td></tr>'
-        : asArray(item.metricColumns).map((entry) => '<tr><th>' + esc((entry || {}).metric || "指标") + '</th><td>' + esc((entry || {}).column || "") + '</td></tr>').join("");
-      return '<details data-details-key="result-column-mapping"' + detailsOpenAttr("result-column-mapping", false) + '><summary>列映射预览 · ' + esc(item.source) + '</summary><table class="planCompactTable"><thead><tr><th>标准字段 / 指标</th><th>原始 CSV 列</th></tr></thead><tbody>' + rows + metrics + '</tbody></table><div class="muted">点“编辑列映射”在插件设置中选择原始 CSV 列；保存后点“重建汇总”。</div></details>';
+      const detected = item.mapping && typeof item.mapping === "object" ? item.mapping : {};
+      const configured = (((state || {}).resultOutputConfig || {}).columnMapping) || {};
+      const headers = asArray(item.headers).map(String).filter(Boolean);
+      const samples = item.sampleValues || {};
+      const fieldRow = (field, label, help) => {
+        const value = String(configDraftValue("resultMapping", field, configured[field] || ""));
+        const auto = String(detected[field] || "");
+        const options = '<option value="">自动识别' + (auto ? '（' + esc(auto) + '）' : '（未识别）') + '</option>' +
+          (value && !headers.includes(value) ? '<option value="' + escAttr(value) + '" selected>' + esc(value) + '（当前配置，未出现在预览中）</option>' : "") +
+          headers.map((header) => '<option value="' + escAttr(header) + '"' + (header === value ? ' selected' : '') + '>' + esc(header) + (asArray(samples[header]).length ? ' · 例：' + esc(String(samples[header][0])) : "") + '</option>').join("");
+        const sample = value ? (asArray(samples[value]).length ? '样例：' + asArray(samples[value]).join(' / ') : '该列暂无非空样例') : '使用自动识别结果';
+        return '<label class="resultMappingField"><span><b>' + esc(label) + '</b><span class="muted" title="' + escAttr(help) + '"> ⓘ</span></span><select data-config-input="resultMapping" data-key="' + escAttr(field) + '" aria-label="' + escAttr(label) + '">' + options + '</select><span class="resultMappingSample" data-result-mapping-example="' + escAttr(field) + '">' + esc(sample) + '</span></label>';
+      };
+      const main = fieldRow("case", "实验 case", "用来匹配当前 Plan 的实验 case") + fieldRow("seed", "随机 seed", "用来跨 seed 计算均值和样本标准差") + fieldRow("metric", "指标名称", "长表的指标名称列；宽表留空") + fieldRow("value", "指标值", "长表的数值列；宽表留空");
+      const advanced = fieldRow("split", "数据划分", "例如 train、val 或 test") + fieldRow("dataset", "数据集", "数据集标识") + fieldRow("method", "方法", "模型或方法标识");
+      const metrics = asArray(item.metricColumns).slice(0, 12).map((entry) => esc((entry || {}).column || "")).filter(Boolean).join("、");
+      return '<details id="resultColumnMappingEditor" class="resultMappingEditor" data-details-key="result-column-mapping-editor"' + detailsOpenAttr("result-column-mapping-editor", false) + '>' +
+        '<summary>结果列映射 · ' + esc(item.source || "尚无结果表预览") + '</summary>' +
+        '<div class="resultMappingHelp">选择原始 CSV 中对应的列；留在“自动识别”即可沿用当前识别结果。case 和 seed 用于匹配 Plan；长表设置指标名称与指标值，宽表把这两项留空，由数值列自动形成指标。</div>' +
+        (headers.length ? '<div class="muted">已读取 ' + headers.length + ' 列，候选项展示前 20 行中的样例值。</div>' : '<div class="muted">先对当前 Plan 点击“重建汇总”，取得原始 CSV 列名后即可选择。</div>') +
+        '<div class="resultMappingGrid">' + main + '</div>' +
+        '<details class="resultMappingAdvanced" data-details-key="result-column-mapping-advanced"' + detailsOpenAttr("result-column-mapping-advanced", false) + '><summary>其他字段：数据划分、数据集、方法</summary><div class="resultMappingGrid">' + advanced + '</div></details>' +
+        (metrics ? '<div class="muted">当前识别的宽表数值列：' + metrics + '</div>' : "") +
+        '<div class="resultMappingActions"><button data-command="saveResultColumnMapping" data-config-scope="resultMapping" type="button"' + (!headers.length ? ' disabled' : '') + '>保存映射</button><span class="muted">保存后点击上方“重建汇总”以重新计算当前 Plan。</span></div>' +
+        '</details>';
     }
 
     function renderResultNextAction(status) {

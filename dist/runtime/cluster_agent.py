@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.31"
-RUNTIME_VERSION = "0.5.31"
-PLUGIN_VERSION = "0.5.31"
+AGENT_VERSION = "0.5.32"
+RUNTIME_VERSION = "0.5.32"
+PLUGIN_VERSION = "0.5.32"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -5621,7 +5621,17 @@ def result_column_mapping_preview(root, source, policy):
         mapping[name] = match or next((lookup[alias] for alias in aliases if alias in lookup), "")
     excluded = set(value for value in mapping.values() if value)
     metrics = [{"column": header, "metric": metric_name(header, policy.get("metricAliases") or {})} for header in headers if header not in excluded and any(is_number(coerce_metric_value(row.get(header))) for row in samples)]
-    return {"source": source, "headers": headers[:120], "mapping": mapping, "metricColumns": metrics[:120], "configured": configured}
+    sample_values = {}
+    for header in headers[:120]:
+        values = []
+        for row in samples:
+            value = str(row.get(header) or "").strip().replace("\r", " ").replace("\n", " ")[:48]
+            if value and value not in values:
+                values.append(value)
+            if len(values) >= 2:
+                break
+        sample_values[header] = values
+    return {"source": source, "headers": headers[:120], "mapping": mapping, "metricColumns": metrics[:120], "configured": configured, "sampleValues": sample_values}
 
 def write_project_seed_aggregate(root, current_summary=None):
     parent = safe_project_path(root, "simple_cluster/results/by_plan")
