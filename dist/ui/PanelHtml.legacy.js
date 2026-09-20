@@ -13613,7 +13613,9 @@ function renderPanelHtml() {
       if (!item.source) return "";
       const fields = ["case", "seed", "split", "dataset", "method", "metric", "value"];
       const rows = fields.map((field) => '<tr><th>' + esc(field) + '</th><td>' + esc(mapping[field] || "未识别") + '</td></tr>').join("");
-      const metrics = asArray(item.metricColumns).map((entry) => '<tr><th>' + esc((entry || {}).metric || "指标") + '</th><td>' + esc((entry || {}).column || "") + '</td></tr>').join("");
+      const metrics = mapping.metric && mapping.value
+        ? '<tr><th>长表指标</th><td>名称由 ' + esc(mapping.metric) + ' 列指定，数值取自 ' + esc(mapping.value) + ' 列</td></tr>'
+        : asArray(item.metricColumns).map((entry) => '<tr><th>' + esc((entry || {}).metric || "指标") + '</th><td>' + esc((entry || {}).column || "") + '</td></tr>').join("");
       return '<details data-details-key="result-column-mapping"' + detailsOpenAttr("result-column-mapping", false) + '><summary>列映射预览 · ' + esc(item.source) + '</summary><table class="planCompactTable"><thead><tr><th>标准字段 / 指标</th><th>原始 CSV 列</th></tr></thead><tbody>' + rows + metrics + '</tbody></table><div class="muted">在 experiments/simple_project.yaml 的 outputs.csvColumnMapping 按“标准字段: 原始列名”调整身份列；指标名称可在 outputs.metricAliases 调整。保存后点“重建汇总”。</div></details>';
     }
 
