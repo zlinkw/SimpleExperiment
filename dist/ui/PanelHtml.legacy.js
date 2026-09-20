@@ -674,11 +674,6 @@ function renderPanelHtml() {
     .errorRowTime { color: #64748B; white-space: nowrap; }
     .errorRowMessage { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .taskCardList { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; align-items: start; }
-    .planCardMore { margin-top: 10px; }
-    .planCardMore > summary { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid var(--border, #CBD5E1); border-radius: 999px; background: var(--subtle-bg, #F8FAFC); color: var(--text, #334155); font-size: 12px; font-weight: 700; list-style: none; user-select: none; }
-    .planCardMore > summary::-webkit-details-marker { display: none; }
-    .planCardMore > summary:hover { background: var(--vscode-button-hoverBackground, #E2E8F0); }
-    .planCardMore[open] > summary { margin-bottom: 10px; }
     .taskRenderBudgetNotice { padding: 8px 10px; margin-bottom: 10px; border: 1px solid #CBD5E1; border-left: 4px solid #94A3B8; border-radius: 8px; background: #F8FAFC; color: #475569; font-size: 12px; }
     .task-card {
       --task-status-color: #2563EB;
@@ -2144,7 +2139,6 @@ function renderPanelHtml() {
     let configInspectorIndexCacheValue = null;
     let configParamFilterTimer = 0;
     let configParamFilterGeneration = 0;
-    let selectedPlanCheckbox = null;
     let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
     let tracePlanScope = normalizePlanViewScope(restoredWebviewState.tracePlanScope);
     let webviewDomCommandAuditCache = null;
@@ -2826,12 +2820,6 @@ function renderPanelHtml() {
       }
       if (!button || button.disabled) return;
     });
-    document.addEventListener("toggle", (event) => {
-      const target = event.target;
-      if (target instanceof HTMLDetailsElement && target.classList.contains("planCardMore")) {
-        planCardsExpanded = target.open;
-      }
-    });
     document.addEventListener("contextmenu", (event) => {
       const button = event.target.closest("#workbenchInspector button[data-command], #mainColumn button[data-command]");
       if (!button) {
@@ -2868,6 +2856,10 @@ function renderPanelHtml() {
       if (lastState) lastState.planFileInput = value;
       dispatchPlanSelection(event);
       setTimeout(() => refreshPlanFileOptions(lastState || {}), 0);
+      if (lastState) {
+        const plans = (lastState.plans && lastState.plans.length ? lastState.plans : lastState.recentPlans) || [];
+        setHtmlIfChanged("recentPlans", renderPlanCards(lastState, plans));
+      }
       refreshPlanActionButtons(lastState || {}, el("planQuickGrid"));
       refreshContextualActionButtons(lastState || {}, el("workbenchInspector"));
       refreshContextualActionButtons(lastState || {}, el("pinnedActionsHost"));
@@ -8579,9 +8571,8 @@ function renderPanelHtml() {
       refreshRunModeNote(state);
       const plans = (state.plans && state.plans.length ? state.plans : state.recentPlans) || [];
       const planProjectChanged = setHtmlIfChanged("planDetectedProject", renderPlanRunWorkbench(state, plans));
-      const recentPlansChanged = setHtmlIfChanged("recentPlans", renderPlanCards(state, plans));
+      setHtmlIfChanged("recentPlans", renderPlanCards(state, plans));
       if (planProjectChanged) bindPlanInspectControls();
-      if (recentPlansChanged) bindPlanSelectionControls();
       renderDraftPlanSection(state);
     }
     function renderDraftPlanSection(state) {
@@ -8616,35 +8607,6 @@ function renderPanelHtml() {
       }).join("");
       const cleanup = (draftState.cleanupCandidates||[]).length ? '<div class="muted">清理候选 ' + draftState.cleanupCandidates.length + ' 个：' + esc(draftState.cleanupCandidates.map(function(c){return c.path;}).join(", ")) + '</div><button class="taskActionButton secondary" data-command="cleanupDrafts" title="清理已处理（通过或丢弃）的草稿记录&#10;只清理本地记录，不影响已生成的正式计划">清理 Rejected/Stale</button>' : "";
       return '<div class="section-card" style="margin-top:10px"><h3>草稿 PLAN（Draft）<span class="pill">独立发现</span></h3><div class="muted">草稿仅支持 Debug 隔离运行，输出位于 simple_cluster/debug_runs/，不进入归档/统计/论文/PPT。</div><div class="taskCardList">' + rows + '</div>' + cleanup + (draftState.error ? '<pre>' + esc(draftState.error) + '</pre>' : "") + '</div>';
-    }
-
-    function bindPlanSelectionControls() {
-      const state = lastState || {};
-      selectedPlanCheckbox = null;
-      el("recentPlans").querySelectorAll('input[type="checkbox"][data-command="selectPlan"]').forEach((box) => {
-        if (box.checked) selectedPlanCheckbox = box;
-        if (box.dataset.boundSelectPlan === "1") return;
-        box.dataset.boundSelectPlan = "1";
-        box.addEventListener("click", (event) => event.stopPropagation());
-        box.addEventListener("change", () => {
-          const previous = selectedPlanCheckbox && selectedPlanCheckbox !== box ? selectedPlanCheckbox : null;
-          if (box.checked) {
-            if (previous) previous.checked = false;
-            selectedPlanCheckbox = box;
-            if (el("planFileInput")) el("planFileInput").value = box.dataset.planFile || "";
-          } else if (selectedPlanCheckbox === box) {
-            selectedPlanCheckbox = null;
-          }
-          vscode.postMessage({ command: "selectPlan", planFile: box.checked ? box.dataset.planFile : "", planId: box.checked ? box.dataset.planId : "" });
-          const currentState = lastState || state || {};
-          refreshPlanActionButtons(currentState, el("planQuickGrid"));
-          refreshPlanActionButtons(currentState, box.closest(".task-card"));
-          if (previous) refreshPlanActionButtons(currentState, previous.closest(".task-card"));
-          refreshContextualActionButtons(currentState, el("workbenchInspector"));
-          refreshContextualActionButtons(currentState, el("pinnedActionsHost"));
-        });
-      });
-      refreshPlanActionButtons(state);
     }
 
     function refreshPlanActionButtons(state, scope) {
@@ -11771,32 +11733,19 @@ function renderPanelHtml() {
       return { query: "", planConfig: undefined, selectedConfig: undefined, configOptions: "", level1Options: "", level2Options: "" };
     }
 
-    let planCardsExpanded = false;
-    const PLAN_COLLAPSE_THRESHOLD = 8;
-
     function renderPlanCards(state, plans) {
-      if (!plans.length) return '<div class="muted">没有 plan 列表时可直接输入 planFile。</div>';
+      const selectedFile = String(state.planFileInput || ((state.selection || {}).selectedPlanId) || "").trim();
+      if (!selectedFile) return '<div class="muted">请从上方选择 Plan。</div>';
       const visible = planVisibleRows(state, plans);
-      const totalPlans = Math.max(Number(state.plansTotalCount || 0), plans.length);
-      const omitted = Math.max(Number(state.plansOmittedCount || 0), totalPlans - visible.length);
-      const notice = omitted
-        ? '<div class="taskRenderBudgetNotice" title="' + escAttr("折叠：" + omitted) + '">计划 ' + visible.length + ' / ' + totalPlans + '；折叠 ' + omitted + '</div>'
-        : "";
+      if (!visible.length) return '<div class="muted">当前 Plan 尚未出现在扫描结果中，请刷新识别：' + esc(selectedFile) + '</div>';
       const cardHtml = (entry) => {
         const plan = entry.plan;
-        const index = entry.index;
         const file = plan.file || plan.planFile || plan.path || "";
-        const text = plan.text || "";
-        const selected = planMatchesSelection(state, plan);
-        const textUnavailable = Boolean(plan.textOmitted || plan.metadataTruncated);
-        const editable = (selected || Boolean(plan.parseError)) && !textUnavailable;
         const archiveReadiness = planArchiveUiReadiness(state, file);
         const title = plan.name || file.split(/[\\\\/]/).pop() || file;
-        const textNotice = "";
-        return '<div class="task-card plan-card is-' + (plan.parseError ? "failed" : (plan.planContractOk === false ? "failed" : "completed")) + (selected ? " selectedRow" : "") + '" data-anchor="' + escAttr(treeAnchorId("plan", file || plan.planId || title)) + '">' +
+        return '<div class="task-card plan-card is-' + (plan.parseError ? "failed" : (plan.planContractOk === false ? "failed" : "completed")) + ' selectedRow" data-anchor="' + escAttr(treeAnchorId("plan", file || plan.planId || title)) + '">' +
           '<div class="planCardHead">' +
-            '<input class="taskSelectBox" type="checkbox" data-command="selectPlan" data-plan-file="' + escAttr(file) + '" data-plan-id="' + escAttr(plan.planId || file) + '"' + (selected ? " checked" : "") + '>' +
-          '<div class="taskTitle"><button class="mini projectPathButton" data-command="openPlan" data-file="' + escAttr(file) + '" title="' + escAttr(file) + '">' + esc(title) + '</button><span class="pill">' + esc(planTaskScaleSummary(plan)) + '</span><span class="pill">' + esc(planModeLabel(plan.mode)) + '</span>' + (plan.restoreVersion ? '<span class="pill">' + esc(plan.restoreVersion) + '</span>' : "") + '</div>' +
+          '<div class="taskTitle"><span class="pill">当前 Plan</span><button class="mini projectPathButton" data-command="openPlan" data-file="' + escAttr(file) + '" title="' + escAttr(file) + '">' + esc(title) + '</button><span class="pill">' + esc(planTaskScaleSummary(plan)) + '</span><span class="pill">' + esc(planModeLabel(plan.mode)) + '</span>' + (plan.restoreVersion ? '<span class="pill">' + esc(plan.restoreVersion) + '</span>' : "") + '</div>' +
           '</div>' +
           '<div class="taskFacts">' +
             taskMetric("套件", plan.suite || "-") +
@@ -11808,49 +11757,18 @@ function renderPanelHtml() {
             (archiveReadiness.resultCount ? taskMetric("结果取舍", "有效 " + archiveReadiness.archivedCount + " / 未纳入 " + archiveReadiness.notIncludedCount) : "") +
           '</div>' +
           (plan.parseError ? '<div class="status-failed">' + esc(plan.parseError) + '</div>' : "") +
-          textNotice +
         '</div>';
       };
-      const listHtml = (entries) => '<div class="taskCardList">' + entries.map(cardHtml).join("") + '</div>';
-      if (visible.length <= PLAN_COLLAPSE_THRESHOLD) {
-        return notice + listHtml(visible);
-      }
-      const first = visible.slice(0, PLAN_COLLAPSE_THRESHOLD);
-      const rest = visible.slice(PLAN_COLLAPSE_THRESHOLD);
-      return notice
-        + listHtml(first)
-        + '<details class="planCardMore"' + (planCardsExpanded ? " open" : "") + '>'
-        + '<summary>展开更多（' + rest.length + ' 个计划）</summary>'
-        + listHtml(rest)
-        + '</details>';
+      return '<div class="taskCardList">' + cardHtml(visible[0]) + '</div>';
     }
 
     function planVisibleRows(state, plans) {
       const rows = asArray(plans || []).map((plan, index) => ({ plan, index }));
-      if (rows.length <= PLAN_RENDER_LIMIT) {
-        const selected = [];
-        const remaining = [];
-        rows.forEach((entry) => {
-          (planMatchesSelection(state, entry.plan) ? selected : remaining).push(entry);
-        });
-        return selected.concat(remaining);
-      }
-      const out = [];
-      const seen = new Set();
-      function add(entry) {
-        const key = planIdentity(entry.plan, entry.index);
-        if (seen?.has(key)) return;
-        seen.add(key);
-        out.push(entry);
-      }
-      rows.filter((entry) => planMatchesSelection(state, entry.plan)).forEach(add);
-      rows.filter((entry) => entry.plan && entry.plan.parseError).forEach(add);
-      rows.forEach((entry) => { if (out.length < PLAN_RENDER_LIMIT) add(entry); });
-      return out.slice(0, PLAN_RENDER_LIMIT);
-    }
-
-    function planIdentity(plan, index) {
-      return String((plan && (plan.planId || plan.file || plan.planFile || plan.path || plan.name)) || ("plan-" + index));
+      const selectedFile = String(state.planFileInput || ((state.selection || {}).selectedPlanId) || "").trim();
+      if (!selectedFile) return [];
+      const exact = rows.find((entry) => normalizePlanSelectionKey(entry.plan && (entry.plan.file || entry.plan.planFile || entry.plan.path)) === normalizePlanSelectionKey(selectedFile));
+      const selected = exact || rows.find((entry) => planMatchesSelection(state, entry.plan));
+      return selected ? [selected] : [];
     }
 
     function compactPlanArrayText(items, totalCount, omittedCount) {
