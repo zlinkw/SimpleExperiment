@@ -10916,6 +10916,7 @@ export class RealtimeTunnelPanelProvider {
             { modal: true }, "清除历史", "取消",
         );
         if (confirmed !== "清除历史") return;
+        if (root !== workspaceRoot()) return;
         const saved = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
         const cutoffs = saved && typeof saved === "object" && !Array.isArray(saved) ? { ...saved as Record<string, string> } : {};
         if (planFile) cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();

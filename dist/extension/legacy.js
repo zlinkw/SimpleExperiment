@@ -11034,6 +11034,8 @@ class RealtimeTunnelPanelProvider {
         const confirmed = await vscode.window.showWarningMessage(`清除 ${label} 的已结束运行历史？运行中的任务继续显示；远端审计、日志和训练产物保留。`, { modal: true }, "清除历史", "取消");
         if (confirmed !== "清除历史")
             return;
+        if (root !== workspaceRoot())
+            return;
         const saved = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
         const cutoffs = saved && typeof saved === "object" && !Array.isArray(saved) ? { ...saved } : {};
         if (planFile)
