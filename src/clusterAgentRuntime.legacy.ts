@@ -440,6 +440,36 @@ def fs_sha256(root, file_path):
             h.update(chunk)
     return {"ok": True, "path": ap, "sha256": h.hexdigest()}
 
+def code_sync_inspect(root, relative_paths):
+    root_abs = os.path.realpath(root)
+    paths = []
+    for value in relative_paths:
+        rel = str(value or "").replace("\\", "/").strip()
+        if not rel or rel.startswith("/") or rel.startswith("../") or "/../" in rel or rel == "..":
+            return {"ok": False, "error": "unsafe relative path"}
+        target = os.path.realpath(os.path.join(root_abs, rel))
+        if os.path.commonpath([root_abs, target]) != root_abs:
+            return {"ok": False, "error": "path outside project"}
+        paths.append(rel)
+    if not paths or len(paths) > 40:
+        return {"ok": False, "error": "expected 1-40 paths"}
+    result = subprocess.run(["git", "-C", root_abs, "status", "--porcelain=v1", "--untracked-files=all", "--", *paths], capture_output=True, text=True, timeout=15, check=False)
+    git_available = result.returncode == 0
+    tracked_result = subprocess.run(["git", "-C", root_abs, "ls-files", "--cached", "--", *paths], capture_output=True, text=True, timeout=15, check=False) if git_available else None
+    tracked = set(tracked_result.stdout.splitlines()) if tracked_result and tracked_result.returncode == 0 else set()
+    changed = {}
+    for line in result.stdout.splitlines() if git_available else []:
+        if len(line) >= 4:
+            changed[line[3:].strip('"')] = line[:2]
+    files = []
+    for rel in paths:
+        target = os.path.join(root_abs, rel)
+        digest = fs_sha256(root_abs, target) if os.path.isfile(target) else {"ok": False}
+        exists = os.path.isfile(target)
+        status = changed.get(rel, "") or ("??" if git_available and exists and rel not in tracked else "")
+        files.append({"path": rel, "status": status, "exists": exists, "sha256": digest.get("sha256", "")})
+    return {"ok": True, "gitAvailable": git_available, "files": files}
+
 def project_state_namespace(root):
     root_abs = os.path.abspath(root)
     base = os.path.basename(root_abs.rstrip(os.sep)) or "project"
@@ -10733,6 +10763,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/workers/uplink/commands/sse",
             "/api/live-output",
             "/api/diagnostics",
+            "/api/code-sync/inspect",
             "/api/events",
             "/api/events/sse",
             "/api/operations/{id}",
@@ -10766,6 +10797,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/version",
             "/api/capabilities",
             "/api/files/capabilities",
+            "/api/code-sync/inspect",
             "/api/openapi.json",
             "/api/snapshot",
             "/api/gpu",
@@ -12103,7 +12135,7 @@ def serve_http(args):
             if route == "/api/openapi.json":
                 return self.send_json(api_openapi(root, bool(token), mode))
             operation_route = route.startswith("/api/operations/")
-            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/files/stat", "/api/files/download", "/api/files/download-range", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy", "/api/tensorboard/scalars/catalog") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and not operation_route:
+            if mode == "worker_telemetry" and route not in ("/api/health", "/health", "/api/version", "/version", "/api/capabilities", "/api/gpu", "/api/gpu/history", "/api/runtime/evidence", "/api/worker/availability", "/api/worker/tasks", "/api/worker/commands", "/api/workers/uplink/commands/sse", "/api/live-output", "/api/results/summary", "/api/diagnostics", "/api/code-sync/inspect", "/api/events", "/api/events/sse", "/api/fs/sha256", "/api/files/capabilities", "/api/files/stat", "/api/files/download", "/api/files/download-range", "/api/tmux/capture", "/api/tmux/list", "/api/tensorboard/proxy", "/api/tensorboard/scalars/catalog") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and not operation_route:
                 return self.send_json({"error": "worker telemetry does not expose hub control api"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(parsed)
@@ -12122,6 +12154,8 @@ def serve_http(args):
                 params = parse_qs(parsed.query)
                 file_path = (params.get("path") or [""])[0].strip()
                 return self.send_json(fs_sha256(root, file_path))
+            if route == "/api/code-sync/inspect":
+                return self.send_json(code_sync_inspect(root, parse_qs(parsed.query).get("path", [])))
             if route == "/api/snapshot":
                 return self.send_json(api_snapshot(root))
             if route == "/api/gpu":
@@ -12357,7 +12391,7 @@ def serve_http(args):
                     return self.send_json({"error": str(exc)}, status=400)
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
-            # tmux 关窗：经 agent 管理窗口模拟用户键入 send-keys（禁 bash -l，禁窗口外主 shell 直调）
+            # 直接调用 tmux 客户端；Agent 窗格正运行 Python，send-keys 不会执行 shell 命令。
             if route == "/api/tmux/kill-window":
                 if not self.localhost_only():
                     return self.send_json({"error": "localhost only"}, status=403)
@@ -12369,12 +12403,6 @@ def serve_http(args):
                 sess_name = target.split(":")[0].strip() if ":" in target else target
                 if not sess_name:
                     return self.send_json({"error": "invalid target name"}, status=400)
-                try:
-                    own_sess = str(os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION") or "").strip()
-                except Exception:
-                    own_sess = ""
-                if own_sess and sess_name == own_sess:
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "error": "refuse to kill own agent session"}, status=403)
                 confirmed = payload.get("confirm") is True or str(payload.get("confirm") or "").strip().lower() in ("true", "1", "yes")
                 if sess_name.endswith("-agent") and not confirmed:
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "needConfirm": True, "error": "agent window requires confirm"}, status=403)
@@ -12405,15 +12433,17 @@ def serve_http(args):
                         mgmt_target = ""
                 if not mgmt_target:
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "agent mgmt session unknown"}, status=500)
-                if sess_name == mgmt_target and not confirmed:
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "needConfirm": True, "error": "agent window requires confirm"}, status=403)
+                if sess_name == mgmt_target:
+                    if not confirmed:
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "current Agent window requires confirmation"}, status=403)
+                    threading.Timer(0.3, lambda: subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)).start()
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True, "scheduled": True})
                 try:
-                    kill_line = "tmux kill-window -t " + target
-                    r = subprocess.run(["tmux", "send-keys", "-t", mgmt_target, kill_line, "C-m"], capture_output=True, text=True, timeout=5)
+                    r = subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)
                     err = (r.stderr or "").strip()[-500:]
                     if r.returncode != 0:
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "mgmt": mgmt_target, "error": err or f"rc={r.returncode}"}, status=200)
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True, "mgmt": mgmt_target})
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or f"rc={r.returncode}"}, status=200)
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
             # Admin kill-stale-runtime: used by extension killRemoteAgentAndTmux to clean old tmux/pids via tunnel

@@ -1299,6 +1299,7 @@ function renderPanelHtml() {
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="testAll" class="secondary" title="第 3 步 · 检测&#10;检测全部服务器隧道、Agent 与调度依赖&#10;失败项会列出原因">检测全部</button>
         </div>
+        <div class="toolbar"><button type="button" data-command="configureSftpIgnores" class="secondary" title="配置每台服务器的 SimpleSFTP 上传忽略规则。源码清单还会独立保护 data/ 内的图像、数组和权重文件；上传后会核对必需 Python 源码。">设置 SFTP 忽略目录</button></div>
         <div class="muted">隧道端口与新增服务器等详细表单在设置区服务器卡片中维护；本卡只做三步动作与总览，失败停留本卡并报错，不自动跳转。</div>
       </section>
 
@@ -2572,7 +2573,7 @@ function renderPanelHtml() {
               try { if (typeof showToast === "function") showToast("关闭窗口卡住（stalled）：后台可能仍在继续，已自动刷新列表", "warning"); } catch (e) {}
               try { refreshTmuxList(); refreshTmuxCapture(); } catch (e) {}
             }
-          }, 8000);
+          }, 30000);
           vscode.postMessage({ command: "killTmuxWindow", target: closeTarget, window: closeTarget, session: closeSession, confirm: true, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
         } catch (e) {
           try { refreshTmuxList(); } catch (err) {}

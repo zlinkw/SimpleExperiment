@@ -4798,7 +4798,9 @@ class RealtimeTunnelPanelProvider {
         // Agent 准备含 SFTP 部署、Xshell 启动和就绪检测，进度通知及各阶段自身超时负责终态。
         if (command === "prepareAgents")
             return 0;
-        if (command === "fetchTmuxList" || command === "fetchTmuxCapture" || command === "killTmuxWindow")
+        if (command === "killTmuxWindow")
+            return 30_000;
+        if (command === "fetchTmuxList" || command === "fetchTmuxCapture")
             return 8000;
         if (command === "runAllPlans") {
             const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));
@@ -5002,7 +5004,7 @@ class RealtimeTunnelPanelProvider {
                     throw new Error(outputGateReason);
                 }
             }
-            await this.ensureWorkerPoolPlanTarget(body, operationResultPlanFile(body) || plan?.planFile || command);
+            await this.selectPlanSubmissionWorker(body, operationResultPlanFile(body) || plan?.planFile || command);
             if (LENIENT_RUN) {
                 try {
                     this.assertExecutionWorkersReady(body.options?.workers);
@@ -5287,7 +5289,8 @@ class RealtimeTunnelPanelProvider {
     planRunRemoteTargets(body) {
         const topology = this.assertTopologyReady("显示 Plan 运行目标");
         const selectedWorkerId = this.planSchedulerWorkerId(body);
-        const workers = this.workerCodeSyncTargets().filter((worker) => topology.mode !== "worker_pool" || worker.id === selectedWorkerId);
+        const runWorkerId = selectedWorkerId || (Array.isArray(body?.selectedWorkerIds) && body.selectedWorkerIds.length === 1 ? body.selectedWorkerIds[0] : "");
+        const workers = this.workerCodeSyncTargets().filter((worker) => !runWorkerId || worker.id === runWorkerId);
         const workerConfigs = new Map(this.setupConfig.workerTunnels.map((worker) => [worker.id, worker]));
         return [
             ...(topology.hubAllowed ? [{ label: "Hub 汇总", role: "hub", remotePath: this.hubCodeSyncTarget().remotePath }] : []),
@@ -5888,6 +5891,9 @@ class RealtimeTunnelPanelProvider {
         for (const target of targets) {
             console.log("[diag] simpleSftp.uploadFiles invoke", target.id, target.remotePath);
             const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
+                apiMode: true,
+                confirm: true,
+                pathConfirmed: true,
                 localBase: runtimeDir,
                 targetId: `${target.id}-agent-runtime`,
                 targetRole: target.role,
@@ -6582,9 +6588,9 @@ class RealtimeTunnelPanelProvider {
         }
         catch { }
         const topology = this.assertPlanTopologyReady("运行前代码同步");
-        const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).map((body) => this.planSchedulerWorkerId(body)).filter(Boolean));
-        const targets = topology.mode === "worker_pool" && selectedWorkerIds.length
-            ? this.workerCodeSyncTargets().filter((target) => selectedWorkerIds.includes(target.id))
+        const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).flatMap((body) => [this.planSchedulerWorkerId(body), ...(Array.isArray(body?.selectedWorkerIds) ? body.selectedWorkerIds : [])]).filter(Boolean));
+        const targets = selectedWorkerIds.length && topology.mode !== "single_worker"
+            ? this.topologyCodeSyncTargets().filter((target) => target.role === "hub" || selectedWorkerIds.includes(target.id))
             : this.topologyCodeSyncTargets();
         await this.syncCodeTargets(targets, "run", { projectContext });
         if (!this.projectContextIsCurrent(projectContext))
@@ -6620,6 +6626,22 @@ class RealtimeTunnelPanelProvider {
             throw new Error("没有可用于代码同步的 Hub/Worker 目标。");
         const manifest = await buildLocalCodeManifest(root);
         assertCurrent();
+        // Inspect every destination before the first upload. A dirty or untracked
+        // remote source is user work and must never be overwritten implicitly.
+        for (const target of enabledTargets) {
+            const rows = await this.inspectCodeSyncTarget(target, Object.keys(manifest));
+            const conflicts = rows.filter((row) => String(row.status || "").trim() || (row.gitAvailable === false && row.exists && String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase()));
+            if (conflicts.length) {
+                const details = conflicts.map((row) => `${target.remotePath.replace(/\/+$/, "")}/${row.path} (${row.status || "无 Git 基线"})`);
+                if (details.length > 20)
+                    throw new Error(`${target.label} 有 ${details.length} 个远端代码冲突，数量过多，已阻止批量覆盖。请先在 Worker 检查和整理 Git 状态。`);
+                const approve = "覆盖列出的远端文件";
+                const answer = await vscode.window.showWarningMessage(`${target.label} 的以下文件存在未提交修改、未跟踪状态或缺少 Git 基线。继续将以本机源码覆盖远端内容：\n${details.join("\n")}\n\n取消可保留远端文件；请先比较或备份后再决定。`, { modal: true }, approve);
+                if (answer !== approve)
+                    throw new UiCommandCancelled(`${target.label} 的远端代码冲突未获覆盖确认，上传已取消。`);
+            }
+        }
+        assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
         await this.confirmRemoteWriteTargets(codeSyncConfirmationLabel(scope), enabledTargets.map((target) => ({
@@ -6640,6 +6662,9 @@ class RealtimeTunnelPanelProvider {
         for (const target of enabledTargets) {
             try {
                 const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
+                    apiMode: true,
+                    confirm: true,
+                    pathConfirmed: true,
                     localPath: root,
                     targetId: target.id,
                     targetRole: target.role,
@@ -6651,6 +6676,11 @@ class RealtimeTunnelPanelProvider {
                 assertCurrent();
                 if (!sftpUploadSucceeded(result, fingerprint))
                     throw new Error(resultError(result) || "SFTP 上传未确认成功。");
+                const requiredSources = Object.keys(manifest).filter((file) => /\.(py|pyi)$/i.test(file));
+                const verified = await this.inspectCodeSyncTarget(target, requiredSources);
+                const mismatches = verified.filter((row) => !row.exists || String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase());
+                if (mismatches.length)
+                    throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
             }
             catch (error) {
                 if (isUiCommandCancelled(error))
@@ -6683,6 +6713,39 @@ class RealtimeTunnelPanelProvider {
         await this.markProjectOnboardingComplete(projectContext);
         assertCurrent();
         this.postState();
+    }
+    async inspectCodeSyncTarget(target, paths) {
+        const base = this.resolveAgentBase(target);
+        const token = String(this.tunnelConfig?.token || "");
+        const rows = [];
+        for (let index = 0; index < paths.length; index += 30) {
+            const batch = paths.slice(index, index + 30);
+            const query = new URLSearchParams();
+            for (const file of batch)
+                query.append("path", file);
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 20000);
+            try {
+                const response = await fetch(`${base}/api/code-sync/inspect?${query.toString()}`, { headers: token ? { "X-Simple-Agent-Token": token } : undefined, signal: controller.signal });
+                if (!response.ok)
+                    throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                if (data?.ok !== true || !Array.isArray(data.files) || data.files.length !== batch.length)
+                    throw new Error(String(data?.error || "响应不完整"));
+                for (let i = 0; i < batch.length; i++) {
+                    if (data.files[i]?.path !== batch[i])
+                        throw new Error("文件顺序不一致");
+                    rows.push({ ...data.files[i], gitAvailable: data.gitAvailable === true });
+                }
+            }
+            catch (error) {
+                throw new Error(`${target.label} 远端代码预检/校验失败（${errorMessage(error)}）；请先确认 Agent 已更新且隧道可用。`);
+            }
+            finally {
+                clearTimeout(timer);
+            }
+        }
+        return rows;
     }
     async confirmRemoteWriteTargets(operation, targets, projectContext) {
         const assertCurrent = () => {
@@ -7045,6 +7108,65 @@ class RealtimeTunnelPanelProvider {
         if (topology.mode === "worker_pool")
             return this.resolveWorkerEndpointId(body?.schedulerOwnerWorkerId || body?.options?.schedulerOwnerWorkerId || body?.options?.workerId || "") || undefined;
         return undefined;
+    }
+    async selectPlanSubmissionWorker(body, label = "当前 Plan") {
+        const topology = this.assertPlanTopologyReady(label);
+        if (topology.mode === "single_worker")
+            return this.planSchedulerWorkerId(body);
+        const workers = this.enabledWorkerConfigs();
+        if (!workers.length)
+            throw new Error(`${label} 没有已启用的 Worker。`);
+        if (workers.length === 1) {
+            if (topology.mode === "worker_pool")
+                this.stampWorkerPoolManualTarget(body, workers[0].id);
+            return workers[0].id;
+        }
+        let gpuSnapshot = this.lastRealtimeState?.gpu || {};
+        let snapshotSource = "最近缓存";
+        try {
+            const fresh = await this.client.getGpu();
+            if (fresh && typeof fresh === "object") {
+                gpuSnapshot = fresh;
+                snapshotSource = "刚刚刷新";
+            }
+        }
+        catch { }
+        const availability = new Map(this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), gpuSnapshot).map((row) => [row.workerId, row]));
+        const items = workers.map((worker) => {
+            const probe = this.lastWorkerProbes[worker.id] || {};
+            const rows = Array.isArray(gpuSnapshot[worker.id]) ? gpuSnapshot[worker.id] : [];
+            const row = availability.get(worker.id) || {};
+            const action = topology.mode === "worker_pool" ? "validate-plan" : "start-worker-task";
+            const missing = this.missingWorkerActionCapabilities(worker.id, action);
+            const selectable = probe.status === "ok" && !missing.length;
+            const count = rows.length ? `${(row.availableGpuIds || []).length}/${row.totalGpus || rows.length}` : "未知";
+            return {
+                label: worker.displayName || worker.id,
+                description: `${worker.id} · 空闲卡 ${count} · ${selectable ? "在线" : "不可用"}`,
+                detail: `${snapshotSource}；${rows.length ? `空闲 GPU ${(row.availableGpuIds || []).join(", ") || "无"}` : "暂无 GPU 数据"}${missing.length ? `；缺少 ${missing.join(", ")}` : ""}`,
+                workerId: worker.id,
+                selectable,
+            };
+        });
+        const picked = await vscode.window.showQuickPick(items, {
+            title: `${label}：选择运行 Worker`,
+            placeHolder: "每次提交 Plan 选择一台 Worker；空闲卡按当前利用率与显存阈值统计，0 张仍可排队",
+            ignoreFocusOut: true,
+        });
+        if (!picked)
+            throw new UiCommandCancelled(`${label} 未选择运行 Worker。`);
+        if (!picked.selectable)
+            throw new Error(`Worker ${picked.workerId} 当前不可用，请先检测并启动其 Agent。`);
+        if (topology.mode === "worker_pool")
+            this.stampWorkerPoolManualTarget(body, picked.workerId);
+        else {
+            const target = this.workerActionTargets().find((item) => item.id === picked.workerId);
+            if (!target)
+                throw new Error(`无法计算 Worker ${picked.workerId} 的项目路径。`);
+            body.selectedWorkerIds = [picked.workerId];
+            body.options = { ...(body.options || {}), workerId: picked.workerId, workers: [target] };
+        }
+        return picked.workerId;
     }
     async ensureWorkerPoolPlanTarget(body, label = "当前 Plan") {
         const topology = this.assertPlanTopologyReady(label);
@@ -9070,6 +9192,9 @@ class RealtimeTunnelPanelProvider {
         const failures = [];
         for (const target of enabledTargets) {
             const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
+                apiMode: true,
+                confirm: true,
+                pathConfirmed: true,
                 localBase: root,
                 targetId: `${target.id}-draft-run`,
                 targetRole: target.role,
@@ -9673,7 +9798,7 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("计划元数据缺少 planFile，已停止批量运行；请刷新识别后重试。");
             const body = this.actionBody({ planFile, planId: plan.planId || planFile, selectedPlanId: plan.planId || planFile });
             this.stampPlanRevision(body, plan);
-            await this.ensureWorkerPoolPlanTarget(body, planFile);
+            await this.selectPlanSubmissionWorker(body, planFile);
             assertCurrent();
             await this.assertPlanLocalConfigFiles(body);
             assertCurrent();
@@ -12213,57 +12338,62 @@ class RealtimeTunnelPanelProvider {
         const session = String(message?.session || (target.indexOf(":") !== -1 ? target.slice(0, target.indexOf(":")) : target)).trim() || target;
         const win = String(message?.window || target).trim() || target;
         const body = { target, window: win, session, confirm: message?.confirm === true || message?.confirm === "true" || message?.confirmed === true };
-        let result = null;
-        let lastError = null;
-        const tryClient = this.client;
-        if (tryClient && typeof tryClient.requestJson === "function") {
-            try {
-                result = await tryClient.requestJson(`/api/tmux/kill-window`, { method: "POST", body });
-            }
-            catch (exc) {
-                lastError = exc;
-                result = null;
-            }
-        }
-        if (!result) {
-            let host = "127.0.0.1";
-            let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
-            try {
-                const targets = this.agentRuntimeUploadTargets?.() || [];
-                const t = targets.find((x) => x.localForwardPort) || targets[0];
-                if (t) {
-                    host = String(t.localForwardHost || t.localHost || host).trim() || host;
-                    port = Number(t.localForwardPort || port);
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `关闭 tmux 窗口 ${target}`, cancellable: false }, async (progress) => {
+            progress.report({ increment: 10, message: "等待 Agent 确认" });
+            let result = null;
+            let lastError = null;
+            const tryClient = this.client;
+            if (tryClient && typeof tryClient.requestJson === "function") {
+                try {
+                    result = await tryClient.requestJson(`/api/tmux/kill-window`, { method: "POST", body });
+                }
+                catch (exc) {
+                    lastError = exc;
+                    result = null;
                 }
             }
-            catch { }
-            const token = String(this.tunnelConfig?.token || "");
-            const http = require("http");
-            const payload = JSON.stringify(body);
-            result = await new Promise((resolve, reject) => {
-                const req = http.request({ host, port, path: `/api/tmux/kill-window`, method: "POST", headers: Object.assign({ "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }, token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}), timeout: 8000 }, (res) => {
-                    let data = "";
-                    res.on("data", (c) => data += c);
-                    res.on("end", () => { try {
-                        resolve(JSON.parse(data || "{}"));
+            if (!result) {
+                let host = "127.0.0.1";
+                let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
+                try {
+                    const targets = this.agentRuntimeUploadTargets?.() || [];
+                    const t = targets.find((x) => x.localForwardPort) || targets[0];
+                    if (t) {
+                        host = String(t.localForwardHost || t.localHost || host).trim() || host;
+                        port = Number(t.localForwardPort || port);
                     }
-                    catch {
-                        resolve({ ok: false, error: data });
-                    } });
-                });
-                req.on("error", reject);
-                req.on("timeout", () => { req.destroy(new Error("timeout")); });
-                req.end(payload);
-            }).catch((exc) => { lastError = exc; return null; });
-        }
-        if (!result)
-            throw new Error(String(lastError?.message || lastError || "kill-window 请求失败：agent 无响应"));
-        if (result?.ok === false || result?.error)
-            throw new Error(String(result?.error || result?.message || "agent 拒绝关闭窗口"));
-        try {
-            await this.fetchTmuxListFromUi({});
-        }
-        catch { }
+                }
+                catch { }
+                const token = String(this.tunnelConfig?.token || "");
+                const http = require("http");
+                const payload = JSON.stringify(body);
+                result = await new Promise((resolve, reject) => {
+                    const req = http.request({ host, port, path: `/api/tmux/kill-window`, method: "POST", headers: Object.assign({ "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }, token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}), timeout: 8000 }, (res) => {
+                        let data = "";
+                        res.on("data", (c) => data += c);
+                        res.on("end", () => { try {
+                            resolve(JSON.parse(data || "{}"));
+                        }
+                        catch {
+                            resolve({ ok: false, error: data });
+                        } });
+                    });
+                    req.on("error", reject);
+                    req.on("timeout", () => { req.destroy(new Error("timeout")); });
+                    req.end(payload);
+                }).catch((exc) => { lastError = exc; return null; });
+            }
+            if (!result)
+                throw new Error(String(lastError?.message || lastError || "kill-window 请求失败：agent 无响应"));
+            if (result?.ok === false || result?.error)
+                throw new Error(String(result?.error || result?.message || "agent 拒绝关闭窗口"));
+            progress.report({ increment: 80, message: "刷新窗口列表" });
+            try {
+                await this.fetchTmuxListFromUi({});
+            }
+            catch { }
+            progress.report({ increment: 10, message: "完成" });
+        });
     }
     async openTensorBoardUrlFromUi(message) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
@@ -13037,8 +13167,8 @@ class RealtimeTunnelPanelProvider {
                 this.lastError = errorMessage(error);
         }
     }
-    localWorkerAvailabilityRows(ttlSeconds) {
-        const gpu = (this.lastRealtimeState?.gpu || {});
+    localWorkerAvailabilityRows(ttlSeconds, gpuSnapshot = this.lastRealtimeState?.gpu || {}) {
+        const gpu = gpuSnapshot || {};
         const sched = this.schedulerSettings();
         const defUtil = Number(sched.gpuIdleUtilThreshold ?? 5);
         const defMem = Number(sched.gpuIdleMemThresholdMb ?? 200);
@@ -23384,7 +23514,6 @@ const protectedCodeSyncTopLevelDirs = new Set([
     ".ruff_cache",
     ".cache",
     ".tox",
-    "data",
     "dataset",
     "datasets",
     "checkpoints",
@@ -23410,6 +23539,9 @@ const protectedCodeSyncTopLevelDirs = new Set([
     "artifacts",
 ]);
 const protectedCodeSyncFilePattern = /\.(pth|pt|ckpt|onnx|engine|h5|hdf5|pkl|pickle|joblib|nii|gz|mha|mhd|dcm|png|jpg|jpeg|bmp|tif|tiff|npy|npz|zip|tar|tgz|rar|7z|log|out|err|csv|tsv|xlsx|xls|vsix|bin|safetensors|weights|model)$/i;
+const protectedDataAssetDirs = new Set(["raw", "processed", "patients", "patient", "subjects", "images", "image", "features", "feature_cache", "cache", ".cache", "checkpoints", "checkpoint", "weights", "weight", "pretrained", "runs", "work_dirs", "__pycache__", "artifacts", "outputs", "results"]);
+const allowedDataSourcePattern = /\.(py|pyi)$/i;
+const allowedDataConfigPattern = /(?:^|[._-])(config|settings|schema|manifest|protocol|metadata)(?:[._-]|$)/i;
 function isExcludedCodePath(relative, directory) {
     const value = relative.replace(/\\/g, "/");
     const lower = value.toLowerCase();
@@ -23420,6 +23552,16 @@ function isExcludedCodePath(relative, directory) {
         return true;
     if (lower.split("/").includes("artifacts"))
         return true;
+    if (top === "data") {
+        const nested = lower.split("/").slice(1);
+        if (nested.some((segment) => protectedDataAssetDirs.has(segment)))
+            return true;
+        if (!directory) {
+            const basename = path.posix.basename(lower);
+            if (!allowedDataSourcePattern.test(basename) && !(allowedDataConfigPattern.test(basename) && /\.(yaml|yml|toml|ini|cfg|json)$/i.test(basename)))
+                return true;
+        }
+    }
     if (directory)
         return false;
     if (/^\.env($|\.)/i.test(path.posix.basename(value)))
