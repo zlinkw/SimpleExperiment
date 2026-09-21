@@ -6768,22 +6768,6 @@ class RealtimeTunnelPanelProvider {
         const includePolicy = explicitCodePolicy(codeSyncConfig.get("codeSync.allowedExtensions", DEFAULT_EXPLICIT_CODE_EXTENSIONS), codeSyncConfig.get("codeSync.maxFileSizeMB", 2));
         const manifest = await buildLocalCodeManifest(root, includePaths, includePolicy);
         assertCurrent();
-        // Inspect every destination before the first upload. A dirty or untracked
-        // remote source is user work and must never be overwritten implicitly.
-        for (const target of enabledTargets) {
-            const rows = await this.inspectCodeSyncTarget(target, Object.keys(manifest));
-            const conflicts = codeSyncConflicts(rows, manifest);
-            if (conflicts.length) {
-                const details = conflicts.map((row) => `${target.remotePath.replace(/\/+$/, "")}/${row.path} (${row.status || "无 Git 基线"})`);
-                if (details.length > 20)
-                    throw new Error(`${target.label} 有 ${details.length} 个远端代码冲突，数量过多，已阻止批量覆盖。请先在 Worker 检查和整理 Git 状态。`);
-                const approve = "覆盖列出的远端文件";
-                const answer = await vscode.window.showWarningMessage(`${target.label} 的以下文件存在未提交修改、未跟踪状态或缺少 Git 基线。继续将以本机源码覆盖远端内容：\n${details.join("\n")}\n\n取消可保留远端文件；请先比较或备份后再决定。`, { modal: true }, approve);
-                if (answer !== approve)
-                    throw new UiCommandCancelled(`${target.label} 的远端代码冲突未获覆盖确认，上传已取消。`);
-            }
-        }
-        assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
         await this.confirmRemoteWriteTargets(codeSyncConfirmationLabel(scope), enabledTargets.map((target) => ({
@@ -6881,7 +6865,7 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             catch (error) {
-                throw new Error(`${target.label} 远端代码预检/校验失败（${errorMessage(error)}）；请先确认 Agent 已更新且隧道可用。`);
+                throw new Error(`${target.label} 上传结果校验失败（${errorMessage(error)}）；请先确认 Agent 已更新且隧道可用。`);
             }
             finally {
                 clearTimeout(timer);
@@ -23697,18 +23681,6 @@ async function collectExplicitCodeFiles(root, includePaths, policy = explicitCod
             throw new Error(`代码上传路径没有可上传源码或配置：${relative}`);
     }
     return [...files];
-}
-function codeSyncConflicts(rows, manifest) {
-    return rows.filter((row) => {
-        if (!row.exists)
-            return false;
-        const dirty = Boolean(String(row.status || "").trim()) || row.gitAvailable === false;
-        if (!dirty)
-            return false;
-        const remoteHash = String(row.sha256 || "").toLowerCase();
-        const localHash = String(manifest[row.path]?.sha256 || "").toLowerCase();
-        return !remoteHash || !localHash || remoteHash !== localHash;
-    });
 }
 function fingerprintFromManifest(manifest) {
     const stable = Object.keys(manifest).sort().map((key) => [key, manifest[key]]);

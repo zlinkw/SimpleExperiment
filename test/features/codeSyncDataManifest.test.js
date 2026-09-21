@@ -48,29 +48,19 @@ test("data package source and nested source are included while data assets are e
   for (const file of files.slice(5)) assert.equal(manifest[file], undefined, file);
 });
 
-test("upload path gates on remote conflicts and verifies required source hashes", () => {
-  assert.match(source, /const conflicts = codeSyncConflicts\(rows, manifest\)/);
-  assert.match(source, /if \(conflicts\.length\)[\s\S]{0,500}throw new Error/);
-  assert.match(source, /const verified = await this\.inspectCodeSyncTarget\(target, requiredSources\)/);
+test("upload path does not inspect Git conflicts and verifies transferred source hashes", () => {
+  const syncStart = source.indexOf("async syncCodeTargets(");
+  const syncEnd = source.indexOf("async inspectCodeSyncTarget(", syncStart);
+  const sync = source.slice(syncStart, syncEnd);
+  const uploadAt = sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"');
+  const verifyAt = sync.indexOf("await this.inspectCodeSyncTarget(target, requiredSources)");
+  assert.ok(uploadAt > 0 && verifyAt > uploadAt);
+  assert.doesNotMatch(sync.slice(0, uploadAt), /inspectCodeSyncTarget|codeSyncConflicts|远端代码冲突/);
   assert.match(source, /!row\.exists \|\| String\(row\.sha256 \|\| ""\)\.toLowerCase\(\) !== String\(manifest\[row\.path\]\?\.sha256 \|\| ""\)\.toLowerCase\(\)/);
 });
 
-test("matching remote source is safe even when Git calls it modified or untracked", () => {
-  const sandbox = {};
-  vm.runInNewContext(source.slice(source.indexOf("function codeSyncConflicts("), source.indexOf("function fingerprintFromManifest(")) + "; globalThis.check = codeSyncConflicts;", sandbox);
-  const manifest = {
-    "data/auxiliary_views.py": { sha256: "ABC" },
-    "data/multimodal_dataset.py": { sha256: "DEF" },
-    "data/datasets/fixed_protocol_manifest.py": { sha256: "123" },
-  };
-  const rows = [
-    { path: "data/auxiliary_views.py", exists: true, status: "??", gitAvailable: true, sha256: "abc" },
-    { path: "data/multimodal_dataset.py", exists: true, status: " M", gitAvailable: true, sha256: "different" },
-    { path: "data/datasets/fixed_protocol_manifest.py", exists: false, status: "", gitAvailable: true, sha256: "" },
-  ];
-  const conflicts = sandbox.check(rows, manifest);
-  assert.equal(conflicts.length, 1);
-  assert.equal(conflicts[0].path, "data/multimodal_dataset.py");
+test("legacy remote Git conflict gate is absent", () => {
+  assert.doesNotMatch(source, /function codeSyncConflicts\(|覆盖列出的远端文件|远端代码冲突|缺少 Git 基线/);
 });
 
 test("configured code paths add safe source from excluded directories without data assets", async () => {
