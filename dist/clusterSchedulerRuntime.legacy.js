@@ -1557,11 +1557,10 @@ def wrap_command(command: list[str], job: Job, config_path: Path, args: argparse
     return [runtime_python_command(dict(os.environ)), wrapper_path, "--output-dir", job.output_dir, "--context-json", context_json, "--", *command]
 
 
-def surface_original_error(job: "Job", phase: str) -> None:
+def surface_original_error(job: "Job", phase: str) -> bool:
     """Re-emit the original program's stdout/stderr into the scheduler pane so the tmux
-    window (and the task log the panel reads) transparently shows the real error instead
-    of only the scheduler's CalledProcessError wrapper. The actual training/test output is
-    captured by run_wrapper into output_dir/{stderr,stdout}.log."""
+    window transparently shows the real error. Prefer stderr; stdout is only a fallback.
+    Wrapper metadata is intentionally omitted because it repeats the full command/context."""
     od = Path(str(job.output_dir))
     print(f"[simple-experiment-runtime] {phase} command failed; surfacing original program output from {od}", flush=True)
     for name in ("stderr.log", "stdout.log"):
@@ -1580,16 +1579,16 @@ def surface_original_error(job: "Job", phase: str) -> None:
         for _ln in tail:
             print(_ln, flush=True)
         print("========== end " + name + " ==========", flush=True)
-    rep = od / "run_wrapper_report.json"
-    if rep.is_file():
-        try:
-            data = json.loads(rep.read_text(encoding="utf-8", errors="replace"))
-            err = data.get("error") or data.get("stderr") or data.get("message") or data.get("traceback")
-            if err:
-                print("========== run_wrapper_report error ==========", flush=True)
-                print(str(err)[-4000:], flush=True)
-        except Exception:
-            pass
+        return True
+    return False
+
+
+def _failed_process_exit_code(exc: subprocess.CalledProcessError) -> int:
+    try:
+        code = int(exc.returncode)
+    except Exception:
+        return 1
+    return code if 0 < code <= 255 else 1
 
 
 def result_table_covers_job(job: Job) -> bool:
@@ -1667,9 +1666,9 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
         command = wrap_command(command, job, config_path, args, "train")
         try:
             run_command(command, env)
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
             surface_original_error(job, "train")
-            raise
+            raise SystemExit(_failed_process_exit_code(exc)) from None
         if args.mode == "train":
             collect_tensorboard_metrics(job)
     if args.mode in {"test", "train_test"}:
@@ -1677,9 +1676,9 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
         command = wrap_command(command, job, config_path, args, "test")
         try:
             run_command(command, env)
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
             surface_original_error(job, "test")
-            raise
+            raise SystemExit(_failed_process_exit_code(exc)) from None
         collect_tensorboard_metrics(job)
 
 
