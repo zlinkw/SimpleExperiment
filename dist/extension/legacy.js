@@ -229,7 +229,7 @@ const LEGACY_SFTP_EXTENSION_ID = "simple-local.simple-sftp-manager";
 const SIMPLE_SFTP_REQUIRED_COMMANDS = [
     "simpleSftp.uploadWorkspace",
     "simpleSftp.uploadFiles",
-    "simpleSftp.configureIgnores",
+    "simpleSftp.configureDownloadScope",
 ];
 const AGENT_READY_HEALTH_STATES = new Set(["agent_ok", "file_api_unavailable"]);
 const ENDPOINT_READY_PROBE_STATUSES = new Set(["ok", "file_api_unavailable"]);
@@ -6557,10 +6557,10 @@ class RealtimeTunnelPanelProvider {
         });
     }
     async configureSftpIgnores() {
-        await this.prepareSftpTargets("configureSftpIgnores", "simpleSftp.configureIgnores");
+        await this.prepareSftpTargets("configureSftpIgnores", "simpleSftp.configureDownloadScope");
         const root = workspaceRoot();
         if (!root)
-            throw new Error("请先打开一个工作区，再配置 SFTP 忽略规则。");
+            throw new Error("请先打开一个工作区，再设置下载文件范围。");
         const targets = this.topologyCodeSyncTargets();
         const selected = targets.length === 1
             ? targets[0]
@@ -6569,20 +6569,22 @@ class RealtimeTunnelPanelProvider {
                 description: target.role,
                 detail: `${target.user}@${target.host}:${target.port} ${target.remotePath}`,
                 target,
-            })), { title: "选择要配置忽略规则的 SFTP 目标", ignoreFocusOut: true }).then((item) => item?.target);
+            })), { title: "选择要设置下载范围的服务器", ignoreFocusOut: true }).then((item) => item?.target);
         if (!selected)
             return;
-        await this.confirmRemoteWriteTargets("配置该目录的上传忽略规则", [selected]);
+        await this.confirmRemoteWriteTargets("确认下载范围对应的服务器项目目录", [selected]);
         await this.writeSftpManagerServerProfiles([selected.id]);
-        const result = await vscode.commands.executeCommand("simpleSftp.configureIgnores", {
+        const result = await vscode.commands.executeCommand("simpleSftp.configureDownloadScope", {
             localPath: root,
             targetId: selected.id,
             targetRole: selected.role,
             server: this.sftpServerOptions(selected),
+            confirm: true,
+            pathConfirmed: true,
         });
         const record = result && typeof result === "object" ? result : {};
         if (record.ok === false)
-            throw new Error(stringFromRecord(record, ["error", "message"]) || "SFTP 忽略规则配置失败。");
+            throw new Error(stringFromRecord(record, ["error", "message"]) || "下载文件范围设置失败。");
     }
     async configureCodeSyncIncludes() {
         const folder = vscode.workspace.workspaceFolders?.[0];
@@ -6601,7 +6603,7 @@ class RealtimeTunnelPanelProvider {
             { label: "$(file-binary) 设置单文件大小上限", description: `${currentMaxFileSizeMB} MB`, id: "max-size" },
             { label: "$(list-selection) 查看已添加的路径", description: `${current.length} 条额外路径`, id: "preview" },
             { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
-        ], { title: "补充上传代码", placeHolder: "选择一项操作；添加文件或目录后立即保存，无需再点完成", ignoreFocusOut: true });
+        ], { title: "设置上传文件范围", placeHolder: "选择本机文件或目录；选中后立即保存，无需再点完成", ignoreFocusOut: true });
         if (!action)
             return;
         if (action.id === "extensions") {
@@ -6699,7 +6701,7 @@ class RealtimeTunnelPanelProvider {
                 const next = selectedPaths.map((relative) => normalizedExplicitCodePath(root, relative).relative);
                 const safeFiles = await collectExplicitCodeFiles(root, next, policy);
                 if (!safeFiles.length)
-                    throw new Error(`所选路径中没有符合规则的文件。当前允许 ${policy.extensions.join("、")}，单文件不超过 ${policy.maxFileSizeMB} MB；可在此入口修改。`);
+                    throw new Error(`所选路径中没有符合上传规则的文件。当前允许 ${policy.extensions.join("、")}，单文件不超过 ${policy.maxFileSizeMB} MB；可在此入口修改。`);
                 updated = [...new Set([...current, ...next])].sort();
             }
             catch (error) {
@@ -6714,7 +6716,7 @@ class RealtimeTunnelPanelProvider {
             await vscode.window.showErrorMessage(`额外上传路径保存失败：${errorMessage(error)}`, { modal: true });
             throw error;
         }
-        void vscode.window.showInformationMessage(`已添加：${updated.filter((relative) => !current.includes(relative)).join("、") || "路径列表已更新"}。当前共 ${updated.length} 条；可点“补充上传代码 → 查看已添加的路径”核对。`);
+        void vscode.window.showInformationMessage(`已添加：${updated.filter((relative) => !current.includes(relative)).join("、") || "路径列表已更新"}。当前共 ${updated.length} 条；可点“设置上传文件范围 → 查看已添加的路径”核对。`);
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
@@ -17803,8 +17805,8 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     uploadProjectToWorkers: "上传项目到 Worker",
     distributeCodeToWorkers: "分发代码到 Worker",
     deployLatestAgent: "部署 Agent runtime",
-    configureSftpIgnores: "设置跳过文件",
-    configureCodeSyncIncludes: "补充上传代码",
+    configureSftpIgnores: "设置下载文件范围",
+    configureCodeSyncIncludes: "设置上传文件范围",
     downloadDebugBundle: "下载调试包",
     downloadRemoteResult: "下载远端结果",
     openResultArtifact: "打开或下载结果文件",
@@ -23678,11 +23680,11 @@ async function collectExplicitCodeFiles(root, includePaths, policy = explicitCod
             return;
         if (!safeExplicitCodeFile(relative, policy)) {
             if (explicitFile)
-                throw new Error(`文件类型不在允许列表中：${relative}。当前允许 ${policy.extensions.join("、")}；可在“补充上传代码 → 设置允许的文件类型”修改。`);
+                throw new Error(`文件类型不在允许列表中：${relative}。当前允许 ${policy.extensions.join("、")}；可在“设置上传文件范围 → 设置允许的文件类型”修改。`);
             return;
         }
         if (info.size > policy.maxFileSizeBytes)
-            throw new Error(`代码上传文件超过 ${policy.maxFileSizeMB} MB：${relative}。可在“补充上传代码 → 设置单文件大小上限”修改。`);
+            throw new Error(`上传文件超过 ${policy.maxFileSizeMB} MB：${relative}。可在“设置上传文件范围 → 设置单文件大小上限”修改。`);
         matched++;
         files.add(relative);
     }

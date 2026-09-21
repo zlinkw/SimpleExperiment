@@ -53,7 +53,7 @@ test("SimpleSFTP integration readiness validates the paired command ABI", () => 
           contributes: { commands: [
             { command: "simpleSftp.uploadWorkspace" },
             { command: "simpleSftp.uploadFiles" },
-            { command: "simpleSftp.configureIgnores" },
+            { command: "simpleSftp.configureDownloadScope" },
           ] },
         },
       };
@@ -70,7 +70,7 @@ test("SimpleSFTP integration readiness validates the paired command ABI", () => 
     },
   });
   assert.equal(outdated.ready, false);
-  assert.deepEqual(Array.from(outdated.missingCommands), ["simpleSftp.uploadFiles", "simpleSftp.configureIgnores"]);
+  assert.deepEqual(Array.from(outdated.missingCommands), ["simpleSftp.uploadFiles", "simpleSftp.configureDownloadScope"]);
   assert.match(outdated.message, /配套公开离线包升级两个插件/);
 });
 
@@ -82,7 +82,7 @@ test("SimpleSFTP integration readiness reuses ABI derivation and invalidates on 
     contributes: { commands: [
       { command: "simpleSftp.uploadWorkspace" },
       { command: "simpleSftp.uploadFiles" },
-      { command: "simpleSftp.configureIgnores" },
+      { command: "simpleSftp.configureDownloadScope" },
     ] },
   };
   const extension = {};

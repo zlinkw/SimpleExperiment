@@ -411,7 +411,7 @@
             "type": "string"
           },
           "scope": "resource",
-          "description": "运行 Plan 前额外上传的项目内文件或目录。可在面板“补充上传代码”中选择；与 SimpleSFTP 整项目传输的跳过规则分开。"
+          "description": "运行 Plan 前额外上传的项目内文件或目录。可在面板“设置上传文件范围”中选择。"
         },
         "simpleExperiment.codeSync.allowedExtensions": {
           "type": "array",
@@ -420,7 +420,7 @@
             "type": "string"
           },
           "scope": "resource",
-          "description": "“补充上传代码”允许纳入的文件扩展名。可在面板交互式修改；填写 * 表示允许任意类型。"
+          "description": "“设置上传文件范围”允许纳入的文件扩展名。可在面板交互式修改；填写 * 表示允许任意类型。"
         },
         "simpleExperiment.codeSync.maxFileSizeMB": {
           "type": "number",
@@ -428,7 +428,7 @@
           "minimum": 0.1,
           "maximum": 1024,
           "scope": "resource",
-          "description": "“补充上传代码”允许纳入的单文件大小上限，单位 MB。可在面板交互式修改。"
+          "description": "“设置上传文件范围”允许纳入的单文件大小上限，单位 MB。可在面板交互式修改。"
         },
         "simpleExperiment.remote.allowedRoots": {
           "type": "array",

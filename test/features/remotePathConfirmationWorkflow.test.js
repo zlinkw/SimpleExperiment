@@ -148,7 +148,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(startup, /agentStartupWriteConfirmationDetail\(targets, runtimeTargets, false\)/);
   assert.match(preparation, /agentStartupWriteConfirmationDetail\(targets, runtimeTargets, true\)/);
   assert.ok(deploy.indexOf("confirmRemoteWriteTargets") < deploy.indexOf('executeCommand("simpleSftp.uploadFiles"'));
-  assert.ok(ignores.indexOf("confirmRemoteWriteTargets") < ignores.indexOf('executeCommand("simpleSftp.configureIgnores"'));
+  assert.ok(ignores.indexOf("confirmRemoteWriteTargets") < ignores.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
   assert.ok(sync.indexOf("confirmRemoteWriteTargets") < sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"'));
   assert.match(confirm, /showWarningMessage\(remoteWriteConfirmationDetail\(operation, normalized, localProjectRoot\), \{ modal: true \}/);
   assert.match(confirm, /assertSingleProjectWorkspace\(operation\)/);
@@ -159,7 +159,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(prepareSftp, /assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)[\s\S]{0,180}ensureSimpleSftpReadyForSetup\("文件传输"\)/);
   assert.match(source, /loadProjectRemotePathConfirmationsState\(\)\.catch\(\(\) => undefined\)/);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 3);
-  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureIgnores"/g)].length, 1);
+  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureDownloadScope"/g)].length, 1);
   assert.match(legacyNotes, /所有由 SimpleExperiment 发起的项目代码和 Agent runtime SFTP 上传都会先经过强制路径确认窗口/);
   assert.match(legacyNotes, /simple_cluster\/ui\/remote_path_confirmations\.json/);
   assert.match(legacyNotes, /取消窗口不会上传远端文件，也不会留下运行中状态/);
@@ -176,7 +176,7 @@ test("path confirmation precedes profile writes and upload-start state", () => {
   assert.ok(deploy.indexOf("confirmRemoteWriteTargets") < deploy.indexOf("writeSftpManagerServerProfiles("));
   assert.ok(deploy.indexOf("writeSftpManagerServerProfiles(") < deploy.indexOf('executeCommand("simpleSftp.uploadFiles"'));
   assert.ok(ignores.indexOf("confirmRemoteWriteTargets") < ignores.indexOf("writeSftpManagerServerProfiles("));
-  assert.ok(ignores.indexOf("writeSftpManagerServerProfiles(") < ignores.indexOf('executeCommand("simpleSftp.configureIgnores"'));
+  assert.ok(ignores.indexOf("writeSftpManagerServerProfiles(") < ignores.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
   assert.ok(sync.indexOf("confirmRemoteWriteTargets") < sync.indexOf("writeSftpManagerServerProfiles("));
   assert.ok(sync.indexOf("writeSftpManagerServerProfiles(") < sync.indexOf("notifyLocalActionStarted"));
   assert.ok(sync.indexOf("notifyLocalActionStarted") < sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"'));
