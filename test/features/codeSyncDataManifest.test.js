@@ -111,10 +111,11 @@ test("code upload path action is available in the panel and saved as plugin conf
   const actionRow = panel.slice(actionStart, panel.indexOf('<div class="toolbar" data-anchor="sync-actions">', actionStart));
   assert.match(panel, /data-command="configureCodeSyncIncludes"/);
   assert.ok(actionRow.indexOf('data-command="overwriteGithub"') < actionRow.indexOf('data-command="configureCodeSyncIncludes"'));
-  assert.ok(actionRow.indexOf('data-command="configureCodeSyncIncludes"') < actionRow.indexOf('data-command="configureSftpIgnores"'));
+  assert.ok(actionRow.indexOf('data-command="configureCodeSyncIncludes"') < actionRow.indexOf('data-command="configureDownloadScope"'));
   assert.match(actionRow, /设置上传文件范围/);
   assert.match(actionRow, /设置下载文件范围/);
   assert.match(actionRow, /两套范围独立保存/);
+  assert.doesNotMatch(panel, /configureSftpIgnores|设置跳过文件/);
   assert.match(source, /case "configureCodeSyncIncludes"/);
   assert.match(source, /config\.update\("codeSync\.includePaths", updated, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
   assert.match(source, /buildLocalCodeManifest\(root, includePaths, includePolicy\)/);

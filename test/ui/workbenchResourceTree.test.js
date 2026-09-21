@@ -127,7 +127,7 @@ test("right inspector supports pinned actions and publish sync command group", (
     "uploadProjectToWorkers",
     "distributeCodeToWorkers",
     "deployLatestAgent",
-    "configureSftpIgnores",
+    "configureDownloadScope",
   ]) {
     assert.match(source, new RegExp(`"${command}"`));
   }

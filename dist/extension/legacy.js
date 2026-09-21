@@ -349,7 +349,7 @@ const uiActionCommands = new Set([
     "uploadProjectToWorkers",
     "distributeCodeToWorkers",
     "deployLatestAgent",
-    "configureSftpIgnores",
+    "configureDownloadScope",
     "configureCodeSyncIncludes",
     "clearLegacyTasks",
     "clearOperations",
@@ -365,7 +365,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "configureCodeSyncIncludes", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
@@ -386,7 +386,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
-    "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureSftpIgnores", "configureCodeSyncIncludes",
+    "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
     "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
@@ -477,7 +477,7 @@ const API_CONFIRM_COMMANDS = new Set([
     "uploadProjectToWorkers",
     "distributeCodeToWorkers",
     "deployLatestAgent",
-    "configureSftpIgnores",
+    "configureDownloadScope",
     "configureCodeSyncIncludes",
     "startAllConnections",
     "prepareAgents",
@@ -4616,8 +4616,8 @@ class RealtimeTunnelPanelProvider {
             case "deployLatestAgent":
                 await this.deployLatestAgentRuntime();
                 break;
-            case "configureSftpIgnores":
-                await this.configureSftpIgnores();
+            case "configureDownloadScope":
+                await this.configureDownloadScope();
                 break;
             case "configureCodeSyncIncludes":
                 await this.configureCodeSyncIncludes();
@@ -6556,8 +6556,8 @@ class RealtimeTunnelPanelProvider {
             };
         });
     }
-    async configureSftpIgnores() {
-        await this.prepareSftpTargets("configureSftpIgnores", "simpleSftp.configureDownloadScope");
+    async configureDownloadScope() {
+        await this.prepareSftpTargets("configureDownloadScope", "simpleSftp.configureDownloadScope");
         const root = workspaceRoot();
         if (!root)
             throw new Error("请先打开一个工作区，再设置下载文件范围。");
@@ -17770,7 +17770,7 @@ const hostOperationUiCommands = new Set([
     "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject",
     "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath",
     "plotResultsToPpt", "startPptAutomation", "publishGithub", "syncGithub", "overwriteGithub",
-    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores", "configureCodeSyncIncludes",
+    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes",
     "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact",
 ]);
 function hostOperationLeaseActionForUiCommand(command) {
@@ -17805,7 +17805,7 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     uploadProjectToWorkers: "上传项目到 Worker",
     distributeCodeToWorkers: "分发代码到 Worker",
     deployLatestAgent: "部署 Agent runtime",
-    configureSftpIgnores: "设置下载文件范围",
+    configureDownloadScope: "设置下载文件范围",
     configureCodeSyncIncludes: "设置上传文件范围",
     downloadDebugBundle: "下载调试包",
     downloadRemoteResult: "下载远端结果",

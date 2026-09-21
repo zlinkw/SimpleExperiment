@@ -136,7 +136,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   const preparation = source.slice(source.indexOf("async prepareAgentsForFirstRun"), source.indexOf("async configureXshellRealtimeTunnel"));
   const startup = source.slice(source.indexOf("async writeXshellAgentStartupCommands"), source.indexOf("async startAllXshellConnections"));
   const deploy = source.slice(source.indexOf("async deployLatestAgentRuntime"), source.indexOf("    agentRuntimeDeployTargets() {"));
-  const ignores = source.slice(source.indexOf("async configureSftpIgnores"), source.indexOf("async ensureCodeReadyForRun"));
+  const downloadScope = source.slice(source.indexOf("async configureDownloadScope"), source.indexOf("async ensureCodeReadyForRun"));
   const sync = source.slice(source.indexOf("async syncCodeTargets"), source.indexOf("async confirmRemoteWriteTargets"));
   const confirm = source.slice(source.indexOf("async confirmRemoteWriteTargets"), source.indexOf("async prepareSftpTargets"));
   const prepareSftp = source.slice(source.indexOf("async prepareSftpTargets"), source.indexOf("    sftpServerOptions"));
@@ -148,7 +148,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(startup, /agentStartupWriteConfirmationDetail\(targets, runtimeTargets, false\)/);
   assert.match(preparation, /agentStartupWriteConfirmationDetail\(targets, runtimeTargets, true\)/);
   assert.ok(deploy.indexOf("confirmRemoteWriteTargets") < deploy.indexOf('executeCommand("simpleSftp.uploadFiles"'));
-  assert.ok(ignores.indexOf("confirmRemoteWriteTargets") < ignores.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
+  assert.ok(downloadScope.indexOf("confirmRemoteWriteTargets") < downloadScope.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
   assert.ok(sync.indexOf("confirmRemoteWriteTargets") < sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"'));
   assert.match(confirm, /showWarningMessage\(remoteWriteConfirmationDetail\(operation, normalized, localProjectRoot\), \{ modal: true \}/);
   assert.match(confirm, /assertSingleProjectWorkspace\(operation\)/);
@@ -168,15 +168,15 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
 test("path confirmation precedes profile writes and upload-start state", () => {
   const preparation = source.slice(source.indexOf("async prepareAgentsForFirstRun"), source.indexOf("async configureXshellRealtimeTunnel"));
   const deploy = source.slice(source.indexOf("async deployLatestAgentRuntime"), source.indexOf("    agentRuntimeDeployTargets() {"));
-  const ignores = source.slice(source.indexOf("async configureSftpIgnores"), source.indexOf("async ensureCodeReadyForRun"));
+  const downloadScope = source.slice(source.indexOf("async configureDownloadScope"), source.indexOf("async ensureCodeReadyForRun"));
   const sync = source.slice(source.indexOf("async syncCodeTargets"), source.indexOf("async confirmRemoteWriteTargets"));
   const prepareSftp = source.slice(source.indexOf("async prepareSftpTargets"), source.indexOf("    sftpServerOptions"));
 
   assert.ok(preparation.indexOf("confirmRemoteWriteTargets") < preparation.indexOf("writeSftpManagerServerProfiles("));
   assert.ok(deploy.indexOf("confirmRemoteWriteTargets") < deploy.indexOf("writeSftpManagerServerProfiles("));
   assert.ok(deploy.indexOf("writeSftpManagerServerProfiles(") < deploy.indexOf('executeCommand("simpleSftp.uploadFiles"'));
-  assert.ok(ignores.indexOf("confirmRemoteWriteTargets") < ignores.indexOf("writeSftpManagerServerProfiles("));
-  assert.ok(ignores.indexOf("writeSftpManagerServerProfiles(") < ignores.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
+  assert.ok(downloadScope.indexOf("confirmRemoteWriteTargets") < downloadScope.indexOf("writeSftpManagerServerProfiles("));
+  assert.ok(downloadScope.indexOf("writeSftpManagerServerProfiles(") < downloadScope.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
   assert.ok(sync.indexOf("confirmRemoteWriteTargets") < sync.indexOf("writeSftpManagerServerProfiles("));
   assert.ok(sync.indexOf("writeSftpManagerServerProfiles(") < sync.indexOf("notifyLocalActionStarted"));
   assert.ok(sync.indexOf("notifyLocalActionStarted") < sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"'));

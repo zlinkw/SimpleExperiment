@@ -34,7 +34,7 @@ test("publish action groups keep data-anchor/title and button semantics", () => 
   assert.ok(src.includes("escAttr(group.name)"), "group title must carry group name");
   assert.ok(src.includes('workbenchInspectorActions("sync")'), "must still consume all 8 sync actions");
   // 8 sync commands must still be wired through the grouping table.
-  for (const cmd of ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureSftpIgnores"]) {
+  for (const cmd of ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope"]) {
     assert.ok(src.includes(cmd), `missing sync command ${cmd}`);
   }
 });
