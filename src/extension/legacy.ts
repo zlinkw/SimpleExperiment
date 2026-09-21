@@ -12178,7 +12178,7 @@ export class RealtimeTunnelPanelProvider {
                     req.end();
                 });
             }
-            this.view?.webview.postMessage({ type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() });
+            this.view?.webview.postMessage({ type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId: result?.workerId || "", gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() });
         } catch (exc: any) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
             this.view?.webview.postMessage({ type: "tmuxList", ok: false, available: false, sessions: [], error: msg, fetchedAt: new Date().toISOString() });
@@ -13967,7 +13967,7 @@ export class RealtimeTunnelPanelProvider {
         return {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             connectionMode: "xshell_tunnel_realtime",
-            localEndpoint: "http://127.0.0.1:18765",
+            localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
             workspace,
             setup,
             schedulerConfig: {},

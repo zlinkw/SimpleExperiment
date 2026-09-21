@@ -18,7 +18,8 @@ test("tmux close has its own button and asks in the extension host", () => {
   const handler = panel.slice(panel.indexOf('const tmuxCloseTarget = event.target.closest("[data-tmux-close]")'), panel.indexOf('const tmuxPaneButton = event.target.closest("button[data-tmux-pane]")'));
   const host = extension.slice(extension.indexOf("async killTmuxWindowFromUi("), extension.indexOf("async openTensorBoardUrlFromUi("));
   assert.match(render, /<button type="button" class="tmuxClose"/);
-  assert.match(render, /<\/button>' \+ closeHtml \+ '<\/div>/);
+  assert.match(render, /c\.category === "gpu" \|\| c\.synthetic/);
+  assert.match(render, /: closeHtml/);
   assert.doesNotMatch(handler, /window\.confirm/);
   assert.match(handler, /vscode\.postMessage\(\{ command: "killTmuxWindow"/);
   assert.match(host, /showWarningMessage\([\s\S]*?\{ modal: true \}, "关闭窗口"/);

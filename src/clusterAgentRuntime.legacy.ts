@@ -3632,6 +3632,8 @@ def execute_worker_command(root, command, worker_id):
         return result
     experiment_index = int(command.get("experimentIndex") if command.get("experimentIndex") is not None else options.get("experimentIndex") or 0)
     gpu_id = str(command.get("gpuId") or options.get("gpuId") or "")
+    case_name = str(command.get("case") or options.get("case") or "").strip()
+    seed = command.get("seed") if command.get("seed") is not None else options.get("seed")
     debug_mode = any(action_bool(value) for value in (command.get("debugMode"), command.get("debug_mode"), options.get("debugMode"), options.get("debug_mode")))
     if debug_mode:
         result = {"commandId": command_id, "status": "failed", "message": "Debug 运行模式已移除，请使用正式 Plan 运行。"}
@@ -3761,6 +3763,8 @@ def execute_worker_command(root, command, worker_id):
         "exitCodePath": os.path.relpath(exit_code_path, project_dir).replace("\\", "/") if used_tmux else "",
         "experimentIndex": experiment_index,
         "gpuId": gpu_id,
+        "case": case_name,
+        "seed": seed,
         "condaEnv": str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or ""),
         "logPath": rel_log,
         "plan": plan,
@@ -12305,6 +12309,26 @@ def serve_http(args):
                         if sess_proc2.returncode != 0 and ("no server" in (sess_proc2.stderr or "").lower() or "no sessions" in (sess_proc2.stderr or "").lower()):
                             return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "sessions": [], "message": "no tmux server"})
                         return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "available": True, "sessions": [], "error": (sess_proc.stderr or sess_proc2.stderr or "list-sessions failed").strip()[-500:]}, status=200)
+                    task_snapshot = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), {})
+                    task_rows = task_snapshot.get("tasks") if isinstance(task_snapshot, dict) and isinstance(task_snapshot.get("tasks"), list) else []
+                    tasks_by_pane = {}
+                    for task_row in task_rows:
+                        if not isinstance(task_row, dict):
+                            continue
+                        pane_key = str(task_row.get("tmuxPane") or task_row.get("pid") or "").strip()
+                        if pane_key.startswith("%"):
+                            tasks_by_pane[pane_key] = task_row
+                    gpu_snapshot = read_runtime_json_cached(path_for(root, "gpu_snapshot.json"), {})
+                    gpu_rows = (gpu_snapshot.get("gpus") or gpu_snapshot.get("gpu") or []) if isinstance(gpu_snapshot, dict) else []
+                    if isinstance(gpu_rows, dict):
+                        gpu_rows = next((value for value in gpu_rows.values() if isinstance(value, list)), [])
+                    gpu_ids = []
+                    for gpu_row in gpu_rows if isinstance(gpu_rows, list) else []:
+                        if not isinstance(gpu_row, dict):
+                            continue
+                        gpu_value = gpu_row_id(gpu_row)
+                        if gpu_value and gpu_value not in gpu_ids:
+                            gpu_ids.append(gpu_value)
                     sessions = []
                     for line in (sess_proc.stdout or "").splitlines():
                         if not line.strip():
@@ -12360,11 +12384,25 @@ def serve_http(args):
                                             panes.append({"index": "0", "active": True, "command": "", "width": 0, "height": 0, "id": "", "title": "", "target": f"{sess_name}:{widx}"})
                                     except Exception:
                                         pass
-                                    windows.append({"index": widx, "name": wname, "active": wactive, "panes": panes, "target": f"{sess_name}:{widx}", "paneCount": wpanes})
+                                    matched_task = next((tasks_by_pane.get(str(pane.get("id") or "")) for pane in panes if tasks_by_pane.get(str(pane.get("id") or ""))), None)
+                                    task_meta = None
+                                    if isinstance(matched_task, dict):
+                                        task_meta = {
+                                            "commandId": matched_task.get("commandId") or matched_task.get("operationId") or "",
+                                            "case": matched_task.get("case") or "",
+                                            "seed": matched_task.get("seed"),
+                                            "status": matched_task.get("status") or "",
+                                            "gpuId": matched_task.get("gpuId") or matched_task.get("gpu_id") or "",
+                                            "experimentIndex": matched_task.get("experimentIndex"),
+                                            "planFile": matched_task.get("planFile") or matched_task.get("plan") or "",
+                                            "startedAt": matched_task.get("startedAt") or matched_task.get("started_at") or "",
+                                            "finishedAt": matched_task.get("finishedAt") or matched_task.get("finished_at") or "",
+                                        }
+                                    windows.append({"index": widx, "name": wname, "active": wactive, "panes": panes, "target": f"{sess_name}:{widx}", "paneCount": wpanes, "task": task_meta})
                         except Exception:
                             pass
                         sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows})
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "sessions": sessions})
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", "gpuIds": gpu_ids, "sessions": sessions})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
             return self.send_json({"error": "not found"}, status=404)
