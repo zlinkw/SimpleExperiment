@@ -1290,7 +1290,7 @@ function renderPanelHtml() {
         <div class="toolbar" data-anchor="sync-check-actions">
           <button type="button" data-command="runCheckStatic" title="运行静态检查，生成项目接入报告&#10;覆盖实验计划结构、输出接口与路径安全&#10;报告写入 simple_cluster/check_reports/&#10;查看报告：到「诊断与自检」卡片点「打开静态检查报告」">检查项目配置</button>
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区&#10;未提交的改动会丢失，执行前会要求确认">从 GitHub 覆盖本机</button>
-          <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="运行 Plan 时缺少 Python 模块或配置？从当前项目选择要额外上传的文件或目录，并预览纳入清单。只补充安全的源码和配置；数据、图像、缓存和权重仍不能上传。此设置不受右侧的整项目跳过规则影响。">补充上传代码</button>
+          <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="从当前项目选择运行 Plan 时要额外上传的文件或文件夹。允许的文件类型和单文件大小上限由你设置；选择后可预览实际清单。项目边界、符号链接、环境变量文件和插件状态目录仍受保护。此设置不受右侧的整项目跳过规则影响。">补充上传代码</button>
           <button type="button" data-command="configureSftpIgnores" class="secondary" title="整项目上传或下载时，选择要跳过的目录和文件，例如数据集、缓存和权重。按服务器分别保存；不会从 Plan 运行前的代码清单中排除源码。配置前会确认服务器和远端路径。">设置跳过文件</button>
         </div>
         <div class="muted">运行 Plan 缺模块？补充上传代码。整项目上传或下载要避开数据、权重？设置跳过文件。后者不会挡住 Plan 的代码上传。</div>

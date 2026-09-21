@@ -6591,26 +6591,77 @@ class RealtimeTunnelPanelProvider {
         const root = folder.uri.fsPath;
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
         const current = [...new Set((config.get("codeSync.includePaths", []) || []).map(String))].sort();
+        const currentExtensions = normalizeExplicitCodeExtensions(config.get("codeSync.allowedExtensions", DEFAULT_EXPLICIT_CODE_EXTENSIONS));
+        const currentMaxFileSizeMB = normalizeExplicitCodeMaxFileSizeMB(config.get("codeSync.maxFileSizeMB", 2));
+        const policy = explicitCodePolicy(currentExtensions, currentMaxFileSizeMB);
         const action = await vscode.window.showQuickPick([
-            { label: "$(file-add) 添加源码文件", description: "选完即保存；可一次选多个文件", id: "file" },
-            { label: "$(folder-opened) 添加源码目录", description: "选完即保存；只纳入安全的源码和配置", id: "directory" },
+            { label: "$(file-add) 添加文件", description: "选择项目内文件；选完立即保存，可多选", id: "file" },
+            { label: "$(folder-opened) 添加文件夹", description: "选择项目内文件夹；按下方类型和大小规则纳入文件", id: "directory" },
+            { label: "$(symbol-file) 设置允许的文件类型", description: currentExtensions.join("、"), id: "extensions" },
+            { label: "$(file-binary) 设置单文件大小上限", description: `${currentMaxFileSizeMB} MB`, id: "max-size" },
             { label: "$(list-selection) 查看已添加的路径", description: `${current.length} 条额外路径`, id: "preview" },
             { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
         ], { title: "补充上传代码", placeHolder: "选择一项操作；添加文件或目录后立即保存，无需再点完成", ignoreFocusOut: true });
         if (!action)
             return;
+        if (action.id === "extensions") {
+            const value = await vscode.window.showInputBox({
+                title: "允许上传的文件类型",
+                prompt: "用英文逗号分隔，例如 .py,.yaml,.json；填写 * 表示允许任意类型。项目外路径、符号链接、.env 和插件状态目录仍会阻止。",
+                value: currentExtensions.join(","),
+                ignoreFocusOut: true,
+                validateInput: (input) => {
+                    try {
+                        normalizeExplicitCodeExtensions(input.split(","));
+                        return undefined;
+                    }
+                    catch (error) {
+                        return errorMessage(error);
+                    }
+                },
+            });
+            if (value === undefined)
+                return;
+            const extensions = normalizeExplicitCodeExtensions(value.split(","));
+            await config.update("codeSync.allowedExtensions", extensions, vscode.ConfigurationTarget.WorkspaceFolder);
+            void vscode.window.showInformationMessage(`已保存允许的文件类型：${extensions.join("、")}`);
+            return;
+        }
+        if (action.id === "max-size") {
+            const value = await vscode.window.showInputBox({
+                title: "单文件大小上限",
+                prompt: "单位 MB，允许 0.1–1024。超过上限的文件不会加入代码上传清单。",
+                value: String(currentMaxFileSizeMB),
+                ignoreFocusOut: true,
+                validateInput: (input) => {
+                    try {
+                        normalizeExplicitCodeMaxFileSizeMB(Number(input));
+                        return undefined;
+                    }
+                    catch (error) {
+                        return errorMessage(error);
+                    }
+                },
+            });
+            if (value === undefined)
+                return;
+            const maxFileSizeMB = normalizeExplicitCodeMaxFileSizeMB(Number(value));
+            await config.update("codeSync.maxFileSizeMB", maxFileSizeMB, vscode.ConfigurationTarget.WorkspaceFolder);
+            void vscode.window.showInformationMessage(`已保存单文件大小上限：${maxFileSizeMB} MB`);
+            return;
+        }
         if (action.id === "preview") {
             if (!current.length) {
-                void vscode.window.showInformationMessage("尚未添加代码上传路径；默认源码仍会自动上传。");
+                void vscode.window.showInformationMessage("尚未添加额外上传路径；插件默认识别的源码仍会自动上传。");
                 return;
             }
             const selected = await vscode.window.showQuickPick(current.map((relative) => ({ label: relative })), {
-                title: `已添加 ${current.length} 条代码上传路径`, placeHolder: "选择一条路径查看其中可上传的文件", ignoreFocusOut: true,
+                title: `已添加 ${current.length} 条额外上传路径`, placeHolder: "选择一条路径查看其中实际会上传的文件", ignoreFocusOut: true,
             });
             if (!selected)
                 return;
             try {
-                const files = await collectExplicitCodeFiles(root, [selected.label]);
+                const files = await collectExplicitCodeFiles(root, [selected.label], policy);
                 await vscode.window.showQuickPick(files.sort().map((file) => ({ label: file })), {
                     title: `${selected.label}：${files.length} 个可上传文件`, placeHolder: "只读预览", ignoreFocusOut: true,
                 });
@@ -6624,7 +6675,7 @@ class RealtimeTunnelPanelProvider {
         if (action.id === "remove") {
             if (!current.length)
                 return;
-            const picked = await vscode.window.showQuickPick(current.map((file) => ({ label: file })), { title: "移除代码上传路径", canPickMany: true, ignoreFocusOut: true });
+            const picked = await vscode.window.showQuickPick(current.map((file) => ({ label: file })), { title: "移除额外上传路径", canPickMany: true, ignoreFocusOut: true });
             if (!picked?.length)
                 return;
             const remove = new Set(picked.map((item) => item.label));
@@ -6632,7 +6683,7 @@ class RealtimeTunnelPanelProvider {
         }
         else {
             const picked = await vscode.window.showOpenDialog({
-                title: action.id === "directory" ? "选择需上传源码的目录" : "选择需上传的源码或配置文件",
+                title: action.id === "directory" ? "选择额外上传的文件夹" : "选择额外上传的文件",
                 defaultUri: folder.uri,
                 canSelectFiles: action.id === "file",
                 canSelectFolders: action.id === "directory",
@@ -6640,15 +6691,15 @@ class RealtimeTunnelPanelProvider {
                 openLabel: "添加并保存",
             });
             if (!picked?.length) {
-                void vscode.window.showInformationMessage("未收到文件或目录选择结果，代码上传路径未更改。");
+                void vscode.window.showInformationMessage("未收到文件或文件夹选择结果，额外上传路径未更改。");
                 return;
             }
             const selectedPaths = picked.map((uri) => path.relative(root, uri.fsPath).replace(/\\/g, "/"));
             try {
                 const next = selectedPaths.map((relative) => normalizedExplicitCodePath(root, relative).relative);
-                const safeFiles = await collectExplicitCodeFiles(root, next);
+                const safeFiles = await collectExplicitCodeFiles(root, next, policy);
                 if (!safeFiles.length)
-                    throw new Error("所选路径中没有可上传的安全源码或配置。请选 Python 源码或必要配置；数据和权重不会上传。");
+                    throw new Error(`所选路径中没有符合规则的文件。当前允许 ${policy.extensions.join("、")}，单文件不超过 ${policy.maxFileSizeMB} MB；可在此入口修改。`);
                 updated = [...new Set([...current, ...next])].sort();
             }
             catch (error) {
@@ -6660,7 +6711,7 @@ class RealtimeTunnelPanelProvider {
             await config.update("codeSync.includePaths", updated, vscode.ConfigurationTarget.WorkspaceFolder);
         }
         catch (error) {
-            await vscode.window.showErrorMessage(`代码上传路径保存失败：${errorMessage(error)}`, { modal: true });
+            await vscode.window.showErrorMessage(`额外上传路径保存失败：${errorMessage(error)}`, { modal: true });
             throw error;
         }
         void vscode.window.showInformationMessage(`已添加：${updated.filter((relative) => !current.includes(relative)).join("、") || "路径列表已更新"}。当前共 ${updated.length} 条；可点“补充上传代码 → 查看已添加的路径”核对。`);
@@ -6710,8 +6761,10 @@ class RealtimeTunnelPanelProvider {
         const enabledTargets = targets.filter(Boolean);
         if (!enabledTargets.length)
             throw new Error("没有可用于代码同步的 Hub/Worker 目标。");
-        const includePaths = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get("codeSync.includePaths", []);
-        const manifest = await buildLocalCodeManifest(root, includePaths);
+        const codeSyncConfig = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
+        const includePaths = codeSyncConfig.get("codeSync.includePaths", []);
+        const includePolicy = explicitCodePolicy(codeSyncConfig.get("codeSync.allowedExtensions", DEFAULT_EXPLICIT_CODE_EXTENSIONS), codeSyncConfig.get("codeSync.maxFileSizeMB", 2));
+        const manifest = await buildLocalCodeManifest(root, includePaths, includePolicy);
         assertCurrent();
         // Inspect every destination before the first upload. A dirty or untracked
         // remote source is user work and must never be overwritten implicitly.
@@ -23531,8 +23584,8 @@ function samePath(a, b) {
         return false;
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
-async function buildLocalCodeManifest(root, includePaths = []) {
-    const files = [...new Set([...(await walkCodeFiles(root)), ...(await collectExplicitCodeFiles(root, includePaths))])].sort();
+async function buildLocalCodeManifest(root, includePaths = [], includePolicy = explicitCodePolicy()) {
+    const files = [...new Set([...(await walkCodeFiles(root)), ...(await collectExplicitCodeFiles(root, includePaths, includePolicy))])].sort();
     const manifest = {};
     const concurrency = 12;
     let nextIndex = 0;
@@ -23554,7 +23607,27 @@ async function buildLocalCodeManifest(root, includePaths = []) {
     await Promise.all(workers);
     return manifest;
 }
-const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".idea", ".codex", "node_modules", "dist", "build", ".venv", "venv", "env", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".cache", ".tox", "raw", "processed", "patients", "patient", "subjects", "images", "image", "features", "feature_cache", "cache", "checkpoints", "checkpoint", "weights", "weight", "pretrained", "pretrained_ckpt", "runs", "work_dirs", "wandb", "tensorboard", "logs", "log", "outputs", "output", "results", "result", "backup", "tmp", ".tmp", "temp", "artifacts", "simple_cluster", "zlk_cluster"]);
+const DEFAULT_EXPLICIT_CODE_EXTENSIONS = [".py", ".pyi", ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".txt", ".md", ".sh", ".ps1"];
+const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", "simple_cluster", "zlk_cluster"]);
+function normalizeExplicitCodeExtensions(values) {
+    const extensions = [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).map((value) => value === "*" ? value : value.startsWith(".") ? value : `.${value}`))];
+    if (!extensions.length)
+        throw new Error("至少保留一种允许的文件类型，或填写 *。");
+    if (extensions.some((value) => value !== "*" && !/^\.[a-z0-9][a-z0-9._+-]*$/.test(value)))
+        throw new Error("文件类型格式无效；请使用 .py、.yaml 这类扩展名，或填写 *。");
+    return extensions.sort();
+}
+function normalizeExplicitCodeMaxFileSizeMB(value) {
+    const size = Number(value);
+    if (!Number.isFinite(size) || size < 0.1 || size > 1024)
+        throw new Error("单文件大小上限必须在 0.1–1024 MB 之间。");
+    return Math.round(size * 100) / 100;
+}
+function explicitCodePolicy(extensions = DEFAULT_EXPLICIT_CODE_EXTENSIONS, maxFileSizeMB = 2) {
+    const normalizedExtensions = normalizeExplicitCodeExtensions(extensions);
+    const normalizedMaxFileSizeMB = normalizeExplicitCodeMaxFileSizeMB(maxFileSizeMB);
+    return { extensions: normalizedExtensions, extensionSet: new Set(normalizedExtensions), allowAnyExtension: normalizedExtensions.includes("*"), maxFileSizeMB: normalizedMaxFileSizeMB, maxFileSizeBytes: Math.floor(normalizedMaxFileSizeMB * 1024 * 1024) };
+}
 function normalizedExplicitCodePath(root, value) {
     const relative = String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
     if (!relative || relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === ".."))
@@ -23565,19 +23638,18 @@ function normalizedExplicitCodePath(root, value) {
         throw new Error(`代码上传路径超出项目根目录：${value}`);
     return { relative, full };
 }
-function safeExplicitCodeFile(relative) {
+function safeExplicitCodeFile(relative, policy = explicitCodePolicy()) {
     const parts = relative.toLowerCase().split("/");
     if (parts.slice(0, -1).some((part) => blockedExplicitCodeDirs.has(part)))
         return false;
     const basename = parts[parts.length - 1];
     if (basename.startsWith(".env"))
         return false;
-    if (/\.(py|pyi)$/.test(basename))
+    if (policy.allowAnyExtension)
         return true;
-    return /(?:^|[._-])(config|settings|schema|manifest|protocol|metadata)(?:[._-]|$)/.test(basename)
-        && /\.(yaml|yml|toml|ini|cfg|json)$/.test(basename);
+    return policy.extensionSet.has(path.posix.extname(basename));
 }
-async function collectExplicitCodeFiles(root, includePaths) {
+async function collectExplicitCodeFiles(root, includePaths, policy = explicitCodePolicy()) {
     if (!Array.isArray(includePaths) || !includePaths.length)
         return [];
     const files = new Set();
@@ -23604,13 +23676,13 @@ async function collectExplicitCodeFiles(root, includePaths) {
         }
         if (!info.isFile())
             return;
-        if (!safeExplicitCodeFile(relative)) {
+        if (!safeExplicitCodeFile(relative, policy)) {
             if (explicitFile)
-                throw new Error(`代码上传路径不是受支持的源码或配置：${relative}`);
+                throw new Error(`文件类型不在允许列表中：${relative}。当前允许 ${policy.extensions.join("、")}；可在“补充上传代码 → 设置允许的文件类型”修改。`);
             return;
         }
-        if (info.size > 2 * 1024 * 1024)
-            throw new Error(`代码上传文件超过 2 MB：${relative}`);
+        if (info.size > policy.maxFileSizeBytes)
+            throw new Error(`代码上传文件超过 ${policy.maxFileSizeMB} MB：${relative}。可在“补充上传代码 → 设置单文件大小上限”修改。`);
         matched++;
         files.add(relative);
     }

@@ -80,9 +80,10 @@ test("configured code paths add safe source from excluded directories without da
       "data/auxiliary_views.py": "ok",
       "datasets/custom_loader.py": "loader",
       "datasets/protocol_config.yaml": "mode: pilot",
+      "configs/default.yaml": "mode: train",
       "datasets/raw/patient.npy": "secret",
       "datasets/patients/subject.py": "secret",
-      "datasets/model.pt": "weights",
+      "datasets/model.pt": Buffer.alloc(128 * 1024),
       "work_dirs/secret.py": "secret",
     })) {
       const file = path.join(root, name);
@@ -90,11 +91,14 @@ test("configured code paths add safe source from excluded directories without da
       fs.writeFileSync(file, content);
     }
     const sandbox = { fs: fs.promises, fsNode: fs, path, crypto };
-    vm.runInNewContext(source.slice(start, end) + "; globalThis.buildLocalCodeManifest = buildLocalCodeManifest;", sandbox);
-    const manifest = await sandbox.buildLocalCodeManifest(root, ["datasets"]);
-    for (const file of ["data/auxiliary_views.py", "datasets/custom_loader.py", "datasets/protocol_config.yaml"]) assert.ok(manifest[file], file);
-    for (const file of ["datasets/raw/patient.npy", "datasets/patients/subject.py", "datasets/model.pt", "work_dirs/secret.py"]) assert.equal(manifest[file], undefined, file);
-    await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["work_dirs/secret.py"]), /受支持的源码|受保护/);
+    vm.runInNewContext(source.slice(start, end) + "; globalThis.buildLocalCodeManifest = buildLocalCodeManifest; globalThis.explicitCodePolicy = explicitCodePolicy;", sandbox);
+    const manifest = await sandbox.buildLocalCodeManifest(root, ["datasets", "configs"]);
+    for (const file of ["data/auxiliary_views.py", "datasets/custom_loader.py", "datasets/protocol_config.yaml", "datasets/patients/subject.py", "configs/default.yaml"]) assert.ok(manifest[file], file);
+    for (const file of ["datasets/raw/patient.npy", "datasets/model.pt", "work_dirs/secret.py"]) assert.equal(manifest[file], undefined, file);
+    const customPolicy = sandbox.explicitCodePolicy([".pt"], 10);
+    const customManifest = await sandbox.buildLocalCodeManifest(root, ["datasets/model.pt"], customPolicy);
+    assert.ok(customManifest["datasets/model.pt"]);
+    await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["datasets/model.pt"], sandbox.explicitCodePolicy([".pt"], 0.1)), /超过 0.1 MB/);
     await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["../outside.py"]), /相对路径/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -113,7 +117,7 @@ test("code upload path action is available in the panel and saved as plugin conf
   assert.match(actionRow, /后者不会挡住 Plan 的代码上传/);
   assert.match(source, /case "configureCodeSyncIncludes"/);
   assert.match(source, /config\.update\("codeSync\.includePaths", updated, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
-  assert.match(source, /buildLocalCodeManifest\(root, includePaths\)/);
+  assert.match(source, /buildLocalCodeManifest\(root, includePaths, includePolicy\)/);
 });
 
 test("choosing a code directory saves immediately without a second Finish picker", async () => {
@@ -125,6 +129,10 @@ test("choosing a code directory saves immediately without a second Finish picker
   let saved;
   const sandbox = {
     path,
+    DEFAULT_EXPLICIT_CODE_EXTENSIONS: [".py"],
+    normalizeExplicitCodeExtensions: (value) => Array.isArray(value) && value.length ? value : [".py"],
+    normalizeExplicitCodeMaxFileSizeMB: (value) => Number(value) || 2,
+    explicitCodePolicy: () => ({ extensions: [".py"], maxFileSizeMB: 2 }),
     normalizedExplicitCodePath: (_root, relative) => ({ relative }),
     collectExplicitCodeFiles: async () => ["data/auxiliary_views.py"],
     vscode: {
@@ -133,7 +141,7 @@ test("choosing a code directory saves immediately without a second Finish picker
       workspace: {
         workspaceFolders: [{ uri: { fsPath: root } }],
         getConfiguration: () => ({
-          get: () => [],
+          get: (key, fallback) => key === "codeSync.includePaths" ? [] : fallback,
           update: async (_key, value) => { saved = value; },
         }),
       },
@@ -150,7 +158,7 @@ test("choosing a code directory saves immediately without a second Finish picker
   assert.deepEqual(Array.from(saved), ["data"]);
 });
 
-test("protected code directory reports why it was not added", async () => {
+test("rejected code directory reports why it was not added", async () => {
   const methodStart = source.indexOf("async configureCodeSyncIncludes() {");
   const methodEnd = source.indexOf("async ensureCodeReadyForRun(", methodStart);
   const root = path.resolve("virtual-project");
@@ -159,13 +167,17 @@ test("protected code directory reports why it was not added", async () => {
   const sandbox = {
     path,
     errorMessage: (error) => error.message,
+    DEFAULT_EXPLICIT_CODE_EXTENSIONS: [".py"],
+    normalizeExplicitCodeExtensions: (value) => Array.isArray(value) && value.length ? value : [".py"],
+    normalizeExplicitCodeMaxFileSizeMB: (value) => Number(value) || 2,
+    explicitCodePolicy: () => ({ extensions: [".py"], maxFileSizeMB: 2 }),
     normalizedExplicitCodePath: (_root, relative) => ({ relative }),
-    collectExplicitCodeFiles: async () => { throw new Error("代码上传目录受保护：artifacts"); },
+    collectExplicitCodeFiles: async () => { throw new Error("代码上传路径没有可上传文件：artifacts"); },
     vscode: {
       ConfigurationTarget: { WorkspaceFolder: 1 },
       workspace: {
         workspaceFolders: [{ uri: { fsPath: root } }],
-        getConfiguration: () => ({ get: () => [], update: async () => { saved = true; } }),
+        getConfiguration: () => ({ get: (key, fallback) => key === "codeSync.includePaths" ? [] : fallback, update: async () => { saved = true; } }),
       },
       window: {
         showQuickPick: async () => ({ id: "directory" }),
@@ -175,7 +187,7 @@ test("protected code directory reports why it was not added", async () => {
     },
   };
   vm.runInNewContext(`class Action { ${source.slice(methodStart, methodEnd)} }; globalThis.Action = Action;`, sandbox);
-  await assert.rejects(() => new sandbox.Action().configureCodeSyncIncludes(), /受保护/);
+  await assert.rejects(() => new sandbox.Action().configureCodeSyncIncludes(), /没有可上传文件/);
   assert.equal(saved, false);
-  assert.match(notices[0], /未添加 artifacts.*受保护.*未更改/);
+  assert.match(notices[0], /未添加 artifacts.*没有可上传文件.*未更改/);
 });
