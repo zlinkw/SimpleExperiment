@@ -12154,9 +12154,12 @@ export class RealtimeTunnelPanelProvider {
                     req.end();
                 });
             }
-            const text = String(result?.text || result?.output || "").slice(0, 12000);
+            const rawText = String(result?.text || result?.output || "");
+            const text = rawText.length <= 48000
+                ? rawText
+                : `[较长日志已截取末尾]\n${rawText.slice(-48000)}`;
             const ok = result?.ok !== false;
-            const payload = { type: "tmuxCapture", window: win, text, ok, fetchedAt: new Date().toISOString(), error: result?.error || "" };
+            const payload = { type: "tmuxCapture", window: win, text, ok, focus: String(result?.focus || "tail"), fetchedAt: new Date().toISOString(), error: result?.error || "" };
             this.view?.webview.postMessage(payload);
         } catch (exc: any) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);

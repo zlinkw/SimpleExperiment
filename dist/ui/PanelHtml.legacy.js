@@ -3209,8 +3209,13 @@ function renderPanelHtml() {
         if (item.type === "tmuxCapture") {
           const pre = el("tmuxCapturePre");
           const meta = el("tmuxCaptureMeta");
-          if (pre) pre.textContent = decodeCapturedText(item.text || item.capture || "");
-          if (meta) meta.textContent = String(item.window || "") + " @ " + String(item.fetchedAt || new Date().toLocaleTimeString());
+          if (pre) {
+            const targetChanged = pre.dataset.captureTarget !== String(item.window || "");
+            pre.textContent = decodeCapturedText(item.text || item.capture || "");
+            pre.dataset.captureTarget = String(item.window || "");
+            if (item.focus === "error" || targetChanged) pre.scrollTop = 0;
+          }
+          if (meta) meta.textContent = String(item.window || "") + " @ " + String(item.fetchedAt || new Date().toLocaleTimeString()) + (item.focus === "error" ? " · 原始错误优先" : "");
           continue;
         }
         if (item.type === "tensorboardSwitchStatus") {

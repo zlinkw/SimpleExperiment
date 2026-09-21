@@ -2671,11 +2671,58 @@ def _read_effective_tail(path, max_bytes=16*1024):
 
 def _tmux_capture_tail(session, env, max_lines=50):
     try:
-        r = subprocess.run(["tmux", "capture-pane", "-p", "-t", session], capture_output=True, text=True, timeout=5, env=env)
+        r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-S", f"-{max_lines}", "-t", session], capture_output=True, text=True, timeout=5, env=env)
         lines = (r.stdout or "").splitlines()[-max_lines:]
         return "\n".join(lines)
     except Exception:
         return ""
+
+_TMUX_PRIMARY_ERROR_PATTERNS = (
+    re.compile(r"cuda out of memory|outofmemoryerror", re.IGNORECASE),
+    re.compile(r"module(?:not)?founderror|filenotfounderror|memoryerror|segmentation fault|core dumped", re.IGNORECASE),
+    re.compile(r"nccl.*(?:error|failed)|cudnn.*(?:error|failed)", re.IGNORECASE),
+)
+_TMUX_SECONDARY_ERROR_PATTERN = re.compile(r"traceback \(most recent call last\)|(?:runtime|value|type|key|index|assertion)error|exception", re.IGNORECASE)
+
+def _tmux_focus_diagnostic_text(text, max_lines=600, max_chars=48000):
+    """Prefer the original failure block over echoed command arguments and wrappers."""
+    raw_lines = str(text or "").splitlines()
+    if not raw_lines:
+        return "", "tail"
+    anchor = None
+    for pattern in _TMUX_PRIMARY_ERROR_PATTERNS:
+        matches = [index for index, line in enumerate(raw_lines) if pattern.search(line)]
+        if matches:
+            anchor = matches[-1]
+            break
+    if anchor is None:
+        matches = [index for index, line in enumerate(raw_lines) if _TMUX_SECONDARY_ERROR_PATTERN.search(line)]
+        if matches:
+            anchor = matches[-1]
+    focus = "error" if anchor is not None else "tail"
+    if anchor is None:
+        selected = raw_lines[-max_lines:]
+        omitted_before = len(raw_lines) > len(selected)
+    else:
+        search_start = max(0, anchor - 240)
+        traceback_start = None
+        for index in range(anchor, search_start - 1, -1):
+            if "Traceback (most recent call last):" in raw_lines[index]:
+                traceback_start = index
+                break
+        start = traceback_start if traceback_start is not None else max(0, anchor - 100)
+        end = min(len(raw_lines), max(anchor + 120, start + 1))
+        if end - start > max_lines:
+            start = max(0, end - max_lines)
+        selected = raw_lines[start:end]
+        omitted_before = start > 0
+    if omitted_before:
+        selected.insert(0, "[已省略前置命令参数，优先显示原始错误附近日志]")
+    rendered = "\n".join(selected)
+    if len(rendered) > max_chars:
+        marker = "[较长错误日志已截取末尾]\n"
+        rendered = marker + rendered[-(max_chars - len(marker)):]
+    return rendered, focus
 
 def _tmux_pane_python_running(session, env):
     # Return True when a python process running cluster_scheduler is a descendant of
@@ -12281,11 +12328,17 @@ def serve_http(args):
                 if not re.match(r"^[A-Za-z0-9._\-:./%]+$", window):
                     return self.send_json({"error": "invalid window name"}, status=400)
                 try:
-                    r = subprocess.run(["tmux", "capture-pane", "-p", "-t", window], capture_output=True, text=True, timeout=5)
-                    text = r.stdout or ""
+                    try:
+                        requested_lines = int((params.get("lines") or ["2000"])[0] or 2000)
+                    except Exception:
+                        requested_lines = 2000
+                    history_lines = max(200, min(4000, requested_lines))
+                    r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-S", f"-{history_lines}", "-t", window], capture_output=True, text=True, timeout=5)
+                    raw_text = r.stdout or ""
+                    text, focus = _tmux_focus_diagnostic_text(raw_text)
                     if r.returncode != 0:
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": False, "error": (r.stderr or f"rc={r.returncode}").strip()[-500:], "text": text}, status=200)
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": True, "text": text, "lines": text.splitlines()[-200:]})
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": False, "error": (r.stderr or f"rc={r.returncode}").strip()[-500:], "text": text, "focus": focus}, status=200)
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": True, "text": text, "focus": focus, "historyLineCount": len(raw_text.splitlines()), "lines": text.splitlines()})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
             if route == "/api/tmux/list":
