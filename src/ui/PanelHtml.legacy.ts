@@ -3202,11 +3202,18 @@ export function renderPanelHtml(): string {
           const meta = el("tmuxCaptureMeta");
           if (pre) {
             const targetChanged = pre.dataset.captureTarget !== String(item.window || "");
-            pre.textContent = decodeCapturedText(item.text || item.capture || "");
+            const decoded = decodeCapturedText(item.text || item.capture || "");
+            const previousTop = pre.scrollTop;
+            const wasNearBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight <= 24;
+            if (pre.textContent !== decoded) {
+              pre.textContent = decoded;
+              if (targetChanged) pre.scrollTop = pre.scrollHeight - pre.clientHeight;
+              else if (wasNearBottom) pre.scrollTop = pre.scrollHeight - pre.clientHeight;
+              else pre.scrollTop = previousTop;
+            }
             pre.dataset.captureTarget = String(item.window || "");
-            if (item.focus === "error" || targetChanged) pre.scrollTop = 0;
           }
-          if (meta) meta.textContent = String(item.window || "") + " @ " + String(item.fetchedAt || new Date().toLocaleTimeString()) + (item.focus === "error" ? " · 原始错误优先" : "");
+          if (meta) meta.textContent = String(item.window || "") + " @ " + String(item.fetchedAt || new Date().toLocaleTimeString());
           continue;
         }
         if (item.type === "tensorboardSwitchStatus") {
