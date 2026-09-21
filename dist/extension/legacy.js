@@ -6687,7 +6687,7 @@ class RealtimeTunnelPanelProvider {
                 defaultUri: folder.uri,
                 canSelectFiles: action.id === "file",
                 canSelectFolders: action.id === "directory",
-                canSelectMany: action.id === "file",
+                canSelectMany: true,
                 openLabel: "添加并保存",
             });
             if (!picked?.length) {

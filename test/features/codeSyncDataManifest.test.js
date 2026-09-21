@@ -120,12 +120,13 @@ test("code upload path action is available in the panel and saved as plugin conf
   assert.match(source, /buildLocalCodeManifest\(root, includePaths, includePolicy\)/);
 });
 
-test("choosing a code directory saves immediately without a second Finish picker", async () => {
+test("choosing multiple code directories saves all immediately without a second Finish picker", async () => {
   const methodStart = source.indexOf("async configureCodeSyncIncludes() {");
   const methodEnd = source.indexOf("async ensureCodeReadyForRun(", methodStart);
   assert.ok(methodStart > 0 && methodEnd > methodStart);
   const root = path.resolve("virtual-project");
   let pickerCalls = 0;
+  let dialogOptions;
   let saved;
   const sandbox = {
     path,
@@ -147,7 +148,10 @@ test("choosing a code directory saves immediately without a second Finish picker
       },
       window: {
         showQuickPick: async () => { pickerCalls += 1; return { id: "directory" }; },
-        showOpenDialog: async () => [{ fsPath: path.join(root, "data") }],
+        showOpenDialog: async (options) => {
+          dialogOptions = options;
+          return [{ fsPath: path.join(root, "data") }, { fsPath: path.join(root, "configs") }];
+        },
         showInformationMessage: async () => undefined,
       },
     },
@@ -155,7 +159,9 @@ test("choosing a code directory saves immediately without a second Finish picker
   vm.runInNewContext(`class Action { ${source.slice(methodStart, methodEnd)} }; globalThis.Action = Action;`, sandbox);
   await new sandbox.Action().configureCodeSyncIncludes();
   assert.equal(pickerCalls, 1);
-  assert.deepEqual(Array.from(saved), ["data"]);
+  assert.equal(dialogOptions.canSelectFolders, true);
+  assert.equal(dialogOptions.canSelectMany, true);
+  assert.deepEqual(Array.from(saved), ["configs", "data"]);
 });
 
 test("rejected code directory reports why it was not added", async () => {
