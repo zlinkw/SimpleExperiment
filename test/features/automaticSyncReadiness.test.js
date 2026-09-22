@@ -69,9 +69,6 @@ test("pending code sync is informational because plan submission synchronizes au
 });
 
 test("overview only blocks explicit sync failures", () => {
-  assert.match(panel, /runGateStatus = [^\n]+"运行时自动同步"/);
-  assert.match(panel, /if \(sync\.failure\) blockers\.push\(\["代码同步失败"/);
+  assert.match(panel, /function overviewSyncReadiness\(state\)/);
   assert.doesNotMatch(panel, /blockers\.push\(\["代码待同步"/);
-  assert.match(panel, /overviewRuntimeChip\("同步", sync\.failure \? "error" : sync\.ready \? "good" : "info", sync\.status\)/);
-  assert.match(panel, /确认运行后会自动生成代码指纹，并同步 Hub 与参与 Worker/);
 });

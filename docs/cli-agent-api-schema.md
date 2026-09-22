@@ -1,0 +1,95 @@
+# Agent JSON API
+
+`simpleex experiment <active|health|overview|inspect> --json` 的稳定输出，`schema_version` 固定为 `"1"`。字段变化必须提升版本号。四个接口职责不重叠，文本模式不带 `schema_version` 和 `snapshot`。
+
+四个接口的 `snapshot` 相同，描述这一次查询，不描述实验：
+
+| 字段 | 含义 |
+| --- | --- |
+| snapshot_id | 本次查询编号，只在这一次调用内有效 |
+| snapshot_time | 本次查询时刻，ISO 字符串 |
+| runtime_version | 实验状态版本，等于相关实验最新的 `updated_at` |
+
+## experiment active
+
+当前运行中的任务。
+
+```json
+{
+  "schema_version": "1",
+  "snapshot": {},
+  "active_count": 0,
+  "workflows": [],
+  "runs": []
+}
+```
+
+`runs` 每项为 `{ id, experiment_case, stage, seed, worker, gpu, progress, updated_at }`。`worker` 和 `gpu` 为 `{ id }` 或 `null`，`progress` 为 `{ epoch, max_epoch, percent, loss, updated_at }` 或 `null`。空的 `experiment_case`、`stage`、`seed` 省略。
+
+## experiment health
+
+整体健康判断。
+
+```json
+{
+  "schema_version": "1",
+  "snapshot": {},
+  "health": { "status": "healthy", "reason": "", "alert_level": "ok" },
+  "alerts": { "missing_progress": false, "stalled": false, "recent_failure": false, "alert_details": [] }
+}
+```
+
+`health.status` 为 `healthy`、`warning` 或 `error`，`reason` 为 `failed_recent`、`stalled`、`missing_progress`，没有则为空字符串。`alert_level` 只在本命令出现：`healthy` 映射为 `ok`，其余与 `status` 相同。`overview` 和 `inspect` 的 `health` 没有 `alert_level`。
+
+`alerts` 只有布尔值和 `alert_details`，不含实验列表。`alert_details` 每项为 `{ type, message }`，最多 10 条，`message` 最长 300 字符，不含日志。
+
+## experiment overview
+
+全局汇总，一次查询产出。
+
+```json
+{
+  "schema_version": "1",
+  "snapshot": {},
+  "summary": {},
+  "active": {},
+  "alerts": {},
+  "health": {}
+}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| summary | 计数：`running_count`、`failed_count`、`success_count`、`workflows`、`active_workers`、`gpu_usage`、`stalled_experiments`、`recent_failures` |
+| active | 与 `experiment active` 的 `active_count`、`workflows`、`runs` 相同，不含 `schema_version` 和 `snapshot` |
+| alerts | 实验列表：`failed_recent`、`stalled`、`missing_progress`，默认各最多 3 条，`--full` 为 10 条 |
+| health | `{ status, reason }`，与 `inspect` 的 `health` 同构，没有 `alert_level` |
+
+## experiment inspect
+
+单个实验。
+
+```json
+{
+  "schema_version": "1",
+  "snapshot": {},
+  "summary": {},
+  "status": {},
+  "progress": {},
+  "health": {},
+  "diagnosis": {},
+  "alerts": {}
+}
+```
+
+`summary` 是实验身份，`status` 是当前状态，`progress` 是训练进度且只出现这一处，`health` 是健康判断，`alerts` 与 `experiment health` 的 `alerts` 同构。字段明细见 `cli-inspect-schema.md`。
+
+`diagnosis` 为 `{ reason, suggestions, latest_message, stale_seconds }`。仅当实验 `status` 为 `failed` 时额外包含 `failure_context`：
+
+| 字段 | 含义 |
+| --- | --- |
+| last_error | 最后一条错误日志，最长 300 字符，没有则为空字符串 |
+| stage | 失败时所处阶段 |
+| worker | `{ id }` 或 `null` |
+
+`failure_context` 不含完整日志。`--full` 额外给出 `diagnosis.evidence`，最多 20 条，每条最长 200 字符。

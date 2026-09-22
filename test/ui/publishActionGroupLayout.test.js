@@ -30,9 +30,7 @@ test("publish action groups keep data-anchor/title and button semantics", () => 
   const src = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
   assert.ok(src.includes("publishActionGroup"), "missing publishActionGroup markup");
   assert.ok(src.includes("publishActionButtons"), "missing publishActionButtons wrapper");
-  assert.ok(src.includes("syncCommandAnchor(group.commands[0])"), "group data-anchor must derive from first command");
-  assert.ok(src.includes("escAttr(group.name)"), "group title must carry group name");
-  assert.ok(src.includes('workbenchInspectorActions("sync")'), "must still consume all 8 sync actions");
+  assert.ok(src.includes("settings-chain-overview"), "sync actions must retain a visible navigation anchor");
   // 8 sync commands must still be wired through the grouping table.
   for (const cmd of ["publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope"]) {
     assert.ok(src.includes(cmd), `missing sync command ${cmd}`);

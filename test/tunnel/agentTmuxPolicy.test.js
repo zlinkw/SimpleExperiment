@@ -8,8 +8,8 @@ const {
 } = require("../../dist/tunnel/AgentTmuxPolicy.js");
 
 test("agent tmux policy supports configurable remote session prefixes", () => {
-  assert.equal(defaultAgentTmuxSessionName("hub"), "zlk-hub-agent");
-  assert.equal(defaultAgentTmuxSessionName("worker", "nwpu5"), "zlk-worker-nwpu5-agent");
+  assert.equal(defaultAgentTmuxSessionName("hub"), "simple-hub-agent");
+  assert.equal(defaultAgentTmuxSessionName("worker", "nwpu5"), "simple-worker-nwpu5-agent");
   assert.equal(defaultAgentTmuxSessionName("worker", "nwpu5", "zlk"), "zlk-worker-nwpu5-agent");
   assert.equal(isValidRemoteTmuxSessionName("simple-worker-nwpu5-agent"), true);
   assert.equal(isValidRemoteTmuxSessionName("zlk-worker-nwpu5-agent"), true);

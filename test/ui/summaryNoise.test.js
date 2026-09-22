@@ -7,5 +7,5 @@ test("overview hides internal seq and only shows paused state when active", () =
   const html = renderPanelHtml();
   assert.doesNotMatch(html, /row\("最后 seq"/);
   assert.doesNotMatch(html, /row\("已暂停"/);
-  assert.match(html, /row\("网络状态", "已暂停", "status-warning"\)/);
+  assert.match(html, /paused: "已暂停"/);
 });

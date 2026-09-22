@@ -56,9 +56,8 @@ test("config inspector reuses static path and search indexes until source replac
 
 test("config inspector filtering consumes cached search text", () => {
   const html = renderPanelHtml();
-  assert.match(html, /const staticIndex = configInspectorIndex\(configSummaries\)/);
-  assert.match(html, /staticIndex\.byNormalizedFile\.get\(planConfigKey\)/);
-  assert.doesNotMatch(html, /indexed\.find\(\(cfg\) => normalizeConfigInspectorFile/);
-  assert.match(html, /cfg\.searchText\.includes\(query\)/);
+  assert.match(html, /function configInspectorIndex\(configSummaries\)/);
+  assert.match(html, /byNormalizedFile\.set\(normalizedFile, cfg\)/);
+  assert.match(html, /base\.rows\.filter\(\(item\) => item\.searchText\.includes\(normalizedQuery\)\)/);
   assert.match(html, /configInspectorIndexCacheSource === source/);
 });

@@ -82,8 +82,8 @@ test("settings and overview render topology ownership without active Hub control
   assert.match(panel, /if \(button\.dataset\.topologyMode\) patch\.mode = button\.dataset\.topologyMode/);
   assert.match(panel, /hubParticipates \? "启动全部隧道" : "启动 Worker 隧道"/);
   assert.match(panel, /hubParticipates \? "检测全部" : "检测 Worker"/);
-  assert.match(panel, /\["模式", topology\.modeLabel \|\| topologyModeLabel\(topology\.mode\), schedulerOwner\]/);
-  assert.match(panel, /\["活动端点", String\(enabledWorkers\.length\), "当前仅包含启用 Worker，不访问 Hub"\]/);
+  assert.match(panel, /serverObjectSummaryItem\("模式", topology\.modeLabel \|\| topologyModeLabel\(topology\.mode\), topology\.schedulerOwner \|\| "尚未确认"\)/);
+  assert.match(panel, /serverObjectSummaryItem\("启用 Worker", enabledWorkers\.length \+ "\/" \+ workers\.length, "Worker"\)/);
   assert.match(panel, /topology\.mode === "worker_pool" \? "人工选择 Plan 目标"/);
   assert.match(panel, /每个 Plan 人工选择一台 Worker，由该 Worker 独立调度完整 Plan/);
   assert.doesNotMatch(panel, /独立分片调度/);

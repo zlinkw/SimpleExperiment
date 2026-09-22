@@ -2,9 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { readSource } = require("../_helpers/sourceReader");
 
 const htmlPath = path.join(__dirname, "..", "..", "src", "ui", "PanelHtml.ts");
-const html = fs.readFileSync(htmlPath, "utf8");
+const html = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 基线：html/body height 100%，cardDeck 用 translateX 抽屉，mainColumn 与 resourceTreeBody 可滚动。
 test("drawer shell keeps main column scroll height chain", () => {

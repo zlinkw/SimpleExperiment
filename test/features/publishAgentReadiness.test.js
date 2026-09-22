@@ -55,7 +55,7 @@ test("publish workflow rerenders on endpoint changes via the settings chain over
   assert.doesNotMatch(panel, /function renderPublishFlow\(state\)/);
   assert.doesNotMatch(panel, /\{ title: "4\. Agent", ok: agent\.ready, status: agent\.status, detail: agent\.detail,/);
   assert.match(panel, /function renderServerChainOverview\(/);
-  assert.match(panel, /data-anchor-target="settings-chain-overview"/);
+  assert.match(panel, /data-anchor="settings-chain-overview"/);
   assert.match(panel, /publishAgentReadiness\(data\)/);
   assert.doesNotMatch(panel, /onboardingStep\("4\. 部署 Agent", false, "按需执行"/);
   // 单链第二步：旧 renderActionSections 产物/实验/结果/诊断占位文案已随之下线

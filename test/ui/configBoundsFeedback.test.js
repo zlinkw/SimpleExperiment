@@ -110,7 +110,7 @@ test("unbounded and empty fields stay silent", () => {
 test("the input renderer wires hint, error and invalid styling", () => {
   const renderer = extractFunction("configInput");
   assert.match(renderer, /const hint = configBoundsHint\(bounds\)/);
-  assert.match(renderer, /const violation = configBoundsViolation\(bounds, value\)/);
+  assert.match(renderer, /const boundsViolation = configBoundsViolation\(bounds, value\)/);
   assert.match(renderer, /violation \? " is-invalid" : ""/);
   assert.match(renderer, /aria-invalid="true"/);
   assert.match(panelSource, /\.configBoundsHint \{/);

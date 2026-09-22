@@ -7,7 +7,7 @@ const { readSource } = require("../_helpers/sourceReader");
 test("operation terminal and result actions refresh results with planFile", () => {
   const source = readSource("src/extension.ts");
   const statusHelpers = source.match(/const OPERATION_TERMINAL_STATUSES[\s\S]*?function operationSubmissionAccepted/)?.[0] || "";
-  assert.match(statusHelpers, /"stale"/);
+  assert.match(statusHelpers, /"stalled"/);
   const resultActions = source.match(/const RESULT_SUMMARY_AFFECTING_ACTIONS[\s\S]*?\]\);/)?.[0] || "";
   assert.match(source, /function operationResultPlanFile\(record\)/);
   assert.match(source, /async refreshResultsSummary\(planHint = ""\)/);

@@ -140,6 +140,7 @@ test("scheduler derives train-only and test-only execution from Plan", () => {
     "import argparse",
     "import json",
     "import subprocess",
+    "import sys",
     "from pathlib import Path",
     "",
     "parser = argparse.ArgumentParser()",
@@ -150,6 +151,7 @@ test("scheduler derives train-only and test-only execution from Plan", () => {
     "command = args.command[1:] if args.command[:1] == ['--'] else args.command",
     "output = Path(args.output_dir)",
     "output.mkdir(parents=True, exist_ok=True)",
+    "if command and command[0].lower().endswith('python.exe') and not Path(command[0]).exists(): command[0] = sys.executable",
     "result = subprocess.run(command)",
     "(output / 'stdout.log').write_text('', encoding='utf-8')",
     "(output / 'config_snapshot.yaml').write_text('seed: 0\\n', encoding='utf-8')",
@@ -167,7 +169,7 @@ test("scheduler derives train-only and test-only execution from Plan", () => {
   assert.equal(validateTrain.status, 0, validateTrain.stderr || validateTrain.stdout);
   assert.equal(JSON.parse(validateTrain.stdout).execution_mode, "train");
   const runTrain = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", trainPlan, "--only-index", "0"], { cwd: project, encoding: "utf8" });
-  assert.equal(runTrain.status, 0, runTrain.stderr || runTrain.stdout);
+  assert.equal(runTrain.status, 0, `${runTrain.stdout}\n${runTrain.stderr}`);
   assert.equal(fs.existsSync(path.join(project, "train.marker")), true);
   assert.equal(fs.existsSync(path.join(project, "test.marker")), false);
 

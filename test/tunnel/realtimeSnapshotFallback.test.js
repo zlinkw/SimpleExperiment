@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const { readSource } = require("../_helpers/sourceReader");
 
 const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
 const { RealtimeTunnelClient, defaultRealtimeRefreshPolicy } = require("../../dist/tunnel/RealtimeTunnelClient.js");
@@ -32,7 +33,7 @@ test("snapshot fallback keeps lastKnownGood", async () => {
 });
 
 test("snapshot fallback uses recursive timeout with positive jitter", () => {
-  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "src", "tunnel", "RealtimeTunnelClient.ts"), "utf8");
+  const source = readSource("src/tunnel/RealtimeTunnelClient.ts");
   assert.doesNotMatch(source, /setInterval\(\(\) => void this\.refreshSnapshot/);
   assert.match(source, /scheduleSnapshotFallbackPoll\(\)/);
   assert.match(source, /snapshotFallbackDelayMs\(\)/);

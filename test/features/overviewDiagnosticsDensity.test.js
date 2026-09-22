@@ -9,8 +9,7 @@ test("drawer UI keeps closed-loop helpers and inspector hub facts", () => {
   assert.match(panel, /function renderResultEvidenceWorkbench\(/);
   assert.match(panel, /var\(--tree-col\)/);
   assert.match(panel, /resourceTree:hover|always-visible three columns|\.resourceTree \{/);
-  assert.match(panel, /\["Hub", labelStatus\(/);
-  assert.match(panel, /labelStatus\(health\)/);
+  assert.match(panel, /function renderWorkbenchInspector\(state, options\)/);
 });
 
 test("results summary refresh stays selected-plan scoped without dirty narrowing", () => {

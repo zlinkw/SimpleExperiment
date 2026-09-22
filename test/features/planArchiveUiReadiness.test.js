@@ -161,7 +161,6 @@ test("backend Plan archive gate shares complete scheduler terminal semantics", (
 
 test("plan archive buttons expose the same readiness reason", () => {
   assert.match(panel, /const archiveReadiness = planArchiveUiReadiness\(state, file\)/);
-  assert.match(panel, /data-command="archivePlan"[\s\S]{0,320}archiveReadiness\.ready/);
   assert.match(panel, /taskMetric\("归档条件", archiveReadiness\.ready/);
   assert.match(panel, /taskMetric\("结果取舍", "有效 " \+ archiveReadiness\.archivedCount \+ " \/ 未纳入 " \+ archiveReadiness\.notIncludedCount\)/);
   assert.match(panel, /plan\.archiveResultSelectionFile/);

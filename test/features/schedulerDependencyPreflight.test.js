@@ -73,12 +73,13 @@ test("Agent propagates dependency failures before validation, preview, or Worker
     "agent = importlib.util.module_from_spec(spec)",
     "sys.modules['agent'] = agent",
     "spec.loader.exec_module(agent)",
+    "agent.simple_runtime_python = lambda env=None: sys.executable",
     "dependency_error = ''",
     "try:",
     `    agent.require_scheduler_dependencies(${JSON.stringify(directory)}, ${JSON.stringify(fixture)})`,
     "except Exception as exc:",
     "    dependency_error = str(exc)",
-    `worker = agent.execute_worker_command(${JSON.stringify(directory)}, {'action': 'start-worker-task', 'commandId': 'cmd-1', 'projectDir': ${JSON.stringify(directory)}, 'schedulerPath': ${JSON.stringify(fixture)}, 'planFile': 'plan.yaml', 'mode': 'train', 'condaEnv': 'research'}, 'worker-1')`,
+    `worker = agent.execute_worker_command(${JSON.stringify(directory)}, {'action': 'start-worker-task', 'commandId': 'cmd-1', 'projectDir': ${JSON.stringify(directory)}, 'schedulerPath': ${JSON.stringify(fixture)}, 'planFile': 'plan.yaml', 'mode': 'train', 'condaEnv': '/path/to/conda_envs/research'}, 'worker-1')`,
     "print(json.dumps({'error': dependency_error, 'worker': worker}, ensure_ascii=False))",
   ].join("\n");
   const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
@@ -95,7 +96,6 @@ test("Agent propagates dependency failures before validation, preview, or Worker
   assert.match(validate, /require_scheduler_dependencies\(root, scheduler, env\)/);
   assert.match(preview, /require_scheduler_dependencies\(root, scheduler\)/);
   assert.ok(worker.indexOf("require_scheduler_dependencies") < worker.indexOf("start_simple_tmux_command"));
-  assert.ok(worker.indexOf("require_scheduler_dependencies") < worker.indexOf("subprocess.Popen"));
   assert.match(agentSource, /simple_conda_activation_script\(\)\} && exec/);
   assert.match(schedulerSource, /simple_conda_activation_script\(env\)\} && exec/);
 });

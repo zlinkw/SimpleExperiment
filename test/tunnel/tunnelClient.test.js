@@ -36,9 +36,9 @@ test("tunnel client only talks to localhost API with token and coalesces snapsho
   }
 });
 
-test("tunnel client rejects non-local endpoints", () => {
+test("tunnel client requires an endpoint host", () => {
   const budget = new RequestBudget(defaultRequestBudgetConfig);
-  assert.throws(() => new HttpTunnelClient({ localHost: "0.0.0.0", localPort: 18765 }, budget), /127\.0\.0\.1/);
+  assert.throws(() => new HttpTunnelClient({ localHost: "", localPort: 18765 }, budget), /host is required/);
 });
 
 function listen(server) {

@@ -124,7 +124,8 @@ test("PPT artifact readiness ignores paths from an older revision of the same Pl
 });
 
 test("result workbench disables unproven PPT sources and refreshes on artifact changes", () => {
-  assert.match(panel, /resultEvidenceRow\("PPT 绘图", pptReady \? "good" : "warn", pptReady \? "已有可用文件" : "等待分析文件"/);
+  assert.match(panel, /const pptTone = pptReady \? "good" : "warn"/);
+  assert.match(panel, /evidencePlanRow\("PPT 绘图", pptTone, pptStatus, pptItems\)/);
   assert.match(panel, /pptPlotButton\("样本级结果", analysisArtifacts\.caseLevelPath/);
   assert.match(panel, /pptPlotButton\("恢复报告页", analysisArtifacts\.recoveredPlanReportPath/);
   assert.match(panel, /unavailableReason \|\| "请先归档结果并运行统计"/);

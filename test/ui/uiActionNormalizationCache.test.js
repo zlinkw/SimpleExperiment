@@ -99,12 +99,13 @@ test("saved action normalization caches by source, limit, and active section", (
 test("saved action normalization keeps only the newest bounded variants", () => {
   const sandbox = loadNormalizers();
   const actions = [{ command: "runPlan", payload: { planFile: "demo.yaml" } }];
-  const sections = ["overview", "servers", "settings", "gpu", "plans", "execution", "results", "sync", "diagnostics"];
+  const sections = ["overview", "settings", "gpu", "plans", "execution", "results", "sync", "diagnostics"];
   const oldest = sandbox.normalizeActions(actions, 16);
   for (const section of sections.slice(1)) {
     sandbox.activeResourceSection = section;
     sandbox.normalizeActions(actions, 16);
   }
+  sandbox.normalizeActions(actions, 15);
   const variants = sandbox.savedButtonActionsNormalizationCache.get(actions);
   assert.equal(variants.size, 8);
   sandbox.activeResourceSection = "overview";
@@ -126,7 +127,7 @@ test("saved action payload and button attributes reuse fixed field definitions",
 test("panel reuses fixed resource section tone and inspector lookups", () => {
   const sandbox = loadNormalizers();
   assert.equal(sandbox.normalizeSection("results"), "results");
-  assert.equal(sandbox.normalizeSection("server-worker"), "servers");
+  assert.equal(sandbox.normalizeSection("server-worker"), "sync");
   assert.equal(sandbox.normalizeSection("unknown"), "overview");
 
   const toneSandbox = {
@@ -141,5 +142,5 @@ test("panel reuses fixed resource section tone and inspector lookups", () => {
   assert.match(panel, /const INSPECTOR_OPERATION_SECTIONS = new Set\(\["execution"\]\)/);
   assert.match(panel, /RESOURCE_TREE_SECTION_KEYS\??\.has\(value\)/);
   assert.match(panel, /RESOURCE_TREE_TONE_VALUES\??\.has\(value\)/);
-  assert.equal((panel.match(/INSPECTOR_OPERATION_SECTIONS\.has/g) || []).length, 4);
+  assert.equal((panel.match(/INSPECTOR_OPERATION_SECTIONS\?\.has/g) || []).length, 4);
 });

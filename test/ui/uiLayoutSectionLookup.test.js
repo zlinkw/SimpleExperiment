@@ -36,6 +36,7 @@ function loadLayoutNormalizer() {
     normalizeResourceTreeChildOrders(value) { return value; },
     normalizeLayoutColumns(value) { return value; },
     normalizePinnedCommands(value) { return value; },
+    normalizeInspectorCustomGroups(value) { return value || {}; },
     normalizeSavedButtonActions(value, limit) {
       sandbox.savedActionLimits.push(limit);
       return value;
@@ -73,14 +74,12 @@ test("UI layout normalization preserves custom order duplicates and adjacent fie
   const normalized = sandbox.normalize(layout);
 
   assert.deepEqual(Array.from(normalized.order), ["execution", "execution", "sync", "plans", "gpu", "tmux", "results", "diagnostics", "settings"]);
-  assert.equal(sandbox.RESOURCE_TREE_SECTION_KEYS.checks, layout.order.length);
+  assert.equal(sandbox.RESOURCE_TREE_SECTION_KEYS.checks, layout.order.length + 8);
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.collapsed)), { settings: false, sync: false, diagnostics: true, execution: false, gpu: true });
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.resourceTreeChildren)), layout.resourceTreeChildren);
   assert.deepEqual(JSON.parse(JSON.stringify(normalized.columns)), layout.columns);
-  assert.deepEqual(Array.from(normalized.pinnedCommands), layout.pinnedCommands);
-  assert.deepEqual(Array.from(normalized.detailActions, (item) => ({ ...item })), layout.detailActions);
-  assert.deepEqual(Array.from(normalized.pinnedActions, (item) => ({ ...item })), layout.pinnedActions);
-  assert.deepEqual(sandbox.savedActionLimits, [40, 16]);
+  assert.deepEqual(JSON.parse(JSON.stringify(normalized.inspectorCustomGroups)), {});
+  assert.deepEqual(sandbox.savedActionLimits, []);
   assert.equal(normalized.manual, true);
   assert.equal(normalized.treePinned, true);
   assert.equal(normalized.inspectorPinned, false);

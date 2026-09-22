@@ -76,7 +76,7 @@ test("the evidence workbench wires coverage into quality, statistics and paper r
   assert.match(renderer, /const qualityCoverage = evidenceCoverageState\(qualityGatePath, qualityGateResultCount, effectiveArchivedResultCount\)/);
   assert.match(renderer, /const statisticsCoverage = evidenceCoverageState\(statisticsPath, statisticsResultCount, effectiveArchivedResultCount\)/);
   assert.match(renderer, /const paperTableCoverage = evidenceCoverageState\(paperTablePath, paperTableResultCount, effectiveArchivedResultCount\)/);
-  assert.match(renderer, /resultEvidenceRow\("SCI 统计", statisticsCoverage\.tone, statisticsCoverage\.label/);
+  assert.match(renderer, /evidencePlanRow\("SCI 统计", statisticsCoverage\.tone, statisticsCoverage\.label, statisticsItems\)/);
   assert.match(renderer, /\["覆盖", qualityCoverage\.detail/);
   assert.match(renderer, /\["覆盖", statisticsCoverage\.detail/);
   assert.match(renderer, /\["表格覆盖", paperTableCoverage\.detail/);

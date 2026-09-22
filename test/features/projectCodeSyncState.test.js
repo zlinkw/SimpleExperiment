@@ -21,6 +21,7 @@ function loadHelpers() {
     },
     path,
     console,
+    process,
   };
   vm.createContext(sandbox);
   vm.runInContext(

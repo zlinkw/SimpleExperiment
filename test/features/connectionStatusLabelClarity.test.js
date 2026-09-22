@@ -31,7 +31,8 @@ function extractFrozenObject(name) {
 function loadLabelStatus() {
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFrozenObject("STATUS_LABELS")}\n${extractFunction("labelStatus")}\nthis.labelStatus = labelStatus;\nthis.labels = STATUS_LABELS;`, sandbox);
+  const runtimeFunction = extractFunction("labelStatus").replace(/\\\\/g, "\\");
+  vm.runInContext(`${extractFrozenObject("STATUS_LABELS")}\n${runtimeFunction}\nthis.labelStatus = labelStatus;\nthis.labels = STATUS_LABELS;`, sandbox);
   return sandbox;
 }
 

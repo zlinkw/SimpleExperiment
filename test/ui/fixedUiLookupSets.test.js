@@ -40,7 +40,7 @@ test("frequent UI lookup paths reuse fixed command sets", () => {
   ]);
   for (const [name, constant] of expectations) {
     const source = extractFunction(name);
-    assert.match(source, new RegExp(`${constant}\\.has\\(`), name);
+    assert.match(source, new RegExp(`${constant}\\?\\.has\\(`), name);
     assert.doesNotMatch(source, /new Set\(/, name);
   }
 });
@@ -78,7 +78,7 @@ test("selected Plan prerequisites reuse composed command sets", () => {
 });
 
 test("Plan payload builders reuse base and restore-aware command sets", () => {
-  assert.match(panel, /const PLAN_FILE_PAYLOAD_COMMANDS = new Set\(\[\.\.\.SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "savePlan"\]\)/);
+  assert.match(panel, /const PLAN_FILE_PAYLOAD_COMMANDS = new Set\(\[\.\.\.SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "archivePlanCopy", "savePlan"\]\)/);
   assert.match(panel, /const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set\(\[\.\.\.PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"\]\)/);
   assert.match(extractFunction("contextRefreshPayloadFromButton"), /PLAN_FILE_PAYLOAD_COMMANDS\??\.has\(command\)/);
   assert.match(extractFunction("payloadFromButton"), /RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS\??\.has\(command\)/);
@@ -151,8 +151,6 @@ test("overview status predicates reuse immutable substring tokens", () => {
   assert.equal(sandbox.api.statusContainsAny("offline", sandbox.api.worker), false);
   assert.equal(sandbox.api.statusContainsAny("unreachable", sandbox.api.worker), false);
 
-  assert.match(extractFunction("renderClusterRuntimeOverview"), /statusContainsAny\(realtime\.streamStatus, REALTIME_CONNECTED_STATUS_PARTS\)/);
-  assert.doesNotMatch(extractFunction("renderClusterRuntimeOverview"), /\["websocket", "sse", "connected"\]/);
 });
 
 test("remote action boundaries reuse fixed health and topology sets", () => {

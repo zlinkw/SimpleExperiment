@@ -57,7 +57,7 @@ test("normal stop forwards the clicked operation id through actionBody", () => {
 test("stop-scheduler-operation handler reaps empty shells via raw session-alive", () => {
   const handler = agentSource.slice(agentSource.indexOf("def stop_scheduler_operation("), agentSource.indexOf("def recent_operations(", agentSource.indexOf("def stop_scheduler_operation(")));
   assert.match(handler, /before\["tmuxShellAlive"\]/, "kill decision uses raw shell-alive, not python-gated tmuxSessionAlive");
-  assert.match(handler, /if not matched:[\s\S]*未清理 GPU 任务/, "unmatched stop does not clean other tasks");
+  assert.match(handler, /if not matched_scheduler and recorded_plan != requested_plan:[\s\S]*未清理 GPU 任务/, "unmatched stop does not clean other tasks");
   assert.match(handler, /if task_plan != requested_plan:\s*continue/, "task cleanup stays within selected Plan");
   assert.doesNotMatch(handler, /_reap_orphan_gpu_sessions\(root, force_all=True\)/);
 });

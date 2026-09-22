@@ -121,7 +121,7 @@ test("overview project readiness reflects execution and result phases", () => {
 
   const staleSftp = { ...base, integrations: { simpleSftp: { ready: false, message: "未安装 SimpleSFTP" } }, _server: { ready: false, summary: "服务器配置已变化" } };
   assert.equal(readiness({ ...staleSftp, _stage: { phase: "results", status: "已有正式结果待处理" } }).status, "结果待处理");
-  assert.equal(readiness({ ...staleSftp, _stage: { phase: "debug-review", status: "Debug 已完成待复核" } }).status, "Debug 待复核");
+  assert.equal(readiness({ ...staleSftp, _stage: { phase: "debug-review", status: "Debug 已完成待复核" } }).status, "历史任务待复核");
   const staleReview = readiness({ ...staleSftp, _stage: { phase: "review", status: "存在失败任务" } });
   assert.equal(staleReview.status, "任务需处理");
   assert.equal(staleReview.ready, true);
@@ -131,13 +131,8 @@ test("overview surfaces and render signature use real project and operation stat
   const dependencyStart = panel.indexOf("function sectionDependencyKey(");
   const dependencyEnd = panel.indexOf("function sectionRenderModel(", dependencyStart);
   const dependency = panel.slice(dependencyStart, dependencyEnd);
-  assert.match(dependency, /section === "overview"[\s\S]*data\.probe[\s\S]*data\.workerProbes[\s\S]*data\.operations[\s\S]*data\.planFileInput[\s\S]*data\.selection[\s\S]*data\.plans[\s\S]*data\.recentPlans/);
-  assert.match(panel, /operations: overviewOperationStatsForSignature\(data\)/);
-  assert.match(panel, /projectReadiness: compactOverviewProjectReadinessForSignature\(data\)/);
-  assert.match(panel, /planSource === overviewProjectStatsCachePlans/);
-  assert.match(panel, /const projectReadiness = overviewProjectReadiness\(state\)/);
-  assert.match(panel, /overviewStatusCard\("项目接入", projectReadiness\.tone, projectReadiness\.status/);
-  assert.match(panel, /runGateStatus = projectReadiness\.blocking \? projectReadiness\.status/);
-  assert.match(panel, /if \(projectReadiness\.blocking\) blockers\.push/);
+  assert.match(dependency, /section === "plans"[\s\S]*data\.planFileInput[\s\S]*data\.selection/);
+  assert.match(dependency, /section === "results"[\s\S]*data\.resultsSummary[\s\S]*data\.operations/);
+  assert.match(panel, /function overviewProjectReadiness\(state\)/);
   assert.doesNotMatch(panel, /projectStats\.ready \? "可运行" : "待接入"/);
 });

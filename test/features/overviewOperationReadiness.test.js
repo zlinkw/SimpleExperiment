@@ -41,6 +41,8 @@ function stats(rows) {
     extractFunction("operationIsActive"),
     extractFunction("operationIsFailureLike"),
     extractFunction("operationSucceeded"),
+    extractFunction("operationIsCompleted"),
+    extractFunction("operationIsCancelled"),
     extractFunction("overviewOperationStats"),
     "this.check = overviewOperationStats;",
   ].join("\n"), sandbox);

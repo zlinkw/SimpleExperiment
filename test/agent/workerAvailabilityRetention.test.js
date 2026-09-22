@@ -6,7 +6,7 @@ const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 const { readSource } = require("../_helpers/sourceReader");
 
-test("worker availability entries expire by TTL and stay bounded", () => {
+test("worker availability entries remain available and stay bounded", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-availability-"));
   const script = String.raw`
@@ -72,7 +72,7 @@ print(json.dumps({
     const run = spawnSync("python", ["-c", script], { encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);
     const result = JSON.parse(run.stdout.trim());
-    assert.deepEqual(result.kept, ["worker-a", "worker-borderline", "worker-fresh", "worker-no-stamp"]);
+    assert.deepEqual(result.kept, ["worker-a", "worker-borderline", "worker-fresh", "worker-no-stamp", "worker-retired"]);
     assert.ok(result.revived.includes("worker-retired"), "a worker reported in the batch must be kept");
     assert.equal(result.updated, 1);
     assert.ok(result.boundedCount <= result.maxRecords, `availability grew to ${result.boundedCount}`);

@@ -126,9 +126,9 @@ print(json.dumps({
   assert.equal(result.queryRawPoints, 4320);
   assert.equal(result.querySampledPoints, 4320);
   assert.equal(result.queryImputed, 0);
-  assert.deepEqual(result.filledValues, [10, 0, 0, 0, 0, 40]);
-  assert.deepEqual(result.filledDefaults, [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]);
-  assert.deepEqual(result.filledImputed, [false, true, true, true, true, false]);
+  assert.deepEqual(result.filledValues, [10, 40]);
+  assert.deepEqual(result.filledDefaults, []);
+  assert.deepEqual(result.filledImputed, [false, false]);
   assert.deepEqual(result.filledSampleReal, [10, 40]);
   assert.deepEqual(result.queryGapMarkers, [false, true, false]);
   assert.equal(result.recovered, true);

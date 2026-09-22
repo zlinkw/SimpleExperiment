@@ -223,11 +223,11 @@ test("GPU history point index caches sorted points and uses gap-aware binary loo
   assert.equal(context.gpuHistoryNearestTimestamp([{ points }], 260), 300);
 });
 
-test("GPU history drawing batches continuous segments into one stroke", () => {
-  const context = chartContext(["finiteHistoryPercent", "historyPointStartsGap", "drawHistoryMarker", "drawHistoryLine"]);
-  const calls = { beginPath: 0, moveTo: 0, lineTo: 0, stroke: 0, fill: 0 };
+test("GPU history drawing batches the smoothed curve into one stroke", () => {
+  const context = chartContext(["finiteHistoryPercent", "historyPointStartsGap", "gpuHistoryTimeTransform", "drawHistoryMarker", "drawHistoryLine"]);
+  const calls = { beginPath: 0, moveTo: 0, lineTo: 0, bezierCurveTo: 0, stroke: 0, fill: 0 };
   const canvas = {
-    save() {}, restore() {}, setLineDash() {}, arc() {}, rect() {}, closePath() {},
+    save() {}, restore() {}, setLineDash() {}, arc() {}, rect() {}, closePath() {}, bezierCurveTo() { calls.bezierCurveTo += 1; },
     beginPath() { calls.beginPath += 1; },
     moveTo() { calls.moveTo += 1; },
     lineTo() { calls.lineTo += 1; },
@@ -241,7 +241,7 @@ test("GPU history drawing batches continuous segments into one stroke", () => {
   }));
   context.drawHistoryLine(canvas, points, { field: "gpuUtilPercent", color: "#2563EB", dash: [], marker: "circle", focus: "util" }, 0, 99 * 300, { left: 0, top: 0 }, 990, 100, "", 300);
   assert.equal(calls.stroke, 1);
-  assert.equal(calls.moveTo, 2);
-  assert.equal(calls.lineTo, 98);
-  assert.ok(calls.fill > 0 && calls.fill < 30);
+  assert.equal(calls.moveTo, 1);
+  assert.equal(calls.bezierCurveTo, 99);
+  assert.equal(calls.fill, 0);
 });

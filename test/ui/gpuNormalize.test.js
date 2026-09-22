@@ -14,7 +14,7 @@ test("gpu normalize accepts hub agent field aliases", () => {
     procs: [{ pid: 1 }, { pid: 2 }],
     run_key: "run-a",
   });
-  assert.equal(row.index, 1);
+  assert.equal(row.index, "1");
   assert.equal(row.name, "RTX 4090");
   assert.equal(row.memoryPercent, 50);
   assert.equal(row.utilizationPercent, 88);

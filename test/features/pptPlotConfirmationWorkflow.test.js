@@ -119,7 +119,7 @@ test("plotting confirmation precedes PPT automation and keeps Debug blocked", ()
   assert.match(panel, /section === "servers"[\s\S]*data\.remotePathConfirmations[\s\S]*data\.pptPathConfirmations/);
   assert.match(panel, /section === "settings"[\s\S]*data\.remotePathConfirmations[\s\S]*data\.pptPathConfirmations/);
   assert.match(panel, /const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set\([^;]*plotResultsToPpt/);
-  assert.match(panel, /function debugModeBlockedUiCommand\(command\) \{\s*return DEBUG_MODE_BLOCKED_UI_COMMANDS\.has/);
+  assert.match(panel, /function debugModeBlockedUiCommand\(command\) \{\s*return DEBUG_MODE_BLOCKED_UI_COMMANDS\?\.has/);
 });
 
 test("PPT path dialogs cannot write stale project state", () => {

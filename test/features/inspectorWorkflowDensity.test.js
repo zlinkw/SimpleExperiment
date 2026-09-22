@@ -8,11 +8,9 @@ const panel = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 基线保留 workflow 阶段、对象条、通信路径与抽屉 rails，不做 display:none 隐藏。
 test("inspector and workflow keep render helpers and drawer rails", () => {
-  assert.match(panel, /\.workflowStageBody span \{[^}]*color: #64748B/);
-  assert.match(panel, /\.communicationPathMeta \{ display: flex/);
   assert.match(panel, /\.inspectorHint \{/);
   assert.match(panel, /\.inspectorSummary \{/);
-  assert.match(panel, /function communicationPath\(title, tone, status, tags\)/);
+  assert.match(panel, /function renderWorkbenchInspector\(state, options\)/);
   assert.match(panel, /var\(--tree-col\)/);
 });
 

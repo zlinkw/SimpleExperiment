@@ -8,16 +8,7 @@ const { readSource } = require("../_helpers/sourceReader");
 const panel = readSource("src/ui/PanelHtml.ts");
 
 function renderPanelHtmlFromSource(source) {
-  const cleaned = source
-    .replace(/^\/\/ @ts-nocheck\r?\n/, "")
-    .replace(/^"use strict";\r?\n/, "")
-    .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
-    .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml\(\): string/, "function renderPanelHtml()");
-  const sandbox = {};
-  vm.createContext(sandbox);
-  vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
-  return sandbox.result;
+  return require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 }
 
 test("legend tree and first-paint placeholders are restored", () => {
@@ -34,7 +25,7 @@ test("legend tree and first-paint placeholders are restored", () => {
   assert.match(panel, /\.workbenchInspector \{[\s\S]*display: grid/s);
   assert.match(panel, /id="resourceTreeBody"><\/div>/);
   assert.match(panel, /id="workbenchInspector"[^>]*><\/aside>/);
-  assert.match(panel, /id="summary" class="workbench-summary"[\s\S]*><\/div>/);
+  assert.match(panel, /\.workbench-summary \{ display: grid/);
   assert.match(panel, /id="serverCards" data-anchor="servers-list"><\/div>/);
   // densify retained
   assert.match(panel, /端口冲突 /);

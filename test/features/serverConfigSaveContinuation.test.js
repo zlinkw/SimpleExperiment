@@ -31,6 +31,12 @@ test("Hub and Worker save handlers continue only after state persistence", () =>
   assert.ok(hub.indexOf("applySetupDraft") < hub.indexOf("showServerConfigSavedNextStep"));
   assert.ok(worker.indexOf("applySetupDraft") < worker.indexOf("showServerConfigSavedNextStep"));
   assert.match(worker, /savedWorker\?\.displayName \|\| endpointId/);
+  assert.doesNotMatch(hub, /refreshXshellSessionLibrary\(/);
+  assert.doesNotMatch(worker, /refreshXshellSessionLibrary\(/);
+  assert.match(worker, /ensureXshellSessionLoaded\(selectedWorker\?\.savedSessionPath\)/);
+  assert.doesNotMatch(worker, /Promise\.all\(manual\.workerTunnels\.map/);
+  assert.match(hub, /void this\.showServerConfigSavedNextStep\(/);
+  assert.match(worker, /void this\.showServerConfigSavedNextStep\(/);
   assert.match(source, /addWorkerConfigFromUi\(false\)[\s\S]{0,260}showServerConfigSavedNextStep/);
   assert.match(legacyNotes, /手动保存 Hub 或 Worker 后会显示最终代码与 runtime 位置/);
   assert.match(legacyNotes, /配置完整后可直接继续“准备 Agent 并启动”/);

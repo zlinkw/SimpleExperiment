@@ -16,7 +16,7 @@ test("public setup defaults to system Python without changing explicit Conda env
   const policy = require(path.join(root, "dist/tunnel/AgentTmuxPolicy.js"));
 
   assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.condaEnv"].default, "");
-  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.remoteTmuxSessionPrefix"].default, "zlk");
+  assert.equal(packageJson.contributes.configuration.properties["simpleExperiment.tunnel.remoteTmuxSessionPrefix"].default, "simple");
   assert.deepEqual(packageJson.contributes.configuration.properties["simpleExperiment.remote.allowedRoots"].default, []);
   assert.deepEqual(packageJson.contributes.configuration.properties["simpleExperiment.remote.deniedRoots"].default, []);
   assert.equal(setup.defaultXshellTunnelSetupConfig.condaEnv, "");
@@ -52,18 +52,24 @@ agent = load("simple_experiment_agent", ${JSON.stringify(agentPath)})
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "zlk"
 scheduler = load("simple_experiment_scheduler", ${JSON.stringify(schedulerPath)})
 blank = agent.simple_runtime_env({})
-explicit = agent.simple_runtime_env({"SIMPLE_EXPERIMENT_CONDA_ENV": "torch2"})
+explicit = agent.simple_runtime_env({"SIMPLE_EXPERIMENT_CONDA_ENV": "/path/to/conda_envs/torch2"})
+try:
+    agent.simple_runtime_python({"SIMPLE_EXPERIMENT_CONDA_ENV": "torch2"})
+    invalid_name_rejected = False
+except RuntimeError:
+    invalid_name_rejected = True
 print(json.dumps({
     "blank": blank,
     "blank_python": agent.simple_runtime_python(blank),
     "explicit": explicit,
     "explicit_python": agent.simple_runtime_python(explicit),
+    "invalid_name_rejected": invalid_name_rejected,
     "agent_activation": agent.simple_conda_activation_script(),
     "prefixed_tmux": agent.simple_tmux_name("worker-w1-1"),
     "scheduler_blank_name": scheduler.simple_conda_env_name({}),
     "scheduler_blank_activation": scheduler.simple_conda_activation_script({}),
     "scheduler_blank_python": scheduler.runtime_python_command({}),
-    "scheduler_explicit_activation": scheduler.simple_conda_activation_script({"SIMPLE_EXPERIMENT_CONDA_ENV": "torch2", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV": "1"}),
+    "scheduler_explicit_activation": scheduler.simple_conda_activation_script({"SIMPLE_EXPERIMENT_CONDA_ENV": "/path/to/conda_envs/torch2", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV": "1"}),
 }))
 `;
   const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
@@ -72,14 +78,15 @@ print(json.dumps({
   assert.equal(value.blank.SIMPLE_EXPERIMENT_CONDA_ENV, "");
   assert.equal(value.blank.SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV, "0");
   assert.equal(value.blank_python, value.scheduler_blank_python);
-  assert.equal(value.explicit.SIMPLE_EXPERIMENT_CONDA_ENV, "torch2");
+  assert.equal(value.explicit.SIMPLE_EXPERIMENT_CONDA_ENV, "/path/to/conda_envs/torch2");
   assert.equal(value.explicit.SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV, "1");
-  assert.equal(value.explicit_python, "python");
+  assert.equal(value.explicit_python, "/path/to/conda_envs/torch2/bin/python");
+  assert.equal(value.invalid_name_rejected, true);
   assert.match(value.agent_activation, /if \[ -n "\$SIMPLE_EXPERIMENT_CONDA_ENV" \]; then :/);
   assert.equal(value.prefixed_tmux, "zlk-worker-w1-1");
   assert.equal(value.scheduler_blank_name, "");
   assert.equal(value.scheduler_blank_activation, "true");
-  assert.match(value.scheduler_explicit_activation, /Conda env \$SIMPLE_EXPERIMENT_CONDA_ENV is required/);
+  assert.match(value.scheduler_explicit_activation, /conda activate "\$SIMPLE_EXPERIMENT_CONDA_ENV"/);
 });
 
 test("settings and confirmations explain the effective runtime environment", () => {
@@ -91,7 +98,6 @@ test("settings and confirmations explain the effective runtime environment", () 
   assert.match(extension, /remoteTmuxSessionPrefix: preservedStringPatch\(patch, "remoteTmuxSessionPrefix"/);
   assert.match(agentSource, /conda_declared = any\(key in command/);
   assert.match(agentSource, /env\["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"\] = "1" if conda_env else "0"/);
-  assert.match(panel, /Conda 环境（可选）/);
-  assert.match(panel, /留空使用系统 Python，不执行 Conda 激活/);
-  assert.match(panel, />环境<\/button>/);
+  assert.match(panel, /Conda 环境绝对路径（可选，必填完整路径）/);
+  assert.match(panel, /留空使用系统 Python/);
 });

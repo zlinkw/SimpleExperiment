@@ -557,7 +557,7 @@ test("SimpleExperiment uses SSH aliases and scopes runtime deployment", () => {
   assert.match(extensionSource, /sshConfigAlias: identity\.sshConfigAlias/);
   assert.match(extensionSource, /networkHost: identity\.networkHost/);
   assert.match(extensionSource, /inspectOpenSshAlias\(identity\.sshConfigAlias\)/);
-  assert.match(extensionSource, /async deployLatestAgentRuntime\(showMessage = true, pathConfirmed = false, serverIds = \[\]\)/);
+  assert.match(extensionSource, /async deployLatestAgentRuntime\(showMessage = true, pathConfirmed = false, serverIds = \[\], deferVerification = false\)/);
   assert.match(extensionSource, /AgentRuntimeScope_1\.selectAgentRuntimeTargets\(this\.agentRuntimeUploadTargets\(\), serverIds\)/);
   const prepareStart = extensionSource.indexOf("async apiProjectPrepare");
   const prepareEnd = extensionSource.indexOf("apiMergedSetupConfig(params = {})", prepareStart);

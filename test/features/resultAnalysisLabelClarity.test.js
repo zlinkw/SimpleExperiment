@@ -15,7 +15,7 @@ function extractFunction(name) {
   for (let index = bodyStart; index < panel.length; index += 1) {
     if (panel[index] === "{") depth += 1;
     if (panel[index] === "}") depth -= 1;
-    if (depth === 0) return panel.slice(start, index + 1);
+    if (depth === 0) return panel.slice(start, index + 1).replace(/\\\\/g, "\\");
   }
   throw new Error(`unterminated ${name}`);
 }
@@ -57,7 +57,7 @@ test("unknown analysis values remain unchanged for compatibility", () => {
 });
 
 test("result summary and PPT selects hide raw identifiers without changing config values", () => {
-  assert.match(panel, /row\("解析失败数量", pick\(summary, \["parseFailed", "parse_failed"\]/);
+  assert.match(panel, /\["失败数", parseFailed, ""\]/);
   assert.doesNotMatch(panel, /row\("parse_failed"/);
   assert.match(panel, /optionHtml\("auto", "自动", chartType === "auto"\)/);
   assert.match(panel, /optionHtml\("activePpt", "跟随当前 PPT", styleMode === "activePpt"\)/);

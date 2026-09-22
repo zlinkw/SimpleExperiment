@@ -62,6 +62,8 @@
   ],
   "main": "./dist/extension.js",
   "bin": {
+    "simple": "./dist/cli.js",
+    "simpleex": "./dist/cli.js",
     "simple-experiment": "./dist/cli.js",
     "simple-experiment-run": "./dist/runCli.js"
   },
@@ -765,8 +767,8 @@
   },
   "scripts": {
     "build": "npm run compact:plan && npm run typecheck && node scripts/write-agent-runtime.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js",
-    "watch": "..\\local-chatgpt-bridge\\node_modules\\.bin\\tsc.cmd -watch -p .",
-    "typecheck": "..\\local-chatgpt-bridge\\node_modules\\.bin\\tsc.cmd -p . --pretty false",
+    "watch": "tsc -watch -p .",
+    "typecheck": "tsc -p . --pretty false",
     "lint": "node scripts/lint-smoke.js",
     "cleanup": "node scripts/compact-target-mode-plan.js && node scripts/clean-generated-dirs.js",
     "test": "npm run build && node --test test/*.test.js test/**/*.test.js",

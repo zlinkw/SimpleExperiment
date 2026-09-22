@@ -57,7 +57,7 @@ print(json.dumps({
     "invalidatedReads": invalidated_reads,
     "writePathReads": write_path_reads,
     "gpuReused": gpu_first is gpu_second,
-    "tasksReused": tasks_first is tasks_second,
+    "tasksEquivalent": tasks_first["tasks"] == tasks_second["tasks"],
     "availabilityReused": availability_first is availability_second,
     "gpuCount": len(gpu_changed["gpu"]),
 }))
@@ -70,7 +70,7 @@ print(json.dumps({
   assert.equal(result.invalidatedReads, 4);
   assert.equal(result.writePathReads, 2);
   assert.equal(result.gpuReused, true);
-  assert.equal(result.tasksReused, true);
+  assert.equal(result.tasksEquivalent, true);
   assert.equal(result.availabilityReused, true);
   assert.equal(result.gpuCount, 2);
 });

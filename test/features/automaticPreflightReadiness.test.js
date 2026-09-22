@@ -13,7 +13,7 @@ test("run gate presents automatic sync validation and dry-run as informational",
   assert.match(panel, /\["校验预演", \(preflight \|\| \{\}\)\.tone/);
   assert.match(panel, /badge: "自动校验预演"/);
   assert.match(panel, /任务 " \+ .* \+ " \/ 运行时继续预演"/);
-  assert.match(panel, /\.planGateItem\.info \.planGateDot/);
+  assert.match(panel, /function planRunRow\(label, tone, value, badge, badgeTitle\)/);
 });
 
 test("automatic preflight remains ordered and failures remain blocking evidence", () => {
@@ -23,5 +23,5 @@ test("automatic preflight remains ordered and failures remain blocking evidence"
   assert.ok(flow.indexOf('postPlanSchedulerAction("validate-plan"') < flow.indexOf('postPlanSchedulerAction("dry-run-plan"'));
   assert.match(panel, /operationIsFailureLike\(dryRun\.status\).*tone: "error"/s);
   assert.match(panel, /operationIsFailureLike\(validate\.status\).*tone: "error"/s);
-  assert.match(panel, /tone === "error" \? "status-failed"/);
+  assert.match(panel, /if \(tone === "error"\) return "status-failed"/);
 });

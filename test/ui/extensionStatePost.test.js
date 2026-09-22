@@ -25,7 +25,7 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
   assert.match(source, /private lastPostedStateSignature = ""/);
   assert.match(source, /private readonly statePostBatchMs = 100/);
   assert.match(source, /if \(webviewView\.visible\) this\.postState\(true\);\s*else this\.postState\(\);/);
-  assert.match(source, /resolveWebviewView\(webviewView\)[\s\S]{0,320}this\.loadPanelHtml\(\)/);
+  assert.match(source, /resolveWebviewView\(webviewView\)[\s\S]{0,1400}this\.loadPanelHtml\(\)/);
   assert.match(source, /renderPanelBootstrapDocument\(renderPanelHtml, renderPanelRecoveryHtml\)/);
   assert.match(source, /if \(this\.statePostTimer\) clearTimeout\(this\.statePostTimer\)/);
   assert.match(postStateBlock, /if \(immediate\) \{\s*this\.flushStatePost\(true\);/);

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -14,9 +15,17 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * src/cli.ts - Facade
- * original 273 lines moved to cli.legacy.ts
- * thin facade: export * passthrough
- */
+/** CLI entry; legacy commands remain available through cli.legacy.ts. */
 __exportStar(require("./cli.legacy"), exports);
+const cli_legacy_1 = require("./cli.legacy");
+const index_1 = require("./cli/index");
+if (require.main === module) {
+    const argv = process.argv.slice(2);
+    const json = argv.includes("--json");
+    const run = (0, index_1.isSimpleCommand)(argv) ? (0, index_1.runSimpleCli)(argv) : (0, cli_legacy_1.main)(argv);
+    run
+        .then((code) => { process.exitCode = code; })
+        .catch((error) => {
+        process.exitCode = (0, index_1.emitCliFailure)(error, json || argv.includes("--compact-json"), argv.includes("--compact-json"));
+    });
+}

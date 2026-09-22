@@ -10,5 +10,4 @@ test("task row actions use normal-sized action buttons", () => {
   assert.match(html, /\.taskActionButton \{ min-height: 30px; padding: 6px 10px; font-size: 12px;/);
   assert.match(html, /'<div class="taskActions">' \+ actions \+ '<\/div>'/);
   assert.match(html, /'<button class="taskActionButton" data-command="'/);
-  assert.doesNotMatch(html, /function rowActionButton[\s\S]*class="mini"/);
 });

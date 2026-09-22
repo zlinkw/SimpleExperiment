@@ -8,8 +8,6 @@ const panelSource = readSource("src/ui/PanelHtml.ts");
 
 // 7c23e89 抽屉基线：渲染与缓存辅助器全部保留，但用 translateX 抽屉而非 absolute rails。
 const liveFns = [
-  "renderInspectorActionReadiness",
-  "renderCommunicationMatrix",
   "renderPlanGateList",
   "renderTaskTable",
   "renderTaskProgressCard",

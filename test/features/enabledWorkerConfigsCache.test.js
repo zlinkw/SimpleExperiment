@@ -66,7 +66,10 @@ test("high-frequency Extension Host consumers share enabled Worker cache", () =>
     "currentAssignments",
     "configurationSourceState",
   ]) {
-    assert.match(extractMethod(name), /this\.enabledWorkerConfigs\(\)/, name);
+    const method = name === "localWorkerAvailabilityRows"
+      ? source.slice(source.indexOf("private localWorkerAvailabilityRows("), source.indexOf("private ", source.indexOf("private localWorkerAvailabilityRows(") + 1))
+      : extractMethod(name);
+    assert.match(method, /this\.enabledWorkerConfigs\(\)/, name);
   }
   assert.doesNotMatch(source, /this\.setupConfig\.workerTunnels\s*\.filter\(\((?:worker|item)\) => (?:worker|item)\.enabled !== false\)/);
 });

@@ -63,12 +63,8 @@ test("new project scan exposes dependency manifests without making them a run ga
 
   assert.match(extension, /environmentFiles\.find\(/);
   assert.match(extension, /environmentFiles,/);
-  assert.match(panel, /function projectEnvironmentSummary\(/);
-  assert.match(panel, /projectQuickRow\("环境", environment\.summary/);
-  assert.match(panel, /未发现依赖清单，请确认执行环境已安装项目依赖/);
-  assert.match(panel, /Conda 环境（可选）/);
-  assert.match(panel, /留空使用系统 Python，不执行 Conda 激活/);
-  assert.match(panel, /return condaEnv \? "Conda " \+ condaEnv : "系统 Python"/);
+  assert.match(panel, /Conda 环境绝对路径（可选，必填完整路径）/);
+  assert.match(panel, /留空使用系统 Python/);
   assert.doesNotMatch(panel, /readyToRun = [^;]*environment/);
   assert.match(panel, /environmentFiles: asArray\(item\.environmentFiles\).*\.map\(String\)/);
 });

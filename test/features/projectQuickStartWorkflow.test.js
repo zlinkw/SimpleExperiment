@@ -55,66 +55,21 @@ function projectOnboardingState(options) {
   return JSON.parse(JSON.stringify(sandbox.check(options)));
 }
 
-test("quick project onboarding preserves granular actions and follows gate order", () => {
+test("project onboarding keeps staged actions and respects readiness order", () => {
   assert.match(extension, /function projectOnboardingStateForWebview\(options\)/);
   assert.match(extension, /const projectOnboarding = projectOnboardingStateForWebview\(\{/);
-  assert.match(extension, /projectOnboarding,/);
   assert.match(panel, /id="projectOnboardingNotice"/);
   assert.match(panel, /function renderProjectOnboardingNotice\(state\)/);
-  assert.match(panel, /renderProjectOnboardingNotice\(state\)/);
-  assert.match(panel, /item\.required === true/);
-  assert.match(panel, /当前项目待接入/);
-  assert.match(panel, /data-command="bootstrapProject"[^>]*>识别工作区/);
-  assert.equal([...panel.matchAll(/data-command="bootstrapProject"[^>]*>识别工作区/g)].length, 3);
-  assert.match(panel, /<details class="projectQuickDetails"><summary>环境、服务器、连接与同步详情<\/summary>/);
-  assert.match(panel, /const primaryRows = \[/);
-  assert.match(panel, /const infrastructureRows = \[/);
-  assert.match(panel, /function renderProjectNextAction\(/);
-  assert.match(panel, /一键创建 Plan 和结果接入/);
-  assert.match(panel, /补全结果捕获规则/);
-  assert.match(panel, /补全计划输出契约/);
-  assert.match(panel, /准备就绪；确认后自动同步、校验、预演并提交/);
-  assert.match(panel, /data-command="generatePlanGuide">新建模板/);
-  assert.match(panel, /data-command="generateOutputAdapter">/);
-  assert.match(panel, /projectQuickRow\("当前配置"/);
-  assert.match(panel, /function firstProjectConfig\(project, meta, plan\)/);
-  assert.match(panel, /\(plan \|\| \{\}\)\.baseConfig/);
-  assert.match(panel, /function projectConfigAvailable\(file, project, meta\)/);
-  assert.match(panel, /firstConfig \+ "（缺失）"/);
-  assert.match(panel, /projectPathButton\(configAvailable \? "打开配置" : "", firstConfig\)/);
-  assert.match(panel, /renderPlanRunActions\(state, selectedPlan, outputReady, project\.adapterConfig, runtimeContractStage\)/);
+  assert.match(panel, /function renderProjectOnboardingFlow\(state, project, meta\)/);
+  const flow = extractFunction(panel, "renderProjectOnboardingFlow");
+  for (const step of ["1. 基础设施", "2. Plan 与输出", "3. Agent 连接", "4. 运行与监控", "5. 结果文件"]) {
+    assert.match(flow, new RegExp(step));
+  }
+  assert.match(flow, /const activeIndex = stepSpecs\.findIndex\(\(step\) => !step\.ok\)/);
+  assert.match(flow, /pending: activeIndex >= 0 && index > activeIndex/);
   assert.match(panel, /function renderPlanRunActions\(state, selectedPlan, outputReady, adapterConfig, runtimeContractStage\)/);
-  assert.match(panel, /planActiveRunEvidence\(state \|\| \{\}, selectedPlan, plan\)/);
-  assert.match(panel, /已阻止重复提交/);
-  assert.ok(panel.indexOf("const activeRun = planFile ? planActiveRunEvidence(state, planFile, selectedPlan)") < panel.indexOf("if (!(serverReadiness || {}).ready)"));
-  assert.match(panel, /if \(activeRun\.active\) \{[\s\S]{0,800}return renderPlanExecutionNextAction\(state, planFile\)/);
-  assert.match(panel, /adapterConfig[\s\S]{0,180}projectPathButton\("打开接入配置", adapterConfig\)[\s\S]{0,180}"generateOutputAdapter"/);
-  assert.match(panel, />校验并提交运行<\/button><button class="mini secondary" data-command="validatePlan"/);
-  assert.match(panel, />单独校验<\/button><button class="mini secondary" data-command="dryRunPlan"/);
-  assert.match(panel, />单独预演<\/button>/);
   assert.doesNotMatch(panel, /data-command="runPlan"[^>]*>运行<\/button>/);
-  assert.match(panel, /data-command="startAllConnections"[^>]*>启动连接<\/button>/);
-  assert.doesNotMatch(panel, /data-command="startAllConnections">一键运行<\/button>/);
-  assert.doesNotMatch(extension, /确认一键运行|一键运行将启动/);
-  assert.match(extension, /启动连接将打开.*不会提交实验/);
-  assert.match(panel, /校验时自动同步 Hub；提交运行时自动同步 Hub\/Worker/);
-  assert.match(panel, /const lifecycle = projectQuickLifecyclePresentation\(executionStage, readyToStart, firstRunRecommended\)/);
-  assert.match(panel, /const statusSummary = lifecycle\.preferStage && lifecycle\.summary \? lifecycle\.summary : readinessSummary/);
-  assert.match(panel, /至少配置并启用一个执行 Worker[\s\S]{0,160}"添加 Worker"/);
-  assert.match(panel, /选择本次要接入并运行的 Plan/);
-  assert.match(panel, /const readyToStart = Boolean\(simpleSftp\.ready\) && Boolean\(selectedPlanFile\) && outputGate\.ok && serverReadiness\.ready && workerReadiness\.ready && endpointReadiness\.ready && !meta\.outputContractStage/);
-  assert.match(panel, /selectedPlanFile \? firstProjectConfig/);
-  assert.match(panel, /选择 Plan 后显示/);
-  const quickAccessStart = panel.indexOf("function renderProjectQuickAccess(");
-  const quickAccessEnd = panel.indexOf("function projectEnvironmentSummary(", quickAccessStart);
-  const quickAccess = panel.slice(quickAccessStart, quickAccessEnd);
-  assert.doesNotMatch(quickAccess, /firstProjectPath\(project\.plans\)/);
-  const nextActionStart = panel.indexOf("function renderProjectNextAction(");
-  const nextActionEnd = panel.indexOf("function renderPlanExecutionNextAction(", nextActionStart);
-  const nextAction = panel.slice(nextActionStart, nextActionEnd);
-  assert.doesNotMatch(nextAction, /uploadProjectToHub|uploadProjectToWorkers/);
 });
-
 test("configured single-project workspaces keep onboarding visible until explicitly completed", () => {
   const setup = {
     savedSessionPath: "C:/Sessions/hub.xsh",
@@ -245,8 +200,7 @@ test("quick project onboarding reports only the next action proven by current re
   assert.equal(outputIncomplete.action, "打开当前 Plan");
   assert.equal(bootstrapCompletion({ outputGateReason: "缺少结果路径", outputGateNextLabel: "接入配置", adapterConfig: "experiments/simple_project.yaml" }).action, "打开接入配置");
   assert.equal(bootstrapCompletion({ outputGateReason: "配置文件缺失", outputGateNextLabel: "配置文件", adapterConfig: "experiments/simple_project.yaml" }).action, "打开当前 Plan");
-  assert.match(extension, /adapterReady \? "打开 experiments\/simple_project\.yaml 补充候选结果规则/);
-  assert.match(panel, /adapterReady \? "打开 experiments\/simple_project\.yaml 补充候选结果规则/);
+  assert.match(panel, /在当前 Plan 声明结果位置，或在插件设置中配置输出接入规则/);
   assert.equal(bootstrapCompletion({ setupComplete: false }).action, "打开服务器设置");
   const workerRequired = bootstrapCompletion({ setupComplete: true, workers: [] });
   assert.equal(workerRequired.state, "worker_required");

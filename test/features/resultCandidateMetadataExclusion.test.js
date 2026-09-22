@@ -41,10 +41,10 @@ test("Plan evidence rejects metadata-only outputs and keeps real result candidat
   assert.deepEqual(metadata.outputSignals, []);
   assert.equal(PlanBuilder.validateDeepLearningPlanContract(metadataPlan()).ok, false);
 
-  const mixed = PlanBuilder.parsePlanOutputEvidence(metadataPlan(["work_dirs/metadata_only/metrics.json"]));
-  assert.deepEqual(mixed.evidenceCandidates, ["work_dirs/metadata_only/metrics.json"]);
-  assert.deepEqual(mixed.outputCandidates, ["work_dirs/metadata_only/metrics.json"]);
-  assert.ok(mixed.outputSignals.some((item) => item.includes("metrics.json")));
+  const mixed = PlanBuilder.parsePlanOutputEvidence(metadataPlan(["work_dirs/metadata_only/metrics_summary.csv"]));
+  assert.deepEqual(mixed.evidenceCandidates, ["work_dirs/metadata_only/metrics_summary.csv"]);
+  assert.deepEqual(mixed.outputCandidates, ["work_dirs/metadata_only/metrics_summary.csv"]);
+  assert.ok(mixed.outputSignals.some((item) => item.includes("metrics_summary.csv")));
 });
 
 test("Hub Agent output gate and adapter policy reject metadata-only candidates", () => {

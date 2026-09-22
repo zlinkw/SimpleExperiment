@@ -28,6 +28,7 @@ function loadPlanCompaction() {
     WEBVIEW_PLAN_CASE_LIMIT: 2,
     WEBVIEW_PLAN_OUTPUT_LIMIT: 2,
     WEBVIEW_LOCAL_PLAN_VARIANT_CACHE_LIMIT: 8,
+    OUTPUT_CANDIDATE_CONTRACT_BASENAMES: new Set(["metrics_summary.csv", "metrics_case.csv", "stdout.log", "stderr.log"]),
     localPlansForWebviewCache: new WeakMap(),
     localPlanForWebviewCache: new WeakMap(),
     usableSelectionKey(value) { return String(value || "").trim(); },
@@ -49,6 +50,8 @@ function loadPlanCompaction() {
     extractFunction("planFileEquivalenceKeys"),
     extractFunction("planIdentityKeys"),
     extractFunction("compactPlanArrayForWebview"),
+    extractFunction("dedupWebviewListItems"),
+    extractFunction("normalizeOutputCandidateKey"),
     "this.compactPlans = compactLocalPlansForWebview;",
     "this.compactPlan = compactLocalPlanForWebview;",
   ].join("\n"), sandbox);

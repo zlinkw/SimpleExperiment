@@ -21,7 +21,7 @@ function extractFunction(source, name) {
 }
 
 function loadPlanExecutionStage() {
-  const names = ["normalizePlanSelectionKey", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
+  const names = ["normalizePlanSelectionKey", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "operationIsCompleted", "operationIsCancelled", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
   const sandbox = {
     OPERATION_ACTIVE_MATCH_TOKENS: Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]),
     OPERATION_FAILURE_MATCH_TOKENS: Object.freeze(["failed", "failure", "stalled", "timeout", "unsupported", "error"]),
@@ -51,13 +51,8 @@ test("project next action follows the real preflight order", () => {
   const extension = readSource("src/extension.ts");
   assert.match(panel, /function projectEndpointReadiness\(state\)/);
   assert.match(panel, /function projectCodeSyncReadiness\(state\)/);
-  assert.match(panel, /检测 Xshell 隧道与 Hub\/Worker Agent[\s\S]{0,120}"testAll"/);
   assert.match(extension, /await this\.ensureHubCodeReadyForPlanCheck\(body\)/);
   assert.match(extension, /await this\.ensureCodeReadyForRun\(undefined, \[body\]\)/);
-  assert.match(panel, /return renderPlanExecutionNextAction\(state, planFile\)/);
-  assert.match(panel, /projectQuickRow\("连接"/);
-  assert.match(panel, /projectQuickRow\("代码同步"/);
-  assert.match(panel, /projectQuickRow\("代码同步", codeSyncReadiness\.ready \? codeSyncReadiness\.summary : \(codeSyncReadiness\.hubRequired \?/);
   const preflightStart = extension.indexOf("async runPlanPreflight(body, label, authority = {})");
   const preflightEnd = extension.indexOf("async openSetupGuide()", preflightStart);
   assert.ok(preflightStart >= 0 && preflightEnd > preflightStart);

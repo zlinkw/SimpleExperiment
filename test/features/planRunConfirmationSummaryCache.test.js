@@ -128,8 +128,8 @@ test("Plan run targets reuse stable arrays and preserve normalized target order"
   const counts = { unique: sandbox.uniqueCalls, path: sandbox.pathCalls };
 
   assert.deepEqual(JSON.parse(JSON.stringify(first)), [
-    { id: "", label: "Worker B", role: "worker", remotePath: "/srv/demo", maxConcurrentGpus: 2, allowedGpuIds: ["1", "3"], condaEnv: "torch" },
-    { id: "", label: "Hub", role: "hub", remotePath: "/srv/hub", maxConcurrentGpus: 1, allowedGpuIds: [], condaEnv: "" },
+    { id: "", label: "Worker B", role: "worker", remotePath: "/srv/demo", maxConcurrentGpus: 2, condaEnv: "torch" },
+    { id: "", label: "Hub", role: "hub", remotePath: "/srv/hub", maxConcurrentGpus: "auto", condaEnv: "" },
   ]);
   assert.strictEqual(sandbox.targetLocations(targets), first);
   assert.strictEqual(sandbox.targetLocations(first), first);

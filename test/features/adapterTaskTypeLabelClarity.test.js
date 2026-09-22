@@ -31,7 +31,8 @@ function extractFrozenObject(name) {
 function loadTaskTypeLabel() {
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFrozenObject("PROJECT_TASK_TYPE_LABELS")}\n${extractFunction("projectTaskTypeLabel")}\nthis.taskTypeLabel = projectTaskTypeLabel;\nthis.taskTypeLabels = PROJECT_TASK_TYPE_LABELS;`, sandbox);
+  const runtimeFunction = extractFunction("projectTaskTypeLabel").replace(/\\\\/g, "\\");
+  vm.runInContext(`${extractFrozenObject("PROJECT_TASK_TYPE_LABELS")}\n${runtimeFunction}\nthis.taskTypeLabel = projectTaskTypeLabel;\nthis.taskTypeLabels = PROJECT_TASK_TYPE_LABELS;`, sandbox);
   return sandbox;
 }
 
@@ -42,7 +43,6 @@ test("project adapter summaries translate common task types", () => {
   assert.equal(Object.isFrozen(sandbox.taskTypeLabels), true);
   assert.match(panel, /const PROJECT_TASK_TYPE_LABELS = Object\.freeze\(\{/);
   assert.match(panel, /"任务 " \+ projectTaskTypeLabel\(rules\.taskType \|\| "classification"\)/);
-  assert.match(panel, /\["任务类型", projectTaskTypeLabel\(rules\.taskType \|\| "classification"\)\]/);
 });
 
 test("project adapter editor and unknown task types remain compatible", () => {

@@ -13,8 +13,8 @@ function write(file, text) {
 
 test("agent discover_plan_files walks nested plan subfolders", () => {
   for (const rel of [
-    "src/clusterAgentRuntime.ts",
-    "dist/clusterAgentRuntime.js",
+    "src/clusterAgentRuntime.legacy.ts",
+    "dist/clusterAgentRuntime.legacy.js",
     "dist/runtime/cluster_agent.py",
   ]) {
     const source = fs.readFileSync(path.join(__dirname, "../..", rel), "utf8");

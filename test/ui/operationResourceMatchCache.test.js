@@ -15,7 +15,7 @@ function extractFunction(name) {
   for (let index = body; index < panel.length; index += 1) {
     if (panel[index] === "{") depth += 1;
     if (panel[index] === "}") depth -= 1;
-    if (depth === 0) return panel.slice(start, index + 1);
+    if (depth === 0) return panel.slice(start, index + 1).replace(/\\\\/g, "\\");
   }
   throw new Error(`unterminated ${name}`);
 }

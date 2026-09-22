@@ -45,7 +45,7 @@ test("panel uses draggable three column workbench with searchable resource tree"
   assert.match(source, /function setupResourceTreeObserver/);
   assert.match(source, /function updateResourceTreeActiveSection/);
   assert.match(source, /function renderResourceTreeInspector/);
-  assert.match(source, /function resourceTreeNextStep/);
+  assert.match(source, /renderResourceTreeInspector\(activeResourceSection, activeResourceAnchor\)/);
   assert.match(source, /\.tree-inspector-facts/);
   assert.match(source, /\.tree-group-label/);
   assert.match(source, /\.tree-child-list/);
@@ -79,8 +79,7 @@ test("panel exposes resizable columns, collapse controls, and persisted layout f
   assert.match(panel, /function normalizeLayoutColumns/);
   assert.match(panel, /currentUiLayout\.columns/);
   assert.match(extension, /columns: \{ tree: 280, inspector: 360 \}/);
-  assert.match(extension, /detailActions: \[\]/);
-  assert.match(extension, /pinnedActions: \[\]/);
+  assert.match(extension, /inspectorCustomGroups: normalizeInspectorCustomGroups/);
   assert.match(extension, /function normalizeUiLayoutColumns/);
   assert.match(extension, /function normalizeUiButtonActions/);
   assert.match(extension, /function normalizeUiButtonPayload/);
@@ -92,11 +91,11 @@ test("extension reuses fixed UI layout validation sets", () => {
   const helpers = between(extension, "function normalizeUiLayout(input)", "function clampUiNumber");
 
   assert.match(extension, /const UI_LAYOUT_SECTION_KEYS = new Set\(defaultUiSectionOrder\)/);
-  assert.match(extension, /const PINNED_UI_COMMANDS = new Set\(/);
+  assert.match(extension, /normalizeInspectorCustomGroups\(input\.inspectorCustomGroups\)/);
   assert.match(extension, /const UI_BUTTON_ACTION_COMMANDS = new Set\(/);
   assert.match(extension, /const UI_BUTTON_PAYLOAD_KEYS = new Set\(/);
   assert.match(helpers, /UI_LAYOUT_SECTION_KEYS\.has/);
-  assert.match(helpers, /PINNED_UI_COMMANDS\.has/);
+  assert.match(helpers, /normalizeInspectorCustomGroups\(input\.inspectorCustomGroups\)/);
   assert.match(helpers, /UI_BUTTON_ACTION_COMMANDS\.has/);
   assert.match(helpers, /UI_BUTTON_PAYLOAD_KEYS\.has/);
   assert.doesNotMatch(helpers, /const (?:known|allowed) = new Set/);
@@ -107,14 +106,14 @@ test("right inspector supports pinned actions and publish sync command group", (
 
   assert.match(source, /<aside id="workbenchInspector" class="workbenchInspector"/);
   assert.match(source, /function renderWorkbenchInspector/);
-  assert.match(source, /function workbenchInspectorFacts/);
+  assert.match(source, /function inspectorCustomGroupsState/);
   assert.match(source, /function workbenchInspectorActions/);
   assert.match(source, /function workbenchInspectorEvents/);
   assert.match(source, /function renderInspectorEvent/);
-  assert.match(source, /function renderPinnedActions/);
+  assert.match(source, /function renderInspectorCustomGroups/);
   assert.match(source, /function inspectorActionButton/);
   assert.match(source, /\.pinnedActions/);
-  assert.match(source, /data-pin-command/);
+  assert.match(source, /data-inspector-add/);
   assert.match(source, /pinnedCommandDefaults/);
   assert.match(source, /normalizePinnedCommands/);
   assert.match(source, /pinnedCommands/);

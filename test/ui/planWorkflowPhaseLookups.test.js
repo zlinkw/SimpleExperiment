@@ -64,6 +64,6 @@ test("Plan workflow phase classifiers reuse fixed sets", () => {
   assert.doesNotMatch(panel, /\["validating", "dry-running", "submitting", "monitor"\]\.includes/);
   assert.doesNotMatch(panel, /\["ready", "run"\]\.includes/);
   assert.match(panel, /const PLAN_WORKFLOW_RUNNING_PHASES = new Set\(\[\.\.\.PLAN_WORKFLOW_BUSY_PHASES, "monitor"\]\);/);
-  assert.match(extractFunction("overviewProjectReadiness"), /PLAN_WORKFLOW_RUNNING_PHASES\.has/);
-  assert.match(extractFunction("projectOnboardingExecutionTarget"), /PLAN_WORKFLOW_(?:BUSY|TASK)_PHASES\.has/);
+  assert.match(extractFunction("overviewProjectReadiness"), /PLAN_WORKFLOW_RUNNING_PHASES\?\.has/);
+  assert.match(extractFunction("projectOnboardingExecutionTarget"), /PLAN_WORKFLOW_(?:BUSY|TASK)_PHASES\?\.has/);
 });

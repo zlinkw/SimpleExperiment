@@ -113,7 +113,7 @@ test("guided Plan requires confirmed real entry commands and keeps first run sma
 
   assert.equal(
     sandbox.api.guidedPlanResultPath('python eval.py --metrics-json {result_csv}', "smoke", ".csv"),
-    "experiments/results/smoke/{case}_seed{seed}.json",
+    "experiments/results/smoke/{case}_seed{seed}.csv",
   );
   assert.equal(
     sandbox.api.guidedPlanResultPath('python eval.py --result-csv {result_csv}', "smoke", ".json"),

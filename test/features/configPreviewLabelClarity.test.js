@@ -35,16 +35,13 @@ function loadConfigKindLabel() {
   return sandbox;
 }
 
-test("configuration preview translates parameter kinds and labels the open action", () => {
+test("configuration kind labels translate known parameter types", () => {
   const sandbox = loadConfigKindLabel();
   assert.equal(sandbox.kindLabel("yaml"), "YAML 配置");
   assert.equal(sandbox.kindLabel("PY"), "Python 配置");
   assert.equal(sandbox.kindLabel("mapping"), "对象");
   assert.equal(Object.isFrozen(sandbox.kindLabels), true);
   assert.match(panel, /const CONFIG_PARAM_KIND_LABELS = Object\.freeze\(\{/);
-  assert.match(panel, /configParamKindLabel\(param\.kind\)/);
-  assert.match(panel, /原始类型：/);
-  assert.match(panel, />打开配置文件<\/button>/);
 });
 
 test("unknown configuration kinds remain compatible", () => {

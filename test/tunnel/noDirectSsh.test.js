@@ -12,7 +12,8 @@ test("active extension uses localhost clients and verified Xshell sessions inste
   for (const item of ["RemoteExecutionService", "RuntimeService", "RemoteFileStore", "FakeRemoteCommandRunner", "runSsh(", "connectSshSessions", "closeControlMasterSessions"]) {
     assert.equal(extension.includes(item), false, item);
   }
-  assert.doesNotMatch(extension, /(?:from|require\()\s*["'](?:node:)?child_process/);
+  assert.doesNotMatch(extension, /(?:spawn|spawnSync|execFile|execFileSync)\s*\(\s*["'](?:ssh|scp|rsync)["']/i);
+  assert.match(extension, /spawnSync\("gh", \["--version"\]/);
   assert.match(extension, /launchXshellSavedSession/);
   assert.match(launcher, /path\.basename\(request\.exePath \|\| ""\)\.toLowerCase\(\) !== "xshell\.exe"/);
   assert.match(launcher, /spawn\(request\.exePath, \[request\.sessionPath\]/);
@@ -20,7 +21,7 @@ test("active extension uses localhost clients and verified Xshell sessions inste
 });
 
 test("extension dist has no direct remote command fallback", () => {
-  const text = fs.readFileSync(path.join(root, "dist", "extension.js"), "utf8");
+  const text = fs.readFileSync(path.join(root, "dist", "extension", "legacy.js"), "utf8");
   for (const item of ["runSsh(", "connectSshSessions", "closeControlMasterSessions", "ControlMaster", "ControlPath"]) {
     assert.equal(text.includes(item), false, item);
   }

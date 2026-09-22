@@ -2,9 +2,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { readSource } = require("./_helpers/sourceReader");
 
 const sourceRoot = path.join(__dirname, "..", "src");
-const compilerOutputPattern = /var __createBinding|Object\.defineProperty\(exports|^exports\.|^const .* = require\(/m;
+const compilerOutputPattern = /var __createBinding|Object\.defineProperty\(exports|^exports\./m;
 
 function typescriptFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -33,7 +34,7 @@ test("recovered feature and template sources remain TypeScript modules", () => {
   ];
 
   for (const [relativePath, markers] of files) {
-    const source = fs.readFileSync(path.join(sourceRoot, relativePath), "utf8");
+    const source = readSource(`src/${relativePath}`);
     assert.doesNotMatch(source, compilerOutputPattern, relativePath);
     for (const marker of markers) {
       assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${relativePath}: ${marker}`);

@@ -272,9 +272,9 @@ test("project adapter rule saves cannot continue in a replacement workspace", ()
   const save = methodBody("async saveProjectAdapterRulesFromUi", "async loadProjectAdapterTemplateFiles");
   assert.match(save, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(save, /const root = projectContext\.root/);
-  assert.ok([...save.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 3);
-  assert.match(save, /let text = await fs\.readFile[\s\S]{0,700}if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
-  assert.match(save, /const result = await writeWorkspaceTextWithBackup\(fullPath, text\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.ok([...save.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 2);
+  assert.match(save, /await config\.update\("projectAdapterRules", patch, vscode\.ConfigurationTarget\.WorkspaceFolder\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
+  assert.match(save, /await this\.syncProjectAdapterRulesToAgents\(patch\)/);
   assert.match(save, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
 });
 

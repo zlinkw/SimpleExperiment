@@ -8,17 +8,7 @@ const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legac
 const extension = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
 
 function renderPanelHtmlFromSource(source) {
-  const cleaned = source
-    .replace(/^\/\/ @ts-nocheck\r?\n/, "")
-    .replace(/^"use strict";\r?\n/, "")
-    .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
-    .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml/, "function renderPanelHtml")
-    .replace(/function renderPanelHtml\(\): string/, "function renderPanelHtml()");
-  const sandbox = {};
-  vm.createContext(sandbox);
-  vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
-  return sandbox.result;
+  return require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 }
 
 function extractScript(html) {
@@ -57,7 +47,7 @@ function extractSourceFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
-function loadResultLocation() {
+function loadCandidateDerivation() {
   const sandbox = {
     RESULT_METADATA_FILENAMES: new Set(["jobs.csv", "artifact_manifest.json", "checkpoint_manifest.json", "manifest.json", "metadata.json", "status.json", "state.json", "progress.json", "job.json", "jobs.json", "env_snapshot.json", "config_snapshot.json", "config_snapshot.yaml", "config_snapshot.yml"]),
     RESULT_METADATA_SUFFIXES: ["_snapshot.json", "_manifest.json", "_status.json", "_state.json", "_progress.json"],
@@ -66,7 +56,6 @@ function loadResultLocation() {
     planOutputCandidatesCache: new WeakMap(),
     planOutputEvidenceCandidatesCache: new WeakMap(),
     adapterRuleResultCandidatesCache: new WeakMap(),
-    projectResultLocationCache: new WeakMap(),
     asArray(value) {
       return Array.isArray(value) ? value : (!value || typeof value !== "object" ? [] : Object.values(value));
     },
@@ -75,17 +64,14 @@ function loadResultLocation() {
   vm.runInContext([
     extractFunction("uniqueText"),
     extractFunction("isParseableResultCandidate"),
+    extractFunction("normalizeOutputCandidateKey"),
+    extractFunction("dedupOutputCandidates"),
     extractFunction("planOutputCandidates"),
     extractFunction("planOutputEvidenceCandidates"),
     extractFunction("adapterRuleResultCandidates"),
-    extractFunction("projectResultLocation"),
-    "this.check = projectResultLocation;",
+    "this.check = { planOutputCandidates, planOutputEvidenceCandidates, adapterRuleResultCandidates };",
   ].join("\n"), sandbox);
   return sandbox.check;
-}
-
-function resultLocation(project, meta, plan) {
-  return JSON.parse(JSON.stringify(loadResultLocation()(project, meta, plan)));
 }
 
 function panelPreviewScope(previews, plan, rules) {
@@ -108,6 +94,8 @@ function panelPreviewScope(previews, plan, rules) {
     extractFunction("planOutputCandidates"),
     extractFunction("planOutputEvidenceCandidates"),
     extractFunction("adapterRuleResultCandidates"),
+    extractFunction("normalizeOutputCandidateKey"),
+    extractFunction("dedupOutputCandidates"),
     extractFunction("resultPreviewRegexEscape"),
     extractFunction("normalizeResultCandidatePath"),
     extractFunction("compileResultCandidatePatterns"),
@@ -122,6 +110,7 @@ function panelPreviewScope(previews, plan, rules) {
 function extensionPreviewScope(previews, plan, rules) {
   const sandbox = {
     path,
+    OUTPUT_CANDIDATE_CONTRACT_BASENAMES: new Set(["metrics_summary.csv", "metrics_case.csv", "stdout.log", "stderr.log"]),
     EMPTY_OUTPUT_DERIVATION_VALUES: Object.freeze([]),
     EMPTY_OUTPUT_DERIVATION_SOURCE: Object.freeze({}),
     planScopedResultCandidateCache: new WeakMap(),
@@ -138,6 +127,8 @@ function extensionPreviewScope(previews, plan, rules) {
   };
   vm.createContext(sandbox);
   vm.runInContext([
+    extractSourceFunction(extension, "normalizeOutputCandidateKey"),
+    extractSourceFunction(extension, "dedupOutputCandidates"),
     extractSourceFunction(extension, "normalizeResultCandidatePath"),
     extractSourceFunction(extension, "compileResultCandidatePatterns"),
     extractSourceFunction(extension, "compiledResultCandidatesMatchFile"),
@@ -148,78 +139,31 @@ function extensionPreviewScope(previews, plan, rules) {
   return JSON.parse(JSON.stringify(sandbox.check(previews, plan, rules)));
 }
 
-test("project result location prefers selected Plan and rejects metadata placeholders", () => {
-  const location = resultLocation({
-    resultFiles: ["work_dirs/old/results.csv"],
-    adapterRules: { candidateCsv: ["jobs.csv", "work_dirs/rules/scores.csv"] },
-  }, {}, {
-    outputCandidates: ["status.json", "work_dirs/current/metrics.json"],
-  });
-  assert.equal(location.path, "work_dirs/current/metrics.json");
-  assert.equal(location.source, "当前 Plan");
-  assert.match(location.summary, /work_dirs\/current\/metrics\.json/);
-  assert.doesNotMatch(location.summary, /status\.json|jobs\.csv/);
+test("Plan and adapter candidates exclude metadata and preserve priority", () => {
+  const { planOutputCandidates, planOutputEvidenceCandidates, adapterRuleResultCandidates } = loadCandidateDerivation();
+  const plan = { outputCandidates: ["status.json", "work_dirs/current/metrics.json", "work_dirs/current/metrics.json"] };
+  const rules = { candidateCsv: ["jobs.csv", "work_dirs/rules/scores.csv"] };
+  assert.deepEqual(Array.from(planOutputCandidates(plan)), ["status.json", "work_dirs/current/metrics.json"]);
+  assert.deepEqual(Array.from(planOutputEvidenceCandidates(plan)), ["work_dirs/current/metrics.json"]);
+  assert.deepEqual(Array.from(adapterRuleResultCandidates(rules)), ["work_dirs/rules/scores.csv"]);
 });
 
-test("project result location falls back to adapter rules then actual results", () => {
-  const adapter = resultLocation({
-    adapterRules: { candidateJson: ["artifact_manifest.json", "outputs/metrics.json"] },
-    resultFiles: ["outputs/actual.csv"],
-  }, {}, {});
-  assert.equal(adapter.path, "outputs/metrics.json");
-  assert.equal(adapter.source, "接入规则");
-
-  const actual = resultLocation({ resultFiles: ["env_snapshot.json", "outputs/actual.csv"] }, {}, {});
-  assert.equal(actual.path, "outputs/actual.csv");
-  assert.equal(actual.source, "已发现结果");
-});
-
-test("project result location caches actual candidate sources and invalidates replacements", () => {
-  const check = loadResultLocation();
-  const rules = { candidateCsv: ["outputs/rules.csv"] };
-  const outputContractFiles = ["outputs/contract.json"];
-  const resultFiles = ["outputs/actual.csv"];
+test("candidate caches reuse an unchanged source and invalidate replacements", () => {
+  const { planOutputEvidenceCandidates, adapterRuleResultCandidates } = loadCandidateDerivation();
   const plan = { outputCandidates: ["outputs/plan.csv"] };
-  const first = check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, plan);
-
-  assert.strictEqual(check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, plan), first);
-  assert.equal(first.path, "outputs/plan.csv");
-
-  const planRefresh = check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, { outputCandidates: ["outputs/new-plan.csv"] });
-  assert.notStrictEqual(planRefresh, first);
-  assert.equal(planRefresh.path, "outputs/new-plan.csv");
-
-  const emptyPlan = {};
-  const ruleFirst = check({ adapterRules: rules, outputContractFiles, resultFiles }, {}, emptyPlan);
-  const ruleRefresh = check({ adapterRules: { candidateCsv: ["outputs/new-rule.csv"] }, outputContractFiles, resultFiles }, {}, emptyPlan);
-  assert.notStrictEqual(ruleRefresh, ruleFirst);
-  assert.equal(ruleRefresh.path, "outputs/new-rule.csv");
-
-  const contractFirst = check({ outputContractFiles, resultFiles }, {}, emptyPlan);
-  const contractRefresh = check({ outputContractFiles: ["outputs/new-contract.json"], resultFiles }, {}, emptyPlan);
-  assert.notStrictEqual(contractRefresh, contractFirst);
-  assert.equal(contractRefresh.path, "outputs/new-contract.json");
-
-  const resultFirst = check({ resultFiles }, {}, emptyPlan);
-  const resultRefresh = check({ resultFiles: ["outputs/new-actual.csv"] }, {}, emptyPlan);
-  assert.notStrictEqual(resultRefresh, resultFirst);
-  assert.equal(resultRefresh.path, "outputs/new-actual.csv");
+  const rules = { candidateCsv: ["outputs/rules.csv"] };
+  assert.strictEqual(planOutputEvidenceCandidates(plan), planOutputEvidenceCandidates(plan));
+  assert.strictEqual(adapterRuleResultCandidates(rules), adapterRuleResultCandidates(rules));
+  assert.notStrictEqual(planOutputEvidenceCandidates(plan), planOutputEvidenceCandidates({ outputCandidates: ["outputs/new-plan.csv"] }));
+  assert.notStrictEqual(adapterRuleResultCandidates(rules), adapterRuleResultCandidates({ candidateCsv: ["outputs/new-rule.csv"] }));
 });
 
-test("project result location never invents metrics_summary.csv", () => {
-  assert.deepEqual(resultLocation({}, {}, {}), {
-    path: "",
-    count: 0,
-    source: "",
-    summary: "未声明可解析结果位置",
-  });
-  assert.match(panel, /projectQuickRow\("结果位置", resultLocation\.summary/);
-  assert.match(panel, /当前 Plan 已声明输出，无需额外模板/);
-  assert.match(panel, /已识别" \+ resultLocation\.source \+ "，可按需保存接入模板/);
-  assert.match(panel, /resultLocation\.path && outputGate\.ok \? "status-completed" : "status-warning"/);
+test("empty candidate sources never invent a result file", () => {
+  const { planOutputEvidenceCandidates, adapterRuleResultCandidates } = loadCandidateDerivation();
+  assert.deepEqual(Array.from(planOutputEvidenceCandidates({})), []);
+  assert.deepEqual(Array.from(adapterRuleResultCandidates({})), []);
   assert.doesNotMatch(panel, /const resultPath = [^;]*\|\| "metrics_summary\.csv"/);
 });
-
 test("local result previews stay scoped to the selected Plan and explicit project rules", () => {
   const previews = [
     { file: "work_dirs/alpha/base/metrics.csv", parseable: true, records: 2 },
@@ -281,9 +225,9 @@ test("panel state derivation reuses fixed command and result metadata collection
   const pptReadiness = extractFunction("pptAutomationReadinessForState");
   const debugGate = extractFunction("debugModeBlockedUiCommand");
   const resultCandidate = extractFunction("isParseableResultCandidate");
-  assert.match(pptReadiness, /PPT_AUTOMATION_ACTION_COMMANDS\.has/);
-  assert.match(debugGate, /DEBUG_MODE_BLOCKED_UI_COMMANDS\.has/);
-  assert.match(resultCandidate, /RESULT_METADATA_FILENAMES\.has/);
+  assert.match(pptReadiness, /PPT_AUTOMATION_ACTION_COMMANDS\?\.has/);
+  assert.match(debugGate, /DEBUG_MODE_BLOCKED_UI_COMMANDS\?\.has/);
+  assert.match(resultCandidate, /RESULT_METADATA_FILENAMES\?\.has/);
   assert.match(resultCandidate, /RESULT_METADATA_SUFFIXES\.some/);
   assert.doesNotMatch([pptReadiness, debugGate, resultCandidate].join("\n"), /new Set\(|const metadataSuffixes/);
 });

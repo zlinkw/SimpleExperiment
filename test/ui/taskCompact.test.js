@@ -169,6 +169,11 @@ test("task signature and render reuse one scoped view model", () => {
     planFromContext: () => ({ revision: "r1" }),
     taskRowsForPlanScope: (rows, selectedPlanFile, scopeMode) => ({ rows, selectedPlanFile, selectedCount: rows.length, totalCount: rows.length, scopeMode }),
     taskRowsViewModel: (rows) => ({ visibleRows: rows, selectedRows: [], activeRows: [], counts: {}, detailRow: rows[0] }),
+    taskStatusToken: (status) => String(status || ""),
+    TASK_LIVE_STATUS_TOKENS: new Set(["running", "testing"]),
+    TASK_QUEUED_STATUSES: new Set(["queued", "pending"]),
+    executionHistoryRowVisible: () => true,
+    taskPlanFile: (row) => row.planFile || "",
   };
   vm.createContext(sandbox);
   vm.runInContext(`${extractFunction("taskSectionViewModelForState")}\nthis.viewForState = taskSectionViewModelForState;`, sandbox);

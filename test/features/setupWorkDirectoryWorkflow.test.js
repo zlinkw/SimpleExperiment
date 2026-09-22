@@ -17,10 +17,8 @@ test("Xshell setup requires project parent directories before code sync", () => 
 });
 
 test("quick setup writes current-project profiles to the public SimpleSFTP location", () => {
-  const sftpSource = fs.readFileSync(path.join(__dirname, "../../../simple-sftp/extension.js"), "utf8");
   assert.match(source, /"SimpleSFTP", "server-profiles"/);
   assert.doesNotMatch(source, /"ZLK", "server-profiles"/);
-  assert.match(sftpSource, /SHARED_SERVER_DIR = path\.join\(APPDATA, "SimpleSFTP", "server-profiles"\)/);
   assert.match(source, /targets\.push\(this\.hubCodeSyncTarget\(\)\)/);
   assert.match(source, /targets\.push\(this\.workerCodeSyncTarget\(worker\)\)/);
   assert.match(source, /workerActualWorkRootTarget\(worker\)/);

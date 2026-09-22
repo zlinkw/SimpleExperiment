@@ -19,17 +19,16 @@ test("deletion ledger records merge without dropping local records", () => {
   assert.deepEqual(dedupeInline([...local, ...remote]), [...local, ...remote]);
 });
 
-test("deleted experiment cannot re-enter experiment index", () => {
+test("retired blacklist filter preserves experiment index records", () => {
   const entries = [
     { run_id: "1_case", global_job_id: "", hub_job_dir: "work_dirs/1_case", worker_job_dir: "/srv/project/work_dirs/1_case", native_job_dir: "", hub_console_log: "", results_csv: "", checkpoint_path: "", suite: "", case: "", seed: "", worker_id: "", worker_host: "", synced_at: "" },
     { run_id: "2_case", global_job_id: "", hub_job_dir: "work_dirs/2_case", worker_job_dir: "/srv/project/work_dirs/2_case", native_job_dir: "", hub_console_log: "", results_csv: "", checkpoint_path: "", suite: "", case: "", seed: "", worker_id: "", worker_host: "", synced_at: "" },
   ];
   const filtered = sync.filterExperimentIndex(entries, [{ hub_job_dir: "/hub/project/work_dirs/1_case" }]);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0].run_id, "2_case");
+  assert.deepEqual(filtered, entries);
 });
 
-test("scheduler row deletion clears all state buckets and pending queue", () => {
+test("retired scheduler blacklist leaves persisted state untouched", () => {
   const state = {
     plan: "experiments/plans/demo.yaml",
     scheduler_session: "sched-1",
@@ -41,10 +40,10 @@ test("scheduler row deletion clears all state buckets and pending queue", () => 
     stopped_experiments: [{ experiment_index: 1, worker_id: "w1", session: "s1" }],
   };
   const { state: next, changed } = sync.filterSchedulerState(state, [{ suite: "demo", experimentIndex: "1", workerId: "w1", schedulerSession: "sched-1", session: "s1", deleteMode: "row" }]);
-  assert.equal(changed, true);
-  assert.deepEqual(next.pending_experiments, [2]);
+  assert.equal(changed, false);
+  assert.deepEqual(next.pending_experiments, [1, 2]);
   for (const key of ["running_experiments", "testing_experiments", "completed_experiments", "failed_experiments", "stopped_experiments"]) {
-    assert.deepEqual(next[key], []);
+    assert.deepEqual(next[key], state[key]);
   }
 });
 
@@ -58,7 +57,7 @@ test("legacy scheduler tombstone does not match newer run rows", () => {
   assert.equal(next.running_experiments.length, 1);
 });
 
-test("session and log path tombstone deletes only exact scheduler row", () => {
+test("retired tombstone does not delete scheduler runs", () => {
   const state = {
     plan: "experiments/plans/demo.yaml",
     scheduler_session: "sched-new",
@@ -68,7 +67,7 @@ test("session and log path tombstone deletes only exact scheduler row", () => {
     ],
   };
   const { state: next } = sync.filterSchedulerState(state, [{ experimentIndex: "1", workerId: "w1", schedulerSession: "sched-new", session: "new", logPath: "simple_cluster/tmp/cluster_scheduler/logs/new.log", deleteMode: "row" }]);
-  assert.deepEqual(next.running_experiments.map((row) => row.session), ["old"]);
+  assert.deepEqual(next.running_experiments.map((row) => row.session), ["old", "new"]);
 });
 
 test("legacy scheduler tombstone does not clear pending from new scheduler session", () => {
@@ -100,16 +99,16 @@ test("cleanup pending tombstone only affects the matching scheduler session", ()
   assert.deepEqual(next.pending_experiments, [1, 2]);
 });
 
-test("scheduler log deletion only clears log fields", () => {
+test("retired log blacklist preserves scheduler evidence", () => {
   const state = {
     plan: "demo",
     completed_experiments: [{ experiment_index: 3, worker_id: "w1", hub_console_log: "simple_cluster/console_logs/a.log", console_tail: "tail", sync_error: "x" }],
   };
   const { state: next } = sync.filterSchedulerState(state, [{ experimentIndex: "3", workerId: "w1", deleteMode: "log_fields" }]);
   assert.equal(next.completed_experiments.length, 1);
-  assert.equal("hub_console_log" in next.completed_experiments[0], false);
-  assert.equal("console_tail" in next.completed_experiments[0], false);
-  assert.equal("sync_error" in next.completed_experiments[0], false);
+  assert.equal(next.completed_experiments[0].hub_console_log, "simple_cluster/console_logs/a.log");
+  assert.equal(next.completed_experiments[0].console_tail, "tail");
+  assert.equal(next.completed_experiments[0].sync_error, "x");
 });
 
 test("path matching covers relative, hub absolute, worker absolute, and legacy archive paths", () => {

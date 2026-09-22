@@ -6,17 +6,7 @@ const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 
 function renderPanelHtmlFromSource(source) {
-  const cleaned = source
-    .replace(/^\/\/ @ts-nocheck\r?\n/, "")
-    .replace(/^"use strict";\r?\n/, "")
-    .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
-    .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml/, "function renderPanelHtml")
-    .replace(/function renderPanelHtml\(\): string/, "function renderPanelHtml()");
-  const sandbox = {};
-  vm.createContext(sandbox);
-  vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
-  return sandbox.result;
+  return require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 }
 
 function assertScriptParses(html) {
@@ -50,6 +40,6 @@ test("main panel layout reuses one order membership index", () => {
   const applyLayout = source.slice(start, end);
 
   assert.match(applyLayout, /const orderedSections = new Set\(currentUiLayout\.order\)/);
-  assert.match(applyLayout, /cards\.filter\(\(card\) => !orderedSections\.has\(card\.dataset\.section\)\)/);
+  assert.match(applyLayout, /cards\.filter\(\(card\) => !orderedSections\?\.has\(card\.dataset\.section\)\)/);
   assert.doesNotMatch(applyLayout, /currentUiLayout\.order\.includes/);
 });

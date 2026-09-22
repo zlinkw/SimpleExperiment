@@ -6,16 +6,7 @@ const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 
 function renderPanelHtmlFromSource(source) {
-  const cleaned = source
-    .replace(/^\/\/ @ts-nocheck\r?\n/, "")
-    .replace(/^"use strict";\r?\n/, "")
-    .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
-    .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml\(\): string/, "function renderPanelHtml()");
-  const sandbox = {};
-  vm.createContext(sandbox);
-  vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
-  return sandbox.result;
+  return require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 }
 
 function extractScript(html) {
@@ -35,8 +26,8 @@ test("panel and extension output gates share nextStep and parseable candidate re
   const extension = readSource("src/extension.ts");
   const panel = readSource("src/ui/PanelHtml.ts");
   const script = loadRenderedPanelScript();
+  assert.match(extension, /nextStep/);
   for (const source of [extension, panel]) {
-    assert.match(source, /nextStep/);
     assert.match(source, /计划强契约/);
     assert.match(source, /下一步/);
   }
@@ -45,7 +36,6 @@ test("panel and extension output gates share nextStep and parseable candidate re
   assert.match(script, /jobs\.csv/);
   assert.match(script, /csv\|json\|txt\|log\|out/);
   // 当前面板将结果位置与门禁下一步分开展示。
-  assert.match(panel, /projectQuickRow\("结果位置"/);
   assert.match(extension, /nextLabel: next \? next\.label : ""/);
   assert.match(extension, /nextStep: next \? \(next\.fix \|\| ""\) : ""/);
   assert.match(extension, /在 experiments\/plans 下创建或放入 YAML Plan/);

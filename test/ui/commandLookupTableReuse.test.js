@@ -26,16 +26,14 @@ function functionSource(name) {
 }
 
 test("webview command routing reuses frozen lookup tables", () => {
-  const names = ["COMMAND_ACTION_NAMES", "RESOURCE_TREE_NEXT_STEPS", "COMMAND_INSPECTOR_SECTIONS", "ACTION_RESOURCE_ANCHORS", "SYNC_COMMAND_ANCHORS"];
-  const functions = ["commandActionName", "resourceTreeNextStep", "commandInspectorSection", "syncCommandAnchor", "actionResourceAnchor"];
+  const names = ["COMMAND_ACTION_NAMES", "COMMAND_INSPECTOR_SECTIONS", "ACTION_RESOURCE_ANCHORS", "SYNC_COMMAND_ANCHORS"];
+  const functions = ["commandActionName", "commandInspectorSection", "syncCommandAnchor", "actionResourceAnchor"];
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(names.map(declaration).concat(functions.map(functionSource), ["this.api = { commandActionName, resourceTreeNextStep, commandInspectorSection, syncCommandAnchor, actionResourceAnchor };"]).join("\n"), sandbox);
+  vm.runInContext(names.map(declaration).concat(functions.map(functionSource), ["this.api = { commandActionName, commandInspectorSection, syncCommandAnchor, actionResourceAnchor };"]).join("\n"), sandbox);
 
   assert.equal(sandbox.api.commandActionName("runPlan"), "run-plan");
   assert.equal(sandbox.api.commandActionName("futureCommand"), "futureCommand");
-  assert.equal(sandbox.api.resourceTreeNextStep("gpu", "", {}), "查看 GPU");
-  assert.equal(sandbox.api.resourceTreeNextStep("gpu", "warn", {}), "处理提示");
   assert.equal(sandbox.api.commandInspectorSection("plotResultsToPpt"), "results");
   assert.equal(sandbox.api.commandInspectorSection("futureCommand"), "overview");
   assert.equal(sandbox.api.syncCommandAnchor("deployLatestAgent"), "sync-deploy-agent");

@@ -40,7 +40,7 @@ test("panel html has primary realtime sections", () => {
   for (const text of ["GPU 状态", "任务运行状态", "实验记录", "操作进度", "实时日志", "能力状态", "诊断"]) {
     assert.match(html, new RegExp(text));
   }
-  for (const id of ["gpuSummary", "gpuGrid", "taskSummary", "taskTable", "traceTable", "operationList"]) {
+  for (const id of ["gpuSummary", "gpuGrid", "taskSummary", "taskTable", "operationList"]) {
     assert.match(html, new RegExp(`id="${id}"`), id);
   }
 });

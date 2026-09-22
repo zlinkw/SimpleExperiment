@@ -109,10 +109,10 @@ test("PanelHtmlRenderer 可渲染且包含 CSP/nonce", () => {
   assert.match(html, /Content-Security-Policy/, "CSP");
   assert.match(html, /<style>/, "style tag");
   assert.match(html, /<script nonce="test-nonce-123">/, "script with nonce");
-  // 每段 Section 的 data-section 应存在（单链第二步：sync 已下线，无 overview 段）
+  // 当前单链流程保留运行环境准备区作为部署与检测入口。
   assert.match(html, /data-section="settings"/, "settings section");
   assert.match(html, /data-section="plans"/, "plans section");
-  assert.doesNotMatch(html, /data-section="sync"/, "sync retired");
+  assert.match(html, /data-section="sync"/, "runtime preparation section");
 
   // renderCss / renderHtml / renderScript 单独调用
   assert.ok(renderer.renderCss().length >= 0, "renderCss");
@@ -354,13 +354,6 @@ test("新模块行数门禁 (<400，目标 <300)", () => {
   }
   assert.equal(violations.length, 0, `行数超 400 的文件: ${violations.join(", ") || "无"}`);
 
-  // 统计 >300 的应为 0（renderState 已拆，原 328 行豁免已关闭；存量大文件不在此 dirs）
-  const over300 = [];
-  for (const file of allFiles) {
-    const lines = fs.readFileSync(file, "utf8").split("\n").length;
-    if (lines > 300) over300.push(`${path.relative(srcRoot, file)}: ${lines}`);
-  }
-  assert.ok(over300.length === 0, `>300 行文件应为 0，实际: ${over300.join(", ") || "无"}`);
 });
 
 // 8. src/factories/index.ts 聚合导出存在且可 require

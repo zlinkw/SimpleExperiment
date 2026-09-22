@@ -207,7 +207,7 @@ test("生成的 hook 片段是合法 shell 语法", (t) => {
   }
   const repo = makeRepo();
   const hp = writeHook(repo, `#!/bin/sh\n${buildHookBlock("origin")}\n`);
-  execFileSync(shell, ["-n", hp], { stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync(shell, ["-n"], { input: fs.readFileSync(hp, "utf8"), stdio: ["pipe", "pipe", "pipe"] });
 });
 
 test("remote 名含非法字符时回退到 origin，不注入 shell", () => {

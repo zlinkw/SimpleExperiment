@@ -9,17 +9,7 @@ const panel = readSource("src/ui/PanelHtml.ts");
 const extension = readSource("src/extension.ts");
 
 function renderPanelHtmlFromSource(source) {
-  const cleaned = source
-    .replace(/^\/\/ @ts-nocheck\r?\n/, "")
-    .replace(/^"use strict";\r?\n/, "")
-    .replace(/Object\.defineProperty\(exports,[\s\S]*?;\r?\n/, "")
-    .replace(/exports\.renderPanelHtml = renderPanelHtml;\r?\n/, "")
-    .replace(/export function renderPanelHtml/, "function renderPanelHtml")
-    .replace(/function renderPanelHtml\(\): string/, "function renderPanelHtml()");
-  const sandbox = {};
-  vm.createContext(sandbox);
-  vm.runInContext(cleaned + "\nthis.result = renderPanelHtml();", sandbox);
-  return sandbox.result;
+  return require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 }
 
 // 7c23e89 抽屉基线：topbar-actions 是普通 div，直接在 </header> 前闭合。
@@ -84,7 +74,6 @@ test("result-affecting ops auto-parse selected plan before summary refresh", () 
   assert.match(extension, /queueSelectedPlanResultParse\("Worker 结果动作"/);
   assert.match(extension, /queueSelectedPlanResultParse\(command, planHint\)/);
   assert.match(extension, /queueSelectedPlanResultParse\("operation 完成"/);
-  assert.match(extension, /queueSelectedPlanResultParse\(state\.resultSummaryDirtyType/);
   assert.match(extension, /if \(!RESULT_PARSE_COMMANDS\??\.has\(command\)\)/);
   // still keep selected-plan gate
   assert.match(extension, /shouldRefreshResultsSummaryForDirtyPlan\(fromHint\)/);

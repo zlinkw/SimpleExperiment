@@ -258,13 +258,13 @@ test("preview and effective CSV buttons open result artifacts without changing P
 });
 
 test("Plan concise table is the primary result entry with scoped explanations", () => {
-  assert.match(panel, /全项目最终结果 · final/);
+  assert.match(panel, /全项目 final 与各方法结果分开保存/);
   assert.match(panel, /data-command="openLocalResultTable"/);
   assert.doesNotMatch(panel, /resultFileButton\("查看简洁汇总 CSV"/);
   assert.match(panel, /同步当前 Plan 原始与详细表/);
   assert.match(panel, /data-details-key="result-trace-files"/);
   assert.match(panel, /data-details-key="result-split-tables"/);
-  assert.match(panel, /尚未生成总表/);
+  assert.match(panel, /尚无总表。点击“刷新所有结果”/);
   assert.match(panel, /重建当前 Plan 汇总/);
 });
 

@@ -7516,7 +7516,6 @@ export class RealtimeTunnelPanelProvider {
         this.postState();
     }
     async saveHubConfigFromUi(message) {
-        await this.refreshXshellSessionLibrary();
         const patch = recordField(message, "patch");
         const savedSessionPath = preservedOptionalStringPatch(patch, "savedSessionPath", this.setupConfig.savedSessionPath);
         const sessionChanged = sessionPathChanged(this.setupConfig.savedSessionPath, savedSessionPath);
@@ -7548,7 +7547,9 @@ export class RealtimeTunnelPanelProvider {
         });
         await this.ensureXshellSessionLoaded(manual.savedSessionPath);
         await this.applySetupDraft(this.withXshellDerivedFields(manual), { syncAssignmentsFromFields: true });
-        await this.showServerConfigSavedNextStep("Hub", this.setupConfig.agentProjectDir);
+        void this.showServerConfigSavedNextStep("Hub", this.setupConfig.agentProjectDir).catch((error) => {
+            void vscode.window.showErrorMessage(`服务器配置已保存，但后续引导失败：${errorMessage(error)}`);
+        });
     }
     async saveSchedulerConfigFromUi(message) {
         const patch = recordField(message, "patch");
@@ -7570,7 +7571,6 @@ export class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage("调度与上报策略已保存。");
     }
     async saveWorkerConfigFromUi(message) {
-        await this.refreshXshellSessionLibrary();
         const endpointId = stringField(message, "endpointId");
         const patch = recordField(message, "patch");
         const currentWorker = this.setupConfig.workerTunnels.find((worker) => worker.id === endpointId);
@@ -7624,10 +7624,13 @@ export class RealtimeTunnelPanelProvider {
             workerTelemetryMode: workers.some((worker) => worker.enabled !== false) ? "hub_plus_worker_telemetry" : "hub_only",
             workerTunnels: workers,
         });
-        await Promise.all(manual.workerTunnels.map((worker) => this.ensureXshellSessionLoaded(worker.savedSessionPath)));
+        const selectedWorker = manual.workerTunnels.find((worker) => worker.id === endpointId);
+        await this.ensureXshellSessionLoaded(selectedWorker?.savedSessionPath);
         await this.applySetupDraft(this.withXshellDerivedFields(manual), { syncAssignmentsFromFields: true });
         const savedWorker = this.setupConfig.workerTunnels.find((worker) => worker.id === endpointId);
-        await this.showServerConfigSavedNextStep(savedWorker?.displayName || endpointId, savedWorker?.agentProjectDir);
+        void this.showServerConfigSavedNextStep(savedWorker?.displayName || endpointId, savedWorker?.agentProjectDir).catch((error) => {
+            void vscode.window.showErrorMessage(`服务器配置已保存，但后续引导失败：${errorMessage(error)}`);
+        });
     }
     async addWorkerConfigFromUi(showMessage = true) {
         await this.refreshXshellSessionLibrary({ force: true, postState: false });

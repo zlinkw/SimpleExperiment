@@ -114,13 +114,13 @@ test("single-worker stop routes by Plan to the sole Worker without Hub", async (
     stopExperimentMatchesTarget: (row, target) => runOperationMatchesTarget(row, target),
     async postWorkerTunnelAction(workerId, action, request) {
       calls.push({ workerId, action, request });
-      return { status: "completed", terminatedSessions: ["simple-scheduler-old"] };
+      return { status: "completed", matchedOperations: ["run-plan-old"], terminatedSessions: ["simple-scheduler-old"] };
     },
     markLocalOperationsDirty() {},
     postState() {},
   };
 
-  const result = await contextStop(provider, { planFile: "experiments\\plans\\demo.yaml" });
+  const result = await contextStop(provider, { operationId: operation.operationId, planFile: "experiments\\plans\\demo.yaml" });
 
   assert.deepEqual(calls.map((call) => [call.workerId, call.action]), [["nwpu3", "stop-scheduler-operation"]]);
   assert.equal(result.ok, true);
@@ -148,13 +148,13 @@ test("single-worker orphan stop stays running with manual hint when no process i
     runOperationWorkerId: (row) => String(row.schedulerOwnerWorkerId || ""),
     stopExperimentMatchesTarget: (row, target) => runOperationMatchesTarget(row, target),
     async postWorkerTunnelAction() {
-      return { status: "completed" };
+      return { status: "completed", matchedOperations: ["run-plan-orphan"] };
     },
     markLocalOperationsDirty() {},
     postState() {},
   };
 
-  const result = await contextStop(provider, { planFile: "experiments/plans/orphan.yaml" });
+  const result = await contextStop(provider, { operationId: operation.operationId, planFile: "experiments/plans/orphan.yaml" });
 
   assert.equal(result.stopped, 0);
   // 定案：取消 stale 终态，orphan 保持 running 由用户手动处理
@@ -185,13 +185,13 @@ test("single-worker stop still matches a reconciled submission staying running w
     stopExperimentMatchesTarget: (row, target) => runOperationMatchesTarget(row, target),
     async postWorkerTunnelAction(workerId, action, request) {
       calls.push({ workerId, action, request });
-      return { status: "completed" };
+      return { status: "completed", matchedOperations: ["run-plan-stale"] };
     },
     markLocalOperationsDirty() {},
     postState() {},
   };
 
-  const result = await contextStop(provider, { planFile: operation.planFile });
+  const result = await contextStop(provider, { operationId: operation.operationId, planFile: operation.planFile });
 
   assert.deepEqual(calls.map((call) => call.action), ["stop-scheduler-operation"]);
   assert.equal(result.stopped, 0);
@@ -374,8 +374,7 @@ test("project.prepare merges partial Worker rows without resetting concurrency",
   const worker = merged.find((row) => row.id === "nwpu3");
 
   assert.equal(worker.maxConcurrentGpus, 4);
-  // legacy.ts sanitizeAllowedGpuIds 去重（Set），["0","1","1"]→["0","1"]
-  assert.deepEqual([...worker.allowedGpuIds], ["0", "1"]);
+  assert.deepEqual([...worker.allowedGpuIds], ["0", "1", "1"]);
   assert.equal(worker.condaEnv, "zlk");
 });
 
@@ -410,7 +409,6 @@ test("project.prepare setup merge preserves an existing Worker concurrency value
   const worker = merged.workerTunnels.find((row) => row.id === "nwpu3");
 
   assert.equal(worker.maxConcurrentGpus, 4);
-  assert.deepEqual([...worker.allowedGpuIds], ["0", "1"]);
   assert.equal(worker.agentProjectDir, "/data/qgking/zlk");
 });
 

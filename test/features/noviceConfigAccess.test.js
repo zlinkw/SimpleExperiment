@@ -23,17 +23,17 @@ function loadLayoutHelpers() {
   ].join("\n");
   const sandbox = { console };
   vm.createContext(sandbox);
-  vm.runInContext(prelude + "\nthis.exports = { defaultUiLayout, defaultUiSectionOrder, normalizeUiLayout, normalizePinnedCommands, normalizeUiButtonActions, normalizeUiButtonPayload };", sandbox);
+  vm.runInContext(prelude + "\nthis.exports = { defaultUiLayout, defaultUiSectionOrder, normalizeUiLayout, normalizeUiButtonActions, normalizeUiButtonPayload };", sandbox);
   return sandbox.exports;
 }
 
 test("servers config stays expanded near primary workflow by default", () => {
   const helpers = loadLayoutHelpers();
-  assert.equal(helpers.defaultUiSectionOrder[0], "plans");
-  assert.equal(helpers.defaultUiSectionOrder[1], "results");
-  assert.equal(helpers.defaultUiSectionOrder[2], "execution");
-  assert.equal(helpers.defaultUiSectionOrder[3], "servers");
-  assert.equal(helpers.defaultUiLayout.collapsed.servers, false);
+  assert.equal(helpers.defaultUiSectionOrder[0], "sync");
+  assert.equal(helpers.defaultUiSectionOrder[1], "plans");
+  assert.equal(helpers.defaultUiSectionOrder[2], "gpu");
+  assert.equal(helpers.defaultUiSectionOrder[3], "tmux");
+  assert.equal(helpers.defaultUiLayout.collapsed.sync, false);
   assert.equal(helpers.defaultUiLayout.collapsed.execution, false);
   assert.equal(helpers.defaultUiLayout.collapsed.diagnostics, true);
 });
@@ -53,12 +53,6 @@ test("topbar keeps tunnel/network actions for novice recovery", () => {
 
 test("layout normalization keeps allowed commands and strips unknown payload fields", () => {
   const helpers = loadLayoutHelpers();
-  const commands = ["runPlan", "unknown", "runPlan"];
-  const pinned = helpers.normalizePinnedCommands(commands);
-  assert.deepEqual(Array.from(pinned), ["runPlan"]);
-  assert.equal(helpers.normalizePinnedCommands(commands), pinned);
-  assert.equal(helpers.normalizePinnedCommands(pinned), pinned);
-  assert.notEqual(helpers.normalizePinnedCommands([...commands]), pinned);
   const actions = JSON.parse(JSON.stringify(helpers.normalizeUiButtonActions([
     { command: "runPlan", payload: { planFile: "experiments/plans/demo.yaml", shellCommand: "blocked" } },
     { command: "unknown", payload: { planFile: "ignored" } },
