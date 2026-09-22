@@ -92,3 +92,21 @@ test("scheduler worker run remains listed and inspectable after runtime disappea
   assert.equal(inspected.body.summary.status, "cancelled");
   assert.equal(inspected.body.snapshot.runtime_source, "history");
 });
+
+test("scheduler-style artifact history survives without a live API", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-history-"));
+  const runsDir = path.join(root, "experiments", "runs");
+  const runDir = path.join(runsDir, "run0-123456-123");
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.mkdirSync(path.join(runsDir, "empty-directory"));
+  fs.writeFileSync(path.join(runDir, "artifact_manifest.json"), JSON.stringify({ exitCode: 0, generatedAt: "2026-09-23T01:00:00Z" }), "utf8");
+  const apiFile = path.join(root, "missing-api.json");
+  const listed = await callCli(root, apiFile, ["list"]);
+  assert.equal(listed.code, 0);
+  assert.equal(listed.body.length, 1);
+  assert.equal(listed.body[0].id, "run0-123456-123");
+  assert.equal(listed.body[0].type, "worker_run");
+  const inspected = await callCli(root, apiFile, ["inspect", "run0-123456-123"]);
+  assert.equal(inspected.code, 0);
+  assert.equal(inspected.body.summary.status, "success");
+});

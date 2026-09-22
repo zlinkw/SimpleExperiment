@@ -730,6 +730,7 @@ function loadWorkerRunHistory(): ExperimentRow[] {
     } catch {
       continue;
     }
+    if (!fileExists(path.join(full, "artifact_manifest.json")) && !fileExists(path.join(full, "env_snapshot.json"))) continue;
     const manifest = readJsonFile<Record<string, unknown>>(path.join(full, "artifact_manifest.json"), {});
     const env = readJsonFile<Record<string, unknown>>(path.join(full, "env_snapshot.json"), {});
     const record = { ...env, ...manifest };
@@ -974,7 +975,8 @@ function publicExperiment(row: ExperimentRow, children: ExperimentRow[] = []): R
   };
 }
 function experimentKind(id: string, row: Partial<ExperimentRow>): ExperimentKind {
-  if (/^run-\d+$/.test(id) || /^run-\d+$/.test(String(row.run_id || ""))) return "worker_run";
+  if (/^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(id)
+    || /^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(String(row.run_id || ""))) return "worker_run";
   if (row.progress || row.raw?.runtimeLog) return "worker_run";
   const source = String(row.raw?.type || row.raw?.action || "");
   if (source === "run-plan" || source.endsWith("-plan") || source.includes("scheduler")) return "workflow";

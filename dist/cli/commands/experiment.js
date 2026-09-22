@@ -774,6 +774,8 @@ function loadWorkerRunHistory() {
         catch {
             continue;
         }
+        if (!(0, data_1.fileExists)(path.join(full, "artifact_manifest.json")) && !(0, data_1.fileExists)(path.join(full, "env_snapshot.json")))
+            continue;
         const manifest = (0, data_1.readJsonFile)(path.join(full, "artifact_manifest.json"), {});
         const env = (0, data_1.readJsonFile)(path.join(full, "env_snapshot.json"), {});
         const record = { ...env, ...manifest };
@@ -1016,7 +1018,8 @@ function publicExperiment(row, children = []) {
     };
 }
 function experimentKind(id, row) {
-    if (/^run-\d+$/.test(id) || /^run-\d+$/.test(String(row.run_id || "")))
+    if (/^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(id)
+        || /^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(String(row.run_id || "")))
         return "worker_run";
     if (row.progress || row.raw?.runtimeLog)
         return "worker_run";
