@@ -90,21 +90,45 @@ export function observationFromCapture(
   };
 }
 
+export function overallTrainingPercent(
+  epoch: number | null,
+  maxEpoch: number | null,
+  batch: number | null,
+  totalBatch: number | null,
+  epochPercent: number | null,
+): number | null {
+  if (!Number.isFinite(epoch) || !Number.isFinite(maxEpoch) || maxEpoch === null || maxEpoch <= 0) return null;
+  const currentEpoch = Math.min(maxEpoch, Math.max(1, epoch as number));
+  let withinEpoch = 0;
+  if (Number.isFinite(batch) && Number.isFinite(totalBatch) && totalBatch !== null && totalBatch > 0) {
+    withinEpoch = Math.min(1, Math.max(0, (batch as number) / totalBatch));
+  } else if (Number.isFinite(epochPercent)) {
+    withinEpoch = Math.min(1, Math.max(0, (epochPercent as number) / 100));
+  }
+  const completedEpochs = Math.max(0, currentEpoch - 1);
+  const overall = (completedEpochs + withinEpoch) / maxEpoch * 100;
+  return Math.round(Math.min(100, Math.max(0, overall)) * 10) / 10;
+}
+
 export function parseTrainingProgress(text: string): RuntimeProgress | null {
   const source = String(text || "");
   const epoch = source.match(/epoch\s+(\d+)\s*\/\s*(\d+)/i);
   const batch = source.match(/(\d+)\s*\/\s*(\d+)\s+\d+:\d+:\d+/);
-  const percent = source.match(/(\d+(?:\.\d+)?)\s*%/);
+  const epochPercent = source.match(/(\d+(?:\.\d+)?)\s*%/);
   const loss = source.match(/当前\s*loss\s+([0-9]+(?:\.[0-9]+)?)/i);
   const lr = source.match(/\blr\s+([0-9]+(?:\.[0-9]+)?e[+-]?\d+)/i);
   const memory = source.match(/显存\s+([0-9]+(?:\.[0-9]+)?\s*GiB)/i);
   if (!epoch && !batch && !loss && !lr && !memory) return null;
+  const epochValue = epoch ? Number(epoch[1]) : null;
+  const maxEpochValue = epoch ? Number(epoch[2]) : null;
+  const batchValue = batch ? Number(batch[1]) : null;
+  const totalBatchValue = batch ? Number(batch[2]) : null;
   return {
-    epoch: epoch ? Number(epoch[1]) : null,
-    max_epoch: epoch ? Number(epoch[2]) : null,
-    batch: batch ? Number(batch[1]) : null,
-    total_batch: batch ? Number(batch[2]) : null,
-    percent: percent ? Number(percent[1]) : null,
+    epoch: epochValue,
+    max_epoch: maxEpochValue,
+    batch: batchValue,
+    total_batch: totalBatchValue,
+    percent: overallTrainingPercent(epochValue, maxEpochValue, batchValue, totalBatchValue, epochPercent ? Number(epochPercent[1]) : null),
     loss: loss ? Number(loss[1]) : null,
     lr: lr ? lr[1] : null,
     memory: memory ? memory[1].replace(/\s+/g, " ") : null,

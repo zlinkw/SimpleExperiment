@@ -320,9 +320,32 @@ test("training progress parser returns null without a recognized line", () => {
   assert.equal(progress.max_epoch, 300);
   assert.equal(progress.batch, 126);
   assert.equal(progress.total_batch, 171);
+  assert.equal(progress.percent, 6.9);
   assert.equal(progress.loss, 0.3806);
   assert.equal(progress.lr, "1.00e-03");
   assert.equal(progress.memory, "5.2 GiB");
+  assert.equal(parseTrainingProgress("epoch 21/300 74%\n当前 loss 0.3").percent, 6.9);
+  const localOnly = parseTrainingProgress("74%\n当前 loss 0.3");
+  assert.equal(localOnly.percent, null);
+  assert.equal(localOnly.loss, 0.3);
+});
+
+test("overall training percent uses completed epochs and bounded within-epoch progress", () => {
+  const { overallTrainingPercent } = require("../../dist/cli/runtime.js");
+  assert.equal(overallTrainingPercent(21, 300, 126, 171, 74), 6.9);
+  assert.equal(overallTrainingPercent(24, 300, 53, 171, null), 7.8);
+  assert.equal(overallTrainingPercent(1, 300, 0, 171, null), 0);
+  assert.equal(overallTrainingPercent(300, 300, 171, 171, null), 100);
+  assert.equal(overallTrainingPercent(300, 300, 200, 171, null), 100);
+  assert.equal(overallTrainingPercent(1, 300, -4, 171, null), 0);
+  assert.equal(overallTrainingPercent(21, 300, null, null, 74), 6.9);
+  assert.equal(overallTrainingPercent(21, 300, null, null, null), 6.7);
+  assert.equal(overallTrainingPercent(0, 300, 0, 171, null), 0);
+  assert.equal(overallTrainingPercent(301, 300, 171, 171, null), 100);
+  assert.equal(overallTrainingPercent(21, 0, 126, 171, 74), null);
+  assert.equal(overallTrainingPercent(null, 300, 126, 171, 74), null);
+  assert.equal(overallTrainingPercent(NaN, 300, 126, 171, 74), null);
+  assert.equal(overallTrainingPercent(21, Infinity, 126, 171, 74), null);
 });
 
 test("experiment rows distinguish workflow and worker runs", () => {
@@ -771,6 +794,7 @@ test("progress includes updated_at for active status and inspect", async () => {
   const inspected = JSON.parse((await runCli(["experiment", "inspect", "run-100", "--json"], { cwd: dir })).stdout);
   for (const progress of [active.runs[0].progress, status.progress, inspected.progress]) {
     assert.equal(progress.epoch, 2);
+    assert.equal(progress.percent, 20);
     assert.equal(progress.updated_at, "2026-03-01T00:00:00.000Z");
   }
   assert.equal(typeof inspected.diagnosis.stale_seconds, "number");
