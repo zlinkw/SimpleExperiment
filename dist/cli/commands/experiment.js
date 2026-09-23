@@ -99,15 +99,17 @@ function snapshotSource(rows) {
 async function createExperimentOverviewSnapshot() {
     return { rows: await loadExperiments(), snapshot_time: new Date().toISOString() };
 }
-function alertDetailsFor(flags, health) {
+function alertDetailsFor(flags, health, recovery) {
     return [
         flags.missing_progress ? { type: "missing_progress", message: "experiment has no progress update" } : null,
         flags.stalled ? { type: "stalled", message: "experiment has no progress update" } : null,
-        flags.recent_failure ? { type: "recent_failure", message: health?.status === "warning" && health.reason === "failed_recent"
-                ? "recent failure has a newer running retry"
-                : health?.status === "error" || !health
-                    ? "recent failure has no newer successful or running recovery"
-                    : "experiment failed within the last 24 hours" } : null,
+        flags.recent_failure ? { type: "recent_failure", message: recovery && health
+                ? recentFailureAlertMessage(recovery, health)
+                : health?.status === "warning" && health.reason === "failed_recent"
+                    ? "recent failure has a newer running retry"
+                    : health?.status === "error" || !health
+                        ? "recent failure has no newer successful or running recovery"
+                        : "experiment failed within the last 24 hours" } : null,
     ].filter((item) => item !== null).slice(0, 10)
         .map((item) => ({ ...item, message: item.message.slice(0, 300) }));
 }
@@ -185,9 +187,9 @@ async function experimentSummary(flags) {
         (0, format_1.writeText)((0, format_1.block)("Summary", payload));
     return 0;
 }
-function buildExperimentSummary(rows) {
+function buildExperimentSummary(rows, now = Date.now()) {
     const running = rows.filter((row) => row.status === "running");
-    const alerts = buildExperimentAlerts(rows);
+    const alerts = buildExperimentAlerts(rows, 10, now);
     return {
         running_count: running.length,
         failed_count: rows.filter((row) => row.status === "failed").length,
@@ -199,9 +201,14 @@ function buildExperimentSummary(rows) {
         recent_failures: alerts.failed_recent.slice(0, 5),
     };
 }
-function buildExperimentAlerts(rows, failedLimit = 10) {
+function buildExperimentAlerts(rows, failedLimit = 10, now = Date.now()) {
+    const recovery = classifyRecentFailures(rows, now);
     return {
-        failed_recent: sortByUpdatedDesc(rows.filter((row) => isRecentFailure(row))).slice(0, failedLimit).map(failureRow),
+        failed_recent: [
+            ...sortByUpdatedDesc(recovery.unresolved),
+            ...sortByUpdatedDesc(recovery.running_retry),
+            ...sortByUpdatedDesc(recovery.resolved),
+        ].slice(0, failedLimit).map(failureRow),
         stalled: rows.filter((row) => row.health_status === "stalled").map(failureRow),
         missing_progress: rows.filter((row) => isMissingProgress(row)).map(failureRow),
     };
@@ -260,6 +267,20 @@ function classifyRecentFailures(rows, now = Date.now()) {
             result[recentFailureRecoveryState(row, rows, now)].push(row);
     }
     return result;
+}
+function failureIdentityCount(rows) {
+    return new Set(rows.map((row) => workerAttemptKey(row) || `id:${row.id}`)).size;
+}
+function recentFailureAlertMessage(recovery, health) {
+    const runningIdentities = failureIdentityCount(recovery.running_retry);
+    if (health.status === "error") {
+        const unresolvedIdentities = failureIdentityCount(recovery.unresolved);
+        return `${unresolvedIdentities} unresolved experiment ${unresolvedIdentities === 1 ? "identity" : "identities"} across ${recovery.unresolved.length} recent failed attempts; ${runningIdentities} experiment ${runningIdentities === 1 ? "identity has" : "identities have"} newer running retries`;
+    }
+    if (health.status === "warning" && health.reason === "failed_recent") {
+        return `${runningIdentities} experiment ${runningIdentities === 1 ? "identity has" : "identities have"} newer running retries; no unresolved recent failure remains`;
+    }
+    return "experiment failed within the last 24 hours";
 }
 function isMissingProgress(row, now = Date.now(), timeoutMs = MISSING_PROGRESS_TIMEOUT_MS) {
     if (row.type !== "worker_run" || row.status !== "running" || row.stage !== "run" || row.progress)
@@ -420,11 +441,12 @@ async function experimentStatus(id, flags) {
 async function experimentOverview(flags) {
     const context = await createExperimentOverviewSnapshot();
     const rows = context.rows;
+    const now = Date.now();
     const body = {
-        summary: buildExperimentSummary(rows),
+        summary: buildExperimentSummary(rows, now),
         active: buildActivePayload(loadActiveExperiments(rows), false),
-        alerts: buildExperimentAlerts(rows, flags.full ? 10 : 3),
-        health: buildHealthSummary(rows),
+        alerts: buildExperimentAlerts(rows, flags.full ? 10 : 3, now),
+        health: buildHealthSummary(rows, now),
     };
     const snapshot = { ...createCommandSnapshot(toIso(rows.map((row) => row.updated).sort().at(-1) || ""), snapshotSource(rows)), snapshot_time: context.snapshot_time };
     const payload = flags.json ? { schema_version: AGENT_SCHEMA_VERSION, snapshot, ...body } : body;
@@ -438,7 +460,7 @@ async function experimentHealth(flags) {
     const rows = await loadExperiments();
     const now = Date.now();
     const recovery = classifyRecentFailures(rows, now);
-    const alerts = buildExperimentAlerts(rows, 5);
+    const alerts = buildExperimentAlerts(rows, 5, now);
     const alertFlags = {
         missing_progress: alerts.missing_progress.length > 0,
         stalled: alerts.stalled.length > 0,
@@ -448,7 +470,7 @@ async function experimentHealth(flags) {
     const judged = buildHealthSummary(rows, now);
     const body = {
         health: { ...judged, alert_level: alertLevel(judged.status) },
-        alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags, judged) },
+        alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags, judged, recovery) },
     };
     const payload = flags.json
         ? { schema_version: AGENT_SCHEMA_VERSION, snapshot: command, ...body }
@@ -490,7 +512,7 @@ async function experimentInspect(id, flags) {
         health: buildHealthSummary([row]),
         diagnosis: {
             reason,
-            suggestions: reason.filter((item) => item !== "unknown"),
+            suggestions: diagnosisSuggestions(reason),
             latest_message: findLatestTrainingMessage(records),
             stale_seconds: staleSeconds(String(snapshot.updated_at || "")),
             ...(row.status === "failed" ? { failure_context: { last_error: lastErrorMessage(records), stage: snapshot.stage, worker: snapshot.worker } } : {}),
@@ -546,7 +568,7 @@ async function experimentDiagnose(id, flags) {
         ...snapshot,
         reason,
         last_stage: snapshot.stage,
-        suggestions: reason.filter((item) => item !== "unknown"),
+        suggestions: diagnosisSuggestions(reason),
     };
     const payload = flags.full ? { ...base, evidence } : base;
     if (flags.json)
@@ -1468,11 +1490,22 @@ function asRecord(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 const DIAGNOSIS_PATTERNS = [
+    { reason: "missing dependency", pattern: /ModuleNotFoundError|No module named|ImportError:.*(?:required|install)|cannot import name/i },
     { reason: "cuda out of memory", pattern: /cuda out of memory|out of memory|oom/i },
     { reason: "missing file", pattern: /no such file|file not found|filenotfound|missing file/i },
     { reason: "config error", pattern: /config(?:uration)? error|invalid config|yaml(?:.+)error/i },
     { reason: "nan loss", pattern: /\bnan\b|loss[:=]\s*nan/i },
 ];
+function diagnosisSuggestions(reasons) {
+    const messages = {
+        "missing dependency": "verify the configured conda environment and install the missing project dependency before retrying",
+        "cuda out of memory": "reduce GPU memory usage or batch size before retrying",
+        "missing file": "verify the referenced file paths on the target worker",
+        "config error": "validate the plan and experiment configuration before retrying",
+        "nan loss": "inspect numerical stability, data values, and optimization settings before retrying",
+    };
+    return [...new Set(reasons.map((reason) => messages[reason]).filter((message) => Boolean(message)))].slice(0, 5).map((message) => message.slice(0, 200));
+}
 async function resolveExperimentReference(value) {
     const rows = await loadExperiments();
     const wanted = String(value || "").trim();
@@ -1533,11 +1566,27 @@ async function findExperiment(id) {
 }
 async function recentLogsFor(match) {
     const raw = match.raw || {};
+    if (String(raw.runtimeLog || "").trim())
+        return String(raw.runtimeLog);
     const logPath = firstString(raw, ["hub_console_log", "log_path", "logPath", "stdout"]);
-    const live = await (0, api_1.optionalApi)("live.output", { runKey: match.id });
-    const liveText = extractLiveLog(live, match.id);
-    const fileText = logPath ? (0, data_1.readTail)(path.isAbsolute(logPath) ? logPath : (0, data_1.resolveProjectPath)(logPath), 200) : "";
-    return String(raw.runtimeLog || "").trim() ? String(raw.runtimeLog) : String(liveText || fileText || "");
+    if (logPath && match.worker_id) {
+        const remote = await (0, api_1.optionalApi)("live.output", { runKey: logPath, workerId: match.worker_id });
+        const remoteText = extractLiveLog(remote, logPath);
+        if (remoteText)
+            return remoteText;
+    }
+    for (const candidate of new Set([match.run_id, match.id].filter(Boolean))) {
+        const live = await (0, api_1.optionalApi)("live.output", { runKey: candidate, workerId: match.worker_id });
+        const liveText = extractLiveLog(live, candidate);
+        if (liveText)
+            return liveText;
+    }
+    if (logPath) {
+        const absolutePath = path.isAbsolute(logPath) ? logPath : (0, data_1.resolveProjectPath)(logPath);
+        if ((0, data_1.fileExists)(absolutePath))
+            return (0, data_1.readTail)(absolutePath, 200);
+    }
+    return "";
 }
 async function loadExperimentDetail(id) {
     const rows = await loadExperiments();

@@ -153,6 +153,58 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   assert.equal(failed.body.summary.status, "failed");
 });
 
+test("failed Worker task retrieves its remote log without persisting logPath", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-remote-log-"));
+  const workerRunId = "run0-failed";
+  const logPath = "simple_cluster/tmp/cluster_scheduler/logs/run0-failed.log";
+  const requests = [];
+  const task = {
+    runKey: workerRunId, commandId: workerRunId, workerId: "worker-a", status: "failed",
+    planFile: plan, gpuId: "0", experimentCase: "baseline", seed: 7, logPath,
+    startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    finishedAt: new Date(Date.now() - 59 * 60 * 1000).toISOString(),
+  };
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const { id, method, params } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (method === "live.output") requests.push(params);
+      const result = method === "tasks.list"
+        ? { schedulerStates: [], experimentTraces: [], workerTasks: [{ workerId: "worker-a", tasks: [task] }] }
+        : method === "live.output" && params.runKey === logPath && params.workerId === "worker-a"
+          ? { runKey: logPath, logs: [{ key: logPath, text: "Traceback (most recent call last):\nModuleNotFoundError: No module named 'omegaconf'\nImportError: transformers is required for HuggingFace text encoders." }] }
+          : {};
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const apiFile = path.join(root, "api.json");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+
+  const inspected = await callCli(root, apiFile, ["inspect", workerRunId]);
+  assert.equal(inspected.code, 0);
+  assert.ok(inspected.body.diagnosis.reason.includes("missing dependency"));
+  assert.ok(inspected.body.diagnosis.failure_context.last_error.length > 0);
+  assert.ok(inspected.body.diagnosis.failure_context.last_error.length <= 300);
+  assert.match(inspected.body.diagnosis.failure_context.last_error, /ImportError/);
+  const diagnosed = await callCli(root, apiFile, ["diagnose", workerRunId, "--full"]);
+  assert.equal(diagnosed.code, 0);
+  assert.ok(diagnosed.body.reason.includes("missing dependency"));
+  assert.ok(diagnosed.body.suggestions.some((item) => /conda environment|dependency/i.test(item)));
+  assert.ok(diagnosed.body.evidence.length > 0);
+  assert.ok(diagnosed.body.evidence.length <= 20);
+  assert.ok(diagnosed.body.evidence.every((item) => item.length <= 200));
+  assert.ok(requests.length >= 2);
+  assert.ok(requests.every((params) => params.runKey === logPath && params.workerId === "worker-a"));
+  const historyFile = path.join(root, "simple_cluster", "tmp", "worker_task_snapshots", "worker-a.json");
+  const history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+  assert.equal("raw" in history.rows[0], false);
+  assert.equal("logPath" in history.rows[0], false);
+});
+
 test("scheduler-style artifact history survives without a live API", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-history-"));
   const runsDir = path.join(root, "experiments", "runs");

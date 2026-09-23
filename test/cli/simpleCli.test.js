@@ -698,7 +698,7 @@ test("experiment health distinguishes running and successful retries from failur
   const healthRun = JSON.parse((await runCli(["experiment", "health", "--json"], { cwd: dir })).stdout);
   assert.deepEqual(healthRun.health, { status: "warning", reason: "failed_recent", alert_level: "warning" });
   assert.equal(healthRun.alerts.recent_failure, true);
-  assert.equal(healthRun.alerts.alert_details.find((item) => item.type === "recent_failure").message, "recent failure has a newer running retry");
+  assert.match(healthRun.alerts.alert_details.find((item) => item.type === "recent_failure").message, /1 experiment identity has newer running retries/);
   const overviewRun = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
   assert.equal(overviewRun.alerts.failed_recent[0].id, old.global_job_id);
   assert.deepEqual(overviewRun.health, { status: "warning", reason: "failed_recent" });
@@ -711,6 +711,45 @@ test("experiment health distinguishes running and successful retries from failur
   const overviewSuccess = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
   assert.equal(overviewSuccess.alerts.failed_recent[0].id, old.global_job_id);
   assert.deepEqual(overviewSuccess.health, { status: "healthy", reason: "" });
+});
+
+test("overview prioritizes unresolved failures before retrying failure history", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-failure-priority-"));
+  const stamp = (minutes) => new Date(Date.now() - minutes * 60 * 1000).toISOString();
+  const failed = (id, experiment_case, minutes) => ({ global_job_id: id, type: "worker_run", status: "failed", plan: "p.yaml", experiment_case, seed: "42", created: stamp(minutes + 1), updated: stamp(minutes) });
+  const running = (id, experiment_case) => ({ global_job_id: id, type: "worker_run", status: "running", plan: "p.yaml", experiment_case, seed: "42", created: stamp(5), updated: stamp(1) });
+  writeProject(dir, { "simple_cluster/experiment_index.json": JSON.stringify([
+    failed("A-old", "A", 15), failed("B-old", "B", 16),
+    failed("X-old", "X", 60), failed("Y-old", "Y", 61),
+    running("A-new", "A"), running("B-new", "B"),
+  ]) });
+  const overview = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
+  assert.equal(overview.health.status, "error");
+  assert.deepEqual(overview.alerts.failed_recent.map((row) => row.id), ["X-old", "Y-old", "A-old"]);
+  const full = JSON.parse((await runCli(["experiment", "overview", "--json", "--full"], { cwd: dir })).stdout);
+  assert.deepEqual(full.alerts.failed_recent.map((row) => row.id), ["X-old", "Y-old", "A-old", "B-old"]);
+});
+
+test("health alert counts failure attempts by experiment identity", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-failure-count-"));
+  const stamp = (minutes) => new Date(Date.now() - minutes * 60 * 1000).toISOString();
+  const failed = (id, experiment_case, minutes) => ({ global_job_id: id, type: "worker_run", status: "failed", plan: "p.yaml", experiment_case, seed: "42", created: stamp(minutes + 1), updated: stamp(minutes) });
+  const rows = [
+    ...[70, 69, 68, 67].map((minutes, index) => failed(`X-${index}`, "X", minutes)),
+    ...["A", "B", "controls"].flatMap((experiment_case) => [
+      failed(`${experiment_case}-1`, experiment_case, 30),
+      failed(`${experiment_case}-2`, experiment_case, 20),
+      { global_job_id: `${experiment_case}-new`, type: "worker_run", status: "running", plan: "p.yaml", experiment_case, seed: "42", created: stamp(5), updated: stamp(1) },
+    ]),
+  ];
+  writeProject(dir, { "simple_cluster/experiment_index.json": JSON.stringify(rows) });
+  const health = JSON.parse((await runCli(["experiment", "health", "--json"], { cwd: dir })).stdout);
+  assert.equal(health.health.status, "error");
+  const message = health.alerts.alert_details.find((item) => item.type === "recent_failure").message;
+  assert.match(message, /1 unresolved experiment identity/);
+  assert.match(message, /4 recent failed attempts/);
+  assert.match(message, /3 experiment identities/);
+  assert.match(message, /running retries/);
 });
 
 test("progress includes updated_at for active status and inspect", async () => {
