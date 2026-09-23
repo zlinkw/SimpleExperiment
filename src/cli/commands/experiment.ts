@@ -796,7 +796,62 @@ async function loadRemoteExperiments(): Promise<ExperimentRow[]> {
   if (Array.isArray(schedulerStates)) {
     for (const item of schedulerStates) rows.push(...workerRunsFromSchedulerState(asRecord(item), rows));
   }
+  rows.push(...workerRunsFromWorkerTaskSnapshots(asRecord(tasks).workerTasks, rows));
   return rows;
+}
+
+function workerRunsFromWorkerTaskSnapshots(value: unknown, workflows: ExperimentRow[]): ExperimentRow[] {
+  if (!Array.isArray(value)) return [];
+  const rows: ExperimentRow[] = [];
+  for (const entry of value) {
+    const snapshot = asRecord(entry);
+    if (!Array.isArray(snapshot.tasks)) continue;
+    for (const item of snapshot.tasks) {
+      const task = asRecord(item);
+      const id = firstString(task, ["runKey", "commandId", "operationId", "session"]);
+      if (!id) continue;
+      const plan = firstString(task, ["planFile", "plan"]);
+      const planParents = new Set(workflows.filter((row) => row.type === "workflow" && plan && row.plan === plan).map((row) => row.id));
+      const rawGpu = task.gpuId ?? task.gpu_id ?? task.gpu;
+      const gpuId = typeof rawGpu === "object" ? firstString(asRecord(rawGpu), ["id"]) : String(rawGpu ?? "").trim();
+      const started = firstString(task, ["startedAt", "started_at"]);
+      const finished = firstString(task, ["finishedAt", "finished_at"]);
+      const status = workerTaskStatus(firstString(task, ["status", "state"]));
+      rows.push(blankRuntime({
+        id,
+        type: "worker_run",
+        source: "history",
+        name: firstString(task, ["experimentCase", "experiment_case", "case"]) || id,
+        status,
+        status_source: "worker",
+        plan,
+        run_id: id,
+        parent_id: firstString(task, ["workflowId", "workflow_id", "parent_id"])
+          || (planParents.size === 1 ? Array.from(planParents)[0] : ""),
+        worker_id: firstString(task, ["workerId", "worker_id"]) || firstString(snapshot, ["workerId"]),
+        gpu: gpuId ? { id: gpuId, memory: "", utilization: "" } : null,
+        tmux: firstString(task, ["tmuxTarget", "tmuxSession", "window"]),
+        stage: firstString(task, ["stage", "phase"]) || (task.debugMode === true ? "debug" : "run"),
+        experiment_case: firstString(task, ["experimentCase", "experiment_case", "case"]),
+        seed: firstString(task, ["seed"]),
+        progress: progressValue(task.progress),
+        created: started,
+        updated: finished || firstString(snapshot, ["generatedAt"]) || started,
+        finished_at: finished,
+        raw: task,
+      }));
+    }
+  }
+  return rows;
+}
+
+function workerTaskStatus(value: string): PublicStatus {
+  const status = value.trim().toLowerCase();
+  if (["running", "pending", "queued", "starting"].includes(status)) return "running";
+  if (["completed", "success", "succeeded", "normal_completed"].includes(status)) return "success";
+  if (["failed", "error"].includes(status)) return "failed";
+  if (["stopped", "cancelled", "interrupted", "manual_interrupted_completed"].includes(status)) return "cancelled";
+  return "unknown";
 }
 
 function workerRunsFromSchedulerState(state: Record<string, unknown>, workflows: ExperimentRow[]): ExperimentRow[] {

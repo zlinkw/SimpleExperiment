@@ -45,3 +45,56 @@ test("handled child failure exits nonzero without re-raising CalledProcessError"
   assert.match(block, /raise SystemExit\(_failed_process_exit_code\(exc\)\) from None/);
   assert.doesNotMatch(block, /surface_original_error\(job, "(?:train|test)"\)\s+raise\r?\n/);
 });
+
+test("retraining the same output directory reports only the current failed attempt", () => {
+  const script = `
+import contextlib, importlib.util, io, pathlib, subprocess, sys, tempfile, types
+spec = importlib.util.spec_from_file_location("scheduler", pathlib.Path(${JSON.stringify(runtime)}))
+scheduler = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = scheduler
+spec.loader.exec_module(scheduler)
+with tempfile.TemporaryDirectory() as tmp:
+    base = pathlib.Path(tmp)
+    (base / "stderr.log").write_text("OLD CUDA out of memory\\n", encoding="utf-8")
+    (base / "stdout.log").write_text("OLD training output\\n", encoding="utf-8")
+    job = scheduler.Job(0, "suite", "case", 1, {}, str(base), str(base / "results.csv"), "train", "", "", False, "", {}, {})
+    args = types.SimpleNamespace(resume=False, mode="train", gpu_ids="", worker_id="worker-a", overwrite=False, overwrite_existing=False, debug_mode=False)
+    scheduler.render_command = lambda *unused: ["fake"]
+    scheduler.wrap_command = lambda command, *unused: command
+    def fail_current(command, env):
+        with (base / "stderr.log").open("a", encoding="utf-8") as stream:
+            stream.write("CURRENT invalid tensor shape\\n")
+        raise subprocess.CalledProcessError(1, command)
+    scheduler.run_command = fail_current
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            scheduler.run_job(job, args)
+        except SystemExit as exc:
+            assert exc.code == 1
+    text = out.getvalue()
+    assert "CURRENT invalid tensor shape" in text, text
+    assert "OLD CUDA out of memory" not in text, text
+    def fail_without_new_stderr(command, env):
+        with (base / "stdout.log").open("a", encoding="utf-8") as stream:
+            stream.write("CURRENT process failed before stderr opened\\n")
+        raise subprocess.CalledProcessError(1, command)
+    scheduler.run_command = fail_without_new_stderr
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            scheduler.run_job(job, args)
+        except SystemExit as exc:
+            assert exc.code == 1
+    text = out.getvalue()
+    assert "CURRENT process failed before stderr opened" in text, text
+    assert "CURRENT invalid tensor shape" not in text, text
+    assert "OLD CUDA out of memory" not in text, text
+    assert "OLD CUDA out of memory" in (base / "stderr.log").read_text(encoding="utf-8")
+print("ok")
+`;
+  const result = spawnSync("python", ["-X", "utf8", "-c", script], {
+    encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

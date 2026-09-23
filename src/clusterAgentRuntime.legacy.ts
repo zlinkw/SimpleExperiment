@@ -3765,6 +3765,9 @@ def execute_worker_command(root, command, worker_id):
         "gpuId": gpu_id,
         "case": case_name,
         "seed": seed,
+        **({"stage": str(command.get("stage") or command.get("phase") or command.get("mode"))} if command.get("stage") or command.get("phase") or command.get("mode") else {}),
+        **({"experimentCase": str(command.get("experimentCase") or command.get("experiment_case") or command.get("case"))} if command.get("experimentCase") or command.get("experiment_case") or command.get("case") else {}),
+        **({"workflowId": str(command.get("workflowId") or command.get("workflow_id") or command.get("parentId"))} if command.get("workflowId") or command.get("workflow_id") or command.get("parentId") else {}),
         "condaEnv": str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or ""),
         "logPath": rel_log,
         "plan": plan,
@@ -11534,7 +11537,7 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
                 _fallback_candidates.append(_val)
         # derive plan_key log: tmp/cluster_scheduler/<plan_key>.log（simple_cluster/tmp 仅过渡兼容）
         _plan_for_key = str(plan_file or payload.get("planFile") or payload.get("plan") or "").strip()
-        if _plan_for_key:
+        if _plan_for_key and not str(operation_id or "").strip():
             try:
                 _pk = scheduler_plan_runtime_key(root, _plan_for_key)
                 if _pk:

@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -117,6 +118,30 @@ print("ok")
   const py = spawnSync("python", [tmp], { encoding: "utf8" });
   assert.equal(py.status, 0, `python failed stdout=${py.stdout} stderr=${py.stderr}`);
   assert.match(py.stdout, /ok/);
+});
+
+test("new operation evidence does not fall back to a previous run of the same plan", () => {
+  const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
+  const script = `
+import importlib.util, pathlib, tempfile
+spec = importlib.util.spec_from_file_location("cluster_agent", ${JSON.stringify(agentPath)})
+agent = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as tmp:
+    root = pathlib.Path(tmp)
+    logs = root / "simple_cluster" / "tmp" / "cluster_scheduler"
+    logs.mkdir(parents=True)
+    plan = "experiments/plans/baseline.yaml"
+    (logs / (agent.scheduler_plan_runtime_key(str(root), plan) + ".log")).write_text("OLD CUDA out of memory\\n", encoding="utf-8")
+    (logs / "new-operation.log").write_text("", encoding="utf-8")
+    evidence = agent.api_runtime_operation_evidence(str(root), "new-operation", plan_file=plan)
+    assert "OLD CUDA out of memory" not in evidence.get("liveLogTail", ""), evidence
+print("ok")
+`;
+  const result = spawnSync("python", ["-X", "utf8", "-c", script], {
+    encoding: "utf8", cwd: path.join(__dirname, "../.."), env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
 test("extension fallback head+tail preserves head for long Traceback (500+3000)", () => {

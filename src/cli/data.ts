@@ -8,7 +8,38 @@ export const RESULT_REGISTRY_LOCAL_REL = path.join("simple_cluster", "results", 
 export const DEFAULT_PLAN_DIR = path.join("experiments", "plans");
 export const RUNS_DIR = path.join("experiments", "runs");
 
+let projectRootOverride = "";
+
+export function validProjectRoot(candidate: unknown): string {
+  if (typeof candidate !== "string" || !candidate.trim() || !path.isAbsolute(candidate.trim())) return "";
+  const root = path.resolve(candidate.trim());
+  try {
+    return fs.statSync(root).isDirectory() ? root : "";
+  } catch {
+    return "";
+  }
+}
+
+export function setProjectRoot(candidate: string): void {
+  const root = validProjectRoot(candidate);
+  if (!root) throw new Error("project root must be an existing absolute directory");
+  projectRootOverride = root;
+}
+
+export function isExperimentProjectRoot(root: string): boolean {
+  return fileExists(path.join(root, "simple_cluster"))
+    || fileExists(path.join(root, DEFAULT_PLAN_DIR))
+    || fileExists(path.join(root, "experiments", "simple_project.yaml"));
+}
+
 export function projectRoot(): string {
+  if (projectRootOverride) return projectRootOverride;
+  const explicit = process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;
+  if (explicit !== undefined) {
+    const root = validProjectRoot(explicit);
+    if (!root) throw new Error("SIMPLE_EXPERIMENT_PROJECT_ROOT must be an existing absolute directory");
+    return root;
+  }
   return process.cwd();
 }
 

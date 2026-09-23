@@ -93,6 +93,66 @@ test("scheduler worker run remains listed and inspectable after runtime disappea
   assert.equal(inspected.body.snapshot.runtime_source, "history");
 });
 
+test("Worker Agent task snapshot survives after scheduler and runtime rows disappear", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-snapshot-"));
+  fs.mkdirSync(path.join(root, "experiments", "plans"), { recursive: true });
+  const task = {
+    runKey: runId, commandId: "cmd-1", workerId: "worker-a", status: "completed",
+    planFile: plan, gpuId: "0", stage: "train_test", experimentCase: "baseline", seed: 7,
+    workflowId, startedAt: "2026-09-23T00:00:00Z", finishedAt: "2026-09-23T00:03:00Z",
+  };
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const { id, method } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const result = method === "tasks.list"
+        ? { schedulerStates: [], experimentTraces: [], workerTasks: [
+          { workerId: "worker-a", schemaVersion: 1, generatedAt: "2026-09-23T00:04:00Z", tasks: [task] },
+          { workerId: "worker-b", tasks: [], error: "Worker task snapshot unavailable" },
+        ] }
+        : method === "operations.list"
+          ? { records: [{ operationId: workflowId, type: "workflow-run", status: "completed", planFile: plan }] }
+          : {};
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const apiFile = path.join(root, "api.json");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+
+  const listed = await callCli(root, apiFile, ["list", "--type", "worker_run"]);
+  assert.equal(listed.code, 0);
+  assert.equal(listed.body.length, 1);
+  assert.equal(listed.body[0].id, runId);
+  assert.equal(listed.body[0].type, "worker_run");
+  assert.equal(listed.body[0].status, "success");
+  const inspected = await callCli(root, apiFile, ["inspect", runId]);
+  assert.equal(inspected.code, 0);
+  assert.equal(inspected.body.summary.status, "success");
+  assert.equal(inspected.body.snapshot.runtime_source, "history");
+  assert.equal(inspected.body.status.plan, plan);
+  assert.deepEqual(inspected.body.status.worker, { id: "worker-a" });
+  assert.deepEqual(inspected.body.status.gpu, { id: "0" });
+  assert.equal(inspected.body.summary.experiment_case, "baseline");
+  assert.equal(inspected.body.summary.seed, "7");
+  const status = await callCli(root, apiFile, ["status", runId]);
+  assert.equal(status.code, 0);
+  assert.equal(status.body.id, runId);
+  const diagnosis = await callCli(root, apiFile, ["diagnose", runId]);
+  assert.equal(diagnosis.code, 0);
+  assert.equal(diagnosis.body.id, runId);
+
+  task.status = "manual_interrupted_completed";
+  const stopped = await callCli(root, apiFile, ["inspect", runId]);
+  assert.equal(stopped.body.summary.status, "cancelled");
+  task.status = "failed";
+  const failed = await callCli(root, apiFile, ["inspect", runId]);
+  assert.equal(failed.body.summary.status, "failed");
+});
+
 test("scheduler-style artifact history survives without a live API", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-history-"));
   const runsDir = path.join(root, "experiments", "runs");

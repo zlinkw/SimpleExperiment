@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
@@ -58,6 +59,43 @@ test("simple project status is human readable and json", async () => {
   assert.ok(payload.services.experiment);
   assert.ok(payload.services.cluster);
   assert.ok(payload.services.api);
+});
+
+test("project root uses Local API workspace from unrelated cwd and explicit env takes priority", async (t) => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-root-"));
+  const project = path.join(parent, "MultiModal");
+  const override = path.join(parent, "ExplicitProject");
+  writeProject(project, { "experiments/plans/plan.yaml": "name: test\n" });
+  writeProject(override, { "experiments/plans/plan.yaml": "name: override\n" });
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const { id, method } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const result = method === "status" ? { workspace: project, version: "0.5.59" } : {};
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const apiFile = path.join(parent, "api.json");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  const resolved = await runCli(["project", "status", "--json"], { cwd: parent, apiFile });
+  assert.equal(resolved.code, 0);
+  assert.equal(JSON.parse(resolved.stdout).root, project);
+  assert.equal(JSON.parse(resolved.stdout).services.experiment, "ready");
+
+  const explicit = await runCli(["project", "status", "--json"], {
+    cwd: parent, apiFile, env: { SIMPLE_EXPERIMENT_PROJECT_ROOT: override },
+  });
+  assert.equal(explicit.code, 0);
+  assert.equal(JSON.parse(explicit.stdout).root, override);
+  const invalid = await runCli(["project", "status", "--json"], {
+    cwd: parent, apiFile, env: { SIMPLE_EXPERIMENT_PROJECT_ROOT: path.join(parent, "missing") },
+  });
+  assert.equal(invalid.code, 2);
+  assert.equal(JSON.parse(invalid.stdout).error.code, "ENV");
 });
 
 test("simple plan validate reuses PlanBuilder contract", async () => {

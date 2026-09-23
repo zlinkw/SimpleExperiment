@@ -1,5 +1,7 @@
 import { artifactCommand, compareEntry, experimentCommand, gpuCommand, logCommand, metricCommand, planCommand, projectStatus, resourceCommand, resultCommand, serverCommand } from "./commands";
-import { asCliError, EXIT_OK, jsonErrorBody, usageError } from "./errors";
+import { asCliError, envError, EXIT_OK, jsonErrorBody, usageError } from "./errors";
+import { optionalApi } from "./api";
+import { isExperimentProjectRoot, setProjectRoot, validProjectRoot } from "./data";
 import { writeJson, writeText } from "./format";
 import { domainHelp, SIMPLE_HELP } from "./help";
 import { parseArgv } from "./parse";
@@ -24,6 +26,7 @@ export async function runSimpleCli(argv: string[]): Promise<number> {
     writeText(domainHelp(domain));
     return EXIT_OK;
   }
+  await initializeProjectRoot();
   if (domain === "project") {
     if (action && action !== "status") throw usageError(`unknown project action: ${action}`);
     return projectStatus(flags);
@@ -57,6 +60,26 @@ export async function runSimpleCli(argv: string[]): Promise<number> {
     return artifactCommand(action, rest, flags);
   }
   throw usageError(`unknown domain: ${domain}`);
+}
+
+async function initializeProjectRoot(): Promise<void> {
+  const explicit = process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;
+  if (explicit !== undefined) {
+    const root = validProjectRoot(explicit);
+    if (!root) throw envError("SIMPLE_EXPERIMENT_PROJECT_ROOT must be an existing absolute directory");
+    setProjectRoot(root);
+    return;
+  }
+  const cwd = process.cwd();
+  if (isExperimentProjectRoot(cwd)) {
+    setProjectRoot(cwd);
+    return;
+  }
+  let status: unknown = null;
+  try { status = await optionalApi("status"); } catch { /* Offline commands use cwd. */ }
+  const workspace = (status && typeof status === "object" && !Array.isArray(status))
+    ? (status as Record<string, unknown>).workspace : "";
+  setProjectRoot(validProjectRoot(workspace) || cwd);
 }
 
 export function isSimpleCommand(argv: string[]): boolean {

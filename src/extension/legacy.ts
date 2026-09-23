@@ -941,10 +941,24 @@ export class RealtimeTunnelPanelProvider {
             "results.list": async (params) => this.apiResultsList(params),
             "tasks.list": async () => {
                 const state = this.buildState();
+                const workerIds = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
+                const snapshots = await Promise.allSettled(workerIds.map((workerId) => Promise.resolve().then(() => this.client.getWorkerTasks(workerId))));
+                const workerTasks = snapshots.map((snapshot, index) => {
+                    const workerId = workerIds[index];
+                    if (snapshot.status === "rejected") return { workerId, tasks: [], error: "Worker task snapshot unavailable" };
+                    const value = snapshot.value && typeof snapshot.value === "object" ? snapshot.value : {};
+                    return {
+                        workerId,
+                        schemaVersion: 1,
+                        generatedAt: String(value.generatedAt || new Date().toISOString()),
+                        tasks: Array.isArray(value.tasks) ? value.tasks : [],
+                    };
+                });
                 return {
                     schedulerStates: state.schedulerStates || [],
                     experimentTraces: state.experimentTraces || [],
                     operations: state.operations || {},
+                    workerTasks,
                 };
             },
             "operations.list": async (params = {}) => {

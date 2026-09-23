@@ -34,6 +34,9 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RUNS_DIR = exports.DEFAULT_PLAN_DIR = exports.RESULT_REGISTRY_LOCAL_REL = exports.RESULT_REGISTRY_REL = exports.PLAN_REGISTRY_REL = exports.EXPERIMENT_INDEX_REL = void 0;
+exports.validProjectRoot = validProjectRoot;
+exports.setProjectRoot = setProjectRoot;
+exports.isExperimentProjectRoot = isExperimentProjectRoot;
 exports.projectRoot = projectRoot;
 exports.resolveProjectPath = resolveProjectPath;
 exports.readJsonFile = readJsonFile;
@@ -51,7 +54,39 @@ exports.RESULT_REGISTRY_REL = path.join("simple_cluster", "results", "result_reg
 exports.RESULT_REGISTRY_LOCAL_REL = path.join("simple_cluster", "results", "result_registry.local.json");
 exports.DEFAULT_PLAN_DIR = path.join("experiments", "plans");
 exports.RUNS_DIR = path.join("experiments", "runs");
+let projectRootOverride = "";
+function validProjectRoot(candidate) {
+    if (typeof candidate !== "string" || !candidate.trim() || !path.isAbsolute(candidate.trim()))
+        return "";
+    const root = path.resolve(candidate.trim());
+    try {
+        return fs.statSync(root).isDirectory() ? root : "";
+    }
+    catch {
+        return "";
+    }
+}
+function setProjectRoot(candidate) {
+    const root = validProjectRoot(candidate);
+    if (!root)
+        throw new Error("project root must be an existing absolute directory");
+    projectRootOverride = root;
+}
+function isExperimentProjectRoot(root) {
+    return fileExists(path.join(root, "simple_cluster"))
+        || fileExists(path.join(root, exports.DEFAULT_PLAN_DIR))
+        || fileExists(path.join(root, "experiments", "simple_project.yaml"));
+}
 function projectRoot() {
+    if (projectRootOverride)
+        return projectRootOverride;
+    const explicit = process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;
+    if (explicit !== undefined) {
+        const root = validProjectRoot(explicit);
+        if (!root)
+            throw new Error("SIMPLE_EXPERIMENT_PROJECT_ROOT must be an existing absolute directory");
+        return root;
+    }
     return process.cwd();
 }
 function resolveProjectPath(...parts) {

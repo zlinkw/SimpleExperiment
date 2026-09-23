@@ -32,9 +32,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.57"
-RUNTIME_VERSION = "0.5.57"
-PLUGIN_VERSION = "0.5.57"
+SCHEDULER_VERSION = "0.5.59"
+RUNTIME_VERSION = "0.5.59"
+PLUGIN_VERSION = "0.5.59"
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -1554,7 +1554,18 @@ def wrap_command(command: list[str], job: Job, config_path: Path, args: argparse
     return [runtime_python_command(dict(os.environ)), wrapper_path, "--output-dir", job.output_dir, "--context-json", context_json, "--", *command]
 
 
-def surface_original_error(job: "Job", phase: str) -> bool:
+def original_log_offsets(job: "Job") -> dict[str, int]:
+    base = Path(str(job.output_dir))
+    offsets = {}
+    for name in ("stderr.log", "stdout.log"):
+        try:
+            offsets[name] = (base / name).stat().st_size
+        except OSError:
+            offsets[name] = 0
+    return offsets
+
+
+def surface_original_error(job: "Job", phase: str, offsets: dict[str, int] | None = None) -> bool:
     """Re-emit the original program's stdout/stderr into the scheduler pane so the tmux
     window transparently shows the real error. Prefer stderr; stdout is only a fallback.
     Wrapper metadata is intentionally omitted because it repeats the full command/context."""
@@ -1565,7 +1576,11 @@ def surface_original_error(job: "Job", phase: str) -> bool:
         if not p.is_file():
             continue
         try:
-            text = p.read_text(encoding="utf-8", errors="replace")
+            with p.open("rb") as stream:
+                size = p.stat().st_size
+                start = max(0, int((offsets or {}).get(name, 0)))
+                stream.seek(max(start if start <= size else 0, size - 256 * 1024))
+                text = stream.read().decode("utf-8", errors="replace")
         except Exception:
             continue
         if not text.strip():
@@ -1661,20 +1676,22 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
     if args.mode in {"train", "train_test"}:
         command = render_command(job.train_command, job, config_path, args) if job.train_command else [runtime_python_command(env), "train.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--worker-id", str(args.worker_id or "local")]
         command = wrap_command(command, job, config_path, args, "train")
+        log_offsets = original_log_offsets(job)
         try:
             run_command(command, env)
         except subprocess.CalledProcessError as exc:
-            surface_original_error(job, "train")
+            surface_original_error(job, "train", log_offsets)
             raise SystemExit(_failed_process_exit_code(exc)) from None
         if args.mode == "train":
             collect_tensorboard_metrics(job)
     if args.mode in {"test", "train_test"}:
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")
+        log_offsets = original_log_offsets(job)
         try:
             run_command(command, env)
         except subprocess.CalledProcessError as exc:
-            surface_original_error(job, "test")
+            surface_original_error(job, "test", log_offsets)
             raise SystemExit(_failed_process_exit_code(exc)) from None
         collect_tensorboard_metrics(job)
 
@@ -2972,8 +2989,10 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
         "experimentIndex": experiment_index,
         "gpuId": gpu_id,
         "case": str(case_name or ""),
+        **({"experimentCase": str(case_name)} if case_name else {}),
         "seed": seed,
         "mode": mode,
+        "stage": mode,
         "condaEnv": conda_env,
         "logPath": raw_log.as_posix(),
         "debugMode": bool(debug_mode),

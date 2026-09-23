@@ -5,6 +5,8 @@ exports.isSimpleCommand = isSimpleCommand;
 exports.emitCliFailure = emitCliFailure;
 const commands_1 = require("./commands");
 const errors_1 = require("./errors");
+const api_1 = require("./api");
+const data_1 = require("./data");
 const format_1 = require("./format");
 const help_1 = require("./help");
 const parse_1 = require("./parse");
@@ -28,6 +30,7 @@ async function runSimpleCli(argv) {
         (0, format_1.writeText)((0, help_1.domainHelp)(domain));
         return errors_1.EXIT_OK;
     }
+    await initializeProjectRoot();
     if (domain === "project") {
         if (action && action !== "status")
             throw (0, errors_1.usageError)(`unknown project action: ${action}`);
@@ -72,6 +75,29 @@ async function runSimpleCli(argv) {
         return (0, commands_1.artifactCommand)(action, rest, flags);
     }
     throw (0, errors_1.usageError)(`unknown domain: ${domain}`);
+}
+async function initializeProjectRoot() {
+    const explicit = process.env.SIMPLE_EXPERIMENT_PROJECT_ROOT;
+    if (explicit !== undefined) {
+        const root = (0, data_1.validProjectRoot)(explicit);
+        if (!root)
+            throw (0, errors_1.envError)("SIMPLE_EXPERIMENT_PROJECT_ROOT must be an existing absolute directory");
+        (0, data_1.setProjectRoot)(root);
+        return;
+    }
+    const cwd = process.cwd();
+    if ((0, data_1.isExperimentProjectRoot)(cwd)) {
+        (0, data_1.setProjectRoot)(cwd);
+        return;
+    }
+    let status = null;
+    try {
+        status = await (0, api_1.optionalApi)("status");
+    }
+    catch { /* Offline commands use cwd. */ }
+    const workspace = (status && typeof status === "object" && !Array.isArray(status))
+        ? status.workspace : "";
+    (0, data_1.setProjectRoot)((0, data_1.validProjectRoot)(workspace) || cwd);
 }
 function isSimpleCommand(argv) {
     const tokens = argv.filter((item) => item !== "--json" && item !== "--help" && item !== "-h" && !item.startsWith("--"));
