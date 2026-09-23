@@ -245,9 +245,16 @@ export function recentFailureRecoveryState(failure: ExperimentRow, rows: Experim
   return "unresolved";
 }
 
+function isAggregateWorkflowFailureDuplicate(row: ExperimentRow, rows: ExperimentRow[]): boolean {
+  return row.type === "workflow"
+    && row.status_source === "aggregate"
+    && rows.some((child) => child.type === "worker_run" && child.parent_id === row.id);
+}
+
 export function classifyRecentFailures(rows: ExperimentRow[], now = Date.now()): Record<RecentFailureRecovery, ExperimentRow[]> {
   const result: Record<RecentFailureRecovery, ExperimentRow[]> = { unresolved: [], running_retry: [], resolved: [] };
   for (const row of rows) {
+    if (isAggregateWorkflowFailureDuplicate(row, rows)) continue;
     if (isRecentFailure(row, now)) result[recentFailureRecoveryState(row, rows, now)].push(row);
   }
   return result;

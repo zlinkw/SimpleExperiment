@@ -262,9 +262,16 @@ function recentFailureRecoveryState(failure, rows, now = Date.now()) {
         return "running_retry";
     return "unresolved";
 }
+function isAggregateWorkflowFailureDuplicate(row, rows) {
+    return row.type === "workflow"
+        && row.status_source === "aggregate"
+        && rows.some((child) => child.type === "worker_run" && child.parent_id === row.id);
+}
 function classifyRecentFailures(rows, now = Date.now()) {
     const result = { unresolved: [], running_retry: [], resolved: [] };
     for (const row of rows) {
+        if (isAggregateWorkflowFailureDuplicate(row, rows))
+            continue;
         if (isRecentFailure(row, now))
             result[recentFailureRecoveryState(row, rows, now)].push(row);
     }

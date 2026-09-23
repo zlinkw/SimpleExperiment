@@ -596,11 +596,17 @@ test("alerts sort failures and inspect omits evidence", async () => {
     ], null, 2),
   });
   const overview = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
-  assert.deepEqual(overview.alerts.failed_recent.map((row) => row.id), ["run-plan-1", "run-200", "run-old"]);
+  assert.deepEqual(overview.alerts.failed_recent.map((row) => row.id), ["run-200", "run-old"]);
   assert.deepEqual(overview.summary.recent_failures, overview.alerts.failed_recent);
+  assert.equal(overview.alerts.failed_recent.some((row) => row.id === "run-plan-1"), false);
   assert.equal(overview.alerts.failed_recent.length <= 3, true);
   assert.equal(overview.alerts.missing_progress.some((row) => row.id === "run-plan-1"), false);
   assert.equal(overview.alerts.missing_progress.some((row) => row.id === "run-300"), false);
+  const inspectedWorkflow = JSON.parse((await runCli(["experiment", "inspect", "run-plan-1", "--json"], { cwd: dir })).stdout);
+  assert.equal(inspectedWorkflow.summary.status, "failed");
+  assert.equal(inspectedWorkflow.health.status, "error");
+  assert.equal(inspectedWorkflow.health.reason, "failed_recent");
+  assert.equal(inspectedWorkflow.alerts.recent_failure, true);
   const inspected = JSON.parse((await runCli(["experiment", "inspect", "run-old", "--json"], { cwd: dir })).stdout);
   assert.equal("evidence" in inspected.diagnosis, false);
   assert.equal("health_status" in inspected.diagnosis, false);
@@ -726,6 +732,27 @@ test("experiment health reports healthy warning and error", async () => {
   assert.equal(error.health.reason, "failed_recent");
   assert.equal(error.alerts.recent_failure, true);
   assert.equal(error.alerts.stalled, true);
+});
+
+test("aggregate workflow failures do not duplicate their worker failures", () => {
+  const { classifyRecentFailures, buildHealthSummary } = require("../../dist/cli/commands/experiment.js");
+  const now = Date.parse("2026-09-23T11:00:00Z");
+  const workflow = { id: "wf-1", type: "workflow", status: "failed", status_source: "aggregate", plan: "p.yaml", updated: "2026-09-23T10:00:00Z" };
+  const worker = { id: "worker-1", type: "worker_run", parent_id: "wf-1", status: "failed", plan: "p.yaml", updated: "2026-09-23T10:05:00Z" };
+  assert.deepEqual(classifyRecentFailures([workflow, worker], now).unresolved, [worker]);
+  assert.deepEqual(buildHealthSummary([workflow, worker], now), { status: "error", reason: "failed_recent" });
+  assert.deepEqual(classifyRecentFailures([workflow], now).unresolved, [workflow]);
+  assert.deepEqual(buildHealthSummary([workflow], now), { status: "error", reason: "failed_recent" });
+});
+
+test("independent scheduler workflow failures remain in recent failures", () => {
+  const { classifyRecentFailures, buildHealthSummary } = require("../../dist/cli/commands/experiment.js");
+  const now = Date.parse("2026-09-23T11:00:00Z");
+  for (const status_source of ["scheduler", "unknown"]) {
+    const workflow = { id: "wf-scheduler-failed", type: "workflow", status: "failed", status_source, plan: "p.yaml", updated: "2026-09-23T10:00:00Z" };
+    assert.deepEqual(classifyRecentFailures([workflow], now).unresolved, [workflow]);
+    assert.deepEqual(buildHealthSummary([workflow], now), { status: "error", reason: "failed_recent" });
+  }
 });
 
 test("recent worker failures use only the latest matching attempt", () => {
