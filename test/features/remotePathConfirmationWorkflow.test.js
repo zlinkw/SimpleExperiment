@@ -182,7 +182,8 @@ test("path confirmation precedes profile writes and upload-start state", () => {
   assert.ok(sync.indexOf("notifyLocalActionStarted") < sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"'));
   assert.doesNotMatch(prepareSftp, /writeSftpManagerServerProfiles/);
   assert.ok(prepareSftp.indexOf('ensureSimpleSftpReadyForSetup("文件传输")') < prepareSftp.indexOf("ensureSftpManagerCommand"));
-  assert.ok(prepareSftp.indexOf("ensureSftpManagerCommand") < prepareSftp.indexOf("syncXshellConfigBeforeNetwork"));
+  assert.doesNotMatch(prepareSftp, /syncXshellConfigBeforeNetwork|writeSftpManagerServerProfiles/);
+  assert.ok(prepareSftp.indexOf("ensureSftpManagerCommand") < prepareSftp.indexOf("assertTopologyActualWorkRoots"));
   assert.match(source, /writeSftpManagerServerProfiles\(targetIds\)[\s\S]{0,300}requestedIds\.has\(target\.id\)/);
   assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标或显示上传已开始/);
   assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标、修改 `\.xsh` 或显示上传已开始/);

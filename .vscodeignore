@@ -19,6 +19,7 @@ scripts/**
 test/**
 scenarios/**
 *.vsix
+*.tgz
 review_report.md
 **/*.vsix
 **/review_report.md

@@ -17,7 +17,7 @@ Host campus
   HostName 10.12.34.56
 `, "C:/Users/ZLK/.ssh/config");
 
-test("SSH transport identity prefers an explicit configured alias over a literal IP", () => {
+test("Plugin address wins over a stale configured alias", () => {
   const identity = resolveSshTransportIdentity({
     id: "nwpu5",
     label: "NWPU5",
@@ -26,13 +26,13 @@ test("SSH transport identity prefers an explicit configured alias over a literal
     transferHost: "10.68.10.238",
     resolvedHost: "10.68.10.238",
   }, { sshServers: servers });
-  assert.equal(identity.transportHost, "NWPU5");
-  assert.equal(identity.sshConfigHost, "NWPU5");
-  assert.equal(identity.sshConfigAlias, "NWPU5");
+  assert.equal(identity.transportHost, "10.68.10.238");
+  assert.equal(identity.sshConfigHost, "");
+  assert.equal(identity.sshConfigAlias, "");
   assert.equal(identity.networkHost, "10.68.10.238");
 });
 
-test("A saved SSH host beats an Xshell session name when both are aliases", () => {
+test("Saved manual address ignores OpenSSH and Xshell aliases", () => {
   const serversWithBoth = parseLocalSshConfig(`
 Host saved-alias
   HostName 10.0.0.1
@@ -45,31 +45,31 @@ Host session-alias
     sessionName: "session-alias",
     host: "10.0.0.1",
   }, { sshServers: serversWithBoth, session: { name: "session-alias" } });
-  assert.equal(identity.transportHost, "saved-alias");
-  assert.equal(identity.source, "saved_ssh_host");
+  assert.equal(identity.transportHost, "10.0.0.1");
+  assert.equal(identity.source, "network_host");
 });
 
-test("An Xshell session name is accepted when it exactly matches OpenSSH", () => {
+test("Xshell session name does not override a manual address", () => {
   const identity = resolveSshTransportIdentity({
     id: "nwpu5",
     label: "NWPU5",
     host: "10.68.10.238",
   }, { sshServers: servers, session: { name: "NWPU5", host: "10.68.10.238" } });
-  assert.equal(identity.transportHost, "NWPU5");
-  assert.equal(identity.source, "xshell_alias");
+  assert.equal(identity.transportHost, "10.68.10.238");
+  assert.equal(identity.source, "network_host");
 });
 
-test("A literal network address can discover its exact OpenSSH Host alias", () => {
+test("Manual address is not replaced with an OpenSSH Host alias", () => {
   const identity = resolveSshTransportIdentity({
     id: "remote",
     label: "remote",
     host: "10.68.10.238",
   }, { sshServers: servers });
-  assert.equal(identity.transportHost, "NWPU5");
+  assert.equal(identity.transportHost, "10.68.10.238");
   assert.equal(identity.networkHost, "10.68.10.238");
 });
 
-test("SimpleSFTP options preserve the alias and retain the network diagnostic", () => {
+test("SimpleSFTP options pass the manual address through every host field", () => {
   const target = {
     id: "nwpu5",
     label: "NWPU5",
@@ -80,13 +80,13 @@ test("SimpleSFTP options preserve the alias and retain the network diagnostic", 
   };
   const identity = resolveSshTransportIdentity(target, { sshServers: servers });
   const options = buildSftpServerOptions(target, identity);
-  assert.equal(options.host, "NWPU5");
-  assert.equal(options.sftpHost, "NWPU5");
-  assert.equal(options.sshHost, "NWPU5");
-  assert.equal(options.transferHost, "NWPU5");
-  assert.equal(options.resolvedHost, "NWPU5");
-  assert.equal(options.sshConfigHost, "NWPU5");
-  assert.equal(options.sshConfigAlias, "NWPU5");
+  assert.equal(options.host, "10.68.10.238");
+  assert.equal(options.sftpHost, "10.68.10.238");
+  assert.equal(options.sshHost, "10.68.10.238");
+  assert.equal(options.transferHost, "10.68.10.238");
+  assert.equal(options.resolvedHost, "10.68.10.238");
+  assert.equal(options.sshConfigHost, "");
+  assert.equal(options.sshConfigAlias, "");
   assert.equal(options.networkHost, "10.68.10.238");
 });
 
@@ -99,4 +99,28 @@ test("A target without an SSH alias falls back to its IP", () => {
   assert.equal(identity.transportHost, "192.168.1.8");
   assert.equal(identity.sshConfigAlias, "");
   assert.equal(identity.networkHost, "192.168.1.8");
+});
+
+test("manual Worker address wins over stale OpenSSH and Xshell names", () => {
+  const staleServers = parseLocalSshConfig("Host NWPU2\n  HostName 10.216.245.2\n");
+  const identity = resolveSshTransportIdentity({
+    id: "nwpu2",
+    label: "NWPU2",
+    host: "-",
+    transferHost: "-",
+    workerHost: "10.69.24.150",
+    sshConfigAlias: "qgking.2",
+  }, { sshServers: staleServers, session: { name: "qgking.2", host: "10.216.245.2" } });
+  assert.equal(identity.transportHost, "10.69.24.150");
+  assert.equal(identity.sshConfigAlias, "");
+});
+
+test("manual SFTP address has priority over manual server address", () => {
+  const identity = resolveSshTransportIdentity({
+    transferHost: "10.70.50.180",
+    workerHost: "10.69.24.150",
+    sshConfigAlias: "NWPU2",
+  }, { sshServers: servers });
+  assert.equal(identity.transportHost, "10.70.50.180");
+  assert.equal(identity.sshConfigAlias, "");
 });

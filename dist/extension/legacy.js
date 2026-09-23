@@ -6905,30 +6905,20 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled("文件传输已取消，SimpleSFTP 未就绪。");
         if (requiredCommand)
             await this.ensureSftpManagerCommand(requiredCommand);
-        await this.syncXshellConfigBeforeNetwork(reason);
         this.assertTopologyActualWorkRoots("SFTP 上传或目录配置");
         const requestedIds = new Set((Array.isArray(serverIds) ? serverIds : []).map((item) => String(item || "").trim()).filter(Boolean));
         const transportTargets = this.sftpSharedTargets().filter((target) => !requestedIds.size || requestedIds.has(target.id));
         await this.assertSshTransportIdentities(transportTargets);
     }
     sftpServerOptions(target) {
-        const sessionInfo = this.sessionInfoForPath(target.savedSessionPath);
-        return SshTransportIdentity_1.buildSftpServerOptions(target, this.sshTransportIdentity(target, sessionInfo));
+        return SshTransportIdentity_1.buildSftpServerOptions(target, this.sshTransportIdentity(target));
     }
-    sshTransportIdentity(target, sessionInfo = this.sessionInfoForPath(target.savedSessionPath)) {
-        return SshTransportIdentity_1.resolveSshTransportIdentity(target, {
-            sshServers: this.sshConfigServers,
-            session: sessionInfo,
-        });
+    sshTransportIdentity(target) {
+        return SshTransportIdentity_1.resolveSshTransportIdentity(target);
     }
     async assertSshTransportIdentities(targets) {
         for (const target of targets) {
-            const identity = this.sshTransportIdentity(target);
-            if (!identity.sshConfigAlias)
-                continue;
-            const inspection = await SshTransportIdentity_1.inspectOpenSshAlias(identity.sshConfigAlias);
-            if (!inspection.ok)
-                throw new Error(`${target.label || target.id}: ${inspection.message}`);
+            this.sshTransportIdentity(target);
         }
     }
     async writeSftpManagerServerProfiles(targetIds) {
@@ -7034,12 +7024,11 @@ class RealtimeTunnelPanelProvider {
         const remotePath = config.agentProjectDir;
         if (!remotePath)
             throw new Error("Hub 项目父目录缺失，无法执行 SFTP 代码同步。");
-        const info = this.sessionInfoForPath(config.savedSessionPath);
         const identity = this.sshTransportIdentity({
             id: "hub",
             label: config.hubDisplayName || "Hub",
-            host: firstNonEmpty(config.transferHost, config.resolvedHost, config.sftpHost, config.sshHost, info?.host, config.hubHost),
-            networkHost: firstNonEmpty(info?.host, config.hubHost),
+            host: firstNonEmpty(config.transferHost, config.hubHost),
+            networkHost: config.hubHost,
             transferHost: config.transferHost,
             resolvedHost: config.resolvedHost,
             sftpHost: config.sftpHost,
@@ -7047,9 +7036,9 @@ class RealtimeTunnelPanelProvider {
             sshConfigHost: config.sshConfigAlias,
             sshConfigAlias: config.sshConfigAlias,
             savedSessionPath: config.savedSessionPath,
-        }, info);
-        const user = config.hubUser || info?.userName || "";
-        const port = config.hubSshPort || info?.port || 22;
+        });
+        const user = config.hubUser || "";
+        const port = config.hubSshPort || 22;
         return {
             id: "hub",
             role: "hub",
@@ -7093,13 +7082,12 @@ class RealtimeTunnelPanelProvider {
         const remotePath = worker.agentProjectDir || config.agentProjectDir;
         if (!remotePath)
             throw new Error(`Worker ${worker.id} 项目父目录缺失，无法执行 SFTP 代码同步。`);
-        const info = this.sessionInfoForPath(worker.savedSessionPath);
         const identity = this.sshTransportIdentity({
             id: worker.id,
             label: worker.displayName || worker.id,
             displayName: worker.displayName,
-            host: firstNonEmpty(worker.transferHost, worker.resolvedHost, worker.sftpHost, worker.sshHost, info?.host, worker.workerHost, worker.hubHost),
-            networkHost: firstNonEmpty(info?.host, worker.workerHost, worker.hubHost),
+            host: firstNonEmpty(worker.transferHost, worker.workerHost, worker.hubHost),
+            networkHost: firstNonEmpty(worker.workerHost, worker.hubHost),
             transferHost: worker.transferHost,
             resolvedHost: worker.resolvedHost,
             sftpHost: worker.sftpHost,
@@ -7107,9 +7095,9 @@ class RealtimeTunnelPanelProvider {
             sshConfigHost: worker.sshConfigAlias,
             sshConfigAlias: worker.sshConfigAlias,
             savedSessionPath: worker.savedSessionPath,
-        }, info);
-        const user = worker.workerUser || worker.hubUser || info?.userName || "";
-        const port = worker.workerSshPort || worker.hubSshPort || info?.port || 22;
+        });
+        const user = worker.workerUser || worker.hubUser || "";
+        const port = worker.workerSshPort || worker.hubSshPort || 22;
         return {
             id: worker.id,
             role: "worker",
