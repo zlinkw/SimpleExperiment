@@ -38,3 +38,7 @@ D:\GitRepo\MCP\simple-experiment
 - **门禁**：`Select-String -Pattern "10890"` 在 `src/**`/`dist/**` 业务逻辑中必须零命中（仅允许在 `docs/`/`AGENTS.md` 约束说明中出现）；`127.0.0.1:18765` 不得作为探测硬编码，改为读取配置；`npm run build` 与 `vm.Script` 双重校验仍需通过。
 - 详见 `docs/troubleshooting.md#禁止硬编码隧道端口-P0` 与 `docs/adr/003-tunnel-dynamic-endpoint.md`。
 
+## 版本与安装
+
+- 每次完成项目代码修改并通过验证后，递增一个补丁版本，同步 `package.json`、`package-lock.json` 与 runtime 版本，再运行 `npm run package` 打包并安装该版本。
+- 安装后核对 VS Code 已安装版本与 `simpleex` 入口；用户自行重载窗口并手工测试。
