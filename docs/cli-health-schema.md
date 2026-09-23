@@ -13,4 +13,6 @@
 | status | `healthy`、`warning` 或 `error` |
 | reason | `failed_recent`、`stalled`、`missing_progress`，没有则为空字符串 |
 
+`failed_recent` 加 `error` 表示最近失败尚未恢复；加 `warning` 表示同一 plan、experiment_case、seed 已有更新的运行中重试。最新重试成功后，失败不再影响当前健康状态，状态可为 `healthy`。`overview.alerts.failed_recent` 继续保留过去 24 小时的失败历史。
+
 `experiment health` 的 `health` 额外带 `alert_level`：`healthy` 映射为 `ok`，`warning` 和 `error` 保持原值。`overview` 和 `inspect` 的 `health` 没有该字段。`experiment health` 只返回 `health` 和 `alerts`，不返回运行列表。

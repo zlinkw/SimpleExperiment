@@ -41,6 +41,8 @@
 
 `health.status` 为 `healthy`、`warning` 或 `error`，`reason` 为 `failed_recent`、`stalled`、`missing_progress`，没有则为空字符串。`alert_level` 只在本命令出现：`healthy` 映射为 `ok`，其余与 `status` 相同。`overview` 和 `inspect` 的 `health` 没有 `alert_level`。
 
+`failed_recent` 与 `error` 组合表示最近失败尚无更新的运行中或成功重试；与 `warning` 组合表示同一 plan、experiment_case、seed 已有更新的运行中重试。最新重试成功后，该失败不再影响当前健康状态。`overview.alerts.failed_recent` 仍记录过去 24 小时发生过的失败，包括已恢复的失败，不等同于当前未恢复失败。
+
 `alerts` 只有布尔值和 `alert_details`，不含实验列表。`alert_details` 每项为 `{ type, message }`，最多 10 条，`message` 最长 300 字符，不含日志。
 
 ## experiment overview

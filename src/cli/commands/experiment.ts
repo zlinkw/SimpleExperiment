@@ -94,11 +94,15 @@ async function createExperimentOverviewSnapshot(): Promise<ExperimentOverviewSna
   return { rows: await loadExperiments(), snapshot_time: new Date().toISOString() };
 }
 
-function alertDetailsFor(flags: { missing_progress: boolean; stalled: boolean; recent_failure: boolean }): Array<{ type: string; message: string }> {
+function alertDetailsFor(flags: { missing_progress: boolean; stalled: boolean; recent_failure: boolean }, health?: HealthPayload): Array<{ type: string; message: string }> {
   return [
     flags.missing_progress ? { type: "missing_progress", message: "experiment has no progress update" } : null,
     flags.stalled ? { type: "stalled", message: "experiment has no progress update" } : null,
-    flags.recent_failure ? { type: "recent_failure", message: "experiment failed within the last 24 hours" } : null,
+    flags.recent_failure ? { type: "recent_failure", message: health?.status === "warning" && health.reason === "failed_recent"
+      ? "recent failure has a newer running retry"
+      : health?.status === "error" || !health
+        ? "recent failure has no newer successful or running recovery"
+        : "experiment failed within the last 24 hours" } : null,
   ].filter((item): item is { type: string; message: string } => item !== null).slice(0, 10)
     .map((item) => ({ ...item, message: item.message.slice(0, 300) }));
 }
@@ -195,6 +199,52 @@ export function isRecentFailure(row: Pick<ExperimentRow, "status" | "updated" | 
   return age >= 0 && age <= windowMs;
 }
 
+function workerAttemptKey(row: ExperimentRow): string {
+  if (row.type !== "worker_run") return "";
+  const plan = String(row.plan || "").trim().replace(/\\/g, "/");
+  const experimentCase = String(row.experiment_case || "").trim();
+  const seed = String(row.seed || "").trim();
+  return plan && experimentCase && seed ? JSON.stringify([plan, experimentCase, seed]) : "";
+}
+
+function attemptStartedAt(row: ExperimentRow): number {
+  return Date.parse(row.created || row.started_at || row.updated || "");
+}
+
+function attemptFinishedAt(row: ExperimentRow): number {
+  return Date.parse(row.finished_at || row.updated || row.created || "");
+}
+
+type RecentFailureRecovery = "unresolved" | "running_retry" | "resolved";
+
+export function recentFailureRecoveryState(failure: ExperimentRow, rows: ExperimentRow[], now = Date.now()): RecentFailureRecovery {
+  if (!isRecentFailure(failure, now)) return "resolved";
+  const key = workerAttemptKey(failure);
+  const failureTime = attemptFinishedAt(failure);
+  if (!key || !Number.isFinite(failureTime)) return "unresolved";
+  let latest: ExperimentRow | undefined;
+  let latestStart = failureTime;
+  for (const candidate of rows) {
+    if (candidate.id === failure.id || workerAttemptKey(candidate) !== key) continue;
+    const started = attemptStartedAt(candidate);
+    if (started > latestStart) {
+      latest = candidate;
+      latestStart = started;
+    }
+  }
+  if (latest?.status === "success") return "resolved";
+  if (latest?.status === "running") return "running_retry";
+  return "unresolved";
+}
+
+export function classifyRecentFailures(rows: ExperimentRow[], now = Date.now()): Record<RecentFailureRecovery, ExperimentRow[]> {
+  const result: Record<RecentFailureRecovery, ExperimentRow[]> = { unresolved: [], running_retry: [], resolved: [] };
+  for (const row of rows) {
+    if (isRecentFailure(row, now)) result[recentFailureRecoveryState(row, rows, now)].push(row);
+  }
+  return result;
+}
+
 export function isMissingProgress(row: Pick<ExperimentRow, "type" | "status" | "stage" | "progress" | "updated">, now = Date.now(), timeoutMs = MISSING_PROGRESS_TIMEOUT_MS): boolean {
   if (row.type !== "worker_run" || row.status !== "running" || row.stage !== "run" || row.progress) return false;
   const stamp = Date.parse(row.updated || "");
@@ -212,9 +262,11 @@ export interface HealthPayload {
 }
 
 export function buildHealthSummary(rows: ExperimentRow[], now = Date.now()): HealthPayload {
-  if (rows.some((row) => isRecentFailure(row, now))) return { status: "error", reason: "failed_recent" };
+  const failures = classifyRecentFailures(rows, now);
+  if (failures.unresolved.length > 0) return { status: "error", reason: "failed_recent" };
   if (rows.some((row) => row.health_status === "stalled")) return { status: "warning", reason: "stalled" };
   if (rows.some((row) => isMissingProgress(row, now))) return { status: "warning", reason: "missing_progress" };
+  if (failures.running_retry.length > 0) return { status: "warning", reason: "failed_recent" };
   return { status: "healthy", reason: "" };
 }
 
@@ -376,17 +428,19 @@ export async function experimentOverview(flags: CliFlags): Promise<number> {
 
 export async function experimentHealth(flags: CliFlags): Promise<number> {
   const rows = await loadExperiments();
+  const now = Date.now();
+  const recovery = classifyRecentFailures(rows, now);
   const alerts = buildExperimentAlerts(rows, 5);
   const alertFlags = {
     missing_progress: alerts.missing_progress.length > 0,
     stalled: alerts.stalled.length > 0,
-    recent_failure: alerts.failed_recent.length > 0,
+    recent_failure: recovery.unresolved.length > 0 || recovery.running_retry.length > 0,
   };
   const command = createCommandSnapshot(toIso(rows.map((row) => row.updated).sort().at(-1) || ""), snapshotSource(rows));
-  const judged = buildHealthSummary(rows);
+  const judged = buildHealthSummary(rows, now);
   const body = {
     health: { ...judged, alert_level: alertLevel(judged.status) },
-    alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags) },
+    alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags, judged) },
   };
   const payload = flags.json
     ? { schema_version: AGENT_SCHEMA_VERSION, snapshot: command, ...body }
@@ -749,6 +803,7 @@ function loadLocalExperiments(): ExperimentRow[] {
       if (!id) continue;
       rows.push(blankRuntime({
         id,
+        ...(record.type === "worker_run" || record.type === "workflow" ? { type: record.type } : {}),
         name: firstString(record, ["case", "name", "suite"]) || id,
         status: normalizeStatus(firstString(record, ["status", "state"])),
         created: firstString(record, ["started_at", "createdAt", "created"]) || "",

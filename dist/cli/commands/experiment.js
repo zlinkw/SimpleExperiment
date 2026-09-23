@@ -37,6 +37,8 @@ exports.experimentCommand = experimentCommand;
 exports.experimentList = experimentList;
 exports.experimentSummary = experimentSummary;
 exports.isRecentFailure = isRecentFailure;
+exports.recentFailureRecoveryState = recentFailureRecoveryState;
+exports.classifyRecentFailures = classifyRecentFailures;
 exports.isMissingProgress = isMissingProgress;
 exports.buildHealthSummary = buildHealthSummary;
 exports.loadActiveExperiments = loadActiveExperiments;
@@ -97,11 +99,15 @@ function snapshotSource(rows) {
 async function createExperimentOverviewSnapshot() {
     return { rows: await loadExperiments(), snapshot_time: new Date().toISOString() };
 }
-function alertDetailsFor(flags) {
+function alertDetailsFor(flags, health) {
     return [
         flags.missing_progress ? { type: "missing_progress", message: "experiment has no progress update" } : null,
         flags.stalled ? { type: "stalled", message: "experiment has no progress update" } : null,
-        flags.recent_failure ? { type: "recent_failure", message: "experiment failed within the last 24 hours" } : null,
+        flags.recent_failure ? { type: "recent_failure", message: health?.status === "warning" && health.reason === "failed_recent"
+                ? "recent failure has a newer running retry"
+                : health?.status === "error" || !health
+                    ? "recent failure has no newer successful or running recovery"
+                    : "experiment failed within the last 24 hours" } : null,
     ].filter((item) => item !== null).slice(0, 10)
         .map((item) => ({ ...item, message: item.message.slice(0, 300) }));
 }
@@ -209,6 +215,52 @@ function isRecentFailure(row, now = Date.now(), windowMs = RECENT_FAILURE_WINDOW
     const age = now - stamp;
     return age >= 0 && age <= windowMs;
 }
+function workerAttemptKey(row) {
+    if (row.type !== "worker_run")
+        return "";
+    const plan = String(row.plan || "").trim().replace(/\\/g, "/");
+    const experimentCase = String(row.experiment_case || "").trim();
+    const seed = String(row.seed || "").trim();
+    return plan && experimentCase && seed ? JSON.stringify([plan, experimentCase, seed]) : "";
+}
+function attemptStartedAt(row) {
+    return Date.parse(row.created || row.started_at || row.updated || "");
+}
+function attemptFinishedAt(row) {
+    return Date.parse(row.finished_at || row.updated || row.created || "");
+}
+function recentFailureRecoveryState(failure, rows, now = Date.now()) {
+    if (!isRecentFailure(failure, now))
+        return "resolved";
+    const key = workerAttemptKey(failure);
+    const failureTime = attemptFinishedAt(failure);
+    if (!key || !Number.isFinite(failureTime))
+        return "unresolved";
+    let latest;
+    let latestStart = failureTime;
+    for (const candidate of rows) {
+        if (candidate.id === failure.id || workerAttemptKey(candidate) !== key)
+            continue;
+        const started = attemptStartedAt(candidate);
+        if (started > latestStart) {
+            latest = candidate;
+            latestStart = started;
+        }
+    }
+    if (latest?.status === "success")
+        return "resolved";
+    if (latest?.status === "running")
+        return "running_retry";
+    return "unresolved";
+}
+function classifyRecentFailures(rows, now = Date.now()) {
+    const result = { unresolved: [], running_retry: [], resolved: [] };
+    for (const row of rows) {
+        if (isRecentFailure(row, now))
+            result[recentFailureRecoveryState(row, rows, now)].push(row);
+    }
+    return result;
+}
 function isMissingProgress(row, now = Date.now(), timeoutMs = MISSING_PROGRESS_TIMEOUT_MS) {
     if (row.type !== "worker_run" || row.status !== "running" || row.stage !== "run" || row.progress)
         return false;
@@ -221,12 +273,15 @@ function alertLevel(status) {
     return status === "healthy" ? "ok" : status;
 }
 function buildHealthSummary(rows, now = Date.now()) {
-    if (rows.some((row) => isRecentFailure(row, now)))
+    const failures = classifyRecentFailures(rows, now);
+    if (failures.unresolved.length > 0)
         return { status: "error", reason: "failed_recent" };
     if (rows.some((row) => row.health_status === "stalled"))
         return { status: "warning", reason: "stalled" };
     if (rows.some((row) => isMissingProgress(row, now)))
         return { status: "warning", reason: "missing_progress" };
+    if (failures.running_retry.length > 0)
+        return { status: "warning", reason: "failed_recent" };
     return { status: "healthy", reason: "" };
 }
 function loadActiveExperiments(rows) {
@@ -381,17 +436,19 @@ async function experimentOverview(flags) {
 }
 async function experimentHealth(flags) {
     const rows = await loadExperiments();
+    const now = Date.now();
+    const recovery = classifyRecentFailures(rows, now);
     const alerts = buildExperimentAlerts(rows, 5);
     const alertFlags = {
         missing_progress: alerts.missing_progress.length > 0,
         stalled: alerts.stalled.length > 0,
-        recent_failure: alerts.failed_recent.length > 0,
+        recent_failure: recovery.unresolved.length > 0 || recovery.running_retry.length > 0,
     };
     const command = createCommandSnapshot(toIso(rows.map((row) => row.updated).sort().at(-1) || ""), snapshotSource(rows));
-    const judged = buildHealthSummary(rows);
+    const judged = buildHealthSummary(rows, now);
     const body = {
         health: { ...judged, alert_level: alertLevel(judged.status) },
-        alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags) },
+        alerts: { ...alertFlags, alert_details: alertDetailsFor(alertFlags, judged) },
     };
     const payload = flags.json
         ? { schema_version: AGENT_SCHEMA_VERSION, snapshot: command, ...body }
@@ -800,6 +857,7 @@ function loadLocalExperiments() {
                 continue;
             rows.push(blankRuntime({
                 id,
+                ...(record.type === "worker_run" || record.type === "workflow" ? { type: record.type } : {}),
                 name: firstString(record, ["case", "name", "suite"]) || id,
                 status: normalizeStatus(firstString(record, ["status", "state"])),
                 created: firstString(record, ["started_at", "createdAt", "created"]) || "",

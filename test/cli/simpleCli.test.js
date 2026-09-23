@@ -665,6 +665,54 @@ test("experiment health reports healthy warning and error", async () => {
   assert.equal(error.alerts.stalled, true);
 });
 
+test("recent worker failures use only the latest matching attempt", () => {
+  const { classifyRecentFailures, buildHealthSummary, recentFailureRecoveryState } = require("../../dist/cli/commands/experiment.js");
+  const now = Date.parse("2026-09-23T11:00:00Z");
+  const failure = { id: "old", type: "worker_run", plan: "plans\\p.yaml", experiment_case: "A", seed: "42", status: "failed", updated: "2026-09-23T10:00:00Z" };
+  const retry = { id: "new", type: "worker_run", plan: "plans/p.yaml", experiment_case: "A", seed: "42", status: "running", created: "2026-09-23T10:05:00Z", updated: "2026-09-23T10:06:00Z" };
+  const classify = (rows) => classifyRecentFailures(rows, now);
+  assert.equal(recentFailureRecoveryState(failure, [failure, retry]), "running_retry");
+  assert.deepEqual(classify([failure, retry]).unresolved, []);
+  assert.deepEqual(classify([failure, retry]).running_retry, [failure]);
+  assert.deepEqual(buildHealthSummary([failure, retry], now), { status: "warning", reason: "failed_recent" });
+  const success = { ...retry, status: "success" };
+  assert.deepEqual(classify([failure, success]).resolved, [failure]);
+  assert.deepEqual(buildHealthSummary([failure, success], now), { status: "healthy", reason: "" });
+  const failedAgain = { ...retry, id: "newest", status: "failed", created: "2026-09-23T10:10:00Z", updated: "2026-09-23T10:11:00Z" };
+  assert.equal(recentFailureRecoveryState(failure, [failure, success, failedAgain]), "unresolved");
+  assert.equal(classify([failure, success, failedAgain]).unresolved.length, 2);
+  for (const changed of [{ seed: "43" }, { experiment_case: "B" }, { plan: "plans/other.yaml" }]) {
+    assert.equal(recentFailureRecoveryState(failure, [failure, { ...retry, ...changed }]), "unresolved");
+  }
+  for (const missing of [{ experiment_case: "" }, { seed: "" }]) {
+    assert.equal(recentFailureRecoveryState({ ...failure, ...missing }, [{ ...failure, ...missing }, retry]), "unresolved");
+  }
+});
+
+test("experiment health distinguishes running and successful retries from failure history", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-health-retry-"));
+  const indexPath = path.join(dir, "simple_cluster", "experiment_index.json");
+  const old = { global_job_id: "run0-old", type: "worker_run", plan: "p.yaml", experiment_case: "A", seed: "42", status: "failed", updated: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+  const newer = { global_job_id: "run0-new", type: "worker_run", plan: "p.yaml", experiment_case: "A", seed: "42", status: "running", created: new Date(Date.now() - 5 * 60 * 1000).toISOString(), updated: new Date().toISOString(), stage: "branch" };
+  writeProject(dir, { "simple_cluster/experiment_index.json": JSON.stringify([old, newer]) });
+  const healthRun = JSON.parse((await runCli(["experiment", "health", "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(healthRun.health, { status: "warning", reason: "failed_recent", alert_level: "warning" });
+  assert.equal(healthRun.alerts.recent_failure, true);
+  assert.equal(healthRun.alerts.alert_details.find((item) => item.type === "recent_failure").message, "recent failure has a newer running retry");
+  const overviewRun = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
+  assert.equal(overviewRun.alerts.failed_recent[0].id, old.global_job_id);
+  assert.deepEqual(overviewRun.health, { status: "warning", reason: "failed_recent" });
+  const inspected = JSON.parse((await runCli(["experiment", "inspect", old.global_job_id, "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(inspected.health, { status: "error", reason: "failed_recent" });
+  fs.writeFileSync(indexPath, JSON.stringify([old, { ...newer, status: "success" }]), "utf8");
+  const healthSuccess = JSON.parse((await runCli(["experiment", "health", "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(healthSuccess.health, { status: "healthy", reason: "", alert_level: "ok" });
+  assert.equal(healthSuccess.alerts.recent_failure, false);
+  const overviewSuccess = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
+  assert.equal(overviewSuccess.alerts.failed_recent[0].id, old.global_job_id);
+  assert.deepEqual(overviewSuccess.health, { status: "healthy", reason: "" });
+});
+
 test("progress includes updated_at for active status and inspect", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-progress-"));
   writeProject(dir, {
