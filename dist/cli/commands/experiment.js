@@ -671,30 +671,48 @@ function mergeExperimentRow(byId, row) {
         return;
     }
     const merged = { ...prev };
+    const incomingRank = sourceRank(row.source);
+    const currentRank = sourceRank(prev.source);
     for (const [key, value] of Object.entries(row)) {
-        if (key === "raw" || value === undefined || value === null || value === "")
+        if (key === "raw" || key === "type" || value === undefined || value === null || value === "")
             continue;
         if (key === "status" && value === "unknown" && prev.status && prev.status !== "unknown")
             continue;
+        if (incomingRank < currentRank && merged[key])
+            continue;
         merged[key] = value;
     }
+    if (incomingRank >= currentRank || !prev.type)
+        merged.type = row.type;
     merged.raw = { ...(prev.raw || {}), ...(row.raw || {}) };
     merged.lifecycle = lifecycleOf(merged.status);
     byId.set(row.id, merged);
+}
+function sourceRank(source) {
+    if (source === "runtime_observation")
+        return 3;
+    if (source === "history")
+        return 2;
+    return 1;
 }
 async function loadExperiments() {
     const byId = new Map();
     for (const row of loadLocalExperiments())
         mergeExperimentRow(byId, row);
     const remote = await loadRemoteExperiments();
-    for (const row of remote)
+    const retained = retainedWorkerRuns(remote.rows, remote.unavailableWorkers);
+    for (const row of remote.rows)
         if (row.source !== "history")
             mergeExperimentRow(byId, row);
     for (const row of loadWorkerRunHistory())
         mergeExperimentRow(byId, row);
-    for (const row of remote)
-        if (row.source === "history")
-            mergeExperimentRow(byId, row);
+    for (const row of [...remote.rows, ...retained]) {
+        if (row.source !== "history")
+            continue;
+        if (remote.unavailableWorkers.includes(row.worker_id) && byId.get(row.id)?.source === "history")
+            continue;
+        mergeExperimentRow(byId, row);
+    }
     await applyRuntimeObservations(byId);
     const rows = Array.from(byId.values());
     for (const row of rows)
@@ -822,8 +840,9 @@ async function loadRemoteExperiments() {
         }));
     }
     for (const record of collectRecords(operations, ["records"])) {
-        const id = firstString(record, ["operationId", "runKey", "planFile", "id"]);
-        if (!id)
+        const id = firstString(record, ["operationId", "id"]);
+        const action = operationAction(record);
+        if (!id || !experimentLaunchAction(action))
             continue;
         rows.push(blankRuntime({
             id,
@@ -835,7 +854,7 @@ async function loadRemoteExperiments() {
             worker_id: firstString(record, ["workerId", "worker_id", "schedulerOwnerWorkerId"]),
             tmux: firstString(record, ["tmuxSession", "tmux"]),
             parent_id: firstString(record, ["parent_id", "parentId", "workflowId", "workflow_id"]),
-            raw: record,
+            raw: { ...record, type: action },
         }));
     }
     const schedulerStates = asRecord(tasks).schedulerStates;
@@ -844,23 +863,124 @@ async function loadRemoteExperiments() {
             rows.push(...workerRunsFromSchedulerState(asRecord(item), rows));
     }
     rows.push(...workerRunsFromWorkerTaskSnapshots(asRecord(tasks).workerTasks, rows));
-    return rows;
+    return { rows, unavailableWorkers: unavailableWorkerIds(asRecord(tasks).workerTasks) };
+}
+function unavailableWorkerIds(value) {
+    if (!Array.isArray(value))
+        return [];
+    return value.flatMap((entry) => {
+        const snapshot = asRecord(entry);
+        const tasks = Array.isArray(snapshot.tasks) ? snapshot.tasks : [];
+        return firstString(snapshot, ["error"]) && tasks.length === 0 ? [firstString(snapshot, ["workerId"])] : [];
+    }).filter(Boolean);
+}
+const WORKER_TASK_CACHE_DIR = ["simple_cluster", "tmp", "worker_task_snapshots"];
+function retainedWorkerRuns(rows, unavailableWorkers) {
+    const dir = (0, data_1.resolveProjectPath)(path.join(...WORKER_TASK_CACHE_DIR));
+    try {
+        rememberWorkerRuns(dir, rows);
+    }
+    catch { /* History cache failure must not break a read-only CLI query. */ }
+    if (!(0, data_1.fileExists)(dir))
+        return [];
+    const current = new Set(rows.map((row) => row.id));
+    const retained = [];
+    for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith(".json"))
+            continue;
+        const cached = (0, data_1.readJsonFile)(path.join(dir, name), {});
+        for (const item of Array.isArray(cached.rows) ? cached.rows : []) {
+            const row = compactWorkerRun(item);
+            if (!row?.id || current.has(row.id))
+                continue;
+            if (row.status === "running" && Date.now() - Date.parse(row.updated) > 180_000)
+                row.status = "unknown";
+            retained.push({ ...row, raw: { snapshotUnavailable: unavailableWorkers.includes(String(cached.workerId || "")) } });
+        }
+    }
+    return retained;
+}
+function rememberWorkerRuns(dir, rows) {
+    const grouped = new Map();
+    for (const row of rows) {
+        if (row.type !== "worker_run" || !row.worker_id || row.raw?.snapshotUnavailable)
+            continue;
+        const bucket = grouped.get(row.worker_id) || [];
+        bucket.push(row);
+        grouped.set(row.worker_id, bucket);
+    }
+    if (!grouped.size)
+        return;
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [workerId, cached] of grouped) {
+        const safe = workerId.replace(/[^A-Za-z0-9_.-]+/g, "_");
+        const full = path.join(dir, `${safe}.json`);
+        const tmp = `${full}.${process.pid}.tmp`;
+        const previous = (0, data_1.readJsonFile)(full, {});
+        const merged = new Map();
+        if (previous.workerId === workerId)
+            for (const row of Array.isArray(previous.rows) ? previous.rows : []) {
+                const compact = compactWorkerRun(row);
+                if (compact.id)
+                    merged.set(compact.id, compact);
+            }
+        for (const row of cached)
+            merged.set(row.id, compactWorkerRun(row));
+        fs.writeFileSync(tmp, JSON.stringify({ schemaVersion: 1, workerId, rows: [...merged.values()].map(persistedWorkerRun) }), "utf8");
+        fs.renameSync(tmp, full);
+    }
+}
+function persistedWorkerRun(row) {
+    return {
+        id: row.id, type: "worker_run", status: row.status, plan: row.plan, worker_id: row.worker_id,
+        gpu: row.gpu, stage: row.stage, experiment_case: row.experiment_case, seed: row.seed,
+        progress: row.progress, updated: row.updated, created: row.created, finished_at: row.finished_at,
+        parent_id: row.parent_id, tmux: row.tmux,
+    };
+}
+function compactWorkerRun(row) {
+    const source = row.progress && typeof row.progress === "object" ? row.progress : {};
+    const progress = {};
+    for (const key of ["epoch", "max_epoch", "batch", "total_batch", "percent", "loss", "lr", "memory"]) {
+        const value = source[key];
+        if (typeof value === "number" && Number.isFinite(value) || typeof value === "string" && value.length <= 100)
+            progress[key] = value;
+    }
+    return blankRuntime({
+        id: String(row.id || ""), name: String(row.id || ""), type: "worker_run", source: "history",
+        status: String(row.status || "unknown"), plan: String(row.plan || ""), worker_id: String(row.worker_id || ""),
+        gpu: row.gpu?.id ? { id: String(row.gpu.id), memory: "", utilization: "" } : null,
+        stage: String(row.stage || ""), experiment_case: String(row.experiment_case || ""), seed: String(row.seed || ""),
+        progress: Object.keys(progress).length ? progress : null,
+        updated: String(row.updated || ""), created: String(row.created || ""), finished_at: String(row.finished_at || ""),
+        parent_id: String(row.parent_id || ""), tmux: String(row.tmux || ""), run_id: String(row.id || ""),
+    });
 }
 function workerRunsFromWorkerTaskSnapshots(value, workflows) {
     if (!Array.isArray(value))
         return [];
     const rows = [];
+    const operations = new Map(workflows.filter((row) => row.type === "workflow").map((row) => [row.id, row]));
     for (const entry of value) {
         const snapshot = asRecord(entry);
+        const snapshotError = firstString(snapshot, ["error"]);
         if (!Array.isArray(snapshot.tasks))
             continue;
+        if (snapshotError && snapshot.tasks.length === 0)
+            continue;
+        const workerId = firstString(snapshot, ["workerId"]);
         for (const item of snapshot.tasks) {
             const task = asRecord(item);
-            const id = firstString(task, ["runKey", "commandId", "operationId", "session"]);
+            const operationId = firstString(task, ["operationId"]);
+            const operation = operationId ? operations.get(operationId) : undefined;
+            if (operation) {
+                supplementWorkflow(operation, task, snapshot);
+                continue;
+            }
+            const id = firstString(task, ["runKey", "commandId", "session"]);
             if (!id)
                 continue;
             const plan = firstString(task, ["planFile", "plan"]);
-            const planParents = new Set(workflows.filter((row) => row.type === "workflow" && plan && row.plan === plan).map((row) => row.id));
             const rawGpu = task.gpuId ?? task.gpu_id ?? task.gpu;
             const gpuId = typeof rawGpu === "object" ? firstString(asRecord(rawGpu), ["id"]) : String(rawGpu ?? "").trim();
             const started = firstString(task, ["startedAt", "started_at"]);
@@ -875,9 +995,8 @@ function workerRunsFromWorkerTaskSnapshots(value, workflows) {
                 status_source: "worker",
                 plan,
                 run_id: id,
-                parent_id: firstString(task, ["workflowId", "workflow_id", "parent_id"])
-                    || (planParents.size === 1 ? Array.from(planParents)[0] : ""),
-                worker_id: firstString(task, ["workerId", "worker_id"]) || firstString(snapshot, ["workerId"]),
+                parent_id: firstString(task, ["workflowId", "workflow_id"]) || uniqueWorkflowParent(task, workerId, workflows),
+                worker_id: firstString(task, ["workerId", "worker_id"]) || workerId,
                 gpu: gpuId ? { id: gpuId, memory: "", utilization: "" } : null,
                 tmux: firstString(task, ["tmuxTarget", "tmuxSession", "window"]),
                 stage: firstString(task, ["stage", "phase"]) || (task.debugMode === true ? "debug" : "run"),
@@ -885,13 +1004,42 @@ function workerRunsFromWorkerTaskSnapshots(value, workflows) {
                 seed: firstString(task, ["seed"]),
                 progress: progressValue(task.progress),
                 created: started,
-                updated: finished || firstString(snapshot, ["generatedAt"]) || started,
+                updated: finished || (snapshotError ? "" : firstString(snapshot, ["generatedAt"])) || started,
                 finished_at: finished,
-                raw: task,
+                raw: { ...task, snapshotError },
             }));
         }
     }
     return rows;
+}
+function supplementWorkflow(row, task, snapshot) {
+    row.worker_id ||= firstString(task, ["workerId", "worker_id"]) || firstString(snapshot, ["workerId"]);
+    row.plan ||= firstString(task, ["planFile", "plan"]);
+    row.tmux ||= firstString(task, ["tmuxTarget", "tmuxSession", "window"]);
+    row.raw = { ...(row.raw || {}), workerTask: task };
+}
+function uniqueWorkflowParent(task, workerId, workflows) {
+    const plan = firstString(task, ["planFile", "plan"]);
+    const started = Date.parse(firstString(task, ["startedAt", "started_at"]));
+    const candidates = workflows.filter((row) => {
+        if (row.type !== "workflow" || !plan || row.plan !== plan)
+            return false;
+        if (workerId && row.worker_id && row.worker_id !== workerId)
+            return false;
+        if (!Number.isFinite(started) || !row.created)
+            return true;
+        const created = Date.parse(row.created);
+        const finished = Date.parse(row.finished_at || row.updated);
+        return Number.isFinite(created) && started >= created - 5_000 && (!Number.isFinite(finished) || started <= finished + 5_000);
+    });
+    return candidates.length === 1 ? candidates[0].id : "";
+}
+const EXPERIMENT_LAUNCH_ACTIONS = new Set(["run-plan", "workflow-run", "reproduce-plan"]);
+function operationAction(record) {
+    return firstString(record, ["type", "action"]).trim().toLowerCase();
+}
+function experimentLaunchAction(action) {
+    return EXPERIMENT_LAUNCH_ACTIONS.has(action);
 }
 function workerTaskStatus(value) {
     const status = value.trim().toLowerCase();
@@ -1078,14 +1226,18 @@ function publicExperiment(row, children = []) {
     };
 }
 function experimentKind(id, row) {
+    if (row.type === "workflow" || row.type === "worker_run")
+        return row.type;
     if (/^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(id)
         || /^(?:run-\d+|(?:run|tst|dbg)\d+-\d+-\d+)$/.test(String(row.run_id || "")))
         return "worker_run";
     if (row.progress || row.raw?.runtimeLog)
         return "worker_run";
-    const source = String(row.raw?.type || row.raw?.action || "");
-    if (source === "run-plan" || source.endsWith("-plan") || source.includes("scheduler"))
+    const source = operationAction(row.raw || {});
+    if (experimentLaunchAction(source))
         return "workflow";
+    if (/^(?:run|tst|dbg)\d+-/.test(id))
+        return "worker_run";
     return "workflow";
 }
 function parentWorkflow(item, rows) {
@@ -1152,11 +1304,19 @@ function extractLiveLog(live, id) {
     if (!live)
         return "";
     const record = asRecord(live);
-    if (typeof record.text === "string")
+    const output = asRecord(record.output);
+    const declared = firstString(record, ["runKey", "run_key"]) || firstString(output, ["runKey", "run_key"]);
+    if (typeof record.text === "string" && declared === id)
         return record.text;
     const rows = Array.isArray(record.rows) ? record.rows : Array.isArray(record.logs) ? record.logs : [];
-    const match = rows.map(asRecord).find((row) => firstString(row, ["runKey", "id"]) === id) || asRecord(rows[0]);
-    return firstString(match, ["text", "tail", "output", "log"]) || JSON.stringify(live);
+    const matches = rows.map(asRecord).filter((row) => liveRowMatches(row, id));
+    if (matches.length !== 1)
+        return "";
+    return firstString(matches[0], ["text", "tail", "output", "log"]);
+}
+function liveRowMatches(row, id) {
+    const key = firstString(row, ["runKey", "run_key", "id", "key"]);
+    return key === id;
 }
 function lifecycleOf(status) {
     if (status === "running")

@@ -610,6 +610,8 @@ class RealtimeTunnelPanelProvider {
     client;
     lastHealth;
     lastSnapshot;
+    lastWorkerTaskSnapshots = new Map();
+    workerTaskRequests = new Map();
     lastRealtimeState;
     lastProbe;
     lastWorkerProbes = {};
@@ -873,19 +875,7 @@ class RealtimeTunnelPanelProvider {
             "tasks.list": async () => {
                 const state = this.buildState();
                 const workerIds = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
-                const snapshots = await Promise.allSettled(workerIds.map((workerId) => Promise.resolve().then(() => this.client.getWorkerTasks(workerId))));
-                const workerTasks = snapshots.map((snapshot, index) => {
-                    const workerId = workerIds[index];
-                    if (snapshot.status === "rejected")
-                        return { workerId, tasks: [], error: "Worker task snapshot unavailable" };
-                    const value = snapshot.value && typeof snapshot.value === "object" ? snapshot.value : {};
-                    return {
-                        workerId,
-                        schemaVersion: 1,
-                        generatedAt: String(value.generatedAt || new Date().toISOString()),
-                        tasks: Array.isArray(value.tasks) ? value.tasks : [],
-                    };
-                });
+                const workerTasks = await Promise.all(workerIds.map((workerId) => this.readWorkerTaskSnapshot(workerId)));
                 return {
                     schedulerStates: state.schedulerStates || [],
                     experimentTraces: state.experimentTraces || [],
@@ -1002,6 +992,73 @@ class RealtimeTunnelPanelProvider {
             results: rows.slice(0, 200),
             summary: filtered || null,
         };
+    }
+    async readWorkerTaskSnapshot(workerId) {
+        const root = workspaceRoot();
+        const cacheKey = `${root || ""}\u0000${workerId}`;
+        const pending = this.workerTaskRequests.get(cacheKey);
+        if (pending)
+            return pending;
+        const request = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey).finally(() => {
+            if (this.workerTaskRequests.get(cacheKey) === request)
+                this.workerTaskRequests.delete(cacheKey);
+        });
+        this.workerTaskRequests.set(cacheKey, request);
+        return request;
+    }
+    async refreshWorkerTaskSnapshot(workerId, root, cacheKey) {
+        const cached = this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
+        try {
+            const value = await this.client.getWorkerTasks(workerId);
+            if (workspaceRoot() !== root)
+                return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
+            const record = value && typeof value === "object" ? value : {};
+            const snapshot = {
+                workerId,
+                schemaVersion: 1,
+                generatedAt: String(record.generatedAt || new Date().toISOString()),
+                tasks: Array.isArray(record.tasks) ? record.tasks : [],
+                fetchedAt: new Date().toISOString(),
+            };
+            this.lastWorkerTaskSnapshots.set(cacheKey, snapshot);
+            try {
+                this.writeWorkerTaskSnapshot(workerId, root, snapshot);
+            }
+            catch {
+                // A local cache write must not turn a successful Worker read into a failed snapshot.
+            }
+            return workerTaskSnapshotPayload(snapshot);
+        }
+        catch (error) {
+            const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
+            const failure = denied ? `Worker task snapshot ${denied}` : "Worker task snapshot unavailable";
+            if (denied === "cooldown" && cached && !cached.error)
+                return workerTaskSnapshotPayload(cached);
+            if (!cached)
+                return { workerId, schemaVersion: 1, tasks: [], error: failure };
+            const age = Date.now() - Date.parse(cached.fetchedAt);
+            const stale = cached.tasks.some((task) => workerTaskLooksRunning(task)) && age > 180_000;
+            return {
+                ...workerTaskSnapshotPayload(cached),
+                tasks: stale ? cached.tasks.map((task) => workerTaskLooksRunning(task) ? { ...task, status: "unknown", stale: true } : task) : cached.tasks,
+                error: failure,
+            };
+        }
+    }
+    cachedWorkerTaskSnapshot(workerId, root, cacheKey) {
+        return this.lastWorkerTaskSnapshots.get(cacheKey) || readWorkerTaskSnapshotFile(root, workerId);
+    }
+    writeWorkerTaskSnapshot(workerId, root, snapshot) {
+        if (!root)
+            return;
+        const fullPath = workerTaskSnapshotPath(root, workerId);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        const tmp = `${fullPath}.${process.pid}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify({
+            ...snapshot,
+            tasks: snapshot.tasks.map(compactWorkerTask),
+        }), "utf8");
+        fs.renameSync(tmp, fullPath);
     }
     async apiLiveOutput(params = {}) {
         const runKey = stringField(params, "runKey") || stringField(params, "run_key") || "";
@@ -18013,11 +18070,61 @@ function clampUiNumber(input, min, max, fallback) {
         return fallback;
     return Math.max(min, Math.min(max, Math.round(value)));
 }
+const WORKER_TASK_SNAPSHOT_DIR = "simple_cluster/tmp/worker_task_snapshots";
+function workerTaskSnapshotPath(root, workerId) {
+    const safe = String(workerId || "").replace(/[^A-Za-z0-9_.-]+/g, "_") || "worker";
+    return path.join(root, ...WORKER_TASK_SNAPSHOT_DIR.split("/"), `${safe}.json`);
+}
+function readWorkerTaskSnapshotFile(root, workerId) {
+    if (!root)
+        return undefined;
+    try {
+        const data = JSON.parse(fs.readFileSync(workerTaskSnapshotPath(root, workerId), "utf8"));
+        return data && data.workerId === workerId && Array.isArray(data.tasks)
+            ? { ...data, tasks: data.tasks.map(compactWorkerTask) }
+            : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+function compactWorkerTask(task) {
+    const source = task && typeof task === "object" ? task : {};
+    const row = {};
+    for (const key of ["runKey", "commandId", "operationId", "workerId", "status", "state", "gpuId", "case", "seed", "plan", "planFile", "startedAt", "finishedAt", "tmuxTarget", "tmuxSession", "window", "workflowId", "stage", "experimentCase"]) {
+        const value = source[key];
+        if (typeof value === "string" && value.length <= 500 || typeof value === "number" && Number.isFinite(value))
+            row[key] = value;
+    }
+    if (source.progress && typeof source.progress === "object" && !Array.isArray(source.progress)) {
+        const progress = {};
+        for (const key of ["epoch", "max_epoch", "batch", "total_batch", "percent", "loss", "lr", "memory"]) {
+            const value = source.progress[key];
+            if (typeof value === "number" && Number.isFinite(value) || typeof value === "string" && value.length <= 100)
+                progress[key] = value;
+        }
+        if (Object.keys(progress).length)
+            row.progress = progress;
+    }
+    return row;
+}
 function stringField(message, key) {
     if (!message || typeof message !== "object")
         return "";
     const value = message[key];
     return typeof value === "string" ? value.trim() : "";
+}
+function workerTaskSnapshotPayload(snapshot) {
+    return {
+        workerId: snapshot.workerId,
+        schemaVersion: snapshot.schemaVersion,
+        generatedAt: snapshot.generatedAt,
+        tasks: snapshot.tasks,
+        ...(snapshot.error ? { error: snapshot.error } : {}),
+    };
+}
+function workerTaskLooksRunning(task) {
+    return ["running", "pending", "queued", "starting"].includes(String(task?.status || task?.state || "").trim().toLowerCase());
 }
 function stringValue(value) {
     return typeof value === "string" ? value.trim() : "";

@@ -170,3 +170,90 @@ test("scheduler-style artifact history survives without a live API", async () =>
   assert.equal(inspected.code, 0);
   assert.equal(inspected.body.summary.status, "success");
 });
+
+test("rate-limited snapshots keep the last run while classification stays stable", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-ratelimit-"));
+  const sharedPlan = "experiments/plans/baseline.yaml";
+  const firstWorkflow = "run-plan-111-aaaa";
+  const secondWorkflow = "run-plan-222-bbbb";
+  const otherRunId = "run0-123456-124";
+  const phases = ["success", "limited", "recovered"];
+  let phase = 0;
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const { id, method, params } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const current = phases[Math.min(phase, phases.length - 1)];
+      if (method === "tasks.list") phase += 1;
+      const result = method === "tasks.list" ? taskPayload(current, sharedPlan, firstWorkflow, secondWorkflow, otherRunId)
+        : method === "operations.list" ? operationPayload(sharedPlan, firstWorkflow, secondWorkflow)
+        : method === "live.output" ? livePayload(params && params.runKey, otherRunId)
+        : {};
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const apiFile = path.join(root, "api.json");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+
+  const first = await callCli(root, apiFile, ["list"]);
+  assert.equal(first.body.find((row) => row.id === runId).type, "worker_run");
+  assert.equal(first.body.find((row) => row.id === runId).parent_id ?? "", "");
+  assert.equal(first.body.find((row) => row.id === otherRunId).parent_id, secondWorkflow);
+  assert.equal(first.body.find((row) => row.id === firstWorkflow).type, "workflow");
+  assert.equal(first.body.some((row) => row.id === "validate-plan-1" || row.id === "stop-scheduler-1"), false);
+  const historyFile = path.join(root, "simple_cluster", "tmp", "worker_task_snapshots", "worker-a.json");
+  const history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+  assert.equal(history.rows.length, 2);
+  assert.equal("raw" in history.rows[0], false);
+  assert.equal("logPath" in history.rows[0], false);
+
+  const limited = await callCli(root, apiFile, ["list"]);
+  assert.equal(limited.body.find((row) => row.id === runId).type, "worker_run");
+  assert.equal(limited.body.find((row) => row.id === runId).status, "running");
+  const limitedInspect = await callCli(root, apiFile, ["inspect", runId]);
+  assert.equal(limitedInspect.body.summary.type, "worker_run");
+  assert.equal(limitedInspect.body.summary.status, "running");
+
+  const aged = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+  aged.rows.find((row) => row.id === runId).updated = "2026-09-23T00:04:00Z";
+  fs.writeFileSync(historyFile, JSON.stringify(aged), "utf8");
+  const recovered = await callCli(root, apiFile, ["inspect", runId]);
+  assert.equal(recovered.body.summary.type, "worker_run");
+  assert.equal(recovered.body.summary.status, "unknown");
+  assert.match(recovered.body.diagnosis.latest_message, new RegExp(runId));
+  assert.doesNotMatch(recovered.body.diagnosis.latest_message, new RegExp(otherRunId));
+  const other = await callCli(root, apiFile, ["inspect", otherRunId]);
+  assert.match(other.body.diagnosis.latest_message, new RegExp(otherRunId));
+  assert.doesNotMatch(other.body.diagnosis.latest_message, new RegExp(runId));
+});
+
+function taskPayload(phase, planFile, firstWorkflow, secondWorkflow, otherRunId) {
+  if (phase === "limited") {
+    return { workerTasks: [{ workerId: "worker-a", tasks: [], error: "Worker task snapshot rate_limited", generatedAt: "2026-09-23T00:05:00Z" }] };
+  }
+  return { workerTasks: [{ workerId: "worker-a", schemaVersion: 1, generatedAt: new Date().toISOString(), tasks: [
+    { operationId: firstWorkflow, status: "running", planFile, workerId: "worker-a" },
+    ...(phase === "recovered" ? [] : [{ runKey: runId, status: "running", planFile, workerId: "worker-a", startedAt: "2026-09-23T00:02:00Z", logPath: "secret.log", largeConfig: { secret: "never-cache" } }]),
+    { runKey: otherRunId, workflowId: secondWorkflow, status: "running", planFile, workerId: "worker-a", startedAt: "2026-09-23T00:03:00Z" },
+  ] }] };
+}
+
+function operationPayload(planFile, firstWorkflow, secondWorkflow) {
+  return { records: [
+    { operationId: firstWorkflow, type: "run-plan", status: "running", planFile, workerId: "worker-a", startedAt: "2026-09-23T00:00:00Z" },
+    { operationId: secondWorkflow, type: "workflow-run", status: "running", planFile, workerId: "worker-a", startedAt: "2026-09-23T00:01:00Z" },
+    { operationId: "validate-plan-1", type: "validate-plan", status: "completed", planFile },
+    { operationId: "stop-scheduler-1", type: "stop-scheduler-operation", status: "completed", planFile },
+  ] };
+}
+
+function livePayload(requested, otherRunId) {
+  return { output: { runKey: requested }, text: `${requested} epoch 1`, logs: [
+    { runKey: runId, text: `${runId} epoch 1` },
+    { runKey: otherRunId, text: `${otherRunId} epoch 2` },
+  ] };
+}
