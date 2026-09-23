@@ -687,12 +687,27 @@ export async function loadExperiments(): Promise<ExperimentRow[]> {
 export async function applyRuntimeObservations(byId: Map<string, ExperimentRow>, observed?: RuntimeObservation[]): Promise<void> {
   observed ??= await observeRunningExperiments();
   const used = new Set<RuntimeObservation>();
-  for (const row of byId.values()) {
-    if (row.type !== "worker_run") continue;
-    const match = observed.find((item) => item.run_id === row.id || (row.run_id && item.run_id === row.run_id));
-    if (!match || used.has(match)) continue;
-    used.add(match);
-    applyObservationFields(row, match);
+  const workerRows = Array.from(byId.values()).filter((row) => row.type === "worker_run");
+  const applyMatch = (row: ExperimentRow, item: RuntimeObservation): void => {
+    used.add(item);
+    applyObservationFields(row, item);
+    if (!row.parent_id) {
+      const parent = parentWorkflow(item, byId);
+      if (parent) row.parent_id = parent.id;
+    }
+  };
+  for (const row of workerRows) {
+    const match = observed.find((item) => !used.has(item) && (item.run_id === row.id || (row.run_id && item.run_id === row.run_id)));
+    if (match) applyMatch(row, match);
+  }
+  const historyRows = workerRows.filter((row) => row.source === "history" && row.status === "running");
+  for (const row of historyRows) {
+    const candidates = observed.filter((item) => !used.has(item) && workerHistoryMatchesRuntime(row, item));
+    if (candidates.length !== 1) continue;
+    const item = candidates[0];
+    if (historyRows.filter((candidate) => workerHistoryMatchesRuntime(candidate, item)).length !== 1) continue;
+    applyMatch(row, item);
+    row.raw = { ...(row.raw || {}), runtimeRunId: item.run_id, workerTaskId: row.id };
   }
   for (const item of observed) {
     if (used.has(item) || byId.has(item.run_id)) continue;
@@ -701,6 +716,28 @@ export async function applyRuntimeObservations(byId: Map<string, ExperimentRow>,
     if (parent) row.parent_id = parent.id;
     byId.set(item.run_id, row);
   }
+}
+
+export function workerHistoryMatchesRuntime(row: ExperimentRow, item: RuntimeObservation): boolean {
+  if (row.type !== "worker_run" || row.source !== "history" || row.status !== "running") return false;
+  const workerId = String(row.worker_id || "").trim();
+  const runtimeWorkerId = String(item.worker?.id || "").trim();
+  if (!workerId || !runtimeWorkerId || workerId !== runtimeWorkerId) return false;
+  const gpuId = String(row.gpu?.id || "").trim();
+  const runtimeGpuId = String(item.gpu?.id || "").trim();
+  if (!gpuId || !runtimeGpuId || gpuId !== runtimeGpuId) return false;
+  for (const [history, runtime] of [
+    [row.plan, item.plan],
+    [row.experiment_case, item.config?.experiment_case],
+    [row.seed, item.config?.seed],
+    [row.tmux, item.tmux?.session],
+  ]) {
+    if (history && runtime && history !== runtime) return false;
+  }
+  const runTimestamp = /^run-(\d{13})$/.exec(String(item.run_id || ""));
+  const historyStart = Date.parse(row.created);
+  const runtimeStart = runTimestamp ? Number(runTimestamp[1]) : NaN;
+  return Number.isFinite(historyStart) && Number.isSafeInteger(runtimeStart) && Math.abs(historyStart - runtimeStart) <= 15_000;
 }
 function loadLocalExperiments(): ExperimentRow[] {
   const index = readJsonFile<unknown>(resolveProjectPath(EXPERIMENT_INDEX_REL), []);

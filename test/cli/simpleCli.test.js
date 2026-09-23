@@ -1329,6 +1329,106 @@ test("runtime observations resolve to experiment rows", () => {
   assert.equal(lifecycleOf("pending"), "");
 });
 
+function physicalWorkerFixture() {
+  const history = {
+    id: "run0-326826-291", run_id: "run0-326826-291", type: "worker_run", source: "history", status: "running",
+    worker_id: "nwpu2", gpu: { id: "0" }, plan: "experiments/plans/preexperiment/bus_p100.yaml",
+    experiment_case: "A", seed: "42", tmux: "zlk-gpu-0", stage: "train_test", created: "2026-09-23T09:55:44Z",
+    parent_id: "", raw: {},
+  };
+  const observation = {
+    run_id: "run-1790157344723", worker: { id: "nwpu2", host: "" }, gpu: { id: "0", memory: "", utilization: "" },
+    plan: history.plan, config: { experiment_case: "A", seed: "42", path: "", model: "", dataset: "" },
+    tmux: { session: "zlk-gpu-0", window: "zlk-gpu-0:1", pane: "zlk-gpu-0:1.0" },
+    stage: "branch", status: "running", progress: { epoch: 7, loss: 0.2 }, updated_at: "2026-09-23T11:00:00Z", log: "",
+  };
+  return { history, observation };
+}
+
+test("physical worker identity requires matching worker GPU metadata and launch time", () => {
+  const { workerHistoryMatchesRuntime } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  assert.equal(workerHistoryMatchesRuntime(history, observation), true);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, created: "2026-09-23T09:56:00Z" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, gpu: { id: "1" } }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, experiment_case: "B" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, tmux: "zlk-gpu-1" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, worker_id: "" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, source: "runtime_observation" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, status: "success" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, plan: "other.yaml" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, seed: "43" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime({ ...history, created: "" }, observation), false);
+  assert.equal(workerHistoryMatchesRuntime(history, { ...observation, run_id: "run-unknown" }), false);
+});
+
+test("runtime observation enriches the stable worker task row without a duplicate", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  const workflow = { id: "wf-current", type: "workflow", status: "running", plan: history.plan };
+  const byId = new Map([[workflow.id, workflow], [history.id, history]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.equal(byId.size, 2);
+  assert.equal(byId.has(history.id), true);
+  assert.equal(byId.has(observation.run_id), false);
+  assert.equal(history.id, "run0-326826-291");
+  assert.equal(history.source, "runtime_observation");
+  assert.equal(history.run_id, observation.run_id);
+  assert.deepEqual(history.progress, observation.progress);
+  assert.equal(history.stage, "branch");
+  assert.equal(history.parent_id, workflow.id);
+  assert.equal(history.raw.runtimeRunId, observation.run_id);
+  assert.equal(history.raw.workerTaskId, history.id);
+});
+
+test("retries on one GPU keep older worker history separate", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  const older = { ...history, id: "run0-older", run_id: "run0-older", created: "2026-09-23T09:50:00Z", raw: {} };
+  const byId = new Map([[older.id, older], [history.id, history]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.equal(byId.size, 2);
+  assert.equal(older.source, "history");
+  assert.equal(older.run_id, older.id);
+  assert.equal(history.source, "runtime_observation");
+  assert.equal(history.run_id, observation.run_id);
+});
+
+test("ambiguous physical matches do not consume an observation", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  const second = { ...history, id: "run0-second", run_id: "run0-second", created: "2026-09-23T09:55:45Z", raw: {} };
+  const byId = new Map([[history.id, history], [second.id, second]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.equal(history.source, "history");
+  assert.equal(second.source, "history");
+  assert.equal(byId.has(observation.run_id), true);
+});
+
+test("one history row does not choose the first of multiple runtime candidates", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  const second = { ...observation, run_id: "run-1790157345723" };
+  const byId = new Map([[history.id, history]]);
+  await applyRuntimeObservations(byId, [observation, second]);
+  assert.equal(history.source, "history");
+  assert.equal(byId.has(observation.run_id), true);
+  assert.equal(byId.has(second.run_id), true);
+});
+
+test("exact run ID matching takes priority and preserves an existing workflow parent", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  history.run_id = observation.run_id;
+  history.parent_id = "wf-existing";
+  const byId = new Map([[history.id, history], ["wf-existing", { id: "wf-existing", type: "workflow", status: "running", plan: history.plan }]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.equal(byId.size, 2);
+  assert.equal(history.id, "run0-326826-291");
+  assert.equal(history.run_id, observation.run_id);
+  assert.equal(history.parent_id, "wf-existing");
+});
+
 test("finished worker runs stay inspectable after runtime observation is gone", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-history-"));
   writeProject(dir, {
