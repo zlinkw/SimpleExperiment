@@ -5231,7 +5231,12 @@ function renderPanelHtml() {
       document.querySelectorAll("[title]").forEach((node) => {
         const raw = String(node.getAttribute("title") || "");
         const compact = compactNativeTitleText(raw);
-        if (!compact) node.removeAttribute("title");
+        if (!compact) {
+          if (raw && (node.tagName === "BUTTON" || node.tagName === "A") && !node.getAttribute("data-tip")) {
+            node.setAttribute("data-tip", raw);
+          }
+          node.removeAttribute("title");
+        }
         else if (compact !== raw) node.setAttribute("title", compact);
       });
     }

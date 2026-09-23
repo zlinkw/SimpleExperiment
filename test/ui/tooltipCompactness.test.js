@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "..", "..");
@@ -36,4 +37,28 @@ test("native title maintenance skips unchanged global scans and tracks dynamic w
   assert.match(source, /function setNativeTitle\(node, value\)/);
   assert.match(source, /nativeTitleMutationVersion = \(nativeTitleMutationVersion \+ 1\) % 1000000/);
   assert.doesNotMatch(source, /\.title\s*=\s*/);
+});
+
+test("compacted action titles remain available to custom tooltips", () => {
+  const source = readSource("src/ui/PanelHtml.ts");
+  const start = source.indexOf("    function compactNativeTitleAttributes() {");
+  const end = source.indexOf("\n    function compactNativeTitleText", start);
+  assert.ok(start >= 0 && end > start);
+  const attributes = new Map([["title", "保存配置并同步到 Worker"]]);
+  const button = {
+    tagName: "BUTTON",
+    getAttribute: (key) => attributes.get(key) || null,
+    setAttribute: (key, value) => attributes.set(key, value),
+    removeAttribute: (key) => attributes.delete(key),
+  };
+  const context = {
+    postRenderDomVersion: 1,
+    nativeTitleMutationVersion: 0,
+    lastNativeTitleCompactKey: "",
+    document: { querySelectorAll: () => [button] },
+    compactNativeTitleText: () => "",
+  };
+  vm.runInNewContext(`${source.slice(start, end)}\ncompactNativeTitleAttributes();`, context);
+  assert.equal(attributes.get("title"), undefined);
+  assert.equal(attributes.get("data-tip"), "保存配置并同步到 Worker");
 });

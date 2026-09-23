@@ -5897,51 +5897,52 @@ export class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`GitHub 同步完成：${timestampCommitMessage(taskName, [])}`);
     }
     async publishToGitHub(taskName) {
-        this.notifyLocalActionStarted("发布到git并上传worker", "正在创建或推送远程仓库，并提交当前工作区改动；完成后会把代码同步到所有 Worker。");
-        // 拓扑感知：single_worker(无 Hub)跳过 Hub 相关同步要求，仅提示 Worker 侧入口。
         const topology = this.projectTopologyAssessment();
         const hubRequired = topology.hubAllowed === true && topology.mode === "hub_worker";
-        // 1. 先拿 VSCode GitHub 认证：createIfNone=true 时未配置会弹系统登录引导用户手动连接。
-        const token = await this.githubUpdateToken(true);
-        const repo = await this.primaryGitRepository();
-        if (gitRepositoryHasRemote(repo)) {
-            await this.syncToGitHub(false, taskName);
-        }
-        else {
-            const root = workspaceRoot();
-            if (!root)
-                throw new Error("请先打开一个工作区，再执行 GitHub 发布。");
-            await vscode.commands.executeCommand("git.stageAll");
-            if (gitRepositoryHasChanges(repo)) {
-                const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
-                assertNonEmptyCommitMessage(message);
-                repo.inputBox.value = message;
-                await repo.commit(message);
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "发布到git并上传worker", cancellable: false }, async (progress) => {
+            const report = (message, increment) => progress.report({ message, increment });
+            report("正在连接 GitHub 并提交/推送仓库…", 8);
+            const token = await this.githubUpdateToken(true);
+            const repo = await this.primaryGitRepository();
+            if (gitRepositoryHasRemote(repo)) {
+                await this.syncToGitHub(false, taskName);
             }
-            // 无 remote 必须用 gh CLI 创建仓库；缺失时给可点击安装引导。
-            const cp = require("child_process");
-            const probe = cp.spawnSync("gh", ["--version"], { encoding: "utf8", timeout: 5000 });
-            const ghMissing = probe.error || probe.status !== 0;
-            if (ghMissing) {
-                const choice = await vscode.window.showErrorMessage(`未检测到 gh CLI（GitHub 官方命令行）。首次发布需要它创建仓库。请先安装 gh 并执行 \`gh auth login\`，然后重试。`, { modal: true }, "打开安装页", "查看文档");
-                if (choice === "打开安装页")
-                    await vscode.env.openExternal(vscode.Uri.parse("https://cli.github.com/"));
-                else if (choice === "查看文档")
-                    await vscode.env.openExternal(vscode.Uri.parse("https://docs.github.com/zh/github-cli/github-cli/setting-up-the-github-cli"));
-                throw new Error("gh CLI 未安装或未登录，无法创建远程仓库；已引导打开安装页，请安装后重新执行「发布到git并上传worker」。");
+            else {
+                const root = workspaceRoot();
+                if (!root)
+                    throw new Error("请先打开一个工作区，再执行 GitHub 发布。");
+                await vscode.commands.executeCommand("git.stageAll");
+                if (gitRepositoryHasChanges(repo)) {
+                    const message = timestampCommitMessage(taskName, changedFileNamesFromRepo(repo));
+                    assertNonEmptyCommitMessage(message);
+                    repo.inputBox.value = message;
+                    await repo.commit(message);
+                }
+                const cp = require("child_process");
+                const probe = cp.spawnSync("gh", ["--version"], { encoding: "utf8", timeout: 5000 });
+                const ghMissing = probe.error || probe.status !== 0;
+                if (ghMissing) {
+                    const choice = await vscode.window.showErrorMessage(`未检测到 gh CLI（GitHub 官方命令行）。首次发布需要它创建仓库。请先安装 gh 并执行 \`gh auth login\`，然后重试。`, { modal: true }, "打开安装页", "查看文档");
+                    if (choice === "打开安装页")
+                        await vscode.env.openExternal(vscode.Uri.parse("https://cli.github.com/"));
+                    else if (choice === "查看文档")
+                        await vscode.env.openExternal(vscode.Uri.parse("https://docs.github.com/zh/github-cli/github-cli/setting-up-the-github-cli"));
+                    throw new Error("gh CLI 未安装或未登录，无法创建远程仓库；已引导打开安装页，请安装后重新执行「发布到git并上传worker」。");
+                }
+                await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
             }
-            await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
-        }
-        // 2. GitHub 推送完成后，串联 Worker 上传（不弹二次确认，串联动作由本按钮兜底）。
-        try {
-            await this.uploadProjectToWorkers(false);
-        }
-        catch (uploadErr) {
-            void vscode.window.showErrorMessage(`GitHub 已发布，但 Worker 上传失败：${errorMessage(uploadErr)}。可单独使用「上传到 Worker」入口重试。`);
-            throw uploadErr;
-        }
-        void vscode.window.showInformationMessage(hubRequired ? "发布完成：GitHub + 所有 Worker。" : "发布完成：GitHub + 所有 Worker（无 Hub 模式已跳过 Hub）。");
-        void token;
+            report("GitHub 已完成，开始上传到 Worker…", 22);
+            try {
+                await this.uploadProjectToWorkers(false, { progressReport: report, progressSpan: 70 });
+            }
+            catch (uploadErr) {
+                void vscode.window.showErrorMessage(`GitHub 已发布，但 Worker 上传失败：${errorMessage(uploadErr)}。可单独使用「上传到 Worker」入口重试。`);
+                throw uploadErr;
+            }
+            report("全部完成", 0);
+            void vscode.window.showInformationMessage(hubRequired ? "发布完成：GitHub + 所有 Worker。" : "发布完成：GitHub + 所有 Worker（无 Hub 模式已跳过 Hub）。");
+            void token;
+        });
     }
     async overwriteFromGitHub() {
         await confirmUiCommand("从 GitHub 覆盖本机", "将执行 git reset --hard 和 git clean，删除本地未提交改动。", true);
@@ -5959,11 +5960,11 @@ export class RealtimeTunnelPanelProvider {
             startedAction: { title: "首次上传到 Hub", detail: "正在通过 SimpleSFTP 同步本地轻量代码到 Hub。" },
         });
     }
-    async uploadProjectToWorkers(confirm = true) {
+    async uploadProjectToWorkers(confirm = true, progressOptions = {}) {
         await this.prepareSftpTargets("uploadProjectToWorkers", "simpleSftp.uploadWorkspace");
-        await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", confirm ? {
+        await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", { ...progressOptions, ...(confirm ? {
             startedAction: { title: "首次上传到 Worker", detail: "正在通过 SimpleSFTP 同步本地轻量代码到所有启用 Worker。" },
-        } : undefined);
+        } : {}) });
     }
     async distributeCodeToWorkers() {
         await this.prepareSftpTargets("distributeCodeToWorkers", "simpleSftp.uploadWorkspace");
@@ -6734,14 +6735,19 @@ export class RealtimeTunnelPanelProvider {
         assertCurrent();
         await this.writeSftpManagerServerProfiles(enabledTargets.map((target) => target.id));
         assertCurrent();
-        if (options.startedAction)
+        if (options.startedAction && !options.progressReport)
             this.notifyLocalActionStarted(options.startedAction.title, options.startedAction.detail);
         const roleStatus = syncRoleStatus(enabledTargets, this.lastCodeSyncState, fingerprint);
         const failures = [];
         this.lastCodeSyncState = { fingerprint, scope, hub: roleStatus.hubRunning, workers: roleStatus.workersRunning, updatedAt: new Date().toISOString() };
         void this.persistProjectCodeSyncState().catch(() => undefined);
         this.postState();
+        const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
+        const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
+        let progressIndex = 0;
         for (const target of enabledTargets) {
+            progressIndex += 1;
+            if (progressReport) progressReport(`正在上传到 ${target.label || target.id}（${progressIndex}/${enabledTargets.length}）…`, 0);
             try {
                 const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
                     apiMode: true,
@@ -6763,6 +6769,7 @@ export class RealtimeTunnelPanelProvider {
                 const mismatches = verified.filter((row) => !row.exists || String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase());
                 if (mismatches.length)
                     throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
+                if (progressReport && progressStep > 0) progressReport(`已完成 ${target.label || target.id}（${progressIndex}/${enabledTargets.length}）`, progressStep);
             }
             catch (error) {
                 if (isUiCommandCancelled(error))
