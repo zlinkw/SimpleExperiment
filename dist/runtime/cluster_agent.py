@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.59"
-RUNTIME_VERSION = "0.5.59"
-PLUGIN_VERSION = "0.5.59"
+AGENT_VERSION = "0.5.60"
+RUNTIME_VERSION = "0.5.60"
+PLUGIN_VERSION = "0.5.60"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -3221,12 +3221,12 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         raise RuntimeError(f"tmux send-keys failed rc={_send_failed_lines[0][1]} for {session!r}; line={_truncate_text(_send_failed_lines[0][0], 500)!r}; cwd={str(cwd)!r}; {ctx}; blocking task dispatch")
     # Mirror the experiment's stdout.log/stderr.log into a split pane so the operator can see
     # errors directly inside the tmux window (the scheduler/train output may be redirected to
-    # those files by the project). Wait for the scheduler's sidecar, then tail -F both logs.
+    # those files by the project). Start at the current end to avoid replaying prior attempts.
     _sidecar_dir = env.get("SIMPLE_EXPERIMENT_TMUX_LOG_DIR") if isinstance(env, dict) else None
     if _sidecar_dir:
         _sidecar_path = os.path.join(str(_sidecar_dir), str(session) + ".output_dir")
         _watch = "bash -c " + shlex.quote(
-            "while [ ! -f " + shlex.quote(str(_sidecar_path)) + " ]; do sleep 1; done; OD=$(cat " + shlex.quote(str(_sidecar_path)) + "); exec tail -F \"$OD/stdout.log\" \"$OD/stderr.log\""
+            "while [ ! -f " + shlex.quote(str(_sidecar_path)) + " ]; do sleep 1; done; OD=$(cat " + shlex.quote(str(_sidecar_path)) + "); exec tail -n 0 -F \"$OD/stdout.log\" \"$OD/stderr.log\""
         )
         try:
             subprocess.run(["tmux", "split-window", "-t", str(session), "-v", "-l", "40%", _watch], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)

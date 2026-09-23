@@ -72,7 +72,7 @@ test("project root uses Local API workspace from unrelated cwd and explicit env 
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {
       const { id, method } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      const result = method === "status" ? { workspace: project, version: "0.5.59" } : {};
+      const result = method === "status" ? { workspace: project, version: "0.5.60" } : {};
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
     });
