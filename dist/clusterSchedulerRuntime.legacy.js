@@ -2969,7 +2969,7 @@ def write_state(path: Path, payload: dict[str, Any]) -> None:
     atomic_write_json(path, payload)
 
 
-def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "", default_result_csv_dir: str = "experiments/results", overwrite_existing: bool = False, case_name: str = "", seed: Any = None) -> str:
+def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, gpu_id: str, log_dir: Path, mode: str = "train_test", debug_mode: bool = False, debug_run_id: str = "", debug_output_dir: str = "", default_result_csv_dir: str = "experiments/results", overwrite_existing: bool = False, case_name: str = "", seed: Any = None, workflow_id: str = "") -> str:
     conda_env = simple_conda_env_name({
         "SIMPLE_EXPERIMENT_CONDA_ENV": str(worker.get("conda_env") or worker.get("condaEnv") or ""),
     })
@@ -2989,6 +2989,7 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
         "projectDir": project_dir,
         "schedulerPath": runtime_path,
         "plan": plan,
+        **({"workflowId": str(workflow_id)} if str(workflow_id or "").strip() else {}),
         "experimentIndex": experiment_index,
         "gpuId": gpu_id,
         "case": str(case_name or ""),
@@ -3667,7 +3668,7 @@ def main() -> None:
                 try:
                     overwrite_existing = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
                     _test_job = jobs_by_index.get(int(item["experiment_index"]))
-                    session = launch_experiment(worker, args.plan, int(item["experiment_index"]), str(item["gpu_id"]), log_dir, "test", args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir, overwrite_existing, _test_job.case if _test_job else "", _test_job.seed if _test_job else None)
+                    session = launch_experiment(worker, args.plan, int(item["experiment_index"]), str(item["gpu_id"]), log_dir, "test", args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir, overwrite_existing, _test_job.case if _test_job else "", _test_job.seed if _test_job else None, str(getattr(args, "operation_id", "") or getattr(args, "op_id", "") or ""))
                     item["train_session"] = item.get("session", "")
                     item["session"] = session
                     item["testing_started_at"] = now()
@@ -3827,7 +3828,7 @@ def main() -> None:
                     try:
                         overwrite_existing = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
                         _dispatch_job = jobs_by_index.get(experiment_index)
-                        session = launch_experiment(worker, args.plan, experiment_index, gpu_id, log_dir, execution_mode, args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir, overwrite_existing, _dispatch_job.case if _dispatch_job else "", _dispatch_job.seed if _dispatch_job else None)
+                        session = launch_experiment(worker, args.plan, experiment_index, gpu_id, log_dir, execution_mode, args.debug_mode, args.debug_run_id, args.debug_output_dir, args.default_result_csv_dir, overwrite_existing, _dispatch_job.case if _dispatch_job else "", _dispatch_job.seed if _dispatch_job else None, str(getattr(args, "operation_id", "") or getattr(args, "op_id", "") or ""))
                         item = {
                             "experiment_index": experiment_index,
                             "worker_id": worker["id"],

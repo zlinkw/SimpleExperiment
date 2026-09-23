@@ -1580,6 +1580,39 @@ test("exact run ID matching takes priority and preserves an existing workflow pa
   assert.equal(history.parent_id, "wf-existing");
 });
 
+test("historical workflow parents are inferred only from a unique exact time window", () => {
+  const { backfillWorkflowParents } = require("../../dist/cli/commands/experiment.js");
+  const plan = "experiments/plans/demo.yaml";
+  const workflow = (id, start, end, overrides = {}) => ({ id, type: "workflow", status: "failed", plan, worker_id: "worker-a", created: start, finished_at: end, ...overrides });
+  const run = (id, start, overrides = {}) => ({ id, type: "worker_run", plan, worker_id: "worker-a", started_at: start, parent_id: "", ...overrides });
+  const first = workflow("workflow-a", "2026-09-23T00:00:00Z", "2026-09-23T00:10:00Z");
+  const later = workflow("workflow-b", "2026-09-23T00:20:00Z", "2026-09-23T00:30:00Z");
+  const matched = run("run-1", "2026-09-23T00:05:00Z", { plan: ".\\experiments\\plans\\demo.yaml" });
+  backfillWorkflowParents([first, later, matched]);
+  assert.equal(matched.parent_id, first.id);
+
+  const overlap = workflow("workflow-overlap", "2026-09-23T00:04:00Z", "2026-09-23T00:08:00Z");
+  const ambiguous = run("run-2", "2026-09-23T00:05:00Z");
+  backfillWorkflowParents([first, overlap, ambiguous]);
+  assert.equal(ambiguous.parent_id, "");
+
+  const explicit = run("run-3", "2026-09-23T00:05:00Z", { parent_id: "explicit-parent" });
+  backfillWorkflowParents([first, explicit]);
+  assert.equal(explicit.parent_id, "explicit-parent");
+
+  const otherPlan = run("run-4", "2026-09-23T00:05:00Z", { plan: "other/demo.yaml" });
+  const otherWorker = run("run-5", "2026-09-23T00:05:00Z", { worker_id: "worker-b" });
+  const missingStart = run("run-6", "");
+  const unknownOpen = workflow("workflow-unknown", "2026-09-23T00:00:00Z", "", { status: "unknown" });
+  const unknownRun = run("run-7", "2026-09-23T00:05:00Z");
+  backfillWorkflowParents([first, otherPlan, otherWorker, missingStart]);
+  backfillWorkflowParents([unknownOpen, unknownRun]);
+  assert.equal(otherPlan.parent_id, "");
+  assert.equal(otherWorker.parent_id, "");
+  assert.equal(missingStart.parent_id, "");
+  assert.equal(unknownRun.parent_id, "");
+});
+
 test("finished worker runs stay inspectable after runtime observation is gone", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-history-"));
   writeProject(dir, {

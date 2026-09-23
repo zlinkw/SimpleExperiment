@@ -25,6 +25,8 @@ Default `--json` is compact.
 
 Empty fields are omitted. `--json --full` returns the full experiment object.
 
+新生成的 `worker_run` 优先使用 Scheduler 显式传递的 `workflowId` 设置 `parent_id`。旧历史记录仅在 plan 完整路径、Worker 和启动时间得到唯一 workflow 候选时回填；候选不唯一时 `parent_id` 保持空。`experiment tree` 只根据 `parent_id` 建树，不做模糊关联。
+
 ## experiment active
 
 ```json

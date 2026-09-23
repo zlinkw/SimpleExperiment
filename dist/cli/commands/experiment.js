@@ -60,6 +60,7 @@ exports.experimentRetry = experimentRetry;
 exports.loadExperiments = loadExperiments;
 exports.applyRuntimeObservations = applyRuntimeObservations;
 exports.workerHistoryMatchesRuntime = workerHistoryMatchesRuntime;
+exports.backfillWorkflowParents = backfillWorkflowParents;
 exports.applyObservationFields = applyObservationFields;
 exports.runtimeRow = runtimeRow;
 exports.lifecycleOf = lifecycleOf;
@@ -796,6 +797,11 @@ async function loadExperiments() {
     }
     await applyRuntimeObservations(byId);
     const rows = Array.from(byId.values());
+    backfillWorkflowParents(rows);
+    try {
+        rememberWorkerRuns((0, data_1.resolveProjectPath)(path.join(...WORKER_TASK_CACHE_DIR)), rows.filter((row) => row.type === "worker_run" && row.source === "history" && Boolean(row.parent_id)));
+    }
+    catch { /* History cache failure must not break a read-only CLI query. */ }
     for (const row of rows)
         applyWorkflowAggregate(row, rows);
     for (const row of rows) {
@@ -1144,19 +1150,44 @@ function supplementWorkflow(row, task, snapshot) {
 }
 function uniqueWorkflowParent(task, workerId, workflows) {
     const plan = firstString(task, ["planFile", "plan"]);
-    const started = Date.parse(firstString(task, ["startedAt", "started_at"]));
-    const candidates = workflows.filter((row) => {
-        if (row.type !== "workflow" || !plan || row.plan !== plan)
-            return false;
+    const startedAt = firstString(task, ["startedAt", "started_at"]);
+    return uniqueWorkflowParentByFields(plan, workerId, startedAt, workflows);
+}
+function uniqueWorkflowParentByFields(plan, workerId, startedAt, workflows) {
+    const normalizePlan = (value) => String(value || "").trim().replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
+    const wantedPlan = normalizePlan(plan);
+    const runStart = Date.parse(startedAt);
+    if (!wantedPlan || !Number.isFinite(runStart))
+        return "";
+    const candidates = new Set();
+    for (const row of workflows) {
+        if (row.type !== "workflow" || !row.id || normalizePlan(row.plan) !== wantedPlan)
+            continue;
         if (workerId && row.worker_id && row.worker_id !== workerId)
-            return false;
-        if (!Number.isFinite(started) || !row.created)
-            return true;
-        const created = Date.parse(row.created);
-        const finished = Date.parse(row.finished_at || row.updated);
-        return Number.isFinite(created) && started >= created - 5_000 && (!Number.isFinite(finished) || started <= finished + 5_000);
-    });
-    return candidates.length === 1 ? candidates[0].id : "";
+            continue;
+        const workflowStart = Date.parse(row.created);
+        if (!Number.isFinite(workflowStart) || runStart < workflowStart - 5_000)
+            continue;
+        if (!["running", "pending", "queued"].includes(row.status)) {
+            if (row.status === "unknown" && !row.finished_at)
+                continue;
+            const workflowEnd = Date.parse(row.finished_at || row.updated);
+            if (!Number.isFinite(workflowEnd) || runStart > workflowEnd + 5_000)
+                continue;
+        }
+        candidates.add(row.id);
+    }
+    return candidates.size === 1 ? candidates.values().next().value || "" : "";
+}
+function backfillWorkflowParents(rows) {
+    const workflows = rows.filter((row) => row.type === "workflow");
+    for (const row of rows) {
+        if (row.type !== "worker_run" || row.parent_id)
+            continue;
+        const parent = uniqueWorkflowParentByFields(row.plan, row.worker_id, row.started_at || row.created, workflows);
+        if (parent)
+            row.parent_id = parent;
+    }
 }
 const EXPERIMENT_LAUNCH_ACTIONS = new Set(["run-plan", "workflow-run", "reproduce-plan"]);
 function operationAction(record) {

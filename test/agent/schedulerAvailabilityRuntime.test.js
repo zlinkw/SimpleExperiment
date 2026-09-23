@@ -233,3 +233,20 @@ else:
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout.trim(), /Worker nwpu3 未配置 condaEnv/);
 });
+
+test("scheduler propagates the run-plan operation ID to Worker task commands", () => {
+  const value = runPython(`
+import pathlib
+commands = []
+module.ensure_worker_runtime = lambda worker: "simple_cluster/runtime/cluster_scheduler.py"
+module.enqueue_worker_command = lambda worker, command: commands.append(command)
+worker = {"id": "worker-a", "project_dir": "/tmp/project", "conda_env": "research"}
+session = module.launch_experiment(worker, "experiments/plans/demo.yaml", 0, "0", pathlib.Path("/tmp"), workflow_id="run-plan-parent")
+command = commands[0]
+print(json.dumps({"workflowId": command.get("workflowId"), "commandId": command["commandId"], "runKey": command["runKey"], "session": session}))
+`);
+  assert.equal(value.workflowId, "run-plan-parent");
+  assert.equal(value.commandId, value.session);
+  assert.equal(value.runKey, value.session);
+  assert.notEqual(value.commandId, value.workflowId);
+});

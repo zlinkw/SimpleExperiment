@@ -283,6 +283,56 @@ test("rate-limited snapshots keep the last run while classification stays stable
   assert.doesNotMatch(other.body.diagnosis.latest_message, new RegExp(runId));
 });
 
+test("historical Worker task gains and retains a unique workflow parent", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-parent-"));
+  const workflow = "run-plan-1790156858344-oz9lwg";
+  const workerRun = "run0-866039-975";
+  const planFile = "experiments/plans/demo.yaml";
+  const indexFile = path.join(root, "simple_cluster", "experiment_index.json");
+  fs.mkdirSync(path.dirname(indexFile), { recursive: true });
+  fs.writeFileSync(indexFile, JSON.stringify([
+    { global_job_id: workflow, type: "workflow", status: "failed", plan: planFile, started_at: "2026-09-23T00:00:00Z", finished_at: "2026-09-23T00:10:00Z" },
+  ]), "utf8");
+  let tasksVisible = true;
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const { id, method } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const result = method === "operations.list"
+        ? { records: [{ operationId: workflow, type: "run-plan", status: "failed", startedAt: "2026-09-23T00:00:00Z", finishedAt: "2026-09-23T00:10:00Z" }] }
+        : method === "tasks.list"
+          ? { workerTasks: tasksVisible ? [{ workerId: "worker-a", generatedAt: "2026-09-23T00:07:00Z", tasks: [
+            { runKey: workerRun, status: "failed", planFile, workerId: "worker-a", startedAt: "2026-09-23T00:05:00Z", finishedAt: "2026-09-23T00:07:00Z", logPath: "secret.log" },
+          ] }] : [] }
+          : method === "state.get" ? { value: { workerTunnels: [] } } : {};
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const apiFile = path.join(root, "api.json");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+
+  const listed = await callCli(root, apiFile, ["list", "--full"]);
+  assert.equal(listed.code, 0);
+  assert.equal(listed.body.find((row) => row.id === workerRun)?.parent_id, workflow);
+  const historyFile = path.join(root, "simple_cluster", "tmp", "worker_task_snapshots", "worker-a.json");
+  const cached = JSON.parse(fs.readFileSync(historyFile, "utf8"));
+  assert.equal(cached.rows.find((row) => row.id === workerRun)?.parent_id, workflow);
+  assert.equal("raw" in cached.rows[0], false);
+  assert.equal("logPath" in cached.rows[0], false);
+
+  tasksVisible = false;
+  const tree = await callCli(root, apiFile, ["tree"]);
+  const node = tree.body.find((row) => row.id === workflow);
+  assert.equal(node?.children_count, 1);
+  assert.equal(node?.children?.[0]?.id, workerRun);
+  const status = await callCli(root, apiFile, ["status", workflow, "--full"]);
+  assert.equal(status.body.children?.[0]?.id, workerRun);
+});
+
 function taskPayload(phase, planFile, firstWorkflow, secondWorkflow, otherRunId) {
   if (phase === "limited") {
     return { workerTasks: [{ workerId: "worker-a", tasks: [], error: "Worker task snapshot rate_limited", generatedAt: "2026-09-23T00:05:00Z" }] };
