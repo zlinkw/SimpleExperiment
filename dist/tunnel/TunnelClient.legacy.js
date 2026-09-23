@@ -20,7 +20,7 @@ const getPurposeByPath = new Map([
     ["/api/gpu", "snapshot"],
     ["/api/scheduler", "snapshot"],
     ["/api/traces", "snapshot"],
-    ["/api/live-output", "snapshot"],
+    ["/api/live-output", "live_output"],
     ["/api/results/summary", "snapshot"],
     ["/api/diagnostics", "diagnostics"],
     ["/api/audit/tail", "diagnostics"],
@@ -115,9 +115,12 @@ class HttpTunnelClient {
     getTraces() {
         return this.getPath("/api/traces");
     }
-    getLiveOutput(runKey, since = 0) {
+    getLiveOutput(runKey, since = 0, options = {}) {
         const params = new URLSearchParams({ runKey, since: String(Math.max(0, since)) });
-        return this.getPath(`/api/live-output?${params.toString()}`);
+        return this.requestJson(`/api/live-output?${params.toString()}`, "live_output", undefined, {
+            method: "GET",
+            userInitiated: options.userInitiated,
+        });
     }
     getResultsSummary(planFile = "", options = {}) {
         const path = "/api/results/summary" + (planFile ? "?planFile=" + encodeURIComponent(planFile) : "");

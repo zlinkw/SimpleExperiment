@@ -173,8 +173,8 @@ export class RealtimeTunnelClient {
     return this.http.getTraces();
   }
 
-  getLiveOutput(runKey: string, since = 0): Promise<unknown> {
-    return this.http.getLiveOutput(runKey, since);
+  getLiveOutput(runKey: string, since = 0, options: { userInitiated?: boolean } = {}): Promise<unknown> {
+    return this.http.getLiveOutput(runKey, since, options);
   }
 
   setProtectedLogKeys(keys: string[]): void {

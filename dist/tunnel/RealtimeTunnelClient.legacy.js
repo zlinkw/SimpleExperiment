@@ -138,8 +138,8 @@ class RealtimeTunnelClient {
     getTraces() {
         return this.http.getTraces();
     }
-    getLiveOutput(runKey, since = 0) {
-        return this.http.getLiveOutput(runKey, since);
+    getLiveOutput(runKey, since = 0, options = {}) {
+        return this.http.getLiveOutput(runKey, since, options);
     }
     setProtectedLogKeys(keys) {
         this.protectedLogKeys = normalizeProtectedLogKeys(keys);

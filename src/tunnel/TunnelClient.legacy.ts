@@ -86,7 +86,7 @@ export interface TunnelClient {
   getGpuHistory(query?: GpuHistoryQuery): Promise<GpuHistoryResponse>;
   getScheduler(): Promise<unknown>;
   getTraces(): Promise<unknown>;
-  getLiveOutput(runKey: string, since?: number): Promise<unknown>;
+  getLiveOutput(runKey: string, since?: number, options?: { userInitiated?: boolean }): Promise<unknown>;
   getResultsSummary(planFile?: string, options?: { userInitiated?: boolean }): Promise<unknown>;
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
@@ -104,7 +104,7 @@ const getPurposeByPath = new Map<string, TunnelRequestPurpose>([
   ["/api/gpu", "snapshot"],
   ["/api/scheduler", "snapshot"],
   ["/api/traces", "snapshot"],
-  ["/api/live-output", "snapshot"],
+  ["/api/live-output", "live_output"],
   ["/api/results/summary", "snapshot"],
   ["/api/diagnostics", "diagnostics"],
   ["/api/audit/tail", "diagnostics"],
@@ -200,9 +200,12 @@ export class HttpTunnelClient implements TunnelClient {
     return this.getPath("/api/traces");
   }
 
-  getLiveOutput(runKey: string, since = 0): Promise<unknown> {
+  getLiveOutput(runKey: string, since = 0, options: { userInitiated?: boolean } = {}): Promise<unknown> {
     const params = new URLSearchParams({ runKey, since: String(Math.max(0, since)) });
-    return this.getPath(`/api/live-output?${params.toString()}`);
+    return this.requestJson(`/api/live-output?${params.toString()}`, "live_output", undefined, {
+      method: "GET",
+      userInitiated: options.userInitiated,
+    });
   }
 
   getResultsSummary(planFile = "", options: { userInitiated?: boolean } = {}): Promise<unknown> {

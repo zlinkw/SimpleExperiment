@@ -18,6 +18,9 @@ test("live output and audit reads ignore stale clients", () => {
   assert.match(live, /const client = this\.client/);
   assert.match(live, /client\.getLiveOutput/);
   assert.match(live, /generation !== this\.projectContextGeneration \|\| client !== this\.client/);
+  assert.match(live, /const result = await client\.getLiveOutput/);
+  assert.ok(live.indexOf("const result = await client.getLiveOutput") < live.indexOf("if (generation !== this.projectContextGeneration || client !== this.client)"));
+  assert.match(live, /return result/);
 
   const audit = method("openAuditTail", "refreshResultsSummary");
   assert.match(audit, /const projectContext = this\.captureProjectContext\(\)/);

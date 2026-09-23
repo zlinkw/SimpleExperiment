@@ -305,6 +305,17 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
   assert.doesNotMatch(apiServerSource, /\bscp\b|\brsync\b/);
 });
 
+test("live output Local API returns the direct Worker response before cached logs", () => {
+  const start = extensionSource.indexOf("async apiLiveOutput(params = {})");
+  const end = extensionSource.indexOf("apiConfigSchema()", start);
+  assert.ok(start >= 0 && end > start);
+  const body = extensionSource.slice(start, end);
+  assert.match(body, /const direct = [\s\S]*?fetchSelectedLiveOutput/);
+  assert.match(body, /direct\.(?:text|output|tail)/);
+  assert.ok(body.indexOf("fetchSelectedLiveOutput") < body.indexOf("this.buildState().logs"));
+  assert.ok(body.indexOf("direct.text") < body.indexOf("this.buildState().logs"));
+});
+
 test("SimpleExperiment accepts topology aliases and keeps configured remote roots authoritative", () => {
   assert.equal(topologyMode.normalizeTopologyMode("standalone"), "single_worker");
   assert.equal(topologyMode.normalizeTopologyMode("worker_only"), "worker_pool");

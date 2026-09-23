@@ -1063,8 +1063,32 @@ class RealtimeTunnelPanelProvider {
     async apiLiveOutput(params = {}) {
         const runKey = stringField(params, "runKey") || stringField(params, "run_key") || "";
         const workerId = stringField(params, "workerId") || stringField(params, "worker_id") || "";
-        if (runKey)
-            await this.fetchSelectedLiveOutput(runKey, workerId).catch(() => undefined);
+        const direct = runKey
+            ? await this.fetchSelectedLiveOutput(runKey, workerId, { userInitiated: true }).catch(() => undefined)
+            : undefined;
+        if (direct && typeof direct === "object") {
+            const directText = [direct.text, direct.output, direct.tail].find((value) => typeof value === "string" && value.trim());
+            if (directText) {
+                return {
+                    runKey,
+                    workerId,
+                    logs: [{ key: stringField(direct, "runKey") || runKey, text: directText, offset: Number(direct.offset || 0) }],
+                    count: 1,
+                };
+            }
+            const directRows = Array.isArray(direct.logs) ? direct.logs : Array.isArray(direct.rows) ? direct.rows : [];
+            const exactRows = directRows.flatMap((item) => {
+                if (!item || typeof item !== "object")
+                    return [];
+                const key = stringField(item, "key") || stringField(item, "runKey") || stringField(item, "run_key");
+                if (key !== runKey)
+                    return [];
+                const text = [item.text, item.output, item.tail, item.log].find((value) => typeof value === "string" && value.trim());
+                return text ? [{ ...item, key, text }] : [];
+            });
+            if (exactRows.length)
+                return { runKey, workerId, logs: exactRows, count: exactRows.length };
+        }
         const logs = this.buildState().logs || {};
         const rows = Object.entries(logs).map(([key, value]) => ({
             key,
@@ -4544,7 +4568,7 @@ class RealtimeTunnelPanelProvider {
                 this.selectedLogRunKey = stringField(message, "runKey") || undefined;
                 this.markTaskSelectionChanged();
                 this.client.setProtectedLogKeys(this.logProtectedKeys());
-                await this.fetchSelectedLiveOutput(this.selectedLogRunKey, stringField(message, "workerId"));
+                await this.fetchSelectedLiveOutput(this.selectedLogRunKey, stringField(message, "workerId"), { userInitiated: true });
                 this.postState();
                 break;
             case "script":
@@ -9069,24 +9093,28 @@ class RealtimeTunnelPanelProvider {
             target?.sshConfigHost,
         ].map((value) => String(value || "").trim()).filter(Boolean));
     }
-    async fetchSelectedLiveOutput(runKey, workerId) {
+    async fetchSelectedLiveOutput(runKey, workerId, options = {}) {
         const key = usableSelectionKey(runKey || "");
         if (!key || !this.isRealtimeMode())
-            return;
+            return undefined;
         const generation = this.projectContextGeneration;
         const client = this.client;
         const resolvedWorkerId = this.resolveWorkerEndpointId(workerId) || "";
         try {
-            await client.getLiveOutput(key, 0, resolvedWorkerId || undefined);
+            const result = await client.getLiveOutput(key, 0, resolvedWorkerId || undefined, { userInitiated: options.userInitiated === true });
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return undefined;
+            return result;
         }
         catch (error) {
             if (generation !== this.projectContextGeneration || client !== this.client)
-                return;
+                return undefined;
             this.recordActionError({
                 command: "selectLogRunKey",
                 message: errorMessage(error),
                 suggestion: resolvedWorkerId ? "请检测对应 Worker Agent，确认日志路径仍在项目目录内。" : "请检测 Hub Agent，确认日志路径仍在项目目录内。",
             });
+            return undefined;
         }
     }
     async refreshLocalPlanMetadata(options = true) {

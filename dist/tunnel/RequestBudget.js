@@ -11,6 +11,7 @@ exports.defaultRequestBudgetConfig = {
         health: 60_000,
         snapshot: 60_000,
         gpu_history: 1_000,
+        live_output: 1_000,
         manual_refresh: 1_000,
         diagnostics: 60_000,
         events: 0,

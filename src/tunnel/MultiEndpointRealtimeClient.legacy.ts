@@ -313,13 +313,13 @@ export class MultiEndpointRealtimeClient {
     return client.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
   }
 
-  async getLiveOutput(runKey: string, since = 0, workerId?: string): Promise<unknown> {
+  async getLiveOutput(runKey: string, since = 0, workerId?: string, options: { userInitiated?: boolean } = {}): Promise<unknown> {
     const client = workerId ? this.clients.get(workerId) : this.hubClient();
     const endpoint = workerId ? this.endpointById.get(workerId) : undefined;
     if (!client || (workerId && endpoint?.role !== "worker")) {
       throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
     }
-    const result = await client.getLiveOutput(runKey, since);
+    const result = await client.getLiveOutput(runKey, since, options);
     const record = result && typeof result === "object" ? result as Record<string, unknown> : {};
     const text = String(record.text || record.output || record.tail || "");
     const offset = Number(record.offset || 0);
