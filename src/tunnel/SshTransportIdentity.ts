@@ -61,15 +61,15 @@ export function resolveSshTransportIdentity(
   } = {},
 ): SshTransportIdentity {
   const configuredHost = firstConfiguredHost([
+    target.workerHost,
+    target.hubHost,
+    target.host,
     target.transferHost,
     target.sftpHost,
     target.sshHost,
-    target.host,
-    target.workerHost,
-    target.hubHost,
   ]);
   if (!configuredHost) {
-    throw new Error(`${text(target.label) || text(target.displayName) || text(target.id) || "SSH 目标"} 缺少插件设置中的服务器地址或 SFTP 传输地址。`);
+    throw new Error(`${text(target.label) || text(target.displayName) || text(target.id) || "SSH 目标"} 缺少服务器地址；请在插件设置中填写 IP 地址或可直接解析的域名。`);
   }
   return {
     transportHost: configuredHost,

@@ -115,12 +115,17 @@ test("manual Worker address wins over stale OpenSSH and Xshell names", () => {
   assert.equal(identity.sshConfigAlias, "");
 });
 
-test("manual SFTP address has priority over manual server address", () => {
+test("manual server address has priority over a legacy SFTP address", () => {
   const identity = resolveSshTransportIdentity({
     transferHost: "10.70.50.180",
     workerHost: "10.69.24.150",
     sshConfigAlias: "NWPU2",
   }, { sshServers: servers });
-  assert.equal(identity.transportHost, "10.70.50.180");
+  assert.equal(identity.transportHost, "10.69.24.150");
   assert.equal(identity.sshConfigAlias, "");
+});
+
+test("legacy SFTP address remains a fallback when no server address is configured", () => {
+  const identity = resolveSshTransportIdentity({ transferHost: "10.70.50.180" });
+  assert.equal(identity.transportHost, "10.70.50.180");
 });

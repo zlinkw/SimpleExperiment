@@ -92,9 +92,9 @@ test("server management config fields receive Chinese hover explanations", () =>
   const html = readSource("src/ui/PanelHtml.ts");
 
   assert.match(html, /function configHelp/);
-  assert.match(html, /hubDisplayName: "面板中显示的 Hub 名称/);
-  assert.match(html, /agentProjectDir: "服务器上存放项目的父目录/);
-  assert.match(html, /savedSessionPath: "负责保持 127\.0\.0\.1 本地端口转发的 Xshell 隧道会话文件"/);
+  assert.match(html, /hubDisplayName: "仅用于界面展示和识别 Hub/);
+  assert.match(html, /agentProjectDir: "填写服务器上的绝对父目录/);
+  assert.match(html, /savedSessionPath: "选择本机已有的 Xshell 会话文件/);
   assert.match(html, /configSessionSelect\(scope, key, label, value\)[\s\S]*helpBadge\(help\)/);
   assert.match(html, /configPortPair\(scope, label, localKey, remoteKey[\s\S]*helpBadge\(pairHelp\)/);
   assert.match(html, /configSelect\(scope, key, label, value[\s\S]*helpBadge\(help\)/);

@@ -509,7 +509,7 @@ SFTP 只负责低频真实文件传输：
 - Worker / Hub -> Local 下载结果、日志包、manifest
 - Worker -> Hub 结果归档相关文件传输
 
-服务器管理里的 `SFTP 传输地址` 是文件传输权威地址。若 Xshell 会话名或登录别名不能被 `SimpleSFTP` 解析，必须填写真实 IP 或可解析域名；插件会把该地址同时写入 `host`、`sftpHost`、`sshHost`、`transferHost` 和共享服务器档案，避免文件上传、Agent runtime 部署或忽略规则配置误用旧别名。
+服务器管理只需填写服务器地址、登录用户和项目父目录。服务器地址是插件 SSH 与 SimpleSFTP 文件操作的权威地址，应填写真实 IP 或可直接解析的域名，不是远端文件路径；已有 `transferHost` 等旧字段只在服务器地址缺失时作为兼容回退。文件传输目标路径根据项目父目录和当前项目名自动计算。Xshell 会话只负责 Agent 隧道，不提供文件传输地址。
 
 SFTP 不负责：
 

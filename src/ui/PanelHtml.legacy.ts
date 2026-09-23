@@ -7732,15 +7732,14 @@ export function renderPanelHtml(): string {
           '<div class="configGrid">' +
             configInput("hub", "hubDisplayName", "显示名称", hubName) +
             configInput("hub", "hubHost", "服务器地址", setup.hubHost || "") +
-            configInput("hub", "transferHost", "SFTP 传输地址", setup.transferHost || "", "text", "wide") +
             configInput("hub", "hubUser", "登录用户", setup.hubUser || "") +
             configInput("hub", "remoteTmuxSessionPrefix", "tmux 会话前缀", setup.remoteTmuxSessionPrefix || "simple") +
             configInput("hub", "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", setup.condaEnv || "") +
-            configInput("hub", "sshConfigAlias", "登录别名", setup.sshConfigAlias || "") +
             configInput("hub", "agentProjectDir", "项目父目录", setup.agentProjectDir || "", "text", "wide") +
             configSessionSelect("hub", "savedSessionPath", "Xshell 隧道会话", setup.savedSessionPath || "") +
             configPortPair("hub", "隧道端口对", "localForwardPort", "remoteAgentPort", setup.localForwardPort || hubAssignment.localForwardPort || "", setup.remoteAgentPort || hubAssignment.remoteServicePort || "", hubSession, "savedSessionForwardIndex", setup.savedSessionForwardIndex) +
           '</div>' +
+          '<div class="muted">插件的 SSH/SFTP 文件操作使用服务器地址；Xshell 会话只负责隧道。文件传输路径由项目父目录和当前项目名自动计算。</div>' +
           renderServerDestinationPreview(hubAgent, "hub") +
           renderSchedulerDependencyStatus(((state.probe || {}).schedulerDependencies), hubName) +
           '<div class="toolbar">' +
@@ -7786,20 +7785,19 @@ export function renderPanelHtml(): string {
             '<div class="configGrid">' +
               configInput(scope, "displayName", "显示名称", worker.displayName || worker.id) +
             configInput(scope, "workerHost", "服务器地址", worker.workerHost || worker.hubHost || "") +
-            configInput(scope, "transferHost", "SFTP 传输地址", worker.transferHost || "", "text", "wide") +
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
             configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
-            configInput(scope, "sshConfigAlias", "登录别名", worker.sshConfigAlias || "") +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
             configInput(scope, "maxConcurrentGpus", "并发占卡上限(auto=全部)", worker.maxConcurrentGpus ?? "auto", "text") +
             '<div class="muted" style="grid-column: 1 / -1; padding: 6px 0 2px; font-size: 11px;">空卡识别阈值：利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡（留空跟随全局 5% / 200MB）</div>' +
-            '<div class="thresholdRow"><div class="label">空卡利用率阈值 %（利用率 &lt; 阈值 视为空闲）</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleUtilThreshold') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleUtilThreshold ?? "") + '" placeholder="默认 5（&lt;5% 空闲）" type="number" min="0" max="100" style="width:100%; min-width:120px; box-sizing:border-box;" title="利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡" /></div></div>' +
-            '<div class="thresholdRow"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡" /></div></div>' +
-            '<div class="thresholdRow"><div class="label">会话检测最小间隔 秒</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="完成检测最小间隔，1–60 秒" /></div></div>' +
+            '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '"><div class="label">空卡利用率阈值 %（利用率 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleUtilThreshold")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleUtilThreshold') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleUtilThreshold ?? "") + '" placeholder="默认 5（&lt;5% 空闲）" type="number" min="0" max="100" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '" /></div></div>' +
+            '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleMemThresholdMb")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '" /></div></div>' +
+            '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
             configSessionSelect(scope, "savedSessionPath", "Xshell 隧道会话", worker.savedSessionPath || "") +
             configPortPair(scope, "隧道端口对", "localForwardPort", "remoteTelemetryPort", worker.localForwardPort || assignment.localForwardPort || "", worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "", workerSession, "savedSessionForwardIndex", worker.savedSessionForwardIndex) +
             configSelect(scope, "enabled", "启用状态", worker.enabled === false ? "false" : "true", [["true", "启用"], ["false", "禁用"]]) +
           '</div>' +
+          '<div class="muted">插件的 SSH/SFTP 文件操作使用服务器地址；Xshell 会话只负责隧道。文件传输路径由项目父目录和当前项目名自动计算。</div>' +
           renderServerDestinationPreview(workerAgent, scope) +
           renderSchedulerDependencyStatus((((state.workerProbes || {})[worker.id] || {}).schedulerDependencies), worker.displayName || worker.id) +
           '<div class="toolbar">' +
@@ -8046,13 +8044,13 @@ export function renderPanelHtml(): string {
           '</div>' +
           '<div class="remoteRootPolicyFields">' +
             '<section class="remoteRootPolicyField is-allowed">' +
-              '<div class="remoteRootPolicyFieldHead"><label for="remoteAllowedRootsInput">允许的项目父目录前缀</label><span class="muted">' + esc(remoteRootPolicyCount(allowed)) + ' 项</span></div>' +
-              '<textarea id="remoteAllowedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="allowedRoots" placeholder="/data/projects">' + esc(allowed) + '</textarea>' +
+              '<div class="remoteRootPolicyFieldHead"><label for="remoteAllowedRootsInput" title="每行一个服务器上的绝对目录；只允许在这些目录下设置项目父目录。留空表示不限制。">允许的项目父目录前缀' + helpBadge("每行一个服务器上的绝对目录；只允许在这些目录下设置项目父目录。留空表示不限制。") + '</label><span class="muted">' + esc(remoteRootPolicyCount(allowed)) + ' 项</span></div>' +
+              '<textarea id="remoteAllowedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="allowedRoots" placeholder="/data/projects" title="每行一个服务器上的绝对目录；只允许在这些目录下设置项目父目录。留空表示不限制。">' + esc(allowed) + '</textarea>' +
               '<small class="remoteRootPolicyHint">留空表示不做允许范围限制。</small>' +
             '</section>' +
             '<section class="remoteRootPolicyField is-denied">' +
-              '<div class="remoteRootPolicyFieldHead"><label for="remoteDeniedRootsInput">禁止的项目父目录前缀</label><span class="muted">' + esc(remoteRootPolicyCount(denied)) + ' 项</span></div>' +
-              '<textarea id="remoteDeniedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="deniedRoots" placeholder="/root/unsafe-root">' + esc(denied) + '</textarea>' +
+              '<div class="remoteRootPolicyFieldHead"><label for="remoteDeniedRootsInput" title="每行一个服务器上的绝对目录；这些目录及其子目录禁止作为项目父目录。禁止规则优先。">禁止的项目父目录前缀' + helpBadge("每行一个服务器上的绝对目录；这些目录及其子目录禁止作为项目父目录。禁止规则优先。") + '</label><span class="muted">' + esc(remoteRootPolicyCount(denied)) + ' 项</span></div>' +
+              '<textarea id="remoteDeniedRootsInput" class="remoteRootPolicyInput" spellcheck="false" data-config-input="remotePolicy" data-key="deniedRoots" placeholder="/root/unsafe-root" title="每行一个服务器上的绝对目录；这些目录及其子目录禁止作为项目父目录。禁止规则优先。">' + esc(denied) + '</textarea>' +
               '<small class="remoteRootPolicyHint">命中禁止规则时优先拒绝。</small>' +
             '</section>' +
           '</div>' +
@@ -8068,9 +8066,9 @@ export function renderPanelHtml(): string {
       const config = (state || {}).resultOutputConfig || {};
       const value = String(configDraftValue("resultOutput", "csvDirectory", config.csvDirectory || "experiments/results"));
       setHtmlIfChanged("resultCsvDirectorySettings",
-        '<div class="settingsLayoutTools" title="已有 Plan 的显式结果路径始终优先">' +
-          '<b>实验结果 CSV 目录</b>' +
-          '<div class="pptPathInputRow"><input class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="工作区相对目录：' + escAttr(value) + '"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button" title="选择结果表格文件所在目录（项目级设置）&#10;后续结果解析与绘图会按此目录查找">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button" title="保存结果表格文件目录设置&#10;后续结果解析与绘图会按此查找">保存</button></div>' +
+        '<div class="settingsLayoutTools" title="设置工作区内结果 CSV 的默认目录；已有 Plan 显式填写的结果路径优先。">' +
+          '<b title="工作区相对目录，例如 experiments/results；已有 Plan 显式填写的结果路径优先。">实验结果 CSV 目录' + helpBadge("工作区相对目录，例如 experiments/results；已有 Plan 显式填写的结果路径优先。") + '</b>' +
+          '<div class="pptPathInputRow"><input class="wide" data-config-input="resultOutput" data-key="csvDirectory" value="' + escAttr(value) + '" placeholder="experiments/results" title="填写工作区相对目录，例如 experiments/results；不要填写服务器 IP 或单个 CSV 文件路径。"><button data-command="chooseResultCsvDir" data-config-scope="resultOutput" class="secondary" type="button" title="选择结果表格文件所在目录（项目级设置）&#10;后续结果解析与绘图会按此目录查找">浏览</button><button data-command="saveResultCsvDir" data-config-scope="resultOutput" type="button" title="保存结果表格文件目录设置&#10;后续结果解析与绘图会按此查找">保存</button></div>' +
           '<span class="muted">新 Plan 与未显式声明结果路径的任务使用；已有 Plan 路径不变</span>' +
         '</div>');
     }
@@ -8233,7 +8231,8 @@ export function renderPanelHtml(): string {
       const violation = condaViolation || boundsViolation;
       const hintHtml = hint ? '<span class="configBoundsHint" title="' + escAttr(hint) + '">' + esc(hint) + '</span>' : "";
       const violationHtml = violation ? '<span class="configBoundsError" title="' + escAttr(label + "：" + violation) + '">' + esc(violation) + '</span>' : "";
-      const placeholder = key === "condaEnv" ? ' placeholder="/path/to/conda_envs/<env_name>"' : "";
+      const placeholders = { condaEnv: "/path/to/conda_envs/<env_name>", hubHost: "例如 10.69.24.150", workerHost: "例如 10.69.24.150", agentProjectDir: "例如 /data/qgking/zlk" };
+      const placeholder = placeholders[key] ? ' placeholder="' + escAttr(placeholders[key]) + '"' : "";
       return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + placeholder + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
     }
 
@@ -8410,51 +8409,51 @@ export function renderPanelHtml(): string {
     }
 
     function configHelp(scope, key) {
+      const topologyHelp = {
+        mode: "选择调度架构：单 Worker 由一台执行服务器运行；仅多 Worker 由多台执行服务器运行；Hub 可用时由 Hub 统一调度。切换后需保存。"
+      };
       const schedulerHelp = {
-        pollSeconds: "调度间隔(秒)",
-        jitterSeconds: "随机抖动(秒)",
-        workerStatusTtlSeconds: "Worker TTL(秒)",
-        localAvailabilityPushSeconds: "Local 上报(秒)",
-        workerAvailabilityPushSeconds: "Worker 上报(秒)",
-        operationEventMaxDelayMs: "事件合并(ms)",
-        workerActionMinIntervalMs: "Worker 操作间隔(ms)",
-        workerActionMaxConcurrent: "Worker 操作并发",
+        pollSeconds: "Hub 两次常规调度检查之间的基准间隔，单位秒；数值越小检查越频繁。",
+        jitterSeconds: "每轮调度额外增加 0 到此值的随机等待，单位秒；用于错开多台机器的请求。",
+        workerStatusTtlSeconds: "Worker 可用性信息可被沿用的最长时间，单位秒；过期时暂停向该 Worker 派发新任务。",
+        localAvailabilityPushSeconds: "本机汇总 GPU 与任务可用性并上报的基准间隔，单位秒。",
+        workerAvailabilityPushSeconds: "Worker 向 Hub 上报 GPU 与任务可用性的基准间隔，单位秒。",
+        operationEventMaxDelayMs: "停止、删除、归档和任务状态事件允许合并的最长时间，单位毫秒；不影响常规轮询。",
+        workerActionMinIntervalMs: "同一 Worker 两次手动控制操作之间的最短间隔，单位毫秒；防止重复点击。",
+        workerActionMaxConcurrent: "同时执行的 Worker 手动控制操作数；不等于 GPU 任务并发数。",
         gpuIdleUtilThreshold: "全局空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存且关系，默认 5%）",
         gpuIdleMemThresholdMb: "全局空卡显存阈值：显存 < 阈值 才视为空闲（与利用率且关系，默认 200MB）",
         sessionCheckMinSeconds: "全局会话检测最小间隔（秒，默认 5）"
       };
       const workerHelp = {
-        displayName: "显示名",
-        workerHost: "Worker 地址",
-        transferHost: "SFTP 地址",
-        workerUser: "Worker 用户",
+        displayName: "仅用于界面展示和识别该 Worker，不用于网络连接。",
+        workerHost: "填写该 Worker 的 IP 地址或可直接解析的域名，例如 10.69.24.150；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
+        workerUser: "登录该 Worker 的 SSH 用户名；SFTP 使用同一用户。",
         condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
-        sshConfigAlias: "登录别名",
-        agentProjectDir: "服务器上存放项目的父目录；插件自动追加当前项目名",
-        savedSessionPath: "负责保持 127.0.0.1 本地端口转发的 Xshell 隧道会话文件",
+        agentProjectDir: "填写服务器上的绝对父目录，例如 /data/qgking/zlk；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
+        savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
         agentSessionPath: "Agent 会话",
-        localForwardPort: "插件访问的 127.0.0.1 本地转发端口",
-        remoteTelemetryPort: "Worker 上由 Agent 监听的远端端口",
-        enabled: "启用",
-        maxConcurrentGpus: "GPU 并发上限(auto=全部)",
+        localForwardPort: "本机监听的隧道端口；插件经 127.0.0.1 和此端口访问 Worker Agent。不是 SSH 登录端口。",
+        remoteTelemetryPort: "Worker Agent 在远端监听的端口；需与所选 Xshell 会话的远端转发端口一致。不是 SSH 登录端口。",
+        enabled: "关闭后此 Worker 不参与新任务调度，也不作为当前文件传输目标；配置仍保留。",
+        maxConcurrentGpus: "同时占用的 GPU 数上限；留空或 auto 使用全部可用 GPU，不限制排队任务数。",
         gpuIdleUtilThreshold: "空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存双条件且关系）",
         gpuIdleMemThresholdMb: "空卡显存阈值：显存占用 < 阈值 才视为空闲（与利用率双条件且关系）",
         sessionCheckMinSeconds: "会话检测最小间隔（秒），越小越灵敏"
       };
       const hubHelp = {
-        hubDisplayName: "面板中显示的 Hub 名称；为空时使用 Xshell 会话名、SSH 别名或主机名",
-        hubHost: "Hub 地址",
-        transferHost: "SFTP 地址",
-        hubUser: "Hub 用户",
+        hubDisplayName: "仅用于界面展示和识别 Hub，不用于网络连接。",
+        hubHost: "填写 Hub 的 IP 地址或可直接解析的域名，例如 10.69.24.150；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
+        hubUser: "登录 Hub 的 SSH 用户名；SFTP 使用同一用户。",
         remoteTmuxSessionPrefix: "远端 tmux 会话名前缀；多用户共用服务器时建议用稳定用户名，旧 zlk 会话可填 zlk",
         condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
-        sshConfigAlias: "登录别名",
-        agentProjectDir: "服务器上存放项目的父目录；插件自动追加当前项目名",
-        savedSessionPath: "负责保持 127.0.0.1 本地端口转发的 Xshell 隧道会话文件",
+        agentProjectDir: "填写服务器上的绝对父目录，例如 /data/qgking/zlk；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
+        savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
         agentSessionPath: "Agent 会话",
-        localForwardPort: "插件访问的 127.0.0.1 本地转发端口",
-        remoteAgentPort: "Hub 上由 Agent 监听的远端端口"
+        localForwardPort: "本机监听的隧道端口；插件经 127.0.0.1 和此端口访问 Hub Agent。不是 SSH 登录端口。",
+        remoteAgentPort: "Hub Agent 在远端监听的端口；需与所选 Xshell 会话的远端转发端口一致。不是 SSH 登录端口。"
       };
+      if (scope === "topology") return topologyHelp[key] || "";
       if (scope === "scheduler") return schedulerHelp[key] || "";
       if (scope === "hub") return hubHelp[key] || "";
       if (String(scope || "").startsWith("worker:")) return workerHelp[key] || "";
@@ -11537,16 +11536,16 @@ export function renderPanelHtml(): string {
     }
 
     function projectRuleInput(key, label, value, title, cls) {
-      const compactTitle = label + "：" + displayValue(value || "");
-      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(compactTitle) + '"><label>' + esc(label) + helpBadge(compactTitle) + '</label><input data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '" value="' + escAttr(value || "") + '" title="' + escAttr(compactTitle) + '"></div>';
+      const fieldHelp = String(title || label);
+      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '">' + esc(label) + helpBadge(fieldHelp) + '</label><input data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '" value="' + escAttr(value || "") + '" title="' + escAttr(fieldHelp) + '"></div>';
     }
 
     function projectRuleTextarea(key, label, value, title, cls) {
       const readonly = String(cls || "").includes("readonly");
       const configAttr = readonly ? "" : ' data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '"';
       const lineCount = String(value || "").split(/\\n/).filter(Boolean).length;
-      const compactTitle = label + "：" + lineCount + " 行";
-      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(compactTitle) + '"><label>' + esc(label) + helpBadge(compactTitle) + '</label><textarea' + configAttr + (readonly ? " readonly" : "") + ' title="' + escAttr(compactTitle) + '">' + esc(value || "") + '</textarea></div>';
+      const fieldHelp = String(title || label) + "；当前 " + lineCount + " 行。";
+      return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '">' + esc(label) + helpBadge(fieldHelp) + '</label><textarea' + configAttr + (readonly ? " readonly" : "") + ' title="' + escAttr(fieldHelp) + '">' + esc(value || "") + '</textarea></div>';
     }
 
     function asEditorList(values) {
@@ -13583,14 +13582,14 @@ export function renderPanelHtml(): string {
         '<div class="pptPlotConfig" title="PPT 绘图">' +
           '<div class="gpuServerHead"><b>绘图到 PPT</b><span class="' + (automation.ready ? "good" : "muted") + '" title="' + escAttr(automation.message) + '">' + esc(automation.label) + '</span></div>' +
           '<div class="pptPlotConfigGrid">' +
-            '<label class="field"><span>PPT 路径</span><div class="pptPathInputRow"><input class="wide" data-config-input="ppt" data-key="presentationPath" value="' + escAttr(pathValue) + '" placeholder="留空表示新建 PPT" title="' + escAttr("PPT：" + (pathValue || "新建")) + '"><button data-command="choosePptPath" class="secondary" title="选择一个已存在的 PPT&#10;结果图表会追加写入该文件">浏览</button><button data-command="chooseNewPptPath" class="secondary" title="指定一个新建 PPT 文件的位置&#10;后续结果图表会写入这个新文件">新建路径</button></div></label>' +
-            '<label class="field"><span>图类型</span><select data-config-input="ppt" data-key="chartType" title="' + escAttr("图类型：" + chartTypeLabel(chartType) + "；原始值：" + chartType) + '">' +
+            '<label class="field" title="选择已有 PPT 文件追加图表，或指定要新建的 PPT 文件位置。"><span>PPT 路径' + helpBadge("选择已有 PPT 文件追加图表，或指定要新建的 PPT 文件位置。") + '</span><div class="pptPathInputRow"><input class="wide" data-config-input="ppt" data-key="presentationPath" value="' + escAttr(pathValue) + '" placeholder="留空表示新建 PPT" title="选择已有 PPT 文件追加图表，或指定要新建的 PPT 文件位置。"><button data-command="choosePptPath" class="secondary" title="选择一个已存在的 PPT&#10;结果图表会追加写入该文件">浏览</button><button data-command="chooseNewPptPath" class="secondary" title="指定一个新建 PPT 文件的位置&#10;后续结果图表会写入这个新文件">新建路径</button></div></label>' +
+            '<label class="field" title="选择结果绘图形式；自动模式根据统计结果挑选图形。"><span>图类型' + helpBadge("选择结果绘图形式；自动模式根据统计结果挑选图形。") + '</span><select data-config-input="ppt" data-key="chartType" title="选择结果绘图形式；自动模式根据统计结果挑选图形。">' +
               optionHtml("auto", "自动", chartType === "auto") +
               optionHtml("leaderboardBar", "柱状", chartType === "leaderboardBar") +
               optionHtml("meanStdErrorBar", "误差图", chartType === "meanStdErrorBar") +
               optionHtml("genericTable", "表格", chartType === "genericTable") +
             '</select></label>' +
-            '<label class="field"><span>样式</span><select data-config-input="ppt" data-key="styleMode" title="' + escAttr("样式：" + styleModeLabel(styleMode) + "；原始值：" + styleMode) + '">' +
+            '<label class="field" title="跟随当前 PPT 使用现有主题；默认样式使用插件预设图表样式。"><span>样式' + helpBadge("跟随当前 PPT 使用现有主题；默认样式使用插件预设图表样式。") + '</span><select data-config-input="ppt" data-key="styleMode" title="跟随当前 PPT 使用现有主题；默认样式使用插件预设图表样式。">' +
               optionHtml("activePpt", "跟随当前 PPT", styleMode === "activePpt") +
               optionHtml("default", "默认样式", styleMode === "default") +
             '</select></label>' +
@@ -13950,15 +13949,15 @@ export function renderPanelHtml(): string {
           (value && !headers.includes(value) ? '<option value="' + escAttr(value) + '" selected>' + esc(value) + '（当前配置，未出现在预览中）</option>' : "") +
           headers.map((header) => '<option value="' + escAttr(header) + '"' + (header === value ? ' selected' : '') + '>' + esc(header) + (asArray(samples[header]).length ? ' · 例：' + esc(String(samples[header][0])) : "") + '</option>').join("");
         const sample = value ? (asArray(samples[value]).length ? '样例：' + asArray(samples[value]).join(' / ') : '该列暂无非空样例') : '使用自动识别结果';
-        return '<label class="resultMappingField"><span><b>' + esc(label) + '</b><span class="muted" title="' + escAttr(help) + '"> ⓘ</span></span><select data-config-input="resultMapping" data-key="' + escAttr(field) + '" aria-label="' + escAttr(label) + '">' + options + '</select><span class="resultMappingSample" data-result-mapping-example="' + escAttr(field) + '">' + esc(sample) + '</span></label>';
+        return '<label class="resultMappingField" title="' + escAttr(help) + '"><span><b>' + esc(label) + '</b><span class="muted" title="' + escAttr(help) + '"> ⓘ</span></span><select data-config-input="resultMapping" data-key="' + escAttr(field) + '" aria-label="' + escAttr(label) + '" title="' + escAttr(help) + '">' + options + '</select><span class="resultMappingSample" data-result-mapping-example="' + escAttr(field) + '">' + esc(sample) + '</span></label>';
       };
       const main = fieldRow("case", "实验 case", "用来匹配当前 Plan 的实验 case") + fieldRow("seed", "随机 seed", "用来跨 seed 计算均值和样本标准差") + fieldRow("metric", "指标名称", "长表的指标名称列；宽表留空") + fieldRow("value", "指标值", "长表的数值列；宽表留空");
       const advanced = fieldRow("split", "数据划分", "例如 train、val 或 test") + fieldRow("dataset", "数据集", "数据集标识") + fieldRow("method", "方法", "模型或方法标识") + fieldRow("eval_protocol", "评估端点", "例如 clean 或 p100_low；不同端点必须分行") + fieldRow("rate_percent", "比例百分数", "已经是 0 至 100 的比例") + fieldRow("train_rate", "训练比例", "0 至 1 的小数会转为百分数");
       const derived = ((((state || {}).resultOutputConfig || {}).adapterRules) || {}).derivedMetric || {};
-      const derivedInput = (key, label, current, placeholder) => '<label class="resultMappingField"><span><b>' + esc(label) + '</b></span><input data-config-input="resultMapping" data-key="' + escAttr(key) + '" value="' + escAttr(configDraftValue("resultMapping", key, current || "")) + '" placeholder="' + escAttr(placeholder) + '"></label>';
+      const derivedInput = (key, label, current, placeholder) => '<label class="resultMappingField" title="同一 case 和 seed 下配对计算时使用的' + escAttr(label) + '；全部留空则关闭派生指标。"><span><b>' + esc(label) + '</b></span><input data-config-input="resultMapping" data-key="' + escAttr(key) + '" value="' + escAttr(configDraftValue("resultMapping", key, current || "")) + '" placeholder="' + escAttr(placeholder) + '" title="同一 case 和 seed 下配对计算时使用的' + escAttr(label) + '；全部留空则关闭派生指标。"></label>';
       const derivedForm = '<details class="resultMappingAdvanced" data-details-key="result-derived-metric"' + detailsOpenAttr("result-derived-metric", false) + '><summary>可选：同 seed 配对派生指标</summary><p class="muted">全部留空即关闭。只有同一 case、同一 seed 的两个端点都有指标时才计算；默认不会生成 BA drop。</p><div class="resultMappingGrid">' +
         derivedInput("derivedMetricName", "指标名", derived.metric, "balanced_accuracy") + derivedInput("derivedLeftEndpoint", "左端点", derived.leftEndpoint, "clean") + derivedInput("derivedRightEndpoint", "右端点", derived.rightEndpoint, "p100_low") + derivedInput("derivedOutputName", "输出列名", derived.outputName, "balanced_accuracy_drop_pp") +
-        '<label class="resultMappingField"><span><b>倍率</b></span><select data-config-input="resultMapping" data-key="derivedScale"><option value="1"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "1" ? ' selected' : '') + '>1，原单位</option><option value="100"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "100" ? ' selected' : '') + '>100，百分点评估</option></select></label></div></details>';
+        '<label class="resultMappingField" title="派生差值乘以 1 保留原单位，乘以 100 转为百分点评估。"><span><b>倍率</b></span><select data-config-input="resultMapping" data-key="derivedScale" title="派生差值乘以 1 保留原单位，乘以 100 转为百分点评估。"><option value="1"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "1" ? ' selected' : '') + '>1，原单位</option><option value="100"' + (String(configDraftValue("resultMapping", "derivedScale", derived.scale || 1)) === "100" ? ' selected' : '') + '>100，百分点评估</option></select></label></div></details>';
       const metrics = asArray(item.metricColumns).slice(0, 12).map((entry) => esc((entry || {}).column || "")).filter(Boolean).join("、");
       return '<details id="resultColumnMappingEditor" class="resultMappingEditor" data-details-key="result-column-mapping-editor"' + detailsOpenAttr("result-column-mapping-editor", false) + '>' +
         '<summary>结果列映射 · ' + esc(item.source || "尚无结果表预览") + '</summary>' +
