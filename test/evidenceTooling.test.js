@@ -117,8 +117,8 @@ test("dataset inspector profiles splits/classes and reports patient leakage", ()
   assert.match(leakageCsv, /patient_overlap/);
 });
 
-test("simple-experiment-run creates standard run directory and metrics summary from stdout", () => {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-run-"));
+test("simpleex run creates standard run directory and metrics summary from stdout", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "simpleex-run-"));
   const options = parseSimpleRunArgs(["--name", "baseline", "--seed", "1", "--config", "configs/a.yaml", "--", "node", "-e", "console.log('AUC: 0.932 accuracy: 89.5% F1=0.88')"]);
   const result = runRecordedExperiment({ ...options, cwd });
   assert.equal(result.exitCode, 0);

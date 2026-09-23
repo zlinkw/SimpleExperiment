@@ -7,21 +7,13 @@ const { readSource } = require("../_helpers/sourceReader");
 const root = path.join(__dirname, "../..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const cli = readSource("src/cli.ts");
-const runCli = fs.readFileSync(path.join(root, "src/runCli.ts"), "utf8");
-const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const legacyNotes = fs.readFileSync(path.join(root, "docs/technical-notes.md"), "utf8");
 
-test("public CLI names use SimpleExperiment while legacy aliases remain", () => {
-  assert.equal(packageJson.bin["simple-experiment"], "./dist/cli.js");
-  assert.equal(packageJson.bin["simple-experiment-run"], "./dist/runCli.js");
-  assert.equal(packageJson.bin["simple-experiment"], "./dist/cli.js");
-  assert.equal(packageJson.bin["simple-experiment-run"], "./dist/runCli.js");
+test("simpleex is the only published command and keeps recorded runs", () => {
+  assert.deepEqual(packageJson.bin, { simpleex: "./dist/cli.js" });
   assert.match(cli, /export function runRecordedCli\(argv: string\[\]\): number/);
   assert.match(cli, /if \(require\.main === module\)/);
-  assert.match(runCli, /import \{ runRecordedCli \} from "\.\/cli"/);
-  assert.match(runCli, /runRecordedCli\(process\.argv\.slice\(2\)\)/);
-  assert.match(cli, /Usage: simple-experiment status/);
-  assert.match(legacyNotes, /公开命令使用 `simple-experiment-run`/);
-  assert.match(legacyNotes, /旧 `simple-experiment-run` 作为兼容别名继续可用/);
-  assert.match(legacyNotes, /simple-experiment-run --name baseline/);
+  assert.match(cli, /Usage: simpleex status/);
+  assert.match(legacyNotes, /统一命令 `simpleex run`/);
+  assert.match(legacyNotes, /simpleex run --name baseline/);
 });

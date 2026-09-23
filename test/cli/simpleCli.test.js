@@ -34,16 +34,26 @@ function writeProject(dir, files) {
   }
 }
 
-test("simple --help lists domains", async () => {
+test("simpleex --help lists domains", async () => {
   const result = await runCli(["--help"]);
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /simple/);
+  assert.match(result.stdout, /simpleex/);
   for (const domain of ["project", "experiment", "plan", "result", "gpu", "server", "artifact"]) {
     assert.match(result.stdout, new RegExp(domain));
   }
 });
 
-test("simple project status is human readable and json", async () => {
+test("simpleex run retains the manual experiment recorder", async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "simpleex-recorded-run-"));
+  const result = await runCli(["run", "--name", "manual", "--", process.execPath, "-e", "console.log('AUC: 0.9')"], { cwd });
+  assert.equal(result.code, 0, result.stderr);
+  const recorded = JSON.parse(result.stdout);
+  assert.ok(recorded.runDir.startsWith(path.join(cwd, "experiments", "runs")));
+  assert.equal(recorded.metricsRows, 1);
+  assert.equal(fs.existsSync(path.join(recorded.runDir, "artifact_manifest.json")), true);
+});
+
+test("simpleex project status is human readable and json", async () => {
   const human = await runCli(["project", "status"]);
   assert.equal(human.code, 0);
   assert.match(human.stdout, /Project:/);
@@ -98,7 +108,7 @@ test("project root uses Local API workspace from unrelated cwd and explicit env 
   assert.equal(JSON.parse(invalid.stdout).error.code, "ENV");
 });
 
-test("simple plan validate reuses PlanBuilder contract", async () => {
+test("simpleex plan validate reuses PlanBuilder contract", async () => {
   const ok = await runCli(["plan", "validate", validPlan, "--json"]);
   assert.equal(ok.code, 0);
   assert.equal(JSON.parse(ok.stdout).valid, true);
@@ -111,7 +121,7 @@ test("simple plan validate reuses PlanBuilder contract", async () => {
   assert.ok(payload.errors.length > 0);
 });
 
-test("simple experiment list --json is parseable and filterable", async () => {
+test("simpleex experiment list --json is parseable and filterable", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-exp-"));
   writeProject(dir, {
     "simple_cluster/experiment_index.json": JSON.stringify([
@@ -146,7 +156,7 @@ test("simple experiment list --json is parseable and filterable", async () => {
   assert.ok("outputDir" in detail);
 });
 
-test("simple experiment run --dry-run does not submit", async () => {
+test("simpleex experiment run --dry-run does not submit", async () => {
   const result = await runCli(["experiment", "run", validPlan, "--seed", "42", "--dry-run", "--json"]);
   assert.equal(result.code, 0);
   const payload = JSON.parse(result.stdout);
@@ -157,7 +167,7 @@ test("simple experiment run --dry-run does not submit", async () => {
   assert.equal(payload.runner, "runRecordedExperiment");
 });
 
-test("simple experiment run without API is env error", async () => {
+test("simpleex experiment run without API is env error", async () => {
   const result = await runCli(["experiment", "run", validPlan, "--json"]);
   assert.equal(result.code, 2);
   const payload = JSON.parse(result.stdout);
@@ -165,7 +175,7 @@ test("simple experiment run without API is env error", async () => {
   assert.equal(payload.error.code, "ENV");
 });
 
-test("simple experiment retry reuses lifecycle without submitting", async () => {
+test("simpleex experiment retry reuses lifecycle without submitting", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-retry-"));
   writeProject(dir, {
     "simple_cluster/experiment_index.json": JSON.stringify([
@@ -181,7 +191,7 @@ test("simple experiment retry reuses lifecycle without submitting", async () => 
   assert.ok(payload.lifecycle);
 });
 
-test("simple plan list and matrix reuse PlanBuilder", async () => {
+test("simpleex plan list and matrix reuse PlanBuilder", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-plan-"));
   writeProject(dir, {
     "experiments/plans/baseline.yaml": fs.readFileSync(validPlan, "utf8"),
@@ -204,7 +214,7 @@ test("simple plan list and matrix reuse PlanBuilder", async () => {
   assert.ok(payload.count >= 1);
 });
 
-test("simple result list show export reuse Results", async () => {
+test("simpleex result list show export reuse Results", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-result-"));
   writeProject(dir, {
     "simple_cluster/results/result_registry.json": JSON.stringify({
@@ -249,7 +259,7 @@ test("simple result list show export reuse Results", async () => {
   assert.equal(exportPayload.id, "res-1");
 });
 
-test("simple gpu status and server list stay offline-safe", async () => {
+test("simpleex gpu status and server list stay offline-safe", async () => {
   const gpu = await runCli(["gpu", "status", "--json"]);
   assert.equal(gpu.code, 0);
   const gpuRows = JSON.parse(gpu.stdout);
@@ -265,7 +275,7 @@ test("simple gpu status and server list stay offline-safe", async () => {
   assert.ok("gpu" in serverRows[0]);
 });
 
-test("simple artifact list from local run dir", async () => {
+test("simpleex artifact list from local run dir", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-art-"));
   writeProject(dir, {
     "simple_cluster/experiment_index.json": JSON.stringify([
@@ -291,7 +301,7 @@ test("simple artifact list from local run dir", async () => {
   assert.equal(fs.existsSync(payload.path || dest), true);
 });
 
-test("simple json errors are strict JSON", async () => {
+test("simpleex json errors are strict JSON", async () => {
   const result = await runCli(["experiment", "status", "--json"]);
   assert.equal(result.code, 1);
   const payload = JSON.parse(result.stdout);

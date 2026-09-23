@@ -98,7 +98,7 @@ Get-Content -Raw "$env:APPDATA\SimpleExperiment\api.json" | ConvertFrom-Json | F
 Get-Content -Raw "$env:APPDATA\SimpleSFTP\api.json" | ConvertFrom-Json | Format-List
 # schemaVersion:1  name:SimpleSFTP  version:0.2.7  baseUrl:http://127.0.0.1:19766  host:127.0.0.1  port:19766  token:eNNW4X86kxy3XWRn8ryVDghWUsB87mW9dS96P1nM  pid:29512  startedAt:2026-08-30T16:24:24.219Z
 
-simple-experiment self-check
+simpleex self-check
 # {"ok":true,"status":"ok","checks":[{"name":"cli","ok":true,"detail":"C:\\Program Files\\nodejs\\node.exe"},{"name":"discovery","ok":true,"detail":"C:\\Users\\ZLK\\AppData\\Roaming\\SimpleExperiment\\api.json"},{"name":"listener","ok":true,"detail":"SimpleExperiment 0.4.41"}]}
 
 simple-sftp-api self-check
@@ -134,21 +134,21 @@ Invoke-RestMethod -Uri "$($se.baseUrl)/api/v1/openapi.json" -Headers $h | Conver
 
 ### 3.3 CLI 优先（步骤3）
 
-> **注意**：`simple-experiment api <method> --json <params.json>` 要求 `--json` 为**文件路径**，而非内联 JSON；故均需先 `Set-Content` 到临时文件。
+> **注意**：`simpleex api <method> --json <params.json>` 要求 `--json` 为**文件路径**，而非内联 JSON；故均需先将参数写入临时文件。
 
 ```powershell
 $tmp = Join-Path $env:TEMP "se_params.json"; '{}' | Set-Content -Path $tmp -NoNewline
-simple-experiment api status --json $tmp
+simpleex api status --json $tmp
 # {"ok":true,"result":{"ok":true,"name":"SimpleExperiment","version":"0.4.41","workspace":"d:\\GitRepo\\MultiModal","connectionMode":"xshell_tunnel_realtime","topology":{"mode":"single_worker","configuredMode":"single_worker","valid":true,"hubAllowed":false,"workerCount":1,"schedulerOwner":"Worker 本机调度","stateOwner":"Worker 本机项目目录","issues":[],"storedHubConfigured":true},"pid":29512,"timestamp":"2026-08-30T16:28:14.163Z"}}
 
-simple-experiment api config.list --json $tmp
+simpleex api config.list --json $tmp
 # 关键键：
 # simpleExperiment.planDir = experiments/plans
 # simpleExperiment.tunnel.condaEnv = zlk
 # simpleExperiment.remote.allowedRoots = [/media/npu/Data/zlk, /data/qgking/zlk, /mnt/3bb01a96-4d48-4134-9dcc-1e1cdd11daa3/zlk]
 # simpleExperiment.scheduler.pollSeconds = 10 (非默认 60，测试环境加速)
 
-simple-experiment api plans.list --json $tmp
+simpleex api plans.list --json $tmp
 # 15 plans，示例：
 # experiments/plans/baseline.yaml  (suite: baseline, 110 jobs, status: ready)
 # experiments/plans/comparison/*.yaml  (各 40 jobs)
@@ -193,7 +193,7 @@ cases:  # 22 cases
 ```powershell
 $tmpPlan = Join-Path $env:TEMP "se_workflow_plan.json"
 '{"planFile":"experiments/plans/baseline.yaml"}' | Set-Content -Path $tmpPlan -NoNewline
-simple-experiment api workflow.plan --json $tmpPlan
+simpleex api workflow.plan --json $tmpPlan
 ```
 
 ```json
@@ -241,7 +241,7 @@ simple-experiment api workflow.plan --json $tmpPlan
 ```powershell
 $tmpRun = Join-Path $env:TEMP "se_workflow_run.json"
 '{"planFile":"experiments/plans/baseline.yaml"}' | Set-Content -Path $tmpRun -NoNewline
-simple-experiment api workflow.run --json $tmpRun
+simpleex api workflow.run --json $tmpRun
 # 首次（16:28）：
 # {"ok":true,"result":{"ok":true,"started":true,"operationId":"workflow-run-1788107339345-9dfrt0","status":"running","message":"正在执行标准 validate -> dry-run -> upload -> submit 路线…","plan":{"planId":"experiments/plans/baseline.yaml","planFile":"experiments/plans/baseline.yaml"},"nextAction":"operations.list","calls":[{"method":"operations.list","params":{}}]}}
 # 后续（16:29后）因存在运行中操作，进入 waiting_confirmation：
@@ -253,9 +253,9 @@ simple-experiment api workflow.run --json $tmpRun
 ```powershell
 $tmpEmpty = Join-Path $env:TEMP "se_params.json"; '{}' | Set-Content -Path $tmpEmpty -NoNewline
 for ($i=1; $i -le 6; $i++) {
-  simple-experiment api operations.list --json $tmpEmpty | Set-Content -Path "$env:TEMP\se_ops_poll_$i.json" -NoNewline
-  simple-experiment api tasks.list --json $tmpEmpty | Set-Content -Path "$env:TEMP\se_tasks_poll_$i.json" -NoNewline
-  simple-experiment api gpu.list --json $tmpEmpty
+  simpleex api operations.list --json $tmpEmpty | Set-Content -Path "$env:TEMP\se_ops_poll_$i.json" -NoNewline
+  simpleex api tasks.list --json $tmpEmpty | Set-Content -Path "$env:TEMP\se_tasks_poll_$i.json" -NoNewline
+  simpleex api gpu.list --json $tmpEmpty
   simple-sftp-api servers.list --json $tmpEmpty
   Start-Sleep -Seconds 10
 }
@@ -570,4 +570,3 @@ ssh NWPU3 "cd /data/qgking/zlk/MultiModal && timeout 15 /data/qgking/conda_env/z
 
 > **注意**：本实例 ID 由系统分配，捕获后原样转发，禁止编造 `ses_xxx` 占位符；校验格式 `ses_[a-zA-Z0-9]{20,}/msg_...`，下游 NotFound 回报“会话引用失效，请重试”。  
 > **下游拉取方式**：`session.messages --sessionId ses_fac818b42ffeldPmyUysXxh1Q0 --limit 20`（或 `session.messages --sessionId <Part.sessionID> --lastAssistant`），全量透传本报告与附件日志路径。
-

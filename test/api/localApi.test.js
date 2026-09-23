@@ -197,7 +197,7 @@ test("SSE stream is bounded and terminates after the event cap", async () => {
   }
 });
 
-test("simple-experiment CLI reads the discovery file", () => {
+test("simpleex CLI reads the discovery file", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-cli-test-"));
   try {
     const discoveryPath = path.join(dir, "api.json");
@@ -220,7 +220,7 @@ test("simple-experiment CLI reads the discovery file", () => {
   }
 });
 
-test("simple-experiment CLI forwards the api subcommand", async () => {
+test("simpleex CLI forwards the api subcommand", async () => {
   const f = await startServer({ status: async () => ({ ok: true, mode: "cli" }) });
   try {
     const { stdout } = await execFileAsync(process.execPath, [path.join(root, "dist", "cli.js"), "api", "status"], {
@@ -236,7 +236,7 @@ test("simple-experiment CLI forwards the api subcommand", async () => {
   }
 });
 
-test("simple-experiment self-check reports missing discovery and listener", async () => {
+test("simpleex self-check reports missing discovery and listener", async () => {
   const missing = path.join(os.tmpdir(), `simple-experiment-self-check-${process.pid}-${Date.now()}.json`);
   const result = await runCli([path.join(root, "dist", "cli.js"), "self-check"], {
     SIMPLE_EXPERIMENT_API_FILE: missing,
@@ -249,7 +249,7 @@ test("simple-experiment self-check reports missing discovery and listener", asyn
   assert.ok(parsed.checks.some((item) => item.name === "listener" && !item.ok && item.detail.includes("missing listener")));
 });
 
-test("simple-experiment self-check passes with live listener", async () => {
+test("simpleex self-check passes with live listener", async () => {
   const f = await startServer({ status: async () => ({ ok: true }) });
   try {
     const result = await runCli([path.join(root, "dist", "cli.js"), "self-check"], {

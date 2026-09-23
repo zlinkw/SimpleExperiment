@@ -51,7 +51,7 @@ export function parseSimpleRunArgs(argv: string[]): SimpleRunOptions {
     const index = head.indexOf(name);
     return index >= 0 ? head[index + 1] || fallback : fallback;
   };
-  if (!command.length) throw new Error("simple-experiment-run 缺少 -- 后的真实命令。");
+  if (!command.length) throw new Error("simpleex run 缺少 -- 后的真实命令。");
   return {
     name: opt("--name", "manual"),
     seed: opt("--seed"),

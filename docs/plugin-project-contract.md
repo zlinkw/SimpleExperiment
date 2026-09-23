@@ -338,7 +338,7 @@ Hub 是否可用始终由用户配置决定；不可用时必须手动切换到 
 ## 开发前检查清单
 
 1. 已读本契约和项目内 `docs/project-constraints.md`。
-2. 已运行 `simple-experiment self-check` 和 `simple-sftp-api self-check`，并读取 discovery/capabilities。
+2. 已运行 `simpleex self-check` 和 `simple-sftp-api self-check`，并读取 discovery/capabilities。
 3. 项目只有一个根目录，核心代码和配置位于规定目录。
 4. 已有真实 `configs/*.yaml` 和 `experiments/plans/*.yaml`。
 5. 已选择 wrapper、显式 adapter 调用或 TensorBoard 三者之一，并在代码中落实。

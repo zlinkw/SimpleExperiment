@@ -356,9 +356,9 @@ Worker 推荐在面板卡片中配置。底层设置是 `tunnel.workerTunnels` �
 - 每个工作会话开始前先运行自检：
 
 ```powershell
-simple-experiment self-check
+simpleex self-check
 simple-sftp-api self-check
-simple-experiment api status
+simpleex api status
 simple-sftp-api status
 ```
 

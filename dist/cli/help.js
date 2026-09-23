@@ -19,6 +19,11 @@ Domains:
   server       list
   artifact     list | download | inspect
 
+Other commands:
+  simpleex api <method> [--json <params.json>]
+  simpleex self-check
+  simpleex run --name <name> [--seed <seed>] -- <command> [args...]
+
 Global options:
   --json           strict JSON on stdout
   --compact-json   JSON without raw logs and bulky fields

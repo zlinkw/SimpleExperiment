@@ -62,10 +62,7 @@
   ],
   "main": "./dist/extension.js",
   "bin": {
-    "simple": "./dist/cli.js",
-    "simpleex": "./dist/cli.js",
-    "simple-experiment": "./dist/cli.js",
-    "simple-experiment-run": "./dist/runCli.js"
+    "simpleex": "./dist/cli.js"
   },
   "contributes": {
     "commands": [

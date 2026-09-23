@@ -25,6 +25,6 @@ test("public user-facing labels use SimpleExperiment branding", () => {
 test("legacy technical identifiers remain compatible", () => {
   assert.match(extension, /\.simple-backup/);
   assert.match(extension, /__SIMPLE_EXPERIMENT_PROJECT_NAME__/);
-  assert.match(legacyNotes, /旧 `simple-experiment-run` 作为兼容别名继续可用/);
+  assert.match(legacyNotes, /统一命令 `simpleex run`/);
   assert.match(legacyNotes, /`SIMPLE_EXPERIMENT_AGENT_STATE_DIR`/);
 });

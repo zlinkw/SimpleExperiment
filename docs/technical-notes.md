@@ -905,13 +905,13 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 
 ### 手动实验运行记录器
 
-未通过 Hub scheduler 启动的手动实验也可以进入证据链。公开命令使用 `simple-experiment-run`，旧 `simple-experiment-run` 作为兼容别名继续可用：
+未通过 Hub scheduler 启动的手动实验也可以进入证据链。使用统一命令 `simpleex run`：
 
 ```powershell
-simple-experiment-run --name baseline --seed 1 --config configs/a.yaml -- python train.py --config configs/a.yaml --seed 1
+simpleex run --name baseline --seed 1 --config configs/a.yaml -- python train.py --config configs/a.yaml --seed 1
 ```
 
-`simple-experiment-run` 会在当前项目写入 `experiments/runs/<run_id>/`：
+`simpleex run` 会在当前项目写入 `experiments/runs/<run_id>/`：
 
 - `command.txt`
 - `stdout.log`

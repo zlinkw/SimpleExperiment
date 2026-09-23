@@ -82,14 +82,14 @@ export async function main(argv: string[]): Promise<number> {
     console.log(result.yaml);
     return 0;
   }
-  console.error("Usage: simple-experiment status | agent health | self-check | experiments list --file x | metrics leaderboard --file x | results parse --file x | results paper-table --file registry.json | plan build | run --name x -- command");
+  console.error("Usage: simpleex status | agent health | self-check | experiments list --file x | metrics leaderboard --file x | results parse --file x | results paper-table --file registry.json | plan build | run --name x -- command");
   return 2;
 }
 
 async function runApiCommand(argv: string[]): Promise<number> {
   const [method, ...rest] = argv;
   if (!method || method.startsWith("-")) {
-    console.error("Usage: simple-experiment api <method> --json <params.json>");
+    console.error("Usage: simpleex api <method> --json <params.json>");
     return 2;
   }
   const paramsFile = option(rest, "--json") || option(rest, "--params");
