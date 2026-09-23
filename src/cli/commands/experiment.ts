@@ -171,15 +171,16 @@ export async function experimentSummary(flags: CliFlags): Promise<number> {
 }
 
 function buildExperimentSummary(rows: ExperimentRow[], now = Date.now()): Record<string, unknown> {
-  const running = rows.filter((row) => row.status === "running");
+  const workerRuns = rows.filter((row) => row.type === "worker_run");
+  const runningRuns = workerRuns.filter((row) => row.status === "running");
   const alerts = buildExperimentAlerts(rows, 10, now);
   return {
-    running_count: running.length,
-    failed_count: rows.filter((row) => row.status === "failed").length,
-    success_count: rows.filter((row) => row.status === "success").length,
+    running_count: runningRuns.length,
+    failed_count: workerRuns.filter((row) => row.status === "failed").length,
+    success_count: workerRuns.filter((row) => row.status === "success").length,
     workflows: rows.filter((row) => row.type === "workflow").length,
-    active_workers: Array.from(new Set(running.map((row) => row.worker_id).filter(Boolean))),
-    gpu_usage: running.filter((row) => row.gpu?.id).map((row) => ({ id: row.id, worker: row.worker_id, gpu: row.gpu?.id || "" })),
+    active_workers: Array.from(new Set(runningRuns.map((row) => row.worker_id).filter(Boolean))),
+    gpu_usage: runningRuns.filter((row) => row.gpu?.id).map((row) => ({ id: row.id, worker: row.worker_id, gpu: row.gpu?.id || "" })),
     stalled_experiments: rows.filter((row) => row.health_status === "stalled").map((row) => row.id),
     recent_failures: alerts.failed_recent.slice(0, 5),
   };

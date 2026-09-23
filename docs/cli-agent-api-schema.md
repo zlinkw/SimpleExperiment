@@ -62,10 +62,12 @@
 
 | 字段 | 含义 |
 | --- | --- |
-| summary | 计数：`running_count`、`failed_count`、`success_count`、`workflows`、`active_workers`、`gpu_usage`、`stalled_experiments`、`recent_failures` |
+| summary | `running_count`、`failed_count`、`success_count` 统计 `worker_run`；`workflows` 统计已知 `workflow` 总数。`active_workers`、`gpu_usage` 来自运行中的 `worker_run`；`stalled_experiments`、`recent_failures` 保持健康与告警口径 |
 | active | 与 `experiment active` 的 `active_count`、`workflows`、`runs` 相同，不含 `schema_version` 和 `snapshot` |
 | alerts | 实验列表：`failed_recent`、`stalled`、`missing_progress`，默认各最多 3 条，`--full` 为 10 条 |
 | health | `{ status, reason }`，与 `inspect` 的 `health` 同构，没有 `alert_level` |
+
+`summary.running_count` 与 `active.active_count` 口径不同：前者是正在运行的 `worker_run` 数，后者是 `active` 返回的 `workflow` 与 `worker_run` 对象总数。一个 `workflow` 调度三个训练任务时，前者可以为 3，后者可以为 4。
 
 ## experiment inspect
 

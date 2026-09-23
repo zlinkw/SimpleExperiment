@@ -535,6 +535,10 @@ test("agent compact output drops bulky fields and summary is stable", async () =
   for (const key of ["running_count", "failed_count", "success_count", "workflows", "active_workers", "gpu_usage", "stalled_experiments"]) {
     assert.equal(key in summary, true, key);
   }
+  assert.equal(summary.running_count, 0);
+  assert.equal(summary.failed_count, 0);
+  assert.equal(summary.success_count, 1);
+  assert.equal(summary.workflows, 1);
   const listed = JSON.parse((await runCli(["experiment", "list", "--json"], { cwd: dir })).stdout);
   assert.equal("recentLogs" in listed[0], false);
   const overview = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
@@ -542,6 +546,42 @@ test("agent compact output drops bulky fields and summary is stable", async () =
   assert.equal("created_at" in listed[0], false);
   const full = JSON.parse((await runCli(["experiment", "list", "--json", "--full"], { cwd: dir })).stdout);
   assert.equal("created_at" in full[0], true);
+});
+
+test("workflow and worker run status counts do not mix", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-summary-levels-"));
+  writeProject(dir, {
+    "simple_cluster/experiment_index.json": JSON.stringify([
+      { global_job_id: "run-plan-1", type: "run-plan", status: "running", worker_id: "scheduler-owner", gpu: { id: "9" } },
+      { global_job_id: "run-plan-2", type: "run-plan", status: "failed" },
+      { global_job_id: "run-plan-3", type: "run-plan", status: "completed" },
+      { global_job_id: "run-100", type: "run", status: "running", parent_id: "run-plan-1", worker_id: "worker-a", gpu: { id: "0" } },
+      { global_job_id: "run-200", type: "run", status: "failed", parent_id: "run-plan-2" },
+      { global_job_id: "run-300", type: "run", status: "completed", parent_id: "run-plan-3" },
+    ]),
+  });
+  const summary = JSON.parse((await runCli(["experiment", "summary", "--json"], { cwd: dir })).stdout);
+  assert.equal(summary.running_count, 1);
+  assert.equal(summary.failed_count, 1);
+  assert.equal(summary.success_count, 1);
+  assert.equal(summary.workflows, 3);
+  assert.deepEqual(summary.active_workers, ["worker-a"]);
+  assert.deepEqual(summary.gpu_usage, [{ id: "run-100", worker: "worker-a", gpu: "0" }]);
+  const overview = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(overview.summary, summary);
+  assert.equal(overview.active.active_count, 2);
+});
+
+test("workflow-only history does not count as a worker run failure", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-summary-workflow-only-"));
+  writeProject(dir, {
+    "simple_cluster/experiment_index.json": JSON.stringify([
+      { global_job_id: "workflow-failed", type: "run-plan", status: "failed" },
+    ]),
+  });
+  const summary = JSON.parse((await runCli(["experiment", "summary", "--json"], { cwd: dir })).stdout);
+  assert.equal(summary.workflows, 1);
+  assert.equal(summary.failed_count, 0);
 });
 
 test("alerts sort failures and inspect omits evidence", async () => {
