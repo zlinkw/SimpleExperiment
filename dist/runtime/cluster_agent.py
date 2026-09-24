@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.73"
-RUNTIME_VERSION = "0.5.73"
-PLUGIN_VERSION = "0.5.73"
+AGENT_VERSION = "0.5.74"
+RUNTIME_VERSION = "0.5.74"
+PLUGIN_VERSION = "0.5.74"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -3477,13 +3477,15 @@ def worker_task_was_stopped(root, task):
     current = current_worker_task(root, task)
     return str(current.get("status") or "") == "stopped" or bool(current.get("manualStopType") or current.get("stopReason"))
 
-def reconcile_worker_tasks_after_restart(root):
+def reconcile_worker_tasks_after_restart(root, eligible_ids=None):
     """Recover terminal task state after the previous Agent's waiter threads disappear."""
     data = read_json(path_for(root, "worker_task_snapshot.json"), {})
     tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
     events = []
     for task in tasks:
         if not isinstance(task, dict) or str(task.get("status") or "").lower() != "running":
+            continue
+        if eligible_ids is not None and str(task.get("commandId") or "") not in eligible_ids:
             continue
         pane_id = str(task.get("pid") or "").strip()
         session = str(task.get("tmuxSession") or "").strip()
@@ -3518,6 +3520,30 @@ def reconcile_worker_tasks_after_restart(root):
         for event_type, task in events:
             append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
     return {"changed": len(events)}
+
+def start_worker_task_recovery_loop(root, poll_seconds=5):
+    """Follow only tasks that were running before this Agent started."""
+    data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+    tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+    pending = {str(task.get("commandId") or "") for task in tasks
+               if isinstance(task, dict) and str(task.get("status") or "").lower() == "running"
+               and re.fullmatch(r"%[0-9]+", str(task.get("pid") or "")) and str(task.get("commandId") or "")}
+    if not pending:
+        return
+    def loop():
+        while pending:
+            try:
+                reconcile_worker_tasks_after_restart(root, pending)
+                current = read_json(path_for(root, "worker_task_snapshot.json"), {})
+                rows = current.get("tasks") if isinstance(current, dict) and isinstance(current.get("tasks"), list) else []
+                running = {str(task.get("commandId") or "") for task in rows
+                           if isinstance(task, dict) and str(task.get("status") or "").lower() == "running"}
+                pending.intersection_update(running)
+            except Exception:
+                pass
+            if pending:
+                time.sleep(max(1.0, poll_seconds))
+    threading.Thread(target=loop, daemon=True, name="worker-task-recovery").start()
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
@@ -11896,6 +11922,7 @@ def serve_http(args):
     prune_agent_state(root, force=True)
     if mode == "worker_telemetry":
         reconcile_worker_tasks_after_restart(root)
+        start_worker_task_recovery_loop(root)
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 60), getattr(args, "jitter_seconds", 30))

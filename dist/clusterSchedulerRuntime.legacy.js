@@ -2145,6 +2145,12 @@ def command_result_events(command_ids: set[str]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def should_check_finished_session(session: str, events: dict[str, dict[str, Any]], last_checked: float, min_interval: int, current_time: float | None = None) -> bool:
+    if session in events:
+        return True
+    return (time.time() if current_time is None else current_time) - last_checked >= min_interval
+
+
 def worker_event_matches_command_id(event: dict[str, Any], command_id: str) -> bool:
     wanted = str(command_id or "").strip()
     if not wanted:
@@ -3274,7 +3280,7 @@ def main() -> None:
     poll_jitter_seconds = max(0, int(args.poll_jitter_seconds or 0))
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8"))
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
-    session_check_min_seconds = max(30, int(args.session_check_min_seconds or 60))
+    session_check_min_seconds = max(1, int(args.session_check_min_seconds or 60))
     passive_interrupt_max_retries = max(0, int(args.passive_interrupt_max_retries or 0))
     passive_interrupt_base_backoff = max(60, int(args.passive_interrupt_backoff_seconds or poll_seconds))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
@@ -3541,7 +3547,7 @@ def main() -> None:
                         testing.pop(key, None)
                     changed = True
                     continue
-            if time.time() - last_session_check.get(key, 0.0) < session_check_min_seconds:
+            if not should_check_finished_session(sess, finished_events, last_session_check.get(key, 0.0), session_check_min_seconds):
                 continue
             last_session_check[key] = time.time()
             worker = workers_by_id.get(str(item.get("worker_id") or ""))
@@ -3577,7 +3583,7 @@ def main() -> None:
                         active.pop(key, None)
                     changed = True
                     continue
-            if time.time() - last_session_check.get(key, 0.0) < session_check_min_seconds:
+            if not should_check_finished_session(sess, finished_events, last_session_check.get(key, 0.0), session_check_min_seconds):
                 continue
             last_session_check[key] = time.time()
             worker = workers_by_id.get(str(item.get("worker_id") or ""))

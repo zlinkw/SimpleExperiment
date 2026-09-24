@@ -87,6 +87,21 @@ print(json.dumps({"before": before, "after": after}))
   assert.match(source, /read_availability_cache\(args\.availability_path, workers, worker_status_ttl_seconds\)\s+_busy_for_probe/);
 });
 
+test("terminal Worker events bypass the periodic session check interval", () => {
+  const value = runPython(`
+events = {"run-1": {"type": "worker_task_completed"}}
+print(json.dumps({
+    "finished": module.should_check_finished_session("run-1", events, 100, 60, 101),
+    "waiting": module.should_check_finished_session("run-2", events, 100, 60, 101),
+    "elapsed": module.should_check_finished_session("run-2", events, 100, 60, 160),
+}))
+`);
+  assert.deepEqual(value, { finished: true, waiting: false, elapsed: true });
+  const source = readSource("src/clusterSchedulerRuntime.ts");
+  assert.equal((source.match(/should_check_finished_session\(sess, finished_events, last_session_check/g) || []).length, 2);
+  assert.match(source, /session_check_min_seconds = max\(1, int\(args\.session_check_min_seconds/);
+});
+
 test("worker telemetry samples GPU occupancy within six seconds during a plan", () => {
   const agentPath = path.join(root, "dist/runtime/cluster_agent.py");
   const script = `
