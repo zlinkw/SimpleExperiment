@@ -24,6 +24,9 @@
 | snapshot_id | 本次查询编号，只在这一次调用内有效 |
 | snapshot_time | 本次查询的时刻，ISO 字符串 |
 | runtime_version | 实验状态版本，等于 `status.updated_at` |
+| runtime_source | 状态数据的主要来源：`experiment_index`、`history` 或 `runtime_observation` |
+
+`history` 包括 Worker task 历史、Scheduler operation 生命周期记录和现有历史产物；`runtime_observation` 表示当前运行时观测参与了结果；`experiment_index` 表示当前对象仅由本地 experiment index 提供。
 
 ## summary
 

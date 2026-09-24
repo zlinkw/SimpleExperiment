@@ -955,6 +955,9 @@ async function loadRemoteExperiments(): Promise<{ rows: ExperimentRow[]; unavail
     if (!id || !experimentLaunchAction(action)) continue;
     rows.push(blankRuntime({
       id,
+      type: "workflow",
+      source: "history",
+      status_source: "scheduler",
       name: firstString(record, ["planFile", "planId", "type"]) || id,
       status: normalizeStatus(firstString(record, ["status", "state"])),
       created: firstString(record, ["startedAt"]) || "",
