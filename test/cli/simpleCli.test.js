@@ -1076,7 +1076,7 @@ test("recent worker failures use only the latest matching attempt", () => {
   const failure = { id: "old", type: "worker_run", plan: "plans\\p.yaml", experiment_case: "A", seed: "42", status: "failed", updated: "2026-09-23T10:00:00Z" };
   const retry = { id: "new", type: "worker_run", plan: "plans/p.yaml", experiment_case: "A", seed: "42", status: "running", created: "2026-09-23T10:05:00Z", updated: "2026-09-23T10:06:00Z" };
   const classify = (rows) => classifyRecentFailures(rows, now);
-  assert.equal(recentFailureRecoveryState(failure, [failure, retry]), "running_retry");
+  assert.equal(recentFailureRecoveryState(failure, [failure, retry], now), "running_retry");
   assert.deepEqual(classify([failure, retry]).unresolved, []);
   assert.deepEqual(classify([failure, retry]).running_retry, [failure]);
   assert.deepEqual(buildHealthSummary([failure, retry], now), { status: "warning", reason: "failed_recent" });
@@ -1084,13 +1084,13 @@ test("recent worker failures use only the latest matching attempt", () => {
   assert.deepEqual(classify([failure, success]).resolved, [failure]);
   assert.deepEqual(buildHealthSummary([failure, success], now), { status: "healthy", reason: "" });
   const failedAgain = { ...retry, id: "newest", status: "failed", created: "2026-09-23T10:10:00Z", updated: "2026-09-23T10:11:00Z" };
-  assert.equal(recentFailureRecoveryState(failure, [failure, success, failedAgain]), "unresolved");
+  assert.equal(recentFailureRecoveryState(failure, [failure, success, failedAgain], now), "unresolved");
   assert.equal(classify([failure, success, failedAgain]).unresolved.length, 2);
   for (const changed of [{ seed: "43" }, { experiment_case: "B" }, { plan: "plans/other.yaml" }]) {
-    assert.equal(recentFailureRecoveryState(failure, [failure, { ...retry, ...changed }]), "unresolved");
+    assert.equal(recentFailureRecoveryState(failure, [failure, { ...retry, ...changed }], now), "unresolved");
   }
   for (const missing of [{ experiment_case: "" }, { seed: "" }]) {
-    assert.equal(recentFailureRecoveryState({ ...failure, ...missing }, [{ ...failure, ...missing }, retry]), "unresolved");
+    assert.equal(recentFailureRecoveryState({ ...failure, ...missing }, [{ ...failure, ...missing }, retry], now), "unresolved");
   }
 });
 
@@ -1300,10 +1300,18 @@ test("runtime fields stay aligned across inspect health and active", async () =>
 test("missing progress past timeout is a warning", async () => {
   const { isMissingProgress, buildHealthSummary, findLatestTrainingMessage } = require("../../dist/cli/commands/experiment.js");
   const now = Date.parse("2026-09-23T00:20:00Z");
-  const fresh = { type: "worker_run", status: "running", stage: "run", progress: null, updated: "2026-09-23T00:15:00Z" };
-  const stale = { type: "worker_run", status: "running", stage: "run", progress: null, updated: "2026-09-23T00:00:00Z" };
+  const fresh = { type: "worker_run", status: "running", stage: "train_test", progress: null, started_at: "2026-09-23T00:15:00Z", created: "2026-09-23T00:15:00Z", updated: "2026-09-23T00:19:59Z" };
+  const stale = { type: "worker_run", status: "running", stage: "train_test", progress: null, started_at: "2026-09-23T00:00:00Z", created: "2026-09-23T00:00:00Z", updated: "2026-09-23T00:19:59Z" };
   assert.equal(isMissingProgress(fresh, now), false);
   assert.equal(isMissingProgress(stale, now), true);
+  assert.equal(isMissingProgress({ ...stale, stage: "train" }, now), true);
+  assert.equal(isMissingProgress({ ...stale, stage: "run" }, now), true);
+  assert.equal(isMissingProgress({ ...stale, stage: "train-test" }, now), true);
+  assert.equal(isMissingProgress({ ...stale, stage: "test" }, now), false);
+  assert.equal(isMissingProgress({ ...stale, stage: "debug" }, now), false);
+  assert.equal(isMissingProgress({ ...stale, progress: { epoch: null, max_epoch: null, batch: 5, total_batch: 10, percent: null, loss: 0.4 } }, now), false);
+  assert.equal(isMissingProgress({ ...stale, started_at: "invalid" }, now), true);
+  assert.equal(isMissingProgress({ ...stale, started_at: "invalid", created: "invalid" }, now), false);
   assert.deepEqual(buildHealthSummary([stale], now), { status: "warning", reason: "missing_progress" });
   const message = findLatestTrainingMessage([
     { timestamp: "", level: "", message: "python train.py --epochs 10" },
@@ -1311,6 +1319,37 @@ test("missing progress past timeout is a warning", async () => {
     { timestamp: "", level: "", message: "tmux attach -t simple" },
   ]);
   assert.equal(message, "epoch 2/10 loss 0.4");
+});
+
+test("train_test missing progress uses task start time instead of refreshed runtime time", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-missing-progress-"));
+  const now = Date.now();
+  const started = new Date(now - 20 * 60 * 1000).toISOString();
+  const updated = new Date(now - 1000).toISOString();
+  writeProject(dir, {
+    "simple_cluster/experiment_index.json": JSON.stringify([
+      { global_job_id: "run-train-stale", type: "worker_run", status: "running", stage: "train_test", started_at: started, updated },
+      { global_job_id: "run-test-stale", type: "worker_run", status: "running", stage: "test", started_at: started, updated },
+    ]),
+  });
+  const overviewRun = await runCli(["experiment", "overview", "--json"], { cwd: dir });
+  assert.equal(overviewRun.code, 0, overviewRun.stderr);
+  const overview = JSON.parse(overviewRun.stdout);
+  assert.deepEqual(overview.alerts.missing_progress.map((row) => row.id), ["run-train-stale"]);
+  assert.deepEqual(overview.health, { status: "warning", reason: "missing_progress" });
+
+  const healthRun = await runCli(["experiment", "health", "--json"], { cwd: dir });
+  assert.equal(healthRun.code, 0, healthRun.stderr);
+  const health = JSON.parse(healthRun.stdout);
+  assert.equal(health.health.status, "warning");
+  assert.equal(health.health.reason, "missing_progress");
+  assert.equal(health.alerts.missing_progress, true);
+
+  const inspectRun = await runCli(["experiment", "inspect", "run-train-stale", "--json"], { cwd: dir });
+  assert.equal(inspectRun.code, 0, inspectRun.stderr);
+  const inspect = JSON.parse(inspectRun.stdout);
+  assert.equal(inspect.alerts.missing_progress, true);
+  assert.deepEqual(inspect.health, { status: "warning", reason: "missing_progress" });
 });
 
 test("status monitor and diagnose share runtime fields with inspect", async () => {
@@ -1849,7 +1888,7 @@ test("runtime observations resolve to experiment rows", () => {
 });
 
 test("runtime row prefers direct Worker task id over tmux runtime alias", () => {
-  const { runtimeRow, resolveRuntimeObservation } = require("../../dist/cli/commands/experiment.js");
+  const { runtimeRow, resolveRuntimeObservation, applyObservationFields } = require("../../dist/cli/commands/experiment.js");
   const observation = {
     run_id: "run-1790241627897", plan: "experiments/plans/comparison/corim.yaml", status: "running",
     worker: { id: "nwpu2", host: "" }, tmux: { session: "zlk-gpu-1", window: "zlk-gpu-1:2", pane: "zlk-gpu-1:2.0" },
@@ -1861,6 +1900,12 @@ test("runtime row prefers direct Worker task id over tmux runtime alias", () => 
   const row = runtimeRow(observation);
   assert.equal(row.id, "run6-600294-437");
   assert.equal(row.run_id, "run-1790241627897");
+  assert.equal(row.created, "2026-09-24T09:20:27Z");
+  assert.equal(row.started_at, "2026-09-24T09:20:27Z");
+  const history = { ...row, created: "2026-09-24T09:19:00Z", started_at: "2026-09-24T09:19:01Z" };
+  applyObservationFields(history, observation);
+  assert.equal(history.created, "2026-09-24T09:19:00Z");
+  assert.equal(history.started_at, "2026-09-24T09:19:01Z");
   assert.equal(resolveRuntimeObservation("run6-600294-437", [observation]), observation);
   assert.equal(resolveRuntimeObservation("run-1790241627897", [observation]), observation);
   assert.equal(runtimeRow({ ...observation, worker_task: null }).id, observation.run_id);

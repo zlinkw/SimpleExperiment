@@ -13,6 +13,8 @@
 | status | `healthy`、`warning` 或 `error` |
 | reason | `failed_recent`、`stalled`、`missing_progress`，没有则为空字符串 |
 
+`missing_progress` 表示训练型 running `worker_run` 自 `started_at` 或 `created` 起超过 10 分钟，从未产生可信 progress；适用 stage 为 `run`、`train`、`train_test`。`test`、`debug` 和未知 stage 不因缺少训练 progress 告警。RuntimeObservation 的 `updated_at` 仅是查询观测时间，不会重置宽限期。`stalled` 表示已有运行对象长期没有更新，仍使用独立的 30 分钟判断。
+
 `failed_recent` 加 `error` 表示最近失败尚未恢复；加 `warning` 表示同一 plan、experiment_case、seed 已有更新的运行中重试。最新重试成功后，失败不再影响当前健康状态，也不再进入 `overview.alerts.failed_recent`。过去 24 小时的失败历史仍可从 `overview.summary.recent_failures` 或 `experiment summary` 查询。
 
 全局 `health` 和 `overview` 对已有子 `worker_run`、且 `status_source=aggregate` 的失败 `workflow` 去重；实际失败由子 `worker_run` 计入。没有子 `worker_run` 的独立 Scheduler/workflow 失败仍计入 `failed_recent`。单独 `inspect` 失败 `workflow` 仍显示该对象的 `error / failed_recent`。

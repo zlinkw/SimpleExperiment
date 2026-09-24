@@ -202,7 +202,7 @@ function buildExperimentAlerts(rows: ExperimentRow[], failedLimit = 10, now = Da
       ...sortByUpdatedDesc(recovery.running_retry),
     ].slice(0, failedLimit).map(failureRow),
     stalled: rows.filter((row) => row.health_status === "stalled").map(failureRow),
-    missing_progress: rows.filter((row) => isMissingProgress(row)).map(failureRow),
+    missing_progress: rows.filter((row) => isMissingProgress(row, now)).map(failureRow),
   };
 }
 
@@ -283,11 +283,25 @@ function recentFailureAlertMessage(recovery: ReturnType<typeof classifyRecentFai
   return "experiment failed within the last 24 hours";
 }
 
-export function isMissingProgress(row: Pick<ExperimentRow, "type" | "status" | "stage" | "progress" | "updated">, now = Date.now(), timeoutMs = MISSING_PROGRESS_TIMEOUT_MS): boolean {
-  if (row.type !== "worker_run" || row.status !== "running" || row.stage !== "run" || row.progress) return false;
-  const stamp = Date.parse(row.updated || "");
-  if (!Number.isFinite(stamp)) return false;
-  return now - stamp > timeoutMs;
+function expectsTrainingProgress(stage: string): boolean {
+  const normalized = String(stage || "").trim().toLowerCase().replace(/-/g, "_");
+  return normalized === "run" || normalized === "train" || normalized === "train_test";
+}
+
+function firstValidTimestamp(...values: string[]): number {
+  for (const value of values) {
+    const timestamp = Date.parse(value || "");
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  return NaN;
+}
+
+export function isMissingProgress(row: Pick<ExperimentRow, "type" | "status" | "stage" | "progress" | "created" | "started_at" | "updated">, now = Date.now(), timeoutMs = MISSING_PROGRESS_TIMEOUT_MS): boolean {
+  if (row.type !== "worker_run" || row.status !== "running" || !expectsTrainingProgress(row.stage) || row.progress) return false;
+  const started = firstValidTimestamp(row.started_at, row.created, row.updated);
+  if (!Number.isFinite(started)) return false;
+  const age = now - started;
+  return age >= 0 && age > timeoutMs;
 }
 
 function alertLevel(status: HealthPayload["status"]): "ok" | "warning" | "error" {
@@ -1304,6 +1318,8 @@ function runtimeFields(item: RuntimeObservation, row: ExperimentRow): Partial<Ex
     seed: item.config.seed || row.seed,
     model: item.config.model || row.model,
     dataset: item.config.dataset || row.dataset,
+    created: row.created || item.worker_task?.started_at || "",
+    started_at: row.started_at || row.created || item.worker_task?.started_at || "",
     updated: item.updated_at,
     raw: { ...(row.raw || {}), runtimeLog: item.log, tmux: item.tmux, worker: item.worker, config_path: item.config.path || row.raw?.config_path || "", runtimeRunId: item.run_id, ...(item.worker_task?.id ? { workerTaskId: item.worker_task.id } : {}) },
   };

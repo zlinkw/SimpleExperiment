@@ -220,7 +220,7 @@ function buildExperimentAlerts(rows, failedLimit = 10, now = Date.now()) {
             ...sortByUpdatedDesc(recovery.running_retry),
         ].slice(0, failedLimit).map(failureRow),
         stalled: rows.filter((row) => row.health_status === "stalled").map(failureRow),
-        missing_progress: rows.filter((row) => isMissingProgress(row)).map(failureRow),
+        missing_progress: rows.filter((row) => isMissingProgress(row, now)).map(failureRow),
     };
 }
 function isRecentFailure(row, now = Date.now(), windowMs = RECENT_FAILURE_WINDOW_MS) {
@@ -299,13 +299,26 @@ function recentFailureAlertMessage(recovery, health) {
     }
     return "experiment failed within the last 24 hours";
 }
+function expectsTrainingProgress(stage) {
+    const normalized = String(stage || "").trim().toLowerCase().replace(/-/g, "_");
+    return normalized === "run" || normalized === "train" || normalized === "train_test";
+}
+function firstValidTimestamp(...values) {
+    for (const value of values) {
+        const timestamp = Date.parse(value || "");
+        if (Number.isFinite(timestamp))
+            return timestamp;
+    }
+    return NaN;
+}
 function isMissingProgress(row, now = Date.now(), timeoutMs = MISSING_PROGRESS_TIMEOUT_MS) {
-    if (row.type !== "worker_run" || row.status !== "running" || row.stage !== "run" || row.progress)
+    if (row.type !== "worker_run" || row.status !== "running" || !expectsTrainingProgress(row.stage) || row.progress)
         return false;
-    const stamp = Date.parse(row.updated || "");
-    if (!Number.isFinite(stamp))
+    const started = firstValidTimestamp(row.started_at, row.created, row.updated);
+    if (!Number.isFinite(started))
         return false;
-    return now - stamp > timeoutMs;
+    const age = now - started;
+    return age >= 0 && age > timeoutMs;
 }
 function alertLevel(status) {
     return status === "healthy" ? "ok" : status;
@@ -1385,6 +1398,8 @@ function runtimeFields(item, row) {
         seed: item.config.seed || row.seed,
         model: item.config.model || row.model,
         dataset: item.config.dataset || row.dataset,
+        created: row.created || item.worker_task?.started_at || "",
+        started_at: row.started_at || row.created || item.worker_task?.started_at || "",
         updated: item.updated_at,
         raw: { ...(row.raw || {}), runtimeLog: item.log, tmux: item.tmux, worker: item.worker, config_path: item.config.path || row.raw?.config_path || "", runtimeRunId: item.run_id, ...(item.worker_task?.id ? { workerTaskId: item.worker_task.id } : {}) },
     };

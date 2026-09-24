@@ -106,7 +106,7 @@
 
 | 字段 | 含义 |
 | --- | --- |
-| missing_progress | 运行中且超过阈值没有进度 |
+| missing_progress | 训练型 worker_run 从 started_at/created 起超过 10 分钟仍没有任何可信 progress；run、train、train_test 生效 |
 | stalled | 超过阈值没有更新 |
 | recent_failure | 24 小时内失败 |
 | alert_details | `{ type, message }` 列表，`type` 取值与上面三个字段相同 |
