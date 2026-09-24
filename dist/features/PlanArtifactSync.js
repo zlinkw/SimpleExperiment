@@ -82,9 +82,9 @@ function queuePlanSync(ledger, planFile, revision, sourceWorkerId, artifactPaths
     const latestPrior = Object.entries(ledger.entries).filter(([otherKey, entry]) => otherKey !== key && canonicalPlan(entry.planFile) === canonicalPlan(planFile) && entry.runId !== "historic").at(-1)?.[1];
     const stalePaths = previous?.stalePaths || (latestPrior ? [...new Map([
             ...(latestPrior.stalePaths || []),
-            ...latestPrior.artifactPaths.filter((oldPath) => !artifactPaths.includes(oldPath))
+            ...latestPrior.artifactPaths.filter((oldPath) => !artifactPaths.includes(oldPath) && !/\.log$/i.test(oldPath))
                 .map((oldPath) => ({ path: oldPath, directory: latestPrior.directoryPaths.includes(oldPath) })),
-        ].filter((item) => !artifactPaths.some((next) => next === item.path || item.path.startsWith(`${next}/`)))
+        ].filter((item) => !/\.log$/i.test(item.path) && !artifactPaths.some((next) => next === item.path || item.path.startsWith(`${next}/`)))
             .map((item) => [item.path, item])).values()] : []);
     const newArtifacts = artifactPaths.some((path) => !previous?.artifactPaths.includes(path));
     const destinations = Object.fromEntries(Object.entries(previous?.destinations || {}).map(([id, value]) => [id, newArtifacts ? { status: "pending" } : value]));

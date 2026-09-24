@@ -50,6 +50,12 @@ test("new run records removed Plan paths for exact cleanup", () => {
   ]);
 });
 
+test("older run logs remain available for project-wide content reconciliation", () => {
+  let ledger = sync.queuePlanSync(sync.emptyPlanSyncLedger(), "plans/a.yaml", "r1", "nwpu2", ["work_dirs/a", "simple_cluster/tmp/cluster_scheduler/run-1.log"], ["nwpu3"], ["work_dirs/a"], "run-1");
+  ledger = sync.queuePlanSync(ledger, "plans/a.yaml", "r2", "nwpu3", ["work_dirs/a", "simple_cluster/tmp/cluster_scheduler/run-2.log"], ["nwpu2"], ["work_dirs/a"], "run-2");
+  assert.deepEqual(sync.pendingPlanSyncs(ledger)[0].entry.stalePaths, []);
+});
+
 test("a completed cross-Worker rerun supersedes older source transfers", () => {
   let ledger = sync.queuePlanSync(sync.emptyPlanSyncLedger(), "plans/corim.yaml", "rev1", "nwpu2", ["work_dirs/corim", "experiments/results/old.csv"], ["nwpu2", "nwpu3", "nwpu5"], ["work_dirs/corim"], "run-old");
   ledger = sync.queuePlanSync(ledger, "plans/corim.yaml", "rev2", "nwpu3", ["work_dirs/corim", "experiments/results/new.csv"], ["nwpu2", "nwpu3", "nwpu5"], ["work_dirs/corim"], "run-new");

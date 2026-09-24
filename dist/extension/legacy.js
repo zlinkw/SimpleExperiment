@@ -71,6 +71,7 @@ const ProjectResultTables = __importStar(require("../results/ProjectResultTables
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
 const PlanArtifactTransfer_1 = require("../features/PlanArtifactTransfer");
+const ProjectMirror_1 = require("../features/ProjectMirror");
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -6709,8 +6710,8 @@ class RealtimeTunnelPanelProvider {
         const currentMaxFileSizeMB = normalizeExplicitCodeMaxFileSizeMB(config.get("codeSync.maxFileSizeMB", 2));
         const policy = explicitCodePolicy(currentExtensions, currentMaxFileSizeMB);
         const action = await vscode.window.showQuickPick([
-            { label: "$(file-add) 添加文件", description: "选择项目内文件；选完立即保存，可多选", id: "file" },
-            { label: "$(folder-opened) 添加文件夹", description: "选择项目内文件夹；按下方类型和大小规则纳入文件", id: "directory" },
+            { label: "$(file-add) 添加文件", description: "补充预置规则遗漏的项目文件、结果、日志或权重；可多选", id: "file" },
+            { label: "$(folder-opened) 添加文件夹", description: "补充预置规则遗漏的项目目录；按下方类型和大小规则纳入", id: "directory" },
             { label: "$(symbol-file) 设置允许的文件类型", description: currentExtensions.join("、"), id: "extensions" },
             { label: "$(file-binary) 设置单文件大小上限", description: `${currentMaxFileSizeMB} MB`, id: "max-size" },
             { label: "$(list-selection) 查看已添加的路径", description: `${current.length} 条额外路径`, id: "preview" },
@@ -6721,7 +6722,7 @@ class RealtimeTunnelPanelProvider {
         if (action.id === "extensions") {
             const value = await vscode.window.showInputBox({
                 title: "允许上传的文件类型",
-                prompt: "用英文逗号分隔，例如 .py,.yaml,.json；填写 * 表示允许任意类型。项目外路径、符号链接、.env 和插件状态目录仍会阻止。",
+                prompt: "用英文逗号分隔，例如 .py,.yaml,.pt,.log；填写 * 表示任意类型。项目外路径、符号链接、.env 和机器状态目录仍会阻止。",
                 value: currentExtensions.join(","),
                 ignoreFocusOut: true,
                 validateInput: (input) => {
@@ -6744,7 +6745,7 @@ class RealtimeTunnelPanelProvider {
         if (action.id === "max-size") {
             const value = await vscode.window.showInputBox({
                 title: "单文件大小上限",
-                prompt: "单位 MB，允许 0.1–1024。超过上限的文件不会加入代码上传清单。",
+                prompt: "单位 MB，允许 0.1–1048576。超过上限的文件不会加入上传清单。",
                 value: String(currentMaxFileSizeMB),
                 ignoreFocusOut: true,
                 validateInput: (input) => {
@@ -11846,25 +11847,32 @@ class RealtimeTunnelPanelProvider {
         const runId = String(operation.operationId || operation.id || "").trim();
         if (!runId)
             throw new Error(`Plan ${planFile} 缺少 operation ID，无法安全标记本次同步。`);
+        const syncKey = PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId);
+        const artifactPaths = PlanArtifactSync.planArtifactPaths(plan, summary, sourceWorkerId);
+        await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId, artifactPaths, this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
+        const sourceRow = this.workerCodeSyncTargets().find((target) => target.id === sourceWorkerId);
+        const statePath = PlanArtifactSync.safePlanArtifactPath(operation.statePath || operation.state_path || operation.payload?.statePath);
+        let logPaths = [];
+        try {
+            if (!sourceRow || !statePath)
+                throw new Error(`Plan ${planFile} 缺少来源 Worker 或状态文件路径，无法完整同步任务日志。`);
+            const logInventory = await this.simpleSftpApiCall("sync.planLogPaths", {
+                source: this.sftpServerOptions(sourceRow), statePath, planFile,
+            });
+            logPaths = Array.isArray(logInventory?.paths) ? logInventory.paths.map(PlanArtifactSync.safePlanArtifactPath) : [];
+            if (!logPaths.length || logPaths.some((value) => !value))
+                throw new Error(`Plan ${planFile} 的日志清单为空或包含不安全路径。`);
+        }
+        catch (error) {
+            this.schedulePlanSyncRetry(root, syncKey, operation);
+            this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) });
+            return;
+        }
         if (!operation.planSyncSummaryRetryAttempt)
             this.queuePlanScopedResultParse("Plan 运行完成", planFile, planFile);
-        await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId, PlanArtifactSync.planArtifactPaths(plan, summary, sourceWorkerId), this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
-        const syncKey = PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId);
+        await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId, [...new Set([...artifactPaths, ...logPaths])], this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
         if (!ProjectResultTables.summaryForWorker(summary, sourceWorkerId)) {
-            const previous = this.planSyncSummaryRetries.get(syncKey);
-            if (!previous && this.planSyncSummaryRetries.size < 64) {
-                const attempt = Number(operation.planSyncSummaryRetryAttempt || 0) + 1;
-                if (attempt <= 40) {
-                    const timer = setTimeout(() => {
-                        this.planSyncSummaryRetries.delete(syncKey);
-                        if (workspaceRoot() !== root)
-                            return;
-                        void this.queueCompletedPlanArtifactSync({ ...operation, planSyncSummaryRetryAttempt: attempt })
-                            .catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
-                    }, 15_000);
-                    this.planSyncSummaryRetries.set(syncKey, { timer, attempt });
-                }
-            }
+            this.schedulePlanSyncRetry(root, syncKey, operation);
             return;
         }
         const retry = this.planSyncSummaryRetries.get(syncKey);
@@ -11874,6 +11882,21 @@ class RealtimeTunnelPanelProvider {
         }
         await this.updateProjectResultTablesFromSummary(summary, planFile);
         await this.syncPendingPlanArtifacts(syncKey, summary);
+    }
+    schedulePlanSyncRetry(root, syncKey, operation) {
+        if (this.planSyncSummaryRetries.has(syncKey) || this.planSyncSummaryRetries.size >= 64)
+            return;
+        const attempt = Number(operation.planSyncSummaryRetryAttempt || 0) + 1;
+        if (attempt > 40)
+            return;
+        const timer = setTimeout(() => {
+            this.planSyncSummaryRetries.delete(syncKey);
+            if (workspaceRoot() !== root)
+                return;
+            void this.queueCompletedPlanArtifactSync({ ...operation, planSyncSummaryRetryAttempt: attempt })
+                .catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
+        }, 15_000);
+        this.planSyncSummaryRetries.set(syncKey, { timer, attempt });
     }
     async simpleSftpApiCall(method, params) {
         const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
@@ -11921,8 +11944,11 @@ class RealtimeTunnelPanelProvider {
             return alternateId ? [{ ...item, sourceRow: targets.get(alternateId) }] : [];
         });
         if (!ready.length) {
-            if (!onlyKey)
-                void vscode.window.showInformationMessage(pending.length ? `仍有 ${pending.length} 条待同步记录；请重新启用并连接对应 Worker。` : "没有待同步的 Plan 产物。");
+            if (!onlyKey || !pending.some((item) => targets.has(item.destinationWorkerId))) {
+                await this.reconcileProjectFilesAcrossWorkers(root);
+                if (!onlyKey)
+                    void vscode.window.showInformationMessage(pending.length ? `仍有 ${pending.length} 条待同步记录；请重新启用并连接对应 Worker。` : "已检查各 Worker 的项目文件。 ");
+            }
             return;
         }
         this.planSyncInFlight = true;
@@ -11959,6 +11985,9 @@ class RealtimeTunnelPanelProvider {
                 void vscode.window.showInformationMessage(`Plan ${item.entry.planFile} 已从 ${source.id} 直连同步 ${result.paths} 个产物路径到 ${destination.id}。`);
                 this.postState();
             }
+            const remaining = PlanArtifactSync.pendingPlanSyncs(await this.loadPlanSyncLedger(root));
+            if (!onlyKey || !remaining.some((item) => item.key === onlyKey && targets.has(item.destinationWorkerId)))
+                await this.reconcileProjectFilesAcrossWorkers(root);
         }
         finally {
             this.planSyncInFlight = false;
@@ -11967,6 +11996,71 @@ class RealtimeTunnelPanelProvider {
                 void this.syncPendingPlanArtifacts().catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
             }
         }
+    }
+    async reconcileProjectFilesAcrossWorkers(root) {
+        const targets = this.workerCodeSyncTargets();
+        if (targets.length < 2)
+            return;
+        const projectContext = this.captureProjectContext();
+        await this.syncCodeTargets(targets, "workers", { projectContext });
+        if (root !== workspaceRoot())
+            return;
+        const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
+        const includePaths = config.get("codeSync.includePaths", []);
+        const policy = explicitCodePolicy(config.get("codeSync.allowedExtensions", DEFAULT_EXPLICIT_CODE_EXTENSIONS), config.get("codeSync.maxFileSizeMB", 2));
+        const codeManifest = await buildLocalCodeManifest(root, includePaths, policy);
+        const inventories = {};
+        for (const target of targets) {
+            const result = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) });
+            inventories[target.id] = result.files;
+        }
+        const ledger = await this.loadPlanSyncLedger(root);
+        const plan = (0, ProjectMirror_1.planProjectMirror)(inventories, codeManifest, ledger);
+        const groups = new Map();
+        for (const copy of plan.copies) {
+            const key = `${copy.sourceWorkerId}|${copy.destinationWorkerId}`;
+            if (!groups.has(key))
+                groups.set(key, { source: targets.find((target) => target.id === copy.sourceWorkerId), destination: targets.find((target) => target.id === copy.destinationWorkerId), paths: [] });
+            groups.get(key).paths.push(copy.path);
+        }
+        for (const group of groups.values()) {
+            const source = this.sftpServerOptions(group.source);
+            const destination = this.sftpServerOptions(group.destination);
+            for (let start = 0; start < group.paths.length; start += 5000) {
+                const paths = group.paths.slice(start, start + 5000);
+                const answer = await vscode.window.showWarningMessage(`补齐项目文件：${source.user}@${source.host}:${source.port}${source.remotePath} → ${destination.user}@${destination.host}:${destination.port}${destination.remotePath}\n文件（${paths.length}）：\n${paths.join("\n")}`, { modal: true }, "确认同步");
+                if (answer !== "确认同步")
+                    return;
+                await this.assertSshTransportIdentities([group.source, group.destination]);
+                await this.simpleSftpApiCall("sync.serverToServerBatch", {
+                    source, destination: { ...destination, host: destination.networkHost || destination.host }, relativePaths: paths,
+                    confirm: true, pathConfirmed: true,
+                });
+            }
+        }
+        const checked = {};
+        for (const target of targets) {
+            const result = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) });
+            checked[target.id] = result.files;
+        }
+        const verified = (0, ProjectMirror_1.planProjectMirror)(checked, codeManifest, ledger);
+        const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
+        const disabled = configured.filter((id) => !targets.some((target) => target.id === id));
+        const pendingPlans = PlanArtifactSync.pendingPlanSyncs(ledger).map((item) => item.destinationWorkerId);
+        const state = {
+            schemaVersion: 1, checkedAt: new Date().toISOString(), workers: targets.map((target) => target.id),
+            pendingWorkerIds: [...new Set([...disabled, ...pendingPlans])],
+            fileCount: verified.fileCount, conflicts: verified.conflicts, missingCopies: verified.copies,
+            protectedDifferences: verified.protectedDifferences,
+            complete: !disabled.length && !pendingPlans.length && !verified.conflicts.length && !verified.copies.length && !verified.protectedDifferences.length,
+        };
+        const file = await safeResultOutputPath(root, "simple_cluster/results/project_mirror_state.json");
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
+        await fs.writeFile(temporary, JSON.stringify(state, null, 2) + "\n", "utf8");
+        await fs.rename(temporary, file);
+        if (verified.conflicts.length || verified.copies.length || verified.protectedDifferences.length)
+            throw new Error(`项目同步未完成：${verified.conflicts.length} 个内容冲突、${verified.copies.length} 个缺失文件、${verified.protectedDifferences.length} 个代码或 Plan 产物差异；详情见 ${file}。`);
     }
     async updateProjectResultTablesFromSummary(summary, planFile) {
         const root = workspaceRoot();
@@ -24046,7 +24140,25 @@ async function buildLocalCodeManifest(root, includePaths = [], includePolicy = e
     return manifest;
 }
 const DEFAULT_EXPLICIT_CODE_EXTENSIONS = [".py", ".pyi", ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".txt", ".md", ".sh", ".ps1"];
-const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", "simple_cluster", "zlk_cluster"]);
+const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", "zlk_cluster"]);
+function blockedExplicitCodePath(relative) {
+    const parts = relative.toLowerCase().split("/");
+    if (parts.some((part) => blockedExplicitCodeDirs.has(part)))
+        return true;
+    if (parts[0] !== "simple_cluster")
+        return false;
+    if (parts.length === 1)
+        return false;
+    if (["results", "debug_runs"].includes(parts[1]))
+        return false;
+    if (parts[1] === "tmp" && parts.length === 2)
+        return false;
+    if (parts[1] === "tmp" && parts[2] === "tmux_logs")
+        return false;
+    if (parts[1] === "tmp" && parts[2] === "cluster_scheduler")
+        return parts.length > 3 && parts[3] !== "logs" && !parts.at(-1)?.endsWith(".log");
+    return true;
+}
 function normalizeExplicitCodeExtensions(values) {
     const extensions = [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).map((value) => value === "*" ? value : value.startsWith(".") ? value : `.${value}`))];
     if (!extensions.length)
@@ -24057,8 +24169,8 @@ function normalizeExplicitCodeExtensions(values) {
 }
 function normalizeExplicitCodeMaxFileSizeMB(value) {
     const size = Number(value);
-    if (!Number.isFinite(size) || size < 0.1 || size > 1024)
-        throw new Error("单文件大小上限必须在 0.1–1024 MB 之间。");
+    if (!Number.isFinite(size) || size < 0.1 || size > 1048576)
+        throw new Error("单文件大小上限必须在 0.1–1048576 MB 之间。");
     return Math.round(size * 100) / 100;
 }
 function explicitCodePolicy(extensions = DEFAULT_EXPLICIT_CODE_EXTENSIONS, maxFileSizeMB = 2) {
@@ -24078,7 +24190,7 @@ function normalizedExplicitCodePath(root, value) {
 }
 function safeExplicitCodeFile(relative, policy = explicitCodePolicy()) {
     const parts = relative.toLowerCase().split("/");
-    if (parts.slice(0, -1).some((part) => blockedExplicitCodeDirs.has(part)))
+    if (blockedExplicitCodePath(relative))
         return false;
     const basename = parts[parts.length - 1];
     if (basename.startsWith(".env"))
@@ -24094,19 +24206,19 @@ async function collectExplicitCodeFiles(root, includePaths, policy = explicitCod
     let visited = 0;
     let matched = 0;
     async function visit(relative, full, explicitFile) {
-        if (++visited > 20000)
-            throw new Error("代码上传路径扫描超过 20000 项，请缩小所选目录。");
+        if (++visited > 100000)
+            throw new Error("上传路径扫描超过 100000 项，请缩小所选目录。");
         const info = await fs.lstat(full);
         if (info.isSymbolicLink())
             throw new Error(`代码上传路径包含符号链接：${relative}`);
         if (info.isDirectory()) {
-            if (relative.toLowerCase().split("/").some((part) => blockedExplicitCodeDirs.has(part)))
-                throw new Error(`代码上传目录受保护：${relative}。此类目录可能包含数据或模型权重，请改选真正存放源码的目录。`);
+            if (blockedExplicitCodePath(relative))
+                throw new Error(`上传目录包含机器状态或版本控制文件：${relative}。请选择项目文件或产物目录。`);
             for (const entry of await fs.readdir(full, { withFileTypes: true })) {
                 if (entry.isSymbolicLink())
                     continue;
                 const childRelative = `${relative}/${entry.name}`;
-                if (entry.isDirectory() && blockedExplicitCodeDirs.has(entry.name.toLowerCase()))
+                if (entry.isDirectory() && blockedExplicitCodePath(childRelative))
                     continue;
                 await visit(childRelative, path.join(full, entry.name), false);
             }
@@ -24114,6 +24226,11 @@ async function collectExplicitCodeFiles(root, includePaths, policy = explicitCod
         }
         if (!info.isFile())
             return;
+        if (blockedExplicitCodePath(relative)) {
+            if (explicitFile)
+                throw new Error(`上传文件属于机器状态或版本控制目录：${relative}`);
+            return;
+        }
         if (!safeExplicitCodeFile(relative, policy)) {
             if (explicitFile)
                 throw new Error(`文件类型不在允许列表中：${relative}。当前允许 ${policy.extensions.join("、")}；可在“设置上传文件范围 → 设置允许的文件类型”修改。`);

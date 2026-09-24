@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.92",
+  "version": "0.5.94",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -414,7 +414,20 @@
         },
         "simpleExperiment.codeSync.allowedExtensions": {
           "type": "array",
-          "default": [".py", ".pyi", ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".txt", ".md", ".sh", ".ps1"],
+          "default": [
+            ".py",
+            ".pyi",
+            ".yaml",
+            ".yml",
+            ".json",
+            ".toml",
+            ".ini",
+            ".cfg",
+            ".txt",
+            ".md",
+            ".sh",
+            ".ps1"
+          ],
           "items": {
             "type": "string"
           },
@@ -425,7 +438,7 @@
           "type": "number",
           "default": 2,
           "minimum": 0.1,
-          "maximum": 1024,
+          "maximum": 1048576,
           "scope": "resource",
           "description": "“设置上传文件范围”允许纳入的单文件大小上限，单位 MB。可在面板交互式修改。"
         },

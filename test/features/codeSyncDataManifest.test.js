@@ -75,6 +75,9 @@ test("configured code paths add safe source from excluded directories without da
       "datasets/patients/subject.py": "secret",
       "datasets/model.pt": Buffer.alloc(128 * 1024),
       "work_dirs/secret.py": "secret",
+      "simple_cluster/results/plan-1/metrics.json": "{}",
+      "simple_cluster/tmp/cluster_scheduler/logs/plan-1.log": "done",
+      "simple_cluster/tmp/cluster_scheduler/queue_state.json": "private",
     })) {
       const file = path.join(root, name);
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -88,6 +91,11 @@ test("configured code paths add safe source from excluded directories without da
     const customPolicy = sandbox.explicitCodePolicy([".pt"], 10);
     const customManifest = await sandbox.buildLocalCodeManifest(root, ["datasets/model.pt"], customPolicy);
     assert.ok(customManifest["datasets/model.pt"]);
+    const resultManifest = await sandbox.buildLocalCodeManifest(root, ["simple_cluster/results"], sandbox.explicitCodePolicy(["*"], 10));
+    assert.ok(resultManifest["simple_cluster/results/plan-1/metrics.json"]);
+    const logManifest = await sandbox.buildLocalCodeManifest(root, ["simple_cluster/tmp/cluster_scheduler/logs"], sandbox.explicitCodePolicy(["*"], 10));
+    assert.ok(logManifest["simple_cluster/tmp/cluster_scheduler/logs/plan-1.log"]);
+    await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["simple_cluster/tmp/cluster_scheduler/queue_state.json"], sandbox.explicitCodePolicy(["*"], 10)), /机器状态/);
     await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["datasets/model.pt"], sandbox.explicitCodePolicy([".pt"], 0.1)), /超过 0.1 MB/);
     await assert.rejects(() => sandbox.buildLocalCodeManifest(root, ["../outside.py"]), /相对路径/);
   } finally {
