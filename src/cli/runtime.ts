@@ -22,6 +22,16 @@ export interface RuntimeObservation {
   progress: RuntimeProgress | null;
   gpu: { id: string; memory: string; utilization: string };
   config: { path: string; experiment_case: string; seed: string; model: string; dataset: string; max_epoch: number | null };
+  worker_task: {
+    id: string;
+    status: string;
+    plan: string;
+    gpu_id: string;
+    experiment_case: string;
+    seed: string;
+    started_at: string;
+    finished_at: string;
+  } | null;
   log: string;
   updated_at: string;
 }
@@ -41,6 +51,8 @@ export async function observeRunningExperiments(): Promise<RuntimeObservation[]>
       for (const window of session.windows || []) {
         const runId = runIdFromName(window.name);
         if (!runId) continue;
+        const workerTask = workerTaskFromWindow(window);
+        if (workerTask && terminalWorkerTaskStatus(workerTask.status)) continue;
         const capture = await tmuxCapture(endpoint, window.target || `${session.name}:${window.index}`);
         if (!capture) continue;
         const observation = observationFromCapture(endpoint, session.name, window, capture);
@@ -57,15 +69,16 @@ export async function observeRunningExperiments(): Promise<RuntimeObservation[]>
 export function observationFromCapture(
   endpoint: WorkerEndpoint,
   sessionName: string,
-  window: { index?: string; name?: string; target?: string; panes?: Array<{ index?: string; target?: string }> },
+  window: { index?: string; name?: string; target?: string; panes?: Array<{ index?: string; target?: string }>; task?: Record<string, unknown> },
   text: string,
 ): RuntimeObservation {
   const pane = (window.panes || [])[0] || {};
+  const workerTask = workerTaskFromWindow(window);
   const fields = launchFields(text);
   const progress = parseTrainingProgress(text);
   return {
     run_id: runIdFromName(window.name) || "",
-    plan: fields.plan || "",
+    plan: fields.plan || workerTask?.plan || "",
     status: "running",
     worker: { id: fields.worker_id || endpoint.id, host: endpoint.host },
     tmux: {
@@ -76,18 +89,19 @@ export function observationFromCapture(
     stage: fields.stage || "",
     progress,
     gpu: {
-      id: fields.gpu_ids || "",
+      id: fields.gpu_ids || workerTask?.gpu_id || "",
       memory: progress?.memory || "",
       utilization: "",
     },
     config: {
       path: fields.config_path || "",
-      experiment_case: fields.case || "",
-      seed: fields.seed || "",
+      experiment_case: fields.case || workerTask?.experiment_case || "",
+      seed: integerText(fields.seed) || integerText(workerTask?.seed) || "",
       model: fields.model || "",
       dataset: fields.dataset || "",
       max_epoch: null,
     },
+    worker_task: workerTask,
     log: text.trim(),
     updated_at: new Date().toISOString(),
   };
@@ -212,7 +226,7 @@ export function parseTrainingProgress(text: string, maxEpochHint: number | null 
 export function matchesRuntime(query: string, observation: RuntimeObservation, operationId = ""): boolean {
   const wanted = String(query || "").trim();
   if (!wanted) return false;
-  return [observation.run_id, observation.plan, observation.tmux.window, observation.tmux.session, operationId]
+  return [observation.worker_task?.id, observation.run_id, observation.plan, observation.tmux.window, observation.tmux.session, operationId]
     .some((value) => value && (value === wanted || value.endsWith(wanted) || wanted.endsWith(value)));
 }
 
@@ -241,6 +255,30 @@ async function tmuxList(endpoint: WorkerEndpoint): Promise<Array<{ name: string;
     name: String(asRecord(session).name || ""),
     windows: Array.isArray(asRecord(session).windows) ? asRecord(session).windows as Array<Record<string, any>> : [],
   })).filter((session) => session.name);
+}
+
+function workerTaskFromWindow(window: Record<string, any>): RuntimeObservation["worker_task"] {
+  const task = asRecord(window.task);
+  const id = String(task.runKey || task.commandId || task.operationId || "").trim();
+  if (!id) return null;
+  return {
+    id,
+    status: String(task.status || "").trim(),
+    plan: String(task.planFile || task.plan || "").trim(),
+    gpu_id: String(task.gpuId ?? task.gpu_id ?? "").trim(),
+    experiment_case: String(task.case || task.experimentCase || task.experiment_case || "").trim(),
+    seed: String(task.seed ?? "").trim(),
+    started_at: String(task.startedAt || task.started_at || "").trim(),
+    finished_at: String(task.finishedAt || task.finished_at || "").trim(),
+  };
+}
+
+function terminalWorkerTaskStatus(status: string): boolean {
+  return new Set([
+    "completed", "success", "succeeded", "normal_completed",
+    "failed", "error", "completed_with_errors",
+    "stopped", "cancelled", "canceled", "interrupted", "manual_interrupted_completed",
+  ]).has(status.trim().toLowerCase());
 }
 
 async function tmuxCapture(endpoint: WorkerEndpoint, target: string): Promise<string> {

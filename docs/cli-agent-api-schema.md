@@ -37,6 +37,8 @@ Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epo
 
 `experiment active` 返回归一化后的当前运行对象，不是所有仍能从 tmux pane 解析出的历史文本。若唯一匹配的 Worker Agent 历史已确认 `success`、`failed` 或 `cancelled`，该终态高于 pane 中残留的 runtime observation。
 
+当 Worker `/api/tmux/list` 提供窗口 task 元数据时，`active.runs[].id` 优先使用 Worker task 的 stable id；runtime pane/window id 是内部 alias，已标记终态的窗口不进入 active。元数据不可用时，继续使用现有 runtime observation 归一逻辑，不增加公开字段。
+
 ## experiment health
 
 整体健康判断。

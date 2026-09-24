@@ -591,6 +591,43 @@ test("running observation uses one worker config download to complete percent", 
   }
 });
 
+test("worker tmux metadata skips terminal windows before capture", async () => {
+  const api = require("../../dist/cli/api.js");
+  const { observeRunningExperiments } = require("../../dist/cli/runtime.js");
+  const originalOptionalApi = api.optionalApi;
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    requests.push(request.url);
+    response.writeHead(200, { "Content-Type": "application/json" });
+    if (request.url === "/api/tmux/list") response.end(JSON.stringify({ sessions: [{ name: "zlk-gpu-0", windows: [
+      { name: "run-1790237001150", target: "zlk-gpu-0:1", task: { commandId: "run3-998997-687", status: "running", gpuId: "0", case: "corim_bus_p100", seed: 45, planFile: "experiments/plans/comparison/corim.yaml", startedAt: "2026-09-24T08:03:21Z" } },
+      { name: "run-1790231236812", target: "zlk-gpu-0:2", task: { commandId: "run0-228782-829", status: "completed", gpuId: "0", case: "corim_bus_p100", seed: 42, planFile: "experiments/plans/comparison/corim.yaml", startedAt: "2026-09-24T06:27:16Z", finishedAt: "2026-09-24T08:03:04Z" } },
+    ] }] }));
+    else if (request.url.startsWith("/api/tmux/capture")) response.end(JSON.stringify({ text: "Epoch 10: Val Loss = 0.4" }));
+    else response.end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  api.optionalApi = async () => ({ value: { workerTunnels: [{ id: "nwpu2", localForwardHost: "127.0.0.1", localForwardPort: server.address().port }] } });
+  try {
+    const observations = await observeRunningExperiments();
+    assert.equal(observations.length, 1);
+    const [observation] = observations;
+    assert.equal(observation.run_id, "run-1790237001150");
+    assert.equal(observation.worker_task.id, "run3-998997-687");
+    assert.equal(observation.worker_task.status, "running");
+    assert.equal(observation.plan, "experiments/plans/comparison/corim.yaml");
+    assert.equal(observation.gpu.id, "0");
+    assert.equal(observation.config.experiment_case, "corim_bus_p100");
+    assert.equal(observation.config.seed, "45");
+    assert.equal(requests.filter((url) => url.startsWith("/api/tmux/capture")).length, 1);
+    assert.equal(requests.some((url) => url.includes("zlk-gpu-0%3A2")), false);
+    assert.equal(requests.some((url) => url.startsWith("/api/files/download")), false);
+  } finally {
+    api.optionalApi = originalOptionalApi;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("experiment rows distinguish workflow and worker runs", () => {
   const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
   const progress = parseTrainingProgress("epoch 24/300 31% 53/171 0:02:00\n当前 loss 0.2387");
@@ -1811,6 +1848,24 @@ test("runtime observations resolve to experiment rows", () => {
   assert.equal(lifecycleOf("pending"), "");
 });
 
+test("runtime row prefers direct Worker task id over tmux runtime alias", () => {
+  const { runtimeRow, resolveRuntimeObservation } = require("../../dist/cli/commands/experiment.js");
+  const observation = {
+    run_id: "run-1790241627897", plan: "experiments/plans/comparison/corim.yaml", status: "running",
+    worker: { id: "nwpu2", host: "" }, tmux: { session: "zlk-gpu-1", window: "zlk-gpu-1:2", pane: "zlk-gpu-1:2.0" },
+    stage: "train_test", progress: null, gpu: { id: "1", memory: "", utilization: "" },
+    config: { path: "", experiment_case: "corim_pad_p100", seed: "43", model: "", dataset: "" },
+    worker_task: { id: "run6-600294-437", status: "running", plan: "experiments/plans/comparison/corim.yaml", gpu_id: "1", experiment_case: "corim_pad_p100", seed: "43", started_at: "2026-09-24T09:20:27Z", finished_at: "" },
+    log: "", updated_at: "2026-09-24T09:21:00Z",
+  };
+  const row = runtimeRow(observation);
+  assert.equal(row.id, "run6-600294-437");
+  assert.equal(row.run_id, "run-1790241627897");
+  assert.equal(resolveRuntimeObservation("run6-600294-437", [observation]), observation);
+  assert.equal(resolveRuntimeObservation("run-1790241627897", [observation]), observation);
+  assert.equal(runtimeRow({ ...observation, worker_task: null }).id, observation.run_id);
+});
+
 function physicalWorkerFixture() {
   const history = {
     id: "run0-326826-291", run_id: "run0-326826-291", type: "worker_run", source: "history", status: "running",
@@ -1862,6 +1917,9 @@ test("physical worker identity requires matching worker GPU metadata and launch 
   assert.equal(workerHistoryMatchesRuntime({ ...history, seed: "43" }, observation), false);
   assert.equal(workerHistoryMatchesRuntime({ ...history, created: "" }, observation), false);
   assert.equal(workerHistoryMatchesRuntime(history, { ...observation, run_id: "run-unknown" }), false);
+  const withExplicitStart = { ...observation, run_id: "run-unknown", worker_task: { started_at: history.created } };
+  assert.equal(workerHistoryMatchesRuntime(history, withExplicitStart), true);
+  assert.equal(workerHistoryMatchesRuntime(history, { ...withExplicitStart, worker_task: { started_at: "2026-09-23T09:56:00Z" } }), false);
 });
 
 test("runtime observation enriches the stable worker task row without a duplicate", async () => {
@@ -1883,6 +1941,54 @@ test("runtime observation enriches the stable worker task row without a duplicat
   assert.equal(history.raw.workerTaskId, history.id);
 });
 
+test("direct Worker task id keeps canonical identity when Hub history row is absent", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { observation } = physicalWorkerFixture();
+  observation.run_id = "run-1790241627897";
+  observation.worker_task = { id: "run6-600294-437", status: "running", plan: observation.plan, gpu_id: "0", experiment_case: "A", seed: "42", started_at: "2026-09-24T09:20:27Z", finished_at: "" };
+  const workflow = { id: "wf-current", type: "workflow", status: "running", plan: observation.plan };
+  const byId = new Map([[workflow.id, workflow]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.equal(byId.has("run6-600294-437"), true);
+  assert.equal(byId.has(observation.run_id), false);
+  const row = byId.get("run6-600294-437");
+  assert.equal(row.id, "run6-600294-437");
+  assert.equal(row.run_id, observation.run_id);
+  assert.equal(row.source, "runtime_observation");
+  assert.equal(row.status, "running");
+  assert.equal(row.parent_id, workflow.id);
+  assert.equal(row.raw.workerTaskId, row.id);
+  assert.equal(row.raw.runtimeRunId, observation.run_id);
+});
+
+test("direct Worker task id outranks a different physical history match", async () => {
+  const { applyRuntimeObservations, workerHistoryMatchesRuntime } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  observation.worker_task = { id: "run6-600294-437", status: "running", plan: history.plan, gpu_id: "0", experiment_case: "A", seed: "42", started_at: history.created, finished_at: "" };
+  assert.equal(workerHistoryMatchesRuntime(history, observation), true);
+  const byId = new Map([[history.id, history]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.equal(byId.has(history.id), true);
+  assert.equal(byId.has(observation.worker_task.id), true);
+  assert.equal(byId.has(observation.run_id), false);
+  assert.equal(history.source, "history");
+});
+
+test("unknown cached worker row reactivates through exact Worker task id", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  history.id = "run6-600294-437";
+  history.status = "unknown";
+  observation.run_id = "run-1790241627897";
+  observation.worker_task = { id: history.id, status: "running", plan: history.plan, gpu_id: "0", experiment_case: "A", seed: "42", started_at: "2026-09-24T09:20:27Z", finished_at: "" };
+  const byId = new Map([[history.id, history]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.deepEqual([...byId.keys()], [history.id]);
+  assert.equal(history.status, "running");
+  assert.equal(history.source, "runtime_observation");
+  assert.equal(history.run_id, observation.run_id);
+});
+
 test("terminal worker history suppresses stale runtime observation", async () => {
   const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
   const { history, observation } = physicalWorkerFixture();
@@ -1902,6 +2008,20 @@ test("terminal worker history suppresses stale runtime observation", async () =>
   assert.equal(history.updated, history.finished_at);
   assert.equal(history.raw.runtimeRunId, observation.run_id);
   assert.equal(history.raw.workerTaskId, history.id);
+});
+
+test("terminal history outranks direct running task id", async () => {
+  const { applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const { history, observation } = physicalWorkerFixture();
+  history.status = "success";
+  history.finished_at = "2026-09-24T05:39:11Z";
+  observation.worker_task = { id: history.id, status: "running", plan: history.plan, gpu_id: "0", experiment_case: "A", seed: "42", started_at: history.created, finished_at: "" };
+  const byId = new Map([[history.id, history]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.deepEqual([...byId.keys()], [history.id]);
+  assert.equal(history.status, "success");
+  assert.equal(history.source, "history");
+  assert.equal(history.raw.runtimeRunId, observation.run_id);
 });
 
 test("exact runtime alias cannot revive terminal worker history", async () => {

@@ -848,10 +848,7 @@ async function applyRuntimeObservations(byId, observed) {
                 row.parent_id = parent.id;
         }
     };
-    for (const row of workerRows) {
-        const match = observed.find((item) => !used.has(item) && (item.run_id === row.id || (row.run_id && item.run_id === row.run_id)));
-        if (!match)
-            continue;
+    const consumeExactMatch = (row, match) => {
         if (isTerminalWorkerHistory(row)) {
             used.add(match);
             row.raw = { ...(row.raw || {}), runtimeRunId: match.run_id, workerTaskId: row.id };
@@ -859,10 +856,22 @@ async function applyRuntimeObservations(byId, observed) {
         else {
             applyMatch(row, match);
         }
+    };
+    for (const row of workerRows) {
+        const match = observed.find((item) => !used.has(item) && item.worker_task?.id === row.id);
+        if (!match)
+            continue;
+        consumeExactMatch(row, match);
+    }
+    for (const row of workerRows) {
+        const match = observed.find((item) => !used.has(item) && (item.run_id === row.id || (row.run_id && item.run_id === row.run_id)));
+        if (!match)
+            continue;
+        consumeExactMatch(row, match);
     }
     const historyRows = workerRows.filter((row) => row.source === "history");
     for (const row of historyRows.filter(isTerminalWorkerHistory)) {
-        const candidates = observed.filter((item) => !used.has(item) && workerHistoryIdentityMatchesRuntime(row, item));
+        const candidates = observed.filter((item) => !used.has(item) && (!item.worker_task?.id || item.worker_task.id === row.id) && workerHistoryIdentityMatchesRuntime(row, item));
         if (candidates.length !== 1)
             continue;
         const item = candidates[0];
@@ -872,7 +881,7 @@ async function applyRuntimeObservations(byId, observed) {
         row.raw = { ...(row.raw || {}), runtimeRunId: item.run_id, workerTaskId: row.id };
     }
     for (const row of historyRows.filter((candidate) => candidate.status === "running")) {
-        const candidates = observed.filter((item) => !used.has(item) && workerHistoryMatchesRuntime(row, item));
+        const candidates = observed.filter((item) => !used.has(item) && (!item.worker_task?.id || item.worker_task.id === row.id) && workerHistoryMatchesRuntime(row, item));
         if (candidates.length !== 1)
             continue;
         const item = candidates[0];
@@ -882,13 +891,16 @@ async function applyRuntimeObservations(byId, observed) {
         row.raw = { ...(row.raw || {}), runtimeRunId: item.run_id, workerTaskId: row.id };
     }
     for (const item of observed) {
-        if (used.has(item) || byId.has(item.run_id))
+        if (used.has(item))
+            continue;
+        const canonicalId = item.worker_task?.id || item.run_id;
+        if (byId.has(canonicalId) || byId.has(item.run_id))
             continue;
         const row = runtimeRow(item);
         const parent = parentWorkflow(item, byId);
         if (parent)
             row.parent_id = parent.id;
-        byId.set(item.run_id, row);
+        byId.set(row.id, row);
     }
 }
 function workerHistoryMatchesRuntime(row, item) {
@@ -919,7 +931,8 @@ function workerHistoryIdentityMatchesRuntime(row, item) {
     }
     const runTimestamp = /^run-(\d{13})$/.exec(String(item.run_id || ""));
     const historyStart = Date.parse(row.created);
-    const runtimeStart = runTimestamp ? Number(runTimestamp[1]) : NaN;
+    const workerStart = Date.parse(item.worker_task?.started_at || "");
+    const runtimeStart = Number.isFinite(workerStart) ? workerStart : (runTimestamp ? Number(runTimestamp[1]) : NaN);
     return Number.isFinite(historyStart) && Number.isSafeInteger(runtimeStart) && Math.abs(historyStart - runtimeStart) <= 15_000;
 }
 function loadLocalExperiments() {
@@ -1373,7 +1386,7 @@ function runtimeFields(item, row) {
         model: item.config.model || row.model,
         dataset: item.config.dataset || row.dataset,
         updated: item.updated_at,
-        raw: { ...(row.raw || {}), runtimeLog: item.log, tmux: item.tmux, worker: item.worker, config_path: item.config.path || row.raw?.config_path || "" },
+        raw: { ...(row.raw || {}), runtimeLog: item.log, tmux: item.tmux, worker: item.worker, config_path: item.config.path || row.raw?.config_path || "", runtimeRunId: item.run_id, ...(item.worker_task?.id ? { workerTaskId: item.worker_task.id } : {}) },
     };
 }
 function applyObservationFields(row, item) {
@@ -1382,14 +1395,15 @@ function applyObservationFields(row, item) {
     return row;
 }
 function runtimeRow(item) {
-    const base = blankRuntime({ id: item.run_id, name: item.plan || item.run_id, status: "running", type: "worker_run" });
+    const canonicalId = item.worker_task?.id || item.run_id;
+    const base = blankRuntime({ id: canonicalId, name: item.plan || canonicalId, status: "running", type: "worker_run" });
     const fields = runtimeFields(item, base);
     return blankRuntime({
         ...base,
         ...fields,
-        id: item.run_id,
+        id: canonicalId,
         type: "worker_run",
-        name: String(fields.name || item.run_id),
+        name: String(fields.name || canonicalId),
         status: "running",
     });
 }
