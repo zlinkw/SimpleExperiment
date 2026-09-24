@@ -298,10 +298,15 @@ test("loadResults includes parsed Worker summaries", async () => {
     provenance: { planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a" },
     planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a",
   };
+  const diagnostic = {
+    ...record,
+    resultId: "worker-stderr-row0",
+    sourceFiles: [{ path: "work_dirs/demo/stderr.log", type: "text", endpoint: "hub" }],
+  };
   const workerServer = http.createServer((req, res) => {
     if (req.url === "/api/results/summary") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ schemaVersion: 1, resultCount: 1, parsedResults: 1, parseFailed: 0, results: [record] }));
+      res.end(JSON.stringify({ schemaVersion: 1, resultCount: 2, parsedResults: 2, parseFailed: 0, results: [record, diagnostic] }));
     } else { res.writeHead(404); res.end(); }
   });
   await new Promise((resolve) => workerServer.listen(0, "127.0.0.1", resolve));
@@ -310,13 +315,14 @@ test("loadResults includes parsed Worker summaries", async () => {
       { id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port, enabled: true },
       { id: "offline-worker", localForwardHost: "127.0.0.1", localForwardPort: 1, enabled: true },
     ] } }
-    : { results: [] };
+    : { results: [diagnostic] };
   try {
     const rows = await loadResults();
     const result = rows.find((row) => row.id === "worker-result-1");
     assert.equal(result?.experimentId, "suite/baseline/seed_7");
     assert.equal(result?.primaryMetric, "accuracy");
     assert.equal(result?.primaryValue, 0.91);
+    assert.equal(rows.some((row) => row.id === "worker-stderr-row0"), false);
   } finally {
     api.optionalApi = originalOptionalApi;
     await new Promise((resolve) => workerServer.close(resolve));

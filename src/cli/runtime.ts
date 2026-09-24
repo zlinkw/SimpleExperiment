@@ -257,12 +257,22 @@ export async function readWorkerResultRecords(): Promise<Array<Record<string, un
     try {
       const payload = await agentGet(endpoint, "/api/results/summary");
       const results = Array.isArray(payload?.results) ? payload.results : [];
-      return results.map(asRecord).filter((row) => Object.keys(row).length > 0);
+      return results.map(asRecord).filter((row) => Object.keys(row).length > 0 && !isDiagnosticWorkerResult(row));
     } catch {
       return [];
     }
   }));
   return groups.flat();
+}
+
+export function isDiagnosticWorkerResult(row: Record<string, unknown>): boolean {
+  const sources = row.sourceFiles;
+  if (!Array.isArray(sources) || sources.length === 0) return false;
+  return sources.every((source) => {
+    const filePath = String(asRecord(source).path || "").replace(/\\/g, "/");
+    const base = filePath.split("/").pop()?.toLowerCase() || "";
+    return base === "stdout.log" || base === "stderr.log";
+  });
 }
 
 async function tmuxList(endpoint: WorkerEndpoint): Promise<Array<{ name: string; windows: Array<Record<string, any>> }>> {

@@ -119,12 +119,12 @@ Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epo
 
 ## experiment config
 
-公开字段保持 `{ id, config_path, yaml, experiment_case, seed, dataset, model, optimizer, batch_size, epoch }`。对 `worker_run`，`config_path` 优先表示该任务实际执行时的 `job_config.yaml`。新任务将路径保存在 Worker task snapshot；旧任务没有路径时，仅在显式查询 config 时按稳定 Worker task ID 精确匹配仍存在的 terminal pane，从启动 context 恢复路径。不会按 plan、case 或 seed 扫描目录。
+公开字段保持 `{ id, config_path, yaml, experiment_case, seed, dataset, model, optimizer, batch_size, epoch }`。对 `worker_run`，`config_path` 优先表示该任务实际执行时的 `job_config.yaml`。历史配置依次来自 task snapshot 中当时持久化的路径、该 task 自身 `logPath` 的启动上下文、仍存在且按稳定 Worker task ID 精确匹配的 terminal pane。Worker task API 对旧任务只读取日志前部并返回恢复后的视图，不改写 snapshot。Plan 是可变输入，不是历史任务真值；CLI 不重新展开当前 Plan，也不按 case、seed 或 index 扫描目录。
 
-`workflow` 仍返回本地 plan/config。旧 Worker 离线或 terminal pane 已消失且未持久化路径时，可能只能返回原有 plan 信息；CLI 不会猜测 `job_config.yaml`。
+`workflow` 仍返回本地 plan/config。旧 Worker 离线，或 task snapshot、持久日志、terminal pane 均无法提供可验证路径时，可能只能返回原有 plan 信息；CLI 不会猜测 `job_config.yaml`。
 
 ## result 与 experiment results
 
-`result list/show/export` 汇聚本地结果注册表、本地结果文件、已连接 Worker 的 `/api/results/summary` 和 Hub `results.list`。相同 `resultId` 继续去重；Hub 记录优先于 Worker 直连记录。`result list` 展示已解析结果，不表示已通过最终证据审核。
+`result list/show/export` 汇聚本地结果注册表、本地结果文件、已连接 Worker 的 `/api/results/summary` 和 Hub `results.list`。相同 `resultId` 继续去重；Hub 记录优先于 Worker 直连记录。`stdout.log` 和 `stderr.log` 属于诊断及输出证据，不能产生结构化结果；CLI 过滤历史 Worker summary 和 Hub 结果中仅由这两类日志生成的伪结果。`result list` 展示已解析结果，不表示已通过最终证据审核。
 
 `experiment results` 首先将结果的 `resultId`、`experimentId`、`runKey` 与 CLI 实验 ID 精确匹配。成功的 `worker_run` 若没有直接匹配，可以读取其真实 `job_config.yaml` 中的 `experiment_name`，与结果的 `experimentId` 完整相等时关联。plan、worker、case、seed 只用于冲突校验，不能单独建立关联。失败、取消、运行中或未知状态的 `worker_run` 不使用该逻辑身份回退，避免继承后续重试的结果。公开 JSON 字段保持 `{ experiment_id, result_ids, metrics, output_paths, reason }`。

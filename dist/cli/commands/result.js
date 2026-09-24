@@ -152,6 +152,8 @@ async function loadResults() {
     records.push(...extractRecords(remote));
     const byId = new Map();
     for (const record of records) {
+        if ((0, runtime_1.isDiagnosticWorkerResult)(record))
+            continue;
         const metrics = Object.fromEntries(Object.entries(record.metrics || {}).map(([key, value]) => [key, value && typeof value === "object" ? value.value : value]));
         const primaryMetric = record.primaryMetric || Object.keys(metrics)[0] || "";
         const outputFiles = (record.sourceFiles || []).map((item) => item.path).filter(Boolean);

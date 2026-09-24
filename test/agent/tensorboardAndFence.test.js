@@ -60,6 +60,53 @@ print("worker config paths persisted")
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
+test("legacy Worker task recovers config from its own persisted launch log", () => {
+  const script = [
+    'import importlib.util, pathlib, tempfile, os, json',
+    'spec = importlib.util.spec_from_file_location("agent", pathlib.Path(' + JSON.stringify(agentPath) + '))',
+    'agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)',
+    'with tempfile.TemporaryDirectory() as root:',
+    '    agent.AGENT_STATE_DIR = os.path.join(root, "state")',
+    '    plan = pathlib.Path(root, "experiments/plans/old.yaml")',
+    '    plan.parent.mkdir(parents=True)',
+    '    plan.write_text("suite: changed\\ncases:\\n  - case: unrelated\\nseeds: [99]\\n", encoding="utf-8")',
+    '    config_rel = "work_dirs/archive/run-43/job_config.yaml"',
+    '    config = pathlib.Path(root, config_rel)',
+    '    config.parent.mkdir(parents=True)',
+    '    config.write_text("experiment_name: historical/run-43\\n", encoding="utf-8")',
+    '    log_rel = "simple_cluster/tmp/cluster_scheduler/logs/legacy-run.log"',
+    '    log = pathlib.Path(root, log_rel)',
+    '    log.parent.mkdir(parents=True)',
+    '    context = {"output_dir": "work_dirs/archive/run-43", "config_path": config_rel}',
+    '    log.write_text("[simple-experiment-runtime] start index=6\\npython run_wrapper.py --output-dir work_dirs/archive/run-43 --context-json " + json.dumps(context) + " -- python train.py --config " + config_rel + "\\n", encoding="utf-8")',
+    '    task = {"commandId": "legacy-run", "status": "completed", "planFile": "experiments/plans/old.yaml", "experimentIndex": 6, "case": "baseline", "seed": 43, "logPath": log_rel}',
+    '    snapshot = agent.path_for(root, "worker_task_snapshot.json")',
+    '    agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [task]})',
+    '    recovered = agent.api_worker_tasks(root)["tasks"][0]',
+    '    assert recovered["outputDir"] == "work_dirs/archive/run-43", recovered',
+    '    assert recovered["configPath"] == config_rel, recovered',
+    '    persisted = agent.read_json(snapshot, {})["tasks"][0]',
+    '    assert "configPath" not in persisted and "outputDir" not in persisted, persisted',
+    '    assert agent.api_worker_tasks(root)["tasks"][0]["configPath"] == config_rel',
+    '    other_rel = "work_dirs/other/job_config.yaml"',
+    '    other = pathlib.Path(root, other_rel)',
+    '    other.parent.mkdir(parents=True)',
+    '    other.write_text("experiment_name: other\\n", encoding="utf-8")',
+    '    log.write_text(log.read_text(encoding="utf-8") + json.dumps({"config_path": other_rel}) + "\\n", encoding="utf-8")',
+    '    conflicted = agent.api_worker_tasks(root)["tasks"][0]',
+    '    assert "configPath" not in conflicted and "outputDir" not in conflicted, conflicted',
+    '    unsafe = dict(task, logPath="../outside.log")',
+    '    assert agent.recover_worker_task_launch_paths(root, unsafe) == unsafe',
+    '    external = dict(task, logPath="/tmp/outside.log")',
+    '    assert agent.recover_worker_task_launch_paths(root, external) == external',
+    '    current = dict(task, configPath="work_dirs/new/correct/job_config.yaml", outputDir="work_dirs/new/correct")',
+    '    assert agent.recover_worker_task_launch_paths(root, current) == current',
+    'print("historical launch paths recovered without current plan")',
+  ].join("\n");
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test("tb_tmux_session_name normalizes prefix to <normalized>_tb", () => {
   assert.match(agentSource, /def tb_tmux_session_name\(prefix\)/);
   assert.match(agentSource, /return p \+ "_tb"/);

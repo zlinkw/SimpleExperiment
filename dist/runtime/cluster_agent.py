@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.83"
-RUNTIME_VERSION = "0.5.83"
-PLUGIN_VERSION = "0.5.83"
+AGENT_VERSION = "0.5.84"
+RUNTIME_VERSION = "0.5.84"
+PLUGIN_VERSION = "0.5.84"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -861,6 +861,14 @@ def parseable_result_candidate(value):
     if re.search(r"(?:_snapshot|_manifest|_status|_state|_progress)\.json$", base):
         return ""
     return text
+
+def structured_result_candidate(value):
+    candidate = parseable_result_candidate(value)
+    if not candidate:
+        return ""
+    if os.path.basename(candidate).lower() in STRUCTURED_RESULT_DIAGNOSTIC_LOGS:
+        return ""
+    return candidate
 
 DELETE_ALLOWED_TOP_DIRS = ("work_dirs", "exports", "results")
 DELETE_ALLOWED_PREFIXES = (
@@ -5029,6 +5037,7 @@ NON_METRIC_COLUMNS = {"index", "experiment_index", "job_index", "job_count", "gp
 RESULT_FILE_NAMES = {"results.csv", "metrics.csv", "metrics_summary.csv", "metrics_case.csv", "summary.csv", "scores.csv", "score.csv", "detailed_metrics.csv", "test_metrics.csv", "classification_report.csv", "result.csv"}
 JSON_RESULT_NAMES = {"metrics.json", "summary.json", "result.json", "results.json", "classification_report.json"}
 TEXT_RESULT_NAMES = {"summary.txt", "result.txt", "results.txt", "classification_report.txt", "stdout.log", "stderr.log", "train.log", "test.log", "console.log", "output.out"}
+STRUCTURED_RESULT_DIAGNOSTIC_LOGS = {"stdout.log", "stderr.log"}
 IGNORED_RESULT_FILES = {
     "experiments/results/jobs.csv",
     "jobs.csv",
@@ -5101,7 +5110,7 @@ def discover_result_files(root, limit=240, max_dirs=4000, max_depth=8, deadline_
     out = []
     started = time.time()
     visited_dirs = 0
-    for name in sorted(RESULT_FILE_NAMES.union(JSON_RESULT_NAMES, TEXT_RESULT_NAMES)):
+    for name in sorted(RESULT_FILE_NAMES.union(JSON_RESULT_NAMES, TEXT_RESULT_NAMES) - STRUCTURED_RESULT_DIAGNOSTIC_LOGS):
         path = os.path.join(root, name)
         if safe_small_file(path):
             out.append(name)
@@ -5121,6 +5130,8 @@ def discover_result_files(root, limit=240, max_dirs=4000, max_depth=8, deadline_
                 dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", "checkpoints", "weights", "datasets", "features", "debug_runs") and not d.startswith(".")]
             for name in files:
                 lower = name.lower()
+                if lower in STRUCTURED_RESULT_DIAGNOSTIC_LOGS:
+                    continue
                 rel = relpath(root, os.path.join(current, name))
                 if rel.replace("\\", "/").lstrip("/").startswith("simple_cluster/debug_runs/"):
                     continue
@@ -6660,6 +6671,8 @@ def discover_result_files_under(root, relative, limit=80, max_dirs=400, max_dept
         else:
             dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", "checkpoints", "weights", "datasets", "features") and not d.startswith(".")]
         for name in files:
+            if name.lower() in STRUCTURED_RESULT_DIAGNOSTIC_LOGS:
+                continue
             path = os.path.join(current, name)
             candidate = relpath(root, path)
             if candidate.replace("\\", "/").lstrip("/").startswith("simple_cluster/debug_runs/"):
@@ -6932,12 +6945,10 @@ def default_result_candidates_for_dir(value):
     if not raw or re.search(r"/?[^/]+\.[A-Za-z0-9]{1,8}$", raw):
         return []
     prefix = "" if raw == "." else raw.strip("/") + "/"
-    # 脑补收敛（保留 metrics_case 版）：output_dir 仅脑补终版4文件，大表走 Plan 声明
+    # output_dir 只推导结构化指标文件；stdout/stderr 仍保留为诊断证据。
     candidates = [
         prefix + "metrics_summary.csv",
         prefix + "metrics_case.csv",
-        prefix + "stdout.log",
-        prefix + "stderr.log",
     ]
     return [candidate for candidate in (normalize_result_candidate(item) for item in candidates) if candidate and allowed_result_candidate(candidate)]
 
@@ -7178,6 +7189,7 @@ def parse_results_action(root, selected=None, plan=None, plan_revision="", owner
         files = sorted(dict.fromkeys([*plan_files, *policy_files]))
     else:
         files = sorted(dict.fromkeys([*expand_result_candidates(root, policy_result_candidates(policy)), *expand_result_candidates(root, plan_declared_result_candidates(root, plan)), *expand_result_candidates(root, job_result_candidates(root)), *discover_result_files(root)]))
+    files = [item for item in files if structured_result_candidate(item)]
     records, failures, used_files = [], [], []
     plan_norm = normalize_result_candidate(plan) if plan else ""
     plan_suite = plan_suite_value(root, plan_norm) if plan_norm else ""
@@ -10789,6 +10801,122 @@ def handle_action(root, action, payload, operation_id, op_id):
         return terminal_action(root, action, operation_id, op_id, "failed", unsupported[action])
     return terminal_action(root, action, operation_id, op_id, "failed", f"不支持的操作：{action}")
 
+WORKER_LAUNCH_CONTEXT_CACHE = {}
+WORKER_LAUNCH_CONTEXT_CACHE_LOCK = threading.Lock()
+MAX_WORKER_LAUNCH_CONTEXT_CACHE_RECORDS = 200
+
+
+def read_worker_task_launch_prefix(root, task, max_bytes=256 * 1024):
+    log_rel = str(task.get("logPath") or task.get("log_path") or "").strip()
+    if not log_rel:
+        return ""
+    try:
+        path = safe_project_path(root, log_rel)
+        with open(path, "rb") as stream:
+            data = stream.read(max_bytes)
+        return data.decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def worker_launch_path_values(text):
+    source = str(text or "")
+    config_values = re.findall(r"""["'](?:config_path|config)["']\s*:\s*["']([^"'\r\n]+)["']""", source)
+    output_values = re.findall(r"""["'](?:output_dir|outputDir)["']\s*:\s*["']([^"'\r\n]+)["']""", source)
+    for pattern, target in (
+        (r"""(?<!\S)--config(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s"']+))""", config_values),
+        (r"""(?<!\S)--(?:output-dir|output_dir)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s"']+))""", output_values),
+    ):
+        for groups in re.findall(pattern, source):
+            target.append(next((value for value in groups if value), ""))
+    normalize = lambda value: str(value or "").replace("\\", "/").strip().strip("'\"")
+    configs = {normalize(value) for value in config_values if normalize(value)}
+    outputs = {normalize(value) for value in output_values if normalize(value)}
+    if len(configs) > 1 or len(outputs) > 1:
+        return {"config_path": "", "output_dir": "", "ambiguous": True}
+    return {
+        "config_path": next(iter(configs), ""),
+        "output_dir": next(iter(outputs), ""),
+        "ambiguous": False,
+    }
+
+
+def cached_worker_launch_path_values(root, task):
+    log_rel = str(task.get("logPath") or task.get("log_path") or "").strip()
+    if not log_rel:
+        return {"config_path": "", "output_dir": "", "ambiguous": False}
+    try:
+        path = safe_project_path(root, log_rel)
+        stat = os.stat(path)
+        signature = (path, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    except Exception:
+        return {"config_path": "", "output_dir": "", "ambiguous": False}
+    with WORKER_LAUNCH_CONTEXT_CACHE_LOCK:
+        cached = WORKER_LAUNCH_CONTEXT_CACHE.get(path)
+        if cached and cached["signature"] == signature:
+            cached["lastUsedAt"] = time.monotonic()
+            return dict(cached["values"])
+    values = worker_launch_path_values(read_worker_task_launch_prefix(root, task))
+    with WORKER_LAUNCH_CONTEXT_CACHE_LOCK:
+        WORKER_LAUNCH_CONTEXT_CACHE[path] = {
+            "signature": signature, "values": values, "lastUsedAt": time.monotonic(),
+        }
+        if len(WORKER_LAUNCH_CONTEXT_CACHE) > MAX_WORKER_LAUNCH_CONTEXT_CACHE_RECORDS:
+            oldest = min(WORKER_LAUNCH_CONTEXT_CACHE, key=lambda key: WORKER_LAUNCH_CONTEXT_CACHE[key]["lastUsedAt"])
+            WORKER_LAUNCH_CONTEXT_CACHE.pop(oldest, None)
+    return values
+
+
+def recover_worker_task_launch_paths(root, task):
+    row = dict(task)
+    config_path = str(row.get("configPath") or row.get("config_path") or "").replace("\\", "/").strip()
+    output_dir = str(row.get("outputDir") or row.get("output_dir") or "").replace("\\", "/").strip()
+    if config_path and output_dir:
+        return row
+    if config_path:
+        try:
+            if os.path.isfile(safe_project_path(root, config_path)):
+                row["outputDir"] = os.path.dirname(config_path).replace("\\", "/")
+        except Exception:
+            pass
+        return row
+    if output_dir:
+        candidate = output_dir.rstrip("/") + "/job_config.yaml"
+        try:
+            if os.path.isfile(safe_project_path(root, candidate)):
+                row["configPath"] = candidate
+        except Exception:
+            pass
+        return row
+    values = cached_worker_launch_path_values(root, task)
+    if values["ambiguous"]:
+        return row
+    recovered_config = values["config_path"]
+    recovered_output = values["output_dir"]
+    if recovered_config:
+        try:
+            if os.path.isfile(safe_project_path(root, recovered_config)):
+                row["configPath"] = recovered_config
+        except Exception:
+            pass
+    if recovered_output:
+        try:
+            safe_project_path(root, recovered_output)
+            row["outputDir"] = recovered_output
+        except Exception:
+            pass
+    elif row.get("configPath"):
+        row["outputDir"] = os.path.dirname(row["configPath"]).replace("\\", "/")
+    if row.get("outputDir") and not row.get("configPath"):
+        candidate = str(row["outputDir"]).rstrip("/") + "/job_config.yaml"
+        try:
+            if os.path.isfile(safe_project_path(root, candidate)):
+                row["configPath"] = candidate
+        except Exception:
+            pass
+    return row
+
+
 def api_worker_tasks(root):
     try:
         reconcile_worker_task_exit_codes(root)
@@ -10801,7 +10929,7 @@ def api_worker_tasks(root):
         for _item in tasks:
             if not isinstance(_item, dict):
                 continue
-            _row = dict(_item)
+            _row = recover_worker_task_launch_paths(root, _item)
             _target = str(_row.get("tmuxTarget") or _row.get("tmuxSession") or "").strip()
             if not _target:
                 _gid_tmp = str(_row.get("gpuId") or _row.get("gpu_id") or _row.get("gpu") or _row.get("targetGpuId") or "").strip()

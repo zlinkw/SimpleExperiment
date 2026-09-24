@@ -40,6 +40,7 @@ exports.overallTrainingPercent = overallTrainingPercent;
 exports.parseTrainingProgress = parseTrainingProgress;
 exports.matchesRuntime = matchesRuntime;
 exports.readWorkerResultRecords = readWorkerResultRecords;
+exports.isDiagnosticWorkerResult = isDiagnosticWorkerResult;
 exports.readWorkerTaskConfig = readWorkerTaskConfig;
 exports.nestedYamlValue = nestedYamlValue;
 exports.trainingMaxEpochFromYaml = trainingMaxEpochFromYaml;
@@ -234,13 +235,23 @@ async function readWorkerResultRecords() {
         try {
             const payload = await agentGet(endpoint, "/api/results/summary");
             const results = Array.isArray(payload?.results) ? payload.results : [];
-            return results.map(asRecord).filter((row) => Object.keys(row).length > 0);
+            return results.map(asRecord).filter((row) => Object.keys(row).length > 0 && !isDiagnosticWorkerResult(row));
         }
         catch {
             return [];
         }
     }));
     return groups.flat();
+}
+function isDiagnosticWorkerResult(row) {
+    const sources = row.sourceFiles;
+    if (!Array.isArray(sources) || sources.length === 0)
+        return false;
+    return sources.every((source) => {
+        const filePath = String(asRecord(source).path || "").replace(/\\/g, "/");
+        const base = filePath.split("/").pop()?.toLowerCase() || "";
+        return base === "stdout.log" || base === "stderr.log";
+    });
 }
 async function tmuxList(endpoint) {
     const payload = await agentGet(endpoint, "/api/tmux/list");

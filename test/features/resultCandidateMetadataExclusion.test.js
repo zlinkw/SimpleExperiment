@@ -91,3 +91,38 @@ test("Hub Agent output gate and adapter policy reject metadata-only candidates",
   assert.equal(payload.manifest, "");
   assert.equal(payload.internal, "");
 });
+
+test("stdout and stderr stay valid evidence but cannot generate structured result records", () => {
+  const agentPath = path.resolve(__dirname, "../../dist/runtime/cluster_agent.py");
+  const script = [
+    'import importlib.util, pathlib, tempfile',
+    'spec = importlib.util.spec_from_file_location("agent", pathlib.Path(' + JSON.stringify(agentPath) + '))',
+    'agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)',
+    'with tempfile.TemporaryDirectory() as root:',
+    '    output = pathlib.Path(root, "work_dirs/demo")',
+    '    output.mkdir(parents=True)',
+    '    csv_rel = "work_dirs/demo/metrics_summary.csv"',
+    '    stdout_rel = "work_dirs/demo/stdout.log"',
+    '    stderr_rel = "work_dirs/demo/stderr.log"',
+    '    (output / "metrics_summary.csv").write_text("experiment_id,suite,run_key,dataset,split,seed,metric,value\\ne1,demo,r1,d,test,7,accuracy,0.91\\n", encoding="utf-8")',
+    '    (output / "stdout.log").write_text("accuracy: 0.99\\n", encoding="utf-8")',
+    '    (output / "stderr.log").write_text("accuracy: 0.10\\n", encoding="utf-8")',
+    '    assert agent.parseable_result_candidate(stdout_rel) == stdout_rel',
+    '    assert agent.parseable_result_candidate(stderr_rel) == stderr_rel',
+    '    assert agent.structured_result_candidate(stdout_rel) == ""',
+    '    assert agent.structured_result_candidate(stderr_rel) == ""',
+    '    assert agent.structured_result_candidate("work_dirs/demo/summary.txt")',
+    '    assert stdout_rel not in agent.discover_result_files(root)',
+    '    assert stderr_rel not in agent.discover_result_files_under(root, "work_dirs/demo")',
+    '    assert stdout_rel not in agent.default_result_candidates_for_dir("work_dirs/demo")',
+    '    summary = agent.parse_results_action(root)',
+    '    assert summary["resultCount"] == 1, summary',
+    '    assert summary["sources"] == [csv_rel], summary',
+    '    selected = agent.parse_results_action(root, selected=[stdout_rel, stderr_rel, csv_rel])',
+    '    assert selected["resultCount"] == 1, selected',
+    '    assert selected["sources"] == [csv_rel], selected',
+    'print("diagnostic logs excluded from structured results")',
+  ].join("\n");
+  const result = spawnSync("python", ["-c", script], { encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});

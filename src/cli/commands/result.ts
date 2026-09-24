@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { optionalApi } from "../api";
 import { RESULT_REGISTRY_LOCAL_REL, RESULT_REGISTRY_REL, readJsonFile, resolveProjectPath } from "../data";
-import { readWorkerResultRecords } from "../runtime";
+import { isDiagnosticWorkerResult, readWorkerResultRecords } from "../runtime";
 import { businessError, usageError } from "../errors";
 import { block, table, writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
@@ -131,6 +131,7 @@ export async function loadResults(): Promise<ResultRow[]> {
   records.push(...extractRecords(remote));
   const byId = new Map<string, ResultRow>();
   for (const record of records) {
+    if (isDiagnosticWorkerResult(record as unknown as Record<string, unknown>)) continue;
     const metrics = Object.fromEntries(Object.entries(record.metrics || {}).map(([key, value]) => [key, value && typeof value === "object" ? (value as { value?: unknown }).value : value]));
     const primaryMetric = record.primaryMetric || Object.keys(metrics)[0] || "";
     const outputFiles = (record.sourceFiles || []).map((item) => item.path).filter(Boolean);
