@@ -783,6 +783,7 @@ export class RealtimeTunnelPanelProvider {
     private availabilityPushLoopGeneration = 0;
     lastAvailabilityPushAt = 0;
     lastCodeSyncState = {};
+    private readonly planSyncSummaryRetries = new Map<string, { timer: ReturnType<typeof setTimeout>; attempt: number }>();
     confirmedRemotePaths = [];
     confirmedPptPaths = [];
     private localApiServer;
@@ -2621,6 +2622,8 @@ export class RealtimeTunnelPanelProvider {
         for (const timer of this.operationProbeTimers.values())
             clearTimeout(timer);
         this.operationProbeTimers.clear();
+        for (const retry of this.planSyncSummaryRetries.values()) clearTimeout(retry.timer);
+        this.planSyncSummaryRetries.clear();
         this.selectedPlanId = undefined;
         this.planFileInput = undefined;
         this.recentPlans = [];
@@ -3203,6 +3206,8 @@ export class RealtimeTunnelPanelProvider {
     async dispose() {
         this.clearPanelReadyWatchdog();
         this.disposeSelectedPlanFileWatchers();
+        for (const retry of this.planSyncSummaryRetries.values()) clearTimeout(retry.timer);
+        this.planSyncSummaryRetries.clear();
         if (this.localApiServerPromise)
             await this.localApiServerPromise.catch(() => undefined);
         if (this.localApiServer) {
@@ -8278,7 +8283,7 @@ export class RealtimeTunnelPanelProvider {
                         this.queueSelectedPlanResultParse("operation 完成", planHint);
                     await this.refreshResultsSummary(planHint);
                 }
-                if (action === "run-plan" && String(this.localOperations[opId]?.status || "").toLowerCase() === "completed")
+                if (["run-plan", "reproduce-plan"].includes(action) && String(this.localOperations[opId]?.status || "").toLowerCase() === "completed")
                     void this.queueCompletedPlanArtifactSync(this.localOperations[opId]).catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
             }
             else if (this.shouldRetryOperationStatusProbe(opId, probeAttempt) || probeAttempt >= this.operationStatusProbeMaxAttempts) {
@@ -8484,6 +8489,8 @@ export class RealtimeTunnelPanelProvider {
             this.clearOperationWatchdog(opId);
             this.markLocalOperationsDirty();
             this.postState();
+            if (["run-plan", "reproduce-plan"].includes(action) && String(this.localOperations[opId]?.status || "").toLowerCase() === "completed")
+                void this.queueCompletedPlanArtifactSync(this.localOperations[opId]).catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
             return { terminal: true, dead: !evidence.pidAlive && !evidence.tmuxSessionAlive, evidence };
         }
         this.markLocalOperationsDirty();
@@ -8520,8 +8527,11 @@ export class RealtimeTunnelPanelProvider {
                 delete patch.lastReconcileError;
                 // 把远端证据一并落到记录上，供 UI 外显“running 但报错/假执行中”的黄色 warning 与日志预览。
                 this.localOperations[operationId] = { ...patch, evidence: evidence && typeof evidence === "object" ? evidence : {} };
-                if (decision.terminal)
+                if (decision.terminal) {
                     reconciled.push(operationId);
+                    if (["run-plan", "reproduce-plan"].includes(String(record.type || record.action || "")) && String(patch.status || "").toLowerCase() === "completed")
+                        void this.queueCompletedPlanArtifactSync(this.localOperations[operationId]).catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
+                }
             }
             if (checked.length || reconciled.length) {
                 this.markLocalOperationsDirty();
@@ -11654,12 +11664,32 @@ export class RealtimeTunnelPanelProvider {
         const revision = String(operation.planRevision || plan?.revision || "");
         const runId = String(operation.operationId || operation.id || "").trim();
         if (!runId) throw new Error(`Plan ${planFile} 缺少 operation ID，无法安全标记本次同步。`);
+        if (!operation.planSyncSummaryRetryAttempt)
+            this.queuePlanScopedResultParse("Plan 运行完成", planFile, planFile);
         await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId,
             PlanArtifactSync.planArtifactPaths(plan, summary, sourceWorkerId),
             this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
-        if (!ProjectResultTables.summaryForWorker(summary, sourceWorkerId)) return;
+        const syncKey = PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId);
+        if (!ProjectResultTables.summaryForWorker(summary, sourceWorkerId)) {
+            const previous = this.planSyncSummaryRetries.get(syncKey);
+            if (!previous && this.planSyncSummaryRetries.size < 64) {
+                const attempt = Number(operation.planSyncSummaryRetryAttempt || 0) + 1;
+                if (attempt <= 40) {
+                    const timer = setTimeout(() => {
+                        this.planSyncSummaryRetries.delete(syncKey);
+                        if (workspaceRoot() !== root) return;
+                        void this.queueCompletedPlanArtifactSync({ ...operation, planSyncSummaryRetryAttempt: attempt })
+                            .catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
+                    }, 15_000);
+                    this.planSyncSummaryRetries.set(syncKey, { timer, attempt });
+                }
+            }
+            return;
+        }
+        const retry = this.planSyncSummaryRetries.get(syncKey);
+        if (retry) { clearTimeout(retry.timer); this.planSyncSummaryRetries.delete(syncKey); }
         await this.updateProjectResultTablesFromSummary(summary, planFile);
-        await this.syncPendingPlanArtifacts(PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId), summary);
+        await this.syncPendingPlanArtifacts(syncKey, summary);
     }
     async simpleSftpApiCall(method, params) {
         const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
