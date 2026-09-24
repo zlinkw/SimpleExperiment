@@ -1414,7 +1414,7 @@ export class RealtimeTunnelPanelProvider {
             })),
             modifications: {
                 xshellSessions: params.applyXshell === false ? [] : targets.map((target) => target.savedSessionPath).filter(Boolean),
-                remoteRuntime: params.deployRuntime === false ? [] : targets.map((target) => ({ serverId: target.id, installDir: this.agentRuntimeDirs(target.remoteRoot).installDir, workDir: this.agentRuntimeDirs(target.remoteRoot).workDir })),
+                remoteRuntime: params.deployRuntime === false ? [] : targets.map((target) => ({ serverId: target.id, installDir: this.agentRuntimeDirs(target.remoteRoot, target.agentInstallDir).installDir, workDir: this.agentRuntimeDirs(target.remoteRoot).workDir })),
             },
         };
         if (infrastructureMissing.length || params.confirm !== true)
@@ -1601,6 +1601,7 @@ export class RealtimeTunnelPanelProvider {
                     port: Number(hub.port || 22),
                     user: hub.user || "",
                     remoteRoot: remoteRoot || "",
+                    agentInstallDir: hub.agentInstallDir || "",
                     agentProjectDir: remoteRoot ? this.agentRuntimeDirs(remoteRoot).workDir : "",
                     condaEnv: normalizeCondaEnvSetting(setup.condaEnv),
                     enabled: true,
@@ -1644,6 +1645,7 @@ export class RealtimeTunnelPanelProvider {
                     port: Number(target.port || worker.port || worker.hubSshPort || 22),
                     user: target.user || worker.user || "",
                     remoteRoot: remoteRoot || "",
+                    agentInstallDir: target.agentInstallDir || "",
                     agentProjectDir: remoteRoot ? this.agentRuntimeDirs(remoteRoot).workDir : "",
                     condaEnv: effectiveWorkerCondaEnv(worker, setup.condaEnv),
                     maxConcurrentGpus: Number(worker.maxConcurrentGpus || 1),
@@ -6104,8 +6106,8 @@ export class RealtimeTunnelPanelProvider {
               const _perTargetAgentInstallDir = String((t as any).agentInstallDir || "").trim();
               try {
                 const _dirs = (this as any).agentRuntimeDirs ? (this as any).agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir) : null;
-                _installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || (this as any).reportedAgentInstallDir?.() || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
-              } catch { _installDir = String((this as any).reportedAgentInstallDir?.() || "").trim(); }
+                _installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
+              } catch { _installDir = _perTargetAgentInstallDir || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : ""); }
               _runtimeDir = _installDir ? `${_installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : _runtimeDirHint;
             }
             for (const [fname, exp] of Object.entries(_expFiles)) {
@@ -6170,9 +6172,9 @@ export class RealtimeTunnelPanelProvider {
                 const _perTargetAgentInstallDir = String((target as any).agentInstallDir || "").trim();
                 try {
                     const _dirs = this.agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir);
-                    installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || this.reportedAgentInstallDir() || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
+                    installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
                     runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
-                } catch { installDir = String(this.reportedAgentInstallDir() || "").trim(); runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : ""; }
+                } catch { installDir = _perTargetAgentInstallDir || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : ""); runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : ""; }
                 if (!runtimeDir && _runtimeHint) runtimeDir = _runtimeHint;
             }
             const port = target.localForwardPort;
@@ -6497,7 +6499,7 @@ export class RealtimeTunnelPanelProvider {
                   else {
                     const _wr = String((t as any).projectWorkDir || (t as any).remoteRoot || (t as any).agentProjectDir || (t as any).remotePath || "").trim();
                     const _per = String((t as any).agentInstallDir || "").trim();
-                    try { const _d = (this as any).agentRuntimeDirs ? (this as any).agentRuntimeDirs(_wr, _per) : null; _inst = String(_d?.installDir || _per || (this as any).reportedAgentInstallDir?.() || "").trim() || (_wr ? `${_wr.replace(/\/+$/, "")}/simple_agent` : ""); _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : ""; } catch { _inst = String((this as any).reportedAgentInstallDir?.() || "").trim(); _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : ""; }
+                    try { const _d = (this as any).agentRuntimeDirs ? (this as any).agentRuntimeDirs(_wr, _per) : null; _inst = String(_d?.installDir || _per || "").trim() || (_wr ? `${_wr.replace(/\/+$/, "")}/simple_agent` : ""); _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : ""; } catch { _inst = _per || (_wr ? `${_wr.replace(/\/+$/, "")}/simple_agent` : ""); _rt = _inst ? `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime` : ""; }
                     if (!_rt && _hint) _rt = _hint;
                   }
                   const _effectiveRuntime = (_rt || `${_inst.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
@@ -6540,7 +6542,7 @@ export class RealtimeTunnelPanelProvider {
     agentRuntimeDeployTargets() {
         const topology = this.assertTopologyReady("部署 Agent runtime");
         return [...(topology.hubAllowed ? [this.hubActualWorkRootTarget()] : []), ...this.workerActualWorkRootTargets()].map((target) => {
-            const dirs = this.agentRuntimeDirs(target.remotePath);
+            const dirs = this.agentRuntimeDirs(target.remotePath, target.agentInstallDir);
             if (!dirs.installDir)
                 throw new Error(`${target.label} 缺少项目父目录，无法计算 simple_agent 安装目录。`);
             return { ...target, remotePath: dirs.installDir, projectWorkDir: dirs.workDir };
@@ -7036,6 +7038,7 @@ export class RealtimeTunnelPanelProvider {
             displayHost: identity.networkHost,
             savedSessionPath: config.savedSessionPath,
             remotePath,
+            agentInstallDir: config.agentInstallDir,
             localForwardHost: (config as any).localForwardHost || "127.0.0.1",
             localForwardPort: Number((config as any).localForwardPort || 18765),
             remoteAgentPort: Number((config as any).remoteAgentPort || 18765),
@@ -7097,6 +7100,7 @@ export class RealtimeTunnelPanelProvider {
             displayHost: identity.networkHost,
             savedSessionPath: worker.savedSessionPath,
             remotePath,
+            agentInstallDir: worker.agentInstallDir,
             localForwardHost: (worker as any).localForwardHost || (config as any).localForwardHost || "127.0.0.1",
             localForwardPort: Number((worker as any).localForwardPort || (config as any).localForwardPort || 18765),
             remoteAgentPort: Number((worker as any).remoteAgentPort || (worker as any).remoteTelemetryPort || (config as any).remoteAgentPort || 18765),
@@ -13401,7 +13405,7 @@ export class RealtimeTunnelPanelProvider {
         const targets = [];
         const hubPath = this.setupConfig.savedSessionPath;
         if (this.projectTopologyAssessment().hubAllowed && hubPath) {
-            const dirs = this.agentRuntimeDirs(this.setupConfig.agentProjectDir);
+            const dirs = this.agentRuntimeDirs(this.setupConfig.agentProjectDir, this.setupConfig.agentInstallDir);
             targets.push({
                 id: "hub",
                 filePath: hubPath,
@@ -13413,7 +13417,7 @@ export class RealtimeTunnelPanelProvider {
             const filePath = worker.savedSessionPath;
             if (!filePath)
                 continue;
-            const dirs = this.agentRuntimeDirs(worker.agentProjectDir);
+            const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
             const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
@@ -13455,7 +13459,7 @@ export class RealtimeTunnelPanelProvider {
             && this.agentSessionStateCacheValue) {
             return this.agentSessionStateCacheValue;
         }
-        const hubDirs = this.agentRuntimeDirs(this.setupConfig.agentProjectDir);
+        const hubDirs = this.agentRuntimeDirs(this.setupConfig.agentProjectDir, this.setupConfig.agentInstallDir);
         const value = {
             mode: "xshell_saved_session_tmux",
             canWriteStartupCommands: this.agentStartupTargets().length > 0,
@@ -13473,7 +13477,7 @@ export class RealtimeTunnelPanelProvider {
                 startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: hubDirs.installDir, workDir: hubDirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
             },
             workers: this.setupConfig.workerTunnels.map((worker) => {
-                const dirs = this.agentRuntimeDirs(worker.agentProjectDir);
+                const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
                 return {
                     id: worker.id,
                     displayName: worker.displayName,
@@ -13504,7 +13508,7 @@ export class RealtimeTunnelPanelProvider {
         const root = normalizeRemoteWorkRoot(actualWorkRoot);
         if (!root)
             return { projectName };
-        const override = (agentInstallDir || this.setupConfig.agentInstallDir || this.reportedAgentInstallDir()).trim();
+        const override = String(agentInstallDir || "").trim();
         const installDir = override || `${root}/simple_agent`;
         return {
             workRoot: root,
@@ -13512,15 +13516,6 @@ export class RealtimeTunnelPanelProvider {
             ...(projectName ? { workDir: `${root}/${projectName}` } : {}),
             projectName,
         };
-    }
-    reportedAgentInstallDir() {
-        const probes = [this.lastProbe, ...Object.values(this.lastWorkerProbes || {})].filter(Boolean);
-        for (const probe of probes) {
-            const dir = probe && probe.agentInstallDir;
-            if (typeof dir === "string" && dir.trim())
-                return dir.trim();
-        }
-        return "";
     }
     currentAssignments() {
         const hubAllowed = this.projectTopologyAssessment().hubAllowed;
