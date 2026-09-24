@@ -35,4 +35,6 @@
 | progress | `{ epoch, max_epoch, percent, loss, updated_at }`，没有进度时为 `null`，缺的数字为 `null` |
 | updated_at | 状态更新时间，ISO 字符串 |
 
+`progress.percent` 表示当前终端可识别训练循环的完成度，不保证表示整个 `worker_run`。一个 `worker_run` 顺序运行多个训练循环时，`epoch` 和 `percent` 可以在循环切换后重新从较小值开始。Agent 不应仅凭此字段估计整个任务的剩余时间。
+
 `workflows` 每项为 `{ id, status, plan, worker, tmux }`，空字段省略。`--json --full` 额外保留 `created_at`、`health_status`、`children`、`model`、`dataset`。

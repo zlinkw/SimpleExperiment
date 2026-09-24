@@ -26,6 +26,8 @@
 
 `runs` 每项为 `{ id, experiment_case, stage, seed, worker, gpu, progress, updated_at }`。`worker` 和 `gpu` 为 `{ id }` 或 `null`，`progress` 为 `{ epoch, max_epoch, percent, loss, updated_at }` 或 `null`。空的 `experiment_case`、`stage`、`seed` 省略。
 
+`progress.percent` 只表示当前可识别训练循环的进度，不是 `worker_run` 总体完成率。多阶段任务切换训练循环时可以回退；没有可识别的 `epoch/max_epoch` 时为 `null`。
+
 ## experiment health
 
 整体健康判断。

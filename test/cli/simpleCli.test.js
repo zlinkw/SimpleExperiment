@@ -156,6 +156,30 @@ test("simpleex experiment list --json is parseable and filterable", async () => 
   assert.ok("outputDir" in detail);
 });
 
+test("workflow terminal aliases normalize to canonical public statuses", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-terminal-status-"));
+  writeProject(dir, {
+    "simple_cluster/experiment_index.json": JSON.stringify([
+      { global_job_id: "wf-interrupted", type: "workflow", status: "interrupted" },
+      { global_job_id: "wf-completed-errors", type: "workflow", status: "completed_with_errors" },
+      { global_job_id: "run-normal", type: "worker_run", status: "normal_completed" },
+      { global_job_id: "run-manual-stop", type: "worker_run", status: "manual_interrupted_completed" },
+    ]),
+  });
+  const rows = JSON.parse((await runCli(["experiment", "list", "--json", "--full"], { cwd: dir })).stdout);
+  const statuses = Object.fromEntries(rows.map((row) => [row.id, row.status]));
+  assert.equal(statuses["wf-interrupted"], "cancelled");
+  assert.equal(statuses["wf-completed-errors"], "failed");
+  assert.equal(statuses["run-normal"], "success");
+  assert.equal(statuses["run-manual-stop"], "cancelled");
+  const cancelled = JSON.parse((await runCli(["experiment", "list", "--status", "cancelled", "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(cancelled.map((row) => row.id).sort(), ["run-manual-stop", "wf-interrupted"]);
+  const unknown = JSON.parse((await runCli(["experiment", "list", "--status", "unknown", "--json"], { cwd: dir })).stdout);
+  assert.equal(unknown.some((row) => ["wf-interrupted", "run-manual-stop"].includes(row.id)), false);
+  const inspected = JSON.parse((await runCli(["experiment", "inspect", "wf-interrupted", "--json"], { cwd: dir })).stdout);
+  assert.equal(inspected.summary.status, "cancelled");
+});
+
 test("simpleex experiment run --dry-run does not submit", async () => {
   const result = await runCli(["experiment", "run", validPlan, "--seed", "42", "--dry-run", "--json"]);
   assert.equal(result.code, 0);
@@ -330,22 +354,32 @@ test("training progress parser returns null without a recognized line", () => {
   assert.equal(localOnly.loss, 0.3);
 });
 
-test("overall training percent uses completed epochs and bounded within-epoch progress", () => {
-  const { overallTrainingPercent } = require("../../dist/cli/runtime.js");
-  assert.equal(overallTrainingPercent(21, 300, 126, 171, 74), 6.9);
-  assert.equal(overallTrainingPercent(24, 300, 53, 171, null), 7.8);
-  assert.equal(overallTrainingPercent(1, 300, 0, 171, null), 0);
-  assert.equal(overallTrainingPercent(300, 300, 171, 171, null), 100);
-  assert.equal(overallTrainingPercent(300, 300, 200, 171, null), 100);
-  assert.equal(overallTrainingPercent(1, 300, -4, 171, null), 0);
-  assert.equal(overallTrainingPercent(21, 300, null, null, 74), 6.9);
-  assert.equal(overallTrainingPercent(21, 300, null, null, null), 6.7);
-  assert.equal(overallTrainingPercent(0, 300, 0, 171, null), 0);
-  assert.equal(overallTrainingPercent(301, 300, 171, 171, null), 100);
-  assert.equal(overallTrainingPercent(21, 0, 126, 171, 74), null);
-  assert.equal(overallTrainingPercent(null, 300, 126, 171, 74), null);
-  assert.equal(overallTrainingPercent(NaN, 300, 126, 171, 74), null);
-  assert.equal(overallTrainingPercent(21, Infinity, 126, 171, 74), null);
+test("current training loop percent uses completed epochs and bounded within-epoch progress", () => {
+  const { currentTrainingLoopPercent, overallTrainingPercent } = require("../../dist/cli/runtime.js");
+  assert.equal(currentTrainingLoopPercent(21, 300, 126, 171, 74), 6.9);
+  assert.equal(currentTrainingLoopPercent(24, 300, 53, 171, null), 7.8);
+  assert.equal(currentTrainingLoopPercent(1, 300, 0, 171, null), 0);
+  assert.equal(currentTrainingLoopPercent(300, 300, 171, 171, null), 100);
+  assert.equal(currentTrainingLoopPercent(300, 300, 200, 171, null), 100);
+  assert.equal(currentTrainingLoopPercent(1, 300, -4, 171, null), 0);
+  assert.equal(currentTrainingLoopPercent(21, 300, null, null, 74), 6.9);
+  assert.equal(currentTrainingLoopPercent(21, 300, null, null, null), 6.7);
+  assert.equal(currentTrainingLoopPercent(0, 300, 0, 171, null), 0);
+  assert.equal(currentTrainingLoopPercent(301, 300, 171, 171, null), 100);
+  assert.equal(currentTrainingLoopPercent(21, 0, 126, 171, 74), null);
+  assert.equal(currentTrainingLoopPercent(null, 300, 126, 171, 74), null);
+  assert.equal(currentTrainingLoopPercent(NaN, 300, 126, 171, 74), null);
+  assert.equal(currentTrainingLoopPercent(21, Infinity, 126, 171, 74), null);
+  assert.equal(overallTrainingPercent(21, 300, 126, 171, 74), currentTrainingLoopPercent(21, 300, 126, 171, 74));
+});
+
+test("training loop percent may reset within one worker run", () => {
+  const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
+  const first = parseTrainingProgress("[A assigned seed=42] epoch 102/300 50% 85/171 0:02:00\n当前 loss 0.2");
+  const second = parseTrainingProgress("[A shuffled seed=42] epoch 17/300 13% 22/171 0:03:00\n当前 loss 0.2");
+  assert.equal(first.percent, 33.8);
+  assert.equal(second.percent, 5.4);
+  assert.ok(second.percent < first.percent);
 });
 
 test("experiment rows distinguish workflow and worker runs", () => {

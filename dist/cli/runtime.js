@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.observeRunningExperiments = observeRunningExperiments;
 exports.observationFromCapture = observationFromCapture;
+exports.currentTrainingLoopPercent = currentTrainingLoopPercent;
 exports.overallTrainingPercent = overallTrainingPercent;
 exports.parseTrainingProgress = parseTrainingProgress;
 exports.matchesRuntime = matchesRuntime;
@@ -93,7 +94,7 @@ function observationFromCapture(endpoint, sessionName, window, text) {
         updated_at: new Date().toISOString(),
     };
 }
-function overallTrainingPercent(epoch, maxEpoch, batch, totalBatch, epochPercent) {
+function currentTrainingLoopPercent(epoch, maxEpoch, batch, totalBatch, epochPercent) {
     if (!Number.isFinite(epoch) || !Number.isFinite(maxEpoch) || maxEpoch === null || maxEpoch <= 0)
         return null;
     const currentEpoch = Math.min(maxEpoch, Math.max(1, epoch));
@@ -105,8 +106,12 @@ function overallTrainingPercent(epoch, maxEpoch, batch, totalBatch, epochPercent
         withinEpoch = Math.min(1, Math.max(0, epochPercent / 100));
     }
     const completedEpochs = Math.max(0, currentEpoch - 1);
-    const overall = (completedEpochs + withinEpoch) / maxEpoch * 100;
-    return Math.round(Math.min(100, Math.max(0, overall)) * 10) / 10;
+    const loopPercent = (completedEpochs + withinEpoch) / maxEpoch * 100;
+    return Math.round(Math.min(100, Math.max(0, loopPercent)) * 10) / 10;
+}
+/** @deprecated Use currentTrainingLoopPercent. */
+function overallTrainingPercent(epoch, maxEpoch, batch, totalBatch, epochPercent) {
+    return currentTrainingLoopPercent(epoch, maxEpoch, batch, totalBatch, epochPercent);
 }
 function parseTrainingProgress(text) {
     const source = String(text || "");
@@ -127,7 +132,7 @@ function parseTrainingProgress(text) {
         max_epoch: maxEpochValue,
         batch: batchValue,
         total_batch: totalBatchValue,
-        percent: overallTrainingPercent(epochValue, maxEpochValue, batchValue, totalBatchValue, epochPercent ? Number(epochPercent[1]) : null),
+        percent: currentTrainingLoopPercent(epochValue, maxEpochValue, batchValue, totalBatchValue, epochPercent ? Number(epochPercent[1]) : null),
         loss: loss ? Number(loss[1]) : null,
         lr: lr ? lr[1] : null,
         memory: memory ? memory[1].replace(/\s+/g, " ") : null,

@@ -25,6 +25,8 @@ Default `--json` is compact.
 
 Empty fields are omitted. `--json --full` returns the full experiment object.
 
+公开状态为 `pending`、`queued`、`running`、`success`、`failed`、`cancelled`、`unknown`。原始状态 `interrupted` 和 `manual_interrupted_completed` 归一为 `cancelled`，`normal_completed` 归一为 `success`，`completed_with_errors` 归一为 `failed`；这些原始状态不增加公开枚举值。
+
 新生成的 `worker_run` 优先使用 Scheduler 显式传递的 `workflowId` 设置 `parent_id`。旧历史记录仅在 plan 完整路径、Worker 和启动时间得到唯一 workflow 候选时回填；候选不唯一时 `parent_id` 保持空。`experiment tree` 只根据 `parent_id` 建树，不做模糊关联。
 
 ## experiment active
@@ -38,6 +40,8 @@ Empty fields are omitted. `--json --full` returns the full experiment object.
 ```
 
 `--json --full` keeps `created_at`, `health_status`, `children`, `model`, and `dataset`.
+
+所有 Agent JSON 中的 `progress.percent` 均表示当前终端可识别训练循环的完成度，不是整个 `worker_run` 的总体进度，也不能单独用于估算总体剩余时间。连续训练循环切换时，该值可以重新从较小值开始；没有可识别的 `epoch/max_epoch` 时为 `null`。
 
 ## experiment status
 

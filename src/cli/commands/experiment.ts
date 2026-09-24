@@ -1408,12 +1408,12 @@ export function lifecycleOf(status: string): ExperimentRow["lifecycle"] {
 function publicStatus(value: string): PublicStatus {
   const text = String(value || "").trim().toLowerCase();
   if (!text) return "unknown";
-  if (["fail", "failed", "error", "parse_failed"].includes(text)) return "failed";
+  if (["fail", "failed", "error", "parse_failed", "completed_with_errors"].includes(text)) return "failed";
   if (["run", "running", "active"].includes(text)) return "running";
-  if (["complete", "completed", "succeeded", "success", "archived"].includes(text)) return "success";
+  if (["complete", "completed", "succeeded", "success", "archived", "normal_completed"].includes(text)) return "success";
   if (["queue", "queued", "waiting", "waiting_confirmation"].includes(text)) return "queued";
   if (["pending", "created", "planned"].includes(text)) return "pending";
-  if (["cancel", "cancelled", "canceled", "stopped"].includes(text)) return "cancelled";
+  if (["cancel", "cancelled", "canceled", "stopped", "interrupted", "manual_interrupted_completed"].includes(text)) return "cancelled";
   if (["pending", "queued", "running", "success", "failed", "cancelled", "unknown"].includes(text)) return text as PublicStatus;
   return "unknown";
 }

@@ -62,7 +62,7 @@
 | --- | --- |
 | epoch | 当前 epoch，没有则为 `null` |
 | max_epoch | 总 epoch，没有则为 `null` |
-| percent | 进度百分比，没有则为 `null` |
+| percent | 当前训练循环完成百分比；多训练循环任务切换循环时可以重新从较小值开始，不是整个 `worker_run` 总体完成率；无法确定时为 `null` |
 | loss | 当前 loss，没有则为 `null` |
 | updated_at | 进度对应的状态更新时间 |
 

@@ -90,7 +90,7 @@ export function observationFromCapture(
   };
 }
 
-export function overallTrainingPercent(
+export function currentTrainingLoopPercent(
   epoch: number | null,
   maxEpoch: number | null,
   batch: number | null,
@@ -106,8 +106,19 @@ export function overallTrainingPercent(
     withinEpoch = Math.min(1, Math.max(0, (epochPercent as number) / 100));
   }
   const completedEpochs = Math.max(0, currentEpoch - 1);
-  const overall = (completedEpochs + withinEpoch) / maxEpoch * 100;
-  return Math.round(Math.min(100, Math.max(0, overall)) * 10) / 10;
+  const loopPercent = (completedEpochs + withinEpoch) / maxEpoch * 100;
+  return Math.round(Math.min(100, Math.max(0, loopPercent)) * 10) / 10;
+}
+
+/** @deprecated Use currentTrainingLoopPercent. */
+export function overallTrainingPercent(
+  epoch: number | null,
+  maxEpoch: number | null,
+  batch: number | null,
+  totalBatch: number | null,
+  epochPercent: number | null,
+): number | null {
+  return currentTrainingLoopPercent(epoch, maxEpoch, batch, totalBatch, epochPercent);
 }
 
 export function parseTrainingProgress(text: string): RuntimeProgress | null {
@@ -128,7 +139,7 @@ export function parseTrainingProgress(text: string): RuntimeProgress | null {
     max_epoch: maxEpochValue,
     batch: batchValue,
     total_batch: totalBatchValue,
-    percent: overallTrainingPercent(epochValue, maxEpochValue, batchValue, totalBatchValue, epochPercent ? Number(epochPercent[1]) : null),
+    percent: currentTrainingLoopPercent(epochValue, maxEpochValue, batchValue, totalBatchValue, epochPercent ? Number(epochPercent[1]) : null),
     loss: loss ? Number(loss[1]) : null,
     lr: lr ? lr[1] : null,
     memory: memory ? memory[1].replace(/\s+/g, " ") : null,
