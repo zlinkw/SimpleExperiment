@@ -71,6 +71,8 @@
 
 没有进度数据时整个字段为 `null`。
 
+窄布局 Rich 进度可提供 batch 等局部证据，因此 progress 可以非 `null`，但 epoch 和 percent 为 `null`。字段级 `null` 表示该值当前不可证明，不等于整个 progress 不存在。
+
 标准 `Epoch N: Val Loss = ...` 日志表示第 N 个 epoch 已完成。例如第 9/300 个 epoch 完成后，当前训练循环 percent 为 3.0%。该值不表示整个 `worker_run` 的完成度。
 
 ## health

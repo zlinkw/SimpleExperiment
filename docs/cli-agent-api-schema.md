@@ -33,6 +33,8 @@
 
 进度证据包括 `epoch X/Y` 终端进度条和 `Epoch N: Val Loss = ...` 完成日志。后一格式的总 epoch 来自实际运行的 `job_config`；若无法取得总 epoch，仍保留 epoch 和 loss，percent 为 `null`。`progress=null` 仅表示当前捕获内容没有可信训练进度证据。
 
+Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epoch 日志与可识别的 Rich 行按文本位置选择最新证据；最新窄布局缺少 epoch 时，不把较旧标准日志的 epoch 与当前 batch 拼接，epoch 和 percent 保持 `null`。
+
 `experiment active` 返回归一化后的当前运行对象，不是所有仍能从 tmux pane 解析出的历史文本。若唯一匹配的 Worker Agent 历史已确认 `success`、`failed` 或 `cancelled`，该终态高于 pane 中残留的 runtime observation。
 
 ## experiment health

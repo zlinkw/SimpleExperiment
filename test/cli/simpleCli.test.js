@@ -438,6 +438,66 @@ test("mixed progress formats use the latest epoch signal", () => {
   assert.equal(parseTrainingProgress("epoch 2/300 20% 2/10 0:00:10\nepoch 3/300 50% 5/10 0:00:10", 300).epoch, 3);
 });
 
+test("TerminalProgress wide layout does not depend on numeric ETA", () => {
+  const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
+  const progress = parseTrainingProgress([
+    "Epoch 26/300 [Train] ━━━━━━━━━━━━━━━━━━━━ 0% 0/171 -:--:--",
+    "  当前 loss --   本轮均值 --   速度 0.0 batch/s",
+    "  lr 1.00e-03   显存 0.0 GiB",
+  ].join("\n"), 300);
+  assert.equal(progress.epoch, 26);
+  assert.equal(progress.max_epoch, 300);
+  assert.equal(progress.batch, 0);
+  assert.equal(progress.total_batch, 171);
+  assert.equal(progress.percent, 8.3);
+  assert.equal(progress.loss, null);
+  assert.equal(progress.lr, "1.00e-03");
+  assert.equal(progress.memory, "0.0 GiB");
+  const advancing = parseTrainingProgress([
+    "Epoch 26/300 [Train] ━━━━━━━━━━━━━━━━━━━━ 42% 72/171 0:00:23",
+    "  当前 loss 1.2344   本轮均值 1.1000   速度 2.1 batch/s",
+    "  lr 1.00e-03   显存 5.2 GiB",
+  ].join("\n"), 300);
+  assert.equal(advancing.batch, 72);
+  assert.equal(advancing.percent, 8.5);
+  assert.equal(advancing.loss, 1.2344);
+});
+
+test("newer compact Rich evidence replaces stale standard epoch without guessing epoch", () => {
+  const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
+  const standard = "Epoch 25: Val Loss = 1.3000";
+  const compact = [
+    "Train ━━━━━━━━ 42% 72/171 0:00:23",
+    "  当前 loss 1.2344   本轮均值 1.1000   速度 2.1 batch/s",
+    "  lr 1.00e-03   显存 5.2 GiB",
+  ].join("\n");
+  const progress = parseTrainingProgress(`${standard}\n${compact}`, 300);
+  assert.equal(progress.epoch, null);
+  assert.equal(progress.max_epoch, 300);
+  assert.equal(progress.batch, 72);
+  assert.equal(progress.total_batch, 171);
+  assert.equal(progress.percent, null);
+  assert.equal(progress.loss, 1.2344);
+  assert.equal(progress.lr, "1.00e-03");
+  assert.equal(progress.memory, "5.2 GiB");
+  const laterStandard = parseTrainingProgress(`${compact}\n${standard}`, 300);
+  assert.equal(laterStandard.epoch, 25);
+  assert.equal(laterStandard.percent, 8.3);
+  assert.equal(laterStandard.loss, 1.3);
+});
+
+test("compact validation is partial progress and test phase is not training", () => {
+  const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
+  const validation = parseTrainingProgress("Val low ━━━━━━━━ 60% 6/10 -:--:--", 300);
+  assert.equal(validation.epoch, null);
+  assert.equal(validation.max_epoch, 300);
+  assert.equal(validation.batch, 6);
+  assert.equal(validation.total_batch, 10);
+  assert.equal(validation.percent, null);
+  assert.equal(parseTrainingProgress("Epoch 25: Val Loss = 1.3\nTest ━━━━━━━━ 30% 3/10 0:00:20", 300), null);
+  assert.equal(parseTrainingProgress("cache hit 42% 72/171", 300), null);
+});
+
 test("training epoch count accepts only positive integers from job config", () => {
   const { trainingMaxEpochFromYaml } = require("../../dist/cli/runtime.js");
   assert.equal(trainingMaxEpochFromYaml("train:\n  epochs: 300\n"), 300);
@@ -533,7 +593,7 @@ test("running observation uses one worker config download to complete percent", 
 
 test("experiment rows distinguish workflow and worker runs", () => {
   const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
-  const progress = parseTrainingProgress("epoch 24/300 53/171 0:02:00\n当前 loss 0.2387");
+  const progress = parseTrainingProgress("epoch 24/300 31% 53/171 0:02:00\n当前 loss 0.2387");
   assert.equal(progress.epoch, 24);
   assert.equal(progress.batch, 53);
   const workflow = { id: "run-plan-1", type: "workflow", plan: "experiments/plans/demo.yaml" };

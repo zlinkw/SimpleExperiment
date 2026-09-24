@@ -39,6 +39,8 @@
 
 CLI 可识别包含 `epoch X/Y` 与 batch 百分比的终端进度条，以及 `Epoch N: Val Loss = ...` 形式的 epoch 完成日志。后一格式的 `max_epoch` 从实际运行的 `job_config` 训练配置补全；无法取得总 epoch 时仍返回 epoch 和 loss，percent 为 `null`。
 
+Rich 解析限于本项目 `TerminalProgress` 的宽、窄布局，不承诺识别任意 Rich 组件。宽布局有显式 `epoch X/Y` 时可计算训练循环 percent；窄布局只显示 `Train/Val` 与 batch 进度时，解析器保留可信的 batch/loss，不推断 epoch，因此公开 percent 为 `null`。公开 progress 字段仍不包含 batch。
+
 tmux pane 中仍能解析到旧训练文本，并不单独证明任务仍在运行。若同一物理 `worker_run` 已有 Worker Agent 的 `success`、`failed` 或 `cancelled` 终态，终态优先，残留的 runtime observation 不进入 `active`。
 
 `workflows` 每项为 `{ id, status, plan, worker, tmux }`，空字段省略。`--json --full` 额外保留 `created_at`、`health_status`、`children`、`model`、`dataset`。

@@ -131,14 +131,51 @@ function lastRegexMatch(text: string, regex: RegExp): RegExpExecArray | null {
   return latest;
 }
 
+type RichProgressCandidate = {
+  index: number;
+  line: string;
+  phase: "train" | "val" | "test" | "unknown";
+  epoch: number | null;
+  maxEpoch: number | null;
+  epochPercent: number | null;
+  batch: number | null;
+  totalBatch: number | null;
+};
+
+function latestRichProgressCandidate(text: string): RichProgressCandidate | null {
+  let latest: RichProgressCandidate | null = null;
+  for (const match of text.matchAll(/[^\r\n]+/g)) {
+    const line = match[0];
+    const epoch = line.match(/\bepoch\s+(\d+)\s*\/\s*(\d+)/i);
+    const compact = line.match(/^\s*(Val low|Val clean|Train|Val|Test)(?=\s|$)/i);
+    const percent = line.match(/(\d+(?:\.\d+)?)\s*%/);
+    const columns = line.match(/(\d+(?:\.\d+)?)\s*%[^\r\n]*?(\d+)\s*\/\s*(\d+)/);
+    if ((!epoch || !percent) && (!compact || !columns)) continue;
+    const label = compact?.[1] || line.match(/\[(Train|Val(?:\s+(?:low|clean))?|Test)\]/i)?.[1] || "";
+    const phase = /^train$/i.test(label) ? "train" : /^val(?:\s|$)/i.test(label) ? "val" : /^test$/i.test(label) ? "test" : "unknown";
+    latest = {
+      index: match.index,
+      line,
+      phase,
+      epoch: epoch ? Number(epoch[1]) : null,
+      maxEpoch: epoch ? Number(epoch[2]) : null,
+      epochPercent: percent ? Number(percent[1]) : null,
+      batch: columns ? Number(columns[2]) : null,
+      totalBatch: columns ? Number(columns[3]) : null,
+    };
+  }
+  return latest;
+}
+
 export function parseTrainingProgress(text: string, maxEpochHint: number | null = null): RuntimeProgress | null {
   const source = String(text || "");
-  const richEpoch = lastRegexMatch(source, /epoch\s+(\d+)\s*\/\s*(\d+)/gi);
+  const rich = latestRichProgressCandidate(source);
   const standardEpoch = lastRegexMatch(source, /\bEpoch\s+(\d+)\s*:[^\r\n]*/gi);
-  const latestEpochIndex = Math.max(richEpoch?.index ?? -1, standardEpoch?.index ?? -1);
+  const latestEpochIndex = Math.max(rich?.index ?? -1, standardEpoch?.index ?? -1);
   const laterPhase = lastRegexMatch(source, /(?:^|\r?\n)\s*(?:\[simple-experiment-runtime\]\s+done\b|Starting[^\r\n]*\binference\b)/gim);
   if (latestEpochIndex >= 0 && laterPhase && laterPhase.index > latestEpochIndex) return null;
-  if (standardEpoch && (!richEpoch || standardEpoch.index > richEpoch.index)) {
+  if (rich && rich.phase === "test" && (!standardEpoch || rich.index > standardEpoch.index)) return null;
+  if (standardEpoch && (!rich || standardEpoch.index > rich.index)) {
     const epochValue = Number(standardEpoch[1]);
     const maxEpochValue = Number.isInteger(maxEpochHint) && Number(maxEpochHint) > 0 ? maxEpochHint : null;
     const loss = standardEpoch[0].match(/\bVal\s+Loss\s*=\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?![\w.])/i);
@@ -153,25 +190,19 @@ export function parseTrainingProgress(text: string, maxEpochHint: number | null 
       memory: null,
     };
   }
-  const tail = richEpoch ? source.slice(richEpoch.index) : source;
-  const epochLine = tail.split(/\r?\n/, 1)[0];
-  const batch = epochLine.match(/(\d+)\s*\/\s*(\d+)\s+\d+:\d+:\d+/);
-  const epochPercent = epochLine.match(/(\d+(?:\.\d+)?)\s*%/);
-  const loss = tail.match(/当前\s*loss\s+([0-9]+(?:\.[0-9]+)?)/i);
-  const lr = tail.match(/\blr\s+([0-9]+(?:\.[0-9]+)?e[+-]?\d+)/i);
-  const memory = tail.match(/显存\s+([0-9]+(?:\.[0-9]+)?\s*GiB)/i);
-  const epoch = richEpoch;
-  if (!epoch && !batch && !loss && !lr && !memory) return null;
-  const epochValue = epoch ? Number(epoch[1]) : null;
-  const maxEpochValue = epoch ? Number(epoch[2]) : null;
-  const batchValue = batch ? Number(batch[1]) : null;
-  const totalBatchValue = batch ? Number(batch[2]) : null;
+  const block = rich ? source.slice(rich.index).split(/\r\n|\n|\r/).slice(0, 3).join("\n") : source;
+  const loss = block.match(/当前\s*loss\s+([0-9]+(?:\.[0-9]+)?)/i);
+  const lr = block.match(/\blr\s+([0-9]+(?:\.[0-9]+)?e[+-]?\d+)/i);
+  const memory = block.match(/显存\s+([0-9]+(?:\.[0-9]+)?\s*GiB)/i);
+  if (!rich && !loss && !lr && !memory) return null;
+  const epochValue = rich?.epoch ?? null;
+  const maxEpochValue = rich ? (rich.maxEpoch ?? (Number.isInteger(maxEpochHint) && Number(maxEpochHint) > 0 ? maxEpochHint : null)) : null;
   return {
     epoch: epochValue,
     max_epoch: maxEpochValue,
-    batch: batchValue,
-    total_batch: totalBatchValue,
-    percent: currentTrainingLoopPercent(epochValue, maxEpochValue, batchValue, totalBatchValue, epochPercent ? Number(epochPercent[1]) : null),
+    batch: rich?.batch ?? null,
+    total_batch: rich?.totalBatch ?? null,
+    percent: currentTrainingLoopPercent(epochValue, maxEpochValue, rich?.batch ?? null, rich?.totalBatch ?? null, rich?.epochPercent ?? null),
     loss: loss ? Number(loss[1]) : null,
     lr: lr ? lr[1] : null,
     memory: memory ? memory[1].replace(/\s+/g, " ") : null,
