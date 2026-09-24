@@ -292,7 +292,7 @@ async function tmuxCapture(endpoint, target, lines = 2000) {
     const payload = await agentGet(endpoint, `/api/tmux/capture?window=${encodeURIComponent(target)}&lines=${boundedLines}`);
     return String(payload?.text || payload?.output || "");
 }
-async function readWorkerTaskConfig(workerId, taskId, configPathHint = "") {
+async function readWorkerTaskConfig(workerId, taskId, configPathHint = "", logPathHint = "") {
     const empty = { config_path: configPathHint, yaml: "" };
     try {
         const endpoint = (await enabledWorkerEndpoints()).find((item) => item.id.toLowerCase() === workerId.trim().toLowerCase());
@@ -306,6 +306,12 @@ async function readWorkerTaskConfig(workerId, taskId, configPathHint = "") {
             const yaml = await download(configPathHint);
             if (yaml)
                 return { config_path: configPathHint, yaml };
+        }
+        if (logPathHint) {
+            const prefix = await agentText(endpoint, `/api/files/download-range?path=${encodeURIComponent(logPathHint)}&start=0&end=${256 * 1024}`);
+            const recovered = workerLaunchConfigText(prefix, configPathHint);
+            if (recovered.yaml)
+                return recovered;
         }
         for (const session of await tmuxList(endpoint)) {
             for (const window of session.windows) {
@@ -355,12 +361,67 @@ function agentText(endpoint, urlPath) {
         }, (res) => {
             const chunks = [];
             res.on("data", (chunk) => chunks.push(chunk));
-            res.on("end", () => resolve(res.statusCode === 200 ? Buffer.concat(chunks).toString("utf8") : ""));
+            res.on("end", () => resolve(res.statusCode === 200 || res.statusCode === 206 ? Buffer.concat(chunks).toString("utf8") : ""));
         });
         req.on("error", () => resolve(""));
         req.on("timeout", () => { req.destroy(); resolve(""); });
         req.end();
     });
+}
+function workerLaunchConfigText(text, configPathHint = "") {
+    const contexts = [];
+    let cursor = 0;
+    while (cursor < text.length) {
+        const marker = text.indexOf("--context-json", cursor);
+        if (marker < 0)
+            break;
+        const start = text.indexOf("{", marker + "--context-json".length);
+        if (start < 0 || text.slice(marker, start).includes("\n"))
+            break;
+        let depth = 0;
+        let quoted = false;
+        let escaped = false;
+        let end = start;
+        for (; end < text.length; end++) {
+            const char = text[end];
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (quoted && char === "\\") {
+                escaped = true;
+                continue;
+            }
+            if (char === '"') {
+                quoted = !quoted;
+                continue;
+            }
+            if (quoted)
+                continue;
+            if (char === "{")
+                depth++;
+            else if (char === "}" && --depth === 0) {
+                end++;
+                break;
+            }
+        }
+        cursor = Math.max(end, marker + "--context-json".length);
+        if (depth !== 0 || quoted)
+            continue;
+        try {
+            const parsed = JSON.parse(text.slice(start, end));
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+                contexts.push(parsed);
+        }
+        catch { /* Ignore an incomplete or malformed launch context. */ }
+    }
+    const paths = new Set(contexts.map((item) => String(item.config_path || item.config || "").replace(/\\/g, "/").trim()).filter(Boolean));
+    const yamls = new Set(contexts.map((item) => String(item.config_text || "")).filter(Boolean));
+    const configPath = paths.size === 1 ? paths.values().next().value || "" : "";
+    const yaml = yamls.size === 1 ? yamls.values().next().value || "" : "";
+    if (!configPath || !yaml || (configPathHint && configPath !== configPathHint.replace(/\\/g, "/").trim()))
+        return { config_path: configPathHint, yaml: "" };
+    return { config_path: configPath, yaml };
 }
 async function configFromWorker(endpoint, config) {
     const hasMaxEpoch = Number.isInteger(config.max_epoch) && Number(config.max_epoch) > 0;

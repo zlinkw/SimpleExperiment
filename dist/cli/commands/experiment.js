@@ -1857,7 +1857,7 @@ async function configPayload(match) {
     let configPath = hintedConfigPath;
     let yaml = "";
     if (match.type === "worker_run" && match.worker_id) {
-        const remote = await (0, runtime_1.readWorkerTaskConfig)(match.worker_id, match.id, hintedConfigPath);
+        const remote = await (0, runtime_1.readWorkerTaskConfig)(match.worker_id, match.id, hintedConfigPath, firstString(raw, ["logPath", "log_path"]));
         if (remote.config_path)
             configPath = remote.config_path;
         if (remote.yaml)

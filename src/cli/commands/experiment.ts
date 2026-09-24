@@ -1752,7 +1752,7 @@ async function configPayload(match: ExperimentRow): Promise<Record<string, unkno
   let configPath = hintedConfigPath;
   let yaml = "";
   if (match.type === "worker_run" && match.worker_id) {
-    const remote = await readWorkerTaskConfig(match.worker_id, match.id, hintedConfigPath);
+    const remote = await readWorkerTaskConfig(match.worker_id, match.id, hintedConfigPath, firstString(raw, ["logPath", "log_path"]));
     if (remote.config_path) configPath = remote.config_path;
     if (remote.yaml) yaml = remote.yaml;
   }

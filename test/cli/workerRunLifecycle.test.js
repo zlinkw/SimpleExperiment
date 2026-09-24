@@ -214,6 +214,73 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   assert.equal((await callCli(root, apiFile, ["config", runId])).body.config_path, task.configPath);
 });
 
+test("historical launch config text survives a missing job config and terminal pane", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-launch-config-"));
+  fs.mkdirSync(path.join(root, "experiments", "plans"), { recursive: true });
+  fs.writeFileSync(path.join(root, "experiments", "plans", "old.yaml"), "suite: changed\nseeds: [99]\n", "utf8");
+  const workerRunId = "run6-historical";
+  const configPath = "work_dirs/archive/6_case_seed43/job_config.yaml";
+  const logPath = "simple_cluster/tmp/cluster_scheduler/logs/run6-historical.log";
+  const yaml = "experiment_name: historical/case/seed_43\nseed: 43\ntrain:\n  epochs: 300\n";
+  const task = {
+    runKey: workerRunId, commandId: workerRunId, workerId: "worker-a", status: "completed",
+    planFile: "experiments/plans/old.yaml", experimentIndex: 6, experimentCase: "case", seed: 43,
+    outputDir: "work_dirs/archive/6_case_seed43", logPath,
+    startedAt: "2026-09-23T00:00:00Z", finishedAt: "2026-09-23T01:00:00Z",
+  };
+  let log = `[runtime] python run_wrapper.py --context-json ${JSON.stringify({ config_path: configPath, output_dir: task.outputDir, config_text: yaml })} -- python test.py --config ${configPath}\n`;
+  const results = ["clean", "p100_low"].map((protocol) => ({
+    schemaVersion: 1, resultId: `historical-${protocol}`, experimentId: "historical/case/seed_43",
+    runKey: `historical/case/seed_43:${protocol}`, status: "parsed", planFile: task.planFile,
+    workerId: "worker-a", dimensions: { case: "case", seed: 43, eval_protocol: protocol },
+    metrics: { accuracy: { value: 0.9 } }, primaryMetric: "accuracy",
+    sourceFiles: [{ path: `work_dirs/archive/6_case_seed43/${protocol}.csv`, type: "csv", endpoint: "worker" }],
+    createdAt: "2026-09-23T01:00:00Z", updatedAt: "2026-09-23T01:00:00Z",
+  }));
+  const workerServer = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    if (url.pathname === "/api/files/download-range" && url.searchParams.get("path") === logPath) {
+      res.writeHead(206, { "content-type": "application/octet-stream" }); res.end(log);
+    } else if (url.pathname === "/api/results/summary") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ schemaVersion: 1, resultCount: 2, parsedResults: 2, parseFailed: 0, results }));
+    } else { res.writeHead(404); res.end(); }
+  });
+  await new Promise((resolve) => workerServer.listen(0, "127.0.0.1", resolve));
+  t.after(() => workerServer.close());
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const { id, method } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const result = method === "tasks.list"
+        ? { schedulerStates: [], experimentTraces: [], workerTasks: [{ workerId: "worker-a", tasks: [task] }] }
+        : method === "state.get"
+          ? { value: { workerTunnels: [{ id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port }] } }
+          : { results: [] };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const apiFile = path.join(root, "api.json");
+  fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
+  const config = await callCli(root, apiFile, ["config", workerRunId]);
+  assert.equal(config.code, 0);
+  assert.equal(config.body.config_path, configPath);
+  assert.equal(config.body.yaml, yaml);
+  assert.deepEqual((await callCli(root, apiFile, ["results", workerRunId])).body.result_ids.sort(), ["historical-clean", "historical-p100_low"]);
+  log += `[runtime] python run_wrapper.py --context-json ${JSON.stringify({ config_path: "work_dirs/other/job_config.yaml", config_text: "experiment_name: wrong\n" })}\n`;
+  const { readWorkerTaskConfig } = require("../../dist/cli/runtime.js");
+  const api = require("../../dist/cli/api.js");
+  const previous = api.optionalApi;
+  api.optionalApi = async () => ({ value: { workerTunnels: [{ id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port }] } });
+  try {
+    assert.equal((await readWorkerTaskConfig("worker-a", workerRunId, "", logPath)).yaml, "");
+  } finally { api.optionalApi = previous; }
+});
+
 test("failed Worker task retrieves its remote log without persisting logPath", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-worker-remote-log-"));
   const workerRunId = "run0-failed";

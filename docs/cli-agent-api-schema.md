@@ -119,9 +119,9 @@ Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epo
 
 ## experiment config
 
-公开字段保持 `{ id, config_path, yaml, experiment_case, seed, dataset, model, optimizer, batch_size, epoch }`。对 `worker_run`，`config_path` 优先表示该任务实际执行时的 `job_config.yaml`。历史配置依次来自 task snapshot 中当时持久化的路径、该 task 自身 `logPath` 的启动上下文、仍存在且按稳定 Worker task ID 精确匹配的 terminal pane。Worker task API 对旧任务只读取日志前部并返回恢复后的视图，不改写 snapshot。Plan 是可变输入，不是历史任务真值；CLI 不重新展开当前 Plan，也不按 case、seed 或 index 扫描目录。
+公开字段保持 `{ id, config_path, yaml, experiment_case, seed, dataset, model, optimizer, batch_size, epoch }`。对 `worker_run`，`config_path` 优先表示该任务实际执行时的 `job_config.yaml`。历史配置依次来自 task snapshot 中当时持久化的路径、该 task 自身 `logPath` 的启动上下文、仍存在且按稳定 Worker task ID 精确匹配的 terminal pane。若历史 `job_config.yaml` 已不存在，显式查询可从该 task 日志前部的 `context-json.config_text` 读取当时实际使用的配置文本及其原始路径；Worker task API 仍不把不存在的文件填入 `configPath`。Worker task API 对旧任务只返回恢复后的视图，不改写 snapshot。Plan 是可变输入，不是历史任务真值；CLI 不重新展开当前 Plan，也不按 case、seed 或 index 扫描目录。
 
-`workflow` 仍返回本地 plan/config。旧 Worker 离线，或 task snapshot、持久日志、terminal pane 均无法提供可验证路径时，可能只能返回原有 plan 信息；CLI 不会猜测 `job_config.yaml`。
+`workflow` 仍返回本地 plan/config。旧 Worker 离线，或 task snapshot、持久日志、terminal pane 均无法提供可验证路径或配置文本时，可能只能返回原有 plan 信息；CLI 不会猜测 `job_config.yaml`。
 
 ## result 与 experiment results
 
