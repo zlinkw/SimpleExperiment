@@ -71,6 +71,8 @@
 
 没有进度数据时整个字段为 `null`。
 
+标准 `Epoch N: Val Loss = ...` 日志表示第 N 个 epoch 已完成。例如第 9/300 个 epoch 完成后，当前训练循环 percent 为 3.0%。该值不表示整个 `worker_run` 的完成度。
+
 ## health
 
 健康判断，唯一来源。

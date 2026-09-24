@@ -403,6 +403,52 @@ test("training loop percent may reset within one worker run", () => {
   assert.ok(second.percent < first.percent);
 });
 
+test("standard epoch validation logs expose the latest completed epoch", () => {
+  const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
+  const capture = [
+    "2026-09-24 16:16:10 INFO - Epoch 8: Val Loss = 0.8649, accuracy = 0.72",
+    "2026-09-24 16:17:44 INFO - Epoch 9: Val Loss = 1.0077, accuracy = 0.73",
+  ].join("\n");
+  const progress = parseTrainingProgress(capture, 300);
+  assert.equal(progress.epoch, 9);
+  assert.equal(progress.max_epoch, 300);
+  assert.equal(progress.percent, 3);
+  assert.equal(progress.loss, 1.0077);
+  assert.equal(progress.batch, null);
+  assert.equal(progress.total_batch, null);
+  const withoutMax = parseTrainingProgress(capture);
+  assert.equal(withoutMax.epoch, 9);
+  assert.equal(withoutMax.max_epoch, null);
+  assert.equal(withoutMax.percent, null);
+  assert.equal(withoutMax.loss, 1.0077);
+  assert.equal(parseTrainingProgress("Epoch 12: Val Loss = 1.25e-03", 300).loss, 0.00125);
+  assert.equal(parseTrainingProgress("Epoch 13: accuracy = 0.7", 300).loss, null);
+  assert.equal(parseTrainingProgress(`${capture}\nStarting p100_low inference...`, 300), null);
+  assert.equal(parseTrainingProgress(`${capture}\n[simple-experiment-runtime] done index=0`, 300), null);
+});
+
+test("mixed progress formats use the latest epoch signal", () => {
+  const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
+  const rich = "epoch 30/300 50% 10/20 0:00:10\n当前 loss 0.2";
+  const standard = "Epoch 31: Val Loss = 0.18";
+  assert.equal(parseTrainingProgress(`${rich}\n${standard}`, 300).epoch, 31);
+  const latestRich = parseTrainingProgress(`${standard}\n${rich.replace("30/300", "32/300")}`, 300);
+  assert.equal(latestRich.epoch, 32);
+  assert.equal(latestRich.loss, 0.2);
+  assert.equal(parseTrainingProgress("epoch 2/300 20% 2/10 0:00:10\nepoch 3/300 50% 5/10 0:00:10", 300).epoch, 3);
+});
+
+test("training epoch count accepts only positive integers from job config", () => {
+  const { trainingMaxEpochFromYaml } = require("../../dist/cli/runtime.js");
+  assert.equal(trainingMaxEpochFromYaml("train:\n  epochs: 300\n"), 300);
+  assert.equal(trainingMaxEpochFromYaml("train:\n  max_epochs: 120\n"), 120);
+  assert.equal(trainingMaxEpochFromYaml("train:\n  num_epochs: 50\n"), 50);
+  for (const invalid of ["0", "-1", "auto", "300 epochs", "1.5"]) {
+    assert.equal(trainingMaxEpochFromYaml(`train:\n  epochs: ${invalid}\n`), null);
+  }
+  assert.equal(trainingMaxEpochFromYaml("epochs: 70\n"), 70);
+});
+
 function wrappedRuntimeCapture(seed = "42", contextSeed = seed, configPath = `work_dirs/corim/0_corim_bus_p100_seed${seed}/job_config.yaml`) {
   const context = {
     worker_id: "nwpu2", gpu_ids: "0", plan: "experiments/plans/comparison/corim.yaml",
@@ -445,6 +491,44 @@ test("runtime launch seed reads raw flag when context has no seed", () => {
 test("runtime launch rejects a seed token that is not an integer", () => {
   const observation = corimObservation(wrappedRuntimeCapture("invalid2026-09-24", null, "work_dirs/corim/job_config.yaml"));
   assert.equal(observation.config.seed, "");
+});
+
+test("runtime capture retains standard epoch evidence before job config download", () => {
+  const observation = corimObservation(`${wrappedRuntimeCapture()}\nEpoch 15: Val Loss = 1.3842, accuracy = 0.6409`);
+  assert.equal(observation.progress.epoch, 15);
+  assert.equal(observation.progress.loss, 1.3842);
+  assert.equal(observation.progress.max_epoch, null);
+  assert.equal(observation.progress.percent, null);
+  assert.equal(observation.config.max_epoch, null);
+});
+
+test("running observation uses one worker config download to complete percent", async () => {
+  const api = require("../../dist/cli/api.js");
+  const { observeRunningExperiments } = require("../../dist/cli/runtime.js");
+  const originalOptionalApi = api.optionalApi;
+  const requests = [];
+  const capture = `${wrappedRuntimeCapture()}\nEpoch 15: Val Loss = 1.3842, accuracy = 0.6409`;
+  const server = http.createServer((request, response) => {
+    requests.push(request.url);
+    response.writeHead(200, { "Content-Type": request.url.startsWith("/api/files/download") ? "text/plain" : "application/json" });
+    if (request.url === "/api/tmux/list") response.end(JSON.stringify({ sessions: [{ name: "zlk-gpu-0", windows: [{ name: "run-1790231236812", index: "1", target: "zlk-gpu-0:1" }] }] }));
+    else if (request.url.startsWith("/api/tmux/capture")) response.end(JSON.stringify({ text: capture }));
+    else if (request.url.startsWith("/api/files/download")) response.end("train:\n  epochs: 300\nmodel:\n  name: corim\ndata:\n  dataset: bus\n");
+    else { response.writeHead(404); response.end(); }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  api.optionalApi = async () => ({ value: { workerTunnels: [{ id: "nwpu2", localForwardHost: "127.0.0.1", localForwardPort: server.address().port }] } });
+  try {
+    const observations = await observeRunningExperiments();
+    assert.equal(observations.length, 1);
+    assert.equal(observations[0].progress.epoch, 15);
+    assert.equal(observations[0].progress.max_epoch, 300);
+    assert.equal(observations[0].progress.percent, 5);
+    assert.equal(requests.filter((url) => url.startsWith("/api/files/download")).length, 1);
+  } finally {
+    api.optionalApi = originalOptionalApi;
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("experiment rows distinguish workflow and worker runs", () => {

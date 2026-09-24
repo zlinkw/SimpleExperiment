@@ -39,6 +39,7 @@ exports.currentTrainingLoopPercent = currentTrainingLoopPercent;
 exports.overallTrainingPercent = overallTrainingPercent;
 exports.parseTrainingProgress = parseTrainingProgress;
 exports.matchesRuntime = matchesRuntime;
+exports.trainingMaxEpochFromYaml = trainingMaxEpochFromYaml;
 const http = __importStar(require("http"));
 const api_1 = require("./api");
 async function observeRunningExperiments() {
@@ -56,6 +57,9 @@ async function observeRunningExperiments() {
                     continue;
                 const observation = observationFromCapture(endpoint, session.name, window, capture);
                 observation.config = await configFromWorker(endpoint, observation.config);
+                observation.progress = parseTrainingProgress(capture, observation.config.max_epoch);
+                if (observation.progress?.memory)
+                    observation.gpu.memory = observation.progress.memory;
                 observed.push(observation);
             }
         }
@@ -89,6 +93,7 @@ function observationFromCapture(endpoint, sessionName, window, text) {
             seed: fields.seed || "",
             model: fields.model || "",
             dataset: fields.dataset || "",
+            max_epoch: null,
         },
         log: text.trim(),
         updated_at: new Date().toISOString(),
@@ -113,14 +118,44 @@ function currentTrainingLoopPercent(epoch, maxEpoch, batch, totalBatch, epochPer
 function overallTrainingPercent(epoch, maxEpoch, batch, totalBatch, epochPercent) {
     return currentTrainingLoopPercent(epoch, maxEpoch, batch, totalBatch, epochPercent);
 }
-function parseTrainingProgress(text) {
+function lastRegexMatch(text, regex) {
+    const pattern = new RegExp(regex.source, regex.flags.includes("g") ? regex.flags : `${regex.flags}g`);
+    let latest = null;
+    for (let match = pattern.exec(text); match; match = pattern.exec(text))
+        latest = match;
+    return latest;
+}
+function parseTrainingProgress(text, maxEpochHint = null) {
     const source = String(text || "");
-    const epoch = source.match(/epoch\s+(\d+)\s*\/\s*(\d+)/i);
-    const batch = source.match(/(\d+)\s*\/\s*(\d+)\s+\d+:\d+:\d+/);
-    const epochPercent = source.match(/(\d+(?:\.\d+)?)\s*%/);
-    const loss = source.match(/当前\s*loss\s+([0-9]+(?:\.[0-9]+)?)/i);
-    const lr = source.match(/\blr\s+([0-9]+(?:\.[0-9]+)?e[+-]?\d+)/i);
-    const memory = source.match(/显存\s+([0-9]+(?:\.[0-9]+)?\s*GiB)/i);
+    const richEpoch = lastRegexMatch(source, /epoch\s+(\d+)\s*\/\s*(\d+)/gi);
+    const standardEpoch = lastRegexMatch(source, /\bEpoch\s+(\d+)\s*:[^\r\n]*/gi);
+    const latestEpochIndex = Math.max(richEpoch?.index ?? -1, standardEpoch?.index ?? -1);
+    const laterPhase = lastRegexMatch(source, /(?:^|\r?\n)\s*(?:\[simple-experiment-runtime\]\s+done\b|Starting[^\r\n]*\binference\b)/gim);
+    if (latestEpochIndex >= 0 && laterPhase && laterPhase.index > latestEpochIndex)
+        return null;
+    if (standardEpoch && (!richEpoch || standardEpoch.index > richEpoch.index)) {
+        const epochValue = Number(standardEpoch[1]);
+        const maxEpochValue = Number.isInteger(maxEpochHint) && Number(maxEpochHint) > 0 ? maxEpochHint : null;
+        const loss = standardEpoch[0].match(/\bVal\s+Loss\s*=\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?![\w.])/i);
+        return {
+            epoch: epochValue,
+            max_epoch: maxEpochValue,
+            batch: null,
+            total_batch: null,
+            percent: currentTrainingLoopPercent(epochValue, maxEpochValue, null, null, 100),
+            loss: loss ? Number(loss[1]) : null,
+            lr: null,
+            memory: null,
+        };
+    }
+    const tail = richEpoch ? source.slice(richEpoch.index) : source;
+    const epochLine = tail.split(/\r?\n/, 1)[0];
+    const batch = epochLine.match(/(\d+)\s*\/\s*(\d+)\s+\d+:\d+:\d+/);
+    const epochPercent = epochLine.match(/(\d+(?:\.\d+)?)\s*%/);
+    const loss = tail.match(/当前\s*loss\s+([0-9]+(?:\.[0-9]+)?)/i);
+    const lr = tail.match(/\blr\s+([0-9]+(?:\.[0-9]+)?e[+-]?\d+)/i);
+    const memory = tail.match(/显存\s+([0-9]+(?:\.[0-9]+)?\s*GiB)/i);
+    const epoch = richEpoch;
     if (!epoch && !batch && !loss && !lr && !memory)
         return null;
     const epochValue = epoch ? Number(epoch[1]) : null;
@@ -207,7 +242,8 @@ function agentText(endpoint, urlPath) {
     });
 }
 async function configFromWorker(endpoint, config) {
-    if (!config.path || (config.model && config.dataset && config.experiment_case))
+    const hasMaxEpoch = Number.isInteger(config.max_epoch) && Number(config.max_epoch) > 0;
+    if (!config.path || (config.model && config.dataset && config.experiment_case && hasMaxEpoch))
         return config;
     const yaml = await agentText(endpoint, `/api/files/download?path=${encodeURIComponent(config.path)}&maxBytes=200000`);
     if (!yaml || yaml.startsWith("{"))
@@ -218,6 +254,7 @@ async function configFromWorker(endpoint, config) {
         model: config.model || nestedYamlValue(yaml, "model", "name") || nestedYamlValue(yaml, "model", "joint_encoder"),
         dataset: config.dataset || nestedYamlValue(yaml, "data", "dataset"),
         seed: integerText(config.seed) || integerText(yamlValue(yaml, "seed")),
+        max_epoch: hasMaxEpoch ? config.max_epoch : trainingMaxEpochFromYaml(yaml),
     };
 }
 function launchFields(text) {
@@ -286,6 +323,21 @@ function experimentCase(text) {
 function nestedYamlValue(text, section, key) {
     const block = String(text || "").match(new RegExp(`(?:^|\\n)${section}:\\n((?:[ \\t]+.*\\n?)*)`));
     return block ? yamlValue(`\n${block[1]}`, key) : "";
+}
+function trainingMaxEpochFromYaml(yaml) {
+    for (const key of ["epochs", "max_epochs", "num_epochs"]) {
+        const raw = nestedYamlValue(yaml, "train", key);
+        const value = Number(integerText(raw));
+        if (Number.isSafeInteger(value) && value > 0)
+            return value;
+    }
+    for (const key of ["epochs", "max_epochs", "num_epochs"]) {
+        const match = String(yaml || "").match(new RegExp(`(?:^|\\n)${key}\\s*:\\s*([^#\\n]+)`));
+        const value = Number(integerText(match?.[1]));
+        if (Number.isSafeInteger(value) && value > 0)
+            return value;
+    }
+    return null;
 }
 function runIdFromName(value) {
     const name = String(value || "").trim();

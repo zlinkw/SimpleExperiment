@@ -31,6 +31,8 @@
 
 `progress.percent` 只表示当前可识别训练循环的进度，不是 `worker_run` 总体完成率。多阶段任务切换训练循环时可以回退；没有可识别的 `epoch/max_epoch` 时为 `null`。
 
+进度证据包括 `epoch X/Y` 终端进度条和 `Epoch N: Val Loss = ...` 完成日志。后一格式的总 epoch 来自实际运行的 `job_config`；若无法取得总 epoch，仍保留 epoch 和 loss，percent 为 `null`。`progress=null` 仅表示当前捕获内容没有可信训练进度证据。
+
 `experiment active` 返回归一化后的当前运行对象，不是所有仍能从 tmux pane 解析出的历史文本。若唯一匹配的 Worker Agent 历史已确认 `success`、`failed` 或 `cancelled`，该终态高于 pane 中残留的 runtime observation。
 
 ## experiment health
