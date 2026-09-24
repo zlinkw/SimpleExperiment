@@ -100,6 +100,19 @@ test("local rebuild merges ready Workers and retains earlier Worker records", ()
   assert.strictEqual(tables.mergeAvailableWorkerResults(previous, { ...partial, results: [] }, plan, 2), previous);
 });
 
+test("completed cross-Worker rerun replaces older Worker results for the same Plan", () => {
+  const older = tables.updateRegistry(tables.emptyTableRegistry(), summary([
+    record("w1", "demo", "bus_p30", 42, "clean", "acc", 0.2),
+  ]), plan, 1);
+  const incoming = tables.summaryForWorker(summary([
+    record("w1", "demo", "bus_p30", 42, "clean", "acc", 0.2),
+    record("w2", "demo", "bus_p30", 42, "clean", "acc", 0.7),
+  ]), "w2");
+  const updated = tables.updateRegistry(older, incoming, plan, 1);
+  assert.deepEqual(updated.plans[plan].records.map((row) => row.workerId), ["w2"]);
+  assert.equal(tables.buildTables(updated).final.rows[0][tables.buildTables(updated).final.header.indexOf("acc_mean")], 0.7);
+});
+
 test("CSV splitting supports manual value and column selection with quoted cells", () => {
   const source = tables.writeCsv(["result_family", "rate_percent", "note", "acc_mean"], [
     ["demo", "0", "a,b", 0.1],

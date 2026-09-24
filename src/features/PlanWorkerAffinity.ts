@@ -10,11 +10,17 @@ export function resolvePlanWorkerAffinity(
   summary: RecordMap,
   registry: RecordMap,
   operations: RecordMap,
+  requestedWorkerId = "",
 ): string | undefined {
   const workers = new Map(enabledWorkerIds.map((id) => [id.toLowerCase(), id]));
   const available = new Set((Array.isArray(summary?.availableWorkerIds) ? summary.availableWorkerIds : []).map((id: unknown) => String(id).toLowerCase()));
   const missing = enabledWorkerIds.filter((id) => !available.has(id.toLowerCase()));
   if (missing.length) throw new Error(`重跑 Plan 前无法检查全部 Worker 的历史结果：${missing.join("、")}。请恢复对应 Agent 后重试。`);
+  if (requestedWorkerId) {
+    const requested = workers.get(requestedWorkerId.toLowerCase());
+    if (!requested) throw new Error(`指定的 Worker ${requestedWorkerId} 未启用。`);
+    return requested;
+  }
 
   const owners = new Set<string>();
   const add = (id: unknown) => { const value = String(id || "").trim(); if (value) owners.add(value.toLowerCase()); };
@@ -33,9 +39,8 @@ export function resolvePlanWorkerAffinity(
     if (!/^(completed|interrupted|cancelled|running|started|waiting)$/.test(String(operation.status || "").toLowerCase())) continue;
     add(operation.schedulerOwnerWorkerId || operation.resultOwnerWorkerId || operation.workerId);
   }
-  if (owners.size > 1) throw new Error(`该 Plan 已在多个 Worker 留下运行或结果记录：${[...owners].join("、")}。请先核对结果归属，禁止跨 Worker 重跑。`);
+  if (owners.size > 1) return undefined;
   const owner = [...owners][0];
   if (!owner) return undefined;
-  if (!workers.has(owner)) throw new Error(`该 Plan 的历史 Worker ${owner} 未启用；请先启用并检查该 Worker，禁止改派重跑。`);
   return workers.get(owner);
 }

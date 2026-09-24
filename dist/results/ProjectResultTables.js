@@ -40,6 +40,7 @@ exports.methodTableName = methodTableName;
 exports.methodForSummary = methodForSummary;
 exports.recordsForSummary = recordsForSummary;
 exports.updateRegistry = updateRegistry;
+exports.summaryForWorker = summaryForWorker;
 exports.mergeAvailableWorkerResults = mergeAvailableWorkerResults;
 exports.writeCsv = writeCsv;
 exports.readCsv = readCsv;
@@ -126,6 +127,14 @@ function recordsForSummary(summary, planFile) {
 function updateRegistry(registry, summary, planFile, expectedSeeds = 0) {
     const records = recordsForSummary(summary, planFile);
     return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
+}
+function summaryForWorker(summary, workerId) {
+    const id = String(workerId || "").toLowerCase();
+    const tables = (Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : []).filter((row) => String(row?.workerId || "").toLowerCase() === id && row?.aggregateStatus === "ready" && String(row?.rawResultCsvPath || "").trim());
+    const results = (Array.isArray(summary?.results) ? summary.results : []).filter((row) => String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase() === id);
+    if (!tables.length || !results.length)
+        return undefined;
+    return { ...summary, workerResultTables: tables, results, availableWorkerIds: [workerId], unavailableWorkerIds: [], incompleteAggregate: false, resultOwnerWorkerId: workerId };
 }
 function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds = 0) {
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];

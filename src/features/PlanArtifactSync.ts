@@ -12,6 +12,17 @@ export type PlanSyncLedger = { schemaVersion: 2; entries: Record<string, PlanSyn
 
 export const emptyPlanSyncLedger = (): PlanSyncLedger => ({ schemaVersion: 2, entries: {} });
 
+function canonicalPlan(value: string): string { return String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase(); }
+
+export function latestPlanSyncEntry(ledger: PlanSyncLedger, planFile: string): PlanSyncEntry | undefined {
+  let latest: PlanSyncEntry | undefined;
+  for (const entry of Object.values(ledger.entries || {})) {
+    if (canonicalPlan(entry.planFile) !== canonicalPlan(planFile)) continue;
+    if (entry.runId !== "historic" || !latest) latest = entry;
+  }
+  return latest;
+}
+
 export function migratePlanSyncLedger(value: any): PlanSyncLedger {
   if (!value || !value.entries || typeof value.entries !== "object" || Array.isArray(value.entries)) throw new Error("Plan 同步记录格式无效。");
   if (value.schemaVersion === 2) return value;
@@ -72,7 +83,7 @@ export function queuePlanSync(
 ): PlanSyncLedger {
   const key = planSyncKey(planFile, revision, sourceWorkerId, runId);
   const previous = ledger.entries[key];
-  const latestPrior = Object.entries(ledger.entries).filter(([otherKey, entry]) => otherKey !== key && entry.planFile === planFile && entry.sourceWorkerId.toLowerCase() === sourceWorkerId.toLowerCase() && entry.runId !== "historic").at(-1)?.[1];
+  const latestPrior = Object.entries(ledger.entries).filter(([otherKey, entry]) => otherKey !== key && canonicalPlan(entry.planFile) === canonicalPlan(planFile) && entry.runId !== "historic").at(-1)?.[1];
   const stalePaths = previous?.stalePaths || (latestPrior ? [...new Map([
     ...(latestPrior.stalePaths || []),
     ...latestPrior.artifactPaths.filter((oldPath) => !artifactPaths.includes(oldPath))
@@ -107,12 +118,15 @@ export function markPlanSyncComplete(ledger: PlanSyncLedger, key: string, destin
 
 export function pendingPlanSyncs(ledger: PlanSyncLedger): Array<{ key: string; entry: PlanSyncEntry; destinationWorkerId: string }> {
   const entries = Object.entries(ledger.entries);
-  const latest = new Map<string, string>();
+  const latestRun = new Map<string, string>();
   for (const [key, entry] of entries) {
-    const scope = `${entry.planFile}|${entry.sourceWorkerId.toLowerCase()}`;
-    if (entry.runId !== "historic" || !latest.has(scope)) latest.set(scope, key);
+    const scope = canonicalPlan(entry.planFile);
+    if (entry.runId !== "historic") latestRun.set(scope, key);
   }
-  return entries.filter(([key, entry]) => latest.get(`${entry.planFile}|${entry.sourceWorkerId.toLowerCase()}`) === key).flatMap(([key, entry]) => Object.entries(entry.destinations)
+  return entries.filter(([key, entry]) => {
+    const winner = latestRun.get(canonicalPlan(entry.planFile));
+    return winner ? key === winner : entry.runId === "historic";
+  }).flatMap(([key, entry]) => Object.entries(entry.destinations)
     .filter(([, value]) => value.status === "pending")
     .map(([destinationWorkerId]) => ({ key, entry, destinationWorkerId })));
 }

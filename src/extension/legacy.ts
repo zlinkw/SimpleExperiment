@@ -7229,16 +7229,17 @@ export class RealtimeTunnelPanelProvider {
         if (topology.mode === "single_worker") return this.planSchedulerWorkerId(body);
         const workers = this.enabledWorkerConfigs();
         if (!workers.length) throw new Error(`${label} 没有已启用的 Worker。`);
+        let preferredOwner = "";
         if (topology.mode === "worker_pool") {
             const planFile = operationResultPlanFile(body);
             if (!planFile) throw new Error("无法确定重跑 Plan 的文件，已阻止跨 Worker 派发。");
             const summary = await this.client.getResultsSummary(planFile, { userInitiated: true });
             const root = workspaceRoot();
             const registry = root ? await this.loadProjectTableRegistry(root) : ProjectResultTables.emptyTableRegistry();
-            const owner = resolvePlanWorkerAffinity(planFile, workers.map((worker) => worker.id), summary as Record<string, unknown>, registry, this.localOperations || {});
-            if (owner) {
-                const requested = this.planSchedulerWorkerId(body);
-                if (requested && requested !== owner) throw new Error(`${planFile} 已属于 Worker ${owner}，不能改派 ${requested} 重跑。`);
+            const requested = this.planSchedulerWorkerId(body);
+            const owner = resolvePlanWorkerAffinity(planFile, workers.map((worker) => worker.id), summary as Record<string, unknown>, registry, this.localOperations || {}, requested || "");
+            preferredOwner = owner || "";
+            if (owner && (requested || workers.length === 1)) {
                 this.stampWorkerPoolManualTarget(body, owner);
                 return owner;
             }
@@ -7273,7 +7274,7 @@ export class RealtimeTunnelPanelProvider {
             const count = rows.length ? `${(row.availableGpuIds || []).length}/${row.totalGpus || rows.length}` : "未知";
             return {
                 label: worker.displayName || worker.id,
-                description: `${worker.id} · 空闲卡 ${count} · ${selectable ? "在线" : "不可用"}`,
+                description: `${worker.id}${worker.id === preferredOwner ? " · 上次运行 Worker" : ""} · 空闲卡 ${count} · ${selectable ? "在线" : "不可用"}`,
                 detail: `${snapshotSource}；${rows.length ? `空闲 GPU ${(row.availableGpuIds || []).join(", ") || "无"}` : "暂无 GPU 数据"}${missing.length ? `；缺少 ${missing.join(", ")}` : ""}`,
                 workerId: worker.id,
                 selectable,
@@ -11624,8 +11625,10 @@ export class RealtimeTunnelPanelProvider {
             for (const [planFile, item] of Object.entries(registry.plans || {})) {
                 const plan = (this.localPlanMetadata.plans || []).find((row) => samePlanSelection(row.planFile || row.file, planFile));
                 const owners = uniqueStrings((item?.records || []).map((row) => String(row.workerId || "")).filter(Boolean));
+                if (owners.length !== 1) continue;
                 for (const owner of owners) {
-                    if (Object.values(ledger.entries).some((entry) => entry.planFile === planFile && entry.sourceWorkerId.toLowerCase() === owner.toLowerCase() && entry.runId !== "historic")) continue;
+                    const latest = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
+                    if (latest?.runId && latest.runId !== "historic") continue;
                     ledger = PlanArtifactSync.queuePlanSync(ledger, planFile, String(item.revision || ""), owner, PlanArtifactSync.planArtifactPaths(plan, undefined, owner), workerIds, PlanArtifactSync.planArtifactDirectories(plan));
                 }
             }
@@ -11654,7 +11657,9 @@ export class RealtimeTunnelPanelProvider {
         await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId,
             PlanArtifactSync.planArtifactPaths(plan, summary, sourceWorkerId),
             this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
-        await this.syncPendingPlanArtifacts(PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId));
+        if (!ProjectResultTables.summaryForWorker(summary, sourceWorkerId)) return;
+        await this.updateProjectResultTablesFromSummary(summary, planFile);
+        await this.syncPendingPlanArtifacts(PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId), summary);
     }
     async simpleSftpApiCall(method, params) {
         const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
@@ -11677,7 +11682,7 @@ export class RealtimeTunnelPanelProvider {
         if (payload.result?.ok === false) throw new Error(`SimpleSFTP ${method}：${String(payload.result.error || payload.result.message || "传输失败")}`);
         return payload.result;
     }
-    async syncPendingPlanArtifacts(onlyKey = "") {
+    async syncPendingPlanArtifacts(onlyKey = "", knownSummary?) {
         if (this.planSyncInFlight) {
             this.planSyncRescanRequested = true;
             return;
@@ -11700,10 +11705,19 @@ export class RealtimeTunnelPanelProvider {
         this.planSyncInFlight = true;
         try {
             const syncedCodeTargets = new Set();
+            const sourceSummaries = new Map();
             for (const item of ready) {
                 if (root !== workspaceRoot()) return;
                 const sourceRow = item.sourceRow;
                 const destinationRow = targets.get(item.destinationWorkerId);
+                if (sourceRow.id === item.entry.sourceWorkerId) {
+                    if (!sourceSummaries.has(item.key)) sourceSummaries.set(item.key,
+                        knownSummary && samePlanSelection(knownSummary.planFile, item.entry.planFile)
+                            ? knownSummary
+                            : await this.client.getResultsSummary(item.entry.planFile, { userInitiated: true }).catch(() => undefined));
+                    const sourceSummary = sourceSummaries.get(item.key);
+                    if (!ProjectResultTables.summaryForWorker(sourceSummary, item.entry.sourceWorkerId)) continue;
+                }
                 const source = this.sftpServerOptions(sourceRow);
                 const destination = this.sftpServerOptions(destinationRow);
                 const paths = directPlanSyncPreview(item.entry, source, destination).join("\n");
@@ -11737,7 +11751,10 @@ export class RealtimeTunnelPanelProvider {
         const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
         if (!ProjectResultTables.summaryMatchesPlanRevision(summary, metadata)) return;
         const expected = Array.isArray(metadata?.seeds) ? metadata.seeds.length : 0;
-        const next = ProjectResultTables.updateRegistry(registry, summary, planFile, expected);
+        const latest = PlanArtifactSync.latestPlanSyncEntry(await this.loadPlanSyncLedger(root), planFile);
+        const chosen = latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId) : summary;
+        if (!chosen) return;
+        const next = ProjectResultTables.updateRegistry(registry, chosen, planFile, expected);
         next.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
         if (JSON.stringify(next.plans[planFile]) === JSON.stringify(registry.plans[planFile]) && JSON.stringify(next.derivedMetric) === JSON.stringify(registry.derivedMetric)) return;
         await this.writeProjectTableRegistry(root, next);
@@ -11752,6 +11769,7 @@ export class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(context) || client !== this.client) return;
         const plans = (this.localPlanMetadata.plans || []).filter((item) => item.planFile).slice(0, 500);
         let registry = await this.loadProjectTableRegistry(root);
+        const syncLedger = await this.loadPlanSyncLedger(root);
         let included = 0;
         const issues = [];
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重建全项目最终结果表", cancellable: true }, async (progress, token) => {
@@ -11781,7 +11799,11 @@ export class RealtimeTunnelPanelProvider {
                     continue;
                 }
                 try {
-                    const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
+                    const latest = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
+                    const chosen = latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId) : undefined;
+                    const next = latest?.runId && latest.runId !== "historic"
+                        ? chosen ? ProjectResultTables.updateRegistry(registry, chosen, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0) : registry
+                        : ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
                     if (next !== registry) {
                         ProjectResultTables.buildTables(next);
                         registry = next;
@@ -12606,6 +12628,15 @@ export class RealtimeTunnelPanelProvider {
             this.resultsSummary = summary;
             if (planFile && (summary as any)?.workerResultTables?.some?.((row: any) => row.aggregateStatus === "ready"))
                 await this.updateProjectResultTablesFromSummary(summary, planFile).catch((error) => this.recordActionError({ command: "refreshResults", message: "全项目总表未更新：" + errorMessage(error), suggestion: "请核对原始结果的 case、seed 与 Worker 完整性。" }));
+            if (planFile) {
+                const root = workspaceRoot();
+                const ledger = root ? await this.loadPlanSyncLedger(root) : PlanArtifactSync.emptyPlanSyncLedger();
+                const latest = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
+                if (latest && ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId)) {
+                    const pending = PlanArtifactSync.pendingPlanSyncs(ledger).find((item) => item.entry === latest);
+                    if (pending) void this.syncPendingPlanArtifacts(pending.key, summary).catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
+                }
+            }
             this.lastError = undefined;
             this.lastResultsSummaryRealtimeErrorKey = "";
             this.lastResultsSummaryCapabilityWarningKey = "";

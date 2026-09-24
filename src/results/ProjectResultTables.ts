@@ -74,6 +74,14 @@ export function updateRegistry(registry: TableRegistry, summary: any, planFile: 
   return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
 }
 
+export function summaryForWorker(summary: any, workerId: string): any | undefined {
+  const id = String(workerId || "").toLowerCase();
+  const tables = (Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : []).filter((row: any) => String(row?.workerId || "").toLowerCase() === id && row?.aggregateStatus === "ready" && String(row?.rawResultCsvPath || "").trim());
+  const results = (Array.isArray(summary?.results) ? summary.results : []).filter((row: any) => String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase() === id);
+  if (!tables.length || !results.length) return undefined;
+  return { ...summary, workerResultTables: tables, results, availableWorkerIds: [workerId], unavailableWorkerIds: [], incompleteAggregate: false, resultOwnerWorkerId: workerId };
+}
+
 export function mergeAvailableWorkerResults(registry: TableRegistry, summary: any, planFile: string, expectedSeeds = 0): TableRegistry {
   const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
   const ready = tables.filter((table: any) => table?.aggregateStatus === "ready" && String(table.rawResultCsvPath || "").trim());

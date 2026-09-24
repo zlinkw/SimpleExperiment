@@ -50,6 +50,15 @@ test("new run records removed Plan paths for exact cleanup", () => {
   ]);
 });
 
+test("a completed cross-Worker rerun supersedes older source transfers", () => {
+  let ledger = sync.queuePlanSync(sync.emptyPlanSyncLedger(), "plans/corim.yaml", "rev1", "nwpu2", ["work_dirs/corim", "experiments/results/old.csv"], ["nwpu2", "nwpu3", "nwpu5"], ["work_dirs/corim"], "run-old");
+  ledger = sync.queuePlanSync(ledger, "plans/corim.yaml", "rev2", "nwpu3", ["work_dirs/corim", "experiments/results/new.csv"], ["nwpu2", "nwpu3", "nwpu5"], ["work_dirs/corim"], "run-new");
+  const pending = sync.pendingPlanSyncs(ledger);
+  assert.deepEqual(pending.map((item) => item.destinationWorkerId), ["nwpu2", "nwpu5"]);
+  assert.ok(pending.every((item) => item.entry.sourceWorkerId === "nwpu3"));
+  assert.deepEqual(pending[0].entry.stalePaths, [{ path: "experiments/results/old.csv", directory: false }]);
+});
+
 test("SFTP transfers Plan outputs and weights directly to their original paths", async () => {
   const entry = {
     planFile: "plans/corim.yaml", revision: "rev1", runId: "operation-2", sourceWorkerId: "nwpu2",

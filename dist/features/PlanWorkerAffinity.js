@@ -4,12 +4,18 @@ exports.resolvePlanWorkerAffinity = resolvePlanWorkerAffinity;
 function planKey(value) {
     return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 }
-function resolvePlanWorkerAffinity(planFile, enabledWorkerIds, summary, registry, operations) {
+function resolvePlanWorkerAffinity(planFile, enabledWorkerIds, summary, registry, operations, requestedWorkerId = "") {
     const workers = new Map(enabledWorkerIds.map((id) => [id.toLowerCase(), id]));
     const available = new Set((Array.isArray(summary?.availableWorkerIds) ? summary.availableWorkerIds : []).map((id) => String(id).toLowerCase()));
     const missing = enabledWorkerIds.filter((id) => !available.has(id.toLowerCase()));
     if (missing.length)
         throw new Error(`重跑 Plan 前无法检查全部 Worker 的历史结果：${missing.join("、")}。请恢复对应 Agent 后重试。`);
+    if (requestedWorkerId) {
+        const requested = workers.get(requestedWorkerId.toLowerCase());
+        if (!requested)
+            throw new Error(`指定的 Worker ${requestedWorkerId} 未启用。`);
+        return requested;
+    }
     const owners = new Set();
     const add = (id) => { const value = String(id || "").trim(); if (value)
         owners.add(value.toLowerCase()); };
@@ -36,11 +42,9 @@ function resolvePlanWorkerAffinity(planFile, enabledWorkerIds, summary, registry
         add(operation.schedulerOwnerWorkerId || operation.resultOwnerWorkerId || operation.workerId);
     }
     if (owners.size > 1)
-        throw new Error(`该 Plan 已在多个 Worker 留下运行或结果记录：${[...owners].join("、")}。请先核对结果归属，禁止跨 Worker 重跑。`);
+        return undefined;
     const owner = [...owners][0];
     if (!owner)
         return undefined;
-    if (!workers.has(owner))
-        throw new Error(`该 Plan 的历史 Worker ${owner} 未启用；请先启用并检查该 Worker，禁止改派重跑。`);
     return workers.get(owner);
 }

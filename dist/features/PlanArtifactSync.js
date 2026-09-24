@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyPlanSyncLedger = void 0;
+exports.latestPlanSyncEntry = latestPlanSyncEntry;
 exports.migratePlanSyncLedger = migratePlanSyncLedger;
 exports.safePlanArtifactPath = safePlanArtifactPath;
 exports.planArtifactPaths = planArtifactPaths;
@@ -11,6 +12,17 @@ exports.markPlanSyncComplete = markPlanSyncComplete;
 exports.pendingPlanSyncs = pendingPlanSyncs;
 const emptyPlanSyncLedger = () => ({ schemaVersion: 2, entries: {} });
 exports.emptyPlanSyncLedger = emptyPlanSyncLedger;
+function canonicalPlan(value) { return String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase(); }
+function latestPlanSyncEntry(ledger, planFile) {
+    let latest;
+    for (const entry of Object.values(ledger.entries || {})) {
+        if (canonicalPlan(entry.planFile) !== canonicalPlan(planFile))
+            continue;
+        if (entry.runId !== "historic" || !latest)
+            latest = entry;
+    }
+    return latest;
+}
 function migratePlanSyncLedger(value) {
     if (!value || !value.entries || typeof value.entries !== "object" || Array.isArray(value.entries))
         throw new Error("Plan 同步记录格式无效。");
@@ -67,7 +79,7 @@ function planSyncKey(planFile, revision, sourceWorkerId, runId = "historic") {
 function queuePlanSync(ledger, planFile, revision, sourceWorkerId, artifactPaths, destinationWorkerIds, directoryPaths = [], runId = "historic") {
     const key = planSyncKey(planFile, revision, sourceWorkerId, runId);
     const previous = ledger.entries[key];
-    const latestPrior = Object.entries(ledger.entries).filter(([otherKey, entry]) => otherKey !== key && entry.planFile === planFile && entry.sourceWorkerId.toLowerCase() === sourceWorkerId.toLowerCase() && entry.runId !== "historic").at(-1)?.[1];
+    const latestPrior = Object.entries(ledger.entries).filter(([otherKey, entry]) => otherKey !== key && canonicalPlan(entry.planFile) === canonicalPlan(planFile) && entry.runId !== "historic").at(-1)?.[1];
     const stalePaths = previous?.stalePaths || (latestPrior ? [...new Map([
             ...(latestPrior.stalePaths || []),
             ...latestPrior.artifactPaths.filter((oldPath) => !artifactPaths.includes(oldPath))
@@ -102,13 +114,16 @@ function markPlanSyncComplete(ledger, key, destinationWorkerId, syncedAt) {
 }
 function pendingPlanSyncs(ledger) {
     const entries = Object.entries(ledger.entries);
-    const latest = new Map();
+    const latestRun = new Map();
     for (const [key, entry] of entries) {
-        const scope = `${entry.planFile}|${entry.sourceWorkerId.toLowerCase()}`;
-        if (entry.runId !== "historic" || !latest.has(scope))
-            latest.set(scope, key);
+        const scope = canonicalPlan(entry.planFile);
+        if (entry.runId !== "historic")
+            latestRun.set(scope, key);
     }
-    return entries.filter(([key, entry]) => latest.get(`${entry.planFile}|${entry.sourceWorkerId.toLowerCase()}`) === key).flatMap(([key, entry]) => Object.entries(entry.destinations)
+    return entries.filter(([key, entry]) => {
+        const winner = latestRun.get(canonicalPlan(entry.planFile));
+        return winner ? key === winner : entry.runId === "historic";
+    }).flatMap(([key, entry]) => Object.entries(entry.destinations)
         .filter(([, value]) => value.status === "pending")
         .map(([destinationWorkerId]) => ({ key, entry, destinationWorkerId })));
 }

@@ -14,13 +14,13 @@ test("rerun stays on the Worker that owns earlier results", () => {
   }), "nwpu2");
 });
 
-test("rerun requires every Worker and blocks mixed ownership", () => {
+test("rerun requires every enabled Worker and allows a new owner after mixed history", () => {
   assert.throws(() => resolvePlanWorkerAffinity(plan, workers, { ...complete, availableWorkerIds: ["nwpu2", "nwpu3"] }, history, {}), /nwpu5/);
-  assert.throws(() => resolvePlanWorkerAffinity(plan, workers, {
+  assert.equal(resolvePlanWorkerAffinity(plan, workers, {
     ...complete,
     results: [{ workerId: "nwpu3" }],
-  }, history, {}), /多个 Worker/);
-  assert.throws(() => resolvePlanWorkerAffinity(plan, workers, complete, { plans: { [plan]: { records: [{ workerId: "old-worker" }] } } }, {}), /未启用/);
+  }, history, {}), undefined);
+  assert.equal(resolvePlanWorkerAffinity(plan, workers, complete, { plans: { [plan]: { records: [{ workerId: "old-worker" }] } } }, {}), undefined);
 });
 
 test("a fresh Plan can choose any Worker after checking all of them", () => {
@@ -28,4 +28,9 @@ test("a fresh Plan can choose any Worker after checking all of them", () => {
   assert.equal(resolvePlanWorkerAffinity(plan, workers, complete, { plans: {} }, {
     failed: { type: "run-plan", status: "failed", planFile: plan, workerId: "nwpu2" },
   }), undefined);
+});
+
+test("an explicit cross-Worker rerun can move ownership after all Workers respond", () => {
+  assert.equal(resolvePlanWorkerAffinity(plan, workers, complete, history, {}, "nwpu3"), "nwpu3");
+  assert.throws(() => resolvePlanWorkerAffinity(plan, workers, { ...complete, availableWorkerIds: ["nwpu2", "nwpu3"] }, history, {}, "nwpu3"), /nwpu5/);
 });
