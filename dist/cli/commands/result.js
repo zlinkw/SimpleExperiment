@@ -42,6 +42,7 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const api_1 = require("../api");
 const data_1 = require("../data");
+const runtime_1 = require("../runtime");
 const errors_1 = require("../errors");
 const format_1 = require("../format");
 const parse_1 = require("../parse");
@@ -146,6 +147,7 @@ async function loadResults() {
         records.push(...extractRecords(parsed));
     }
     records.push(...parseLocalResultFiles());
+    records.push(...await (0, runtime_1.readWorkerResultRecords)());
     const remote = await (0, api_1.optionalApi)("results.list", {});
     records.push(...extractRecords(remote));
     const byId = new Map();

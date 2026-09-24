@@ -251,6 +251,20 @@ async function enabledWorkerEndpoints(): Promise<WorkerEndpoint[]> {
   return out;
 }
 
+export async function readWorkerResultRecords(): Promise<Array<Record<string, unknown>>> {
+  const endpoints = await enabledWorkerEndpoints();
+  const groups = await Promise.all(endpoints.map(async (endpoint) => {
+    try {
+      const payload = await agentGet(endpoint, "/api/results/summary");
+      const results = Array.isArray(payload?.results) ? payload.results : [];
+      return results.map(asRecord).filter((row) => Object.keys(row).length > 0);
+    } catch {
+      return [];
+    }
+  }));
+  return groups.flat();
+}
+
 async function tmuxList(endpoint: WorkerEndpoint): Promise<Array<{ name: string; windows: Array<Record<string, any>> }>> {
   const payload = await agentGet(endpoint, "/api/tmux/list");
   const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];

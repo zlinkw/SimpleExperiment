@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { optionalApi } from "../api";
 import { RESULT_REGISTRY_LOCAL_REL, RESULT_REGISTRY_REL, readJsonFile, resolveProjectPath } from "../data";
+import { readWorkerResultRecords } from "../runtime";
 import { businessError, usageError } from "../errors";
 import { block, table, writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
@@ -125,6 +126,7 @@ export async function loadResults(): Promise<ResultRow[]> {
     records.push(...extractRecords(parsed));
   }
   records.push(...parseLocalResultFiles());
+  records.push(...await readWorkerResultRecords() as unknown as ExperimentResultRecord[]);
   const remote = await optionalApi("results.list", {});
   records.push(...extractRecords(remote));
   const byId = new Map<string, ResultRow>();

@@ -283,6 +283,46 @@ test("simpleex result list show export reuse Results", async () => {
   assert.equal(exportPayload.id, "res-1");
 });
 
+test("loadResults includes parsed Worker summaries", async () => {
+  const api = require("../../dist/cli/api.js");
+  const { loadResults } = require("../../dist/cli/commands/result.js");
+  const originalOptionalApi = api.optionalApi;
+  const record = {
+    schemaVersion: 1, resultId: "worker-result-1", experimentId: "suite/baseline/seed_7",
+    runKey: "suite/baseline/seed_7:clean", status: "parsed",
+    metrics: { accuracy: { value: 0.91, higherIsBetter: true } },
+    dimensions: { case: "baseline", seed: 7, eval_protocol: "clean" },
+    primaryMetric: "accuracy",
+    sourceFiles: [{ path: "experiments/results/demo.csv", type: "csv", endpoint: "hub" }],
+    createdAt: "2026-09-23T00:04:00Z", updatedAt: "2026-09-23T00:04:00Z",
+    provenance: { planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a" },
+    planFile: "experiments/plans/baseline.yaml", workerId: "worker-a", resultOwnerWorkerId: "worker-a",
+  };
+  const workerServer = http.createServer((req, res) => {
+    if (req.url === "/api/results/summary") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ schemaVersion: 1, resultCount: 1, parsedResults: 1, parseFailed: 0, results: [record] }));
+    } else { res.writeHead(404); res.end(); }
+  });
+  await new Promise((resolve) => workerServer.listen(0, "127.0.0.1", resolve));
+  api.optionalApi = async (method) => method === "state.get"
+    ? { value: { workerTunnels: [
+      { id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port, enabled: true },
+      { id: "offline-worker", localForwardHost: "127.0.0.1", localForwardPort: 1, enabled: true },
+    ] } }
+    : { results: [] };
+  try {
+    const rows = await loadResults();
+    const result = rows.find((row) => row.id === "worker-result-1");
+    assert.equal(result?.experimentId, "suite/baseline/seed_7");
+    assert.equal(result?.primaryMetric, "accuracy");
+    assert.equal(result?.primaryValue, 0.91);
+  } finally {
+    api.optionalApi = originalOptionalApi;
+    await new Promise((resolve) => workerServer.close(resolve));
+  }
+});
+
 test("simpleex gpu status and server list stay offline-safe", async () => {
   const gpu = await runCli(["gpu", "status", "--json"]);
   assert.equal(gpu.code, 0);

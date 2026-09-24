@@ -103,12 +103,23 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
     configPath: "work_dirs/demo/0_baseline_seed7/job_config.yaml",
     workflowId, startedAt: "2026-09-23T00:00:00Z", finishedAt: "2026-09-23T00:03:00Z",
   };
-  const yaml = "seed: 7\ndata:\n  dataset: pad_ufes_20\nmodel:\n  name: frozen_feature_mlp\noptimizer:\n  name: AdamW\ntrain:\n  batch_size: 64\n  epochs: 300\n";
+  const yaml = "experiment_name: suite/baseline/seed_7\nseed: 7\ndata:\n  dataset: pad_ufes_20\nmodel:\n  name: frozen_feature_mlp\noptimizer:\n  name: AdamW\ntrain:\n  batch_size: 64\n  epochs: 300\n";
+  const resultRecord = {
+    schemaVersion: 1, resultId: "worker-result-clean", experimentId: "suite/baseline/seed_7",
+    runKey: "suite/baseline/seed_7:clean", status: "parsed",
+    planFile: plan, workerId: "worker-a", dimensions: { case: "baseline", seed: 7, eval_protocol: "clean" },
+    primaryMetric: "accuracy", metrics: { accuracy: { value: 0.91, higherIsBetter: true } },
+    sourceFiles: [{ path: "experiments/results/demo.csv", type: "csv", endpoint: "worker" }],
+    createdAt: "2026-09-23T00:04:00Z", updatedAt: "2026-09-23T00:04:00Z",
+  };
   const workerServer = http.createServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
     if (url.pathname === "/api/files/download" && url.searchParams.get("path") === task.configPath) {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end(yaml);
+    } else if (url.pathname === "/api/results/summary") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ schemaVersion: 1, resultCount: 1, parsedResults: 1, parseFailed: 0, results: [resultRecord] }));
     } else { res.writeHead(404); res.end(); }
   });
   await new Promise((resolve) => workerServer.listen(0, "127.0.0.1", resolve));
@@ -168,13 +179,38 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   assert.equal(config.body.optimizer, "AdamW");
   assert.equal(config.body.batch_size, "64");
   assert.equal(config.body.epoch, "300");
+  const results = await callCli(root, apiFile, ["results", runId]);
+  assert.equal(results.code, 0);
+  assert.equal(results.body.experiment_id, runId);
+  assert.deepEqual(results.body.result_ids, ["worker-result-clean"]);
+  assert.equal(results.body.metrics["worker-result-clean"].accuracy, 0.91);
+  assert.ok(results.body.output_paths.includes("experiments/results/demo.csv"));
+  assert.equal(results.body.reason, "");
+  resultRecord.dimensions.seed = "7.0";
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, ["worker-result-clean"]);
+  resultRecord.dimensions.seed = 8;
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, []);
+  resultRecord.dimensions.seed = 7;
+  resultRecord.workerId = "worker-b";
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, []);
+  resultRecord.workerId = "worker-a";
+  resultRecord.planFile = "experiments/plans/other.yaml";
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, []);
+  resultRecord.planFile = plan;
+  resultRecord.dimensions.case = "other";
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, []);
+  resultRecord.dimensions.case = "baseline";
 
   task.status = "manual_interrupted_completed";
   const stopped = await callCli(root, apiFile, ["inspect", runId]);
   assert.equal(stopped.body.summary.status, "cancelled");
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, []);
   task.status = "failed";
   const failed = await callCli(root, apiFile, ["inspect", runId]);
   assert.equal(failed.body.summary.status, "failed");
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, []);
+  resultRecord.experimentId = runId;
+  assert.deepEqual((await callCli(root, apiFile, ["results", runId])).body.result_ids, ["worker-result-clean"]);
   assert.equal((await callCli(root, apiFile, ["config", runId])).body.config_path, task.configPath);
 });
 

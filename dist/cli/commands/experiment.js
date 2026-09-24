@@ -629,7 +629,15 @@ async function experimentConfig(id, flags) {
 }
 async function experimentResults(id, flags) {
     const loaded = await loadExperimentDetail(id);
-    const rows = (await (0, result_1.loadResults)()).filter((row) => resultMatchesExperiment(row, loaded.match));
+    const allResults = await (0, result_1.loadResults)();
+    let rows = allResults.filter((row) => resultMatchesExperiment(row, loaded.match));
+    if (rows.length === 0 && loaded.match.type === "worker_run" && loaded.match.status === "success") {
+        const config = await configPayload(loaded.match);
+        const experimentName = yamlValue(String(config.yaml || ""), "experiment_name");
+        if (experimentName) {
+            rows = allResults.filter((row) => resultMatchesSuccessfulWorkerIdentity(row, loaded.match, experimentName));
+        }
+    }
     const metrics = Object.fromEntries(rows.map((row) => [row.id, row.metrics]));
     const output_paths = Array.from(new Set(rows.flatMap((row) => row.outputFiles))).filter(Boolean);
     const payload = {
@@ -1912,6 +1920,34 @@ async function preflightChecks(planFile) {
 function resultMatchesExperiment(result, match) {
     const ids = new Set([match.id, match.run_id, match.name].filter(Boolean));
     return ids.has(result.id) || ids.has(result.experimentId) || ids.has(result.runKey);
+}
+function normalizedSeed(value) {
+    const text = String(value ?? "").trim();
+    if (!text)
+        return "";
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? String(numeric) : text;
+}
+function resultMatchesSuccessfulWorkerIdentity(result, match, experimentName) {
+    if (!experimentName || result.experimentId !== experimentName)
+        return false;
+    const record = asRecord(result.record);
+    const provenance = asRecord(record.provenance);
+    const dimensions = asRecord(record.dimensions);
+    const resultPlan = firstString(record, ["planFile", "plan"]) || firstString(provenance, ["planFile", "plan"]);
+    if (resultPlan && match.plan && !planMatches(resultPlan, match.plan))
+        return false;
+    const resultWorker = firstString(record, ["workerId", "worker_id", "resultOwnerWorkerId"])
+        || firstString(provenance, ["workerId", "worker_id", "resultOwnerWorkerId"]);
+    if (resultWorker && match.worker_id && resultWorker !== match.worker_id)
+        return false;
+    const resultCase = firstString(dimensions, ["case"]);
+    if (resultCase && resultCase !== match.experiment_case)
+        return false;
+    const resultSeed = normalizedSeed(dimensions.seed);
+    if (resultSeed && resultSeed !== normalizedSeed(match.seed))
+        return false;
+    return true;
 }
 function planMatches(value, needle) {
     const left = value.replace(/\\/g, "/");

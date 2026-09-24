@@ -11,6 +11,7 @@ import { cloneOrReproducePlan } from "../../features/PlanBuilder";
 import { parsePlanSummary } from "../../features/PlanBuilder";
 import { runRecordedExperiment } from "../../features/ExperimentRunner";
 import { loadResults } from "./result";
+import type { ResultRow } from "./result";
 
 export type ExperimentKind = "workflow" | "worker_run";
 
@@ -612,7 +613,15 @@ export async function experimentConfig(id: string, flags: CliFlags): Promise<num
 
 export async function experimentResults(id: string, flags: CliFlags): Promise<number> {
   const loaded = await loadExperimentDetail(id);
-  const rows = (await loadResults()).filter((row) => resultMatchesExperiment(row, loaded.match));
+  const allResults = await loadResults();
+  let rows = allResults.filter((row) => resultMatchesExperiment(row, loaded.match));
+  if (rows.length === 0 && loaded.match.type === "worker_run" && loaded.match.status === "success") {
+    const config = await configPayload(loaded.match);
+    const experimentName = yamlValue(String(config.yaml || ""), "experiment_name");
+    if (experimentName) {
+      rows = allResults.filter((row) => resultMatchesSuccessfulWorkerIdentity(row, loaded.match, experimentName));
+    }
+  }
   const metrics = Object.fromEntries(rows.map((row) => [row.id, row.metrics]));
   const output_paths = Array.from(new Set(rows.flatMap((row) => row.outputFiles))).filter(Boolean);
   const payload = {
@@ -1799,9 +1808,33 @@ async function preflightChecks(planFile: string): Promise<Record<string, { statu
   };
 }
 
-function resultMatchesExperiment(result: { id: string; experimentId: string; runKey: string }, match: ExperimentRow): boolean {
+function resultMatchesExperiment(result: ResultRow, match: ExperimentRow): boolean {
   const ids = new Set([match.id, match.run_id, match.name].filter(Boolean));
   return ids.has(result.id) || ids.has(result.experimentId) || ids.has(result.runKey);
+}
+
+function normalizedSeed(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? String(numeric) : text;
+}
+
+function resultMatchesSuccessfulWorkerIdentity(result: ResultRow, match: ExperimentRow, experimentName: string): boolean {
+  if (!experimentName || result.experimentId !== experimentName) return false;
+  const record = asRecord(result.record);
+  const provenance = asRecord(record.provenance);
+  const dimensions = asRecord(record.dimensions);
+  const resultPlan = firstString(record, ["planFile", "plan"]) || firstString(provenance, ["planFile", "plan"]);
+  if (resultPlan && match.plan && !planMatches(resultPlan, match.plan)) return false;
+  const resultWorker = firstString(record, ["workerId", "worker_id", "resultOwnerWorkerId"])
+    || firstString(provenance, ["workerId", "worker_id", "resultOwnerWorkerId"]);
+  if (resultWorker && match.worker_id && resultWorker !== match.worker_id) return false;
+  const resultCase = firstString(dimensions, ["case"]);
+  if (resultCase && resultCase !== match.experiment_case) return false;
+  const resultSeed = normalizedSeed(dimensions.seed);
+  if (resultSeed && resultSeed !== normalizedSeed(match.seed)) return false;
+  return true;
 }
 
 function planMatches(value: string, needle: string): boolean {

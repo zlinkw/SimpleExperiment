@@ -39,6 +39,7 @@ exports.currentTrainingLoopPercent = currentTrainingLoopPercent;
 exports.overallTrainingPercent = overallTrainingPercent;
 exports.parseTrainingProgress = parseTrainingProgress;
 exports.matchesRuntime = matchesRuntime;
+exports.readWorkerResultRecords = readWorkerResultRecords;
 exports.readWorkerTaskConfig = readWorkerTaskConfig;
 exports.nestedYamlValue = nestedYamlValue;
 exports.trainingMaxEpochFromYaml = trainingMaxEpochFromYaml;
@@ -226,6 +227,20 @@ async function enabledWorkerEndpoints() {
         });
     }
     return out;
+}
+async function readWorkerResultRecords() {
+    const endpoints = await enabledWorkerEndpoints();
+    const groups = await Promise.all(endpoints.map(async (endpoint) => {
+        try {
+            const payload = await agentGet(endpoint, "/api/results/summary");
+            const results = Array.isArray(payload?.results) ? payload.results : [];
+            return results.map(asRecord).filter((row) => Object.keys(row).length > 0);
+        }
+        catch {
+            return [];
+        }
+    }));
+    return groups.flat();
 }
 async function tmuxList(endpoint) {
     const payload = await agentGet(endpoint, "/api/tmux/list");
