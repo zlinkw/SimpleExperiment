@@ -4239,8 +4239,8 @@ function renderPanelHtml() {
           status: server.status,
           updatedAt: server.updatedAt,
           gpuCount: server.gpuRows.length,
-          myGpuCount: server.gpuRows.filter((gpu) => isMyGpu(gpu, ownerConfig)).length,
-          rows: budgetGpuRowsForRender(server.gpuRows, ownerConfig).visibleRows.map((gpu) => ({
+          myGpuCount: server.gpuRows.filter((gpu) => isMyGpu(gpu, server.ownerConfig || ownerConfig)).length,
+          rows: budgetGpuRowsForRender(server.gpuRows, server.ownerConfig || ownerConfig).visibleRows.map((gpu) => ({
             index: gpu.index,
             id: gpu.id,
             name: gpu.name,
@@ -4252,7 +4252,7 @@ function renderPanelHtml() {
             processOmittedCount: gpu.processOmittedCount,
             runKey: gpu.runKey,
             staleFromCache: gpu.staleFromCache,
-            mine: isMyGpu(gpu, ownerConfig),
+            mine: isMyGpu(gpu, server.ownerConfig || ownerConfig),
             processes: asArray(gpu.processes).slice(0, GPU_PROCESS_SIGNATURE_LIMIT).map((proc) => compactRecordForSignature(proc, ["pid", "name", "memoryMb", "user", "command"]))
           }))
         }))
@@ -9555,7 +9555,7 @@ function renderPanelHtml() {
           var isExpanded = gpuDenseState.expandedKey === row.key;
           var bg = "transparent";
           var accent = gpuDenseServerAccent(row.serverId);
-          var mine = isMyGpu(row.gpu, ownerConfig);
+          var mine = isMyGpu(row.gpu, row.serverObj.ownerConfig || ownerConfig);
           var rowTone = Number(row.gpu.memoryPercent) >= 90 ? "mem-danger" : mine ? "is-mine" : row.gpu.busy ? "is-occupied" : "is-free";
           var colsHtml = visibleCols.map(function(col){
             var cell = "";
@@ -10600,6 +10600,15 @@ function renderPanelHtml() {
       };
     }
 
+    function gpuOwnerConfigForServer(server, ownerConfig, setup) {
+      if (ownerConfig.hasUserRule) return ownerConfig;
+      const serverId = String(server.serverId || server.workerId || "").trim().toLowerCase();
+      const workers = asArray(setup && setup.workerTunnels);
+      const worker = workers.find((item) => [item.id, item.displayName].some((name) => String(name || "").trim().toLowerCase() === serverId));
+      const username = String(worker && (worker.workerUser || worker.hubUser) || "").trim();
+      return username ? normalizeGpuOwnerConfig({ ...ownerConfig, currentUser: username }) : ownerConfig;
+    }
+
     function gpuViewModelForState(state) {
       const data = state || {};
       const source = data.gpu;
@@ -10611,6 +10620,7 @@ function renderPanelHtml() {
       const incoming = Object.entries(data.gpu || {}).map(([serverId, rows]) => normalizeServerGpu(serverId, rows));
       const ownerConfig = normalizeGpuOwnerConfig(data.gpuOwnerConfig || {});
       const servers = sortGpuServers(data, mergeGpuServers(incoming, data));
+      servers.forEach((server) => { server.ownerConfig = gpuOwnerConfigForServer(server, ownerConfig, setupSource); });
       const budget = gpuRenderBudget(servers, ownerConfig);
       gpuViewModelCacheState = data;
       gpuViewModelCacheSource = source;
@@ -10701,10 +10711,10 @@ function renderPanelHtml() {
         gpuCount += rows.length;
         for (const gpu of rows) {
           if (gpu.busy) busyCount += 1;
-          if (isMyGpu(gpu, ownerConfig)) mineCount += 1;
+          if (isMyGpu(gpu, server.ownerConfig || ownerConfig)) mineCount += 1;
         }
         const key = cleanEndpointId(server.serverId || server.workerId);
-        omittedGpuRowCount += visibleKeys?.has(key) ? budgetGpuRowsForRender(rows, ownerConfig).omittedCount : rows.length;
+        omittedGpuRowCount += visibleKeys?.has(key) ? budgetGpuRowsForRender(rows, server.ownerConfig || ownerConfig).omittedCount : rows.length;
       }
       const omittedServerCount = Math.max(0, servers.length - visibleServers.length);
       return { visibleServers, gpuCount, busyCount, mineCount, omittedServerCount, omittedGpuRowCount };
@@ -10746,7 +10756,7 @@ function renderPanelHtml() {
     }
 
     function gpuServerHasMine(server, ownerConfig) {
-      return asArray(server.gpuRows).some((gpu) => isMyGpu(gpu, ownerConfig));
+      return asArray(server.gpuRows).some((gpu) => isMyGpu(gpu, server.ownerConfig || ownerConfig));
     }
 
     function gpuServerHasBusy(server) {

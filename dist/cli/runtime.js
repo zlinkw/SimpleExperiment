@@ -217,11 +217,12 @@ async function configFromWorker(endpoint, config) {
         experiment_case: experimentCase(yaml) || config.experiment_case,
         model: config.model || nestedYamlValue(yaml, "model", "name") || nestedYamlValue(yaml, "model", "joint_encoder"),
         dataset: config.dataset || nestedYamlValue(yaml, "data", "dataset"),
-        seed: config.seed || yamlValue(yaml, "seed"),
+        seed: integerText(config.seed) || integerText(yamlValue(yaml, "seed")),
     };
 }
 function launchFields(text) {
-    const source = unwrapTerminalText(text);
+    const raw = String(text || "");
+    const source = unwrapTerminalText(raw);
     const configPath = jsonStringField(source, "config_path") || jsonStringField(source, "config") || flagValue(source, "config");
     const yaml = yamlObject(source);
     return {
@@ -230,7 +231,7 @@ function launchFields(text) {
         gpu_ids: jsonStringField(source, "gpu_ids"),
         config_path: configPath,
         case: experimentCase(yaml) || flagValue(source, "case") || pathTail(configPath),
-        seed: flagValue(source, "seed") || pathSeed(configPath) || yamlValue(yaml, "seed"),
+        seed: jsonIntegerField(source, "seed") || integerFlagValue(raw, "seed") || pathSeed(configPath) || integerText(yamlValue(yaml, "seed")),
         model: yamlValue(yaml, "model") || yamlValue(yaml, "encoder_profile"),
         dataset: yamlValue(yaml, "dataset") || yamlValue(yaml, "data"),
         stage: stageFromCommand(source),
@@ -246,6 +247,17 @@ function yamlObject(text) {
 function jsonStringField(text, key) {
     const match = text.match(new RegExp(`"${key}"\\s*:\\s*"([^"\\\\]+)`));
     return match ? match[1] : "";
+}
+function integerText(value) {
+    const text = String(value ?? "").trim();
+    return /^[+-]?\d+$/.test(text) ? text : "";
+}
+function jsonIntegerField(text, key) {
+    const match = String(text || "").match(new RegExp(`"${key}"\\s*:\\s*([+-]?\\d+)(?=\\s*[,}])`));
+    return match ? integerText(match[1]) : "";
+}
+function integerFlagValue(text, name) {
+    return integerText(flagValue(text, name));
 }
 function stageFromCommand(text) {
     const match = String(text || "").match(/--stage\s+([A-Za-z0-9_-]+)/);

@@ -403,6 +403,50 @@ test("training loop percent may reset within one worker run", () => {
   assert.ok(second.percent < first.percent);
 });
 
+function wrappedRuntimeCapture(seed = "42", contextSeed = seed, configPath = `work_dirs/corim/0_corim_bus_p100_seed${seed}/job_config.yaml`) {
+  const context = {
+    worker_id: "nwpu2", gpu_ids: "0", plan: "experiments/plans/comparison/corim.yaml",
+    config_path: configPath,
+  };
+  if (contextSeed !== null) context.seed = Number(contextSeed);
+  return [
+    "[simple-experiment-runtime] start index=0 case=corim_bus_p100 seed=42 at 2026-09",
+    "-24T14:27:17+08:00",
+    `python train.py --context-json '${JSON.stringify(context)}' --case corim_bus_p100 --seed ${seed}`,
+    "2026-09-24 14:27:20,123 INFO training",
+  ].join("\n");
+}
+
+function corimObservation(capture) {
+  const { observationFromCapture } = require("../../dist/cli/runtime.js");
+  return observationFromCapture(
+    { id: "nwpu2", host: "localhost", port: 1 },
+    "zlk-gpu-0",
+    { name: "run-1790231236812", index: "1", target: "zlk-gpu-0:1" },
+    capture,
+  );
+}
+
+test("runtime launch seed survives tmux wrapping with context JSON", () => {
+  const observation = corimObservation(wrappedRuntimeCapture());
+  assert.equal(observation.config.seed, "42");
+  assert.notEqual(observation.config.seed, "422026-09-24");
+  assert.equal(observation.worker.id, "nwpu2");
+  assert.equal(observation.gpu.id, "0");
+  assert.equal(observation.plan, "experiments/plans/comparison/corim.yaml");
+  assert.equal(observation.config.experiment_case, "corim_bus_p100");
+});
+
+test("runtime launch seed reads raw flag when context has no seed", () => {
+  const observation = corimObservation(wrappedRuntimeCapture("43", null, "work_dirs/corim/job_config.yaml"));
+  assert.equal(observation.config.seed, "43");
+});
+
+test("runtime launch rejects a seed token that is not an integer", () => {
+  const observation = corimObservation(wrappedRuntimeCapture("invalid2026-09-24", null, "work_dirs/corim/job_config.yaml"));
+  assert.equal(observation.config.seed, "");
+});
+
 test("experiment rows distinguish workflow and worker runs", () => {
   const { parseTrainingProgress } = require("../../dist/cli/runtime.js");
   const progress = parseTrainingProgress("epoch 24/300 53/171 0:02:00\n当前 loss 0.2387");
@@ -1612,6 +1656,25 @@ function physicalWorkerFixture() {
   };
   return { history, observation };
 }
+
+test("wrapped runtime capture merges into the stable worker identity", async () => {
+  const { workerHistoryIdentityMatchesRuntime, applyRuntimeObservations } = require("../../dist/cli/commands/experiment.js");
+  const observation = corimObservation(wrappedRuntimeCapture());
+  const history = {
+    id: "run0-228782-829", run_id: "run0-228782-829", type: "worker_run", source: "history", status: "running",
+    worker_id: "nwpu2", gpu: { id: "0" }, plan: "experiments/plans/comparison/corim.yaml",
+    name: "corim_bus_p100", experiment_case: "corim_bus_p100", seed: "42", tmux: "zlk-gpu-0",
+    stage: "train_test", created: "2026-09-24T06:27:16Z", parent_id: "", raw: {},
+  };
+  assert.equal(workerHistoryIdentityMatchesRuntime(history, observation), true);
+  const byId = new Map([[history.id, history]]);
+  await applyRuntimeObservations(byId, [observation]);
+  assert.deepEqual([...byId.keys()], [history.id]);
+  assert.equal(history.run_id, observation.run_id);
+  assert.equal(history.seed, "42");
+  assert.equal(history.stage, "train_test");
+  assert.equal(history.name, "corim_bus_p100");
+});
 
 test("physical worker identity requires matching worker GPU metadata and launch time", () => {
   const { workerHistoryMatchesRuntime, workerHistoryIdentityMatchesRuntime } = require("../../dist/cli/commands/experiment.js");

@@ -23,6 +23,7 @@ function extractFunction(name) {
 function loadOwnerMatching() {
   const sandbox = {
     GPU_OWNER_MATCH_MODES: new Set(["username", "command_contains", "both"]),
+    asArray(value) { return Array.isArray(value) ? value : []; },
     stringArrayCalls: 0,
     stringArray(value) {
       sandbox.stringArrayCalls += 1;
@@ -38,9 +39,11 @@ function loadOwnerMatching() {
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("normalizeGpuOwnerConfig"),
+    extractFunction("gpuOwnerConfigForServer"),
     extractFunction("isMyGpuProcess"),
     extractFunction("computeGpuOwnerState"),
     "this.normalize = normalizeGpuOwnerConfig;",
+    "this.forServer = gpuOwnerConfigForServer;",
     "this.matches = isMyGpuProcess;",
     "this.ownerState = computeGpuOwnerState;",
   ].join("\n"), sandbox);
@@ -70,6 +73,23 @@ test("GPU owner normalization derives reusable matching candidates once", () => 
   });
   assert.strictEqual(config.commandKeywords, config.myCommandKeywords);
   assert.equal(sandbox.stringArrayCalls, 2);
+});
+
+test("GPU ownership uses the configured Worker login when no GPU user is set", () => {
+  const sandbox = loadOwnerMatching();
+  const setup = { workerTunnels: [
+    { id: "nwpu2", workerUser: "qgking" },
+    { id: "other", workerUser: "researcher" },
+  ] };
+  const owner = sandbox.normalize({});
+  const nwpu2 = sandbox.forServer({ serverId: "NWPU2" }, owner, setup);
+  assert.equal(sandbox.ownerState([{ user: "qgking" }], nwpu2).isMine, true);
+  assert.equal(sandbox.ownerState([{ user: "researcher" }], nwpu2).isMine, false);
+  assert.equal(sandbox.forServer({ serverId: "unknown" }, owner, setup), owner);
+
+  const explicit = sandbox.normalize({ currentUser: "chosen-user" });
+  assert.equal(sandbox.forServer({ serverId: "nwpu2" }, explicit, setup), explicit);
+  assert.equal(sandbox.ownerState([{ user: "qgking" }], explicit).isMine, false);
 });
 
 test("GPU process matching preserves username, command and combined modes", () => {
