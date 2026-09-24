@@ -32,7 +32,7 @@ import { aggregateSeedScalars } from "../tensorboard/ScalarAggregation";
 import * as ProjectResultTables from "../results/ProjectResultTables";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
-import { planMirrorRoot, transferPlanArtifacts } from "../features/PlanArtifactTransfer";
+import { directPlanSyncPreview, transferPlanArtifacts } from "../features/PlanArtifactTransfer";
 const { renderPanelHtml } = PanelHtml_1;
 import PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -6770,7 +6770,8 @@ export class RealtimeTunnelPanelProvider {
             this.notifyLocalActionStarted(options.startedAction.title, options.startedAction.detail);
         const roleStatus = syncRoleStatus(enabledTargets, this.lastCodeSyncState, fingerprint);
         const failures = [];
-        this.lastCodeSyncState = { fingerprint, scope, hub: roleStatus.hubRunning, workers: roleStatus.workersRunning, updatedAt: new Date().toISOString() };
+        const workerVersions = { ...(this.lastCodeSyncState.workerVersions || {}) };
+        this.lastCodeSyncState = { fingerprint, scope, hub: roleStatus.hubRunning, workers: roleStatus.workersRunning, workerVersions, updatedAt: new Date().toISOString() };
         void this.persistProjectCodeSyncState().catch(() => undefined);
         this.postState();
         const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
@@ -6800,6 +6801,10 @@ export class RealtimeTunnelPanelProvider {
                 const mismatches = verified.filter((row) => !row.exists || String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase());
                 if (mismatches.length)
                     throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
+                if (target.role === "worker") {
+                    workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
+                    void this.persistProjectCodeSyncState().catch(() => undefined);
+                }
                 if (progressReport && progressStep > 0) progressReport(`已完成 ${target.label || target.id}（${progressIndex}/${enabledTargets.length}）`, progressStep);
             }
             catch (error) {
@@ -6815,6 +6820,7 @@ export class RealtimeTunnelPanelProvider {
                 scope,
                 hub: failures.some((failure) => failure.role === "hub") ? "failed" : roleStatus.hubSuccess,
                 workers: failures.some((failure) => failure.role === "worker") ? "failed" : roleStatus.workersSuccess,
+                workerVersions,
                 error: failedText.join("; "),
                 updatedAt: new Date().toISOString(),
             };
@@ -6827,6 +6833,7 @@ export class RealtimeTunnelPanelProvider {
             scope,
             hub: roleStatus.hubSuccess,
             workers: roleStatus.workersSuccess,
+            workerVersions,
             updatedAt: new Date().toISOString(),
         };
         void this.persistProjectCodeSyncState().catch(() => undefined);
@@ -11585,9 +11592,7 @@ export class RealtimeTunnelPanelProvider {
             if (error?.code === "ENOENT") return "";
             throw error;
         });
-        const ledger = source ? JSON.parse(source) : PlanArtifactSync.emptyPlanSyncLedger();
-        if (ledger.schemaVersion !== 1 || !ledger.entries || typeof ledger.entries !== "object" || Array.isArray(ledger.entries))
-            throw new Error("Plan 同步记录格式无效，请检查 simple_cluster/results/plan_sync_ledger.json。");
+        const ledger = source ? PlanArtifactSync.migratePlanSyncLedger(JSON.parse(source)) : PlanArtifactSync.emptyPlanSyncLedger();
         this.planSyncLedger = ledger;
         this.planSyncLedgerRoot = root;
         return ledger;
@@ -11634,13 +11639,21 @@ export class RealtimeTunnelPanelProvider {
         const sourceWorkerId = String(operation.schedulerOwnerWorkerId || operation.resultOwnerWorkerId || operation.workerId || "").trim();
         if (!root || !planFile || !sourceWorkerId) return;
         const plan = (this.localPlanMetadata.plans || []).find((row) => samePlanSelection(row.planFile || row.file, planFile));
+        const ownDirectories = PlanArtifactSync.planArtifactDirectories(plan);
+        for (const other of this.localPlanMetadata.plans || []) {
+            if (samePlanSelection(other.planFile || other.file, planFile)) continue;
+            for (const own of ownDirectories) for (const shared of PlanArtifactSync.planArtifactDirectories(other)) {
+                if (own === shared || own.startsWith(shared + "/") || shared.startsWith(own + "/"))
+                    throw new Error(`Plan ${planFile} 与 ${other.planFile || other.file} 的产物目录重叠（${own} / ${shared}），为防止 rsync 清理其他 Plan 文件，已停止自动同步。`);
+            }
+        }
         const summary = await this.client.getResultsSummary(planFile, { userInitiated: true }).catch(() => undefined);
         const revision = String(operation.planRevision || plan?.revision || "");
         const runId = String(operation.operationId || operation.id || "").trim();
         if (!runId) throw new Error(`Plan ${planFile} 缺少 operation ID，无法安全标记本次同步。`);
         await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId,
             PlanArtifactSync.planArtifactPaths(plan, summary, sourceWorkerId),
-            this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), PlanArtifactSync.planArtifactDirectories(plan), runId));
+            this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
         await this.syncPendingPlanArtifacts(PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId));
     }
     async simpleSftpApiCall(method, params) {
@@ -11676,9 +11689,9 @@ export class RealtimeTunnelPanelProvider {
         const ready = pending.flatMap((item) => {
             if (!targets.has(item.destinationWorkerId)) return [];
             const original = targets.get(item.entry.sourceWorkerId);
-            if (original) return [{ ...item, sourceRow: original, mirroredSource: false }];
+            if (original) return [{ ...item, sourceRow: original }];
             const alternateId = Object.entries(item.entry.destinations).find(([id, value]) => id !== item.destinationWorkerId && value.status === "synced" && targets.has(id))?.[0];
-            return alternateId ? [{ ...item, sourceRow: targets.get(alternateId), mirroredSource: true }] : [];
+            return alternateId ? [{ ...item, sourceRow: targets.get(alternateId) }] : [];
         });
         if (!ready.length) {
             if (!onlyKey) void vscode.window.showInformationMessage(pending.length ? `仍有 ${pending.length} 条待同步记录；请重新启用并连接对应 Worker。` : "没有待同步的 Plan 产物。");
@@ -11691,14 +11704,11 @@ export class RealtimeTunnelPanelProvider {
                 if (root !== workspaceRoot()) return;
                 const sourceRow = item.sourceRow;
                 const destinationRow = targets.get(item.destinationWorkerId);
-                const sourceTarget = this.sftpServerOptions(sourceRow);
-                const source = item.mirroredSource ? { ...sourceTarget, remotePath: planMirrorRoot(item.entry, sourceTarget) } : sourceTarget;
+                const source = this.sftpServerOptions(sourceRow);
                 const destination = this.sftpServerOptions(destinationRow);
-                const stagingRoot = path.join(this.context.globalStorageUri.fsPath, "plan-artifact-sync");
-                const mirror = planMirrorRoot(item.entry, destination);
-                const paths = item.entry.artifactPaths.map((relative) => `${source.remotePath}/${relative} → ${mirror}/${relative}`).join("\n");
+                const paths = directPlanSyncPreview(item.entry, source, destination).join("\n");
                 const answer = await vscode.window.showWarningMessage(
-                    `同步 Plan ${item.entry.planFile}\n来源：${source.user}@${source.host}:${source.port}\n目标：${destination.user}@${destination.host}:${destination.port}\n本机暂存：${stagingRoot}\n对应产物：\n${paths || "无可确认产物路径"}`,
+                    `同步 Plan ${item.entry.planFile}\n来源：${source.user}@${source.host}:${source.port}\n目标：${destination.user}@${destination.networkHost || destination.host}:${destination.port}\n对应产物：\n${paths || "无可确认产物路径"}\n同一 Plan 的旧文件将按来源目录清理。`,
                     { modal: true }, "确认同步");
                 if (answer !== "确认同步") return;
                 await this.assertSshTransportIdentities([sourceRow, destinationRow]);
@@ -11706,9 +11716,9 @@ export class RealtimeTunnelPanelProvider {
                     await this.syncCodeTargets([destinationRow], "workers", { projectContext: this.captureProjectContext() });
                     syncedCodeTargets.add(destinationRow.id);
                 }
-                const result = await transferPlanArtifacts(item.entry, source, destination, stagingRoot, (method, params) => this.simpleSftpApiCall(method, params));
+                const result = await transferPlanArtifacts(item.entry, source, destination, (method, params) => this.simpleSftpApiCall(method, params));
                 await this.updatePlanSyncLedger(root, (latest) => PlanArtifactSync.markPlanSyncComplete(latest, item.key, item.destinationWorkerId, new Date().toISOString()));
-                void vscode.window.showInformationMessage(`Plan ${item.entry.planFile} 已从 ${source.id} 同步 ${result.files} 个文件到 ${destination.id} 的独立镜像目录。`);
+                void vscode.window.showInformationMessage(`Plan ${item.entry.planFile} 已从 ${source.id} 直连同步 ${result.paths} 个产物路径到 ${destination.id}。`);
                 this.postState();
             }
         }
@@ -13969,7 +13979,7 @@ export class RealtimeTunnelPanelProvider {
                     if (this.planSyncLedgerRoot !== root) {
                         try {
                             const file = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
-                            this.planSyncLedger = JSON.parse(fsNode.readFileSync(file, "utf8"));
+                            this.planSyncLedger = PlanArtifactSync.migratePlanSyncLedger(JSON.parse(fsNode.readFileSync(file, "utf8")));
                         } catch { this.planSyncLedger = PlanArtifactSync.emptyPlanSyncLedger(); }
                         this.planSyncLedgerRoot = root;
                     }
@@ -15899,13 +15909,22 @@ function normalizeCodeSyncState(value) {
     const workers = String(row.workers || "").trim();
     const error = String(row.error || row.message || row.reason || "").trim();
     const updatedAt = String(row.updatedAt || row.updated_at || "").trim();
-    if (!fingerprint && !scope && !hub && !workers && !error && !updatedAt)
+    const workerVersions = {};
+    for (const [id, raw] of Object.entries(row.workerVersions && typeof row.workerVersions === "object" && !Array.isArray(row.workerVersions) ? row.workerVersions : {})) {
+        if (!/^[A-Za-z0-9._-]+$/.test(id) || !raw || typeof raw !== "object") continue;
+        const item = raw;
+        const version = String(item.fingerprint || "").trim();
+        if (!/^[a-f0-9]{64}$/i.test(version)) continue;
+        workerVersions[id] = { fingerprint: version, files: [...new Set((Array.isArray(item.files) ? item.files : []).map((file) => String(file || "").trim()).filter(Boolean))].sort(), syncedAt: String(item.syncedAt || "").trim() };
+    }
+    if (!fingerprint && !scope && !hub && !workers && !error && !updatedAt && !Object.keys(workerVersions).length)
         return undefined;
     return {
         ...(fingerprint ? { fingerprint } : {}),
         ...(scope ? { scope } : {}),
         ...(hub ? { hub } : {}),
         ...(workers ? { workers } : {}),
+        ...(Object.keys(workerVersions).length ? { workerVersions } : {}),
         ...(error ? { error } : {}),
         ...(updatedAt ? { updatedAt } : { updatedAt: new Date().toISOString() }),
     };

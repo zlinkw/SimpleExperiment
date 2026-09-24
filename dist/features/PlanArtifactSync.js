@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyPlanSyncLedger = void 0;
+exports.migratePlanSyncLedger = migratePlanSyncLedger;
 exports.safePlanArtifactPath = safePlanArtifactPath;
 exports.planArtifactPaths = planArtifactPaths;
 exports.planArtifactDirectories = planArtifactDirectories;
@@ -8,8 +9,20 @@ exports.planSyncKey = planSyncKey;
 exports.queuePlanSync = queuePlanSync;
 exports.markPlanSyncComplete = markPlanSyncComplete;
 exports.pendingPlanSyncs = pendingPlanSyncs;
-const emptyPlanSyncLedger = () => ({ schemaVersion: 1, entries: {} });
+const emptyPlanSyncLedger = () => ({ schemaVersion: 2, entries: {} });
 exports.emptyPlanSyncLedger = emptyPlanSyncLedger;
+function migratePlanSyncLedger(value) {
+    if (!value || !value.entries || typeof value.entries !== "object" || Array.isArray(value.entries))
+        throw new Error("Plan 同步记录格式无效。");
+    if (value.schemaVersion === 2)
+        return value;
+    if (value.schemaVersion !== 1)
+        throw new Error("Plan 同步记录版本不受支持。");
+    return { schemaVersion: 2, entries: Object.fromEntries(Object.entries(value.entries).map(([key, raw]) => {
+            const entry = raw;
+            return [key, { ...entry, destinations: Object.fromEntries(Object.keys(entry.destinations || {}).map((id) => [id, { status: "pending" }])) }];
+        })) };
+}
 function safePlanArtifactPath(value) {
     const normalized = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
     if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized) || /[{}*?\[\]]/.test(normalized))
@@ -54,19 +67,27 @@ function planSyncKey(planFile, revision, sourceWorkerId, runId = "historic") {
 function queuePlanSync(ledger, planFile, revision, sourceWorkerId, artifactPaths, destinationWorkerIds, directoryPaths = [], runId = "historic") {
     const key = planSyncKey(planFile, revision, sourceWorkerId, runId);
     const previous = ledger.entries[key];
+    const latestPrior = Object.entries(ledger.entries).filter(([otherKey, entry]) => otherKey !== key && entry.planFile === planFile && entry.sourceWorkerId.toLowerCase() === sourceWorkerId.toLowerCase() && entry.runId !== "historic").at(-1)?.[1];
+    const stalePaths = previous?.stalePaths || (latestPrior ? [...new Map([
+            ...(latestPrior.stalePaths || []),
+            ...latestPrior.artifactPaths.filter((oldPath) => !artifactPaths.includes(oldPath))
+                .map((oldPath) => ({ path: oldPath, directory: latestPrior.directoryPaths.includes(oldPath) })),
+        ].filter((item) => !artifactPaths.some((next) => next === item.path || item.path.startsWith(`${next}/`)))
+            .map((item) => [item.path, item])).values()] : []);
     const newArtifacts = artifactPaths.some((path) => !previous?.artifactPaths.includes(path));
     const destinations = Object.fromEntries(Object.entries(previous?.destinations || {}).map(([id, value]) => [id, newArtifacts ? { status: "pending" } : value]));
     for (const id of destinationWorkerIds) {
         if (id.toLowerCase() !== sourceWorkerId.toLowerCase() && !destinations[id])
             destinations[id] = { status: "pending" };
     }
-    return { schemaVersion: 1, entries: { ...ledger.entries, [key]: {
+    return { schemaVersion: 2, entries: { ...ledger.entries, [key]: {
                 planFile,
                 revision,
                 runId,
                 sourceWorkerId,
                 artifactPaths: [...new Set([...(previous?.artifactPaths || []), ...artifactPaths])].sort(),
                 directoryPaths: [...new Set([...(previous?.directoryPaths || []), ...directoryPaths])].sort(),
+                stalePaths,
                 destinations,
             } } };
 }
@@ -74,7 +95,7 @@ function markPlanSyncComplete(ledger, key, destinationWorkerId, syncedAt) {
     const entry = ledger.entries[key];
     if (!entry || !entry.destinations[destinationWorkerId])
         throw new Error("待同步记录不存在。");
-    return { schemaVersion: 1, entries: { ...ledger.entries, [key]: {
+    return { schemaVersion: 2, entries: { ...ledger.entries, [key]: {
                 ...entry,
                 destinations: { ...entry.destinations, [destinationWorkerId]: { status: "synced", syncedAt } },
             } } };

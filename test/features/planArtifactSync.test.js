@@ -27,7 +27,30 @@ test("sync ledger retains disabled destinations until transfer succeeds", () => 
   assert.deepEqual(sync.pendingPlanSyncs(ledger).map((item) => item.entry.runId), ["operation-2", "operation-2"]);
 });
 
-test("SFTP stages only one Plan and uploads to a Worker-specific mirror", async () => {
+test("old mirror sync records become pending for direct-path migration", () => {
+  const old = { schemaVersion: 1, entries: { sample: {
+    planFile: "plans/corim.yaml", revision: "rev1", runId: "old-run", sourceWorkerId: "nwpu2",
+    artifactPaths: ["work_dirs/corim"], directoryPaths: ["work_dirs/corim"],
+    destinations: { nwpu3: { status: "synced", syncedAt: "2026-09-25T00:00:00Z" } },
+  } } };
+  const migrated = sync.migratePlanSyncLedger(old);
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.entries.sample.destinations.nwpu3.status, "pending");
+});
+
+test("new run records removed Plan paths for exact cleanup", () => {
+  let ledger = sync.queuePlanSync(sync.emptyPlanSyncLedger(), "plans/corim.yaml", "rev1", "nwpu2", ["work_dirs/corim", "experiments/results/old.csv"], ["nwpu3"], ["work_dirs/corim"], "run-1");
+  ledger = sync.queuePlanSync(ledger, "plans/corim.yaml", "rev2", "nwpu2", ["work_dirs/corim", "experiments/results/new.csv"], ["nwpu3"], ["work_dirs/corim"], "run-2");
+  const latest = sync.pendingPlanSyncs(ledger)[0].entry;
+  assert.deepEqual(latest.stalePaths, [{ path: "experiments/results/old.csv", directory: false }]);
+  ledger = sync.queuePlanSync(ledger, "plans/corim.yaml", "rev3", "nwpu2", ["work_dirs/corim", "experiments/results/newer.csv"], ["nwpu3"], ["work_dirs/corim"], "run-3");
+  assert.deepEqual(sync.pendingPlanSyncs(ledger)[0].entry.stalePaths, [
+    { path: "experiments/results/old.csv", directory: false },
+    { path: "experiments/results/new.csv", directory: false },
+  ]);
+});
+
+test("SFTP transfers Plan outputs and weights directly to their original paths", async () => {
   const entry = {
     planFile: "plans/corim.yaml", revision: "rev1", runId: "operation-2", sourceWorkerId: "nwpu2",
     artifactPaths: ["work_dirs/corim", "experiments/results/corim.csv"],
@@ -36,25 +59,19 @@ test("SFTP stages only one Plan and uploads to a Worker-specific mirror", async 
   const source = { id: "nwpu2", host: "server2", user: "research", port: 22, remotePath: "/srv/nwpu2/project" };
   const destination = { id: "nwpu3", host: "server3", user: "research", port: 22, remotePath: "/srv/nwpu3/project" };
   const calls = [];
-  const filesApi = {
-    mkdir: async () => undefined,
-    writeFile: async () => undefined,
-    stat: async () => ({ isFile: () => true }),
-    readdir: async () => ["metrics.csv", "model.pth"].map((name) => ({ name, isSymbolicLink: () => false, isDirectory: () => false, isFile: () => true })),
-  };
-  const result = await transfer.transferPlanArtifacts(entry, source, destination, "C:\\stage", async (method, params) => {
+  const result = await transfer.transferPlanArtifacts(entry, source, destination, async (method, params) => {
     calls.push({ method, params });
     return { ok: true };
-  }, filesApi);
-  assert.equal(result.files, 3);
-  assert.deepEqual(calls.map((call) => call.method), ["sync.fromRemote", "upload.files", "sync.fromRemote", "upload.files"]);
-  assert.equal(calls[0].params.remotePath, "/srv/nwpu2/project/work_dirs/corim");
-  assert.match(calls[1].params.remotePath, /^\/srv\/nwpu3\/project\/simple_cluster\/worker_mirrors\/nwpu2\//);
-  assert.equal(calls[1].params.files[0].remoteName, "metrics.csv");
-  assert.equal(calls[1].params.files[1].remoteName, "model.pth");
-  assert.equal(calls[2].params.remotePath, "/srv/nwpu2/project/experiments/results");
-  assert.equal(calls[3].params.files[0].remoteName, "corim.csv");
+  });
+  assert.equal(result.paths, 2);
+  assert.deepEqual(calls.map((call) => call.method), ["sync.serverToServer", "sync.serverToServer"]);
+  assert.equal(calls[0].params.relativePath, "work_dirs/corim");
+  assert.equal(calls[0].params.directory, true);
+  assert.equal(calls[1].params.relativePath, "experiments/results/corim.csv");
+  assert.equal(calls[1].params.directory, false);
+  assert.deepEqual(transfer.directPlanSyncPreview(entry, source, destination), [
+    "/srv/nwpu2/project/work_dirs/corim → /srv/nwpu3/project/work_dirs/corim",
+    "/srv/nwpu2/project/experiments/results/corim.csv → /srv/nwpu3/project/experiments/results/corim.csv",
+  ]);
   assert.ok(calls.every((call) => call.params.confirm && call.params.pathConfirmed));
-  const rerun = { ...entry, runId: "operation-3" };
-  assert.equal(transfer.planMirrorRoot(entry, destination), transfer.planMirrorRoot(rerun, destination));
 });

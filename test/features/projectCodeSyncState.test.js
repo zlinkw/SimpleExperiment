@@ -53,6 +53,7 @@ test("project code sync state persists under simple_cluster/ui", async () => {
     hub: "已同步",
     workers: "已同步 2 台",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    workerVersions: { nwpu2: { fingerprint: "a".repeat(64), files: ["train.py", "configs/plan.yaml"], syncedAt: "2026-01-01T00:00:00.000Z" } },
   });
   const file = path.join(root, "simple_cluster", "ui", "code_sync.json");
   assert.equal(fs.existsSync(file), true);
@@ -64,6 +65,7 @@ test("project code sync state persists under simple_cluster/ui", async () => {
   assert.equal(loaded.fingerprint, "abc123");
   assert.equal(loaded.hub, "已同步");
   assert.equal(loaded.workers, "已同步 2 台");
+  assert.deepEqual(Array.from(loaded.workerVersions.nwpu2.files), ["configs/plan.yaml", "train.py"]);
   await helpers.writeProjectCodeSyncState(root, {});
   assert.equal(fs.existsSync(file), false);
 });
