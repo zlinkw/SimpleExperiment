@@ -24,6 +24,12 @@ function summary(rows) {
   };
 }
 
+test("stale Agent result revision cannot replace a revised local Plan", () => {
+  assert.equal(tables.summaryMatchesPlanRevision({ planRevision: "old" }, { revision: "new" }), false);
+  assert.equal(tables.summaryMatchesPlanRevision({ planRevision: "new" }, { revision: "new" }), true);
+  assert.equal(tables.summaryMatchesPlanRevision({}, { revision: "new" }), true);
+});
+
 test("global and method tables recompute seed means across Workers, deduplicate and mark incomplete", () => {
   const s = summary([
     record("w1", "demo", "bus_p30", 42, "clean", "acc", 0.2),
@@ -40,10 +46,25 @@ test("global and method tables recompute seed means across Workers, deduplicate 
   const row = output.final.rows[0];
   assert.equal(row[output.final.header.indexOf("jobs")], "2/5");
   assert.equal(row[output.final.header.indexOf("rate_percent")], "30");
-  assert.ok(Math.abs(row[output.final.header.indexOf("acc_mean")] - 0.3) < 1e-12);
-  assert.ok(Math.abs(row[output.final.header.indexOf("acc_sd")] - Math.sqrt(0.02)) < 1e-12);
+  assert.equal(row[output.final.header.indexOf("acc_mean")], "");
+  assert.equal(row[output.final.header.indexOf("acc_sd")], "");
   assert.equal(output.demo.rows.length, 1);
-  assert.match(output.final.markdown, /0\.3000 ± 0\.1414/);
+  assert.match(output.final.markdown, /2\/5/);
+  assert.match(output.final.markdown, /—/);
+});
+
+test("a metric missing from one of five seeds cannot be published as a five-seed mean", () => {
+  const rows = [42, 43, 44, 45, 46].flatMap((seed) => [
+    record("w1", "corim", "corim_pad_p100", seed, "clean", "AUC", 0.8),
+    ...(seed === 44 ? [] : [record("w1", "corim", "corim_pad_p100", seed, "clean", "precision_macro", 0.6)]),
+  ]);
+  const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary(rows), plan, 5);
+  const output = tables.buildTables(registry).final;
+  const row = output.rows[0];
+  assert.equal(row[output.header.indexOf("jobs")], "4/5");
+  assert.equal(row[output.header.indexOf("roc_auc_mean")], 0.8);
+  assert.equal(row[output.header.indexOf("precision_macro_mean")], "");
+  assert.equal(row[output.header.indexOf("precision_macro_sd")], "");
 });
 
 test("same seed conflicting values block publication", () => {

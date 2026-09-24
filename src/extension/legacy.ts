@@ -11550,6 +11550,7 @@ export class RealtimeTunnelPanelProvider {
         if (!root || !planFile) return;
         const registry = await this.loadProjectTableRegistry(root);
         const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
+        if (!ProjectResultTables.summaryMatchesPlanRevision(summary, metadata)) return;
         const expected = Array.isArray(metadata?.seeds) ? metadata.seeds.length : 0;
         const next = ProjectResultTables.updateRegistry(registry, summary, planFile, expected);
         next.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
@@ -11581,7 +11582,7 @@ export class RealtimeTunnelPanelProvider {
                             const decision = (error as any)?.decision;
                             if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || ""))) throw error;
                             const delay = Math.min(61000, Math.max(500, Number(decision.retryAfterMs || 1000) + 100));
-                            progress.report({ message: "Agent 请求限流，等待 " + Math.ceil(delay / 1000) + " 秒：" + planFile });
+                            progress.report({ message: (decision.reason === "cooldown" ? "本地请求间隔" : "本地请求预算繁忙") + "，等待 " + Math.ceil(delay / 1000) + " 秒：" + planFile });
                             const deadline = Date.now() + delay;
                             while (Date.now() < deadline) {
                                 if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client) throw new UiCommandCancelled("全项目结果重建已取消，未覆盖现有表格。");
@@ -11590,6 +11591,10 @@ export class RealtimeTunnelPanelProvider {
                         }
                     }
                 } catch (error) { issues.push(planFile + "：" + errorMessage(error)); continue; }
+                if (!ProjectResultTables.summaryMatchesPlanRevision(summary, plan)) {
+                    issues.push(planFile + "：Agent 返回旧 Plan revision，请先重新运行或刷新该 Plan 的结果。");
+                    continue;
+                }
                 if (!summary?.workerResultTables?.some?.((row) => row.aggregateStatus === "ready")) continue;
                 try {
                     registry = ProjectResultTables.updateRegistry(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);

@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyTableRegistry = void 0;
+exports.summaryMatchesPlanRevision = summaryMatchesPlanRevision;
 exports.safeTableName = safeTableName;
 exports.methodTableName = methodTableName;
 exports.methodForSummary = methodForSummary;
@@ -48,6 +49,11 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const emptyTableRegistry = () => ({ schemaVersion: 1, plans: {} });
 exports.emptyTableRegistry = emptyTableRegistry;
+function summaryMatchesPlanRevision(summary, plan) {
+    const current = String(plan?.revision || "").trim();
+    const reported = String(summary?.planRevision || "").trim();
+    return !current || !reported || current === reported;
+}
 function safeTableName(value) {
     const token = String(value || "").trim().replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+|\.+$/g, "").slice(0, 80);
     if (!token || token === "." || token === "..")
@@ -240,14 +246,16 @@ function buildTables(registry) {
             const row = [group.record.method, group.record.dataset, group.record.rate, group.record.endpoint, ...(showCase ? [group.record.case] : []), jobs === expected ? String(jobs) : String(jobs) + "/" + expected];
             for (const name of metrics) {
                 const values = seeds.map((seed) => seed[name]).filter(Number.isFinite);
-                const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : "";
-                const sd = values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
+                const complete = values.length === expected;
+                const mean = complete ? values.reduce((a, b) => a + b, 0) / values.length : "";
+                const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
                 row.push(mean, sd);
             }
             if (derivedName) {
                 const values = group.derived || [];
-                const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : "";
-                const sd = values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
+                const complete = values.length === expected;
+                const mean = complete ? values.reduce((a, b) => a + b, 0) / values.length : "";
+                const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
                 row.push(mean, sd);
             }
             return row;

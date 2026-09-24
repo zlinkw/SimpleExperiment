@@ -6,6 +6,12 @@ export type DerivedMetric = { metric: string; leftEndpoint: string; rightEndpoin
 export type TableRegistry = { schemaVersion: 1; plans: Record<string, { revision: string; expectedSeeds: number; records: SeedRecord[] }>; derivedMetric?: DerivedMetric };
 export const emptyTableRegistry = (): TableRegistry => ({ schemaVersion: 1, plans: {} });
 
+export function summaryMatchesPlanRevision(summary: any, plan: any): boolean {
+  const current = String(plan?.revision || "").trim();
+  const reported = String(summary?.planRevision || "").trim();
+  return !current || !reported || current === reported;
+}
+
 export function safeTableName(value: string): string {
   const token = String(value || "").trim().replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+|\.+$/g, "").slice(0, 80);
   if (!token || token === "." || token === "..") throw new Error("结果名称不能映射到安全文件夹。");
@@ -160,14 +166,16 @@ export function buildTables(registry: TableRegistry): Record<string, ResultTable
       const row: (string | number)[] = [group.record.method, group.record.dataset, group.record.rate, group.record.endpoint, ...(showCase ? [group.record.case] : []), jobs === expected ? String(jobs) : String(jobs) + "/" + expected];
       for (const name of metrics) {
         const values = seeds.map((seed) => seed[name]).filter(Number.isFinite);
-        const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : "";
-        const sd = values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
+        const complete = values.length === expected;
+        const mean = complete ? values.reduce((a, b) => a + b, 0) / values.length : "";
+        const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
         row.push(mean, sd);
       }
       if (derivedName) {
         const values = group.derived || [];
-        const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : "";
-        const sd = values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
+        const complete = values.length === expected;
+        const mean = complete ? values.reduce((a, b) => a + b, 0) / values.length : "";
+        const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
         row.push(mean, sd);
       }
       return row;
