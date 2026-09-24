@@ -193,7 +193,6 @@ async function experimentSummary(flags) {
 function buildExperimentSummary(rows, now = Date.now()) {
     const workerRuns = rows.filter((row) => row.type === "worker_run");
     const runningRuns = workerRuns.filter((row) => row.status === "running");
-    const alerts = buildExperimentAlerts(rows, 10, now);
     return {
         running_count: runningRuns.length,
         failed_count: workerRuns.filter((row) => row.status === "failed").length,
@@ -202,8 +201,16 @@ function buildExperimentSummary(rows, now = Date.now()) {
         active_workers: Array.from(new Set(runningRuns.map((row) => row.worker_id).filter(Boolean))),
         gpu_usage: runningRuns.filter((row) => row.gpu?.id).map((row) => ({ id: row.id, worker: row.worker_id, gpu: row.gpu?.id || "" })),
         stalled_experiments: rows.filter((row) => row.health_status === "stalled").map((row) => row.id),
-        recent_failures: alerts.failed_recent.slice(0, 5),
+        recent_failures: buildRecentFailureHistory(rows, 5, now),
     };
+}
+function buildRecentFailureHistory(rows, limit = 5, now = Date.now()) {
+    const recovery = classifyRecentFailures(rows, now);
+    return [
+        ...sortByUpdatedDesc(recovery.unresolved),
+        ...sortByUpdatedDesc(recovery.running_retry),
+        ...sortByUpdatedDesc(recovery.resolved),
+    ].slice(0, limit).map(failureRow);
 }
 function buildExperimentAlerts(rows, failedLimit = 10, now = Date.now()) {
     const recovery = classifyRecentFailures(rows, now);
@@ -211,7 +218,6 @@ function buildExperimentAlerts(rows, failedLimit = 10, now = Date.now()) {
         failed_recent: [
             ...sortByUpdatedDesc(recovery.unresolved),
             ...sortByUpdatedDesc(recovery.running_retry),
-            ...sortByUpdatedDesc(recovery.resolved),
         ].slice(0, failedLimit).map(failureRow),
         stalled: rows.filter((row) => row.health_status === "stalled").map(failureRow),
         missing_progress: rows.filter((row) => isMissingProgress(row)).map(failureRow),

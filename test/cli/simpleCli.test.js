@@ -1077,11 +1077,37 @@ test("experiment health distinguishes running and successful retries from failur
   assert.deepEqual(healthSuccess.health, { status: "healthy", reason: "", alert_level: "ok" });
   assert.equal(healthSuccess.alerts.recent_failure, false);
   const overviewSuccess = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
-  assert.equal(overviewSuccess.alerts.failed_recent[0].id, old.global_job_id);
+  assert.deepEqual(overviewSuccess.alerts.failed_recent, []);
+  assert.equal(overviewSuccess.summary.recent_failures[0].id, old.global_job_id);
   assert.deepEqual(overviewSuccess.health, { status: "healthy", reason: "" });
+  const summarySuccess = JSON.parse((await runCli(["experiment", "summary", "--json"], { cwd: dir })).stdout);
+  assert.equal(summarySuccess.recent_failures[0].id, old.global_job_id);
+  const inspectedSuccess = JSON.parse((await runCli(["experiment", "inspect", old.global_job_id, "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(inspectedSuccess.health, { status: "error", reason: "failed_recent" });
+  assert.equal(inspectedSuccess.alerts.recent_failure, true);
 });
 
-test("overview prioritizes unresolved failures before retrying failure history", async () => {
+test("resolved recent failures stay in summary history but leave overview alerts", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-resolved-history-"));
+  const stamp = (minutes) => new Date(Date.now() - minutes * 60 * 1000).toISOString();
+  const failed = (id, experiment_case, minutes) => ({ global_job_id: id, type: "worker_run", status: "failed", plan: "p.yaml", experiment_case, seed: "42", created: stamp(minutes + 1), updated: stamp(minutes) });
+  const success = (id, experiment_case, minutes) => ({ global_job_id: id, type: "worker_run", status: "success", plan: "p.yaml", experiment_case, seed: "42", created: stamp(minutes + 1), updated: stamp(minutes) });
+  writeProject(dir, { "simple_cluster/experiment_index.json": JSON.stringify([
+    failed("A-old", "A", 20), success("A-new", "A", 5),
+    failed("B-old", "B", 30), success("B-new", "B", 6),
+  ]) });
+  const overview = JSON.parse((await runCli(["experiment", "overview", "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(overview.health, { status: "healthy", reason: "" });
+  assert.deepEqual(overview.alerts.failed_recent, []);
+  assert.deepEqual(overview.summary.recent_failures.map((row) => row.id), ["A-old", "B-old"]);
+  const full = JSON.parse((await runCli(["experiment", "overview", "--json", "--full"], { cwd: dir })).stdout);
+  assert.deepEqual(full.alerts.failed_recent, []);
+  assert.deepEqual(full.summary.recent_failures.map((row) => row.id), ["A-old", "B-old"]);
+  const summary = JSON.parse((await runCli(["experiment", "summary", "--json"], { cwd: dir })).stdout);
+  assert.deepEqual(summary.recent_failures.map((row) => row.id), ["A-old", "B-old"]);
+});
+
+test("overview alerts prioritize unresolved failures before running retries", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-failure-priority-"));
   const stamp = (minutes) => new Date(Date.now() - minutes * 60 * 1000).toISOString();
   const failed = (id, experiment_case, minutes) => ({ global_job_id: id, type: "worker_run", status: "failed", plan: "p.yaml", experiment_case, seed: "42", created: stamp(minutes + 1), updated: stamp(minutes) });

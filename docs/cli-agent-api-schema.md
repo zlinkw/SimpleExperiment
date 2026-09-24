@@ -52,7 +52,7 @@ Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epo
 
 `health.status` 为 `healthy`、`warning` 或 `error`，`reason` 为 `failed_recent`、`stalled`、`missing_progress`，没有则为空字符串。`alert_level` 只在本命令出现：`healthy` 映射为 `ok`，其余与 `status` 相同。`overview` 和 `inspect` 的 `health` 没有 `alert_level`。
 
-`failed_recent` 与 `error` 组合表示最近失败尚无更新的运行中或成功重试；与 `warning` 组合表示同一 plan、experiment_case、seed 已有更新的运行中重试。最新重试成功后，该失败不再影响当前健康状态。`overview.alerts.failed_recent` 仍记录过去 24 小时发生过的失败，包括已恢复的失败，不等同于当前未恢复失败。
+`failed_recent` 与 `error` 组合表示最近失败尚无更新的运行中或成功重试；与 `warning` 组合表示同一 plan、experiment_case、seed 已有更新的运行中重试。`overview.alerts.failed_recent` 只返回当前仍需关注的近期失败：尚未恢复的失败和存在更新 running retry 的失败。最新 retry 成功后，该失败从告警消失；过去 24 小时内已恢复的失败仍保留在 `summary.recent_failures` 历史摘要中。
 
 全局 `experiment health` 和 `experiment overview` 不重复统计已有子 `worker_run`、且 `status_source=aggregate` 的失败 `workflow`；其失败由实际子任务表达。没有子 `worker_run` 可代表的独立 Scheduler/workflow 失败仍进入 `failed_recent`。单独 `inspect` 失败 `workflow` 时，仍报告该对象自身的失败健康状态。
 
@@ -75,9 +75,9 @@ Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epo
 
 | 字段 | 含义 |
 | --- | --- |
-| summary | `running_count`、`failed_count`、`success_count` 统计 `worker_run`；`workflows` 统计已知 `workflow` 总数。`active_workers`、`gpu_usage` 来自运行中的 `worker_run`；`stalled_experiments` 保持健康与告警口径；`recent_failures` 包含最近失败的实际 `worker_run` 和没有子 `worker_run` 可代表的独立 `workflow` 失败，不重复列出聚合父 `workflow` |
+| summary | `running_count`、`failed_count`、`success_count` 统计 `worker_run`；`workflows` 统计已知 `workflow` 总数。`active_workers`、`gpu_usage` 来自运行中的 `worker_run`；`stalled_experiments` 保持健康与告警口径；`recent_failures` 是最近 24 小时失败历史，包括已恢复的实际 `worker_run` 和没有子 `worker_run` 可代表的独立 `workflow` 失败，不重复列出聚合父 `workflow`。按 unresolved → running retry → resolved 排序，最多 5 条 |
 | active | 与 `experiment active` 的 `active_count`、`workflows`、`runs` 相同，不含 `schema_version` 和 `snapshot` |
-| alerts | 实验列表：`failed_recent`、`stalled`、`missing_progress`，默认各最多 3 条，`--full` 为 10 条 |
+| alerts | 当前告警列表：`failed_recent` 仅含未恢复或正在重试的近期失败，不含已被更新 success attempt 恢复的历史失败；`stalled` 和 `missing_progress` 保持当前告警语义。`failed_recent` 默认最多 3 条，`--full` 最多 10 条 |
 | health | `{ status, reason }`，与 `inspect` 的 `health` 同构，没有 `alert_level` |
 
 `summary.running_count` 与 `active.active_count` 口径不同：前者是正在运行的 `worker_run` 数，后者是 `active` 返回的 `workflow` 与 `worker_run` 对象总数。一个 `workflow` 调度三个训练任务时，前者可以为 3，后者可以为 4。
