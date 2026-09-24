@@ -74,6 +74,26 @@ export function updateRegistry(registry: TableRegistry, summary: any, planFile: 
   return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
 }
 
+export function mergeAvailableWorkerResults(registry: TableRegistry, summary: any, planFile: string, expectedSeeds = 0): TableRegistry {
+  const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+  const ready = tables.filter((table: any) => table?.aggregateStatus === "ready" && String(table.rawResultCsvPath || "").trim());
+  const owners = new Set(ready.map((table: any) => String(table.workerId || "").toLowerCase()));
+  const rows = (Array.isArray(summary?.results) ? summary.results : []).filter((row: any) => owners.has(String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase()));
+  if (!rows.length) return registry;
+  const partial = { ...summary, workerResultTables: ready, results: rows, unavailableWorkerIds: [], incompleteAggregate: false };
+  const incoming = recordsForSummary(partial, planFile);
+  const replaced = new Set(incoming.map((record) => record.workerId.toLowerCase()));
+  const previous = registry.plans?.[planFile];
+  const revision = String(summary.planRevision || "");
+  const sameRevision = !previous?.revision || !revision || previous.revision === revision;
+  const retained = sameRevision ? (previous?.records || []).filter((record) => !replaced.has(record.workerId.toLowerCase())) : [];
+  return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: {
+    revision: revision || previous?.revision || "",
+    expectedSeeds: Math.max(0, Math.floor(expectedSeeds || previous?.expectedSeeds || 0)),
+    records: [...retained, ...incoming],
+  } } };
+}
+
 function csvCell(value: unknown): string {
   const s = String(value ?? "");
   return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;

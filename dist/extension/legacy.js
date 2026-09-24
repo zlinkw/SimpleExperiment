@@ -68,6 +68,7 @@ const PanelHtml_1 = require("../ui/PanelHtml");
 const ScalarDashboardHtml_1 = require("../tensorboard/ScalarDashboardHtml");
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
+const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -975,9 +976,9 @@ class RealtimeTunnelPanelProvider {
     }
     async apiResultsList(params = {}) {
         const selectedPlan = stringField(params, "planFile") || stringField(params, "planId") || this.planFileInput || this.selectedPlanId || "";
-        if (selectedPlan)
-            await this.refreshResultsSummary(selectedPlan).catch(() => undefined);
-        const summary = this.resultsSummary;
+        const summary = selectedPlan
+            ? await this.client.getResultsSummary(selectedPlan, { userInitiated: true })
+            : this.resultsSummary;
         const filtered = selectedPlan ? this.filterResultsSummaryForPlan(summary, selectedPlan) : compactResultsSummaryForWebview(summary);
         const rows = Array.isArray(filtered?.results)
             ? filtered.results
@@ -7342,6 +7343,22 @@ class RealtimeTunnelPanelProvider {
         const workers = this.enabledWorkerConfigs();
         if (!workers.length)
             throw new Error(`${label} 没有已启用的 Worker。`);
+        if (topology.mode === "worker_pool") {
+            const planFile = operationResultPlanFile(body);
+            if (!planFile)
+                throw new Error("无法确定重跑 Plan 的文件，已阻止跨 Worker 派发。");
+            const summary = await this.client.getResultsSummary(planFile, { userInitiated: true });
+            const root = workspaceRoot();
+            const registry = root ? await this.loadProjectTableRegistry(root) : ProjectResultTables.emptyTableRegistry();
+            const owner = (0, PlanWorkerAffinity_1.resolvePlanWorkerAffinity)(planFile, workers.map((worker) => worker.id), summary, registry, this.localOperations || {});
+            if (owner) {
+                const requested = this.planSchedulerWorkerId(body);
+                if (requested && requested !== owner)
+                    throw new Error(`${planFile} 已属于 Worker ${owner}，不能改派 ${requested} 重跑。`);
+                this.stampWorkerPoolManualTarget(body, owner);
+                return owner;
+            }
+        }
         if (workers.length === 1) {
             if (topology.mode === "worker_pool")
                 this.stampWorkerPoolManualTarget(body, workers[0].id);
@@ -11753,7 +11770,7 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(context) || client !== this.client)
             return;
         const plans = (this.localPlanMetadata.plans || []).filter((item) => item.planFile).slice(0, 500);
-        let registry = ProjectResultTables.emptyTableRegistry();
+        let registry = await this.loadProjectTableRegistry(root);
         let included = 0;
         const issues = [];
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重建全项目最终结果表", cancellable: true }, async (progress, token) => {
@@ -11788,15 +11805,17 @@ class RealtimeTunnelPanelProvider {
                     issues.push(planFile + "：" + errorMessage(error));
                     continue;
                 }
-                if (!ProjectResultTables.summaryMatchesPlanRevision(summary, plan)) {
+                if (summary?.mixedPlanRevision || !ProjectResultTables.summaryMatchesPlanRevision(summary, plan)) {
                     issues.push(planFile + "：Agent 返回旧 Plan revision，请先重新运行或刷新该 Plan 的结果。");
                     continue;
                 }
-                if (!summary?.workerResultTables?.some?.((row) => row.aggregateStatus === "ready"))
-                    continue;
                 try {
-                    registry = ProjectResultTables.updateRegistry(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
-                    included++;
+                    const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
+                    if (next !== registry) {
+                        ProjectResultTables.buildTables(next);
+                        registry = next;
+                        included++;
+                    }
                 }
                 catch (error) {
                     issues.push(planFile + "：" + errorMessage(error));
@@ -11805,14 +11824,17 @@ class RealtimeTunnelPanelProvider {
         });
         if (!this.projectContextIsCurrent(context) || client !== this.client)
             return;
-        if (issues.length)
-            throw new Error("全项目总表未覆盖；以下 Plan 需修复后重试：" + issues.slice(0, 5).join("；"));
-        if (!included)
-            throw new Error("没有已完成且可解析的 Plan；总表未改变。");
+        const retained = Object.keys(registry.plans || {}).length;
+        if (!retained)
+            throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
         registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
         await this.writeProjectTableRegistry(root, registry);
         this.postState();
-        void vscode.window.showInformationMessage("已重建 " + included + " 个 Plan 的全项目最终结果表：experiments/results/final/final.csv");
+        const message = "已合并 " + included + " 个 Plan 的在线 Worker 结果，本机总计 " + retained + " 个 Plan：experiments/results/final/final.csv";
+        if (issues.length)
+            void vscode.window.showWarningMessage(message + "；跳过 " + issues.length + " 个异常 Plan：" + issues.slice(0, 3).join("；"));
+        else
+            void vscode.window.showInformationMessage(message);
     }
     async openLocalResultTableFromUi(message) {
         const context = this.captureProjectContext();
@@ -12689,7 +12711,7 @@ class RealtimeTunnelPanelProvider {
         if (topology.hubAllowed)
             return this.missingCapabilities(["endpoints.resultsSummary"]).length === 0;
         const workers = this.enabledWorkerConfigs();
-        return workers.length > 0 && workers.every((worker) => hasCapability(this.lastWorkerProbes[worker.id]?.capabilities, this.lastWorkerProbes[worker.id]?.fileCapabilities, "endpoints.resultsSummary"));
+        return workers.some((worker) => hasCapability(this.lastWorkerProbes[worker.id]?.capabilities, this.lastWorkerProbes[worker.id]?.fileCapabilities, "endpoints.resultsSummary"));
     }
     recordResultsSummaryCapabilitySkip(command, reason) {
         const topology = this.projectTopologyAssessment();

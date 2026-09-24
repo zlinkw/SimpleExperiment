@@ -40,6 +40,7 @@ exports.methodTableName = methodTableName;
 exports.methodForSummary = methodForSummary;
 exports.recordsForSummary = recordsForSummary;
 exports.updateRegistry = updateRegistry;
+exports.mergeAvailableWorkerResults = mergeAvailableWorkerResults;
 exports.writeCsv = writeCsv;
 exports.readCsv = readCsv;
 exports.buildTables = buildTables;
@@ -125,6 +126,26 @@ function recordsForSummary(summary, planFile) {
 function updateRegistry(registry, summary, planFile, expectedSeeds = 0) {
     const records = recordsForSummary(summary, planFile);
     return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
+}
+function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds = 0) {
+    const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+    const ready = tables.filter((table) => table?.aggregateStatus === "ready" && String(table.rawResultCsvPath || "").trim());
+    const owners = new Set(ready.map((table) => String(table.workerId || "").toLowerCase()));
+    const rows = (Array.isArray(summary?.results) ? summary.results : []).filter((row) => owners.has(String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase()));
+    if (!rows.length)
+        return registry;
+    const partial = { ...summary, workerResultTables: ready, results: rows, unavailableWorkerIds: [], incompleteAggregate: false };
+    const incoming = recordsForSummary(partial, planFile);
+    const replaced = new Set(incoming.map((record) => record.workerId.toLowerCase()));
+    const previous = registry.plans?.[planFile];
+    const revision = String(summary.planRevision || "");
+    const sameRevision = !previous?.revision || !revision || previous.revision === revision;
+    const retained = sameRevision ? (previous?.records || []).filter((record) => !replaced.has(record.workerId.toLowerCase())) : [];
+    return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: {
+                revision: revision || previous?.revision || "",
+                expectedSeeds: Math.max(0, Math.floor(expectedSeeds || previous?.expectedSeeds || 0)),
+                records: [...retained, ...incoming],
+            } } };
 }
 function csvCell(value) {
     const s = String(value ?? "");

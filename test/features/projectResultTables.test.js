@@ -83,6 +83,23 @@ test("offline Worker and untrusted identity do not overwrite registry", () => {
   assert.throws(() => tables.updateRegistry(tables.emptyTableRegistry(), untrusted, plan, 5), /case 或 seed/);
 });
 
+test("local rebuild merges ready Workers and retains earlier Worker records", () => {
+  const previous = tables.updateRegistry(tables.emptyTableRegistry(), summary([
+    record("w1", "demo", "bus_p30", 42, "clean", "acc", 0.2),
+  ]), plan, 2);
+  const partial = summary([
+    record("w2", "demo", "bus_p30", 43, "clean", "acc", 0.4),
+  ]);
+  partial.workerResultTables[0].aggregateStatus = "no_declared_csv";
+  partial.workerResultTables[0].rawResultCsvPath = "";
+  partial.unavailableWorkerIds = ["w3"];
+  partial.incompleteAggregate = true;
+  const merged = tables.mergeAvailableWorkerResults(previous, partial, plan, 2);
+  assert.deepEqual(merged.plans[plan].records.map((row) => row.workerId).sort(), ["w1", "w2"]);
+  assert.equal(tables.buildTables(merged).final.rows.length, 1);
+  assert.strictEqual(tables.mergeAvailableWorkerResults(previous, { ...partial, results: [] }, plan, 2), previous);
+});
+
 test("CSV splitting supports manual value and column selection with quoted cells", () => {
   const source = tables.writeCsv(["result_family", "rate_percent", "note", "acc_mean"], [
     ["demo", "0", "a,b", 0.1],
