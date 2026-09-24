@@ -69,6 +69,8 @@ const ScalarDashboardHtml_1 = require("../tensorboard/ScalarDashboardHtml");
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
+const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
+const PlanArtifactTransfer_1 = require("../features/PlanArtifactTransfer");
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -366,7 +368,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
@@ -397,7 +399,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "editResultColumnMapping", "runAllPlans",
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
-    "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
+    "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
@@ -4742,6 +4744,9 @@ class RealtimeTunnelPanelProvider {
             case "rebuildProjectResultTables":
                 await this.rebuildProjectResultTablesFromUi();
                 break;
+            case "syncPendingPlanArtifacts":
+                await this.syncPendingPlanArtifacts();
+                break;
             case "splitProjectResultTable":
                 await this.splitProjectResultTableFromUi(message);
                 break;
@@ -6828,9 +6833,11 @@ class RealtimeTunnelPanelProvider {
         catch { }
         const topology = this.assertPlanTopologyReady("运行前代码同步");
         const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).flatMap((body) => [this.planSchedulerWorkerId(body), ...(Array.isArray(body?.selectedWorkerIds) ? body.selectedWorkerIds : [])]).filter(Boolean));
-        const targets = selectedWorkerIds.length && topology.mode !== "single_worker"
-            ? this.topologyCodeSyncTargets().filter((target) => target.role === "hub" || selectedWorkerIds.includes(target.id))
-            : this.topologyCodeSyncTargets();
+        const targets = topology.mode === "worker_pool" && !topology.hubAllowed
+            ? this.workerCodeSyncTargets()
+            : selectedWorkerIds.length && topology.mode !== "single_worker"
+                ? this.topologyCodeSyncTargets().filter((target) => target.role === "hub" || selectedWorkerIds.includes(target.id))
+                : this.topologyCodeSyncTargets();
         await this.syncCodeTargets(targets, "run", { projectContext });
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
@@ -8402,6 +8409,8 @@ class RealtimeTunnelPanelProvider {
                         this.queueSelectedPlanResultParse("operation 完成", planHint);
                     await this.refreshResultsSummary(planHint);
                 }
+                if (action === "run-plan" && String(this.localOperations[opId]?.status || "").toLowerCase() === "completed")
+                    void this.queueCompletedPlanArtifactSync(this.localOperations[opId]).catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
             }
             else if (this.shouldRetryOperationStatusProbe(opId, probeAttempt) || probeAttempt >= this.operationStatusProbeMaxAttempts) {
                 // Evidence-based reconciliation: if the scheduler process is dead
@@ -11743,6 +11752,159 @@ class RealtimeTunnelPanelProvider {
         }
         return tables;
     }
+    async loadPlanSyncLedger(root) {
+        const file = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
+        const source = await fs.readFile(file, "utf8").catch((error) => {
+            if (error?.code === "ENOENT")
+                return "";
+            throw error;
+        });
+        const ledger = source ? JSON.parse(source) : PlanArtifactSync.emptyPlanSyncLedger();
+        if (ledger.schemaVersion !== 1 || !ledger.entries || typeof ledger.entries !== "object" || Array.isArray(ledger.entries))
+            throw new Error("Plan 同步记录格式无效，请检查 simple_cluster/results/plan_sync_ledger.json。");
+        this.planSyncLedger = ledger;
+        this.planSyncLedgerRoot = root;
+        return ledger;
+    }
+    async writePlanSyncLedger(root, ledger) {
+        const file = await safeResultOutputPath(root, "simple_cluster/results/plan_sync_ledger.json");
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
+        await fs.writeFile(temporary, JSON.stringify(ledger, null, 2) + "\n", "utf8");
+        await fs.rename(temporary, file);
+        this.planSyncLedger = ledger;
+        this.planSyncLedgerRoot = root;
+    }
+    async updatePlanSyncLedger(root, update) {
+        const previous = this.planSyncLedgerMutation || Promise.resolve();
+        const task = previous.catch(() => undefined).then(async () => {
+            const ledger = await this.loadPlanSyncLedger(root);
+            const next = update(ledger);
+            await this.writePlanSyncLedger(root, next);
+            return next;
+        });
+        this.planSyncLedgerMutation = task;
+        return task;
+    }
+    async queueHistoricalPlanArtifactSyncs(root, registry) {
+        const workerIds = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
+        await this.updatePlanSyncLedger(root, (original) => {
+            let ledger = original;
+            for (const [planFile, item] of Object.entries(registry.plans || {})) {
+                const plan = (this.localPlanMetadata.plans || []).find((row) => samePlanSelection(row.planFile || row.file, planFile));
+                const owners = uniqueStrings((item?.records || []).map((row) => String(row.workerId || "")).filter(Boolean));
+                for (const owner of owners) {
+                    if (Object.values(ledger.entries).some((entry) => entry.planFile === planFile && entry.sourceWorkerId.toLowerCase() === owner.toLowerCase() && entry.runId !== "historic"))
+                        continue;
+                    ledger = PlanArtifactSync.queuePlanSync(ledger, planFile, String(item.revision || ""), owner, PlanArtifactSync.planArtifactPaths(plan, undefined, owner), workerIds, PlanArtifactSync.planArtifactDirectories(plan));
+                }
+            }
+            return ledger;
+        });
+    }
+    async queueCompletedPlanArtifactSync(operation) {
+        if (this.projectTopologyAssessment().hubAllowed)
+            return;
+        const root = workspaceRoot();
+        const planFile = operationResultPlanFile(operation);
+        const sourceWorkerId = String(operation.schedulerOwnerWorkerId || operation.resultOwnerWorkerId || operation.workerId || "").trim();
+        if (!root || !planFile || !sourceWorkerId)
+            return;
+        const plan = (this.localPlanMetadata.plans || []).find((row) => samePlanSelection(row.planFile || row.file, planFile));
+        const summary = await this.client.getResultsSummary(planFile, { userInitiated: true }).catch(() => undefined);
+        const revision = String(operation.planRevision || plan?.revision || "");
+        const runId = String(operation.operationId || operation.id || "").trim();
+        if (!runId)
+            throw new Error(`Plan ${planFile} 缺少 operation ID，无法安全标记本次同步。`);
+        await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId, PlanArtifactSync.planArtifactPaths(plan, summary, sourceWorkerId), this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), PlanArtifactSync.planArtifactDirectories(plan), runId));
+        await this.syncPendingPlanArtifacts(PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId));
+    }
+    async simpleSftpApiCall(method, params) {
+        const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
+        const discovery = JSON.parse(await fs.readFile(discoveryFile, "utf8"));
+        const endpoint = new URL(String(discovery.baseUrl || ""));
+        if (endpoint.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname))
+            throw new Error("SimpleSFTP 本地 API 地址不安全。");
+        const headers = { Authorization: `Bearer ${String(discovery.token || "")}` };
+        const capabilityResponse = await fetch(new URL("/api/v1/capabilities", endpoint), { headers });
+        if (!capabilityResponse.ok)
+            throw new Error(`SimpleSFTP capability 查询失败：HTTP ${capabilityResponse.status}`);
+        const capabilities = await capabilityResponse.json();
+        if (!Array.isArray(capabilities.methods) || !capabilities.methods.includes(method))
+            throw new Error(`SimpleSFTP 不支持 ${method}。`);
+        const response = await fetch(new URL("/api/v1/rpc", endpoint), {
+            method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
+        });
+        if (!response.ok)
+            throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
+        const payload = await response.json();
+        if (payload.error)
+            throw new Error(`SimpleSFTP ${method}：${String(payload.error.message || "未知错误")}`);
+        if (payload.result?.ok === false)
+            throw new Error(`SimpleSFTP ${method}：${String(payload.result.error || payload.result.message || "传输失败")}`);
+        return payload.result;
+    }
+    async syncPendingPlanArtifacts(onlyKey = "") {
+        if (this.planSyncInFlight) {
+            this.planSyncRescanRequested = true;
+            return;
+        }
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("请先打开当前实验项目。");
+        const pending = PlanArtifactSync.pendingPlanSyncs(await this.loadPlanSyncLedger(root)).filter((item) => !onlyKey || item.key === onlyKey);
+        const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
+        const ready = pending.flatMap((item) => {
+            if (!targets.has(item.destinationWorkerId))
+                return [];
+            const original = targets.get(item.entry.sourceWorkerId);
+            if (original)
+                return [{ ...item, sourceRow: original, mirroredSource: false }];
+            const alternateId = Object.entries(item.entry.destinations).find(([id, value]) => id !== item.destinationWorkerId && value.status === "synced" && targets.has(id))?.[0];
+            return alternateId ? [{ ...item, sourceRow: targets.get(alternateId), mirroredSource: true }] : [];
+        });
+        if (!ready.length) {
+            if (!onlyKey)
+                void vscode.window.showInformationMessage(pending.length ? `仍有 ${pending.length} 条待同步记录；请重新启用并连接对应 Worker。` : "没有待同步的 Plan 产物。");
+            return;
+        }
+        this.planSyncInFlight = true;
+        try {
+            const syncedCodeTargets = new Set();
+            for (const item of ready) {
+                if (root !== workspaceRoot())
+                    return;
+                const sourceRow = item.sourceRow;
+                const destinationRow = targets.get(item.destinationWorkerId);
+                const sourceTarget = this.sftpServerOptions(sourceRow);
+                const source = item.mirroredSource ? { ...sourceTarget, remotePath: (0, PlanArtifactTransfer_1.planMirrorRoot)(item.entry, sourceTarget) } : sourceTarget;
+                const destination = this.sftpServerOptions(destinationRow);
+                const stagingRoot = path.join(this.context.globalStorageUri.fsPath, "plan-artifact-sync");
+                const mirror = (0, PlanArtifactTransfer_1.planMirrorRoot)(item.entry, destination);
+                const paths = item.entry.artifactPaths.map((relative) => `${source.remotePath}/${relative} → ${mirror}/${relative}`).join("\n");
+                const answer = await vscode.window.showWarningMessage(`同步 Plan ${item.entry.planFile}\n来源：${source.user}@${source.host}:${source.port}\n目标：${destination.user}@${destination.host}:${destination.port}\n本机暂存：${stagingRoot}\n对应产物：\n${paths || "无可确认产物路径"}`, { modal: true }, "确认同步");
+                if (answer !== "确认同步")
+                    return;
+                await this.assertSshTransportIdentities([sourceRow, destinationRow]);
+                if (!syncedCodeTargets.has(destinationRow.id)) {
+                    await this.syncCodeTargets([destinationRow], "workers", { projectContext: this.captureProjectContext() });
+                    syncedCodeTargets.add(destinationRow.id);
+                }
+                const result = await (0, PlanArtifactTransfer_1.transferPlanArtifacts)(item.entry, source, destination, stagingRoot, (method, params) => this.simpleSftpApiCall(method, params));
+                await this.updatePlanSyncLedger(root, (latest) => PlanArtifactSync.markPlanSyncComplete(latest, item.key, item.destinationWorkerId, new Date().toISOString()));
+                void vscode.window.showInformationMessage(`Plan ${item.entry.planFile} 已从 ${source.id} 同步 ${result.files} 个文件到 ${destination.id} 的独立镜像目录。`);
+                this.postState();
+            }
+        }
+        finally {
+            this.planSyncInFlight = false;
+            if (this.planSyncRescanRequested) {
+                this.planSyncRescanRequested = false;
+                void this.syncPendingPlanArtifacts().catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
+            }
+        }
+    }
     async updateProjectResultTablesFromSummary(summary, planFile) {
         const root = workspaceRoot();
         if (!root || !planFile)
@@ -11829,6 +11991,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
         registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
         await this.writeProjectTableRegistry(root, registry);
+        await this.queueHistoricalPlanArtifactSyncs(root, registry);
         this.postState();
         const message = "已合并 " + included + " 个 Plan 的在线 Worker 结果，本机总计 " + retained + " 个 Plan：experiments/results/final/final.csv";
         if (issues.length)
@@ -14135,6 +14298,22 @@ class RealtimeTunnelPanelProvider {
                 catch {
                     return [];
                 } })(),
+                pendingPlanSyncCount: (() => {
+                    const root = workspaceRoot();
+                    if (!root)
+                        return 0;
+                    if (this.planSyncLedgerRoot !== root) {
+                        try {
+                            const file = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
+                            this.planSyncLedger = JSON.parse(fsNode.readFileSync(file, "utf8"));
+                        }
+                        catch {
+                            this.planSyncLedger = PlanArtifactSync.emptyPlanSyncLedger();
+                        }
+                        this.planSyncLedgerRoot = root;
+                    }
+                    return PlanArtifactSync.pendingPlanSyncs(this.planSyncLedger || PlanArtifactSync.emptyPlanSyncLedger()).length;
+                })(),
             },
             detectedProject: webviewDetectedProject,
             plans: webviewPlans.plans,
