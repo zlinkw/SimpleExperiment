@@ -29,6 +29,8 @@ Empty fields are omitted. `--json --full` returns the full experiment object.
 
 新生成的 `worker_run` 优先使用 Scheduler 显式传递的 `workflowId` 设置 `parent_id`。旧历史记录仅在 plan 完整路径、Worker 和启动时间得到唯一 workflow 候选时回填；候选不唯一时 `parent_id` 保持空。`experiment tree` 只根据 `parent_id` 建树，不做模糊关联。
 
+所有 `workflow` 都作为顶层节点；没有有效 `workflow` 父级的 `worker_run` 也作为顶层叶节点返回。`tree` 不会因 `parent_id` 缺失或父 `workflow` 不可用而隐藏 `worker_run`。同一快照中，`tree` 展平后的实验 ID 集合应与 `experiment list` 一致。
+
 ## experiment active
 
 ```json

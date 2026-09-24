@@ -43,6 +43,7 @@ exports.isMissingProgress = isMissingProgress;
 exports.buildHealthSummary = buildHealthSummary;
 exports.loadActiveExperiments = loadActiveExperiments;
 exports.experimentActive = experimentActive;
+exports.experimentTreeRoots = experimentTreeRoots;
 exports.experimentTree = experimentTree;
 exports.experimentStatus = experimentStatus;
 exports.experimentOverview = experimentOverview;
@@ -424,10 +425,19 @@ function toIso(value) {
     const parsed = Date.parse(text);
     return Number.isFinite(parsed) ? new Date(parsed).toISOString() : text;
 }
+function experimentTreeRoots(rows) {
+    const workflowIds = new Set(rows.filter((row) => row.type === "workflow").map((row) => row.id));
+    return rows.filter((row) => {
+        if (row.type === "workflow")
+            return true;
+        if (row.type !== "worker_run")
+            return false;
+        return !row.parent_id || !workflowIds.has(row.parent_id);
+    });
+}
 async function experimentTree(flags) {
     const rows = await loadExperiments();
-    const workflows = rows.filter((row) => row.type === "workflow");
-    const roots = workflows.length ? workflows : rows.filter((row) => !row.parent_id);
+    const roots = experimentTreeRoots(rows);
     const payload = roots.map((row) => treeNode(row, rows));
     if (flags.json)
         (0, format_1.writeJson)(payload, flags.compactJson);
@@ -1745,7 +1755,7 @@ function trimMessages(messages, limit, maxLength) {
     return messages.filter(Boolean).slice(-limit).map((message) => message.slice(0, maxLength));
 }
 function treeNode(row, rows) {
-    const children = row.type === "workflow" ? childRuns(row, rows) : rows.filter((item) => item.parent_id === row.id && item.id !== row.id);
+    const children = row.type === "workflow" ? childRuns(row, rows) : [];
     return {
         id: row.id,
         type: row.type,

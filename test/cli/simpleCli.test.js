@@ -603,6 +603,41 @@ test("agent compact output drops bulky fields and summary is stable", async () =
   assert.equal("created_at" in full[0], true);
 });
 
+test("experiment tree keeps orphan worker runs visible exactly once", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-tree-orphans-"));
+  writeProject(dir, {
+    "simple_cluster/experiment_index.json": JSON.stringify([
+      { global_job_id: "run-plan-1", type: "workflow", status: "success" },
+      { global_job_id: "run-child", type: "worker_run", parent_id: "run-plan-1", status: "success" },
+      { global_job_id: "run-orphan", type: "worker_run", parent_id: "", status: "cancelled" },
+      { global_job_id: "run-missing-parent", type: "worker_run", parent_id: "workflow-does-not-exist", status: "failed" },
+    ]),
+  });
+  const tree = JSON.parse((await runCli(["experiment", "tree", "--json"], { cwd: dir })).stdout);
+  const roots = new Map(tree.map((node) => [node.id, node]));
+  assert.equal(roots.has("run-plan-1"), true);
+  assert.equal(roots.has("run-child"), false);
+  assert.deepEqual(roots.get("run-plan-1").children.map((node) => node.id), ["run-child"]);
+  for (const id of ["run-orphan", "run-missing-parent"]) {
+    assert.equal(roots.get(id).type, "worker_run");
+    assert.deepEqual(roots.get(id).children, []);
+  }
+  const flattenIds = (nodes) => nodes.flatMap((node) => [node.id, ...flattenIds(node.children)]);
+  const treeIds = flattenIds(tree);
+  assert.equal(new Set(treeIds).size, treeIds.length);
+  const listed = JSON.parse((await runCli(["experiment", "list", "--json", "--full"], { cwd: dir })).stdout);
+  assert.deepEqual(new Set(treeIds), new Set(listed.map((row) => row.id)));
+});
+
+test("experiment tree roots preserve input order and include missing parents", () => {
+  const { experimentTreeRoots } = require("../../dist/cli/commands/experiment.js");
+  const workflow = { id: "run-plan-1", type: "workflow" };
+  const child = { id: "run-child", type: "worker_run", parent_id: "run-plan-1" };
+  const orphan = { id: "run-orphan", type: "worker_run", parent_id: "" };
+  const missingParent = { id: "run-missing-parent", type: "worker_run", parent_id: "workflow-does-not-exist" };
+  assert.deepEqual(experimentTreeRoots([orphan, child, workflow, missingParent]), [orphan, workflow, missingParent]);
+});
+
 test("workflow and worker run status counts do not mix", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-summary-levels-"));
   writeProject(dir, {
