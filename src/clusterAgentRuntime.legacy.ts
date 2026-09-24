@@ -11888,6 +11888,20 @@ def sha256_file(path):
             h.update(chunk)
     return h.hexdigest()
 
+def worker_task_log_updated_at(root, task):
+    item = task if isinstance(task, dict) else {}
+    log_rel = str(item.get("logPath") or item.get("log_path") or "").strip()
+    if not log_rel:
+        return ""
+    try:
+        target = safe_project_path(root, log_rel)
+        if not os.path.isfile(target):
+            return ""
+        stat = os.stat(target)
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
+    except Exception:
+        return ""
+
 def normalize_overwrite_policy(value):
     text = str(value or "if_same_size").strip().lower()
     if text in ("always", "true", "overwrite", "replace"):
@@ -12463,6 +12477,7 @@ def serve_http(args):
                                             "planFile": matched_task.get("planFile") or matched_task.get("plan") or "",
                                             "startedAt": matched_task.get("startedAt") or matched_task.get("started_at") or "",
                                             "finishedAt": matched_task.get("finishedAt") or matched_task.get("finished_at") or "",
+                                            "logUpdatedAt": worker_task_log_updated_at(root, matched_task),
                                         }
                                     windows.append({"index": widx, "name": wname, "active": wactive, "panes": panes, "target": f"{sess_name}:{widx}", "paneCount": wpanes, "task": task_meta})
                         except Exception:

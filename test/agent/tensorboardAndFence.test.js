@@ -651,6 +651,30 @@ print("post-restart task read repair ok")
   assert.doesNotMatch(agentSource, /start_worker_task_recovery_loop\(root/);
 });
 
+test("worker task log activity uses file mtime without hashing", () => {
+  const script = `
+import calendar, importlib.util, os, pathlib, tempfile
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as root:
+    log_rel = "simple_cluster/tmp/cluster_scheduler/logs/worker.log"
+    path = pathlib.Path(root) / log_rel
+    path.parent.mkdir(parents=True)
+    path.write_text("worker output", encoding="utf-8")
+    fixed_epoch = calendar.timegm((2026, 9, 24, 11, 30, 0))
+    os.utime(path, (fixed_epoch, fixed_epoch))
+    agent.sha256_file = lambda *_args: (_ for _ in ()).throw(AssertionError("must not hash log"))
+    assert agent.worker_task_log_updated_at(root, {"logPath": log_rel}) == "2026-09-24T11:30:00Z"
+    assert agent.worker_task_log_updated_at(root, {"log_path": log_rel}) == "2026-09-24T11:30:00Z"
+    assert agent.worker_task_log_updated_at(root, {}) == ""
+    assert agent.worker_task_log_updated_at(root, {"logPath": "simple_cluster/missing.log"}) == ""
+    assert agent.worker_task_log_updated_at(root, {"logPath": "simple_cluster/../../outside.log"}) == ""
+print("worker log activity mtime ok")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test("worker exit-code reconciliation handles failure and preserves manual stop", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os

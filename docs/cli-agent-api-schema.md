@@ -56,6 +56,8 @@ Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epo
 
 `missing_progress` 表示训练型 running `worker_run` 从 `started_at` 或 `created` 起超过 10 分钟，仍未出现任何可信 progress；适用 stage 为 `run`、`train`、`train_test`，不适用于 `test`、`debug` 或未知 stage。RuntimeObservation 的 `updated_at` 是状态观测时间，不会重置这段启动宽限期。
 
+`stalled` 表示 running 对象超过 30 分钟没有可观察任务输出。live Worker task 使用日志 mtime 判断；旧 Worker 没有提供该时间时回退到 `row.updated`。CLI 查询刷新的 `updated_at` 仍表示状态观测时间，不作为新版 Worker task 的输出活动时间。
+
 `failed_recent` 与 `error` 组合表示最近失败尚无更新的运行中或成功重试；与 `warning` 组合表示同一 plan、experiment_case、seed 已有更新的运行中重试。`overview.alerts.failed_recent` 只返回当前仍需关注的近期失败：尚未恢复的失败和存在更新 running retry 的失败。最新 retry 成功后，该失败从告警消失；过去 24 小时内已恢复的失败仍保留在 `summary.recent_failures` 历史摘要中。
 
 全局 `experiment health` 和 `experiment overview` 不重复统计已有子 `worker_run`、且 `status_source=aggregate` 的失败 `workflow`；其失败由实际子任务表达。没有子 `worker_run` 可代表的独立 Scheduler/workflow 失败仍进入 `failed_recent`。单独 `inspect` 失败 `workflow` 时，仍报告该对象自身的失败健康状态。

@@ -31,6 +31,7 @@ export interface RuntimeObservation {
     seed: string;
     started_at: string;
     finished_at: string;
+    log_updated_at: string;
   } | null;
   log: string;
   updated_at: string;
@@ -270,6 +271,7 @@ function workerTaskFromWindow(window: Record<string, any>): RuntimeObservation["
     seed: String(task.seed ?? "").trim(),
     started_at: String(task.startedAt || task.started_at || "").trim(),
     finished_at: String(task.finishedAt || task.finished_at || "").trim(),
+    log_updated_at: String(task.logUpdatedAt || task.log_updated_at || "").trim(),
   };
 }
 

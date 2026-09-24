@@ -93,7 +93,7 @@
 | reason | 失败原因列表，非失败为空 |
 | suggestions | 去掉 `unknown` 后的原因 |
 | latest_message | 评分最高的有效训练日志，没有则为空字符串，最长 300 字符 |
-| stale_seconds | 距离状态更新时间的秒数，无法解析时为 `null`，整个输出中只出现这一处 |
+| stale_seconds | 对于 live Worker task，表示距离最后可观察任务输出的秒数；没有 Worker activity 时间时回退到状态更新时间，无法解析时为 `null` |
 | failure_context | 仅当实验 `status` 为 `failed` 时出现，健康和运行中的实验没有该字段 |
 
 `failure_context` 为 `{ last_error, stage, worker }`。`last_error` 是最后一条错误日志，最长 300 字符，没有则为空字符串，不含完整日志。`stage` 是失败时所处阶段，`worker` 为 `{ id }` 或 `null`。
@@ -107,6 +107,6 @@
 | 字段 | 含义 |
 | --- | --- |
 | missing_progress | 训练型 worker_run 从 started_at/created 起超过 10 分钟仍没有任何可信 progress；run、train、train_test 生效 |
-| stalled | 超过阈值没有更新 |
+| stalled | running 对象超过 30 分钟没有可观察任务输出；live Worker task 使用日志 mtime，不受 CLI 查询刷新 updated_at 影响 |
 | recent_failure | 24 小时内失败 |
 | alert_details | `{ type, message }` 列表，`type` 取值与上面三个字段相同 |

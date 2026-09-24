@@ -600,7 +600,7 @@ test("worker tmux metadata skips terminal windows before capture", async () => {
     requests.push(request.url);
     response.writeHead(200, { "Content-Type": "application/json" });
     if (request.url === "/api/tmux/list") response.end(JSON.stringify({ sessions: [{ name: "zlk-gpu-0", windows: [
-      { name: "run-1790237001150", target: "zlk-gpu-0:1", task: { commandId: "run3-998997-687", status: "running", gpuId: "0", case: "corim_bus_p100", seed: 45, planFile: "experiments/plans/comparison/corim.yaml", startedAt: "2026-09-24T08:03:21Z" } },
+      { name: "run-1790237001150", target: "zlk-gpu-0:1", task: { commandId: "run3-998997-687", status: "running", gpuId: "0", case: "corim_bus_p100", seed: 45, planFile: "experiments/plans/comparison/corim.yaml", startedAt: "2026-09-24T08:03:21Z", logUpdatedAt: "2026-09-24T11:30:00Z" } },
       { name: "run-1790231236812", target: "zlk-gpu-0:2", task: { commandId: "run0-228782-829", status: "completed", gpuId: "0", case: "corim_bus_p100", seed: 42, planFile: "experiments/plans/comparison/corim.yaml", startedAt: "2026-09-24T06:27:16Z", finishedAt: "2026-09-24T08:03:04Z" } },
     ] }] }));
     else if (request.url.startsWith("/api/tmux/capture")) response.end(JSON.stringify({ text: "Epoch 10: Val Loss = 0.4" }));
@@ -615,6 +615,7 @@ test("worker tmux metadata skips terminal windows before capture", async () => {
     assert.equal(observation.run_id, "run-1790237001150");
     assert.equal(observation.worker_task.id, "run3-998997-687");
     assert.equal(observation.worker_task.status, "running");
+    assert.equal(observation.worker_task.log_updated_at, "2026-09-24T11:30:00Z");
     assert.equal(observation.plan, "experiments/plans/comparison/corim.yaml");
     assert.equal(observation.gpu.id, "0");
     assert.equal(observation.config.experiment_case, "corim_bus_p100");
@@ -1047,6 +1048,48 @@ test("experiment health reports healthy warning and error", async () => {
   assert.equal(error.health.reason, "failed_recent");
   assert.equal(error.alerts.recent_failure, true);
   assert.equal(error.alerts.stalled, true);
+});
+
+test("stalled uses Worker output activity before CLI observation time", () => {
+  const { isStalled } = require("../../dist/cli/commands/experiment.js");
+  const now = Date.parse("2026-09-24T12:00:00Z");
+  assert.equal(isStalled({ status: "running", updated: "2026-09-24T10:00:00Z", raw: { runtimeActivityAt: "2026-09-24T11:45:00Z" } }, now), false);
+  assert.equal(isStalled({ status: "running", updated: "2026-09-24T11:59:59Z", raw: { runtimeActivityAt: "2026-09-24T11:20:00Z" } }, now), true);
+  assert.equal(isStalled({ status: "success", updated: "2020-01-01T00:00:00Z", raw: { runtimeActivityAt: "2020-01-01T00:00:00Z" } }, now), false);
+  assert.equal(isStalled({ status: "running", updated: "2026-09-24T11:20:00Z", raw: {} }, now), true);
+});
+
+test("live runtime activity time drives stalled health instead of query time", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simple-cli-stalled-"));
+  const now = Date.now();
+  const updated = new Date(now - 1000).toISOString();
+  const runtimeActivityAt = new Date(now - 40 * 60 * 1000).toISOString();
+  writeProject(dir, {
+    "simple_cluster/experiment_index.json": JSON.stringify([
+      { global_job_id: "run-stalled", type: "worker_run", status: "running", stage: "train_test", started_at: new Date(now - 60 * 60 * 1000).toISOString(), updated, runtimeActivityAt, progress: { epoch: 4, max_epoch: 10, percent: 40 } },
+    ]),
+  });
+  const healthRun = await runCli(["experiment", "health", "--json"], { cwd: dir });
+  assert.equal(healthRun.code, 0, healthRun.stderr);
+  const health = JSON.parse(healthRun.stdout);
+  assert.equal(health.health.status, "warning");
+  assert.equal(health.health.reason, "stalled");
+  assert.equal(health.alerts.stalled, true);
+  assert.equal(health.alerts.missing_progress, false);
+  assert.match(health.alerts.alert_details.find((item) => item.type === "stalled").message, /output has not changed/);
+
+  const overviewRun = await runCli(["experiment", "overview", "--json"], { cwd: dir });
+  assert.equal(overviewRun.code, 0, overviewRun.stderr);
+  const overview = JSON.parse(overviewRun.stdout);
+  assert.deepEqual(overview.alerts.stalled.map((row) => row.id), ["run-stalled"]);
+
+  const inspectRun = await runCli(["experiment", "inspect", "run-stalled", "--json"], { cwd: dir });
+  assert.equal(inspectRun.code, 0, inspectRun.stderr);
+  const inspect = JSON.parse(inspectRun.stdout);
+  assert.deepEqual(inspect.health, { status: "warning", reason: "stalled" });
+  assert.equal(inspect.alerts.stalled, true);
+  assert.ok(inspect.diagnosis.stale_seconds >= 30 * 60);
+  assert.equal(inspect.status.updated_at, updated);
 });
 
 test("aggregate workflow failures do not duplicate their worker failures", () => {
@@ -1894,7 +1937,7 @@ test("runtime row prefers direct Worker task id over tmux runtime alias", () => 
     worker: { id: "nwpu2", host: "" }, tmux: { session: "zlk-gpu-1", window: "zlk-gpu-1:2", pane: "zlk-gpu-1:2.0" },
     stage: "train_test", progress: null, gpu: { id: "1", memory: "", utilization: "" },
     config: { path: "", experiment_case: "corim_pad_p100", seed: "43", model: "", dataset: "" },
-    worker_task: { id: "run6-600294-437", status: "running", plan: "experiments/plans/comparison/corim.yaml", gpu_id: "1", experiment_case: "corim_pad_p100", seed: "43", started_at: "2026-09-24T09:20:27Z", finished_at: "" },
+    worker_task: { id: "run6-600294-437", status: "running", plan: "experiments/plans/comparison/corim.yaml", gpu_id: "1", experiment_case: "corim_pad_p100", seed: "43", started_at: "2026-09-24T09:20:27Z", finished_at: "", log_updated_at: "2026-09-24T09:20:50Z" },
     log: "", updated_at: "2026-09-24T09:21:00Z",
   };
   const row = runtimeRow(observation);
@@ -1902,6 +1945,7 @@ test("runtime row prefers direct Worker task id over tmux runtime alias", () => 
   assert.equal(row.run_id, "run-1790241627897");
   assert.equal(row.created, "2026-09-24T09:20:27Z");
   assert.equal(row.started_at, "2026-09-24T09:20:27Z");
+  assert.equal(row.raw.runtimeActivityAt, "2026-09-24T09:20:50Z");
   const history = { ...row, created: "2026-09-24T09:19:00Z", started_at: "2026-09-24T09:19:01Z" };
   applyObservationFields(history, observation);
   assert.equal(history.created, "2026-09-24T09:19:00Z");

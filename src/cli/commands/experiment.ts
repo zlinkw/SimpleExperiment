@@ -96,8 +96,8 @@ async function createExperimentOverviewSnapshot(): Promise<ExperimentOverviewSna
 
 function alertDetailsFor(flags: { missing_progress: boolean; stalled: boolean; recent_failure: boolean }, health?: HealthPayload, recovery?: ReturnType<typeof classifyRecentFailures>): Array<{ type: string; message: string }> {
   return [
-    flags.missing_progress ? { type: "missing_progress", message: "experiment has no progress update" } : null,
-    flags.stalled ? { type: "stalled", message: "experiment has no progress update" } : null,
+    flags.missing_progress ? { type: "missing_progress", message: "training experiment has not produced progress within the startup grace period" } : null,
+    flags.stalled ? { type: "stalled", message: "experiment output has not changed for 30 minutes" } : null,
     flags.recent_failure ? { type: "recent_failure", message: recovery && health
       ? recentFailureAlertMessage(recovery, health)
       : health?.status === "warning" && health.reason === "failed_recent"
@@ -125,6 +125,7 @@ export interface LogRecord {
 
 const RECENT_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MISSING_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
+const STALLED_TIMEOUT_MS = 30 * 60 * 1000;
 
 export async function experimentCommand(action: string, rest: string[], flags: CliFlags): Promise<number> {
   if (action === "list") return experimentList(flags);
@@ -544,7 +545,7 @@ export async function experimentInspect(id: string, flags: CliFlags): Promise<nu
       reason,
       suggestions: diagnosisSuggestions(reason),
       latest_message: findLatestTrainingMessage(records),
-      stale_seconds: staleSeconds(String(snapshot.updated_at || "")),
+      stale_seconds: staleSeconds(experimentActivityAt(row) || String(snapshot.updated_at || "")),
       ...(row.status === "failed" ? { failure_context: { last_error: lastErrorMessage(records), stage: snapshot.stage, worker: snapshot.worker } } : {}),
       ...(flags.full ? { evidence: trimMessages(records.map((item) => item.message), 20, 200) } : {}),
     },
@@ -799,7 +800,8 @@ export async function loadExperiments(): Promise<ExperimentRow[]> {
   for (const row of rows) {
     row.missing_progress = isMissingProgress(row);
   }
-  for (const row of rows) applyHealth(row);
+  const healthNow = Date.now();
+  for (const row of rows) applyHealth(row, healthNow);
   return rows.sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
 }
 
@@ -1321,7 +1323,16 @@ function runtimeFields(item: RuntimeObservation, row: ExperimentRow): Partial<Ex
     created: row.created || item.worker_task?.started_at || "",
     started_at: row.started_at || row.created || item.worker_task?.started_at || "",
     updated: item.updated_at,
-    raw: { ...(row.raw || {}), runtimeLog: item.log, tmux: item.tmux, worker: item.worker, config_path: item.config.path || row.raw?.config_path || "", runtimeRunId: item.run_id, ...(item.worker_task?.id ? { workerTaskId: item.worker_task.id } : {}) },
+    raw: {
+      ...(row.raw || {}),
+      runtimeLog: item.log,
+      tmux: item.tmux,
+      worker: item.worker,
+      config_path: item.config.path || row.raw?.config_path || "",
+      runtimeRunId: item.run_id,
+      ...(item.worker_task?.id ? { workerTaskId: item.worker_task.id } : {}),
+      runtimeActivityAt: item.worker_task?.log_updated_at || firstString(row.raw || {}, ["runtimeActivityAt"]) || "",
+    },
   };
 }
 
@@ -1795,10 +1806,21 @@ function yamlValue(yaml: string, key: string): string {
   return match ? match[1].trim().replace(/^['"]|['"]$/g, "") : "";
 }
 
-function applyHealth(row: ExperimentRow): void {
+function experimentActivityAt(row: Pick<ExperimentRow, "updated" | "raw">): string {
+  return firstString(row.raw || {}, ["runtimeActivityAt"]) || row.updated || "";
+}
+
+export function isStalled(row: Pick<ExperimentRow, "status" | "updated" | "raw">, now = Date.now(), timeoutMs = STALLED_TIMEOUT_MS): boolean {
+  if (row.status !== "running") return false;
+  const stamp = Date.parse(experimentActivityAt(row));
+  if (!Number.isFinite(stamp)) return false;
+  const age = now - stamp;
+  return age >= 0 && age > timeoutMs;
+}
+
+function applyHealth(row: ExperimentRow, now = Date.now()): void {
   const raw = row.raw || {};
-  const updated = Date.parse(row.updated);
-  const stale = row.status === "running" && Number.isFinite(updated) && Date.now() - updated > 30 * 60 * 1000;
+  const stale = isStalled(row, now);
   const errorText = row.status === "running" ? "" : firstString(raw, ["error", "sync_error"]);
   if (row.status === "failed" || errorText) {
     row.health_status = "error";

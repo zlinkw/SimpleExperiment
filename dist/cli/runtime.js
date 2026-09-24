@@ -247,6 +247,7 @@ function workerTaskFromWindow(window) {
         seed: String(task.seed ?? "").trim(),
         started_at: String(task.startedAt || task.started_at || "").trim(),
         finished_at: String(task.finishedAt || task.finished_at || "").trim(),
+        log_updated_at: String(task.logUpdatedAt || task.log_updated_at || "").trim(),
     };
 }
 function terminalWorkerTaskStatus(status) {
