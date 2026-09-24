@@ -36,6 +36,8 @@ test("runtime observations merge by run id, never by a shared Plan", async () =>
   assert.equal(rows.size, 2);
 
   await applyRuntimeObservations(rows, [observation("run-100")]);
-  assert.equal(rows.get("run-100")?.status, "running");
+  assert.equal(rows.get("run-100")?.status, "success");
+  assert.equal(rows.get("run-100")?.source, "history");
+  assert.equal(rows.get("run-100")?.raw.runtimeRunId, "run-100");
   assert.equal(rows.size, 2);
 });

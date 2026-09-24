@@ -19,7 +19,7 @@ export async function gpuCommand(action: string, _rest: string[], flags: CliFlag
   return 0;
 }
 
-function flattenGpus(snapshot: unknown, experiments: ExperimentRow[]): Array<Record<string, unknown>> {
+export function flattenGpus(snapshot: unknown, experiments: ExperimentRow[]): Array<Record<string, unknown>> {
   const record = asRecord(snapshot);
   const gpuRoot = record.gpu && typeof record.gpu === "object" ? record.gpu as Record<string, unknown> : record;
   const rows: Array<Record<string, unknown>> = [];
@@ -41,7 +41,11 @@ function flattenGpus(snapshot: unknown, experiments: ExperimentRow[]): Array<Rec
         return [item.pid, item.name || item.processName, item.user || item.username].filter(Boolean).join(":");
       }).join("; ");
       const server = String(gpu.workerId || gpu.server || serverId);
-      const running = experiments.filter((row) => row.status === "running" && (row.worker_id === server || String(row.gpu?.id || "") === String(index)));
+      const running = experiments.filter((row) => row.type === "worker_run"
+        && row.status === "running"
+        && row.worker_id === server
+        && String(row.gpu?.id || "") === String(index)
+        && Boolean(row.worker_id) && Boolean(String(row.gpu?.id || "")));
       rows.push({
         server,
         gpu: String(index),

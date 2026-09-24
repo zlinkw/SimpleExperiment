@@ -28,6 +28,8 @@
 
 `progress.percent` 只表示当前可识别训练循环的进度，不是 `worker_run` 总体完成率。多阶段任务切换训练循环时可以回退；没有可识别的 `epoch/max_epoch` 时为 `null`。
 
+`experiment active` 返回归一化后的当前运行对象，不是所有仍能从 tmux pane 解析出的历史文本。若唯一匹配的 Worker Agent 历史已确认 `success`、`failed` 或 `cancelled`，该终态高于 pane 中残留的 runtime observation。
+
 ## experiment health
 
 整体健康判断。

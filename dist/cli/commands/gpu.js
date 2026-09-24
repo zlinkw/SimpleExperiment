@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.gpuCommand = gpuCommand;
+exports.flattenGpus = flattenGpus;
 const api_1 = require("../api");
 const errors_1 = require("../errors");
 const format_1 = require("../format");
@@ -43,7 +44,11 @@ function flattenGpus(snapshot, experiments) {
                 return [item.pid, item.name || item.processName, item.user || item.username].filter(Boolean).join(":");
             }).join("; ");
             const server = String(gpu.workerId || gpu.server || serverId);
-            const running = experiments.filter((row) => row.status === "running" && (row.worker_id === server || String(row.gpu?.id || "") === String(index)));
+            const running = experiments.filter((row) => row.type === "worker_run"
+                && row.status === "running"
+                && row.worker_id === server
+                && String(row.gpu?.id || "") === String(index)
+                && Boolean(row.worker_id) && Boolean(String(row.gpu?.id || "")));
             rows.push({
                 server,
                 gpu: String(index),

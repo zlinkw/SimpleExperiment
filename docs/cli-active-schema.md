@@ -37,4 +37,6 @@
 
 `progress.percent` 表示当前终端可识别训练循环的完成度，不保证表示整个 `worker_run`。一个 `worker_run` 顺序运行多个训练循环时，`epoch` 和 `percent` 可以在循环切换后重新从较小值开始。Agent 不应仅凭此字段估计整个任务的剩余时间。
 
+tmux pane 中仍能解析到旧训练文本，并不单独证明任务仍在运行。若同一物理 `worker_run` 已有 Worker Agent 的 `success`、`failed` 或 `cancelled` 终态，终态优先，残留的 runtime observation 不进入 `active`。
+
 `workflows` 每项为 `{ id, status, plan, worker, tmux }`，空字段省略。`--json --full` 额外保留 `created_at`、`health_status`、`children`、`model`、`dataset`。

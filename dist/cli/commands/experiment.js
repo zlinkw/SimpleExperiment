@@ -60,6 +60,7 @@ exports.experimentRetry = experimentRetry;
 exports.loadExperiments = loadExperiments;
 exports.applyRuntimeObservations = applyRuntimeObservations;
 exports.workerHistoryMatchesRuntime = workerHistoryMatchesRuntime;
+exports.workerHistoryIdentityMatchesRuntime = workerHistoryIdentityMatchesRuntime;
 exports.backfillWorkflowParents = backfillWorkflowParents;
 exports.applyObservationFields = applyObservationFields;
 exports.runtimeRow = runtimeRow;
@@ -833,16 +834,33 @@ async function applyRuntimeObservations(byId, observed) {
     };
     for (const row of workerRows) {
         const match = observed.find((item) => !used.has(item) && (item.run_id === row.id || (row.run_id && item.run_id === row.run_id)));
-        if (match)
+        if (!match)
+            continue;
+        if (isTerminalWorkerHistory(row)) {
+            used.add(match);
+            row.raw = { ...(row.raw || {}), runtimeRunId: match.run_id, workerTaskId: row.id };
+        }
+        else {
             applyMatch(row, match);
+        }
     }
-    const historyRows = workerRows.filter((row) => row.source === "history" && row.status === "running");
-    for (const row of historyRows) {
+    const historyRows = workerRows.filter((row) => row.source === "history");
+    for (const row of historyRows.filter(isTerminalWorkerHistory)) {
+        const candidates = observed.filter((item) => !used.has(item) && workerHistoryIdentityMatchesRuntime(row, item));
+        if (candidates.length !== 1)
+            continue;
+        const item = candidates[0];
+        if (historyRows.filter((candidate) => workerHistoryIdentityMatchesRuntime(candidate, item)).length !== 1)
+            continue;
+        used.add(item);
+        row.raw = { ...(row.raw || {}), runtimeRunId: item.run_id, workerTaskId: row.id };
+    }
+    for (const row of historyRows.filter((candidate) => candidate.status === "running")) {
         const candidates = observed.filter((item) => !used.has(item) && workerHistoryMatchesRuntime(row, item));
         if (candidates.length !== 1)
             continue;
         const item = candidates[0];
-        if (historyRows.filter((candidate) => workerHistoryMatchesRuntime(candidate, item)).length !== 1)
+        if (historyRows.filter((candidate) => workerHistoryIdentityMatchesRuntime(candidate, item)).length !== 1)
             continue;
         applyMatch(row, item);
         row.raw = { ...(row.raw || {}), runtimeRunId: item.run_id, workerTaskId: row.id };
@@ -858,7 +876,13 @@ async function applyRuntimeObservations(byId, observed) {
     }
 }
 function workerHistoryMatchesRuntime(row, item) {
-    if (row.type !== "worker_run" || row.source !== "history" || row.status !== "running")
+    return row.status === "running" && workerHistoryIdentityMatchesRuntime(row, item);
+}
+function isTerminalWorkerHistory(row) {
+    return row.type === "worker_run" && row.source === "history" && ["success", "failed", "cancelled"].includes(row.status);
+}
+function workerHistoryIdentityMatchesRuntime(row, item) {
+    if (row.type !== "worker_run" || row.source !== "history")
         return false;
     const workerId = String(row.worker_id || "").trim();
     const runtimeWorkerId = String(item.worker?.id || "").trim();
@@ -1404,7 +1428,7 @@ function experimentKind(id, row) {
 }
 function parentWorkflow(item, rows) {
     const candidates = Array.from(rows.values()).filter((row) => row.type === "workflow" && row.plan === item.plan);
-    return candidates.find((row) => !["completed", "failed", "cancelled"].includes(row.status)) || candidates[0];
+    return candidates.find((row) => !["success", "failed", "cancelled"].includes(row.status));
 }
 function childRuns(parent, rows) {
     return rows.filter((row) => row.type === "worker_run" && row.parent_id === parent.id);
@@ -1551,12 +1575,6 @@ async function resolveExperimentReference(value) {
     const best = pickExperiment(rows, wanted);
     if (best)
         return best;
-    const hit = resolveRuntimeObservation(wanted, await (0, runtime_1.observeRunningExperiments)());
-    if (hit) {
-        const row = runtimeRow(hit);
-        applyHealth(row);
-        return row;
-    }
     throw (0, errors_1.businessError)(`experiment not found: ${wanted}`, JSON.stringify({
         requested: wanted,
         searched_sources: ["current_rows", "runtime_history", "experiment_index", "runtime_observation"],
@@ -1588,12 +1606,14 @@ function referenceRank(row, wanted) {
         return 1;
     if (row.run_id === wanted)
         return 2;
-    if (row.name === wanted)
+    if (String((row.raw || {}).runtimeRunId || "") === wanted)
         return 3;
-    if (String((row.raw || {}).id || "") === wanted)
+    if (row.name === wanted)
         return 4;
-    if (row.tmux === wanted)
+    if (String((row.raw || {}).id || "") === wanted)
         return 5;
+    if (row.tmux === wanted)
+        return 6;
     return 0;
 }
 async function findExperiment(id) {
