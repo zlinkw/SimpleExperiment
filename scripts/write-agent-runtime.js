@@ -21,7 +21,7 @@ const unifiedVersion = (() => {
   const cur = String(m[1] || "").trim();
   if (cur !== unifiedVersion) {
     src = src.replace(/CURRENT_RUNTIME_VERSION\s*=\s*"[^"]+"/, `CURRENT_RUNTIME_VERSION = "${unifiedVersion}"`);
-    fs.writeFileSync(manifestPath, src, "utf8");
+    writeRuntimeFile(manifestPath, src);
     console.log(`[agent-runtime] auto-synced CURRENT_RUNTIME_VERSION ${cur} -> ${unifiedVersion}`);
   }
 })();
@@ -31,6 +31,17 @@ function patchVersionHeader(text, unifiedVer) {
   return text.replace(/(AGENT_VERSION|RUNTIME_VERSION|PLUGIN_VERSION|SCHEDULER_VERSION)\s*=\s*"[^"]+"/g, (match, key) => {
     return `${key} = "${unifiedVer}"`;
   });
+}
+
+function writeRuntimeFile(target, content) {
+  // Windows can allow in-place writes while denying CREATE_ALWAYS on an open runtime file.
+  const fd = fs.openSync(target, fs.existsSync(target) ? "r+" : "w");
+  try {
+    fs.writeFileSync(fd, content, "utf8");
+    fs.ftruncateSync(fd, Buffer.byteLength(content, "utf8"));
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 const runtimes = [
@@ -51,14 +62,14 @@ for (const [modulePath, exportName, targetPath, expectedPrefix] of runtimes) {
     console.log(`[agent-runtime] kept ${targetPath} unified=${unifiedVersion}`);
   } else {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, patched, "utf8");
+    writeRuntimeFile(target, patched);
     console.log(`[agent-runtime] wrote ${targetPath} unified=${unifiedVersion}`);
   }
   const checksumTarget = `${target}.sha256`;
   if (fs.existsSync(checksumTarget)) {
     const checksum = `${crypto.createHash("sha256").update(patched).digest("hex")}  ${path.basename(target)}\n`;
     if (fs.readFileSync(checksumTarget, "utf8") !== checksum) {
-      fs.writeFileSync(checksumTarget, checksum, "utf8");
+      writeRuntimeFile(checksumTarget, checksum);
       console.log(`[agent-runtime] wrote ${path.relative(root, checksumTarget)}`);
     }
   }
@@ -109,7 +120,7 @@ if (previousManifestText === manifestText) {
   console.log(`[agent-runtime] kept ${path.relative(root, manifestOut)} unified=${unifiedVersion}`);
 } else {
   fs.mkdirSync(path.dirname(manifestOut), { recursive: true });
-  fs.writeFileSync(manifestOut, manifestText, "utf8");
+  writeRuntimeFile(manifestOut, manifestText);
   console.log(`[agent-runtime] wrote ${path.relative(root, manifestOut)} unified=${unifiedVersion}`);
 }
 

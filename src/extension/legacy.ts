@@ -7201,7 +7201,7 @@ export class RealtimeTunnelPanelProvider {
         const topology = this.assertPlanTopologyReady("Plan 调度");
         if (topology.mode === "single_worker")
             return this.enabledWorkerConfigs()[0]?.id;
-        if (topology.mode === "worker_pool")
+        if (topology.mode === "worker_pool" || topology.mode === "hub_worker")
             return this.resolveWorkerEndpointId(body?.schedulerOwnerWorkerId || body?.options?.schedulerOwnerWorkerId || body?.options?.workerId || "") || undefined;
         return undefined;
     }
@@ -7212,6 +7212,12 @@ export class RealtimeTunnelPanelProvider {
         if (!workers.length) throw new Error(`${label} 没有已启用的 Worker。`);
         if (workers.length === 1) {
             if (topology.mode === "worker_pool") this.stampWorkerPoolManualTarget(body, workers[0].id);
+            else if (topology.mode === "hub_worker") {
+                const target = this.workerActionTargets().find((item) => item.id === workers[0].id);
+                if (!target) throw new Error(`无法计算 Worker ${workers[0].id} 的项目路径。`);
+                body.selectedWorkerIds = [workers[0].id];
+                body.options = { ...(body.options || {}), workerId: workers[0].id, workers: [target] };
+            }
             return workers[0].id;
         }
         let gpuSnapshot: any = this.lastRealtimeState?.gpu || {};
@@ -7321,6 +7327,8 @@ export class RealtimeTunnelPanelProvider {
     stampPlanTopology(body) {
         const topology = this.assertPlanTopologyReady("Plan 操作");
         const workerId = this.planSchedulerWorkerId(body);
+        if (topology.mode === "hub_worker" && !workerId)
+            throw new Error("每个 Plan 必须选择一个 Worker；请先选择运行服务器。");
         const worker = workerId ? this.enabledWorkerConfigs().find((item) => item.id === workerId) : undefined;
         const remoteAgentPort = worker ? worker.remoteTelemetryPort || worker.remoteAgentPort : undefined;
         const workers = topology.mode !== "hub_worker" && workerId
@@ -7330,7 +7338,7 @@ export class RealtimeTunnelPanelProvider {
                 topology_mode: topology.mode,
                 scheduler_owner_worker_id: workerId,
             }))
-            : body.options?.workers || this.workerActionTargets();
+            : this.workerActionTargets().filter((item) => item.id === workerId);
         body.topologyMode = topology.mode;
         body.schedulerOwnerWorkerId = workerId;
         body.options = {
@@ -9890,8 +9898,6 @@ export class RealtimeTunnelPanelProvider {
         }
         for (const candidate of candidatePlans)
             this.assertExecutionAgentProjectsReady(candidate.body);
-        if (candidatePlans.length > 1 && topology.mode === "single_worker")
-            throw new Error("单 Worker 当前仅支持一个活动 Plan 调度器；运行全部计划需要串行队列，请逐个启动。未提交任何 Plan。");
         const currentState = this.buildPlanRuntimeEvidenceState();
         const activePlans = candidatePlans
             .map((candidate) => ({ planFile: candidate.planFile, activity: activePlanRunEvidence(currentState, candidate.planFile, candidate.plan) }))
@@ -12199,30 +12205,24 @@ export class RealtimeTunnelPanelProvider {
             await this.copyLastCheckStaticReportFromUi();
     }
     async fetchTmuxCaptureFromUi(message: any) {
+        const workerId = this.tmuxWorkerId(message);
         const _pfxRaw = (this.setupConfig as any)?.sessionPrefix || (this.setupConfig as any)?.remoteTmuxSessionPrefix || "simple";
         const _pfx = (0, AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix)(_pfxRaw);
-        const _wid = this.enabledWorkerConfigs()[0]?.id;
+        const _wid = workerId;
         const fallbackWin = _wid ? (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", _wid, _pfx) : `${_pfx}-worker-agent`;
         const win = String(message?.window || message?.session || message?.name || "").trim() || fallbackWin;
         try {
             // 优先走 tunnel client 的通用 request，若不可用则回退为直接本机端口探测
             let result: any = null;
-            const tryClient = (this as any).client;
+            const tryClient = (this.client as any)?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
                 try { result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}`, { method: "GET" }); } catch {}
             }
             if (!result) {
-                let host = "127.0.0.1";
-                let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
-                try {
-                    const targets = this.agentRuntimeUploadTargets?.() || [];
-                    const t = targets.find((x: any) => x.localForwardPort) || targets[0];
-                    if (t) {
-                        host = String((t as any).localForwardHost || (t as any).localHost || host).trim() || host;
-                        port = Number(t.localForwardPort || port);
-                    }
-                } catch {}
-                const token = String(this.tunnelConfig?.token || "");
+                const endpoint = this.tmuxEndpoint(workerId);
+                const host = endpoint.localHost;
+                const port = endpoint.localPort;
+                const token = String(endpoint.token || "");
                 const http = require("http") as typeof import("http");
                 result = await new Promise<any>((resolve, reject) => {
                     const req = http.request({ host, port, path: `/api/tmux/capture?window=${encodeURIComponent(win)}`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 4000 }, (res: any) => {
@@ -12237,32 +12237,40 @@ export class RealtimeTunnelPanelProvider {
             }
             const text = String(result?.text || result?.output || "");
             const ok = result?.ok !== false;
-            const payload = { type: "tmuxCapture", window: win, text, ok, fetchedAt: new Date().toISOString(), error: result?.error || "" };
+            const payload = { type: "tmuxCapture", workerId, window: win, text, ok, fetchedAt: new Date().toISOString(), error: result?.error || "" };
             this.view?.webview.postMessage(payload);
         } catch (exc: any) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
-            this.view?.webview.postMessage({ type: "tmuxCapture", window: win, text: "", ok: false, error: msg, fetchedAt: new Date().toISOString() });
+            this.view?.webview.postMessage({ type: "tmuxCapture", workerId, window: win, text: "", ok: false, error: msg, fetchedAt: new Date().toISOString() });
         }
     }
+    tmuxWorkerId(message: any, allowFallback = false): string {
+        const workers = this.enabledWorkerConfigs();
+        const requested = String(message?.workerId || "").trim();
+        if (allowFallback && !workers.some((worker) => worker.id === requested)) {
+            if (workers[0]?.id) return workers[0].id;
+        }
+        if (!requested || !workers.some((worker) => worker.id === requested)) throw new Error(`未配置 tmux Worker：${requested || "-"}`);
+        return requested;
+    }
+    tmuxEndpoint(workerId: string): any {
+        const endpoint = this.realtimeEndpoints().find((item) => item.id === workerId && item.role === "worker");
+        if (!endpoint) throw new Error(`Worker ${workerId} 的隧道端点未配置`);
+        return endpoint;
+    }
     async fetchTmuxListFromUi(_message: any) {
+        const workerId = this.tmuxWorkerId(_message, true);
         try {
             let result: any = null;
-            const tryClient = (this as any).client;
+            const tryClient = (this.client as any)?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
                 try { result = await tryClient.requestJson(`/api/tmux/list`, { method: "GET" }); } catch {}
             }
             if (!result) {
-                let host = "127.0.0.1";
-                let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
-                try {
-                    const targets = this.agentRuntimeUploadTargets?.() || [];
-                    const t = targets.find((x: any) => x.localForwardPort) || targets[0];
-                    if (t) {
-                        host = String((t as any).localForwardHost || (t as any).localHost || host).trim() || host;
-                        port = Number(t.localForwardPort || port);
-                    }
-                } catch {}
-                const token = String(this.tunnelConfig?.token || "");
+                const endpoint = this.tmuxEndpoint(workerId);
+                const host = endpoint.localHost;
+                const port = endpoint.localPort;
+                const token = String(endpoint.token || "");
                 const http = require("http") as typeof import("http");
                 result = await new Promise<any>((resolve, reject) => {
                     const req = http.request({ host, port, path: `/api/tmux/list`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 5000 }, (res: any) => {
@@ -12275,13 +12283,14 @@ export class RealtimeTunnelPanelProvider {
                     req.end();
                 });
             }
-            this.view?.webview.postMessage({ type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId: result?.workerId || "", gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() });
+            this.view?.webview.postMessage({ type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() });
         } catch (exc: any) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
-            this.view?.webview.postMessage({ type: "tmuxList", ok: false, available: false, sessions: [], error: msg, fetchedAt: new Date().toISOString() });
+            this.view?.webview.postMessage({ type: "tmuxList", ok: false, available: false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() });
         }
     }
     async killTmuxWindowFromUi(message: any) {
+        const workerId = this.tmuxWorkerId(message);
         const target = String(message?.target || message?.window || message?.session || "").trim();
         if (!target) throw new Error("缺少关闭目标 target（期望 session:index）");
         const answer = await vscode.window.showWarningMessage(
@@ -12296,22 +12305,15 @@ export class RealtimeTunnelPanelProvider {
         progress.report({ increment: 10, message: "等待 Agent 确认" });
         let result: any = null;
         let lastError: any = null;
-        const tryClient = (this as any).client;
+        const tryClient = (this.client as any)?.clients?.get(workerId);
         if (tryClient && typeof tryClient.requestJson === "function") {
             try { result = await tryClient.requestJson(`/api/tmux/kill-window`, { method: "POST", body }); } catch (exc) { lastError = exc; result = null; }
         }
         if (!result) {
-            let host = "127.0.0.1";
-            let port = Number(this.tunnelConfig?.localPort || this.setupConfig?.localForwardPort || 18765);
-            try {
-                const targets = this.agentRuntimeUploadTargets?.() || [];
-                const t = targets.find((x: any) => x.localForwardPort) || targets[0];
-                if (t) {
-                    host = String((t as any).localForwardHost || (t as any).localHost || host).trim() || host;
-                    port = Number(t.localForwardPort || port);
-                }
-            } catch {}
-            const token = String(this.tunnelConfig?.token || "");
+            const endpoint = this.tmuxEndpoint(workerId);
+            const host = endpoint.localHost;
+            const port = endpoint.localPort;
+            const token = String(endpoint.token || "");
             const http = require("http") as typeof import("http");
             const payload = JSON.stringify(body);
             result = await new Promise<any>((resolve, reject) => {
@@ -12328,7 +12330,7 @@ export class RealtimeTunnelPanelProvider {
         if (!result) throw new Error(String(lastError?.message || lastError || "kill-window 请求失败：agent 无响应"));
         if (result?.ok === false || result?.error) throw new Error(String(result?.error || result?.message || "agent 拒绝关闭窗口"));
         progress.report({ increment: 80, message: "刷新窗口列表" });
-        try { await this.fetchTmuxListFromUi({}); } catch {}
+        try { await this.fetchTmuxListFromUi({ workerId }); } catch {}
         progress.report({ increment: 10, message: "完成" });
         });
     }
@@ -17076,6 +17078,7 @@ function compactGpuProcessForWebview(proc) {
         memoryMb: firstNumberFieldForWebview(proc, "usedMemoryMb", "used_memory_mb", "memoryMb", "memory"),
         user: firstStringFieldForWebview(proc, "username", "user", "owner"),
         command: compactSensitiveText(firstStringFieldForWebview(proc, "command", "cmd", "commandLine", "cmdline", "args") || "-", WEBVIEW_GPU_PROCESS_COMMAND_LIMIT),
+        pluginManaged: proc.pluginManaged === true,
     });
 }
 function compactRealtimeEndpointForWebview(endpoint) {

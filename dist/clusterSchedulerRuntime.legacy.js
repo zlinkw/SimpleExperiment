@@ -76,6 +76,55 @@ def scheduler_signal_from_control(control: dict[str, Any]) -> str:
     return ""
 
 
+def plan_queue_predecessors_pending(registry_path: str, predecessor_ids: list[str], project_dir: str | Path = ".") -> list[str]:
+    """A prior Plan keeps its Worker until its scheduler exits, even when GPUs are idle."""
+    entries = json.loads(Path(registry_path).read_text(encoding="utf-8"))
+    if not isinstance(entries, list):
+        raise ValueError("Plan queue registry must be a list")
+    registry = {str(row.get("opId")): row for row in entries if isinstance(row, dict)}
+    pending = []
+    for op_id in predecessor_ids:
+        entry = registry.get(op_id)
+        if not entry:
+            continue
+        exit_path = Path(project_dir) / "simple_cluster" / "tmp" / "cluster_scheduler" / f"{op_id}.exit_code"
+        if exit_path.is_file():
+            continue
+        try:
+            pid = int(entry.get("pid") or 0)
+        except (TypeError, ValueError):
+            pid = 0
+        if pid <= 0:
+            if time.time() - float(entry.get("reservedAt") or 0) < 120:
+                pending.append(op_id)
+            continue
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            continue
+        pending.append(op_id)
+    return pending
+
+
+def wait_for_plan_queue(args: argparse.Namespace) -> None:
+    predecessor_ids = [value for value in str(args.wait_for_operations or "").split(",") if value]
+    if not predecessor_ids:
+        return
+    first = True
+    last_heartbeat = 0.0
+    while True:
+        pending = plan_queue_predecessors_pending(args.plan_queue_registry, predecessor_ids, getattr(args, "plan_queue_project_dir", "."))
+        if not pending:
+            break
+        if first or time.monotonic() - last_heartbeat >= 20:
+            append_log(Path(args.scheduler_log), f"[{now()}] plan_queued worker={args.scheduler_owner_worker_id} waiting={','.join(pending)}")
+            first = False
+            last_heartbeat = time.monotonic()
+        time.sleep(5)
+    append_log(Path(args.scheduler_log), f"[{now()}] plan_queue_released worker={args.scheduler_owner_worker_id}")
+    append_scheduler_operation_event(args, "running", "前序 Plan 已完成，开始检测空卡并派发任务。")
+
+
 def scheduler_log_shows_error(tail: str) -> bool:
     if not tail:
         return False
@@ -3204,6 +3253,9 @@ def main() -> None:
     parser.add_argument("--plan-revision", default="")
     parser.add_argument("--worker-set-revision", default="")
     parser.add_argument("--scheduler-owner-worker-id", default="")
+    parser.add_argument("--plan-queue-registry", default="")
+    parser.add_argument("--plan-queue-project-dir", default=".")
+    parser.add_argument("--wait-for-operations", default="")
     parser.add_argument("--debug-mode", action="store_true")
     parser.add_argument("--debug-run-id", default="")
     parser.add_argument("--debug-output-dir", default="")
@@ -3282,6 +3334,7 @@ def main() -> None:
     poll_seconds = max(60, int(args.poll_seconds or 600))
     poll_jitter_seconds = max(0, int(args.poll_jitter_seconds or 0))
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8"))
+    wait_for_plan_queue(args)
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
     session_check_min_seconds = max(1, int(args.session_check_min_seconds or 60))
     passive_interrupt_max_retries = max(0, int(args.passive_interrupt_max_retries or 0))
@@ -3783,6 +3836,8 @@ def main() -> None:
                 break
             if reap_finished_items():
                 write_current_state()
+                _pending_signal_type = SCHEDULER_SIGNAL_TASK_END
+                _last_signal_monotonic = time.monotonic()
             if not fail_stop_reason and scheduler_should_fail_fast(failed, active, testing):
                 fail_stop_reason = str(failed[-1].get("error") or "任务明确失败，已停止派发新任务")[:200]
                 not_dispatched.extend(queue)

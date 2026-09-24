@@ -1706,6 +1706,7 @@ def collect_local_gpu():
                 "used_memory_mb": int(float(mem or 0)),
                 "user": "",
                 "command": "",
+                "pluginManaged": False,
             }
             gpu["processes"].append(proc)
             if pid:
@@ -1725,6 +1726,13 @@ def collect_local_gpu():
                     proc["command"] = detail.get("command", "")
         except Exception:
             pass
+        for gpu in gpus:
+            for proc in gpu["processes"]:
+                try:
+                    with open(f"/proc/{proc['pid']}/environ", "rb") as env_file:
+                        proc["pluginManaged"] = b"SIMPLE_EXPERIMENT_MANAGED_JOB=1" in env_file.read().split(b"\0")
+                except (OSError, ValueError):
+                    pass
     return gpus, ""
 
 def gpu_history_path(root):
@@ -3123,6 +3131,8 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # completion signal that does not depend on the trailing shell 'printf' surviving tmux send-keys).
     if env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"):
         lines.append("export SIMPLE_EXPERIMENT_EXIT_CODE_PATH=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"))))
+    if env.get("SIMPLE_EXPERIMENT_MANAGED_JOB"):
+        lines.append("export SIMPLE_EXPERIMENT_MANAGED_JOB=1")
     # The command below appends its rc via '; printf "%s" "$?" > exit_code_path'. That redirect
     # fails (and the completion signal is lost forever) if the parent dir does not exist, which
     # would leave the scheduler waiting on a never-written file while the session stays alive.
@@ -3141,7 +3151,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # Forward critical env vars directly into the tmux session environment so the
     # launched scheduler sees them even if a later send-keys line is dropped by the
     # startup race. This complements the export lines above (belt-and-suspenders).
-    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
+    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
         _val = env.get(_key)
         if _val:
             try:
@@ -3332,7 +3342,7 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
             os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
         except Exception:
             pass
-        _cmd = f"set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
+        _cmd = f"export SIMPLE_EXPERIMENT_MANAGED_JOB=1; set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
         # Each task gets a separate window in the GPU session. A failed window
         # remains visible; later plans can launch another window on this GPU.
         window_name = "run-" + str(int(time.time() * 1000))
@@ -3733,6 +3743,7 @@ def execute_worker_command(root, command, worker_id):
     log_path = safe_project_path(project_dir, rel_log)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     env = simple_runtime_env(os.environ.copy())
+    env["SIMPLE_EXPERIMENT_MANAGED_JOB"] = "1"
     conda_declared = any(key in command for key in ("condaEnv", "conda_env")) or any(key in options for key in ("condaEnv", "conda_env"))
     conda_env = str(command.get("condaEnv") or command.get("conda_env") or options.get("condaEnv") or options.get("conda_env") or "").strip()
     if conda_env in {"-", "--"}:
@@ -9988,6 +9999,9 @@ def _run_plan_registry_path(root):
     return state_child_path(root, "cluster_scheduler", "active_run_plans.json")
 
 
+RUN_PLAN_SUBMISSION_LOCK = threading.RLock()
+
+
 def _read_run_plan_registry(root):
     try:
         data = read_json(_run_plan_registry_path(root), [])
@@ -10109,6 +10123,8 @@ def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
         # The registered pid can be the pane's shell. A surviving tmux window is
         # deliberately kept for diagnosis, but must not reserve the Worker.
         alive = bool(evidence.get("tmuxSessionAlive")) if entry.get("tmuxSession") else bool(evidence.get("pidAlive"))
+        if not alive and entry.get("status") == "queued" and time.time() - float(entry.get("reservedAt") or 0) < 120:
+            alive = True  # A concurrent submission reserved its queue position before launch.
         if not alive:
             continue  # stale entry: drop from registry, reaped below
         blocked.append(op)
@@ -10120,23 +10136,31 @@ def fence_stale_run_plans(root, new_op_id, new_worker_ids, new_owner):
     return {"blocked": blocked, "reapedZombies": reaped}
 
 
-def register_active_run_plan(root, op_id, pid, tmux_session, worker_ids, owner):
-    entries = [e for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "") != str(op_id)]
-    entries.append({
-        "opId": str(op_id),
-        "pid": int(pid or 0),
-        "tmuxSession": str(tmux_session or ""),
-        "workerIds": [str(w) for w in (worker_ids or [])],
-        "ownerWorkerId": str(owner or ""),
-        "startedAt": now_iso(),
-        "status": "running",
-    })
-    _write_run_plan_registry(root, entries)
+def register_active_run_plan(root, op_id, pid, tmux_session, worker_ids, owner, status="running"):
+    with RUN_PLAN_SUBMISSION_LOCK:
+        entries = _read_run_plan_registry(root)
+        previous = next((e for e in entries if isinstance(e, dict) and str(e.get("opId") or "") == str(op_id)), None)
+        entry = {
+            "opId": str(op_id),
+            "pid": int(pid or 0),
+            "tmuxSession": str(tmux_session or ""),
+            "workerIds": [str(w) for w in (worker_ids or [])],
+            "ownerWorkerId": str(owner or ""),
+            "startedAt": previous.get("startedAt") if previous else now_iso(),
+            "reservedAt": previous.get("reservedAt") if previous else time.time(),
+            "status": status,
+        }
+        if previous is None:
+            entries.append(entry)
+        else:
+            entries[entries.index(previous)] = entry
+        _write_run_plan_registry(root, entries)
 
 
 def deregister_active_run_plan(root, op_id):
-    entries = [e for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "") != str(op_id)]
-    _write_run_plan_registry(root, entries)
+    with RUN_PLAN_SUBMISSION_LOCK:
+        entries = [e for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "") != str(op_id)]
+        _write_run_plan_registry(root, entries)
 
 
 def handle_action(root, action, payload, operation_id, op_id):
@@ -10264,6 +10288,8 @@ def handle_action(root, action, payload, operation_id, op_id):
         workers = action_options(payload).get("workers")
         if not isinstance(workers, list) or not workers:
             return terminal_action(root, action, operation_id, op_id, "failed", "缺少 Worker 配置，无法启动计划。", request=payload)
+        if len(workers) != 1 or not str(workers[0].get("id") or "").strip():
+            return terminal_action(root, action, operation_id, op_id, "failed", "每个 Plan 必须且只能指定一个 Worker。", request=payload)
         try:
             validation = scheduler_validate_json(root, scheduler, plan, default_result_csv_dir)
         except Exception as exc:
@@ -10272,9 +10298,9 @@ def handle_action(root, action, payload, operation_id, op_id):
         # schedulers never over-allocate the same worker's GPUs (root cause of the 6-job overflow).
         worker_ids = [str(w.get("id") or "").strip() for w in workers if isinstance(w, dict)]
         scheduler_owner_w = str(action_operation_fields(payload).get("schedulerOwnerWorkerId") or "").strip()
-        fence_result = fence_stale_run_plans(root, op_id, worker_ids, scheduler_owner_w)
-        if fence_result.get("blocked"):
-            return terminal_action(root, action, operation_id, op_id, "failed", "同一 Worker 已有活动 Plan 调度器：" + ", ".join(fence_result["blocked"]) + "。请先明确中止旧 Plan，或等它完成。", {"schedulerStarted": False, "blockingOperations": fence_result["blocked"], "planFile": plan}, request=payload)
+        with RUN_PLAN_SUBMISSION_LOCK:
+            fence_result = fence_stale_run_plans(root, op_id, worker_ids, scheduler_owner_w)
+            register_active_run_plan(root, op_id, 0, "", worker_ids, scheduler_owner_w, "queued")
         if fence_result.get("reapedZombies"):
             try:
                 append_event(root, {"type": "scheduler_zombies_reaped", "operationId": operation_id, "payload": {"reapedZombies": fence_result.get("reapedZombies") or [], "newOpId": op_id}})
@@ -10318,6 +10344,9 @@ def handle_action(root, action, payload, operation_id, op_id):
             "--operation-action", action,
             "--plan-revision", str(action_operation_fields(payload).get("planRevision") or ""),
             "--scheduler-log", log_rel,
+            "--plan-queue-registry", _run_plan_registry_path(root),
+            "--plan-queue-project-dir", root,
+            "--wait-for-operations", ",".join(fence_result.get("blocked") or []),
             "--default-result-csv-dir", default_result_csv_dir,
         ]
         operation_fields = action_operation_fields(payload)
@@ -10381,6 +10410,7 @@ def handle_action(root, action, payload, operation_id, op_id):
                     else:
                         raise exc
                 except Exception as _fb_exc:
+                    deregister_active_run_plan(root, op_id)
                     return terminal_action(root, action, operation_id, op_id, "failed", f"scheduler tmux launch failed: {exc}; Popen fallback also failed: {_fb_exc}", {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch", "error": str(exc), "logTail": _truncate_text(str(exc), 4000)}, request=payload)
         if not used_tmux and not pid:
             msg = scheduler_launch_error or "tmux available but scheduler launch failed and Popen fallback attempted"
@@ -10405,6 +10435,7 @@ def handle_action(root, action, payload, operation_id, op_id):
                             _lf2.write(f"session={tmux_session!r} op_id={op_id!r} cwd={str(root)!r}\n")
                     except Exception:
                         pass
+                    deregister_active_run_plan(root, op_id)
                     return terminal_action(root, action, operation_id, op_id, "failed", msg, {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch_no_fallback", "error": msg, "logTail": _truncate_text(msg, 4000)}, request=payload)
             except Exception as _exc2:
                 try:
@@ -10413,6 +10444,7 @@ def handle_action(root, action, payload, operation_id, op_id):
                         _lf2.write(f"[{now_iso()}] SCHEDULER LAUNCH FAILED: {msg} fallback_exc={_exc2!r}\n")
                 except Exception:
                     pass
+                deregister_active_run_plan(root, op_id)
                 return terminal_action(root, action, operation_id, op_id, "failed", msg, {"schedulerStarted": False, "tmuxSession": tmux_session, "logPath": log_rel, "planFile": plan, "failureSource": "scheduler_tmux_launch_no_fallback", "error": msg, "logTail": _truncate_text(str(_exc2), 4000)}, request=payload)
         # Register the scheduler as a tracked task so it shows up in the task cards and can be
         # stopped from the panel even though it is launched by run-plan (not a worker task). This
@@ -10442,7 +10474,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         except Exception:
             pass
         try:
-            register_active_run_plan(root, op_id, pid, tmux_session if used_tmux else "", worker_ids, scheduler_owner_w)
+            register_active_run_plan(root, op_id, pid, tmux_session if used_tmux else "", worker_ids, scheduler_owner_w, "queued" if fence_result.get("blocked") else "running")
         except Exception:
             pass
 
@@ -10632,6 +10664,8 @@ def handle_action(root, action, payload, operation_id, op_id):
                         }, request=payload)
                 except Exception:
                     pass
+            finally:
+                deregister_active_run_plan(root, op_id)
         threading.Thread(target=wait_scheduler, daemon=True, name=f"scheduler-{op_id}").start()
         label = "scheduler reproduced" if action == "reproduce-plan" else "scheduler started"
         extra = {"pid": pid, "tmuxSession": tmux_session if used_tmux else "", "logPath": log_rel, "planFile": plan, "submissionAccepted": True, "schedulerStarted": True, "debugMode": debug_mode, "debugRunId": debug_run_id if debug_mode else "", "debugOutputDir": debug_output_dir, "validation": {"ok": True, "jobCount": len(validation.get("jobs") or []) if isinstance(validation, dict) else 0}, "fenced": fence_result.get("fenced") or [], "reapedZombies": fence_result.get("reapedZombies") or []}
@@ -10642,7 +10676,8 @@ def handle_action(root, action, payload, operation_id, op_id):
             msg_suffix = f" 已清理僵尸会话 {', '.join(fence_result['reapedZombies'])}"
         else:
             msg_suffix = ""
-        return progress_action(root, action, operation_id, op_id, "running", f"{label} pid={pid}，等待 scheduler 终态。{msg_suffix}", extra, request=payload)
+        queue_wait = fence_result.get("blocked") or []
+        return progress_action(root, action, operation_id, op_id, "queued" if queue_wait else "running", (f"Plan 已排队，等待同一 Worker 的 {len(queue_wait)} 个前序 Plan 完成。" if queue_wait else f"{label} pid={pid}，等待 scheduler 终态。{msg_suffix}"), extra, request=payload)
     if action == "retry-experiment":
         worker_id = selected_worker_id(payload)
         if not worker_id:

@@ -1367,6 +1367,7 @@ export function renderPanelHtml(): string {
            <div class="section-desc">默认展示所有窗口卡片，点击卡片切换 capture-pane；窗口数量按服务器 GPU 数量动态生成</div>
          </div>
          <div class="cardTools">
+           <select id="tmuxWorkerSelect" title="选择 tmux 所在 Worker"></select>
            <button id="tmuxRefreshBtn" title="重新拉取 tmux 捕获面板的内容" class="secondary" type="button">刷新 capture</button>
            <button id="tmuxListBtn" title="列出服务器上所有 tmux 会话，供 capture 面板选择" class="secondary" type="button">列出 sessions</button>
            <select id="tmuxWindowSelect" title="选择 tmux 目标（session:window.pane）" style="display:none"><option value="">正在列出...</option></select>
@@ -1638,6 +1639,7 @@ export function renderPanelHtml(): string {
     let tmuxPollTimer = 0;
     const TMUX_POLL_MS = 5000;
     let tmuxListCache = { sessions: [], gpuIds: [], workerId: "", fetchedAt: "" };
+    let tmuxSelectedWorkerId = String((restoredWebviewState && restoredWebviewState.tmuxSelectedWorkerId) || "");
     let tmuxWindowFilter = String((restoredWebviewState && restoredWebviewState.tmuxWindowFilter) || "all");
     let tmuxSelectedPaneTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedPaneTarget) || "");
     let tmuxSelectedTaskTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedTaskTarget) || "");
@@ -1776,7 +1778,7 @@ export function renderPanelHtml(): string {
           const c = candidates[i];
           html += '<option value="' + escAttr(c.target) + '">' + esc(c.label + " " + c.target) + '</option>';
         }
-        if (!html) html = '<option value="zlk-worker-agent">zlk-worker-agent (fallback)</option>';
+        if (!html) html = '<option value="">暂无窗口</option>';
         const prev = sel.value;
         sel.innerHTML = html;
         if (prev) {
@@ -1893,7 +1895,7 @@ export function renderPanelHtml(): string {
       try {
         const clientActionId = createClientActionId("fetchTmuxList", "tmuxList");
         const pendingKey = "fetchTmuxList:tmuxList";
-        const payload = { command: "fetchTmuxList", clientActionId };
+        const payload = { command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, clientActionId };
         pendingActionsById[clientActionId] = { command: "fetchTmuxList", pendingKey, clientActionId, startedAt: Date.now(), label: "fetchTmuxList", status: "running" };
         if (pendingActionTimeouts[clientActionId]) clearTimeout(pendingActionTimeouts[clientActionId]);
         pendingActionTimeouts[clientActionId] = setTimeout(function(){
@@ -1947,8 +1949,8 @@ export function renderPanelHtml(): string {
       const cands = getTmuxWindowCandidates(tmuxListCache.sessions || []);
       for (let i = 0; i < cands.length; i++) if (cands[i].active) return cands[i].target;
       if (cands.length) return cands[0].target;
-      if (tmuxListCache.sessions && tmuxListCache.sessions[0]) return (tmuxListCache.sessions[0].name || "zlk-worker-agent") + ":0";
-      return "zlk-worker-agent";
+      if (tmuxListCache.sessions && tmuxListCache.sessions[0]) return (tmuxListCache.sessions[0].name || "") + ":0";
+      return "";
     }
     function decodeCapturedText(raw){
       let s = String(raw || "");
@@ -1980,13 +1982,14 @@ export function renderPanelHtml(): string {
       const meta = el("tmuxCaptureMeta");
       const win = tmuxResolveCaptureTarget();
       if (!pre || !meta) return;
+      if (!win || !tmuxSelectedWorkerId) return;
       const now = Date.now();
       if (tmuxLastCaptureTarget === win && pre.dataset.lastFetch && (now - Number(pre.dataset.lastFetch)) < 800) return;
       tmuxLastCaptureTarget = win;
       pre.dataset.lastFetch = String(now);
       meta.textContent = "同步中 " + win + " ...";
       try {
-        vscode.postMessage({ command: "fetchTmuxCapture", window: win });
+        vscode.postMessage({ command: "fetchTmuxCapture", workerId: tmuxSelectedWorkerId, window: win });
       } catch (e) {
         meta.textContent = "同步失败 " + String(e).slice(0,60);
       }
@@ -2656,7 +2659,7 @@ export function renderPanelHtml(): string {
               try { refreshTmuxList(); refreshTmuxCapture(); } catch (e) {}
             }
           }, 30000);
-          vscode.postMessage({ command: "killTmuxWindow", target: closeTarget, window: closeTarget, session: closeSession, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
+          vscode.postMessage({ command: "killTmuxWindow", workerId: tmuxSelectedWorkerId, target: closeTarget, window: closeTarget, session: closeSession, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
         } catch (e) {
           try { refreshTmuxList(); } catch (err) {}
         }
@@ -2691,7 +2694,7 @@ export function renderPanelHtml(): string {
           tmuxWindowFilter = next;
           tmuxSelectedTaskTarget = "";
           tmuxSelectedPaneTarget = "";
-          persistWebviewState({ tmuxWindowFilter: tmuxWindowFilter, tmuxSelectedTaskTarget: tmuxSelectedTaskTarget, tmuxSelectedPaneTarget: tmuxSelectedPaneTarget });
+          persistWebviewState({ tmuxWindowFilter: tmuxWindowFilter, tmuxSelectedTaskTarget: tmuxSelectedTaskTarget, tmuxSelectedPaneTarget: tmuxSelectedPaneTarget, tmuxSelectedWorkerId: tmuxSelectedWorkerId });
           renderTmuxOverview(tmuxListCache.sessions || []);
         }
         refreshTmuxCapture();
@@ -3230,9 +3233,22 @@ export function renderPanelHtml(): string {
     // TMUX polling init (sessions/windows/panes)
     (function initTmuxPolling(){
       const sel = el("tmuxWindowSelect");
+      const workerSel = el("tmuxWorkerSelect");
       const btn = el("tmuxRefreshBtn");
       const listBtn = el("tmuxListBtn");
       if (sel) sel.addEventListener("change", refreshTmuxCapture);
+      if (workerSel) workerSel.addEventListener("change", function(){
+        tmuxSelectedWorkerId = workerSel.value;
+        persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
+        tmuxWindowFilter = "all";
+        tmuxSelectedPaneTarget = "";
+        tmuxSelectedTaskTarget = "";
+        tmuxListCache = { sessions: [], gpuIds: [], workerId: tmuxSelectedWorkerId, fetchedAt: "" };
+        tmuxLastCaptureTarget = "";
+        const pre = el("tmuxCapturePre");
+        if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.lastFetch = ""; }
+        refreshTmuxList();
+      });
       if (btn) btn.addEventListener("click", refreshTmuxCapture);
       if (listBtn) listBtn.addEventListener("click", refreshTmuxList);
       document.addEventListener("click", (ev)=>{
@@ -3290,18 +3306,28 @@ export function renderPanelHtml(): string {
           continue;
         }
         if (item.type === "tmuxList") {
+          const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
+          if (tmuxSelectedWorkerId && item.workerId !== tmuxSelectedWorkerId && listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; })) continue;
+          tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
+          persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
+          const workerSel = el("tmuxWorkerSelect");
+          if (workerSel && listedWorkers.length) {
+            workerSel.innerHTML = listedWorkers.map(function(worker){ return '<option value="' + escAttr(worker.id) + '">' + esc(worker.name || worker.id) + '</option>'; }).join("");
+            workerSel.value = tmuxSelectedWorkerId;
+          }
           tmuxListCache = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId || "", fetchedAt: item.fetchedAt || new Date().toLocaleTimeString() };
           renderTmuxOverview(item.sessions || []);
           const meta = el("tmuxListMeta");
-          if (meta && item.status) {
+          if (meta && (item.status || item.ok === false || item.error)) {
             if (String(item.status).toLowerCase() === "stalled") meta.textContent = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
-            else if (String(item.status).toLowerCase() === "failed") meta.textContent = "列举失败 " + String(item.error || "").slice(0,80);
+            else if (item.ok === false || item.error || String(item.status).toLowerCase() === "failed") meta.textContent = "列举失败 " + String(item.error || "Worker Agent 无响应").slice(0,80);
           }
           // 自动刷新选中窗口的 capture，保持与筛选卡片同步
           try { refreshTmuxCapture(); } catch (e) {}
           continue;
         }
         if (item.type === "tmuxCapture") {
+          if (tmuxSelectedWorkerId && item.workerId !== tmuxSelectedWorkerId) continue;
           const pre = el("tmuxCapturePre");
           const meta = el("tmuxCaptureMeta");
           if (pre) {
@@ -4244,7 +4270,7 @@ export function renderPanelHtml(): string {
             runKey: gpu.runKey,
             staleFromCache: gpu.staleFromCache,
             mine: isMyGpu(gpu, server.ownerConfig || ownerConfig),
-            processes: asArray(gpu.processes).slice(0, GPU_PROCESS_SIGNATURE_LIMIT).map((proc) => compactRecordForSignature(proc, ["pid", "name", "memoryMb", "user", "command"]))
+        processes: asArray(gpu.processes).slice(0, GPU_PROCESS_SIGNATURE_LIMIT).map((proc) => compactRecordForSignature(proc, ["pid", "name", "memoryMb", "user", "command", "pluginManaged"]))
           }))
         }))
       };
@@ -10556,19 +10582,7 @@ export function renderPanelHtml(): string {
     }
 
     function isMyGpuProcess(process, config) {
-      const username = String(pick(process, ["username", "user", "owner"], "") || "");
-      const command = String(pick(process, ["command", "cmd", "commandLine", "cmdline", "args"], "") || "");
-      const userCandidates = Array.isArray(config.userCandidates)
-        ? config.userCandidates
-        : [config.currentUser].concat(config.currentUserAliases || []).map((item) => String(item || "").trim()).filter(Boolean);
-      const commandKeywords = Array.isArray(config.commandKeywords)
-        ? config.commandKeywords
-        : (config.myCommandKeywords || []).map((item) => String(item || "").trim()).filter(Boolean);
-      const userMatched = userCandidates.some((name) => username === name);
-      const keywordMatched = commandKeywords.some((keyword) => command.includes(keyword));
-      if (config.myProcessMatchMode === "username") return userMatched;
-      if (config.myProcessMatchMode === "command_contains") return keywordMatched;
-      return userMatched || keywordMatched;
+      return process && process.pluginManaged === true;
     }
 
     function normalizeGpuOwnerConfig(value) {
@@ -15931,7 +15945,8 @@ function projectSectionNextAction(status, label, section, anchor, options) {
         name: pick(proc, ["processName", "process_name", "name", "exe", "program", "command"], "-"),
         memoryMb: pick(proc, ["usedMemoryMb", "used_memory_mb", "memoryMb", "memory"], "-"),
         user: pick(proc, ["username", "user", "owner"], "-"),
-        command: pick(proc, ["command", "cmd", "commandLine", "cmdline", "args"], "-")
+        command: pick(proc, ["command", "cmd", "commandLine", "cmdline", "args"], "-"),
+        pluginManaged: proc.pluginManaged === true
       }));
     }
     function normalizeSchedulerRows(rows) {
