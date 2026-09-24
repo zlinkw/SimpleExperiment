@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.74"
-RUNTIME_VERSION = "0.5.74"
-PLUGIN_VERSION = "0.5.74"
+AGENT_VERSION = "0.5.75"
+RUNTIME_VERSION = "0.5.75"
+PLUGIN_VERSION = "0.5.75"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -236,6 +236,7 @@ WORKER_COMMAND_CURSOR_LOCK = threading.Lock()
 EVENT_CURSOR_CACHE = {}
 EVENT_CURSOR_LOCK = threading.Lock()
 EVENT_APPEND_LOCK = threading.RLock()
+WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
 OPERATION_JOURNAL_CACHE = {}
 OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
 RUNTIME_JSON_CACHE = {}
@@ -2309,13 +2310,24 @@ def write_worker_uplink_batch(root, payload):
     commands = read_worker_commands(root, worker_id, commands_since, payload.get("commandsLimit") or 20) if worker_id else []
     return {"schemaVersion": SCHEMA_VERSION, "accepted": True, "events": accepted_events, "availability": bool(availability), "commands": commands, "generatedAt": now_iso()}
 
-def append_worker_task(root, task):
-    data = read_json(path_for(root, "worker_task_snapshot.json"), {})
-    tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+def worker_task_snapshot_key(task):
     key = str(task.get("commandId") or task.get("operationId") or task.get("runKey") or "")
-    kept = [item for item in tasks if str((item or {}).get("commandId") or (item or {}).get("operationId") or (item or {}).get("runKey") or "") != key]
-    kept.append(task)
-    atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": kept[-200:], "generatedAt": now_iso()})
+    if key:
+        return ("id", key)
+    return ("legacy", str(task.get("planFile") or task.get("plan") or ""), str(task.get("pid") or ""), str(task.get("tmuxSession") or ""))
+
+def append_worker_task(root, task):
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        key = worker_task_snapshot_key(task)
+        old_index = next((index for index, item in enumerate(tasks) if worker_task_snapshot_key(item or {}) == key), None)
+        kept = [item for item in tasks if worker_task_snapshot_key(item or {}) != key]
+        if old_index is None:
+            kept.append(task)
+        else:
+            kept.insert(min(old_index, len(kept)), task)
+        atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": kept[-200:], "generatedAt": now_iso()})
 
 def simple_runtime_env(base=None):
     env = dict(os.environ if base is None else base)
@@ -3465,25 +3477,62 @@ def exit_code_ready(path):
         return False
 
 def current_worker_task(root, task):
-    data = read_json(path_for(root, "worker_task_snapshot.json"), {})
-    tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
-    key = str(task.get("commandId") or task.get("operationId") or task.get("runKey") or "")
-    for item in reversed(tasks):
-        if isinstance(item, dict) and str(item.get("commandId") or item.get("operationId") or item.get("runKey") or "") == key:
-            return item
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        key = worker_task_snapshot_key(task)
+        for item in reversed(tasks):
+            if isinstance(item, dict) and worker_task_snapshot_key(item) == key:
+                return item
     return {}
 
 def worker_task_was_stopped(root, task):
     current = current_worker_task(root, task)
     return str(current.get("status") or "") == "stopped" or bool(current.get("manualStopType") or current.get("stopReason"))
 
+def reconcile_worker_task_exit_codes(root):
+    """Consume persisted exit codes without inferring completion from tmux state."""
+    events = []
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        for task in tasks:
+            if not isinstance(task, dict) or str(task.get("status") or "").lower() != "running":
+                continue
+            if task.get("manualStopType") or task.get("stopReason"):
+                continue
+            exit_rel = str(task.get("exitCodePath") or "").strip()
+            if not exit_rel:
+                continue
+            try:
+                exit_path = safe_project_path(root, exit_rel)
+            except Exception:
+                continue
+            if not exit_code_ready(exit_path):
+                continue
+            exit_code = read_task_exit_code(exit_path)
+            task["status"] = "completed" if exit_code == 0 else "failed"
+            task["exitCode"] = exit_code
+            task["finishedAt"] = now_iso()
+            task["reconciledAt"] = task["finishedAt"]
+            events.append(("worker_task_completed" if exit_code == 0 else "worker_task_failed", dict(task)))
+        if events:
+            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+    for event_type, task in events:
+        append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
+    return {"changed": len(events)}
+
 def reconcile_worker_tasks_after_restart(root, eligible_ids=None):
     """Recover terminal task state after the previous Agent's waiter threads disappear."""
-    data = read_json(path_for(root, "worker_task_snapshot.json"), {})
-    tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
-    events = []
+    exit_result = reconcile_worker_task_exit_codes(root)
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+    missing_panes = set()
     for task in tasks:
         if not isinstance(task, dict) or str(task.get("status") or "").lower() != "running":
+            continue
+        if task.get("manualStopType") or task.get("stopReason"):
             continue
         if eligible_ids is not None and str(task.get("commandId") or "") not in eligible_ids:
             continue
@@ -3492,58 +3541,45 @@ def reconcile_worker_tasks_after_restart(root, eligible_ids=None):
         if not re.fullmatch(r"%[0-9]+", pane_id) or not session:
             continue
         exit_rel = str(task.get("exitCodePath") or "").strip()
-        exit_path = ""
         if exit_rel:
             try:
-                exit_path = safe_project_path(root, exit_rel)
+                if exit_code_ready(safe_project_path(root, exit_rel)):
+                    continue
             except Exception:
                 pass
-        if exit_path and exit_code_ready(exit_path):
-            exit_code = read_task_exit_code(exit_path)
-            task["status"] = "completed" if exit_code == 0 else "failed"
-            task["exitCode"] = exit_code
-        else:
-            try:
-                pane = subprocess.run(["tmux", "display-message", "-p", "-t", pane_id, "#{session_name}"],
-                                      capture_output=True, text=True, timeout=3, cwd=root)
-            except Exception:
-                continue  # Missing tmux service is not proof that the task exited.
-            if pane.returncode == 0 and pane.stdout.strip() == session:
+        try:
+            pane = subprocess.run(["tmux", "display-message", "-p", "-t", pane_id, "#{session_name}"],
+                                  capture_output=True, text=True, timeout=3, cwd=root)
+        except Exception:
+            continue  # Missing tmux service is not proof that the task exited.
+        if pane.returncode != 0 or pane.stdout.strip() != session:
+            missing_panes.add(worker_task_snapshot_key(task))
+    events = []
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        for task in tasks:
+            if not isinstance(task, dict) or worker_task_snapshot_key(task) not in missing_panes:
                 continue
+            if str(task.get("status") or "").lower() != "running" or task.get("manualStopType") or task.get("stopReason"):
+                continue
+            exit_rel = str(task.get("exitCodePath") or "").strip()
+            if exit_rel:
+                try:
+                    if exit_code_ready(safe_project_path(root, exit_rel)):
+                        continue
+                except Exception:
+                    pass
             task["status"] = "failed"
             task["error"] = "Agent 重启后未找到原任务 tmux pane，且没有完成退出码。"
-        task["finishedAt"] = now_iso()
-        task["reconciledAt"] = task["finishedAt"]
-        events.append(("worker_task_completed" if task["status"] == "completed" else "worker_task_failed", dict(task)))
-    if events:
-        atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
-        for event_type, task in events:
-            append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
-    return {"changed": len(events)}
-
-def start_worker_task_recovery_loop(root, poll_seconds=5):
-    """Follow only tasks that were running before this Agent started."""
-    data = read_json(path_for(root, "worker_task_snapshot.json"), {})
-    tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
-    pending = {str(task.get("commandId") or "") for task in tasks
-               if isinstance(task, dict) and str(task.get("status") or "").lower() == "running"
-               and re.fullmatch(r"%[0-9]+", str(task.get("pid") or "")) and str(task.get("commandId") or "")}
-    if not pending:
-        return
-    def loop():
-        while pending:
-            try:
-                reconcile_worker_tasks_after_restart(root, pending)
-                current = read_json(path_for(root, "worker_task_snapshot.json"), {})
-                rows = current.get("tasks") if isinstance(current, dict) and isinstance(current.get("tasks"), list) else []
-                running = {str(task.get("commandId") or "") for task in rows
-                           if isinstance(task, dict) and str(task.get("status") or "").lower() == "running"}
-                pending.intersection_update(running)
-            except Exception:
-                pass
-            if pending:
-                time.sleep(max(1.0, poll_seconds))
-    threading.Thread(target=loop, daemon=True, name="worker-task-recovery").start()
+            task["finishedAt"] = now_iso()
+            task["reconciledAt"] = task["finishedAt"]
+            events.append(("worker_task_failed", dict(task)))
+        if events:
+            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+    for event_type, task in events:
+        append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
+    return {"changed": exit_result["changed"] + len(events)}
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
@@ -3585,14 +3621,12 @@ def execute_worker_command(root, command, worker_id):
                 except Exception as exc:
                     append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": {"commandId": command_id, "status": "failed", "message": str(exc)}})
                     return {"commandId": command_id, "status": "failed", "message": str(exc)}
-            task["status"] = "stopped"
-            task["finishedAt"] = now_iso()
-            task["stopReason"] = stop_reason
-            task["manualStopType"] = stop_reason
-            task["stopSource"] = stop_source
-            stopped_tasks.append({k: task.get(k) for k in ("commandId", "operationId", "runKey", "session", "experimentIndex", "gpuId", "stopReason", "manualStopType", "stopSource") if task.get(k) is not None})
-        if matched:
-            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                current = current_worker_task(root, task)
+                if str(current.get("status") or "").lower() == "running":
+                    stopped_task = {**current, "status": "stopped", "finishedAt": now_iso(), "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
+                    append_worker_task(root, stopped_task)
+                    stopped_tasks.append({k: stopped_task.get(k) for k in ("commandId", "operationId", "runKey", "session", "experimentIndex", "gpuId", "stopReason", "manualStopType", "stopSource") if stopped_task.get(k) is not None})
         result = {"commandId": command_id, "status": "completed", "message": f"stopped={len(stopped)} matched={len(matched)}", "stoppedPids": stopped, "stoppedTasks": stopped_tasks, "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
         append_event(root, {"type": "worker_task_stopped", "workerId": worker_id, "operationId": command_id, "payload": result})
         return result
@@ -3847,18 +3881,20 @@ def execute_worker_command(root, command, worker_id):
                 rc = read_task_exit_code(exit_code_path)
             else:
                 rc = proc.wait()
-            if worker_task_was_stopped(root, task):
-                return
-            finished = {**task, "status": "completed" if rc == 0 else "failed", "exitCode": rc, "finishedAt": now_iso()}
-            append_worker_task(root, finished)
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                if worker_task_was_stopped(root, task) or str(current_worker_task(root, task).get("status") or "").lower() != "running":
+                    return
+                finished = {**task, "status": "completed" if rc == 0 else "failed", "exitCode": rc, "finishedAt": now_iso()}
+                append_worker_task(root, finished)
             append_event(root, {"type": "worker_task_completed" if rc == 0 else "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": finished})
             if used_tmux and rc == 0:
                 _recycle_after_task()
         except Exception as exc:
-            if worker_task_was_stopped(root, task):
-                return
-            failed = {**task, "status": "failed", "error": str(exc), "finishedAt": now_iso()}
-            append_worker_task(root, failed)
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                if worker_task_was_stopped(root, task) or str(current_worker_task(root, task).get("status") or "").lower() != "running":
+                    return
+                failed = {**task, "status": "failed", "error": str(exc), "finishedAt": now_iso()}
+                append_worker_task(root, failed)
             append_event(root, {"type": "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": failed})
     threading.Thread(target=wait_task, daemon=True, name=f"worker-task-{command_id}").start()
     return result
@@ -10750,6 +10786,10 @@ def handle_action(root, action, payload, operation_id, op_id):
     return terminal_action(root, action, operation_id, op_id, "failed", f"不支持的操作：{action}")
 
 def api_worker_tasks(root):
+    try:
+        reconcile_worker_task_exit_codes(root)
+    except Exception:
+        pass
     data = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), None)
     if isinstance(data, dict):
         tasks = data.get("tasks") if isinstance(data.get("tasks"), list) else []
@@ -11759,7 +11799,6 @@ def stop_scheduler_operation(root, payload):
     try:
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
-        dirty = False
         for task in tasks:
             if not isinstance(task, dict):
                 continue
@@ -11796,14 +11835,12 @@ def stop_scheduler_operation(root, payload):
                     task_error = True
             if task_error:
                 continue
-            task["status"] = "stopped"
-            task["finishedAt"] = now_iso()
-            task["stopReason"] = "scheduler_aborted"
-            task["manualStopType"] = "scheduler_aborted"
-            stopped_task_count += 1
-            dirty = True
-        if dirty:
-            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                current = current_worker_task(root, task)
+                if str(current.get("status") or "").lower() == "running":
+                    append_worker_task(root, {**current, "status": "stopped", "finishedAt": now_iso(), "stopReason": "scheduler_aborted", "manualStopType": "scheduler_aborted"})
+                    stopped_task_count += 1
+        if stopped_task_count:
             try:
                 append_event(root, {"type": "worker_task_stopped", "payload": {"reason": "scheduler_aborted", "terminatedSessions": terminated_sessions}})
             except Exception:
@@ -11922,7 +11959,6 @@ def serve_http(args):
     prune_agent_state(root, force=True)
     if mode == "worker_telemetry":
         reconcile_worker_tasks_after_restart(root)
-        start_worker_task_recovery_loop(root)
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 60), getattr(args, "jitter_seconds", 30))

@@ -5,7 +5,7 @@ const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 const { readSource } = require("../_helpers/sourceReader");
 
-test("agent read-only telemetry APIs reuse runtime JSON cache without sharing write reads", () => {
+test("agent telemetry APIs cache snapshots while task reads check persisted exit codes", () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
   const script = String.raw`
 import importlib.util, json, types
@@ -66,8 +66,8 @@ print(json.dumps({
   const run = spawnSync("python", ["-c", script], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout.trim());
-  assert.equal(result.cachedReads, 3);
-  assert.equal(result.invalidatedReads, 4);
+  assert.equal(result.cachedReads, 5);
+  assert.equal(result.invalidatedReads, 6);
   assert.equal(result.writePathReads, 2);
   assert.equal(result.gpuReused, true);
   assert.equal(result.tasksEquivalent, true);

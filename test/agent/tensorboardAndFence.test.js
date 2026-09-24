@@ -619,43 +619,67 @@ print("worker restart reconciliation ok")
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-test("Worker restart keeps recovering preexisting tasks after they finish", () => {
+test("worker task API self-heals an exit code produced after Agent restart", () => {
   const script = `
 import importlib.util, pathlib, tempfile, os, types
 spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
 agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
 with tempfile.TemporaryDirectory() as root:
     agent.AGENT_STATE_DIR = os.path.join(root, "state")
-    old_exit = pathlib.Path(root) / "simple_cluster" / "tmux_logs" / "old.exit_code"
-    new_exit = pathlib.Path(root) / "simple_cluster" / "tmux_logs" / "new.exit_code"
-    old_exit.parent.mkdir(parents=True)
+    exit_path = pathlib.Path(root) / "simple_cluster" / "tmux_logs" / "late-done.exit_code"
+    exit_path.parent.mkdir(parents=True)
     snapshot = agent.path_for(root, "worker_task_snapshot.json")
-    old = {"commandId": "old", "status": "running", "pid": "%60", "tmuxSession": "zlk-gpu-2", "exitCodePath": "simple_cluster/tmux_logs/old.exit_code"}
-    agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [old]})
+    task = {"commandId": "late-done", "workerId": "worker-a", "status": "running", "pid": "%97", "tmuxSession": "zlk-gpu-2", "exitCodePath": "simple_cluster/tmux_logs/late-done.exit_code"}
+    agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [task]})
     agent.subprocess.run = lambda *args, **kwargs: types.SimpleNamespace(returncode=0, stdout="zlk-gpu-2")
     assert agent.reconcile_worker_tasks_after_restart(root)["changed"] == 0
     events = []
     agent.append_event = lambda root, event: events.append(event)
-    class FinishAfterRestart:
-        def __init__(self, target=None, **kwargs): self.target = target
-        def start(self):
-            old_exit.write_text("0", encoding="utf-8")
-            new_exit.write_text("0", encoding="utf-8")
-            new = {"commandId": "new", "status": "running", "pid": "%61", "tmuxSession": "zlk-gpu-1", "exitCodePath": "simple_cluster/tmux_logs/new.exit_code"}
-            agent.append_worker_task(root, new)
-            self.target()
-    agent.threading.Thread = FinishAfterRestart
-    agent.start_worker_task_recovery_loop(root, 1)
-    tasks = {task["commandId"]: task for task in agent.read_json(snapshot, {})["tasks"]}
-    assert tasks["old"]["status"] == "completed", tasks
-    assert tasks["new"]["status"] == "running", tasks
+    agent.subprocess.run = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("runtime reconciliation must not probe tmux"))
+    assert agent.api_worker_tasks(root)["tasks"][0]["status"] == "running"
+    exit_path.write_text("0", encoding="utf-8")
+    completed = agent.api_worker_tasks(root)["tasks"][0]
+    assert completed["status"] == "completed" and completed["exitCode"] == 0, completed
+    assert completed["finishedAt"] and completed["reconciledAt"], completed
+    assert agent.api_worker_tasks(root)["tasks"][0]["status"] == "completed"
     assert [event["type"] for event in events] == ["worker_task_completed"], events
-print("post-restart task recovery ok")
+print("post-restart task read repair ok")
 `;
   const result = runPython(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /post-restart task recovery ok/);
-  assert.match(agentSource, /start_worker_task_recovery_loop\(root/);
+  assert.match(result.stdout, /post-restart task read repair ok/);
+  assert.doesNotMatch(agentSource, /start_worker_task_recovery_loop\(root/);
+});
+
+test("worker exit-code reconciliation handles failure and preserves manual stop", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, os
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as root:
+    agent.AGENT_STATE_DIR = os.path.join(root, "state")
+    log_dir = pathlib.Path(root) / "simple_cluster" / "tmux_logs"
+    log_dir.mkdir(parents=True)
+    (log_dir / "failed.exit_code").write_text("7", encoding="utf-8")
+    (log_dir / "stopped.exit_code").write_text("0", encoding="utf-8")
+    snapshot = agent.path_for(root, "worker_task_snapshot.json")
+    agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [
+        {"commandId": "failed", "workerId": "worker-a", "status": "running", "exitCodePath": "simple_cluster/tmux_logs/failed.exit_code"},
+        {"commandId": "stopped", "status": "stopped", "manualStopType": "manual_stop", "exitCodePath": "simple_cluster/tmux_logs/stopped.exit_code"},
+    ]})
+    events = []
+    agent.append_event = lambda root, event: events.append(event)
+    assert agent.reconcile_worker_task_exit_codes(root)["changed"] == 1
+    tasks = {task["commandId"]: task for task in agent.read_json(snapshot, {})["tasks"]}
+    assert tasks["failed"]["status"] == "failed" and tasks["failed"]["exitCode"] == 7, tasks
+    assert tasks["stopped"]["status"] == "stopped", tasks
+    assert [event["type"] for event in events] == ["worker_task_failed"], events
+    assert agent.reconcile_worker_task_exit_codes(root)["changed"] == 0
+    assert len(events) == 1, events
+print("worker exit-code reconciliation ok")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
 test("worker telemetry health reports its serving session and fresh GPU snapshot", () => {
