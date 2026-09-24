@@ -11,6 +11,27 @@ D:\GitRepo\MCP\simple-experiment
 
 ## 红线约束（严禁再犯）
 
+### 禁止阻塞测试（P0）
+
+#### P0 — 禁止会挂起的测试进程
+
+生产代码 `dist/runtime/cluster_scheduler.py` 与 `src/clusterSchedulerRuntime.legacy.ts` 的 `wait_for_plan_queue()` 在前序 Plan 未完成时执行 `while True`，并调用全局 `time.sleep(5)`。只替换 `scheduler.time.sleep` 不能打断它。
+
+编写或修改会启动 Python 的 `node:test` 时：
+
+- 禁止用 `python -c` 执行长脚本；写入临时 `.py` 后运行，测试结束删除。
+- 禁止 import 或 exec 完整 `cluster_agent.py`、`cluster_scheduler.py`。只提取被测函数及其 import。
+- 调用 `wait_for_plan_queue` 前，前序 Plan 必须已经完成；不得进入 sleep 循环。
+- `spawnSync` 必须设置 `timeout <= 10000`、`windowsHide: true`，并断言 `status === 0`。
+- Windows 上 `os.kill(pid, 0)` 对存活进程也会抛错，进程存活判断必须可注入测试替身。
+
+运行测试时：
+
+- 先单独运行目标测试文件，禁止一开始执行 `npm test` 或 `node --test test/**/*.test.js`。
+- 同一时间只允许一个 node/python 测试进程，禁止并行工具调用。
+- 使用 `node --test --test-force-exit --test-timeout 20000 <单个文件>`。
+- 20 秒未退出即停止，不重试，不修改生产代码来“修测试”。
+
 ### P0 — 外层模板剥离坑：`src/ui/PanelHtml.ts` 的 `return `...<script>...`` 外层模板吞噬正则 `\`
 
 **严禁** 在 `PanelHtml.ts` 最外层 `return `...<script>...</script>`` 模板字符串内部裸写任何单反斜杠转义的正则/字符串字面量（`\s` `\d` `\w` `\.` `\/` `\{` `\}` `\(` `\)` `\n` `\t` 等），**严禁** 直接写 `/\s+/` `/\d+/` `"\n"` 这类裸 `\`。
