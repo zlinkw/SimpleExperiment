@@ -116,3 +116,9 @@ Rich 仅识别本项目 `TerminalProgress` 的已知宽、窄布局。标准 epo
 | worker | `{ id }` 或 `null` |
 
 `failure_context` 不含完整日志。`--full` 额外给出 `diagnosis.evidence`，最多 20 条，每条最长 200 字符。
+
+## experiment config
+
+公开字段保持 `{ id, config_path, yaml, experiment_case, seed, dataset, model, optimizer, batch_size, epoch }`。对 `worker_run`，`config_path` 优先表示该任务实际执行时的 `job_config.yaml`。新任务将路径保存在 Worker task snapshot；旧任务没有路径时，仅在显式查询 config 时按稳定 Worker task ID 精确匹配仍存在的 terminal pane，从启动 context 恢复路径。不会按 plan、case 或 seed 扫描目录。
+
+`workflow` 仍返回本地 plan/config。旧 Worker 离线或 terminal pane 已消失且未持久化路径时，可能只能返回原有 plan 信息；CLI 不会猜测 `job_config.yaml`。

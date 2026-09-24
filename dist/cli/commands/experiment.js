@@ -1845,21 +1845,41 @@ async function logRecordsForExperiment(id) {
 }
 async function configPayload(match) {
     const raw = match.raw || {};
-    const configPath = firstString(raw, ["config_path", "configPath", "config", "base_config", "baseConfig"]) || match.plan;
-    const absolute = configPath && (0, data_1.fileExists)((0, data_1.resolveProjectPath)(configPath)) ? (0, data_1.resolveProjectPath)(configPath) : "";
-    const yaml = absolute ? (0, data_1.readTextFile)(absolute) : "";
+    const hintedConfigPath = firstString(raw, ["config_path", "configPath", "config", "base_config", "baseConfig"]);
+    let configPath = hintedConfigPath;
+    let yaml = "";
+    if (match.type === "worker_run" && match.worker_id) {
+        const remote = await (0, runtime_1.readWorkerTaskConfig)(match.worker_id, match.id, hintedConfigPath);
+        if (remote.config_path)
+            configPath = remote.config_path;
+        if (remote.yaml)
+            yaml = remote.yaml;
+    }
+    if (!yaml && hintedConfigPath) {
+        const absolute = (0, data_1.resolveProjectPath)(hintedConfigPath);
+        if ((0, data_1.fileExists)(absolute))
+            yaml = (0, data_1.readTextFile)(absolute);
+    }
+    if (!configPath)
+        configPath = match.plan;
+    if (!yaml && configPath === match.plan && configPath) {
+        const absolute = (0, data_1.resolveProjectPath)(configPath);
+        if ((0, data_1.fileExists)(absolute))
+            yaml = (0, data_1.readTextFile)(absolute);
+    }
     const summary = yaml ? (0, PlanBuilder_2.parsePlanSummary)(yaml) : null;
+    const maxEpoch = (0, runtime_1.trainingMaxEpochFromYaml)(yaml);
     return {
         id: match.id,
         config_path: configPath,
         yaml,
         experiment_case: match.experiment_case || firstString(raw, ["case", "experiment_case"]) || yamlValue(yaml, "case"),
         seed: match.seed || firstString(raw, ["seed"]) || summary?.seeds?.[0] || "",
-        dataset: match.dataset || firstString(raw, ["dataset", "data"]) || yamlValue(yaml, "dataset"),
-        model: match.model || firstString(raw, ["model"]) || yamlValue(yaml, "model"),
-        optimizer: firstString(raw, ["optimizer"]) || yamlValue(yaml, "optimizer"),
-        batch_size: firstString(raw, ["batch_size", "batchSize"]) || yamlValue(yaml, "batch_size"),
-        epoch: firstString(raw, ["epoch", "epochs", "max_epoch"]) || yamlValue(yaml, "epoch") || yamlValue(yaml, "epochs"),
+        dataset: match.dataset || firstString(raw, ["dataset", "data"]) || (0, runtime_1.nestedYamlValue)(yaml, "data", "dataset") || yamlValue(yaml, "dataset"),
+        model: match.model || firstString(raw, ["model"]) || (0, runtime_1.nestedYamlValue)(yaml, "model", "name") || (0, runtime_1.nestedYamlValue)(yaml, "model", "joint_encoder") || yamlValue(yaml, "model"),
+        optimizer: firstString(raw, ["optimizer"]) || (0, runtime_1.nestedYamlValue)(yaml, "optimizer", "name") || yamlValue(yaml, "optimizer"),
+        batch_size: (0, runtime_1.nestedYamlValue)(yaml, "train", "batch_size") || firstString(raw, ["batch_size", "batchSize"]) || yamlValue(yaml, "batch_size"),
+        epoch: maxEpoch !== null ? String(maxEpoch) : firstString(raw, ["epoch", "epochs", "max_epoch"]) || yamlValue(yaml, "epoch") || yamlValue(yaml, "epochs"),
     };
 }
 async function preflightChecks(planFile) {

@@ -99,8 +99,20 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   const task = {
     runKey: runId, commandId: "cmd-1", workerId: "worker-a", status: "completed",
     planFile: plan, gpuId: "0", stage: "train_test", experimentCase: "baseline", seed: 7,
+    outputDir: "work_dirs/demo/0_baseline_seed7",
+    configPath: "work_dirs/demo/0_baseline_seed7/job_config.yaml",
     workflowId, startedAt: "2026-09-23T00:00:00Z", finishedAt: "2026-09-23T00:03:00Z",
   };
+  const yaml = "seed: 7\ndata:\n  dataset: pad_ufes_20\nmodel:\n  name: frozen_feature_mlp\noptimizer:\n  name: AdamW\ntrain:\n  batch_size: 64\n  epochs: 300\n";
+  const workerServer = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    if (url.pathname === "/api/files/download" && url.searchParams.get("path") === task.configPath) {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end(yaml);
+    } else { res.writeHead(404); res.end(); }
+  });
+  await new Promise((resolve) => workerServer.listen(0, "127.0.0.1", resolve));
+  t.after(() => workerServer.close());
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -113,6 +125,8 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
         ] }
         : method === "operations.list"
           ? { records: [{ operationId: workflowId, type: "workflow-run", status: "completed", planFile: plan }] }
+          : method === "state.get"
+            ? { value: { workerTunnels: [{ id: "worker-a", localForwardHost: "127.0.0.1", localForwardPort: workerServer.address().port, enabled: true }] } }
           : {};
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
@@ -144,6 +158,16 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   const diagnosis = await callCli(root, apiFile, ["diagnose", runId]);
   assert.equal(diagnosis.code, 0);
   assert.equal(diagnosis.body.id, runId);
+  const config = await callCli(root, apiFile, ["config", runId]);
+  assert.equal(config.code, 0);
+  assert.equal(config.body.config_path, task.configPath);
+  assert.equal(config.body.yaml, yaml);
+  assert.equal(String(config.body.seed), "7");
+  assert.equal(config.body.dataset, "pad_ufes_20");
+  assert.equal(config.body.model, "frozen_feature_mlp");
+  assert.equal(config.body.optimizer, "AdamW");
+  assert.equal(config.body.batch_size, "64");
+  assert.equal(config.body.epoch, "300");
 
   task.status = "manual_interrupted_completed";
   const stopped = await callCli(root, apiFile, ["inspect", runId]);
@@ -151,6 +175,7 @@ test("Worker Agent task snapshot survives after scheduler and runtime rows disap
   task.status = "failed";
   const failed = await callCli(root, apiFile, ["inspect", runId]);
   assert.equal(failed.body.summary.status, "failed");
+  assert.equal((await callCli(root, apiFile, ["config", runId])).body.config_path, task.configPath);
 });
 
 test("failed Worker task retrieves its remote log without persisting logPath", async (t) => {

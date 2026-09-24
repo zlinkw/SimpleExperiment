@@ -21,6 +21,45 @@ function runPython(script) {
   return result;
 }
 
+test("Worker task snapshot preserves output and config paths", () => {
+  const script = `
+import importlib.util, pathlib, tempfile, os
+spec = importlib.util.spec_from_file_location("agent", pathlib.Path(${JSON.stringify(agentPath)}))
+agent = importlib.util.module_from_spec(spec); spec.loader.exec_module(agent)
+with tempfile.TemporaryDirectory() as root:
+    agent.AGENT_STATE_DIR = os.path.join(root, "state")
+    scheduler = os.path.join(root, "cluster_scheduler.py")
+    pathlib.Path(scheduler).write_text("# test", encoding="utf-8")
+    agent.require_scheduler_dependencies = lambda *args: None
+    agent.simple_runtime_python = lambda *args: "python"
+    agent.tmux_available = lambda: True
+    agent.start_job_in_gpu_pane = lambda *args: "%97"
+    agent.exit_code_ready = lambda *args: True
+    agent.read_task_exit_code = lambda *args: 0
+    agent._safe_kill_pane = lambda *args: None
+    targets = []
+    class FakeThread:
+        def __init__(self, target, **kwargs): self.target = target
+        def start(self): targets.append(self.target)
+    agent.threading.Thread = FakeThread
+    command = {"action": "start-worker-task", "commandId": "run-test", "projectDir": root, "schedulerPath": scheduler, "plan": "experiments/plans/demo.yaml", "gpuId": "0", "condaEnv": "research", "outputDir": "work_dirs/demo/0_baseline_seed42", "configPath": "work_dirs/demo/0_baseline_seed42/job_config.yaml"}
+    result = agent.execute_worker_command(root, command, "worker-a")
+    assert result["status"] == "running", result
+    snapshot = agent.path_for(root, "worker_task_snapshot.json")
+    task = agent.read_json(snapshot, {})["tasks"][0]
+    assert task["outputDir"] == command["outputDir"]
+    assert task["configPath"] == command["configPath"]
+    targets[0]()
+    task = agent.read_json(snapshot, {})["tasks"][0]
+    assert task["status"] == "completed", task
+    assert task["outputDir"] == command["outputDir"]
+    assert task["configPath"] == command["configPath"]
+print("worker config paths persisted")
+`;
+  const result = runPython(script);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test("tb_tmux_session_name normalizes prefix to <normalized>_tb", () => {
   assert.match(agentSource, /def tb_tmux_session_name\(prefix\)/);
   assert.match(agentSource, /return p \+ "_tb"/);

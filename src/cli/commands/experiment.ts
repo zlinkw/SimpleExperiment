@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { callApi, hasApiDiscovery, optionalApi } from "../api";
 import { EXPERIMENT_INDEX_REL, RUNS_DIR, fileExists, projectRoot, readJsonFile, readTail, readTextFile, resolveProjectPath } from "../data";
-import { matchesRuntime, observeRunningExperiments, RuntimeObservation } from "../runtime";
+import { matchesRuntime, nestedYamlValue, observeRunningExperiments, readWorkerTaskConfig, RuntimeObservation, trainingMaxEpochFromYaml } from "../runtime";
 import { businessError, envError, usageError } from "../errors";
 import { block, table, writeJson, writeText } from "../format";
 import { CliFlags, requirePositional } from "../parse";
@@ -1739,21 +1739,36 @@ export async function logRecordsForExperiment(id: string): Promise<LogRecord[] |
 
 async function configPayload(match: ExperimentRow): Promise<Record<string, unknown>> {
   const raw = match.raw || {};
-  const configPath = firstString(raw, ["config_path", "configPath", "config", "base_config", "baseConfig"]) || match.plan;
-  const absolute = configPath && fileExists(resolveProjectPath(configPath)) ? resolveProjectPath(configPath) : "";
-  const yaml = absolute ? readTextFile(absolute) : "";
+  const hintedConfigPath = firstString(raw, ["config_path", "configPath", "config", "base_config", "baseConfig"]);
+  let configPath = hintedConfigPath;
+  let yaml = "";
+  if (match.type === "worker_run" && match.worker_id) {
+    const remote = await readWorkerTaskConfig(match.worker_id, match.id, hintedConfigPath);
+    if (remote.config_path) configPath = remote.config_path;
+    if (remote.yaml) yaml = remote.yaml;
+  }
+  if (!yaml && hintedConfigPath) {
+    const absolute = resolveProjectPath(hintedConfigPath);
+    if (fileExists(absolute)) yaml = readTextFile(absolute);
+  }
+  if (!configPath) configPath = match.plan;
+  if (!yaml && configPath === match.plan && configPath) {
+    const absolute = resolveProjectPath(configPath);
+    if (fileExists(absolute)) yaml = readTextFile(absolute);
+  }
   const summary = yaml ? parsePlanSummary(yaml) : null;
+  const maxEpoch = trainingMaxEpochFromYaml(yaml);
   return {
     id: match.id,
     config_path: configPath,
     yaml,
     experiment_case: match.experiment_case || firstString(raw, ["case", "experiment_case"]) || yamlValue(yaml, "case"),
     seed: match.seed || firstString(raw, ["seed"]) || summary?.seeds?.[0] || "",
-    dataset: match.dataset || firstString(raw, ["dataset", "data"]) || yamlValue(yaml, "dataset"),
-    model: match.model || firstString(raw, ["model"]) || yamlValue(yaml, "model"),
-    optimizer: firstString(raw, ["optimizer"]) || yamlValue(yaml, "optimizer"),
-    batch_size: firstString(raw, ["batch_size", "batchSize"]) || yamlValue(yaml, "batch_size"),
-    epoch: firstString(raw, ["epoch", "epochs", "max_epoch"]) || yamlValue(yaml, "epoch") || yamlValue(yaml, "epochs"),
+    dataset: match.dataset || firstString(raw, ["dataset", "data"]) || nestedYamlValue(yaml, "data", "dataset") || yamlValue(yaml, "dataset"),
+    model: match.model || firstString(raw, ["model"]) || nestedYamlValue(yaml, "model", "name") || nestedYamlValue(yaml, "model", "joint_encoder") || yamlValue(yaml, "model"),
+    optimizer: firstString(raw, ["optimizer"]) || nestedYamlValue(yaml, "optimizer", "name") || yamlValue(yaml, "optimizer"),
+    batch_size: nestedYamlValue(yaml, "train", "batch_size") || firstString(raw, ["batch_size", "batchSize"]) || yamlValue(yaml, "batch_size"),
+    epoch: maxEpoch !== null ? String(maxEpoch) : firstString(raw, ["epoch", "epochs", "max_epoch"]) || yamlValue(yaml, "epoch") || yamlValue(yaml, "epochs"),
   };
 }
 

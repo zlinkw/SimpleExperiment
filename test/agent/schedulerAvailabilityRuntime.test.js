@@ -256,12 +256,16 @@ commands = []
 module.ensure_worker_runtime = lambda worker: "simple_cluster/runtime/cluster_scheduler.py"
 module.enqueue_worker_command = lambda worker, command: commands.append(command)
 worker = {"id": "worker-a", "project_dir": "/tmp/project", "conda_env": "research"}
-session = module.launch_experiment(worker, "experiments/plans/demo.yaml", 0, "0", pathlib.Path("/tmp"), workflow_id="run-plan-parent")
+session = module.launch_experiment(worker, "experiments/plans/demo.yaml", 0, "0", pathlib.Path("/tmp"), workflow_id="run-plan-parent", output_dir="work_dirs/demo/0_baseline_seed42")
 command = commands[0]
-print(json.dumps({"workflowId": command.get("workflowId"), "commandId": command["commandId"], "runKey": command["runKey"], "session": session}))
+module.launch_experiment(worker, "experiments/plans/demo.yaml", 1, "0", pathlib.Path("/tmp"), workflow_id="run-plan-parent")
+print(json.dumps({"workflowId": command.get("workflowId"), "commandId": command["commandId"], "runKey": command["runKey"], "session": session, "outputDir": command.get("outputDir"), "configPath": command.get("configPath"), "legacyHasPath": "configPath" in commands[1]}))
 `);
   assert.equal(value.workflowId, "run-plan-parent");
   assert.equal(value.commandId, value.session);
   assert.equal(value.runKey, value.session);
   assert.notEqual(value.commandId, value.workflowId);
+  assert.equal(value.outputDir, "work_dirs/demo/0_baseline_seed42");
+  assert.equal(value.configPath, "work_dirs/demo/0_baseline_seed42/job_config.yaml");
+  assert.equal(value.legacyHasPath, false);
 });

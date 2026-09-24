@@ -3697,6 +3697,8 @@ def execute_worker_command(root, command, worker_id):
     gpu_id = str(command.get("gpuId") or options.get("gpuId") or "")
     case_name = str(command.get("case") or options.get("case") or "").strip()
     seed = command.get("seed") if command.get("seed") is not None else options.get("seed")
+    output_dir = str(command.get("outputDir") or command.get("output_dir") or options.get("outputDir") or options.get("output_dir") or "").replace("\\", "/").strip()
+    config_path = str(command.get("configPath") or command.get("config_path") or options.get("configPath") or options.get("config_path") or "").replace("\\", "/").strip()
     debug_mode = any(action_bool(value) for value in (command.get("debugMode"), command.get("debug_mode"), options.get("debugMode"), options.get("debug_mode")))
     if debug_mode:
         result = {"commandId": command_id, "status": "failed", "message": "Debug 运行模式已移除，请使用正式 Plan 运行。"}
@@ -3835,6 +3837,8 @@ def execute_worker_command(root, command, worker_id):
         "logPath": rel_log,
         "plan": plan,
         "planFile": plan,
+        **({"outputDir": output_dir} if output_dir else {}),
+        **({"configPath": config_path} if config_path else {}),
         "debugMode": debug_mode,
         "debugRunId": debug_run_id,
         "debugOutputDir": debug_output_dir,
@@ -12481,6 +12485,8 @@ def serve_http(args):
                                             "startedAt": matched_task.get("startedAt") or matched_task.get("started_at") or "",
                                             "finishedAt": matched_task.get("finishedAt") or matched_task.get("finished_at") or "",
                                             "logUpdatedAt": worker_task_log_updated_at(root, matched_task),
+                                            "outputDir": matched_task.get("outputDir") or matched_task.get("output_dir") or "",
+                                            "configPath": matched_task.get("configPath") or matched_task.get("config_path") or "",
                                         }
                                     windows.append({"index": widx, "name": wname, "active": wactive, "panes": panes, "target": f"{sess_name}:{widx}", "paneCount": wpanes, "task": task_meta})
                         except Exception:

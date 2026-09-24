@@ -39,6 +39,8 @@ exports.currentTrainingLoopPercent = currentTrainingLoopPercent;
 exports.overallTrainingPercent = overallTrainingPercent;
 exports.parseTrainingProgress = parseTrainingProgress;
 exports.matchesRuntime = matchesRuntime;
+exports.readWorkerTaskConfig = readWorkerTaskConfig;
+exports.nestedYamlValue = nestedYamlValue;
 exports.trainingMaxEpochFromYaml = trainingMaxEpochFromYaml;
 const http = __importStar(require("http"));
 const api_1 = require("./api");
@@ -92,7 +94,7 @@ function observationFromCapture(endpoint, sessionName, window, text) {
             utilization: "",
         },
         config: {
-            path: fields.config_path || "",
+            path: fields.config_path || workerTask?.config_path || "",
             experiment_case: fields.case || workerTask?.experiment_case || "",
             seed: integerText(fields.seed) || integerText(workerTask?.seed) || "",
             model: fields.model || "",
@@ -248,6 +250,8 @@ function workerTaskFromWindow(window) {
         started_at: String(task.startedAt || task.started_at || "").trim(),
         finished_at: String(task.finishedAt || task.finished_at || "").trim(),
         log_updated_at: String(task.logUpdatedAt || task.log_updated_at || "").trim(),
+        output_dir: String(task.outputDir || task.output_dir || "").trim(),
+        config_path: String(task.configPath || task.config_path || "").trim(),
     };
 }
 function terminalWorkerTaskStatus(status) {
@@ -257,9 +261,50 @@ function terminalWorkerTaskStatus(status) {
         "stopped", "cancelled", "canceled", "interrupted", "manual_interrupted_completed",
     ]).has(status.trim().toLowerCase());
 }
-async function tmuxCapture(endpoint, target) {
-    const payload = await agentGet(endpoint, `/api/tmux/capture?window=${encodeURIComponent(target)}`);
+async function tmuxCapture(endpoint, target, lines = 2000) {
+    const boundedLines = Math.max(200, Math.min(4000, Math.trunc(lines) || 2000));
+    const payload = await agentGet(endpoint, `/api/tmux/capture?window=${encodeURIComponent(target)}&lines=${boundedLines}`);
     return String(payload?.text || payload?.output || "");
+}
+async function readWorkerTaskConfig(workerId, taskId, configPathHint = "") {
+    const empty = { config_path: configPathHint, yaml: "" };
+    try {
+        const endpoint = (await enabledWorkerEndpoints()).find((item) => item.id.toLowerCase() === workerId.trim().toLowerCase());
+        if (!endpoint || !taskId.trim())
+            return empty;
+        const download = async (configPath) => {
+            const yaml = await agentText(endpoint, `/api/files/download?path=${encodeURIComponent(configPath)}&maxBytes=200000`);
+            return yaml && !yaml.startsWith("{") ? yaml : "";
+        };
+        if (configPathHint) {
+            const yaml = await download(configPathHint);
+            if (yaml)
+                return { config_path: configPathHint, yaml };
+        }
+        for (const session of await tmuxList(endpoint)) {
+            for (const window of session.windows) {
+                if (workerTaskFromWindow(window)?.id !== taskId)
+                    continue;
+                const configPath = workerTaskFromWindow(window)?.config_path || "";
+                if (configPath) {
+                    const yaml = await download(configPath);
+                    if (yaml)
+                        return { config_path: configPath, yaml };
+                }
+                const target = String(window.target || `${session.name}:${window.index || ""}`);
+                const capture = await tmuxCapture(endpoint, target, 4000);
+                const recoveredPath = launchFields(capture).config_path;
+                if (!recoveredPath)
+                    return empty;
+                const yaml = await download(recoveredPath);
+                return yaml ? { config_path: recoveredPath, yaml } : empty;
+            }
+        }
+    }
+    catch {
+        return empty;
+    }
+    return empty;
 }
 function agentGet(endpoint, urlPath) {
     return agentText(endpoint, urlPath).then((text) => {

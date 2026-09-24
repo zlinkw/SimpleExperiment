@@ -32,6 +32,8 @@ export interface RuntimeObservation {
     started_at: string;
     finished_at: string;
     log_updated_at: string;
+    output_dir: string;
+    config_path: string;
   } | null;
   log: string;
   updated_at: string;
@@ -95,7 +97,7 @@ export function observationFromCapture(
       utilization: "",
     },
     config: {
-      path: fields.config_path || "",
+      path: fields.config_path || workerTask?.config_path || "",
       experiment_case: fields.case || workerTask?.experiment_case || "",
       seed: integerText(fields.seed) || integerText(workerTask?.seed) || "",
       model: fields.model || "",
@@ -272,6 +274,8 @@ function workerTaskFromWindow(window: Record<string, any>): RuntimeObservation["
     started_at: String(task.startedAt || task.started_at || "").trim(),
     finished_at: String(task.finishedAt || task.finished_at || "").trim(),
     log_updated_at: String(task.logUpdatedAt || task.log_updated_at || "").trim(),
+    output_dir: String(task.outputDir || task.output_dir || "").trim(),
+    config_path: String(task.configPath || task.config_path || "").trim(),
   };
 }
 
@@ -283,9 +287,45 @@ function terminalWorkerTaskStatus(status: string): boolean {
   ]).has(status.trim().toLowerCase());
 }
 
-async function tmuxCapture(endpoint: WorkerEndpoint, target: string): Promise<string> {
-  const payload = await agentGet(endpoint, `/api/tmux/capture?window=${encodeURIComponent(target)}`);
+async function tmuxCapture(endpoint: WorkerEndpoint, target: string, lines = 2000): Promise<string> {
+  const boundedLines = Math.max(200, Math.min(4000, Math.trunc(lines) || 2000));
+  const payload = await agentGet(endpoint, `/api/tmux/capture?window=${encodeURIComponent(target)}&lines=${boundedLines}`);
   return String(payload?.text || payload?.output || "");
+}
+
+export async function readWorkerTaskConfig(workerId: string, taskId: string, configPathHint = ""): Promise<{ config_path: string; yaml: string }> {
+  const empty = { config_path: configPathHint, yaml: "" };
+  try {
+    const endpoint = (await enabledWorkerEndpoints()).find((item) => item.id.toLowerCase() === workerId.trim().toLowerCase());
+    if (!endpoint || !taskId.trim()) return empty;
+    const download = async (configPath: string): Promise<string> => {
+      const yaml = await agentText(endpoint, `/api/files/download?path=${encodeURIComponent(configPath)}&maxBytes=200000`);
+      return yaml && !yaml.startsWith("{") ? yaml : "";
+    };
+    if (configPathHint) {
+      const yaml = await download(configPathHint);
+      if (yaml) return { config_path: configPathHint, yaml };
+    }
+    for (const session of await tmuxList(endpoint)) {
+      for (const window of session.windows) {
+        if (workerTaskFromWindow(window)?.id !== taskId) continue;
+        const configPath = workerTaskFromWindow(window)?.config_path || "";
+        if (configPath) {
+          const yaml = await download(configPath);
+          if (yaml) return { config_path: configPath, yaml };
+        }
+        const target = String(window.target || `${session.name}:${window.index || ""}`);
+        const capture = await tmuxCapture(endpoint, target, 4000);
+        const recoveredPath = launchFields(capture).config_path;
+        if (!recoveredPath) return empty;
+        const yaml = await download(recoveredPath);
+        return yaml ? { config_path: recoveredPath, yaml } : empty;
+      }
+    }
+  } catch {
+    return empty;
+  }
+  return empty;
 }
 
 function agentGet(endpoint: WorkerEndpoint, urlPath: string): Promise<Record<string, any> | null> {
@@ -405,7 +445,7 @@ function experimentCase(text: string): string {
   return named.length >= 2 ? named[named.length - 2] : "";
 }
 
-function nestedYamlValue(text: string, section: string, key: string): string {
+export function nestedYamlValue(text: string, section: string, key: string): string {
   const block = String(text || "").match(new RegExp(`(?:^|\\n)${section}:\\n((?:[ \\t]+.*\\n?)*)`));
   return block ? yamlValue(`\n${block[1]}`, key) : "";
 }
