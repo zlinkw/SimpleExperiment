@@ -68,6 +68,7 @@ const MultiEndpointRealtimeClient_1 = require("../tunnel/MultiEndpointRealtimeCl
 const PanelHtml_1 = require("../ui/PanelHtml");
 const ScalarDashboardHtml_1 = require("../tensorboard/ScalarDashboardHtml");
 const DistributedProjectContract_1 = require("../features/DistributedProjectContract");
+const DistributedJobArtifacts_1 = require("../features/DistributedJobArtifacts");
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
@@ -8397,15 +8398,9 @@ class RealtimeTunnelPanelProvider {
                             files.push(...fragmentEntries);
                         }
                         else {
-                            if (!job.logPath)
-                                throw new Error("任务快照缺少日志路径，待 Agent 恢复后再同步");
                             const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
-                            files.push(...Object.entries(inventory).filter(([name, row]) => name.startsWith(job.outputDir + "/") && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(name))
-                                && /^[a-f0-9]{64}$/i.test(String(row?.sha256 || ""))));
-                            const log = (await this.verifiedSftpProjectInventory({ source, relativePath: job.logPath })).files[job.logPath];
-                            if (!log?.sha256)
-                                throw new Error(`运行日志缺失：${job.logPath}`);
-                            files.push([job.logPath, log]);
+                            files.push(...Object.entries((0, DistributedJobArtifacts_1.collectDistributedJobArtifacts)(job.outputDir, inventory))
+                                .map(([name, sha256]) => [name, { sha256 }]));
                             const required = contract.requiredPaths.map((name) => `${job.outputDir}/${name}`);
                             if (required.some((name) => !files.some(([file]) => file === name)))
                                 throw new Error("缺少检查点或双端点/四态结果片段");
@@ -8450,11 +8445,6 @@ class RealtimeTunnelPanelProvider {
                         if (Object.keys(job.artifacts).filter((file) => file.startsWith(job.outputDir + "/"))
                             .some((file) => String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file]))
                             throw new Error(`${workerId} 内容校验失败`);
-                        if (job.logPath && job.artifacts[job.logPath]) {
-                            const log = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.logPath })).files[job.logPath];
-                            if (String(log?.sha256 || "").toLowerCase() !== job.artifacts[job.logPath])
-                                throw new Error(`${workerId} 日志校验失败`);
-                        }
                         job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), workerId])];
                         job.artifactError = undefined;
                         await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { mirroredWorkerIds: job.mirroredWorkerIds,
@@ -8600,16 +8590,8 @@ class RealtimeTunnelPanelProvider {
         if (choice !== "保存旧产物并恢复")
             return;
         const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
-        const files = Object.keys(inventory).filter((file) => file.startsWith(job.outputDir + "/")
-            && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file)) && inventory[file]?.sha256);
-        const expectedHashes = Object.fromEntries(files.map((file) => [file, String(inventory[file].sha256).toLowerCase()]));
-        if (job.logPath) {
-            const log = (await this.verifiedSftpProjectInventory({ source, relativePath: job.logPath })).files[job.logPath];
-            if (log?.sha256) {
-                files.push(job.logPath);
-                expectedHashes[job.logPath] = String(log.sha256).toLowerCase();
-            }
-        }
+        const expectedHashes = (0, DistributedJobArtifacts_1.collectDistributedJobArtifacts)(job.outputDir, inventory);
+        const files = Object.keys(expectedHashes);
         for (const target of this.workerCodeSyncTargets().filter((row) => row.id !== job.workerId && this.lastWorkerProbes[row.id]?.status === "ok")) {
             await this.assertSshTransportIdentities([sourceRow, target]);
             const destination = this.sftpServerOptions(target);
@@ -8621,11 +8603,6 @@ class RealtimeTunnelPanelProvider {
             for (const file of files.filter((value) => value.startsWith(job.outputDir + "/")))
                 if (String(checked[file]?.sha256 || "").toLowerCase() !== expectedHashes[file])
                     throw new Error(`${target.id} 的旧 attempt 产物校验失败，未恢复`);
-            if (job.logPath && expectedHashes[job.logPath]) {
-                const log = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.logPath })).files[job.logPath];
-                if (String(log?.sha256 || "").toLowerCase() !== expectedHashes[job.logPath])
-                    throw new Error(`${target.id} 的旧 attempt 日志校验失败，未恢复`);
-            }
         }
         const current = await this.loadDistributedQueue(root);
         const updated = DistributedPlanQueue.retryVerifiedJob(current, plan.id, job.index, makeOpId("attempt"));
