@@ -1,7 +1,32 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.normalizeMirrorScopePaths = normalizeMirrorScopePaths;
+exports.filterInventoryByScope = filterInventoryByScope;
 exports.planProjectMirror = planProjectMirror;
 const PlanArtifactSync_1 = require("./PlanArtifactSync");
+function normalizeMirrorScopePaths(paths) {
+    if (!Array.isArray(paths))
+        throw new Error("服务器间同步范围必须是路径数组。");
+    const selected = [...new Set(paths.map((raw) => String(raw || "").replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "")))];
+    for (const relative of selected)
+        if (!relative || relative !== "." && (relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === "..")))
+            throw new Error(`服务器间同步路径不安全：${relative}`);
+    for (const relative of selected) {
+        if (relative === ".")
+            continue;
+        const parts = relative.toLowerCase().split("/");
+        if (parts.some((part) => [".git", ".vscode", ".codex", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__"].includes(part)) ||
+            ["plan_sync_ledger.json", "project_mirror_state.json"].includes(parts.at(-1) || ""))
+            throw new Error(`服务器间同步路径属于机器状态：${relative}`);
+    }
+    return selected.includes(".") ? ["."] : selected.sort();
+}
+function filterInventoryByScope(inventory, paths) {
+    const selected = normalizeMirrorScopePaths(paths);
+    if (selected.includes("."))
+        return inventory;
+    return Object.fromEntries(Object.entries(inventory).filter(([relative]) => selected.some((scope) => relative === scope || relative.startsWith(`${scope}/`))));
+}
 function planOwned(path, ledger) {
     const plans = new Set(Object.values(ledger.entries || {}).map((entry) => entry.planFile));
     for (const planFile of plans) {

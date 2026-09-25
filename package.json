@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.94",
+  "version": "0.5.95",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -410,37 +410,26 @@
             "type": "string"
           },
           "scope": "resource",
-          "description": "运行 Plan 前额外上传的项目内文件或目录。可在面板“设置上传文件范围”中选择。"
+          "description": "旧版额外上传路径；首次打开同步范围树时自动纳入选择。"
         },
-        "simpleExperiment.codeSync.allowedExtensions": {
+        "simpleExperiment.codeSync.scopePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "description": "本机与服务器同步的完整项目相对路径范围；未设置时默认非产物、非预训练权重目录。"
+        },
+        "simpleExperiment.serverSync.paths": {
           "type": "array",
           "default": [
-            ".py",
-            ".pyi",
-            ".yaml",
-            ".yml",
-            ".json",
-            ".toml",
-            ".ini",
-            ".cfg",
-            ".txt",
-            ".md",
-            ".sh",
-            ".ps1"
+            "."
           ],
           "items": {
             "type": "string"
           },
           "scope": "resource",
-          "description": "“设置上传文件范围”允许纳入的文件扩展名。可在面板交互式修改；填写 * 表示允许任意类型。"
-        },
-        "simpleExperiment.codeSync.maxFileSizeMB": {
-          "type": "number",
-          "default": 2,
-          "minimum": 0.1,
-          "maximum": 1048576,
-          "scope": "resource",
-          "description": "“设置上传文件范围”允许纳入的单文件大小上限，单位 MB。可在面板交互式修改。"
+          "description": "Worker 之间同步的项目相对路径；默认整个项目，机器状态目录除外。在面板文件树中勾选。"
         },
         "simpleExperiment.remote.allowedRoots": {
           "type": "array",

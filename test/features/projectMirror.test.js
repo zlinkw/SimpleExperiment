@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { planProjectMirror } = require("../../dist/features/ProjectMirror.js");
+const { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } = require("../../dist/features/ProjectMirror.js");
 const { emptyPlanSyncLedger, queuePlanSync } = require("../../dist/features/PlanArtifactSync.js");
 
 test("remote-only files are copied by content and conflicting files are held", () => {
@@ -14,4 +14,13 @@ test("remote-only files are copied by content and conflicting files are held", (
   assert.deepEqual(plan.conflicts, [{ path: "datasets/conflict.bin", workers: ["nwpu2", "nwpu3"] }]);
   assert.deepEqual(plan.protectedPaths, ["train.py", "work_dirs/a/model.pt"]);
   assert.deepEqual(plan.protectedDifferences, ["train.py", "work_dirs/a/model.pt"]);
+});
+
+test("server scope defaults to all files and can select directories without type limits", () => {
+  const files = { "data/x.bin": { sha256: "a" }, "work_dirs/p/weight.pt": { sha256: "b" } };
+  assert.deepEqual(normalizeMirrorScopePaths([".", "data"]), ["."]);
+  assert.deepEqual(filterInventoryByScope(files, ["."]), files);
+  assert.deepEqual(Object.keys(filterInventoryByScope(files, ["work_dirs"])), ["work_dirs/p/weight.pt"]);
+  assert.throws(() => normalizeMirrorScopePaths(["../outside"]), /不安全/);
+  assert.throws(() => normalizeMirrorScopePaths([".git/config"]), /机器状态/);
 });

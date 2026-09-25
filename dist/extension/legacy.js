@@ -72,6 +72,8 @@ const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
 const PlanArtifactTransfer_1 = require("../features/PlanArtifactTransfer");
 const ProjectMirror_1 = require("../features/ProjectMirror");
+const SyncScopeTree_1 = require("../features/SyncScopeTree");
+const SyncScopeStatus_1 = require("../features/SyncScopeStatus");
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -355,6 +357,7 @@ const uiActionCommands = new Set([
     "deployLatestAgent",
     "configureDownloadScope",
     "configureCodeSyncIncludes",
+    "configureServerSyncScope",
     "clearLegacyTasks",
     "clearOperations",
     "selectExperiment",
@@ -369,7 +372,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
-    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
+    "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
 ]);
@@ -390,7 +393,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
-    "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes",
+    "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
     "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig",
@@ -483,6 +486,7 @@ const API_CONFIRM_COMMANDS = new Set([
     "deployLatestAgent",
     "configureDownloadScope",
     "configureCodeSyncIncludes",
+    "configureServerSyncScope",
     "startAllConnections",
     "prepareAgents",
     "runDraftDebug",
@@ -4731,6 +4735,9 @@ class RealtimeTunnelPanelProvider {
             case "configureCodeSyncIncludes":
                 await this.configureCodeSyncIncludes();
                 break;
+            case "configureServerSyncScope":
+                await this.configureServerSyncScope();
+                break;
             case "resetRemotePathConfirmations":
                 await this.resetRemotePathConfirmationsFromUi();
                 break;
@@ -6702,134 +6709,93 @@ class RealtimeTunnelPanelProvider {
     async configureCodeSyncIncludes() {
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (!folder || vscode.workspace.workspaceFolders?.length !== 1)
-            throw new Error("请先单独打开一个项目工作区，再补充要上传的代码。");
+            throw new Error("请先单独打开一个项目工作区，再设置本机与服务器的同步范围。");
         const root = folder.uri.fsPath;
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
-        const current = [...new Set((config.get("codeSync.includePaths", []) || []).map(String))].sort();
-        const currentExtensions = normalizeExplicitCodeExtensions(config.get("codeSync.allowedExtensions", DEFAULT_EXPLICIT_CODE_EXTENSIONS));
-        const currentMaxFileSizeMB = normalizeExplicitCodeMaxFileSizeMB(config.get("codeSync.maxFileSizeMB", 2));
-        const policy = explicitCodePolicy(currentExtensions, currentMaxFileSizeMB);
-        const action = await vscode.window.showQuickPick([
-            { label: "$(file-add) 添加文件", description: "补充预置规则遗漏的项目文件、结果、日志或权重；可多选", id: "file" },
-            { label: "$(folder-opened) 添加文件夹", description: "补充预置规则遗漏的项目目录；按下方类型和大小规则纳入", id: "directory" },
-            { label: "$(symbol-file) 设置允许的文件类型", description: currentExtensions.join("、"), id: "extensions" },
-            { label: "$(file-binary) 设置单文件大小上限", description: `${currentMaxFileSizeMB} MB`, id: "max-size" },
-            { label: "$(list-selection) 查看已添加的路径", description: `${current.length} 条额外路径`, id: "preview" },
-            { label: "$(trash) 移除已有路径", description: current.join("、") || "暂无", id: "remove" },
-        ], { title: "设置上传文件范围", placeHolder: "选择本机文件或目录；选中后立即保存，无需再点完成", ignoreFocusOut: true });
-        if (!action)
-            return;
-        if (action.id === "extensions") {
-            const value = await vscode.window.showInputBox({
-                title: "允许上传的文件类型",
-                prompt: "用英文逗号分隔，例如 .py,.yaml,.pt,.log；填写 * 表示任意类型。项目外路径、符号链接、.env 和机器状态目录仍会阻止。",
-                value: currentExtensions.join(","),
-                ignoreFocusOut: true,
-                validateInput: (input) => {
-                    try {
-                        normalizeExplicitCodeExtensions(input.split(","));
-                        return undefined;
-                    }
-                    catch (error) {
-                        return errorMessage(error);
-                    }
+        const savedScope = config.get("codeSync.scopePaths");
+        const legacyExtra = config.get("codeSync.includePaths", []) || [];
+        const selected = [...new Set(Array.isArray(savedScope) ? savedScope : [...await walkCodeFiles(root), ...legacyExtra])].sort();
+        const targets = this.workerCodeSyncTargets();
+        const refreshIntervalMs = Math.max(5000, Number(config.get("scheduler.pollSeconds", 10)) * 1000 || 10000);
+        (0, SyncScopeTree_1.openSyncScopeTree)("本机与服务器同步范围", [{
+                id: "local", label: "本机与 Worker 项目并集", detail: "初始选中非产物、非预训练权重文件；可勾选或取消本机路径。远端独有文件仅供查看状态。", rootSelectable: false,
+                selected,
+                list: async (relative) => this.listSyncScopeUnion(root, targets, relative, true),
+                refresh: async () => this.refreshSyncScopeStatus(root, targets, "local-server", selected),
+                save: async (paths) => {
+                    if (paths.includes("."))
+                        throw new Error("本机项目根目录会包含产物和预训练权重，请选择具体文件或目录。");
+                    if (paths.length)
+                        await collectExplicitCodeFiles(root, paths);
+                    await config.update("codeSync.scopePaths", [...new Set(paths)].sort(), vscode.ConfigurationTarget.WorkspaceFolder);
+                    selected.splice(0, selected.length, ...paths);
+                    void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${paths.length} 条路径。`);
                 },
-            });
-            if (value === undefined)
-                return;
-            const extensions = normalizeExplicitCodeExtensions(value.split(","));
-            await config.update("codeSync.allowedExtensions", extensions, vscode.ConfigurationTarget.WorkspaceFolder);
-            void vscode.window.showInformationMessage(`已保存允许的文件类型：${extensions.join("、")}`);
-            return;
-        }
-        if (action.id === "max-size") {
-            const value = await vscode.window.showInputBox({
-                title: "单文件大小上限",
-                prompt: "单位 MB，允许 0.1–1048576。超过上限的文件不会加入上传清单。",
-                value: String(currentMaxFileSizeMB),
-                ignoreFocusOut: true,
-                validateInput: (input) => {
-                    try {
-                        normalizeExplicitCodeMaxFileSizeMB(Number(input));
-                        return undefined;
-                    }
-                    catch (error) {
-                        return errorMessage(error);
-                    }
+            }], refreshIntervalMs);
+    }
+    async configureServerSyncScope() {
+        const folder = vscode.workspace.workspaceFolders?.[0];
+        if (!folder || vscode.workspace.workspaceFolders?.length !== 1)
+            throw new Error("请先单独打开一个项目工作区，再设置服务器间同步范围。");
+        const targets = this.workerCodeSyncTargets();
+        if (!targets.length)
+            throw new Error("请先配置至少一台 Worker。");
+        const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
+        const selected = (0, ProjectMirror_1.normalizeMirrorScopePaths)(config.get("serverSync.paths", ["."]));
+        const refreshIntervalMs = Math.max(5000, Number(config.get("scheduler.pollSeconds", 10)) * 1000 || 10000);
+        (0, SyncScopeTree_1.openSyncScopeTree)("服务器之间同步范围", [{
+                id: "workers", label: "所有 Worker 的项目并集", detail: "默认整个项目；目录来自已启用 Worker 的并集，同名文件按内容校验，机器状态排除。",
+                selected,
+                list: async (relative) => this.listSyncScopeUnion(folder.uri.fsPath, targets, relative, false),
+                refresh: async () => this.refreshSyncScopeStatus(folder.uri.fsPath, targets, "server-server", selected),
+                save: async (paths) => {
+                    const normalized = (0, ProjectMirror_1.normalizeMirrorScopePaths)(paths);
+                    await config.update("serverSync.paths", normalized, vscode.ConfigurationTarget.WorkspaceFolder);
+                    selected.splice(0, selected.length, ...normalized);
+                    void vscode.window.showInformationMessage(`服务器之间同步范围已保存：${normalized.includes(".") ? "整个项目" : `${normalized.length} 条路径`}。`);
                 },
-            });
-            if (value === undefined)
-                return;
-            const maxFileSizeMB = normalizeExplicitCodeMaxFileSizeMB(Number(value));
-            await config.update("codeSync.maxFileSizeMB", maxFileSizeMB, vscode.ConfigurationTarget.WorkspaceFolder);
-            void vscode.window.showInformationMessage(`已保存单文件大小上限：${maxFileSizeMB} MB`);
-            return;
-        }
-        if (action.id === "preview") {
-            if (!current.length) {
-                void vscode.window.showInformationMessage("尚未添加额外上传路径；插件默认识别的源码仍会自动上传。");
-                return;
-            }
-            const selected = await vscode.window.showQuickPick(current.map((relative) => ({ label: relative })), {
-                title: `已添加 ${current.length} 条额外上传路径`, placeHolder: "选择一条路径查看其中实际会上传的文件", ignoreFocusOut: true,
-            });
-            if (!selected)
-                return;
-            try {
-                const files = await collectExplicitCodeFiles(root, [selected.label], policy);
-                await vscode.window.showQuickPick(files.sort().map((file) => ({ label: file })), {
-                    title: `${selected.label}：${files.length} 个可上传文件`, placeHolder: "只读预览", ignoreFocusOut: true,
-                });
-            }
-            catch (error) {
-                void vscode.window.showErrorMessage(`无法预览 ${selected.label}：${errorMessage(error)}`);
-            }
-            return;
-        }
-        let updated = current;
-        if (action.id === "remove") {
-            if (!current.length)
-                return;
-            const picked = await vscode.window.showQuickPick(current.map((file) => ({ label: file })), { title: "移除额外上传路径", canPickMany: true, ignoreFocusOut: true });
-            if (!picked?.length)
-                return;
-            const remove = new Set(picked.map((item) => item.label));
-            updated = current.filter((file) => !remove.has(file));
-        }
-        else {
-            const picked = await vscode.window.showOpenDialog({
-                title: action.id === "directory" ? "选择额外上传的文件夹" : "选择额外上传的文件",
-                defaultUri: folder.uri,
-                canSelectFiles: action.id === "file",
-                canSelectFolders: action.id === "directory",
-                canSelectMany: true,
-                openLabel: "添加并保存",
-            });
-            if (!picked?.length) {
-                void vscode.window.showInformationMessage("未收到文件或文件夹选择结果，额外上传路径未更改。");
-                return;
-            }
-            const selectedPaths = picked.map((uri) => path.relative(root, uri.fsPath).replace(/\\/g, "/"));
-            try {
-                const next = selectedPaths.map((relative) => normalizedExplicitCodePath(root, relative).relative);
-                const safeFiles = await collectExplicitCodeFiles(root, next, policy);
-                if (!safeFiles.length)
-                    throw new Error(`所选路径中没有符合上传规则的文件。当前允许 ${policy.extensions.join("、")}，单文件不超过 ${policy.maxFileSizeMB} MB；可在此入口修改。`);
-                updated = [...new Set([...current, ...next])].sort();
-            }
-            catch (error) {
-                await vscode.window.showErrorMessage(`未添加 ${selectedPaths.join("、") || "所选路径"}：${errorMessage(error)}。现有上传路径未更改。`, { modal: true });
-                throw error;
+            }], refreshIntervalMs);
+    }
+    async listSyncScopeUnion(root, targets, relative, localOnly) {
+        const local = await listLocalSyncScope(root, relative);
+        const entries = new Map(local.map((row) => [row.path, { ...row, selectable: true }]));
+        const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectTree", {
+            source: this.sftpServerOptions(target), relativePath: relative,
+        })));
+        for (const result of results)
+            if (result.status === "fulfilled")
+                for (const row of Array.isArray(result.value?.entries) ? result.value.entries : []) {
+                    const key = String(row.path);
+                    const prior = entries.get(key);
+                    entries.set(key, { name: String(row.name), path: key, directory: Boolean(row.directory) || Boolean(prior?.directory), selectable: !localOnly || Boolean(prior) });
+                }
+        return [...entries.values()].sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
+    }
+    async refreshSyncScopeStatus(root, targets, mode, selectedPaths) {
+        const local = await (0, SyncScopeStatus_1.collectLocalScopeInventory)(root);
+        const workers = {};
+        const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
+        const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
+        for (const id of offline)
+            workers[id] = {};
+        const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) })));
+        const errors = [];
+        for (let index = 0; index < targets.length; index++) {
+            const target = targets[index];
+            const result = results[index];
+            if (result.status === "fulfilled")
+                workers[target.id] = result.value.files || {};
+            else {
+                workers[target.id] = {};
+                offline.add(target.id);
+                errors.push(`${target.id}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
             }
         }
-        try {
-            await config.update("codeSync.includePaths", updated, vscode.ConfigurationTarget.WorkspaceFolder);
-        }
-        catch (error) {
-            await vscode.window.showErrorMessage(`额外上传路径保存失败：${errorMessage(error)}`, { modal: true });
-            throw error;
-        }
-        void vscode.window.showInformationMessage(`已添加：${updated.filter((relative) => !current.includes(relative)).join("、") || "路径列表已更新"}。当前共 ${updated.length} 条；可点“设置上传文件范围 → 查看已添加的路径”核对。`);
+        const ledger = await this.loadPlanSyncLedger(root);
+        const statuses = (0, SyncScopeStatus_1.buildScopeStatuses)({ local, workers }, mode, selectedPaths, new Set(), ledger, offline);
+        if (errors.length)
+            statuses["."] = { state: "unknown", detail: `部分 Worker 未连接：${errors.join("；")}` };
+        return statuses;
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
@@ -6880,8 +6846,8 @@ class RealtimeTunnelPanelProvider {
             throw new Error("没有可用于代码同步的 Hub/Worker 目标。");
         const codeSyncConfig = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const includePaths = codeSyncConfig.get("codeSync.includePaths", []);
-        const includePolicy = explicitCodePolicy(codeSyncConfig.get("codeSync.allowedExtensions", DEFAULT_EXPLICIT_CODE_EXTENSIONS), codeSyncConfig.get("codeSync.maxFileSizeMB", 2));
-        const manifest = await buildLocalCodeManifest(root, includePaths, includePolicy);
+        const scopePaths = codeSyncConfig.get("codeSync.scopePaths");
+        const manifest = await buildLocalCodeManifest(root, includePaths, scopePaths);
         assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
@@ -12007,15 +11973,16 @@ class RealtimeTunnelPanelProvider {
             return;
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const includePaths = config.get("codeSync.includePaths", []);
-        const policy = explicitCodePolicy(config.get("codeSync.allowedExtensions", DEFAULT_EXPLICIT_CODE_EXTENSIONS), config.get("codeSync.maxFileSizeMB", 2));
-        const codeManifest = await buildLocalCodeManifest(root, includePaths, policy);
+        const scopePaths = config.get("codeSync.scopePaths");
+        const codeManifest = await buildLocalCodeManifest(root, includePaths, scopePaths);
+        const mirrorPaths = (0, ProjectMirror_1.normalizeMirrorScopePaths)(config.get("serverSync.paths", ["."]));
         const inventories = {};
         for (const target of targets) {
             const result = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) });
-            inventories[target.id] = result.files;
+            inventories[target.id] = (0, ProjectMirror_1.filterInventoryByScope)(result.files, mirrorPaths);
         }
         const ledger = await this.loadPlanSyncLedger(root);
-        const plan = (0, ProjectMirror_1.planProjectMirror)(inventories, codeManifest, ledger);
+        const plan = (0, ProjectMirror_1.planProjectMirror)(inventories, (0, ProjectMirror_1.filterInventoryByScope)(codeManifest, mirrorPaths), ledger);
         const groups = new Map();
         for (const copy of plan.copies) {
             const key = `${copy.sourceWorkerId}|${copy.destinationWorkerId}`;
@@ -12041,9 +12008,9 @@ class RealtimeTunnelPanelProvider {
         const checked = {};
         for (const target of targets) {
             const result = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) });
-            checked[target.id] = result.files;
+            checked[target.id] = (0, ProjectMirror_1.filterInventoryByScope)(result.files, mirrorPaths);
         }
-        const verified = (0, ProjectMirror_1.planProjectMirror)(checked, codeManifest, ledger);
+        const verified = (0, ProjectMirror_1.planProjectMirror)(checked, (0, ProjectMirror_1.filterInventoryByScope)(codeManifest, mirrorPaths), ledger);
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
         const disabled = configured.filter((id) => !targets.some((target) => target.id === id));
         const pendingPlans = PlanArtifactSync.pendingPlanSyncs(ledger).map((item) => item.destinationWorkerId);
@@ -18250,7 +18217,7 @@ const hostOperationUiCommands = new Set([
     "savePlan", "archivePlan", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject",
     "generateOutputAdapter", "saveProjectAdapterRules", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath",
     "plotResultsToPpt", "startPptAutomation", "publishGithub", "syncGithub", "overwriteGithub",
-    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes",
+    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact",
 ]);
 function hostOperationLeaseActionForUiCommand(command) {
@@ -18286,7 +18253,8 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     distributeCodeToWorkers: "分发代码到 Worker",
     deployLatestAgent: "部署 Agent runtime",
     configureDownloadScope: "设置下载文件范围",
-    configureCodeSyncIncludes: "设置上传文件范围",
+    configureCodeSyncIncludes: "本机与服务器同步范围",
+    configureServerSyncScope: "服务器之间同步范围",
     downloadDebugBundle: "下载调试包",
     downloadRemoteResult: "下载远端结果",
     openResultArtifact: "打开或下载结果文件",
@@ -24116,8 +24084,10 @@ function samePath(a, b) {
         return false;
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
-async function buildLocalCodeManifest(root, includePaths = [], includePolicy = explicitCodePolicy()) {
-    const files = [...new Set([...(await walkCodeFiles(root)), ...(await collectExplicitCodeFiles(root, includePaths, includePolicy))])].sort();
+async function buildLocalCodeManifest(root, includePaths = [], scopePaths) {
+    const files = [...new Set(Array.isArray(scopePaths)
+            ? await collectExplicitCodeFiles(root, scopePaths)
+            : [...await walkCodeFiles(root), ...await collectExplicitCodeFiles(root, includePaths)])].sort();
     const manifest = {};
     const concurrency = 12;
     let nextIndex = 0;
@@ -24139,10 +24109,11 @@ async function buildLocalCodeManifest(root, includePaths = [], includePolicy = e
     await Promise.all(workers);
     return manifest;
 }
-const DEFAULT_EXPLICIT_CODE_EXTENSIONS = [".py", ".pyi", ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".txt", ".md", ".sh", ".ps1"];
-const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", "zlk_cluster"]);
+const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"]);
 function blockedExplicitCodePath(relative) {
     const parts = relative.toLowerCase().split("/");
+    if (["plan_sync_ledger.json", "project_mirror_state.json"].includes(parts.at(-1) || ""))
+        return true;
     if (parts.some((part) => blockedExplicitCodeDirs.has(part)))
         return true;
     if (parts[0] !== "simple_cluster")
@@ -24159,25 +24130,6 @@ function blockedExplicitCodePath(relative) {
         return parts.length > 3 && parts[3] !== "logs" && !parts.at(-1)?.endsWith(".log");
     return true;
 }
-function normalizeExplicitCodeExtensions(values) {
-    const extensions = [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).map((value) => value === "*" ? value : value.startsWith(".") ? value : `.${value}`))];
-    if (!extensions.length)
-        throw new Error("至少保留一种允许的文件类型，或填写 *。");
-    if (extensions.some((value) => value !== "*" && !/^\.[a-z0-9][a-z0-9._+-]*$/.test(value)))
-        throw new Error("文件类型格式无效；请使用 .py、.yaml 这类扩展名，或填写 *。");
-    return extensions.sort();
-}
-function normalizeExplicitCodeMaxFileSizeMB(value) {
-    const size = Number(value);
-    if (!Number.isFinite(size) || size < 0.1 || size > 1048576)
-        throw new Error("单文件大小上限必须在 0.1–1048576 MB 之间。");
-    return Math.round(size * 100) / 100;
-}
-function explicitCodePolicy(extensions = DEFAULT_EXPLICIT_CODE_EXTENSIONS, maxFileSizeMB = 2) {
-    const normalizedExtensions = normalizeExplicitCodeExtensions(extensions);
-    const normalizedMaxFileSizeMB = normalizeExplicitCodeMaxFileSizeMB(maxFileSizeMB);
-    return { extensions: normalizedExtensions, extensionSet: new Set(normalizedExtensions), allowAnyExtension: normalizedExtensions.includes("*"), maxFileSizeMB: normalizedMaxFileSizeMB, maxFileSizeBytes: Math.floor(normalizedMaxFileSizeMB * 1024 * 1024) };
-}
 function normalizedExplicitCodePath(root, value) {
     const relative = String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
     if (!relative || relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === ".."))
@@ -24188,26 +24140,19 @@ function normalizedExplicitCodePath(root, value) {
         throw new Error(`代码上传路径超出项目根目录：${value}`);
     return { relative, full };
 }
-function safeExplicitCodeFile(relative, policy = explicitCodePolicy()) {
+function safeExplicitCodeFile(relative) {
     const parts = relative.toLowerCase().split("/");
     if (blockedExplicitCodePath(relative))
         return false;
     const basename = parts[parts.length - 1];
-    if (basename.startsWith(".env"))
-        return false;
-    if (policy.allowAnyExtension)
-        return true;
-    return policy.extensionSet.has(path.posix.extname(basename));
+    return !basename.startsWith(".env");
 }
-async function collectExplicitCodeFiles(root, includePaths, policy = explicitCodePolicy()) {
+async function collectExplicitCodeFiles(root, includePaths) {
     if (!Array.isArray(includePaths) || !includePaths.length)
         return [];
     const files = new Set();
-    let visited = 0;
     let matched = 0;
     async function visit(relative, full, explicitFile) {
-        if (++visited > 100000)
-            throw new Error("上传路径扫描超过 100000 项，请缩小所选目录。");
         const info = await fs.lstat(full);
         if (info.isSymbolicLink())
             throw new Error(`代码上传路径包含符号链接：${relative}`);
@@ -24231,13 +24176,11 @@ async function collectExplicitCodeFiles(root, includePaths, policy = explicitCod
                 throw new Error(`上传文件属于机器状态或版本控制目录：${relative}`);
             return;
         }
-        if (!safeExplicitCodeFile(relative, policy)) {
+        if (!safeExplicitCodeFile(relative)) {
             if (explicitFile)
-                throw new Error(`文件类型不在允许列表中：${relative}。当前允许 ${policy.extensions.join("、")}；可在“设置上传文件范围 → 设置允许的文件类型”修改。`);
+                throw new Error(`文件含敏感环境配置，不允许上传：${relative}`);
             return;
         }
-        if (info.size > policy.maxFileSizeBytes)
-            throw new Error(`上传文件超过 ${policy.maxFileSizeMB} MB：${relative}。可在“设置上传文件范围 → 设置单文件大小上限”修改。`);
         matched++;
         files.add(relative);
     }
@@ -24250,6 +24193,25 @@ async function collectExplicitCodeFiles(root, includePaths, policy = explicitCod
             throw new Error(`代码上传路径没有可上传源码或配置：${relative}`);
     }
     return [...files];
+}
+async function listLocalSyncScope(root, relative) {
+    const full = relative === "." ? root : normalizedExplicitCodePath(root, relative).full;
+    const info = await fs.lstat(full).catch((error) => {
+        if (error.code === "ENOENT")
+            return undefined;
+        throw error;
+    });
+    if (!info)
+        return [];
+    if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error(`同步目录不可浏览：${relative}`);
+    const entries = await fs.readdir(full, { withFileTypes: true });
+    return entries.flatMap((entry) => {
+        const child = relative === "." ? entry.name : `${relative}/${entry.name}`;
+        if (entry.isSymbolicLink() || !entry.isDirectory() && !entry.isFile() || blockedExplicitCodePath(child) || entry.name.toLowerCase().startsWith(".env"))
+            return [];
+        return [{ name: entry.name, path: child, directory: entry.isDirectory() }];
+    }).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
 }
 function fingerprintFromManifest(manifest) {
     const stable = Object.keys(manifest).sort().map((key) => [key, manifest[key]]);
@@ -24302,6 +24264,7 @@ const protectedCodeSyncTopLevelDirs = new Set([
     ".ruff_cache",
     ".cache",
     ".tox",
+    "data",
     "dataset",
     "datasets",
     "checkpoints",
@@ -24326,35 +24289,24 @@ const protectedCodeSyncTopLevelDirs = new Set([
     "temp",
     "artifacts",
 ]);
-const protectedCodeSyncFilePattern = /\.(pth|pt|ckpt|onnx|engine|h5|hdf5|pkl|pickle|joblib|nii|gz|mha|mhd|dcm|png|jpg|jpeg|bmp|tif|tiff|npy|npz|zip|tar|tgz|rar|7z|log|out|err|csv|tsv|xlsx|xls|vsix|bin|safetensors|weights|model)$/i;
 const protectedDataAssetDirs = new Set(["raw", "processed", "patients", "patient", "subjects", "images", "image", "features", "feature_cache", "cache", ".cache", "checkpoints", "checkpoint", "weights", "weight", "pretrained", "runs", "work_dirs", "__pycache__", "artifacts", "outputs", "results"]);
-const allowedDataSourcePattern = /\.(py|pyi)$/i;
-const allowedDataConfigPattern = /(?:^|[._-])(config|settings|schema|manifest|protocol|metadata)(?:[._-]|$)/i;
 function isExcludedCodePath(relative, directory) {
     const value = relative.replace(/\\/g, "/");
     const lower = value.toLowerCase();
     const top = lower.split("/")[0];
     if (protectedCodeSyncTopLevelDirs.has(top))
         return true;
+    if (directory && lower.split("/").slice(1).some((part) => protectedDataAssetDirs.has(part)))
+        return true;
     if (lower === "artifacts" || lower.startsWith("artifacts/"))
         return true;
     if (lower.split("/").includes("artifacts"))
         return true;
-    if (top === "data") {
-        const nested = lower.split("/").slice(1);
-        if (nested.some((segment) => protectedDataAssetDirs.has(segment)))
-            return true;
-        if (!directory) {
-            const basename = path.posix.basename(lower);
-            if (!allowedDataSourcePattern.test(basename) && !(allowedDataConfigPattern.test(basename) && /\.(yaml|yml|toml|ini|cfg|json)$/i.test(basename)))
-                return true;
-        }
-    }
     if (directory)
         return false;
     if (/^\.env($|\.)/i.test(path.posix.basename(value)))
         return true;
-    return protectedCodeSyncFilePattern.test(value);
+    return false;
 }
 function sftpUploadSucceeded(result, fingerprint) {
     if (!result || typeof result !== "object")
