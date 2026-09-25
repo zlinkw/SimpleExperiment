@@ -28,6 +28,7 @@ export const workerTelemetryRequiredEndpoints = [
 
 export const workerTelemetryActionNames = [
   "start-worker-task",
+  "rebuild-distributed-results",
   "retry-worker-task",
   "stop-worker-task",
   "delete-worker-artifacts",

@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.114"
-RUNTIME_VERSION = "0.5.114"
-PLUGIN_VERSION = "0.5.114"
+AGENT_VERSION = "0.5.115"
+RUNTIME_VERSION = "0.5.115"
+PLUGIN_VERSION = "0.5.115"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -157,6 +157,7 @@ ACTION_NAMES = [
     "diagnose-result-anomaly",
     "compare-with-best-config",
     "start-worker-task",
+    "rebuild-distributed-results",
     "retry-worker-task",
     "stop-worker-task",
     "delete-worker-artifacts",
@@ -216,6 +217,7 @@ ACTION_PATHS = [
     "/api/actions/diagnose-result-anomaly",
     "/api/actions/compare-with-best-config",
     "/api/actions/start-worker-task",
+    "/api/actions/rebuild-distributed-results",
     "/api/actions/retry-worker-task",
     "/api/actions/stop-worker-task",
     "/api/actions/delete-worker-artifacts",
@@ -239,6 +241,7 @@ EVENT_CURSOR_CACHE = {}
 EVENT_CURSOR_LOCK = threading.Lock()
 EVENT_APPEND_LOCK = threading.RLock()
 WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
+DISTRIBUTED_GPU_RESERVATIONS = {}
 OPERATION_JOURNAL_CACHE = {}
 OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
 RUNTIME_JSON_CACHE = {}
@@ -2347,6 +2350,35 @@ def append_worker_task(root, task):
             kept.insert(min(old_index, len(kept)), task)
         atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": kept[-200:], "generatedAt": now_iso()})
 
+def reserve_distributed_gpu(root, gpu_id, command_id):
+    """Reserve one physical GPU before starting a distributed job; never infer ownership from username."""
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        existing = next((row for row in tasks if isinstance(row, dict) and str(row.get("commandId") or "") == command_id), None)
+        if existing:
+            return existing
+        if str(gpu_id) in DISTRIBUTED_GPU_RESERVATIONS:
+            raise RuntimeError(f"GPU {gpu_id} 已被待启动任务占用")
+        if any(isinstance(row, dict) and str(row.get("gpuId") or "") == str(gpu_id)
+               and str(row.get("status") or "").lower() in ("running", "dispatching") for row in tasks):
+            raise RuntimeError(f"GPU {gpu_id} 已有插件任务运行")
+        gpus, error = collect_local_gpu()
+        if error:
+            raise RuntimeError(f"GPU 实时检测失败：{error}")
+        row = next((item for item in gpus if gpu_row_id(item) == str(gpu_id)), None)
+        if row is None:
+            raise RuntimeError(f"GPU {gpu_id} 不存在或尚无实时状态")
+        if row.get("processes") or gpu_row_busy(row):
+            raise RuntimeError(f"GPU {gpu_id} 当前非空闲，已停止派发")
+        DISTRIBUTED_GPU_RESERVATIONS[str(gpu_id)] = command_id
+        return None
+
+def release_distributed_gpu_reservation(gpu_id, command_id):
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        if DISTRIBUTED_GPU_RESERVATIONS.get(str(gpu_id)) == command_id:
+            DISTRIBUTED_GPU_RESERVATIONS.pop(str(gpu_id), None)
+
 def simple_runtime_env(base=None):
     env = dict(os.environ if base is None else base)
     if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() in {"-", "--"}:
@@ -3132,6 +3164,8 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         lines.append("export SIMPLE_EXPERIMENT_EXIT_CODE_PATH=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"))))
     if env.get("SIMPLE_EXPERIMENT_MANAGED_JOB"):
         lines.append("export SIMPLE_EXPERIMENT_MANAGED_JOB=1")
+    if env.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"):
+        lines.append("export SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS=1")
     # The command below appends its rc via '; printf "%s" "$?" > exit_code_path'. That redirect
     # fails (and the completion signal is lost forever) if the parent dir does not exist, which
     # would leave the scheduler waiting on a never-written file while the session stays alive.
@@ -3150,7 +3184,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # Forward critical env vars directly into the tmux session environment so the
     # launched scheduler sees them even if a later send-keys line is dropped by the
     # startup race. This complements the export lines above (belt-and-suspenders).
-    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
+    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
         _val = env.get(_key)
         if _val:
             try:
@@ -3341,7 +3375,8 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
             os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
         except Exception:
             pass
-        _cmd = f"export SIMPLE_EXPERIMENT_MANAGED_JOB=1; set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
+        _distributed_export = "export SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS=1; " if env.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS") else ""
+        _cmd = f"export SIMPLE_EXPERIMENT_MANAGED_JOB=1; {_distributed_export}set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
         # Each task gets a separate window in the GPU session. A failed window
         # remains visible; later plans can launch another window on this GPU.
         window_name = "run-" + str(int(time.time() * 1000))
@@ -3702,6 +3737,19 @@ def execute_worker_command(root, command, worker_id):
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     env = simple_runtime_env(os.environ.copy())
     env["SIMPLE_EXPERIMENT_MANAGED_JOB"] = "1"
+    distributed_results = options.get("distributedResults") is True or command.get("distributedResults") is True
+    if distributed_results:
+        if not output_dir or "/attempts/" not in output_dir or not str(command.get("planRevision") or "").strip() or not str(command.get("codeFingerprint") or "").strip():
+            raise ValueError("分布式任务缺少 Plan、代码或独立 attempt 身份")
+        try:
+            if int(command.get("attempt")) < 1:
+                raise ValueError("attempt must be positive")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("分布式任务缺少有效 attempt") from exc
+        if os.path.isabs(output_dir) or any(part in ("", ".", "..") for part in output_dir.split("/")):
+            raise ValueError("分布式任务输出路径不安全")
+        safe_project_path(project_dir, output_dir)
+        env["SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"] = "1"
     conda_declared = any(key in command for key in ("condaEnv", "conda_env")) or any(key in options for key in ("condaEnv", "conda_env"))
     conda_env = str(command.get("condaEnv") or command.get("conda_env") or options.get("condaEnv") or options.get("conda_env") or "").strip()
     if conda_env in {"-", "--"}:
@@ -3742,6 +3790,8 @@ def execute_worker_command(root, command, worker_id):
         "--worker-id", worker_id,
         "--default-result-csv-dir", default_result_csv_dir,
     ]
+    if distributed_results:
+        args.extend(["--output-dir-override", output_dir])
     if overwrite_existing:
         args.append("--overwrite")
     if debug_mode:
@@ -3769,6 +3819,13 @@ def execute_worker_command(root, command, worker_id):
     used_tmux = False
     proc = None
     pid = 0
+    reserved_gpu = False
+    if distributed_results:
+        existing_task = reserve_distributed_gpu(root, gpu_id, command_id)
+        if existing_task:
+            return {"commandId": command_id, "status": str(existing_task.get("status") or "unknown"),
+                    "message": "相同 job 指令已存在，未重复启动", "gpuId": gpu_id}
+        reserved_gpu = True
     if tmux_available():
         try:
             pid = start_job_in_gpu_pane(gpu_window, args, project_dir, env, log_path, exit_code_path)
@@ -3787,8 +3844,12 @@ def execute_worker_command(root, command, worker_id):
                 pid = start_simple_tmux_command(tmux_session, args, project_dir, log_path, env, exit_code_path)
                 used_tmux = True
             except Exception as exc2:
+                if reserved_gpu:
+                    release_distributed_gpu_reservation(gpu_id, command_id)
                 raise RuntimeError(f"tmux launch failed: {exc} / fallback:{exc2}; refusing silent bash fallback")
     if not used_tmux:
+        if reserved_gpu:
+            release_distributed_gpu_reservation(gpu_id, command_id)
         raise RuntimeError("tmux available but launch failed and ALLOW_POPEN_FALLBACK not enabled; refusing silent bash fallback\uff1b\u8bf7\u5b89\u88c5 tmux \u6216\u542f\u7528 ALLOW_POPEN_FALLBACK")
     task = {
         "schemaVersion": SCHEMA_VERSION,
@@ -3807,6 +3868,8 @@ def execute_worker_command(root, command, worker_id):
         "gpuId": gpu_id,
         "case": case_name,
         "seed": seed,
+        **({"planRevision": str(command.get("planRevision")), "codeFingerprint": str(command.get("codeFingerprint")),
+            "attempt": int(command.get("attempt"))} if distributed_results else {}),
         **({"stage": str(command.get("stage") or command.get("phase") or command.get("mode"))} if command.get("stage") or command.get("phase") or command.get("mode") else {}),
         **({"experimentCase": str(command.get("experimentCase") or command.get("experiment_case") or command.get("case"))} if command.get("experimentCase") or command.get("experiment_case") or command.get("case") else {}),
         **({"workflowId": str(command.get("workflowId") or command.get("workflow_id") or command.get("parentId"))} if command.get("workflowId") or command.get("workflow_id") or command.get("parentId") else {}),
@@ -3829,7 +3892,14 @@ def execute_worker_command(root, command, worker_id):
             "reassignmentRunKey": reassignment_run_key or command_id,
         } if manual_reassignment else {}),
     }
-    append_worker_task(root, task)
+    try:
+        append_worker_task(root, task)
+    except Exception as exc:
+        # The remote command may already be running. Keep the in-memory GPU fence
+        # and require operator reconciliation rather than dispatching a duplicate.
+        raise RuntimeError(f"任务已启动但快照保存失败，GPU 保留占用并需人工核实：{exc}") from exc
+    if reserved_gpu:
+        release_distributed_gpu_reservation(gpu_id, command_id)
     result = {"commandId": command_id, "status": "running", "pid": pid, "session": session, "tmuxSession": tmux_session if used_tmux else "", "logPath": rel_log, "debugMode": debug_mode, "debugRunId": debug_run_id, "debugOutputDir": debug_output_dir, "resultOwnerWorkerId": worker_id, **({"manualReassignment": True, "sourceWorkerId": source_worker_id, "targetWorkerId": worker_id, "originalRunKey": original_run_key, "reassignmentRunKey": reassignment_run_key or command_id} if manual_reassignment else {}), "message": "Debug Worker 任务已启动" if debug_mode else "Worker 任务已启动"}
     append_event(root, {"type": "worker_task_started", "workerId": worker_id, "operationId": command_id, "payload": {**task, **result}})
     def wait_task():
@@ -4462,6 +4532,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             },
             "actionEndpoints": {
                 "start-worker-task": True,
+                "rebuild-distributed-results": True,
                 "retry-worker-task": True,
                 "stop-worker-task": True,
                 "delete-worker-artifacts": True,
@@ -10173,6 +10244,31 @@ def cache_delete_exact_file(root, relative_path, expected_token):
         raise ValueError(f"删除后仍存在：{relative_path}")
 
 def handle_action(root, action, payload, operation_id, op_id):
+    if action == "rebuild-distributed-results":
+        try:
+            manifest = payload.get("manifest")
+            if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1 or not isinstance(manifest.get("plans"), list):
+                raise ValueError("分布式结果清单无效")
+            encoded = json.dumps(manifest, ensure_ascii=False)
+            if len(encoded) > 4_000_000:
+                raise ValueError("分布式结果清单过大")
+            env = simple_runtime_env(os.environ.copy())
+            conda_env = str(payload.get("condaEnv") or "").strip()
+            if conda_env:
+                env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
+                env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1"
+            command = [simple_runtime_python(env), "-m", "experiments.simple_adapter.distributed_results",
+                       "--manifest", "-", "--project-root", root]
+            if payload.get("publish") is True:
+                command.append("--publish")
+            result = subprocess.run(command, input=encoded, text=True, capture_output=True,
+                                    cwd=root, env=env, timeout=300)
+            if result.returncode != 0:
+                raise RuntimeError((result.stderr or result.stdout or "结果重建失败")[-2000:])
+            details = json.loads(result.stdout.strip().splitlines()[-1])
+            return terminal_action(root, action, operation_id, op_id, "completed", "分布式结果重建完成", details)
+        except Exception as exc:
+            return terminal_action(root, action, operation_id, op_id, "failed", str(exc))
     if action == "preview-cache-cleanup":
         try:
             return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed", "candidates": cache_cleanup_candidates(root), "retentionDays": 7}
@@ -11049,6 +11145,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/events/sse",
             "/api/operations/{id}",
             "/api/actions/start-worker-task",
+            "/api/actions/rebuild-distributed-results",
             "/api/actions/retry-worker-task",
             "/api/actions/stop-worker-task",
             "/api/actions/delete-worker-artifacts",
@@ -12704,7 +12801,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))

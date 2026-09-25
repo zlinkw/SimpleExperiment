@@ -2734,6 +2734,13 @@ export function renderPanelHtml(): string {
         handleTaskPlanScopeClick(taskPlanScopeTarget);
         return;
       }
+      const distributedRetry = event.target.closest("button[data-distributed-retry]");
+      if (distributedRetry) {
+        event.preventDefault();
+        vscode.postMessage({ command: "retryDistributedJob", planId: distributedRetry.dataset.distributedRetry,
+          jobIndex: Number(distributedRetry.dataset.jobIndex) });
+        return;
+      }
       const executionPlanTarget = event.target.closest("button[data-execution-plan-select]");
       if (executionPlanTarget) {
         event.preventDefault();
@@ -3602,7 +3609,7 @@ export function renderPanelHtml(): string {
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
-      if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
+      if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
       if (section === "tasks") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary);
       if (section === "operations") return refListKey(data.operations);
       if (section === "diagnostics") return refListKey(data.diagnostics, data.capabilities, data.actionErrors, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.realtimeDiagnostics, data.health);
@@ -12886,7 +12893,23 @@ export function renderPanelHtml(): string {
             '<button type="button" data-task-plan-scope="all" title="显示全部运行任务（含其他 Plan）" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
           '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
-      let taskSummaryHtml = scopeBar + renderTaskPlanCompletionNext(state, scope) + (rows.length
+      const distributedPlans = Array.isArray(state.distributedPlans) ? state.distributedPlans : [];
+      const distributedHtml = distributedPlans.length
+        ? '<div class="summaryLine">' + distributedPlans.map((plan) => {
+            const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
+            const counts = {};
+            jobs.forEach((job) => { const key = String(job.status || "unknown"); counts[key] = (counts[key] || 0) + 1; });
+            const detail = Object.keys(counts).map((key) => key + ' ' + counts[key]).join(' · ');
+            return '<span class="pill" title="' + escAttr(jobs.map((job) => job.case + ' seed ' + job.seed + ' · ' + job.status + ' · ' + (job.workerId || '待分配') + (job.artifactError ? ' · ' + job.artifactError : '')).join(String.fromCharCode(10))) + '">'
+              + esc(compactPath(plan.planFile)) + ' · ' + esc(detail) + '</span>'
+              + jobs.filter((job) => job.status === 'failed' || job.status === 'unknown').map((job) =>
+                '<button type="button" data-distributed-retry="' + escAttr(plan.id) + '" data-job-index="' + Number(job.index) + '" title="核实原任务停止、保存已有产物后建立新 attempt">恢复 ' + esc(job.case) + ' seed ' + Number(job.seed) + '</button>').join('');
+          }).join('') + '</div>' : '';
+      const deferredPlans = Array.isArray(state.deferredPlans) ? state.deferredPlans : [];
+      const deferredHtml = deferredPlans.length ? '<div class="summaryLine">' + deferredPlans.map((plan) =>
+        '<span class="pill" title="' + escAttr(plan.error || '等待当前代码版本的任务结束及结果同步') + '">'
+        + esc(compactPath(plan.planFile)) + ' · 代码版本排队 · ' + esc(plan.status) + '</span>').join('') + '</div>' : '';
+      let taskSummaryHtml = scopeBar + distributedHtml + deferredHtml + renderTaskPlanCompletionNext(state, scope) + (rows.length
         ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
         : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>');
       setHtmlIfChanged("taskSummary", taskSummaryHtml);

@@ -1754,8 +1754,33 @@ def run_job_mode(args: argparse.Namespace) -> None:
     chosen = [job for job in jobs if int(job.index) == int(args.only_index)]
     if not chosen:
         raise SystemExit(f"No job selected for index {args.only_index}.")
+    output_override = str(getattr(args, "output_dir_override", "") or "").replace("\\", "/").strip("/")
+    if output_override:
+        parts = output_override.split("/")
+        if os.path.isabs(output_override) or any(part in ("", ".", "..") for part in parts):
+            raise SystemExit("Unsafe --output-dir-override")
+        original = chosen[0]
+        if not output_override.startswith(original.output_dir.rstrip("/") + "/attempts/"):
+            raise SystemExit("Output override must be an attempt directory of the selected job")
+        result_csv = output_override + "/test_results/job_metrics.csv"
+        aliases = {key: result_csv for key in original.result_aliases}
+        aliases.update({"result_csv": result_csv, "resultCsv": result_csv})
+        config = rewrite_debug_config_paths(copy.deepcopy(original.config), output_override, result_csv,
+                                            original.output_dir, original.result_aliases)
+        set_dotted(config, "runtime.output_dir", output_override)
+        values = dict(original.template_values or {})
+        for key in OUTPUT_TEMPLATE_ALIAS_KEYS:
+            values[key] = output_override
+        for key in RESULT_TEMPLATE_ALIAS_KEYS:
+            values[key] = aliases.get(key) or result_csv
+        values.update({"output_dir": output_override, "outputDir": output_override,
+                       "result_csv": result_csv, "resultCsv": result_csv,
+                       "formal_output_dir": output_override, "formal_result_csv": result_csv})
+        chosen = [replace(original, output_dir=output_override, result_csv=result_csv,
+                          result_aliases=aliases, config=config, template_values=values)]
     jobs_csv = Path(str(args.debug_output_dir)) / "jobs.csv" if args.debug_mode else Path(normalize_default_result_csv_dir(args.default_result_csv_dir)) / "jobs.csv"
-    append_jobs_csv(chosen, jobs_csv, plan_file=str(args.plan or ""))
+    if not os.environ.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"):
+        append_jobs_csv(chosen, jobs_csv, plan_file=str(args.plan or ""))
     # Write the exit code from Python as a robust completion signal (in addition to the shell
     # 'printf' appended by start_simple_tmux_command). This guarantees the scheduler detects task
     # completion/failure even if the training code errors and the shell redirect is unreliable.
@@ -3227,6 +3252,7 @@ def main() -> None:
     parser.add_argument("--check-existing", action="store_true")
     parser.add_argument("--mode", choices=["train_test", "train", "test"], default="")
     parser.add_argument("--only-index", type=int)
+    parser.add_argument("--output-dir-override", default="")
     parser.add_argument("--only-indices", default="")
     parser.add_argument("--gpu-ids", default="")
     parser.add_argument("--worker-id", default="local")

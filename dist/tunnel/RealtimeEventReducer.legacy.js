@@ -43,6 +43,9 @@ const knownTypes = new Set([
     "diagnostics_updated",
     "worker_health",
     "worker_task_snapshot",
+    "worker_task_completed",
+    "worker_task_failed",
+    "worker_task_stopped",
     "agent_warning",
     "operation_started",
     "operation_progress",
@@ -152,6 +155,17 @@ function applyRealtimeEvent(state, input, options = {}) {
             ? event.payload
             : payload.tasks || payload.workerTasks || payload.worker_tasks || payload.rows || [];
         next.workerTasks = { ...(state.workerTasks || {}), [workerId]: rows };
+    }
+    if (["worker_task_completed", "worker_task_failed", "worker_task_stopped"].includes(event.type)) {
+        const workerId = event.workerId || event.serverId || String(payload.workerId || payload.worker_id || "worker");
+        const commandId = String(payload.commandId || event.operationId || "");
+        if (commandId) {
+            const oldRows = Array.isArray(state.workerTasks?.[workerId]) ? state.workerTasks[workerId] : [];
+            const rows = oldRows.filter((row) => String(row?.commandId || "") !== commandId);
+            rows.push({ ...payload, commandId,
+                status: event.type === "worker_task_completed" ? "completed" : event.type === "worker_task_stopped" ? "stopped" : "failed" });
+            next.workerTasks = { ...(state.workerTasks || {}), [workerId]: rows };
+        }
     }
     if (event.type === "file_transfer_progress") {
         const transferId = event.transferId || payload.transferId || payload.transfer_id || payload.id;

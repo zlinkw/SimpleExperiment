@@ -71,6 +71,7 @@ const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
+const DistributedPlanQueue = __importStar(require("../features/DistributedPlanQueue"));
 const PlanArtifactTransfer_1 = require("../features/PlanArtifactTransfer");
 const ProjectMirror_1 = require("../features/ProjectMirror");
 const SyncScopeTree_1 = require("../features/SyncScopeTree");
@@ -629,6 +630,9 @@ class RealtimeTunnelPanelProvider {
     lastRealtimeState;
     lastProbe;
     lastWorkerProbes = {};
+    distributedQueueCache;
+    distributedQueueRoot = "";
+    distributedQueueTickPromise;
     lastFullEndpointProbeAt = 0;
     lastIntegrationReport;
     lastSnapshotAt;
@@ -719,6 +723,9 @@ class RealtimeTunnelPanelProvider {
     availabilityPushLoopGeneration = 0;
     lastAvailabilityPushAt = 0;
     lastCodeSyncState = {};
+    distributedTerminalSeen = new Set();
+    distributedQueueWritePromise = Promise.resolve();
+    distributedPostprocessPromise;
     planSyncSummaryRetries = new Map();
     confirmedRemotePaths = [];
     confirmedPptPaths = [];
@@ -792,6 +799,9 @@ class RealtimeTunnelPanelProvider {
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
+        const queueTimer = setInterval(() => { void this.tickDistributedQueue().catch((error) => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) })); }, 5_000);
+        queueTimer.unref?.();
+        this.context.subscriptions.push({ dispose: () => clearInterval(queueTimer) });
     }
     refreshStoredPluginUpdateStatus(plan) {
         if (!plan || typeof plan !== "object" || !["update_available", "reload_required"].includes(String(plan.status)))
@@ -4485,6 +4495,9 @@ class RealtimeTunnelPanelProvider {
             case "reassignWorkerTask":
                 await this.reassignWorkerTaskFromUi(message);
                 break;
+            case "retryDistributedJob":
+                await this.retryDistributedJobFromUi(message);
+                break;
             case "saveHubConfig":
                 await this.saveHubConfigFromUi(message);
                 break;
@@ -5125,6 +5138,7 @@ class RealtimeTunnelPanelProvider {
             this.stampPlanRevision(body);
             await this.assertPlanLocalConfigFiles(body);
             const plan = this.localPlanForActionBody(body);
+            const distributedPlan = command === "runPlan" && this.distributedPlanEligible(operationResultPlanFile(body) || plan?.planFile || plan?.file);
             const outputGateReason = projectOutputGateReason(this.localPlanMetadata.detectedProject, plan);
             if (outputGateReason) {
                 if (LENIENT_RUN) {
@@ -5134,7 +5148,10 @@ class RealtimeTunnelPanelProvider {
                     throw new Error(outputGateReason);
                 }
             }
-            await this.selectPlanSubmissionWorker(body, operationResultPlanFile(body) || plan?.planFile || command);
+            if (distributedPlan)
+                await this.selectDistributedPlanPrimary(body);
+            else
+                await this.selectPlanSubmissionWorker(body, operationResultPlanFile(body) || plan?.planFile || command);
             if (LENIENT_RUN) {
                 try {
                     this.assertExecutionWorkersReady(body.options?.workers);
@@ -5162,6 +5179,20 @@ class RealtimeTunnelPanelProvider {
             const planFileForProvenance = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
             body.gitProvenance = await this.recordRunGitProvenance(planFileForProvenance, String(body.planRevision || plan?.revision || ""), makeOpId(command));
             body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
+            if (distributedPlan) {
+                const root = workspaceRoot();
+                const queue = root ? await this.loadDistributedQueue(root) : DistributedPlanQueue.emptyDistributedQueue();
+                const active = queue.plans.filter((item) => item.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)));
+                if ((active.length || this.distributedPostprocessPromise) && root) {
+                    const fingerprint = await this.localDistributedCodeFingerprint(root);
+                    if (active.some((item) => item.codeFingerprint !== fingerprint)
+                        || this.distributedPostprocessPromise && queue.plans.some((item) => item.codeFingerprint !== fingerprint)) {
+                        await this.deferDistributedPlan(root, body, fingerprint);
+                        await this.openPanelAt("tasks", "tasks-list");
+                        return;
+                    }
+                }
+            }
             await this.ensureCodeReadyForRun(undefined, [body]);
             const preflightOk = await this.runPlanPreflight(body, "当前计划");
             if (!preflightOk) {
@@ -5173,7 +5204,14 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             if (preflightOk)
-                await this.confirmPlanExistingOutputs(plan, body, preflightOk);
+                if (!distributedPlan)
+                    await this.confirmPlanExistingOutputs(plan, body, preflightOk);
+            if (distributedPlan) {
+                this.assertExecutionCondaEnvReady(this.workerActionTargets());
+                await this.enqueueDistributedPlan(body, preflightOk);
+                await this.openPanelAt("tasks", "tasks-list");
+                return;
+            }
             try {
                 const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
                 if (pf) {
@@ -7946,6 +7984,475 @@ class RealtimeTunnelPanelProvider {
             body.options = { ...(body.options || {}), workerId: picked.workerId, workers: [target] };
         }
         return picked.workerId;
+    }
+    distributedPlanEligible(planFile) {
+        return this.projectTopologyAssessment().mode === "worker_pool"
+            && this.localPlanMetadata.detectedProject?.adapterRules?.distributedResults === true
+            && /^experiments\/plans\/comparison\/[^/]+\.ya?ml$/i.test(String(planFile || "").replace(/\\/g, "/"));
+    }
+    async localDistributedCodeFingerprint(root) {
+        const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
+        const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
+        const manifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths")), holds);
+        return fingerprintFromManifest(manifest);
+    }
+    async deferDistributedPlan(root, body, fingerprint) {
+        const queue = await this.loadDistributedQueue(root);
+        const deferred = { id: makeOpId("distributed-deferred"), planFile: operationResultPlanFile(body),
+            revision: String(body.planRevision || body.options?.planRevision || ""), codeFingerprint: fingerprint,
+            body: JSON.parse(JSON.stringify(body)), enqueuedAt: new Date().toISOString(), status: "pending" };
+        await this.saveDistributedQueue(root, { ...queue, deferred: [...(queue.deferred || []), deferred] });
+        this.postState();
+    }
+    async selectDistributedPlanPrimary(body) {
+        const snapshot = await this.client.getGpu();
+        const availability = this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), snapshot);
+        const ranked = availability.filter((row) => this.lastWorkerProbes[row.workerId]?.status === "ok")
+            .sort((a, b) => (b.availableGpuIds?.length || 0) - (a.availableGpuIds?.length || 0) || a.workerId.localeCompare(b.workerId));
+        if (!ranked.length)
+            throw new Error("没有已连接的 Worker，无法校验分布式 Plan。");
+        this.stampWorkerPoolManualTarget(body, ranked[0].workerId);
+        return ranked[0].workerId;
+    }
+    async loadDistributedQueue(root) {
+        if (this.distributedQueueCache && this.distributedQueueRoot === root)
+            return this.distributedQueueCache;
+        const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        const source = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
+            return ""; throw error; });
+        const queue = source ? JSON.parse(source) : DistributedPlanQueue.emptyDistributedQueue();
+        if (queue.schemaVersion !== 1 || !Array.isArray(queue.plans))
+            throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
+        if (Array.isArray(queue.deferred))
+            queue.deferred = queue.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
+        this.distributedQueueCache = queue;
+        this.distributedQueueRoot = root;
+        return queue;
+    }
+    async saveDistributedQueue(root, queue, options = {}) {
+        const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => {
+            const current = this.distributedQueueRoot === root ? this.distributedQueueCache : undefined;
+            if (current) {
+                if (!options.artifactMutation) {
+                    const oldPlans = new Map(current.plans.map((plan) => [plan.id, plan]));
+                    queue = { ...queue, plans: queue.plans.map((plan) => {
+                            const oldJobs = new Map((oldPlans.get(plan.id)?.jobs || []).map((job) => [job.index, job]));
+                            return { ...plan, jobs: plan.jobs.map((job) => {
+                                    const old = oldJobs.get(job.index);
+                                    return old && old.attempt === job.attempt ? { ...job, artifacts: old.artifacts, mirroredWorkerIds: old.mirroredWorkerIds,
+                                        artifactError: old.artifactError, logPath: job.logPath || old.logPath,
+                                        finishedAt: job.finishedAt || old.finishedAt } : job;
+                                }) };
+                        }) };
+                }
+                if (!options.publicationMutation)
+                    queue = { ...queue, publishedSignature: current.publishedSignature,
+                        publishedWorkerId: current.publishedWorkerId, publishedWorkerIds: current.publishedWorkerIds,
+                        publishedPaths: current.publishedPaths, previewSignature: current.previewSignature };
+            }
+            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+            await fs.mkdir(path.dirname(file), { recursive: true });
+            const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
+            await fs.writeFile(temporary, JSON.stringify(queue, null, 2) + "\n", "utf8");
+            await fs.rename(temporary, file);
+            this.distributedQueueRoot = root;
+            this.distributedQueueCache = queue;
+        });
+        this.distributedQueueWritePromise = work;
+        await work;
+    }
+    async patchDistributedJob(root, planId, index, attempt, fields) {
+        await this.distributedQueueWritePromise.catch(() => undefined);
+        const latest = await this.loadDistributedQueue(root);
+        const next = { ...latest, plans: latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
+                jobs: plan.jobs.map((job) => job.index !== index || job.attempt !== attempt ? job : { ...job, ...fields,
+                    mirroredWorkerIds: fields.mirroredWorkerIds
+                        ? [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
+                        : job.mirroredWorkerIds }) }) };
+        await this.saveDistributedQueue(root, next, { artifactMutation: true });
+    }
+    async patchDistributedPublication(root, fields) {
+        await this.distributedQueueWritePromise.catch(() => undefined);
+        const latest = await this.loadDistributedQueue(root);
+        await this.saveDistributedQueue(root, { ...latest, ...fields }, { publicationMutation: true });
+    }
+    scheduleDistributedPostprocess(root) {
+        if (this.distributedPostprocessPromise)
+            return;
+        const work = (async () => {
+            const queue = await this.loadDistributedQueue(root);
+            await this.syncDistributedJobArtifacts(root, queue);
+            if (workspaceRoot() !== root)
+                return;
+            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root));
+            this.postState();
+        })();
+        this.distributedPostprocessPromise = work;
+        void work.catch((error) => this.recordActionError({ command: "distributedPostprocess", message: errorMessage(error) }))
+            .finally(() => { if (this.distributedPostprocessPromise === work)
+            this.distributedPostprocessPromise = undefined; });
+    }
+    async enqueueDistributedPlan(body, validated, skipTick = false) {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("没有当前项目目录。");
+        if (this.distributedQueueTickPromise && !skipTick)
+            await this.distributedQueueTickPromise;
+        const validation = validated?.validation || validated?.result?.validation;
+        if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
+            throw new Error("Agent 校验未返回逐 job 清单，无法分布式派发。");
+        const planFile = operationResultPlanFile(body);
+        const revision = String(body.planRevision || body.options?.planRevision || "");
+        const codeFingerprint = String(this.lastCodeSyncState?.fingerprint || "");
+        const id = makeOpId("distributed-plan");
+        const current = await this.loadDistributedQueue(root);
+        const next = DistributedPlanQueue.enqueuePlan(current, { planFile, revision, codeFingerprint, jobs: validation.jobs.map((job) => ({
+                index: Number(job.index), case: String(job.case), seed: Number(job.seed), outputDir: `${String(job.output_dir).replace(/\\/g, "/").replace(/\/$/, "")}/attempts/${id}`,
+            })) }, id);
+        await this.saveDistributedQueue(root, next);
+        if (!skipTick)
+            await this.tickDistributedQueue();
+    }
+    async tickDistributedQueue() {
+        if (this.distributedQueueTickPromise)
+            return this.distributedQueueTickPromise;
+        const task = this.tickDistributedQueueCore();
+        this.distributedQueueTickPromise = task;
+        try {
+            await task;
+        }
+        finally {
+            if (this.distributedQueueTickPromise === task)
+                this.distributedQueueTickPromise = undefined;
+        }
+    }
+    async tickDistributedQueueCore() {
+        const root = workspaceRoot();
+        if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool")
+            return;
+        let queue = await this.loadDistributedQueue(root);
+        if (!queue.plans.length && !(queue.deferred || []).length)
+            return;
+        const assigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "running", "unknown"].includes(job.status))
+            .map((job) => ({ plan, job })));
+        for (const workerId of [...new Set(assigned.map(({ job }) => job.workerId))]) {
+            const snapshot = await this.readWorkerTaskSnapshot(workerId);
+            if (snapshot.error) {
+                for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId && row.job.status !== "unknown"))
+                    queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", job.commandId);
+                continue;
+            }
+            for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId)) {
+                const task = (snapshot.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
+                if (!task)
+                    continue;
+                const relativeLog = typeof task.logPath === "string" ? task.logPath.replace(/\\/g, "/") : "";
+                if (relativeLog && !relativeLog.startsWith("/") && !relativeLog.split("/").includes(".."))
+                    job.logPath = relativeLog;
+                if (typeof task.finishedAt === "string" && task.finishedAt)
+                    job.finishedAt = task.finishedAt;
+                const status = String(task.status || "").toLowerCase();
+                const nextStatus = status === "completed" ? "completed" : ["failed", "stopped", "cancelled"].includes(status) ? "failed" : status === "running" ? "running" : undefined;
+                if (nextStatus && nextStatus !== job.status)
+                    queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, nextStatus, job.commandId);
+            }
+        }
+        await this.saveDistributedQueue(root, queue);
+        const activeVersion = queue.plans.some((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)));
+        const deferred = !activeVersion && !this.distributedPostprocessPromise
+            ? (queue.deferred || []).find((row) => row.status === "pending" && (!row.retryAfter || Date.parse(row.retryAfter) <= Date.now())) : undefined;
+        if (deferred) {
+            deferred.status = "processing";
+            await this.saveDistributedQueue(root, queue);
+            try {
+                if (await this.localDistributedCodeFingerprint(root) !== deferred.codeFingerprint)
+                    throw new Error("排队期间本机代码已变更，请重新提交该 Plan 以固定新版本");
+                const body = JSON.parse(JSON.stringify(deferred.body));
+                await this.selectDistributedPlanPrimary(body);
+                await this.ensureCodeReadyForRun(undefined, [body]);
+                const validated = await this.runPlanPreflight(body, `排队计划 ${deferred.planFile}`);
+                if (!validated)
+                    throw new Error("排队计划校验未通过");
+                this.assertExecutionCondaEnvReady(this.workerActionTargets());
+                await this.enqueueDistributedPlan(body, validated, true);
+                queue = await this.loadDistributedQueue(root);
+                queue = { ...queue, deferred: (queue.deferred || []).filter((row) => row.id !== deferred.id) };
+                await this.saveDistributedQueue(root, queue);
+            }
+            catch (error) {
+                queue = await this.loadDistributedQueue(root);
+                const message = errorMessage(error);
+                const blocked = message.includes("本机代码已变更") || isUiCommandCancelled(error);
+                queue = { ...queue, deferred: (queue.deferred || []).map((row) => row.id === deferred.id
+                        ? { ...row, status: blocked ? "blocked" : "pending", error: message,
+                            retryAfter: blocked ? undefined : new Date(Date.now() + 60_000).toISOString() } : row) };
+                await this.saveDistributedQueue(root, queue);
+                this.recordActionError({ command: "distributedDeferredPlan", message: `${deferred.planFile}：${message}` });
+            }
+        }
+        let snapshot;
+        try {
+            snapshot = await this.client.getGpu();
+        }
+        catch {
+            snapshot = undefined;
+        }
+        const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
+            .map((job) => `${job.workerId}:${job.gpuId}`)));
+        const dispatchFingerprint = queue.plans.find((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)))?.codeFingerprint
+            || queue.plans.find((plan) => plan.jobs.some((job) => job.status === "pending"))?.codeFingerprint;
+        const rows = snapshot ? this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), snapshot) : [];
+        const workers = rows.map((row) => ({ workerId: row.workerId,
+            online: this.lastWorkerProbes[row.workerId]?.status === "ok"
+                && (!dispatchFingerprint || this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint === dispatchFingerprint),
+            idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
+            capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined }));
+        const allocation = DistributedPlanQueue.allocateAvailable(queue, workers);
+        queue = allocation.queue;
+        if (allocation.dispatches.length)
+            await this.saveDistributedQueue(root, queue);
+        for (const dispatch of allocation.dispatches) {
+            const plan = queue.plans.find((item) => item.id === dispatch.planId);
+            const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
+            const target = this.workerActionTargets().find((item) => item.id === dispatch.workerId);
+            if (!plan || !job || !target)
+                continue;
+            try {
+                const started = await this.client.postWorkerAction(dispatch.workerId, "start-worker-task", {
+                    schemaVersion: 1, opId: dispatch.commandId, operationId: dispatch.commandId,
+                    planFile: plan.planFile, experimentIndex: job.index, gpuId: dispatch.gpuId,
+                    case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
+                    planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
+                    condaEnv: target.condaEnv, workflowId: plan.id,
+                    options: { workerId: dispatch.workerId, distributedResults: true, condaEnv: target.condaEnv,
+                        workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
+                });
+                if (started?.status !== "completed")
+                    throw new Error(String(started?.message || "Worker 未确认启动"));
+                queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "running", dispatch.commandId);
+            }
+            catch (error) {
+                queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", dispatch.commandId);
+                this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${errorMessage(error)}；状态待核实，禁止自动重派。` });
+            }
+            await this.saveDistributedQueue(root, queue);
+        }
+        this.scheduleDistributedPostprocess(root);
+        this.postState();
+    }
+    async syncDistributedJobArtifacts(root, queue) {
+        const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
+        const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
+        for (const plan of queue.plans)
+            for (const job of plan.jobs) {
+                if (workspaceRoot() !== root)
+                    return;
+                if (job.status !== "completed" || !job.workerId || !targets.has(job.workerId))
+                    continue;
+                try {
+                    const sourceId = [job.workerId, ...(job.mirroredWorkerIds || [])].find((id) => online.includes(id));
+                    if (!sourceId)
+                        throw new Error("来源 Worker 与已校验镜像均未连接");
+                    const sourceRow = targets.get(sourceId);
+                    const source = this.sftpServerOptions(sourceRow);
+                    if (!job.artifacts) {
+                        if (!job.logPath)
+                            throw new Error("任务快照缺少日志路径，待 Agent 恢复后再同步");
+                        const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
+                        const files = Object.entries(inventory).filter(([name, row]) => name.startsWith(job.outputDir + "/") && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(name))
+                            && /^[a-f0-9]{64}$/i.test(String(row?.sha256 || "")));
+                        if (job.logPath) {
+                            const log = (await this.verifiedSftpProjectInventory({ source, relativePath: job.logPath })).files[job.logPath];
+                            if (!log?.sha256)
+                                throw new Error(`运行日志缺失：${job.logPath}`);
+                            files.push([job.logPath, log]);
+                        }
+                        const required = ["config.yaml", "best_model.pth", "test_results/formal_result_rows.csv", "test_results/four_state_metrics.csv"];
+                        if (required.some((name) => !files.some(([file]) => file === `${job.outputDir}/${name}`)))
+                            throw new Error("缺少检查点或双端点/四态结果片段");
+                        job.artifacts = Object.fromEntries(files.map(([name, row]) => [name, String(row.sha256).toLowerCase()]));
+                        job.mirroredWorkerIds = [job.workerId];
+                        job.artifactError = undefined;
+                        await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifacts: job.artifacts,
+                            mirroredWorkerIds: job.mirroredWorkerIds, artifactError: undefined });
+                    }
+                    for (const workerId of online) {
+                        if (workspaceRoot() !== root)
+                            return;
+                        if (job.mirroredWorkerIds?.includes(workerId))
+                            continue;
+                        const target = targets.get(workerId);
+                        const destination = this.sftpServerOptions(target);
+                        await this.assertSshTransportIdentities([sourceRow, target]);
+                        const paths = Object.keys(job.artifacts).sort();
+                        for (let offset = 0; offset < paths.length; offset += 5000) {
+                            await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
+                                destination: { ...destination, host: destination.networkHost || destination.host },
+                                relativePaths: paths.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
+                        }
+                        const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
+                        if (paths.some((file) => String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file]))
+                            throw new Error(`${workerId} 内容校验失败`);
+                        job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), workerId])];
+                        job.artifactError = undefined;
+                        await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { mirroredWorkerIds: job.mirroredWorkerIds,
+                            artifactError: undefined });
+                    }
+                }
+                catch (error) {
+                    job.artifactError = errorMessage(error);
+                    await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifactError: job.artifactError });
+                    this.recordActionError({ command: "distributedArtifactSync", message: `${plan.planFile} job ${job.index}：${job.artifactError}` });
+                }
+            }
+    }
+    async rebuildDistributedResults(root, queue) {
+        const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
+        const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
+        const chosen = new Map();
+        for (const plan of queue.plans)
+            chosen.set(plan.planFile, plan);
+        const selected = [...chosen.values()];
+        if (!selected.length)
+            return;
+        const available = online.find((id) => selected.every((plan) => plan.jobs.filter((job) => job.status === "completed" && job.artifacts)
+            .every((job) => job.mirroredWorkerIds?.includes(id))));
+        if (!available)
+            return;
+        const manifest = { schemaVersion: 1, plans: selected.map((plan) => ({ planFile: plan.planFile, revision: plan.revision,
+                expectedJobs: plan.jobs.map((job) => ({ case: job.case, seed: job.seed })),
+                jobs: plan.jobs.filter((job) => job.status === "completed" && job.artifacts).map((job) => ({
+                    case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir,
+                    commandId: job.commandId,
+                    sourceWorkerId: job.workerId, codeFingerprint: plan.codeFingerprint,
+                    configSha256: job.artifacts[`${job.outputDir}/config.yaml`],
+                    checkpointSha256: job.artifacts[`${job.outputDir}/best_model.pth`],
+                    resultRowsSha256: job.artifacts[`${job.outputDir}/test_results/formal_result_rows.csv`],
+                    fourStateSha256: job.artifacts[`${job.outputDir}/test_results/four_state_metrics.csv`],
+                })) })) };
+        const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
+        const publish = true;
+        const alreadyBuilt = publish ? queue.publishedSignature === signature : queue.previewSignature === signature;
+        let paths = alreadyBuilt ? queue.publishedPaths || [] : [];
+        let sourceWorkerId = alreadyBuilt ? queue.publishedWorkerId : available;
+        if (!alreadyBuilt) {
+            const target = targets.get(available);
+            const response = await this.client.postWorkerAction(available, "rebuild-distributed-results", {
+                opId: `distributed-merge-${signature.slice(0, 24)}`, operationId: `distributed-merge-${signature.slice(0, 24)}`,
+                condaEnv: target.condaEnv, manifest, publish
+            });
+            if (response?.status !== "completed")
+                throw new Error(String(response?.message || "分布式结果重建失败"));
+            paths = Array.isArray(response.outputPaths) ? response.outputPaths : [];
+            if (!paths.length)
+                throw new Error("结果重建未返回输出文件清单");
+            sourceWorkerId = available;
+            if (publish) {
+                queue.publishedSignature = signature;
+                queue.publishedWorkerId = available;
+                queue.publishedWorkerIds = [available];
+                queue.publishedPaths = paths;
+            }
+            else
+                queue.previewSignature = signature;
+            await this.patchDistributedPublication(root, publish ? {
+                publishedSignature: queue.publishedSignature, publishedWorkerId: queue.publishedWorkerId,
+                publishedWorkerIds: queue.publishedWorkerIds, publishedPaths: queue.publishedPaths
+            } : { previewSignature: queue.previewSignature });
+        }
+        if (!publish || !sourceWorkerId || !paths.length)
+            return;
+        const sourceRow = targets.get(sourceWorkerId);
+        if (!sourceRow || !online.includes(sourceWorkerId))
+            return;
+        const source = this.sftpServerOptions(sourceRow);
+        for (const workerId of online) {
+            if (workspaceRoot() !== root)
+                return;
+            if (queue.publishedWorkerIds?.includes(workerId))
+                continue;
+            const destinationRow = targets.get(workerId);
+            try {
+                await this.assertSshTransportIdentities([sourceRow, destinationRow]);
+                const destination = this.sftpServerOptions(destinationRow);
+                await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
+                    destination: { ...destination, host: destination.networkHost || destination.host },
+                    relativePaths: paths, confirm: true, pathConfirmed: true });
+                const parents = new Map();
+                for (const file of paths) {
+                    const parent = path.posix.dirname(file);
+                    if (!parents.has(parent))
+                        parents.set(parent, []);
+                    parents.get(parent).push(file);
+                }
+                for (const [parent, files] of parents) {
+                    const a = (await this.verifiedSftpProjectInventory({ source, relativePath: parent, recursive: true })).files;
+                    const b = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: parent, recursive: true })).files;
+                    for (const file of files)
+                        if (!a[file]?.sha256 || String(a[file].sha256).toLowerCase() !== String(b[file]?.sha256 || "").toLowerCase())
+                            throw new Error(`${file} 内容校验失败`);
+                }
+                queue.publishedWorkerIds = [...new Set([...(queue.publishedWorkerIds || []), workerId])];
+                await this.patchDistributedPublication(root, { publishedWorkerIds: queue.publishedWorkerIds });
+            }
+            catch (error) {
+                this.recordActionError({ command: "distributedResultMirror", message: `${workerId}：${errorMessage(error)}` });
+            }
+        }
+    }
+    async retryDistributedJobFromUi(message) {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("没有当前项目目录");
+        const queue = await this.loadDistributedQueue(root);
+        const plan = queue.plans.find((row) => row.id === String(message.planId || ""));
+        const job = plan?.jobs.find((row) => row.index === Number(message.jobIndex));
+        if (!plan || !job || !job.workerId || !job.commandId || !["failed", "unknown"].includes(job.status))
+            throw new Error("目标 job 当前不能恢复");
+        const fresh = await this.client.getWorkerTasks(job.workerId);
+        const task = (fresh?.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
+        if (!task || !["failed", "stopped", "cancelled"].includes(String(task.status || "").toLowerCase())
+            || !(task.finishedAt || task.exitCode !== undefined))
+            throw new Error("原 Worker 尚未确认任务停止；当前禁止换机恢复");
+        const sourceRow = this.workerCodeSyncTargets().find((row) => row.id === job.workerId);
+        if (!sourceRow)
+            throw new Error("原 Worker 配置不可用，无法保存已有产物");
+        const source = this.sftpServerOptions(sourceRow);
+        const choice = await vscode.window.showWarningMessage(`核实并恢复 ${plan.planFile} / ${job.case} / seed ${job.seed}\n原任务：${job.workerId}，${job.outputDir}\n确认原任务已停止；先保存当前产物和日志，再建立新 attempt 重新排队。旧 attempt 保留。`, { modal: true }, "保存旧产物并恢复");
+        if (choice !== "保存旧产物并恢复")
+            return;
+        const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
+        const files = Object.keys(inventory).filter((file) => file.startsWith(job.outputDir + "/")
+            && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file)) && inventory[file]?.sha256);
+        const expectedHashes = Object.fromEntries(files.map((file) => [file, String(inventory[file].sha256).toLowerCase()]));
+        if (job.logPath) {
+            const log = (await this.verifiedSftpProjectInventory({ source, relativePath: job.logPath })).files[job.logPath];
+            if (log?.sha256) {
+                files.push(job.logPath);
+                expectedHashes[job.logPath] = String(log.sha256).toLowerCase();
+            }
+        }
+        for (const target of this.workerCodeSyncTargets().filter((row) => row.id !== job.workerId && this.lastWorkerProbes[row.id]?.status === "ok")) {
+            await this.assertSshTransportIdentities([sourceRow, target]);
+            const destination = this.sftpServerOptions(target);
+            for (let offset = 0; offset < files.length; offset += 5000)
+                await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
+                    destination: { ...destination, host: destination.networkHost || destination.host },
+                    relativePaths: files.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
+            const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
+            for (const file of files.filter((value) => value.startsWith(job.outputDir + "/")))
+                if (String(checked[file]?.sha256 || "").toLowerCase() !== expectedHashes[file])
+                    throw new Error(`${target.id} 的旧 attempt 产物校验失败，未恢复`);
+            if (job.logPath && expectedHashes[job.logPath]) {
+                const log = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.logPath })).files[job.logPath];
+                if (String(log?.sha256 || "").toLowerCase() !== expectedHashes[job.logPath])
+                    throw new Error(`${target.id} 的旧 attempt 日志校验失败，未恢复`);
+            }
+        }
+        const current = await this.loadDistributedQueue(root);
+        const updated = DistributedPlanQueue.retryVerifiedJob(current, plan.id, job.index, makeOpId("attempt"));
+        await this.saveDistributedQueue(root, updated);
+        await this.tickDistributedQueue();
     }
     async ensureWorkerPoolPlanTarget(body, label = "当前 Plan") {
         const topology = this.assertPlanTopologyReady(label);
@@ -14396,6 +14903,17 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastRealtimeState = state;
+            if (this.distributedQueueCache?.plans?.length) {
+                const tasks = Object.values(state?.workerTasks || {}).flatMap((rows) => Array.isArray(rows) ? rows : []);
+                const activeIds = new Set(this.distributedQueueCache.plans.flatMap((plan) => plan.jobs.filter((job) => ["running", "dispatching", "unknown"].includes(job.status)).map((job) => job.commandId)));
+                for (const task of tasks) {
+                    const id = String(task?.commandId || "");
+                    if (id && activeIds.has(id) && ["completed", "failed", "stopped"].includes(String(task?.status || "").toLowerCase()) && !this.distributedTerminalSeen.has(id)) {
+                        this.distributedTerminalSeen.add(id);
+                        void this.tickDistributedQueue().catch((error) => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }));
+                    }
+                }
+            }
             void this.notifyPlanFailureOnce(state).catch(() => undefined);
             this.scheduleResultsSummaryRefreshFromRealtime(state);
             const uiRefs = this.realtimeUiStateRefsFor(state);
@@ -15013,6 +15531,15 @@ class RealtimeTunnelPanelProvider {
             gpu,
             gpuHistory: this.gpuHistoryState.snapshot(),
             schedulerStates,
+            distributedPlans: this.distributedQueueRoot === workspaceRoot()
+                ? (this.distributedQueueCache?.plans || []).map((plan) => ({ id: plan.id, planFile: plan.planFile,
+                    revision: plan.revision, enqueuedAt: plan.enqueuedAt,
+                    jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
+                        status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
+                        artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [],
+            deferredPlans: this.distributedQueueRoot === workspaceRoot()
+                ? (this.distributedQueueCache?.deferred || []).map((item) => ({ planFile: item.planFile,
+                    revision: item.revision, status: item.status, error: item.error || "" })) : [],
             experimentTraces,
             logs,
             operations,
@@ -21448,6 +21975,7 @@ function parseProjectAdapterRules(text) {
     const [entrypointsStart, entrypointsEnd] = sectionRange("entrypoints");
     const entryScalar = (name) => entrypointsStart >= 0 ? scalar(name, 2, entrypointsStart, entrypointsEnd) : "";
     return {
+        distributedResults: scalar("distributedResults", 0) === "true",
         taskType: scalar("taskType", 0) || outputScalar("taskType") || undefined,
         primaryMetric: scalar("primaryMetric", 0) || outputScalar("primaryMetric") || undefined,
         secondaryMetrics: listAfter("secondaryMetrics", 0),
@@ -21606,6 +22134,7 @@ function mergeProjectAdapterRules(explicitRules, inferredRules) {
     const hasMap = (value) => Object.keys(value || {}).length > 0;
     const unionList = (...lists) => uniqueStrings(lists.flatMap((list) => Array.isArray(list) ? list : []).map((item) => String(item || "").trim().replace(/\\/g, "/")).filter(Boolean));
     return {
+        distributedResults: explicitRules.distributedResults === true,
         taskType: explicitRules.taskType || inferredRules.taskType,
         primaryMetric: explicitRules.primaryMetric || inferredRules.primaryMetric,
         secondaryMetrics: explicitRules.secondaryMetrics?.length ? explicitRules.secondaryMetrics : inferredRules.secondaryMetrics,
