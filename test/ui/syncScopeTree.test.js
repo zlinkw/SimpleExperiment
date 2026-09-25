@@ -86,10 +86,15 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   elements.get("tree").children[3].children.find((child) => child.textContent === "版本与操作").onclick();
   const version = elements.get("tree").children[3].children[0];
   assert.match(version.textContent, new RegExp(hash));
-  assert.equal(version.children[0].textContent, "保留此版");
+  assert.equal(version.children[0].textContent, "以此版同步到其他位置");
   assert.equal(version.children[1].textContent, "删除");
   version.children[1].onclick();
   assert.deepEqual({ type: messages.at(-1).type, path: messages.at(-1).path, endpointId: messages.at(-1).endpointId }, { type: "remove", path: "README.md", endpointId: "w1" });
+  assert.equal(elements.get("status").className, "busy");
+  onMessage({ data: { type: "actionProgress", rootId: "workers", path: "README.md", stage: "正在删除 w1" } });
+  assert.match(elements.get("status").textContent, /正在删除 w1/);
+  onMessage({ data: { type: "actionCancelled", rootId: "workers", path: "README.md" } });
+  assert.equal(elements.get("status").className, "");
   onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { "data": { state: "unknown", detail: "1 未确认", unverified: true } }, refreshedAt: "now" } });
   elements.get("tree").children[1].children.find((child) => child.textContent === "版本与操作").onclick();
   const folderVersions = elements.get("tree").children[2];

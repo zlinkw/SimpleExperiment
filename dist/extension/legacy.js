@@ -73,6 +73,8 @@ const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
 const PlanArtifactTransfer_1 = require("../features/PlanArtifactTransfer");
 const ProjectMirror_1 = require("../features/ProjectMirror");
 const SyncScopeTree_1 = require("../features/SyncScopeTree");
+const SyncScopeConfirmation_1 = require("../features/SyncScopeConfirmation");
+const SyncScopeLocalMirror_1 = require("../features/SyncScopeLocalMirror");
 const SyncScopeStatus_1 = require("../features/SyncScopeStatus");
 const SyncResolution_1 = require("../features/SyncResolution");
 const { renderPanelHtml } = PanelHtml_1;
@@ -6723,9 +6725,9 @@ class RealtimeTunnelPanelProvider {
                 selected: localSelected,
                 list: async (relative) => this.listSyncScopeUnion(root, targets, relative, true),
                 refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "local-server", localSelected, relative),
-                remove: async (relative, endpointId, directory) => this.removeSyncScopePath(root, targets, relative, endpointId, directory),
-                removeAllWorkers: async (relative, directory) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory),
-                retain: async (relative, endpointId, directory) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory),
+                remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
+                removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
+                retain: async (relative, endpointId, directory, report) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory, report),
                 save: async (paths, excluded = []) => {
                     if (paths.includes("."))
                         throw new Error("本机项目根目录会包含产物和预训练权重，请选择具体文件或目录。");
@@ -6741,9 +6743,9 @@ class RealtimeTunnelPanelProvider {
                 selected: serverSelected,
                 list: async (relative) => this.listSyncScopeUnion(root, targets, relative, false),
                 refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "server-server", serverSelected, relative),
-                remove: async (relative, endpointId, directory) => this.removeSyncScopePath(root, targets, relative, endpointId, directory),
-                removeAllWorkers: async (relative, directory) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory),
-                retain: async (relative, endpointId, directory) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory),
+                remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
+                removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
+                retain: async (relative, endpointId, directory, report) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory, report),
                 save: async (paths) => {
                     const normalized = (0, ProjectMirror_1.normalizeMirrorScopePaths)(paths);
                     await config.update("serverSync.paths", normalized, vscode.ConfigurationTarget.WorkspaceFolder);
@@ -6816,7 +6818,7 @@ class RealtimeTunnelPanelProvider {
         const result = await this.simpleSftpApiCall("sync.projectInventory", options);
         return (0, SyncScopeStatus_1.requireCompleteScopeInventory)(result);
     }
-    async removeSyncScopePath(root, targets, relative, endpointId, directory) {
+    async removeSyncScopePath(root, targets, relative, endpointId, directory, report = (_stage) => { }) {
         (0, SyncResolution_1.safeSyncPath)(relative);
         if (!(0, SyncScopeStatus_1.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
@@ -6824,17 +6826,17 @@ class RealtimeTunnelPanelProvider {
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
         this.syncScopeMutationInFlight = true;
         try {
+            report("正在核对删除目标");
             const target = endpointId === "local" ? undefined : targets.find((row) => row.id === endpointId);
             if (endpointId !== "local" && !target)
                 throw new Error("删除目标 Worker 未连接或未启用。");
             const server = target && this.sftpServerOptions(target);
             const absolute = endpointId === "local" ? path.resolve(root, ...relative.split("/")) : path.posix.join(server.remotePath, relative);
             const location = endpointId === "local" ? "本机" : `${target.id} (${server.user}@${server.host}:${server.port})`;
-            const preview = `位置：${location}\n永久删除：${absolute}\n${directory ? "包含目录下全部内容。" : "单个文件。"}\n删除后该路径暂停自动补回，直到手动选定保留版本。`;
-            if (await vscode.window.showWarningMessage(`第一次确认\n${preview}`, { modal: true }, "确认路径并继续") !== "确认路径并继续")
+            report("等待核对完整路径并两次确认");
+            if (!await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("删除同步路径", `永久删除${directory ? "整个目录及其内容" : "单个文件"}。删除后该路径暂停自动补回，直到手动选定保留版本。`, [{ label: location, path: absolute }], "永久删除此路径"))
                 return false;
-            if (await vscode.window.showWarningMessage(`第二次确认\n${preview}`, { modal: true }, "永久删除此路径") !== "永久删除此路径")
-                return false;
+            report("正在保存自动同步暂停记录");
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const codeManifest = await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"));
@@ -6842,6 +6844,7 @@ class RealtimeTunnelPanelProvider {
             holds[relative] = { endpointId, deletedAt: new Date().toISOString(), directory, codeOwned };
             await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
             try {
+                report(`正在删除 ${location}`);
                 if (endpointId === "local")
                     await (0, SyncResolution_1.deleteLocalSyncPath)(root, relative);
                 else
@@ -6849,7 +6852,7 @@ class RealtimeTunnelPanelProvider {
                         confirm: true, pathConfirmed: true, secondConfirmation: true });
             }
             catch (error) {
-                void vscode.window.showWarningMessage(`删除未完成，自动补回仍暂停。${errorMessage(error)}`);
+                void vscode.window.showWarningMessage("删除未完成，自动补回仍暂停。具体原因已显示在同步范围页面。");
                 throw error;
             }
             return true;
@@ -6858,7 +6861,7 @@ class RealtimeTunnelPanelProvider {
             this.syncScopeMutationInFlight = false;
         }
     }
-    async removeSyncScopePathFromAllWorkers(root, targets, relative, directory) {
+    async removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report = (_stage) => { }) {
         (0, SyncResolution_1.safeSyncPath)(relative);
         if (!(0, SyncScopeStatus_1.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
@@ -6866,6 +6869,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
         this.syncScopeMutationInFlight = true;
         try {
+            report(`正在核对 ${targets.length} 台 Worker 的路径`);
             if (!targets.length)
                 throw new Error("没有已启用的 Worker，禁止批量删除。");
             const localPath = path.resolve(root, ...relative.split("/"));
@@ -6888,12 +6892,10 @@ class RealtimeTunnelPanelProvider {
                 if (Boolean(entry.directory) !== directory)
                     throw new Error(`${target.id} 的路径类型与界面不一致，请刷新列表。`);
             }
-            const preview = present.map(({ target, server }) => `${target.id} (${server.user}@${server.host}:${server.port})：${path.posix.join(server.remotePath, relative)}`).join("\n");
-            const prompt = `永久删除以下 ${present.length} 台 Worker 的${directory ? "整个目录及其内容" : "文件"}：\n${preview}\n本机不会删除。该路径暂停自动补回，直到手动选定保留版本。`;
-            if (await vscode.window.showWarningMessage(`第一次确认\n${prompt}`, { modal: true }, "确认全部路径并继续") !== "确认全部路径并继续")
+            report("等待核对全部完整路径并两次确认");
+            if (!await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("删除所有 Worker 副本", `永久删除 ${present.length} 台 Worker 的${directory ? "整个目录及其内容" : "文件"}。本机不会删除。该路径暂停自动补回，直到手动选定保留版本。`, present.map(({ target, server }) => ({ label: `${target.id} (${server.user}@${server.host}:${server.port})`, path: path.posix.join(server.remotePath, relative) })), "永久删除所有 Worker 副本"))
                 return false;
-            if (await vscode.window.showWarningMessage(`第二次确认\n${prompt}`, { modal: true }, "永久删除所有 Worker 副本") !== "永久删除所有 Worker 副本")
-                return false;
+            report("正在保存自动同步暂停记录");
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const codeManifest = await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"));
@@ -6901,8 +6903,9 @@ class RealtimeTunnelPanelProvider {
             holds[relative] = { endpointId: "allWorkers", deletedAt: new Date().toISOString(), directory, codeOwned };
             await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
             const completed = [];
-            for (const { target, server } of present) {
+            for (const [index, { target, server }] of present.entries()) {
                 try {
+                    report(`正在删除 ${index + 1}/${present.length}：${target.id}`);
                     await this.simpleSftpApiCall("sync.deletePath", { target: server, relativePath: relative,
                         confirmedAbsolutePath: path.posix.join(server.remotePath, relative), confirm: true, pathConfirmed: true, secondConfirmation: true });
                     completed.push(target.id);
@@ -6917,7 +6920,7 @@ class RealtimeTunnelPanelProvider {
             this.syncScopeMutationInFlight = false;
         }
     }
-    async retainSyncScopeVersion(root, targets, relative, endpointId, directory = false) {
+    async retainSyncScopeVersion(root, targets, relative, endpointId, directory = false, report = (_stage) => { }) {
         (0, SyncResolution_1.safeSyncPath)(relative);
         if (!(0, SyncScopeStatus_1.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可选为保留版本。");
@@ -6925,6 +6928,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("同步或文件树操作进行中，请完成后重试选定版本。");
         this.syncScopeMutationInFlight = true;
         try {
+            report("正在校验来源版本");
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
             const ancestorHold = Object.entries(holds).find(([held, row]) => row.directory && relative.startsWith(`${held}/`));
             if (ancestorHold)
@@ -6932,6 +6936,8 @@ class RealtimeTunnelPanelProvider {
             const sourceRow = endpointId === "local" ? undefined : targets.find((row) => row.id === endpointId);
             if (endpointId !== "local" && !sourceRow)
                 throw new Error("来源 Worker 未连接或未启用。");
+            if (endpointId !== "local")
+                await this.simpleSftpCapability("sync.downloadPaths");
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const codeManifest = await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"));
             if (endpointId !== "local" && (holds[relative]?.codeOwned || Object.keys(codeManifest).some((file) => file === relative || directory && file.startsWith(`${relative}/`))))
@@ -6955,16 +6961,21 @@ class RealtimeTunnelPanelProvider {
             if (!expected)
                 throw new Error("来源文件不存在或尚未完成 SHA256 校验。");
             const destinationRows = targets.filter((row) => row.id !== endpointId);
-            const sourceLabel = endpointId === "local" ? path.resolve(root, ...relative.split("/")) : `${sourceRow.id}:${path.posix.join(this.sftpServerOptions(sourceRow).remotePath, relative)}`;
-            const destinationLabels = destinationRows.map((row) => `${row.id}:${path.posix.join(this.sftpServerOptions(row).remotePath, relative)}`);
-            if (await vscode.window.showWarningMessage(`保留并同步此版本\n来源：${sourceLabel}\n校验：${expected}\n目标：\n${destinationLabels.join("\n")}\n${directory ? "目标目录中来源已不存在的旧文件也会清除。" : ""}`, { modal: true }, "确认覆盖其他 Worker") !== "确认覆盖其他 Worker")
+            const sourceLabel = endpointId === "local" ? path.resolve(root, ...relative.split("/")) : path.posix.join(this.sftpServerOptions(sourceRow).remotePath, relative);
+            report("等待核对来源和全部目标路径");
+            if (!await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("保留并同步到其他位置", `来源 SHA256：${expected}。${directory ? "目标目录中来源已不存在的旧文件也会清除，包括本机旧文件。" : ""}`, [
+                { label: `来源 ${endpointId}`, path: sourceLabel },
+                ...destinationRows.map((row) => ({ label: `目标 ${row.id}`, path: path.posix.join(this.sftpServerOptions(row).remotePath, relative) })),
+                ...(endpointId === "local" ? [] : [{ label: "目标 本机", path: path.resolve(root, ...relative.split("/")) }]),
+            ], "确认同步到其他位置"))
                 return false;
             const currentSource = endpointId === "local" ? await (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, inventoryPath, directory)
                 : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
             const sourceSnapshot = (files) => JSON.stringify((directory ? Object.entries(files) : [[relative, files[relative]]]).map(([file, info]) => [file, info?.sha256 || ""]).sort());
             if (sourceSnapshot(currentSource) !== sourceSnapshot(sourceInventory))
                 throw new Error("来源版本在确认期间已变化，请刷新状态后重试。");
-            for (const row of destinationRows) {
+            for (const [index, row] of destinationRows.entries()) {
+                report(`正在同步 ${index + 1}/${destinationRows.length}：${row.id}`);
                 if (endpointId === "local") {
                     if (directory) {
                         const destination = this.sftpServerOptions(row);
@@ -6985,10 +6996,16 @@ class RealtimeTunnelPanelProvider {
                         destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
                         ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }), confirm: true, pathConfirmed: true });
                 }
+                report(`正在校验 ${row.id} 的 SHA256`);
                 const checked = (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(row), relativePath: inventoryPath, recursive: directory })).files;
                 if (directory ? sourceSnapshot(checked) !== sourceSnapshot(sourceInventory)
                     : checked[relative]?.sha256?.toLowerCase() !== expected.toLowerCase())
                     throw new Error(`${row.id} 内容校验不一致；保留待同步状态。`);
+            }
+            if (endpointId !== "local") {
+                report("正在同步到本机对应路径");
+                await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, inventoryPath, directory), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report);
+                report("本机 SHA256 校验通过");
             }
             const previous = holds[relative];
             for (const held of Object.keys(holds))
@@ -6997,6 +7014,7 @@ class RealtimeTunnelPanelProvider {
             holds[relative] = { endpointId, deletedAt: previous?.deletedAt || new Date().toISOString(), directory,
                 codeOwned: previous?.codeOwned || Boolean(codeManifest[relative]), status: "resolved",
                 ...(directory ? { fileHashes: Object.fromEntries(Object.entries(sourceInventory).map(([file, info]) => [file, info.sha256])) } : { sha256: expected }) };
+            report("正在保存版本选择记录");
             await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
             return true;
         }
@@ -12163,7 +12181,7 @@ class RealtimeTunnelPanelProvider {
         }, 15_000);
         this.planSyncSummaryRetries.set(syncKey, { timer, attempt });
     }
-    async simpleSftpApiCall(method, params) {
+    async simpleSftpCapability(method) {
         const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
         const discovery = JSON.parse(await fs.readFile(discoveryFile, "utf8"));
         const endpoint = new URL(String(discovery.baseUrl || ""));
@@ -12176,6 +12194,10 @@ class RealtimeTunnelPanelProvider {
         const capabilities = await capabilityResponse.json();
         if (!Array.isArray(capabilities.methods) || !capabilities.methods.includes(method))
             throw new Error(`SimpleSFTP 不支持 ${method}。`);
+        return { endpoint, headers };
+    }
+    async simpleSftpApiCall(method, params) {
+        const { endpoint, headers } = await this.simpleSftpCapability(method);
         const response = await fetch(new URL("/api/v1/rpc", endpoint), {
             method: "POST", headers: { ...headers, "Content-Type": "application/json" },
             body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),

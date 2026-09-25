@@ -13,9 +13,9 @@ export type ScopeRoot = {
   list: (relative: string) => Promise<ScopeEntry[]>;
   refresh: (relative: string) => Promise<Record<string, ScopeStatus>>;
   save: (paths: string[], excluded?: string[]) => Promise<void>;
-  remove?: (relative: string, endpointId: string, directory: boolean) => Promise<boolean | void>;
-  removeAllWorkers?: (relative: string, directory: boolean) => Promise<boolean | void>;
-  retain?: (relative: string, endpointId: string, directory: boolean) => Promise<boolean | void>;
+  remove?: (relative: string, endpointId: string, directory: boolean, report?: (stage: string) => void) => Promise<boolean | void>;
+  removeAllWorkers?: (relative: string, directory: boolean, report?: (stage: string) => void) => Promise<boolean | void>;
+  retain?: (relative: string, endpointId: string, directory: boolean, report?: (stage: string) => void) => Promise<boolean | void>;
 };
 
 export function openSyncScopeTree(title: string, roots: ScopeRoot[]): void {
@@ -57,15 +57,16 @@ export function openSyncScopeTree(title: string, roots: ScopeRoot[]): void {
         const endpointId = String(message.endpointId || "");
         if (message.type !== "removeAllWorkers" && !endpointId) throw new Error("请明确选择一个目标位置。");
         let changed: boolean | void;
+        const report = (stage: string) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: relative, stage }); };
         if (message.type === "remove") {
           if (!root.remove) throw new Error("当前范围不支持删除。");
-          changed = await root.remove(relative, endpointId, message.directory === true);
+          changed = await root.remove(relative, endpointId, message.directory === true, report);
         } else if (message.type === "removeAllWorkers") {
           if (!root.removeAllWorkers) throw new Error("当前范围不支持批量删除。");
-          changed = await root.removeAllWorkers(relative, message.directory === true);
+          changed = await root.removeAllWorkers(relative, message.directory === true, report);
         } else {
           if (!root.retain) throw new Error("当前范围不支持选定版本。");
-          changed = await root.retain(relative, endpointId, message.directory === true);
+          changed = await root.retain(relative, endpointId, message.directory === true, report);
         }
         await panel.webview.postMessage({ type: changed === false ? "actionCancelled" : "actionDone", id, rootId: root.id, path: relative, action: message.type, directory: message.directory === true });
       }
@@ -85,12 +86,13 @@ h2{font-size:16px;margin:0 0 10px}.muted{color:var(--vscode-descriptionForegroun
 button.secondary{color:var(--vscode-foreground);background:var(--vscode-button-secondaryBackground)}button.active{outline:1px solid var(--vscode-focusBorder)}
 #tree{border:1px solid var(--vscode-panel-border);max-height:65vh;overflow:auto;padding:6px}.row{display:flex;align-items:center;min-height:30px;gap:7px;white-space:nowrap;border-radius:3px}.row:hover{background:var(--vscode-list-hoverBackground)}
 .row label{cursor:pointer;min-width:150px;max-width:32%;overflow:hidden;text-overflow:ellipsis}.row input{accent-color:var(--vscode-focusBorder)}.twisty{width:21px;min-width:21px;text-align:center;padding:0;background:transparent;color:var(--vscode-foreground)}.row-detail{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:var(--vscode-editorWidget-background);border-left:2px solid var(--vscode-focusBorder)}.version{border:1px solid var(--vscode-panel-border);padding:3px 6px;overflow-wrap:anywhere;max-width:360px;font-size:11px}.version button{font-size:11px;padding:2px 5px;margin-left:4px}.more{margin-left:auto;white-space:nowrap;font-size:11px;padding:3px 7px}.candidate{color:var(--vscode-editorWarning-foreground,#d9822b)}.held{color:var(--vscode-editorWarning-foreground,#d9822b);font-size:11px}
-#status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground)}#save{margin-top:8px}.badge{margin-left:8px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%;min-width:0}.badge span{margin-right:6px}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}.focus-conflict{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-focusBackground)}
+#status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground);white-space:pre-wrap;overflow-wrap:anywhere}#status.busy::before{content:'◌';display:inline-block;margin-right:7px;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#save{margin-top:8px}.badge{margin-left:8px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%;min-width:0}.badge span{margin-right:6px}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}.focus-conflict{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-focusBackground)}
 </style></head><body><h2>同步范围</h2><div class="muted">单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。</div><div class="muted"><span class="same">绿色：同版</span>　<span class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button>
 <script nonce="${nonce}">
 const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0;const views=new Map();
 const tabs=document.getElementById('tabs'),tree=document.getElementById('tree'),status=document.getElementById('status'),detail=document.getElementById('detail');
 function state(){return views.get(active.id)}
+function sendAction(type,entry,endpointId){const view=state();if(view.busyAction)return;view.busyAction={type,path:entry.path};status.className='busy';status.textContent='正在准备 '+entry.path+'，请核对确认页中的完整路径…';renderTree();vscode.postMessage({type,id:String(++serial),rootId:active.id,path:entry.path,endpointId,directory:entry.directory})}
 function isExcluded(path){return [...state().excluded].some(item=>item===path||path.startsWith(item+'/'))}
 function selected(path){if(isExcluded(path))return false;return [...state().selected].some(item=>item==='.'||item===path||path.startsWith(item+'/'))}
 function childSelected(path){return [...state().selected].some(item=>path==='.'||item.startsWith(path+'/'))||selected(path)&&[...state().excluded].some(item=>item.startsWith(path+'/'))}
@@ -118,9 +120,9 @@ function row(entry,depth){
     const actions=document.createElement('div');actions.className='row-detail';actions.style.paddingLeft=(depth*18+48)+'px';
     const locations=entry.locations||Object.keys(health?.versions||{});
     for(const id of locations){const v=health?.versions?.[id],item=document.createElement('span');item.className='version '+(v?.latest==='candidate'?'candidate':v?.latest?'same':'');item.textContent=id+(v?' · SHA256 '+v.sha256+' · '+(v.modifiedAtMs?new Date(v.modifiedAtMs).toLocaleString():'时间未知'):entry.directory&&health&&health.state!=='unknown'?' · 目录内容已校验':' · 尚未校验');
-      const retain=document.createElement('button');retain.className='secondary';retain.textContent='保留此版';retain.disabled=(!v&&!entry.directory)||!health||health.state==='unknown'||health.unverified===true;retain.title=retain.disabled?'请先完成此路径的内容校验':'';retain.onclick=()=>vscode.postMessage({type:'retain',id:String(++serial),rootId:active.id,path:entry.path,endpointId:id,directory:entry.directory});item.appendChild(retain);
-      const remove=document.createElement('button');remove.className='secondary';remove.textContent='删除';remove.onclick=()=>vscode.postMessage({type:'remove',id:String(++serial),rootId:active.id,path:entry.path,endpointId:id,directory:entry.directory});item.appendChild(remove);actions.appendChild(item)}
-    if(locations.some(id=>id!=='local')&&!locations.includes('local')){const removeAll=document.createElement('button');removeAll.className='secondary';removeAll.textContent='删除所有 Worker 副本';removeAll.title='本机不会删除；执行前显示每台 Worker 的完整路径并二次确认';removeAll.onclick=()=>vscode.postMessage({type:'removeAllWorkers',id:String(++serial),rootId:active.id,path:entry.path,directory:entry.directory});actions.appendChild(removeAll)}
+      const retain=document.createElement('button');retain.className='secondary';retain.textContent='以此版同步到其他位置';retain.disabled=Boolean(view.busyAction)||(!v&&!entry.directory)||!health||health.state==='unknown'||health.unverified===true;retain.title=retain.disabled?'请先完成此路径的内容校验':id==='local'?'同步到所有已启用 Worker 并逐台校验 SHA256':'同步到其他已启用 Worker 和本机，并逐处校验 SHA256';retain.onclick=()=>sendAction('retain',entry,id);item.appendChild(retain);
+      const remove=document.createElement('button');remove.className='secondary';remove.textContent='删除';remove.disabled=Boolean(view.busyAction);remove.onclick=()=>sendAction('remove',entry,id);item.appendChild(remove);actions.appendChild(item)}
+    if(locations.some(id=>id!=='local')&&!locations.includes('local')){const removeAll=document.createElement('button');removeAll.className='secondary';removeAll.textContent='删除所有 Worker 副本';removeAll.disabled=Boolean(view.busyAction);removeAll.title='本机不会删除；执行前显示每台 Worker 的完整路径并二次确认';removeAll.onclick=()=>sendAction('removeAllWorkers',entry);actions.appendChild(removeAll)}
     tree.appendChild(actions);
   }
   if(entry.directory&&view.expanded.has(entry.path)){const children=view.children.get(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}
@@ -139,7 +141,7 @@ window.addEventListener('message',event=>{
   const message=event.data;
   if(message.type==='init'){
     roots=message.roots;
-    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshQueue:[],mutationParent:null,focus:null,statuses:{}});
+    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshQueue:[],mutationParent:null,focus:null,busyAction:null,statuses:{}});
     active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');
   }else if(message.type==='children'){
     const view=views.get(message.rootId);if(!view)return;
@@ -152,14 +154,18 @@ window.addEventListener('message',event=>{
     view.pending.delete(message.path);
     for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))delete view.statuses[key];
     Object.assign(view.statuses,message.statuses||{});
-    if(active?.id===message.rootId){status.textContent='已校验 '+message.path+'：'+message.refreshedAt;renderTree()}
+    if(active?.id===message.rootId){if(!view.busyAction)status.className='';status.textContent='已校验 '+message.path+'：'+message.refreshedAt;renderTree()}
     pumpRefresh(message.rootId);
   }else if(message.type==='saved'){
     const view=views.get(message.rootId);if(view){view.statuses={};view.refreshQueue=[]}
     if(active?.id===message.rootId){status.textContent='已保存，请点击刷新同步状态';renderTree()}
+  }else if(message.type==='actionProgress'){
+    if(active?.id===message.rootId){status.className='busy';status.textContent=message.stage+' · '+message.path}
   }else if(message.type==='actionCancelled'){
-    if(active?.id===message.rootId)status.textContent='操作已取消';
+    const view=views.get(message.rootId);if(view)view.busyAction=null;
+    if(active?.id===message.rootId){status.className='';status.textContent='操作已取消';renderTree()}
   }else if(message.type==='actionDone'){
+    const operated=views.get(message.rootId);if(operated)operated.busyAction=null;
     const parent=parentPath(message.path);
     for(const [rootId,view] of views){
       for(const key of Object.keys(view.statuses))if(key===message.path||key.startsWith(message.path+'/'))delete view.statuses[key];
@@ -172,17 +178,18 @@ window.addEventListener('message',event=>{
       view.children.delete(parent);view.mutationParent=parent;
       if(message.directory)for(const path of [...view.expanded])if(path===message.path||path.startsWith(message.path+'/'))load(path,rootId);
     }
-    if(active?.id===message.rootId){status.textContent='正在更新 '+parent+'…';renderTree()}
+    if(active?.id===message.rootId){status.className='busy';status.textContent='正在更新 '+parent+'…';renderTree()}
     load(parent,message.rootId);
   }else if(message.type==='error'){
     const view=views.get(message.rootId);
     if(view){
+      if(['remove','removeAllWorkers','retain'].includes(message.requestType))view.busyAction=null;
       if(message.requestType==='list')view.listPending.delete(message.path);
       if(message.requestType==='refresh')view.pending.delete(message.path);
       if(message.requestType==='list'&&view.mutationParent===message.path){view.mutationParent=null;enqueueRefresh(message.rootId,[message.path])}
       view.statuses[message.path]={state:'unknown',detail:'清单校验失败：'+message.message};
     }
-    if(active?.id===message.rootId){status.textContent='操作失败 '+message.path+'：'+message.message;renderTree()}
+    if(active?.id===message.rootId){status.className='';status.textContent='操作失败 '+message.path+'：'+message.message;renderTree()}
     if(message.requestType==='refresh')pumpRefresh(message.rootId);
   }
 });vscode.postMessage({type:'ready'});
