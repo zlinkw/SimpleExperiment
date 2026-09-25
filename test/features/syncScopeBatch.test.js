@@ -35,6 +35,14 @@ test("batch selection expands only branches containing exclusions", async () => 
   assert.deepEqual(calls.sort(), [".", "artifacts", "code"]);
 });
 
+test("visible selected files reach batch review without repeating remote directory reads", async () => {
+  const visible = Array.from({ length: 500 }, (_, index) => ({ path: `results/${index}.csv`, name: `${index}.csv`, directory: false, locations: ["w2", "w3"] }));
+  const result = await expandSyncScopeBatchSelection(visible.map((entry) => entry.path), [], async () => {
+    throw new Error("unexpected remote directory read");
+  }, () => {}, visible);
+  assert.equal(result.length, 500);
+});
+
 test("batch runner keeps at most two paths in flight and reports failures", async () => {
   let active = 0;
   let maxActive = 0;

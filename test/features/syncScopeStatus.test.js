@@ -48,14 +48,19 @@ test("server scope uses Plan owner, reports unrelated conflicts, and defaults to
   assert.equal(status["datasets/data.bin"].state, "different");
 });
 
-test("equal Workers are orange when server-owned data is absent locally", () => {
+test("Worker scope ignores local inventory, versions, and folder copies", () => {
   const inventory = { local: {}, workers: { w1: { "datasets/data.bin": file("same") }, w2: { "datasets/data.bin": file("same") } } };
   const status = buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger);
-  assert.equal(status["datasets/data.bin"].state, "remote-only");
-  assert.equal(status.datasets.state, "remote-only");
-  assert.match(status["datasets/data.bin"].detail, /本机 缺失/);
-  inventory.local["datasets/data.bin"] = file("same");
-  assert.equal(buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger)["datasets/data.bin"].state, "same");
+  assert.equal(status["datasets/data.bin"].state, "same");
+  assert.equal(status.datasets.state, "same");
+  assert.equal(status["datasets/data.bin"].versions.local, undefined);
+  assert.equal(status.datasets.copies.local, undefined);
+  assert.doesNotMatch(status["datasets/data.bin"].detail, /本机/);
+  inventory.local["datasets/data.bin"] = file("different");
+  inventory.local["local-only.bin"] = file("local");
+  const withLocal = buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger);
+  assert.equal(withLocal["datasets/data.bin"].state, "same");
+  assert.equal(withLocal["local-only.bin"], undefined);
 });
 
 test("an offline Worker stays unverified instead of showing green", () => {

@@ -27,7 +27,7 @@ function syncScopeIssueSignature(status, endpoints) {
     const authority = endpoints.map((id) => versions[id]?.latest || "-").join("|");
     return `${parts.join("|")};${authority}`;
 }
-async function expandSyncScopeBatchSelection(selected, excluded, list) {
+async function expandSyncScopeBatchSelection(selected, excluded, list, progress = () => { }, knownEntries = []) {
     const paths = [...new Set(selected)];
     const exclusions = [...new Set(excluded.map(SyncResolution_1.safeSyncPath))];
     if (!paths.length)
@@ -36,6 +36,7 @@ async function expandSyncScopeBatchSelection(selected, excluded, list) {
         if (item !== ".")
             (0, SyncResolution_1.safeSyncPath)(item);
     const cache = new Map();
+    const known = new Map(knownEntries.map((entry) => [entry.path, entry]));
     const children = (parent) => {
         if (!cache.has(parent))
             cache.set(parent, list(parent));
@@ -44,6 +45,8 @@ async function expandSyncScopeBatchSelection(selected, excluded, list) {
     const resolve = async (relative) => {
         if (relative === ".")
             return { name: ".", path: ".", directory: true };
+        if (known.has(relative))
+            return known.get(relative);
         const entry = (await children(parentOf(relative))).find((item) => item.path === relative);
         if (!entry)
             throw new Error(`已勾选路径不存在，请刷新文件树：${relative}`);
@@ -70,11 +73,18 @@ async function expandSyncScopeBatchSelection(selected, excluded, list) {
         else
             result.push(entry);
     };
-    for (const relative of paths.sort((a, b) => a.length - b.length || a.localeCompare(b))) {
-        if (paths.some((ancestor) => ancestor !== relative && (ancestor === "." || relative.startsWith(`${ancestor}/`))))
-            continue;
-        await expand(await resolve(relative));
-    }
+    const topPaths = paths.filter((relative) => !paths.some((ancestor) => ancestor !== relative && (ancestor === "." || relative.startsWith(`${ancestor}/`))));
+    let next = 0;
+    let completed = 0;
+    await Promise.all(Array.from({ length: Math.min(8, topPaths.length) }, async () => {
+        for (;;) {
+            const index = next++;
+            if (index >= topPaths.length)
+                return;
+            await expand(await resolve(topPaths[index]));
+            progress(++completed, topPaths.length);
+        }
+    }));
     if (!result.length)
         throw new Error("所选范围内没有可操作的文件或目录。");
     return result.sort((a, b) => a.path.localeCompare(b.path));

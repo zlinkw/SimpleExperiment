@@ -124,9 +124,9 @@ export function buildScopeStatuses(
 ): Record<string, ScopeStatus> {
   const workers = Object.keys(inventories.workers).sort();
   const all = new Set([
-    ...Object.keys(inventories.local),
+    ...(mode === "local-server" ? Object.keys(inventories.local) : []),
     ...workers.flatMap((id) => Object.keys(inventories.workers[id] || {})),
-    ...Object.values(inventories.unverified || {}).flatMap((files) => Object.keys(files)),
+    ...Object.entries(inventories.unverified || {}).flatMap(([id, files]) => id === "local" && mode === "server-server" ? [] : Object.keys(files)),
   ]);
   const statuses: Record<string, ScopeStatus> = {};
   const inSelectedScope = (path: string) => selectedPaths.some((scope) => scope === "." || path === scope || path.startsWith(`${scope}/`));
@@ -140,10 +140,10 @@ export function buildScopeStatuses(
     const remote = workers.map((id) => ({ id, hash: inventories.workers[id]?.[path]?.sha256?.toLowerCase() }));
     const versions: NonNullable<ScopeStatus["versions"]> = {};
     const addVersion = (id: string, file?: File) => { if (file?.sha256) versions[id] = { sha256: file.sha256, modifiedAtMs: Number(file.modifiedAtMs || 0) }; };
-    addVersion("local", inventories.local[path]);
+    if (mode === "local-server") addVersion("local", inventories.local[path]);
     for (const id of workers) if (!offlineWorkerIds.has(id)) addVersion(id, inventories.workers[id]?.[path]);
     const held = isSyncHeld(path, holds);
-    const unstable = Object.entries(inventories.unverified || {}).filter(([, files]) => files[path]);
+    const unstable = Object.entries(inventories.unverified || {}).filter(([id, files]) => (mode === "local-server" || id !== "local") && files[path]);
     if (unstable.length) {
       const detail = unstable.map(([id, files]) => `${id === "local" ? "本机" : id} ${files[path]}，待重试`).join(" · ");
       statuses[path] = { state: "unknown", detail, versions, held, unverified: true };
@@ -163,13 +163,12 @@ export function buildScopeStatuses(
     const manualHash = chosenSyncHash(path, holds)?.toLowerCase();
     const reference = manualHash || (owner ? ownerHash : unique.size === 1 ? present[0]?.hash : undefined);
     const remoteSame = Boolean(reference) && remote.every(({ hash }) => hash === reference);
-    const localSame = localHash === reference;
     const detail = !reference
       ? `${owner && offlineWorkerIds.has(owner) ? `Plan 归属 ${owner} 未校验，待核对` : "内容冲突，无法判定最新版"} · ${remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验" : hash ? "冲突" : "缺失"}`).join(" · ")}`
-      : [manualHash ? "手动保留版本" : owner ? `Plan 归属：${owner}` : "Worker 内容基准", `本机 ${!localHash ? "缺失" : localHash === reference ? "同版" : "不同版"}`,
+      : [manualHash ? "手动保留版本" : owner ? `Plan 归属：${owner}` : "Worker 内容基准",
         ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验，待核对" : hash === reference ? "最新版" : "待更新"}`)].join(" · ");
     const activeMatch = Boolean(reference) && remote.every(({ id, hash }) => offlineWorkerIds.has(id) || hash === reference);
-    const state = remoteSame ? localSame ? "same" : "remote-only"
+    const state = remoteSame ? "same"
       : offlineWorkerIds.size && activeMatch || owner && offlineWorkerIds.has(owner) ? "unknown" : "different";
     if (manualHash) {
       for (const file of Object.values(versions)) if (file.sha256.toLowerCase() === manualHash) file.latest = "manual";
@@ -186,7 +185,7 @@ export function buildScopeStatuses(
   const count = (folder: string, path: string, status: ScopeStatus) => {
     const row = folders.get(folder) || { total: 0, failed: 0, remoteOnly: 0, unknown: 0, outside: 0, copies: {} };
     const reference = Object.values(status.versions || {}).find((version) => version.latest && version.latest !== "candidate")?.sha256.toLowerCase();
-    for (const id of ["local", ...workers]) {
+    for (const id of mode === "local-server" ? ["local", ...workers] : workers) {
       const copy = row.copies[id] || { modifiedAtMs: 0, present: 0, missing: 0, needsSync: 0, conflict: 0, unverified: 0 };
       const file = id === "local" ? inventories.local[path] : inventories.workers[id]?.[path];
       if (file) copy.modifiedAtMs = Math.max(copy.modifiedAtMs, Number(file.modifiedAtMs || 0));
