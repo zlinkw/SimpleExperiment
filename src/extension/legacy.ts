@@ -40,7 +40,7 @@ import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSync
 import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
 import { mergeTrustedPlanOperations, planCleanupTargets, planRecoveryConflicts, planStopClearPreview, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, trustedRemotePlanOperations } from "../features/PlanStopClear";
 import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
-import { directPlanSyncPreview, transferPlanArtifacts } from "../features/PlanArtifactTransfer";
+import { directPlanSyncPreview, transferPlanArtifacts, workerFpsyncTaskLabel } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
 import { openSyncScopeTree, ScopeEntry } from "../features/SyncScopeTree";
 import { confirmSyncScopePaths } from "../features/SyncScopeConfirmation";
@@ -7220,7 +7220,11 @@ export class RealtimeTunnelPanelProvider {
                 await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                     destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
                     ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }),
-                    confirm: true, pathConfirmed: true });
+                    confirm: true, pathConfirmed: true,
+                    taskLabel: workerFpsyncTaskLabel({
+                        action: directory ? "手动保留目录版本" : "手动保留文件版本",
+                        sourceId: sourceRow.id, destinationId: row.id, detail: relative,
+                    }) });
             }
             report(`正在校验 ${row.id} 的文件内容`);
             const checked = (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(row), relativePath: inventoryPath, recursive: directory })).files;
@@ -7273,7 +7277,11 @@ export class RealtimeTunnelPanelProvider {
                     await this.assertSshTransportIdentities([sourceRow, target]);
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
-                        relativePath: directory, directory: true, manualRetain: true, confirm: true, pathConfirmed: true });
+                        relativePath: directory, directory: true, manualRetain: true, confirm: true, pathConfirmed: true,
+                        taskLabel: workerFpsyncTaskLabel({
+                            action: "恢复手动保留目录",
+                            sourceId: sourceRow.id, destinationId: target.id, detail: directory,
+                        }) });
                 } else {
                     await this.simpleSftpApiCall("sync.deletePath", { target: destination, relativePath: directory,
                         confirmedAbsolutePath: absolute, confirm: true, pathConfirmed: true, secondConfirmation: true });
@@ -8396,10 +8404,21 @@ export class RealtimeTunnelPanelProvider {
                     await this.assertSshTransportIdentities([sourceRow, target]);
                     const paths = phase === "fragments" ? fragmentPaths
                         : Object.keys(job.artifacts).filter((name) => !fragmentPaths.includes(name)).sort();
+                    const batchCount = Math.ceil(paths.length / 5000) || 1;
                     for (let offset = 0; offset < paths.length; offset += 5000) {
+                        const relativePaths = paths.slice(offset, offset + 5000);
+                        const batch = offset / 5000 + 1;
+                        const jobLabel = [job.index !== undefined ? `job ${job.index}` : "", job.seed !== undefined && job.seed !== null && job.seed !== "" ? `seed ${job.seed}` : ""].filter(Boolean).join(" / ");
                         await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
                             destination: { ...destination, host: destination.networkHost || destination.host },
-                            relativePaths: paths.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
+                            relativePaths, confirm: true, pathConfirmed: true,
+                            taskLabel: workerFpsyncTaskLabel({
+                                action: "分布式 job 产物复制",
+                                planFile: plan.planFile, job: jobLabel,
+                                sourceId: sourceId, destinationId: workerId,
+                                detail: phase === "fragments" ? `结果片段 ${job.outputDir}` : `检查点与结果 ${job.outputDir}`,
+                                batch, batchCount,
+                            }) });
                     }
                     if (phase === "fragments") {
                         await mapLimited(fragmentPaths, 3, async (file) => {
@@ -8538,9 +8557,20 @@ export class RealtimeTunnelPanelProvider {
             }
             try {
                 await this.assertSshTransportIdentities([sourceRow, destinationRow]);
-                await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
-                    destination: { ...destination, host: destination.networkHost || destination.host },
-                    relativePaths: paths, confirm: true, pathConfirmed: true });
+                const batchSize = 5000;
+                const batchCount = Math.ceil(paths.length / batchSize) || 1;
+                for (let offset = 0; offset < paths.length; offset += batchSize) {
+                    const relativePaths = paths.slice(offset, offset + batchSize);
+                    await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
+                        destination: { ...destination, host: destination.networkHost || destination.host },
+                        relativePaths, confirm: true, pathConfirmed: true,
+                        taskLabel: workerFpsyncTaskLabel({
+                            action: publish ? "发布正式共享结果" : "发布增量预览结果",
+                            sourceId: sourceWorkerId, destinationId: workerId,
+                            detail: `${selected.map((plan) => plan.planFile).filter(Boolean).slice(0, 3).join("、") || "共享结果"}（${relativePaths.length} 个文件）`,
+                            batch: offset / batchSize + 1, batchCount,
+                        }) });
+                }
                 const [sourceAfter, destinationAfter] = await Promise.all([
                     this.distributedOutputHashes(source, paths), this.distributedOutputHashes(destination, paths),
                 ]);
@@ -8584,10 +8614,21 @@ export class RealtimeTunnelPanelProvider {
         for (const target of this.workerCodeSyncTargets().filter((row) => row.id !== job.workerId && this.lastWorkerProbes[row.id]?.status === "ok")) {
             await this.assertSshTransportIdentities([sourceRow, target]);
             const destination = this.sftpServerOptions(target);
-            for (let offset = 0; offset < files.length; offset += 5000)
+            const batchCount = Math.ceil(files.length / 5000) || 1;
+            for (let offset = 0; offset < files.length; offset += 5000) {
+                const relativePaths = files.slice(offset, offset + 5000);
                 await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
                     destination: { ...destination, host: destination.networkHost || destination.host },
-                    relativePaths: files.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
+                    relativePaths, confirm: true, pathConfirmed: true,
+                    taskLabel: workerFpsyncTaskLabel({
+                        action: "恢复前保存旧 attempt 产物",
+                        planFile: plan.planFile,
+                        job: [job.case ? String(job.case) : "", job.seed !== undefined && job.seed !== null ? `seed ${job.seed}` : "", `attempt ${job.attempt}`].filter(Boolean).join(" / "),
+                        sourceId: job.workerId, destinationId: target.id,
+                        detail: job.outputDir,
+                        batch: offset / 5000 + 1, batchCount,
+                    }) });
+            }
             const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
             for (const file of files.filter((value) => value.startsWith(job.outputDir + "/")))
                 if (String(checked[file]?.sha256 || "").toLowerCase() !== expectedHashes[file])
@@ -13266,9 +13307,17 @@ export class RealtimeTunnelPanelProvider {
                     { modal: true }, "确认同步");
                 if (answer !== "确认同步") return;
                 await this.assertSshTransportIdentities([group.source, group.destination]);
+                const batch = start / 5000 + 1;
+                const batchCount = Math.ceil(group.paths.length / 5000);
+                const span = paths.length === 1 ? paths[0] : `${paths[0]} … ${paths[paths.length - 1]}（${paths.length} 个文件）`;
                 await this.simpleSftpApiCall("sync.serverToServerFpsync", {
                     source, destination: { ...destination, host: destination.networkHost || destination.host }, relativePaths: paths,
                     confirm: true, pathConfirmed: true,
+                    taskLabel: workerFpsyncTaskLabel({
+                        action: "项目文件补齐",
+                        sourceId: group.source.id, destinationId: group.destination.id,
+                        detail: span, batch, batchCount,
+                    }),
                 });
             }
         }

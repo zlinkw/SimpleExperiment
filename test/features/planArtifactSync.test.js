@@ -93,8 +93,15 @@ test("SFTP transfers Plan outputs and weights directly to their original paths",
   assert.deepEqual(calls.map((call) => call.method), ["sync.serverToServerFpsync", "sync.serverToServerFpsync"]);
   assert.equal(calls[0].params.relativePath, "work_dirs/corim");
   assert.equal(calls[0].params.directory, true);
+  assert.match(calls[0].params.taskLabel, /Plan 完成产物同步/);
+  assert.match(calls[0].params.taskLabel, /plans\/corim\.yaml/);
+  assert.match(calls[0].params.taskLabel, /nwpu2 → nwpu3/);
+  assert.match(calls[0].params.taskLabel, /work_dirs\/corim/);
+  assert.equal(calls[0].params.taskLabel.includes("批次"), false);
   assert.deepEqual(calls[1].params.relativePaths, ["experiments/results/corim.csv"]);
   assert.equal(calls[1].params.directory, undefined);
+  assert.match(calls[1].params.taskLabel, /experiments\/results\/corim\.csv/);
+  assert.match(calls[1].params.taskLabel, /nwpu2 → nwpu3/);
   assert.deepEqual(transfer.directPlanSyncPreview(entry, source, destination), [
     "/srv/nwpu2/project/work_dirs/corim → /srv/nwpu3/project/work_dirs/corim",
     "/srv/nwpu2/project/experiments/results/corim.csv → /srv/nwpu3/project/experiments/results/corim.csv",
@@ -137,6 +144,51 @@ test("file artifacts share one batch and stale deletes stay one confirmed call e
   assert.ok(calls.every((call) => call.params.confirm && call.params.pathConfirmed));
 });
 
+test("fpsync task labels name the action and workers without credentials", () => {
+  const label = transfer.workerFpsyncTaskLabel({
+    action: "手动保留文件版本",
+    sourceId: "nwpu2",
+    destinationId: "nwpu5",
+    detail: "experiments/results/corim.csv",
+  });
+  assert.match(label, /手动保留文件版本/);
+  assert.match(label, /experiments\/results\/corim\.csv/);
+  assert.match(label, /nwpu2 → nwpu5/);
+  const secret = transfer.workerFpsyncTaskLabel({
+    action: "项目文件补齐",
+    sourceId: "nwpu2",
+    destinationId: "nwpu3",
+    detail: "password=hunter2 token=abc Bearer secret-value",
+  });
+  assert.equal(secret.length <= 180, true);
+  assert.equal(/\r|\n/.test(secret), false);
+  assert.match(secret, /password=<已遮蔽>/);
+  assert.match(secret, /token=<已遮蔽>/);
+  assert.match(secret, /Bearer <已遮蔽>/);
+  assert.equal(/hunter2|token=abc|secret-value/.test(secret), false);
+});
+
+test("long fpsync labels keep the batch while dropping only free text", () => {
+  const planFile = `plans/${"very-long-plan-directory/".repeat(8)}experiment.yaml`;
+  const detail = `password=hunter2 token=abc Bearer raw-secret ${"experiments/results/nested-output/".repeat(6)}weights`;
+  const label = transfer.workerFpsyncTaskLabel({
+    action: "Plan 完成产物同步",
+    planFile,
+    job: "job 12 / seed 3",
+    detail,
+    sourceId: "nwpu2",
+    destinationId: "nwpu3",
+    batch: 2,
+    batchCount: 4,
+  });
+  assert.equal(label.length <= 180, true);
+  assert.match(label, /^Plan 完成产物同步/);
+  assert.match(label, /nwpu2 → nwpu3/);
+  assert.match(label, /批次 2\/4$/);
+  assert.equal(/hunter2|token=abc|raw-secret/.test(label), false);
+  assert.match(label, /password=<已遮蔽>/);
+});
+
 test("more than 5000 file artifacts stay inside the batch path limit", async () => {
   const artifactPaths = Array.from({ length: 5001 }, (_, index) => `experiments/results/file-${String(index).padStart(4, "0")}.csv`);
   const entry = {
@@ -154,4 +206,11 @@ test("more than 5000 file artifacts stay inside the batch path limit", async () 
   assert.deepEqual(calls.map((call) => call.method), ["sync.serverToServerFpsync", "sync.serverToServerFpsync"]);
   assert.equal(calls[0].params.relativePaths.length, 5000);
   assert.equal(calls[1].params.relativePaths.length, 1);
+  assert.match(calls[0].params.taskLabel, /批次 1\/2/);
+  assert.match(calls[0].params.taskLabel, /plans\/corim\.yaml/);
+  assert.match(calls[0].params.taskLabel, /nwpu2 → nwpu3/);
+  assert.match(calls[0].params.taskLabel, /file-0000\.csv/);
+  assert.match(calls[1].params.taskLabel, /批次 2\/2/);
+  assert.match(calls[1].params.taskLabel, /file-5000\.csv/);
+  assert.equal(/password|token|Bearer|PRIVATE KEY/i.test(calls.map((call) => call.params.taskLabel).join(" ")), false);
 });
