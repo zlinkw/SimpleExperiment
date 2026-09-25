@@ -63,7 +63,7 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   assert.equal(messages.at(-1).type, "ready");
   onMessage({ data: { type: "init", roots: [{ id: "workers", label: "Workers", detail: "完整项目", selected: ["."], rootSelectable: true }, { id: "local", label: "Local", detail: "本机同步", selected: [], rootSelectable: false }], refreshIntervalMs: 5000 } });
   assert.equal(messages.at(-1).type, "list");
-  onMessage({ data: { type: "children", rootId: "workers", path: ".", entries: [{ name: "data", path: "data", directory: true }, { name: "README.md", path: "README.md", directory: false }] } });
+  onMessage({ data: { type: "children", rootId: "workers", path: ".", entries: [{ name: "data", path: "data", directory: true, locations: ["w1"] }, { name: "README.md", path: "README.md", directory: false }] } });
   assert.equal(messages.at(-1).type, "refresh");
   assert.equal(messages.at(-1).path, ".");
   const hash = "a".repeat(64);
@@ -78,6 +78,9 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   assert.equal(version.children[1].textContent, "删除");
   version.children[1].onclick();
   assert.deepEqual({ type: messages.at(-1).type, path: messages.at(-1).path, endpointId: messages.at(-1).endpointId }, { type: "remove", path: "README.md", endpointId: "w1" });
+  onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { "data": { state: "unknown", detail: "1 未确认", unverified: true } }, refreshedAt: "now" } });
+  const folderVersions = elements.get("tree").children[1].children.find((child) => child.className === "versions");
+  assert.equal(folderVersions.children[0].children[0].disabled, true);
   elements.get("tabs").children[1].onclick();
   assert.deepEqual({ type: messages.at(-1).type, rootId: messages.at(-1).rootId, path: messages.at(-1).path }, { type: "list", rootId: "local", path: "." });
 });

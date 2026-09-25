@@ -130,7 +130,7 @@ test("scope control opens two tabs and saves each scope independently", async ()
   assert.match(text, /listSyncScopeUnion/);
   assert.match(text, /refreshSyncScopeStatus/);
   const sourceText = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
-  assert.match(sourceText, /collectLocalScopeInventory\(root, relative, true\)/);
+  assert.match(sourceText, /collectLocalScopeInventory\(root, relative, true, /);
   assert.match(sourceText, /recursive: true, timeoutMs/);
   assert.match(sourceText, /directFiles\[relative\] = errors.length/);
   assert.match(text, /id: "local"/);

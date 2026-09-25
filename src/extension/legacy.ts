@@ -35,7 +35,7 @@ import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import { directPlanSyncPreview, transferPlanArtifacts } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
 import { openSyncScopeTree, ScopeEntry } from "../features/SyncScopeTree";
-import { buildScopeStatuses, collectLocalScopeInventory, scopeInventoryPathAllowed } from "../features/SyncScopeStatus";
+import { buildScopeStatuses, collectLocalScopeInventory, scopeInventoryPathAllowed, requireCompleteScopeInventory } from "../features/SyncScopeStatus";
 import { deleteLocalSyncPath, filterHeldFiles, isSyncHeld, loadSyncHolds, safeSyncPath, saveSyncHolds } from "../features/SyncResolution";
 const { renderPanelHtml } = PanelHtml_1;
 import PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
@@ -6673,7 +6673,10 @@ export class RealtimeTunnelPanelProvider {
         return [...entries.values()].map((row) => ({ ...row, held: isSyncHeld(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".") {
-        const local = await collectLocalScopeInventory(root, relative, true);
+        const unverified = {};
+        const localUnverified = {};
+        const local = await collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; });
+        if (Object.keys(localUnverified).length) unverified.local = localUnverified;
         const workers = {};
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
@@ -6685,7 +6688,10 @@ export class RealtimeTunnelPanelProvider {
         for (let index = 0; index < targets.length; index++) {
             const target = targets[index];
             const result = results[index];
-            if (result.status === "fulfilled") workers[target.id] = result.value.files || {};
+            if (result.status === "fulfilled") {
+                workers[target.id] = result.value.files || {};
+                if (Object.keys(result.value.unverifiedFiles || {}).length) unverified[target.id] = result.value.unverifiedFiles;
+            }
             else {
                 workers[target.id] = {};
                 offline.add(target.id);
@@ -6694,13 +6700,17 @@ export class RealtimeTunnelPanelProvider {
         }
         const ledger = await this.loadPlanSyncLedger(root);
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
-        const statuses = buildScopeStatuses({ local, workers }, mode, selectedPaths, new Set(), ledger, offline, holds);
+        const statuses = buildScopeStatuses({ local, workers, unverified }, mode, selectedPaths, new Set(), ledger, offline, holds);
         const directFiles = Object.fromEntries(Object.entries(statuses).filter(([file]) => path.posix.dirname(file) === relative && file !== relative));
         const aggregate = statuses[relative] || { state: "unknown" as const, detail: "目录为空或当前同步范围外" };
         directFiles[relative] = errors.length
             ? { ...aggregate, state: aggregate.state === "different" ? "different" : "unknown", detail: `${aggregate.detail} · 清单校验失败：${errors.join("；")}` }
             : aggregate;
         return directFiles;
+    }
+    async verifiedSftpProjectInventory(options) {
+        const result = await this.simpleSftpApiCall("sync.projectInventory", options);
+        return requireCompleteScopeInventory(result);
     }
     async removeSyncScopePath(root, targets, relative, endpointId, directory) {
         safeSyncPath(relative);
@@ -6757,7 +6767,7 @@ export class RealtimeTunnelPanelProvider {
         }
         const inventoryPath = directory ? relative : path.posix.dirname(relative);
         const sourceInventory = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory)
-            : (await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
+            : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const expected = directory ? "目录内所有文件逐项 SHA256 校验" : sourceInventory[relative]?.sha256;
         if (!expected) throw new Error("来源文件不存在或尚未完成 SHA256 校验。");
         const destinationRows = targets.filter((row) => row.id !== endpointId);
@@ -6765,7 +6775,7 @@ export class RealtimeTunnelPanelProvider {
         const destinationLabels = destinationRows.map((row) => `${row.id}:${path.posix.join(this.sftpServerOptions(row).remotePath, relative)}`);
         if (await vscode.window.showWarningMessage(`保留并同步此版本\n来源：${sourceLabel}\n校验：${expected}\n目标：\n${destinationLabels.join("\n")}\n${directory ? "目标目录中来源已不存在的旧文件也会清除。" : ""}`, { modal: true }, "确认覆盖其他 Worker") !== "确认覆盖其他 Worker") return;
         const currentSource = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory)
-            : (await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
+            : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const sourceSnapshot = (files) => JSON.stringify((directory ? Object.entries(files) : [[relative, files[relative]]]).map(([file, info]: [string, any]) => [file, info?.sha256 || ""]).sort());
         if (sourceSnapshot(currentSource) !== sourceSnapshot(sourceInventory))
             throw new Error("来源版本在确认期间已变化，请刷新状态后重试。");
@@ -6788,7 +6798,7 @@ export class RealtimeTunnelPanelProvider {
                     destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
                     ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }), confirm: true, pathConfirmed: true });
             }
-            const checked = (await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(row), relativePath: inventoryPath, recursive: directory })).files;
+            const checked = (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(row), relativePath: inventoryPath, recursive: directory })).files;
             if (directory ? sourceSnapshot(checked) !== sourceSnapshot(sourceInventory)
                 : checked[relative]?.sha256?.toLowerCase() !== expected.toLowerCase()) throw new Error(`${row.id} 内容校验不一致；保留待同步状态。`);
         }
@@ -6839,7 +6849,7 @@ export class RealtimeTunnelPanelProvider {
                         if (!result || result.ok === false) throw new Error(`上传 ${target.id} 失败：${resultError(result)}`);
                     }
                 }
-                const checked = (await this.simpleSftpApiCall("sync.projectInventory", { source: destination, relativePath: directory })).files || {};
+                const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: directory })).files || {};
                 if (hashes(checked) !== hashes(sourceFiles)) throw new Error(`${target.id} 目录内容校验不一致；保留待同步状态。`);
                 for (const file of Object.keys(inventories[target.id] || {})) if (file.startsWith(`${directory}/`)) delete inventories[target.id][file];
                 Object.assign(inventories[target.id], checked);
@@ -11975,7 +11985,7 @@ export class RealtimeTunnelPanelProvider {
         const mirrorPaths = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
         const inventories = {};
         for (const target of targets) {
-            const result = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) });
+            const result = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target) });
             inventories[target.id] = filterInventoryByScope(result.files, mirrorPaths);
         }
         const ledger = await this.loadPlanSyncLedger(root);
@@ -12005,7 +12015,7 @@ export class RealtimeTunnelPanelProvider {
         }
         const checked = {};
         for (const target of targets) {
-            const result = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) });
+            const result = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target) });
             checked[target.id] = filterInventoryByScope(result.files, mirrorPaths);
         }
         const verified = planProjectMirror(checked, filterInventoryByScope(codeManifest, mirrorPaths), ledger, holds);

@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.requireCompleteScopeInventory = requireCompleteScopeInventory;
 exports.scopeInventoryPathAllowed = scopeInventoryPathAllowed;
 exports.collectLocalScopeInventory = collectLocalScopeInventory;
 exports.buildScopeStatuses = buildScopeStatuses;
@@ -41,6 +42,12 @@ const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const crypto = __importStar(require("node:crypto"));
 const SyncResolution_1 = require("./SyncResolution");
+function requireCompleteScopeInventory(result) {
+    const unverified = Object.keys(result.unverifiedFiles || {});
+    if (unverified.length)
+        throw new Error(`清单有 ${unverified.length} 个变动或无法读取的文件（${unverified[0]}），请待文件稳定后刷新重试。`);
+    return result;
+}
 const localHashCache = new Map();
 function fileIdentity(stat) {
     return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
@@ -69,7 +76,7 @@ function scopeInventoryPathAllowed(relative, directory = false) {
         return parts.length === 3 && directory || parts[3] === "logs" || parts.length === 4 && parts.at(-1)?.endsWith(".log") === true;
     return false;
 }
-async function collectLocalScopeInventory(root, relative = ".", recursive = true) {
+async function collectLocalScopeInventory(root, relative = ".", recursive = true, onUnverified) {
     if (relative !== "." && (relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === "..")))
         throw new Error(`本机清单路径不安全：${relative}`);
     const names = [];
@@ -104,35 +111,42 @@ async function collectLocalScopeInventory(root, relative = ".", recursive = true
                 break;
             const relative = names[index];
             const full = path.join(root, ...relative.split("/"));
-            const before = await fs.lstat(full);
-            if (!before.isFile() || before.isSymbolicLink())
-                throw new Error(`本机清单路径发生变化：${relative}`);
-            const identity = fileIdentity(before);
-            const cached = localHashCache.get(full);
-            if (cached?.identity === identity) {
-                files[relative] = cached.file;
-                continue;
-            }
-            const hash = crypto.createHash("sha256");
-            const handle = await fs.open(full, "r");
             try {
-                const buffer = Buffer.allocUnsafe(1024 * 1024);
-                for (;;) {
-                    const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
-                    if (!bytesRead)
-                        break;
-                    hash.update(buffer.subarray(0, bytesRead));
+                const before = await fs.lstat(full);
+                if (!before.isFile() || before.isSymbolicLink())
+                    throw new Error(`本机清单路径发生变化：${relative}`);
+                const identity = fileIdentity(before);
+                const cached = localHashCache.get(full);
+                if (cached?.identity === identity) {
+                    files[relative] = cached.file;
+                    continue;
                 }
+                const hash = crypto.createHash("sha256");
+                const handle = await fs.open(full, "r");
+                try {
+                    const buffer = Buffer.allocUnsafe(1024 * 1024);
+                    for (;;) {
+                        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+                        if (!bytesRead)
+                            break;
+                        hash.update(buffer.subarray(0, bytesRead));
+                    }
+                }
+                finally {
+                    await handle.close();
+                }
+                const after = await fs.lstat(full);
+                if (!after.isFile() || after.isSymbolicLink() || identity !== fileIdentity(after))
+                    throw new Error(`本机文件在校验时变更：${relative}`);
+                const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: after.mtimeMs };
+                localHashCache.set(full, { identity, file });
+                files[relative] = file;
             }
-            finally {
-                await handle.close();
+            catch (error) {
+                if (!onUnverified)
+                    throw error;
+                onUnverified(relative, error instanceof Error ? error.message : String(error));
             }
-            const after = await fs.lstat(full);
-            if (!after.isFile() || after.isSymbolicLink() || identity !== fileIdentity(after))
-                throw new Error(`本机文件在校验时变更：${relative}`);
-            const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: after.mtimeMs };
-            localHashCache.set(full, { identity, file });
-            files[relative] = file;
         }
     }));
     return files;
@@ -151,6 +165,7 @@ function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths,
     const all = new Set([
         ...Object.keys(inventories.local),
         ...workers.flatMap((id) => Object.keys(inventories.workers[id] || {})),
+        ...Object.values(inventories.unverified || {}).flatMap((files) => Object.keys(files)),
     ]);
     const statuses = {};
     const inSelectedScope = (path) => selectedPaths.some((scope) => scope === "." || path === scope || path.startsWith(`${scope}/`));
@@ -176,6 +191,12 @@ function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths,
             if (!offlineWorkerIds.has(id))
                 addVersion(id, inventories.workers[id]?.[path]);
         const held = (0, SyncResolution_1.isSyncHeld)(path, holds);
+        const unstable = Object.entries(inventories.unverified || {}).filter(([, files]) => files[path]);
+        if (unstable.length) {
+            const detail = unstable.map(([id, files]) => `${id === "local" ? "本机" : id} ${files[path]}，待重试`).join(" · ");
+            statuses[path] = { state: "unknown", detail, versions, held, unverified: true };
+            continue;
+        }
         if (mode === "local-server") {
             const detail = [`本机 ${localHash ? "最新版" : "缺失"}`, ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验，待核对" : !hash ? "待更新" : hash === localHash ? "最新版" : "待更新"}`)].join(" · ");
             const state = localHash && remote.every(({ hash }) => hash === localHash) ? "same" : offlineWorkerIds.size && localHash && remote.every(({ id, hash }) => offlineWorkerIds.has(id) || hash === localHash) ? "unknown" : "different";
@@ -222,7 +243,12 @@ function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths,
     }
     const folders = new Map();
     const count = (folder, status) => {
-        const row = folders.get(folder) || { total: 0, failed: 0, remoteOnly: 0, unknown: 0 };
+        const row = folders.get(folder) || { total: 0, failed: 0, remoteOnly: 0, unknown: 0, outside: 0 };
+        if (status.detail === "当前同步范围外") {
+            row.outside++;
+            folders.set(folder, row);
+            return;
+        }
         row.total++;
         if (status.state === "different")
             row.failed++;
@@ -238,12 +264,14 @@ function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths,
         for (let i = 1; i < parts.length; i++)
             count(parts.slice(0, i).join("/"), statuses[path]);
     }
-    for (const [folder, { total, failed, remoteOnly, unknown }] of folders) {
+    for (const [folder, { total, failed, remoteOnly, unknown, outside }] of folders) {
         const same = total - failed - remoteOnly - unknown;
         statuses[folder] = {
-            state: failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same",
-            detail: `共 ${total} 个文件 · ${same} 一致 · ${failed} 待更新或冲突 · ${remoteOnly} 仅 Worker 一致 · ${unknown} 未确认`,
+            state: !total ? "unknown" : failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same",
+            detail: total ? `同步范围内 ${total} 个文件 · ${same} 一致 · ${failed} 待更新或冲突 · ${remoteOnly} 仅 Worker 一致 · ${unknown} 未确认${outside ? ` · ${outside} 范围外` : ""}`
+                : `当前同步范围外 · ${outside} 个文件`,
             held: (0, SyncResolution_1.isSyncHeld)(folder, holds),
+            unverified: unknown > 0,
         };
     }
     return statuses;

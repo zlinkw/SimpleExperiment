@@ -6,7 +6,17 @@ import * as crypto from "node:crypto";
 import { SyncHolds, chosenSyncHash, isSyncHeld } from "./SyncResolution";
 
 type File = { sha256: string; size: number; modifiedAtMs?: number };
-export type ScopeInventories = { local: Record<string, File>; workers: Record<string, Record<string, File>> };
+export function requireCompleteScopeInventory<T extends { unverifiedFiles?: Record<string, string> }>(result: T): T {
+  const unverified = Object.keys(result.unverifiedFiles || {});
+  if (unverified.length)
+    throw new Error(`清单有 ${unverified.length} 个变动或无法读取的文件（${unverified[0]}），请待文件稳定后刷新重试。`);
+  return result;
+}
+export type ScopeInventories = {
+  local: Record<string, File>;
+  workers: Record<string, Record<string, File>>;
+  unverified?: Record<string, Record<string, string>>;
+};
 const localHashCache = new Map<string, { identity: string; file: File }>();
 
 function fileIdentity(stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
@@ -28,7 +38,9 @@ export function scopeInventoryPathAllowed(relative: string, directory = false): 
   return false;
 }
 
-export async function collectLocalScopeInventory(root: string, relative = ".", recursive = true): Promise<Record<string, File>> {
+export async function collectLocalScopeInventory(
+  root: string, relative = ".", recursive = true, onUnverified?: (relative: string, reason: string) => void,
+): Promise<Record<string, File>> {
   if (relative !== "." && (relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === "..")))
     throw new Error(`本机清单路径不安全：${relative}`);
   const names: string[] = [];
@@ -56,6 +68,7 @@ export async function collectLocalScopeInventory(root: string, relative = ".", r
       if (index >= names.length) break;
       const relative = names[index];
       const full = path.join(root, ...relative.split("/"));
+      try {
       const before = await fs.lstat(full);
       if (!before.isFile() || before.isSymbolicLink()) throw new Error(`本机清单路径发生变化：${relative}`);
       const identity = fileIdentity(before);
@@ -76,6 +89,10 @@ export async function collectLocalScopeInventory(root: string, relative = ".", r
       const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: after.mtimeMs };
       localHashCache.set(full, { identity, file });
       files[relative] = file;
+      } catch (error) {
+        if (!onUnverified) throw error;
+        onUnverified(relative, error instanceof Error ? error.message : String(error));
+      }
     }
   }));
   return files;
@@ -104,6 +121,7 @@ export function buildScopeStatuses(
   const all = new Set([
     ...Object.keys(inventories.local),
     ...workers.flatMap((id) => Object.keys(inventories.workers[id] || {})),
+    ...Object.values(inventories.unverified || {}).flatMap((files) => Object.keys(files)),
   ]);
   const statuses: Record<string, ScopeStatus> = {};
   const inSelectedScope = (path: string) => selectedPaths.some((scope) => scope === "." || path === scope || path.startsWith(`${scope}/`));
@@ -120,6 +138,12 @@ export function buildScopeStatuses(
     addVersion("local", inventories.local[path]);
     for (const id of workers) if (!offlineWorkerIds.has(id)) addVersion(id, inventories.workers[id]?.[path]);
     const held = isSyncHeld(path, holds);
+    const unstable = Object.entries(inventories.unverified || {}).filter(([, files]) => files[path]);
+    if (unstable.length) {
+      const detail = unstable.map(([id, files]) => `${id === "local" ? "本机" : id} ${files[path]}，待重试`).join(" · ");
+      statuses[path] = { state: "unknown", detail, versions, held, unverified: true };
+      continue;
+    }
     if (mode === "local-server") {
       const detail = [`本机 ${localHash ? "最新版" : "缺失"}`, ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验，待核对" : !hash ? "待更新" : hash === localHash ? "最新版" : "待更新"}`)].join(" · ");
       const state = localHash && remote.every(({ hash }) => hash === localHash) ? "same" : offlineWorkerIds.size && localHash && remote.every(({ id, hash }) => offlineWorkerIds.has(id) || hash === localHash) ? "unknown" : "different";
@@ -153,9 +177,10 @@ export function buildScopeStatuses(
     } else if (!owner && unique.size === 1) for (const [id, file] of Object.entries(versions)) if (id !== "local" && file.sha256.toLowerCase() === reference) file.latest = "same";
     statuses[path] = { state, detail: held ? `${detail} · 自动同步已暂停` : detail, versions, held };
   }
-  const folders = new Map<string, { total: number; failed: number; remoteOnly: number; unknown: number }>();
+  const folders = new Map<string, { total: number; failed: number; remoteOnly: number; unknown: number; outside: number }>();
   const count = (folder: string, status: ScopeStatus) => {
-    const row = folders.get(folder) || { total: 0, failed: 0, remoteOnly: 0, unknown: 0 };
+    const row = folders.get(folder) || { total: 0, failed: 0, remoteOnly: 0, unknown: 0, outside: 0 };
+    if (status.detail === "当前同步范围外") { row.outside++; folders.set(folder, row); return; }
     row.total++;
     if (status.state === "different") row.failed++;
     if (status.state === "remote-only") row.remoteOnly++;
@@ -167,12 +192,14 @@ export function buildScopeStatuses(
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) count(parts.slice(0, i).join("/"), statuses[path]);
   }
-  for (const [folder, { total, failed, remoteOnly, unknown }] of folders) {
+  for (const [folder, { total, failed, remoteOnly, unknown, outside }] of folders) {
     const same = total - failed - remoteOnly - unknown;
     statuses[folder] = {
-      state: failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same",
-      detail: `共 ${total} 个文件 · ${same} 一致 · ${failed} 待更新或冲突 · ${remoteOnly} 仅 Worker 一致 · ${unknown} 未确认`,
+      state: !total ? "unknown" : failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same",
+      detail: total ? `同步范围内 ${total} 个文件 · ${same} 一致 · ${failed} 待更新或冲突 · ${remoteOnly} 仅 Worker 一致 · ${unknown} 未确认${outside ? ` · ${outside} 范围外` : ""}`
+        : `当前同步范围外 · ${outside} 个文件`,
       held: isSyncHeld(folder, holds),
+      unverified: unknown > 0,
     };
   }
   return statuses;

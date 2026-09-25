@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const path = require("node:path");
-const { buildScopeStatuses, collectLocalScopeInventory, scopeInventoryPathAllowed } = require("../../dist/features/SyncScopeStatus.js");
+const { buildScopeStatuses, collectLocalScopeInventory, scopeInventoryPathAllowed, requireCompleteScopeInventory } = require("../../dist/features/SyncScopeStatus.js");
 
 const file = (hash) => ({ sha256: hash, size: 1 });
 const ledger = { schemaVersion: 2, entries: {
@@ -14,7 +14,7 @@ test("local scope treats local content as latest and aggregates directory state"
   assert.equal(status["configs/a.weird"].state, "different");
   assert.match(status["configs/a.weird"].detail, /本机 最新.*w1 最新.*w2 待更新/);
   assert.equal(status.configs.state, "different");
-  assert.match(status.configs.detail, /共 1 个文件 · 0 一致 · 1 待更新或冲突/);
+  assert.match(status.configs.detail, /同步范围内 1 个文件 · 0 一致 · 1 待更新或冲突/);
 });
 
 test("server scope uses Plan owner, reports unrelated conflicts, and defaults to whole project", () => {
@@ -76,4 +76,28 @@ test("inventory excludes runtime locks but retains project lockfiles", () => {
   assert.equal(scopeInventoryPathAllowed("experiments/results/formal/final.csv.lock"), false);
   assert.equal(scopeInventoryPathAllowed("work_dirs/corim/.tb_mean.lock"), false);
   assert.equal(scopeInventoryPathAllowed("poetry.lock"), true);
+});
+
+test("a changing Worker file leaves stable scoped files verified", () => {
+  const inventories = {
+    local: { "code.py": file("code"), "results/weight.bin": file("weight") },
+    workers: { w1: { "code.py": file("code") }, w2: { "code.py": file("code"), "results/weight.bin": file("weight") } },
+    unverified: { w1: { "results/weight.bin": "文件校验期间发生变化" } },
+  };
+  const localStatus = buildScopeStatuses(inventories, "local-server", ["code.py"], new Set(), ledger);
+  assert.equal(localStatus["code.py"].state, "same");
+  assert.equal(localStatus["results/weight.bin"].detail, "当前同步范围外");
+  assert.match(localStatus["."].detail, /同步范围内 1 个文件 · 1 一致.*1 范围外/);
+  const workerStatus = buildScopeStatuses(inventories, "server-server", ["."], new Set(), ledger);
+  assert.equal(workerStatus["code.py"].state, "same");
+  assert.equal(workerStatus["results/weight.bin"].state, "unknown");
+  assert.match(workerStatus["results/weight.bin"].detail, /w1 文件校验期间发生变化，待重试/);
+  assert.equal(workerStatus["results"].unverified, true);
+  assert.match(workerStatus["."].detail, /1 未确认/);
+});
+
+test("automatic synchronization refuses incomplete content inventories", () => {
+  const complete = { files: { "code.py": file("a") }, unverifiedFiles: {} };
+  assert.equal(requireCompleteScopeInventory(complete), complete);
+  assert.throws(() => requireCompleteScopeInventory({ files: {}, unverifiedFiles: { "model.bin": "文件校验期间发生变化" } }), /model\.bin/);
 });
