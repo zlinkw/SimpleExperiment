@@ -12,7 +12,7 @@ function extract(startName, endName) {
   return panel.slice(start, end).replaceAll("\\\\", "\\");
 }
 
-test("Plan overview prioritizes live work and folds old failures after restart", () => {
+test("Plan overview keeps completed and failed Plans visible without routine validation rows", () => {
   let html = "";
   const sandbox = {
     Map,
@@ -22,6 +22,7 @@ test("Plan overview prioritizes live work and folds old failures after restart",
       { planFile: "plans/old-fail.yaml", status: "failed", finishedAt: "2026-09-20T11:00:00Z" },
       { planFile: "plans/new-fail.yaml", status: "failed", finishedAt: "2026-09-25T12:10:00Z" },
       { planFile: "plans/live.yaml", status: "running", updatedAt: "2026-09-20T09:00:00Z" },
+      { planFile: "plans/live.yaml", type: "validate-plan", status: "completed", updatedAt: "2026-09-20T08:00:00Z" },
     ],
     taskSectionViewModelForState: () => ({ allRows: [
       { planFile: "plans/done.yaml", status: "completed" },
@@ -46,17 +47,16 @@ test("Plan overview prioritizes live work and folds old failures after restart",
     escAttr: String,
     detailsOpenAttr: () => "",
     statusClass: String,
-    renderOperationItem: () => "<div>operation</div>",
+    renderOperationItem: (row) => "<div>" + (row.type || "operation") + "</div>",
     renderTaskCards: () => "<div>tasks</div>",
     setHtmlIfChanged: (_id, value) => { html = value; },
   };
   vm.createContext(sandbox);
   vm.runInContext(extract("renderExecutionPlanList", "renderOperationSection") + "\nthis.render = renderExecutionPlanList;", sandbox);
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z" });
-  assert.ok(html.indexOf("live.yaml") < html.indexOf("历史 Plan"));
-  assert.ok(html.indexOf("new-fail.yaml") < html.indexOf("历史 Plan"));
-  assert.ok(html.indexOf("old-fail.yaml") > html.indexOf("历史 Plan"));
-  assert.match(html, /<summary>历史 Plan · 2<\/summary>/);
+  assert.match(html, /old-fail.yaml/);
+  assert.match(html, /new-fail.yaml/);
+  assert.doesNotMatch(html, /历史 Plan|validate-plan/);
   assert.match(html, /任务与日志/);
   assert.match(html, /data-command="clearOperations" data-plan-file="plans\/live.yaml"/);
   assert.match(html, /data-execution-plan-select="plans\/live.yaml" aria-pressed="true"/);
@@ -104,6 +104,46 @@ test("persisted distributed jobs keep their Plan live after restart despite old 
   assert.match(html, /pad seed 42/);
   assert.match(html, /data-command="selectLogRunKey" data-run-key="live-job" data-worker-id="worker-b"/);
   assert.doesNotMatch(html, /历史 Plan/);
+});
+
+test("latest distributed attempt determines completed or failed Plan display", () => {
+  let html = "";
+  const sandbox = {
+    Map, Set,
+    operationRowsForState: () => [{ planFile: "plans/concatenation.yaml", type: "run-plan", status: "interrupted", startedAt: "2026-09-20T10:00:00Z" }],
+    taskSectionViewModelForState: () => ({ allRows: [] }), taskPlanFile: (row) => row.planFile,
+    taskSelectionSetsForState: () => ({}), normalizePlanSelectionKey: String,
+    samePlanSelection: (left, right) => left === right,
+    selectedExecutionPlanFile: "", persistWebviewState: () => undefined,
+    taskStatusToken: String, TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
+    TASK_QUEUED_STATUSES: new Set(["queued"]), TASK_TERMINAL_STATUSES: new Set(["completed"]),
+    operationIsActive: (value) => value === "running",
+    operationIsFailureLike: (value) => value === "failed" || value === "interrupted",
+    operationHasDeadEvidence: (row) => row.status === "interrupted",
+    taskFailureLikeStatus: (value) => value === "failed", planBaseName: (value) => value.split("/").pop(),
+    esc: String, escAttr: String, detailsOpenAttr: () => "", statusClass: String,
+    renderOperationItem: () => "<div>old interruption</div>", renderTaskCards: () => "<div>tasks</div>",
+    setHtmlIfChanged: (_id, value) => { html = value; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extract("renderExecutionPlanList", "renderOperationSection") + "\nthis.render = renderExecutionPlanList;", sandbox);
+  const failed = { id: "older", planFile: "plans/concatenation.yaml", enqueuedAt: "2026-09-24T10:00:00Z",
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "failed", workerId: "nwpu5", commandId: "failed-job" }] };
+  const completed = { id: "newer", planFile: "plans/concatenation.yaml", enqueuedAt: "2026-09-25T10:00:00Z",
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", workerId: "nwpu2", commandId: "completed-job" }] };
+  sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [failed, completed] });
+  assert.match(html, /executionPlanRow completed/);
+  assert.match(html, /任务 1\/1/);
+  assert.doesNotMatch(html, /failed-job|old interruption|>异常</);
+  assert.match(html, /completed-job/);
+  sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [completed, {
+    ...failed, id: "newest", enqueuedAt: "2026-09-25T13:00:00Z",
+    jobs: [{ ...failed.jobs[0], finishedAt: "2026-09-25T13:10:00Z", artifactError: "missing dataset schema" }],
+  }] });
+  assert.match(html, /executionPlanRow failed/);
+  assert.match(html, /任务 0\/1 · 失败 1/);
+  assert.match(html, /missing dataset schema/);
+  assert.doesNotMatch(html, /old interruption|>异常</);
 });
 
 test("diagnostics default to current server health and actionable issues", () => {
