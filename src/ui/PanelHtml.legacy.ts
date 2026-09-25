@@ -12954,7 +12954,8 @@ export function renderPanelHtml(): string {
           const statusLabel = { pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status;
           const placement = job.workerId ? job.workerId + (job.gpuId === undefined ? "" : " · GPU " + job.gpuId) : "待分配";
           const logPath = String(job.logPath || "");
-          const trainLogPath = String(job.outputDir || "").replace(/\/+$/, "") + "/train.log";
+          const outputDir = String(job.outputDir || "");
+          const trainLogPath = outputDir.endsWith("/") ? outputDir + "train.log" : outputDir + "/train.log";
           const trainLogButton = job.outputDir && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="train" data-run-key="' + escAttr(trainLogPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取每轮训练验证记录">训练日志</button>' : "";
           const logButton = logPath && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="run" data-run-key="' + escAttr(logPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取终端输出">终端日志</button>' : '<span class="muted">终端日志路径待 Worker 回传</span>';
           const selectedLogPath = state.selectedLogRunKey === trainLogPath ? trainLogPath : logPath;
