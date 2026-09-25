@@ -29,6 +29,7 @@ import TunnelOnlyPolicy_1 = require("../tunnel/TunnelOnlyPolicy");
 import MultiEndpointRealtimeClient_1 = require("../tunnel/MultiEndpointRealtimeClient");
 import PanelHtml_1 = require("../ui/PanelHtml");
 import { scalarDashboardHtml } from "../tensorboard/ScalarDashboardHtml";
+import { normalizeDistributedProjectContract } from "../features/DistributedProjectContract";
 import { aggregateSeedScalars } from "../tensorboard/ScalarAggregation";
 import * as ProjectResultTables from "../results/ProjectResultTables";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
@@ -7333,9 +7334,9 @@ export class RealtimeTunnelPanelProvider {
     async inspectCodeSyncTarget(target, paths) {
         const base = this.resolveAgentBase(target);
         const token = String(this.tunnelConfig?.token || "");
-        const rows = [];
-        for (let index = 0; index < paths.length; index += 30) {
-            const batch = paths.slice(index, index + 30);
+        const batches = [];
+        for (let index = 0; index < paths.length; index += 30) batches.push(paths.slice(index, index + 30));
+        const chunks = await mapLimited(batches, 3, async (batch) => {
             const query = new URLSearchParams();
             for (const file of batch) query.append("path", file);
             const controller = new AbortController();
@@ -7346,17 +7347,19 @@ export class RealtimeTunnelPanelProvider {
                 const data: any = await response.json();
                 if (data?.ok !== true || !Array.isArray(data.files) || data.files.length !== batch.length)
                     throw new Error(String(data?.error || "响应不完整"));
+                const rows = [];
                 for (let i = 0; i < batch.length; i++) {
                     if (data.files[i]?.path !== batch[i]) throw new Error("文件顺序不一致");
                     rows.push({ ...data.files[i], gitAvailable: data.gitAvailable === true });
                 }
+                return rows;
             }
             catch (error) {
                 throw new Error(`${target.label} 上传结果校验失败（${errorMessage(error)}）；请先确认 Agent 已更新且隧道可用。`);
             }
             finally { clearTimeout(timer); }
-        }
-        return rows;
+        });
+        return chunks.flat();
     }
     async confirmRemoteWriteTargets(operation, targets, projectContext) {
         const assertCurrent = () => {
@@ -7786,34 +7789,14 @@ export class RealtimeTunnelPanelProvider {
         return picked.workerId;
     }
     distributedPlanEligible(planFile) {
-        const contract = this.distributedProjectContract();
-        return this.projectTopologyAssessment().mode === "worker_pool"
-            && this.localPlanMetadata.detectedProject?.adapterRules?.distributedResults === true
-            && /\.ya?ml$/i.test(String(planFile || ""))
-            && contract.planPrefixes.some((prefix) => String(planFile || "").replace(/\\/g, "/").startsWith(prefix));
+        if (this.projectTopologyAssessment().mode !== "worker_pool"
+            || this.localPlanMetadata.detectedProject?.adapterRules?.distributedResults !== true
+            || !/\.ya?ml$/i.test(String(planFile || ""))) return false;
+        return this.distributedProjectContract().planPrefixes
+            .some((prefix) => String(planFile || "").replace(/\\/g, "/").startsWith(prefix));
     }
     distributedProjectContract() {
-        const raw = this.localPlanMetadata.detectedProject?.adapterRules?.distributed || {};
-        const relative = (value, fallback) => {
-            const text = String(value || fallback).replace(/\\/g, "/").trim();
-            if (!text || text.startsWith("/") || text.split("/").some((part) => !part || part === "." || part === "..") || /[\x00-\x1f]/.test(text))
-                throw new Error(`分布式产物相对路径无效：${text}`);
-            return text;
-        };
-        const planPrefixes = (raw.planPrefixes?.length ? raw.planPrefixes : ["experiments/plans/comparison/"])
-            .map((value) => relative(value, "").replace(/\/*$/, "/"));
-        const configPath = relative(raw.configPath, "job_config.yaml");
-        const checkpointPath = relative(raw.checkpointPath, "best_model.pth");
-        const resultRowsPath = relative(raw.resultRowsPath, "test_results/formal_result_rows.csv");
-        const fourStatePath = relative(raw.fourStatePath, "test_results/four_state_metrics.csv");
-        const fragmentPaths = [...new Set((raw.fragmentPaths?.length ? raw.fragmentPaths : [configPath, resultRowsPath, fourStatePath])
-            .map((value) => relative(value, "")))];
-        const requiredPaths = [...new Set((raw.requiredPaths?.length ? raw.requiredPaths : [...fragmentPaths, checkpointPath])
-            .map((value) => relative(value, "")))];
-        const mergeModule = String(raw.mergeModule || "experiments.simple_adapter.distributed_results").trim();
-        if (!/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(mergeModule)) throw new Error("分布式汇总模块名无效");
-        return { planPrefixes, configPath, checkpointPath, resultRowsPath, fourStatePath,
-            fragmentPaths, requiredPaths, mergeModule };
+        return normalizeDistributedProjectContract(this.localPlanMetadata.detectedProject?.adapterRules?.distributed || {});
     }
     async localDistributedCodeFingerprint(root) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
@@ -7981,8 +7964,12 @@ export class RealtimeTunnelPanelProvider {
         if (!queue.plans.length && !(queue.deferred || []).length) return;
         const assigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "running", "unknown"].includes(job.status))
             .map((job) => ({ plan, job })));
-        for (const workerId of [...new Set(assigned.map(({ job }) => job.workerId))]) {
-            const snapshot = await this.readWorkerTaskSnapshot(workerId);
+        const assignedWorkerIds = [...new Set(assigned.map(({ job }) => job.workerId))];
+        const taskSnapshots = await mapLimited(assignedWorkerIds, 3,
+            async (workerId) => this.readWorkerTaskSnapshot(workerId));
+        for (let snapshotIndex = 0; snapshotIndex < assignedWorkerIds.length; snapshotIndex++) {
+            const workerId = assignedWorkerIds[snapshotIndex];
+            const snapshot = taskSnapshots[snapshotIndex];
             const realtimeTasks = Array.isArray(this.lastRealtimeState?.workerTasks?.[workerId])
                 ? this.lastRealtimeState.workerTasks[workerId] : [];
             if (snapshot.error) {
@@ -8100,6 +8087,7 @@ export class RealtimeTunnelPanelProvider {
         for (const plan of queue.plans) for (const job of plan.jobs) {
             if (workspaceRoot() !== root) return;
             if (job.status !== "completed" || !job.workerId || !targets.has(job.workerId)) continue;
+            if (job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > Date.now()) continue;
             try {
                 const sourceId = [job.workerId, ...(job.mirroredWorkerIds || []), ...(phase === "fragments" ? job.fragmentWorkerIds || [] : [])]
                     .find((id) => online.includes(id));
@@ -8111,11 +8099,12 @@ export class RealtimeTunnelPanelProvider {
                 if (!job.artifacts || fragmentPaths.some((file) => !job.artifacts[file]) || phase === "bulk" && !contract.requiredPaths.every((name) => job.artifacts[`${job.outputDir}/${name}`])) {
                     const files: [string, any][] = [];
                     if (phase === "fragments") {
-                        for (const file of fragmentPaths) {
+                        const fragmentEntries = await mapLimited(fragmentPaths, 3, async (file) => {
                             const entry = (await this.verifiedSftpProjectInventory({ source, relativePath: file })).files[file];
                             if (!entry?.sha256) throw new Error(`结果片段缺失：${file}`);
-                            files.push([file, entry]);
-                        }
+                            return [file, entry] as [string, any];
+                        });
+                        files.push(...fragmentEntries);
                     } else {
                         if (!job.logPath) throw new Error("任务快照缺少日志路径，待 Agent 恢复后再同步");
                         const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
@@ -8132,8 +8121,10 @@ export class RealtimeTunnelPanelProvider {
                     job.fragmentWorkerIds = [...new Set([...(job.fragmentWorkerIds || []), sourceId])];
                     if (phase === "bulk") job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), sourceId])];
                     job.artifactError = undefined;
+                    job.artifactRetryAfter = undefined;
                     await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifacts: job.artifacts,
-                        fragmentWorkerIds: job.fragmentWorkerIds, mirroredWorkerIds: job.mirroredWorkerIds, artifactError: undefined });
+                        fragmentWorkerIds: job.fragmentWorkerIds, mirroredWorkerIds: job.mirroredWorkerIds,
+                        artifactError: undefined, artifactRetryAfter: undefined });
                 }
                 for (const workerId of online) {
                     if (workspaceRoot() !== root) return;
@@ -8149,13 +8140,13 @@ export class RealtimeTunnelPanelProvider {
                             relativePaths: paths.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
                     }
                     if (phase === "fragments") {
-                        for (const file of fragmentPaths) {
+                        await mapLimited(fragmentPaths, 3, async (file) => {
                             const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: file })).files;
                             if (String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file]) throw new Error(`${workerId} 结果片段校验失败：${file}`);
-                        }
+                        });
                         job.fragmentWorkerIds = [...new Set([...(job.fragmentWorkerIds || []), workerId])];
                         await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { fragmentWorkerIds: job.fragmentWorkerIds,
-                            artifactError: undefined });
+                            artifactError: undefined, artifactRetryAfter: undefined });
                         continue;
                     }
                     const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
@@ -8168,11 +8159,13 @@ export class RealtimeTunnelPanelProvider {
                     job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), workerId])];
                     job.artifactError = undefined;
                     await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { mirroredWorkerIds: job.mirroredWorkerIds,
-                        artifactError: undefined });
+                        artifactError: undefined, artifactRetryAfter: undefined });
                 }
             } catch (error) {
                 job.artifactError = errorMessage(error);
-                await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifactError: job.artifactError });
+                job.artifactRetryAfter = new Date(Date.now() + 30_000).toISOString();
+                await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
+                    { artifactError: job.artifactError, artifactRetryAfter: job.artifactRetryAfter });
                 this.recordActionError({ command: "distributedArtifactSync", message: `${plan.planFile} job ${job.index}：${job.artifactError}` });
             }
         }

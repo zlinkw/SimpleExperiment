@@ -792,16 +792,26 @@ def tensorboard_conversion_available() -> bool:
 def output_interface_report(root: Path, jobs: list[Job]) -> dict[str, Any]:
     root = root.resolve()
     rows: list[dict[str, Any]] = []
+    evidence_cache: dict[tuple[Path, ...], dict[str, bool]] = {}
+    wrapper_cache: dict[str, bool] = {}
+    tensorboard_ready_in_env: bool | None = None
     for job in jobs:
         commands = [str(job.train_command or ""), str(job.test_command or "")]
         command_text = "\n".join(commands)
-        wrapper_ready = bool(job.wrap_output and job.run_wrapper and existing_project_file_text(root, job.run_wrapper))
+        if job.run_wrapper not in wrapper_cache:
+            wrapper_cache[job.run_wrapper] = bool(job.run_wrapper and existing_project_file_text(root, job.run_wrapper))
+        wrapper_ready = bool(job.wrap_output and wrapper_cache[job.run_wrapper])
         command_adapter = bool(re.search(r"(?:run_wrapper\.py|collect_outputs\s*\(|write_metrics_summary\s*\()", command_text, re.I))
         sources = job_source_files(root, job)
-        code_evidence = python_output_writer_evidence(sources)
+        source_key = tuple(sources)
+        if source_key not in evidence_cache:
+            evidence_cache[source_key] = python_output_writer_evidence(sources)
+        code_evidence = evidence_cache[source_key]
         adapter_ready = command_adapter or code_evidence["adapter"]
         tensorboard_evidence = bool(code_evidence["tensorboard"] or re.search(r"summarywriter|tensorboard", command_text, re.I))
-        tensorboard_ready = tensorboard_evidence and tensorboard_conversion_available()
+        if tensorboard_evidence and tensorboard_ready_in_env is None:
+            tensorboard_ready_in_env = tensorboard_conversion_available()
+        tensorboard_ready = tensorboard_evidence and tensorboard_ready_in_env
         channels = []
         if wrapper_ready:
             channels.append({"type": "run_wrapper", "path": job.run_wrapper})
@@ -811,7 +821,7 @@ def output_interface_report(root: Path, jobs: list[Job]) -> dict[str, Any]:
             channels.append({"type": "tensorboard_scalars"})
         missing: list[str] = []
         if not channels:
-            if tensorboard_evidence and not tensorboard_conversion_available():
+            if tensorboard_evidence and not tensorboard_ready_in_env:
                 missing.append("TensorBoard 标量转换依赖 tensorboard；请在远端环境安装 tensorboard")
             else:
                 missing.append("未验证的输出接口：请使用 simple_adapter/run_wrapper 包裹命令，或在入口代码调用 collect_outputs/write_metrics_summary，或使用 TensorBoard SummaryWriter 并安装 tensorboard")

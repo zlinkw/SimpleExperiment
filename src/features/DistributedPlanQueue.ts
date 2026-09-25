@@ -18,6 +18,7 @@ export type QueuedJob = {
   fragmentWorkerIds?: string[];
   mirroredWorkerIds?: string[];
   artifactError?: string;
+  artifactRetryAfter?: string;
   reconciliationAttempts?: number;
   lastReconciliationAt?: string;
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string }>;

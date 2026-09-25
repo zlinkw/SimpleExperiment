@@ -2,7 +2,7 @@
 
 项目在 `experiments/simple_project.yaml` 设置顶层 `distributedResults: true` 后，匹配 `distributed.planPrefixes` 的正式 `runPlan` 使用持久化的本机 job 队列。默认匹配 `experiments/plans/comparison/`；其他 Plan 沿用整 Plan 调度。预演使用 Agent 校验返回的 job 清单及插件当前空卡快照，在本机调用与派发相同的分配器，不再重复启动远端 dry-run。实际派发前 Agent 仍重新核对显卡。
 
-队列记录 Plan revision、代码同步指纹、Case、seed、attempt、Worker、GPU、命令 ID、状态以及产物哈希。派发先处理旧 Plan 的就绪 job；旧 Plan 的任务已运行或完成后，新 Plan 可占用空卡。Agent 在接受任务时重新检测 GPU 进程并原子保留槽位。状态不明的任务不会自动重派；用户在任务页点击恢复时，插件先向原 Worker 核实终止状态并保存已有产物，随后建立新 attempt。不同代码指纹的任务不同时运行。
+队列记录 Plan revision、代码同步指纹、Case、seed、attempt、Worker、GPU、命令 ID、状态以及产物哈希。派发先处理旧 Plan 的就绪 job；旧 Plan 的任务已运行或完成后，新 Plan 可占用空卡。派发请求使用专用限流通道，仍遵守并发上限；Agent 在接受任务时重新检测 GPU 进程并原子保留槽位。状态不明的任务不会自动重派；用户在任务页点击恢复时，插件先向原 Worker 核实终止状态并保存已有产物，随后建立新 attempt。不同代码指纹的任务不同时运行。
 
 每个 job 的输出使用 `原输出目录/attempts/<运行 ID>/`，重跑保留旧 attempt。项目适配器在该目录写配置、检查点和独立结果片段，并保留原始 TensorBoard 事件与日志。名称由下方契约指定。插件用 SimpleSFTP 先对小片段逐文件计算 SHA256、同步到在线 Worker 并生成非正式预览，再清点整个 job 目录、同步权重、原始曲线、日志及其余文件，逐目标核对内容。每个 job 从运行转入完成时立即触发这一流程；离线 Worker 保留待镜像状态，重连后补齐。同步使用文件清单，不执行目录删除。
 
