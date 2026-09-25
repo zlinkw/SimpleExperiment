@@ -242,8 +242,29 @@ function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths,
         statuses[path] = { state, detail: held ? `${detail} · 自动同步已暂停` : detail, versions, held };
     }
     const folders = new Map();
-    const count = (folder, status) => {
-        const row = folders.get(folder) || { total: 0, failed: 0, remoteOnly: 0, unknown: 0, outside: 0 };
+    const count = (folder, path, status) => {
+        const row = folders.get(folder) || { total: 0, failed: 0, remoteOnly: 0, unknown: 0, outside: 0, copies: {} };
+        const reference = Object.values(status.versions || {}).find((version) => version.latest && version.latest !== "candidate")?.sha256.toLowerCase();
+        for (const id of ["local", ...workers]) {
+            const copy = row.copies[id] || { modifiedAtMs: 0, present: 0, missing: 0, needsSync: 0, conflict: 0, unverified: 0 };
+            const file = id === "local" ? inventories.local[path] : inventories.workers[id]?.[path];
+            if (file)
+                copy.modifiedAtMs = Math.max(copy.modifiedAtMs, Number(file.modifiedAtMs || 0));
+            if (status.detail !== "当前同步范围外") {
+                if (id !== "local" && offlineWorkerIds.has(id) || inventories.unverified?.[id]?.[path])
+                    copy.unverified++;
+                else if (!file)
+                    copy.missing++;
+                else {
+                    copy.present++;
+                    if (reference && file.sha256.toLowerCase() !== reference)
+                        copy.needsSync++;
+                    else if (!reference && mode === "server-server" && status.state === "different")
+                        copy.conflict++;
+                }
+            }
+            row.copies[id] = copy;
+        }
         if (status.detail === "当前同步范围外") {
             row.outside++;
             folders.set(folder, row);
@@ -259,17 +280,18 @@ function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths,
         folders.set(folder, row);
     };
     for (const path of all) {
-        count(".", statuses[path]);
+        count(".", path, statuses[path]);
         const parts = path.split("/");
         for (let i = 1; i < parts.length; i++)
-            count(parts.slice(0, i).join("/"), statuses[path]);
+            count(parts.slice(0, i).join("/"), path, statuses[path]);
     }
-    for (const [folder, { total, failed, remoteOnly, unknown, outside }] of folders) {
+    for (const [folder, { total, failed, remoteOnly, unknown, outside, copies }] of folders) {
         const same = total - failed - remoteOnly - unknown;
         statuses[folder] = {
             state: !total ? "unknown" : failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same",
             detail: total ? `同步范围内 ${total} 个文件 · ${same} 一致 · ${failed} 待更新或冲突 · ${remoteOnly} 仅 Worker 一致 · ${unknown} 未确认${outside ? ` · ${outside} 范围外` : ""}`
                 : `当前同步范围外 · ${outside} 个文件`,
+            copies,
             held: (0, SyncResolution_1.isSyncHeld)(folder, holds),
             unverified: unknown > 0,
         };

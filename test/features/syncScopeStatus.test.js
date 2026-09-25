@@ -17,6 +17,23 @@ test("local scope treats local content as latest and aggregates directory state"
   assert.match(status.configs.detail, /同步范围内 1 个文件 · 0 一致 · 1 待更新或冲突/);
 });
 
+test("folder copy time is the newest file time on each location", () => {
+  const inventory = { local: {
+    "results/a.bin": { sha256: "a", size: 1, modifiedAtMs: 1000 },
+    "results/b.bin": { sha256: "b", size: 1, modifiedAtMs: 3000 },
+  }, workers: {
+    w1: { "results/a.bin": { sha256: "a", size: 1, modifiedAtMs: 2000 }, "results/b.bin": { sha256: "old", size: 1, modifiedAtMs: 1500 } },
+    w2: { "results/a.bin": { sha256: "a", size: 1, modifiedAtMs: 4000 } },
+  } };
+  const status = buildScopeStatuses(inventory, "local-server", ["results"], new Set(), ledger);
+  assert.equal(status.results.state, "different");
+  assert.equal(status.results.copies.local.modifiedAtMs, 3000);
+  assert.equal(status.results.copies.w1.modifiedAtMs, 2000);
+  assert.equal(status.results.copies.w1.needsSync, 1);
+  assert.equal(status.results.copies.w2.modifiedAtMs, 4000);
+  assert.equal(status.results.copies.w2.missing, 1);
+});
+
 test("server scope uses Plan owner, reports unrelated conflicts, and defaults to whole project", () => {
   const inventory = {
     local: {},
