@@ -188,6 +188,7 @@ const keys = {
     uiProjectLayout: "simpleExperiment.uiProjectLayout",
     hiddenLegacyTaskUiKeys: "simpleExperiment.hiddenLegacyTaskUiKeys",
     executionHistoryCutoffs: "simpleExperiment.executionHistoryCutoffs",
+    executionHistoryHiddenOperationIds: "simpleExperiment.executionHistoryHiddenOperationIds",
     pptPlotConfig: "simpleExperiment.pptPlotConfig",
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
@@ -12296,6 +12297,23 @@ export class RealtimeTunnelPanelProvider {
     async clearOperationHistoryFromUi(message) {
         const root = workspaceRoot();
         if (!root) throw new Error("请先打开当前实验项目。");
+        const operationIds = uniqueStrings([...stringArrayField(message, "operationIds"), stringField(message, "operationId")]);
+        if (operationIds.length) {
+            const operations = this.buildPlanRuntimeEvidenceState().operations;
+            const rows = operationIds.map((id) => operations[id] || Object.values(operations).find((row: any) => String(row?.operationId || row?.id || "") === id));
+            if (rows.some((row: any) => !row || !operationHistoryHideableStatus(row.status || row.state)))
+                throw new Error("所选操作已变化或仍在运行，请刷新状态后重新选择；运行中的操作不能清理。");
+            const confirmed = await vscode.window.showWarningMessage(
+                `从本机面板隐藏 ${operationIds.length} 条已结束操作记录？当前运行的 Plan 和 job、远端审计、日志及产物均保留。`,
+                { modal: true }, "清理所选记录", "取消",
+            );
+            if (confirmed !== "清理所选记录" || root !== workspaceRoot()) return;
+            const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
+            const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...operationIds]);
+            await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);
+            if (root === workspaceRoot()) this.postState();
+            return;
+        }
         const planFile = stringField(message, "planFile").trim();
         const label = planFile ? `Plan ${planFile}` : "所有 Plan";
         const confirmed = await vscode.window.showWarningMessage(
@@ -15276,6 +15294,7 @@ export class RealtimeTunnelPanelProvider {
             logs,
             operations,
             executionHistoryCutoffs: this.context.workspaceState.get(keys.executionHistoryCutoffs, {}),
+            executionHistoryHiddenOperationIds: this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []),
             fileTransfers,
             codeSync: compactCodeSyncForWebview(this.lastCodeSyncState),
             remotePathConfirmations: {
@@ -16314,6 +16333,10 @@ function operationTerminal(value) {
 function operationTerminalStatus(value) {
     const text = operationStatusToken(value);
     return OPERATION_TERMINAL_STATUSES.has(text);
+}
+function operationHistoryHideableStatus(value) {
+    const text = operationStatusToken(value);
+    return OPERATION_TERMINAL_STATUSES.has(text) || ["interrupted", "timeout", "timed_out", "timedout", "failure", "done", "succeeded"].includes(text);
 }
 function operationFailureTerminalStatus(value) {
     const text = operationStatusToken(value);

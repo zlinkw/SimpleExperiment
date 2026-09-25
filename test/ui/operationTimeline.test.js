@@ -13,7 +13,7 @@ test("operation progress renders as a VS Code timeline", () => {
   assert.match(html, /\.operationItem \{/);
   assert.match(html, /\.operationDot/);
   assert.match(html, /function renderOperationItem/);
-  assert.match(html, /'<div class="operationTimeline">' \+ view\.visibleRows\.map\(renderOperationItem\)\.join\(""\) \+ '<\/div>'/);
+  assert.match(html, /'<div class="operationTimeline">' \+ view\.visibleRows\.map\(\(row\) => renderOperationItem\(row, true\)\)\.join\(""\) \+ '<\/div>'/);
   assert.match(html, /operationDisplayMessage\(row\)/);
   assert.match(html, /const itemTitle = operationTypeLabel\(rawType\)/);
   assert.match(html, /title="' \+ escAttr\(itemTitle\) \+ '"/);

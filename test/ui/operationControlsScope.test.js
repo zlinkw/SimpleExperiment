@@ -20,6 +20,7 @@ test("global stop targets only the active operation for the selected Plan", () =
     esc: String,
     operationIsActive: (status) => status === "running",
     selectedExecutionPlanFile: "experiments/plans/comparison/concatenation.yaml",
+    selectedOperationHistoryIds: new Set(),
   };
   vm.createContext(sandbox);
   vm.runInContext(extract("renderOperationSection", "renderTaskSection").replaceAll("\\\\", "\\") + "\nthis.render = renderOperationSection;", sandbox);
@@ -34,6 +35,7 @@ test("global stop targets only the active operation for the selected Plan", () =
   assert.doesNotMatch(html.executionControls, /data-operation-id="ebmc"/);
   assert.match(html.executionControls, /data-command="stopAllPlans"/);
   assert.match(html.executionControls, /data-command="clearOperations"[^>]*>清除所有历史/);
+  assert.match(html.executionControls, /id="clearSelectedOperationHistory"[^>]*disabled[^>]*>清理选中记录/);
   assert.match(html.executionControls, /data-command="clearOperations" data-plan-file="experiments\/plans\/comparison\/concatenation.yaml"[^>]*>清除所选 Plan 历史/);
   const clearAll = html.executionControls.match(/<button[^>]*data-command="clearOperations"[^>]*>清除所有历史/)[0];
   assert.doesNotMatch(clearAll, /\sdisabled(?:\s|>)/);

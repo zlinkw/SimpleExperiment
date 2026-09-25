@@ -437,7 +437,8 @@ export function renderPanelHtml(): string {
     .operationItem.is-cancelled .operationDot { background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 16%, transparent); }
     .operationItem.is-failed .operationDot, .operationItem.is-stalled .operationDot { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 16%, transparent); }
     .operationBody { min-width: 0; display: grid; gap: 6px; }
-    .operationHead { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .operationHead { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .operationHead > input[data-operation-history-select] { flex: 0 0 auto; margin: 0; }
     .operationTitle { min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-weight: 800; }
     .operationId { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; color: var(--muted); }
     .operationMessage { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space:pre-wrap; word-break:break-all; max-height:240px; overflow:auto; }
@@ -2316,6 +2317,7 @@ export function renderPanelHtml(): string {
     let configParamFilterGeneration = 0;
     let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
     let selectedExecutionPlanFile = String(restoredWebviewState.selectedExecutionPlanFile || "");
+    const selectedOperationHistoryIds = new Set();
     let tracePlanScope = normalizePlanViewScope(restoredWebviewState.tracePlanScope);
     let webviewDomCommandAuditCache = null;
     let webviewDomCommandAuditCacheKey = "";
@@ -2680,6 +2682,17 @@ export function renderPanelHtml(): string {
       const taskSelectionInput = event.target.closest('input[type="checkbox"][data-command="selectExperiment"]');
       if (taskSelectionInput) {
         event.stopPropagation();
+        return;
+      }
+      const operationHistoryInput = event.target.closest('input[type="checkbox"][data-operation-history-select]');
+      if (operationHistoryInput) {
+        event.stopPropagation();
+        const id = String(operationHistoryInput.dataset.operationHistorySelect || "");
+        if (id) {
+          if (operationHistoryInput.checked) selectedOperationHistoryIds.add(id);
+          else selectedOperationHistoryIds.delete(id);
+          updateOperationHistorySelectionControls();
+        }
         return;
       }
       const auditRefresh = event.target.closest("#refreshDomCommandAudit");
@@ -4708,8 +4721,13 @@ export function renderPanelHtml(): string {
       const data = state || {};
       if (data === executionHistoryRowsCacheState) return executionHistoryRowsCacheValue;
       const rows = operationRowsForInput(data.operations || {});
+      const hidden = new Set(Array.isArray(data.executionHistoryHiddenOperationIds) ? data.executionHistoryHiddenOperationIds.map(String) : []);
       executionHistoryRowsCacheState = data;
-      executionHistoryRowsCacheValue = rows.filter((row) => executionHistoryRowVisible(data, row, row.planFile || row.plan, operationIsActive(row.status) && row.reconcileEvidenceActive !== false));
+      executionHistoryRowsCacheValue = rows.filter((row) => {
+        const active = operationIsActive(row.status) && row.reconcileEvidenceActive !== false;
+        return (active || !hidden.has(String(row.operationId || row.id || "")))
+          && executionHistoryRowVisible(data, row, row.planFile || row.plan, active);
+      });
       return executionHistoryRowsCacheValue;
     }
 
@@ -12953,6 +12971,10 @@ export function renderPanelHtml(): string {
 
     function renderOperationSection(state) {
       const view = operationViewModelForState(state);
+      const visibleIds = new Set(view.rows
+        .filter((row) => !operationIsActive(row.status) && (operationIsFailureLike(row.status) || operationIsCancelled(row.status) || operationIsCompleted(row.status)))
+        .map((row) => String(row.operationId || row.id || "")));
+      selectedOperationHistoryIds.forEach((id) => { if (!visibleIds.has(id)) selectedOperationHistoryIds.delete(id); });
       const ops = (state && state.operations) ? Object.values(state.operations) : [];
       const currentPlan = String(state && (state.planFileInput || (state.selection && state.selection.selectedPlanId) || "") || "");
       const currentPlanPath = currentPlan.replaceAll(String.fromCharCode(92), "/").replace("./", "");
@@ -12978,13 +13000,21 @@ export function renderPanelHtml(): string {
         '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan ? '' : 'disabled') + ' title="手动中止全部运行中的 Plan；逐个向 Worker 发送停止命令">中止所有 Plan</button>' +
         '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
         '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
+        '<button id="clearSelectedOperationHistory" class="mini history-clear" data-command="clearOperations" data-operation-history-selected="true" ' + (selectedOperationHistoryIds.size ? '' : 'disabled') + ' title="仅从本机面板隐藏勾选的已结束操作；不影响正在运行的 Plan 或 job">清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '') + '</button>' +
         '<button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
       const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button></div>';
       setHtmlIfChanged("operationList", advancedActions + (view.rows.length
         ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + (view.visibleRows.length
-          ? '<div class="operationTimeline">' + view.visibleRows.map(renderOperationItem).join("") + '</div>'
+          ? '<div class="operationTimeline">' + view.visibleRows.map((row) => renderOperationItem(row, true)).join("") + '</div>'
           : '<div class="empty-state">当前筛选下没有操作记录。</div>')
         : '<div class="empty-state">尚无操作记录。</div>'));
+    }
+
+    function updateOperationHistorySelectionControls() {
+      const button = el("clearSelectedOperationHistory");
+      if (!button) return;
+      button.disabled = selectedOperationHistoryIds.size === 0;
+      button.textContent = '清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '');
     }
 
     function renderTaskSection(state) {
@@ -13199,8 +13229,14 @@ export function renderPanelHtml(): string {
       return out;
     }
 
-     function renderOperationItem(row) {
+     function renderOperationItem(row, historyActions) {
       const status = String(row.status || "-").toLowerCase();
+      const historySelectable = Boolean(historyActions) && !operationIsActive(status)
+        && (operationIsFailureLike(status) || operationIsCancelled(status) || operationIsCompleted(status));
+      const historyId = String(row.operationId || row.id || "");
+      const historyCheckbox = historySelectable && historyId ? '<input type="checkbox" data-operation-history-select="' + escAttr(historyId) + '" aria-label="选择操作 ' + escAttr(historyId) + '"' + (selectedOperationHistoryIds.has(historyId) ? ' checked' : '') + '>' : '';
+      const historyButton = historySelectable && historyId ? '<button class="mini history-clear" data-command="clearOperations" data-operation-id="' + escAttr(historyId) + '" title="仅从本机面板隐藏这条已结束操作；不影响当前 Plan、job 或远端文件">清理此条</button>' : '';
+      const historyMarker = historySelectable ? '<span class="pill" title="这是一次已结束的操作记录；当前运行的 job 在上方 Plan 进度中单独显示">历史操作</span>' : '';
       const planFile = firstPathLike(row.planFile, row.selectedPlanId, row.plan, row.payload?.planFile, row.payload?.selectedPlanId);
       const planButton = planFile ? planPathButtonForMetric(planFile, 36) : "";
       const cls = operationIsActive(status) ? "is-running" : (operationIsFailureLike(status) ? "is-failed" : (operationIsCancelled(status) ? "is-cancelled" : (operationIsCompleted(status) ? "is-completed" : "")));
@@ -13212,8 +13248,8 @@ export function renderPanelHtml(): string {
       const rawType = row.type || row.action || "operation";
       const itemTitle = operationTypeLabel(rawType) + "（原始：" + rawType + "）：" + operationStatusLabel(row.status);
       const timestamp = operationTimestampView(row);
-      const isAbortable = PLAN_RUN_OPERATION_TYPES?.has(rawType) || String(rawType).toLowerCase().includes("run-plan") || String(rawType).toLowerCase() === "runplan" || String(rawType).toLowerCase().includes("workflow") || Boolean(row.planFile);
-      const abortButton = isAbortable ? '<div class="operationActions"><button class="mini danger" data-command="abortScheduler" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" data-confirm="true" title="强制中止调度器，结束本机调度进程并清理状态文件&#10;仅在调度器卡死时作为兜底恢复手段&#10;已提交到远端的任务不受影响">中止/清理</button></div>' : '';
+      const isAbortable = operationIsActive(status) && row.reconcileEvidenceActive !== false && (PLAN_RUN_OPERATION_TYPES?.has(rawType) || String(rawType).toLowerCase().includes("run-plan") || String(rawType).toLowerCase() === "runplan" || String(rawType).toLowerCase().includes("workflow") || Boolean(row.planFile));
+      const abortButton = isAbortable ? '<div class="operationActions"><button class="mini danger" data-command="abortScheduler" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" data-confirm="true" title="强制中止调度器，结束本机调度进程并清理状态文件&#10;仅在调度器卡死时作为兜底恢复手段&#10;已提交到远端的任务不受影响">强制中止调度器</button></div>' : '';
       const tbLinkForRunning = renderTensorBoardLinksForRunning();
       const logWindow = renderOperationLogsWindowed(row);
       // LENIENT_RUN 软门禁 Badge 协同：若后端标记 lenient/软门禁，卡片头部追加黄色 Badge，不与调度/程序报错色块冲突
@@ -13226,8 +13262,8 @@ export function renderPanelHtml(): string {
       return '<div class="operationItem ' + cls + '" data-anchor="' + escAttr(treeAnchorId("operation", row.operationId || row.id || row.type || row.updatedAt)) + '" title="' + escAttr(itemTitle) + '">' +
         '<span class="operationDot" aria-hidden="true"></span>' +
         '<div class="operationBody">' +
-          '<div class="operationHead">' +
-            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '">' + loadingPrefix(operationIsActive(row.status)) + esc(operationStatusLabel(row.status)) + '</span>' + planButton + lenientBadge + '</div>' +
+          '<div class="operationHead">' + historyCheckbox +
+            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '">' + loadingPrefix(operationIsActive(row.status)) + esc(operationStatusLabel(row.status)) + '</span>' + planButton + historyMarker + lenientBadge + '</div>' +
             '<span class="operationId" title="' + escAttr(row.operationId) + '">' + esc(compactIdentifier(row.operationId)) + '</span>' +
           '</div>' +
            '<div class="operationMessage">' + esc(typeof redactUiText === "function" ? redactUiText(String(message || "")) : String(message || "")) + '</div>' +
@@ -13237,7 +13273,7 @@ export function renderPanelHtml(): string {
           fileActions +
           logWindow +
           '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(redactUiText(String(row.error))) + '">错误</span>' : '') + '</div>' +
-          abortButton +
+          (historyButton ? '<div class="operationActions">' + historyButton + '</div>' : '') + abortButton +
           tbLinkForRunning +
         '</div>' +
       '</div>';
@@ -15244,6 +15280,8 @@ export function renderPanelHtml(): string {
       if (button.dataset.url) payload.url = button.dataset.url;
       if (button.dataset.text) payload.text = button.dataset.text;
       if (button.dataset.operationId) payload.operationId = button.dataset.operationId;
+      if (command === "clearOperations" && button.dataset.operationHistorySelected === "true")
+        payload.operationIds = Array.from(selectedOperationHistoryIds);
       if (button.dataset.id && !payload.operationId) payload.operationId = button.dataset.id;
       if (button.dataset.localPort) payload.localPort = button.dataset.localPort;
       if (button.dataset.target) payload.target = button.dataset.target;

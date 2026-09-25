@@ -11,10 +11,14 @@ assert.ok(start >= 0 && end > start);
 
 function methods(answer, saved = {}) {
   let stored = saved;
+  let hidden = [];
   const context = {
-    keys: { executionHistoryCutoffs: "cutoffs" },
+    keys: { executionHistoryCutoffs: "cutoffs", executionHistoryHiddenOperationIds: "hidden" },
     workspaceRoot: () => "D:/project",
     stringField: (message, key) => String(message[key] || ""),
+    stringArrayField: (message, key) => Array.isArray(message[key]) ? message[key] : [],
+    uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
+    operationHistoryHideableStatus: (status) => ["completed", "failed", "interrupted"].includes(status),
     normalizePlanSelectionKey: (value) => String(value).replaceAll("\\", "/"),
     operationResultPlanFile: (row) => row.planFile,
     errorMessage: (error) => String(error.message || error),
@@ -31,12 +35,13 @@ function methods(answer, saved = {}) {
     context,
     provider: {
       context: { workspaceState: {
-        get: () => stored,
-        update: async (_key, value) => { stored = value; },
+        get: (key) => key === "hidden" ? hidden : stored,
+        update: async (key, value) => { if (key === "hidden") hidden = value; else stored = value; },
       } },
       postState: () => undefined,
     },
     getStored: () => stored,
+    getHidden: () => hidden,
   };
 }
 
@@ -45,6 +50,20 @@ test("clearing one Plan persists only that Plan cutoff", async () => {
   await fixture.context.methods.clearOperationHistoryFromUi.call(fixture.provider, { planFile: "plans\\bus.yaml" });
   assert.ok(Date.parse(fixture.getStored()["plans/bus.yaml"]) > 0);
   assert.equal(fixture.getStored().all, undefined);
+});
+
+test("clearing selected operations hides exact terminal IDs without touching the active Plan", async () => {
+  const fixture = methods("清理所选记录");
+  fixture.provider.buildPlanRuntimeEvidenceState = () => ({ operations: {
+    old: { operationId: "old", status: "failed", planFile: "plans/corim.yaml" },
+    live: { operationId: "live", status: "running", planFile: "plans/corim.yaml" },
+  } });
+  await fixture.context.methods.clearOperationHistoryFromUi.call(fixture.provider, { operationIds: ["old"] });
+  assert.deepEqual(fixture.getHidden(), ["old"]);
+  assert.deepEqual(fixture.getStored(), {});
+  await assert.rejects(() => fixture.context.methods.clearOperationHistoryFromUi.call(fixture.provider, { operationIds: ["live"] }),
+    /运行中的操作不能清理/);
+  assert.deepEqual(fixture.getHidden(), ["old"]);
 });
 
 test("stop all routes each active Plan through the manual stop path", async () => {

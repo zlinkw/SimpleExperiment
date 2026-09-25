@@ -212,3 +212,21 @@ test("history clearing hides old terminal rows only in the selected Plan", () =>
   assert.equal(sandbox.visible(state, { ...old, status: "running", reconcileEvidenceActive: false }, "plans/a.yaml", false), false);
   assert.equal(sandbox.visible(state, newer, "plans/a.yaml", false), true);
 });
+
+test("exact operation cleanup hides only terminal records", () => {
+  const rows = [
+    { operationId: "old-run", status: "failed", planFile: "plans/corim.yaml" },
+    { operationId: "live-run", status: "running", planFile: "plans/corim.yaml" },
+  ];
+  const sandbox = {
+    Set, Array,
+    executionHistoryRowsCacheState: null, executionHistoryRowsCacheValue: [],
+    operationRowsForInput: () => rows,
+    operationIsActive: (value) => value === "running",
+    executionHistoryRowVisible: () => true,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extract("operationRowsForState", "executionHistoryRowVisible") + "\nthis.visibleRows = operationRowsForState;", sandbox);
+  const visible = sandbox.visibleRows({ executionHistoryHiddenOperationIds: ["old-run", "live-run"] });
+  assert.deepEqual(Array.from(visible, (row) => row.operationId), ["live-run"]);
+});

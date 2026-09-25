@@ -95,6 +95,7 @@ test("operation card shows a clickable Plan name and keeps its full path", () =>
     renderOperationLogsWindowed: () => "", statusClass: String,
     compactIdentifier: String, treeAnchorId: () => "operation-anchor", loadingPrefix: () => "",
     redactUiText: String, meaningfulValue: () => false,
+    selectedOperationHistoryIds: new Set(),
   });
   vm.runInContext(`${extractFunction("planBaseName")}\n${extractFunction("planPathButtonForMetric")}\n${extractFunction("renderOperationItem")}\nthis.render = renderOperationItem;`, sandbox);
   const html = sandbox.render({ type: "workflow-run", status: "failed", operationId: "run-1",
@@ -102,6 +103,13 @@ test("operation card shows a clickable Plan name and keeps its full path", () =>
   assert.match(html, /data-command="openPlan" data-file="experiments\/plans\/comparison\/concatenation.yaml"/);
   assert.match(html, />concatenation.yaml<\/button>/);
   assert.match(html, /title="experiments\/plans\/comparison\/concatenation.yaml"/);
+  const historyHtml = sandbox.render({ type: "workflow-run", status: "failed", operationId: "run-1",
+    planFile: "experiments/plans/comparison/concatenation.yaml", message: "运行失败" }, true);
+  assert.match(historyHtml, /data-operation-history-select="run-1"/);
+  assert.match(historyHtml, /data-command="clearOperations" data-operation-id="run-1"[^>]*>清理此条/);
+  assert.match(historyHtml, />历史操作<\/span>/);
+  assert.doesNotMatch(historyHtml, /data-command="abortScheduler"/);
+  assert.match(panelSource, /payload\.operationIds = Array\.from\(selectedOperationHistoryIds\)/);
 });
 
 test("diagnostic action errors show the recovery hint inline", () => {
