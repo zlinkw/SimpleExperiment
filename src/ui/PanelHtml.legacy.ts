@@ -1901,6 +1901,27 @@ export function renderPanelHtml(): string {
         return '<button type="button" class="secondary" data-tmux-worker="' + escAttr(worker.id) + '" aria-pressed="' + (active ? 'true' : 'false') + '" style="border-radius:8px;' + (active ? 'outline:2px solid var(--vscode-focusBorder);' : '') + '">' + esc(worker.name || worker.id) + ' · ' + esc(label) + '</button>';
       }).join("");
     }
+    function selectTmuxWorker(workerId) {
+      const id = String(workerId || "");
+      if (!id || !tmuxConfiguredWorkers.some(function(worker){ return worker.id === id; })) return;
+      tmuxSelectedWorkerId = id;
+      persistWebviewState({ tmuxSelectedWorkerId: id });
+      const workerSel = el("tmuxWorkerSelect");
+      if (workerSel) workerSel.value = id;
+      tmuxWindowFilter = "all";
+      tmuxSelectedPaneTarget = "";
+      tmuxSelectedTaskTarget = "";
+      tmuxListCache = tmuxListsByWorker[id] || { sessions: [], gpuIds: [], workerId: id, fetchedAt: "" };
+      tmuxLastCaptureTarget = "";
+      const targetSelect = el("tmuxWindowSelect");
+      if (targetSelect) targetSelect.selectedIndex = -1;
+      const pre = el("tmuxCapturePre");
+      if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.lastFetch = ""; }
+      renderTmuxOverview(tmuxListCache.sessions || []);
+      renderTmuxWorkersOverview(tmuxConfiguredWorkers);
+      refreshTmuxCapture();
+      refreshTmuxList();
+    }
     async function refreshTmuxList() {
       const meta = el("tmuxListMeta");
       if (meta) meta.textContent = "列举 tmux sessions ...";
@@ -3279,7 +3300,6 @@ export function renderPanelHtml(): string {
       target.outerHTML = configPortPair(scope, "隧道端口对", localKey, remoteKey, "", "", info, "savedSessionForwardIndex", undefined);
     });
     window.addEventListener("message", (event) => {
-      console.log("[webview] window.message", event.data?.type || event.data?.command || event.data);
       handleIncomingWebviewMessage(event.data);
     });
     setupResourceTreeObserver();
@@ -3292,30 +3312,16 @@ export function renderPanelHtml(): string {
       const btn = el("tmuxRefreshBtn");
       const listBtn = el("tmuxListBtn");
       if (sel) sel.addEventListener("change", refreshTmuxCapture);
-      if (workerSel) workerSel.addEventListener("change", function(){
-        tmuxSelectedWorkerId = workerSel.value;
-        persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
-        tmuxWindowFilter = "all";
-        tmuxSelectedPaneTarget = "";
-        tmuxSelectedTaskTarget = "";
-        tmuxListCache = tmuxListsByWorker[tmuxSelectedWorkerId] || { sessions: [], gpuIds: [], workerId: tmuxSelectedWorkerId, fetchedAt: "" };
-        tmuxLastCaptureTarget = "";
-        const targetSelect = el("tmuxWindowSelect");
-        if (targetSelect) targetSelect.selectedIndex = -1;
-        const pre = el("tmuxCapturePre");
-        if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.lastFetch = ""; }
-        renderTmuxOverview(tmuxListCache.sessions || []);
-        renderTmuxWorkersOverview(tmuxConfiguredWorkers);
-        refreshTmuxCapture();
-        refreshTmuxList();
-      });
-      const workerOverview = el("tmuxWorkersOverview");
-      if (workerOverview) workerOverview.addEventListener("click", function(event) {
-        const button = event.target.closest("button[data-tmux-worker]");
-        if (!button || !workerSel) return;
-        workerSel.value = button.getAttribute("data-tmux-worker") || "";
-        workerSel.dispatchEvent(new Event("change"));
-      });
+      document.addEventListener("change", function(event) {
+        if (event.target && event.target.id === "tmuxWorkerSelect") selectTmuxWorker(event.target.value);
+      }, true);
+      document.addEventListener("click", function(event) {
+        const button = event.target && event.target.closest && event.target.closest("button[data-tmux-worker]");
+        if (!button) return;
+        event.preventDefault();
+        event.stopPropagation();
+        selectTmuxWorker(button.getAttribute("data-tmux-worker"));
+      }, true);
       if (btn) btn.addEventListener("click", refreshTmuxCapture);
       if (listBtn) listBtn.addEventListener("click", refreshTmuxList);
       document.addEventListener("click", (ev)=>{
@@ -3361,7 +3367,6 @@ export function renderPanelHtml(): string {
     }
 
     function handleIncomingWebviewMessage(message) {
-      console.log("[webview] recv", message);
       if (!message) return;
       const messages = flattenIncomingWebviewMessages(message);
       let latestStateMessage = null;
@@ -3376,7 +3381,7 @@ export function renderPanelHtml(): string {
           const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
           if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
           if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
-          if (!tmuxSelectedWorkerId || !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; })) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
+          if (!tmuxSelectedWorkerId || (listedWorkers.length && !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; }))) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
           persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
           const workerSel = el("tmuxWorkerSelect");
           if (workerSel && listedWorkers.length) {

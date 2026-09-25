@@ -13930,7 +13930,7 @@ class RealtimeTunnelPanelProvider {
             const tryClient = this.client?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
                 try {
-                    result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
+                    result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}&lines=200`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
                 }
                 catch { }
             }
@@ -13941,7 +13941,7 @@ class RealtimeTunnelPanelProvider {
                 const token = String(endpoint.token || "");
                 const http = require("http");
                 result = await new Promise((resolve, reject) => {
-                    const req = http.request({ host, port, path: `/api/tmux/capture?window=${encodeURIComponent(win)}`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 4000 }, (res) => {
+                    const req = http.request({ host, port, path: `/api/tmux/capture?window=${encodeURIComponent(win)}&lines=200`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 4000 }, (res) => {
                         let data = "";
                         res.on("data", (c) => data += c);
                         res.on("end", () => { try {

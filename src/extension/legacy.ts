@@ -13464,7 +13464,7 @@ export class RealtimeTunnelPanelProvider {
             let result: any = null;
             const tryClient = (this.client as any)?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
-                try { result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}`, "manual_refresh", undefined, { method: "GET", userInitiated: true }); } catch {}
+                try { result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}&lines=200`, "manual_refresh", undefined, { method: "GET", userInitiated: true }); } catch {}
             }
             if (!result) {
                 const endpoint = this.tmuxEndpoint(workerId);
@@ -13473,7 +13473,7 @@ export class RealtimeTunnelPanelProvider {
                 const token = String(endpoint.token || "");
                 const http = require("http") as typeof import("http");
                 result = await new Promise<any>((resolve, reject) => {
-                    const req = http.request({ host, port, path: `/api/tmux/capture?window=${encodeURIComponent(win)}`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 4000 }, (res: any) => {
+                    const req = http.request({ host, port, path: `/api/tmux/capture?window=${encodeURIComponent(win)}&lines=200`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 4000 }, (res: any) => {
                         let data = "";
                         res.on("data", (c: string) => data += c);
                         res.on("end", () => { try { resolve(JSON.parse(data || "{}")); } catch { resolve({ text: data }); } });
