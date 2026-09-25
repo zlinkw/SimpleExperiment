@@ -716,6 +716,7 @@ export class RealtimeTunnelPanelProvider {
     distributedQueueTickPromise;
     distributedNextProbeAt = 0;
     distributedNextFailureDetailAt = 0;
+    distributedNextPostprocessAt = 0;
     lastFullEndpointProbeAt = 0;
     lastIntegrationReport;
     lastSnapshotAt;
@@ -8141,7 +8142,10 @@ export class RealtimeTunnelPanelProvider {
         let snapshot;
         try { snapshot = await this.client.getGpu({ dispatch: true }); }
         catch {
-            this.scheduleDistributedPostprocess(root, newTerminal);
+            if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
+                this.distributedNextPostprocessAt = Date.now() + 60_000;
+                this.scheduleDistributedPostprocess(root, newTerminal);
+            }
             this.postState();
             return;
         }
@@ -8176,7 +8180,10 @@ export class RealtimeTunnelPanelProvider {
             }
             await this.saveDistributedQueue(root, queue);
         }
-        this.scheduleDistributedPostprocess(root, newTerminal);
+        if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
+            this.distributedNextPostprocessAt = Date.now() + 60_000;
+            this.scheduleDistributedPostprocess(root, newTerminal);
+        }
         this.postState();
     }
     async syncDistributedJobArtifacts(root, queue, phase: "fragments" | "bulk", verifyAll = false) {

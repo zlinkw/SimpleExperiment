@@ -347,3 +347,39 @@ test("a failed job retains its Agent error in the durable Plan queue", async () 
   assert.equal(queue.plans[0].jobs[0].status, "failed");
   assert.equal(queue.plans[0].jobs[0].error, task.error);
 });
+
+test("idle queue recovery checks are spaced while a newly completed job still checks immediately", async () => {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const start = compiled.indexOf("async tickDistributedQueueCore() {");
+  const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
+  const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"),
+    mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)), Object, Set, Date };
+  vm.createContext(context);
+  vm.runInContext(compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()")
+    + "\nthis.tickQueue = tickQueue;", context);
+  let queue = { schemaVersion: 1, plans: [{ id: "plan-1", planFile: "plans/p.yaml", revision: "rev-1",
+    jobs: [{ index: 0, case: "case-a", seed: 1, attempt: 1, status: "completed", workerId: "worker-a", gpuId: "0",
+      commandId: "command-1", outputDir: "runs/a", mirroredWorkerIds: ["worker-a"] }] }], deferred: [] };
+  let remoteStatus = "completed";
+  const scheduled = [];
+  const provider = {
+    distributedNextPostprocessAt: 0, lastWorkerProbes: { "worker-a": { status: "ok" } },
+    workerCodeSyncTargets: () => [], isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    loadDistributedQueue: async () => queue, saveDistributedQueue: async (_root, next) => { queue = next; },
+    workerActionTargets: () => [], client: { getGpu: async () => ({}) },
+    localWorkerAvailabilityRows: () => [], availabilityPushTtlSeconds: () => 45,
+    schedulerSettings: () => ({}), scheduleDistributedPostprocess: (_root, terminal) => scheduled.push(terminal),
+    postState: () => undefined,
+  };
+  await context.tickQueue.call(provider);
+  await context.tickQueue.call(provider);
+  assert.deepEqual(scheduled, [false]);
+  queue.plans[0].jobs[0].status = "running";
+  provider.workerActionTargets = () => [{ id: "worker-a" }];
+  provider.readWorkerTaskSnapshot = async () => ({ tasks: [{ commandId: "command-1", workflowId: "plan-1",
+    planRevision: "rev-1", case: "case-a", seed: 1, attempt: 1, outputDir: "runs/a",
+    workerId: "worker-a", gpuId: "0", status: remoteStatus }] });
+  await context.tickQueue.call(provider);
+  assert.deepEqual(scheduled, [false, true]);
+});
