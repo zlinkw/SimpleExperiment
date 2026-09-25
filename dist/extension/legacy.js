@@ -7547,7 +7547,7 @@ class RealtimeTunnelPanelProvider {
         const targets = topology.mode === "hub_worker"
             ? [this.hubCodeSyncTarget()]
             : this.workerCodeSyncTargets().filter((target) => topology.mode !== "worker_pool" || target.id === selectedWorkerId);
-        await this.syncCodeTargets(targets, "plan-check");
+        await this.syncCodeTargets(targets, "plan-check", { hashCompare: true });
     }
     async syncCodeTargets(targets, scope, options = {}) {
         if (this.syncScopeMutationInFlight)
@@ -7650,22 +7650,14 @@ class RealtimeTunnelPanelProvider {
                         ...(hashCompare ? {} : { fingerprint }),
                         manifest: uploadManifest,
                         transientManifest: hashCompare || Object.keys(holds).length > 0,
+                        preComparedManifest: hashCompare,
                         server: this.sftpServerOptions(target),
                     });
                     assertCurrent();
                     if (!sftpUploadSucceeded(result, hashCompare ? "" : fingerprint))
                         throw new Error(resultError(result) || "SFTP 上传未确认成功。");
-                    if (hashCompare) {
-                        if (progressReport)
-                            progressReport(`正在校验 ${target.label || target.id} 上传后的远端哈希…`);
-                        const checked = await this.verifiedSftpProjectInventory({
-                            source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
-                            scopePaths: inventoryScopePaths, timeoutMs: 120000,
-                        });
-                        const remaining = Object.keys((0, CodeSyncDelta_1.changedManifestFiles)(manifest, (0, CodeSyncDelta_1.inventoryFilesByPath)(checked)));
-                        if (remaining.length)
-                            throw new Error(`上传后哈希校验失败：${remaining.slice(0, 12).join("、")}`);
-                    }
+                    // SimpleSFTP verifies every uploaded file after extraction. A second
+                    // full project inventory here would repeat the expensive tree scan.
                     if (!hashCompare) {
                         const requiredSources = Object.keys(manifest).filter((file) => /\.(py|pyi)$/i.test(file));
                         const verified = await this.inspectCodeSyncTarget(target, requiredSources);
@@ -8209,7 +8201,7 @@ class RealtimeTunnelPanelProvider {
     async localDistributedCodeFingerprint(root) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        const manifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths")), holds);
+        const manifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
         return fingerprintFromManifest(manifest);
     }
     async resumePersistedDistributedQueue() {
@@ -13608,7 +13600,7 @@ class RealtimeTunnelPanelProvider {
         const includePaths = config.get("codeSync.includePaths", []);
         const scopePaths = config.get("codeSync.scopePaths");
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        const codeManifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, includePaths, scopePaths), holds);
+        const codeManifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, includePaths, scopePaths, { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
         const mirrorPaths = (0, ProjectMirror_1.normalizeMirrorScopePaths)(config.get("serverSync.paths", ["."]));
         const inventories = {};
         for (const target of targets) {

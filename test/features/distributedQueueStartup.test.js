@@ -307,7 +307,7 @@ test("restart resends an unacknowledged dispatch with its original command ID", 
     client: { getGpu: async () => ({}) },
     localWorkerAvailabilityRows: () => [], availabilityPushTtlSeconds: () => 45,
     schedulerSettings: () => ({}), scheduleDistributedPostprocess: () => undefined,
-    postState: () => undefined,
+    postState: () => undefined, refreshSelectedDistributedLog: () => undefined,
   };
   await context.tickQueue.call(provider);
   assert.deepEqual(sent, [{ workerId: "worker-a", gpuId: "0", commandId: "command-1" }]);
@@ -342,6 +342,7 @@ test("a failed job retains its Agent error in the durable Plan queue", async () 
     client: { getGpu: async () => ({}) }, localWorkerAvailabilityRows: () => [],
     availabilityPushTtlSeconds: () => 45, schedulerSettings: () => ({}),
     scheduleDistributedPostprocess: () => undefined, postState: () => undefined,
+    refreshSelectedDistributedLog: () => undefined,
   };
   await context.tickQueue.call(provider);
   assert.equal(queue.plans[0].jobs[0].status, "failed");
@@ -370,7 +371,7 @@ test("idle queue recovery checks are spaced while a newly completed job still ch
     workerActionTargets: () => [], client: { getGpu: async () => ({}) },
     localWorkerAvailabilityRows: () => [], availabilityPushTtlSeconds: () => 45,
     schedulerSettings: () => ({}), scheduleDistributedPostprocess: (_root, terminal) => scheduled.push(terminal),
-    postState: () => undefined,
+    postState: () => undefined, refreshSelectedDistributedLog: () => undefined,
   };
   await context.tickQueue.call(provider);
   await context.tickQueue.call(provider);

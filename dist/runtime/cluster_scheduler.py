@@ -32,9 +32,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.148"
-RUNTIME_VERSION = "0.5.148"
-PLUGIN_VERSION = "0.5.148"
+SCHEDULER_VERSION = "0.5.149"
+RUNTIME_VERSION = "0.5.149"
+PLUGIN_VERSION = "0.5.149"
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -189,9 +189,9 @@ def refresh_worker_availability_for_signal(workers: list[dict[str, Any]], availa
 
 
 def scheduler_should_fail_fast(failed: list[dict[str, Any]], active: dict[str, Any], testing: dict[str, Any]) -> bool:
-    # A log line containing "error" is not a terminal task result. finish_item
-    # records nonzero exits and explicit Worker failures in failed.
-    return bool(failed)
+    # An individual seed failure must release its slot and allow queued seeds
+    # to use that GPU. Only an explicitly fatal scheduler error stops dispatch.
+    return any(item.get("fatalScheduler") is True for item in failed)
 
 
 def scheduler_fail_pending_queue(queue: deque, failed: list[dict[str, Any]], reason: str) -> int:
@@ -3897,11 +3897,11 @@ def main() -> None:
             _last_poll_monotonic = time.monotonic()
             _pending_signal_type = SCHEDULER_SIGNAL_POLL_TICK
             for worker in ordered_workers_for_dispatch(workers):
-                if failed:
+                if scheduler_should_fail_fast(failed, active, testing):
                     break
                 # 严格单发：每次 probe 仅取1个空闲GPU派1个job，派完立即重探，避免批量透支空卡规则
                 while queue:
-                    if failed:
+                    if scheduler_should_fail_fast(failed, active, testing):
                         break
                     busy_slots = {**active, **testing}
                     try:

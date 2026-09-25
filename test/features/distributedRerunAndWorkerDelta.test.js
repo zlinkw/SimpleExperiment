@@ -82,13 +82,15 @@ test("publish upload compares complete remote hashes and transfers only changed 
   const sync = extension.slice(extension.indexOf("async syncCodeTargets("), extension.indexOf("async inspectCodeSyncTarget("));
   assert.match(sync, /verifiedSftpProjectInventory/);
   assert.match(sync, /const inventoryScopePaths = \[\.\.\.new Set\(Object\.keys\(manifest\)\.map/);
-  assert.equal((sync.match(/scopePaths: inventoryScopePaths/g) || []).length, 2);
+  assert.equal((sync.match(/scopePaths: inventoryScopePaths/g) || []).length, 1);
   assert.doesNotMatch(sync, /ensureRemoteAgentVersionConsistent/);
   assert.match(sync, /changedManifestFiles\(manifest, remoteFiles\)/);
   assert.match(sync, /manifest: uploadManifest/);
   assert.match(sync, /if \(!Object\.keys\(uploadManifest\)\.length\)/);
-  assert.match(sync, /changedManifestFiles\(manifest, inventoryFilesByPath\(checked\)\)/);
+  assert.match(sync, /preComparedManifest: hashCompare/);
   assert.match(sync, /if \(!hashCompare\) \{\s+const requiredSources/);
+  const fingerprint = extension.slice(extension.indexOf("async localDistributedCodeFingerprint("), extension.indexOf("async resumePersistedDistributedQueue("));
+  assert.match(fingerprint, /cacheFile: this\.localCodeManifestCacheFile\(root\)/);
 });
 
 test("rerun code sync also compares hashes before uploading", () => {
