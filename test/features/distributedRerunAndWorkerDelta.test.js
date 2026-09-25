@@ -68,6 +68,11 @@ test("publish upload compares complete remote hashes and transfers only changed 
   assert.match(sync, /if \(!hashCompare\) \{\s+const requiredSources/);
 });
 
+test("rerun code sync also compares hashes before uploading", () => {
+  const codeReady = extension.slice(extension.indexOf("async ensureCodeReadyForRun("), extension.indexOf("async ensureHubCodeReadyForPlanCheck("));
+  assert.match(codeReady, /syncCodeTargets\(targets, "run", \{ projectContext, hashCompare: true \}\)/);
+});
+
 test("running distributed job renders Worker log path, content, and loading indicator", () => {
   const start = panel.indexOf("function renderExecutionPlanList(state)");
   const end = panel.indexOf("function renderOperationSection(state)", start);

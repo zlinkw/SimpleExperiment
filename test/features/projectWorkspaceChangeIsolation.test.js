@@ -215,7 +215,7 @@ test("batch Plan execution keeps project, SFTP root, and Agent client authority"
   assert.match(runAll, /ensureCodeReadyForRun\(projectContext, candidatePlans\.map\(\(candidate\) => candidate\.body\)\)/);
   assert.match(runAll, /runPlanPreflight\(body, `计划 \$\{planFile\}`, authority\)/);
   assert.match(runAll, /requiresCapability: capabilityForAction\("run-plan"\),\s*\.\.\.authority/);
-  assert.match(codeReady, /syncCodeTargets\(targets, "run", \{ projectContext \}\)/);
+  assert.match(codeReady, /syncCodeTargets\(targets, "run", \{ projectContext, hashCompare: true \}\)/);
   assert.match(sync, /const projectContext = options\.projectContext/);
   assert.match(sync, /const root = projectContext\?\.root \|\| workspaceRoot\(\)/);
   assert.match(sync, /confirmRemoteWriteTargets\([\s\S]{0,500}projectContext\)/);

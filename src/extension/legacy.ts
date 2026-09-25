@@ -7266,7 +7266,7 @@ export class RealtimeTunnelPanelProvider {
             : selectedWorkerIds.length && topology.mode !== "single_worker"
             ? this.topologyCodeSyncTargets().filter((target) => target.role === "hub" || selectedWorkerIds.includes(target.id))
             : this.topologyCodeSyncTargets();
-        await this.syncCodeTargets(targets, "run", { projectContext });
+        await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true });
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
