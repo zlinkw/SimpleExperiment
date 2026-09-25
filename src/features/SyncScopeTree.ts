@@ -118,7 +118,7 @@ function row(entry,depth){
     const more=document.createElement('button');more.className='secondary more';more.textContent=view.detailPath===entry.path?'收起':'版本与操作';more.onclick=()=>{view.detailPath=view.detailPath===entry.path?null:entry.path;renderTree()};el.appendChild(more);
   }
   tree.appendChild(el);
-  if(entry.path===view.focus){el.className+=' focus-conflict';el.scrollIntoView?.({block:'center'})}
+  if(entry.path===view.focus){el.className+=' focus-conflict';if(view.pendingFocusScroll===entry.path){view.pendingFocusScroll=null;view.scrollTarget=el}}
   if(entry.path!=='.'&&view.detailPath===entry.path){
     const actions=document.createElement('div');actions.className='row-detail';actions.style.paddingLeft=(depth*18+48)+'px';
     const locations=entry.directory&&health?.copies?[...new Set([...(entry.locations||[]),...Object.keys(health.copies)])]:entry.locations||Object.keys(health?.versions||{});
@@ -129,7 +129,7 @@ function row(entry,depth){
     tree.appendChild(actions);
   }
   if(entry.directory&&view.expanded.has(entry.path)){const children=view.children.get(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}
-}function renderTree(){if(!active)return;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0)}
+}function renderTree(){if(!active)return;const view=state(),scrollTop=tree.scrollTop;view.scrollTarget=null;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0);tree.scrollTop=scrollTop;if(view.scrollTarget){view.scrollTarget.scrollIntoView?.({block:'center'});view.scrollTarget=null}}
 function renderTabs(){tabs.replaceChildren();for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();if(!state().children.has('.'))load('.')};tabs.appendChild(button)}}
 function load(path,rootId=active.id){vscode.postMessage({type:'list',id:String(++serial),rootId,path})}
 function parentPath(path){const index=path.lastIndexOf('/');return index<0?'.':path.slice(0,index)}
@@ -137,14 +137,14 @@ function enqueueRefresh(rootId,paths){const view=views.get(rootId);if(!view)retu
 function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId)status.textContent='正在校验 '+path+' 的全部文件…';vscode.postMessage({type:'refresh',id:String(++serial),rootId,path})}
 function refreshVisible(){if(!active)return;enqueueRefresh(active.id,['.'])}
 document.getElementById('refresh').onclick=refreshVisible;
-function revealConflict(path){const view=state();view.focus=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
+function revealConflict(path){const view=state();view.focus=path;view.pendingFocusScroll=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
 document.getElementById('nextConflict').onclick=()=>{if(!active)return;const view=state();const all=Object.keys(view.statuses).filter(path=>path!=='.'&&view.statuses[path].state==='different');const paths=all.filter(path=>!all.some(other=>other.startsWith(path+'/'))).sort();if(!paths.length){status.textContent='没有已校验的冲突；请点击刷新同步状态';return}const index=paths.findIndex(path=>path>String(view.focus||''));const next=paths[index<0?0:index];revealConflict(next);status.textContent='冲突位置：'+next};
 document.getElementById('save').onclick=()=>{if(!active)return;status.textContent='保存中…';vscode.postMessage({type:'save',id:String(++serial),rootId:active.id,paths:[...state().selected].sort(),excluded:[...state().excluded].sort()})};
 window.addEventListener('message',event=>{
   const message=event.data;
   if(message.type==='init'){
     roots=message.roots;
-    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),refreshQueue:[],mutationParent:null,focus:null,busyAction:null,statuses:{}});
+    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),refreshQueue:[],mutationParent:null,focus:null,pendingFocusScroll:null,busyAction:null,statuses:{}});
     active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');
   }else if(message.type==='children'){
     const view=views.get(message.rootId);if(!view)return;

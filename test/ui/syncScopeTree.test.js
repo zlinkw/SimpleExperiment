@@ -167,11 +167,12 @@ test("deleting one nested file keeps folders expanded and refreshes only its par
 
 test("next conflict expands ancestors and scrolls to the conflicting file", () => {
   const script = panel.webview.html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);
+  let scrollCalls = 0;
   class Element {
     constructor() { this.children = []; this.style = {}; this.textContent = ""; }
     appendChild(child) { this.children.push(child); return child; }
-    replaceChildren(...children) { this.children = children; }
-    scrollIntoView() { this.scrolled = true; }
+    replaceChildren(...children) { this.children = children; this.scrollTop = 0; }
+    scrollIntoView() { this.scrolled = true; scrollCalls++; }
   }
   const elements = new Map();
   const messages = [];
@@ -191,6 +192,16 @@ test("next conflict expands ancestors and scrolls to the conflicting file", () =
   assert.equal(elements.get("tree").children[2].scrolled, true);
   assert.match(elements.get("tree").children[2].className, /focus-conflict/);
   assert.equal(messages.at(-1).type, "list");
+  assert.equal(scrollCalls, 1);
+  elements.get("tree").scrollTop = 250;
+  const unrelatedBox = elements.get("tree").children[1].children[1];
+  unrelatedBox.checked = true;
+  unrelatedBox.onchange();
+  assert.equal(scrollCalls, 1);
+  assert.equal(elements.get("tree").scrollTop, 250);
+  assert.match(elements.get("tree").children[2].className, /focus-conflict/);
+  elements.get("nextConflict").onclick();
+  assert.equal(scrollCalls, 2);
 });
 
 test("local root select all allows excluding a nested artifact directory", () => {
