@@ -13,6 +13,7 @@ export type QueuedJob = {
   gpuId?: string;
   commandId?: string;
   logPath?: string;
+  error?: string;
   finishedAt?: string;
   artifacts?: Record<string, string>;
   fragmentWorkerIds?: string[];

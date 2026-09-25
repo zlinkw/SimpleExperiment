@@ -714,6 +714,7 @@ export class RealtimeTunnelPanelProvider {
     distributedQueueRoot = "";
     distributedQueueTickPromise;
     distributedNextProbeAt = 0;
+    distributedNextFailureDetailAt = 0;
     lastFullEndpointProbeAt = 0;
     lastIntegrationReport;
     lastSnapshotAt;
@@ -7871,6 +7872,7 @@ export class RealtimeTunnelPanelProvider {
                             return old && old.attempt === job.attempt ? { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
                                 mirroredWorkerIds: old.mirroredWorkerIds,
                                 artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter,
+                                error: job.error || old.error,
                                 logPath: job.logPath || old.logPath,
                                 finishedAt: job.finishedAt || old.finishedAt } : job;
                         }) };
@@ -7989,9 +7991,14 @@ export class RealtimeTunnelPanelProvider {
         }
         const assigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "running", "unknown"].includes(job.status))
             .map((job) => ({ plan, job })));
+        const failedForDetails = Date.now() >= this.distributedNextFailureDetailAt
+            ? queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.status === "failed" && job.workerId && job.commandId && !job.error)
+                .map((job) => ({ plan, job }))) : [];
+        if (failedForDetails.length) this.distributedNextFailureDetailAt = Date.now() + 60_000;
         const hasPendingJobs = queue.plans.some((plan) => plan.jobs.some((job) => job.status === "pending"));
         const candidateWorkerIds = hasPendingJobs ? this.workerActionTargets().map((worker) => worker.id) : [];
-        const snapshotWorkerIds = [...new Set([...assigned.map(({ job }) => job.workerId), ...candidateWorkerIds])];
+        const snapshotWorkerIds = [...new Set([...assigned.map(({ job }) => job.workerId),
+            ...failedForDetails.map(({ job }) => job.workerId), ...candidateWorkerIds])];
         const verifiedWorkerIds = new Set();
         const taskSnapshots = await mapLimited(snapshotWorkerIds, 3,
             async (workerId) => this.readWorkerTaskSnapshot(workerId));
@@ -8014,6 +8021,11 @@ export class RealtimeTunnelPanelProvider {
                 continue;
             }
             if (freshSnapshot) verifiedWorkerIds.add(workerId);
+            if (freshSnapshot) for (const { plan, job } of failedForDetails.filter((row) => row.job.workerId === workerId)) {
+                const task = (snapshot.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
+                if (task && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task) && typeof task.error === "string" && task.error.trim())
+                    job.error = compactSensitiveText(task.error, 600);
+            }
             for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId)) {
                 const task = (snapshot.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
                 if (!task) {
@@ -8044,6 +8056,7 @@ export class RealtimeTunnelPanelProvider {
                 const relativeLog = typeof task.logPath === "string" ? task.logPath.replace(/\\/g, "/") : "";
                 if (relativeLog && !relativeLog.startsWith("/") && !relativeLog.split("/").includes("..")) job.logPath = relativeLog;
                 if (typeof task.finishedAt === "string" && task.finishedAt) job.finishedAt = task.finishedAt;
+                if (typeof task.error === "string" && task.error.trim()) job.error = compactSensitiveText(task.error, 600);
                 const status = String(task.status || "").toLowerCase();
                 const nextStatus = status === "completed" ? "completed" : ["failed", "stopped", "cancelled"].includes(status) ? "failed" : status === "running" ? "running" : undefined;
                 if (nextStatus && nextStatus !== job.status) {
@@ -15217,6 +15230,7 @@ export class RealtimeTunnelPanelProvider {
                     jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
                         status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                         commandId: job.commandId, finishedAt: job.finishedAt,
+                        error: job.error,
                         artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [],
             deferredPlans: this.distributedQueueRoot === workspaceRoot()
                 ? (this.distributedQueueCache?.deferred || []).map((item) => ({ planFile: item.planFile,

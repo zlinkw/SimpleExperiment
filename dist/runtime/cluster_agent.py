@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.134"
-RUNTIME_VERSION = "0.5.134"
-PLUGIN_VERSION = "0.5.134"
+AGENT_VERSION = "0.5.135"
+RUNTIME_VERSION = "0.5.135"
+PLUGIN_VERSION = "0.5.135"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -11100,6 +11100,30 @@ def recover_worker_task_launch_paths(root, task):
     return row
 
 
+WORKER_TASK_FAILURE_CACHE = {}
+
+def worker_task_failure_message(root, task):
+    output_dir = str(task.get("outputDir") or "").strip().replace("\\", "/").rstrip("/")
+    if not output_dir:
+        return ""
+    try:
+        stderr_path = safe_project_path(root, output_dir + "/stderr.log")
+        stat = os.stat(stderr_path)
+        cache_key = (stderr_path, stat.st_mtime_ns, stat.st_size)
+        if cache_key in WORKER_TASK_FAILURE_CACHE:
+            return WORKER_TASK_FAILURE_CACHE[cache_key]
+        with open(stderr_path, "rb") as stream:
+            stream.seek(max(0, stat.st_size - 8192))
+            tail = stream.read(8192).decode("utf-8", errors="replace")
+        lines = [line.strip() for line in tail.splitlines() if line.strip()]
+        message = next((line for line in reversed(lines) if "Error:" in line or "Exception:" in line), lines[-1] if lines else "")[:600]
+        if len(WORKER_TASK_FAILURE_CACHE) >= 512:
+            WORKER_TASK_FAILURE_CACHE.clear()
+        WORKER_TASK_FAILURE_CACHE[cache_key] = message
+        return message
+    except (OSError, ValueError):
+        return ""
+
 def api_worker_tasks(root):
     try:
         reconcile_worker_task_exit_codes(root)
@@ -11113,6 +11137,10 @@ def api_worker_tasks(root):
             if not isinstance(_item, dict):
                 continue
             _row = recover_worker_task_launch_paths(root, _item)
+            if str(_row.get("status") or "").lower() == "failed" and not _row.get("error"):
+                failure_message = worker_task_failure_message(root, _row)
+                if failure_message:
+                    _row["error"] = failure_message
             _target = str(_row.get("tmuxTarget") or _row.get("tmuxSession") or "").strip()
             if not _target:
                 _gid_tmp = str(_row.get("gpuId") or _row.get("gpu_id") or _row.get("gpu") or _row.get("targetGpuId") or "").strip()

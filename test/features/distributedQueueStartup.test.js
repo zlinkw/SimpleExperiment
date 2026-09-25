@@ -130,3 +130,35 @@ test("restart resends an unacknowledged dispatch with its original command ID", 
   assert.equal(queue.plans[0].jobs[0].status, "running");
   assert.equal(queue.plans[0].jobs[0].commandId, "command-1");
 });
+
+test("a failed job retains its Agent error in the durable Plan queue", async () => {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const start = compiled.indexOf("async tickDistributedQueueCore() {");
+  const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
+  const queueMethod = compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()");
+  const DistributedPlanQueue = require("../../dist/features/DistributedPlanQueue");
+  const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue,
+    mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
+    compactSensitiveText: String, Object, Set, Date };
+  vm.createContext(context);
+  vm.runInContext(queueMethod + "\nthis.tickQueue = tickQueue;", context);
+  let queue = { schemaVersion: 1, plans: [{ id: "plan-1", planFile: "plans/p.yaml", revision: "rev-1", codeFingerprint: "code-1",
+    jobs: [{ index: 0, case: "case-a", seed: 1, attempt: 1, outputDir: "runs/a",
+      status: "failed", workerId: "worker-a", gpuId: "0", commandId: "command-1" }] }], deferred: [] };
+  const task = { commandId: "command-1", workflowId: "plan-1", planRevision: "rev-1", case: "case-a",
+    seed: 1, attempt: 1, outputDir: "runs/a", workerId: "worker-a", gpuId: "0", status: "failed",
+    error: "FileNotFoundError: missing label_schema.json" };
+  const provider = {
+    lastWorkerProbes: { "worker-a": { status: "ok" } }, distributedNextFailureDetailAt: 0,
+    lastCodeSyncState: { workerVersions: {} },
+    isRealtimeMode: () => true, projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    loadDistributedQueue: async () => queue, saveDistributedQueue: async (_root, next) => { queue = next; },
+    workerActionTargets: () => [{ id: "worker-a" }], readWorkerTaskSnapshot: async () => ({ tasks: [task] }),
+    client: { getGpu: async () => ({}) }, localWorkerAvailabilityRows: () => [],
+    availabilityPushTtlSeconds: () => 45, schedulerSettings: () => ({}),
+    scheduleDistributedPostprocess: () => undefined, postState: () => undefined,
+  };
+  await context.tickQueue.call(provider);
+  assert.equal(queue.plans[0].jobs[0].status, "failed");
+  assert.equal(queue.plans[0].jobs[0].error, task.error);
+});
