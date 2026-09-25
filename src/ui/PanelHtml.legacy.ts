@@ -1373,6 +1373,7 @@ export function renderPanelHtml(): string {
          </div>
        </div>
        <div id="tmuxListInfo" style="margin:6px 0;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);font-size:12px;line-height:1.4;">
+         <div id="tmuxWorkersOverview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
          <span id="tmuxListMeta">等待列出 tmux sessions...</span>
          <div id="tmuxFilterBar" class="tmuxFilterBar"></div>
          <div id="tmuxOverview" class="tmuxOverviewGrid" style="margin-top:6px;display:grid;gap:4px;"></div>
@@ -1638,6 +1639,7 @@ export function renderPanelHtml(): string {
     let tmuxPollTimer = 0;
     const TMUX_POLL_MS = 5000;
     let tmuxListCache = { sessions: [], gpuIds: [], workerId: "", fetchedAt: "" };
+    const tmuxListsByWorker = Object.create(null);
     let tmuxSelectedWorkerId = String((restoredWebviewState && restoredWebviewState.tmuxSelectedWorkerId) || "");
     let tmuxWindowFilter = String((restoredWebviewState && restoredWebviewState.tmuxWindowFilter) || "all");
     let tmuxSelectedPaneTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedPaneTarget) || "");
@@ -1888,13 +1890,23 @@ export function renderPanelHtml(): string {
       }
       overview.innerHTML = grid;
     }
+    function renderTmuxWorkersOverview(workers) {
+      const box = el("tmuxWorkersOverview");
+      if (!box) return;
+      box.innerHTML = (workers || []).map(function(worker) {
+        const row = tmuxListsByWorker[worker.id];
+        const label = !row ? "读取中" : row.ok === false ? "连接失败" : "会话 " + String((row.sessions || []).length);
+        const active = worker.id === tmuxSelectedWorkerId;
+        return '<button type="button" class="secondary" data-tmux-worker="' + escAttr(worker.id) + '" aria-pressed="' + (active ? 'true' : 'false') + '" style="border-radius:8px;' + (active ? 'outline:2px solid var(--vscode-focusBorder);' : '') + '">' + esc(worker.name || worker.id) + ' · ' + esc(label) + '</button>';
+      }).join("");
+    }
     async function refreshTmuxList() {
       const meta = el("tmuxListMeta");
       if (meta) meta.textContent = "列举 tmux sessions ...";
       try {
         const clientActionId = createClientActionId("fetchTmuxList", "tmuxList");
         const pendingKey = "fetchTmuxList:tmuxList";
-        const payload = { command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, clientActionId };
+        const payload = { command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, clientActionId };
         pendingActionsById[clientActionId] = { command: "fetchTmuxList", pendingKey, clientActionId, startedAt: Date.now(), label: "fetchTmuxList", status: "running" };
         if (pendingActionTimeouts[clientActionId]) clearTimeout(pendingActionTimeouts[clientActionId]);
         pendingActionTimeouts[clientActionId] = setTimeout(function(){
@@ -1976,6 +1988,41 @@ export function renderPanelHtml(): string {
       }
       return s;
     }
+    function terminalDisplayText(raw) {
+      const source = String(raw || "");
+      if (!source) return "";
+      const lines = [[]];
+      let row = 0;
+      let column = 0;
+      const start = Math.max(0, source.length - 200000);
+      for (let i = start; i < source.length; i++) {
+        const code = source.charCodeAt(i);
+        if (code === 27 && source.charCodeAt(i + 1) === 91) {
+          let end = i + 2;
+          while (end < source.length && end - i < 40 && source.charCodeAt(end) < 64) end++;
+          const command = source.charAt(end);
+          const amount = Number(source.slice(i + 2, end).split(";")[0]) || 1;
+          if (command === "A") { row = Math.max(0, row - amount); column = 0; }
+          else if (command === "B") { row = Math.min(lines.length - 1, row + amount); column = 0; }
+          else if (command === "K") { lines[row] = []; column = 0; }
+          else if (command === "G") column = Math.max(0, amount - 1);
+          i = end;
+          continue;
+        }
+        if (code === 13) { column = 0; continue; }
+        if (code === 10) {
+          row++;
+          if (!lines[row]) lines[row] = [];
+          column = 0;
+          if (lines.length > 1200) { lines.splice(0, 200); row -= 200; }
+          continue;
+        }
+        if (code === 8) { column = Math.max(0, column - 1); continue; }
+        if (code < 32 && code !== 9) continue;
+        if (column < 2000) lines[row][column++] = source.charAt(i);
+      }
+      return lines.slice(-200).map(function(line) { return line.join(""); }).join(String.fromCharCode(10)).trimEnd();
+    }
     async function refreshTmuxCapture() {
       const pre = el("tmuxCapturePre");
       const meta = el("tmuxCaptureMeta");
@@ -1995,7 +2042,8 @@ export function renderPanelHtml(): string {
     }
     function scheduleTmuxPoll() {
       clearInterval(tmuxPollTimer);
-      tmuxPollTimer = setInterval(function(){ refreshTmuxList(); refreshTmuxCapture(); }, TMUX_POLL_MS);
+      let polls = 0;
+      tmuxPollTimer = setInterval(function(){ polls++; if (polls % 3 === 0) refreshTmuxList(); refreshTmuxCapture(); }, TMUX_POLL_MS);
     }
     const DIAGNOSTIC_JSON_PREVIEW_LIMIT = 16000;
     const DIAGNOSTIC_JSON_MAX_DEPTH = 4;
@@ -3249,11 +3297,19 @@ export function renderPanelHtml(): string {
         tmuxWindowFilter = "all";
         tmuxSelectedPaneTarget = "";
         tmuxSelectedTaskTarget = "";
-        tmuxListCache = { sessions: [], gpuIds: [], workerId: tmuxSelectedWorkerId, fetchedAt: "" };
+        tmuxListCache = tmuxListsByWorker[tmuxSelectedWorkerId] || { sessions: [], gpuIds: [], workerId: tmuxSelectedWorkerId, fetchedAt: "" };
         tmuxLastCaptureTarget = "";
         const pre = el("tmuxCapturePre");
         if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.lastFetch = ""; }
+        renderTmuxOverview(tmuxListCache.sessions || []);
         refreshTmuxList();
+      });
+      const workerOverview = el("tmuxWorkersOverview");
+      if (workerOverview) workerOverview.addEventListener("click", function(event) {
+        const button = event.target.closest("button[data-tmux-worker]");
+        if (!button || !workerSel) return;
+        workerSel.value = button.getAttribute("data-tmux-worker") || "";
+        workerSel.dispatchEvent(new Event("change"));
       });
       if (btn) btn.addEventListener("click", refreshTmuxCapture);
       if (listBtn) listBtn.addEventListener("click", refreshTmuxList);
@@ -3313,16 +3369,18 @@ export function renderPanelHtml(): string {
         }
         if (item.type === "tmuxList") {
           const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
-          if (tmuxSelectedWorkerId && item.workerId !== tmuxSelectedWorkerId && listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; })) continue;
-          tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
+          if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
+          if (!tmuxSelectedWorkerId || !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; })) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
           persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
           const workerSel = el("tmuxWorkerSelect");
           if (workerSel && listedWorkers.length) {
             workerSel.innerHTML = listedWorkers.map(function(worker){ return '<option value="' + escAttr(worker.id) + '">' + esc(worker.name || worker.id) + '</option>'; }).join("");
             workerSel.value = tmuxSelectedWorkerId;
           }
-          tmuxListCache = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId || "", fetchedAt: item.fetchedAt || new Date().toLocaleTimeString() };
-          renderTmuxOverview(item.sessions || []);
+          renderTmuxWorkersOverview(listedWorkers);
+          if (item.workerId !== tmuxSelectedWorkerId) continue;
+          tmuxListCache = tmuxListsByWorker[tmuxSelectedWorkerId];
+          renderTmuxOverview(tmuxListCache.sessions || []);
           const meta = el("tmuxListMeta");
           if (meta && (item.status || item.ok === false || item.error)) {
             if (String(item.status).toLowerCase() === "stalled") meta.textContent = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
@@ -12471,7 +12529,7 @@ export function renderPanelHtml(): string {
       const open = (stored === undefined ? shouldOpenTaskLog(row, log) : stored) ? " open" : "";
       const title = isTerminalTask(row) ? "最终日志" : "实时日志";
       const text = log || (isTerminalTask(row) ? "暂无最终日志。" : "暂无实时输出。点击“打开日志”后等待 Hub Agent /api/events 或 /api/live-output 回传。");
-      const displayText = compactTaskLogText(text);
+      const displayText = compactTaskLogText(terminalDisplayText(text));
       const meta = '<div class="taskLogMeta">' +
         '<span class="pill" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span>' +
         '<span class="pill">Worker ' + esc(workerName(row.serverId)) + '</span>' +
@@ -13458,7 +13516,7 @@ export function renderPanelHtml(): string {
         const combinedRaw = decodeCapturedText(redactedTail || redact(String(rawFallback || "").trim()));
         const schedLogRaw = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
         const schedLog = schedLogRaw ? decodeCapturedText(redact(schedLogRaw)) : "";
-        const combinedSrc = [combinedRaw, schedLog].filter(Boolean).join("\\n").trim();
+        const combinedSrc = terminalDisplayText([combinedRaw, schedLog].filter(Boolean).join("\\n").trim());
         const logPathRedacted = String(ev.logPathRedacted || (row || {}).logPathRedacted || (row && row.payload && (row.payload.logPathRedacted || row.payload.log_path_redacted)) || "").trim();
         const liveLogCount = Number(ev.liveLogCount ?? ev.live_log_count ?? (row || {}).liveLogCount ?? (row || {}).live_log_count ?? 0) || 0;
         const failureSourceKind = String(ev.failureSourceKind || (row || {}).failureSourceKind || ((row || {}).payload && (row.payload || {}).evidence && (row.payload || {}).evidence.failureSourceKind) || "").trim();

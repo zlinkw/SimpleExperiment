@@ -7777,10 +7777,19 @@ export class RealtimeTunnelPanelProvider {
         this.postState();
     }
     async selectDistributedPlanPrimary(body) {
-        const snapshot = await this.client.getGpu();
+        let snapshot;
+        try { snapshot = await this.client.getGpu(); }
+        catch (error) {
+            if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError)) throw error;
+            snapshot = this.lastRealtimeState?.gpu || {};
+        }
         const availability = this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), snapshot);
         const ranked = availability.filter((row) => this.lastWorkerProbes[row.workerId]?.status === "ok")
             .sort((a, b) => (b.availableGpuIds?.length || 0) - (a.availableGpuIds?.length || 0) || a.workerId.localeCompare(b.workerId));
+        if (!ranked.length) {
+            for (const worker of this.workerActionTargets())
+                if (this.lastWorkerProbes[worker.id]?.status === "ok") ranked.push({ workerId: worker.id, availableGpuIds: [] });
+        }
         if (!ranked.length) throw new Error("没有已连接的 Worker，无法校验分布式 Plan。");
         this.stampWorkerPoolManualTarget(body, ranked[0].workerId);
         return ranked[0].workerId;
@@ -7850,6 +7859,7 @@ export class RealtimeTunnelPanelProvider {
         if (this.distributedPostprocessPromise) return;
         const work = (async () => {
             const queue = await this.loadDistributedQueue(root);
+            if (!queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed"))) return;
             await this.syncDistributedJobArtifacts(root, queue, "fragments");
             if (workspaceRoot() !== root) return;
             await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true);
@@ -7909,6 +7919,7 @@ export class RealtimeTunnelPanelProvider {
         for (const workerId of [...new Set(assigned.map(({ job }) => job.workerId))]) {
             const snapshot = await this.readWorkerTaskSnapshot(workerId);
             if (snapshot.error) {
+                if (/rate_limited|cooldown/i.test(snapshot.error)) continue;
                 for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId && row.job.status !== "unknown"))
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", job.commandId);
                 continue;
@@ -13448,7 +13459,7 @@ export class RealtimeTunnelPanelProvider {
             let result: any = null;
             const tryClient = (this.client as any)?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
-                try { result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}`, { method: "GET" }); } catch {}
+                try { result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}`, "manual_refresh", undefined, { method: "GET", userInitiated: true }); } catch {}
             }
             if (!result) {
                 const endpoint = this.tmuxEndpoint(workerId);
@@ -13491,12 +13502,16 @@ export class RealtimeTunnelPanelProvider {
         return endpoint;
     }
     async fetchTmuxListFromUi(_message: any) {
-        const workerId = this.tmuxWorkerId(_message, true);
+        const workers = this.enabledWorkerConfigs();
+        const workerIds = _message?.allWorkers === true ? workers.map((worker) => worker.id) : [this.tmuxWorkerId(_message, true)];
+        await Promise.all(workerIds.map((workerId) => this.fetchOneTmuxListFromUi(workerId)));
+    }
+    async fetchOneTmuxListFromUi(workerId: string) {
         try {
             let result: any = null;
             const tryClient = (this.client as any)?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
-                try { result = await tryClient.requestJson(`/api/tmux/list`, { method: "GET" }); } catch {}
+                try { result = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true }); } catch {}
             }
             if (!result) {
                 const endpoint = this.tmuxEndpoint(workerId);
