@@ -394,6 +394,9 @@ function renderPanelHtml() {
     .taskProgressCard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--subtle-bg); display: grid; gap: 6px; }
     .operationTimeline { display: grid; gap: 6px; }
     .executionControls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 7px 0; }
+    .commandPhaseLine { margin: 4px 0 8px; min-height: 18px; }
+    .commandPhaseLine.busy::before { content: '◌'; display: inline-block; margin-right: 6px; animation: commandPhaseSpin 1s linear infinite; }
+    @keyframes commandPhaseSpin { to { transform: rotate(360deg); } }
     .executionPlanList { display: grid; gap: 7px; margin: 8px 0; }
     .executionPlanRow { min-width: 0; border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 8px; background: var(--vscode-editor-background); }
     .executionPlanRow.running { border-left-color: var(--info); }
@@ -1343,6 +1346,7 @@ function renderPanelHtml() {
           <button data-command="runPlan" data-confirm="true" title="校验并提交运行&#10;先同步代码到参与服务器，再校验与预演，通过后提交后台调度&#10;提交前会弹出确认窗口核对远端路径、任务数、模式与 Worker">校验并提交运行</button>
           <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前实验计划目录下的全部计划&#10;每个计划仍会走完整的校验与预演门禁">运行全部计划</button>
         </div>
+        <div id="planCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
         <div id="recentPlans" data-anchor="plans-list"></div>
       </section>
 
@@ -1419,6 +1423,7 @@ function renderPanelHtml() {
           </div>
       </div>
       <div id="executionControls" class="executionControls"></div>
+      <div id="commandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
       <div id="executionPlanList" data-anchor="execution-operations"></div>
       <details class="executionFullRecords" data-details-key="execution-full-records">
         <summary>完整操作与任务记录</summary>
@@ -2678,6 +2683,7 @@ function renderPanelHtml() {
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
       "stopAllPlans",
+      "stopAndClearPlan",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
@@ -2996,10 +3002,11 @@ function renderPanelHtml() {
             const clientActionId = createClientActionId(command, pendingKey);
             payload.clientActionId = clientActionId;
             pendingButtonKeys.add(pendingKey);
-            const pendingItem = Object.assign({ command, pendingKey, clientActionId, actionSection: button.dataset.actionSection || "", startedAt: Date.now(), label: button.textContent.trim(), status: "running" }, payload);
+            const pendingItem = Object.assign({ command, pendingKey, clientActionId, actionSection: button.dataset.actionSection || "", startedAt: Date.now(), label: button.textContent.trim(), status: "running", message: command === "runPlan" ? "已收到请求，正在准备计划校验…" : "" }, payload);
             pendingActions[pendingKey] = pendingItem;
             pendingActionsById[clientActionId] = pendingItem;
             setButtonLoading(button, pendingKey);
+            renderCommandPhaseLine();
             if (command !== "prepareAgents" && command !== "rebuildProjectResultTables") {
             pendingActionTimeouts[clientActionId] = setTimeout(() => {
               const item = pendingActionsById[clientActionId];
@@ -4666,6 +4673,19 @@ function renderPanelHtml() {
       return Boolean(container && container.open);
     }
 
+    function renderCommandPhaseLine() {
+      const pending = Object.values(pendingActionsById || {});
+      const item = pending.find((row) => row && row.command === "runPlan" && row.message) || pending.find((row) => row && row.message);
+      const text = item ? String(item.label || item.command || "命令") + "：" + String(item.message) : "";
+      for (const id of ["commandPhaseLine", "planCommandPhaseLine"]) {
+        const host = el(id);
+        if (host) {
+          host.textContent = text;
+          host.classList.toggle("busy", Boolean(text));
+        }
+      }
+    }
+
     function commandNeedsLoading(command) {
       return !COMMANDS_WITHOUT_LOADING?.has(String(command || ""));
     }
@@ -4777,6 +4797,7 @@ function renderPanelHtml() {
         if (isTerminalUiStatus(item.status) && !isTerminalUiStatus(data.status)) return;
         item.status = data.status || item.status;
         item.message = data.message || item.message;
+        renderCommandPhaseLine();
       }
       if (isTerminalUiStatus(data.status)) {
         if (String(data.status).toLowerCase() === "completed") clearConfigDraftsForCommand(data.command, item || {});
@@ -4792,6 +4813,7 @@ function renderPanelHtml() {
           clearPendingActionTimeout(clientActionId);
         }
         clearButtonsForPending(clientActionId, pendingKey, data.command);
+        renderCommandPhaseLine();
         try {
           if (String(data.command || "") === "killTmuxWindow") {
             refreshTmuxList();
@@ -5635,6 +5657,7 @@ function renderPanelHtml() {
         startHub: "启动 Hub",
         startWorker: "启动 Worker",
         abortScheduler: "中止调度器",
+        stopAndClearPlan: "一键中止并清除 Plan",
         openTensorBoard: "打开 TensorBoard",
         copyTensorBoardUrl: "复制 TensorBoard 链接",
         openTensorBoardUrl: "打开 TensorBoard 链接",
@@ -13015,7 +13038,9 @@ function renderPanelHtml() {
         const type = String(op.type || op.action || "").toLowerCase();
         return (type.includes("run-plan") || type.includes("reproduce-plan")) && operationIsActive(op.status || op.state) && op.reconcileEvidenceActive !== false;
       });
+      const stopClearPlan = selectedExecutionPlanFile || currentPlanPath;
       setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止当前选中 Plan 的运行任务">中止当前 Plan</button>' +
+        '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(stopClearPlan) + '" data-confirm="true" ' + (stopClearPlan ? '' : 'disabled') + ' title="中止该 Plan 仍在运行的调度，关闭对应报错 tmux 窗口，并清除本机运行进度条目。停止前会列出目标并要求两次确认。">一键中止并清除 Plan</button>' +
         '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan ? '' : 'disabled') + ' title="手动中止全部运行中的 Plan；逐个向 Worker 发送停止命令">中止所有 Plan</button>' +
         '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
         '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +

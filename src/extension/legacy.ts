@@ -37,6 +37,8 @@ import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import * as DistributedPlanQueue from "../features/DistributedPlanQueue";
 import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
+import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
+import { planCleanupTargets, planStopClearPreview } from "../features/PlanStopClear";
 import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
 import { directPlanSyncPreview, transferPlanArtifacts } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
@@ -416,6 +418,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
+    "stopAndClearPlan",
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
@@ -4794,6 +4797,9 @@ export class RealtimeTunnelPanelProvider {
             case "stopAllPlans":
                 await this.stopAllPlansFromUi();
                 break;
+            case "stopAndClearPlan":
+                await this.stopAndClearPlanFromUi(message);
+                break;
             case "clearCache":
                 await this.clearCacheFromUi();
                 break;
@@ -5082,6 +5088,11 @@ export class RealtimeTunnelPanelProvider {
         return undefined;
     }
     async runActionCommand(command, message) {
+        if (PLAN_SUBMISSION_COMMANDS.has(command)) {
+            this.planRunStageStartedAt = Date.now();
+            this.reportPlanStage(message, "已收到校验并提交运行，正在准备计划与插件接入规则…");
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
         if (RESULT_PARSE_COMMANDS.has(command)) {
             const key = this.resultParseIdempotencyKey(command, message);
             message.resultParseKey = key;
@@ -5201,6 +5212,8 @@ export class RealtimeTunnelPanelProvider {
             await this.ensureHubCodeReadyForPlanCheck(body);
         }
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
+            this.reportPlanStage(message, "已收到校验并提交运行，正在检查计划与拓扑…");
+            await new Promise((resolve) => setTimeout(resolve, 0));
             this.assertPlanTopologyReady(command);
             await this.refreshLocalPlanMetadataForAction(body);
             this.stampPlanRevision(body);
@@ -5215,6 +5228,7 @@ export class RealtimeTunnelPanelProvider {
                     throw new Error(outputGateReason);
                 }
             }
+            this.reportPlanStage(message, "正在选择调度 Worker…");
             if (distributedPlan) await this.selectDistributedPlanPrimary(body);
             else await this.selectPlanSubmissionWorker(body, operationResultPlanFile(body) || plan?.planFile || command);
             if (LENIENT_RUN) {
@@ -5227,6 +5241,7 @@ export class RealtimeTunnelPanelProvider {
             await this.assertPlanNotAlreadyActive(operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "", plan);
             if (body.debugMode === true)
                 throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
+            this.reportPlanStage(message, "正在确认 SimpleSFTP 与提交信息…");
             if (!await this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
             await this.confirmPlanRunSubmission(command, plan, false, body);
@@ -5251,8 +5266,8 @@ export class RealtimeTunnelPanelProvider {
                     }
                 }
             }
-            await this.ensureCodeReadyForRun(undefined, [body]);
-            const preflightOk = await this.runPlanPreflight(body, "当前计划");
+            await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
+            const preflightOk = await this.runPlanPreflight(body, "当前计划", {}, (text) => this.reportPlanStage(message, text));
             if (!preflightOk) {
                 if (LENIENT_RUN) {
                     recordLenientSoftPass(this, "runPlanPreflight", "preflight not ok, continue to submit");
@@ -5266,7 +5281,9 @@ export class RealtimeTunnelPanelProvider {
             }
             if (distributedPlan) {
                 this.assertExecutionCondaEnvReady(this.workerActionTargets());
+                this.reportPlanStage(message, "预演通过，正在开启调度…");
                 await this.enqueueDistributedPlan(body, preflightOk);
+                this.reportPlanStage(message, "调度队列已接收；面板继续显示 Worker 回传的任务状态。");
                 await this.openPanelAt("tasks", "tasks-list");
                 return;
             }
@@ -5286,6 +5303,7 @@ export class RealtimeTunnelPanelProvider {
                 }
             } catch {}
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
+            if (PLAN_SUBMISSION_COMMANDS.has(command)) this.reportPlanStage(message, "预演通过，正在开启调度…");
         }
         const danger = command === "deleteArtifacts";
         const noHubResult = await this.postNoHubResultAction(command, action, body, {
@@ -5321,7 +5339,15 @@ export class RealtimeTunnelPanelProvider {
         }
         this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult);
     }
-    async runPlanPreflight(body, label, authority = {}) {
+    reportPlanStage(message, text) {
+        const started = Number(this.planRunStageStartedAt || Date.now());
+        const elapsed = Math.max(0, Date.now() - started);
+        const line = `${text}（已用 ${elapsed} ms）`;
+        const clientActionId = stringField(message, "clientActionId");
+        if (clientActionId) this.postUiCommandStatus(clientActionId, "running", stringField(message, "command") || "runPlan", line);
+        void vscode.window.setStatusBarMessage(`SimpleExperiment：${line}`, 8000);
+    }
+    async runPlanPreflight(body, label, authority = {}, reportStage = (_text: string) => {}) {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const prefix = String(label || "当前计划").trim() || "当前计划";
         const workerId = this.planSchedulerWorkerId(body);
@@ -5359,6 +5385,7 @@ export class RealtimeTunnelPanelProvider {
         };
         let check = "校验(validate-plan)";
         try {
+            reportStage("正在校验计划…");
             const validate = await this.postPlanSchedulerAction("validate-plan", body, {
                 title: `${prefix}：校验`,
                 requiresCapability: ["endpoints.actions", "actions.validate-plan"],
@@ -5375,6 +5402,7 @@ export class RealtimeTunnelPanelProvider {
             }
             if (this.distributedPlanEligible(planKey)) {
                 check = "本机逐 job 预演";
+                reportStage("校验已返回，正在做本机逐 job 预演…");
                 const validation = validated?.validation || validated?.result?.validation;
                 if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
                     throw new Error("Agent 校验未返回逐 job 清单");
@@ -5400,6 +5428,7 @@ export class RealtimeTunnelPanelProvider {
                 return { ...validated, distributedPreview: preview };
             }
             check = "预演(dry-run-plan)";
+            reportStage("校验已返回，正在预演…");
             const preview = await this.postPlanSchedulerAction("dry-run-plan", body, {
                 title: `${prefix}：预演`,
                 requiresCapability: ["endpoints.actions", "actions.dry-run-plan"],
@@ -6099,7 +6128,7 @@ export class RealtimeTunnelPanelProvider {
                 }
                 await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
             }
-            report("GitHub 已完成，开始上传到 Worker…", 22);
+            report("GitHub 已完成，正在准备 Worker 上传…", 22);
             try {
                 await this.uploadProjectToWorkers(false, { progressReport: report, progressSpan: 70 });
             }
@@ -6129,7 +6158,10 @@ export class RealtimeTunnelPanelProvider {
         });
     }
     async uploadProjectToWorkers(confirm = true, progressOptions = {}) {
+        const progressReport = typeof progressOptions.progressReport === "function" ? progressOptions.progressReport : undefined;
+        if (progressReport) progressReport("正在准备 SFTP 目标…", 0);
         await this.prepareSftpTargets("uploadProjectToWorkers", "simpleSftp.uploadWorkspace");
+        if (progressReport) progressReport("SFTP 目标已就绪，开始核对本地代码清单…", 0);
         await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", { ...progressOptions, hashCompare: true, ...(confirm ? {
             startedAction: { title: "首次上传到 Worker", detail: "正在通过 SimpleSFTP 同步本地轻量代码到所有启用 Worker。" },
         } : {}) });
@@ -6742,10 +6774,10 @@ export class RealtimeTunnelPanelProvider {
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
         const savedScope = config.get<string[]>("codeSync.scopePaths");
         const legacyExtra = config.get<string[]>("codeSync.includePaths", []) || [];
-        const localSelected = [...new Set(Array.isArray(savedScope) ? savedScope : [...await walkCodeFiles(root), ...legacyExtra])].sort();
+        const localSelected = [...new Set(Array.isArray(savedScope) ? savedScope : legacyExtra)].sort();
         const serverSelected = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
         const targets = this.workerCodeSyncTargets();
-        openSyncScopeTree("项目同步范围与状态", [{
+        const scopePanel = openSyncScopeTree("项目同步范围与状态", [{
             id: "local", label: "本机 ↔ Worker", detail: "可在根目录全选本机文件，再取消产物和预训练权重目录。文件夹显示整棵子树的汇总状态。", rootSelectable: true, excludable: true,
             selected: localSelected,
             list: async (relative) => this.listSyncScopeUnion(root, targets, relative, true),
@@ -6785,6 +6817,15 @@ export class RealtimeTunnelPanelProvider {
                 void vscode.window.showInformationMessage(`服务器之间同步范围已保存：${normalized.includes(".") ? "整个项目" : `${normalized.length} 条路径`}。`);
             },
         }]);
+        const announceScope = (text) => { void scopePanel?.webview.postMessage({ type: "scopeLoading", message: text }); };
+        announceScope(Array.isArray(savedScope) ? "已打开已保存的同步范围。展开目录后按需读取。" : "标签页已打开。尚未保存范围，正在后台枚举默认同步文件…");
+        if (!Array.isArray(savedScope)) {
+            void walkCodeFiles(root).then((files) => {
+                const discovered = [...new Set([...files, ...legacyExtra])].sort();
+                localSelected.splice(0, localSelected.length, ...discovered);
+                void scopePanel?.webview.postMessage({ type: "scopeSelected", rootId: "local", paths: discovered, message: `默认同步文件已载入 ${discovered.length} 条。展开目录即可浏览，刷新后才计算哈希。` });
+            }).catch((error) => announceScope(`默认同步文件枚举失败：${errorMessage(error)}`));
+        }
     }
     async configureServerSyncScope() {
         await this.configureCodeSyncIncludes();
@@ -7254,7 +7295,8 @@ export class RealtimeTunnelPanelProvider {
             }
         }
     }
-    async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
+    async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = [], reportStage = (_text: string) => {}) {
+        reportStage("正在准备运行前代码同步…");
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
@@ -7266,7 +7308,8 @@ export class RealtimeTunnelPanelProvider {
             : selectedWorkerIds.length && topology.mode !== "single_worker"
             ? this.topologyCodeSyncTargets().filter((target) => target.role === "hub" || selectedWorkerIds.includes(target.id))
             : this.topologyCodeSyncTargets();
-        await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true });
+        reportStage("正在同步运行所需代码…");
+        await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text) });
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
@@ -7301,17 +7344,27 @@ export class RealtimeTunnelPanelProvider {
         const includePaths = codeSyncConfig.get<string[]>("codeSync.includePaths", []);
         const scopePaths = codeSyncConfig.get<string[]>("codeSync.scopePaths");
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
-        const manifest = filterHeldFiles(await buildLocalCodeManifest(root, includePaths, scopePaths), holds);
+        const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
+        if (progressReport) progressReport("正在建立本地代码清单并核对文件哈希…");
+        const manifest = filterHeldFiles(await buildLocalCodeManifest(root, includePaths, scopePaths, {
+            cacheFile: this.localCodeManifestCacheFile(root),
+            onProgress: (stats) => {
+                if (progressReport) progressReport(`本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}`);
+            },
+        }), holds);
+        if (progressReport) progressReport(`本地清单完成：${Object.keys(manifest).length} 个文件待比对`);
         const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
         assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
+        if (progressReport) progressReport("正在确认远端写入路径…");
         await this.confirmRemoteWriteTargets(codeSyncConfirmationLabel(scope), enabledTargets.map((target) => ({
             ...target,
             expectedFiles: expectedRelativeFiles.map((file) => `${target.remotePath.replace(/\/+$/, "")}/${file.replace(/\\/g, "/").replace(/^\/+/, "")}`),
             expectedFileCount: Object.keys(manifest).length,
         })), projectContext);
         assertCurrent();
+        if (progressReport) progressReport("正在写入 SFTP 服务器配置…");
         await this.writeSftpManagerServerProfiles(enabledTargets.map((target) => target.id));
         assertCurrent();
         if (options.startedAction && !options.progressReport)
@@ -7322,15 +7375,14 @@ export class RealtimeTunnelPanelProvider {
         this.lastCodeSyncState = { fingerprint, scope, hub: roleStatus.hubRunning, workers: roleStatus.workersRunning, workerVersions, updatedAt: new Date().toISOString() };
         void this.persistProjectCodeSyncState().catch(() => undefined);
         this.postState();
-        const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
         const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
         const hashCompare = options.hashCompare === true;
         await mapLimited(enabledTargets, 2, async (target, index) => {
-            if (progressReport) progressReport(`正在上传到 ${target.label || target.id}（${index + 1}/${enabledTargets.length}）…`, 0);
+            if (progressReport) progressReport(`正在读取 ${target.label || target.id} 的远端清单（${index + 1}/${enabledTargets.length}）…`);
             try {
                 let uploadManifest = manifest;
                 if (hashCompare) {
-                    if (progressReport) progressReport(`正在按哈希比较 ${target.label || target.id} 的已有文件…`, 0);
+                    if (progressReport) progressReport(`正在比对 ${target.label || target.id} 的远端哈希…`);
                     const inventory = await this.verifiedSftpProjectInventory({
                         source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
                         scopePaths: inventoryScopePaths, timeoutMs: 120000,
@@ -7338,7 +7390,7 @@ export class RealtimeTunnelPanelProvider {
                     const remoteFiles = inventoryFilesByPath(inventory);
                     uploadManifest = changedManifestFiles(manifest, remoteFiles);
                     const skipped = Object.keys(manifest).length - Object.keys(uploadManifest).length;
-                    if (progressReport) progressReport(`${target.label || target.id}：${Object.keys(uploadManifest).length} 个变化文件，${skipped} 个未变化文件不重传`, 0);
+                    if (progressReport) progressReport(`${target.label || target.id}：${Object.keys(uploadManifest).length} 个变化文件待传输，${skipped} 个未变化文件不传输`);
                     if (!Object.keys(uploadManifest).length) {
                         if (progressReport && progressStep > 0) progressReport(`${target.label || target.id} 内容未变化，未重传`, progressStep);
                         if (target.role === "worker") {
@@ -7348,6 +7400,7 @@ export class RealtimeTunnelPanelProvider {
                         return;
                     }
                 }
+                if (progressReport) progressReport(`正在传输 ${target.label || target.id} 的 ${Object.keys(uploadManifest).length} 个变化文件…`);
                 const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
                     apiMode: true,
                     confirm: true,
@@ -7365,6 +7418,7 @@ export class RealtimeTunnelPanelProvider {
                 if (!sftpUploadSucceeded(result, hashCompare ? "" : fingerprint))
                     throw new Error(resultError(result) || "SFTP 上传未确认成功。");
                 if (hashCompare) {
+                    if (progressReport) progressReport(`正在校验 ${target.label || target.id} 上传后的远端哈希…`);
                     const checked = await this.verifiedSftpProjectInventory({
                         source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
                         scopePaths: inventoryScopePaths, timeoutMs: 120000,
@@ -7703,6 +7757,10 @@ export class RealtimeTunnelPanelProvider {
             localHost: (worker as any).localForwardHost || (config as any).localForwardHost || "127.0.0.1",
             localPort: Number((worker as any).localForwardPort || (config as any).localForwardPort || 18765),
         };
+    }
+    localCodeManifestCacheFile(root) {
+        const storageRoot = this.context?.globalStorageUri?.fsPath;
+        return storageRoot ? localCodeManifestCachePath(storageRoot, root) : undefined;
     }
     async primaryGitRepository() {
         const extension = vscode.extensions.getExtension("vscode.git");
@@ -12510,6 +12568,76 @@ export class RealtimeTunnelPanelProvider {
         this.postState();
         if (failures.length) void vscode.window.showErrorMessage(`部分 Plan 未能中止：${failures.join("；")}`);
     }
+    async stopAndClearPlanFromUi(message) {
+        const root = workspaceRoot();
+        if (!root) throw new Error("请先打开当前实验项目。");
+        const planFile = stringField(message, "planFile").trim();
+        if (!planFile) throw new Error("请先选择要中止并清除的 Plan。");
+        const operations = this.buildPlanRuntimeEvidenceState().operations;
+        const targets = planCleanupTargets(operations, planFile, (row) => operationTerminal(row)).map((target) => {
+            const row = operations[target.operationId] || Object.values(operations).find((item: any) => String(item?.operationId || item?.id || "") === target.operationId);
+            return { ...target, workerId: this.runOperationWorkerId(row) || target.workerId };
+        });
+        if (!targets.length) {
+            void vscode.window.showInformationMessage(planFile ? `没有找到 ${planFile} 的运行进度条目。` : "没有可中止或清除的 Plan 运行进度。");
+            return;
+        }
+        const active = targets.filter((target) => target.active);
+        const first = await vscode.window.showWarningMessage(planStopClearPreview(planFile, targets), { modal: true }, "继续中止并清除");
+        if (first !== "继续中止并清除" || root !== workspaceRoot()) return;
+        const second = await vscode.window.showWarningMessage(`第二次确认：\n${planStopClearPreview(planFile, targets)}`, { modal: true }, "确认中止并清除");
+        if (second !== "确认中止并清除" || root !== workspaceRoot()) return;
+        const failures = [];
+        const stopped = new Set<string>();
+        for (const target of active) {
+            try {
+                const row = operations[target.operationId] || Object.values(operations).find((item: any) => String(item?.operationId || item?.id || "") === target.operationId) || {};
+                await this.stopExperimentRouted({
+                    operationId: target.operationId,
+                    planFile: target.planFile,
+                    workerId: this.runOperationWorkerId(row) || target.workerId,
+                    manualStopType: "scheduler_aborted",
+                });
+                stopped.add(target.operationId);
+            }
+            catch (error) {
+                failures.push(`${target.planFile} ${target.operationId}: ${errorMessage(error)}`);
+            }
+        }
+        const stoppedOrEnded = targets.filter((target) => !target.active || stopped.has(target.operationId));
+        const closedTmux = new Set<string>();
+        for (const target of stoppedOrEnded) {
+            if (!target.tmuxTarget) {
+                if (target.tmuxSession) failures.push(`${target.operationId}: tmux 仅有会话名 ${target.tmuxSession}，无法确认对应窗口，进度保留`);
+                continue;
+            }
+            if (!target.workerId) {
+                failures.push(`${target.operationId}: tmux 窗口缺少 Worker，进度保留`);
+                continue;
+            }
+            try {
+                await this.performKillTmuxWindow(target.workerId, target.tmuxTarget);
+                closedTmux.add(target.operationId);
+            }
+            catch (error) {
+                failures.push(`${target.operationId} ${target.tmuxTarget}: ${errorMessage(error)}`);
+            }
+        }
+        const clearable = stoppedOrEnded.filter((target) => !target.tmuxSession && !target.tmuxTarget || closedTmux.has(target.operationId));
+        const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
+        const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...clearable.map((target) => target.operationId)]);
+        await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);
+        if (clearable.length === targets.length && root === workspaceRoot()) {
+            const savedCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
+            const cutoffs = savedCutoffs && typeof savedCutoffs === "object" && !Array.isArray(savedCutoffs) ? { ...savedCutoffs as Record<string, string> } : {};
+            cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();
+            await this.context.workspaceState.update(keys.executionHistoryCutoffs, cutoffs);
+        }
+        if (root === workspaceRoot()) this.postState();
+        const summary = `已清除 ${clearable.length} 条运行进度，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`;
+        if (failures.length) void vscode.window.showWarningMessage(`${summary} 未完成：${failures.join("；")}`);
+        else void vscode.window.showInformationMessage(`${summary} 仍在运行且停止失败的条目保持可见。`);
+    }
     async downloadDebugBundle() {
         const generation = this.projectContextGeneration;
         const root = workspaceRoot();
@@ -13894,41 +14022,41 @@ export class RealtimeTunnelPanelProvider {
             { modal: true }, "关闭窗口",
         );
         if (answer !== "关闭窗口") throw new UiCommandCancelled("已取消关闭 tmux 窗口。");
-        const session = String(message?.session || (target.indexOf(":") !== -1 ? target.slice(0, target.indexOf(":")) : target)).trim() || target;
-        const win = String(message?.window || target).trim() || target;
-        const body = { target, window: win, session, confirm: true };
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `关闭 tmux 窗口 ${target}`, cancellable: false }, async (progress) => {
-        progress.report({ increment: 10, message: "等待 Agent 确认" });
+            progress.report({ increment: 10, message: "等待 Agent 确认" });
+            await this.performKillTmuxWindow(workerId, target);
+            progress.report({ increment: 90, message: "完成" });
+        });
+    }
+    async performKillTmuxWindow(workerId: string, target: string) {
+        if (!target) throw new Error("缺少关闭目标 target（期望 session:index）");
+        if (!/^[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$/.test(target) || target.split(":")[0].endsWith("-agent"))
+            throw new Error("关闭 tmux 窗口必须提供明确的非 Agent session:index，拒绝只用会话名定位。");
+        const session = String(message?.session || (target.indexOf(":") !== -1 ? target.slice(0, target.indexOf(":")) : target)).trim() || target;
+        const body = { target, window: target, session, confirm: true };
         let result: any = null;
-        let lastError: any = null;
         const tryClient = (this.client as any)?.clients?.get(workerId);
         if (tryClient && typeof tryClient.requestJson === "function") {
-            try { result = await tryClient.requestJson(`/api/tmux/kill-window`, { method: "POST", body }); } catch (exc) { lastError = exc; result = null; }
+            try { result = await tryClient.requestJson(`/api/tmux/kill-window`, { method: "POST", body }); } catch { result = null; }
         }
         if (!result) {
             const endpoint = this.tmuxEndpoint(workerId);
-            const host = endpoint.localHost;
-            const port = endpoint.localPort;
             const token = String(endpoint.token || "");
             const http = require("http") as typeof import("http");
             const payload = JSON.stringify(body);
             result = await new Promise<any>((resolve, reject) => {
-                const req = http.request({ host, port, path: `/api/tmux/kill-window`, method: "POST", headers: Object.assign({ "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }, token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}), timeout: 8000 }, (res: any) => {
+                const req = http.request({ host: endpoint.localHost, port: endpoint.localPort, path: `/api/tmux/kill-window`, method: "POST", headers: Object.assign({ "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }, token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}), timeout: 8000 }, (res: any) => {
                     let data = "";
-                    res.on("data", (c: string) => data += c);
+                    res.on("data", (chunk: string) => data += chunk);
                     res.on("end", () => { try { resolve(JSON.parse(data || "{}")); } catch { resolve({ ok: false, error: data }); } });
                 });
                 req.on("error", reject);
                 req.on("timeout", () => { req.destroy(new Error("timeout")); });
                 req.end(payload);
-            }).catch((exc: any) => { lastError = exc; return null; });
+            });
         }
-        if (!result) throw new Error(String(lastError?.message || lastError || "kill-window 请求失败：agent 无响应"));
         if (result?.ok === false || result?.error) throw new Error(String(result?.error || result?.message || "agent 拒绝关闭窗口"));
-        progress.report({ increment: 80, message: "刷新窗口列表" });
-        try { await this.fetchTmuxListFromUi({ workerId }); } catch {}
-        progress.report({ increment: 10, message: "完成" });
-        });
+        try { await this.fetchTmuxListFromUi({ workerId }); } catch { }
     }
     async openTensorBoardUrlFromUi(message: any) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
@@ -25017,27 +25145,10 @@ function samePath(a, b) {
         return false;
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
-async function buildLocalCodeManifest(root, includePaths: string[] = [], scopePaths?: string[]) {
+async function buildLocalCodeManifest(root, includePaths: string[] = [], scopePaths?: string[], options: { cacheFile?: string; onProgress?: (stats: { listed: number; reused: number; hashed: number; pruned: number }) => void } = {}) {
     const files = await listLocalCodePaths(root, includePaths, scopePaths);
-    const manifest = {};
-    const concurrency = 12;
-    let nextIndex = 0;
-    async function worker() {
-        while (true) {
-            const index = nextIndex++;
-            if (index >= files.length)
-                break;
-            const relative = files[index];
-            const full = path.join(root, relative);
-            const stat = await fs.stat(full);
-            manifest[relative.replace(/\\/g, "/")] = {
-                size: stat.size,
-                sha256: await sha256File(full),
-            };
-        }
-    }
-    const workers = Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker());
-    await Promise.all(workers);
+    const { manifest, stats } = await hashLocalCodeFiles(root, files, options.cacheFile, options.onProgress);
+    console.log(`[SimpleExperiment] local code manifest: listed=${stats.listed} reused=${stats.reused} hashed=${stats.hashed} pruned=${stats.pruned}`);
     return manifest;
 }
 async function listLocalCodePaths(root: string, includePaths: string[] = [], scopePaths?: string[]): Promise<string[]> {

@@ -7,6 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 const { Readable } = require("node:stream");
 const SyncResolution_1 = require("../../dist/features/SyncResolution.js");
+const LocalCodeManifestCache_1 = require("../../dist/features/LocalCodeManifestCache.js");
 
 const source = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
 const start = source.indexOf("async function buildLocalCodeManifest(root");
@@ -43,7 +44,12 @@ test("default local scope excludes server-owned data and includes arbitrary code
     },
     async stat(file) { return { size: Buffer.byteLength(path.relative(root, file)) }; },
   };
-  const sandbox = { fs: virtualFs, fsNode: { createReadStream: (file) => Readable.from([Buffer.from(path.relative(root, file))]) }, path, crypto };
+  const sandbox = { fs: virtualFs, fsNode: { createReadStream: (file) => Readable.from([Buffer.from(path.relative(root, file))]) }, path, crypto, console, LocalCodeManifestCache_1: {
+    hashLocalCodeFiles: async (_root, listed) => ({
+      manifest: Object.fromEntries(listed.map((file) => [file.replace(/\\/g, "/"), { size: Buffer.byteLength(file), sha256: crypto.createHash("sha256").update(file).digest("hex") }])),
+      stats: { listed: listed.length, reused: 0, hashed: listed.length, pruned: 0 },
+    }),
+  } };
   vm.runInNewContext(source.slice(start, end) + "; globalThis.buildLocalCodeManifest = buildLocalCodeManifest;", sandbox);
   const manifest = await sandbox.buildLocalCodeManifest(root);
   for (const file of files.slice(0, -1)) assert.equal(manifest[file], undefined, file);
@@ -98,7 +104,7 @@ test("manual local scope accepts every file type and size while excluding machin
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content);
     }
-    const sandbox = { fs: fs.promises, fsNode: fs, path, crypto };
+    const sandbox = { fs: fs.promises, fsNode: fs, path, crypto, console, LocalCodeManifestCache_1 };
     vm.runInNewContext(source.slice(start, end) + "; globalThis.buildLocalCodeManifest = buildLocalCodeManifest;", sandbox);
     const manifest = await sandbox.buildLocalCodeManifest(root, ["datasets", "configs"]);
     for (const file of ["datasets/custom_loader.py", "datasets/protocol_config.yaml", "datasets/patients/subject.py", "configs/default.yaml", "datasets/raw/patient.npy", "datasets/model.pt"]) assert.ok(manifest[file], file);

@@ -44,6 +44,26 @@ test("distributed submit confirms prior outputs before enqueue and skips only ch
   assert.match(send, /overwriteExisting: plan\.overwriteExisting === true/);
 });
 
+test("publish reports each pre-upload stage and transfers only changed files", () => {
+  const publish = extension.slice(extension.indexOf("async publishToGitHub("), extension.indexOf("async overwriteFromGitHub("));
+  assert.match(publish, /GitHub 已完成，正在准备 Worker 上传…/);
+  assert.doesNotMatch(publish, /开始上传到 Worker/);
+  const upload = extension.slice(extension.indexOf("async uploadProjectToWorkers("), extension.indexOf("async distributeCodeToWorkers("));
+  assert.match(upload, /正在准备 SFTP 目标…/);
+  assert.match(upload, /开始核对本地代码清单/);
+  assert.match(upload, /hashCompare: true/);
+  const sync = extension.slice(extension.indexOf("async syncCodeTargets("), extension.indexOf("async inspectCodeSyncTarget("));
+  const localAt = sync.indexOf("正在建立本地代码清单并核对文件哈希");
+  const remoteAt = sync.indexOf("正在比对");
+  const transferAt = sync.indexOf("正在传输");
+  const uploadAt = sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"');
+  assert.ok(localAt >= 0 && remoteAt > localAt && transferAt > remoteAt && uploadAt > transferAt);
+  assert.match(sync, /缓存命中 \$\{stats\.reused\}，重新哈希 \$\{stats\.hashed\}/);
+  assert.match(sync, /个未变化文件不传输/);
+  assert.match(sync, /if \(!Object\.keys\(uploadManifest\)\.length\)/);
+  assert.ok(sync.indexOf("if (!Object.keys(uploadManifest).length)") < uploadAt);
+});
+
 test("publish upload compares complete remote hashes and transfers only changed files", () => {
   const local = {
     "models/a.py": { sha256: "A".repeat(64), size: 10 },
@@ -73,7 +93,7 @@ test("publish upload compares complete remote hashes and transfers only changed 
 
 test("rerun code sync also compares hashes before uploading", () => {
   const codeReady = extension.slice(extension.indexOf("async ensureCodeReadyForRun("), extension.indexOf("async ensureHubCodeReadyForPlanCheck("));
-  assert.match(codeReady, /syncCodeTargets\(targets, "run", \{ projectContext, hashCompare: true \}\)/);
+  assert.match(codeReady, /syncCodeTargets\(targets, "run", \{ projectContext, hashCompare: true,/);
 });
 
 test("running distributed job renders Worker log path, content, and loading indicator", () => {

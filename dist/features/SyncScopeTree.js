@@ -135,6 +135,7 @@ function openSyncScopeTree(title, roots) {
             await panel.webview.postMessage({ type: "error", id, requestType: message?.type, rootId: root?.id, path: String(message?.path || "."), message: error instanceof Error ? error.message : String(error) });
         }
     });
+    return panel;
 }
 function scopeTreeHtml(nonce) {
     return String.raw `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -151,7 +152,7 @@ button.secondary{color:var(--vscode-foreground);background:var(--vscode-button-s
 #status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground);white-space:pre-wrap;overflow-wrap:anywhere}#status.busy::before{content:'◌';display:inline-block;margin-right:7px;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#save{margin-top:8px}.badge{margin-left:8px;font-size:12px;white-space:pre-line;overflow-wrap:anywhere;max-width:60%;min-width:0}.badge.same{display:none}.badge span{display:block;white-space:normal;overflow-wrap:anywhere;max-width:100%}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}.focus-conflict{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-focusBackground)}
 </style></head><body><h2>同步范围</h2><div id="guide" class="muted">单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。</div><div class="muted"><span class="same">绿色：同版</span>　<span id="remote-only-legend" class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span>　<span id="scope-legend" class="scope-legend">浅色圆角背景：本机 ↔ Worker 传输范围</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div class="filterbar"><button id="filterIssues" class="secondary">仅显示异常（已校验）</button><button id="clearIssueFilter" class="secondary" hidden>显示全部</button><button id="selectFiltered" class="secondary" hidden>勾选当前结果</button><button id="unselectFiltered" class="secondary" hidden>取消勾选当前结果</button><span id="filterDetail" class="muted"></span></div><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button> <button id="batchSync" class="secondary">批量同步勾选项</button> <button id="batchDelete" class="secondary">批量删除勾选项</button>
 <script nonce="${nonce}">
-const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0;const views=new Map();
+const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0,pendingScopeSelected=null;const views=new Map();
 const tabs=document.getElementById('tabs'),tree=document.getElementById('tree'),status=document.getElementById('status'),detail=document.getElementById('detail');
 function state(){return views.get(active.id)}
 function parentPath(path){const index=path.lastIndexOf('/');return index<0?'.':path.slice(0,index)}
@@ -216,6 +217,7 @@ function row(entry,depth){
   }
   if(entry.directory&&view.expanded.has(entry.path)){const children=shownChildren(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}
 }function renderTree(){if(!active)return;const view=state(),scrollTop=tree.scrollTop;view.issueTree=issueTree(view);view.scrollTarget=null;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0);renderFilterControls();tree.scrollTop=scrollTop;if(view.scrollTarget){view.scrollTarget.scrollIntoView?.({block:'center'});view.scrollTarget=null}}
+function applyScopeSelected(message){const view=views.get(message.rootId);if(!view){pendingScopeSelected=message;return}view.selected=new Set(message.paths||[]);if(active?.id===message.rootId){status.className='';status.textContent=message.message||'默认同步范围已载入';renderTree()}}
 function renderTabs(){tabs.replaceChildren();document.getElementById('guide').textContent=active?.id==='workers'?'单击展开；仅比较和操作 Worker 上的文件。本机文件不会参与本模式的传输。状态通过刷新按钮更新。':'单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。';document.getElementById('scope-legend').hidden=active?.id==='workers';document.getElementById('remote-only-legend').hidden=active?.id==='workers';for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();if(!state().children.has('.'))load('.')};tabs.appendChild(button)}}
 function load(path,rootId=active.id){vscode.postMessage({type:'list',id:String(++serial),rootId,path})}
 function enqueueRefresh(rootId,paths){const view=views.get(rootId);if(!view)return;for(const path of paths)if(!view.refreshQueue.includes(path))view.refreshQueue.push(path);pumpRefresh(rootId)}
@@ -235,10 +237,15 @@ document.getElementById('batchSync').onclick=()=>sendBatch('batchSync');
 document.getElementById('batchDelete').onclick=()=>sendBatch('batchDelete');
 window.addEventListener('message',event=>{
   const message=event.data;
-  if(message.type==='init'){
-    roots=message.roots;
+  if(message.type==='scopeLoading'){
+    status.className='busy';status.textContent=message.message||'正在加载同步范围…';
+  }else if(message.type==='init'){
+    roots=message.roots;status.className='';status.textContent='范围已载入，展开目录后按需读取文件。';
     for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),refreshQueue:[],mutationParent:null,focus:null,pendingFocusScroll:null,busyAction:null,statuses:{},issueFilterOn:false,issueSignature:null,batchSelected:new Set(),issueTree:null});
     active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');
+    if(pendingScopeSelected){const queued=pendingScopeSelected;pendingScopeSelected=null;applyScopeSelected(queued)}
+  }else if(message.type==='scopeSelected'){
+    applyScopeSelected(message);
   }else if(message.type==='children'){
     const view=views.get(message.rootId);if(!view)return;
     view.listPending.delete(message.path);
