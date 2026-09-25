@@ -23906,6 +23906,8 @@ const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", ".agents",
 function blockedExplicitCodePath(relative: string): boolean {
     const parts = relative.toLowerCase().split("/");
     if (parts[0] === "tmp") return true;
+    if (parts[0] === "experiments" && parts[1] === "results" && parts.at(-1)?.endsWith(".csv.lock")) return true;
+    if (parts[0] === "work_dirs" && parts.at(-1) === ".tb_mean.lock") return true;
     if (["plan_sync_ledger.json", "project_mirror_state.json"].includes(parts.at(-1) || "")) return true;
     if (parts.some((part) => blockedExplicitCodeDirs.has(part))) return true;
     if (parts[0] !== "simple_cluster") return false;
@@ -23983,7 +23985,7 @@ async function listLocalSyncScope(root: string, relative: string): Promise<Scope
     const entries = await fs.readdir(full, { withFileTypes: true });
     return entries.flatMap((entry) => {
         const child = relative === "." ? entry.name : `${relative}/${entry.name}`;
-        if (entry.isSymbolicLink() || !entry.isDirectory() && !entry.isFile() || blockedExplicitCodePath(child) || entry.name.toLowerCase().startsWith(".env")) return [];
+        if (entry.isSymbolicLink() || !entry.isDirectory() && !entry.isFile() || blockedExplicitCodePath(child) || !scopeInventoryPathAllowed(child, entry.isDirectory()) || entry.name.toLowerCase().startsWith(".env")) return [];
         return [{ name: entry.name, path: child, directory: entry.isDirectory() }];
     }).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
 }

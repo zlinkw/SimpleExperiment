@@ -27,6 +27,9 @@ test("server scope defaults to all files and can select directories without type
   assert.deepEqual(Object.keys(filterInventoryByScope(files, ["work_dirs"])), ["work_dirs/p/weight.pt"]);
   assert.throws(() => normalizeMirrorScopePaths(["../outside"]), /不安全/);
   assert.throws(() => normalizeMirrorScopePaths([".git/config"]), /机器状态/);
+  assert.throws(() => normalizeMirrorScopePaths(["experiments/results/formal/final.csv.lock"]), /机器状态/);
+  assert.throws(() => normalizeMirrorScopePaths(["work_dirs/corim/.tb_mean.lock"]), /机器状态/);
+  assert.deepEqual(normalizeMirrorScopePaths(["poetry.lock"]), ["poetry.lock"]);
 });
 
 test("manually retained SHA wins on a Worker that reconnects with an older copy", () => {

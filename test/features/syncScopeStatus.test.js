@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const path = require("node:path");
-const { buildScopeStatuses, collectLocalScopeInventory } = require("../../dist/features/SyncScopeStatus.js");
+const { buildScopeStatuses, collectLocalScopeInventory, scopeInventoryPathAllowed } = require("../../dist/features/SyncScopeStatus.js");
 
 const file = (hash) => ({ sha256: hash, size: 1 });
 const ledger = { schemaVersion: 2, entries: {
@@ -69,4 +69,10 @@ test("folder status hashes direct files without scanning large descendant direct
   const inventory = await collectLocalScopeInventory(root, "data", false);
   assert.deepEqual(Object.keys(inventory), ["data/visible.bin"]);
   assert.equal(inventory["data/visible.bin"].sha256.length, 64);
+});
+
+test("inventory excludes runtime locks but retains project lockfiles", () => {
+  assert.equal(scopeInventoryPathAllowed("experiments/results/formal/final.csv.lock"), false);
+  assert.equal(scopeInventoryPathAllowed("work_dirs/corim/.tb_mean.lock"), false);
+  assert.equal(scopeInventoryPathAllowed("poetry.lock"), true);
 });

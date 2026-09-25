@@ -16,6 +16,8 @@ function fileIdentity(stat: { dev: number; ino: number; size: number; mtimeMs: n
 export function scopeInventoryPathAllowed(relative: string, directory = false): boolean {
   const parts = relative.toLowerCase().split("/");
   if (parts[0] === "tmp" || parts.some((part) => [".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"].includes(part))) return false;
+  if (parts[0] === "experiments" && parts[1] === "results" && parts.at(-1)?.endsWith(".csv.lock")) return false;
+  if (parts[0] === "work_dirs" && parts.at(-1) === ".tb_mean.lock") return false;
   if (parts.at(-1)?.startsWith(".env")) return false;
   if (["plan_sync_ledger.json", "project_mirror_state.json"].includes(parts.at(-1) || "")) return false;
   if (parts[0] !== "simple_cluster" || parts.length < 2) return true;
