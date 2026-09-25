@@ -11578,18 +11578,27 @@ export class RealtimeTunnelPanelProvider {
         return tables;
     }
     async loadPlanSyncLedger(root) {
-        const file = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
-        const source = await fs.readFile(file, "utf8").catch((error) => {
+        const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
+        let source = await fs.readFile(file, "utf8").catch((error) => {
             if (error?.code === "ENOENT") return "";
             throw error;
         });
+        const migrate = !source;
+        if (migrate) {
+            const legacy = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
+            source = await fs.readFile(legacy, "utf8").catch((error) => {
+                if (error?.code === "ENOENT") return "";
+                throw error;
+            });
+        }
         const ledger = source ? PlanArtifactSync.migratePlanSyncLedger(JSON.parse(source)) : PlanArtifactSync.emptyPlanSyncLedger();
+        if (migrate && source) await this.writePlanSyncLedger(root, ledger);
         this.planSyncLedger = ledger;
         this.planSyncLedgerRoot = root;
         return ledger;
     }
     async writePlanSyncLedger(root, ledger) {
-        const file = await safeResultOutputPath(root, "simple_cluster/results/plan_sync_ledger.json");
+        const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
         await fs.mkdir(path.dirname(file), { recursive: true });
         const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
         await fs.writeFile(temporary, JSON.stringify(ledger, null, 2) + "\n", "utf8");
@@ -11837,7 +11846,7 @@ export class RealtimeTunnelPanelProvider {
             protectedDifferences: verified.protectedDifferences,
             complete: !disabled.length && !pendingPlans.length && !verified.conflicts.length && !verified.copies.length && !verified.protectedDifferences.length,
         };
-        const file = await safeResultOutputPath(root, "simple_cluster/results/project_mirror_state.json");
+        const file = PlanArtifactSync.projectMirrorStateStoragePath(this.context.globalStorageUri.fsPath, root);
         await fs.mkdir(path.dirname(file), { recursive: true });
         const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
         await fs.writeFile(temporary, JSON.stringify(state, null, 2) + "\n", "utf8");
@@ -14110,9 +14119,14 @@ export class RealtimeTunnelPanelProvider {
                     if (!root) return 0;
                     if (this.planSyncLedgerRoot !== root) {
                         try {
-                            const file = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
+                            const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
                             this.planSyncLedger = PlanArtifactSync.migratePlanSyncLedger(JSON.parse(fsNode.readFileSync(file, "utf8")));
-                        } catch { this.planSyncLedger = PlanArtifactSync.emptyPlanSyncLedger(); }
+                        } catch {
+                            try {
+                                const legacy = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
+                                this.planSyncLedger = PlanArtifactSync.migratePlanSyncLedger(JSON.parse(fsNode.readFileSync(legacy, "utf8")));
+                            } catch { this.planSyncLedger = PlanArtifactSync.emptyPlanSyncLedger(); }
+                        }
                         this.planSyncLedgerRoot = root;
                     }
                     return PlanArtifactSync.pendingPlanSyncs(this.planSyncLedger || PlanArtifactSync.emptyPlanSyncLedger()).length;

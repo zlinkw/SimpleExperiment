@@ -1,3 +1,6 @@
+import * as crypto from "node:crypto";
+import * as path from "node:path";
+
 export type PlanSyncEntry = {
   planFile: string;
   revision: string;
@@ -11,6 +14,19 @@ export type PlanSyncEntry = {
 export type PlanSyncLedger = { schemaVersion: 2; entries: Record<string, PlanSyncEntry> };
 
 export const emptyPlanSyncLedger = (): PlanSyncLedger => ({ schemaVersion: 2, entries: {} });
+
+function projectStorageId(projectRoot: string): string {
+  const resolved = path.resolve(projectRoot);
+  return crypto.createHash("sha256").update(process.platform === "win32" ? resolved.toLowerCase() : resolved).digest("hex");
+}
+
+export function planSyncLedgerStoragePath(storageRoot: string, projectRoot: string): string {
+  return path.join(storageRoot, "plan-sync-ledgers", `${projectStorageId(projectRoot)}.json`);
+}
+
+export function projectMirrorStateStoragePath(storageRoot: string, projectRoot: string): string {
+  return path.join(storageRoot, "plan-sync-ledgers", `${projectStorageId(projectRoot)}.mirror.json`);
+}
 
 function canonicalPlan(value: string): string { return String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase(); }
 

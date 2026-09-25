@@ -1,7 +1,18 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const path = require("node:path");
 const sync = require("../../dist/features/PlanArtifactSync.js");
 const transfer = require("../../dist/features/PlanArtifactTransfer.js");
+
+test("Plan sync ledger lives in plugin storage and is keyed by project root", () => {
+  const storage = path.resolve("plugin-storage");
+  const a = sync.planSyncLedgerStoragePath(storage, path.resolve("project-a"));
+  const b = sync.planSyncLedgerStoragePath(storage, path.resolve("project-b"));
+  assert.equal(path.dirname(a), path.join(storage, "plan-sync-ledgers"));
+  assert.notEqual(a, b);
+  assert.equal(a, sync.planSyncLedgerStoragePath(storage, path.resolve("project-a", ".")));
+  assert.equal(path.dirname(sync.projectMirrorStateStoragePath(storage, path.resolve("project-a"))), path.dirname(a));
+});
 
 test("Plan artifact scope includes its output directory and declared result files only", () => {
   const paths = sync.planArtifactPaths({
