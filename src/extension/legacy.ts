@@ -34,6 +34,7 @@ import * as ProjectResultTables from "../results/ProjectResultTables";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import * as DistributedPlanQueue from "../features/DistributedPlanQueue";
+import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
 import { directPlanSyncPreview, transferPlanArtifacts } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
 import { openSyncScopeTree, ScopeEntry } from "../features/SyncScopeTree";
@@ -21446,7 +21447,7 @@ function parseProjectAdapterRules(text) {
     const [entrypointsStart, entrypointsEnd] = sectionRange("entrypoints");
     const entryScalar = (name) => entrypointsStart >= 0 ? scalar(name, 2, entrypointsStart, entrypointsEnd) : "";
     return {
-        distributedResults: scalar("distributedResults", 0) === "true",
+        distributedResults: parseDistributedResultsFlag(scalar("distributedResults", 0)),
         taskType: scalar("taskType", 0) || outputScalar("taskType") || undefined,
         primaryMetric: scalar("primaryMetric", 0) || outputScalar("primaryMetric") || undefined,
         secondaryMetrics: listAfter("secondaryMetrics", 0),

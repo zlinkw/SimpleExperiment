@@ -72,6 +72,7 @@ const ProjectResultTables = __importStar(require("../results/ProjectResultTables
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
 const DistributedPlanQueue = __importStar(require("../features/DistributedPlanQueue"));
+const DistributedAdapterFlag_1 = require("../features/DistributedAdapterFlag");
 const PlanArtifactTransfer_1 = require("../features/PlanArtifactTransfer");
 const ProjectMirror_1 = require("../features/ProjectMirror");
 const SyncScopeTree_1 = require("../features/SyncScopeTree");
@@ -22005,7 +22006,7 @@ function parseProjectAdapterRules(text) {
     const [entrypointsStart, entrypointsEnd] = sectionRange("entrypoints");
     const entryScalar = (name) => entrypointsStart >= 0 ? scalar(name, 2, entrypointsStart, entrypointsEnd) : "";
     return {
-        distributedResults: scalar("distributedResults", 0) === "true",
+        distributedResults: (0, DistributedAdapterFlag_1.parseDistributedResultsFlag)(scalar("distributedResults", 0)),
         taskType: scalar("taskType", 0) || outputScalar("taskType") || undefined,
         primaryMetric: scalar("primaryMetric", 0) || outputScalar("primaryMetric") || undefined,
         secondaryMetrics: listAfter("secondaryMetrics", 0),
