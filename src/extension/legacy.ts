@@ -7217,9 +7217,10 @@ export class RealtimeTunnelPanelProvider {
                 if (!result || result.ok === false) throw new Error(`上传 ${row.id} 失败：${resultError(result)}`);
             } else {
                 await this.assertSshTransportIdentities([sourceRow, row]);
-                await this.simpleSftpApiCall(directory ? "sync.serverToServer" : "sync.serverToServerBatch", { source: this.sftpServerOptions(sourceRow),
+                await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                     destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
-                    ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }), confirm: true, pathConfirmed: true });
+                    ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }),
+                    confirm: true, pathConfirmed: true });
             }
             report(`正在校验 ${row.id} 的文件内容`);
             const checked = (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(row), relativePath: inventoryPath, recursive: directory })).files;
@@ -7270,7 +7271,7 @@ export class RealtimeTunnelPanelProvider {
                 if (await vscode.window.showWarningMessage(`第二次确认\n${preview}`, { modal: true }, "确认覆盖此 Worker") !== "确认覆盖此 Worker") return;
                 if (sourceRow) {
                     await this.assertSshTransportIdentities([sourceRow, target]);
-                    await this.simpleSftpApiCall("sync.serverToServer", { source: this.sftpServerOptions(sourceRow),
+                    await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(sourceRow),
                         destination: { ...destination, host: destination.networkHost || destination.host },
                         relativePath: directory, directory: true, manualRetain: true, confirm: true, pathConfirmed: true });
                 } else {
@@ -8401,7 +8402,7 @@ export class RealtimeTunnelPanelProvider {
                     const paths = phase === "fragments" ? fragmentPaths
                         : Object.keys(job.artifacts).filter((name) => !fragmentPaths.includes(name)).sort();
                     for (let offset = 0; offset < paths.length; offset += 5000) {
-                        await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
+                        await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
                             destination: { ...destination, host: destination.networkHost || destination.host },
                             relativePaths: paths.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
                     }
@@ -8542,7 +8543,7 @@ export class RealtimeTunnelPanelProvider {
             }
             try {
                 await this.assertSshTransportIdentities([sourceRow, destinationRow]);
-                await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
+                await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
                     destination: { ...destination, host: destination.networkHost || destination.host },
                     relativePaths: paths, confirm: true, pathConfirmed: true });
                 const [sourceAfter, destinationAfter] = await Promise.all([
@@ -8589,7 +8590,7 @@ export class RealtimeTunnelPanelProvider {
             await this.assertSshTransportIdentities([sourceRow, target]);
             const destination = this.sftpServerOptions(target);
             for (let offset = 0; offset < files.length; offset += 5000)
-                await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
+                await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
                     destination: { ...destination, host: destination.networkHost || destination.host },
                     relativePaths: files.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
             const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
@@ -13219,7 +13220,7 @@ export class RealtimeTunnelPanelProvider {
                     { modal: true }, "确认同步");
                 if (answer !== "确认同步") return;
                 await this.assertSshTransportIdentities([group.source, group.destination]);
-                await this.simpleSftpApiCall("sync.serverToServerBatch", {
+                await this.simpleSftpApiCall("sync.serverToServerFpsync", {
                     source, destination: { ...destination, host: destination.networkHost || destination.host }, relativePaths: paths,
                     confirm: true, pathConfirmed: true,
                 });

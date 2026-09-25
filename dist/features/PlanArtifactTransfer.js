@@ -60,11 +60,13 @@ function directPlanSyncPreview(entry, source, destination) {
     });
     return [...deletes, ...copies];
 }
+const BATCH_FILE_LIMIT = 5000;
 async function transferPlanArtifacts(entry, source, destination, sftpCall) {
     checkedRoot(source);
     checkedRoot(destination);
     if (!entry.artifactPaths.length)
         throw new Error("Plan 没有可确认的产物路径，无法同步权重和结果。");
+    const destinationTarget = { ...destination, host: destination.networkHost || destination.host };
     let paths = 0;
     for (const stale of entry.stalePaths || []) {
         const relativePath = (0, PlanArtifactSync_1.safePlanArtifactPath)(stale.path);
@@ -72,7 +74,7 @@ async function transferPlanArtifacts(entry, source, destination, sftpCall) {
             throw new Error(`旧产物路径不安全：${stale.path}`);
         await sftpCall("sync.serverToServer", {
             source,
-            destination: { ...destination, host: destination.networkHost || destination.host },
+            destination: destinationTarget,
             relativePath,
             directory: stale.directory,
             deleteOnly: true,
@@ -81,23 +83,42 @@ async function transferPlanArtifacts(entry, source, destination, sftpCall) {
         });
         paths++;
     }
+    const files = [];
     for (const raw of entry.artifactPaths) {
         const relativePath = (0, PlanArtifactSync_1.safePlanArtifactPath)(raw);
         if (!relativePath)
             throw new Error(`Plan 产物路径不安全：${raw}`);
-        if (entry.directoryPaths.includes(relativePath) && relativePath.split("/").length < 2)
+        const directory = entry.directoryPaths.includes(relativePath);
+        if (directory && relativePath.split("/").length < 2)
             throw new Error(`产物目录必须限定到 Plan 独立子目录：${relativePath}`);
-        if (path.posix.dirname(relativePath) === "." && !entry.directoryPaths.includes(relativePath))
+        if (path.posix.dirname(relativePath) === "." && !directory)
             throw new Error(`拒绝对项目根目录执行产物同步：${relativePath}`);
-        await sftpCall("sync.serverToServer", {
+        if (directory) {
+            await sftpCall("sync.serverToServerFpsync", {
+                source,
+                destination: destinationTarget,
+                relativePath,
+                directory: true,
+                confirm: true,
+                pathConfirmed: true,
+            });
+            paths++;
+        }
+        else {
+            files.push(relativePath);
+        }
+    }
+    const uniqueFiles = [...new Set(files)].sort();
+    for (let offset = 0; offset < uniqueFiles.length; offset += BATCH_FILE_LIMIT) {
+        const relativePaths = uniqueFiles.slice(offset, offset + BATCH_FILE_LIMIT);
+        await sftpCall("sync.serverToServerFpsync", {
             source,
-            destination: { ...destination, host: destination.networkHost || destination.host },
-            relativePath,
-            directory: entry.directoryPaths.includes(relativePath),
+            destination: destinationTarget,
+            relativePaths,
             confirm: true,
             pathConfirmed: true,
         });
-        paths++;
+        paths += relativePaths.length;
     }
     return { paths };
 }

@@ -90,14 +90,68 @@ test("SFTP transfers Plan outputs and weights directly to their original paths",
     return { ok: true };
   });
   assert.equal(result.paths, 2);
-  assert.deepEqual(calls.map((call) => call.method), ["sync.serverToServer", "sync.serverToServer"]);
+  assert.deepEqual(calls.map((call) => call.method), ["sync.serverToServerFpsync", "sync.serverToServerFpsync"]);
   assert.equal(calls[0].params.relativePath, "work_dirs/corim");
   assert.equal(calls[0].params.directory, true);
-  assert.equal(calls[1].params.relativePath, "experiments/results/corim.csv");
-  assert.equal(calls[1].params.directory, false);
+  assert.deepEqual(calls[1].params.relativePaths, ["experiments/results/corim.csv"]);
+  assert.equal(calls[1].params.directory, undefined);
   assert.deepEqual(transfer.directPlanSyncPreview(entry, source, destination), [
     "/srv/nwpu2/project/work_dirs/corim → /srv/nwpu3/project/work_dirs/corim",
     "/srv/nwpu2/project/experiments/results/corim.csv → /srv/nwpu3/project/experiments/results/corim.csv",
   ]);
   assert.ok(calls.every((call) => call.params.confirm && call.params.pathConfirmed));
+});
+
+test("file artifacts share one batch and stale deletes stay one confirmed call each", async () => {
+  const entry = {
+    planFile: "plans/corim.yaml", revision: "rev2", runId: "operation-3", sourceWorkerId: "nwpu2",
+    artifactPaths: ["experiments/results/new.csv", "experiments/results/metrics.json", "work_dirs/corim"],
+    directoryPaths: ["work_dirs/corim"],
+    stalePaths: [
+      { path: "experiments/results/old.csv", directory: false },
+      { path: "work_dirs/retired", directory: true },
+    ],
+    destinations: { nwpu3: { status: "pending" } },
+  };
+  const source = { id: "nwpu2", host: "server2", user: "research", port: 22, remotePath: "/srv/nwpu2/project" };
+  const destination = { id: "nwpu3", host: "tunnel", user: "research", port: 22, remotePath: "/srv/nwpu3/project", networkHost: "10.0.0.3" };
+  const calls = [];
+  const result = await transfer.transferPlanArtifacts(entry, source, destination, async (method, params) => {
+    calls.push({ method, params });
+    return { ok: true };
+  });
+  assert.equal(result.paths, 5);
+  assert.deepEqual(calls.map((call) => call.method), [
+    "sync.serverToServer", "sync.serverToServer", "sync.serverToServerFpsync", "sync.serverToServerFpsync",
+  ]);
+  assert.equal(calls[0].params.deleteOnly, true);
+  assert.equal(calls[0].params.relativePath, "experiments/results/old.csv");
+  assert.equal(calls[1].params.deleteOnly, true);
+  assert.equal(calls[1].params.directory, true);
+  assert.equal(calls[1].params.relativePath, "work_dirs/retired");
+  assert.equal(calls[2].params.relativePath, "work_dirs/corim");
+  assert.equal(calls[2].params.directory, true);
+  assert.equal(calls[2].params.deleteOnly, undefined);
+  assert.deepEqual(calls[3].params.relativePaths, ["experiments/results/metrics.json", "experiments/results/new.csv"]);
+  assert.equal(calls[3].params.destination.host, "10.0.0.3");
+  assert.ok(calls.every((call) => call.params.confirm && call.params.pathConfirmed));
+});
+
+test("more than 5000 file artifacts stay inside the batch path limit", async () => {
+  const artifactPaths = Array.from({ length: 5001 }, (_, index) => `experiments/results/file-${String(index).padStart(4, "0")}.csv`);
+  const entry = {
+    planFile: "plans/corim.yaml", revision: "rev3", runId: "operation-4", sourceWorkerId: "nwpu2",
+    artifactPaths, directoryPaths: [], destinations: { nwpu3: { status: "pending" } },
+  };
+  const source = { id: "nwpu2", host: "server2", user: "research", port: 22, remotePath: "/srv/nwpu2/project" };
+  const destination = { id: "nwpu3", host: "server3", user: "research", port: 22, remotePath: "/srv/nwpu3/project" };
+  const calls = [];
+  const result = await transfer.transferPlanArtifacts(entry, source, destination, async (method, params) => {
+    calls.push({ method, params });
+    return { ok: true };
+  });
+  assert.equal(result.paths, 5001);
+  assert.deepEqual(calls.map((call) => call.method), ["sync.serverToServerFpsync", "sync.serverToServerFpsync"]);
+  assert.equal(calls[0].params.relativePaths.length, 5000);
+  assert.equal(calls[1].params.relativePaths.length, 1);
 });
