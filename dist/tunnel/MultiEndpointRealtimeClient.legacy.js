@@ -364,7 +364,7 @@ class MultiEndpointRealtimeClient {
     }
     async postWorkerAction(workerId, action, body) {
         const isCacheClearWorker = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
-        if (!isCacheClearWorker && !(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
+        if (!isCacheClearWorker && action !== "preview-cache-cleanup" && action !== "delete-cache-candidates" && !(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
             throw new Error(`Worker Agent action not allowed: ${action}`);
         }
         const client = this.clients.get(workerId);

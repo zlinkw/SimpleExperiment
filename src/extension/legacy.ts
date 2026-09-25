@@ -5,6 +5,7 @@ import * as fsNode from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as os from "os";
+import { openCacheCleanupPanel } from "./CacheCleanupPanel";
 import RequestBudget_1 = require("../tunnel/RequestBudget");
 import TunnelGateway_1 = require("../tunnel/TunnelGateway");
 import RealtimeEventReducer_1 = require("../tunnel/RealtimeEventReducer");
@@ -11566,49 +11567,7 @@ export class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
     }
     async clearCacheFromUi() {
-        const confirm = await vscode.window.showWarningMessage("确认清除缓存？将删除 tmp/cluster_scheduler、tmp/tmux_logs、simple_cluster/tmp/cluster_scheduler、simple_cluster/tmp/tmux_logs 等 MANAGED 前缀内临时文件", { modal: true }, "确认清除", "取消");
-        if (confirm !== "确认清除")
-            return;
-        try {
-            const opId = crypto.randomUUID();
-            const endpoints = (this as any).realtimeEndpoints ? (this as any).realtimeEndpoints() : [];
-            const hasHub = endpoints.some((e: any) => e.id === "hub" || e.role === "hub");
-            const workerIds: string[] = endpoints.filter((e: any) => e.role === "worker").map((e: any) => String(e.id));
-            let res: any = undefined;
-            let aggregatedDeleted = 0;
-            let lastErr: any = undefined;
-            // 优先尝试聚合路由（兼容 hub 存在时）；若 Hub 未配置则回退到对所有可用端点广播（hub+workers）或仅 workers
-            try {
-                res = await (this.client as any).postAction("clearCache", { opId, confirm: true });
-                aggregatedDeleted = Number(res?.deletedCount ?? 0);
-            } catch (e: any) {
-                lastErr = e;
-                const msg = String(e?.message || "");
-                const hubMissing = msg.includes("Hub realtime endpoint not configured");
-                if (!hubMissing) throw e;
-                // Hub 未配置时直接对 worker 端点逐个 postAction（clearCache 视为 worker 本地操作）
-                if (!workerIds.length) throw e;
-                const results = await Promise.allSettled(workerIds.map((wid) => (this.client as any).postWorkerAction(wid, "clearCache", { opId: `${opId}-${wid}`, confirm: true })));
-                const fulfilled = results.filter((r: any) => r.status === "fulfilled") as any[];
-                if (!fulfilled.length) {
-                    const rejected = results.find((r: any) => r.status === "rejected") as any;
-                    throw rejected?.reason || e;
-                }
-                aggregatedDeleted = fulfilled.reduce((sum: number, r: any) => sum + Number(r.value?.deletedCount ?? 0), 0);
-                res = { deletedCount: aggregatedDeleted, aggregated: true, workerCount: fulfilled.length };
-            }
-            // 若有 hub 且也有 workers，额外广播到 workers 以确保单 worker 拓扑下二者一致性（聚合已覆盖多端时忽略）
-            if (hasHub && workerIds.length && res && !res.aggregated) {
-                try {
-                    const workerResults = await Promise.allSettled(workerIds.map((wid) => (this.client as any).postWorkerAction(wid, "clearCache", { opId: `${opId}-${wid}`, confirm: true }).catch(() => undefined)));
-                    const extra = workerResults.filter((r: any) => r.status === "fulfilled" && r.value).reduce((s: number, r: any) => s + Number((r as any).value?.deletedCount ?? 0), 0);
-                    if (extra) aggregatedDeleted += extra;
-                } catch {}
-            }
-            await vscode.window.showInformationMessage(`缓存已清除：${aggregatedDeleted ?? 0} 项`);
-        } catch (err: any) {
-            await vscode.window.showErrorMessage(String(err?.message || err));
-        }
+        openCacheCleanupPanel(this.client, () => this.realtimeEndpoints(), workspaceRoot());
     }
     async clearOperationHistoryFromUi(message) {
         const root = workspaceRoot();

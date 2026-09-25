@@ -233,12 +233,15 @@ test("local root select all allows excluding a nested artifact directory", () =>
   rootBox.checked = true;
   rootBox.onchange();
   assert.equal(elements.get("tree").children[0].children[1].checked, true);
+  assert.match(elements.get("tree").children[1].className, /transfer-scope/);
+  assert.match(elements.get("tree").children[2].className, /transfer-scope/);
   elements.get("tree").children[2].children[2].onclick();
   onMessage({ data: { type: "children", rootId: "local", path: "artifacts", entries: [{ name: "model_cache", path: "artifacts/model_cache", directory: true, selectable: true }] } });
   const artifactBox = elements.get("tree").children[3].children[1];
   artifactBox.checked = false;
   artifactBox.onchange();
   assert.equal(elements.get("tree").children[0].children[1].indeterminate, true);
+  assert.doesNotMatch(elements.get("tree").children[3].className, /transfer-scope/);
   elements.get("save").onclick();
   assert.deepEqual([...messages.at(-1).paths], ["artifacts", "configs"]);
   assert.deepEqual([...messages.at(-1).excluded], ["artifacts/model_cache"]);

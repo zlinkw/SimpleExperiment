@@ -1244,7 +1244,7 @@ function renderPanelHtml() {
         <span class="status-chip">全局配置</span>
         <span class="status-chip status-completed">仅本机端口</span>
         <button data-command="verifyAgentVersion" class="secondary" type="button" title="校验 Agent 版本&#10;对比本机与各服务器上的 Agent 版本&#10;不一致时提示升级">校验 Agent 版本</button>
-        <button data-command="clearCache" class="secondary" type="button" title="清除本机缓存：删除 tmp/cluster_scheduler 与 tmux_logs 下的临时文件&#10;只清理受管前缀内的文件，不影响其他目录">清除缓存</button>
+        <button data-command="clearCache" class="secondary" type="button" title="查看各 Worker 已结束任务超过 7 天的临时文件与日志，审核完整路径后才可删除">缓存回收审核</button>
         <button data-command="pauseAll" class="secondary" type="button" title="暂停全部网络活动&#10;挂起隧道与实时流，已提交的远端任务不受影响">暂停全部网络</button>
         <button data-command="resumeNetwork" class="secondary" type="button" title="恢复网络&#10;重新建立此前暂停的隧道与实时流">恢复网络</button>
         <button data-command="openSetupGuide" class="secondary" type="button" title="打开该步骤的处理说明&#10;含配置步骤与常见问题排查">配置说明</button>

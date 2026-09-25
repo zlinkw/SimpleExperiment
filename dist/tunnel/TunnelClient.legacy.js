@@ -13,6 +13,7 @@ exports.tunnelActions = [
     "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config",
     "start-worker-task", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
     "start-tensorboard", "stop-tensorboard", "get-tensorboard-status",
+    "preview-cache-cleanup", "delete-cache-candidates",
 ];
 const getPurposeByPath = new Map([
     ["/api/health", "health"],

@@ -227,6 +227,8 @@ ACTION_PATHS = [
     "/api/actions/install-rich",
     "/api/actions/clear-cache",
     "/api/actions/clearCache",
+    "/api/actions/preview-cache-cleanup",
+    "/api/actions/delete-cache-candidates",
 ]
 ACTION_ROUTES = set(ACTION_PATHS)
 WORKER_COMMAND_QUEUE = {}
@@ -3654,48 +3656,7 @@ def execute_worker_command(root, command, worker_id):
         payload["operationId"] = command_id
         return handle_action(root, action, payload, command_id, command_id)
     if action in ("clear-cache", "clearCache"):
-        # 清除缓存白名单：基于 MANAGED_ARTIFACT_PREFIXES 受控生成，逐项校验 isManaged等价 + realpath 防逃逸
-        # tmp/ 为主，simple_cluster/tmp 仅过渡兼容，下版本移除
-        _MANAGED_ARTIFACT_PREFIXES_PY = ["tmp/cluster_scheduler/logs/", "tmp/cluster_scheduler/", "tmp/tmux_logs/", "tmp/console_logs/", "tmp/", "simple_cluster/tmp/cluster_scheduler/logs/", "simple_cluster/tmp/cluster_scheduler/", "simple_cluster/tmp/tmux_logs/", "simple_cluster/tmp/console_logs/", "simple_cluster/tmp/"]
-        def _is_managed_rel(rel):
-            # 等价 src/syncState.ts:isManagedArtifactPath
-            norm = str(rel or "").replace("\\", "/").lstrip("/")
-            if not norm or norm.startswith("[simple]"):
-                return False
-            # 去除 simple_cluster 前缀的变体
-            variants = {norm}
-            idx = norm.find("/simple_cluster/")
-            if idx >= 0:
-                variants.add(norm[idx+1:])
-            for v in list(variants):
-                for p in _MANAGED_ARTIFACT_PREFIXES_PY:
-                    if v == p.rstrip("/") or v.startswith(p) or v.startswith(p.rstrip("/") + "/"):
-                        return True
-            return False
-        deleted = 0
-        for prefix in _MANAGED_ARTIFACT_PREFIXES_PY:
-            pattern = prefix.rstrip("/") + "/*"
-            import glob as _g
-            for path in _g.glob(os.path.join(root, pattern)):
-                try:
-                    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(root)).replace("\\", "/")
-                    if not _is_managed_rel(rel):
-                        continue
-                    # 校验 safe_project_path + realpath 不超出 root
-                    safe_project_path(root, rel)
-                    real_target = os.path.realpath(os.path.abspath(path))
-                    real_root = os.path.realpath(os.path.abspath(root))
-                    if not real_target.startswith(real_root + os.sep) and real_target != real_root:
-                        continue
-                    if os.path.isdir(path):
-                        __import__("shutil").rmtree(path)
-                    else:
-                        os.remove(path)
-                    deleted += 1
-                except Exception:
-                    continue
-        append_event(root, {"type": "cache_cleared", "payload": {"deletedCount": deleted}})
-        return {"commandId": command_id, "status": "completed", "deletedCount": deleted, "message": f"已清除 {deleted} 项缓存"}
+        return {"commandId": command_id, "status": "failed", "message": "旧清缓存入口已停用，请使用缓存回收审核清单并二次确认完整路径"}
     if action not in ("start-worker-task", "retry-worker-task"):
         result = {"commandId": command_id, "status": "failed", "message": f"不支持的 Worker 命令：{action}"}
         append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
@@ -9251,32 +9212,8 @@ def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_r
 
 
 def cleanup_dry_run_worker_temp_files(root, max_age_seconds=24 * 60 * 60):
-    roots = [
-        os.path.realpath(os.path.dirname(state_child_path(root, "actions", ""))),
-        os.path.realpath(safe_project_path(root, "simple_cluster/tmp/cluster_scheduler")),
-    ]
-    cutoff = time.time() - max(0, int(max_age_seconds or 0))
-    removed = []
-    for base in roots:
-        if not os.path.isdir(base):
-            continue
-        for entry in os.scandir(base):
-            try:
-                name = entry.name
-                valid_name = bool(re.fullmatch(r"dry-run-workers-\d+-[0-9a-f]{12}\.json", name))
-                if not valid_name or not entry.is_file(follow_symlinks=False):
-                    continue
-                path = os.path.realpath(entry.path)
-                if os.path.commonpath([base, path]) != base or path == base:
-                    continue
-                if os.stat(path).st_mtime > cutoff:
-                    continue
-                rel = relpath(root, path)
-                os.unlink(path)
-                removed.append(rel.replace("\\", "/"))
-            except Exception:
-                continue
-    return {"removedCount": len(removed), "removed": removed[:50]}
+    # 自动删除不能提供完整路径的双重确认。旧 dry-run 文件由缓存审核入口统一处理。
+    return {"removedCount": 0, "removed": []}
 
 def selected_worker_id(payload):
     worker_id = action_payload_text(payload, "workerId")
@@ -10160,7 +10097,111 @@ def deregister_active_run_plan(root, op_id):
         _write_run_plan_registry(root, entries)
 
 
+def cache_cleanup_candidates(root):
+    """Only aged project temp files; never remove runtime state or experiment data."""
+    root_real = os.path.realpath(root)
+    if not os.path.isdir(root_real):
+        raise ValueError("项目根目录不可用")
+    tasks = api_worker_tasks(root).get("tasks") or []
+    if any(str(task.get("status") or "").lower() in ("running", "queued", "pending") for task in tasks if isinstance(task, dict)):
+        raise ValueError("仍有运行中或待派发的任务，当前 Worker 暂停缓存回收")
+    for state in collect_scheduler(root):
+        scheduler_pid = state.get("pid") or state.get("schedulerPid") or state.get("processId")
+        if scheduler_pid and is_pid_running(scheduler_pid) and (str(state.get("status") or "").lower() in ("running", "queued", "pending") or any(state.get(bucket) for bucket in ("running_experiments", "testing_experiments"))):
+            raise ValueError("调度器仍在运行，当前 Worker 暂停缓存回收")
+    cutoff = time.time() - 7 * 24 * 60 * 60
+    candidates = []
+    protected_markers = ("tensorboard", "tb_log", "checkpoint", "weight", "model_cache", "dataset")
+    allowed_extensions = {".log", ".tmp", ".bak", ".part"}
+    groups = ("simple_cluster/tmp", "tmp")
+    for relative_base in groups:
+        base = os.path.join(root_real, *relative_base.split("/"))
+        if not os.path.isdir(base) or os.path.islink(base) or os.path.realpath(base) != base or os.stat(base).st_dev != os.stat(root_real).st_dev:
+            continue
+        for parent, dirs, files in os.walk(base, followlinks=False):
+            if os.path.realpath(parent) != parent or os.stat(parent).st_dev != os.stat(root_real).st_dev:
+                dirs[:] = []
+                continue
+            dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(parent, name)) and not any(marker in name.lower() for marker in protected_markers)]
+            for name in files:
+                path = os.path.join(parent, name)
+                dry_run_temp = bool(re.fullmatch(r"dry-run-workers-\d+-[0-9a-f]{12}\.json", name))
+                if os.path.islink(path) or any(marker in name.lower() for marker in protected_markers) or (os.path.splitext(name)[1].lower() not in allowed_extensions and not dry_run_temp):
+                    continue
+                try:
+                    stat = os.stat(path, follow_symlinks=False)
+                    if not os.path.isfile(path) or stat.st_dev != os.stat(root_real).st_dev or stat.st_mtime > cutoff:
+                        continue
+                    rel = os.path.relpath(path, root_real).replace(os.sep, "/")
+                    if os.path.commonpath((root_real, os.path.realpath(path))) != root_real:
+                        continue
+                    purpose = ("单个 Job 的训练或测试输出日志，旧内容用于历史排错" if "/cluster_scheduler/logs/" in rel else
+                               "Plan 调度过程日志" if "/cluster_scheduler/" in rel and rel.endswith(".log") else
+                               "Plan 预演的 Worker 分配快照" if dry_run_temp else
+                               "tmux 会话输出副本" if "/tmux_logs/" in rel else "插件临时工作文件")
+                    token = hashlib.sha256(f"{rel}|{stat.st_dev}|{stat.st_ino}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8")).hexdigest()
+                    candidates.append({"path": rel, "fullPath": path, "type": "file", "bytes": stat.st_size, "modifiedAt": stat.st_mtime, "purpose": purpose, "token": token})
+                    if len(candidates) > 20000:
+                        raise ValueError("候选文件过多，请分批审核")
+                except OSError:
+                    continue
+    return sorted(candidates, key=lambda item: item["path"])
+
+def cache_delete_exact_file(root, relative_path, expected_token):
+    root_real = os.path.realpath(root)
+    parts = str(relative_path or "").split("/")
+    if not parts or any(part in ("", ".", "..") for part in parts) or not (parts[:2] == ["simple_cluster", "tmp"] or parts[0] == "tmp"):
+        raise ValueError("缓存路径超出允许范围")
+    full_path = os.path.join(root_real, *parts)
+    parent = os.path.dirname(full_path)
+    leaf = os.path.basename(full_path)
+    if not leaf or leaf in (".", "..") or "/" in leaf or "\\" in leaf or os.path.realpath(parent) != parent or os.path.commonpath((root_real, parent)) != root_real or parent == root_real:
+        raise ValueError("PARENT_CD_FAILED: 父目录校验失败")
+    if os.path.islink(full_path) or not os.path.isfile(full_path):
+        raise ValueError(f"候选已变化：{relative_path}")
+    file_stat = os.stat(full_path, follow_symlinks=False)
+    current_token = hashlib.sha256(f"{relative_path}|{file_stat.st_dev}|{file_stat.st_ino}|{file_stat.st_size}|{file_stat.st_mtime_ns}".encode("utf-8")).hexdigest()
+    if current_token != expected_token or file_stat.st_mtime > time.time() - 7 * 24 * 60 * 60:
+        raise ValueError(f"候选已变化：{relative_path}")
+    if os.name != "posix":
+        raise ValueError("PARENT_CD_FAILED: 当前平台不支持安全的目录内删除")
+    script = 'cd -- "$1" || exit 41; [ "$(pwd -P)" = "$1" ] || exit 42; [ -f "./$2" ] && [ ! -L "./$2" ] || exit 43; rm -- "./$2"'
+    completed = subprocess.run(["/bin/sh", "-c", script, "cache-delete", parent, leaf], cwd=parent, capture_output=True, text=True, timeout=30)
+    if completed.returncode != 0:
+        raise ValueError("PARENT_CD_FAILED" if completed.returncode in (41, 42) else f"删除失败：{relative_path}: {completed.stderr.strip()[:200]}")
+    if os.path.lexists(full_path):
+        raise ValueError(f"删除后仍存在：{relative_path}")
+
 def handle_action(root, action, payload, operation_id, op_id):
+    if action == "preview-cache-cleanup":
+        try:
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed", "candidates": cache_cleanup_candidates(root), "retentionDays": 7}
+        except Exception as exc:
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "failed", "message": str(exc)}
+    if action == "delete-cache-candidates":
+        try:
+            selected = payload.get("candidates")
+            if payload.get("confirm") is not True or payload.get("pathConfirmed") is not True or not isinstance(selected, list) or not selected:
+                raise ValueError("CONFIRM_REQUIRED: 必须逐项确认完整路径并二次确认")
+            if len(selected) > 2000:
+                raise ValueError("缓存删除数量超过单次上限")
+            current = {row["path"]: row for row in cache_cleanup_candidates(root)}
+            if len({str(row.get("path")) for row in selected if isinstance(row, dict)}) != len(selected):
+                raise ValueError("缓存候选包含重复或无效路径")
+            for row in selected:
+                path = str(row.get("path") or "")
+                found = current.get(path)
+                if not found or found["token"] != row.get("token") or found["type"] != "file":
+                    raise ValueError(f"缓存候选已变化，请刷新后重新审核：{path}")
+            deleted = []
+            for row in selected:
+                path = row["path"]
+                cache_delete_exact_file(root, path, row["token"])
+                deleted.append(path)
+            append_event(root, {"type": "cache_cleanup_completed", "operationId": operation_id, "payload": {"deletedCount": len(deleted)}})
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed", "deletedCount": len(deleted)}
+        except Exception as exc:
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "failed", "message": str(exc)}
     if action in DEBUG_BLOCKED_ACTIONS and (action_debug_mode(payload) or action_targets_debug_run(payload)):
         return terminal_action(root, action, operation_id, op_id, "failed", "Debug 模式产物与正式实验隔离，禁止执行归档、删除、有效结果、统计、论文或 PPT 操作。", request=payload)
     if action in ("start-worker-task", "retry-worker-task", "stop-worker-task"):
@@ -12663,7 +12704,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
@@ -12879,7 +12920,8 @@ def serve_http(args):
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 if topology_mode not in ("single_worker", "worker_pool") or not owner or owner != current_worker or options.get("automaticBackup") is not False:
                     return self.send_json({"error": "worker result ownership mismatch"}, status=403)
-            append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
+            if action not in ("preview-cache-cleanup", "delete-cache-candidates"):
+                append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:
                 if mode == "worker_telemetry" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
