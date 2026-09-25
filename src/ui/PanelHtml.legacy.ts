@@ -844,6 +844,7 @@ export function renderPanelHtml(): string {
     .metric-value.warn { color: #D97706; font-weight: 800; }
     .metric-value.danger { color: #DC2626; font-weight: 800; }
     .progress-line { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 10px; align-items: center; }
+    .progress-line progress { width: 100%; height: 10px; accent-color: var(--vscode-progressBar-background); }
     .progress-bar { height: 10px; min-width: 120px; border-radius: 999px; overflow: hidden; background: #E2E8F0; }
     .progress-fill { height: 100%; border-radius: inherit; background: var(--gpu-progress-color); }
     .progress-fill.danger { background: #EF4444; }
@@ -13038,11 +13039,32 @@ export function renderPanelHtml(): string {
         '<button id="clearSelectedOperationHistory" class="mini history-clear" data-command="clearOperations" data-operation-history-selected="true" ' + (selectedOperationHistoryIds.size ? '' : 'disabled') + ' title="仅从本机面板隐藏勾选的已结束操作；不影响正在运行的 Plan 或 job">清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '') + '</button>' +
         '<button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
       const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button></div>';
-      setHtmlIfChanged("operationList", advancedActions + (view.rows.length
+      const transferHtml = renderFileTransferProgress(state && state.fileTransfers);
+      setHtmlIfChanged("operationList", advancedActions + transferHtml + (view.rows.length
         ? renderOperationStatusSummary(view.statusCounts) + renderOperationHiddenSummary(view.hiddenCount) + (view.visibleRows.length
           ? '<div class="operationTimeline">' + view.visibleRows.map((row) => renderOperationItem(row, true)).join("") + '</div>'
           : '<div class="empty-state">当前筛选下没有操作记录。</div>')
         : '<div class="empty-state">尚无操作记录。</div>'));
+    }
+
+    function renderFileTransferProgress(fileTransfers) {
+      const rows = normalizeFileTransferRows(fileTransfers).filter((row) => {
+        const status = String(row.status || "").toLowerCase();
+        return status === "running" || status === "pending" || status === "progress";
+      }).slice(0, 20);
+      if (!rows.length) return "";
+      return '<section aria-label="文件传输进度"><h3>文件传输</h3>' + rows.map((row) => {
+        const done = Number(row.transferredBytes);
+        const total = Number(row.totalBytes);
+        const known = Number.isFinite(done) && Number.isFinite(total) && total > 0;
+        const percent = known ? Math.max(0, Math.min(99, Math.floor(done * 100 / total))) : null;
+        const meter = known ? '<progress max="100" value="' + percent + '"></progress> ' + percent + '%'
+          : '<progress aria-label="传输中"></progress>';
+        const size = Number.isFinite(done) ? (done / 1048576).toFixed(1) + ' MiB' : '准备中';
+        return '<div class="operationItem"><div class="operationBody"><div class="operationTitle">' +
+          esc(row.direction || "文件传输") + ' · ' + esc(row.remotePath || row.localPath || "") +
+          '</div><div class="progress-line">' + meter + '<span>' + esc(size) + '</span></div></div></div>';
+      }).join("") + '</section>';
     }
 
     function updateOperationHistorySelectionControls() {
