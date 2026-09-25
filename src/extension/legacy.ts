@@ -7283,7 +7283,6 @@ export class RealtimeTunnelPanelProvider {
         if (this.syncScopeMutationInFlight) throw new Error("文件树操作进行中，代码同步稍后重试。");
         this.codeSyncInFlight = (this.codeSyncInFlight || 0) + 1;
         try {
-        try { await this.ensureRemoteAgentVersionConsistent(); } catch {}
         const projectContext = options.projectContext;
         const assertCurrent = () => {
             if (projectContext && !this.projectContextIsCurrent(projectContext))
@@ -7303,6 +7302,7 @@ export class RealtimeTunnelPanelProvider {
         const scopePaths = codeSyncConfig.get<string[]>("codeSync.scopePaths");
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const manifest = filterHeldFiles(await buildLocalCodeManifest(root, includePaths, scopePaths), holds);
+        const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
         assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
@@ -7332,7 +7332,8 @@ export class RealtimeTunnelPanelProvider {
                 if (hashCompare) {
                     if (progressReport) progressReport(`正在按哈希比较 ${target.label || target.id} 的已有文件…`, 0);
                     const inventory = await this.verifiedSftpProjectInventory({
-                        source: this.sftpServerOptions(target), relativePath: ".", recursive: true, timeoutMs: 120000,
+                        source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
+                        scopePaths: inventoryScopePaths, timeoutMs: 120000,
                     });
                     const remoteFiles = inventoryFilesByPath(inventory);
                     uploadManifest = changedManifestFiles(manifest, remoteFiles);
@@ -7365,7 +7366,8 @@ export class RealtimeTunnelPanelProvider {
                     throw new Error(resultError(result) || "SFTP 上传未确认成功。");
                 if (hashCompare) {
                     const checked = await this.verifiedSftpProjectInventory({
-                        source: this.sftpServerOptions(target), relativePath: ".", recursive: true, timeoutMs: 120000,
+                        source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
+                        scopePaths: inventoryScopePaths, timeoutMs: 120000,
                     });
                     const remaining = Object.keys(changedManifestFiles(manifest, inventoryFilesByPath(checked)));
                     if (remaining.length) throw new Error(`上传后哈希校验失败：${remaining.slice(0, 12).join("、")}`);

@@ -61,6 +61,9 @@ test("publish upload compares complete remote hashes and transfers only changed 
   assert.match(upload, /hashCompare: true/);
   const sync = extension.slice(extension.indexOf("async syncCodeTargets("), extension.indexOf("async inspectCodeSyncTarget("));
   assert.match(sync, /verifiedSftpProjectInventory/);
+  assert.match(sync, /const inventoryScopePaths = \[\.\.\.new Set\(Object\.keys\(manifest\)\.map/);
+  assert.equal((sync.match(/scopePaths: inventoryScopePaths/g) || []).length, 2);
+  assert.doesNotMatch(sync, /ensureRemoteAgentVersionConsistent/);
   assert.match(sync, /changedManifestFiles\(manifest, remoteFiles\)/);
   assert.match(sync, /manifest: uploadManifest/);
   assert.match(sync, /if \(!Object\.keys\(uploadManifest\)\.length\)/);
