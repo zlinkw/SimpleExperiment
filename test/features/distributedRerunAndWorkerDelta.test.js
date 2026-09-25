@@ -104,14 +104,19 @@ test("running distributed job renders Worker log path, content, and loading indi
   vm.runInNewContext(source + "\nglobalThis.renderExecutionPlanList = renderExecutionPlanList;", sandbox);
   const state = { logs: { "tmp/tmux_logs/job.log": { text: "epoch 3/20" } }, distributedPlans: [{
     planFile: "experiments/plans/comparison/concatenation.yaml", enqueuedAt: "2026-01-01",
-    jobs: [{ index: 0, case: "bus", seed: 42, status: "running", workerId: "nwpu2",
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "running", workerId: "nwpu2", outputDir: "work_dirs/bus/attempts/new",
       commandId: "command-123", logPath: "tmp/tmux_logs/job.log" }],
   }] };
   sandbox.renderExecutionPlanList(state);
   assert.match(html, /data-run-key="tmp\/tmux_logs\/job\.log"/);
+  assert.match(html, /data-run-key="work_dirs\/bus\/attempts\/new\/train\.log"/);
   assert.doesNotMatch(html, /data-run-key="command-123"/);
   assert.match(html, /epoch 3\/20/);
   assert.match(html, /loading-spinner/);
+  state.selectedLogRunKey = "work_dirs/bus/attempts/new/train.log";
+  state.logs[state.selectedLogRunKey] = { text: "Epoch 1: Val Loss = 0.5" };
+  sandbox.renderExecutionPlanList(state);
+  assert.match(html, /Epoch 1: Val Loss = 0\.5/);
   state.distributedPlans[0].jobs[0].status = "completed";
   sandbox.renderExecutionPlanList(state);
   assert.doesNotMatch(html, /loading-spinner/);
@@ -134,5 +139,6 @@ test("selected Worker log appends new bytes while polling", async () => {
   assert.equal(client.mergedState.logs["tmp/tmux_logs/job.log"].text, "epoch 3epoch 4");
   assert.equal(client.mergedState.logs["tmp/tmux_logs/job.log"].offset, 14);
   assert.match(extension, /refreshSelectedDistributedLog\(queue, newTerminal\)/);
+  assert.match(extension, /job\.outputDir[\s\S]{0,90}train\.log[\s\S]{0,150}this\.selectedLogRunKey/);
   assert.match(extension, /Math\.max\(0, Number\(previous\?\.offset\) \|\| 0\)/);
 });

@@ -12953,7 +12953,7 @@ function renderPanelHtml() {
         const opRows = group.distributedJobs.length ? [] : sortedOps.slice(0, 4);
         const taskRows = group.distributedJobs.length ? [] : sortedTasks.slice(0, 20);
         const distributedRows = group.distributedJobs;
-        const runLogNote = distributedRows.length ? '<div class="muted">日志来源：运行日志来自所属 Worker 的任务输出' + (distributedRows.some((job) => job.logPath) ? '（' + esc(distributedRows.map((job) => job.logPath).filter(Boolean).slice(0, 2).join("、")) + '）' : '') + '。下方操作时间线里的校验日志只记录提交前校验，不是这次运行。</div>' : '';
+        const runLogNote = distributedRows.length ? '<div class="muted">训练日志记录每轮验证结果；终端日志记录 Worker 命令输出。下方操作时间线里的校验日志只记录提交前校验。</div>' : '';
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '分布式 job · ' + group.completed + '/' + group.distributedJobs.length + '</h3>'
           + runLogNote
           + (failedJobs ? '<div class="executionDistributedFailure">' + failedJobs + ' 个 job 运行失败；打开对应日志查看原因。</div>' : '')
@@ -12963,11 +12963,14 @@ function renderPanelHtml() {
           const statusLabel = { pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status;
           const placement = job.workerId ? job.workerId + (job.gpuId === undefined ? "" : " · GPU " + job.gpuId) : "待分配";
           const logPath = String(job.logPath || "");
-          const logButton = logPath && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="run" data-run-key="' + escAttr(logPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取运行日志">运行日志</button>' : '<span class="muted">运行日志路径待 Worker 回传</span>';
-          const logText = logPath ? logPayloadText((state.logs || {})[logPath]) : "";
+          const trainLogPath = String(job.outputDir || "").replace(/\/+$/, "") + "/train.log";
+          const trainLogButton = job.outputDir && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="train" data-run-key="' + escAttr(trainLogPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取每轮训练验证记录">训练日志</button>' : "";
+          const logButton = logPath && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="run" data-run-key="' + escAttr(logPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取终端输出">终端日志</button>' : '<span class="muted">终端日志路径待 Worker 回传</span>';
+          const selectedLogPath = state.selectedLogRunKey === trainLogPath ? trainLogPath : logPath;
+          const logText = selectedLogPath ? logPayloadText((state.logs || {})[selectedLogPath]) : "";
           const logPreview = logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
           const errorText = String(job.artifactError || job.error || "").trim();
-          return '<div class="executionDistributedJob" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + statusClass(status) + '">' + esc(statusLabel) + '</span><span>' + esc(placement) + '</span>' + logButton
+          return '<div class="executionDistributedJob" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + statusClass(status) + '">' + esc(statusLabel) + '</span><span>' + esc(placement) + '</span>' + trainLogButton + logButton
             + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + '</div>' : '') + logPreview + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";

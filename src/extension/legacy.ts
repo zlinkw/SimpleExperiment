@@ -8070,11 +8070,11 @@ export class RealtimeTunnelPanelProvider {
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey) return;
         const selected = queue.plans.flatMap((plan) => plan.jobs)
-            .find((job) => job.logPath === this.selectedLogRunKey && job.workerId
+            .find((job) => (job.logPath === this.selectedLogRunKey || `${String(job.outputDir || "").replace(/\/+$/, "")}/train.log` === this.selectedLogRunKey) && job.workerId
                 && (["dispatching", "running", "unknown"].includes(job.status)
                     || newTerminal && ["completed", "failed"].includes(job.status)));
         if (!selected) return;
-        const task = this.fetchSelectedLiveOutput(selected.logPath, selected.workerId, { userInitiated: false });
+        const task = this.fetchSelectedLiveOutput(this.selectedLogRunKey, selected.workerId, { userInitiated: false });
         this.selectedDistributedLogRefreshPromise = task;
         void task.finally(() => {
             if (this.selectedDistributedLogRefreshPromise === task) this.selectedDistributedLogRefreshPromise = undefined;
