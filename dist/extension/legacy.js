@@ -10024,6 +10024,53 @@ class RealtimeTunnelPanelProvider {
             && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
             && !operationTerminal(item)));
     }
+    async recoverPlanOperationsForStopClear(planFile) {
+        const detail = { realtime: this.isRealtimeMode(), workersChecked: 0, failures: [] };
+        if (!detail.realtime)
+            return { recovered: [], ...detail };
+        const projectContext = this.captureProjectContext();
+        const client = this.client;
+        const workers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
+        detail.workersChecked = workers.length;
+        const snapshots = await Promise.allSettled(workers.map((workerId) => client.getWorkerTasks(workerId)));
+        if (!this.projectContextIsCurrent(projectContext) || client !== this.client) {
+            detail.failures.push("项目或隧道已切换，已放弃本次远端恢复");
+            return { recovered: [], ...detail };
+        }
+        const recovered = [];
+        const conflicts = [];
+        const evidence = this.buildPlanRuntimeEvidenceState().operations || {};
+        for (let index = 0; index < snapshots.length; index += 1) {
+            const snapshot = snapshots[index];
+            if (snapshot.status !== "fulfilled") {
+                detail.failures.push(`${workers[index]}: ${errorMessage(snapshot.reason)}`);
+                continue;
+            }
+            const rows = (0, PlanStopClear_1.trustedRemotePlanOperations)(snapshot.value, workers[index], planFile);
+            if (!rows.length)
+                continue;
+            const accepted = Object.fromEntries(recovered.map((row) => [row.operationId, {
+                    operationId: row.operationId,
+                    planFile: row.planFile,
+                    schedulerOwnerWorkerId: row.workerId,
+                }]));
+            conflicts.push(...(0, PlanStopClear_1.planRecoveryConflicts)(this.localOperations, rows), ...(0, PlanStopClear_1.planRecoveryConflicts)(evidence, rows), ...(0, PlanStopClear_1.planRecoveryConflicts)(accepted, rows));
+            recovered.push(...rows);
+        }
+        if (conflicts.length) {
+            detail.failures.push((0, PlanStopClear_1.planStopIdentityConflictMessage)(planFile, conflicts));
+            return { recovered: [], conflicts, ...detail };
+        }
+        if (recovered.length) {
+            const operations = (0, PlanStopClear_1.mergeTrustedPlanOperations)(this.localOperations, recovered);
+            if (JSON.stringify(operations) !== JSON.stringify(this.localOperations)) {
+                this.localOperations = compactOperationRecords(operations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+                this.markLocalOperationsDirty();
+                this.postState();
+            }
+        }
+        return { recovered, conflicts, ...detail };
+    }
     async restoreRemotePlanOperations() {
         if (this.remotePlanRestorePromise)
             return this.remotePlanRestorePromise;
@@ -12927,13 +12974,18 @@ class RealtimeTunnelPanelProvider {
         const planFile = stringField(message, "planFile").trim();
         if (!planFile)
             throw new Error("请先选择要中止并清除的 Plan。");
-        const operations = this.buildPlanRuntimeEvidenceState().operations;
+        const recovered = await this.recoverPlanOperationsForStopClear(planFile);
+        if (recovered.conflicts?.length) {
+            void vscode.window.showWarningMessage((0, PlanStopClear_1.planStopIdentityConflictMessage)(planFile, recovered.conflicts));
+            return;
+        }
+        const operations = (0, PlanStopClear_1.mergeTrustedPlanOperations)(this.buildPlanRuntimeEvidenceState().operations, recovered.recovered);
         const targets = (0, PlanStopClear_1.planCleanupTargets)(operations, planFile, (row) => operationTerminal(row)).map((target) => {
             const row = operations[target.operationId] || Object.values(operations).find((item) => String(item?.operationId || item?.id || "") === target.operationId);
             return { ...target, workerId: this.runOperationWorkerId(row) || target.workerId };
         });
         if (!targets.length) {
-            void vscode.window.showInformationMessage(planFile ? `没有找到 ${planFile} 的运行进度条目。` : "没有可中止或清除的 Plan 运行进度。");
+            void vscode.window.showInformationMessage((0, PlanStopClear_1.planStopMissingEvidenceMessage)(planFile, recovered));
             return;
         }
         const active = targets.filter((target) => target.active);

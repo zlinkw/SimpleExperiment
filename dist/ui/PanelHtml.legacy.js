@@ -13039,7 +13039,15 @@ function renderPanelHtml() {
         const type = String(op.type || op.action || "").toLowerCase();
         return (type.includes("run-plan") || type.includes("reproduce-plan")) && operationIsActive(op.status || op.state) && op.reconcileEvidenceActive !== false;
       });
-      const stopClearPlan = selectedExecutionPlanFile || currentPlanPath;
+      const explicitStopClearPlan = selectedExecutionPlanFile || currentPlanPath;
+      const activePlanPaths = ops.map((op) => {
+        const type = String(op.type || op.action || "").toLowerCase();
+        const active = operationIsActive(op.status || op.state) && op.reconcileEvidenceActive !== false;
+        const planPath = String(op.planFile || op.plan || "").replaceAll(String.fromCharCode(92), "/").replace("./", "");
+        return (type === "run-plan" || type === "reproduce-plan") && active && planPath ? planPath : "";
+      }).filter(Boolean);
+      const soleActivePlan = activePlanPaths.length === 1 ? activePlanPaths[0] : "";
+      const stopClearPlan = explicitStopClearPlan || soleActivePlan;
       setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止当前选中 Plan 的运行任务">中止当前 Plan</button>' +
         '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(stopClearPlan) + '" data-confirm="true" ' + (stopClearPlan ? '' : 'disabled') + ' title="中止该 Plan 仍在运行的调度，关闭对应报错 tmux 窗口，并清除本机运行进度条目。停止前会列出目标并要求两次确认。">一键中止并清除 Plan</button>' +
         '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan ? '' : 'disabled') + ' title="手动中止全部运行中的 Plan；逐个向 Worker 发送停止命令">中止所有 Plan</button>' +

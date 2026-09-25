@@ -6,7 +6,7 @@ const path = require("node:path");
 
 const source = fs.readFileSync(path.resolve(__dirname, "../../dist/extension/legacy.js"), "utf8");
 const start = source.indexOf("async clearOperationHistoryFromUi(message) {");
-const end = source.indexOf("async downloadDebugBundle() {", start);
+const end = source.indexOf("async stopAndClearPlanFromUi(message) {", start);
 assert.ok(start >= 0 && end > start);
 
 function methods(answer, saved = {}) {
