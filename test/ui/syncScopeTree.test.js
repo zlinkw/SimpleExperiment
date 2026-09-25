@@ -100,7 +100,7 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   assert.equal(elements.get("status").className, "");
   onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { "data": { state: "remote-only", detail: "同步范围内 2 个文件 · 1 一致 · 0 待更新或冲突 · 1 仅 Worker 一致 · 0 未确认", copies: { local: { modifiedAtMs: 0, missing: 1, needsSync: 0, conflict: 0, unverified: 0 }, w1: { modifiedAtMs: 2000, missing: 0, needsSync: 0, conflict: 0, unverified: 0 } } }, "README.md": { state: "different", detail: "Plan 归属：w1 · 本机 缺失 · w1 最新版 · w2 待更新", versions: { w1: { sha256: hash, modifiedAtMs: 2000, latest: "plan" }, w2: { sha256: "b".repeat(64), modifiedAtMs: 1000 } } } }, refreshedAt: "now" } });
   assert.equal(elements.get("tree").children[1].children.find((child) => child.textContent === "📁 data")?.className, "name remote-only");
-  assert.match(elements.get("tree").children[1].children.find((child) => child.className === "badge remote-only")?.textContent, /本机 全部缺失\nw1 最新文件 1970-01-01 [0-9]{2}:[0-9]{2}:[0-9]{2}/);
+  assert.match(elements.get("tree").children[1].children.find((child) => child.className === "badge remote-only")?.textContent, /本机 全部缺失\nw1 1970-01-01 [0-9]{2}:[0-9]{2}:[0-9]{2}/);
   assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "📄 README.md")?.className, "name different");
   const copies = elements.get("tree").children[2].children.find((child) => child.className === "badge different")?.children.map((child) => child.textContent).join(" · ");
   assert.match(copies, /w1 .*1970.*Plan 最新运行/);
