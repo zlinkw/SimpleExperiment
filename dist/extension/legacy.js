@@ -619,6 +619,7 @@ function setupGuideNextStep(options) {
 }
 const SETUP_GUIDE_MAX_STEPS = 4;
 class RealtimeTunnelPanelProvider {
+    sessionStartedAt = new Date().toISOString();
     context;
     hostOperationLease = new HostOperationLease_1.HostOperationLeaseManager();
     view;
@@ -15637,6 +15638,7 @@ class RealtimeTunnelPanelProvider {
         });
         return {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
+            sessionStartedAt: this.sessionStartedAt,
             connectionMode,
             localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
             workspace,
@@ -15966,6 +15968,7 @@ class RealtimeTunnelPanelProvider {
         const boundedMessage = compactSensitiveText(message, 600) || "面板状态生成失败。";
         return {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
+            sessionStartedAt: this.sessionStartedAt,
             connectionMode: "xshell_tunnel_realtime",
             localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
             workspace,

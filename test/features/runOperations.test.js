@@ -166,6 +166,19 @@ test("a missing known scheduler is shown as interrupted and can recover when it 
   assert.equal(recovered.patch.status, "running");
 });
 
+test("restarting does not make the same historical interruption look new", () => {
+  const startedAt = "2026-09-19T10:00:00Z";
+  const missingEvidence = { checkedPid: 42, pidAlive: false, tmuxSessionAlive: false };
+  const first = reconcileRunOperation({ ...running, startedAt, pid: 42 }, missingEvidence,
+    "activation", Date.parse(startedAt) + 120_000).patch;
+  const again = reconcileRunOperation(first, missingEvidence,
+    "tunnel_reconnected", Date.parse(startedAt) + 360_000).patch;
+  assert.equal(again.status, "interrupted");
+  assert.equal(again.updatedAt, first.updatedAt);
+  assert.equal(again.interruptedAt, first.interruptedAt);
+  assert.notEqual(again.reconcileCheckedAt, first.reconcileCheckedAt);
+});
+
 test("a live tmux shell without scheduler Python is interrupted after grace", () => {
   const startedAt = "2026-09-19T10:00:00Z";
   const result = reconcileRunOperation({ ...running, startedAt, pid: 42, tmuxSession: "scheduler-a" }, {

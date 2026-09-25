@@ -12,13 +12,15 @@ function extract(startName, endName) {
   return panel.slice(start, end).replaceAll("\\\\", "\\");
 }
 
-test("Plan overview prioritizes running work and folds completed plans", () => {
+test("Plan overview prioritizes live work and folds old failures after restart", () => {
   let html = "";
   const sandbox = {
     Map,
     Set,
     operationRowsForState: () => [
       { planFile: "plans/done.yaml", status: "completed", updatedAt: "2026-09-20T10:00:00Z" },
+      { planFile: "plans/old-fail.yaml", status: "failed", finishedAt: "2026-09-20T11:00:00Z" },
+      { planFile: "plans/new-fail.yaml", status: "failed", finishedAt: "2026-09-25T12:10:00Z" },
       { planFile: "plans/live.yaml", status: "running", updatedAt: "2026-09-20T09:00:00Z" },
     ],
     taskSectionViewModelForState: () => ({ allRows: [
@@ -50,9 +52,11 @@ test("Plan overview prioritizes running work and folds completed plans", () => {
   };
   vm.createContext(sandbox);
   vm.runInContext(extract("renderExecutionPlanList", "renderOperationSection") + "\nthis.render = renderExecutionPlanList;", sandbox);
-  sandbox.render({});
-  assert.ok(html.indexOf("live.yaml") < html.indexOf("已结束的 Plan"));
-  assert.match(html, /<summary>已结束的 Plan · 1<\/summary>/);
+  sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z" });
+  assert.ok(html.indexOf("live.yaml") < html.indexOf("历史 Plan"));
+  assert.ok(html.indexOf("new-fail.yaml") < html.indexOf("历史 Plan"));
+  assert.ok(html.indexOf("old-fail.yaml") > html.indexOf("历史 Plan"));
+  assert.match(html, /<summary>历史 Plan · 2<\/summary>/);
   assert.match(html, /任务与日志/);
   assert.match(html, /data-command="clearOperations" data-plan-file="plans\/live.yaml"/);
   assert.match(html, /data-execution-plan-select="plans\/live.yaml" aria-pressed="true"/);

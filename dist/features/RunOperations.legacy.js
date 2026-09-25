@@ -339,16 +339,21 @@ function reconcileRunOperation(record, evidence, reason, nowMs = Date.now()) {
         || Boolean(evidence.checkedTmuxSession || record.tmuxSession);
     const startedMs = Date.parse(String(record.startedAt || remote.startedAt || ""));
     if (knownScheduler && Number.isFinite(startedMs) && nowMs - startedMs > exports.RUN_OPERATION_RECONCILE_GRACE_MS) {
+        const wasInterrupted = String(record.status || "").toLowerCase() === "interrupted";
+        const interruptedAt = wasInterrupted
+            ? String(record.interruptedAt || record.reconciledAt || record.updatedAt || checkedAt)
+            : checkedAt;
         return {
             terminal: false,
             patch: {
                 ...base,
                 status: "interrupted",
                 message: "远端调度进程和 tmux 会话均不可见；调度已中断，已派发的 Worker 任务可能仍在运行。",
-                reconciledAt: checkedAt,
+                interruptedAt,
+                reconciledAt: interruptedAt,
                 reconcileCheckedAt: checkedAt,
                 reconcileReason: `${reason}:scheduler_missing`,
-                updatedAt: checkedAt,
+                updatedAt: wasInterrupted ? String(record.updatedAt || interruptedAt) : checkedAt,
             },
         };
     }

@@ -12858,6 +12858,14 @@ export function renderPanelHtml(): string {
     }
 
     function renderExecutionPlanList(state) {
+      const sessionStartedAt = Date.parse(String(state && state.sessionStartedAt || "")) || 0;
+      const occurredThisSession = (row) => {
+        if (!sessionStartedAt) return true;
+        const status = String(row.status || "").toLowerCase();
+        const occurredAt = status === "interrupted" ? row.startedAt : (row.finishedAt || row.updatedAt || row.startedAt);
+        const time = Date.parse(String(occurredAt || ""));
+        return Number.isFinite(time) && time >= sessionStartedAt;
+      };
       const groups = new Map();
       const getGroup = (path) => {
         const planFile = String(path || "").trim();
@@ -12874,12 +12882,14 @@ export function renderPanelHtml(): string {
       const items = Array.from(groups.values()).map((group) => {
         const active = group.tasks.some((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) || TASK_QUEUED_STATUSES?.has(taskStatusToken(row.status))) || group.operations.some((row) => operationIsActive(row.status));
         const failed = group.tasks.some((row) => taskFailureLikeStatus(row.status)) || group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row));
+        const newFailure = group.tasks.some((row) => taskFailureLikeStatus(row.status) && occurredThisSession(row))
+          || group.operations.some((row) => (operationIsFailureLike(row.status) || operationHasDeadEvidence(row)) && occurredThisSession(row));
         const tone = active ? "running" : failed ? "failed" : "completed";
         const completed = group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status))).length;
         const running = group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
         const stamp = [...group.operations, ...group.tasks].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || "") || 0), 0);
-        return { ...group, tone, completed, running, label, stamp };
+        return { ...group, tone, active, newFailure, completed, running, label, stamp };
       });
       items.sort((a, b) => ({ running: 0, failed: 1, completed: 2 }[a.tone] - { running: 0, failed: 1, completed: 2 }[b.tone]) || b.stamp - a.stamp || a.label.localeCompare(b.label));
       if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
@@ -12906,10 +12916,10 @@ export function renderPanelHtml(): string {
           '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' +
           (group.planFile ? '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + opHtml + taskHtml + more + '</div></details>';
       };
-      const current = items.filter((item) => item.tone !== "completed");
-      const history = items.filter((item) => item.tone === "completed");
-      const historyKey = "execution-completed-plans";
-      const historyHtml = history.length ? '<details class="executionArchive" data-details-key="' + historyKey + '"' + detailsOpenAttr(historyKey, false) + '><summary>已结束的 Plan · ' + history.length + '</summary><div class="executionPlanList">' + history.map(renderPlan).join("") + '</div></details>' : "";
+      const current = items.filter((item) => item.active || item.newFailure);
+      const history = items.filter((item) => !item.active && !item.newFailure);
+      const historyKey = "execution-historical-plans";
+      const historyHtml = history.length ? '<details class="executionArchive" data-details-key="' + historyKey + '"' + detailsOpenAttr(historyKey, false) + '><summary>历史 Plan · ' + history.length + '</summary><div class="executionPlanList">' + history.map(renderPlan).join("") + '</div></details>' : "";
       setHtmlIfChanged("executionPlanList", (current.length ? '<div class="executionPlanList">' + current.map(renderPlan).join("") + '</div>' : (history.length ? "" : '<div class="muted">暂无 Plan 运行记录。</div>')) + historyHtml);
     }
 
