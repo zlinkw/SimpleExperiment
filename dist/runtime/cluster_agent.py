@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.124"
-RUNTIME_VERSION = "0.5.124"
-PLUGIN_VERSION = "0.5.124"
+AGENT_VERSION = "0.5.125"
+RUNTIME_VERSION = "0.5.125"
+PLUGIN_VERSION = "0.5.125"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -10257,7 +10257,10 @@ def handle_action(root, action, payload, operation_id, op_id):
             if conda_env:
                 env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
                 env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1"
-            command = [simple_runtime_python(env), "-m", "experiments.simple_adapter.distributed_results",
+            merge_module = str(payload.get("mergeModule") or "experiments.simple_adapter.distributed_results").strip()
+            if not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", merge_module):
+                raise ValueError("分布式汇总模块名无效")
+            command = [simple_runtime_python(env), "-m", merge_module,
                        "--manifest", "-", "--project-root", root]
             if payload.get("publish") is True:
                 command.append("--publish")

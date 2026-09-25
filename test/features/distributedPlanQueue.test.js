@@ -61,3 +61,14 @@ test("a request blocked locally returns to the queue without losing its job", ()
   assert.equal(job.commandId, undefined);
   assert.equal(queue.allocateAvailable(reset, [{ workerId: "nwpu3", idleGpuIds: ["1"], online: true }]).dispatches.length, 1);
 });
+
+test("local preflight previews the same slots without modifying the persisted queue", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), plan("a"), "run-a");
+  const workers = [{ workerId: "nwpu2", idleGpuIds: ["0", "1", "2", "3", "4", "5", "6"], online: true }];
+  const preview = queue.previewAvailable(input, plan("b"), workers);
+  const submitted = queue.enqueuePlan(input, plan("b"), "run-b");
+  const actual = queue.allocateAvailable(submitted, workers).dispatches.filter((row) => row.planId === "run-b");
+  assert.equal(preview.dispatchableCount, actual.length);
+  assert.deepEqual(preview.assignments, actual.map(({ jobIndex, workerId, gpuId }) => ({ jobIndex, workerId, gpuId })));
+  assert.equal(input.plans.length, 1);
+});

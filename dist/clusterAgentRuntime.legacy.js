@@ -10260,7 +10260,10 @@ def handle_action(root, action, payload, operation_id, op_id):
             if conda_env:
                 env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda_env
                 env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1"
-            command = [simple_runtime_python(env), "-m", "experiments.simple_adapter.distributed_results",
+            merge_module = str(payload.get("mergeModule") or "experiments.simple_adapter.distributed_results").strip()
+            if not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", merge_module):
+                raise ValueError("分布式汇总模块名无效")
+            command = [simple_runtime_python(env), "-m", merge_module,
                        "--manifest", "-", "--project-root", root]
             if payload.get("publish") is True:
                 command.append("--publish")

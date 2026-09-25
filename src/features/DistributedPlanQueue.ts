@@ -94,6 +94,16 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
   return { queue: { ...queue, plans }, dispatches };
 }
 
+export function previewAvailable(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir">> }, workers: readonly WorkerSlots[]) {
+  const previewId = "distributed-preview";
+  const candidate = enqueuePlan(queue, plan, previewId);
+  const { dispatches } = allocateAvailable(candidate, workers);
+  const selected = dispatches.filter((item) => item.planId === previewId);
+  return { totalJobs: plan.jobs.length, dispatchableCount: selected.length,
+    queuedCount: plan.jobs.length - selected.length,
+    assignments: selected.map(({ jobIndex, workerId, gpuId }) => ({ jobIndex, workerId, gpuId })) };
+}
+
 export function setJobState(queue: DistributedQueue, planId: string, jobIndex: number, status: JobState, commandId: string): DistributedQueue {
   let found = false;
   const plans = queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan, jobs: plan.jobs.map((job) => {

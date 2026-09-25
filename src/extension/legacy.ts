@@ -5343,6 +5343,32 @@ export class RealtimeTunnelPanelProvider {
                 failPreflight(check, "校验未返回终态", "-");
                 return false;
             }
+            if (this.distributedPlanEligible(planKey)) {
+                check = "本机逐 job 预演";
+                const validation = validated?.validation || validated?.result?.validation;
+                if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
+                    throw new Error("Agent 校验未返回逐 job 清单");
+                const root = workspaceRoot();
+                if (!root) throw new Error("没有当前项目目录");
+                const queue = await this.loadDistributedQueue(root);
+                let gpu;
+                try { gpu = await this.client.getGpu({ dispatch: true }); }
+                catch { gpu = this.lastRealtimeState?.gpu; }
+                const rows = gpu ? this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), gpu) : [];
+                const fingerprint = String(this.lastCodeSyncState?.fingerprint || "");
+                const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
+                    .map((job) => `${job.workerId}:${job.gpuId}`)));
+                const workers = rows.map((row) => ({ workerId: row.workerId,
+                    online: this.lastWorkerProbes[row.workerId]?.status === "ok"
+                        && this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint === fingerprint,
+                    idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
+                    capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined }));
+                const preview = DistributedPlanQueue.previewAvailable(queue, { planFile: planKey,
+                    revision: String(body.planRevision || body.options?.planRevision || ""), codeFingerprint: fingerprint,
+                    jobs: validation.jobs.map((job) => ({ index: Number(job.index), case: String(job.case),
+                        seed: Number(job.seed), outputDir: `${String(job.output_dir).replace(/\\/g, "/")}/attempts/preview` })) }, workers);
+                return { ...validated, distributedPreview: preview };
+            }
             check = "预演(dry-run-plan)";
             const preview = await this.postPlanSchedulerAction("dry-run-plan", body, {
                 title: `${prefix}：预演`,
@@ -7239,10 +7265,8 @@ export class RealtimeTunnelPanelProvider {
         this.postState();
         const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
         const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
-        let progressIndex = 0;
-        for (const target of enabledTargets) {
-            progressIndex += 1;
-            if (progressReport) progressReport(`正在上传到 ${target.label || target.id}（${progressIndex}/${enabledTargets.length}）…`, 0);
+        await mapLimited(enabledTargets, 2, async (target, index) => {
+            if (progressReport) progressReport(`正在上传到 ${target.label || target.id}（${index + 1}/${enabledTargets.length}）…`, 0);
             try {
                 const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
                     apiMode: true,
@@ -7269,14 +7293,14 @@ export class RealtimeTunnelPanelProvider {
                     workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
                     void this.persistProjectCodeSyncState().catch(() => undefined);
                 }
-                if (progressReport && progressStep > 0) progressReport(`已完成 ${target.label || target.id}（${progressIndex}/${enabledTargets.length}）`, progressStep);
+                if (progressReport && progressStep > 0) progressReport(`已完成 ${target.label || target.id}（${index + 1}/${enabledTargets.length}）`, progressStep);
             }
             catch (error) {
                 if (isUiCommandCancelled(error))
                     throw error;
                 failures.push({ role: target.role, label: target.label, message: errorMessage(error) });
             }
-        }
+        });
         if (failures.length) {
             const failedText = failures.map((failure) => `${failure.label}: ${failure.message}`);
             this.lastCodeSyncState = {
@@ -7762,9 +7786,34 @@ export class RealtimeTunnelPanelProvider {
         return picked.workerId;
     }
     distributedPlanEligible(planFile) {
+        const contract = this.distributedProjectContract();
         return this.projectTopologyAssessment().mode === "worker_pool"
             && this.localPlanMetadata.detectedProject?.adapterRules?.distributedResults === true
-            && /^experiments\/plans\/comparison\/[^/]+\.ya?ml$/i.test(String(planFile || "").replace(/\\/g, "/"));
+            && /\.ya?ml$/i.test(String(planFile || ""))
+            && contract.planPrefixes.some((prefix) => String(planFile || "").replace(/\\/g, "/").startsWith(prefix));
+    }
+    distributedProjectContract() {
+        const raw = this.localPlanMetadata.detectedProject?.adapterRules?.distributed || {};
+        const relative = (value, fallback) => {
+            const text = String(value || fallback).replace(/\\/g, "/").trim();
+            if (!text || text.startsWith("/") || text.split("/").some((part) => !part || part === "." || part === "..") || /[\x00-\x1f]/.test(text))
+                throw new Error(`分布式产物相对路径无效：${text}`);
+            return text;
+        };
+        const planPrefixes = (raw.planPrefixes?.length ? raw.planPrefixes : ["experiments/plans/comparison/"])
+            .map((value) => relative(value, "").replace(/\/*$/, "/"));
+        const configPath = relative(raw.configPath, "job_config.yaml");
+        const checkpointPath = relative(raw.checkpointPath, "best_model.pth");
+        const resultRowsPath = relative(raw.resultRowsPath, "test_results/formal_result_rows.csv");
+        const fourStatePath = relative(raw.fourStatePath, "test_results/four_state_metrics.csv");
+        const fragmentPaths = [...new Set((raw.fragmentPaths?.length ? raw.fragmentPaths : [configPath, resultRowsPath, fourStatePath])
+            .map((value) => relative(value, "")))];
+        const requiredPaths = [...new Set((raw.requiredPaths?.length ? raw.requiredPaths : [...fragmentPaths, checkpointPath])
+            .map((value) => relative(value, "")))];
+        const mergeModule = String(raw.mergeModule || "experiments.simple_adapter.distributed_results").trim();
+        if (!/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(mergeModule)) throw new Error("分布式汇总模块名无效");
+        return { planPrefixes, configPath, checkpointPath, resultRowsPath, fourStatePath,
+            fragmentPaths, requiredPaths, mergeModule };
     }
     async localDistributedCodeFingerprint(root) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
@@ -7860,8 +7909,11 @@ export class RealtimeTunnelPanelProvider {
         const latest = await this.loadDistributedQueue(root);
         await this.saveDistributedQueue(root, { ...latest, ...fields }, { publicationMutation: true });
     }
-    scheduleDistributedPostprocess(root) {
-        if (this.distributedPostprocessPromise) return;
+    scheduleDistributedPostprocess(root, rerunIfBusy = false) {
+        if (this.distributedPostprocessPromise) {
+            if (rerunIfBusy) this.distributedPostprocessRerun = true;
+            return;
+        }
         const work = (async () => {
             const queue = await this.loadDistributedQueue(root);
             if (!queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed"))) return;
@@ -7875,7 +7927,14 @@ export class RealtimeTunnelPanelProvider {
         })();
         this.distributedPostprocessPromise = work;
         void work.catch((error) => this.recordActionError({ command: "distributedPostprocess", message: errorMessage(error) }))
-            .finally(() => { if (this.distributedPostprocessPromise === work) this.distributedPostprocessPromise = undefined; });
+            .finally(() => {
+                if (this.distributedPostprocessPromise !== work) return;
+                this.distributedPostprocessPromise = undefined;
+                if (this.distributedPostprocessRerun) {
+                    this.distributedPostprocessRerun = false;
+                    this.scheduleDistributedPostprocess(root);
+                }
+            });
     }
     async enqueueDistributedPlan(body, validated, skipTick = false) {
         const root = workspaceRoot();
@@ -7918,13 +7977,22 @@ export class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool") return;
         let queue = await this.loadDistributedQueue(root);
+        let newTerminal = false;
         if (!queue.plans.length && !(queue.deferred || []).length) return;
         const assigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "running", "unknown"].includes(job.status))
             .map((job) => ({ plan, job })));
         for (const workerId of [...new Set(assigned.map(({ job }) => job.workerId))]) {
             const snapshot = await this.readWorkerTaskSnapshot(workerId);
+            const realtimeTasks = Array.isArray(this.lastRealtimeState?.workerTasks?.[workerId])
+                ? this.lastRealtimeState.workerTasks[workerId] : [];
             if (snapshot.error) {
-                if (/rate_limited|cooldown/i.test(snapshot.error)) continue;
+                if (/rate_limited|cooldown/i.test(snapshot.error) && !realtimeTasks.length) continue;
+                if (/rate_limited|cooldown/i.test(snapshot.error) && realtimeTasks.length) {
+                    snapshot.tasks = realtimeTasks;
+                    snapshot.error = undefined;
+                }
+            }
+            if (snapshot.error) {
                 for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId && row.job.status !== "unknown"))
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", job.commandId);
                 continue;
@@ -7951,7 +8019,10 @@ export class RealtimeTunnelPanelProvider {
                 if (typeof task.finishedAt === "string" && task.finishedAt) job.finishedAt = task.finishedAt;
                 const status = String(task.status || "").toLowerCase();
                 const nextStatus = status === "completed" ? "completed" : ["failed", "stopped", "cancelled"].includes(status) ? "failed" : status === "running" ? "running" : undefined;
-                if (nextStatus && nextStatus !== job.status) queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, nextStatus, job.commandId);
+                if (nextStatus && nextStatus !== job.status) {
+                    if (["completed", "failed"].includes(nextStatus)) newTerminal = true;
+                    queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, nextStatus, job.commandId);
+                }
             }
         }
         await this.saveDistributedQueue(root, queue);
@@ -8019,10 +8090,11 @@ export class RealtimeTunnelPanelProvider {
             }
             await this.saveDistributedQueue(root, queue);
         }
-        this.scheduleDistributedPostprocess(root);
+        this.scheduleDistributedPostprocess(root, newTerminal);
         this.postState();
     }
     async syncDistributedJobArtifacts(root, queue, phase: "fragments" | "bulk") {
+        const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
         for (const plan of queue.plans) for (const job of plan.jobs) {
@@ -8034,28 +8106,35 @@ export class RealtimeTunnelPanelProvider {
                 if (!sourceId) throw new Error("来源 Worker 与已校验镜像均未连接");
                 const sourceRow = targets.get(sourceId);
                 const source = this.sftpServerOptions(sourceRow);
-                if (!job.artifacts) {
-                    if (!job.logPath) throw new Error("任务快照缺少日志路径，待 Agent 恢复后再同步");
-                    const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
-                    const files = Object.entries(inventory).filter(([name, row]: [string, any]) =>
-                        name.startsWith(job.outputDir + "/") && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(name))
-                        && /^[a-f0-9]{64}$/i.test(String(row?.sha256 || "")));
-                    if (job.logPath) {
+                const fragmentPaths = contract.fragmentPaths
+                    .map((name) => `${job.outputDir}/${name}`);
+                if (!job.artifacts || fragmentPaths.some((file) => !job.artifacts[file]) || phase === "bulk" && !contract.requiredPaths.every((name) => job.artifacts[`${job.outputDir}/${name}`])) {
+                    const files: [string, any][] = [];
+                    if (phase === "fragments") {
+                        for (const file of fragmentPaths) {
+                            const entry = (await this.verifiedSftpProjectInventory({ source, relativePath: file })).files[file];
+                            if (!entry?.sha256) throw new Error(`结果片段缺失：${file}`);
+                            files.push([file, entry]);
+                        }
+                    } else {
+                        if (!job.logPath) throw new Error("任务快照缺少日志路径，待 Agent 恢复后再同步");
+                        const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
+                        files.push(...Object.entries(inventory).filter(([name, row]: [string, any]) =>
+                            name.startsWith(job.outputDir + "/") && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(name))
+                            && /^[a-f0-9]{64}$/i.test(String(row?.sha256 || ""))));
                         const log = (await this.verifiedSftpProjectInventory({ source, relativePath: job.logPath })).files[job.logPath];
                         if (!log?.sha256) throw new Error(`运行日志缺失：${job.logPath}`);
                         files.push([job.logPath, log]);
+                        const required = contract.requiredPaths.map((name) => `${job.outputDir}/${name}`);
+                        if (required.some((name) => !files.some(([file]) => file === name))) throw new Error("缺少检查点或双端点/四态结果片段");
                     }
-                    const required = ["job_config.yaml", "best_model.pth", "test_results/formal_result_rows.csv", "test_results/four_state_metrics.csv"];
-                    if (required.some((name) => !files.some(([file]) => file === `${job.outputDir}/${name}`))) throw new Error("缺少检查点或双端点/四态结果片段");
-                    job.artifacts = Object.fromEntries(files.map(([name, row]: [string, any]) => [name, String(row.sha256).toLowerCase()]));
-                    job.fragmentWorkerIds = [job.workerId];
-                    job.mirroredWorkerIds = [job.workerId];
+                    job.artifacts = { ...(job.artifacts || {}), ...Object.fromEntries(files.map(([name, row]: [string, any]) => [name, String(row.sha256).toLowerCase()])) };
+                    job.fragmentWorkerIds = [...new Set([...(job.fragmentWorkerIds || []), sourceId])];
+                    if (phase === "bulk") job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), sourceId])];
                     job.artifactError = undefined;
                     await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifacts: job.artifacts,
                         fragmentWorkerIds: job.fragmentWorkerIds, mirroredWorkerIds: job.mirroredWorkerIds, artifactError: undefined });
                 }
-                const fragmentPaths = ["job_config.yaml", "test_results/formal_result_rows.csv", "test_results/four_state_metrics.csv"]
-                    .map((name) => `${job.outputDir}/${name}`);
                 for (const workerId of online) {
                     if (workspaceRoot() !== root) return;
                     if (phase === "fragments" ? job.fragmentWorkerIds?.includes(workerId) : job.mirroredWorkerIds?.includes(workerId)) continue;
@@ -8099,6 +8178,7 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     async rebuildDistributedResults(root, queue, previewOnly: boolean) {
+        const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
         const chosen = new Map();
@@ -8114,13 +8194,17 @@ export class RealtimeTunnelPanelProvider {
                 case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir,
                 commandId: job.commandId,
                 sourceWorkerId: job.workerId, codeFingerprint: plan.codeFingerprint,
-                configSha256: job.artifacts[`${job.outputDir}/job_config.yaml`],
-                checkpointSha256: job.artifacts[`${job.outputDir}/best_model.pth`],
-                resultRowsSha256: job.artifacts[`${job.outputDir}/test_results/formal_result_rows.csv`],
-                fourStateSha256: job.artifacts[`${job.outputDir}/test_results/four_state_metrics.csv`],
+                artifacts: Object.fromEntries([...new Set([...contract.fragmentPaths, ...contract.requiredPaths])]
+                    .filter((name) => job.artifacts[`${job.outputDir}/${name}`])
+                    .map((name) => [name, job.artifacts[`${job.outputDir}/${name}`]])),
+                configSha256: job.artifacts[`${job.outputDir}/${contract.configPath}`],
+                checkpointSha256: job.artifacts[`${job.outputDir}/${contract.checkpointPath}`],
+                resultRowsSha256: job.artifacts[`${job.outputDir}/${contract.resultRowsPath}`],
+                fourStateSha256: job.artifacts[`${job.outputDir}/${contract.fourStatePath}`],
             })) })) };
         const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
-        const publish = !previewOnly && selected.every((plan) => plan.jobs.every((job) => job.status === "completed" && Boolean(job.artifacts)));
+        const publish = !previewOnly && selected.every((plan) => plan.jobs.every((job) => job.status === "completed"
+            && contract.requiredPaths.every((name) => Boolean(job.artifacts?.[`${job.outputDir}/${name}`])) && Boolean(job.mirroredWorkerIds?.length)));
         const alreadyBuilt = publish ? queue.publishedSignature === signature : queue.previewSignature === signature;
         let paths = alreadyBuilt ? queue.publishedPaths || [] : [];
         let sourceWorkerId = alreadyBuilt ? queue.publishedWorkerId : available;
@@ -8128,7 +8212,7 @@ export class RealtimeTunnelPanelProvider {
             const target = targets.get(available);
             const response: any = await this.client.postWorkerAction(available, "rebuild-distributed-results", {
                 opId: `distributed-merge-${signature.slice(0, 24)}`, operationId: `distributed-merge-${signature.slice(0, 24)}`,
-                condaEnv: target.condaEnv, manifest, publish });
+                condaEnv: target.condaEnv, manifest, publish, mergeModule: contract.mergeModule });
             if (response?.status !== "completed") throw new Error(String(response?.message || "分布式结果重建失败"));
             paths = Array.isArray(response.outputPaths) ? response.outputPaths : [];
             if (!paths.length) throw new Error("结果重建未返回输出文件清单");
@@ -21496,8 +21580,15 @@ function parseProjectAdapterRules(text) {
     const outputMap = (name) => outputsStart >= 0 ? mapAfter(name, 2, outputsStart, outputsEnd) : {};
     const [entrypointsStart, entrypointsEnd] = sectionRange("entrypoints");
     const entryScalar = (name) => entrypointsStart >= 0 ? scalar(name, 2, entrypointsStart, entrypointsEnd) : "";
+    const [distributedStart, distributedEnd] = sectionRange("distributed");
+    const distributedScalar = (name) => distributedStart >= 0 ? scalar(name, 2, distributedStart, distributedEnd) : "";
+    const distributedList = (name) => distributedStart >= 0 ? listAfter(name, 2, distributedStart, distributedEnd) : [];
     return {
         distributedResults: parseDistributedResultsFlag(scalar("distributedResults", 0)),
+        distributed: { planPrefixes: distributedList("planPrefixes"), fragmentPaths: distributedList("fragmentPaths"),
+            requiredPaths: distributedList("requiredPaths"), mergeModule: distributedScalar("mergeModule"),
+            configPath: distributedScalar("configPath"), checkpointPath: distributedScalar("checkpointPath"),
+            resultRowsPath: distributedScalar("resultRowsPath"), fourStatePath: distributedScalar("fourStatePath") },
         taskType: scalar("taskType", 0) || outputScalar("taskType") || undefined,
         primaryMetric: scalar("primaryMetric", 0) || outputScalar("primaryMetric") || undefined,
         secondaryMetrics: listAfter("secondaryMetrics", 0),
@@ -21657,6 +21748,7 @@ function mergeProjectAdapterRules(explicitRules, inferredRules) {
     const unionList = (...lists) => uniqueStrings(lists.flatMap((list) => Array.isArray(list) ? list : []).map((item) => String(item || "").trim().replace(/\\/g, "/")).filter(Boolean));
     return {
         distributedResults: explicitRules.distributedResults === true,
+        distributed: explicitRules.distributed || {},
         taskType: explicitRules.taskType || inferredRules.taskType,
         primaryMetric: explicitRules.primaryMetric || inferredRules.primaryMetric,
         secondaryMetrics: explicitRules.secondaryMetrics?.length ? explicitRules.secondaryMetrics : inferredRules.secondaryMetrics,
