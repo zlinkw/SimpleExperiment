@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.openSyncScopeTree = openSyncScopeTree;
 const vscode = __importStar(require("vscode"));
 const crypto = __importStar(require("node:crypto"));
-function openSyncScopeTree(title, roots, refreshIntervalMs) {
+function openSyncScopeTree(title, roots) {
     const panel = vscode.window.createWebviewPanel("simpleExperiment.syncScopeTree", title, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
     const nonce = crypto.randomBytes(16).toString("base64");
     panel.webview.html = scopeTreeHtml(nonce);
@@ -45,7 +45,7 @@ function openSyncScopeTree(title, roots, refreshIntervalMs) {
         const root = roots.find((item) => item.id === message?.rootId);
         try {
             if (message?.type === "ready") {
-                await panel.webview.postMessage({ type: "init", roots: roots.map(({ id, label, detail, selected, rootSelectable }) => ({ id, label, detail, selected, rootSelectable })), refreshIntervalMs });
+                await panel.webview.postMessage({ type: "init", roots: roots.map(({ id, label, detail, selected, rootSelectable, excludable }) => ({ id, label, detail, selected, rootSelectable, excludable })) });
                 return;
             }
             if (!root)
@@ -64,30 +64,39 @@ function openSyncScopeTree(title, roots, refreshIntervalMs) {
             }
             else if (message.type === "save") {
                 const paths = Array.isArray(message.paths) ? message.paths.map(String) : [];
+                const excluded = Array.isArray(message.excluded) ? message.excluded.map(String) : [];
                 if (paths.some((value) => value !== "." && (value.startsWith("/") || value.split("/").some((part) => !part || part === "." || part === ".."))))
                     throw new Error("选择路径不安全。");
-                await root.save(paths);
+                if (excluded.some((value) => !value || value === "." || value.startsWith("/") || value.split("/").some((part) => !part || part === "." || part === "..")))
+                    throw new Error("排除路径不安全。");
+                await root.save(paths, excluded);
                 root.selected = paths;
                 await panel.webview.postMessage({ type: "saved", id, rootId: root.id, paths });
             }
-            else if (message.type === "remove" || message.type === "retain") {
+            else if (message.type === "remove" || message.type === "removeAllWorkers" || message.type === "retain") {
                 const relative = String(message.path || "");
                 if (!relative || relative === "." || relative.startsWith("/") || relative.split("/").some((part) => !part || part === "." || part === ".."))
                     throw new Error("操作路径不安全。");
                 const endpointId = String(message.endpointId || "");
-                if (!endpointId)
+                if (message.type !== "removeAllWorkers" && !endpointId)
                     throw new Error("请明确选择一个目标位置。");
+                let changed;
                 if (message.type === "remove") {
                     if (!root.remove)
                         throw new Error("当前范围不支持删除。");
-                    await root.remove(relative, endpointId, message.directory === true);
+                    changed = await root.remove(relative, endpointId, message.directory === true);
+                }
+                else if (message.type === "removeAllWorkers") {
+                    if (!root.removeAllWorkers)
+                        throw new Error("当前范围不支持批量删除。");
+                    changed = await root.removeAllWorkers(relative, message.directory === true);
                 }
                 else {
                     if (!root.retain)
                         throw new Error("当前范围不支持选定版本。");
-                    await root.retain(relative, endpointId, message.directory === true);
+                    changed = await root.retain(relative, endpointId, message.directory === true);
                 }
-                await panel.webview.postMessage({ type: "actionDone", id, rootId: root.id, path: relative, action: message.type });
+                await panel.webview.postMessage({ type: changed === false ? "actionCancelled" : "actionDone", id, rootId: root.id, path: relative, action: message.type, directory: message.directory === true });
             }
         }
         catch (error) {
@@ -103,27 +112,108 @@ body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);backgr
 h2{font-size:16px;margin:0 0 10px}.muted{color:var(--vscode-descriptionForeground);margin:6px 0 12px}
 #tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:0;padding:5px 10px;cursor:pointer}
 button.secondary{color:var(--vscode-foreground);background:var(--vscode-button-secondaryBackground)}button.active{outline:1px solid var(--vscode-focusBorder)}
-#tree{border:1px solid var(--vscode-panel-border);max-height:65vh;overflow:auto;padding:6px}.row{display:flex;align-items:center;min-height:25px;gap:5px;white-space:nowrap}
-.row label{cursor:pointer}.row input{accent-color:var(--vscode-focusBorder)}.twisty{width:21px;min-width:21px;text-align:center;padding:0;background:transparent;color:var(--vscode-foreground)}.versions{display:flex;gap:6px;flex-wrap:wrap;font-size:11px}.version{border:1px solid var(--vscode-panel-border);padding:2px 4px;white-space:normal;overflow-wrap:anywhere;max-width:320px}.version button{font-size:11px;padding:1px 4px;margin-left:3px}.candidate{color:var(--vscode-editorWarning-foreground,#d9822b)}.held{color:var(--vscode-editorWarning-foreground,#d9822b)}
-#status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground)}#save{margin-top:8px}.badge{margin-left:10px;font-size:12px;white-space:normal}.badge span{margin-right:6px}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}
-</style></head><body><h2>同步范围</h2><div class="muted">按目录展开，勾选文件或整个目录；选中目录包含其中所有文件。机器状态目录始终排除。选择按路径保存，不限制文件类型和大小。</div><div class="muted"><span class="same">绿色：本机及 Worker 同版</span>　<span class="remote-only">橙色：Worker 同版，本机缺失或不同</span>　<span class="different">红色：待更新或内容冲突</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button>
+#tree{border:1px solid var(--vscode-panel-border);max-height:65vh;overflow:auto;padding:6px}.row{display:flex;align-items:center;min-height:30px;gap:7px;white-space:nowrap;border-radius:3px}.row:hover{background:var(--vscode-list-hoverBackground)}
+.row label{cursor:pointer;min-width:150px;max-width:32%;overflow:hidden;text-overflow:ellipsis}.row input{accent-color:var(--vscode-focusBorder)}.twisty{width:21px;min-width:21px;text-align:center;padding:0;background:transparent;color:var(--vscode-foreground)}.row-detail{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:var(--vscode-editorWidget-background);border-left:2px solid var(--vscode-focusBorder)}.version{border:1px solid var(--vscode-panel-border);padding:3px 6px;overflow-wrap:anywhere;max-width:360px;font-size:11px}.version button{font-size:11px;padding:2px 5px;margin-left:4px}.more{margin-left:auto;white-space:nowrap;font-size:11px;padding:3px 7px}.candidate{color:var(--vscode-editorWarning-foreground,#d9822b)}.held{color:var(--vscode-editorWarning-foreground,#d9822b);font-size:11px}
+#status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground)}#save{margin-top:8px}.badge{margin-left:8px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%;min-width:0}.badge span{margin-right:6px}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}.focus-conflict{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-focusBackground)}
+</style></head><body><h2>同步范围</h2><div class="muted">单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。</div><div class="muted"><span class="same">绿色：同版</span>　<span class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button>
 <script nonce="${nonce}">
-const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0,refreshInterval=10000;const views=new Map();
+const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0;const views=new Map();
 const tabs=document.getElementById('tabs'),tree=document.getElementById('tree'),status=document.getElementById('status'),detail=document.getElementById('detail');
 function state(){return views.get(active.id)}
-function selected(path){const set=state().selected;return [...set].some(item=>item==='.'||item===path||path.startsWith(item+'/'))}
-function childSelected(path){return [...state().selected].some(item=>item.startsWith(path+'/'))}
-function setSelection(path,checked){const set=state().selected;if(checked){for(const item of [...set])if(item===path||item.startsWith(path+'/'))set.delete(item);set.add(path)}else{set.delete(path);for(const item of [...set])if(item.startsWith(path+'/'))set.delete(item)}renderTree()}
-function paintStatus(badge,health,directory){if(!health){badge.textContent='待刷新';return}if(directory){badge.textContent=health.detail;return}for(const part of health.detail.split(' · ')){const item=document.createElement('span');item.textContent=part;item.className=part.includes('最新版')||part.includes('同版')?'same':part.includes('待更新')||part.includes('冲突')||part.includes('缺失')&&!part.startsWith('本机')?'different':part.includes('缺失')||part.includes('不同版')?'remote-only':'unknown';badge.appendChild(item)}}
+function isExcluded(path){return [...state().excluded].some(item=>item===path||path.startsWith(item+'/'))}
+function selected(path){if(isExcluded(path))return false;return [...state().selected].some(item=>item==='.'||item===path||path.startsWith(item+'/'))}
+function childSelected(path){return [...state().selected].some(item=>path==='.'||item.startsWith(path+'/'))||selected(path)&&[...state().excluded].some(item=>item.startsWith(path+'/'))}
+function hasExcludedChild(path){return [...state().excluded].some(item=>item.startsWith(path+'/'))}
+function setSelection(path,checked){const view=state(),set=view.selected,excluded=view.excluded;if(path==='.') {set.clear();excluded.clear();if(checked){if(!active.excludable)set.add('.');else for(const item of view.children.get('.')||[])if(item.selectable!==false)set.add(item.path)}}else if(checked){for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item);if(!selected(path)){for(const item of [...set])if(item.startsWith(path+'/'))set.delete(item);set.add(path)}}else{for(const item of [...set])if(item===path||item.startsWith(path+'/'))set.delete(item);if([...set].some(item=>item==='.'||path.startsWith(item+'/')))excluded.add(path);else for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item)}renderTree()}function paintStatus(badge,health,directory){if(!health){badge.textContent='待刷新';return}if(directory){badge.textContent=health.detail;return}for(const part of health.detail.split(' · ')){const item=document.createElement('span');item.textContent=part;item.className=part.includes('最新版')||part.includes('同版')?'same':part.includes('待更新')||part.includes('冲突')||part.includes('缺失')&&!part.startsWith('本机')?'different':part.includes('缺失')||part.includes('不同版')?'remote-only':'unknown';badge.appendChild(item)}}
 function folderHealth(path){return state().statuses[path]||{state:'unknown',detail:'待校验'}}
-function row(entry,depth){const el=document.createElement('div');el.className='row';el.style.paddingLeft=(depth*18)+'px';const toggle=document.createElement('button');toggle.className='twisty';toggle.textContent=entry.directory?(state().expanded.has(entry.path)?'▾':'▸'):' ';toggle.disabled=!entry.directory;toggle.onclick=()=>{if(state().expanded.has(entry.path)){state().expanded.delete(entry.path);renderTree()}else{state().expanded.add(entry.path);load(entry.path)}};el.appendChild(toggle);const box=document.createElement('input');box.type='checkbox';box.checked=selected(entry.path);box.indeterminate=!box.checked&&childSelected(entry.path);box.disabled=entry.selectable===false||entry.path!=='.'&&[...state().selected].some(item=>item==='.'||item!==entry.path&&entry.path.startsWith(item+'/'));box.onchange=()=>setSelection(entry.path,box.checked);el.appendChild(box);const label=document.createElement('label');label.textContent=(entry.directory?'📁 ':'📄 ')+entry.name;label.onclick=()=>entry.directory&&toggle.click();el.appendChild(label);const health=entry.directory?folderHealth(entry.path):state().statuses[entry.path];const badge=document.createElement('span');badge.className='badge '+(health?.state||'unknown');paintStatus(badge,health,entry.directory);el.appendChild(badge);if(health?.held||entry.held){const mark=document.createElement('span');mark.className='held';mark.textContent='自动同步已暂停';el.appendChild(mark)}if(entry.path!=='.'){const versions=document.createElement('span');versions.className='versions';const locations=entry.directory?entry.locations||[]:Object.keys(health?.versions||{});for(const id of locations){const v=health?.versions?.[id];const item=document.createElement('span');item.className='version '+(v?.latest==='candidate'?'candidate':v?.latest?'same':'');item.textContent=id+(v?' · '+v.sha256+' · '+(v.modifiedAtMs?new Date(v.modifiedAtMs).toLocaleString():'时间未知')+(v.latest==='manual'?' · 手动保留':v.latest==='plan'?' · Plan 最新运行':v.latest==='local'?' · 本机最新版':v.latest==='candidate'?' · 时间最新候选':v.latest==='same'?' · 同版':''):'');if(v||entry.directory){const retain=document.createElement('button');retain.className='secondary';retain.textContent='保留此版';retain.disabled=!health||health.state==='unknown'||health.unverified===true;retain.title=retain.disabled?'请先完成此路径的内容校验':'';retain.onclick=()=>vscode.postMessage({type:'retain',id:String(++serial),rootId:active.id,path:entry.path,endpointId:id,directory:entry.directory});item.appendChild(retain)}const remove=document.createElement('button');remove.className='secondary';remove.textContent='删除';remove.onclick=()=>vscode.postMessage({type:'remove',id:String(++serial),rootId:active.id,path:entry.path,endpointId:id,directory:entry.directory});item.appendChild(remove);versions.appendChild(item)}el.appendChild(versions)}tree.appendChild(el);if(entry.directory&&state().expanded.has(entry.path)){const children=state().children.get(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}}
-function renderTree(){if(!active)return;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0)}
-function renderTabs(){tabs.replaceChildren();for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();if(state().children.has('.'))refresh();else load('.')};tabs.appendChild(button)}}
-function load(path){const id=String(++serial);vscode.postMessage({type:'list',id,rootId:active.id,path})}
-function refresh(path,force=false){if(!active)return;const view=state();if(force)view.last.clear();if(view.pending.size)return;const now=Date.now();const target=path&&view.children.has(path)?path:[...view.expanded].find(item=>view.children.has(item)&&(!view.last.has(item)||now-view.last.get(item)>=refreshInterval));if(!target)return;view.pending.add(target);status.textContent='正在校验 '+target+' 的全部文件…';vscode.postMessage({type:'refresh',id:String(++serial),rootId:active.id,path:target})}
-document.getElementById('refresh').onclick=()=>refresh(undefined,true);
-document.getElementById('save').onclick=()=>{if(!active)return;status.textContent='保存中…';vscode.postMessage({type:'save',id:String(++serial),rootId:active.id,paths:[...state().selected].sort()})};
-window.addEventListener('message',event=>{const message=event.data;if(message.type==='init'){roots=message.roots;refreshInterval=Number(message.refreshIntervalMs)||10000;for(const root of roots)views.set(root.id,{selected:new Set(root.selected),expanded:new Set(['.']),children:new Map(),last:new Map(),pending:new Set(),statuses:{}});active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');setInterval(()=>{if(!document.hidden)refresh()},refreshInterval)}else if(message.type==='children'){const view=views.get(message.rootId);if(!view)return;view.children.set(message.path,message.entries);if(active?.id===message.rootId){renderTree();refresh(message.path)}}else if(message.type==='status'){const view=views.get(message.rootId);if(view){view.pending.delete(message.path);view.last.set(message.path,Date.now());for(const key of Object.keys(view.statuses))if(key!==message.path&&(key.includes('/')?key.slice(0,key.lastIndexOf('/')):'.')===message.path)delete view.statuses[key];Object.assign(view.statuses,message.statuses||{})}status.textContent='已校验 '+message.path+'：'+message.refreshedAt;if(active?.id===message.rootId){renderTree();refresh()}}else if(message.type==='saved'){status.textContent='已保存 '+message.paths.length+' 条路径';refresh(undefined,true)}else if(message.type==='actionDone'){status.textContent='操作完成 '+message.path;const view=views.get(message.rootId);if(view){view.last.clear();view.statuses={};view.children.clear();view.expanded=new Set(['.'])}if(active?.id===message.rootId){renderTree();load('.')}}else if(message.type==='error'){const view=views.get(message.rootId);if(view){if(message.requestType==='list')view.children.set(message.path,[]);else{view.pending.delete(message.path);view.last.set(message.path,Date.now())}view.statuses[message.path]={state:'unknown',detail:'清单校验失败：'+message.message}}status.textContent='操作失败 '+message.path+'：'+message.message;if(active?.id===message.rootId){renderTree();refresh()}}});
-vscode.postMessage({type:'ready'});
+function row(entry,depth){
+  const view=state(),el=document.createElement('div');el.className='row';el.style.paddingLeft=(depth*18)+'px';
+  const toggle=document.createElement('button');toggle.className='twisty';toggle.textContent=entry.directory?(view.expanded.has(entry.path)?'▾':'▸'):' ';toggle.disabled=!entry.directory;
+  toggle.onclick=()=>{if(view.expanded.has(entry.path)){view.expanded.delete(entry.path);renderTree()}else{view.expanded.add(entry.path);renderTree();load(entry.path)}};el.appendChild(toggle);
+  const box=document.createElement('input');box.type='checkbox';
+  if(entry.path==='.') {const eligible=(view.children.get('.')||[]).filter(item=>item.selectable!==false);const count=eligible.filter(item=>selected(item.path)).length;box.checked=active.excludable?eligible.length>0&&count===eligible.length&&!eligible.some(item=>hasExcludedChild(item.path)):view.selected.has('.');box.indeterminate=active.excludable&&count>0&&!box.checked;box.disabled=entry.selectable===false||active.excludable&&!eligible.length}
+  else{box.checked=selected(entry.path)&&!hasExcludedChild(entry.path);box.indeterminate=!box.checked&&childSelected(entry.path);box.disabled=entry.selectable===false||!active.excludable&&[...view.selected].some(item=>item==='.'||item!==entry.path&&entry.path.startsWith(item+'/'))}
+  box.onchange=()=>setSelection(entry.path,box.checked);el.appendChild(box);
+  const label=document.createElement('label');label.className='name';label.textContent=(entry.directory?'📁 ':'📄 ')+entry.name;label.title=entry.path;label.onclick=()=>entry.directory&&toggle.click();el.appendChild(label);
+  const health=entry.directory?folderHealth(entry.path):view.statuses[entry.path];
+  const badge=document.createElement('span');badge.className='badge '+(health?.state||'unknown');badge.title=health?.detail||'待刷新';paintStatus(badge,health,entry.directory);el.appendChild(badge);
+  if(health?.held||entry.held){const mark=document.createElement('span');mark.className='held';mark.textContent='同步暂停';el.appendChild(mark)}
+  if(entry.path!=='.'){
+    const more=document.createElement('button');more.className='secondary more';more.textContent=view.detailPath===entry.path?'收起':'版本与操作';more.onclick=()=>{view.detailPath=view.detailPath===entry.path?null:entry.path;renderTree()};el.appendChild(more);
+  }
+  tree.appendChild(el);
+  if(entry.path===view.focus){el.className+=' focus-conflict';el.scrollIntoView?.({block:'center'})}
+  if(entry.path!=='.'&&view.detailPath===entry.path){
+    const actions=document.createElement('div');actions.className='row-detail';actions.style.paddingLeft=(depth*18+48)+'px';
+    const locations=entry.locations||Object.keys(health?.versions||{});
+    for(const id of locations){const v=health?.versions?.[id],item=document.createElement('span');item.className='version '+(v?.latest==='candidate'?'candidate':v?.latest?'same':'');item.textContent=id+(v?' · SHA256 '+v.sha256+' · '+(v.modifiedAtMs?new Date(v.modifiedAtMs).toLocaleString():'时间未知'):entry.directory&&health&&health.state!=='unknown'?' · 目录内容已校验':' · 尚未校验');
+      const retain=document.createElement('button');retain.className='secondary';retain.textContent='保留此版';retain.disabled=(!v&&!entry.directory)||!health||health.state==='unknown'||health.unverified===true;retain.title=retain.disabled?'请先完成此路径的内容校验':'';retain.onclick=()=>vscode.postMessage({type:'retain',id:String(++serial),rootId:active.id,path:entry.path,endpointId:id,directory:entry.directory});item.appendChild(retain);
+      const remove=document.createElement('button');remove.className='secondary';remove.textContent='删除';remove.onclick=()=>vscode.postMessage({type:'remove',id:String(++serial),rootId:active.id,path:entry.path,endpointId:id,directory:entry.directory});item.appendChild(remove);actions.appendChild(item)}
+    if(locations.some(id=>id!=='local')&&!locations.includes('local')){const removeAll=document.createElement('button');removeAll.className='secondary';removeAll.textContent='删除所有 Worker 副本';removeAll.title='本机不会删除；执行前显示每台 Worker 的完整路径并二次确认';removeAll.onclick=()=>vscode.postMessage({type:'removeAllWorkers',id:String(++serial),rootId:active.id,path:entry.path,directory:entry.directory});actions.appendChild(removeAll)}
+    tree.appendChild(actions);
+  }
+  if(entry.directory&&view.expanded.has(entry.path)){const children=view.children.get(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}
+}function renderTree(){if(!active)return;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0)}
+function renderTabs(){tabs.replaceChildren();for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();if(!state().children.has('.'))load('.')};tabs.appendChild(button)}}
+function load(path,rootId=active.id){vscode.postMessage({type:'list',id:String(++serial),rootId,path})}
+function parentPath(path){const index=path.lastIndexOf('/');return index<0?'.':path.slice(0,index)}
+function enqueueRefresh(rootId,paths){const view=views.get(rootId);if(!view)return;for(const path of paths)if(!view.refreshQueue.includes(path))view.refreshQueue.push(path);pumpRefresh(rootId)}
+function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId)status.textContent='正在校验 '+path+' 的全部文件…';vscode.postMessage({type:'refresh',id:String(++serial),rootId,path})}
+function refreshVisible(){if(!active)return;enqueueRefresh(active.id,['.'])}
+document.getElementById('refresh').onclick=refreshVisible;
+function revealConflict(path){const view=state();view.focus=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
+document.getElementById('nextConflict').onclick=()=>{if(!active)return;const view=state();const all=Object.keys(view.statuses).filter(path=>path!=='.'&&view.statuses[path].state==='different');const paths=all.filter(path=>!all.some(other=>other.startsWith(path+'/'))).sort();if(!paths.length){status.textContent='没有已校验的冲突；请点击刷新同步状态';return}const index=paths.findIndex(path=>path>String(view.focus||''));const next=paths[index<0?0:index];revealConflict(next);status.textContent='冲突位置：'+next};
+document.getElementById('save').onclick=()=>{if(!active)return;status.textContent='保存中…';vscode.postMessage({type:'save',id:String(++serial),rootId:active.id,paths:[...state().selected].sort(),excluded:[...state().excluded].sort()})};
+window.addEventListener('message',event=>{
+  const message=event.data;
+  if(message.type==='init'){
+    roots=message.roots;
+    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshQueue:[],mutationParent:null,focus:null,statuses:{}});
+    active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');
+  }else if(message.type==='children'){
+    const view=views.get(message.rootId);if(!view)return;
+    view.listPending.delete(message.path);
+    view.children.set(message.path,message.entries);
+    if(view.mutationParent===message.path){view.mutationParent=null;enqueueRefresh(message.rootId,[message.path])}
+    if(active?.id===message.rootId)renderTree();
+  }else if(message.type==='status'){
+    const view=views.get(message.rootId);if(!view)return;
+    view.pending.delete(message.path);
+    for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))delete view.statuses[key];
+    Object.assign(view.statuses,message.statuses||{});
+    if(active?.id===message.rootId){status.textContent='已校验 '+message.path+'：'+message.refreshedAt;renderTree()}
+    pumpRefresh(message.rootId);
+  }else if(message.type==='saved'){
+    const view=views.get(message.rootId);if(view){view.statuses={};view.refreshQueue=[]}
+    if(active?.id===message.rootId){status.textContent='已保存，请点击刷新同步状态';renderTree()}
+  }else if(message.type==='actionCancelled'){
+    if(active?.id===message.rootId)status.textContent='操作已取消';
+  }else if(message.type==='actionDone'){
+    const parent=parentPath(message.path);
+    for(const [rootId,view] of views){
+      for(const key of Object.keys(view.statuses))if(key===message.path||key.startsWith(message.path+'/'))delete view.statuses[key];
+      let ancestor=parent;
+      for(;;){view.statuses[ancestor]={state:'unknown',detail:'目录内容已变化，点击刷新同步状态'};if(ancestor==='.')break;ancestor=parentPath(ancestor)}
+      if(message.directory){
+        for(const path of [...view.children.keys()])if(path===message.path||path.startsWith(message.path+'/'))view.children.delete(path);
+      }
+      if(rootId!==message.rootId)continue;
+      view.children.delete(parent);view.mutationParent=parent;
+      if(message.directory)for(const path of [...view.expanded])if(path===message.path||path.startsWith(message.path+'/'))load(path,rootId);
+    }
+    if(active?.id===message.rootId){status.textContent='正在更新 '+parent+'…';renderTree()}
+    load(parent,message.rootId);
+  }else if(message.type==='error'){
+    const view=views.get(message.rootId);
+    if(view){
+      if(message.requestType==='list')view.listPending.delete(message.path);
+      if(message.requestType==='refresh')view.pending.delete(message.path);
+      if(message.requestType==='list'&&view.mutationParent===message.path){view.mutationParent=null;enqueueRefresh(message.rootId,[message.path])}
+      view.statuses[message.path]={state:'unknown',detail:'清单校验失败：'+message.message};
+    }
+    if(active?.id===message.rootId){status.textContent='操作失败 '+message.path+'：'+message.message;renderTree()}
+    if(message.requestType==='refresh')pumpRefresh(message.rootId);
+  }
+});vscode.postMessage({type:'ready'});
 </script></body></html>`;
 }
