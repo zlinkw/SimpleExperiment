@@ -4,9 +4,9 @@
 
 队列记录 Plan revision、代码同步指纹、Case、seed、attempt、Worker、GPU、命令 ID、状态以及产物哈希。派发先处理旧 Plan 的就绪 job；旧 Plan 的任务已运行或完成后，新 Plan 可占用空卡。派发请求使用专用限流通道，仍遵守并发上限；Agent 在接受任务时重新检测 GPU 进程并原子保留槽位。状态不明的任务不会自动重派；用户在任务页点击恢复时，插件先向原 Worker 核实终止状态并保存已有产物，随后建立新 attempt。不同代码指纹的任务不同时运行。
 
-每个 job 的输出使用 `原输出目录/attempts/<运行 ID>/`，重跑保留旧 attempt。项目适配器在该目录写配置、检查点和独立结果片段，并保留原始 TensorBoard 事件与日志。名称由下方契约指定。插件用 SimpleSFTP 先对小片段逐文件计算 SHA256、同步到在线 Worker 并生成非正式预览，再清点整个 job 目录、同步权重、原始曲线、日志及其余文件，逐目标核对内容。每个 job 从运行转入完成时立即触发这一流程；离线 Worker 保留待镜像状态，重连后补齐。同步使用文件清单，不执行目录删除。
+每个 job 的输出使用 `原输出目录/attempts/<运行 ID>/`，重跑保留旧 attempt。项目适配器在该目录写配置、检查点和独立结果片段，并保留原始 TensorBoard 事件与日志。名称由下方契约指定。插件用 SimpleSFTP 先对小片段逐文件计算 SHA256、同步到在线 Worker 并生成非正式预览，再清点整个 job 目录、同步权重、原始曲线、日志及其余文件，逐目标核对内容。每个 job 转入成功或失败终态时立即更新预览清单，并将项目汇总模块返回的预览状态文件镜像到所有在线 Worker；成功 job 的片段和其余产物随后同步，失败 job 不进入正式指标。离线 Worker 保留待镜像状态，重连后补齐。同步使用文件清单，不执行目录删除。
 
-项目提供 `python -m <distributed.mergeModule> --manifest - --project-root <根目录> [--publish]`。清单通过标准输入传入，包含各 Plan 的 `expectedJobs` 与已完成 job；每个 job 带 Case、seed、attempt、输出目录、代码指纹及 `artifacts` 相对路径到 SHA256 的映射。为了兼容现有 MultiModal 入口，仍附带配置、检查点、正式指标和四态片段的独立 SHA256 字段。模块最后一行向 stdout 输出 JSON，含非空 `outputPaths` 相对路径数组。Agent 在一个已具备全部所需文件的 Worker 上调用项目入口。项目入口只从当前清单的已校验 attempt 重建共享表，正式表以临时文件加原子替换发布。未完成的 Plan 不进入正式汇总；旧实验记录不导入。生成文件随后按 SHA256 镜像到其他在线 Worker。各 Worker 的原始 TensorBoard 可在运行期间独立查看；完整 Case 的均值曲线在原始事件同步后由项目入口重建。
+项目提供 `python -m <distributed.mergeModule> --manifest - --project-root <根目录> [--publish]`。清单通过标准输入传入，包含各 Plan 的 `expectedJobs`、`jobStates` 与已完成 job；每个完成 job 带 Case、seed、attempt、输出目录、代码指纹及 `artifacts` 相对路径到 SHA256 的映射。为了兼容现有 MultiModal 入口，仍附带配置、检查点、正式指标和四态片段的独立 SHA256 字段。模块最后一行向 stdout 输出 JSON，含非空 `outputPaths` 相对路径数组。预览调用应把 `jobStates` 和已校验片段生成小型状态文件；正式调用才生成共享表，并以临时文件加原子替换发布。Agent 在一个已具备全部所需文件的 Worker 上调用项目入口。项目入口只从当前清单的已校验 attempt 重建共享表。未完成的 Plan 不进入正式汇总；旧实验记录不导入。生成文件随后按 SHA256 镜像到其他在线 Worker。各 Worker 的原始 TensorBoard 可在运行期间独立查看；完整 Case 的均值曲线在原始事件同步后由项目入口重建。
 
 ## 新项目接入
 

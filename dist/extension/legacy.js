@@ -8146,7 +8146,7 @@ class RealtimeTunnelPanelProvider {
         }
         const work = (async () => {
             const queue = await this.loadDistributedQueue(root);
-            if (!queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed")))
+            if (!queue.plans.length)
                 return;
             await this.syncDistributedJobArtifacts(root, queue, "fragments");
             if (workspaceRoot() !== root)
@@ -8482,6 +8482,8 @@ class RealtimeTunnelPanelProvider {
             return;
         const manifest = { schemaVersion: 1, plans: selected.map((plan) => ({ planFile: plan.planFile, revision: plan.revision,
                 expectedJobs: plan.jobs.map((job) => ({ case: job.case, seed: job.seed })),
+                jobStates: plan.jobs.map((job) => ({ case: job.case, seed: job.seed, attempt: job.attempt,
+                    status: job.status, workerId: job.workerId, finishedAt: job.finishedAt })),
                 jobs: plan.jobs.filter((job) => job.status === "completed" && job.artifacts).map((job) => ({
                     case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir,
                     commandId: job.commandId,
@@ -8497,9 +8499,11 @@ class RealtimeTunnelPanelProvider {
         const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
         const publish = !previewOnly && selected.every((plan) => plan.jobs.every((job) => job.status === "completed"
             && contract.requiredPaths.every((name) => Boolean(job.artifacts?.[`${job.outputDir}/${name}`])) && Boolean(job.mirroredWorkerIds?.length)));
-        const alreadyBuilt = publish ? queue.publishedSignature === signature : queue.previewSignature === signature;
-        let paths = alreadyBuilt ? queue.publishedPaths || [] : [];
-        let sourceWorkerId = alreadyBuilt ? queue.publishedWorkerId : available;
+        const alreadyBuilt = publish
+            ? queue.publishedSignature === signature && Boolean(queue.publishedPaths?.length) && Boolean(queue.publishedWorkerId)
+            : queue.previewSignature === signature && Boolean(queue.previewPaths?.length) && Boolean(queue.previewWorkerId);
+        let paths = alreadyBuilt ? (publish ? queue.publishedPaths : queue.previewPaths) || [] : [];
+        let sourceWorkerId = alreadyBuilt ? (publish ? queue.publishedWorkerId : queue.previewWorkerId) : available;
         if (!alreadyBuilt) {
             const target = targets.get(available);
             const response = await this.client.postWorkerAction(available, "rebuild-distributed-results", {
@@ -8518,14 +8522,19 @@ class RealtimeTunnelPanelProvider {
                 queue.publishedWorkerIds = [available];
                 queue.publishedPaths = paths;
             }
-            else
+            else {
                 queue.previewSignature = signature;
+                queue.previewWorkerId = available;
+                queue.previewWorkerIds = [available];
+                queue.previewPaths = paths;
+            }
             await this.patchDistributedPublication(root, publish ? {
                 publishedSignature: queue.publishedSignature, publishedWorkerId: queue.publishedWorkerId,
                 publishedWorkerIds: queue.publishedWorkerIds, publishedPaths: queue.publishedPaths
-            } : { previewSignature: queue.previewSignature });
+            } : { previewSignature: queue.previewSignature, previewWorkerId: queue.previewWorkerId,
+                previewWorkerIds: queue.previewWorkerIds, previewPaths: queue.previewPaths });
         }
-        if (!publish || !sourceWorkerId || !paths.length)
+        if (!sourceWorkerId || !paths.length)
             return;
         const sourceRow = targets.get(sourceWorkerId);
         if (!sourceRow || !online.includes(sourceWorkerId))
@@ -8534,7 +8543,7 @@ class RealtimeTunnelPanelProvider {
         for (const workerId of online) {
             if (workspaceRoot() !== root)
                 return;
-            if (queue.publishedWorkerIds?.includes(workerId))
+            if ((publish ? queue.publishedWorkerIds : queue.previewWorkerIds)?.includes(workerId))
                 continue;
             const destinationRow = targets.get(workerId);
             try {
@@ -8543,25 +8552,23 @@ class RealtimeTunnelPanelProvider {
                 await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
                     destination: { ...destination, host: destination.networkHost || destination.host },
                     relativePaths: paths, confirm: true, pathConfirmed: true });
-                const parents = new Map();
-                for (const file of paths) {
-                    const parent = path.posix.dirname(file);
-                    if (!parents.has(parent))
-                        parents.set(parent, []);
-                    parents.get(parent).push(file);
+                await mapLimited(paths, 3, async (file) => {
+                    const a = (await this.verifiedSftpProjectInventory({ source, relativePath: file })).files[file];
+                    const b = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: file })).files[file];
+                    if (!a?.sha256 || String(a.sha256).toLowerCase() !== String(b?.sha256 || "").toLowerCase())
+                        throw new Error(`${file} 内容校验失败`);
+                });
+                if (publish) {
+                    queue.publishedWorkerIds = [...new Set([...(queue.publishedWorkerIds || []), workerId])];
+                    await this.patchDistributedPublication(root, { publishedWorkerIds: queue.publishedWorkerIds });
                 }
-                for (const [parent, files] of parents) {
-                    const a = (await this.verifiedSftpProjectInventory({ source, relativePath: parent, recursive: true })).files;
-                    const b = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: parent, recursive: true })).files;
-                    for (const file of files)
-                        if (!a[file]?.sha256 || String(a[file].sha256).toLowerCase() !== String(b[file]?.sha256 || "").toLowerCase())
-                            throw new Error(`${file} 内容校验失败`);
+                else {
+                    queue.previewWorkerIds = [...new Set([...(queue.previewWorkerIds || []), workerId])];
+                    await this.patchDistributedPublication(root, { previewWorkerIds: queue.previewWorkerIds });
                 }
-                queue.publishedWorkerIds = [...new Set([...(queue.publishedWorkerIds || []), workerId])];
-                await this.patchDistributedPublication(root, { publishedWorkerIds: queue.publishedWorkerIds });
             }
             catch (error) {
-                this.recordActionError({ command: "distributedResultMirror", message: `${workerId}：${errorMessage(error)}` });
+                this.recordActionError({ command: "distributedResultMirror", message: `${workerId} ${publish ? "正式结果" : "逐 job 状态"}：${errorMessage(error)}` });
             }
         }
     }

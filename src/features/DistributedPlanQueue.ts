@@ -34,7 +34,8 @@ export type QueuedPlan = {
 export type DeferredPlan = { id: string; planFile: string; revision: string; codeFingerprint: string;
   body: Record<string, unknown>; enqueuedAt: string; status: "pending" | "processing" | "blocked"; error?: string; retryAfter?: string };
 export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred?: DeferredPlan[]; publishedSignature?: string; previewSignature?: string;
-  publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[] };
+  publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];
+  previewWorkerId?: string; previewWorkerIds?: string[]; previewPaths?: string[] };
 export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number };
 export type Dispatch = { planId: string; jobIndex: number; workerId: string; gpuId: string; attempt: number; commandId: string };
 
