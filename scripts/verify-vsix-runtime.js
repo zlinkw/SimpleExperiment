@@ -5,6 +5,11 @@ const { npmCommand } = require("./npm-command");
 
 const root = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const compiledRuntimeVersion = require(path.join(root, "dist/runtime/RuntimeManifest.js")).CURRENT_RUNTIME_VERSION;
+if (compiledRuntimeVersion !== packageJson.version) {
+  process.stderr.write(`Compiled runtime version ${compiledRuntimeVersion} differs from package ${packageJson.version}.\n`);
+  process.exit(1);
+}
 const npm = npmCommand(["exec", "--", "@vscode/vsce", "ls", "--no-dependencies"]);
 const result = spawnSync(npm.command, npm.args, {
   cwd: root,

@@ -8590,7 +8590,7 @@ class RealtimeTunnelPanelProvider {
         if (choice !== "保存旧产物并恢复")
             return;
         const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
-        const expectedHashes = (0, DistributedJobArtifacts_1.collectDistributedJobArtifacts)(job.outputDir, inventory);
+        const expectedHashes = (0, DistributedJobArtifacts_1.collectDistributedJobArtifacts)(job.outputDir, inventory, false);
         const files = Object.keys(expectedHashes);
         for (const target of this.workerCodeSyncTargets().filter((row) => row.id !== job.workerId && this.lastWorkerProbes[row.id]?.status === "ok")) {
             await this.assertSshTransportIdentities([sourceRow, target]);

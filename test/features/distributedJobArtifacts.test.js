@@ -21,3 +21,10 @@ test("requires a stable job-owned log before marking a job mirrored", () => {
     "tmp/tmux_logs/gpu-0.log": { sha256: hash },
   }), /缺少独立运行日志/);
 });
+
+test("failed job recovery can preserve partial artifacts before a log exists", () => {
+  const output = "work_dirs/case/attempts/run-1";
+  assert.deepEqual(collectDistributedJobArtifacts(output, {
+    [`${output}/partial_checkpoint.pth`]: { sha256: hash },
+  }, false), { [`${output}/partial_checkpoint.pth`]: hash });
+});
