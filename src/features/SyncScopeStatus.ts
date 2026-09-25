@@ -168,7 +168,12 @@ export function buildScopeStatuses(
     for (let i = 1; i < parts.length; i++) count(parts.slice(0, i).join("/"), statuses[path]);
   }
   for (const [folder, { total, failed, remoteOnly, unknown }] of folders) {
-    statuses[folder] = { state: failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same", detail: failed ? `${failed} 个文件待更新或冲突` : unknown ? `${unknown} 个文件未确认` : remoteOnly ? `${remoteOnly} 个文件仅 Worker 一致` : `${total} 个文件全部一致`, held: isSyncHeld(folder, holds) };
+    const same = total - failed - remoteOnly - unknown;
+    statuses[folder] = {
+      state: failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same",
+      detail: `共 ${total} 个文件 · ${same} 一致 · ${failed} 待更新或冲突 · ${remoteOnly} 仅 Worker 一致 · ${unknown} 未确认`,
+      held: isSyncHeld(folder, holds),
+    };
   }
   return statuses;
 }

@@ -104,24 +104,24 @@ test("manual local scope accepts every file type and size while excluding machin
   }
 });
 
-test("the two scope buttons target separate local/server and worker/worker trees", () => {
+test("one scope button opens both independently saved synchronization modes", () => {
   const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
   const actionStart = panel.indexOf('<div class="toolbar" data-anchor="sync-check-actions">');
   const actionRow = panel.slice(actionStart, panel.indexOf('<div class="toolbar" data-anchor="sync-actions">', actionStart));
   assert.match(panel, /data-command="configureCodeSyncIncludes"/);
   assert.ok(actionRow.indexOf('data-command="overwriteGithub"') < actionRow.indexOf('data-command="configureCodeSyncIncludes"'));
-  assert.ok(actionRow.indexOf('data-command="configureCodeSyncIncludes"') < actionRow.indexOf('data-command="configureServerSyncScope"'));
-  assert.match(actionRow, /本机与服务器同步范围/);
-  assert.match(actionRow, /服务器之间同步范围/);
+  assert.doesNotMatch(actionRow, /data-command="configureServerSyncScope"/);
+  assert.match(actionRow, /项目同步范围与状态/);
   assert.match(actionRow, /两套范围独立保存/);
   assert.doesNotMatch(panel, /configureSftpIgnores|设置跳过文件/);
   assert.match(source, /case "configureCodeSyncIncludes"/);
+  assert.match(source, /async configureServerSyncScope\(\) \{\s*await this\.configureCodeSyncIncludes\(\);/);
   assert.match(source, /config\.update\("codeSync\.scopePaths", \[\.\.\.new Set\(paths\)\]\.sort\(\), vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
   assert.match(source, /config\.update\("serverSync\.paths", normalized, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
   assert.match(source, /buildLocalCodeManifest\(root, includePaths, scopePaths\)/);
 });
 
-test("scope controls open a checkbox tree and save independently", async () => {
+test("scope control opens two tabs and saves each scope independently", async () => {
   const methodStart = source.indexOf("async configureCodeSyncIncludes() {");
   const methodEnd = source.indexOf("async ensureCodeReadyForRun(", methodStart);
   assert.ok(methodStart > 0 && methodEnd > methodStart);
@@ -129,6 +129,12 @@ test("scope controls open a checkbox tree and save independently", async () => {
   assert.match(text, /SyncScopeTree_1\.openSyncScopeTree/);
   assert.match(text, /listSyncScopeUnion/);
   assert.match(text, /refreshSyncScopeStatus/);
+  const sourceText = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
+  assert.match(sourceText, /collectLocalScopeInventory\(root, relative, true\)/);
+  assert.match(sourceText, /recursive: true, timeoutMs/);
+  assert.match(sourceText, /directFiles\[relative\] = errors.length/);
+  assert.match(text, /id: "local"/);
+  assert.match(text, /id: "workers"/);
   assert.match(text, /config\.update\("codeSync\.scopePaths"/);
   assert.match(text, /config\.update\("serverSync\.paths"/);
   assert.doesNotMatch(text, /showQuickPick|showOpenDialog|allowedExtensions|maxFileSizeMB/);

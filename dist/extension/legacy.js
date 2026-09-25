@@ -6710,19 +6710,20 @@ class RealtimeTunnelPanelProvider {
     async configureCodeSyncIncludes() {
         const folder = vscode.workspace.workspaceFolders?.[0];
         if (!folder || vscode.workspace.workspaceFolders?.length !== 1)
-            throw new Error("请先单独打开一个项目工作区，再设置本机与服务器的同步范围。");
+            throw new Error("请先单独打开一个项目工作区，再查看项目同步范围。");
         const root = folder.uri.fsPath;
         const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
         const savedScope = config.get("codeSync.scopePaths");
         const legacyExtra = config.get("codeSync.includePaths", []) || [];
-        const selected = [...new Set(Array.isArray(savedScope) ? savedScope : [...await walkCodeFiles(root), ...legacyExtra])].sort();
+        const localSelected = [...new Set(Array.isArray(savedScope) ? savedScope : [...await walkCodeFiles(root), ...legacyExtra])].sort();
+        const serverSelected = (0, ProjectMirror_1.normalizeMirrorScopePaths)(config.get("serverSync.paths", ["."]));
         const targets = this.workerCodeSyncTargets();
         const refreshIntervalMs = Math.max(5000, Number(config.get("scheduler.pollSeconds", 10)) * 1000 || 10000);
-        (0, SyncScopeTree_1.openSyncScopeTree)("本机与服务器同步范围", [{
-                id: "local", label: "本机与 Worker 项目并集", detail: "初始选中非产物、非预训练权重文件；可勾选或取消本机路径。远端独有文件仅供查看状态。", rootSelectable: false,
-                selected,
+        (0, SyncScopeTree_1.openSyncScopeTree)("项目同步范围与状态", [{
+                id: "local", label: "本机 ↔ Worker", detail: "默认同步本机非产物、非预训练权重路径；可勾选补充范围。文件夹显示整棵子树的汇总状态。", rootSelectable: false,
+                selected: localSelected,
                 list: async (relative) => this.listSyncScopeUnion(root, targets, relative, true),
-                refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "local-server", selected, relative),
+                refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "local-server", localSelected, relative),
                 remove: async (relative, endpointId, directory) => this.removeSyncScopePath(root, targets, relative, endpointId, directory),
                 retain: async (relative, endpointId, directory) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory),
                 save: async (paths) => {
@@ -6731,35 +6732,26 @@ class RealtimeTunnelPanelProvider {
                     if (paths.length)
                         await collectExplicitCodeFiles(root, paths);
                     await config.update("codeSync.scopePaths", [...new Set(paths)].sort(), vscode.ConfigurationTarget.WorkspaceFolder);
-                    selected.splice(0, selected.length, ...paths);
+                    localSelected.splice(0, localSelected.length, ...paths);
                     void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${paths.length} 条路径。`);
+                },
+            }, {
+                id: "workers", label: "Worker ↔ Worker", detail: "默认同步整个项目，机器状态除外；文件夹显示整棵子树的汇总状态。",
+                selected: serverSelected,
+                list: async (relative) => this.listSyncScopeUnion(root, targets, relative, false),
+                refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "server-server", serverSelected, relative),
+                remove: async (relative, endpointId, directory) => this.removeSyncScopePath(root, targets, relative, endpointId, directory),
+                retain: async (relative, endpointId, directory) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory),
+                save: async (paths) => {
+                    const normalized = (0, ProjectMirror_1.normalizeMirrorScopePaths)(paths);
+                    await config.update("serverSync.paths", normalized, vscode.ConfigurationTarget.WorkspaceFolder);
+                    serverSelected.splice(0, serverSelected.length, ...normalized);
+                    void vscode.window.showInformationMessage(`服务器之间同步范围已保存：${normalized.includes(".") ? "整个项目" : `${normalized.length} 条路径`}。`);
                 },
             }], refreshIntervalMs);
     }
     async configureServerSyncScope() {
-        const folder = vscode.workspace.workspaceFolders?.[0];
-        if (!folder || vscode.workspace.workspaceFolders?.length !== 1)
-            throw new Error("请先单独打开一个项目工作区，再设置服务器间同步范围。");
-        const targets = this.workerCodeSyncTargets();
-        if (!targets.length)
-            throw new Error("请先配置至少一台 Worker。");
-        const config = vscode.workspace.getConfiguration("simpleExperiment", folder.uri);
-        const selected = (0, ProjectMirror_1.normalizeMirrorScopePaths)(config.get("serverSync.paths", ["."]));
-        const refreshIntervalMs = Math.max(5000, Number(config.get("scheduler.pollSeconds", 10)) * 1000 || 10000);
-        (0, SyncScopeTree_1.openSyncScopeTree)("服务器之间同步范围", [{
-                id: "workers", label: "所有 Worker 的项目并集", detail: "默认整个项目；目录来自已启用 Worker 的并集，同名文件按内容校验，机器状态排除。",
-                selected,
-                list: async (relative) => this.listSyncScopeUnion(folder.uri.fsPath, targets, relative, false),
-                refresh: async (relative) => this.refreshSyncScopeStatus(folder.uri.fsPath, targets, "server-server", selected, relative),
-                remove: async (relative, endpointId, directory) => this.removeSyncScopePath(folder.uri.fsPath, targets, relative, endpointId, directory),
-                retain: async (relative, endpointId, directory) => this.retainSyncScopeVersion(folder.uri.fsPath, targets, relative, endpointId, directory),
-                save: async (paths) => {
-                    const normalized = (0, ProjectMirror_1.normalizeMirrorScopePaths)(paths);
-                    await config.update("serverSync.paths", normalized, vscode.ConfigurationTarget.WorkspaceFolder);
-                    selected.splice(0, selected.length, ...normalized);
-                    void vscode.window.showInformationMessage(`服务器之间同步范围已保存：${normalized.includes(".") ? "整个项目" : `${normalized.length} 条路径`}。`);
-                },
-            }], refreshIntervalMs);
+        await this.configureCodeSyncIncludes();
     }
     async listSyncScopeUnion(root, targets, relative, localOnly) {
         const local = await listLocalSyncScope(root, relative);
@@ -6781,14 +6773,14 @@ class RealtimeTunnelPanelProvider {
         return [...entries.values()].map((row) => ({ ...row, held: (0, SyncResolution_1.isSyncHeld)(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".") {
-        const local = await (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, relative, false);
+        const local = await (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, relative, true);
         const workers = {};
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
         for (const id of offline)
             workers[id] = {};
         const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", {
-            source: this.sftpServerOptions(target), relativePath: relative, recursive: false, timeoutMs: 120000,
+            source: this.sftpServerOptions(target), relativePath: relative, recursive: true, timeoutMs: 120000,
         })));
         const errors = [];
         for (let index = 0; index < targets.length; index++) {
@@ -6806,7 +6798,10 @@ class RealtimeTunnelPanelProvider {
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
         const statuses = (0, SyncScopeStatus_1.buildScopeStatuses)({ local, workers }, mode, selectedPaths, new Set(), ledger, offline, holds);
         const directFiles = Object.fromEntries(Object.entries(statuses).filter(([file]) => path.posix.dirname(file) === relative && file !== relative));
-        directFiles[relative] = { state: "unknown", detail: errors.length ? `清单校验失败：${errors.join("；")}` : "子目录待校验" };
+        const aggregate = statuses[relative] || { state: "unknown", detail: "目录为空或当前同步范围外" };
+        directFiles[relative] = errors.length
+            ? { ...aggregate, state: aggregate.state === "different" ? "different" : "unknown", detail: `${aggregate.detail} · 清单校验失败：${errors.join("；")}` }
+            : aggregate;
         return directFiles;
     }
     async removeSyncScopePath(root, targets, relative, endpointId, directory) {
@@ -18500,8 +18495,8 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     distributeCodeToWorkers: "分发代码到 Worker",
     deployLatestAgent: "部署 Agent runtime",
     configureDownloadScope: "设置下载文件范围",
-    configureCodeSyncIncludes: "本机与服务器同步范围",
-    configureServerSyncScope: "服务器之间同步范围",
+    configureCodeSyncIncludes: "项目同步范围与状态",
+    configureServerSyncScope: "项目同步范围与状态",
     downloadDebugBundle: "下载调试包",
     downloadRemoteResult: "下载远端结果",
     openResultArtifact: "打开或下载结果文件",

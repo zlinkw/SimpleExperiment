@@ -1289,8 +1289,7 @@ export function renderPanelHtml(): string {
         <div class="toolbar" data-anchor="sync-check-actions">
           <button type="button" data-command="runCheckStatic" title="运行静态检查，生成项目接入报告&#10;覆盖实验计划结构、输出接口与路径安全&#10;报告写入 simple_cluster/check_reports/&#10;查看报告：到「诊断与自检」卡片点「打开静态检查报告」">检查项目配置</button>
           <button type="button" class="danger-filled" data-command="overwriteGithub" data-danger="true" data-confirm="true" data-anchor="sync-actions-danger" title="危险操作：用 GitHub 远端覆盖本机工作区&#10;未提交的改动会丢失，执行前会要求确认">从 GitHub 覆盖本机</button>
-          <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="本机与服务器之间的同步范围。默认同步非产物、非预训练权重目录；在项目文件树中勾选额外路径。">本机与服务器同步范围</button>
-          <button type="button" data-command="configureServerSyncScope" class="secondary" title="服务器之间的同步范围。默认整个项目；在所有 Worker 的文件树并集中勾选路径。">服务器之间同步范围</button>
+          <button type="button" data-command="configureCodeSyncIncludes" class="secondary" title="统一查看项目文件树及文件夹汇总状态；在窗口内分别设置本机与 Worker、Worker 与 Worker 的同步范围。">项目同步范围与状态</button>
         </div>
         <div class="muted">本机同步默认排除产物和预训练权重；服务器间默认同步整个项目。两套范围独立保存，按内容校验。</div>
         <div class="toolbar" data-anchor="sync-actions">
@@ -2534,7 +2533,7 @@ export function renderPanelHtml(): string {
     ]);
     const LOW_VALUE_NATIVE_TITLE_KEYS = new Set(["详情", "建议", "说明", "提示", "修复", "原因", "帮助"]);
     const EXPLANATORY_TITLE_PATTERN = /(点击|请|用于|建议|避免|需要|不会|可以|保持|查看|显示|打开|确认|检查|保存|选择|拖动|执行|推荐|完整|这里|这个|当前|负责|说明|提示)/;
-    const pinnedCommandDefaults = ["testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureServerSyncScope"];
+    const pinnedCommandDefaults = ["testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureCodeSyncIncludes"];
     const uiCapabilityMap = {
       validatePlan: ["actions.validate-plan"],
       dryRunPlan: ["actions.dry-run-plan"],
@@ -5447,8 +5446,8 @@ export function renderPanelHtml(): string {
         distributeCodeToWorkers: "分发到 Worker",
         deployLatestAgent: "部署 Agent runtime",
         configureDownloadScope: "设置旧版下载范围",
-        configureCodeSyncIncludes: "本机与服务器同步范围",
-        configureServerSyncScope: "服务器之间同步范围",
+        configureCodeSyncIncludes: "项目同步范围与状态",
+        configureServerSyncScope: "项目同步范围与状态",
         resetRemotePathConfirmations: "恢复当前项目的上传路径确认提醒",
         saveTopologyMode: "保存项目拓扑模式",
         reassignWorkerTask: "把排队任务手动转移到另一台在线 Worker",
@@ -5649,7 +5648,8 @@ export function renderPanelHtml(): string {
       if (cached) return cached;
       const unique = [];
       (source || []).forEach((command) => {
-        const value = String(command || "");
+        const original = String(command || "");
+        const value = original === "configureServerSyncScope" ? "configureCodeSyncIncludes" : original;
         if (PINNED_COMMAND_VALUES?.has(value) && !unique.includes(value)) unique.push(value);
       });
       const normalized = unique.slice(0, 8);
@@ -6920,7 +6920,7 @@ export function renderPanelHtml(): string {
         plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
-        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["本机与服务器同步范围", "configureCodeSyncIncludes"], ["服务器之间同步范围", "configureServerSyncScope"]],
+        sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["项目同步范围与状态", "configureCodeSyncIncludes"]],
         tmux: [["刷新会话", "fetchTmuxList"], ["同步窗口", "fetchTmuxCapture"], ["检测全部", "testAll"]],
         diagnostics: [["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["下载调试包", "downloadDebugBundle"], ["审计尾部", "openAuditTail"]]
       };
@@ -14487,8 +14487,8 @@ export function renderPanelHtml(): string {
         deployLatestAgent: "部署 Agent",
         prepareAgents: "准备 Agent 并启动",
         configureDownloadScope: "旧版下载范围",
-        configureCodeSyncIncludes: "本机同步范围",
-        configureServerSyncScope: "服务器间同步范围",
+        configureCodeSyncIncludes: "项目同步范围与状态",
+        configureServerSyncScope: "项目同步范围与状态",
         resetRemotePathConfirmations: "恢复路径提醒",
         validatePlan: "校验计划",
         dryRunPlan: "预演计划",

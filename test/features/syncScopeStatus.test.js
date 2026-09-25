@@ -14,6 +14,7 @@ test("local scope treats local content as latest and aggregates directory state"
   assert.equal(status["configs/a.weird"].state, "different");
   assert.match(status["configs/a.weird"].detail, /本机 最新.*w1 最新.*w2 待更新/);
   assert.equal(status.configs.state, "different");
+  assert.match(status.configs.detail, /共 1 个文件 · 0 一致 · 1 待更新或冲突/);
 });
 
 test("server scope uses Plan owner, reports unrelated conflicts, and defaults to whole project", () => {
