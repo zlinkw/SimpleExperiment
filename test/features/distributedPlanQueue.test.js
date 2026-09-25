@@ -72,3 +72,20 @@ test("local preflight previews the same slots without modifying the persisted qu
   assert.deepEqual(preview.assignments, actual.map(({ jobIndex, workerId, gpuId }) => ({ jobIndex, workerId, gpuId })));
   assert.equal(input.plans.length, 1);
 });
+
+test("reconnection accepts only the exact persisted Plan, job, attempt and Worker", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("a"), jobs: [{
+    index: 0, case: "bus", seed: 42, outputDir: "work_dirs/a/bus/attempts/run-a",
+  }] }, "run-a");
+  const allocated = queue.allocateAvailable(input, [{ workerId: "worker-a", idleGpuIds: ["0"], online: true }]);
+  const current = allocated.queue.plans[0];
+  const job = current.jobs[0];
+  const remote = { commandId: job.commandId, workflowId: current.id, planRevision: current.revision,
+    case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir,
+    workerId: job.workerId, gpuId: job.gpuId, status: "running" };
+  assert.equal(queue.remoteTaskMatchesJob(current, job, remote), true);
+  for (const [field, value] of [["attempt", 2], ["case", "pad"], ["workerId", "worker-b"],
+    ["planRevision", "old"], ["outputDir", "other"]]) {
+    assert.equal(queue.remoteTaskMatchesJob(current, job, { ...remote, [field]: value }), false, field);
+  }
+});

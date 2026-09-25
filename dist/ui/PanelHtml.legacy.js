@@ -400,6 +400,9 @@ function renderPanelHtml() {
     .executionPlanRow.failed { border-left-color: var(--danger); }
     .executionPlanRow.completed { border-left-color: var(--success); }
     .executionPlanRow.is-selected { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+    .executionDistributedJobs { display: grid; gap: 5px; }
+    .executionDistributedJob { display: grid; grid-template-columns: minmax(130px, 1fr) auto auto auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+    .executionDistributedJob > span:first-child { min-width: 0; overflow-wrap: anywhere; }
     .executionPlanRow > summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 11px; cursor: pointer; list-style: none; }
     .executionPlanSelect { min-width: 66px; white-space: nowrap; }
     .executionPlanSelect.is-active { background: var(--vscode-focusBorder); border-color: var(--vscode-focusBorder); color: #FFFFFF; font-weight: 700; }
@@ -12879,7 +12882,7 @@ function renderPanelHtml() {
       const getGroup = (path) => {
         const planFile = String(path || "").trim();
         const key = normalizePlanSelectionKey(planFile).toLowerCase() || "unassigned";
-        if (!groups.has(key)) groups.set(key, { key, planFile, operations: [], tasks: [] });
+        if (!groups.has(key)) groups.set(key, { key, planFile, operations: [], tasks: [], distributedJobs: [] });
         return groups.get(key);
       };
       operationRowsForState(state).forEach((row) => {
@@ -12887,18 +12890,27 @@ function renderPanelHtml() {
         if (planFile) getGroup(planFile).operations.push(row);
       });
       taskSectionViewModelForState(state).allRows.forEach((row) => getGroup(taskPlanFile(row)).tasks.push(row));
+      (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).forEach((plan) => {
+        if (!plan.planFile) return;
+        const group = getGroup(plan.planFile);
+        (Array.isArray(plan.jobs) ? plan.jobs : []).forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: plan.enqueuedAt }));
+      });
       const selected = taskSelectionSetsForState(state);
       const items = Array.from(groups.values()).map((group) => {
-        const active = group.tasks.some((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) || TASK_QUEUED_STATUSES?.has(taskStatusToken(row.status))) || group.operations.some((row) => operationIsActive(row.status));
-        const failed = group.tasks.some((row) => taskFailureLikeStatus(row.status)) || group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row));
+        const distributedActive = group.distributedJobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+        const active = distributedActive || group.tasks.some((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) || TASK_QUEUED_STATUSES?.has(taskStatusToken(row.status))) || group.operations.some((row) => operationIsActive(row.status));
+        const failed = group.distributedJobs.some((job) => job.status === "failed") || group.tasks.some((row) => taskFailureLikeStatus(row.status)) || group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row));
         const newFailure = group.tasks.some((row) => taskFailureLikeStatus(row.status) && occurredThisSession(row))
-          || group.operations.some((row) => (operationIsFailureLike(row.status) || operationHasDeadEvidence(row)) && occurredThisSession(row));
+          || group.operations.some((row) => (operationIsFailureLike(row.status) || operationHasDeadEvidence(row)) && occurredThisSession(row))
+          || group.distributedJobs.some((job) => job.status === "failed" && occurredThisSession({ ...job, startedAt: job.enqueuedAt }));
         const tone = active ? "running" : failed ? "failed" : "completed";
-        const completed = group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status))).length;
-        const running = group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
+        const completed = group.distributedJobs.length ? group.distributedJobs.filter((job) => job.status === "completed").length
+          : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status))).length;
+        const running = group.distributedJobs.length ? group.distributedJobs.filter((job) => ["running", "dispatching"].includes(job.status)).length
+          : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
-        const stamp = [...group.operations, ...group.tasks].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || "") || 0), 0);
-        return { ...group, tone, active, newFailure, completed, running, label, stamp };
+        const stamp = [...group.operations, ...group.tasks, ...group.distributedJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.enqueuedAt || "") || 0), 0);
+        return { ...group, tone, active, distributedActive, newFailure, completed, running, label, stamp };
       });
       items.sort((a, b) => ({ running: 0, failed: 1, completed: 2 }[a.tone] - { running: 0, failed: 1, completed: 2 }[b.tone]) || b.stamp - a.stamp || a.label.localeCompare(b.label));
       if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
@@ -12908,14 +12920,23 @@ function renderPanelHtml() {
       const renderPlan = (group) => {
         const detailKey = "execution-plan-" + encodeURIComponent(group.key);
         const isSelected = !!group.planFile && samePlanSelection(group.planFile, selectedExecutionPlanFile);
-        const count = group.tasks.length ? ("任务 " + group.completed + "/" + group.tasks.length + (group.running ? " · 运行 " + group.running : "")) : ("操作 " + group.operations.length);
+        const totalJobs = group.distributedJobs.length || group.tasks.length;
+        const count = totalJobs ? ("任务 " + group.completed + "/" + totalJobs + (group.running ? " · 运行 " + group.running : "")) : ("操作 " + group.operations.length);
         const sortedOps = group.operations.slice().sort((a, b) => String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || "")));
         const sortedTasks = group.tasks.slice().sort((a, b) => {
           const priority = (row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) ? 0 : taskFailureLikeStatus(row.status) ? 1 : 2;
           return priority(a) - priority(b) || String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || ""));
         });
-        const opRows = sortedOps.slice(0, 4);
+        const opRows = (group.distributedActive ? sortedOps.filter((row) => operationIsActive(row.status) || occurredThisSession(row)) : sortedOps).slice(0, 4);
         const taskRows = sortedTasks.slice(0, 20);
+        const distributedRows = group.distributedJobs;
+        const distributedHtml = distributedRows.length ? '<h3>分布式 job · ' + group.completed + '/' + group.distributedJobs.length + '</h3><div class="executionDistributedJobs">' + distributedRows.map((job) => {
+          const status = String(job.status || "unknown");
+          const statusLabel = { pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status;
+          const placement = job.workerId ? job.workerId + (job.gpuId === undefined ? "" : " · GPU " + job.gpuId) : "待分配";
+          const logButton = job.commandId && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-run-key="' + escAttr(job.commandId) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从所属 Worker 读取该 job 日志">日志</button>' : '';
+          return '<div class="executionDistributedJob" title="' + escAttr(job.outputDir || "") + '"><span>' + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + statusClass(status) + '">' + esc(statusLabel) + '</span><span>' + esc(placement) + '</span>' + logButton + '</div>';
+        }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
         const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录可在下方“完整操作与任务记录”中查看。</div>' : "";
@@ -12923,7 +12944,7 @@ function renderPanelHtml() {
           '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? "异常" : "已结束") + '</b>' +
           (group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '') + '</summary>' +
           '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' +
-          (group.planFile ? '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + opHtml + taskHtml + more + '</div></details>';
+          (group.planFile ? '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + distributedHtml + opHtml + taskHtml + more + '</div></details>';
       };
       const current = items.filter((item) => item.active || item.newFailure);
       const history = items.filter((item) => !item.active && !item.newFailure);

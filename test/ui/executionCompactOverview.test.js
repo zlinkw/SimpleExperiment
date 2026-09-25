@@ -62,6 +62,50 @@ test("Plan overview prioritizes live work and folds old failures after restart",
   assert.match(html, /data-execution-plan-select="plans\/live.yaml" aria-pressed="true"/);
 });
 
+test("persisted distributed jobs keep their Plan live after restart despite old failed operations", () => {
+  let html = "";
+  const sandbox = {
+    Map, Set,
+    operationRowsForState: () => [{ planFile: "plans/corim.yaml", status: "failed", finishedAt: "2026-09-24T11:00:00Z" }],
+    taskSectionViewModelForState: () => ({ allRows: [] }),
+    taskPlanFile: (row) => row.planFile,
+    taskSelectionSetsForState: () => ({}),
+    normalizePlanSelectionKey: String,
+    samePlanSelection: (left, right) => left === right,
+    selectedExecutionPlanFile: "plans/corim.yaml",
+    persistWebviewState: () => undefined,
+    taskStatusToken: String,
+    TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
+    TASK_QUEUED_STATUSES: new Set(["queued"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed"]),
+    operationIsActive: (value) => value === "running",
+    operationIsFailureLike: (value) => value === "failed",
+    operationHasDeadEvidence: () => false,
+    taskFailureLikeStatus: (value) => value === "failed",
+    planBaseName: (value) => value.split("/").pop(),
+    esc: String, escAttr: String,
+    detailsOpenAttr: () => "",
+    statusClass: String,
+    renderOperationItem: () => "<div>operation</div>",
+    renderTaskCards: () => "<div>tasks</div>",
+    setHtmlIfChanged: (_id, value) => { html = value; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extract("renderExecutionPlanList", "renderOperationSection") + "\nthis.render = renderExecutionPlanList;", sandbox);
+  sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [{
+    id: "distributed-1", planFile: "plans/corim.yaml", enqueuedAt: "2026-09-24T10:00:00Z",
+    jobs: [
+      { index: 0, case: "bus", seed: 42, status: "completed", workerId: "worker-a", gpuId: "0", commandId: "old-job" },
+      { index: 1, case: "pad", seed: 42, status: "running", workerId: "worker-b", gpuId: "1", commandId: "live-job" },
+    ],
+  }] });
+  assert.match(html, /executionPlanRow running/);
+  assert.match(html, /任务 1\/2 · 运行 1/);
+  assert.match(html, /pad seed 42/);
+  assert.match(html, /data-command="selectLogRunKey" data-run-key="live-job" data-worker-id="worker-b"/);
+  assert.doesNotMatch(html, /历史 Plan/);
+});
+
 test("diagnostics default to current server health and actionable issues", () => {
   let html = "";
   const sandbox = {

@@ -117,6 +117,19 @@ export function setJobState(queue: DistributedQueue, planId: string, jobIndex: n
   return { ...queue, plans };
 }
 
+export function remoteTaskMatchesJob(plan: QueuedPlan, job: QueuedJob, task: Record<string, unknown>): boolean {
+  return Boolean(job.commandId && job.workerId && job.gpuId !== undefined
+    && String(task.commandId || "") === job.commandId
+    && String(task.workflowId || "") === plan.id
+    && String(task.planRevision || "") === plan.revision
+    && String(task.case || "") === job.case
+    && Number(task.seed) === job.seed
+    && Number(task.attempt) === job.attempt
+    && String(task.outputDir || "") === job.outputDir
+    && String(task.workerId || "") === job.workerId
+    && String(task.gpuId ?? "") === job.gpuId);
+}
+
 export function resetUnsentDispatch(queue: DistributedQueue, planId: string, jobIndex: number, commandId: string): DistributedQueue {
   return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
     jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"

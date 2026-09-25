@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.132"
-RUNTIME_VERSION = "0.5.132"
-PLUGIN_VERSION = "0.5.132"
+AGENT_VERSION = "0.5.133"
+RUNTIME_VERSION = "0.5.133"
+PLUGIN_VERSION = "0.5.133"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -2337,6 +2337,14 @@ def worker_task_snapshot_key(task):
         return ("id", key)
     return ("legacy", str(task.get("planFile") or task.get("plan") or ""), str(task.get("pid") or ""), str(task.get("tmuxSession") or ""))
 
+def retain_worker_task_snapshot(tasks, terminal_limit=200):
+    """Keep every unfinished job so a later Agent restart can still reconcile it."""
+    terminal_positions = [index for index, task in enumerate(tasks)
+                          if not isinstance(task, dict) or str(task.get("status") or "").lower()
+                          not in ("running", "dispatching", "pending", "queued", "unknown")]
+    discard = set(terminal_positions[:max(0, len(terminal_positions) - terminal_limit)])
+    return [task for index, task in enumerate(tasks) if index not in discard]
+
 def append_worker_task(root, task):
     with WORKER_TASK_SNAPSHOT_LOCK:
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
@@ -2348,7 +2356,7 @@ def append_worker_task(root, task):
             kept.append(task)
         else:
             kept.insert(min(old_index, len(kept)), task)
-        atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": kept[-200:], "generatedAt": now_iso()})
+        atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": retain_worker_task_snapshot(kept), "generatedAt": now_iso()})
 
 def reserve_distributed_gpu(root, gpu_id, command_id):
     """Reserve one physical GPU before starting a distributed job; never infer ownership from username."""
@@ -3572,7 +3580,7 @@ def reconcile_worker_task_exit_codes(root):
             task["reconciledAt"] = task["finishedAt"]
             events.append(("worker_task_completed" if exit_code == 0 else "worker_task_failed", dict(task)))
         if events:
-            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": retain_worker_task_snapshot(tasks), "generatedAt": now_iso()})
     for event_type, task in events:
         append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
     return {"changed": len(events)}
@@ -3631,7 +3639,7 @@ def reconcile_worker_tasks_after_restart(root, eligible_ids=None):
             task["reconciledAt"] = task["finishedAt"]
             events.append(("worker_task_failed", dict(task)))
         if events:
-            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": tasks[-200:], "generatedAt": now_iso()})
+            atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": retain_worker_task_snapshot(tasks), "generatedAt": now_iso()})
     for event_type, task in events:
         append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
     return {"changed": exit_result["changed"] + len(events)}
