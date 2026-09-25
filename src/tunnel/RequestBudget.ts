@@ -6,6 +6,7 @@ export type TunnelRequestPurpose =
   | "manual_refresh"
   | "run_plan"
   | "job_dispatch"
+  | "job_reconcile"
   | "stop"
   | "parse_results"
   | "diagnostics"
@@ -124,10 +125,10 @@ export class RequestBudget {
     const manualHealthOverride = options.userInitiated && purpose === "health" && this.config.allowManualOverride;
     if (this.paused && !manualHealthOverride) return this.deny(now, purpose, "paused");
     if (this.config.disabledPurposes?.includes(purpose)) return this.deny(now, purpose, "offline");
-    if (this.config.pauseWhenHidden && this.hidden && !options.userInitiated && !options.visibleBypass && purpose !== "health" && purpose !== "job_dispatch") {
+    if (this.config.pauseWhenHidden && this.hidden && !options.userInitiated && !options.visibleBypass && purpose !== "health" && purpose !== "job_dispatch" && purpose !== "job_reconcile") {
       return this.deny(now, purpose, "hidden");
     }
-    if (purpose === "job_dispatch") return { allowed: true };
+    if (purpose === "job_dispatch" || purpose === "job_reconcile") return { allowed: true };
     if (this.inFlight >= this.config.maxConcurrentRequests) return this.deny(now, purpose, "rate_limited", 500);
     if (this.allowedLastMinute(now) >= this.config.maxRequestsPerMinute) return this.deny(now, purpose, "rate_limited", 60_000);
 
@@ -145,7 +146,7 @@ export class RequestBudget {
     fn: () => Promise<T>,
     options: RequestBudgetRunOptions = {},
   ): Promise<T> {
-    if (purpose === "job_dispatch") {
+    if (purpose === "job_dispatch" || purpose === "job_reconcile") {
       const previous = this.dispatchTail;
       let release!: () => void;
       this.dispatchTail = new Promise<void>((resolve) => { release = resolve; });

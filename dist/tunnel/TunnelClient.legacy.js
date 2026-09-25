@@ -152,7 +152,7 @@ class HttpTunnelClient {
         });
     }
     getWorkerTasks() {
-        return this.requestJson("/api/worker/tasks", "manual_refresh", undefined, {
+        return this.requestJson("/api/worker/tasks", "job_reconcile", undefined, {
             method: "GET",
             userInitiated: true,
         });

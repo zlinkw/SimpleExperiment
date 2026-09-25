@@ -65,10 +65,10 @@ class RequestBudget {
             return this.deny(now, purpose, "paused");
         if (this.config.disabledPurposes?.includes(purpose))
             return this.deny(now, purpose, "offline");
-        if (this.config.pauseWhenHidden && this.hidden && !options.userInitiated && !options.visibleBypass && purpose !== "health" && purpose !== "job_dispatch") {
+        if (this.config.pauseWhenHidden && this.hidden && !options.userInitiated && !options.visibleBypass && purpose !== "health" && purpose !== "job_dispatch" && purpose !== "job_reconcile") {
             return this.deny(now, purpose, "hidden");
         }
-        if (purpose === "job_dispatch")
+        if (purpose === "job_dispatch" || purpose === "job_reconcile")
             return { allowed: true };
         if (this.inFlight >= this.config.maxConcurrentRequests)
             return this.deny(now, purpose, "rate_limited", 500);
@@ -82,7 +82,7 @@ class RequestBudget {
         return { allowed: true };
     }
     async run(purpose, fn, options = {}) {
-        if (purpose === "job_dispatch") {
+        if (purpose === "job_dispatch" || purpose === "job_reconcile") {
             const previous = this.dispatchTail;
             let release;
             this.dispatchTail = new Promise((resolve) => { release = resolve; });

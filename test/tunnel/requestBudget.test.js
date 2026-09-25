@@ -57,6 +57,31 @@ test("job dispatch queues behind transport use without consuming the polling quo
   await assert.rejects(() => budget.run("job_dispatch", async () => "blocked"), /paused/);
 });
 
+test("worker task reconciliation still reads Agent tasks when the polling quota is exhausted", async () => {
+  const http = require("node:http");
+  const { HttpTunnelClient } = require("../../dist/tunnel/TunnelClient.js");
+  const server = http.createServer((request, response) => {
+    assert.equal(request.url, "/api/worker/tasks");
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ schemaVersion: 1, tasks: [{ commandId: "existing-job", status: "running" }] }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const budget = new RequestBudget({ ...defaultRequestBudgetConfig, maxRequestsPerMinute: 1,
+      maxConcurrentRequests: 1, minIntervalByPurpose: {} });
+    await budget.run("health", async () => "ok");
+    budget.setHidden(true);
+    const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port }, budget);
+    const snapshot = await client.getWorkerTasks();
+    assert.deepEqual(snapshot.tasks.map((task) => task.commandId), ["existing-job"]);
+    assert.equal(budget.snapshot().requestsLastMinute, 1);
+    budget.pauseAll();
+    await assert.rejects(() => client.getWorkerTasks(), /paused/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("request budget rolling counters expire allowed and denied events together", async () => {
   const realNow = Date.now;
   let now = Date.parse("2026-07-26T00:00:00.000Z");
