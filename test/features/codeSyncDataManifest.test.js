@@ -6,6 +6,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const { Readable } = require("node:stream");
+const SyncResolution_1 = require("../../dist/features/SyncResolution.js");
 
 const source = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
 const start = source.indexOf("async function buildLocalCodeManifest(root");
@@ -47,6 +48,19 @@ test("default local scope excludes server-owned data and includes arbitrary code
   const manifest = await sandbox.buildLocalCodeManifest(root);
   for (const file of files.slice(0, -1)) assert.equal(manifest[file], undefined, file);
   assert.ok(manifest["configs/custom.params"]);
+});
+
+test("single-path code ownership requires no full-tree listing or hashing", () => {
+  const sandbox = { path, SyncResolution_1 };
+  vm.runInNewContext(source.slice(start, end) + "; globalThis.isLocalCodeOwnedPath = isLocalCodeOwnedPath;", sandbox);
+  const owned = sandbox.isLocalCodeOwnedPath;
+  assert.equal(owned("configs/default.yaml", false), true);
+  assert.equal(owned("data/raw/image.png", false), false);
+  assert.equal(owned("models/cache/weight.pt", false), false);
+  assert.equal(owned("data/raw/image.png", false, ["data/raw"]), true);
+  assert.equal(owned("data/raw/image.png", false, [], ["configs"]), false);
+  assert.equal(owned("models/core.py", false, [], ["configs"]), true);
+  assert.equal(owned("models", true, [], ["models/core.py"]), true);
 });
 
 test("upload path does not inspect Git conflicts and verifies transferred source hashes", () => {
@@ -124,7 +138,7 @@ test("one scope button opens both independently saved synchronization modes", ()
 
 test("scope control opens two tabs and saves each scope independently", async () => {
   const methodStart = source.indexOf("async configureCodeSyncIncludes() {");
-  const methodEnd = source.indexOf("async ensureCodeReadyForRun(", methodStart);
+  const methodEnd = source.indexOf("async configureServerSyncScope()", methodStart);
   assert.ok(methodStart > 0 && methodEnd > methodStart);
   const text = source.slice(methodStart, methodEnd);
   assert.match(text, /SyncScopeTree_1\.openSyncScopeTree/);

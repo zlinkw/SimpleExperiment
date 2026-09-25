@@ -89,8 +89,15 @@ async function collectLocalScopeInventory(root, relative = ".", recursive = true
         });
         if (!stat)
             return;
-        if (!stat.isDirectory() || stat.isSymbolicLink())
-            throw new Error(`本机清单目录不安全：${current}`);
+        if (stat.isSymbolicLink())
+            throw new Error(`本机清单路径不安全：${current}`);
+        if (stat.isFile() && current) {
+            if (scopeInventoryPathAllowed(current, false))
+                names.push(current);
+            return;
+        }
+        if (!stat.isDirectory())
+            throw new Error(`本机清单路径不安全：${current}`);
         for (const entry of await fs.readdir(base, { withFileTypes: true })) {
             const child = current ? `${current}/${entry.name}` : entry.name;
             if (entry.isSymbolicLink() || !scopeInventoryPathAllowed(child, entry.isDirectory()))

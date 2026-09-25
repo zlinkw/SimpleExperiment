@@ -16,6 +16,7 @@ export type ScopeRoot = {
   remove?: (relative: string, endpointId: string, directory: boolean, report?: (stage: string) => void) => Promise<boolean | void>;
   removeAllWorkers?: (relative: string, directory: boolean, report?: (stage: string) => void) => Promise<boolean | void>;
   retain?: (relative: string, endpointId: string, directory: boolean, report?: (stage: string) => void) => Promise<boolean | void>;
+  batch?: (action: "sync" | "delete", selected: string[], excluded: string[], report: (stage: string) => void) => Promise<{ completed: string[]; errors: string[] } | false>;
 };
 
 export function openSyncScopeTree(title: string, roots: ScopeRoot[]): void {
@@ -51,6 +52,17 @@ export function openSyncScopeTree(title: string, roots: ScopeRoot[]): void {
         await root.save(paths, excluded);
         root.selected = paths;
         await panel.webview.postMessage({ type: "saved", id, rootId: root.id, paths });
+      } else if (message.type === "batchSync" || message.type === "batchDelete") {
+        if (!root.batch) throw new Error("当前范围不支持批量操作。");
+        const selected = Array.isArray(message.paths) ? message.paths.map(String) : [];
+        const excluded = Array.isArray(message.excluded) ? message.excluded.map(String) : [];
+        if (selected.some((value: string) => value !== "." && (value.startsWith("/") || value.split("/").some((part: string) => !part || part === "." || part === ".."))) ||
+            excluded.some((value: string) => !value || value === "." || value.startsWith("/") || value.split("/").some((part: string) => !part || part === "." || part === "..")))
+          throw new Error("批量选择包含不安全路径。");
+        const report = (stage: string) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: "批量操作", stage }); };
+        const result = await root.batch(message.type === "batchSync" ? "sync" : "delete", selected, excluded, report);
+        await panel.webview.postMessage({ type: result === false ? "actionCancelled" : "batchDone", id, rootId: root.id,
+          completed: result === false ? [] : result.completed, errors: result === false ? [] : result.errors });
       } else if (message.type === "remove" || message.type === "removeAllWorkers" || message.type === "retain") {
         const relative = String(message.path || "");
         if (!relative || relative === "." || relative.startsWith("/") || relative.split("/").some((part: string) => !part || part === "." || part === "..")) throw new Error("操作路径不安全。");
@@ -87,7 +99,7 @@ button.secondary{color:var(--vscode-foreground);background:var(--vscode-button-s
 #tree{border:1px solid var(--vscode-panel-border);max-height:65vh;overflow:auto;padding:6px}.row{display:flex;align-items:center;min-height:30px;gap:7px;white-space:nowrap;border-radius:3px}.row:hover{background:var(--vscode-list-hoverBackground)}
 .row label{cursor:pointer;min-width:150px;max-width:32%;overflow:hidden;text-overflow:ellipsis}.row .name.same{color:var(--vscode-testing-iconPassed,#43a047)}.row .name.different{color:var(--vscode-testing-iconFailed,#e53935)}.row .name.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.row .name.unknown{color:var(--vscode-descriptionForeground)}.row input{accent-color:var(--vscode-focusBorder)}.twisty{width:21px;min-width:21px;text-align:center;padding:0;background:transparent;color:var(--vscode-foreground)}.row-detail{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:var(--vscode-editorWidget-background);border-left:2px solid var(--vscode-focusBorder)}.version{border:1px solid var(--vscode-panel-border);padding:3px 6px;overflow-wrap:anywhere;max-width:360px;font-size:11px}.version button{font-size:11px;padding:2px 5px;margin-left:4px}.more{margin-left:auto;white-space:nowrap;font-size:11px;padding:3px 7px}.candidate{color:var(--vscode-editorWarning-foreground,#d9822b)}.held{color:var(--vscode-editorWarning-foreground,#d9822b);font-size:11px}
 #status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground);white-space:pre-wrap;overflow-wrap:anywhere}#status.busy::before{content:'◌';display:inline-block;margin-right:7px;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#save{margin-top:8px}.badge{margin-left:8px;font-size:12px;white-space:pre-line;overflow-wrap:anywhere;max-width:60%;min-width:0}.badge.same{display:none}.badge span{display:block;white-space:normal;overflow-wrap:anywhere;max-width:100%}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}.focus-conflict{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-focusBackground)}
-</style></head><body><h2>同步范围</h2><div class="muted">单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。</div><div class="muted"><span class="same">绿色：同版</span>　<span class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button>
+</style></head><body><h2>同步范围</h2><div class="muted">单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。</div><div class="muted"><span class="same">绿色：同版</span>　<span class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button> <button id="batchSync" class="secondary">批量同步勾选项</button> <button id="batchDelete" class="secondary">批量删除勾选项</button>
 <script nonce="${nonce}">
 const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0;const views=new Map();
 const tabs=document.getElementById('tabs'),tree=document.getElementById('tree'),status=document.getElementById('status'),detail=document.getElementById('detail');
@@ -141,6 +153,9 @@ document.getElementById('refresh').onclick=refreshVisible;
 function revealConflict(path){const view=state();view.focus=path;view.pendingFocusScroll=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
 document.getElementById('nextConflict').onclick=()=>{if(!active)return;const view=state();const all=Object.keys(view.statuses).filter(path=>path!=='.'&&view.statuses[path].state==='different');const paths=all.filter(path=>!all.some(other=>other.startsWith(path+'/'))).sort();if(!paths.length){status.textContent='没有已校验的冲突；请点击刷新同步状态';return}const index=paths.findIndex(path=>path>String(view.focus||''));const next=paths[index<0?0:index];revealConflict(next);status.textContent='冲突位置：'+next};
 document.getElementById('save').onclick=()=>{if(!active)return;status.textContent='保存中…';vscode.postMessage({type:'save',id:String(++serial),rootId:active.id,paths:[...state().selected].sort(),excluded:[...state().excluded].sort()})};
+function sendBatch(type){if(!active)return;const view=state();if(view.busyAction)return;if(!view.selected.size){status.textContent='请先勾选要操作的路径';return}view.busyAction={type,path:'.'};status.className='busy';status.textContent='正在核对勾选路径…';renderTree();vscode.postMessage({type,id:String(++serial),rootId:active.id,paths:[...view.selected].sort(),excluded:[...view.excluded].sort()})}
+document.getElementById('batchSync').onclick=()=>sendBatch('batchSync');
+document.getElementById('batchDelete').onclick=()=>sendBatch('batchDelete');
 window.addEventListener('message',event=>{
   const message=event.data;
   if(message.type==='init'){
@@ -169,6 +184,10 @@ window.addEventListener('message',event=>{
   }else if(message.type==='actionCancelled'){
     const view=views.get(message.rootId);if(view)view.busyAction=null;
     if(active?.id===message.rootId){status.className='';status.textContent='操作已取消';renderTree()}
+  }else if(message.type==='batchDone'){
+    const reload=new Set();for(const [rootId,view] of views){if(rootId===message.rootId)view.busyAction=null;for(const path of message.completed||[]){for(const key of Object.keys(view.statuses))if(key===path||key.startsWith(path+'/'))delete view.statuses[key];let parent=parentPath(path);view.children.delete(parent);if(rootId===active?.id&&view.expanded.has(parent))reload.add(parent);for(;;){view.statuses[parent]={state:'unknown',detail:'目录内容已变化，点击刷新同步状态'};if(parent==='.')break;parent=parentPath(parent)}}}
+    if(active?.id===message.rootId){status.className='';status.textContent='完成 '+(message.completed||[]).length+' 项'+((message.errors||[]).length?'；失败 '+message.errors.length+' 项：'+message.errors.join('；'):'')+'。点击刷新同步状态查看最新版本';renderTree()}
+    for(const parent of reload)load(parent,active.id);
   }else if(message.type==='actionDone'){
     const operated=views.get(message.rootId);if(operated)operated.busyAction=null;
     const parent=parentPath(message.path);
@@ -188,7 +207,7 @@ window.addEventListener('message',event=>{
   }else if(message.type==='error'){
     const view=views.get(message.rootId);
     if(view){
-      if(['remove','removeAllWorkers','retain'].includes(message.requestType))view.busyAction=null;
+      if(['remove','removeAllWorkers','retain','batchSync','batchDelete'].includes(message.requestType))view.busyAction=null;
       if(message.requestType==='list')view.listPending.delete(message.path);
       if(message.requestType==='refresh'){view.pending.delete(message.path);view.refreshErrors.set(message.path,message.message)}
       if(message.requestType==='list'&&view.mutationParent===message.path){view.mutationParent=null;enqueueRefresh(message.rootId,[message.path])}
