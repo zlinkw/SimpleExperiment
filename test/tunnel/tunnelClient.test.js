@@ -41,6 +41,23 @@ test("tunnel client requires an endpoint host", () => {
   assert.throws(() => new HttpTunnelClient({ localHost: "", localPort: 18765 }, budget), /host is required/);
 });
 
+test("distributed result rebuild may finish beyond the short telemetry timeout", async () => {
+  const server = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    setTimeout(() => res.end(JSON.stringify({ status: "completed", outputPaths: ["simple_cluster/results/distributed_preview.json"] })), 60);
+  });
+  await listen(server);
+  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] });
+  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port,
+    token: "secret", timeoutMs: 10 }, budget);
+  try {
+    const result = await client.postAction("rebuild-distributed-results", { opId: "rebuild-test" });
+    assert.equal(result.status, "completed");
+  } finally {
+    server.close();
+  }
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }

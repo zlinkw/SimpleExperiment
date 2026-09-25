@@ -176,6 +176,7 @@ class HttpTunnelClient {
         return this.requestJson(`/api/actions/${action}`, actionPurpose[action] || "manual_refresh", body, {
             method: "POST",
             userInitiated: true,
+            timeoutMs: action === "rebuild-distributed-results" ? 330_000 : undefined,
         });
     }
     postAvailabilityBatch(body) {
@@ -199,7 +200,7 @@ class HttpTunnelClient {
         const base = (0, TunnelGateway_1.localBaseUrl)(this.endpoint);
         return this.budget.run(purpose, async () => {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), this.endpoint.timeoutMs ?? 8_000);
+            const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.endpoint.timeoutMs ?? 8_000);
             timeout.unref?.();
             try {
                 const response = await fetch(`${base}${apiPath}`, {

@@ -8099,7 +8099,8 @@ class RealtimeTunnelPanelProvider {
                                     const old = oldJobs.get(job.index);
                                     return old && old.attempt === job.attempt ? { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
                                         mirroredWorkerIds: old.mirroredWorkerIds,
-                                        artifactError: old.artifactError, logPath: job.logPath || old.logPath,
+                                        artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter,
+                                        logPath: job.logPath || old.logPath,
                                         finishedAt: job.finishedAt || old.finishedAt } : job;
                                 }) };
                         }) };
@@ -8107,7 +8108,9 @@ class RealtimeTunnelPanelProvider {
                 if (!options.publicationMutation)
                     queue = { ...queue, publishedSignature: current.publishedSignature,
                         publishedWorkerId: current.publishedWorkerId, publishedWorkerIds: current.publishedWorkerIds,
-                        publishedPaths: current.publishedPaths, previewSignature: current.previewSignature };
+                        publishedPaths: current.publishedPaths, previewSignature: current.previewSignature,
+                        previewWorkerId: current.previewWorkerId, previewWorkerIds: current.previewWorkerIds,
+                        previewPaths: current.previewPaths };
             }
             const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
             await fs.mkdir(path.dirname(file), { recursive: true });
@@ -8499,11 +8502,14 @@ class RealtimeTunnelPanelProvider {
         const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
         const publish = !previewOnly && selected.every((plan) => plan.jobs.every((job) => job.status === "completed"
             && contract.requiredPaths.every((name) => Boolean(job.artifacts?.[`${job.outputDir}/${name}`])) && Boolean(job.mirroredWorkerIds?.length)));
+        const mirroredSources = publish ? queue.publishedWorkerIds : queue.previewWorkerIds;
+        const reusableSource = mirroredSources?.find((id) => online.includes(id))
+            || (publish ? queue.publishedWorkerId : queue.previewWorkerId);
         const alreadyBuilt = publish
-            ? queue.publishedSignature === signature && Boolean(queue.publishedPaths?.length) && Boolean(queue.publishedWorkerId)
-            : queue.previewSignature === signature && Boolean(queue.previewPaths?.length) && Boolean(queue.previewWorkerId);
+            ? queue.publishedSignature === signature && Boolean(queue.publishedPaths?.length) && Boolean(reusableSource && online.includes(reusableSource))
+            : queue.previewSignature === signature && Boolean(queue.previewPaths?.length) && Boolean(reusableSource && online.includes(reusableSource));
         let paths = alreadyBuilt ? (publish ? queue.publishedPaths : queue.previewPaths) || [] : [];
-        let sourceWorkerId = alreadyBuilt ? (publish ? queue.publishedWorkerId : queue.previewWorkerId) : available;
+        let sourceWorkerId = alreadyBuilt ? reusableSource : available;
         if (!alreadyBuilt) {
             const target = targets.get(available);
             const response = await this.client.postWorkerAction(available, "rebuild-distributed-results", {

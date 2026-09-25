@@ -266,6 +266,7 @@ export class HttpTunnelClient implements TunnelClient {
     return this.requestJson<T>(`/api/actions/${action}`, actionPurpose[action] || "manual_refresh", body, {
       method: "POST",
       userInitiated: true,
+      timeoutMs: action === "rebuild-distributed-results" ? 330_000 : undefined,
     });
   }
 
@@ -290,7 +291,7 @@ export class HttpTunnelClient implements TunnelClient {
     apiPath: string,
     purpose: TunnelRequestPurpose,
     body: unknown,
-    options: { method: "GET" | "POST"; userInitiated?: boolean },
+    options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number },
   ): Promise<T> {
     if (!apiPath.startsWith("/api/")) throw new Error("Only Hub Agent API paths are allowed.");
     const base = localBaseUrl(this.endpoint);
@@ -298,7 +299,7 @@ export class HttpTunnelClient implements TunnelClient {
         purpose,
         async () => {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), this.endpoint.timeoutMs ?? 8_000);
+          const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.endpoint.timeoutMs ?? 8_000);
           timeout.unref?.();
           try {
             const response = await fetch(`${base}${apiPath}`, {
