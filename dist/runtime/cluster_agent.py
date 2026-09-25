@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.123"
-RUNTIME_VERSION = "0.5.123"
-PLUGIN_VERSION = "0.5.123"
+AGENT_VERSION = "0.5.124"
+RUNTIME_VERSION = "0.5.124"
+PLUGIN_VERSION = "0.5.124"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -13025,7 +13025,7 @@ def serve_http(args):
                 append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:
-                if mode == "worker_telemetry" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
+                if mode == "worker_telemetry" and action in ("retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
                     release_worker_action = acquire_worker_action_slot(root, selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", payload)
                 return self.send_json(handle_action(root, action, payload, operation_id, op_id))
             except Exception as exc:

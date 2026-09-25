@@ -125,8 +125,8 @@ class RealtimeTunnelClient {
         this.onState(this.state);
         return snapshot;
     }
-    getGpu() {
-        return this.http.getGpu();
+    getGpu(options = {}) {
+        return this.http.getGpu(options);
     }
     getGpuHistory(query = {}) {
         // T2: 批量能力协商字段透传至 HttpTunnelClient，聚合由 MultiEndpointRealtimeClient 完成

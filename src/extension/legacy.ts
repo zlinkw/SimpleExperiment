@@ -7986,7 +7986,8 @@ export class RealtimeTunnelPanelProvider {
             }
         }
         let snapshot;
-        try { snapshot = await this.client.getGpu(); } catch { snapshot = undefined; }
+        try { snapshot = await this.client.getGpu({ dispatch: true }); }
+        catch { snapshot = this.lastRealtimeState?.gpu; }
         const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
             .map((job) => `${job.workerId}:${job.gpuId}`)));
         const dispatchFingerprint = queue.plans.find((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)))?.codeFingerprint

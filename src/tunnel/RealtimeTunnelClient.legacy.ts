@@ -156,8 +156,8 @@ export class RealtimeTunnelClient {
     return snapshot;
   }
 
-  getGpu(): Promise<unknown> {
-    return this.http.getGpu();
+  getGpu(options: { dispatch?: boolean } = {}): Promise<unknown> {
+    return this.http.getGpu(options);
   }
 
   getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {

@@ -8253,10 +8253,10 @@ class RealtimeTunnelPanelProvider {
         }
         let snapshot;
         try {
-            snapshot = await this.client.getGpu();
+            snapshot = await this.client.getGpu({ dispatch: true });
         }
         catch {
-            snapshot = undefined;
+            snapshot = this.lastRealtimeState?.gpu;
         }
         const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
             .map((job) => `${job.workerId}:${job.gpuId}`)));

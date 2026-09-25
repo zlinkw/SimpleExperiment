@@ -5,6 +5,7 @@ export type TunnelRequestPurpose =
   | "live_output"
   | "manual_refresh"
   | "run_plan"
+  | "job_dispatch"
   | "stop"
   | "parse_results"
   | "diagnostics"
@@ -96,6 +97,7 @@ export class RequestBudget {
   private lastAllowedAt?: number;
   private readonly lastByPurpose = new Map<TunnelRequestPurpose, number>();
   private lastDeniedReason?: RequestBudgetBlockReason;
+  private dispatchTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly config: RequestBudgetConfig = defaultRequestBudgetConfig) {}
 
@@ -122,9 +124,10 @@ export class RequestBudget {
     const manualHealthOverride = options.userInitiated && purpose === "health" && this.config.allowManualOverride;
     if (this.paused && !manualHealthOverride) return this.deny(now, purpose, "paused");
     if (this.config.disabledPurposes?.includes(purpose)) return this.deny(now, purpose, "offline");
-    if (this.config.pauseWhenHidden && this.hidden && !options.userInitiated && !options.visibleBypass && purpose !== "health") {
+    if (this.config.pauseWhenHidden && this.hidden && !options.userInitiated && !options.visibleBypass && purpose !== "health" && purpose !== "job_dispatch") {
       return this.deny(now, purpose, "hidden");
     }
+    if (purpose === "job_dispatch") return { allowed: true };
     if (this.inFlight >= this.config.maxConcurrentRequests) return this.deny(now, purpose, "rate_limited", 500);
     if (this.allowedLastMinute(now) >= this.config.maxRequestsPerMinute) return this.deny(now, purpose, "rate_limited", 60_000);
 
@@ -142,6 +145,24 @@ export class RequestBudget {
     fn: () => Promise<T>,
     options: RequestBudgetRunOptions = {},
   ): Promise<T> {
+    if (purpose === "job_dispatch") {
+      const previous = this.dispatchTail;
+      let release!: () => void;
+      this.dispatchTail = new Promise<void>((resolve) => { release = resolve; });
+      await previous;
+      try {
+        while (this.inFlight >= this.config.maxConcurrentRequests) {
+          const decision = this.decide(purpose, options);
+          if (!decision.allowed) throw new RequestBudgetDeniedError(purpose, decision);
+          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        }
+        const decision = this.decide(purpose, options);
+        if (!decision.allowed) throw new RequestBudgetDeniedError(purpose, decision);
+        this.inFlight += 1;
+        try { return await fn(); }
+        finally { this.inFlight = Math.max(0, this.inFlight - 1); }
+      } finally { release(); }
+    }
     const decision = this.decide(purpose, options);
     if (!decision.allowed) throw new RequestBudgetDeniedError(purpose, decision);
     const now = Date.now();

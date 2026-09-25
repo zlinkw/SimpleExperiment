@@ -13025,7 +13025,7 @@ def serve_http(args):
                 append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None
             try:
-                if mode == "worker_telemetry" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
+                if mode == "worker_telemetry" and action in ("retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
                     release_worker_action = acquire_worker_action_slot(root, selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", payload)
                 return self.send_json(handle_action(root, action, payload, operation_id, op_id))
             except Exception as exc:

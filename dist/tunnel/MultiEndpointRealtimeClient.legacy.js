@@ -60,9 +60,9 @@ class MultiEndpointRealtimeClient {
         this.updateMergedState(snapshot);
         return snapshot;
     }
-    async getGpu() {
+    async getGpu(options = {}) {
         const entries = await Promise.allSettled(this.endpoints.map(async (endpoint) => {
-            const value = await this.clients.get(endpoint.id)?.getGpu();
+            const value = await this.clients.get(endpoint.id)?.getGpu(options);
             return { endpoint, value };
         }));
         const fulfilled = entries.filter((entry) => entry.status === "fulfilled");

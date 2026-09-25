@@ -37,6 +37,26 @@ test("events are enabled by default for realtime tunnel", async () => {
   assert.equal(await budget.run("events", async () => "ok"), "ok");
 });
 
+test("job dispatch queues behind transport use without consuming the polling quota", async () => {
+  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, maxRequestsPerMinute: 1,
+    maxConcurrentRequests: 1, minIntervalByPurpose: { run_plan: 60_000 } });
+  await budget.run("run_plan", async () => "validated");
+  budget.setHidden(true);
+  let release;
+  const first = budget.run("job_dispatch", () => new Promise((resolve) => { release = resolve; }));
+  const order = [];
+  const second = budget.run("job_dispatch", async () => { order.push("second"); return "ok"; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, []);
+  release("first");
+  assert.equal(await first, "first");
+  assert.equal(await second, "ok");
+  assert.deepEqual(order, ["second"]);
+  assert.equal(budget.snapshot().requestsLastMinute, 1);
+  budget.pauseAll();
+  await assert.rejects(() => budget.run("job_dispatch", async () => "blocked"), /paused/);
+});
+
 test("request budget rolling counters expire allowed and denied events together", async () => {
   const realNow = Date.now;
   let now = Date.parse("2026-07-26T00:00:00.000Z");

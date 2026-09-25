@@ -84,7 +84,7 @@ export interface GpuHistoryResponse {
 export interface TunnelClient {
   getHealth(options?: { userInitiated?: boolean }): Promise<TunnelHealth>;
   getSnapshot(options?: { manual?: boolean }): Promise<ClusterSnapshot>;
-  getGpu(): Promise<unknown>;
+  getGpu(options?: { dispatch?: boolean }): Promise<unknown>;
   getGpuHistory(query?: GpuHistoryQuery): Promise<GpuHistoryResponse>;
   getScheduler(): Promise<unknown>;
   getTraces(): Promise<unknown>;
@@ -117,7 +117,7 @@ const actionPurpose: Partial<Record<TunnelAction, TunnelRequestPurpose>> = {
   "validate-plan": "run_plan",
   "dry-run-plan": "run_plan",
   "run-plan": "run_plan",
-  "start-worker-task": "run_plan",
+  "start-worker-task": "job_dispatch",
   "retry-worker-task": "run_plan",
   "rebuild-distributed-results": "parse_results",
   "stop-scheduler-operation": "stop",
@@ -176,8 +176,10 @@ export class HttpTunnelClient implements TunnelClient {
     return this.snapshotPromise;
   }
 
-  getGpu(): Promise<unknown> {
-    return this.getPath("/api/gpu");
+  getGpu(options: { dispatch?: boolean } = {}): Promise<unknown> {
+    return options.dispatch
+      ? this.requestJson("/api/gpu", "job_dispatch", undefined, { method: "GET" })
+      : this.getPath("/api/gpu");
   }
 
   getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {
@@ -292,29 +294,27 @@ export class HttpTunnelClient implements TunnelClient {
   ): Promise<T> {
     if (!apiPath.startsWith("/api/")) throw new Error("Only Hub Agent API paths are allowed.");
     const base = localBaseUrl(this.endpoint);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.endpoint.timeoutMs ?? 8_000);
-    timeout.unref?.();
-    try {
-      return await this.budget.run(
+    return this.budget.run(
         purpose,
         async () => {
-          const response = await fetch(`${base}${apiPath}`, {
-            method: options.method,
-            signal: controller.signal,
-            headers: this.headers(body !== undefined),
-            body: body === undefined ? undefined : JSON.stringify(body),
-          });
-          const text = await response.text();
-          if (!response.ok) throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
-          if (!text.trim()) return {} as T;
-          return JSON.parse(text) as T;
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), this.endpoint.timeoutMs ?? 8_000);
+          timeout.unref?.();
+          try {
+            const response = await fetch(`${base}${apiPath}`, {
+              method: options.method,
+              signal: controller.signal,
+              headers: this.headers(body !== undefined),
+              body: body === undefined ? undefined : JSON.stringify(body),
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
+            if (!text.trim()) return {} as T;
+            return JSON.parse(text) as T;
+          } finally { clearTimeout(timeout); }
         },
         { userInitiated: options.userInitiated },
       );
-    } finally {
-      clearTimeout(timeout);
-    }
   }
 
   private headers(hasBody: boolean): Record<string, string> {

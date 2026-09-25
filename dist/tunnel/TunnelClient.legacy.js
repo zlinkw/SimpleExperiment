@@ -32,7 +32,7 @@ const actionPurpose = {
     "validate-plan": "run_plan",
     "dry-run-plan": "run_plan",
     "run-plan": "run_plan",
-    "start-worker-task": "run_plan",
+    "start-worker-task": "job_dispatch",
     "retry-worker-task": "run_plan",
     "rebuild-distributed-results": "parse_results",
     "stop-scheduler-operation": "stop",
@@ -87,8 +87,10 @@ class HttpTunnelClient {
         }
         return this.snapshotPromise;
     }
-    getGpu() {
-        return this.getPath("/api/gpu");
+    getGpu(options = {}) {
+        return options.dispatch
+            ? this.requestJson("/api/gpu", "job_dispatch", undefined, { method: "GET" })
+            : this.getPath("/api/gpu");
     }
     getGpuHistory(query = {}) {
         const params = new URLSearchParams();
@@ -195,11 +197,11 @@ class HttpTunnelClient {
         if (!apiPath.startsWith("/api/"))
             throw new Error("Only Hub Agent API paths are allowed.");
         const base = (0, TunnelGateway_1.localBaseUrl)(this.endpoint);
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), this.endpoint.timeoutMs ?? 8_000);
-        timeout.unref?.();
-        try {
-            return await this.budget.run(purpose, async () => {
+        return this.budget.run(purpose, async () => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), this.endpoint.timeoutMs ?? 8_000);
+            timeout.unref?.();
+            try {
                 const response = await fetch(`${base}${apiPath}`, {
                     method: options.method,
                     signal: controller.signal,
@@ -212,11 +214,11 @@ class HttpTunnelClient {
                 if (!text.trim())
                     return {};
                 return JSON.parse(text);
-            }, { userInitiated: options.userInitiated });
-        }
-        finally {
-            clearTimeout(timeout);
-        }
+            }
+            finally {
+                clearTimeout(timeout);
+            }
+        }, { userInitiated: options.userInitiated });
     }
     headers(hasBody) {
         const headers = { Accept: "application/json" };

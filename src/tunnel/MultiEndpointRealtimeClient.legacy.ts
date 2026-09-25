@@ -88,9 +88,9 @@ export class MultiEndpointRealtimeClient {
     return snapshot;
   }
 
-  async getGpu(): Promise<Record<string, unknown[]>> {
+  async getGpu(options: { dispatch?: boolean } = {}): Promise<Record<string, unknown[]>> {
     const entries = await Promise.allSettled(this.endpoints.map(async (endpoint) => {
-      const value = await this.clients.get(endpoint.id)?.getGpu();
+      const value = await this.clients.get(endpoint.id)?.getGpu(options);
       return { endpoint, value };
     }));
     const fulfilled = entries.filter((entry): entry is PromiseFulfilledResult<{ endpoint: NamedTunnelEndpointConfig; value: unknown }> => entry.status === "fulfilled");
