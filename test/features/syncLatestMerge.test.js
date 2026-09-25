@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { planLatestWorkerMerge } = require("../../dist/features/SyncLatestMerge.js");
+const { buildScopeStatuses } = require("../../dist/features/SyncScopeStatus.js");
 
 test("latest Worker merge chooses per-file Plan or timestamp source and skips ambiguity", () => {
   const statuses = {
@@ -25,4 +26,18 @@ test("latest Worker merge chooses per-file Plan or timestamp source and skips am
   ]);
   assert.match(result.skipped.join(" "), /ambiguous\.csv/);
   assert.match(result.skipped.join(" "), /unstable\.csv/);
+});
+
+test("latest Worker merge uses distributed publication source for a conflicting preview", () => {
+  const file = "simple_cluster/results/distributed_preview.json";
+  const inventory = { local: {}, workers: {
+    w2: { [file]: { sha256: "a", size: 1, modifiedAtMs: 100 } },
+    w3: { [file]: { sha256: "b", size: 1, modifiedAtMs: 100 } },
+    w5: { [file]: { sha256: "c", size: 1, modifiedAtMs: 100 } },
+  } };
+  const statuses = buildScopeStatuses(inventory, "server-server", ["."], new Set(),
+    { schemaVersion: 2, entries: {} }, new Set(), {}, { [file]: "w3" });
+  assert.deepEqual(planLatestWorkerMerge(statuses, ["w2", "w3", "w5"]), {
+    items: [{ path: file, sourceId: "w3", destinationIds: ["w2", "w5"] }], skipped: [],
+  });
 });

@@ -6925,7 +6925,17 @@ class RealtimeTunnelPanelProvider {
         }
         const ledger = await this.loadPlanSyncLedger(root);
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        const statuses = (0, SyncScopeStatus_1.buildScopeStatuses)({ local, workers, unverified }, mode, selectedPaths, new Set(), ledger, offline, holds);
+        const authorities = {};
+        if (mode === "server-server") {
+            const queue = await this.loadDistributedQueue(root);
+            if (queue.previewWorkerId)
+                for (const file of queue.previewPaths || [])
+                    authorities[file] = queue.previewWorkerId;
+            if (queue.publishedWorkerId)
+                for (const file of queue.publishedPaths || [])
+                    authorities[file] = queue.publishedWorkerId;
+        }
+        const statuses = (0, SyncScopeStatus_1.buildScopeStatuses)({ local, workers, unverified }, mode, selectedPaths, new Set(), ledger, offline, holds, authorities);
         const endpoints = mode === "local-server" ? ["local", ...configured.sort()] : configured.sort();
         for (const row of Object.values(statuses))
             row.issueSignature = offline.size ? undefined : (0, SyncScopeBatch_1.syncScopeIssueSignature)(row, endpoints);

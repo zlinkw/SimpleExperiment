@@ -6810,7 +6810,13 @@ export class RealtimeTunnelPanelProvider {
         }
         const ledger = await this.loadPlanSyncLedger(root);
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
-        const statuses = buildScopeStatuses({ local, workers, unverified }, mode, selectedPaths, new Set(), ledger, offline, holds);
+        const authorities: Record<string, string> = {};
+        if (mode === "server-server") {
+            const queue = await this.loadDistributedQueue(root);
+            if (queue.previewWorkerId) for (const file of queue.previewPaths || []) authorities[file] = queue.previewWorkerId;
+            if (queue.publishedWorkerId) for (const file of queue.publishedPaths || []) authorities[file] = queue.publishedWorkerId;
+        }
+        const statuses = buildScopeStatuses({ local, workers, unverified }, mode, selectedPaths, new Set(), ledger, offline, holds, authorities);
         const endpoints = mode === "local-server" ? ["local", ...configured.sort()] : configured.sort();
         for (const row of Object.values(statuses)) row.issueSignature = offline.size ? undefined : syncScopeIssueSignature(row, endpoints);
         const aggregate = statuses[relative] || { state: "unknown" as const, detail: "目录为空或当前同步范围外" };

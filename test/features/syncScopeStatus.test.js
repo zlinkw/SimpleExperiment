@@ -48,6 +48,21 @@ test("server scope uses Plan owner, reports unrelated conflicts, and defaults to
   assert.equal(status["datasets/data.bin"].state, "different");
 });
 
+test("distributed result publication identifies the source even when Worker timestamps tie", () => {
+  const name = "simple_cluster/results/distributed_preview.json";
+  const inventory = { local: {}, workers: {
+    w2: { [name]: { ...file("older"), modifiedAtMs: 100 } },
+    w3: { [name]: { ...file("published"), modifiedAtMs: 100 } },
+    w5: { [name]: { ...file("other"), modifiedAtMs: 100 } },
+  } };
+  const unresolved = buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger);
+  assert.match(unresolved[name].detail, /无法判定最新版/);
+  const status = buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger,
+    new Set(), {}, { [name]: "w3" });
+  assert.equal(status[name].versions.w3.latest, "plan");
+  assert.match(status[name].detail, /Plan 归属：w3/);
+});
+
 test("Worker scope ignores local inventory, versions, and folder copies", () => {
   const inventory = { local: {}, workers: { w1: { "datasets/data.bin": file("same") }, w2: { "datasets/data.bin": file("same") } } };
   const status = buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger);

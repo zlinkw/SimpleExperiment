@@ -167,7 +167,7 @@ function ownerForPath(path, ledger) {
     }
     return undefined;
 }
-function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths, ledger, offlineWorkerIds = new Set(), holds = {}) {
+function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths, ledger, offlineWorkerIds = new Set(), holds = {}, authoritativeWorkers = {}) {
     const workers = Object.keys(inventories.workers).sort();
     const all = new Set([
         ...(mode === "local-server" ? Object.keys(inventories.local) : []),
@@ -213,7 +213,7 @@ function buildScopeStatuses(inventories, mode, selectedPaths, localDefaultPaths,
             statuses[path] = { state, detail: held ? `${detail} · 自动同步已暂停` : detail, versions, held };
             continue;
         }
-        const owner = ownerForPath(path, ledger);
+        const owner = authoritativeWorkers[path] || ownerForPath(path, ledger);
         const ownerHash = owner ? inventories.workers[owner]?.[path]?.sha256?.toLowerCase() : undefined;
         const present = remote.filter(({ hash }) => hash);
         const unique = new Set(present.map(({ hash }) => hash));
