@@ -6825,7 +6825,7 @@ export class RealtimeTunnelPanelProvider {
         const destinationRows = targets.filter((row) => row.id !== endpointId);
         const sourceLabel = endpointId === "local" ? path.resolve(root, ...relative.split("/")) : path.posix.join(this.sftpServerOptions(sourceRow).remotePath, relative);
         report("等待核对来源和全部目标路径");
-        if (!await confirmSyncScopePaths("保留并同步到其他位置", `来源 SHA256：${expected}。${directory ? "目标目录中来源已不存在的旧文件也会清除，包括本机旧文件。" : ""}`, [
+        if (!await confirmSyncScopePaths("保留并同步到其他位置", `将以所选版本覆盖其他位置，并在同步后校验文件内容。${directory ? "目标目录中来源已不存在的旧文件也会清除，包括本机旧文件。" : ""}`, [
             { label: `来源 ${endpointId}`, path: sourceLabel },
             ...destinationRows.map((row) => ({ label: `目标 ${row.id}`, path: path.posix.join(this.sftpServerOptions(row).remotePath, relative) })),
             ...(endpointId === "local" ? [] : [{ label: "目标 本机", path: path.resolve(root, ...relative.split("/")) }]),
@@ -6855,7 +6855,7 @@ export class RealtimeTunnelPanelProvider {
                     destination: { ...this.sftpServerOptions(row), host: this.sftpServerOptions(row).networkHost || this.sftpServerOptions(row).host },
                     ...(directory ? { relativePath: relative, directory: true, manualRetain: true } : { relativePaths: [relative] }), confirm: true, pathConfirmed: true });
             }
-            report(`正在校验 ${row.id} 的 SHA256`);
+            report(`正在校验 ${row.id} 的文件内容`);
             const checked = (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(row), relativePath: inventoryPath, recursive: directory })).files;
             if (directory ? sourceSnapshot(checked) !== sourceSnapshot(sourceInventory)
                 : checked[relative]?.sha256?.toLowerCase() !== expected.toLowerCase()) throw new Error(`${row.id} 内容校验不一致；保留待同步状态。`);
@@ -6866,7 +6866,7 @@ export class RealtimeTunnelPanelProvider {
                 () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }),
                 () => collectLocalScopeInventory(root, inventoryPath, directory),
                 (file) => deleteLocalSyncPath(root, file), report);
-            report("本机 SHA256 校验通过");
+            report("本机文件内容校验通过");
         }
         const previous = holds[relative];
         for (const held of Object.keys(holds)) if (held === relative || directory && held.startsWith(`${relative}/`)) delete holds[held];
