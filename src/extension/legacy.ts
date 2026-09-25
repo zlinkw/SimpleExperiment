@@ -6793,6 +6793,7 @@ export class RealtimeTunnelPanelProvider {
         for (const id of offline) workers[id] = {};
         const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", {
             source: this.sftpServerOptions(target), relativePath: relative, recursive: true, timeoutMs: 120000,
+            ...(mode === "local-server" ? { scopePaths: selectedPaths } : {}),
         })));
         const errors = [];
         for (let index = 0; index < targets.length; index++) {
@@ -7928,13 +7929,14 @@ export class RealtimeTunnelPanelProvider {
     async patchDistributedJob(root, planId, index, attempt, fields) {
         await this.distributedQueueWritePromise.catch(() => undefined);
         const latest = await this.loadDistributedQueue(root);
+        const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, ...updates } = fields;
         const next = { ...latest, plans: latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
-            jobs: plan.jobs.map((job) => job.index !== index || job.attempt !== attempt ? job : { ...job, ...fields,
+            jobs: plan.jobs.map((job) => job.index !== index || job.attempt !== attempt ? job : { ...job, ...updates,
                 mirroredWorkerIds: fields.mirroredWorkerIds
-                    ? [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
+                    ? replaceMirroredWorkerIds ? fields.mirroredWorkerIds : [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
                     : job.mirroredWorkerIds,
                 fragmentWorkerIds: fields.fragmentWorkerIds
-                    ? [...new Set([...(job.fragmentWorkerIds || []), ...fields.fragmentWorkerIds])]
+                    ? replaceFragmentWorkerIds ? fields.fragmentWorkerIds : [...new Set([...(job.fragmentWorkerIds || []), ...fields.fragmentWorkerIds])]
                     : job.fragmentWorkerIds }) }) };
         await this.saveDistributedQueue(root, next, { artifactMutation: true });
     }
@@ -7951,12 +7953,16 @@ export class RealtimeTunnelPanelProvider {
         const work = (async () => {
             const queue = await this.loadDistributedQueue(root);
             if (!queue.plans.length) return;
-            await this.syncDistributedJobArtifacts(root, queue, "fragments");
+            await this.syncDistributedJobArtifacts(root, queue, "fragments", rerunIfBusy);
             if (workspaceRoot() !== root) return;
-            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true);
-            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk");
+            try {
+                await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, rerunIfBusy);
+            } catch (error) {
+                this.recordActionError({ command: "distributedPreviewRebuild", message: errorMessage(error) });
+            }
+            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", rerunIfBusy);
             if (workspaceRoot() !== root) return;
-            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false);
+            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false, rerunIfBusy);
             this.postState();
         })();
         this.distributedPostprocessPromise = work;
@@ -7966,7 +7972,7 @@ export class RealtimeTunnelPanelProvider {
                 this.distributedPostprocessPromise = undefined;
                 if (this.distributedPostprocessRerun) {
                     this.distributedPostprocessRerun = false;
-                    this.scheduleDistributedPostprocess(root);
+                    this.scheduleDistributedPostprocess(root, true);
                 }
             });
     }
@@ -8173,7 +8179,7 @@ export class RealtimeTunnelPanelProvider {
         this.scheduleDistributedPostprocess(root, newTerminal);
         this.postState();
     }
-    async syncDistributedJobArtifacts(root, queue, phase: "fragments" | "bulk") {
+    async syncDistributedJobArtifacts(root, queue, phase: "fragments" | "bulk", verifyAll = false) {
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
@@ -8218,9 +8224,29 @@ export class RealtimeTunnelPanelProvider {
                 }
                 for (const workerId of online) {
                     if (workspaceRoot() !== root) return;
-                    if (phase === "fragments" ? job.fragmentWorkerIds?.includes(workerId) : job.mirroredWorkerIds?.includes(workerId)) continue;
+                    const previouslyMirrored = phase === "fragments" ? job.fragmentWorkerIds?.includes(workerId) : job.mirroredWorkerIds?.includes(workerId);
+                    if (previouslyMirrored && !verifyAll) continue;
                     const target = targets.get(workerId);
                     const destination = this.sftpServerOptions(target);
+                    if (previouslyMirrored) {
+                        let matches = false;
+                        try {
+                            const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
+                            const expected = phase === "fragments" ? fragmentPaths : Object.keys(job.artifacts).filter((file) => file.startsWith(job.outputDir + "/"));
+                            matches = expected.every((file) => String(checked[file]?.sha256 || "").toLowerCase() === job.artifacts[file]);
+                        } catch { /* Recopy and verify below. */ }
+                        if (matches) continue;
+                        if (workerId === sourceId) throw new Error(`${workerId} 已记录的 job 产物发生变化，不能从自身恢复镜像：${job.outputDir}`);
+                        if (phase === "fragments") {
+                            job.fragmentWorkerIds = (job.fragmentWorkerIds || []).filter((id) => id !== workerId);
+                            await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
+                                { fragmentWorkerIds: job.fragmentWorkerIds, replaceFragmentWorkerIds: true });
+                        } else {
+                            job.mirroredWorkerIds = (job.mirroredWorkerIds || []).filter((id) => id !== workerId);
+                            await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
+                                { mirroredWorkerIds: job.mirroredWorkerIds, replaceMirroredWorkerIds: true });
+                        }
+                    }
                     await this.assertSshTransportIdentities([sourceRow, target]);
                     const paths = phase === "fragments" ? fragmentPaths
                         : Object.keys(job.artifacts).filter((name) => !fragmentPaths.includes(name)).sort();
@@ -8262,7 +8288,21 @@ export class RealtimeTunnelPanelProvider {
             }
         }
     }
-    async rebuildDistributedResults(root, queue, previewOnly: boolean) {
+    async distributedOutputHashes(source, paths) {
+        const groups = new Map();
+        for (const file of paths) {
+            const parent = path.posix.dirname(file);
+            if (!groups.has(parent)) groups.set(parent, []);
+            groups.get(parent).push(file);
+        }
+        const rows = await mapLimited([...groups], 3, async ([parent, files]) => {
+            const inventory = (await this.verifiedSftpProjectInventory({ source,
+                relativePath: files.length === 1 ? files[0] : parent, recursive: files.length > 1 })).files;
+            return files.map((file) => [file, String(inventory[file]?.sha256 || "").toLowerCase()]);
+        });
+        return Object.fromEntries(rows.flat());
+    }
+    async rebuildDistributedResults(root, queue, previewOnly: boolean, verifyAll = false) {
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
@@ -8330,22 +8370,36 @@ export class RealtimeTunnelPanelProvider {
         const sourceRow = targets.get(sourceWorkerId);
         if (!sourceRow || !online.includes(sourceWorkerId)) return;
         const source = this.sftpServerOptions(sourceRow);
+        const sourceHashes = verifyAll && alreadyBuilt ? await this.distributedOutputHashes(source, paths) : undefined;
+        if (sourceHashes && paths.some((file) => !sourceHashes[file]))
+            throw new Error(`${previewOnly ? "增量预览" : "正式结果"}来源缺少已发布文件，需重新生成`);
         for (const workerId of online) {
             if (workspaceRoot() !== root) return;
-            if ((publish ? queue.publishedWorkerIds : queue.previewWorkerIds)?.includes(workerId)) continue;
+            const recorded = (publish ? queue.publishedWorkerIds : queue.previewWorkerIds)?.includes(workerId);
+            if (recorded && (!verifyAll || !alreadyBuilt)) continue;
             const destinationRow = targets.get(workerId);
+            const destination = this.sftpServerOptions(destinationRow);
+            if (recorded) {
+                let matches = false;
+                try {
+                    const hashes = await this.distributedOutputHashes(destination, paths);
+                    matches = paths.every((file) => hashes[file] && hashes[file] === sourceHashes?.[file]);
+                } catch { /* Recopy and verify below. */ }
+                if (matches) continue;
+                const field = publish ? "publishedWorkerIds" : "previewWorkerIds";
+                queue[field] = (queue[field] || []).filter((id) => id !== workerId);
+                await this.patchDistributedPublication(root, { [field]: queue[field] });
+            }
             try {
                 await this.assertSshTransportIdentities([sourceRow, destinationRow]);
-                const destination = this.sftpServerOptions(destinationRow);
                 await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
                     destination: { ...destination, host: destination.networkHost || destination.host },
                     relativePaths: paths, confirm: true, pathConfirmed: true });
-                await mapLimited(paths, 3, async (file) => {
-                    const a = (await this.verifiedSftpProjectInventory({ source, relativePath: file })).files[file];
-                    const b = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: file })).files[file];
-                    if (!a?.sha256 || String(a.sha256).toLowerCase() !== String(b?.sha256 || "").toLowerCase())
-                        throw new Error(`${file} 内容校验失败`);
-                });
+                const [sourceAfter, destinationAfter] = await Promise.all([
+                    this.distributedOutputHashes(source, paths), this.distributedOutputHashes(destination, paths),
+                ]);
+                if (paths.some((file) => !sourceAfter[file] || sourceAfter[file] !== destinationAfter[file]))
+                    throw new Error("共享结果内容校验失败");
                 if (publish) {
                     queue.publishedWorkerIds = [...new Set([...(queue.publishedWorkerIds || []), workerId])];
                     await this.patchDistributedPublication(root, { publishedWorkerIds: queue.publishedWorkerIds });

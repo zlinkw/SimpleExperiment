@@ -136,11 +136,11 @@ test("manual refresh re-probes Workers and retries artifact sync without waiting
 test("successful artifact pass clears an old disconnected warning", async () => {
   const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
-  const last = compiled.indexOf("async rebuildDistributedResults(", first);
+  const last = compiled.indexOf("async distributedOutputHashes(", first);
   assert.ok(first >= 0 && last > first);
   const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase)", "async function syncJobArtifacts(root, queue, phase)")
+  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false)", "async function syncJobArtifacts(root, queue, phase, verifyAll = false)")
     + "\nthis.sync = syncJobArtifacts;", context);
   const job = { index: 0, attempt: 1, status: "completed", workerId: "worker-b", outputDir: "runs/a",
     artifacts: {}, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
@@ -155,6 +155,100 @@ test("successful artifact pass clears an old disconnected warning", async () => 
   await context.sync.call(provider, "C:/project", { plans: [{ id: "plan-1", planFile: "plans/p.yaml", jobs: [job] }] }, "bulk");
   assert.equal(job.artifactError, undefined);
   assert.ok(patched.some((row) => Object.hasOwn(row, "artifactError") && row.artifactError === undefined));
+});
+
+test("a failed preview rebuild does not prevent completed job artifacts from mirroring", async () => {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const first = compiled.indexOf("scheduleDistributedPostprocess(root, rerunIfBusy = false) {");
+  const last = compiled.indexOf("async enqueueDistributedPlan(", first);
+  assert.ok(first >= 0 && last > first);
+  const context = { workspaceRoot: () => "C:/project", errorMessage: String };
+  vm.createContext(context);
+  vm.runInContext(compiled.slice(first, last).replace("scheduleDistributedPostprocess(root, rerunIfBusy = false)",
+    "function scheduleDistributedPostprocess(root, rerunIfBusy = false)")
+    + "\nthis.schedule = scheduleDistributedPostprocess;", context);
+  const calls = [];
+  const provider = {
+    loadDistributedQueue: async () => ({ plans: [{}] }),
+    syncDistributedJobArtifacts: async (_root, _queue, phase) => calls.push(phase),
+    rebuildDistributedResults: async (_root, _queue, preview) => {
+      calls.push(preview ? "preview" : "final");
+      if (preview) throw new Error("preview failed");
+    },
+    recordActionError: ({ command }) => calls.push(command),
+    postState: () => calls.push("state"),
+  };
+  context.schedule.call(provider, "C:/project");
+  await provider.distributedPostprocessPromise;
+  assert.deepEqual(calls, ["fragments", "preview", "distributedPreviewRebuild", "bulk", "final", "state"]);
+});
+
+test("every newly completed job rechecks all recorded job mirrors and repairs drift", async () => {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const first = compiled.indexOf("async syncDistributedJobArtifacts(");
+  const last = compiled.indexOf("async distributedOutputHashes(", first);
+  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String };
+  vm.createContext(context);
+  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false)",
+    "async function syncJobArtifacts(root, queue, phase, verifyAll = false)")
+    + "\nthis.sync = syncJobArtifacts;", context);
+  const file = "runs/a/result.csv";
+  const job = { index: 0, attempt: 1, status: "completed", workerId: "w2", outputDir: "runs/a",
+    artifacts: { [file]: "new" }, fragmentWorkerIds: ["w2", "w3"], mirroredWorkerIds: ["w2", "w3"] };
+  let copied = false;
+  const patches = [];
+  const provider = {
+    distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
+    workerCodeSyncTargets: () => [{ id: "w2" }, { id: "w3" }],
+    lastWorkerProbes: { w2: { status: "ok" }, w3: { status: "ok" } },
+    sftpServerOptions: (target) => ({ id: target.id }),
+    verifiedSftpProjectInventory: async ({ source }) => ({ files: { [file]: { sha256: source.id === "w2" || copied ? "new" : "old" } } }),
+    assertSshTransportIdentities: async () => undefined,
+    simpleSftpApiCall: async () => { copied = true; },
+    patchDistributedJob: async (_root, _plan, _index, _attempt, fields) => patches.push(fields),
+    recordActionError: () => undefined,
+  };
+  await context.sync.call(provider, "C:/project", { plans: [{ id: "p", planFile: "p.yaml", jobs: [job] }] }, "bulk", true);
+  assert.equal(copied, true);
+  assert.ok(patches.some((fields) => fields.replaceMirroredWorkerIds && !fields.mirroredWorkerIds.includes("w3")));
+  assert.deepEqual(Array.from(job.mirroredWorkerIds), ["w2", "w3"]);
+});
+
+test("a new completion also repairs a stale shared preview on every Worker", async () => {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const first = compiled.indexOf("async rebuildDistributedResults(");
+  const last = compiled.indexOf("async retryDistributedJobFromUi(", first);
+  const context = {
+    workspaceRoot: () => "C:/project", Map, Set, Object,
+    crypto: { createHash: () => ({ update: () => ({ digest: () => "signature" }) }) },
+  };
+  vm.createContext(context);
+  vm.runInContext(compiled.slice(first, last).replace("async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)",
+    "async function rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)")
+    + "\nthis.rebuild = rebuildDistributedResults;", context);
+  const file = "simple_cluster/results/distributed_preview.json";
+  const queue = { plans: [{ planFile: "p.yaml", revision: "r", jobs: [{
+    case: "a", seed: 1, attempt: 1, status: "completed", workerId: "w3", outputDir: "runs/a",
+    artifacts: {}, fragmentWorkerIds: ["w3", "w2"], mirroredWorkerIds: ["w3", "w2"],
+  }] }], previewSignature: "signature", previewWorkerId: "w3", previewWorkerIds: ["w3", "w2"], previewPaths: [file] };
+  let copied = false;
+  const patches = [];
+  const provider = {
+    distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [], configPath: "cfg", checkpointPath: "chk",
+      resultRowsPath: "rows", fourStatePath: "four" }),
+    workerCodeSyncTargets: () => [{ id: "w3" }, { id: "w2" }],
+    lastWorkerProbes: { w3: { status: "ok" }, w2: { status: "ok" } },
+    sftpServerOptions: (row) => ({ id: row.id }),
+    distributedOutputHashes: async (source) => ({ [file]: source.id === "w3" || copied ? "good" : "old" }),
+    patchDistributedPublication: async (_root, fields) => patches.push(fields),
+    assertSshTransportIdentities: async () => undefined,
+    simpleSftpApiCall: async () => { copied = true; },
+    recordActionError: (error) => { throw new Error(error.message); },
+  };
+  await context.rebuild.call(provider, "C:/project", queue, true, true);
+  assert.equal(copied, true);
+  assert.ok(patches.some((fields) => fields.previewWorkerIds && !fields.previewWorkerIds.includes("w2")));
+  assert.deepEqual(Array.from(queue.previewWorkerIds), ["w3", "w2"]);
 });
 
 test("pending jobs cannot use GPU slots until that Worker's task ledger is verified", () => {
