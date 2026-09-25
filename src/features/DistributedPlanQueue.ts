@@ -18,6 +18,8 @@ export type QueuedJob = {
   fragmentWorkerIds?: string[];
   mirroredWorkerIds?: string[];
   artifactError?: string;
+  reconciliationAttempts?: number;
+  lastReconciliationAt?: string;
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string }>;
 };
 export type QueuedPlan = {
@@ -101,6 +103,12 @@ export function setJobState(queue: DistributedQueue, planId: string, jobIndex: n
   }) });
   if (!found) throw new Error("Job command identity does not match persisted queue.");
   return { ...queue, plans };
+}
+
+export function resetUnsentDispatch(queue: DistributedQueue, planId: string, jobIndex: number, commandId: string): DistributedQueue {
+  return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
+    jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
+      ? job : { ...job, status: "pending" as const, workerId: undefined, gpuId: undefined, commandId: undefined }) }) };
 }
 
 export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobIndex: number, runId: string): DistributedQueue {

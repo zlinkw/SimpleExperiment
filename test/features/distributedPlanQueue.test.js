@@ -50,3 +50,14 @@ test("verified recovery creates a new attempt and retains the prior run", () => 
   assert.equal(job.outputDir, "work_dirs/a/bus/seed_42/attempts/run-retry-1234");
   assert.equal(job.history[0].outputDir, "work_dirs/a/bus/seed_42/attempts/run-a");
 });
+
+test("a request blocked locally returns to the queue without losing its job", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), plan("a"), "run-a");
+  const first = queue.allocateAvailable(input, [{ workerId: "nwpu2", idleGpuIds: ["0"], online: true }]);
+  const blocked = first.dispatches[0];
+  const reset = queue.resetUnsentDispatch(first.queue, blocked.planId, blocked.jobIndex, blocked.commandId);
+  const job = reset.plans[0].jobs[0];
+  assert.equal(job.status, "pending");
+  assert.equal(job.commandId, undefined);
+  assert.equal(queue.allocateAvailable(reset, [{ workerId: "nwpu3", idleGpuIds: ["1"], online: true }]).dispatches.length, 1);
+});

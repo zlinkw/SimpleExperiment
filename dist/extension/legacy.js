@@ -8135,6 +8135,20 @@ class RealtimeTunnelPanelProvider {
                 this.distributedQueueTickPromise = undefined;
         }
     }
+    async sendDistributedJob(plan, job, workerId, gpuId, commandId) {
+        const target = this.workerActionTargets().find((item) => item.id === workerId);
+        if (!target)
+            throw new Error(`Worker ${workerId} 配置已失效`);
+        return await this.client.postWorkerAction(workerId, "start-worker-task", {
+            schemaVersion: 1, opId: commandId, operationId: commandId,
+            planFile: plan.planFile, experimentIndex: job.index, gpuId,
+            case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
+            planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
+            condaEnv: target.condaEnv, workflowId: plan.id,
+            options: { workerId, distributedResults: true, condaEnv: target.condaEnv,
+                workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
+        });
+    }
     async tickDistributedQueueCore() {
         const root = workspaceRoot();
         if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool")
@@ -8153,8 +8167,24 @@ class RealtimeTunnelPanelProvider {
             }
             for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId)) {
                 const task = (snapshot.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
-                if (!task)
+                if (!task) {
+                    if (job.status === "unknown" && (job.reconciliationAttempts || 0) < 3
+                        && (!job.lastReconciliationAt || Date.now() - Date.parse(job.lastReconciliationAt) >= 10_000)) {
+                        job.lastReconciliationAt = new Date().toISOString();
+                        try {
+                            const retried = await this.sendDistributedJob(plan, job, workerId, job.gpuId, job.commandId);
+                            if (retried?.status === "completed")
+                                queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "running", job.commandId);
+                            else
+                                job.reconciliationAttempts = (job.reconciliationAttempts || 0) + 1;
+                        }
+                        catch (error) {
+                            if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError))
+                                job.reconciliationAttempts = (job.reconciliationAttempts || 0) + 1;
+                        }
+                    }
                     continue;
+                }
                 const relativeLog = typeof task.logPath === "string" ? task.logPath.replace(/\\/g, "/") : "";
                 if (relativeLog && !relativeLog.startsWith("/") && !relativeLog.split("/").includes(".."))
                     job.logPath = relativeLog;
@@ -8223,26 +8253,22 @@ class RealtimeTunnelPanelProvider {
         for (const dispatch of allocation.dispatches) {
             const plan = queue.plans.find((item) => item.id === dispatch.planId);
             const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
-            const target = this.workerActionTargets().find((item) => item.id === dispatch.workerId);
-            if (!plan || !job || !target)
+            if (!plan || !job)
                 continue;
             try {
-                const started = await this.client.postWorkerAction(dispatch.workerId, "start-worker-task", {
-                    schemaVersion: 1, opId: dispatch.commandId, operationId: dispatch.commandId,
-                    planFile: plan.planFile, experimentIndex: job.index, gpuId: dispatch.gpuId,
-                    case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
-                    planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
-                    condaEnv: target.condaEnv, workflowId: plan.id,
-                    options: { workerId: dispatch.workerId, distributedResults: true, condaEnv: target.condaEnv,
-                        workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
-                });
+                const started = await this.sendDistributedJob(plan, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
                 if (started?.status !== "completed")
                     throw new Error(String(started?.message || "Worker 未确认启动"));
                 queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "running", dispatch.commandId);
             }
             catch (error) {
-                queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", dispatch.commandId);
-                this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${errorMessage(error)}；状态待核实，禁止自动重派。` });
+                if (error instanceof RequestBudget_1.RequestBudgetDeniedError) {
+                    queue = DistributedPlanQueue.resetUnsentDispatch(queue, plan.id, job.index, dispatch.commandId);
+                }
+                else {
+                    queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", dispatch.commandId);
+                    this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${errorMessage(error)}；状态待核实，禁止自动重派。` });
+                }
             }
             await this.saveDistributedQueue(root, queue);
         }
