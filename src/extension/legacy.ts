@@ -8053,7 +8053,7 @@ export class RealtimeTunnelPanelProvider {
                 fourStateSha256: job.artifacts[`${job.outputDir}/test_results/four_state_metrics.csv`],
             })) })) };
         const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
-        const publish = true;
+        const publish = selected.every((plan) => plan.jobs.every((job) => job.status === "completed" && Boolean(job.artifacts)));
         const alreadyBuilt = publish ? queue.publishedSignature === signature : queue.previewSignature === signature;
         let paths = alreadyBuilt ? queue.publishedPaths || [] : [];
         let sourceWorkerId = alreadyBuilt ? queue.publishedWorkerId : available;
