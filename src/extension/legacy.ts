@@ -6624,7 +6624,7 @@ export class RealtimeTunnelPanelProvider {
             id: "local", label: "本机与 Worker 项目并集", detail: "初始选中非产物、非预训练权重文件；可勾选或取消本机路径。远端独有文件仅供查看状态。", rootSelectable: false,
             selected,
             list: async (relative) => this.listSyncScopeUnion(root, targets, relative, true),
-            refresh: async () => this.refreshSyncScopeStatus(root, targets, "local-server", selected),
+            refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "local-server", selected, relative),
             save: async (paths) => {
                 if (paths.includes(".")) throw new Error("本机项目根目录会包含产物和预训练权重，请选择具体文件或目录。");
                 if (paths.length) await collectExplicitCodeFiles(root, paths);
@@ -6647,7 +6647,7 @@ export class RealtimeTunnelPanelProvider {
             id: "workers", label: "所有 Worker 的项目并集", detail: "默认整个项目；目录来自已启用 Worker 的并集，同名文件按内容校验，机器状态排除。",
             selected,
             list: async (relative) => this.listSyncScopeUnion(folder.uri.fsPath, targets, relative, false),
-            refresh: async () => this.refreshSyncScopeStatus(folder.uri.fsPath, targets, "server-server", selected),
+            refresh: async (relative) => this.refreshSyncScopeStatus(folder.uri.fsPath, targets, "server-server", selected, relative),
             save: async (paths) => {
                 const normalized = normalizeMirrorScopePaths(paths);
                 await config.update("serverSync.paths", normalized, vscode.ConfigurationTarget.WorkspaceFolder);
@@ -6669,13 +6669,15 @@ export class RealtimeTunnelPanelProvider {
         }
         return [...entries.values()].sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
     }
-    async refreshSyncScopeStatus(root, targets, mode, selectedPaths) {
-        const local = await collectLocalScopeInventory(root);
+    async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".") {
+        const local = await collectLocalScopeInventory(root, relative, false);
         const workers = {};
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
         for (const id of offline) workers[id] = {};
-        const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(target) })));
+        const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", {
+            source: this.sftpServerOptions(target), relativePath: relative, recursive: false, timeoutMs: 120000,
+        })));
         const errors = [];
         for (let index = 0; index < targets.length; index++) {
             const target = targets[index];
@@ -6689,8 +6691,9 @@ export class RealtimeTunnelPanelProvider {
         }
         const ledger = await this.loadPlanSyncLedger(root);
         const statuses = buildScopeStatuses({ local, workers }, mode, selectedPaths, new Set(), ledger, offline);
-        if (errors.length) statuses["."] = { state: "unknown", detail: `部分 Worker 未连接：${errors.join("；")}` };
-        return statuses;
+        const directFiles = Object.fromEntries(Object.entries(statuses).filter(([file]) => path.posix.dirname(file) === relative && file !== relative));
+        directFiles[relative] = { state: "unknown", detail: errors.length ? `清单校验失败：${errors.join("；")}` : "子目录待校验" };
+        return directFiles;
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = []) {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
@@ -23707,9 +23710,10 @@ async function buildLocalCodeManifest(root, includePaths: string[] = [], scopePa
     await Promise.all(workers);
     return manifest;
 }
-const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"]);
+const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"]);
 function blockedExplicitCodePath(relative: string): boolean {
     const parts = relative.toLowerCase().split("/");
+    if (parts[0] === "tmp") return true;
     if (["plan_sync_ledger.json", "project_mirror_state.json"].includes(parts.at(-1) || "")) return true;
     if (parts.some((part) => blockedExplicitCodeDirs.has(part))) return true;
     if (parts[0] !== "simple_cluster") return false;
@@ -23828,7 +23832,10 @@ const protectedCodeSyncTopLevelDirs = new Set([
     ".idea",
     ".runtime",
     ".local-gpt",
+    ".agents",
+    ".coding-tools",
     ".codex",
+    "clean_dir",
     "simple_cluster",
     "node_modules",
     "dist",

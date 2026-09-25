@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { buildScopeStatuses } = require("../../dist/features/SyncScopeStatus.js");
+const path = require("node:path");
+const { buildScopeStatuses, collectLocalScopeInventory } = require("../../dist/features/SyncScopeStatus.js");
 
 const file = (hash) => ({ sha256: hash, size: 1 });
 const ledger = { schemaVersion: 2, entries: {
@@ -43,5 +44,12 @@ test("an offline Worker stays unverified instead of showing green", () => {
   const inventory = { local: { "train.py": file("a") }, workers: { w1: { "train.py": file("a") }, w2: {} } };
   const status = buildScopeStatuses(inventory, "local-server", [], new Set(["train.py"]), ledger, new Set(["w2"]));
   assert.equal(status["train.py"].state, "unknown");
-  assert.match(status["train.py"].detail, /w2 未连接，待核对/);
+  assert.match(status["train.py"].detail, /w2 未校验，待核对/);
+});
+
+test("folder status hashes direct files without scanning large descendant directories", async () => {
+  const root = path.join(__dirname, "..", "fixtures", "syncScopeStatus");
+  const inventory = await collectLocalScopeInventory(root, "data", false);
+  assert.deepEqual(Object.keys(inventory), ["data/visible.bin"]);
+  assert.equal(inventory["data/visible.bin"].sha256.length, 64);
 });

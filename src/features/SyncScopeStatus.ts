@@ -6,10 +6,15 @@ import * as crypto from "node:crypto";
 
 type File = { sha256: string; size: number };
 export type ScopeInventories = { local: Record<string, File>; workers: Record<string, Record<string, File>> };
+const localHashCache = new Map<string, { identity: string; file: File }>();
+
+function fileIdentity(stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
+  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+}
 
 export function scopeInventoryPathAllowed(relative: string, directory = false): boolean {
   const parts = relative.toLowerCase().split("/");
-  if (parts.some((part) => [".git", ".vscode", ".codex", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"].includes(part))) return false;
+  if (parts[0] === "tmp" || parts.some((part) => [".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"].includes(part))) return false;
   if (parts.at(-1)?.startsWith(".env")) return false;
   if (["plan_sync_ledger.json", "project_mirror_state.json"].includes(parts.at(-1) || "")) return false;
   if (parts[0] !== "simple_cluster" || parts.length < 2) return true;
@@ -20,18 +25,26 @@ export function scopeInventoryPathAllowed(relative: string, directory = false): 
   return false;
 }
 
-export async function collectLocalScopeInventory(root: string): Promise<Record<string, File>> {
+export async function collectLocalScopeInventory(root: string, relative = ".", recursive = true): Promise<Record<string, File>> {
+  if (relative !== "." && (relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === "..")))
+    throw new Error(`本机清单路径不安全：${relative}`);
   const names: string[] = [];
-  async function walk(relative: string): Promise<void> {
-    const base = relative ? path.join(root, ...relative.split("/")) : root;
+  async function walk(current: string): Promise<void> {
+    const base = current ? path.join(root, ...current.split("/")) : root;
+    const stat = await fs.lstat(base).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!stat) return;
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`本机清单目录不安全：${current}`);
     for (const entry of await fs.readdir(base, { withFileTypes: true })) {
-      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      const child = current ? `${current}/${entry.name}` : entry.name;
       if (entry.isSymbolicLink() || !scopeInventoryPathAllowed(child, entry.isDirectory())) continue;
-      if (entry.isDirectory()) await walk(child);
+      if (entry.isDirectory() && recursive) await walk(child);
       else if (entry.isFile()) names.push(child);
     }
   }
-  await walk("");
+  await walk(relative === "." ? "" : relative);
   const files: Record<string, File> = {};
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(8, Math.max(1, names.length)) }, async () => {
@@ -42,6 +55,9 @@ export async function collectLocalScopeInventory(root: string): Promise<Record<s
       const full = path.join(root, ...relative.split("/"));
       const before = await fs.lstat(full);
       if (!before.isFile() || before.isSymbolicLink()) throw new Error(`本机清单路径发生变化：${relative}`);
+      const identity = fileIdentity(before);
+      const cached = localHashCache.get(full);
+      if (cached?.identity === identity) { files[relative] = cached.file; continue; }
       const hash = crypto.createHash("sha256");
       const handle = await fs.open(full, "r");
       try {
@@ -53,8 +69,10 @@ export async function collectLocalScopeInventory(root: string): Promise<Record<s
         }
       } finally { await handle.close(); }
       const after = await fs.lstat(full);
-      if (!after.isFile() || after.isSymbolicLink() || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) throw new Error(`本机文件在校验时变更：${relative}`);
-      files[relative] = { sha256: hash.digest("hex"), size: after.size };
+      if (!after.isFile() || after.isSymbolicLink() || identity !== fileIdentity(after)) throw new Error(`本机文件在校验时变更：${relative}`);
+      const file = { sha256: hash.digest("hex"), size: after.size };
+      localHashCache.set(full, { identity, file });
+      files[relative] = file;
     }
   }));
   return files;
@@ -94,7 +112,7 @@ export function buildScopeStatuses(
     const localHash = inventories.local[path]?.sha256?.toLowerCase();
     const remote = workers.map((id) => ({ id, hash: inventories.workers[id]?.[path]?.sha256?.toLowerCase() }));
     if (mode === "local-server") {
-      const detail = [`本机 ${localHash ? "最新版" : "缺失"}`, ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未连接，待核对" : !hash ? "待更新" : hash === localHash ? "最新版" : "待更新"}`)].join(" · ");
+      const detail = [`本机 ${localHash ? "最新版" : "缺失"}`, ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验，待核对" : !hash ? "待更新" : hash === localHash ? "最新版" : "待更新"}`)].join(" · ");
       const state = localHash && remote.every(({ hash }) => hash === localHash) ? "same" : offlineWorkerIds.size && localHash && remote.every(({ id, hash }) => offlineWorkerIds.has(id) || hash === localHash) ? "unknown" : "different";
       statuses[path] = { state, detail };
       continue;
@@ -107,9 +125,9 @@ export function buildScopeStatuses(
     const remoteSame = Boolean(reference) && remote.every(({ hash }) => hash === reference);
     const localSame = localHash === reference;
     const detail = !reference
-      ? `${owner && offlineWorkerIds.has(owner) ? `Plan 归属 ${owner} 未连接，待核对` : "内容冲突，无法判定最新版"} · ${remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未连接" : hash ? "冲突" : "缺失"}`).join(" · ")}`
+      ? `${owner && offlineWorkerIds.has(owner) ? `Plan 归属 ${owner} 未校验，待核对` : "内容冲突，无法判定最新版"} · ${remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验" : hash ? "冲突" : "缺失"}`).join(" · ")}`
       : [owner ? `Plan 归属：${owner}` : "Worker 内容基准", `本机 ${!localHash ? "缺失" : localHash === reference ? "同版" : "不同版"}`,
-        ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未连接，待核对" : hash === reference ? "最新版" : "待更新"}`)].join(" · ");
+        ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验，待核对" : hash === reference ? "最新版" : "待更新"}`)].join(" · ");
     const activeMatch = Boolean(reference) && remote.every(({ id, hash }) => offlineWorkerIds.has(id) || hash === reference);
     const state = remoteSame ? localSame ? "same" : "remote-only"
       : offlineWorkerIds.size && activeMatch || owner && offlineWorkerIds.has(owner) ? "unknown" : "different";

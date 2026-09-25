@@ -13,7 +13,7 @@ export function normalizeMirrorScopePaths(paths: string[]): string[] {
   for (const relative of selected) {
     if (relative === ".") continue;
     const parts = relative.toLowerCase().split("/");
-    if (parts.some((part) => [".git", ".vscode", ".codex", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__"].includes(part)) ||
+    if (parts[0] === "tmp" || parts.some((part) => [".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__"].includes(part)) ||
       ["plan_sync_ledger.json", "project_mirror_state.json"].includes(parts.at(-1) || ""))
       throw new Error(`服务器间同步路径属于机器状态：${relative}`);
   }
