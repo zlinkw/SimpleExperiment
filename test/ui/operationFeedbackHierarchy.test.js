@@ -82,6 +82,28 @@ test("operation item drops the redundant error pill when the line is shown", () 
   assert.match(panelSource, /\.operationError \{/);
 });
 
+test("operation card shows a clickable Plan name and keeps its full path", () => {
+  const sandbox = sandboxWithHelpers({
+    firstPathLike: (...values) => values.find((value) => String(value || "").includes("/")) || "",
+    operationIsActive: () => false, operationIsFailureLike: () => true,
+    operationIsCancelled: () => false, operationIsCompleted: () => false,
+    operationDisplayMessage: (row) => row.message, operationErrorLine: () => "",
+    operationRunningEvidenceWarning: () => "", renderOperationDetailPills: () => "",
+    renderRemoteResultInspectionActions: () => "", operationTypeLabel: String,
+    operationStatusLabel: String, operationTimestampView: () => ({ label: "结束", raw: "", relative: "刚刚" }),
+    PLAN_RUN_OPERATION_TYPES: new Set(), renderTensorBoardLinksForRunning: () => "",
+    renderOperationLogsWindowed: () => "", statusClass: String,
+    compactIdentifier: String, treeAnchorId: () => "operation-anchor", loadingPrefix: () => "",
+    redactUiText: String, meaningfulValue: () => false,
+  });
+  vm.runInContext(`${extractFunction("planBaseName")}\n${extractFunction("planPathButtonForMetric")}\n${extractFunction("renderOperationItem")}\nthis.render = renderOperationItem;`, sandbox);
+  const html = sandbox.render({ type: "workflow-run", status: "failed", operationId: "run-1",
+    planFile: "experiments/plans/comparison/concatenation.yaml", message: "运行失败" });
+  assert.match(html, /data-command="openPlan" data-file="experiments\/plans\/comparison\/concatenation.yaml"/);
+  assert.match(html, />concatenation.yaml<\/button>/);
+  assert.match(html, /title="experiments\/plans\/comparison\/concatenation.yaml"/);
+});
+
 test("diagnostic action errors show the recovery hint inline", () => {
   const renderRow = loadActionErrorRow();
   const withSuggestion = renderRow({ command: "archiveArtifacts", message: "归档失败", suggestion: "先启动 Hub 隧道再重试" });
