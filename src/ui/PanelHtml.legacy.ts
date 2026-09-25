@@ -1640,6 +1640,7 @@ export function renderPanelHtml(): string {
     const TMUX_POLL_MS = 5000;
     let tmuxListCache = { sessions: [], gpuIds: [], workerId: "", fetchedAt: "" };
     const tmuxListsByWorker = Object.create(null);
+    let tmuxConfiguredWorkers = [];
     let tmuxSelectedWorkerId = String((restoredWebviewState && restoredWebviewState.tmuxSelectedWorkerId) || "");
     let tmuxWindowFilter = String((restoredWebviewState && restoredWebviewState.tmuxWindowFilter) || "all");
     let tmuxSelectedPaneTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedPaneTarget) || "");
@@ -3299,9 +3300,13 @@ export function renderPanelHtml(): string {
         tmuxSelectedTaskTarget = "";
         tmuxListCache = tmuxListsByWorker[tmuxSelectedWorkerId] || { sessions: [], gpuIds: [], workerId: tmuxSelectedWorkerId, fetchedAt: "" };
         tmuxLastCaptureTarget = "";
+        const targetSelect = el("tmuxWindowSelect");
+        if (targetSelect) targetSelect.selectedIndex = -1;
         const pre = el("tmuxCapturePre");
         if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.lastFetch = ""; }
         renderTmuxOverview(tmuxListCache.sessions || []);
+        renderTmuxWorkersOverview(tmuxConfiguredWorkers);
+        refreshTmuxCapture();
         refreshTmuxList();
       });
       const workerOverview = el("tmuxWorkersOverview");
@@ -3369,6 +3374,7 @@ export function renderPanelHtml(): string {
         }
         if (item.type === "tmuxList") {
           const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
+          if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
           if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
           if (!tmuxSelectedWorkerId || !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; })) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
           persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
@@ -3392,6 +3398,7 @@ export function renderPanelHtml(): string {
         }
         if (item.type === "tmuxCapture") {
           if (tmuxSelectedWorkerId && item.workerId !== tmuxSelectedWorkerId) continue;
+          if (String(item.window || "") !== tmuxResolveCaptureTarget()) continue;
           const pre = el("tmuxCapturePre");
           const meta = el("tmuxCaptureMeta");
           if (pre) {

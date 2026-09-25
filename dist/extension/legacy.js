@@ -956,6 +956,8 @@ class RealtimeTunnelPanelProvider {
             },
             "gpu.history": async () => this.gpuHistoryState.snapshot() || {},
             "live.output": async (params) => this.apiLiveOutput(params),
+            "tmux.list": async (params) => this.fetchOneTmuxListFromUi(this.tmuxWorkerId(params)),
+            "tmux.capture": async (params) => this.fetchTmuxCaptureFromUi(params),
             "config.list": async () => this.apiConfigList(),
             "config.get": async (params) => this.apiConfigGet(params),
             "config.set": async (params) => this.apiConfigSet(params),
@@ -5611,6 +5613,9 @@ class RealtimeTunnelPanelProvider {
             return;
         }
     }
+    async openPanel() {
+        await vscode.commands.executeCommand(`${viewId}.focus`);
+    }
     async openPanelAt(section, anchor = section, options = {}) {
         const target = {
             section: String(section || "overview").trim() || "overview",
@@ -5618,7 +5623,7 @@ class RealtimeTunnelPanelProvider {
             ...(String(options.taskPlanScope || "") === "all" ? { taskPlanScope: "all" } : {}),
         };
         this.pendingPanelNavigation = target;
-        await vscode.commands.executeCommand("simpleExperiment.openPanel");
+        await this.openPanel();
         await this.flushPendingPanelNavigation();
     }
     async flushPendingPanelNavigation() {
@@ -13955,10 +13960,13 @@ class RealtimeTunnelPanelProvider {
             const ok = result?.ok !== false;
             const payload = { type: "tmuxCapture", workerId, window: win, text, ok, fetchedAt: new Date().toISOString(), error: result?.error || "" };
             this.view?.webview.postMessage(payload);
+            return payload;
         }
         catch (exc) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
-            this.view?.webview.postMessage({ type: "tmuxCapture", workerId, window: win, text: "", ok: false, error: msg, fetchedAt: new Date().toISOString() });
+            const payload = { type: "tmuxCapture", workerId, window: win, text: "", ok: false, error: msg, fetchedAt: new Date().toISOString() };
+            this.view?.webview.postMessage(payload);
+            return payload;
         }
     }
     tmuxWorkerId(message, allowFallback = false) {
@@ -14015,11 +14023,15 @@ class RealtimeTunnelPanelProvider {
                     req.end();
                 });
             }
-            this.view?.webview.postMessage({ type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() });
+            const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
+            this.view?.webview.postMessage(payload);
+            return payload;
         }
         catch (exc) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
-            this.view?.webview.postMessage({ type: "tmuxList", ok: false, available: false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() });
+            const payload = { type: "tmuxList", ok: false, available: false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() };
+            this.view?.webview.postMessage(payload);
+            return payload;
         }
     }
     async killTmuxWindowFromUi(message) {
