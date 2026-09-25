@@ -4,6 +4,7 @@ exports.normalizeMirrorScopePaths = normalizeMirrorScopePaths;
 exports.filterInventoryByScope = filterInventoryByScope;
 exports.planProjectMirror = planProjectMirror;
 const PlanArtifactSync_1 = require("./PlanArtifactSync");
+const SyncResolution_1 = require("./SyncResolution");
 function normalizeMirrorScopePaths(paths) {
     if (!Array.isArray(paths))
         throw new Error("服务器间同步范围必须是路径数组。");
@@ -40,7 +41,7 @@ function planOwned(path, ledger) {
     }
     return false;
 }
-function planProjectMirror(inventories, codeManifest, ledger) {
+function planProjectMirror(inventories, codeManifest, ledger, holds = {}) {
     const workers = Object.keys(inventories).sort();
     const code = new Set(Object.keys(codeManifest));
     const paths = new Set(workers.flatMap((id) => Object.keys(inventories[id] || {})));
@@ -49,11 +50,25 @@ function planProjectMirror(inventories, codeManifest, ledger) {
     const protectedPaths = [];
     const protectedDifferences = [];
     for (const path of [...paths].sort()) {
-        if (code.has(path) || planOwned(path, ledger)) {
+        if ((0, SyncResolution_1.isSyncHeld)(path, holds))
+            continue;
+        const chosenHash = (0, SyncResolution_1.chosenSyncHash)(path, holds)?.toLowerCase();
+        if (code.has(path) || planOwned(path, ledger) && !chosenHash) {
             protectedPaths.push(path);
             const hashes = workers.map((id) => inventories[id]?.[path]?.sha256?.toLowerCase() || "");
             if (new Set(hashes).size > 1 || hashes.some((hash) => !hash) || code.has(path) && hashes.some((hash) => hash !== codeManifest[path].sha256.toLowerCase()))
                 protectedDifferences.push(path);
+            continue;
+        }
+        if (chosenHash) {
+            const sourceWorkerId = workers.find((id) => inventories[id]?.[path]?.sha256?.toLowerCase() === chosenHash);
+            if (!sourceWorkerId) {
+                conflicts.push({ path, workers: workers.filter((id) => Boolean(inventories[id]?.[path])) });
+                continue;
+            }
+            for (const destinationWorkerId of workers)
+                if (inventories[destinationWorkerId]?.[path]?.sha256?.toLowerCase() !== chosenHash)
+                    copies.push({ sourceWorkerId, destinationWorkerId, path });
             continue;
         }
         const present = workers.filter((id) => inventories[id]?.[path]);
@@ -70,7 +85,7 @@ function planProjectMirror(inventories, codeManifest, ledger) {
                 copies.push({ sourceWorkerId, destinationWorkerId, path });
     }
     for (const path of code)
-        if (!paths.has(path))
+        if (!paths.has(path) && !(0, SyncResolution_1.isSyncHeld)(path, holds))
             protectedDifferences.push(path);
     return { copies, conflicts, protectedPaths, protectedDifferences, fileCount: paths.size };
 }

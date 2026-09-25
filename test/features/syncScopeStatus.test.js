@@ -47,6 +47,23 @@ test("an offline Worker stays unverified instead of showing green", () => {
   assert.match(status["train.py"].detail, /w2 未校验，待核对/);
 });
 
+test("version metadata shows Plan owner and timestamp candidate without resolving conflict", () => {
+  const inventory = { local: {}, workers: {
+    w1: { "work_dirs/p/weight.bin": { sha256: "old", size: 1, modifiedAtMs: 300 }, "results/conflict.bin": { sha256: "a", size: 1, modifiedAtMs: 200 } },
+    w2: { "work_dirs/p/weight.bin": { sha256: "new", size: 1, modifiedAtMs: 100 }, "results/conflict.bin": { sha256: "b", size: 1, modifiedAtMs: 300 } },
+  } };
+  const holds = { "results/conflict.bin": { endpointId: "w1", directory: false } };
+  const status = buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger, new Set(), holds);
+  assert.equal(status["work_dirs/p/weight.bin"].versions.w2.latest, "plan");
+  assert.equal(status["results/conflict.bin"].versions.w2.latest, "candidate");
+  assert.equal(status["results/conflict.bin"].state, "different");
+  assert.equal(status["results/conflict.bin"].held, true);
+  const manual = buildScopeStatuses(inventory, "server-server", ["."], new Set(), ledger, new Set(),
+    { "results/conflict.bin": { endpointId: "w2", directory: false, status: "resolved", sha256: "b" } });
+  assert.equal(manual["results/conflict.bin"].versions.w2.latest, "manual");
+  assert.match(manual["results/conflict.bin"].detail, /手动保留版本/);
+});
+
 test("folder status hashes direct files without scanning large descendant directories", async () => {
   const root = path.join(__dirname, "..", "fixtures", "syncScopeStatus");
   const inventory = await collectLocalScopeInventory(root, "data", false);

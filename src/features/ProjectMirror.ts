@@ -1,4 +1,5 @@
 import { PlanSyncLedger, latestPlanSyncEntry } from "./PlanArtifactSync";
+import { SyncHolds, chosenSyncHash, isSyncHeld } from "./SyncResolution";
 
 export type Inventory = Record<string, { sha256: string; size: number }>;
 export type MirrorCopy = { sourceWorkerId: string; destinationWorkerId: string; path: string };
@@ -37,7 +38,7 @@ function planOwned(path: string, ledger: PlanSyncLedger): boolean {
   return false;
 }
 
-export function planProjectMirror(inventories: Record<string, Inventory>, codeManifest: Record<string, { sha256: string }>, ledger: PlanSyncLedger): MirrorPlan {
+export function planProjectMirror(inventories: Record<string, Inventory>, codeManifest: Record<string, { sha256: string }>, ledger: PlanSyncLedger, holds: SyncHolds = {}): MirrorPlan {
   const workers = Object.keys(inventories).sort();
   const code = new Set(Object.keys(codeManifest));
   const paths = new Set(workers.flatMap((id) => Object.keys(inventories[id] || {})));
@@ -46,11 +47,21 @@ export function planProjectMirror(inventories: Record<string, Inventory>, codeMa
   const protectedPaths: string[] = [];
   const protectedDifferences: string[] = [];
   for (const path of [...paths].sort()) {
-    if (code.has(path) || planOwned(path, ledger)) {
+    if (isSyncHeld(path, holds)) continue;
+    const chosenHash = chosenSyncHash(path, holds)?.toLowerCase();
+    if (code.has(path) || planOwned(path, ledger) && !chosenHash) {
       protectedPaths.push(path);
       const hashes = workers.map((id) => inventories[id]?.[path]?.sha256?.toLowerCase() || "");
       if (new Set(hashes).size > 1 || hashes.some((hash) => !hash) || code.has(path) && hashes.some((hash) => hash !== codeManifest[path].sha256.toLowerCase()))
         protectedDifferences.push(path);
+      continue;
+    }
+    if (chosenHash) {
+      const sourceWorkerId = workers.find((id) => inventories[id]?.[path]?.sha256?.toLowerCase() === chosenHash);
+      if (!sourceWorkerId) { conflicts.push({ path, workers: workers.filter((id) => Boolean(inventories[id]?.[path])) }); continue; }
+      for (const destinationWorkerId of workers)
+        if (inventories[destinationWorkerId]?.[path]?.sha256?.toLowerCase() !== chosenHash)
+          copies.push({ sourceWorkerId, destinationWorkerId, path });
       continue;
     }
     const present = workers.filter((id) => inventories[id]?.[path]);
@@ -61,6 +72,6 @@ export function planProjectMirror(inventories: Record<string, Inventory>, codeMa
     for (const destinationWorkerId of workers)
       if (!inventories[destinationWorkerId]?.[path]) copies.push({ sourceWorkerId, destinationWorkerId, path });
   }
-  for (const path of code) if (!paths.has(path)) protectedDifferences.push(path);
+  for (const path of code) if (!paths.has(path) && !isSyncHeld(path, holds)) protectedDifferences.push(path);
   return { copies, conflicts, protectedPaths, protectedDifferences, fileCount: paths.size };
 }

@@ -3,8 +3,9 @@ import { ScopeStatus } from "./SyncScopeTree";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import { SyncHolds, chosenSyncHash, isSyncHeld } from "./SyncResolution";
 
-type File = { sha256: string; size: number };
+type File = { sha256: string; size: number; modifiedAtMs?: number };
 export type ScopeInventories = { local: Record<string, File>; workers: Record<string, Record<string, File>> };
 const localHashCache = new Map<string, { identity: string; file: File }>();
 
@@ -70,7 +71,7 @@ export async function collectLocalScopeInventory(root: string, relative = ".", r
       } finally { await handle.close(); }
       const after = await fs.lstat(full);
       if (!after.isFile() || after.isSymbolicLink() || identity !== fileIdentity(after)) throw new Error(`本机文件在校验时变更：${relative}`);
-      const file = { sha256: hash.digest("hex"), size: after.size };
+      const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: after.mtimeMs };
       localHashCache.set(full, { identity, file });
       files[relative] = file;
     }
@@ -95,6 +96,7 @@ export function buildScopeStatuses(
   localDefaultPaths: Set<string>,
   ledger: PlanSyncLedger,
   offlineWorkerIds = new Set<string>(),
+  holds: SyncHolds = {},
 ): Record<string, ScopeStatus> {
   const workers = Object.keys(inventories.workers).sort();
   const all = new Set([
@@ -111,27 +113,43 @@ export function buildScopeStatuses(
     if (!workers.length) { statuses[path] = { state: "unknown", detail: "尚未配置 Worker" }; continue; }
     const localHash = inventories.local[path]?.sha256?.toLowerCase();
     const remote = workers.map((id) => ({ id, hash: inventories.workers[id]?.[path]?.sha256?.toLowerCase() }));
+    const versions: NonNullable<ScopeStatus["versions"]> = {};
+    const addVersion = (id: string, file?: File) => { if (file?.sha256) versions[id] = { sha256: file.sha256, modifiedAtMs: Number(file.modifiedAtMs || 0) }; };
+    addVersion("local", inventories.local[path]);
+    for (const id of workers) if (!offlineWorkerIds.has(id)) addVersion(id, inventories.workers[id]?.[path]);
+    const held = isSyncHeld(path, holds);
     if (mode === "local-server") {
       const detail = [`本机 ${localHash ? "最新版" : "缺失"}`, ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验，待核对" : !hash ? "待更新" : hash === localHash ? "最新版" : "待更新"}`)].join(" · ");
       const state = localHash && remote.every(({ hash }) => hash === localHash) ? "same" : offlineWorkerIds.size && localHash && remote.every(({ id, hash }) => offlineWorkerIds.has(id) || hash === localHash) ? "unknown" : "different";
-      statuses[path] = { state, detail };
+      if (versions.local) versions.local.latest = "local";
+      statuses[path] = { state, detail: held ? `${detail} · 自动同步已暂停` : detail, versions, held };
       continue;
     }
     const owner = ownerForPath(path, ledger);
     const ownerHash = owner ? inventories.workers[owner]?.[path]?.sha256?.toLowerCase() : undefined;
     const present = remote.filter(({ hash }) => hash);
     const unique = new Set(present.map(({ hash }) => hash));
-    const reference = owner ? ownerHash : unique.size === 1 ? present[0]?.hash : undefined;
+    const manualHash = chosenSyncHash(path, holds)?.toLowerCase();
+    const reference = manualHash || (owner ? ownerHash : unique.size === 1 ? present[0]?.hash : undefined);
     const remoteSame = Boolean(reference) && remote.every(({ hash }) => hash === reference);
     const localSame = localHash === reference;
     const detail = !reference
       ? `${owner && offlineWorkerIds.has(owner) ? `Plan 归属 ${owner} 未校验，待核对` : "内容冲突，无法判定最新版"} · ${remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验" : hash ? "冲突" : "缺失"}`).join(" · ")}`
-      : [owner ? `Plan 归属：${owner}` : "Worker 内容基准", `本机 ${!localHash ? "缺失" : localHash === reference ? "同版" : "不同版"}`,
+      : [manualHash ? "手动保留版本" : owner ? `Plan 归属：${owner}` : "Worker 内容基准", `本机 ${!localHash ? "缺失" : localHash === reference ? "同版" : "不同版"}`,
         ...remote.map(({ id, hash }) => `${id} ${offlineWorkerIds.has(id) ? "未校验，待核对" : hash === reference ? "最新版" : "待更新"}`)].join(" · ");
     const activeMatch = Boolean(reference) && remote.every(({ id, hash }) => offlineWorkerIds.has(id) || hash === reference);
     const state = remoteSame ? localSame ? "same" : "remote-only"
       : offlineWorkerIds.size && activeMatch || owner && offlineWorkerIds.has(owner) ? "unknown" : "different";
-    statuses[path] = { state, detail };
+    if (manualHash) {
+      for (const file of Object.values(versions)) if (file.sha256.toLowerCase() === manualHash) file.latest = "manual";
+    } else if (owner && versions[owner]) versions[owner].latest = "plan";
+    else if (!owner && unique.size > 1) {
+      const candidates = Object.entries(versions).filter(([id]) => id !== "local");
+      const newest = Math.max(...candidates.map(([, file]) => file.modifiedAtMs));
+      if (newest > 0 && candidates.filter(([, file]) => file.modifiedAtMs === newest).length === 1)
+        for (const [, file] of candidates) if (file.modifiedAtMs === newest) file.latest = "candidate";
+    } else if (!owner && unique.size === 1) for (const [id, file] of Object.entries(versions)) if (id !== "local" && file.sha256.toLowerCase() === reference) file.latest = "same";
+    statuses[path] = { state, detail: held ? `${detail} · 自动同步已暂停` : detail, versions, held };
   }
   const folders = new Map<string, { total: number; failed: number; remoteOnly: number; unknown: number }>();
   const count = (folder: string, status: ScopeStatus) => {
@@ -148,7 +166,7 @@ export function buildScopeStatuses(
     for (let i = 1; i < parts.length; i++) count(parts.slice(0, i).join("/"), statuses[path]);
   }
   for (const [folder, { total, failed, remoteOnly, unknown }] of folders) {
-    statuses[folder] = { state: failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same", detail: failed ? `${failed} 个文件待更新或冲突` : unknown ? `${unknown} 个文件未确认` : remoteOnly ? `${remoteOnly} 个文件仅 Worker 一致` : `${total} 个文件全部一致` };
+    statuses[folder] = { state: failed ? "different" : unknown ? "unknown" : remoteOnly ? "remote-only" : "same", detail: failed ? `${failed} 个文件待更新或冲突` : unknown ? `${unknown} 个文件未确认` : remoteOnly ? `${remoteOnly} 个文件仅 Worker 一致` : `${total} 个文件全部一致`, held: isSyncHeld(folder, holds) };
   }
   return statuses;
 }

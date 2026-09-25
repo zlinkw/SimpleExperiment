@@ -66,7 +66,14 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   onMessage({ data: { type: "children", rootId: "workers", path: ".", entries: [{ name: "README.md", path: "README.md", directory: false }] } });
   assert.equal(messages.at(-1).type, "refresh");
   assert.equal(messages.at(-1).path, ".");
-  onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { ".": { state: "unknown", detail: "子目录待校验" }, "README.md": { state: "same", detail: "本机 同版 · w1 最新版" } }, refreshedAt: "now" } });
+  const hash = "a".repeat(64);
+  onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { ".": { state: "unknown", detail: "子目录待校验" }, "README.md": { state: "same", detail: "本机 同版 · w1 最新版", versions: { w1: { sha256: hash, modifiedAtMs: 1000, latest: "candidate" } } } }, refreshedAt: "now" } });
   assert.match(elements.get("status").textContent, /已校验/);
-  assert.equal(elements.get("tree").children[1].children.at(-1).className, "badge same");
+  assert.equal(elements.get("tree").children[1].children.find((child) => child.className === "badge same")?.className, "badge same");
+  const version = elements.get("tree").children[1].children.find((child) => child.className === "versions").children[0];
+  assert.match(version.textContent, new RegExp(hash));
+  assert.equal(version.children[0].textContent, "保留此版");
+  assert.equal(version.children[1].textContent, "删除");
+  version.children[1].onclick();
+  assert.deepEqual({ type: messages.at(-1).type, path: messages.at(-1).path, endpointId: messages.at(-1).endpointId }, { type: "remove", path: "README.md", endpointId: "w1" });
 });
