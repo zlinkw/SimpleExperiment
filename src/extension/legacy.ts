@@ -7997,7 +7997,7 @@ export class RealtimeTunnelPanelProvider {
                         if (!log?.sha256) throw new Error(`运行日志缺失：${job.logPath}`);
                         files.push([job.logPath, log]);
                     }
-                    const required = ["config.yaml", "best_model.pth", "test_results/formal_result_rows.csv", "test_results/four_state_metrics.csv"];
+                    const required = ["job_config.yaml", "best_model.pth", "test_results/formal_result_rows.csv", "test_results/four_state_metrics.csv"];
                     if (required.some((name) => !files.some(([file]) => file === `${job.outputDir}/${name}`))) throw new Error("缺少检查点或双端点/四态结果片段");
                     job.artifacts = Object.fromEntries(files.map(([name, row]: [string, any]) => [name, String(row.sha256).toLowerCase()]));
                     job.mirroredWorkerIds = [job.workerId];
@@ -8047,7 +8047,7 @@ export class RealtimeTunnelPanelProvider {
                 case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir,
                 commandId: job.commandId,
                 sourceWorkerId: job.workerId, codeFingerprint: plan.codeFingerprint,
-                configSha256: job.artifacts[`${job.outputDir}/config.yaml`],
+                configSha256: job.artifacts[`${job.outputDir}/job_config.yaml`],
                 checkpointSha256: job.artifacts[`${job.outputDir}/best_model.pth`],
                 resultRowsSha256: job.artifacts[`${job.outputDir}/test_results/formal_result_rows.csv`],
                 fourStateSha256: job.artifacts[`${job.outputDir}/test_results/four_state_metrics.csv`],
