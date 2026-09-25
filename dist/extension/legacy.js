@@ -8039,7 +8039,8 @@ class RealtimeTunnelPanelProvider {
                             const oldJobs = new Map((oldPlans.get(plan.id)?.jobs || []).map((job) => [job.index, job]));
                             return { ...plan, jobs: plan.jobs.map((job) => {
                                     const old = oldJobs.get(job.index);
-                                    return old && old.attempt === job.attempt ? { ...job, artifacts: old.artifacts, mirroredWorkerIds: old.mirroredWorkerIds,
+                                    return old && old.attempt === job.attempt ? { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
+                                        mirroredWorkerIds: old.mirroredWorkerIds,
                                         artifactError: old.artifactError, logPath: job.logPath || old.logPath,
                                         finishedAt: job.finishedAt || old.finishedAt } : job;
                                 }) };
@@ -8068,7 +8069,10 @@ class RealtimeTunnelPanelProvider {
                 jobs: plan.jobs.map((job) => job.index !== index || job.attempt !== attempt ? job : { ...job, ...fields,
                     mirroredWorkerIds: fields.mirroredWorkerIds
                         ? [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
-                        : job.mirroredWorkerIds }) }) };
+                        : job.mirroredWorkerIds,
+                    fragmentWorkerIds: fields.fragmentWorkerIds
+                        ? [...new Set([...(job.fragmentWorkerIds || []), ...fields.fragmentWorkerIds])]
+                        : job.fragmentWorkerIds }) }) };
         await this.saveDistributedQueue(root, next, { artifactMutation: true });
     }
     async patchDistributedPublication(root, fields) {
@@ -8081,10 +8085,14 @@ class RealtimeTunnelPanelProvider {
             return;
         const work = (async () => {
             const queue = await this.loadDistributedQueue(root);
-            await this.syncDistributedJobArtifacts(root, queue);
+            await this.syncDistributedJobArtifacts(root, queue, "fragments");
             if (workspaceRoot() !== root)
                 return;
-            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root));
+            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true);
+            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk");
+            if (workspaceRoot() !== root)
+                return;
+            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false);
             this.postState();
         })();
         this.distributedPostprocessPromise = work;
@@ -8240,7 +8248,7 @@ class RealtimeTunnelPanelProvider {
         this.scheduleDistributedPostprocess(root);
         this.postState();
     }
-    async syncDistributedJobArtifacts(root, queue) {
+    async syncDistributedJobArtifacts(root, queue, phase) {
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
         for (const plan of queue.plans)
@@ -8250,7 +8258,8 @@ class RealtimeTunnelPanelProvider {
                 if (job.status !== "completed" || !job.workerId || !targets.has(job.workerId))
                     continue;
                 try {
-                    const sourceId = [job.workerId, ...(job.mirroredWorkerIds || [])].find((id) => online.includes(id));
+                    const sourceId = [job.workerId, ...(job.mirroredWorkerIds || []), ...(phase === "fragments" ? job.fragmentWorkerIds || [] : [])]
+                        .find((id) => online.includes(id));
                     if (!sourceId)
                         throw new Error("来源 Worker 与已校验镜像均未连接");
                     const sourceRow = targets.get(sourceId);
@@ -8271,28 +8280,49 @@ class RealtimeTunnelPanelProvider {
                         if (required.some((name) => !files.some(([file]) => file === `${job.outputDir}/${name}`)))
                             throw new Error("缺少检查点或双端点/四态结果片段");
                         job.artifacts = Object.fromEntries(files.map(([name, row]) => [name, String(row.sha256).toLowerCase()]));
+                        job.fragmentWorkerIds = [job.workerId];
                         job.mirroredWorkerIds = [job.workerId];
                         job.artifactError = undefined;
                         await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifacts: job.artifacts,
-                            mirroredWorkerIds: job.mirroredWorkerIds, artifactError: undefined });
+                            fragmentWorkerIds: job.fragmentWorkerIds, mirroredWorkerIds: job.mirroredWorkerIds, artifactError: undefined });
                     }
+                    const fragmentPaths = ["job_config.yaml", "test_results/formal_result_rows.csv", "test_results/four_state_metrics.csv"]
+                        .map((name) => `${job.outputDir}/${name}`);
                     for (const workerId of online) {
                         if (workspaceRoot() !== root)
                             return;
-                        if (job.mirroredWorkerIds?.includes(workerId))
+                        if (phase === "fragments" ? job.fragmentWorkerIds?.includes(workerId) : job.mirroredWorkerIds?.includes(workerId))
                             continue;
                         const target = targets.get(workerId);
                         const destination = this.sftpServerOptions(target);
                         await this.assertSshTransportIdentities([sourceRow, target]);
-                        const paths = Object.keys(job.artifacts).sort();
+                        const paths = phase === "fragments" ? fragmentPaths
+                            : Object.keys(job.artifacts).filter((name) => !fragmentPaths.includes(name)).sort();
                         for (let offset = 0; offset < paths.length; offset += 5000) {
                             await this.simpleSftpApiCall("sync.serverToServerBatch", { source,
                                 destination: { ...destination, host: destination.networkHost || destination.host },
                                 relativePaths: paths.slice(offset, offset + 5000), confirm: true, pathConfirmed: true });
                         }
+                        if (phase === "fragments") {
+                            for (const file of fragmentPaths) {
+                                const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: file })).files;
+                                if (String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file])
+                                    throw new Error(`${workerId} 结果片段校验失败：${file}`);
+                            }
+                            job.fragmentWorkerIds = [...new Set([...(job.fragmentWorkerIds || []), workerId])];
+                            await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { fragmentWorkerIds: job.fragmentWorkerIds,
+                                artifactError: undefined });
+                            continue;
+                        }
                         const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
-                        if (paths.some((file) => String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file]))
+                        if (Object.keys(job.artifacts).filter((file) => file.startsWith(job.outputDir + "/"))
+                            .some((file) => String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file]))
                             throw new Error(`${workerId} 内容校验失败`);
+                        if (job.logPath && job.artifacts[job.logPath]) {
+                            const log = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.logPath })).files[job.logPath];
+                            if (String(log?.sha256 || "").toLowerCase() !== job.artifacts[job.logPath])
+                                throw new Error(`${workerId} 日志校验失败`);
+                        }
                         job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), workerId])];
                         job.artifactError = undefined;
                         await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { mirroredWorkerIds: job.mirroredWorkerIds,
@@ -8306,7 +8336,7 @@ class RealtimeTunnelPanelProvider {
                 }
             }
     }
-    async rebuildDistributedResults(root, queue) {
+    async rebuildDistributedResults(root, queue, previewOnly) {
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
         const chosen = new Map();
@@ -8316,7 +8346,7 @@ class RealtimeTunnelPanelProvider {
         if (!selected.length)
             return;
         const available = online.find((id) => selected.every((plan) => plan.jobs.filter((job) => job.status === "completed" && job.artifacts)
-            .every((job) => job.mirroredWorkerIds?.includes(id))));
+            .every((job) => (previewOnly ? job.fragmentWorkerIds : job.mirroredWorkerIds)?.includes(id))));
         if (!available)
             return;
         const manifest = { schemaVersion: 1, plans: selected.map((plan) => ({ planFile: plan.planFile, revision: plan.revision,
@@ -8331,7 +8361,7 @@ class RealtimeTunnelPanelProvider {
                     fourStateSha256: job.artifacts[`${job.outputDir}/test_results/four_state_metrics.csv`],
                 })) })) };
         const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
-        const publish = selected.every((plan) => plan.jobs.every((job) => job.status === "completed" && Boolean(job.artifacts)));
+        const publish = !previewOnly && selected.every((plan) => plan.jobs.every((job) => job.status === "completed" && Boolean(job.artifacts)));
         const alreadyBuilt = publish ? queue.publishedSignature === signature : queue.previewSignature === signature;
         let paths = alreadyBuilt ? queue.publishedPaths || [] : [];
         let sourceWorkerId = alreadyBuilt ? queue.publishedWorkerId : available;

@@ -15,6 +15,7 @@ export type QueuedJob = {
   logPath?: string;
   finishedAt?: string;
   artifacts?: Record<string, string>;
+  fragmentWorkerIds?: string[];
   mirroredWorkerIds?: string[];
   artifactError?: string;
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string }>;
