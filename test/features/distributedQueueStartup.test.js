@@ -32,15 +32,29 @@ test("activation reconnects and ticks a persisted Plan queue without opening the
   assert.match(activation, /distributedQueueContinuation.*resumePersistedDistributedQueue/);
 });
 
-test("activation does not start Worker communication for a completed queue", async () => {
+test("activation does not start Worker communication for a fully mirrored completed queue", async () => {
   const provider = {
     lastWorkerProbes: {},
     isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
-    loadDistributedQueue: async () => ({ plans: [{ jobs: [{ status: "completed" }] }] }),
+    workerCodeSyncTargets: () => [{ id: "worker-a" }],
+    loadDistributedQueue: async () => ({ plans: [{ jobs: [{ status: "completed", mirroredWorkerIds: ["worker-a"] }] }] }),
     tickDistributedQueue: async () => { throw new Error("unexpected dispatch"); },
   };
   await sandbox.resume.call(provider);
+});
+
+test("activation retries completed jobs whose mirrors were not verified", async () => {
+  let ticks = 0;
+  const provider = {
+    lastWorkerProbes: {}, isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    workerCodeSyncTargets: () => [{ id: "worker-a" }, { id: "worker-b" }],
+    loadDistributedQueue: async () => ({ plans: [{ jobs: [{ status: "completed", mirroredWorkerIds: ["worker-a"], artifactError: "offline" }] }] }),
+    tickDistributedQueue: async () => { ticks += 1; },
+  };
+  await sandbox.resume.call(provider);
+  assert.equal(ticks, 1);
 });
 
 test("an outstanding queue retries an unavailable tunnel probe without a panel", async () => {
@@ -57,6 +71,7 @@ test("an outstanding queue retries an unavailable tunnel probe without a panel",
     lastWorkerProbes: {}, distributedNextProbeAt: 0,
     isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    workerCodeSyncTargets: () => [],
     loadDistributedQueue: async () => ({ plans: [{ jobs: [{ status: "pending" }] }] }),
     testTunnel: async () => { probes += 1; if (probes === 2) provider.lastWorkerProbes = { workerA: { status: "ok" } }; },
   };
@@ -66,6 +81,80 @@ test("an outstanding queue retries an unavailable tunnel probe without a panel",
   clock.now += 30_000;
   assert.equal(await probeSandbox.probeQueue.call(provider), true);
   assert.equal(probes, 2);
+});
+
+test("completed job retries a stale source probe even while another Worker is online", async () => {
+  const tickStart = source.indexOf("async tickDistributedQueueCore() {");
+  const tickEnd = source.indexOf("const assigned = queue.plans.flatMap", tickStart);
+  const prefix = source.slice(tickStart, tickEnd).replace("async tickDistributedQueueCore()", "async function probeQueue()");
+  const probeSandbox = { workspaceRoot: () => "C:/project", Object, Date: { now: () => 100_000 } };
+  vm.createContext(probeSandbox);
+  vm.runInContext(prefix + "return true; }\nthis.probeQueue = probeQueue;", probeSandbox);
+  let probes = 0;
+  const provider = {
+    lastWorkerProbes: { "worker-a": { status: "ok" }, "worker-b": { status: "timeout" } },
+    distributedNextProbeAt: 0, isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    workerCodeSyncTargets: () => [{ id: "worker-a" }],
+    loadDistributedQueue: async () => ({ plans: [{ jobs: [{ status: "completed", workerId: "worker-b", artifactError: "source offline", mirroredWorkerIds: [] }] }] }),
+    testTunnel: async () => { probes += 1; provider.lastWorkerProbes["worker-b"] = { status: "ok" }; },
+  };
+  assert.equal(await probeSandbox.probeQueue.call(provider), true);
+  assert.equal(probes, 1);
+});
+
+test("manual refresh re-probes Workers and retries artifact sync without waiting for backoff", async () => {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const first = compiled.indexOf("async manualSnapshot() {");
+  const last = compiled.indexOf("async manualGpuSnapshot() {", first);
+  assert.ok(first >= 0 && last > first);
+  const context = { workspaceRoot: () => "C:/project", errorMessage: String,
+    vscode: { window: { showInformationMessage: () => undefined } } };
+  vm.createContext(context);
+  vm.runInContext(compiled.slice(first, last).replace("async manualSnapshot()", "async function manualSnapshot()")
+    + "\nthis.refresh = manualSnapshot;", context);
+  const events = [];
+  const client = { getSnapshot: async () => { events.push("snapshot"); return {}; },
+    getGpu: async () => ({}), getScheduler: async () => [], getTraces: async () => [] };
+  const provider = {
+    projectContextGeneration: 0, client: {}, localPlanMetadata: {},
+    refreshLocalPlanMetadata: async () => undefined,
+    effectiveConnectionMode: () => "realtime",
+    testTunnel: async () => { events.push("probe"); provider.client = client; },
+    pushLocalWorkerAvailability: async () => undefined,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    loadDistributedQueue: async () => ({ plans: [{ id: "plan-1", jobs: [{ index: 0, attempt: 1, status: "completed", artifactRetryAfter: "tomorrow" }] }] }),
+    patchDistributedJob: async (_root, _plan, _index, _attempt, fields) => { events.push(fields.artifactRetryAfter === undefined ? "retry-now" : "wrong-retry"); },
+    tickDistributedQueue: async () => { events.push("tick"); },
+    postState: () => undefined,
+  };
+  await context.refresh.call(provider);
+  assert.ok(events.indexOf("probe") < events.indexOf("snapshot"));
+  assert.ok(events.indexOf("retry-now") < events.indexOf("tick"));
+});
+
+test("successful artifact pass clears an old disconnected warning", async () => {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const first = compiled.indexOf("async syncDistributedJobArtifacts(");
+  const last = compiled.indexOf("async rebuildDistributedResults(", first);
+  assert.ok(first >= 0 && last > first);
+  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String };
+  vm.createContext(context);
+  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase)", "async function syncJobArtifacts(root, queue, phase)")
+    + "\nthis.sync = syncJobArtifacts;", context);
+  const job = { index: 0, attempt: 1, status: "completed", workerId: "worker-b", outputDir: "runs/a",
+    artifacts: {}, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
+  const patched = [];
+  const provider = {
+    distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
+    workerCodeSyncTargets: () => [{ id: "worker-a" }],
+    lastWorkerProbes: { "worker-a": { status: "ok" } },
+    sftpServerOptions: () => ({}),
+    patchDistributedJob: async (_root, _plan, _index, _attempt, fields) => patched.push(fields),
+  };
+  await context.sync.call(provider, "C:/project", { plans: [{ id: "plan-1", planFile: "plans/p.yaml", jobs: [job] }] }, "bulk");
+  assert.equal(job.artifactError, undefined);
+  assert.ok(patched.some((row) => Object.hasOwn(row, "artifactError") && row.artifactError === undefined));
 });
 
 test("pending jobs cannot use GPU slots until that Worker's task ledger is verified", () => {
@@ -111,6 +200,7 @@ test("restart resends an unacknowledged dispatch with its original command ID", 
   const sent = [];
   const provider = {
     lastWorkerProbes: { "worker-a": { status: "ok" } }, lastCodeSyncState: { workerVersions: {} },
+    workerCodeSyncTargets: () => [],
     isRealtimeMode: () => true, projectTopologyAssessment: () => ({ mode: "worker_pool" }),
     loadDistributedQueue: async () => queue,
     saveDistributedQueue: async (_root, next) => { queue = next; },
@@ -150,6 +240,7 @@ test("a failed job retains its Agent error in the durable Plan queue", async () 
     error: "FileNotFoundError: missing label_schema.json" };
   const provider = {
     lastWorkerProbes: { "worker-a": { status: "ok" } }, distributedNextFailureDetailAt: 0,
+    workerCodeSyncTargets: () => [],
     lastCodeSyncState: { workerVersions: {} },
     isRealtimeMode: () => true, projectTopologyAssessment: () => ({ mode: "worker_pool" }),
     loadDistributedQueue: async () => queue, saveDistributedQueue: async (_root, next) => { queue = next; },

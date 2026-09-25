@@ -12883,10 +12883,13 @@ export function renderPanelHtml(): string {
       taskSectionViewModelForState(state).allRows.forEach((row) => getGroup(taskPlanFile(row)).tasks.push(row));
       (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).forEach((plan) => {
         if (!plan.planFile) return;
+        const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
+        const active = jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+        if (state?.executionHistoryCutoffs && !executionHistoryRowVisible(state, { startedAt: plan.enqueuedAt }, plan.planFile, active)) return;
         const group = getGroup(plan.planFile);
         if (group.distributedEnqueuedAt && String(plan.enqueuedAt || "") < group.distributedEnqueuedAt) return;
         group.distributedEnqueuedAt = String(plan.enqueuedAt || "");
-        group.distributedJobs = (Array.isArray(plan.jobs) ? plan.jobs : []).map((job) => ({ ...job, enqueuedAt: plan.enqueuedAt }));
+        group.distributedJobs = jobs.map((job) => ({ ...job, enqueuedAt: plan.enqueuedAt }));
       });
       const selected = taskSelectionSetsForState(state);
       const items = Array.from(groups.values()).map((group) => {
@@ -12998,7 +13001,10 @@ export function renderPanelHtml(): string {
             '<button type="button" data-task-plan-scope="all" title="显示全部运行任务（含其他 Plan）" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
           '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
-      const distributedPlans = Array.isArray(state.distributedPlans) ? state.distributedPlans : [];
+      const distributedPlans = (Array.isArray(state.distributedPlans) ? state.distributedPlans : []).filter((plan) => {
+        const active = (Array.isArray(plan.jobs) ? plan.jobs : []).some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+        return !state.executionHistoryCutoffs || executionHistoryRowVisible(state, { startedAt: plan.enqueuedAt }, plan.planFile, active);
+      });
       const distributedHtml = distributedPlans.length
         ? '<div class="summaryLine">' + distributedPlans.map((plan) => {
             const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];

@@ -146,6 +146,38 @@ test("latest distributed attempt determines completed or failed Plan display", (
   assert.doesNotMatch(html, /old interruption|>异常</);
 });
 
+test("clearing history hides terminal distributed Plans but keeps active jobs", () => {
+  let html = "";
+  const sandbox = {
+    Map, Set,
+    operationRowsForState: () => [],
+    taskSectionViewModelForState: () => ({ allRows: [] }), taskPlanFile: (row) => row.planFile,
+    taskSelectionSetsForState: () => ({}), normalizePlanSelectionKey: String,
+    samePlanSelection: (left, right) => left === right,
+    selectedExecutionPlanFile: "", persistWebviewState: () => undefined,
+    taskStatusToken: String, TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
+    TASK_QUEUED_STATUSES: new Set(["queued"]), TASK_TERMINAL_STATUSES: new Set(["completed"]),
+    operationIsActive: (value) => value === "running", operationIsFailureLike: () => false,
+    operationHasDeadEvidence: () => false, taskFailureLikeStatus: () => false,
+    planBaseName: (value) => value.split("/").pop(), esc: String, escAttr: String,
+    detailsOpenAttr: () => "", statusClass: String,
+    renderOperationItem: () => "", renderTaskCards: () => "", setHtmlIfChanged: (_id, value) => { html = value; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extract("executionHistoryRowVisible", "operationRowsForInput")
+    + extract("renderExecutionPlanList", "renderOperationSection")
+    + "\nthis.render = renderExecutionPlanList;", sandbox);
+  const old = { id: "old", planFile: "plans/old.yaml", enqueuedAt: "2026-09-20T10:00:00Z",
+    jobs: [{ status: "failed", case: "a", seed: 1 }] };
+  const active = { id: "active", planFile: "plans/active.yaml", enqueuedAt: "2026-09-20T10:00:00Z",
+    jobs: [{ status: "running", case: "b", seed: 1 }] };
+  const recent = { id: "recent", planFile: "plans/recent.yaml", enqueuedAt: "2026-09-25T12:00:00Z",
+    jobs: [{ status: "completed", case: "c", seed: 1 }] };
+  sandbox.render({ executionHistoryCutoffs: { all: "2026-09-25T10:00:00Z" }, distributedPlans: [old, active, recent] });
+  assert.doesNotMatch(html, /old.yaml/);
+  assert.match(html, /active.yaml|recent.yaml/);
+});
+
 test("diagnostics default to current server health and actionable issues", () => {
   let html = "";
   const sandbox = {

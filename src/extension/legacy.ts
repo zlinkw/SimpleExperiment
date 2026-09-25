@@ -4266,7 +4266,6 @@ export class RealtimeTunnelPanelProvider {
     }
     async manualSnapshot() {
         const generation = this.projectContextGeneration;
-        const client = this.client;
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
             if (generation !== this.projectContextGeneration)
                 return;
@@ -4279,6 +4278,9 @@ export class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
+        await this.testTunnel(false).catch((error) => { this.lastError = errorMessage(error); });
+        if (generation !== this.projectContextGeneration) return;
+        const client = this.client;
         try {
             const results = await Promise.allSettled([
                 client.getSnapshot(),
@@ -4323,15 +4325,30 @@ export class RealtimeTunnelPanelProvider {
             this.lastError = undefined;
             await this.pushLocalWorkerAvailability(true);
             const count = Array.isArray((this.lastSnapshot as any)?.schedulerStates) ? (this.lastSnapshot as any).schedulerStates.length : 0;
-            void vscode.window.showInformationMessage(`已重拉 ${count} 条，已中止 pid=${(this.lastSnapshot as any)?.pid || "2993285"}`);
+            void vscode.window.showInformationMessage(`已刷新调度状态（${count} 条）。`);
         }
         catch (error) {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
         }
-        if (generation === this.projectContextGeneration && client === this.client)
+        if (generation === this.projectContextGeneration && client === this.client) {
+            const root = workspaceRoot();
+            if (root && this.projectTopologyAssessment().mode === "worker_pool") {
+                try {
+                    const queue = await this.loadDistributedQueue(root);
+                    for (const plan of queue.plans) for (const job of plan.jobs) {
+                        if (job.status === "completed" && job.artifactRetryAfter)
+                            await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifactRetryAfter: undefined });
+                    }
+                } catch (error) {
+                    this.recordActionError({ command: "distributedArtifactSync", message: errorMessage(error) });
+                }
+                if (generation === this.projectContextGeneration && root === workspaceRoot())
+                    void this.tickDistributedQueue().catch((error) => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }));
+            }
             this.postState();
+        }
     }
     async manualGpuSnapshot() {
         const generation = this.projectContextGeneration;
@@ -7815,7 +7832,13 @@ export class RealtimeTunnelPanelProvider {
         const queue = await this.loadDistributedQueue(root);
         const hasOutstandingJobs = queue.plans.some((plan) => plan.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)))
             || (queue.deferred || []).some((plan) => ["pending", "processing"].includes(plan.status));
-        if (!hasOutstandingJobs) return;
+        if (!hasOutstandingJobs) {
+            const targetIds = this.workerCodeSyncTargets().map((target) => target.id);
+            if (queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed"
+                && (job.artifactError || targetIds.some((id) => !job.mirroredWorkerIds?.includes(id))))))
+                await this.tickDistributedQueue();
+            return;
+        }
         await this.tickDistributedQueue();
         if (Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok")) {
             this.startAvailabilityPushLoop();
@@ -7983,10 +8006,16 @@ export class RealtimeTunnelPanelProvider {
         let queue = await this.loadDistributedQueue(root);
         let newTerminal = false;
         if (!queue.plans.length && !(queue.deferred || []).length) return;
-        if (!Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok")) {
-            if (Date.now() < this.distributedNextProbeAt) return;
-            this.distributedNextProbeAt = Date.now() + 30_000;
-            await this.testTunnel(false);
+        const targetsNeedingMirror = this.workerCodeSyncTargets().filter((target) => queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed" && !job.mirroredWorkerIds?.includes(target.id))));
+        const disconnectedMirror = targetsNeedingMirror.some((target) => this.lastWorkerProbes[target.id]?.status !== "ok");
+        const disconnectedSource = queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed" && job.artifactError
+            && ![job.workerId, ...(job.mirroredWorkerIds || [])]
+                .some((id) => this.lastWorkerProbes[id]?.status === "ok")));
+        if (!Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok") || disconnectedMirror || disconnectedSource) {
+            if (Date.now() >= this.distributedNextProbeAt) {
+                this.distributedNextProbeAt = Date.now() + 30_000;
+                await this.testTunnel(false);
+            }
             if (!Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok")) return;
         }
         const assigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "running", "unknown"].includes(job.status))
@@ -8143,12 +8172,14 @@ export class RealtimeTunnelPanelProvider {
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
         for (const plan of queue.plans) for (const job of plan.jobs) {
             if (workspaceRoot() !== root) return;
-            if (job.status !== "completed" || !job.workerId || !targets.has(job.workerId)) continue;
+            if (job.status !== "completed" || !job.workerId) continue;
             if (job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > Date.now()) continue;
             try {
-                const sourceId = [job.workerId, ...(job.mirroredWorkerIds || []), ...(phase === "fragments" ? job.fragmentWorkerIds || [] : [])]
-                    .find((id) => online.includes(id));
-                if (!sourceId) throw new Error("来源 Worker 与已校验镜像均未连接");
+                const sources = [...new Set([job.workerId, ...(job.mirroredWorkerIds || []), ...(phase === "fragments" ? job.fragmentWorkerIds || [] : [])])];
+                const sourceId = sources.find((id) => online.includes(id));
+                if (!sourceId) {
+                    throw new Error(`来源 Worker 与已校验镜像均不可用：${sources.map((id) => `${id}=${targets.has(id) ? this.lastWorkerProbes[id]?.message || this.lastWorkerProbes[id]?.status || "尚未探测" : "未配置或已停用"}`).join("；")}`);
+                }
                 const sourceRow = targets.get(sourceId);
                 const source = this.sftpServerOptions(sourceRow);
                 const fragmentPaths = contract.fragmentPaths
@@ -8208,6 +8239,12 @@ export class RealtimeTunnelPanelProvider {
                     job.artifactError = undefined;
                     await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { mirroredWorkerIds: job.mirroredWorkerIds,
                         artifactError: undefined, artifactRetryAfter: undefined });
+                }
+                if (job.artifactError || job.artifactRetryAfter) {
+                    job.artifactError = undefined;
+                    job.artifactRetryAfter = undefined;
+                    await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
+                        { artifactError: undefined, artifactRetryAfter: undefined });
                 }
             } catch (error) {
                 job.artifactError = errorMessage(error);
