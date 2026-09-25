@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.141"
-RUNTIME_VERSION = "0.5.141"
-PLUGIN_VERSION = "0.5.141"
+AGENT_VERSION = "0.5.142"
+RUNTIME_VERSION = "0.5.142"
+PLUGIN_VERSION = "0.5.142"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -12659,8 +12659,10 @@ def serve_http(args):
                 log_path = safe_project_path(root, run_key) if run_key else ""
                 if not log_path or not os.path.isfile(log_path):
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": since, "text": ""})
+                size = os.path.getsize(log_path)
+                start = max(0, size - 256 * 1024) if since <= 0 or since > size else since
                 with open(log_path, "rb") as f:
-                    f.seek(max(0, since))
+                    f.seek(start)
                     data = f.read(256 * 1024)
                     offset = f.tell()
                 return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": offset, "text": data.decode("utf-8", errors="replace")})

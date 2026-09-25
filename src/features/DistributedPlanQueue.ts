@@ -30,6 +30,7 @@ export type QueuedPlan = {
   revision: string;
   codeFingerprint: string;
   enqueuedAt: string;
+  overwriteExisting?: boolean;
   jobs: QueuedJob[];
 };
 export type DeferredPlan = { id: string; planFile: string; revision: string; codeFingerprint: string;
@@ -41,6 +42,17 @@ export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: bool
 export type Dispatch = { planId: string; jobIndex: number; workerId: string; gpuId: string; attempt: number; commandId: string };
 
 export const emptyDistributedQueue = (): DistributedQueue => ({ schemaVersion: 1, plans: [] });
+
+export function completedJobOutputs(queue: DistributedQueue, planFile: string, jobs: Array<Pick<QueuedJob, "index" | "case" | "seed">>) {
+  const key = String(planFile || "").replace(/\\/g, "/").replace(/^\.\//, "");
+  const matching = queue.plans.filter((plan) => String(plan.planFile || "").replace(/\\/g, "/").replace(/^\.\//, "") === key);
+  return jobs.flatMap((job) => {
+    const previous = matching.slice().reverse().flatMap((plan) => plan.jobs.slice().reverse())
+      .find((item) => item.index === job.index && item.case === job.case && item.seed === job.seed
+        && item.status === "completed" && item.outputDir);
+    return previous ? [{ index: job.index, case: job.case, seed: job.seed, output_dir: previous.outputDir }] : [];
+  });
+}
 
 export function distributedQueuePath(storageRoot: string, projectRoot: string): string {
   const root = path.resolve(projectRoot);

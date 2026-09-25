@@ -12953,22 +12953,28 @@ function renderPanelHtml() {
         const opRows = group.distributedJobs.length ? [] : sortedOps.slice(0, 4);
         const taskRows = group.distributedJobs.length ? [] : sortedTasks.slice(0, 20);
         const distributedRows = group.distributedJobs;
-        const distributedHtml = distributedRows.length ? '<h3>分布式 job · ' + group.completed + '/' + group.distributedJobs.length + '</h3>'
+        const runLogNote = distributedRows.length ? '<div class="muted">日志来源：运行日志来自所属 Worker 的任务输出' + (distributedRows.some((job) => job.logPath) ? '（' + esc(distributedRows.map((job) => job.logPath).filter(Boolean).slice(0, 2).join("、")) + '）' : '') + '。下方操作时间线里的校验日志只记录提交前校验，不是这次运行。</div>' : '';
+        const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '分布式 job · ' + group.completed + '/' + group.distributedJobs.length + '</h3>'
+          + runLogNote
           + (failedJobs ? '<div class="executionDistributedFailure">' + failedJobs + ' 个 job 运行失败；打开对应日志查看原因。</div>' : '')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
+          const jobActive = ["pending", "dispatching", "running", "unknown"].includes(status);
           const statusLabel = { pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status;
           const placement = job.workerId ? job.workerId + (job.gpuId === undefined ? "" : " · GPU " + job.gpuId) : "待分配";
-          const logButton = job.commandId && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-run-key="' + escAttr(job.commandId) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从所属 Worker 读取该 job 日志">日志</button>' : '';
+          const logPath = String(job.logPath || "");
+          const logButton = logPath && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="run" data-run-key="' + escAttr(logPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取运行日志">运行日志</button>' : '<span class="muted">运行日志路径待 Worker 回传</span>';
+          const logText = logPath ? logPayloadText((state.logs || {})[logPath]) : "";
+          const logPreview = logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
           const errorText = String(job.artifactError || job.error || "").trim();
-          return '<div class="executionDistributedJob" title="' + escAttr(job.outputDir || "") + '"><span>' + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + statusClass(status) + '">' + esc(statusLabel) + '</span><span>' + esc(placement) + '</span>' + logButton
-            + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + '</div>' : '') + '</div>';
+          return '<div class="executionDistributedJob" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + statusClass(status) + '">' + esc(statusLabel) + '</span><span>' + esc(placement) + '</span>' + logButton
+            + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + '</div>' : '') + logPreview + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
         const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录可在下方“完整操作与任务记录”中查看。</div>' : "";
-        return '<details class="executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '>' +
-          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? (group.distributedJobs.length ? "失败" : "异常") : group.distributedJobs.length ? "已完成" : "已结束") + '</b>' +
+        return '<details class="executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, group.active) + '>' +
+          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix(group.active || group.distributedActive) + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? (group.distributedJobs.length ? "失败" : "异常") : group.distributedJobs.length ? "已完成" : "已结束") + '</b>' +
           (group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '') + '</summary>' +
           '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' +
           (group.planFile ? '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + distributedHtml + opHtml + taskHtml + more + '</div></details>';
@@ -13613,6 +13619,9 @@ function renderPanelHtml() {
           String((row.payload && (row.payload.logTail || row.payload.log_tail || row.payload.liveLogTail || row.payload.live_log_tail)) || "")
         ];
         const rawFallback = rawFallbackCandidates.find((v) => String(v || "").trim()) || "";
+        const operationKind = String(row.type || row.action || "").toLowerCase();
+        const logSourceLabel = planLogSourceLabel(operationKind);
+        const sourceBanner = '<div class="muted">日志来源：' + esc(logSourceLabel) + (operationKind === "validate-plan" || operationKind === "dry-run-plan" ? "。这是校验日志，不是任务运行日志。" : "。") + '</div>';
         const combinedRaw = decodeCapturedText(redactedTail || redact(String(rawFallback || "").trim()));
         const schedLogRaw = String(row.schedulerLog || row.scheduler_log || row.scheduler_log_path || "").trim();
         const schedLog = schedLogRaw ? decodeCapturedText(redact(schedLogRaw)) : "";
@@ -13624,7 +13633,7 @@ function renderPanelHtml() {
         const isSchedulerLine = s=>/tmux|scheduler|exit_code|调度器/i.test(s);
         const isProgramLine = s=>/Traceback|Error|Exception|失败|异常/.test(s);
         if (!combinedSrc) {
-          return '<div class="operationLogsWindowed" style="margin-top:6px;display:grid;gap:4px;"><div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已脱敏，仅展示尾20/50行）</div><div class="muted" style="font-size:11px;">诊断：logPath=' + esc(logPathRedacted || "-") + ' · 行数=' + esc(String(liveLogCount)) + ' · kind=' + esc(failureSourceKind || "-") + ' · fallback=' + (fallbackTriggered ? "是" : "否") + '</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看该任务的完整日志（已脱敏）&#10;默认显示末尾 50 行">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开该任务的完整日志文件&#10;内容已脱敏处理">打开完整日志</button></div></div>';
+          return sourceBanner + '<div class="operationLogsWindowed" style="margin-top:6px;display:grid;gap:4px;"><div class="muted" style="font-size:11px; line-height:1.45;">暂无日志（已脱敏，仅展示尾20/50行）</div><div class="muted" style="font-size:11px;">诊断：logPath=' + esc(logPathRedacted || "-") + ' · 行数=' + esc(String(liveLogCount)) + ' · kind=' + esc(failureSourceKind || "-") + ' · fallback=' + (fallbackTriggered ? "是" : "否") + '</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看该任务的完整日志（已脱敏）&#10;默认显示末尾 50 行">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开该任务的完整日志文件&#10;内容已脱敏处理">打开完整日志</button></div></div>';
         }
         const redactedCombined = redact(combinedSrc);
         const tail4000 = redactedCombined.length > 4000 ? redactedCombined.slice(-4000) : redactedCombined;
@@ -13642,7 +13651,7 @@ function renderPanelHtml() {
         const programContent = programLines.length ? '<pre class="operationLogPreview" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;line-height:1.4;">' + esc(programPreview.join("\\n")) + '</pre>' : '<div class="muted">暂无程序日志（仅调度器日志）' + _diagHint + '</div>';
         const schedulerCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">调度器日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + schedulerContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
         const programCard = '<div class="subCard"><div class="subCardTitle"><span class="pill">程序运行日志</span>' + (logPathRedacted ? ' <code>' + esc(logPathRedacted) + '</code>' : '') + '</div>' + programContent + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + historyBtn + '</div></div>';
-        return '<div class="operationLogsWindowed"><div style="display:grid;grid-template-columns:1fr;gap:8px">' + schedulerCard + programCard + '</div></div>';
+        return sourceBanner + '<div class="operationLogsWindowed"><div style="display:grid;grid-template-columns:1fr;gap:8px">' + schedulerCard + programCard + '</div></div>';
       } catch (e) { return '<div class="operationLogsWindowed" style="margin-top:6px;"><button class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="查看该任务的完整日志（已脱敏）&#10;默认显示末尾 50 行">历史记录</button> <button class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr(row.operationId || row.id || "") + '" data-plan-file="' + escAttr(row.planFile || row.plan || "") + '" title="打开该任务的完整日志文件&#10;内容已脱敏处理">打开完整日志</button></div>'; }
     }
 
@@ -15380,8 +15389,31 @@ function renderPanelHtml() {
       return result;
     }
 
+    function planLogSourceLabel(kind) {
+      const value = String(kind || "").toLowerCase();
+      if (value === "validate-plan" || value === "dry-run-plan") return "校验日志";
+      if (value === "distributed-job" || value === "run-plan" || value === "reproduce-plan") return "运行日志";
+      return "操作日志";
+    }
+
+    function selectedPlanDistributedRun(state, planFile) {
+      const plans = Array.isArray(state && state.distributedPlans) ? state.distributedPlans : [];
+      const jobs = plans.filter((plan) => samePlanSelection(plan.planFile || "", planFile)).flatMap((plan) => Array.isArray(plan.jobs) ? plan.jobs : []);
+      const activeJobs = jobs.filter((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+      return { active: activeJobs.length > 0, jobs, activeJobs };
+    }
+
     function planExecutionStage(state, planFile) {
       const data = state || {};
+      const distributedRun = selectedPlanDistributedRun(data, planFile);
+      if (distributedRun.jobs.length) {
+        const sample = distributedRun.activeJobs.find((job) => job.logPath || job.workerId) || distributedRun.activeJobs[0] || {};
+        const source = sample.logPath ? "运行日志：" + sample.workerId + " " + sample.logPath : "运行日志：任务已入队，等待 Worker 回传日志路径";
+        const failed = distributedRun.jobs.some((job) => String(job.status || "").toLowerCase() === "failed");
+        const phase = distributedRun.active ? "monitor" : failed ? "review" : "results";
+        const status = distributedRun.active ? "计划运行中。" + source : failed ? "分布式任务失败；请查看对应 Worker 的运行日志。" : "分布式任务已完成；可查看各 Worker 的运行日志。";
+        return { phase, status: status + " 校验日志只属于提交前校验。", label: "查看运行日志", section: "execution", anchor: "execution" };
+      }
       const plan = planFromContext(data, { planFile }) || {};
       const planUpdatedAtText = String(plan.updatedAt || "");
       const planUpdatedAt = Date.parse(planUpdatedAtText);

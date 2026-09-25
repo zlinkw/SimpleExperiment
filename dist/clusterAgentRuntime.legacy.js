@@ -12662,8 +12662,10 @@ def serve_http(args):
                 log_path = safe_project_path(root, run_key) if run_key else ""
                 if not log_path or not os.path.isfile(log_path):
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": since, "text": ""})
+                size = os.path.getsize(log_path)
+                start = max(0, size - 256 * 1024) if since <= 0 or since > size else since
                 with open(log_path, "rb") as f:
-                    f.seek(max(0, since))
+                    f.seek(start)
                     data = f.read(256 * 1024)
                     offset = f.tell()
                 return self.send_json({"schemaVersion": SCHEMA_VERSION, "runKey": run_key, "offset": offset, "text": data.decode("utf-8", errors="replace")})

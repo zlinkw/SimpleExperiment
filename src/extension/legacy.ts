@@ -36,6 +36,7 @@ import * as ProjectResultTables from "../results/ProjectResultTables";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import * as DistributedPlanQueue from "../features/DistributedPlanQueue";
+import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
 import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
 import { directPlanSyncPreview, transferPlanArtifacts } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
@@ -723,6 +724,8 @@ export class RealtimeTunnelPanelProvider {
     lastError;
     offlineBundle;
     selectedLogRunKey;
+    selectedLogWorkerId;
+    selectedDistributedLogRefreshPromise;
     selectedPlanId;
     selectedExperimentIds = new Set();
     selectedRunKeys = new Set();
@@ -4677,9 +4680,10 @@ export class RealtimeTunnelPanelProvider {
                 break;
             case "selectLogRunKey":
                 this.selectedLogRunKey = stringField(message, "runKey") || undefined;
+                this.selectedLogWorkerId = stringField(message, "workerId") || undefined;
                 this.markTaskSelectionChanged();
                 this.client.setProtectedLogKeys(this.logProtectedKeys());
-                await this.fetchSelectedLiveOutput(this.selectedLogRunKey, stringField(message, "workerId"), { userInitiated: true });
+                await this.fetchSelectedLiveOutput(this.selectedLogRunKey, this.selectedLogWorkerId, { userInitiated: true });
                 this.postState();
                 break;
             case "script":
@@ -5256,8 +5260,10 @@ export class RealtimeTunnelPanelProvider {
                     return;
                 }
             }
-            if (preflightOk)
-                if (!distributedPlan) await this.confirmPlanExistingOutputs(plan, body, preflightOk);
+            if (preflightOk) {
+                if (distributedPlan) await this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk);
+                else await this.confirmPlanExistingOutputs(plan, body, preflightOk);
+            }
             if (distributedPlan) {
                 this.assertExecutionCondaEnvReady(this.workerActionTargets());
                 await this.enqueueDistributedPlan(body, preflightOk);
@@ -5417,7 +5423,28 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(failPreflight(check, raw, raw));
         }
     }
-    async confirmPlanExistingOutputs(plan, body, validated) {
+    async confirmDistributedPlanExistingOutputs(plan, body, validated) {
+        const validation = validated?.validation || validated?.result?.validation;
+        if (!validation || !Array.isArray(validation.jobs) || !Array.isArray(validation.existing))
+            throw new Error("Agent 未返回当前 Plan 的逐 job 与历史产物清单；未提交运行。");
+        const root = workspaceRoot();
+        if (!root) throw new Error("没有当前项目目录。");
+        const planFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
+        const queue = await this.loadDistributedQueue(root);
+        const historical = DistributedPlanQueue.completedJobOutputs(queue, planFile, validation.jobs);
+        const existingByIndex = new Map();
+        for (const row of [...historical, ...validation.existing]) {
+            const index = Number(row.index);
+            if (Number.isInteger(index) && validation.jobs.some((job) => Number(job.index) === index)
+                && String(row.output_dir || "").trim()) existingByIndex.set(index, row);
+        }
+        body.distributedSkipJobIndices = [];
+        if (!existingByIndex.size) return;
+        const checked = { ...validated, validation: { ...validation, existing: [...existingByIndex.values()] } };
+        await this.confirmPlanExistingOutputs(plan, body, checked, true);
+        if (body.overwriteExisting !== true) body.distributedSkipJobIndices = [...existingByIndex.keys()];
+    }
+    async confirmPlanExistingOutputs(plan, body, validated, versionedAttempts = false) {
         const validation = validated?.validation || validated?.result?.validation;
         if (!validation || !Array.isArray(validation.existing))
             throw new Error("Agent 未返回当前 Plan 的历史产物清单；请部署最新版 Agent 后重新校验。未提交运行。");
@@ -5435,12 +5462,13 @@ export class RealtimeTunnelPanelProvider {
             "覆盖范围仅为以下当前 Plan 的任务输出目录：",
             ...jobPaths.map((value) => `- ${value}`),
             `结果表：${resultPaths.join("、") || "按 Plan 配置"}（只由本 Plan 任务写入对应结果行）`,
-            "覆盖将重训当前 Plan 的所有任务；其他 Plan 的任务目录不在范围内。",
+            versionedAttempts ? "重新运行将创建新的 attempt 目录并保留历史产物；跳过已有只派发缺失任务。" : "覆盖将重训当前 Plan 的所有任务；其他 Plan 的任务目录不在范围内。",
         ].join("\n");
-        const pick = await vscode.window.showWarningMessage(detail, { modal: true }, "覆盖并重训当前 Plan", "跳过已有", "取消");
+        const rerunLabel = versionedAttempts ? "重跑全部并保留历史" : "覆盖并重训当前 Plan";
+        const pick = await vscode.window.showWarningMessage(detail, { modal: true }, rerunLabel, "跳过已有", "取消");
         if (!pick || pick === "取消")
             throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
-        const overwrite = pick === "覆盖并重训当前 Plan";
+        const overwrite = pick === rerunLabel;
         body.options = { ...(body.options || {}), overwriteExisting: overwrite, overwrite };
         body.overwriteExisting = overwrite;
         body.overwrite = overwrite;
@@ -6102,7 +6130,7 @@ export class RealtimeTunnelPanelProvider {
     }
     async uploadProjectToWorkers(confirm = true, progressOptions = {}) {
         await this.prepareSftpTargets("uploadProjectToWorkers", "simpleSftp.uploadWorkspace");
-        await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", { ...progressOptions, ...(confirm ? {
+        await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", { ...progressOptions, hashCompare: true, ...(confirm ? {
             startedAction: { title: "首次上传到 Worker", detail: "正在通过 SimpleSFTP 同步本地轻量代码到所有启用 Worker。" },
         } : {}) });
     }
@@ -7296,9 +7324,29 @@ export class RealtimeTunnelPanelProvider {
         this.postState();
         const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
         const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
+        const hashCompare = options.hashCompare === true;
         await mapLimited(enabledTargets, 2, async (target, index) => {
             if (progressReport) progressReport(`正在上传到 ${target.label || target.id}（${index + 1}/${enabledTargets.length}）…`, 0);
             try {
+                let uploadManifest = manifest;
+                if (hashCompare) {
+                    if (progressReport) progressReport(`正在按哈希比较 ${target.label || target.id} 的已有文件…`, 0);
+                    const inventory = await this.verifiedSftpProjectInventory({
+                        source: this.sftpServerOptions(target), relativePath: ".", recursive: true, timeoutMs: 120000,
+                    });
+                    const remoteFiles = inventoryFilesByPath(inventory);
+                    uploadManifest = changedManifestFiles(manifest, remoteFiles);
+                    const skipped = Object.keys(manifest).length - Object.keys(uploadManifest).length;
+                    if (progressReport) progressReport(`${target.label || target.id}：${Object.keys(uploadManifest).length} 个变化文件，${skipped} 个未变化文件不重传`, 0);
+                    if (!Object.keys(uploadManifest).length) {
+                        if (progressReport && progressStep > 0) progressReport(`${target.label || target.id} 内容未变化，未重传`, progressStep);
+                        if (target.role === "worker") {
+                            workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
+                            void this.persistProjectCodeSyncState().catch(() => undefined);
+                        }
+                        return;
+                    }
+                }
                 const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
                     apiMode: true,
                     confirm: true,
@@ -7307,19 +7355,28 @@ export class RealtimeTunnelPanelProvider {
                     targetId: target.id,
                     targetRole: target.role,
                     stateFileMode: "virtual",
-                    fingerprint,
-                    manifest,
-                    transientManifest: Object.keys(holds).length > 0,
+                    ...(hashCompare ? {} : { fingerprint }),
+                    manifest: uploadManifest,
+                    transientManifest: hashCompare || Object.keys(holds).length > 0,
                     server: this.sftpServerOptions(target),
                 });
                 assertCurrent();
-                if (!sftpUploadSucceeded(result, fingerprint))
+                if (!sftpUploadSucceeded(result, hashCompare ? "" : fingerprint))
                     throw new Error(resultError(result) || "SFTP 上传未确认成功。");
-                const requiredSources = Object.keys(manifest).filter((file) => /\.(py|pyi)$/i.test(file));
-                const verified = await this.inspectCodeSyncTarget(target, requiredSources);
-                const mismatches = verified.filter((row) => !row.exists || String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase());
-                if (mismatches.length)
-                    throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
+                if (hashCompare) {
+                    const checked = await this.verifiedSftpProjectInventory({
+                        source: this.sftpServerOptions(target), relativePath: ".", recursive: true, timeoutMs: 120000,
+                    });
+                    const remaining = Object.keys(changedManifestFiles(manifest, inventoryFilesByPath(checked)));
+                    if (remaining.length) throw new Error(`上传后哈希校验失败：${remaining.slice(0, 12).join("、")}`);
+                }
+                if (!hashCompare) {
+                    const requiredSources = Object.keys(manifest).filter((file) => /\.(py|pyi)$/i.test(file));
+                    const verified = await this.inspectCodeSyncTarget(target, requiredSources);
+                    const mismatches = verified.filter((row) => !row.exists || String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase());
+                    if (mismatches.length)
+                        throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
+                }
                 if (target.role === "worker") {
                     workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
                     void this.persistProjectCodeSyncState().catch(() => undefined);
@@ -7988,10 +8045,19 @@ export class RealtimeTunnelPanelProvider {
         const codeFingerprint = String(this.lastCodeSyncState?.fingerprint || "");
         const id = makeOpId("distributed-plan");
         const current = await this.loadDistributedQueue(root);
-        const next = DistributedPlanQueue.enqueuePlan(current, { planFile, revision, codeFingerprint, jobs: validation.jobs.map((job) => ({
-            index: Number(job.index), case: String(job.case), seed: Number(job.seed), outputDir: `${String(job.output_dir).replace(/\\/g, "/").replace(/\/$/, "")}/attempts/${id}`,
+        const overwriteExisting = body.overwriteExisting === true;
+        const skipped = new Set(overwriteExisting ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
+        const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
+        if (!selectedJobs.length) {
+            void vscode.window.showInformationMessage("此 Plan 的任务均已有完成产物，本次选择跳过；未提交新任务。");
+            return;
+        }
+        const next = DistributedPlanQueue.enqueuePlan(current, { planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
+            index: Number(job.index), case: String(job.case), seed: Number(job.seed),
+            outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, "") + "/attempts/" + id,
         })) }, id);
         await this.saveDistributedQueue(root, next);
+        this.postState();
         if (!skipTick) await this.tickDistributedQueue();
     }
     async tickDistributedQueue() {
@@ -8000,6 +8066,19 @@ export class RealtimeTunnelPanelProvider {
         this.distributedQueueTickPromise = task;
         try { await task; }
         finally { if (this.distributedQueueTickPromise === task) this.distributedQueueTickPromise = undefined; }
+    }
+    refreshSelectedDistributedLog(queue, newTerminal = false) {
+        if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey) return;
+        const selected = queue.plans.flatMap((plan) => plan.jobs)
+            .find((job) => job.logPath === this.selectedLogRunKey && job.workerId
+                && (["dispatching", "running", "unknown"].includes(job.status)
+                    || newTerminal && ["completed", "failed"].includes(job.status)));
+        if (!selected) return;
+        const task = this.fetchSelectedLiveOutput(selected.logPath, selected.workerId, { userInitiated: false });
+        this.selectedDistributedLogRefreshPromise = task;
+        void task.finally(() => {
+            if (this.selectedDistributedLogRefreshPromise === task) this.selectedDistributedLogRefreshPromise = undefined;
+        });
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId) {
         const target = this.workerActionTargets().find((item) => item.id === workerId);
@@ -8010,7 +8089,9 @@ export class RealtimeTunnelPanelProvider {
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
             condaEnv: target.condaEnv, workflowId: plan.id,
+            overwriteExisting: plan.overwriteExisting === true,
             options: { workerId, distributedResults: true, condaEnv: target.condaEnv,
+                overwriteExisting: plan.overwriteExisting === true,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
         });
     }
@@ -8109,6 +8190,7 @@ export class RealtimeTunnelPanelProvider {
             }
         }
         await this.saveDistributedQueue(root, queue);
+        this.refreshSelectedDistributedLog(queue, newTerminal);
         const activeVersion = queue.plans.some((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)));
         const deferred = !activeVersion && !this.distributedPostprocessPromise
             ? (queue.deferred || []).find((row) => row.status === "pending" && (!row.retryAfter || Date.parse(row.retryAfter) <= Date.now())) : undefined;
@@ -8123,6 +8205,7 @@ export class RealtimeTunnelPanelProvider {
                 await this.ensureCodeReadyForRun(undefined, [body]);
                 const validated = await this.runPlanPreflight(body, `排队计划 ${deferred.planFile}`);
                 if (!validated) throw new Error("排队计划校验未通过");
+                await this.confirmDistributedPlanExistingOutputs({ planFile: deferred.planFile }, body, validated);
                 this.assertExecutionCondaEnvReady(this.workerActionTargets());
                 await this.enqueueDistributedPlan(body, validated, true);
                 queue = await this.loadDistributedQueue(root);
@@ -10148,9 +10231,11 @@ export class RealtimeTunnelPanelProvider {
             return undefined;
         const generation = this.projectContextGeneration;
         const client = this.client;
-        const resolvedWorkerId = this.resolveWorkerEndpointId(workerId) || "";
+        const resolvedWorkerId = this.resolveWorkerEndpointId(workerId) || usableSelectionKey(workerId || "") || "";
         try {
-            const result = await client.getLiveOutput(key, 0, resolvedWorkerId || undefined, { userInitiated: options.userInitiated === true });
+            const previous = this.lastRealtimeState?.logs?.[key];
+            const since = options.userInitiated === true ? 0 : Math.max(0, Number(previous?.offset) || 0);
+            const result = await client.getLiveOutput(key, since, resolvedWorkerId || undefined, { userInitiated: options.userInitiated === true });
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return undefined;
             return result;
@@ -15351,7 +15436,7 @@ export class RealtimeTunnelPanelProvider {
                     revision: plan.revision, enqueuedAt: plan.enqueuedAt,
                     jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
                         status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
-                        commandId: job.commandId, finishedAt: job.finishedAt,
+                        commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt,
                         error: job.error,
                         artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [],
             deferredPlans: this.distributedQueueRoot === workspaceRoot()

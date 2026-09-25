@@ -323,12 +323,15 @@ export class MultiEndpointRealtimeClient {
     const record = result && typeof result === "object" ? result as Record<string, unknown> : {};
     const text = String(record.text || record.output || record.tail || "");
     const offset = Number(record.offset || 0);
+    const previous = this.mergedState.logs?.[runKey];
+    const combined = since > 0 && previous && Number(previous.offset) === since
+      ? String(previous.text || "") + text : text;
     this.mergedState = {
       ...this.mergedState,
       logs: {
         ...compactRealtimeLogs({
           ...this.mergedState.logs,
-          [runKey]: { text, offset, seq: this.mergedState.lastSeq },
+          [runKey]: { text: combined.slice(-128_000), offset, seq: this.mergedState.lastSeq },
         }, undefined, undefined, this.protectedLogKeys),
       },
     };
