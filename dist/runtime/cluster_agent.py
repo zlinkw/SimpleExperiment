@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.122"
-RUNTIME_VERSION = "0.5.122"
-PLUGIN_VERSION = "0.5.122"
+AGENT_VERSION = "0.5.123"
+RUNTIME_VERSION = "0.5.123"
+PLUGIN_VERSION = "0.5.123"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -12667,12 +12667,16 @@ def serve_http(args):
                 if not re.match(r"^[A-Za-z0-9._\-:./%]+$", window):
                     return self.send_json({"error": "invalid window name"}, status=400)
                 try:
-                    try:
-                        requested_lines = int((params.get("lines") or ["2000"])[0] or 2000)
-                    except Exception:
-                        requested_lines = 2000
-                    history_lines = max(200, min(4000, requested_lines))
-                    r = subprocess.run(["tmux", "capture-pane", "-p", "-S", f"-{history_lines}", "-t", window], capture_output=True, text=True, timeout=5)
+                    requested_lines = (params.get("lines") or ["all"])[0].strip().lower()
+                    if requested_lines == "all":
+                        start_line = "-"
+                    else:
+                        try:
+                            history_lines = max(200, min(4000, int(requested_lines)))
+                        except (TypeError, ValueError):
+                            return self.send_json({"error": "invalid lines"}, status=400)
+                        start_line = f"-{history_lines}"
+                    r = subprocess.run(["tmux", "capture-pane", "-p", "-S", start_line, "-t", window], capture_output=True, text=True, timeout=5)
                     text = r.stdout or ""
                     if r.returncode != 0:
                         return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": False, "error": (r.stderr or f"rc={r.returncode}").strip()[-500:], "text": text}, status=200)

@@ -12667,12 +12667,16 @@ def serve_http(args):
                 if not re.match(r"^[A-Za-z0-9._\-:./%]+$", window):
                     return self.send_json({"error": "invalid window name"}, status=400)
                 try:
-                    try:
-                        requested_lines = int((params.get("lines") or ["2000"])[0] or 2000)
-                    except Exception:
-                        requested_lines = 2000
-                    history_lines = max(200, min(4000, requested_lines))
-                    r = subprocess.run(["tmux", "capture-pane", "-p", "-S", f"-{history_lines}", "-t", window], capture_output=True, text=True, timeout=5)
+                    requested_lines = (params.get("lines") or ["all"])[0].strip().lower()
+                    if requested_lines == "all":
+                        start_line = "-"
+                    else:
+                        try:
+                            history_lines = max(200, min(4000, int(requested_lines)))
+                        except (TypeError, ValueError):
+                            return self.send_json({"error": "invalid lines"}, status=400)
+                        start_line = f"-{history_lines}"
+                    r = subprocess.run(["tmux", "capture-pane", "-p", "-S", start_line, "-t", window], capture_output=True, text=True, timeout=5)
                     text = r.stdout or ""
                     if r.returncode != 0:
                         return self.send_json({"schemaVersion": SCHEMA_VERSION, "window": window, "ok": False, "error": (r.stderr or f"rc={r.returncode}").strip()[-500:], "text": text}, status=200)

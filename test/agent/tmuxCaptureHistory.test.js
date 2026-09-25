@@ -5,7 +5,9 @@ const { readSource } = require("../_helpers/sourceReader");
 test("tmux capture returns unmodified scrollback instead of only the visible viewport", () => {
   const source = readSource("src/clusterAgentRuntime.ts");
   const route = source.slice(source.indexOf('if route == "/api/tmux/capture"'), source.indexOf('if route == "/api/tmux/list"'));
-  assert.match(route, /"capture-pane", "-p", "-S", f"-\{history_lines\}"/);
+  assert.match(route, /requested_lines == "all"/);
+  assert.match(route, /start_line = "-"/);
+  assert.match(route, /"capture-pane", "-p", "-S", start_line/);
   assert.doesNotMatch(route, /"-J"/);
   assert.match(route, /"text": text/);
   assert.doesNotMatch(route, /_tmux_focus_diagnostic_text/);
@@ -15,6 +17,7 @@ test("extension forwards the Agent capture without filtering or truncating it", 
   const source = readSource("src/extension.ts");
   const block = source.slice(source.indexOf("async fetchTmuxCaptureFromUi("), source.indexOf("async fetchTmuxListFromUi("));
   assert.match(block, /const text = String\(result\?\.text \|\| result\?\.output \|\| ""\);/);
+  assert.match(block, /lines=all/g);
   assert.doesNotMatch(block, /rawText\.slice|focus:/);
 });
 
