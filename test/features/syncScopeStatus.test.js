@@ -117,4 +117,5 @@ test("automatic synchronization refuses incomplete content inventories", () => {
   const complete = { files: { "code.py": file("a") }, unverifiedFiles: {} };
   assert.equal(requireCompleteScopeInventory(complete), complete);
   assert.throws(() => requireCompleteScopeInventory({ files: {}, unverifiedFiles: { "model.bin": "文件校验期间发生变化" } }), /model\.bin/);
+  assert.throws(() => requireCompleteScopeInventory({ files: {}, unverifiedFiles: { "code": "不是普通文件" } }, "Worker nwpu2"), /Worker nwpu2.*code：不是普通文件/);
 });

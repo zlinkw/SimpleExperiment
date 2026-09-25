@@ -6,10 +6,10 @@ import * as crypto from "node:crypto";
 import { SyncHolds, chosenSyncHash, isSyncHeld } from "./SyncResolution";
 
 type File = { sha256: string; size: number; modifiedAtMs?: number };
-export function requireCompleteScopeInventory<T extends { unverifiedFiles?: Record<string, string> }>(result: T): T {
-  const unverified = Object.keys(result.unverifiedFiles || {});
+export function requireCompleteScopeInventory<T extends { unverifiedFiles?: Record<string, string> }>(result: T, location = ""): T {
+  const unverified = Object.entries(result.unverifiedFiles || {});
   if (unverified.length)
-    throw new Error(`清单有 ${unverified.length} 个变动或无法读取的文件（${unverified[0]}），请待文件稳定后刷新重试。`);
+    throw new Error(`${location ? `${location}：` : ""}清单有 ${unverified.length} 个未验证路径（${unverified[0][0]}：${unverified[0][1]}），请确认该路径后刷新重试。`);
   return result;
 }
 export type ScopeInventories = {

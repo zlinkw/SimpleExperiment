@@ -6816,7 +6816,7 @@ class RealtimeTunnelPanelProvider {
     }
     async verifiedSftpProjectInventory(options) {
         const result = await this.simpleSftpApiCall("sync.projectInventory", options);
-        return (0, SyncScopeStatus_1.requireCompleteScopeInventory)(result);
+        return (0, SyncScopeStatus_1.requireCompleteScopeInventory)(result, `Worker ${options.source?.id || options.source?.host || "未知"}`);
     }
     async removeSyncScopePath(root, targets, relative, endpointId, directory, report = (_stage) => { }) {
         (0, SyncResolution_1.safeSyncPath)(relative);

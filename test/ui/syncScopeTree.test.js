@@ -88,7 +88,7 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   elements.get("tree").children[3].children.find((child) => child.textContent === "版本与操作").onclick();
   const version = elements.get("tree").children[3].children[0];
   assert.doesNotMatch(version.textContent, new RegExp(hash));
-  assert.match(version.textContent, /1970/);
+  assert.match(version.textContent, /1970-01-01 [0-9]{2}:[0-9]{2}:[0-9]{2}/);
   assert.equal(version.children[0].textContent, "以此版同步到其他位置");
   assert.equal(version.children[1].textContent, "删除");
   version.children[1].onclick();
@@ -100,12 +100,16 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   assert.equal(elements.get("status").className, "");
   onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { "data": { state: "remote-only", detail: "同步范围内 2 个文件 · 1 一致 · 0 待更新或冲突 · 1 仅 Worker 一致 · 0 未确认", copies: { local: { modifiedAtMs: 0, missing: 1, needsSync: 0, conflict: 0, unverified: 0 }, w1: { modifiedAtMs: 2000, missing: 0, needsSync: 0, conflict: 0, unverified: 0 } } }, "README.md": { state: "different", detail: "Plan 归属：w1 · 本机 缺失 · w1 最新版 · w2 待更新", versions: { w1: { sha256: hash, modifiedAtMs: 2000, latest: "plan" }, w2: { sha256: "b".repeat(64), modifiedAtMs: 1000 } } } }, refreshedAt: "now" } });
   assert.equal(elements.get("tree").children[1].children.find((child) => child.textContent === "📁 data")?.className, "name remote-only");
-  assert.match(elements.get("tree").children[1].children.find((child) => child.className === "badge remote-only")?.textContent, /本机 最新文件 时间未知 · 缺失 1 · w1 最新文件 .*1970/);
+  assert.match(elements.get("tree").children[1].children.find((child) => child.className === "badge remote-only")?.textContent, /本机 全部缺失\nw1 最新文件 1970-01-01 [0-9]{2}:[0-9]{2}:[0-9]{2}/);
   assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "📄 README.md")?.className, "name different");
   const copies = elements.get("tree").children[2].children.find((child) => child.className === "badge different")?.children.map((child) => child.textContent).join(" · ");
   assert.match(copies, /w1 .*1970.*Plan 最新运行/);
   assert.match(copies, /w2 .*1970.*需同步/);
   assert.doesNotMatch(copies, new RegExp(hash));
+  elements.get("tree").children[1].children.find((child) => child.textContent === "版本与操作").onclick();
+  assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "删除所有 Worker 副本")?.textContent, "删除所有 Worker 副本");
+  assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "本机 · 全部缺失")?.children.length, 0);
+  elements.get("tree").children[1].children.find((child) => child.textContent === "收起").onclick();
   onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { "data": { state: "unknown", detail: "1 未确认", unverified: true } }, refreshedAt: "now" } });
   onMessage({ data: { type: "children", rootId: "workers", path: ".", entries: [{ name: "data", path: "data", directory: true, locations: ["w1"] }, { name: "README.md", path: "README.md", directory: false }, { name: "giml", path: "giml", directory: true, locations: ["local", "w1"] }] } });
   const emptyFolder = elements.get("tree").children.find((row) => row.children.some((child) => child.textContent === "📁 giml"));

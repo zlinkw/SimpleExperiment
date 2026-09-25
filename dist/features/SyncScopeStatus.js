@@ -42,10 +42,10 @@ const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const crypto = __importStar(require("node:crypto"));
 const SyncResolution_1 = require("./SyncResolution");
-function requireCompleteScopeInventory(result) {
-    const unverified = Object.keys(result.unverifiedFiles || {});
+function requireCompleteScopeInventory(result, location = "") {
+    const unverified = Object.entries(result.unverifiedFiles || {});
     if (unverified.length)
-        throw new Error(`清单有 ${unverified.length} 个变动或无法读取的文件（${unverified[0]}），请待文件稳定后刷新重试。`);
+        throw new Error(`${location ? `${location}：` : ""}清单有 ${unverified.length} 个未验证路径（${unverified[0][0]}：${unverified[0][1]}），请确认该路径后刷新重试。`);
     return result;
 }
 const localHashCache = new Map();
