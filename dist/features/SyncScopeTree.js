@@ -81,7 +81,8 @@ function openSyncScopeTree(title, roots) {
                 if (selected.some((value) => value !== "." && (value.startsWith("/") || value.split("/").some((part) => !part || part === "." || part === ".."))) ||
                     excluded.some((value) => !value || value === "." || value.startsWith("/") || value.split("/").some((part) => !part || part === "." || part === "..")))
                     throw new Error("批量选择包含不安全路径。");
-                const report = (stage) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: "批量操作", stage }); };
+                let sequence = 0;
+                const report = (stage) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: "批量操作", stage, sequence: ++sequence }); };
                 const result = await root.batch(message.type === "batchSync" ? "sync" : "delete", selected, excluded, report);
                 await panel.webview.postMessage({ type: result === false ? "actionCancelled" : "batchDone", id, rootId: root.id,
                     completed: result === false ? [] : result.completed, errors: result === false ? [] : result.errors });
@@ -94,7 +95,8 @@ function openSyncScopeTree(title, roots) {
                 if (message.type !== "removeAllWorkers" && !endpointId)
                     throw new Error("请明确选择一个目标位置。");
                 let changed;
-                const report = (stage) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: relative, stage }); };
+                let sequence = 0;
+                const report = (stage) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: relative, stage, sequence: ++sequence }); };
                 if (message.type === "remove") {
                     if (!root.remove)
                         throw new Error("当前范围不支持删除。");
@@ -128,18 +130,38 @@ h2{font-size:16px;margin:0 0 10px}.muted{color:var(--vscode-descriptionForegroun
 button.secondary{color:var(--vscode-foreground);background:var(--vscode-button-secondaryBackground)}button.active{outline:1px solid var(--vscode-focusBorder)}
 #tree{border:1px solid var(--vscode-panel-border);max-height:65vh;overflow:auto;padding:6px}.row{display:flex;align-items:center;min-height:30px;gap:7px;white-space:nowrap;border-radius:3px}.row:hover{background:var(--vscode-list-hoverBackground)}
 .row label{cursor:pointer;min-width:150px;max-width:32%;overflow:hidden;text-overflow:ellipsis}.row .name.same{color:var(--vscode-testing-iconPassed,#43a047)}.row .name.different{color:var(--vscode-testing-iconFailed,#e53935)}.row .name.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.row .name.unknown{color:var(--vscode-descriptionForeground)}.row input{accent-color:var(--vscode-focusBorder)}.twisty{width:21px;min-width:21px;text-align:center;padding:0;background:transparent;color:var(--vscode-foreground)}.row-detail{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:var(--vscode-editorWidget-background);border-left:2px solid var(--vscode-focusBorder)}.version{border:1px solid var(--vscode-panel-border);padding:3px 6px;overflow-wrap:anywhere;max-width:360px;font-size:11px}.version button{font-size:11px;padding:2px 5px;margin-left:4px}.more{margin-left:auto;white-space:nowrap;font-size:11px;padding:3px 7px}.candidate{color:var(--vscode-editorWarning-foreground,#d9822b)}.held{color:var(--vscode-editorWarning-foreground,#d9822b);font-size:11px}
+.filterbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}.filterbar button{font-size:12px}.filterbar .muted{margin:0}
 #status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground);white-space:pre-wrap;overflow-wrap:anywhere}#status.busy::before{content:'◌';display:inline-block;margin-right:7px;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#save{margin-top:8px}.badge{margin-left:8px;font-size:12px;white-space:pre-line;overflow-wrap:anywhere;max-width:60%;min-width:0}.badge.same{display:none}.badge span{display:block;white-space:normal;overflow-wrap:anywhere;max-width:100%}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}.focus-conflict{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-focusBackground)}
-</style></head><body><h2>同步范围</h2><div class="muted">单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。</div><div class="muted"><span class="same">绿色：同版</span>　<span class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button> <button id="batchSync" class="secondary">批量同步勾选项</button> <button id="batchDelete" class="secondary">批量删除勾选项</button>
+</style></head><body><h2>同步范围</h2><div class="muted">单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。</div><div class="muted"><span class="same">绿色：同版</span>　<span class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新同步状态</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div class="filterbar"><button id="filterIssues" class="secondary">仅显示异常（已校验）</button><button id="clearIssueFilter" class="secondary" hidden>显示全部</button><button id="selectFiltered" class="secondary" hidden>勾选当前结果</button><button id="unselectFiltered" class="secondary" hidden>取消勾选当前结果</button><span id="filterDetail" class="muted"></span></div><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button> <button id="batchSync" class="secondary">批量同步勾选项</button> <button id="batchDelete" class="secondary">批量删除勾选项</button>
 <script nonce="${nonce}">
 const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0;const views=new Map();
 const tabs=document.getElementById('tabs'),tree=document.getElementById('tree'),status=document.getElementById('status'),detail=document.getElementById('detail');
 function state(){return views.get(active.id)}
-function sendAction(type,entry,endpointId){const view=state();if(view.busyAction)return;view.busyAction={type,path:entry.path};status.className='busy';status.textContent='正在准备 '+entry.path+'，请核对确认页中的完整路径…';renderTree();vscode.postMessage({type,id:String(++serial),rootId:active.id,path:entry.path,endpointId,directory:entry.directory})}
+function parentPath(path){const index=path.lastIndexOf('/');return index<0?'.':path.slice(0,index)}
+function issueTree(view){
+  if(!view.issueFilterOn)return null;
+  const files=Object.keys(view.statuses).filter(path=>view.statuses[path]?.issueSignature&&(!view.issueSignature||view.statuses[path].issueSignature===view.issueSignature)).sort();
+  const matched=new Set(files),visible=new Set(['.']),total=new Map(),same=new Map(),checked=new Map();
+  for(const path of Object.keys(view.statuses)){
+    const health=view.statuses[path];if(path==='.'||health.copies)continue;
+    for(let parent=parentPath(path);;parent=parentPath(parent)){total.set(parent,(total.get(parent)||0)+1);if(matched.has(path))same.set(parent,(same.get(parent)||0)+1);if(parent==='.')break}
+  }
+  for(const file of files){visible.add(file);same.set(file,1);for(let parent=parentPath(file);;parent=parentPath(parent)){visible.add(parent);if(parent==='.')break}}
+  for(const file of files)if(view.batchSelected.has(file)){checked.set(file,1);for(let parent=parentPath(file);;parent=parentPath(parent)){checked.set(parent,(checked.get(parent)||0)+1);if(parent==='.')break}}
+  const uniform=new Set([...visible].filter(path=>path!=='.'&&(same.get(path)||0)>0&&same.get(path)===total.get(path)));
+  const children=new Map();for(const path of visible){if(path==='.')continue;const parent=parentPath(path),directory=!matched.has(path);const health=view.statuses[path];const locations=directory?Object.entries(health?.copies||{}).filter(([,copy])=>copy.present>0).map(([id])=>id):Object.keys(health?.versions||{});const item={name:path.slice(path.lastIndexOf('/')+1),path,directory,selectable:true,locations,held:health?.held};if(!children.has(parent))children.set(parent,[]);children.get(parent).push(item)}
+  for(const rows of children.values())rows.sort((a,b)=>Number(b.directory)-Number(a.directory)||a.name.localeCompare(b.name));
+  return {files,uniform,children,counts:same,checked};
+}
+function shownChildren(path){const view=state();return view.issueFilterOn?view.issueTree?.children.get(path)||[]:view.children.get(path)}
+function showIssueFilter(view,signature){view.issueFilterOn=true;view.issueSignature=signature;for(const parent of issueTree(view).children.keys())view.expanded.add(parent);renderTree()}
+function renderFilterControls(){const view=state(),on=Boolean(view.issueFilterOn),count=view.issueTree?.files.length||0;document.getElementById('filterIssues').hidden=on;document.getElementById('clearIssueFilter').hidden=!on;document.getElementById('selectFiltered').hidden=!on;document.getElementById('unselectFiltered').hidden=!on;document.getElementById('filterDetail').textContent=on?count+' 个异常文件'+(view.issueSignature?'，仅显示同类差异':'，可点文件“筛选同类”')+'；筛选勾选仅用于批量操作':''}
+function sendAction(type,entry,endpointId){const view=state();if(view.busyAction)return;const id=String(++serial);view.busyAction={type,path:entry.path,id,sequence:0};status.className='busy';status.textContent='正在准备 '+entry.path+'，请核对确认页中的完整路径…';renderTree();vscode.postMessage({type,id,rootId:active.id,path:entry.path,endpointId,directory:entry.directory})}
 function isExcluded(path){return [...state().excluded].some(item=>item===path||path.startsWith(item+'/'))}
 function selected(path){if(isExcluded(path))return false;return [...state().selected].some(item=>item==='.'||item===path||path.startsWith(item+'/'))}
 function childSelected(path){return [...state().selected].some(item=>path==='.'||item.startsWith(path+'/'))||selected(path)&&[...state().excluded].some(item=>item.startsWith(path+'/'))}
 function hasExcludedChild(path){return [...state().excluded].some(item=>item.startsWith(path+'/'))}
-function setSelection(path,checked){const view=state(),set=view.selected,excluded=view.excluded;if(path==='.') {set.clear();excluded.clear();if(checked){if(!active.excludable)set.add('.');else for(const item of view.children.get('.')||[])if(item.selectable!==false)set.add(item.path)}}else if(checked){for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item);if(!selected(path)){for(const item of [...set])if(item.startsWith(path+'/'))set.delete(item);set.add(path)}}else{for(const item of [...set])if(item===path||item.startsWith(path+'/'))set.delete(item);if([...set].some(item=>item==='.'||path.startsWith(item+'/')))excluded.add(path);else for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item)}renderTree()}
+function setSelection(path,checked){const view=state();if(view.issueFilterOn){for(const file of view.issueTree?.files||[])if(path==='.'||file===path||file.startsWith(path+'/')){if(checked)view.batchSelected.add(file);else view.batchSelected.delete(file)}renderTree();return}const set=view.selected,excluded=view.excluded;if(path==='.') {set.clear();excluded.clear();if(checked){if(!active.excludable)set.add('.');else for(const item of view.children.get('.')||[])if(item.selectable!==false)set.add(item.path)}}else if(checked){for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item);if(!selected(path)){for(const item of [...set])if(item.startsWith(path+'/'))set.delete(item);set.add(path)}}else{for(const item of [...set])if(item===path||item.startsWith(path+'/'))set.delete(item);if([...set].some(item=>item==='.'||path.startsWith(item+'/')))excluded.add(path);else for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item)}renderTree()}
 function versionTime(version){if(!version?.modifiedAtMs)return '时间未知';const date=new Date(version.modifiedAtMs);if(Number.isNaN(date.getTime()))return '时间未知';const two=value=>String(value).padStart(2,'0');return date.getFullYear()+'-'+two(date.getMonth()+1)+'-'+two(date.getDate())+' '+two(date.getHours())+':'+two(date.getMinutes())+':'+two(date.getSeconds())}
 function versionRole(version){return version?.latest==='plan'?'Plan 最新运行':version?.latest==='manual'?'手动选定':version?.latest==='local'?'本机基准':version?.latest==='candidate'?'时间最新候选':version?.latest==='same'?'与其他 Worker 同内容':''}
 function folderCopyText(id,copy,present){const name=id==='local'?'本机':id;if(!present)return name+' 全部缺失';const issues=[copy.missing?'缺失 '+copy.missing:'',copy.needsSync?'需同步 '+copy.needsSync:'',copy.conflict?'内容冲突 '+copy.conflict:'',copy.unverified?'未校验 '+copy.unverified:''].filter(Boolean);return name+' '+versionTime(copy)+(issues.length?' · '+issues.join(' · '):'')}
@@ -148,13 +170,15 @@ function folderHealth(path){const view=state();if(view.statuses[path])return vie
 function row(entry,depth){
   const view=state(),el=document.createElement('div');el.className='row';el.style.paddingLeft=(depth*18)+'px';
   const toggle=document.createElement('button');toggle.className='twisty';toggle.textContent=entry.directory?(view.expanded.has(entry.path)?'▾':'▸'):' ';toggle.disabled=!entry.directory;
-  toggle.onclick=()=>{if(view.expanded.has(entry.path)){view.expanded.delete(entry.path);renderTree()}else{view.expanded.add(entry.path);renderTree();load(entry.path)}};el.appendChild(toggle);
+  toggle.onclick=()=>{if(view.expanded.has(entry.path)){view.expanded.delete(entry.path);renderTree()}else{view.expanded.add(entry.path);renderTree();if(!view.issueFilterOn)load(entry.path)}};el.appendChild(toggle);
   const box=document.createElement('input');box.type='checkbox';
-  if(entry.path==='.') {const eligible=(view.children.get('.')||[]).filter(item=>item.selectable!==false);const count=eligible.filter(item=>selected(item.path)).length;box.checked=active.excludable?eligible.length>0&&count===eligible.length&&!eligible.some(item=>hasExcludedChild(item.path)):view.selected.has('.');box.indeterminate=active.excludable&&count>0&&!box.checked;box.disabled=entry.selectable===false||active.excludable&&!eligible.length}
+  if(view.issueFilterOn){const total=view.issueTree?.counts.get(entry.path)||0,count=view.issueTree?.checked.get(entry.path)||0;box.checked=total>0&&count===total;box.indeterminate=count>0&&!box.checked;box.disabled=!total}
+  else if(entry.path==='.') {const eligible=(view.children.get('.')||[]).filter(item=>item.selectable!==false);const count=eligible.filter(item=>selected(item.path)).length;box.checked=active.excludable?eligible.length>0&&count===eligible.length&&!eligible.some(item=>hasExcludedChild(item.path)):view.selected.has('.');box.indeterminate=active.excludable&&count>0&&!box.checked;box.disabled=entry.selectable===false||active.excludable&&!eligible.length}
   else{box.checked=selected(entry.path)&&!hasExcludedChild(entry.path);box.indeterminate=!box.checked&&childSelected(entry.path);box.disabled=entry.selectable===false||!active.excludable&&[...view.selected].some(item=>item==='.'||item!==entry.path&&entry.path.startsWith(item+'/'))}
   box.onchange=()=>setSelection(entry.path,box.checked);el.appendChild(box);
   const health=entry.directory?folderHealth(entry.path):view.statuses[entry.path];
   const label=document.createElement('label');label.className='name '+(health?.state||'unknown');label.textContent=(entry.directory?'📁 ':'📄 ')+entry.name;label.title=entry.path+(health?.state!=='same'&&health?.detail?' · '+health.detail:'');label.onclick=()=>entry.directory&&toggle.click();el.appendChild(label);
+  if(!entry.directory&&health?.issueSignature){const filter=document.createElement('button');filter.className='secondary';filter.textContent='筛选同类';filter.title='仅显示缺失位置和内容版本关系相同的异常文件';filter.onclick=()=>{showIssueFilter(view,health.issueSignature);status.textContent='已按 '+entry.path+' 的差异情况筛选'};el.appendChild(filter)}
   const badge=document.createElement('span');badge.className='badge '+(health?.state||'unknown');paintStatus(badge,health,entry.directory,entry.locations);badge.title=badge.textContent||health?.detail||'待刷新';el.appendChild(badge);
   if(health?.held||entry.held){const mark=document.createElement('span');mark.className='held';mark.textContent='同步暂停';el.appendChild(mark)}
   if(entry.path!=='.'){
@@ -171,26 +195,30 @@ function row(entry,depth){
     const present=entry.locations||[];if(present.some(id=>id!=='local')&&(!present.includes('local')||entry.directory&&health?.copies?.local?.present===0&&health.copies.local.missing>0)){const removeAll=document.createElement('button');removeAll.className='secondary';removeAll.textContent='删除所有 Worker 副本';removeAll.disabled=Boolean(view.busyAction);removeAll.title='本机不会删除；执行前显示每台 Worker 的完整路径并二次确认';removeAll.onclick=()=>sendAction('removeAllWorkers',entry);actions.appendChild(removeAll)}
     tree.appendChild(actions);
   }
-  if(entry.directory&&view.expanded.has(entry.path)){const children=view.children.get(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}
-}function renderTree(){if(!active)return;const view=state(),scrollTop=tree.scrollTop;view.scrollTarget=null;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0);tree.scrollTop=scrollTop;if(view.scrollTarget){view.scrollTarget.scrollIntoView?.({block:'center'});view.scrollTarget=null}}
+  if(entry.directory&&view.expanded.has(entry.path)){const children=shownChildren(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}
+}function renderTree(){if(!active)return;const view=state(),scrollTop=tree.scrollTop;view.issueTree=issueTree(view);view.scrollTarget=null;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0);renderFilterControls();tree.scrollTop=scrollTop;if(view.scrollTarget){view.scrollTarget.scrollIntoView?.({block:'center'});view.scrollTarget=null}}
 function renderTabs(){tabs.replaceChildren();for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();if(!state().children.has('.'))load('.')};tabs.appendChild(button)}}
 function load(path,rootId=active.id){vscode.postMessage({type:'list',id:String(++serial),rootId,path})}
-function parentPath(path){const index=path.lastIndexOf('/');return index<0?'.':path.slice(0,index)}
 function enqueueRefresh(rootId,paths){const view=views.get(rootId);if(!view)return;for(const path of paths)if(!view.refreshQueue.includes(path))view.refreshQueue.push(path);pumpRefresh(rootId)}
-function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId)status.textContent='正在校验 '+path+' 的全部文件…';vscode.postMessage({type:'refresh',id:String(++serial),rootId,path})}
+function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId&&!view.busyAction)status.textContent='正在校验 '+path+' 的全部文件…';vscode.postMessage({type:'refresh',id:String(++serial),rootId,path})}
 function refreshVisible(){if(!active)return;enqueueRefresh(active.id,['.'])}
 document.getElementById('refresh').onclick=refreshVisible;
 function revealConflict(path){const view=state();view.focus=path;view.pendingFocusScroll=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
 document.getElementById('nextConflict').onclick=()=>{if(!active)return;const view=state();const all=Object.keys(view.statuses).filter(path=>path!=='.'&&view.statuses[path].state==='different');const paths=all.filter(path=>!all.some(other=>other.startsWith(path+'/'))).sort();if(!paths.length){status.textContent='没有已校验的冲突；请点击刷新同步状态';return}const index=paths.findIndex(path=>path>String(view.focus||''));const next=paths[index<0?0:index];revealConflict(next);status.textContent='冲突位置：'+next};
+document.getElementById('filterIssues').onclick=()=>{const view=state();view.batchSelected=new Set();showIssueFilter(view,null);if(!view.issueTree?.files.length)status.textContent='没有已校验的异常文件，请点击刷新同步状态'};
+document.getElementById('clearIssueFilter').onclick=()=>{const view=state();view.issueFilterOn=false;view.issueSignature=null;renderTree()};
+document.getElementById('selectFiltered').onclick=()=>{const view=state();for(const file of view.issueTree?.files||[])view.batchSelected.add(file);renderTree()};
+document.getElementById('unselectFiltered').onclick=()=>{const view=state();for(const file of view.issueTree?.files||[])view.batchSelected.delete(file);renderTree()};
 document.getElementById('save').onclick=()=>{if(!active)return;status.textContent='保存中…';vscode.postMessage({type:'save',id:String(++serial),rootId:active.id,paths:[...state().selected].sort(),excluded:[...state().excluded].sort()})};
-function sendBatch(type){if(!active)return;const view=state();if(view.busyAction)return;if(!view.selected.size){status.textContent='请先勾选要操作的路径';return}view.busyAction={type,path:'.'};status.className='busy';status.textContent='正在核对勾选路径…';renderTree();vscode.postMessage({type,id:String(++serial),rootId:active.id,paths:[...view.selected].sort(),excluded:[...view.excluded].sort()})}
+function filteredBatchPaths(view){const result=[];for(const folder of [...(view.issueTree?.uniform||[])].sort((a,b)=>a.length-b.length||a.localeCompare(b)))if((view.issueTree?.counts.get(folder)||0)>0&&view.issueTree?.counts.get(folder)===view.issueTree?.checked.get(folder)&&!result.some(parent=>folder.startsWith(parent+'/')))result.push(folder);for(const file of view.issueTree?.files||[])if(view.batchSelected.has(file)&&!result.some(folder=>file.startsWith(folder+'/')))result.push(file);return result.sort()}
+function sendBatch(type){if(!active)return;const view=state();if(view.busyAction)return;const paths=view.issueFilterOn?filteredBatchPaths(view):[...view.selected].sort(),excluded=view.issueFilterOn?[]:[...view.excluded].sort();if(!paths.length){status.textContent='请先勾选要操作的路径';return}const id=String(++serial);view.busyAction={type,path:'.',id,sequence:0};status.className='busy';status.textContent='正在核对勾选路径…';renderTree();vscode.postMessage({type,id,rootId:active.id,paths,excluded})}
 document.getElementById('batchSync').onclick=()=>sendBatch('batchSync');
 document.getElementById('batchDelete').onclick=()=>sendBatch('batchDelete');
 window.addEventListener('message',event=>{
   const message=event.data;
   if(message.type==='init'){
     roots=message.roots;
-    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),refreshQueue:[],mutationParent:null,focus:null,pendingFocusScroll:null,busyAction:null,statuses:{}});
+    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),refreshQueue:[],mutationParent:null,focus:null,pendingFocusScroll:null,busyAction:null,statuses:{},issueFilterOn:false,issueSignature:null,batchSelected:new Set(),issueTree:null});
     active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');
   }else if(message.type==='children'){
     const view=views.get(message.rootId);if(!view)return;
@@ -204,12 +232,13 @@ window.addEventListener('message',event=>{
     view.refreshedPaths.add(message.path);view.refreshErrors.delete(message.path);
     for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))delete view.statuses[key];
     Object.assign(view.statuses,message.statuses||{});
-    if(active?.id===message.rootId){if(!view.busyAction)status.className='';status.textContent='已校验 '+message.path+'：'+message.refreshedAt;renderTree()}
+    if(active?.id===message.rootId){if(!view.busyAction){status.className='';status.textContent='已校验 '+message.path+'：'+message.refreshedAt}renderTree()}
     pumpRefresh(message.rootId);
   }else if(message.type==='saved'){
     const view=views.get(message.rootId);if(view){view.statuses={};view.refreshedPaths.clear();view.refreshErrors.clear();view.refreshQueue=[]}
     if(active?.id===message.rootId){status.textContent='已保存，请点击刷新同步状态';renderTree()}
   }else if(message.type==='actionProgress'){
+    const view=views.get(message.rootId);if(!view?.busyAction||view.busyAction.id!==message.id||Number(message.sequence)<=view.busyAction.sequence)return;view.busyAction.sequence=Number(message.sequence);
     if(active?.id===message.rootId){status.className='busy';status.textContent=message.stage+' · '+message.path}
   }else if(message.type==='actionCancelled'){
     const view=views.get(message.rootId);if(view)view.busyAction=null;

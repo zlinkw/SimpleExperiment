@@ -94,8 +94,11 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   version.children[1].onclick();
   assert.deepEqual({ type: messages.at(-1).type, path: messages.at(-1).path, endpointId: messages.at(-1).endpointId }, { type: "remove", path: "README.md", endpointId: "w1" });
   assert.equal(elements.get("status").className, "busy");
-  onMessage({ data: { type: "actionProgress", rootId: "workers", path: "README.md", stage: "正在删除 w1" } });
+  const actionId = messages.at(-1).id;
+  onMessage({ data: { type: "actionProgress", id: actionId, sequence: 1, rootId: "workers", path: "README.md", stage: "正在删除 w1" } });
   assert.match(elements.get("status").textContent, /正在删除 w1/);
+  onMessage({ data: { type: "actionProgress", id: actionId, sequence: 0, rootId: "workers", path: "README.md", stage: "旧进度" } });
+  assert.doesNotMatch(elements.get("status").textContent, /旧进度/);
   onMessage({ data: { type: "actionCancelled", rootId: "workers", path: "README.md" } });
   assert.equal(elements.get("status").className, "");
   onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { "data": { state: "remote-only", detail: "同步范围内 2 个文件 · 1 一致 · 0 待更新或冲突 · 1 仅 Worker 一致 · 0 未确认", copies: { local: { modifiedAtMs: 0, missing: 1, needsSync: 0, conflict: 0, unverified: 0 }, w1: { modifiedAtMs: 2000, missing: 0, needsSync: 0, conflict: 0, unverified: 0 } } }, "README.md": { state: "different", detail: "Plan 归属：w1 · 本机 缺失 · w1 最新版 · w2 待更新", versions: { w1: { sha256: hash, modifiedAtMs: 2000, latest: "plan" }, w2: { sha256: "b".repeat(64), modifiedAtMs: 1000 } } } }, refreshedAt: "now" } });

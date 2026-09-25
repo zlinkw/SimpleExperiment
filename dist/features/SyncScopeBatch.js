@@ -1,11 +1,31 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.syncScopeIssueSignature = syncScopeIssueSignature;
 exports.expandSyncScopeBatchSelection = expandSyncScopeBatchSelection;
 exports.runSyncScopeBatch = runSyncScopeBatch;
 const SyncResolution_1 = require("./SyncResolution");
 function parentOf(relative) {
     const index = relative.lastIndexOf("/");
     return index < 0 ? "." : relative.slice(0, index);
+}
+/** Group problems by which copies exist and which copies have equal contents. */
+function syncScopeIssueSignature(status, endpoints) {
+    if (!status || status.copies || status.unverified || !["different", "remote-only"].includes(status.state))
+        return undefined;
+    const versions = status.versions || {};
+    const groups = new Map();
+    const parts = endpoints.map((id) => {
+        const hash = versions[id]?.sha256?.toLowerCase();
+        if (!hash)
+            return "missing";
+        if (!groups.has(hash))
+            groups.set(hash, groups.size + 1);
+        return String(groups.get(hash));
+    });
+    if (!parts.some((part) => part !== "missing"))
+        return undefined;
+    const authority = endpoints.map((id) => versions[id]?.latest || "-").join("|");
+    return `${parts.join("|")};${authority}`;
 }
 async function expandSyncScopeBatchSelection(selected, excluded, list) {
     const paths = [...new Set(selected)];
@@ -59,23 +79,32 @@ async function expandSyncScopeBatchSelection(selected, excluded, list) {
         throw new Error("所选范围内没有可操作的文件或目录。");
     return result.sort((a, b) => a.path.localeCompare(b.path));
 }
-async function runSyncScopeBatch(items, task, progress, limit = 2) {
+async function runSyncScopeBatch(items, task, progress, limit = 2, stopOnError = () => false) {
     if (!Number.isInteger(limit) || limit < 1)
         throw new Error("批量并发数无效。");
     const results = Array(items.length);
     let next = 0;
     let completed = 0;
+    let stopped = false;
     await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
         for (;;) {
             const index = next++;
             if (index >= items.length)
                 return;
+            if (stopped) {
+                results[index] = { item: items[index], error: "前一目标安全检查失败，未执行" };
+                progress(++completed, items.length);
+                continue;
+            }
             try {
                 await task(items[index], index);
                 results[index] = { item: items[index] };
             }
             catch (error) {
-                results[index] = { item: items[index], error: error instanceof Error ? error.message : String(error) };
+                const message = error instanceof Error ? error.message : String(error);
+                results[index] = { item: items[index], error: message };
+                if (stopOnError(message))
+                    stopped = true;
             }
             progress(++completed, items.length);
         }

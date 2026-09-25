@@ -1,9 +1,26 @@
 import { safeSyncPath } from "./SyncResolution";
 import type { ScopeEntry } from "./SyncScopeTree";
+import type { ScopeStatus } from "./SyncScopeTree";
 
 function parentOf(relative: string): string {
   const index = relative.lastIndexOf("/");
   return index < 0 ? "." : relative.slice(0, index);
+}
+
+/** Group problems by which copies exist and which copies have equal contents. */
+export function syncScopeIssueSignature(status: ScopeStatus | undefined, endpoints: string[]): string | undefined {
+  if (!status || status.copies || status.unverified || !["different", "remote-only"].includes(status.state)) return undefined;
+  const versions = status.versions || {};
+  const groups = new Map<string, number>();
+  const parts = endpoints.map((id) => {
+    const hash = versions[id]?.sha256?.toLowerCase();
+    if (!hash) return "missing";
+    if (!groups.has(hash)) groups.set(hash, groups.size + 1);
+    return String(groups.get(hash));
+  });
+  if (!parts.some((part) => part !== "missing")) return undefined;
+  const authority = endpoints.map((id) => versions[id]?.latest || "-").join("|");
+  return `${parts.join("|")};${authority}`;
 }
 
 export async function expandSyncScopeBatchSelection(
@@ -54,20 +71,25 @@ export async function runSyncScopeBatch<T>(
   task: (item: T, index: number) => Promise<void>,
   progress: (completed: number, total: number) => void,
   limit = 2,
+  stopOnError: (error: string) => boolean = () => false,
 ): Promise<Array<{ item: T; error?: string }>> {
   if (!Number.isInteger(limit) || limit < 1) throw new Error("批量并发数无效。");
   const results: Array<{ item: T; error?: string }> = Array(items.length);
   let next = 0;
   let completed = 0;
+  let stopped = false;
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
     for (;;) {
       const index = next++;
       if (index >= items.length) return;
+      if (stopped) { results[index] = { item: items[index], error: "前一目标安全检查失败，未执行" }; progress(++completed, items.length); continue; }
       try {
         await task(items[index], index);
         results[index] = { item: items[index] };
       } catch (error) {
-        results[index] = { item: items[index], error: error instanceof Error ? error.message : String(error) };
+        const message = error instanceof Error ? error.message : String(error);
+        results[index] = { item: items[index], error: message };
+        if (stopOnError(message)) stopped = true;
       }
       progress(++completed, items.length);
     }
