@@ -830,6 +830,7 @@ export class RealtimeTunnelPanelProvider {
     private availabilityPushLoopGeneration = 0;
     lastAvailabilityPushAt = 0;
     lastCodeSyncState = {};
+    lastCodeSyncStats = { hashed: 0, hashReused: 0, cacheWriteSkipped: 0, inventoryCalls: 0, uploads: 0 };
     distributedTerminalSeen = new Set<string>();
     distributedQueueWritePromise = Promise.resolve();
     distributedPostprocessPromise;
@@ -5047,10 +5048,9 @@ export class RealtimeTunnelPanelProvider {
             const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));
             return Math.min(60 * 60_000, Math.max(180_000, planCount * 130_000 + 60_000));
         }
-        if (PLAN_SUBMISSION_COMMANDS.has(command))
-            return 150_000;
-        if (PLAN_PREFLIGHT_COMMANDS.has(command))
-            return 90_000;
+        // Plan 校验、预演和提交由阶段上报与真实终态解除按钮；短 watchdog 会先发 stalled 并清掉仍在执行的请求。
+        if (PLAN_SUBMISSION_COMMANDS.has(command) || PLAN_PREFLIGHT_COMMANDS.has(command))
+            return 0;
         return 45_000;
     }
     private postUiCommandStatus(clientActionId, status, command, message) {
@@ -5229,12 +5229,16 @@ export class RealtimeTunnelPanelProvider {
             };
         }
         if (PLAN_PREFLIGHT_COMMANDS.has(command)) {
+            this.planRunStageStartedAt = Date.now();
+            this.beginPlanSubmissionProgress(message, body);
+            this.reportPlanStage(message, command === "dryRunPlan" ? "已收到预演，正在检查计划与拓扑…" : "已收到校验，正在检查计划与拓扑…");
+            await new Promise((resolve) => setTimeout(resolve, 0));
             await this.refreshLocalPlanMetadataForAction(body);
             this.stampPlanRevision(body);
             await this.assertPlanLocalConfigFiles(body);
             await this.ensureWorkerPoolPlanTarget(body, operationResultPlanFile(body) || command);
             this.assertPlanSchedulerAgentReady(command, body);
-            await this.ensureHubCodeReadyForPlanCheck(body);
+            await this.ensureHubCodeReadyForPlanCheck(body, (text) => this.reportPlanStage(message, text));
         }
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
             this.reportPlanStage(message, "已收到校验并提交运行，正在检查计划与拓扑…");
@@ -5282,7 +5286,7 @@ export class RealtimeTunnelPanelProvider {
                 return;
             }
             await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
-            const preflightOk = await this.runPlanPreflight(body, "当前计划", {}, (text) => this.reportPlanStage(message, text));
+            const preflightOk = await this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) });
             if (!preflightOk) {
                 if (LENIENT_RUN) {
                     recordLenientSoftPass(this, "runPlanPreflight", "preflight not ok, continue to submit");
@@ -5333,11 +5337,35 @@ export class RealtimeTunnelPanelProvider {
             danger,
             requiresCapability: capabilityForUiCommand(command, action),
         });
-        const finalResult = actionAffectsResultsSummary(action)
+        let finalResult = actionAffectsResultsSummary(action)
             ? await this.waitForOperationTerminalResult(action, result, command, 45_000)
             : result;
         if (PLAN_SUBMISSION_COMMANDS.has(command))
             await this.openPanelAt("tasks", "tasks-list");
+        if (PLAN_PREFLIGHT_COMMANDS.has(command)) {
+            const label = command === "dryRunPlan" ? "预演" : "校验";
+            if (remoteActionPendingStatus(resultStatus(finalResult))) {
+                const waitStarted = Date.now();
+                this.reportPlanStage(message, `调度已接收，正在等待 Agent ${label}终态…`);
+                try {
+                    finalResult = await this.waitForOperationTerminalResult(action, finalResult, command, 90_000, this.planSchedulerWorkerId(body));
+                    this.reportPlanStage(message, `Agent ${label}终态已返回（本段 ${Date.now() - waitStarted} ms）`);
+                }
+                catch (error) {
+                    if (isUiCommandRemotePending(error)) {
+                        const opId = stringFromRecord(finalResult && typeof finalResult === "object" ? finalResult : {}, ["operationId", "opId", "id"]);
+                        this.finishPlanSubmissionProgress(message, "queued", `${label}已提交后台${opId ? `，operationId=${opId}` : ""}。有界等待后仍未结束，后续状态见操作进度；本次未标记完成或失败。`);
+                    }
+                    throw error;
+                }
+            }
+            if (planCheckAccepted(finalResult)) this.finishPlanSubmissionProgress(message, "succeeded", `${label}已完成。`);
+            else if (remoteActionPendingStatus(resultStatus(finalResult))) {
+                const opId = stringFromRecord(finalResult && typeof finalResult === "object" ? finalResult : {}, ["operationId", "opId", "id"]);
+                this.finishPlanSubmissionProgress(message, "queued", `${label}已提交后台${opId ? `，operationId=${opId}` : ""}。后续状态见操作进度；本次未标记完成或失败。`);
+            }
+            else this.finishPlanSubmissionProgress(message, "failed", `${label}未通过：${String(finalResult?.error || finalResult?.message || resultStatus(finalResult) || "未返回接受结果")}`);
+        }
         this.throwIfRemoteActionPending(command, action, finalResult);
         if (IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS.has(command)) {
             const planHint = operationResultPlanFile(finalResult) || body?.options?.planFile || body?.planFile || "";
@@ -5410,7 +5438,7 @@ export class RealtimeTunnelPanelProvider {
             error: status === "failed" || status === "cancelled" ? text : "",
             stage: text,
             updatedAt: now,
-            finishedAt: now,
+            finishedAt: status === "queued" ? "" : now,
             reconcileEvidenceActive: false,
         };
         this.markLocalOperationsDirty();
@@ -5439,7 +5467,8 @@ export class RealtimeTunnelPanelProvider {
         const blocker = occupied.find((item) => item.codeFingerprint !== fingerprint) || occupied[0];
         return { root, queue, fingerprint, blocker };
     }
-    async runPlanPreflight(body, label, authority = {}, reportStage = (_text: string) => {}) {
+    async runPlanPreflight(body, label, authority = {}) {
+        const reportStage = typeof authority.reportStage === "function" ? authority.reportStage : (_text: string) => {};
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const prefix = String(label || "当前计划").trim() || "当前计划";
         const workerId = this.planSchedulerWorkerId(body);
@@ -5477,6 +5506,7 @@ export class RealtimeTunnelPanelProvider {
         };
         let check = "校验(validate-plan)";
         try {
+            const validateStarted = Date.now();
             reportStage("正在校验计划…");
             const validate = await this.postPlanSchedulerAction("validate-plan", body, {
                 title: `${prefix}：校验`,
@@ -5492,6 +5522,7 @@ export class RealtimeTunnelPanelProvider {
                 failPreflight(check, "校验未返回终态", "-");
                 return false;
             }
+            reportStage(`Agent 校验已返回（本段 ${Date.now() - validateStarted} ms）`);
             if (!planCheckAccepted(validated)) {
                 failPreflight(check, String(validated?.error || validated?.message || resultStatus(validated) || "校验未通过"), validated?.output || validated?.message);
                 return false;
@@ -5524,6 +5555,7 @@ export class RealtimeTunnelPanelProvider {
                 return { ...validated, distributedPreview: preview };
             }
             check = "预演(dry-run-plan)";
+            const previewStarted = Date.now();
             reportStage("校验已返回，正在预演…");
             const preview = await this.postPlanSchedulerAction("dry-run-plan", body, {
                 title: `${prefix}：预演`,
@@ -5539,6 +5571,7 @@ export class RealtimeTunnelPanelProvider {
                 failPreflight(check, "预演未返回终态", "-");
                 return false;
             }
+            reportStage(`Agent 预演已返回（本段 ${Date.now() - previewStarted} ms）`);
             if (!planCheckAccepted(previewed)) {
                 failPreflight(check, String(previewed?.error || previewed?.message || resultStatus(previewed) || "预演未通过"), previewed?.output || previewed?.message);
                 return false;
@@ -7569,14 +7602,15 @@ export class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
-    async ensureHubCodeReadyForPlanCheck(body) {
+    async ensureHubCodeReadyForPlanCheck(body, reportStage = (_text: string) => {}) {
+        reportStage("正在准备校验所需代码…");
         await this.prepareSftpTargets("ensureHubCodeReadyForPlanCheck", "simpleSftp.uploadWorkspace");
         const topology = this.assertPlanTopologyReady("Plan 校验");
         const selectedWorkerId = this.planSchedulerWorkerId(body);
         const targets = topology.mode === "hub_worker"
             ? [this.hubCodeSyncTarget()]
             : this.workerCodeSyncTargets().filter((target) => topology.mode !== "worker_pool" || target.id === selectedWorkerId);
-        await this.syncCodeTargets(targets, "plan-check", { hashCompare: true });
+        await this.syncCodeTargets(targets, "plan-check", { hashCompare: true, progressReport: (text) => reportStage(text) });
     }
     async syncCodeTargets(targets, scope, options = {}) {
         if (this.syncScopeMutationInFlight) throw new Error("文件树操作进行中，代码同步稍后重试。");
@@ -7602,13 +7636,15 @@ export class RealtimeTunnelPanelProvider {
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const progressReport = typeof options.progressReport === "function" ? options.progressReport : undefined;
         if (progressReport) progressReport("正在建立本地代码清单并核对文件哈希…");
-        const manifest = filterHeldFiles(await buildLocalCodeManifest(root, includePaths, scopePaths, {
+        const localStarted = Date.now();
+        const built = await buildLocalCodeManifest(root, includePaths, scopePaths, {
             cacheFile: this.localCodeManifestCacheFile(root),
             onProgress: (stats) => {
-                if (progressReport) progressReport(`本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}`);
+                if (progressReport) progressReport(`本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}${stats.cacheWriteSkipped ? "，缓存未改写" : ""}`);
             },
-        }), holds);
-        if (progressReport) progressReport(`本地清单完成：${Object.keys(manifest).length} 个文件待比对`);
+        });
+        const manifest = filterHeldFiles(built, holds);
+        if (progressReport) progressReport(`本地清单完成：${Object.keys(manifest).length} 个文件，哈希沿用 ${built.stats?.reused || 0}，重算 ${built.stats?.hashed || 0}（本段 ${Date.now() - localStarted} ms）`);
         const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
         assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
@@ -7633,17 +7669,22 @@ export class RealtimeTunnelPanelProvider {
         this.postState();
         const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
         const hashCompare = options.hashCompare === true;
+        const syncStats = { hashed: Number(built.stats?.hashed || 0), hashReused: Number(built.stats?.reused || 0), cacheWriteSkipped: Number(built.stats?.cacheWriteSkipped || 0), inventoryCalls: 0, uploads: 0 };
         await mapLimited(enabledTargets, 2, async (target, index) => {
             if (progressReport) progressReport(`正在读取 ${target.label || target.id} 的远端清单（${index + 1}/${enabledTargets.length}）…`);
             try {
                 let uploadManifest = manifest;
+                let remoteFiles;
                 if (hashCompare) {
                     if (progressReport) progressReport(`正在比对 ${target.label || target.id} 的远端哈希…`);
+                    syncStats.inventoryCalls += 1;
+                    const inventoryStarted = Date.now();
                     const inventory = await this.verifiedSftpProjectInventory({
                         source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
                         scopePaths: inventoryScopePaths, timeoutMs: 120000,
                     });
-                    const remoteFiles = inventoryFilesByPath(inventory);
+                    remoteFiles = inventoryFilesByPath(inventory);
+                    if (progressReport) progressReport(`${target.label || target.id} 远端清单已返回（本段 ${Date.now() - inventoryStarted} ms）`);
                     uploadManifest = changedManifestFiles(manifest, remoteFiles);
                     const skipped = Object.keys(manifest).length - Object.keys(uploadManifest).length;
                     if (progressReport) progressReport(`${target.label || target.id}：${Object.keys(uploadManifest).length} 个变化文件待传输，${skipped} 个未变化文件不传输`);
@@ -7657,6 +7698,8 @@ export class RealtimeTunnelPanelProvider {
                     }
                 }
                 if (progressReport) progressReport(`正在传输 ${target.label || target.id} 的 ${Object.keys(uploadManifest).length} 个变化文件…`);
+                const transferStarted = Date.now();
+                syncStats.uploads += 1;
                 const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
                     apiMode: true,
                     confirm: true,
@@ -7674,6 +7717,7 @@ export class RealtimeTunnelPanelProvider {
                 assertCurrent();
                 if (!sftpUploadSucceeded(result, hashCompare ? "" : fingerprint))
                     throw new Error(resultError(result) || "SFTP 上传未确认成功。");
+                if (progressReport) progressReport(`${target.label || target.id} 传输完成（本段 ${Date.now() - transferStarted} ms）`);
                 // SimpleSFTP verifies every uploaded file after extraction. A second
                 // full project inventory here would repeat the expensive tree scan.
                 if (!hashCompare) {
@@ -7722,6 +7766,8 @@ export class RealtimeTunnelPanelProvider {
         await this.markProjectOnboardingComplete(projectContext);
         assertCurrent();
         this.postState();
+        this.lastCodeSyncStats = syncStats;
+        if (progressReport) progressReport(`代码同步完成：哈希重算 ${syncStats.hashed}、沿用 ${syncStats.hashReused}${syncStats.cacheWriteSkipped ? "，本地缓存未改写" : ""}，远端清单请求 ${syncStats.inventoryCalls} 次，上传 ${syncStats.uploads} 次`);
         } finally { this.codeSyncInFlight--; }
     }
     async inspectCodeSyncTarget(target, paths) {
@@ -8252,7 +8298,7 @@ export class RealtimeTunnelPanelProvider {
         }
         try {
             await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
-            const preflightOk = await this.runPlanPreflight(body, "当前计划", {}, (text) => this.reportPlanStage(message, text));
+            const preflightOk = await this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) });
             if (!preflightOk) {
                 this.finishPlanSubmissionProgress(message, "failed", "校验或预演未通过，未提交运行。");
                 return;
@@ -26117,10 +26163,11 @@ function samePath(a, b) {
         return false;
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
-async function buildLocalCodeManifest(root, includePaths: string[] = [], scopePaths?: string[], options: { cacheFile?: string; onProgress?: (stats: { listed: number; reused: number; hashed: number; pruned: number }) => void } = {}) {
+async function buildLocalCodeManifest(root, includePaths: string[] = [], scopePaths?: string[], options: { cacheFile?: string; onProgress?: (stats: { listed: number; reused: number; hashed: number; pruned: number; cacheWriteSkipped?: number }) => void } = {}) {
     const files = await listLocalCodePaths(root, includePaths, scopePaths);
     const { manifest, stats } = await hashLocalCodeFiles(root, files, options.cacheFile, options.onProgress);
-    console.log(`[SimpleExperiment] local code manifest: listed=${stats.listed} reused=${stats.reused} hashed=${stats.hashed} pruned=${stats.pruned}`);
+    console.log(`[SimpleExperiment] local code manifest: listed=${stats.listed} reused=${stats.reused} hashed=${stats.hashed} pruned=${stats.pruned} cacheWriteSkipped=${stats.cacheWriteSkipped ? 1 : 0}`);
+    Object.defineProperty(manifest, "stats", { value: stats, enumerable: false });
     return manifest;
 }
 async function listLocalCodePaths(root: string, includePaths: string[] = [], scopePaths?: string[]): Promise<string[]> {

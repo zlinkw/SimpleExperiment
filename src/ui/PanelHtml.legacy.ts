@@ -3050,6 +3050,19 @@ export function renderPanelHtml(): string {
             setButtonLoading(button, pendingKey);
             renderCommandPhaseLine();
             if (command !== "prepareAgents" && command !== "rebuildProjectResultTables") {
+            if (planPhaseCommand(command)) {
+              pendingActionTimeouts[clientActionId] = setInterval(() => {
+                const item = pendingActionsById[clientActionId];
+                if (!item || isTerminalUiStatus(item.status)) {
+                  clearPendingActionTimeout(clientActionId);
+                  return;
+                }
+                const waited = Date.now() - Number(item.startedAt || 0);
+                const stage = String(item.message || "正在执行").replace(/（已等待 [^）]*）$/, "");
+                item.message = stage + "（已等待 " + formatWaited(waited) + "）";
+                renderCommandPhaseLine();
+              }, 1000);
+            } else {
             pendingActionTimeouts[clientActionId] = setTimeout(() => {
               const item = pendingActionsById[clientActionId];
               if (item && Date.now() - Number(item.startedAt || 0) >= 45000) {
@@ -3064,6 +3077,7 @@ export function renderPanelHtml(): string {
                 refreshTerminalUi(command);
               }
             }, 45500);
+            }
             }
           }
           vscode.postMessage(Object.assign({ command }, payload));
@@ -4715,6 +4729,18 @@ export function renderPanelHtml(): string {
       return Boolean(container && container.open);
     }
 
+    function planPhaseCommand(command) {
+      const value = String(command || "");
+      return value === "runAllPlans" || value === "runPlan" || value === "reproducePlan" || value === "validatePlan" || value === "dryRunPlan";
+    }
+
+    function formatWaited(ms) {
+      const seconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+      const minutes = Math.floor(seconds / 60);
+      const rest = seconds % 60;
+      return minutes > 0 ? minutes + " 分 " + rest + " 秒" : seconds + " 秒";
+    }
+
     function renderCommandPhaseLine() {
       const pending = Object.values(pendingActionsById || {});
       const item = pending.find((row) => row && row.command === "runPlan" && row.message) || pending.find((row) => row && row.message);
@@ -4952,7 +4978,10 @@ export function renderPanelHtml(): string {
 
     function clearPendingActionTimeout(clientActionId) {
       const timer = clientActionId ? pendingActionTimeouts[clientActionId] : 0;
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+        clearInterval(timer);
+      }
       if (clientActionId) delete pendingActionTimeouts[clientActionId];
     }
 
@@ -4977,6 +5006,10 @@ export function renderPanelHtml(): string {
         const age = now - Number(item.startedAt || 0);
         const action = commandActionName(item.command);
         const active = activeActions?.has(action) || activeActions?.has(String(item.command || ""));
+        if (planPhaseCommand(item.command)) {
+          item.seenState = true;
+          return;
+        }
         if (age > 30000 || (!active && item.seenState && age > 1200)) {
           delete pendingActions[key];
           if (item.clientActionId) {

@@ -32,9 +32,9 @@ test("completed jobs from a prior distributed run are identified by Plan and job
 });
 
 test("distributed submit confirms prior outputs before enqueue and skips only chosen jobs", () => {
-  const submit = extension.slice(extension.indexOf("if (PLAN_SUBMISSION_COMMANDS.has(command))"), extension.indexOf("async runPlanPreflight("));
+  const submit = extension.slice(extension.indexOf("    async finishDistributedPlanSubmission("), extension.indexOf("    async deferDistributedPlan("));
   assert.match(submit, /confirmDistributedPlanExistingOutputs\(plan, body, preflightOk\)/);
-  assert.ok(submit.indexOf("confirmDistributedPlanExistingOutputs(plan, body, preflightOk)") < submit.indexOf("enqueueDistributedPlan(body, preflightOk)"));
+  assert.ok(submit.indexOf("confirmDistributedPlanExistingOutputs(plan, body, preflightOk)") < submit.indexOf("enqueueDistributedPlan(body, preflightOk, false"));
   const enqueue = extension.slice(extension.indexOf("async enqueueDistributedPlan("), extension.indexOf("async tickDistributedQueue("));
   assert.match(enqueue, /distributedSkipJobIndices/);
   assert.match(enqueue, /selectedJobs = validation\.jobs\.filter/);

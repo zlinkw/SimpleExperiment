@@ -5,7 +5,7 @@ import * as path from "path";
 
 export type LocalCodeManifestEntry = { size: number; sha256: string };
 export type LocalCodeManifest = Record<string, LocalCodeManifestEntry>;
-export type LocalCodeManifestStats = { listed: number; reused: number; hashed: number; pruned: number };
+export type LocalCodeManifestStats = { listed: number; reused: number; hashed: number; pruned: number; cacheWriteSkipped?: number };
 
 type CacheIdentity = { dev: string; ino: string; size: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number };
 type CacheRow = CacheIdentity & { sha256: string };
@@ -126,11 +126,17 @@ export async function hashLocalCodeFiles(
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker()));
   if (cacheFile) {
     stats.pruned = Object.keys(cache.files).filter((file) => !Object.prototype.hasOwnProperty.call(nextFiles, file)).length;
-    try {
-      await writeCache(cacheFile, { schemaVersion: CACHE_SCHEMA_VERSION, files: nextFiles });
+    const unchanged = stats.hashed === 0 && stats.pruned === 0 && Object.keys(nextFiles).length === Object.keys(cache.files).length;
+    if (unchanged) {
+      stats.cacheWriteSkipped = 1;
     }
-    catch (error) {
-      console.warn(`[SimpleExperiment] local code manifest cache write failed: ${error instanceof Error ? error.message : String(error)}`);
+    else {
+      try {
+        await writeCache(cacheFile, { schemaVersion: CACHE_SCHEMA_VERSION, files: nextFiles });
+      }
+      catch (error) {
+        console.warn(`[SimpleExperiment] local code manifest cache write failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
   return { manifest, stats };

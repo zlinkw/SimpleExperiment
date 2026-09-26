@@ -139,7 +139,7 @@ test("one scope button opens both independently saved synchronization modes", ()
   assert.match(source, /expandSelectedLocalScope\(root, paths, excluded\)/);
   assert.match(source, /config\.update\("codeSync\.scopePaths", normalized, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
   assert.match(source, /config\.update\("serverSync\.paths", normalized, vscode\.ConfigurationTarget\.WorkspaceFolder\)/);
-  assert.match(source, /buildLocalCodeManifest\(root, includePaths, scopePaths\)/);
+  assert.match(source, /buildLocalCodeManifest\(root, includePaths, scopePaths(?:,|\))/);
 });
 
 test("scope control opens two tabs and saves each scope independently", async () => {

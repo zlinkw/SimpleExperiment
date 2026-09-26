@@ -8,7 +8,7 @@ const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legac
 const scope = fs.readFileSync(path.join(__dirname, "../../src/features/SyncScopeTree.ts"), "utf8");
 
 test("runPlan reports click, sync, validate, dry-run, then scheduler start in order", () => {
-  const submit = extension.slice(extension.indexOf("if (PLAN_SUBMISSION_COMMANDS.has(command))"), extension.indexOf("async runPlanPreflight("));
+  const submit = extension.slice(extension.indexOf("        if (PLAN_SUBMISSION_COMMANDS.has(command)) {\n            this.planRunStageStartedAt"), extension.indexOf("const danger = command === \"deleteArtifacts\";"));
   const marks = [
     "已收到校验并提交运行",
     "正在选择调度 Worker",
