@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerResultActionNames = exports.workerLocalSchedulerActionNames = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
+exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenFileEndpointKeys = exports.workerTelemetryReadOnlyFileEndpointKeys = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerResultActionNames = exports.workerLocalSchedulerActionNames = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
 exports.isWorkerTelemetryAction = isWorkerTelemetryAction;
 exports.isWorkerDirectAction = isWorkerDirectAction;
 exports.isWorkerTelemetryEventType = isWorkerTelemetryEventType;
@@ -28,6 +28,7 @@ exports.workerTelemetryActionNames = [
     "rebuild-distributed-results",
     "retry-worker-task",
     "stop-worker-task",
+    "stop-worker-task-exact-pane",
     "delete-worker-artifacts",
     "archive-worker-artifacts",
     "start-tensorboard",
@@ -71,9 +72,17 @@ exports.workerResultActionNames = [
 ];
 exports.workerTelemetryAllowedActions = exports.workerTelemetryActionNames.map((action) => `POST /api/actions/${action}`);
 exports.workerTelemetryForbiddenEndpoints = [
-    "GET /api/files/*",
+    "GET /api/files/list",
     "POST /api/files/*",
     "POST /api/actions/delete-artifacts",
+];
+/** Worker telemetry may advertise read-only download. Listing and writes stay forbidden. */
+exports.workerTelemetryReadOnlyFileEndpointKeys = ["fileDownload", "fileRangeDownload", "fileStat"];
+exports.workerTelemetryForbiddenFileEndpointKeys = [
+    "fileList",
+    "fileUploadChunk",
+    "fileUploadInit",
+    "fileUploadComplete",
 ];
 function isWorkerTelemetryAction(action) {
     return exports.workerTelemetryActionNames.includes(action);
@@ -118,8 +127,11 @@ function validateWorkerTelemetryCapabilities(value) {
             }
         }
     }
-    if (caps.endpoints.fileList || caps.endpoints.fileDownload || caps.endpoints.fileUploadChunk) {
-        warnings.push("Worker Telemetry 暴露了文件 API；插件会忽略它。");
+    const endpoints = caps.endpoints;
+    const readOnlyFiles = new Set(exports.workerTelemetryReadOnlyFileEndpointKeys);
+    const forbiddenFiles = exports.workerTelemetryForbiddenFileEndpointKeys.filter((key) => Boolean(endpoints[key]) && !readOnlyFiles.has(key));
+    if (forbiddenFiles.length) {
+        warnings.push(`Worker Telemetry 暴露了不允许的文件写入或列表端点：${forbiddenFiles.join("、")}。`);
     }
     return { ok: warnings.every((warning) => !warning.includes("缺少端点") && !warning.includes("不允许")), warnings };
 }

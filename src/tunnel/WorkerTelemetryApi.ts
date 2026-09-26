@@ -31,6 +31,7 @@ export const workerTelemetryActionNames = [
   "rebuild-distributed-results",
   "retry-worker-task",
   "stop-worker-task",
+  "stop-worker-task-exact-pane",
   "delete-worker-artifacts",
   "archive-worker-artifacts",
   "start-tensorboard",
@@ -84,9 +85,18 @@ export const workerTelemetryAllowedActions = workerTelemetryActionNames.map((act
 );
 
 export const workerTelemetryForbiddenEndpoints = [
-  "GET /api/files/*",
+  "GET /api/files/list",
   "POST /api/files/*",
   "POST /api/actions/delete-artifacts",
+] as const;
+
+/** Worker telemetry may advertise read-only download. Listing and writes stay forbidden. */
+export const workerTelemetryReadOnlyFileEndpointKeys = ["fileDownload", "fileRangeDownload", "fileStat"] as const;
+export const workerTelemetryForbiddenFileEndpointKeys = [
+  "fileList",
+  "fileUploadChunk",
+  "fileUploadInit",
+  "fileUploadComplete",
 ] as const;
 
 export function isWorkerTelemetryAction(action: unknown): action is WorkerTelemetryAction {
@@ -165,8 +175,12 @@ export interface WorkerTelemetryCapabilities {
     sseEvents: boolean;
     actions?: boolean;
     fileList?: boolean;
+    fileStat?: boolean;
     fileDownload?: boolean;
+    fileRangeDownload?: boolean;
+    fileUploadInit?: boolean;
     fileUploadChunk?: boolean;
+    fileUploadComplete?: boolean;
   };
   actionEndpoints?: Record<string, boolean>;
 }
@@ -192,8 +206,11 @@ export function validateWorkerTelemetryCapabilities(value: unknown): { ok: boole
       }
     }
   }
-  if (caps.endpoints.fileList || caps.endpoints.fileDownload || caps.endpoints.fileUploadChunk) {
-    warnings.push("Worker Telemetry 暴露了文件 API；插件会忽略它。");
+  const endpoints = caps.endpoints;
+  const readOnlyFiles = new Set<string>(workerTelemetryReadOnlyFileEndpointKeys);
+  const forbiddenFiles = workerTelemetryForbiddenFileEndpointKeys.filter((key) => Boolean(endpoints[key]) && !readOnlyFiles.has(key));
+  if (forbiddenFiles.length) {
+    warnings.push(`Worker Telemetry 暴露了不允许的文件写入或列表端点：${forbiddenFiles.join("、")}。`);
   }
   return { ok: warnings.every((warning) => !warning.includes("缺少端点") && !warning.includes("不允许")), warnings };
 }
