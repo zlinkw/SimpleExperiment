@@ -22,6 +22,7 @@ export type QueuedJob = {
   artifactRetryAfter?: string;
   reconciliationAttempts?: number;
   lastReconciliationAt?: string;
+  blockReason?: string;
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string }>;
 };
 export type QueuedPlan = {
@@ -38,7 +39,35 @@ export type DeferredPlan = { id: string; planFile: string; revision: string; cod
 export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred?: DeferredPlan[]; publishedSignature?: string; previewSignature?: string;
   publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];
   previewWorkerId?: string; previewWorkerIds?: string[]; previewPaths?: string[] };
-export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number };
+export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number; codeFingerprint?: string };
+export const CODE_FINGERPRINT_MISMATCH = "代码指纹不匹配：Worker 当前代码版本与该 Plan 不一致。任务仍保留为排队，不会自动失败或重发。请用当前代码重新提交该 Plan，或恢复提交前的代码版本并重新同步 Worker 后再继续。";
+export const CODE_FINGERPRINT_WAITING = "等待当前代码版本的任务结束：已有其他代码版本占用 Worker，本 Plan 暂不派发。任务仍保留为排队。";
+const UNFINISHED_JOB: readonly JobState[] = ["pending", "dispatching", "running", "unknown"];
+
+export function unfinishedJobs(plan: QueuedPlan, states: readonly JobState[] = UNFINISHED_JOB): boolean {
+  return plan.jobs.some((job) => states.includes(job.status));
+}
+
+export function fingerprintStillMounted(queue: DistributedQueue, fingerprint: string, workerFingerprints: readonly string[]): boolean {
+  const unfinished = queue.plans.filter((plan) => plan.codeFingerprint === fingerprint && unfinishedJobs(plan));
+  if (!unfinished.length) return false;
+  if (!workerFingerprints.length) return true;
+  return workerFingerprints.includes(fingerprint);
+}
+
+/** Pending code only occupies the queue when a verified Worker still has that fingerprint. Running work always occupies it. Missing version evidence stays conservative. */
+export function queueOccupiesCodeVersion(queue: DistributedQueue, verifiedWorkerFingerprints: ReadonlyMap<string, string> | Record<string, string>): boolean {
+  const verified = verifiedWorkerFingerprints instanceof Map
+    ? [...verifiedWorkerFingerprints.values()]
+    : Object.values(verifiedWorkerFingerprints || {});
+  const known = verified.filter(Boolean);
+  return queue.plans.some((plan) => plan.jobs.some((job) => {
+    if (["dispatching", "running", "unknown"].includes(job.status)) return true;
+    if (job.status !== "pending") return false;
+    if (!known.length) return true;
+    return known.includes(plan.codeFingerprint);
+  }));
+}
 export type Dispatch = { planId: string; jobIndex: number; workerId: string; gpuId: string; attempt: number; commandId: string };
 
 export const emptyDistributedQueue = (): DistributedQueue => ({ schemaVersion: 1, plans: [] });
@@ -75,20 +104,43 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
   return { ...queue, plans: [...queue.plans, { ...plan, id, enqueuedAt, jobs }] };
 }
 
+function usableSlots(row: WorkerSlots) {
+  return row.online && [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length)).length > 0;
+}
+
+function noteFingerprintMismatch(plans: QueuedPlan[], workers: readonly WorkerSlots[], activeFingerprint?: string) {
+  if (!workers.some((row) => row.codeFingerprint)) return;
+  const anyOnline = workers.some((row) => row.online);
+  for (const plan of plans) {
+    for (const job of plan.jobs) {
+      if (job.status !== "pending") continue;
+      const matched = workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint);
+      const held = plan.jobs.some((item) => ["dispatching", "running", "unknown"].includes(item.status));
+      const waiting = Boolean(activeFingerprint && plan.codeFingerprint !== activeFingerprint && matched);
+      if (waiting) job.blockReason = CODE_FINGERPRINT_WAITING;
+      else if (anyOnline && !matched && !held) job.blockReason = CODE_FINGERPRINT_MISMATCH;
+      else if (job.blockReason === CODE_FINGERPRINT_MISMATCH || job.blockReason === CODE_FINGERPRINT_WAITING) delete job.blockReason;
+    }
+  }
+}
+
 export function allocateAvailable(queue: DistributedQueue, workers: readonly WorkerSlots[]): { queue: DistributedQueue; dispatches: Dispatch[] } {
-  const slots = new Map(workers.filter((row) => row.online).map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
+  const versioned = workers.some((row) => row.codeFingerprint);
   const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
   const dispatches: Dispatch[] = [];
-  let activeFingerprint = plans.flatMap((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)) ? [plan.codeFingerprint] : [])[0];
+  const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)))?.codeFingerprint;
+  const runnableFingerprint = activeFingerprint || plans.find((plan) => plan.jobs.some((job) => job.status === "pending")
+    && (!versioned || workers.some((row) => usableSlots(row) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint;
+  const slots = new Map(workers.filter((row) => row.online && (!versioned || !runnableFingerprint || row.codeFingerprint === runnableFingerprint))
+    .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
   for (const plan of plans) {
-    if (activeFingerprint && plan.codeFingerprint !== activeFingerprint) continue;
+    if (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint) continue;
     const pending = plan.jobs.filter((job) => job.status === "pending");
     if (!pending.length) continue;
     const ranked = () => [...slots].filter(([, gpuIds]) => gpuIds.length).sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
     const assignedWorkerIds = [...new Set(plan.jobs.filter((job) => job.workerId).map((job) => job.workerId!))];
     const primary = assignedWorkerIds.find((id) => (slots.get(id)?.length || 0) > 0) || ranked()[0]?.[0];
     if (!primary) break;
-    activeFingerprint ||= plan.codeFingerprint;
     const cases = [...new Set(pending.map((job) => job.case))];
     for (const caseName of cases) {
       const caseJobs = pending.filter((job) => job.case === caseName).sort((a, b) => a.index - b.index);
@@ -101,11 +153,12 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
         const gpuId = slots.get(chosen)?.shift();
         if (gpuId === undefined) break;
         const commandId = createHash("sha256").update([plan.id, job.index, job.attempt].join("\0")).digest("hex").slice(0, 24);
-        Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId });
+        Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined });
         dispatches.push({ planId: plan.id, jobIndex: job.index, workerId: chosen, gpuId, attempt: job.attempt, commandId });
       }
     }
   }
+  noteFingerprintMismatch(plans, workers, activeFingerprint);
   return { queue: { ...queue, plans }, dispatches };
 }
 

@@ -187,7 +187,10 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
   const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
   const last = compiled.indexOf("async distributedOutputHashes(", first);
-  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String };
+  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
+    mapLimited: async (items, _limit, fn) => Promise.all(items.map((item) => fn(item))),
+    DistributedJobArtifacts_1: { collectDistributedJobArtifacts: (_dir, inventory) => Object.fromEntries(Object.entries(inventory || {}).map(([name, row]) => [name, row.sha256])) },
+    PlanArtifactTransfer_1: { workerFpsyncTaskLabel: (input) => [input.action, input.sourceId, input.destinationId].filter(Boolean).join(" ") } };
   vm.createContext(context);
   vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false)",
     "async function syncJobArtifacts(root, queue, phase, verifyAll = false)")
@@ -219,8 +222,9 @@ test("a new completion also repairs a stale shared preview on every Worker", asy
   const first = compiled.indexOf("async rebuildDistributedResults(");
   const last = compiled.indexOf("async retryDistributedJobFromUi(", first);
   const context = {
-    workspaceRoot: () => "C:/project", Map, Set, Object,
+    workspaceRoot: () => "C:/project", Map, Set, Object, errorMessage: String,
     crypto: { createHash: () => ({ update: () => ({ digest: () => "signature" }) }) },
+    PlanArtifactTransfer_1: { workerFpsyncTaskLabel: (input) => [input.action, input.sourceId, input.destinationId].filter(Boolean).join(" ") },
   };
   vm.createContext(context);
   vm.runInContext(compiled.slice(first, last).replace("async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)",
@@ -383,4 +387,140 @@ test("idle queue recovery checks are spaced while a newly completed job still ch
     workerId: "worker-a", gpuId: "0", status: remoteStatus }] });
   await context.tickQueue.call(provider);
   assert.deepEqual(scheduled, [false, true]);
+});
+
+function loadTickQueue() {
+  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const start = compiled.indexOf("async tickDistributedQueueCore() {");
+  const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
+  assert.ok(start >= 0 && end > start);
+  const context = {
+    workspaceRoot: () => "C:/project", DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"),
+    mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
+    Object, Set, Map, Date, JSON, errorMessage: String,
+  };
+  vm.createContext(context);
+  vm.runInContext(compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()")
+    + "\nthis.tickQueue = tickQueue;", context);
+  return context;
+}
+
+test("verified idle Workers on the new fingerprint dispatch edrl and block stale ebmc pending", async () => {
+  const context = loadTickQueue();
+  const oldFingerprint = "a84a822d";
+  const newFingerprint = "ec594411";
+  let queue = { schemaVersion: 1, plans: [
+    { id: "ebmc", planFile: "experiments/plans/comparison/ebmc.yaml", revision: "rev-ebmc", codeFingerprint: oldFingerprint,
+      jobs: [{ index: 0, case: "bus", seed: 1, attempt: 1, outputDir: "work_dirs/ebmc/bus_1", status: "pending" }] },
+    { id: "edrl", planFile: "experiments/plans/comparison/edrl.yaml", revision: "rev-edrl", codeFingerprint: newFingerprint,
+      jobs: [{ index: 0, case: "pad", seed: 2, attempt: 1, outputDir: "work_dirs/edrl/pad_2", status: "pending" }] },
+  ], deferred: [] };
+  const sent = [];
+  const provider = {
+    lastWorkerProbes: { nwpu3: { status: "ok" }, nwpu5: { status: "ok" } },
+    lastCodeSyncState: { workerVersions: { nwpu3: { fingerprint: newFingerprint }, nwpu5: { fingerprint: newFingerprint } } },
+    workerCodeSyncTargets: () => [], isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    loadDistributedQueue: async () => queue,
+    saveDistributedQueue: async (_root, next) => { queue = next; },
+    workerActionTargets: () => [{ id: "nwpu3" }, { id: "nwpu5" }],
+    readWorkerTaskSnapshot: async () => ({ tasks: [] }),
+    sendDistributedJob: async (plan, _job, workerId, gpuId, commandId) => {
+      sent.push({ planId: plan.id, planFile: plan.planFile, workerId, gpuId, commandId });
+      return { status: "completed" };
+    },
+    client: { getGpu: async () => ({ nwpu3: [], nwpu5: [] }) },
+    localWorkerAvailabilityRows: () => [
+      { workerId: "nwpu3", availableGpuIds: ["0", "1", "2", "3"] },
+      { workerId: "nwpu5", availableGpuIds: ["0", "1"] },
+    ],
+    availabilityPushTtlSeconds: () => 45, schedulerSettings: () => ({}),
+    scheduleDistributedPostprocess: () => undefined, postState: () => undefined,
+    refreshSelectedDistributedLog: () => undefined, recordActionError: () => undefined,
+  };
+  await context.tickQueue.call(provider);
+  assert.deepEqual(sent.map((row) => row.planId), ["edrl"]);
+  assert.equal(queue.plans.find((plan) => plan.id === "edrl").jobs[0].status, "running");
+  const stale = queue.plans.find((plan) => plan.id === "ebmc").jobs[0];
+  assert.equal(stale.status, "pending");
+  assert.equal(stale.commandId, undefined);
+  assert.match(stale.blockReason, /代码指纹不匹配/);
+  assert.match(stale.blockReason, /重新提交/);
+});
+
+test("a deferred newer Plan activates when the older pending fingerprint is absent from verified Workers", async () => {
+  const context = loadTickQueue();
+  const body = { planFile: "experiments/plans/comparison/edrl.yaml", planRevision: "rev-edrl", options: {} };
+  let queue = { schemaVersion: 1, plans: [
+    { id: "ebmc", planFile: "experiments/plans/comparison/ebmc.yaml", revision: "rev-ebmc", codeFingerprint: "a84a822d",
+      jobs: [{ index: 0, case: "bus", seed: 1, attempt: 1, outputDir: "work_dirs/ebmc/bus_1", status: "pending" }] },
+  ], deferred: [{ id: "deferred-edrl", planFile: body.planFile, revision: "rev-edrl", codeFingerprint: "ec594411",
+    body, enqueuedAt: "2026-09-26T00:00:00Z", status: "pending" }] };
+  let activated = false;
+  const provider = {
+    lastWorkerProbes: { nwpu3: { status: "ok" } },
+    lastCodeSyncState: { fingerprint: "ec594411", workerVersions: { nwpu3: { fingerprint: "ec594411" } } },
+    workerCodeSyncTargets: () => [], isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    distributedPostprocessPromise: undefined,
+    loadDistributedQueue: async () => queue,
+    saveDistributedQueue: async (_root, next) => { queue = next; },
+    localDistributedCodeFingerprint: async () => "ec594411",
+    selectDistributedPlanPrimary: async () => "nwpu3",
+    ensureCodeReadyForRun: async () => undefined,
+    runPlanPreflight: async () => ({ validation: { jobs: [{ index: 0, case: "pad", seed: 2, output_dir: "work_dirs/edrl/pad_2" }], existing: [] } }),
+    confirmDistributedPlanExistingOutputs: async () => undefined,
+    assertExecutionCondaEnvReady: () => undefined,
+    enqueueDistributedPlan: async () => { activated = true; },
+    workerActionTargets: () => [{ id: "nwpu3" }],
+    readWorkerTaskSnapshot: async () => ({ tasks: [] }),
+    sendDistributedJob: async () => { throw new Error("stale ebmc must not dispatch"); },
+    client: { getGpu: async () => ({}) },
+    localWorkerAvailabilityRows: () => [{ workerId: "nwpu3", availableGpuIds: ["0"] }],
+    availabilityPushTtlSeconds: () => 45, schedulerSettings: () => ({}),
+    scheduleDistributedPostprocess: () => undefined, postState: () => undefined,
+    refreshSelectedDistributedLog: () => undefined, recordActionError: (error) => { throw new Error(error.message); },
+  };
+  await context.tickQueue.call(provider);
+  assert.equal(activated, true);
+  assert.equal(queue.deferred.some((row) => row.id === "deferred-edrl"), false);
+  assert.equal(queue.plans.find((plan) => plan.id === "ebmc").jobs[0].status, "pending");
+});
+
+test("running work and missing Worker version evidence still hold a deferred Plan", async () => {
+  const context = loadTickQueue();
+  const running = { schemaVersion: 1, plans: [
+    { id: "live", planFile: "plans/live.yaml", revision: "rev-live", codeFingerprint: "code-live",
+      jobs: [{ index: 0, case: "bus", seed: 1, attempt: 1, outputDir: "runs/live", status: "running",
+        workerId: "nwpu3", gpuId: "0", commandId: "command-live" }] },
+  ], deferred: [{ id: "later", planFile: "plans/later.yaml", revision: "rev-later", codeFingerprint: "code-later",
+    body: {}, status: "pending" }] };
+  let queue = JSON.parse(JSON.stringify(running));
+  const provider = {
+    lastWorkerProbes: { nwpu3: { status: "ok" } },
+    lastCodeSyncState: { workerVersions: { nwpu3: { fingerprint: "code-later" } } },
+    workerCodeSyncTargets: () => [], isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    loadDistributedQueue: async () => queue,
+    saveDistributedQueue: async (_root, next) => { queue = next; },
+    enqueueDistributedPlan: async () => { throw new Error("deferred must stay queued"); },
+    workerActionTargets: () => [{ id: "nwpu3" }],
+    readWorkerTaskSnapshot: async () => ({ tasks: [{ commandId: "command-live", workflowId: "live",
+      planRevision: "rev-live", case: "bus", seed: 1, attempt: 1, outputDir: "runs/live",
+      workerId: "nwpu3", gpuId: "0", status: "running" }] }),
+    client: { getGpu: async () => ({}) },
+    localWorkerAvailabilityRows: () => [], availabilityPushTtlSeconds: () => 45,
+    schedulerSettings: () => ({}), scheduleDistributedPostprocess: () => undefined,
+    postState: () => undefined, refreshSelectedDistributedLog: () => undefined,
+  };
+  await context.tickQueue.call(provider);
+  assert.equal(queue.deferred[0].status, "pending");
+  queue = { schemaVersion: 1, plans: [
+    { id: "unknown-code", planFile: "plans/old.yaml", revision: "rev-old", codeFingerprint: "code-old",
+      jobs: [{ index: 0, case: "bus", seed: 1, attempt: 1, outputDir: "runs/old", status: "pending" }] },
+  ], deferred: [{ id: "later", status: "pending", codeFingerprint: "code-later", body: {}, planFile: "plans/later.yaml", revision: "rev-later" }] };
+  provider.lastCodeSyncState = { workerVersions: {} };
+  provider.readWorkerTaskSnapshot = async () => ({ tasks: [] });
+  await context.tickQueue.call(provider);
+  assert.equal(queue.deferred[0].status, "pending");
 });

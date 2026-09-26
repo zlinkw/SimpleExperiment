@@ -13106,8 +13106,13 @@ export function renderPanelHtml(): string {
             const counts = {};
             jobs.forEach((job) => { const key = String(job.status || "unknown"); counts[key] = (counts[key] || 0) + 1; });
             const detail = Object.keys(counts).map((key) => key + ' ' + counts[key]).join(' · ');
-            return '<span class="pill" title="' + escAttr(jobs.map((job) => job.case + ' seed ' + job.seed + ' · ' + job.status + ' · ' + (job.workerId || '待分配') + (job.artifactError ? ' · ' + job.artifactError : '')).join(String.fromCharCode(10))) + '">'
-              + esc(compactPath(plan.planFile)) + ' · ' + esc(detail) + '</span>'
+            const mismatched = jobs.filter((job) => String(job.blockReason || '').indexOf('代码指纹不匹配') === 0);
+            const waiting = jobs.filter((job) => String(job.blockReason || '').indexOf('等待当前代码版本') === 0);
+            const blockNote = (mismatched.length ? ' · 代码指纹不匹配 ' + mismatched.length : '') + (waiting.length ? ' · 等待当前版本 ' + waiting.length : '');
+            return '<span class="pill" title="' + escAttr(jobs.map((job) => job.case + ' seed ' + job.seed + ' · ' + job.status + ' · ' + (job.workerId || '待分配') + (job.blockReason ? ' · ' + job.blockReason : '') + (job.artifactError ? ' · ' + job.artifactError : '')).join(String.fromCharCode(10))) + '">'
+              + esc(compactPath(plan.planFile)) + ' · ' + esc(detail) + esc(blockNote) + '</span>'
+              + (mismatched.length ? '<span class="muted">代码指纹不匹配：Worker 已是其他代码版本，该 Plan 仍保留为排队。请用当前代码重新提交，或恢复提交前的代码并重新同步 Worker 后再继续。不会自动失败、取消或重发。</span>' : '')
+              + (waiting.length ? '<span class="muted">等待当前代码版本的任务结束后再派发；Worker 仍有该 Plan 的代码版本，任务保留为排队。</span>' : '')
               + jobs.filter((job) => job.status === 'failed' || job.status === 'unknown').map((job) =>
                 '<button type="button" data-distributed-retry="' + escAttr(plan.id) + '" data-job-index="' + Number(job.index) + '" title="核实原任务停止、保存已有产物后建立新 attempt">恢复 ' + esc(job.case) + ' seed ' + Number(job.seed) + '</button>').join('');
           }).join('') + '</div>' : '';

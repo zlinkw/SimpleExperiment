@@ -5230,10 +5230,13 @@ class RealtimeTunnelPanelProvider {
             if (distributedPlan) {
                 const root = workspaceRoot();
                 const queue = root ? await this.loadDistributedQueue(root) : DistributedPlanQueue.emptyDistributedQueue();
-                const active = queue.plans.filter((item) => item.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)));
-                if ((active.length || this.distributedPostprocessPromise) && root) {
+                const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)));
+                if ((occupied.length || this.distributedPostprocessPromise) && root) {
                     const fingerprint = await this.localDistributedCodeFingerprint(root);
-                    if (active.some((item) => item.codeFingerprint !== fingerprint)
+                    const workerFingerprints = Object.values(this.lastCodeSyncState?.workerVersions || {})
+                        .map((row) => String(row?.fingerprint || "")).filter(Boolean);
+                    if (occupied.some((item) => item.codeFingerprint !== fingerprint
+                        && DistributedPlanQueue.fingerprintStillMounted(queue, item.codeFingerprint, workerFingerprints))
                         || this.distributedPostprocessPromise && queue.plans.some((item) => item.codeFingerprint !== fingerprint)) {
                         await this.deferDistributedPlan(root, body, fingerprint);
                         await this.openPanelAt("tasks", "tasks-list");
@@ -8558,7 +8561,9 @@ class RealtimeTunnelPanelProvider {
         }
         await this.saveDistributedQueue(root, queue);
         this.refreshSelectedDistributedLog(queue, newTerminal);
-        const activeVersion = queue.plans.some((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)));
+        const verifiedFingerprints = new Map([...verifiedWorkerIds].filter((workerId) => this.lastWorkerProbes[workerId]?.status === "ok")
+            .map((workerId) => [workerId, String(this.lastCodeSyncState?.workerVersions?.[workerId]?.fingerprint || "")]));
+        const activeVersion = DistributedPlanQueue.queueOccupiesCodeVersion(queue, verifiedFingerprints);
         const deferred = !activeVersion && !this.distributedPostprocessPromise
             ? (queue.deferred || []).find((row) => row.status === "pending" && (!row.retryAfter || Date.parse(row.retryAfter) <= Date.now())) : undefined;
         if (deferred) {
@@ -8605,14 +8610,16 @@ class RealtimeTunnelPanelProvider {
         }
         const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
             .map((job) => `${job.workerId}:${job.gpuId}`)));
-        const dispatchFingerprint = queue.plans.find((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)))?.codeFingerprint
-            || queue.plans.find((plan) => plan.jobs.some((job) => job.status === "pending"))?.codeFingerprint;
+        const dispatchFingerprint = queue.plans.find((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)))?.codeFingerprint;
         const rows = snapshot ? this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), snapshot) : [];
-        const workers = rows.map((row) => ({ workerId: row.workerId,
-            online: verifiedWorkerIds.has(row.workerId) && this.lastWorkerProbes[row.workerId]?.status === "ok"
-                && (!dispatchFingerprint || this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint === dispatchFingerprint),
-            idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
-            capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined }));
+        const workers = rows.map((row) => {
+            const codeFingerprint = String(this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint || "");
+            return { workerId: row.workerId, codeFingerprint,
+                online: verifiedWorkerIds.has(row.workerId) && this.lastWorkerProbes[row.workerId]?.status === "ok"
+                    && (!dispatchFingerprint || codeFingerprint === dispatchFingerprint),
+                idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
+                capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined };
+        });
         const allocation = DistributedPlanQueue.allocateAvailable(queue, workers);
         queue = allocation.queue;
         if (allocation.dispatches.length)
@@ -16231,7 +16238,7 @@ class RealtimeTunnelPanelProvider {
                     jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
                         status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                         commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt,
-                        error: job.error,
+                        error: job.error, blockReason: job.blockReason,
                         artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [],
             deferredPlans: this.distributedQueueRoot === workspaceRoot()
                 ? (this.distributedQueueCache?.deferred || []).map((item) => ({ planFile: item.planFile,

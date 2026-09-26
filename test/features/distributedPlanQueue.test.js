@@ -73,6 +73,65 @@ test("local preflight previews the same slots without modifying the persisted qu
   assert.equal(input.plans.length, 1);
 });
 
+test("an older pending fingerprint does not starve a newer Plan once Workers only have the newer code", () => {
+  const older = { ...plan("ebmc", "a84a822d"), jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work_dirs/ebmc/bus_1" }] };
+  const newer = { ...plan("edrl", "ec594411"), jobs: [{ index: 0, case: "pad", seed: 2, outputDir: "work_dirs/edrl/pad_2" }] };
+  const input = queue.enqueuePlan(queue.enqueuePlan(queue.emptyDistributedQueue(), older, "old-pending"), newer, "new-pending");
+  const workers = [
+    { workerId: "nwpu3", idleGpuIds: ["0", "1", "2", "3"], online: true, codeFingerprint: "ec594411" },
+    { workerId: "nwpu5", idleGpuIds: ["0", "1"], online: true, codeFingerprint: "ec594411" },
+  ];
+  const result = queue.allocateAvailable(input, workers);
+  assert.deepEqual(result.dispatches.map((row) => row.planId), ["new-pending"]);
+  const oldJob = result.queue.plans.find((row) => row.id === "old-pending").jobs[0];
+  const newJob = result.queue.plans.find((row) => row.id === "new-pending").jobs[0];
+  assert.equal(oldJob.status, "pending");
+  assert.equal(oldJob.commandId, undefined);
+  assert.match(oldJob.blockReason, /代码指纹不匹配/);
+  assert.match(oldJob.blockReason, /重新提交/);
+  assert.equal(newJob.status, "dispatching");
+  assert.equal(newJob.workerId, "nwpu3");
+  assert.equal(queue.fingerprintStillMounted(input, "a84a822d", ["ec594411"]), false);
+  assert.equal(queue.fingerprintStillMounted(input, "a84a822d", ["a84a822d"]), true);
+});
+
+test("a fingerprint with no idle GPU does not lock out another fingerprint that has free slots", () => {
+  const busy = { ...plan("old", "code-old"), jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work_dirs/old/bus_1" }] };
+  const ready = { ...plan("new", "code-new"), jobs: [{ index: 0, case: "pad", seed: 2, outputDir: "work_dirs/new/pad_2" }] };
+  const input = queue.enqueuePlan(queue.enqueuePlan(queue.emptyDistributedQueue(), busy, "busy-version"), ready, "ready-version");
+  const result = queue.allocateAvailable(input, [
+    { workerId: "nwpu3", idleGpuIds: [], online: true, codeFingerprint: "code-old" },
+    { workerId: "nwpu5", idleGpuIds: ["0", "1"], online: true, codeFingerprint: "code-new" },
+  ]);
+  assert.deepEqual(result.dispatches.map((row) => row.planId), ["ready-version"]);
+  assert.equal(result.queue.plans.find((row) => row.id === "busy-version").jobs[0].status, "pending");
+  assert.equal(result.queue.plans.find((row) => row.id === "busy-version").jobs[0].blockReason, undefined);
+});
+
+test("an active fingerprint waits other matching versions and clears the reason when it finishes", () => {
+  const active = { ...plan("live", "code-live"), jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work_dirs/live/bus_1" }] };
+  const next = { ...plan("next", "code-next"), jobs: [{ index: 0, case: "pad", seed: 2, outputDir: "work_dirs/next/pad_2" }] };
+  let input = queue.enqueuePlan(queue.enqueuePlan(queue.emptyDistributedQueue(), active, "live-plan"), next, "next-plan");
+  input = queue.allocateAvailable(input, [{ workerId: "nwpu3", idleGpuIds: ["0"], online: true, codeFingerprint: "code-live" }]).queue;
+  input.plans[0].jobs[0].status = "running";
+  const held = queue.allocateAvailable(input, [
+    { workerId: "nwpu3", idleGpuIds: ["1"], online: true, codeFingerprint: "code-live" },
+    { workerId: "nwpu5", idleGpuIds: ["0"], online: true, codeFingerprint: "code-next" },
+  ]);
+  const waiting = held.queue.plans.find((row) => row.id === "next-plan").jobs[0];
+  assert.equal(held.dispatches.length, 0);
+  assert.equal(waiting.status, "pending");
+  assert.match(waiting.blockReason, /等待当前代码版本/);
+  assert.doesNotMatch(waiting.blockReason, /代码指纹不匹配/);
+  held.queue.plans.find((row) => row.id === "live-plan").jobs[0].status = "completed";
+  const released = queue.allocateAvailable(held.queue, [
+    { workerId: "nwpu5", idleGpuIds: ["0"], online: true, codeFingerprint: "code-next" },
+  ]);
+  const resumed = released.queue.plans.find((row) => row.id === "next-plan").jobs[0];
+  assert.equal(resumed.status, "dispatching");
+  assert.equal(resumed.blockReason, undefined);
+});
+
 test("reconnection accepts only the exact persisted Plan, job, attempt and Worker", () => {
   const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("a"), jobs: [{
     index: 0, case: "bus", seed: 42, outputDir: "work_dirs/a/bus/attempts/run-a",
