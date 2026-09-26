@@ -132,6 +132,33 @@ test("an active fingerprint waits other matching versions and clears the reason 
   assert.equal(resumed.blockReason, undefined);
 });
 
+test("stop clear removes only the confirmed plan and keeps a failed sibling job", () => {
+  let input = queue.enqueuePlan(queue.emptyDistributedQueue(), plan("ebmc"), "run-ebmc");
+  input = queue.enqueuePlan(input, plan("keep"), "run-keep");
+  input = { ...input, deferred: [{ id: "defer-ebmc", planFile: input.plans[0].planFile, revision: "rev-ebmc", codeFingerprint: "code-a", body: {}, enqueuedAt: "t", status: "blocked" }, { id: "defer-keep", planFile: input.plans[1].planFile, revision: "rev-keep", codeFingerprint: "code-a", body: {}, enqueuedAt: "t", status: "pending" }] };
+  const targets = queue.distributedStopTargets(input, "experiments/plans/comparison/ebmc.yaml");
+  assert.equal(targets.filter((row) => row.kind === "job").length, 6);
+  assert.equal(targets.filter((row) => row.kind === "deferred" && row.status === "blocked").length, 1);
+  assert.equal(targets.some((row) => row.tmuxSession || row.tmuxTarget), false);
+  const confirmed = new Set(targets.filter((row) => row.kind === "job" && row.jobIndex !== 0).map((row) => `${row.planId}\0${row.jobIndex}\0${row.attempt}`));
+  const next = queue.removeConfirmedDistributedPlan(input, "experiments/plans/comparison/ebmc.yaml", { jobKeys: confirmed, deferredIds: new Set(["defer-ebmc"]) });
+  assert.deepEqual(next.plans.find((row) => row.id === "run-ebmc").jobs.map((job) => job.index), [0]);
+  assert.equal(next.plans.find((row) => row.id === "run-keep").jobs.length, 6);
+  assert.deepEqual(next.deferred.map((row) => row.id), ["defer-keep"]);
+});
+
+test("stop identity rejects another plan that shares only the worker", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("a"), jobs: [{ index: 0, case: "bus", seed: 42, outputDir: "work_dirs/a/bus/attempts/run-a" }] }, "run-a");
+  const allocated = queue.allocateAvailable(input, [{ workerId: "worker-a", idleGpuIds: ["0"], online: true }]);
+  const current = allocated.queue.plans[0];
+  const job = current.jobs[0];
+  const identity = { commandId: job.commandId, workflowId: current.id, planRevision: current.revision, planFile: current.planFile, case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir, workerId: job.workerId, gpuId: job.gpuId };
+  assert.equal(queue.stopIdentityMatchesJob(current, job, identity), true);
+  assert.equal(queue.stopIdentityMatchesJob(current, job, { ...identity, commandId: "" }), false);
+  assert.equal(queue.stopIdentityMatchesJob(current, job, { ...identity, workflowId: "other-plan" }), false);
+  assert.equal(queue.stopIdentityMatchesJob(current, job, { workerId: job.workerId }), false);
+});
+
 test("reconnection accepts only the exact persisted Plan, job, attempt and Worker", () => {
   const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("a"), jobs: [{
     index: 0, case: "bus", seed: 42, outputDir: "work_dirs/a/bus/attempts/run-a",

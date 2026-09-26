@@ -202,6 +202,94 @@ export function resetUnsentDispatch(queue: DistributedQueue, planId: string, job
       ? job : { ...job, status: "pending" as const, workerId: undefined, gpuId: undefined, commandId: undefined }) }) };
 }
 
+function samePlanFile(left: string, right: string): boolean {
+  const normalize = (value: string) => value.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  const a = normalize(left);
+  const b = normalize(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const absolute = (value: string) => /^(?:[a-z]:\/|\/)/i.test(value);
+  return absolute(a) !== absolute(b) && (absolute(a) ? a.endsWith("/" + b) : b.endsWith("/" + a));
+}
+
+export type DistributedStopTarget = {
+  kind: "job" | "deferred";
+  planId: string;
+  planFile: string;
+  revision: string;
+  codeFingerprint: string;
+  jobIndex?: number;
+  attempt?: number;
+  commandId?: string;
+  workerId?: string;
+  gpuId?: string;
+  caseName?: string;
+  seed?: number;
+  outputDir?: string;
+  status: string;
+  active: boolean;
+};
+
+const ACTIVE_JOB: readonly JobState[] = ["dispatching", "running", "unknown"];
+
+export function distributedStopTargets(queue: DistributedQueue, planFile: string): DistributedStopTarget[] {
+  const selected = String(planFile || "").trim();
+  if (!selected) return [];
+  const jobs = (queue?.plans || []).filter((plan) => samePlanFile(plan.planFile, selected)).flatMap((plan) => plan.jobs.map((job) => ({
+    kind: "job" as const,
+    planId: plan.id,
+    planFile: plan.planFile,
+    revision: plan.revision,
+    codeFingerprint: plan.codeFingerprint,
+    jobIndex: job.index,
+    attempt: job.attempt,
+    commandId: job.commandId,
+    workerId: job.workerId,
+    gpuId: job.gpuId,
+    caseName: job.case,
+    seed: job.seed,
+    outputDir: job.outputDir,
+    status: job.status,
+    active: ACTIVE_JOB.includes(job.status),
+  })));
+  const deferred = (queue?.deferred || []).filter((row) => samePlanFile(row.planFile, selected)).map((row) => ({
+    kind: "deferred" as const,
+    planId: row.id,
+    planFile: row.planFile,
+    revision: row.revision,
+    codeFingerprint: row.codeFingerprint,
+    status: row.status,
+    active: row.status === "processing",
+  }));
+  return [...jobs, ...deferred];
+}
+
+/** Drop only confirmed plan runs. A partial stop keeps every unconfirmed job and deferred row. */
+export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile: string, confirmed: { jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string> }): DistributedQueue {
+  const selected = String(planFile || "").trim();
+  const plans = (queue.plans || []).flatMap((plan) => {
+    if (!samePlanFile(plan.planFile, selected)) return [plan];
+    const jobs = plan.jobs.filter((job) => !confirmed.jobKeys.has(`${plan.id}\0${job.index}\0${job.attempt}`));
+    return jobs.length ? [{ ...plan, jobs }] : [];
+  });
+  const deferred = (queue.deferred || []).filter((row) => !samePlanFile(row.planFile, selected) || !confirmed.deferredIds.has(row.id));
+  return { ...queue, plans, deferred };
+}
+
+export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identity: Record<string, unknown>): boolean {
+  return Boolean(job.commandId && job.workerId && job.gpuId !== undefined
+    && String(identity.commandId || identity.targetCommandId || "") === job.commandId
+    && String(identity.workflowId || identity.planId || "") === plan.id
+    && String(identity.planRevision || "") === plan.revision
+    && String(identity.planFile || identity.plan || "") === plan.planFile
+    && String(identity.case || identity.caseName || "") === job.case
+    && Number(identity.seed) === job.seed
+    && Number(identity.attempt) === job.attempt
+    && String(identity.outputDir || "") === job.outputDir
+    && String(identity.workerId || "") === job.workerId
+    && String(identity.gpuId ?? "") === String(job.gpuId));
+}
+
 export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobIndex: number, runId: string): DistributedQueue {
   const plan = queue.plans.find((row) => row.id === planId);
   const job = plan?.jobs.find((row) => row.index === jobIndex);

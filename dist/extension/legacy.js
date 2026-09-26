@@ -644,6 +644,7 @@ class RealtimeTunnelPanelProvider {
     distributedQueueCache;
     distributedQueueRoot = "";
     distributedQueueTickPromise;
+    distributedPlanStopEpoch = 0;
     distributedNextProbeAt = 0;
     distributedNextFailureDetailAt = 0;
     distributedNextPostprocessAt = 0;
@@ -8554,6 +8555,8 @@ class RealtimeTunnelPanelProvider {
     async tickDistributedQueue() {
         if (this.distributedQueueTickPromise)
             return this.distributedQueueTickPromise;
+        if (this.distributedPlanStopEpoch)
+            return;
         const task = this.tickDistributedQueueCore();
         this.distributedQueueTickPromise = task;
         try {
@@ -8706,6 +8709,10 @@ class RealtimeTunnelPanelProvider {
                 }
             }
         }
+        if (this.distributedPlanStopEpoch) {
+            this.postState();
+            return;
+        }
         await this.saveDistributedQueue(root, queue);
         this.refreshSelectedDistributedLog(queue, newTerminal);
         const verifiedFingerprints = new Map([...verifiedWorkerIds].filter((workerId) => this.lastWorkerProbes[workerId]?.status === "ok")
@@ -8767,10 +8774,18 @@ class RealtimeTunnelPanelProvider {
                 idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
                 capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined };
         });
+        if (this.distributedPlanStopEpoch) {
+            this.postState();
+            return;
+        }
         const allocation = DistributedPlanQueue.allocateAvailable(queue, workers);
         queue = allocation.queue;
         if (allocation.dispatches.length)
             await this.saveDistributedQueue(root, queue);
+        if (this.distributedPlanStopEpoch) {
+            this.postState();
+            return;
+        }
         for (const dispatch of allocation.dispatches) {
             const plan = queue.plans.find((item) => item.id === dispatch.planId);
             const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
@@ -8790,6 +8805,10 @@ class RealtimeTunnelPanelProvider {
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", dispatch.commandId);
                     this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${errorMessage(error)}；状态待核实，禁止自动重派。` });
                 }
+            }
+            if (this.distributedPlanStopEpoch) {
+                this.postState();
+                return;
             }
             await this.saveDistributedQueue(root, queue);
         }
@@ -13162,6 +13181,63 @@ class RealtimeTunnelPanelProvider {
         if (failures.length)
             void vscode.window.showErrorMessage(`部分 Plan 未能中止：${failures.join("；")}`);
     }
+    workerSupportsExactPaneStop(workerId) {
+        const probe = this.lastWorkerProbes?.[workerId];
+        return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true;
+    }
+    async refreshExactPaneStopCapability(workerId) {
+        const item = this.tunnelLaunchItems().find((entry) => entry.id === workerId && entry.role === "worker");
+        if (!item)
+            return this.workerSupportsExactPaneStop(workerId);
+        const probe = await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 1500 });
+        this.lastWorkerProbes = { ...(this.lastWorkerProbes || {}), [workerId]: probe };
+        return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true;
+    }
+    async stopDistributedJobForClear(plan, job) {
+        if (!job.workerId || !job.commandId || job.gpuId === undefined)
+            throw new Error("活动 job 缺少 Worker、commandId 或 GPU，未发送停止");
+        const exactPane = await this.refreshExactPaneStopCapability(job.workerId);
+        if (exactPane !== true)
+            throw new Error(`Worker ${job.workerId} 的实时能力没有 stop-worker-task-exact-pane。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
+        const stopOperationId = makeOpId("stop-distributed-job");
+        const result = await this.client.postWorkerAction(job.workerId, "stop-worker-task", {
+            schemaVersion: 1,
+            opId: stopOperationId,
+            operationId: stopOperationId,
+            targetCommandId: job.commandId,
+            workflowId: plan.id,
+            planId: plan.id,
+            planRevision: plan.revision,
+            planFile: plan.planFile,
+            case: job.case,
+            seed: job.seed,
+            attempt: job.attempt,
+            outputDir: job.outputDir,
+            workerId: job.workerId,
+            gpuId: String(job.gpuId),
+            manualStopType: "scheduler_aborted",
+            stopReason: "scheduler_aborted",
+            stopSource: "user",
+        });
+        const stopped = Array.isArray(result?.stoppedTasks) ? result.stoppedTasks : [];
+        const receipt = stopped.find((row) => DistributedPlanQueue.stopIdentityMatchesJob(plan, job, row));
+        if (String(result?.status || "").toLowerCase() !== "completed" || !receipt)
+            throw new Error(String(result?.message || "Worker 回执身份与目标 job 不一致，队列保留"));
+        if (receipt.paneClosed !== true)
+            throw new Error(String(receipt.paneCloseError || "该 job 的 tmux 标签未确认关闭，队列保留"));
+        const fresh = await this.client.getWorkerTasks(job.workerId);
+        const tasks = Array.isArray(fresh?.tasks) ? fresh.tasks : null;
+        if (!tasks)
+            throw new Error("停止后没有可信任务快照，队列保留");
+        const task = tasks.find((row) => String(row?.commandId || "") === job.commandId);
+        if (!task)
+            throw new Error("停止后快照不含该 job，队列保留");
+        if (!["stopped", "failed", "cancelled", "completed"].includes(String(task.status || "").toLowerCase()))
+            throw new Error("停止后快照仍显示该 job 活动，队列保留");
+        if (!DistributedPlanQueue.stopIdentityMatchesJob(plan, job, task) && !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task))
+            throw new Error("停止后快照身份与队列不一致，队列保留");
+        return result;
+    }
     async stopAndClearPlanFromUi(message) {
         const root = workspaceRoot();
         if (!root)
@@ -13179,71 +13255,167 @@ class RealtimeTunnelPanelProvider {
             const row = operations[target.operationId] || Object.values(operations).find((item) => String(item?.operationId || item?.id || "") === target.operationId);
             return { ...target, workerId: this.runOperationWorkerId(row) || target.workerId };
         });
-        if (!targets.length) {
+        const queue = await this.loadDistributedQueue(root);
+        const distributed = DistributedPlanQueue.distributedStopTargets(queue, planFile);
+        if (!targets.length && !distributed.length) {
             void vscode.window.showInformationMessage((0, PlanStopClear_1.planStopMissingEvidenceMessage)(planFile, recovered));
             return;
         }
+        const distributedLines = distributed.map((row) => ({
+            planId: row.planId,
+            planFile: row.planFile,
+            label: row.kind === "deferred" ? `deferred · ${row.status}` : `${row.caseName || "job"} seed ${row.seed} · ${row.status}`,
+            active: row.active,
+            workerId: row.workerId,
+        }));
         const active = targets.filter((target) => target.active);
-        const first = await vscode.window.showWarningMessage((0, PlanStopClear_1.planStopClearPreview)(planFile, targets), { modal: true }, "继续中止并清除");
+        const preview = (0, PlanStopClear_1.planStopClearPreview)(planFile, targets, distributedLines);
+        const first = await vscode.window.showWarningMessage(preview, { modal: true }, "继续中止并清除");
         if (first !== "继续中止并清除" || root !== workspaceRoot())
             return;
-        const second = await vscode.window.showWarningMessage(`第二次确认：\n${(0, PlanStopClear_1.planStopClearPreview)(planFile, targets)}`, { modal: true }, "确认中止并清除");
+        const second = await vscode.window.showWarningMessage(`第二次确认：\n${preview}`, { modal: true }, "确认中止并清除");
         if (second !== "确认中止并清除" || root !== workspaceRoot())
             return;
+        const stopEpoch = this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1;
         const failures = [];
         const stopped = new Set();
-        for (const target of active) {
-            try {
-                const row = operations[target.operationId] || Object.values(operations).find((item) => String(item?.operationId || item?.id || "") === target.operationId) || {};
-                await this.stopExperimentRouted({
-                    operationId: target.operationId,
-                    planFile: target.planFile,
-                    workerId: this.runOperationWorkerId(row) || target.workerId,
-                    manualStopType: "scheduler_aborted",
-                });
-                stopped.add(target.operationId);
+        let confirmedJobs = new Set();
+        let confirmedDeferred = new Set();
+        let clearable = [];
+        let closedTmux = new Set();
+        try {
+            if (this.distributedQueueTickPromise)
+                await this.distributedQueueTickPromise.catch(() => undefined);
+            if (root !== workspaceRoot() || this.distributedPlanStopEpoch !== stopEpoch)
+                return;
+            for (const target of active) {
+                try {
+                    const row = operations[target.operationId] || Object.values(operations).find((item) => String(item?.operationId || item?.id || "") === target.operationId) || {};
+                    await this.stopExperimentRouted({
+                        operationId: target.operationId,
+                        planFile: target.planFile,
+                        workerId: this.runOperationWorkerId(row) || target.workerId,
+                        manualStopType: "scheduler_aborted",
+                    });
+                    stopped.add(target.operationId);
+                }
+                catch (error) {
+                    failures.push(`${target.planFile} ${target.operationId}: ${errorMessage(error)}`);
+                }
             }
-            catch (error) {
-                failures.push(`${target.planFile} ${target.operationId}: ${errorMessage(error)}`);
+            const stoppedOrEnded = targets.filter((target) => !target.active || stopped.has(target.operationId));
+            closedTmux = new Set();
+            const closeWindow = async (workerId, tmuxTarget, tmuxSession, label) => {
+                if (!tmuxTarget) {
+                    if (tmuxSession)
+                        failures.push(`${label}: tmux 仅有会话名 ${tmuxSession}，无法确认对应窗口，进度保留`);
+                    return false;
+                }
+                if (!workerId) {
+                    failures.push(`${label}: tmux 窗口缺少 Worker，进度保留`);
+                    return false;
+                }
+                try {
+                    await this.performKillTmuxWindow(workerId, tmuxTarget);
+                    return true;
+                }
+                catch (error) {
+                    failures.push(`${label} ${tmuxTarget}: ${errorMessage(error)}`);
+                    return false;
+                }
+            };
+            for (const target of stoppedOrEnded) {
+                if (!target.tmuxSession && !target.tmuxTarget)
+                    continue;
+                if (await closeWindow(target.workerId, target.tmuxTarget, target.tmuxSession, target.operationId))
+                    closedTmux.add(target.operationId);
             }
+            clearable = stoppedOrEnded.filter((target) => (!target.tmuxSession && !target.tmuxTarget) || closedTmux.has(target.operationId));
+            confirmedJobs = new Set();
+            confirmedDeferred = new Set();
+            const latest = await this.loadDistributedQueue(root);
+            for (const row of DistributedPlanQueue.distributedStopTargets(latest, planFile)) {
+                const plan = latest.plans.find((item) => item.id === row.planId);
+                const job = plan?.jobs.find((item) => item.index === row.jobIndex && item.attempt === row.attempt);
+                if (row.kind === "deferred") {
+                    confirmedDeferred.add(row.planId);
+                    continue;
+                }
+                if (!plan || !job)
+                    continue;
+                const remoteIdentity = Boolean(job.workerId && job.commandId && job.gpuId !== undefined);
+                const needsRemoteStop = ["dispatching", "running", "unknown"].includes(job.status) || remoteIdentity;
+                if (!needsRemoteStop) {
+                    if (job.status === "pending") {
+                        confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
+                        continue;
+                    }
+                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 终态 job 没有 Worker 身份，无法确认没有残留 tmux 标签，队列保留`);
+                    continue;
+                }
+                let snapshot;
+                try {
+                    snapshot = remoteIdentity ? await this.client.getWorkerTasks(job.workerId) : { tasks: [] };
+                }
+                catch (error) {
+                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: ${errorMessage(error)}`);
+                    continue;
+                }
+                const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : null;
+                const task = tasks?.find((item) => DistributedPlanQueue.remoteTaskMatchesJob(plan, job, item) || DistributedPlanQueue.stopIdentityMatchesJob(plan, job, item));
+                const pane = String(task?.tmuxPane || "").trim();
+                const session = String(task?.tmuxSession || "").trim();
+                const terminal = ["completed", "failed", "stopped", "cancelled"].includes(String(task?.status || "").toLowerCase());
+                if (!tasks || !task || !terminal) {
+                    if (["completed", "failed"].includes(job.status)) {
+                        failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 快照缺少与该 job 全身份匹配的终态记录，无法确认 tmux 标签已关闭，队列保留`);
+                        continue;
+                    }
+                }
+                else if (!pane && session) {
+                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 终态记录只有 tmux 会话名 ${session}，没有 pane，无法确认具体标签，未关闭共享会话，队列保留`);
+                    continue;
+                }
+                else if (!pane && !session) {
+                    confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
+                    continue;
+                }
+                try {
+                    await this.stopDistributedJobForClear(plan, job);
+                }
+                catch (error) {
+                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: ${errorMessage(error)}`);
+                    continue;
+                }
+                confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
+            }
+            if (confirmedJobs.size || confirmedDeferred.size) {
+                const current = await this.loadDistributedQueue(root);
+                const next = DistributedPlanQueue.removeConfirmedDistributedPlan(current, planFile, { jobKeys: confirmedJobs, deferredIds: confirmedDeferred });
+                await this.saveDistributedQueue(root, next);
+            }
+            const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
+            const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...clearable.map((target) => target.operationId)]);
+            await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);
+            const queueCleared = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length === 0;
+            if (clearable.length === targets.length && queueCleared && root === workspaceRoot()) {
+                const savedCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
+                const cutoffs = savedCutoffs && typeof savedCutoffs === "object" && !Array.isArray(savedCutoffs) ? { ...savedCutoffs } : {};
+                cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();
+                await this.context.workspaceState.update(keys.executionHistoryCutoffs, cutoffs);
+            }
+            if (root === workspaceRoot())
+                this.postState();
+            const summary = `已清除 ${clearable.length} 条运行进度、${confirmedJobs.size} 个分布式 job、${confirmedDeferred.size} 条等待提交，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`;
+            if (failures.length)
+                void vscode.window.showWarningMessage(`${summary} 未完成：${failures.join("；")}`);
+            else
+                void vscode.window.showInformationMessage(`${summary} 仍在运行且停止失败的条目保持可见。`);
         }
-        const stoppedOrEnded = targets.filter((target) => !target.active || stopped.has(target.operationId));
-        const closedTmux = new Set();
-        for (const target of stoppedOrEnded) {
-            if (!target.tmuxTarget) {
-                if (target.tmuxSession)
-                    failures.push(`${target.operationId}: tmux 仅有会话名 ${target.tmuxSession}，无法确认对应窗口，进度保留`);
-                continue;
-            }
-            if (!target.workerId) {
-                failures.push(`${target.operationId}: tmux 窗口缺少 Worker，进度保留`);
-                continue;
-            }
-            try {
-                await this.performKillTmuxWindow(target.workerId, target.tmuxTarget);
-                closedTmux.add(target.operationId);
-            }
-            catch (error) {
-                failures.push(`${target.operationId} ${target.tmuxTarget}: ${errorMessage(error)}`);
-            }
+        finally {
+            if (this.distributedPlanStopEpoch === stopEpoch)
+                this.distributedPlanStopEpoch = 0;
         }
-        const clearable = stoppedOrEnded.filter((target) => !target.tmuxSession && !target.tmuxTarget || closedTmux.has(target.operationId));
-        const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
-        const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...clearable.map((target) => target.operationId)]);
-        await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);
-        if (clearable.length === targets.length && root === workspaceRoot()) {
-            const savedCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
-            const cutoffs = savedCutoffs && typeof savedCutoffs === "object" && !Array.isArray(savedCutoffs) ? { ...savedCutoffs } : {};
-            cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();
-            await this.context.workspaceState.update(keys.executionHistoryCutoffs, cutoffs);
-        }
-        if (root === workspaceRoot())
-            this.postState();
-        const summary = `已清除 ${clearable.length} 条运行进度，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`;
-        if (failures.length)
-            void vscode.window.showWarningMessage(`${summary} 未完成：${failures.join("；")}`);
-        else
-            void vscode.window.showInformationMessage(`${summary} 仍在运行且停止失败的条目保持可见。`);
     }
     async downloadDebugBundle() {
         const generation = this.projectContextGeneration;

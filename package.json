@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.154",
+  "version": "0.5.155",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -765,7 +765,7 @@
     }
   },
   "scripts": {
-    "build": "npm run compact:plan && node scripts/write-agent-runtime.js && npm run typecheck && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js",
+    "build": "npm run compact:plan && npm run typecheck && node scripts/write-agent-runtime.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js",
     "watch": "tsc -watch -p .",
     "typecheck": "tsc -p . --pretty false",
     "lint": "node scripts/lint-smoke.js",

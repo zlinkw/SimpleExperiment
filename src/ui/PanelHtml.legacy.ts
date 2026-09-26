@@ -12934,22 +12934,27 @@ export function renderPanelHtml(): string {
         group.distributedJobs = jobs.map((job) => ({ ...job, enqueuedAt: plan.enqueuedAt }));
       });
       const selected = taskSelectionSetsForState(state);
+      const fingerprintBlocked = (job) => String(job.blockReason || "").indexOf("代码指纹不匹配") === 0 || String(job.blockReason || "").indexOf("等待当前代码版本") === 0;
       const items = Array.from(groups.values()).map((group) => {
-        const distributedActive = group.distributedJobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+        const schedulable = (job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()) && !(String(job.status || "").toLowerCase() === "pending" && fingerprintBlocked(job));
+        const distributedActive = group.distributedJobs.some(schedulable);
         const active = group.distributedJobs.length ? distributedActive
           : group.tasks.some((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) || TASK_QUEUED_STATUSES?.has(taskStatusToken(row.status))) || group.operations.some((row) => operationIsActive(row.status));
         const failed = group.distributedJobs.length ? group.distributedJobs.some((job) => job.status === "failed")
           : group.tasks.some((row) => taskFailureLikeStatus(row.status)) || group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row));
-        const tone = active ? "running" : failed ? "failed" : "completed";
+        const blockedCount = group.distributedJobs.filter((job) => String(job.status || "") === "pending" && fingerprintBlocked(job)).length;
+        const blockedOnly = group.distributedJobs.length > 0 && blockedCount === group.distributedJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !group.distributedJobs.some((job) => ["dispatching", "running", "unknown", "failed"].includes(String(job.status || "")));
+        const tone = active ? "running" : failed ? "failed" : blockedOnly ? "blocked" : "completed";
         const completed = group.distributedJobs.length ? group.distributedJobs.filter((job) => job.status === "completed").length
           : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status))).length;
-        const running = group.distributedJobs.length ? group.distributedJobs.filter((job) => ["running", "dispatching"].includes(job.status)).length
+        const running = group.distributedJobs.length ? group.distributedJobs.filter((job) => ["running", "dispatching"].includes(String(job.status || ""))).length
           : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
+        const queued = group.distributedJobs.filter((job) => String(job.status || "") === "pending" && !fingerprintBlocked(job)).length;
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
         const stamp = [...group.operations, ...group.tasks, ...group.distributedJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.enqueuedAt || "") || 0), 0);
-        return { ...group, tone, active, distributedActive, completed, running, label, stamp };
+        return { ...group, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, label, stamp };
       });
-      items.sort((a, b) => ({ running: 0, failed: 1, completed: 2 }[a.tone] - { running: 0, failed: 1, completed: 2 }[b.tone]) || b.stamp - a.stamp || a.label.localeCompare(b.label));
+      items.sort((a, b) => ({ running: 0, blocked: 1, failed: 2, completed: 3 }[a.tone] - { running: 0, blocked: 1, failed: 2, completed: 3 }[b.tone]) || b.stamp - a.stamp || a.label.localeCompare(b.label));
       if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
         selectedExecutionPlanFile = "";
         persistWebviewState({ selectedExecutionPlanFile });
@@ -12959,7 +12964,7 @@ export function renderPanelHtml(): string {
         const isSelected = !!group.planFile && samePlanSelection(group.planFile, selectedExecutionPlanFile);
         const totalJobs = group.distributedJobs.length || group.tasks.length;
         const failedJobs = group.distributedJobs.filter((job) => job.status === "failed").length;
-        const count = totalJobs ? ("任务 " + group.completed + "/" + totalJobs + (group.running ? " · 运行 " + group.running : "") + (failedJobs ? " · 失败 " + failedJobs : "")) : ("操作 " + group.operations.length);
+        const count = totalJobs ? ("任务 " + group.completed + "/" + totalJobs + (group.running ? " · 运行 " + group.running : "") + (group.queued ? " · 排队 " + group.queued : "") + (group.blockedCount ? " · 阻塞 " + group.blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "")) : ("操作 " + group.operations.length);
         const sortedOps = group.operations.slice().sort((a, b) => String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || "")));
         const sortedTasks = group.tasks.slice().sort((a, b) => {
           const priority = (row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) ? 0 : taskFailureLikeStatus(row.status) ? 1 : 2;
@@ -12974,8 +12979,9 @@ export function renderPanelHtml(): string {
           + (failedJobs ? '<div class="executionDistributedFailure">' + failedJobs + ' 个 job 运行失败；打开对应日志查看原因。</div>' : '')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
-          const jobActive = ["pending", "dispatching", "running", "unknown"].includes(status);
-          const statusLabel = { pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status;
+          const blocked = status === "pending" && fingerprintBlocked(job);
+          const jobActive = ["pending", "dispatching", "running", "unknown"].includes(status) && !blocked;
+          const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : ({ pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status);
           const placement = job.workerId ? job.workerId + (job.gpuId === undefined ? "" : " · GPU " + job.gpuId) : "待分配";
           const logPath = String(job.logPath || "");
           const outputDir = String(job.outputDir || "");
@@ -12986,17 +12992,20 @@ export function renderPanelHtml(): string {
           const logText = selectedLogPath ? logPayloadText((state.logs || {})[selectedLogPath]) : "";
           const logPreview = logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
           const errorText = String(job.artifactError || job.error || "").trim();
-          return '<div class="executionDistributedJob" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + statusClass(status) + '">' + esc(statusLabel) + '</span><span>' + esc(placement) + '</span>' + trainLogButton + logButton
+          const blockText = blocked ? String(job.blockReason || "") : "";
+          const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "空闲 GPU 不会派发这个版本。等当前代码版本的任务结束后会自动继续。" : "空闲 GPU 不能运行这份旧代码。请用当前代码重新提交该 Plan，或恢复提交前的代码并重新同步 Worker。") : "";
+          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + trainLogButton + logButton
+            + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>' + esc(blockAdvice) + '</div>' : '') + '</div>' : '')
             + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + '</div>' : '') + logPreview + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
         const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录可在下方“完整操作与任务记录”中查看。</div>' : "";
         return '<details class="executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, group.active) + '>' +
-          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix(group.active || group.distributedActive) + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + statusClass(group.tone) + '">' + esc(group.tone === "running" ? "运行中" : group.tone === "failed" ? (group.distributedJobs.length ? "失败" : "异常") : group.distributedJobs.length ? "已完成" : "已结束") + '</b>' +
+          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix(group.active || group.distributedActive) + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" ? "status-warning" : statusClass(group.tone)) + '">' + esc(group.tone === "blocked" ? "阻塞" : group.tone === "running" ? "运行中" : group.tone === "failed" ? (group.distributedJobs.length ? "失败" : "异常") : group.distributedJobs.length ? "已完成" : "已结束") + '</b>' +
           (group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '') + '</summary>' +
           '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' +
-          (group.planFile ? '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + distributedHtml + opHtml + taskHtml + more + '</div></details>';
+          (group.planFile ? '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true" title="终止并清除这一行 Plan：停止它的调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于 ' + escAttr(group.planFile) + '，不影响其他 Plan。停止前会列出目标并要求两次确认。">终止并清除该 Plan</button><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + distributedHtml + opHtml + taskHtml + more + '</div></details>';
       };
       setHtmlIfChanged("executionPlanList", items.length
         ? '<div class="executionPlanList">' + items.map(renderPlan).join("") + '</div>'
@@ -13030,7 +13039,13 @@ export function renderPanelHtml(): string {
         const type = String(op.type || op.action || "").toLowerCase();
         return (type.includes("run-plan") || type.includes("reproduce-plan")) && operationIsActive(op.status || op.state) && op.reconcileEvidenceActive !== false;
       });
-      const explicitStopClearPlan = selectedExecutionPlanFile || currentPlanPath;
+      const distributedPlanPaths = (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).filter((plan) => {
+        const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
+        return jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+      }).map((plan) => String(plan.planFile || "").replaceAll(String.fromCharCode(92), "/").replace("./", "")).filter(Boolean);
+      const deferredPlanPaths = (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).map((plan) => String(plan.planFile || "").replaceAll(String.fromCharCode(92), "/").replace("./", "")).filter(Boolean);
+      const selectedDistributedPlan = selectedExecutionPlanFile && (distributedPlanPaths.some((planPath) => planPath === selectedExecutionPlanFile || planPath.endsWith("/" + selectedExecutionPlanFile)) || deferredPlanPaths.some((planPath) => planPath === selectedExecutionPlanFile || planPath.endsWith("/" + selectedExecutionPlanFile)));
+      const explicitStopClearPlan = selectedExecutionPlanFile || (!selectedDistributedPlan && distributedPlanPaths.length + deferredPlanPaths.length === 0 ? currentPlanPath : "");
       const activePlanPaths = ops.map((op) => {
         const type = String(op.type || op.action || "").toLowerCase();
         const active = operationIsActive(op.status || op.state) && op.reconcileEvidenceActive !== false;
@@ -13039,8 +13054,11 @@ export function renderPanelHtml(): string {
       }).filter(Boolean);
       const soleActivePlan = activePlanPaths.length === 1 ? activePlanPaths[0] : "";
       const stopClearPlan = explicitStopClearPlan || soleActivePlan;
-      setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="stopExperiment" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="中止当前选中 Plan 的运行任务">中止当前 Plan</button>' +
-        '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(stopClearPlan) + '" data-confirm="true" ' + (stopClearPlan ? '' : 'disabled') + ' title="中止该 Plan 仍在运行的调度，关闭对应报错 tmux 窗口，并清除本机运行进度条目。停止前会列出目标并要求两次确认。">一键中止并清除 Plan</button>' +
+      const topStopCommand = selectedDistributedPlan ? "stopAndClearPlan" : "stopExperiment";
+      const topStopPlan = selectedDistributedPlan ? selectedExecutionPlanFile : abortPlan;
+      const topStopEnabled = selectedDistributedPlan ? !!selectedExecutionPlanFile : abortEnabled;
+      setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="' + topStopCommand + '" data-operation-id="' + escAttr(selectedDistributedPlan ? "" : abortOpId) + '" data-plan-file="' + escAttr(topStopPlan) + '" data-confirm="true" ' + (topStopEnabled ? '' : 'disabled') + ' title="' + (selectedDistributedPlan ? "终止并清除已选中的分布式 Plan：停止调度和 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于已选中的 Plan。" : "中止当前选中 Plan 的本地运行任务") + '">' + (selectedDistributedPlan ? "终止并清除已选 Plan" : "中止当前 Plan") + '</button>' +
+        '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(stopClearPlan) + '" data-confirm="true" ' + (stopClearPlan ? '' : 'disabled') + ' title="终止并清除已选中的 Plan：停止调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。未选中时不会使用正在编辑的 Plan。">一键中止并清除 Plan</button>' +
         '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan ? '' : 'disabled') + ' title="手动中止全部运行中的 Plan；逐个向 Worker 发送停止命令">中止所有 Plan</button>' +
         '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
         '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +

@@ -28,6 +28,9 @@ test("panel webview script parses and keeps config commands", () => {
   ]) {
     assert.match(html, new RegExp(command));
   }
+  assert.match(script, /代码版本不匹配/);
+  assert.match(script, /status-warning/);
+  assert.equal((script.match(/const blockedOnly/g) || []).length, 1);
   assert.match(script, /isParseableResultCandidate/);
   assert.match(script, /jobs\.csv/);
 });

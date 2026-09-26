@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.154"
-RUNTIME_VERSION = "0.5.154"
-PLUGIN_VERSION = "0.5.154"
+AGENT_VERSION = "0.5.155"
+RUNTIME_VERSION = "0.5.155"
+PLUGIN_VERSION = "0.5.155"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -3650,6 +3650,23 @@ def execute_worker_command(root, command, worker_id):
     append_event(root, {"type": "worker_command_started", "workerId": worker_id, "operationId": command_id, "payload": command})
     if action == "stop-worker-task":
         session = str(command.get("session") or command.get("runKey") or command.get("experimentId") or "").strip()
+        target_command = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
+        own_command = str(command.get("commandId") or command.get("operationId") or "").strip()
+        if own_command and own_command == target_command:
+            result = {"commandId": command_id, "status": "failed", "message": "停止操作 ID 不能与目标 job ID 相同", "stoppedPids": [], "stoppedTasks": []}
+            append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+            return result
+        identity_fields = ("workflowId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "gpuId")
+        if target_command:
+            missing_identity = [field for field in identity_fields if command.get(field) in (None, "")]
+            if missing_identity:
+                result = {"commandId": command_id, "status": "failed", "message": "精确停止缺少完整身份：" + ",".join(missing_identity), "stoppedPids": [], "stoppedTasks": []}
+                append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+                return result
+        elif not session:
+            result = {"commandId": command_id, "status": "failed", "message": "缺少任务身份，拒绝停止全部任务", "stoppedPids": [], "stoppedTasks": []}
+            append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+            return result
         stop_reason = str(command.get("manualStopType") or command.get("stopReason") or command.get("reason") or "manual_stop_bad_code_or_no_effect").strip()
         stop_source = str(command.get("stopSource") or command.get("source") or "user").strip()
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
@@ -3657,25 +3674,56 @@ def execute_worker_command(root, command, worker_id):
         matched = []
         stopped = []
         stopped_tasks = []
+        closed_panes = {}
         for task in tasks:
             if not isinstance(task, dict):
                 continue
-            task_key = str(task.get("session") or task.get("runKey") or task.get("commandId") or task.get("operationId") or "").strip()
-            if session and session not in (task_key, str(task.get("commandId") or ""), str(task.get("runKey") or "")):
+            task_command = str(task.get("commandId") or task.get("operationId") or "").strip()
+            task_key = str(task.get("session") or task.get("runKey") or task_command or "").strip()
+            if target_command:
+                if task_command != target_command:
+                    continue
+                same = True
+                for field in identity_fields:
+                    expected = command.get(field)
+                    actual = task.get("plan") if field == "planFile" and task.get("planFile") in (None, "") else task.get(field)
+                    if field in ("seed", "attempt"):
+                        try:
+                            same = int(actual) == int(expected)
+                        except (TypeError, ValueError):
+                            same = False
+                    else:
+                        same = str(actual if actual is not None else "") == str(expected)
+                    if not same:
+                        break
+                if not same:
+                    continue
+            elif session not in (task_key, task_command, str(task.get("runKey") or "")):
                 continue
             raw_pid = str(task.get("pid") or "").strip()
             pid = int(raw_pid) if raw_pid.isdigit() else 0
             matched.append(task)
-            if task.get("tmuxSession"):
+            pane = str(task.get("tmuxPane") or "").strip()
+            pane_closed = bool(closed_panes.get(task_command))
+            if re.fullmatch(r"%[0-9]+", pane) and not pane_closed:
                 try:
-                    pane = str(task.get("tmuxPane") or raw_pid).strip()
-                    target = pane if re.fullmatch(r"%[0-9]+", pane) else str(task.get("tmuxSession"))
-                    command_name = "kill-pane" if target == pane and pane.startswith("%") else "kill-session"
-                    subprocess.run(["tmux", command_name, "-t", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-                    stopped.append(target)
+                    before = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{pane_id}"], capture_output=True, text=True, timeout=3)
+                    if before.returncode == 0 and before.stdout.strip().splitlines()[-1].strip() == pane:
+                        killed = subprocess.run(["tmux", "kill-pane", "-t", pane], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                        after = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{pane_id}"], capture_output=True, text=True, timeout=3)
+                        pane_closed = killed.returncode == 0 and not (after.returncode == 0 and after.stdout.strip().splitlines()[-1].strip() == pane)
+                        if pane_closed:
+                            stopped.append(pane)
                 except Exception:
-                    pass
-            if pid > 0:
+                    pane_closed = False
+            task["_paneClosed"] = pane_closed
+            if task_command:
+                closed_panes[task_command] = pane_closed
+            if re.fullmatch(r"%[0-9]+", pane) and not pane_closed:
+                result = {"commandId": command_id, "status": "failed", "message": "该 job 的 tmux 标签未确认关闭，未结束整会话", "stoppedPids": stopped, "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
+                append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+                return result
+            if pid > 0 and not str(task.get("pid") or "").strip().startswith("%"):
                 try:
                     os.kill(pid, signal.SIGTERM)
                     stopped.append(pid)
@@ -3686,10 +3734,24 @@ def execute_worker_command(root, command, worker_id):
                     return {"commandId": command_id, "status": "failed", "message": str(exc)}
             with WORKER_TASK_SNAPSHOT_LOCK:
                 current = current_worker_task(root, task)
-                if str(current.get("status") or "").lower() == "running":
+                status_now = str(current.get("status") or "").lower()
+                if status_now == "running":
                     stopped_task = {**current, "status": "stopped", "finishedAt": now_iso(), "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
                     append_worker_task(root, stopped_task)
-                    stopped_tasks.append({k: stopped_task.get(k) for k in ("commandId", "operationId", "runKey", "session", "experimentIndex", "gpuId", "stopReason", "manualStopType", "stopSource") if stopped_task.get(k) is not None})
+                    current = stopped_task
+                elif target_command and task.get("tmuxPane") and not task.get("_paneClosed"):
+                    result = {"commandId": command_id, "status": "failed", "message": "该 job 的 tmux 标签未确认关闭，未结束整会话", "stoppedPids": stopped, "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
+                    append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+                    return result
+                receipt = {k: current.get(k) for k in ("commandId", "operationId", "runKey", "session", "experimentIndex", "gpuId", "stopReason", "manualStopType", "stopSource", "workflowId", "planId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "tmuxPane") if current.get(k) not in (None, "")}
+                receipt["paneClosed"] = bool(task.get("_paneClosed")) or not str(task.get("tmuxPane") or "").strip()
+                if task.get("tmuxPane") and not task.get("_paneClosed"):
+                    receipt["paneCloseError"] = "tmux 标签未确认关闭，未结束整会话"
+                stopped_tasks.append(receipt)
+        if target_command and not matched:
+            result = {"commandId": command_id, "status": "failed", "message": "没有与指定 job 身份一致的任务，未停止其他任务", "stoppedPids": [], "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
+            append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+            return result
         result = {"commandId": command_id, "status": "completed", "message": f"stopped={len(stopped)} matched={len(matched)}", "stoppedPids": stopped, "stoppedTasks": stopped_tasks, "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
         append_event(root, {"type": "worker_task_stopped", "workerId": worker_id, "operationId": command_id, "payload": result})
         return result
@@ -4543,6 +4605,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "rebuild-distributed-results": True,
                 "retry-worker-task": True,
                 "stop-worker-task": True,
+                "stop-worker-task-exact-pane": True,
                 "delete-worker-artifacts": True,
                 "archive-worker-artifacts": True,
                 "validate-plan": True,
