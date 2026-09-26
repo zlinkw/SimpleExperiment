@@ -35,7 +35,9 @@ export type QueuedPlan = {
   jobs: QueuedJob[];
 };
 export type DeferredPlan = { id: string; planFile: string; revision: string; codeFingerprint: string;
-  body: Record<string, unknown>; enqueuedAt: string; status: "pending" | "processing" | "blocked"; error?: string; retryAfter?: string };
+  body: Record<string, unknown>; enqueuedAt: string; status: "pending" | "processing" | "blocked" | "superseded"; error?: string; retryAfter?: string; supersededBy?: string;
+  confirmedOutputChoice?: boolean; overwriteExisting?: boolean; distributedSkipJobIndices?: number[];
+  waitingForPlanId?: string; waitingForPlanFile?: string; waitingForRevision?: string; waitingForFingerprint?: string; reason?: string };
 export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred?: DeferredPlan[]; publishedSignature?: string; previewSignature?: string;
   publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];
   previewWorkerId?: string; previewWorkerIds?: string[]; previewPaths?: string[] };
@@ -200,6 +202,30 @@ export function resetUnsentDispatch(queue: DistributedQueue, planId: string, job
   return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
     jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
       ? job : { ...job, status: "pending" as const, workerId: undefined, gpuId: undefined, commandId: undefined }) }) };
+}
+
+export function sameDeferredPlanFile(left: string, right: string): boolean {
+  return samePlanFile(left, right);
+}
+
+export function matchingActiveDeferred(queue: DistributedQueue, identity: { id?: string; planFile: string; revision: string; codeFingerprint: string }) {
+  const rows = queue.deferred || [];
+  const id = String(identity.id || "");
+  if (id) {
+    const row = rows.find((item) => item.id === id);
+    if (!row) return null;
+    const same = samePlanFile(row.planFile, identity.planFile)
+      && row.revision === identity.revision
+      && row.codeFingerprint === identity.codeFingerprint
+      && row.confirmedOutputChoice !== true
+      && (row.status === "pending" || row.status === "blocked");
+    return same ? row : null;
+  }
+  return rows.find((item) => samePlanFile(item.planFile, identity.planFile)
+    && item.revision === identity.revision
+    && item.codeFingerprint === identity.codeFingerprint
+    && item.confirmedOutputChoice !== true
+    && (item.status === "pending" || item.status === "blocked"));
 }
 
 function samePlanFile(left: string, right: string): boolean {

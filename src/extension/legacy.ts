@@ -4968,9 +4968,11 @@ export class RealtimeTunnelPanelProvider {
         if (timer)
             clearTimeout(timer);
         if (result.status === "cancelled") {
+            this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
             try { vscode.window.showInformationMessage(result.message || "已取消"); } catch {}
             try { this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) }); this.postState(); } catch {}
         } else if (result.status === "failed") {
+            this.finishPlanSubmissionProgress(message, "failed", result.message || "提交失败。");
             this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) });
             this.postState();
         }
@@ -5092,6 +5094,7 @@ export class RealtimeTunnelPanelProvider {
     async runActionCommand(command, message) {
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
             this.planRunStageStartedAt = Date.now();
+            this.beginPlanSubmissionProgress(message, this.actionBody(message));
             this.reportPlanStage(message, "已收到校验并提交运行，正在准备计划与插件接入规则…");
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
@@ -5255,21 +5258,8 @@ export class RealtimeTunnelPanelProvider {
             );
             body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
             if (distributedPlan) {
-                const root = workspaceRoot();
-                const queue = root ? await this.loadDistributedQueue(root) : DistributedPlanQueue.emptyDistributedQueue();
-                const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)));
-                if ((occupied.length || this.distributedPostprocessPromise) && root) {
-                    const fingerprint = await this.localDistributedCodeFingerprint(root);
-                    const workerFingerprints = Object.values(this.lastCodeSyncState?.workerVersions || {})
-                        .map((row: any) => String(row?.fingerprint || "")).filter(Boolean);
-                    if (occupied.some((item) => item.codeFingerprint !== fingerprint
-                        && DistributedPlanQueue.fingerprintStillMounted(queue, item.codeFingerprint, workerFingerprints))
-                        || this.distributedPostprocessPromise && queue.plans.some((item) => item.codeFingerprint !== fingerprint)) {
-                        await this.deferDistributedPlan(root, body, fingerprint);
-                        await this.openPanelAt("tasks", "tasks-list");
-                        return;
-                    }
-                }
+                await this.finishDistributedPlanSubmission(command, message, plan, body);
+                return;
             }
             await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
             const preflightOk = await this.runPlanPreflight(body, "当前计划", {}, (text) => this.reportPlanStage(message, text));
@@ -5277,20 +5267,13 @@ export class RealtimeTunnelPanelProvider {
                 if (LENIENT_RUN) {
                     recordLenientSoftPass(this, "runPlanPreflight", "preflight not ok, continue to submit");
                 } else {
+                    this.finishPlanSubmissionProgress(message, "failed", "校验或预演未通过，未提交运行。");
                     return;
                 }
             }
             if (preflightOk) {
-                if (distributedPlan) await this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk);
-                else await this.confirmPlanExistingOutputs(plan, body, preflightOk);
-            }
-            if (distributedPlan) {
-                this.assertExecutionCondaEnvReady(this.workerActionTargets());
-                this.reportPlanStage(message, "预演通过，正在开启调度…");
-                await this.enqueueDistributedPlan(body, preflightOk);
-                this.reportPlanStage(message, "调度队列已接收；面板继续显示 Worker 回传的任务状态。");
-                await this.openPanelAt("tasks", "tasks-list");
-                return;
+                this.reportPlanStage(message, "正在确认历史产物处理方式…");
+                await this.confirmPlanExistingOutputs(plan, body, preflightOk);
             }
             try {
                 const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
@@ -5350,7 +5333,90 @@ export class RealtimeTunnelPanelProvider {
         const line = `${text}（已用 ${elapsed} ms）`;
         const clientActionId = stringField(message, "clientActionId");
         if (clientActionId) this.postUiCommandStatus(clientActionId, "running", stringField(message, "command") || "runPlan", line);
+        this.patchPlanSubmissionProgress(message, "running", text);
         void vscode.window.setStatusBarMessage(`SimpleExperiment：${line}`, 8000);
+    }
+    planSubmissionOperationId(message) {
+        const clientActionId = stringField(message, "clientActionId");
+        return clientActionId ? `plan-submit-${clientActionId}` : "";
+    }
+    planSubmissionPlanFile(message, body) {
+        return String(operationResultPlanFile(body) || body?.planFile || body?.selectedPlanId || body?.options?.planFile || stringField(message, "planFile") || "").trim();
+    }
+    beginPlanSubmissionProgress(message, body) {
+        const operationId = this.planSubmissionOperationId(message);
+        if (!operationId || this.localOperations[operationId]) return;
+        const planFile = this.planSubmissionPlanFile(message, body);
+        const now = new Date().toISOString();
+        this.localOperations[operationId] = {
+            operationId,
+            type: "run-plan",
+            status: "running",
+            planFile,
+            planRevision: String(body?.planRevision || body?.options?.planRevision || ""),
+            message: `准备提交 ${planFile || "当前计划"}`,
+            stage: "prepare",
+            startedAt: now,
+            updatedAt: now,
+            reconcileEvidenceActive: false,
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+    }
+    patchPlanSubmissionProgress(message, status, text) {
+        const operationId = this.planSubmissionOperationId(message);
+        const current = operationId ? this.localOperations[operationId] : undefined;
+        if (!current || ["succeeded", "failed", "cancelled", "queued"].includes(String(current.status || ""))) return;
+        this.localOperations[operationId] = {
+            ...current,
+            status,
+            message: text,
+            stage: text,
+            updatedAt: new Date().toISOString(),
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+    }
+    finishPlanSubmissionProgress(message, status, text) {
+        const operationId = this.planSubmissionOperationId(message);
+        const current = operationId ? this.localOperations[operationId] : undefined;
+        if (!current) return;
+        const now = new Date().toISOString();
+        this.localOperations[operationId] = {
+            ...current,
+            status,
+            message: text,
+            error: status === "failed" || status === "cancelled" ? text : "",
+            stage: text,
+            updatedAt: now,
+            finishedAt: now,
+            reconcileEvidenceActive: false,
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+    }
+    planSubmissionQueueDetail(body, blocker, confirmed = true) {
+        const planFile = String(operationResultPlanFile(body) || body?.planFile || "当前计划");
+        const ahead = blocker?.planFile ? `${blocker.planFile}（版本 ${blocker.revision || "-"}，代码 ${String(blocker.codeFingerprint || "").slice(0, 12) || "-"}）` : "当前代码版本的结果同步";
+        if (!confirmed) return `${planFile} 等待旧代码版本结束，尚未校验/尚未确认已有产物。前序：${ahead}。版本释放后需在任务里点击“继续提交”完成校验和产物确认，不会自动派发。`;
+        const choice = body?.overwriteExisting === true ? "重跑全部并保留历史" : (Array.isArray(body?.distributedSkipJobIndices) && body.distributedSkipJobIndices.length ? `跳过已有 job ${body.distributedSkipJobIndices.join(",")}` : "无历史产物需确认");
+        return `${planFile} 已完成校验和历史产物确认（${choice}）。前序：${ahead}。`;
+    }
+    async distributedCodeVersionHold(body) {
+        const root = workspaceRoot();
+        if (!root) return undefined;
+        const queue = await this.loadDistributedQueue(root);
+        const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)));
+        if (!occupied.length && !this.distributedPostprocessPromise) return undefined;
+        const fingerprint = await this.localDistributedCodeFingerprint(root);
+        const workerFingerprints = Object.values(this.lastCodeSyncState?.workerVersions || {})
+            .map((row: any) => String(row?.fingerprint || "")).filter(Boolean);
+        const held = occupied.some((item) => item.codeFingerprint !== fingerprint
+            && DistributedPlanQueue.fingerprintStillMounted(queue, item.codeFingerprint, workerFingerprints))
+            || Boolean(this.distributedPostprocessPromise && queue.plans.some((item) => item.codeFingerprint !== fingerprint));
+        if (!held) return undefined;
+        const blocker = occupied.find((item) => item.codeFingerprint !== fingerprint) || occupied[0];
+        return { root, queue, fingerprint, blocker };
     }
     async runPlanPreflight(body, label, authority = {}, reportStage = (_text: string) => {}) {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
@@ -5405,6 +5471,10 @@ export class RealtimeTunnelPanelProvider {
                 failPreflight(check, "校验未返回终态", "-");
                 return false;
             }
+            if (!planCheckAccepted(validated)) {
+                failPreflight(check, String(validated?.error || validated?.message || resultStatus(validated) || "校验未通过"), validated?.output || validated?.message);
+                return false;
+            }
             if (this.distributedPlanEligible(planKey)) {
                 check = "本机逐 job 预演";
                 reportStage("校验已返回，正在做本机逐 job 预演…");
@@ -5446,6 +5516,10 @@ export class RealtimeTunnelPanelProvider {
             this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
             if (!previewed) {
                 failPreflight(check, "预演未返回终态", "-");
+                return false;
+            }
+            if (!planCheckAccepted(previewed)) {
+                failPreflight(check, String(previewed?.error || previewed?.message || resultStatus(previewed) || "预演未通过"), previewed?.output || previewed?.message);
                 return false;
             }
             return previewed ? validated : false;
@@ -8116,12 +8190,97 @@ export class RealtimeTunnelPanelProvider {
             await this.ensureRealtimeConnected("distributed queue continuation");
         }
     }
-    async deferDistributedPlan(root, body, fingerprint) {
+    async finishDistributedPlanSubmission(command, message, plan, body) {
+        const versionHold = await this.distributedCodeVersionHold(body);
+        const root = versionHold?.root || workspaceRoot();
+        const continueDeferredId = stringField(message, "deferredPlanId") || stringField(body, "deferredPlanId");
+        const submissionFingerprint = versionHold?.fingerprint || await this.localDistributedCodeFingerprint(root);
+        const existing = await this.activeDeferredForSubmission(root, body, submissionFingerprint, continueDeferredId);
+        if (existing === null) {
+            throw new Error("继续提交的排队记录与当前 Plan、版本或代码指纹不一致，未修改队列。");
+        }
+        const reusable = existing || await this.activeDeferredForSubmission(root, body, submissionFingerprint, "");
+        if (versionHold) {
+            this.reportPlanStage(message, "等待旧代码版本结束，尚未校验/尚未确认产物。");
+            await this.deferDistributedPlan(versionHold.root, body, versionHold.fingerprint, {
+                waitingForPlanId: versionHold.blocker?.id || "",
+                waitingForPlanFile: versionHold.blocker?.planFile || "",
+                waitingForRevision: versionHold.blocker?.revision || "",
+                waitingForFingerprint: versionHold.blocker?.codeFingerprint || "",
+                confirmedOutputChoice: false,
+                reuseDeferredId: reusable?.id || "",
+            });
+            this.finishPlanSubmissionProgress(message, "queued", this.planSubmissionQueueDetail(body, versionHold.blocker, false));
+            await this.openPanelAt("tasks", "tasks-list");
+            return;
+        }
+        try {
+            await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
+            const preflightOk = await this.runPlanPreflight(body, "当前计划", {}, (text) => this.reportPlanStage(message, text));
+            if (!preflightOk) {
+                this.finishPlanSubmissionProgress(message, "failed", "校验或预演未通过，未提交运行。");
+                return;
+            }
+            this.reportPlanStage(message, "正在确认历史产物处理方式…");
+            await this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk);
+            this.assertExecutionCondaEnvReady(this.workerActionTargets());
+            this.reportPlanStage(message, "预演通过，正在开启调度…");
+            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, reusable?.id || "");
+            if (submission?.enqueued === false) {
+                this.finishPlanSubmissionProgress(message, "succeeded", "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。");
+                await this.openPanelAt("tasks", "tasks-list");
+                return;
+            }
+            if (submission?.dispatchError) {
+                this.finishPlanSubmissionProgress(message, "succeeded", `调度队列已接收，首次派发暂未完成：${submission.dispatchError}。队列会继续重试。`);
+                await this.openPanelAt("tasks", "tasks-list");
+                return;
+            }
+        } catch (error) {
+            this.finishPlanSubmissionProgress(message, isUiCommandCancelled(error) ? "cancelled" : "failed", errorMessage(error));
+            throw error;
+        }
+        this.finishPlanSubmissionProgress(message, "succeeded", "调度队列已接收；面板继续显示 Worker 回传的任务状态。");
+        await this.openPanelAt("tasks", "tasks-list");
+    }
+    async activeDeferredForSubmission(root, body, fingerprint, deferredPlanId) {
+        if (!root) return undefined;
         const queue = await this.loadDistributedQueue(root);
-        const deferred = { id: makeOpId("distributed-deferred"), planFile: operationResultPlanFile(body),
+        const identity = {
+            id: deferredPlanId,
+            planFile: operationResultPlanFile(body),
+            revision: String(body.planRevision || body.options?.planRevision || ""),
+            codeFingerprint: fingerprint,
+        };
+        return matchingActiveDeferred(queue, identity);
+    }
+    async supersedeDeferredPlan(root, deferredPlanId, supersededBy = "resume") {
+        const id = String(deferredPlanId || "").trim();
+        if (!id) return;
+        const queue = await this.loadDistributedQueue(root);
+        const next = { ...queue, deferred: (queue.deferred || []).map((row) => row.id === id && row.status !== "superseded"
+            ? { ...row, status: "superseded" as const, error: "已被继续提交接续，不再自动派发。", supersededBy } : row) };
+        await this.saveDistributedQueue(root, next);
+    }
+    async deferDistributedPlan(root, body, fingerprint, waiting = {}) {
+        const queue = await this.loadDistributedQueue(root);
+        const reuseId = String(waiting.reuseDeferredId || "");
+        const reusable = (queue.deferred || []).find((row) => row.id === reuseId);
+        const deferred = { id: reusable?.id || makeOpId("distributed-deferred"), planFile: operationResultPlanFile(body),
             revision: String(body.planRevision || body.options?.planRevision || ""), codeFingerprint: fingerprint,
-            body: JSON.parse(JSON.stringify(body)), enqueuedAt: new Date().toISOString(), status: "pending" as const };
-        await this.saveDistributedQueue(root, { ...queue, deferred: [...(queue.deferred || []), deferred] });
+            body: JSON.parse(JSON.stringify(body)), enqueuedAt: new Date().toISOString(), status: "pending" as const,
+            confirmedOutputChoice: waiting.confirmedOutputChoice === true,
+            overwriteExisting: body.overwriteExisting === true,
+            distributedSkipJobIndices: Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : [],
+            waitingForPlanId: waiting.waitingForPlanId || "",
+            waitingForPlanFile: waiting.waitingForPlanFile || "",
+            waitingForRevision: waiting.waitingForRevision || "",
+            waitingForFingerprint: waiting.waitingForFingerprint || "",
+            reason: waiting.confirmedOutputChoice === true
+                ? `等待前序 Plan ${waiting.waitingForPlanFile || "当前代码版本"} 结束；产物选择已保存。`
+                : `等待旧代码版本结束，尚未校验/尚未确认已有产物。前序 ${waiting.waitingForPlanFile || "当前代码版本"}（版本 ${waiting.waitingForRevision || "-"}）。版本释放后点击“继续提交”。` };
+        const retained = (queue.deferred || []).filter((row) => row.id !== deferred.id);
+        await this.saveDistributedQueue(root, { ...queue, deferred: [...retained, deferred] });
         this.postState();
     }
     async selectDistributedPlanPrimary(body) {
@@ -8239,7 +8398,7 @@ export class RealtimeTunnelPanelProvider {
                 }
             });
     }
-    async enqueueDistributedPlan(body, validated, skipTick = false) {
+    async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "") {
         const root = workspaceRoot();
         if (!root) throw new Error("没有当前项目目录。");
         if (this.distributedQueueTickPromise && !skipTick) await this.distributedQueueTickPromise;
@@ -8255,15 +8414,34 @@ export class RealtimeTunnelPanelProvider {
         const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
         if (!selectedJobs.length) {
             void vscode.window.showInformationMessage("此 Plan 的任务均已有完成产物，本次选择跳过；未提交新任务。");
-            return;
+            const supersededId = String(supersededDeferredId || "");
+            if (supersededId) {
+                const next = { ...current, deferred: (current.deferred || []).map((row) => row.id === supersededId
+                    ? { ...row, status: "superseded" as const, error: "已选择跳过全部已有任务，未创建新调度任务。", supersededBy: "skip-all" } : row) };
+                await this.saveDistributedQueue(root, next);
+                this.postState();
+            }
+            return { enqueued: false };
         }
-        const next = DistributedPlanQueue.enqueuePlan(current, { planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
+        const enqueued = DistributedPlanQueue.enqueuePlan(current, { planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
             index: Number(job.index), case: String(job.case), seed: Number(job.seed),
             outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, "") + "/attempts/" + id,
         })) }, id);
+        const supersededId = String(supersededDeferredId || "");
+        const next = supersededId ? { ...enqueued, deferred: (enqueued.deferred || []).map((row) => row.id === supersededId
+            ? { ...row, status: "superseded" as const, error: "已被继续提交接续，不再自动派发。", supersededBy: id } : row) } : enqueued;
         await this.saveDistributedQueue(root, next);
         this.postState();
-        if (!skipTick) await this.tickDistributedQueue();
+        if (!skipTick) {
+            try {
+                await this.tickDistributedQueue();
+            } catch (error) {
+                const dispatchError = errorMessage(error);
+                this.recordActionError({ command: "distributedPlanDispatch", message: `${planFile}：${dispatchError}` });
+                return { enqueued: true, dispatchError };
+            }
+        }
+        return { enqueued: true };
     }
     async tickDistributedQueue() {
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
@@ -8405,19 +8583,35 @@ export class RealtimeTunnelPanelProvider {
             .map((workerId) => [workerId, String(this.lastCodeSyncState?.workerVersions?.[workerId]?.fingerprint || "")]));
         const activeVersion = DistributedPlanQueue.queueOccupiesCodeVersion(queue, verifiedFingerprints);
         const deferred = !activeVersion && !this.distributedPostprocessPromise
-            ? (queue.deferred || []).find((row) => row.status === "pending" && (!row.retryAfter || Date.parse(row.retryAfter) <= Date.now())) : undefined;
+            ? (queue.deferred || []).find((row) => row.status === "pending" && (!row.retryAfter || Date.parse(row.retryAfter) <= Date.now())
+                && !queue.plans.some((plan) => DistributedPlanQueue.sameDeferredPlanFile(plan.planFile, row.planFile) && plan.revision === row.revision && plan.codeFingerprint === row.codeFingerprint)) : undefined;
         if (deferred) {
+            if (deferred.confirmedOutputChoice !== true) {
+                queue = { ...queue, deferred: (queue.deferred || []).map((row) => row.id === deferred.id
+                    ? { ...row, status: "blocked" as const, error: "等待旧代码版本结束，尚未校验/尚未确认已有产物。请点击“继续提交”后再校验和确认，不会自动派发。" } : row) };
+                await this.saveDistributedQueue(root, queue);
+                this.recordActionError({ command: "distributedDeferredPlan", message: `${deferred.planFile}：尚未校验/尚未确认已有产物，已停止自动派发。` });
+            } else {
             deferred.status = "processing";
             await this.saveDistributedQueue(root, queue);
             try {
                 if (await this.localDistributedCodeFingerprint(root) !== deferred.codeFingerprint)
                     throw new Error("排队期间本机代码已变更，请重新提交该 Plan 以固定新版本");
                 const body = JSON.parse(JSON.stringify(deferred.body));
+                const savedSkip = Array.isArray(deferred.distributedSkipJobIndices) ? deferred.distributedSkipJobIndices.map(Number) : [];
+                const savedOverwrite = deferred.overwriteExisting === true;
+                body.overwriteExisting = savedOverwrite;
+                body.overwrite = savedOverwrite;
+                body.distributedSkipJobIndices = savedOverwrite ? [] : savedSkip.slice();
+                body.options = { ...(body.options || {}), overwriteExisting: savedOverwrite, overwrite: savedOverwrite };
                 await this.selectDistributedPlanPrimary(body);
                 await this.ensureCodeReadyForRun(undefined, [body]);
                 const validated = await this.runPlanPreflight(body, `排队计划 ${deferred.planFile}`);
                 if (!validated) throw new Error("排队计划校验未通过");
-                await this.confirmDistributedPlanExistingOutputs({ planFile: deferred.planFile }, body, validated);
+                body.overwriteExisting = savedOverwrite;
+                body.overwrite = savedOverwrite;
+                body.distributedSkipJobIndices = savedOverwrite ? [] : savedSkip.slice();
+                body.options = { ...(body.options || {}), overwriteExisting: savedOverwrite, overwrite: savedOverwrite };
                 this.assertExecutionCondaEnvReady(this.workerActionTargets());
                 await this.enqueueDistributedPlan(body, validated, true);
                 queue = await this.loadDistributedQueue(root);
@@ -8432,6 +8626,7 @@ export class RealtimeTunnelPanelProvider {
                         retryAfter: blocked ? undefined : new Date(Date.now() + 60_000).toISOString() } : row) };
                 await this.saveDistributedQueue(root, queue);
                 this.recordActionError({ command: "distributedDeferredPlan", message: `${deferred.planFile}：${message}` });
+            }
             }
         }
         let snapshot;
@@ -16054,8 +16249,13 @@ export class RealtimeTunnelPanelProvider {
                         error: job.error, blockReason: job.blockReason,
                         artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [],
             deferredPlans: this.distributedQueueRoot === workspaceRoot()
-                ? (this.distributedQueueCache?.deferred || []).map((item) => ({ planFile: item.planFile,
-                    revision: item.revision, status: item.status, error: item.error || "" })) : [],
+                ? (this.distributedQueueCache?.deferred || []).map((item) => ({ id: item.id, planFile: item.planFile,
+                    supersededBy: item.supersededBy || "",
+                    revision: item.revision, codeFingerprint: item.codeFingerprint, status: item.status, error: item.error || "",
+                    reason: item.reason || "", confirmedOutputChoice: item.confirmedOutputChoice === true, overwriteExisting: item.overwriteExisting === true,
+                    distributedSkipJobIndices: item.distributedSkipJobIndices || [],
+                    waitingForPlanFile: item.waitingForPlanFile || "", waitingForRevision: item.waitingForRevision || "",
+                    waitingForFingerprint: item.waitingForFingerprint || "" })) : [],
             experimentTraces,
             logs,
             operations,
@@ -17115,6 +17315,25 @@ function operationCancelledTerminalStatus(value) {
 function remoteActionPendingStatus(value) {
     const text = operationStatusToken(value);
     return REMOTE_ACTION_PENDING_STATUSES.has(text);
+}
+function remoteActionSucceeded(value) {
+    const text = operationStatusToken(value);
+    return text === "completed" || text === "operation_completed" || text === "succeeded" || text === "done";
+}
+function planCheckAccepted(result) {
+    if (!result || typeof result !== "object") return false;
+    const item = result;
+    const nested = item.result && typeof item.result === "object" ? item.result : {};
+    const validation = item.validation && typeof item.validation === "object" ? item.validation
+        : nested.validation && typeof nested.validation === "object" ? nested.validation : {};
+    const status = operationStatusToken(resultStatus(item) || resultStatus(nested));
+    if (["failed", "operation_failed", "error", "cancelled", "canceled", "stalled", "unsupported"].includes(status)) return false;
+    if (item.ok === false || nested.ok === false || validation.ok === false) return false;
+    if (String(item.error || nested.error || "").trim()) return false;
+    if (remoteActionSucceeded(status)) return true;
+    const jobs = Array.isArray(validation.jobs) ? validation.jobs : Array.isArray(item.jobs) ? item.jobs : Array.isArray(nested.jobs) ? nested.jobs : [];
+    const markedOk = item.ok === true || nested.ok === true || validation.ok === true;
+    return markedOk && jobs.length > 0 && jobs.every((job) => job && Number.isInteger(Number(job.index)) && String(job.case || job.name || "").trim() && job.output_dir);
 }
 function operationLongRunningAction(action) {
     return LONG_RUNNING_OPERATION_ACTIONS.has(String(action || "").trim().toLowerCase());

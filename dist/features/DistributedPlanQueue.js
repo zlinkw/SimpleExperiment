@@ -45,6 +45,8 @@ exports.previewAvailable = previewAvailable;
 exports.setJobState = setJobState;
 exports.remoteTaskMatchesJob = remoteTaskMatchesJob;
 exports.resetUnsentDispatch = resetUnsentDispatch;
+exports.sameDeferredPlanFile = sameDeferredPlanFile;
+exports.matchingActiveDeferred = matchingActiveDeferred;
 exports.distributedStopTargets = distributedStopTargets;
 exports.removeConfirmedDistributedPlan = removeConfirmedDistributedPlan;
 exports.stopIdentityMatchesJob = stopIdentityMatchesJob;
@@ -218,6 +220,29 @@ function resetUnsentDispatch(queue, planId, jobIndex, commandId) {
     return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
             jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
                 ? job : { ...job, status: "pending", workerId: undefined, gpuId: undefined, commandId: undefined }) }) };
+}
+function sameDeferredPlanFile(left, right) {
+    return samePlanFile(left, right);
+}
+function matchingActiveDeferred(queue, identity) {
+    const rows = queue.deferred || [];
+    const id = String(identity.id || "");
+    if (id) {
+        const row = rows.find((item) => item.id === id);
+        if (!row)
+            return null;
+        const same = samePlanFile(row.planFile, identity.planFile)
+            && row.revision === identity.revision
+            && row.codeFingerprint === identity.codeFingerprint
+            && row.confirmedOutputChoice !== true
+            && (row.status === "pending" || row.status === "blocked");
+        return same ? row : null;
+    }
+    return rows.find((item) => samePlanFile(item.planFile, identity.planFile)
+        && item.revision === identity.revision
+        && item.codeFingerprint === identity.codeFingerprint
+        && item.confirmedOutputChoice !== true
+        && (item.status === "pending" || item.status === "blocked"));
 }
 function samePlanFile(left, right) {
     const normalize = (value) => value.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();

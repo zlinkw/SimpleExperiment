@@ -2393,7 +2393,7 @@ function renderPanelHtml() {
     const BUTTON_PAYLOAD_ATTRIBUTE_NAMES = Object.freeze({
       endpointId: "endpoint-id", planFile: "plan-file", planRevision: "plan-revision", planId: "plan-id", file: "file", runKey: "run-key", taskUiKey: "task-ui-key", experimentId: "experiment-id",
       archiveKey: "archive-key", experimentIndex: "experiment-index", gpuId: "gpu-id", workerId: "worker-id", remotePath: "remote-path", confirmationPath: "confirmation-path",
-      artifactPath: "artifact-path", resultPath: "result-path", logPath: "log-path", savePlan: "save-plan", sourcePath: "source-path", sourceLabel: "source-label",
+      artifactPath: "artifact-path", resultPath: "result-path", logPath: "log-path", savePlan: "save-plan", deferredPlanId: "deferred-plan-id", sourcePath: "source-path", sourceLabel: "source-label",
       presentationPath: "presentation-path", chartType: "chart-type", styleMode: "style-mode"
     });
     const BUTTON_PAYLOAD_ATTRIBUTE_KEYS = Object.freeze(Object.keys(BUTTON_PAYLOAD_ATTRIBUTE_NAMES));
@@ -2420,7 +2420,7 @@ function renderPanelHtml() {
       runPlan: "运行中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
     });
     const OPERATION_TYPE_LABELS = Object.freeze({
-      "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划",
+      "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划", "queued": "代码版本排队",
       "parse-results": "解析结果", "refresh-results": "刷新结果", "check-output-contract": "检查输出契约", "archive-plan": "归档计划", "restore-archived-plan": "恢复归档 Plan",
       "archive-artifacts": "归档实验产物", "delete-artifacts": "删除实验产物", "sync-artifacts": "检查同步清单", "complete-three-way": "三方一致校验",
       "run-quality-gate": "质量门禁", "run-statistics": "统计分析", "check-claim-evidence": "检查论文证据", "export-paper-table": "导出论文表格", "export-plotting-contract": "导出 PPT 绘图契约", "plot-results-to-ppt": "绘图到 PPT",
@@ -6347,7 +6347,7 @@ function renderPanelHtml() {
 
     function buttonDatasetActionPayload(button) {
       const payload = {};
-      ["endpointId", "planFile", "planRevision", "planId", "file", "report", "name", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "target", "session", "window"].forEach((key) => {
+      ["endpointId", "planFile", "planRevision", "planId", "deferredPlanId", "file", "report", "name", "runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "confirmationPath", "artifactPath", "resultPath", "logPath", "savePlan", "target", "session", "window"].forEach((key) => {
         if (button.dataset[key]) payload[key] = button.dataset[key];
       });
       if (button.dataset.batchSelected === "true") payload.batchSelected = "true";
@@ -12937,11 +12937,17 @@ function renderPanelHtml() {
       operationRowsForState(state).forEach((row) => {
         const planFile = row.planFile || row.plan;
         const action = String(row.type || row.action || "").toLowerCase();
-        if (!operationIsFailureLike(row.status) && !operationHasDeadEvidence(row)
-          && !["run-plan", "reproduce-plan", "workflow-run", "stop-scheduler-operation"].includes(action)) return;
+        if (!operationIsFailureLike(row.status) && !operationHasDeadEvidence(row) && !operationIsActive(row.status)
+          && !["run-plan", "reproduce-plan", "workflow-run", "stop-scheduler-operation", "queued"].includes(action)) return;
         if (planFile) getGroup(planFile).operations.push(row);
       });
       taskSectionViewModelForState(state).allRows.forEach((row) => getGroup(taskPlanFile(row)).tasks.push(row));
+      (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).forEach((plan) => {
+        if (!plan.planFile) return;
+        const group = getGroup(plan.planFile);
+        group.operations.push({ operationId: plan.id || "deferred-" + plan.planFile, type: "queued", status: plan.status === "blocked" ? "failed" : "queued",
+          planFile: plan.planFile, planRevision: plan.revision || "", message: plan.reason || plan.error || "等待前序代码版本结束后继续", updatedAt: plan.enqueuedAt || "" });
+      });
       (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).forEach((plan) => {
         if (!plan.planFile) return;
         const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
@@ -13137,8 +13143,11 @@ function renderPanelHtml() {
         const active = (Array.isArray(plan.jobs) ? plan.jobs : []).some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
         return !state.executionHistoryCutoffs || executionHistoryRowVisible(state, { startedAt: plan.enqueuedAt }, plan.planFile, active);
       });
-      const distributedHtml = distributedPlans.length
-        ? '<div class="summaryLine">' + distributedPlans.map((plan) => {
+      const currentPlanKey = normalizePlanSelectionKey(scope.selectedPlanFile || "");
+      const currentDistributed = distributedPlans.filter((plan) => currentPlanKey && samePlanSelection(plan.planFile || "", scope.selectedPlanFile));
+      const otherDistributed = distributedPlans.filter((plan) => !currentDistributed.includes(plan));
+      const renderDistributedGroup = (plans, heading, explanation) => plans.length
+        ? '<section class="taskRecordGroup"><h3>' + esc(heading) + '</h3><p class="muted">' + esc(explanation) + '</p><div class="summaryLine">' + plans.map((plan) => {
             const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
             const counts = {};
             jobs.forEach((job) => { const key = String(job.status || "unknown"); counts[key] = (counts[key] || 0) + 1; });
@@ -13146,20 +13155,41 @@ function renderPanelHtml() {
             const mismatched = jobs.filter((job) => String(job.blockReason || '').indexOf('代码指纹不匹配') === 0);
             const waiting = jobs.filter((job) => String(job.blockReason || '').indexOf('等待当前代码版本') === 0);
             const blockNote = (mismatched.length ? ' · 代码指纹不匹配 ' + mismatched.length : '') + (waiting.length ? ' · 等待当前版本 ' + waiting.length : '');
-            return '<span class="pill" title="' + escAttr(jobs.map((job) => job.case + ' seed ' + job.seed + ' · ' + job.status + ' · ' + (job.workerId || '待分配') + (job.blockReason ? ' · ' + job.blockReason : '') + (job.artifactError ? ' · ' + job.artifactError : '')).join(String.fromCharCode(10))) + '">'
-              + esc(compactPath(plan.planFile)) + ' · ' + esc(detail) + esc(blockNote) + '</span>'
+            return '<div class="taskRecordRow"><span class="pill" title="' + escAttr(jobs.map((job) => job.case + ' seed ' + job.seed + ' · ' + job.status + ' · ' + (job.workerId || '待分配') + (job.blockReason ? ' · ' + job.blockReason : '') + (job.artifactError ? ' · ' + job.artifactError : '')).join(String.fromCharCode(10))) + '">'
+              + esc(compactPath(plan.planFile)) + ' · 版本 ' + esc(compactIdentifier(plan.revision || "-")) + ' · ' + esc(detail) + esc(blockNote) + '</span>'
               + (mismatched.length ? '<span class="muted">代码指纹不匹配：Worker 已是其他代码版本，该 Plan 仍保留为排队。请用当前代码重新提交，或恢复提交前的代码并重新同步 Worker 后再继续。不会自动失败、取消或重发。</span>' : '')
               + (waiting.length ? '<span class="muted">等待当前代码版本的任务结束后再派发；Worker 仍有该 Plan 的代码版本，任务保留为排队。</span>' : '')
-              + jobs.filter((job) => job.status === 'failed' || job.status === 'unknown').map((job) =>
-                '<button type="button" data-distributed-retry="' + escAttr(plan.id) + '" data-job-index="' + Number(job.index) + '" title="核实原任务停止、保存已有产物后建立新 attempt">恢复 ' + esc(job.case) + ' seed ' + Number(job.seed) + '</button>').join('');
-          }).join('') + '</div>' : '';
+              + '<div class="taskRecoveryActions">' + jobs.filter((job) => job.status === 'failed' || job.status === 'unknown').map((job) =>
+                '<button type="button" data-distributed-retry="' + escAttr(plan.id) + '" data-job-index="' + Number(job.index) + '" title="这是失败或待核实 job 的恢复入口，不是新的提交。核实原任务停止、保存已有产物后建立新 attempt">恢复 ' + esc(job.case) + ' seed ' + Number(job.seed) + '</button>').join('') + '</div></div>';
+          }).join('') + '</div></section>' : '';
+      const currentDistributedHtml = renderDistributedGroup(currentDistributed, "当前 Plan 的调度记录", "这些 job 属于正在查看的 Plan。数量为 0 只表示还没有调度回传，不代表没有提交。");
+      const historyDistributedHtml = renderDistributedGroup(otherDistributed, "其他 Plan 的历史与待处理记录", "这些行来自其他 Plan 或旧运行，不是当前 Plan 的 job。失败行上的“恢复”只重试那一个历史 job。");
       const deferredPlans = Array.isArray(state.deferredPlans) ? state.deferredPlans : [];
-      const deferredHtml = deferredPlans.length ? '<div class="summaryLine">' + deferredPlans.map((plan) =>
-        '<span class="pill" title="' + escAttr(plan.error || '等待当前代码版本的任务结束及结果同步') + '">'
-        + esc(compactPath(plan.planFile)) + ' · 代码版本排队 · ' + esc(plan.status) + '</span>').join('') + '</div>' : '';
-      let taskSummaryHtml = scopeBar + distributedHtml + deferredHtml + renderTaskPlanCompletionNext(state, scope) + (rows.length
+      const deferredStatusLabel = (status) => ({ pending: "排队等待前序版本", processing: "正在转入调度", blocked: "已阻塞，需要继续提交", superseded: "已被继续提交接续" }[String(status || "")] || String(status || "未知"));
+      const deferredConfirmed = deferredPlans.filter((plan) => plan.confirmedOutputChoice === true).length;
+      const deferredPendingConfirm = deferredPlans.filter((plan) => plan.confirmedOutputChoice !== true && plan.status !== "superseded").length;
+      const deferredHtml = '<section class="taskRecordGroup"><h3>代码版本排队</h3><p class="muted">'
+        + (deferredConfirmed && deferredPendingConfirm
+          ? "已确认产物的提交会在旧代码版本结束后继续。尚未确认的提交只保留排队，必须点击同一条记录上的“继续提交”完成校验和产物确认，不会自动派发。"
+          : deferredPendingConfirm
+            ? "这些提交尚未校验、尚未确认已有产物。旧代码版本结束后，点击对应记录的“继续提交”；不会自动派发，也不会另开一条排队。"
+            : "这些提交已完成校验和产物确认，因旧代码版本仍在运行而尚未派发。记录会保留。")
+        + '</p>'
+        + (deferredPlans.length ? deferredPlans.map((plan) => {
+            const choice = plan.status === "superseded" ? "已被继续提交接续，不再自动派发"
+              : plan.confirmedOutputChoice === true
+              ? (plan.overwriteExisting === true ? "重跑全部并保留历史" : (Array.isArray(plan.distributedSkipJobIndices) && plan.distributedSkipJobIndices.length ? "跳过已有 job " + plan.distributedSkipJobIndices.join(",") : "产物选择已保存"))
+              : "尚未校验/尚未确认已有产物";
+            const ahead = plan.waitingForPlanFile ? "前序 " + compactPath(plan.waitingForPlanFile) + " · 版本 " + (plan.waitingForRevision || "-") : "等待当前代码版本释放";
+            const continueButton = plan.confirmedOutputChoice === true || plan.status === "superseded" ? '' : '<button type="button" data-command="runPlan" data-plan-file="' + escAttr(plan.planFile) + '" data-deferred-plan-id="' + escAttr(plan.id || "") + '" data-confirm="true" title="继续这一条排队记录：校验并确认已有产物。不会另开一条排队，也不会在后台自动派发。">继续提交</button>';
+            return '<div class="taskRecordRow"><span class="pill">' + esc(compactPath(plan.planFile)) + ' · ' + esc(deferredStatusLabel(plan.status)) + '</span><span class="muted">'
+              + esc(ahead) + ' · ' + esc(choice) + ' · ' + esc(plan.reason || plan.error || "前序版本结束后需继续提交。") + '</span>' + continueButton + '</div>';
+          }).join('') : '<div class="muted">当前没有等待代码版本的提交。</div>') + '</section>';
+      const currentEmptyNote = !rows.length && (currentDistributed.length || deferredPlans.some((plan) => currentPlanKey && samePlanSelection(plan.planFile || "", scope.selectedPlanFile)))
+        ? '<div class="notice">当前版本调度 job 数为 0。上面的代码版本排队或历史记录才是这次提交的状态，它们不是当前 Plan 的运行 job。</div>' : '';
+      let taskSummaryHtml = scopeBar + currentDistributedHtml + deferredHtml + historyDistributedHtml + currentEmptyNote + renderTaskPlanCompletionNext(state, scope) + (rows.length
         ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
-        : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无任务，等待提交或调度状态回传。" : "暂无任务数据。") + '</div>');
+        : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无调度回传的 job。若刚刚提交，请查看上方“代码版本排队”或运行进度。" : "暂无任务数据。") + '</div>');
       setHtmlIfChanged("taskSummary", taskSummaryHtml);
       const selectedRows = taskView.selectedRows;
       renderTaskBatchActions(state, rows, selectedRows);
