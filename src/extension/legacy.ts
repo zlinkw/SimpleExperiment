@@ -48,7 +48,7 @@ import { expandSyncScopeBatchSelection, runSyncScopeBatch, syncScopeIssueSignatu
 import { batchSyncScopeInventoryPaths, planSyncScopeTransferGroups, scopeInventorySnapshot } from "../features/SyncScopeTransferBatch";
 import { planLatestWorkerMerge } from "../features/SyncLatestMerge";
 import { mirrorChosenWorkerVersionToLocal } from "../features/SyncScopeLocalMirror";
-import { buildScopeStatuses, collectLocalScopeInventory, collectSelectedLocalScopeFiles, hashLocalScopeNames, scopeInventoryPathAllowed, requireCompleteScopeInventory } from "../features/SyncScopeStatus";
+import { buildScopeStatuses, collectLocalScopeInventory, collectSelectedLocalScopeFiles, hashLocalScopeNames, localScopeHashCachePath, scopeInventoryPathAllowed, requireCompleteScopeInventory } from "../features/SyncScopeStatus";
 import { deleteLocalSyncPath, filterHeldFiles, isSyncHeld, loadSyncHolds, safeSyncPath, saveSyncHolds } from "../features/SyncResolution";
 const { renderPanelHtml } = PanelHtml_1;
 import PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
@@ -4867,7 +4867,7 @@ export class RealtimeTunnelPanelProvider {
                 await this.rebuildProjectResultTablesFromUi();
                 break;
             case "syncPendingPlanArtifacts":
-                await this.syncPendingPlanArtifacts();
+                await this.syncPendingResultMetricsFromUi();
                 break;
             case "splitProjectResultTable":
                 await this.splitProjectResultTableFromUi(message);
@@ -6940,15 +6940,16 @@ export class RealtimeTunnelPanelProvider {
         const unverified = {};
         const localUnverified = {};
         const local = mode === "local-server"
-            ? await collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; }) : {};
+            ? await collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root)) : {};
         if (mode === "local-server" && Object.keys(localUnverified).length) unverified.local = localUnverified;
         const workers = {};
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
         for (const id of offline) workers[id] = {};
+        const inventoryScope = mode === "server-server" && selectedPaths.length && !selectedPaths.includes(".") ? selectedPaths : undefined;
         const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", {
             source: this.sftpServerOptions(target), relativePath: relative, recursive: true, timeoutMs: 120000,
-            ...(mode === "local-server" ? { scopePaths: selectedPaths } : {}),
+            ...(mode === "local-server" || inventoryScope ? { scopePaths: inventoryScope || selectedPaths } : {}),
         })));
         const errors = [];
         for (let index = 0; index < targets.length; index++) {
@@ -6986,14 +6987,24 @@ export class RealtimeTunnelPanelProvider {
             throw new Error("同步或文件树操作进行中，请完成后重试。");
         if (targets.length < 2) throw new Error("至少需要两台已启用 Worker。");
         if (relative !== ".") safeSyncPath(relative);
+        const bounded = relative === "." && selectedPaths.length && !selectedPaths.includes(".");
+        for (const scope of bounded ? selectedPaths : []) safeSyncPath(scope);
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
         if (configured.some((id) => !targets.some((target) => target.id === id))) throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。");
         this.syncScopeMutationInFlight = true;
         try {
             report("正在校验所选目录内各 Worker 的文件版本");
-            const statuses = await this.refreshSyncScopeStatus(root, targets, "server-server", selectedPaths, relative);
-            if (statuses[relative]?.detail?.includes("清单校验失败")) throw new Error(statuses[relative].detail);
-            const planned = planLatestWorkerMerge(statuses, targets.map((target) => target.id));
+            const statuses = {};
+            if (bounded) {
+                for (const scope of selectedPaths) Object.assign(statuses, await this.refreshSyncScopeStatus(root, targets, "server-server", [scope], scope));
+            }
+            else Object.assign(statuses, await this.refreshSyncScopeStatus(root, targets, "server-server", selectedPaths, relative));
+            const failedInventory = [relative, ...(bounded ? selectedPaths : [])].map((scope) => statuses[scope]).find((row) => row?.detail?.includes("清单校验失败"));
+            if (failedInventory) throw new Error(failedInventory.detail);
+            const scoped = selectedPaths.includes(".")
+                ? statuses
+                : Object.fromEntries(Object.entries(statuses).filter(([file]) => selectedPaths.some((scope) => file === scope || file.startsWith(`${scope}/`)) || file === relative));
+            const planned = planLatestWorkerMerge(scoped, targets.map((target) => target.id));
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
             const skipped = [...planned.skipped];
@@ -7142,7 +7153,7 @@ export class RealtimeTunnelPanelProvider {
     async loadSyncScopeBatchSourceFiles(root, targets, endpointId, work) {
         if (endpointId === "local") {
             if (this.syncScopeBatchLocalInventory) return this.syncScopeBatchLocalInventory(root, work);
-            return collectSelectedLocalScopeFiles(root, work);
+            return collectSelectedLocalScopeFiles(root, work, this.localScopeHashCacheFile(root));
         }
         const sourceRow = targets.find((row) => row.id === endpointId);
         if (!sourceRow) throw new Error("来源 Worker 未连接或未启用。");
@@ -7232,10 +7243,10 @@ export class RealtimeTunnelPanelProvider {
                     paths: [...plan.directoryDeletes, ...work.filter((item) => !item.directory).map((item) => item.path)],
                     confirm: true, pathConfirmed: true,
                 }),
-                () => hashLocalScopeNames(root, selectedFiles),
+                () => hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root)),
                 (file) => deleteLocalSyncPath(root, file), report, selectedFiles);
             for (const directory of plan.directoryDeletes) {
-                const actual = await collectLocalScopeInventory(root, directory, true);
+                const actual = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
                 const stale = Object.keys(actual).filter((file) => !plan.files[file]);
                 for (const file of stale) {
                     if (!file.startsWith(`${directory}/`)) throw new Error(`本机旧文件超出所选目录：${file}`);
@@ -7243,7 +7254,7 @@ export class RealtimeTunnelPanelProvider {
                 }
             }
             if (plan.directoryDeletes.length) {
-                const localFiles = await hashLocalScopeNames(root, selectedFiles);
+                const localFiles = await hashLocalScopeNames(root, selectedFiles, undefined, this.localScopeHashCacheFile(root));
                 if (scopeInventorySnapshot(localFiles, selectedFiles) !== scopeInventorySnapshot(plan.files, selectedFiles))
                     throw new Error("本机目录内容校验不一致；保留待同步状态。");
             }
@@ -7405,7 +7416,7 @@ export class RealtimeTunnelPanelProvider {
             }
         }
         const inventoryPath = relative;
-        const sourceInventory = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory)
+        const sourceInventory = endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
             : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const expected = directory ? "目录内所有文件逐项 SHA256 校验" : sourceInventory[relative]?.sha256;
         if (!expected) throw new Error("来源文件不存在或尚未完成 SHA256 校验。");
@@ -7417,7 +7428,7 @@ export class RealtimeTunnelPanelProvider {
             ...destinationRows.map((row) => ({ label: `目标 ${row.id}`, path: path.posix.join(this.sftpServerOptions(row).remotePath, relative) })),
             ...(mirrorLocal ? [{ label: "目标 本机", path: path.resolve(root, ...relative.split("/")) }] : []),
         ], "确认同步到其他位置")) return false;
-        const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory)
+        const currentSource = batchApproved ? sourceInventory : endpointId === "local" ? await collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root))
             : (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(sourceRow), relativePath: inventoryPath, recursive: directory })).files;
         const sourceSnapshot = (files) => JSON.stringify((directory ? Object.entries(files) : [[relative, files[relative]]]).map(([file, info]: [string, any]) => [file, info?.sha256 || ""]).sort());
         if (sourceSnapshot(currentSource) !== sourceSnapshot(sourceInventory))
@@ -7456,7 +7467,7 @@ export class RealtimeTunnelPanelProvider {
             report("正在同步到本机对应路径");
             await mirrorChosenWorkerVersionToLocal(relative, directory, sourceInventory,
                 () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }),
-                () => collectLocalScopeInventory(root, inventoryPath, directory),
+                () => collectLocalScopeInventory(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root)),
                 (file) => deleteLocalSyncPath(root, file), report);
             report("本机文件内容校验通过");
         }
@@ -7481,7 +7492,7 @@ export class RealtimeTunnelPanelProvider {
             let sourceRow = choice.endpointId === "local" ? undefined : targets.find((row) => row.id === choice.endpointId);
             let sourceFiles = expected;
             if (choice.endpointId === "local") {
-                sourceFiles = await collectLocalScopeInventory(root, directory, true);
+                sourceFiles = await collectLocalScopeInventory(root, directory, true, undefined, this.localScopeHashCacheFile(root));
             } else if (!sourceRow || hashes(subtree(inventories[sourceRow.id] || {}, directory)) !== hashes(expected)) {
                 sourceRow = targets.find((row) => hashes(subtree(inventories[row.id] || {}, directory)) === hashes(expected));
                 if (!sourceRow) throw new Error(`手动保留的目录 ${directory} 无可验证来源；等待来源 Worker 重连。`);
@@ -7985,6 +7996,10 @@ export class RealtimeTunnelPanelProvider {
     localCodeManifestCacheFile(root) {
         const storageRoot = this.context?.globalStorageUri?.fsPath;
         return storageRoot ? localCodeManifestCachePath(storageRoot, root) : undefined;
+    }
+    localScopeHashCacheFile(root) {
+        const storageRoot = this.context?.globalStorageUri?.fsPath;
+        return storageRoot ? localScopeHashCachePath(storageRoot, root) : undefined;
     }
     async primaryGitRepository() {
         const extension = vscode.extensions.getExtension("vscode.git");
@@ -13419,15 +13434,105 @@ export class RealtimeTunnelPanelProvider {
             throw new Error("当前 Plan 没有可同步的结果文件；请先刷新或重建汇总。");
         if (candidates.length > 64)
             throw new Error(`当前 Plan 有 ${candidates.length} 个结果文件，超过单次同步上限 64；请分别打开需要的文件。`);
+        const download = await this.downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, "同步当前 Plan 全部结果", { metricsOnly: false });
+        if (!isCurrent() || !download) return;
+        if (download.cancelled && !download.completed && !download.failures?.length) return;
+        return download;
+    }
+    async syncPendingResultMetricsFromUi() {
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
+        const client = this.client;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        if (!root)
+            throw new Error("请先打开当前实验项目。");
+        if (this.effectiveConnectionMode() === "offline_import")
+            throw new Error("离线模式无法合并 Worker 结果或下载指标文件。");
+        await this.refreshLocalPlanMetadataForAction({ options: {}, suppressGlobalTaskSelection: true }, { allPlans: true });
+        if (!isCurrent())
+            return { merged: false, downloaded: false, reason: "revision-changed" };
+        const ledger = await this.loadPlanSyncLedger(root);
+        const plans = (this.localPlanMetadata.plans || []).map((item) => String(item.planFile || item.file || "")).filter(Boolean);
+        if (!plans.length) {
+            void vscode.window.showInformationMessage("当前项目没有已知 Plan，未下载指标文件。");
+            return { merged: true, downloaded: false, reason: "none", plans: [] };
+        }
+        const known = plans.map((planFile) => {
+            const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
+            const authority = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
+            return { planFile, metadata, authority };
+        });
+        const targets = this.workerCodeSyncTargets();
+        const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
+        const owners = [...new Set(known.map((item) => String(item.authority?.sourceWorkerId || "")).filter(Boolean))];
+        if (configured.some((id) => !targets.some((target) => target.id === id)) || owners.some((id) => !targets.some((target) => target.id === id)))
+            throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。未下载指标文件。");
+        const scopePaths = [...new Set(known.flatMap((item) => resultMetricMergeScopePaths(item.metadata, item.planFile, [
+            ...(item.authority?.artifactPaths || []), ...(item.authority?.directoryPaths || []),
+        ])))].sort();
+        if (targets.length >= 2) {
+            if (!isCurrent())
+                return { merged: false, downloaded: false, reason: "revision-changed" };
+            const outcome = await this.mergeLatestWorkerVersions(root, targets, scopePaths, ".", (stage) => {
+                void vscode.window.setStatusBarMessage(`结果指标合并：${stage}`, 4000);
+            });
+            if (outcome === false)
+                throw new UiCommandCancelled("已取消按最新版合并，未下载指标文件。");
+            const blocking = (Array.isArray(outcome?.errors) ? outcome.errors : []).filter((item) => item && !/没有需要同步的 Worker 文件|：代码以本机为准/.test(String(item)));
+            if (blocking.length)
+                throw new Error(`Worker 结果未完全合并，未下载指标文件：${blocking.slice(0, 5).join("；")}`);
+        }
+        if (!isCurrent())
+            return { merged: false, downloaded: false, reason: "revision-changed" };
+        const ready = [];
+        for (const item of known) {
+            const summary = await this.summaryForMetricDownload(client, item.planFile);
+            if (!isCurrent())
+                return { merged: true, downloaded: false, reason: "revision-changed" };
+            const revision = item.authority?.revision || item.metadata?.revision || "";
+            if (!ProjectResultTables.summaryMatchesPlanRevision(summary, { revision }))
+                throw new Error(`结果摘要与 Plan ${item.planFile} revision ${revision || "当前"} 不一致，未下载指标文件。`);
+            ready.push({ ...item, summary, candidates: resultMetricDownloadCandidates(summary, item.planFile) });
+        }
+        const downloads = [];
+        for (const item of ready) {
+            if (!item.candidates.length) continue;
+            const download = await this.downloadResultArtifactCandidates(projectContext, client, item.planFile, item.summary, item.candidates, "同步结果指标文件", { metricsOnly: true });
+            downloads.push(download);
+            if (download?.cancelled)
+                break;
+        }
+        const downloaded = downloads.some((item) => item && !item.cancelled && !item.failures?.length && item.completed > 0);
+        return { merged: true, downloaded, plans, downloads };
+    }
+    async summaryForMetricDownload(client, planFile) {
+        if (typeof client?.getResultsSummary === "function") {
+            const summary = await client.getResultsSummary(planFile, { userInitiated: true });
+            return this.filterResultsSummaryForPlan(summary, planFile);
+        }
+        await this.refreshResultsSummary(planFile);
+        return this.filterResultsSummaryForPlan(this.resultsSummary, planFile);
+    }
+    async downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, title, options = {}) {
+        const root = projectContext.root;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        const metricsOnly = options.metricsOnly === true;
+        if (!candidates.length)
+            throw new Error(metricsOnly ? "没有可下载的指标文件。" : "当前 Plan 没有可同步的结果文件；请先刷新或重建汇总。");
+        if (candidates.length > 64)
+            throw new Error(`当前 Plan 有 ${candidates.length} 个${metricsOnly ? "指标" : "结果"}文件，超过单次同步上限 64；请分别打开需要的文件。`);
         const workerTables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
         const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
         const entries = [];
         const destinations = new Set();
         for (const candidate of candidates) {
+            const remotePath = String(candidate.remotePath || "");
+            if (metricsOnly && !isResultMetricFile(remotePath))
+                throw new Error(`拒绝下载非指标文件：${remotePath}`);
             const owner = String(candidate.workerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
             const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (!owner && availableWorkers.length === 1 ? availableWorkers[0] : "");
             if (workerTables.length > 1 && !workerId)
-                throw new Error(`无法确定 ${candidate.remotePath} 所属 Worker，已阻止批量同步。`);
+                throw new Error(`无法确定 ${remotePath} 所属 Worker，已阻止批量同步。`);
             if (owner && availableWorkers.length && !workerId)
                 throw new Error(`结果所属 Worker ${owner} 未启用，已阻止批量同步。`);
             if (!workerId && this.missingCapabilities(["endpoints.fileDownload"]).length)
@@ -13436,38 +13541,42 @@ export class RealtimeTunnelPanelProvider {
             const localPath = safeWorkspaceChildPath(root, localRelative);
             const destinationKey = localPath.toLowerCase();
             if (destinations.has(destinationKey))
-                throw new Error(`多个结果文件对应同一本地路径：${localRelative}，已阻止覆盖。`);
+                throw new Error(`多个指标文件对应同一本地路径：${localRelative}，已阻止覆盖。`);
             destinations.add(destinationKey);
             const existing = await fs.stat(localPath).catch(() => undefined);
             if (existing && !existing.isFile())
                 throw new Error(`本地结果位置不是文件：${localRelative}`);
-            entries.push({ ...candidate, workerId, localRelative, localPath, exists: Boolean(existing) });
+            entries.push({ remotePath, workerId, localRelative, localPath, exists: Boolean(existing) });
         }
-        if (!isCurrent()) return;
+        if (!isCurrent())
+            return { completed: 0, selected: 0, failures: [], cancelled: true };
         const existingCount = entries.filter((entry) => entry.exists).length;
         let overwrite = true;
         if (existingCount) {
             const answer = await vscode.window.showWarningMessage([
-                "【批量同步结果确认】",
+                metricsOnly ? "【同步结果指标确认】" : "【批量同步结果确认】",
                 `当前 Plan：${planFile}`,
-                `结果文件：${entries.length} 个，已有本地副本：${existingCount} 个`,
+                `${metricsOnly ? "指标" : "结果"}文件：${entries.length} 个，已有本地副本：${existingCount} 个`,
                 `本机目录：${safeWorkspaceChildPath(root, DEFAULT_RESULT_CSV_DIR)}`,
-                "每个文件最多 128 MB；仅下载当前 Plan 摘要列出的文件，远端文件不变。",
+                metricsOnly
+                    ? "每个文件最多 128 MB；只下载当前 Plan 摘要列出的 CSV/JSON 指标，不下载权重或日志。"
+                    : "每个文件最多 128 MB；仅下载当前 Plan 摘要列出的文件，远端文件不变。",
             ].join("\n"), { modal: true }, "覆盖已有文件并同步", "只同步缺失文件");
-            if (!isCurrent()) return;
+            if (!isCurrent())
+                return { completed: 0, selected: entries.length, failures: [], cancelled: true };
             if (answer !== "覆盖已有文件并同步" && answer !== "只同步缺失文件")
-                throw new UiCommandCancelled("批量同步已取消。");
+                throw new UiCommandCancelled(metricsOnly ? "指标文件下载已取消。" : "批量同步已取消。");
             overwrite = answer === "覆盖已有文件并同步";
         }
         const selected = entries.filter((entry) => overwrite || !entry.exists);
         if (!selected.length) {
-            void vscode.window.showInformationMessage(`当前 Plan 的 ${entries.length} 个结果文件已有本地副本。`);
-            return;
+            void vscode.window.showInformationMessage(`当前 Plan 的 ${entries.length} 个${metricsOnly ? "指标" : "结果"}文件已有本地副本。`);
+            return { completed: 0, selected: 0, failures: [], cancelled: false, skippedExisting: entries.length };
         }
         const failures = [];
         let completed = 0;
         let cancelled = false;
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "同步当前 Plan 全部结果", cancellable: true }, async (progress, token) => {
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
             for (let index = 0; index < selected.length; index++) {
                 if (token.isCancellationRequested || !isCurrent()) { cancelled = true; break; }
                 const entry = selected[index];
@@ -13500,12 +13609,14 @@ export class RealtimeTunnelPanelProvider {
                 }
             }
         });
-        if (!isCurrent()) return;
-        const summaryText = `当前 Plan 结果同步：成功 ${completed}/${selected.length}，跳过已有 ${entries.length - selected.length}，失败 ${failures.length}${cancelled ? "，已取消后续文件" : ""}。本机目录：${DEFAULT_RESULT_CSV_DIR}`;
-        if (failures.length)
+        if (!isCurrent())
+            return { completed, selected: selected.length, failures, cancelled: true };
+        const summaryText = `${metricsOnly ? "指标文件下载" : "当前 Plan 结果同步"}：成功 ${completed}/${selected.length}，跳过已有 ${entries.length - selected.length}，失败 ${failures.length}${cancelled ? "，已取消后续文件" : ""}。本机目录：${DEFAULT_RESULT_CSV_DIR}`;
+        if ((metricsOnly && (failures.length || cancelled)) || (!metricsOnly && failures.length))
             void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
         else
             void vscode.window.showInformationMessage(summaryText);
+        return { completed, selected: selected.length, failures, cancelled };
     }
     async loadProjectTableRegistry(root) {
         const file = safeWorkspaceChildPath(root, "simple_cluster/results/project_table_registry.json");
@@ -25253,6 +25364,32 @@ function resultSummaryInspectionCandidates(summary, planFile) {
         claimEvidence.path,
     ].map(normalizeRemoteResultInspectionPath).filter(Boolean));
 }
+function isBlockedResultScope(value) {
+    const normalized = String(value || "").replace(/\\/g, "/").toLowerCase();
+    return /(?:^|\/)(?:work_dirs|checkpoints?|weights?)(?:\/|$)/.test(normalized);
+}
+function isResultMetricFile(value) {
+    const normalized = String(value || "").replace(/\\/g, "/").toLowerCase();
+    if (!normalized || isBlockedResultScope(normalized)) return false;
+    if (/\.(pt|pth|ckpt|bin|safetensors|onnx|log|out|txt)$/i.test(normalized)) return false;
+    return /\.(csv|json|md)$/i.test(normalized);
+}
+function resultMetricMergeScopePaths(plan, planFile, extras = []) {
+    const paths = new Set(PlanArtifactSync.planArtifactDirectories(plan).filter((item) => !isBlockedResultScope(item) && (isResultMetricFile(item) || !/\.[a-z0-9]+$/i.test(item))));
+    for (const candidate of [...(Array.isArray(plan?.outputCandidates) ? plan.outputCandidates : []), ...extras]) {
+        const safe = PlanArtifactSync.safePlanArtifactPath(candidate);
+        if (!safe || isBlockedResultScope(safe)) continue;
+        if (isResultMetricFile(safe) || !/\.[a-z0-9]+$/i.test(safe)) {
+            const folder = isResultMetricFile(safe) ? path.posix.dirname(safe) : safe;
+            if (folder && folder !== ".") paths.add(folder);
+        }
+    }
+    if (!paths.size) paths.add("simple_cluster/results");
+    return [...paths].filter((item) => item && item !== "." && !isBlockedResultScope(item)).sort();
+}
+function resultMetricDownloadCandidates(summary, planFile) {
+    return resultSummarySyncCandidates(summary, planFile).filter((item) => isResultMetricFile(item.remotePath));
+}
 function resultSummarySyncCandidates(summary, planFile) {
     const inspected = new Set(resultSummaryInspectionCandidates(summary, planFile));
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
@@ -26544,5 +26681,9 @@ try { (module as any).exports.RealtimeTunnelPanelProvider = RealtimeTunnelPanelP
 export async function __transferSyncScopeBatchForTest(provider, root, targets, work, destinationIds, report) {
     const prototype = RealtimeTunnelPanelProvider.prototype;
     return prototype.transferSyncScopeBatch.call(Object.assign(Object.create(prototype), provider), root, targets, work, destinationIds, report);
+}
+export async function __syncPendingResultMetricsForTest(provider) {
+    const prototype = RealtimeTunnelPanelProvider.prototype;
+    return prototype.syncPendingResultMetricsFromUi.call(Object.assign(Object.create(prototype), provider));
 }
 try { (exports as any).RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider; } catch {}

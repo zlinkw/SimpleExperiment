@@ -230,7 +230,7 @@ test("extension and workbench expose a confirmed download-and-open path", () => 
 test("preview and effective CSV buttons open result artifacts without changing Plan selection", () => {
   const handler = extension.slice(extension.indexOf("async openResultArtifactFromUi"), extension.indexOf("async openAuditTail"));
   assert.match(extension, /case "openResultArtifact":\s*await this\.openResultArtifactFromUi\(message\)/);
-  assert.match(extension, /"downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail"/);
+  assert.match(extension, /"downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail"/);
   assert.match(handler, /this\.filterResultsSummaryForPlan\(this\.resultsSummary, planFile\)/);
   assert.match(handler, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(handler, /const client = this\.client/);

@@ -14129,7 +14129,7 @@ function renderPanelHtml() {
       }).join("");
       return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>全项目 final 与各方法结果分开保存。表格已在本机项目目录。</p></div>' +
         '<div><button type="button" data-command="rebuildProjectResultTables" title="扫描全部 Plan 和已启用 Worker，按可信 case、seed 与端点重算均值和样本标准差，再更新本机 final 与各方法表。不会重新训练或改写远端原始表。">刷新所有结果</button>' +
-        '<button type="button" class="secondary" data-command="syncPendingPlanArtifacts" title="Worker 重连后，通过 SimpleSFTP 直连同步项目代码、该 Plan 的结果和权重到原相对路径。">同步待处理产物 (' + esc(String(((state || {}).resultOutputConfig || {}).pendingPlanSyncCount || 0)) + ')</button></div></div>' +
+        '<button type="button" class="secondary" data-command="syncPendingPlanArtifacts" title="按最新版合并全部已知 Plan 在各 Worker 上的结果范围，成功后只下载所需 CSV/JSON/MD 指标。不扫描权重或整个项目。待处理产物计数属于自动的权重和日志同步，此按钮不会把它标成已完成。">合并最新结果并拉取指标</button></div></div>' +
         (tables.length ? '<div class="resultTableCards">' + tableCards + '</div>' : '<div class="muted">尚无总表。点击“刷新所有结果”从 Plan 与 Worker 生成。</div>') +
         '<details class="resultArtifactGroup" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
         '<div class="resultTableRow"><label>来源表 <select id="resultSplitTable">' + tableOptions + '</select></label><label>按此列拆表 <select id="resultSplitField">' + options(fields, field) + '</select></label><input type="search" id="resultSplitSearch" value="' + escAttr(resultSplitSearchQuery) + '" placeholder="搜索词条"></div>' +
