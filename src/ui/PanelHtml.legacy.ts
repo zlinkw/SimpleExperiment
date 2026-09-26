@@ -1883,7 +1883,7 @@ export function renderPanelHtml(): string {
             const status = String((win.task || {}).status || "").toLowerCase() || "retained";
             const selected = tmuxSelectedTaskTarget === target || (!tmuxSelectedTaskTarget && !!win.active);
             const tabWorkerId = String(tmuxListCache.workerId || tmuxSelectedWorkerId || "");
-            grid += '<span class="tmuxTaskTabWrap ' + escAttr(status) + '"><button type="button" class="tmuxTaskTab' + (selected ? ' is-active' : '') + '" data-tmux-task-target="' + escAttr(target) + '" title="查看 ' + escAttr(tmuxTaskWindowLabel(win)) + '">' + esc(tmuxTaskWindowLabel(win)) + '</button><button type="button" class="tmuxTaskTabClose" data-tmux-close="' + escAttr(target) + '" data-tmux-worker="' + escAttr(tabWorkerId) + '" title="关闭该任务标签">×</button></span>';
+            grid += '<span class="tmuxTaskTabWrap ' + escAttr(status) + '"><button type="button" class="tmuxTaskTab' + (selected ? ' is-active' : '') + '" data-tmux-task-target="' + escAttr(target) + '" title="查看 ' + escAttr(tmuxTaskWindowLabel(win)) + '">' + esc(tmuxTaskWindowLabel(win)) + '</button><button type="button" class="tmuxTaskTabClose" data-tmux-close="' + escAttr(target) + '" data-tmux-close-worker="' + escAttr(tabWorkerId) + '" title="关闭该任务标签">×</button></span>';
           }
           grid += '</div></div>';
         } else if (activeFilter.indexOf("gpu-slot:") === 0) {
@@ -2745,7 +2745,7 @@ export function renderPanelHtml(): string {
           try { if (typeof showToast === "function") showToast("关闭目标必须是 session:index，已拒绝：" + closeTarget, "warning"); } catch (e) {}
           return;
         }
-        const closeWorkerId = String((tmuxCloseTarget.getAttribute && tmuxCloseTarget.getAttribute("data-tmux-worker")) || tmuxSelectedWorkerId || "").trim();
+        const closeWorkerId = String((tmuxCloseTarget.getAttribute && (tmuxCloseTarget.getAttribute("data-tmux-close-worker") || tmuxCloseTarget.getAttribute("data-tmux-worker"))) || tmuxSelectedWorkerId || "").trim();
         if (!closeWorkerId) {
           try { if (typeof showToast === "function") showToast("关闭窗口缺少 WorkerId：" + closeTarget, "warning"); } catch (e) {}
           return;
@@ -3354,7 +3354,7 @@ export function renderPanelHtml(): string {
       }, true);
       document.addEventListener("click", function(event) {
         const button = event.target && event.target.closest && event.target.closest("button[data-tmux-worker]");
-        if (!button) return;
+        if (!button || button.hasAttribute("data-tmux-close") || button.classList.contains("tmuxTaskTabClose")) return;
         event.preventDefault();
         event.stopPropagation();
         selectTmuxWorker(button.getAttribute("data-tmux-worker"));
