@@ -14921,6 +14921,19 @@ class RealtimeTunnelPanelProvider {
         const workerIds = _message?.allWorkers === true ? workers.map((worker) => worker.id) : [this.tmuxWorkerId(_message, true)];
         await Promise.all(workerIds.map((workerId) => this.fetchOneTmuxListFromUi(workerId)));
     }
+    publishTmuxList(workerId, result) {
+        const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
+        this.view?.webview.postMessage(payload);
+        return payload;
+    }
+    async readTmuxListAfterKill(workerId) {
+        const tryClient = this.client?.clients?.get(workerId);
+        if (tryClient && typeof tryClient.requestJson === "function") {
+            const listed = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
+            return this.publishTmuxList(workerId, listed);
+        }
+        return this.fetchOneTmuxListFromUi(workerId);
+    }
     async fetchOneTmuxListFromUi(workerId) {
         try {
             let result = null;
@@ -14953,9 +14966,7 @@ class RealtimeTunnelPanelProvider {
                     req.end();
                 });
             }
-            const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
-            this.view?.webview.postMessage(payload);
-            return payload;
+            return this.publishTmuxList(workerId, result);
         }
         catch (exc) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
@@ -14972,56 +14983,135 @@ class RealtimeTunnelPanelProvider {
         const answer = await vscode.window.showWarningMessage(`确定关闭 tmux 窗口 ${target}？窗口内的进程会终止。${message?.danger === "true" ? "这是 Agent 窗口，关闭后对应隧道暂时无法提供数据。" : ""}`, { modal: true }, "关闭窗口");
         if (answer !== "关闭窗口")
             throw new UiCommandCancelled("已取消关闭 tmux 窗口。");
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `关闭 tmux 窗口 ${target}`, cancellable: false }, async (progress) => {
-            progress.report({ increment: 10, message: "等待 Agent 确认" });
-            await this.performKillTmuxWindow(workerId, target);
-            progress.report({ increment: 90, message: "完成" });
+        let closed = false;
+        try {
+            await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `关闭 tmux 窗口 ${target}`, cancellable: false }, async (progress) => {
+                progress.report({ increment: 10, message: "等待 Agent 确认" });
+                try {
+                    await this.performKillTmuxWindow(workerId, target);
+                    closed = true;
+                    progress.report({ increment: 90, message: "完成" });
+                }
+                catch (error) {
+                    const text = errorMessage(error);
+                    progress.report({ message: `Agent 拒绝关闭：${text}`.slice(0, 180) });
+                    throw error;
+                }
+            });
+        }
+        catch (error) {
+            if (!closed)
+                throw error;
+        }
+    }
+    tmuxKillSessionFromTarget(target) {
+        const match = /^([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)$/.exec(String(target || "").trim());
+        if (!match)
+            throw new Error("关闭 tmux 窗口必须提供明确的非 Agent session:index，拒绝只用会话名定位。");
+        if (match[1].endsWith("-agent"))
+            throw new Error("关闭 tmux 窗口必须提供明确的非 Agent session:index，拒绝只用会话名定位。");
+        return match[1];
+    }
+    tmuxListStillHasTarget(listResult, target) {
+        const sessions = Array.isArray(listResult?.sessions) ? listResult.sessions : [];
+        return sessions.some((session) => {
+            const name = String(session?.name || "");
+            const windows = Array.isArray(session?.windows) ? session.windows : [];
+            return windows.some((win) => {
+                const explicit = String(win?.target || "").trim();
+                const derived = name && win?.index !== undefined && win?.index !== null ? `${name}:${win.index}` : "";
+                return explicit === target || derived === target;
+            });
         });
     }
-    async performKillTmuxWindow(workerId, target) {
-        if (!target)
-            throw new Error("缺少关闭目标 target（期望 session:index）");
-        if (!/^[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$/.test(target) || target.split(":")[0].endsWith("-agent"))
-            throw new Error("关闭 tmux 窗口必须提供明确的非 Agent session:index，拒绝只用会话名定位。");
-        const session = String(message?.session || (target.indexOf(":") !== -1 ? target.slice(0, target.indexOf(":")) : target)).trim() || target;
-        const body = { target, window: target, session, confirm: true };
-        let result = null;
+    isTmuxKillTransportFailure(error) {
+        const text = errorMessage(error);
+        if (/agent 拒绝|requires confirm|invalid target|target required|localhost only|mgmt session/i.test(text)) {
+            return false;
+        }
+        return /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|socket hang up|timeout|aborted|fetch failed|network|Only Hub Agent API paths are allowed|API path not allowed|argument must be of type string/i.test(text);
+    }
+    async requestKillTmuxWindow(workerId, body) {
         const tryClient = this.client?.clients?.get(workerId);
+        let transportError = "";
         if (tryClient && typeof tryClient.requestJson === "function") {
             try {
-                result = await tryClient.requestJson(`/api/tmux/kill-window`, { method: "POST", body });
+                return await tryClient.requestJson(`/api/tmux/kill-window`, "manual_refresh", body, { method: "POST", userInitiated: true, timeoutMs: 8000 });
             }
-            catch {
-                result = null;
+            catch (error) {
+                if (!this.isTmuxKillTransportFailure(error))
+                    throw error;
+                transportError = errorMessage(error);
             }
         }
-        if (!result) {
-            const endpoint = this.tmuxEndpoint(workerId);
-            const token = String(endpoint.token || "");
-            const http = require("http");
-            const payload = JSON.stringify(body);
+        else {
+            transportError = "direct client 不可用";
+        }
+        const endpoint = this.tmuxEndpoint(workerId);
+        const token = String(endpoint.token || "");
+        const http = require("http");
+        const payload = JSON.stringify(body);
+        let result;
+        try {
             result = await new Promise((resolve, reject) => {
                 const req = http.request({ host: endpoint.localHost, port: endpoint.localPort, path: `/api/tmux/kill-window`, method: "POST", headers: Object.assign({ "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }, token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}), timeout: 8000 }, (res) => {
                     let data = "";
                     res.on("data", (chunk) => data += chunk);
-                    res.on("end", () => { try {
-                        resolve(JSON.parse(data || "{}"));
-                    }
-                    catch {
-                        resolve({ ok: false, error: data });
-                    } });
+                    res.on("end", () => {
+                        let parsed = null;
+                        try {
+                            parsed = JSON.parse(data || "{}");
+                        }
+                        catch {
+                            parsed = { ok: false, error: data || "invalid json" };
+                        }
+                        const status = Number(res.statusCode || 0);
+                        if (status === 401 || status === 403) {
+                            reject(new Error(String(parsed?.error || parsed?.message || `Agent HTTP ${status}`)));
+                            return;
+                        }
+                        if (status >= 500 || status === 0) {
+                            reject(new Error(`raw HTTP transport HTTP ${status || "none"} after ${transportError}: ${String(parsed?.error || data || "").slice(0, 240)}`));
+                            return;
+                        }
+                        resolve(parsed);
+                    });
                 });
-                req.on("error", reject);
+                req.on("error", (error) => reject(new Error(`raw HTTP transport failed after ${transportError}: ${errorMessage(error)}`)));
                 req.on("timeout", () => { req.destroy(new Error("timeout")); });
                 req.end(payload);
             });
         }
-        if (result?.ok === false || result?.error)
-            throw new Error(String(result?.error || result?.message || "agent 拒绝关闭窗口"));
-        try {
-            await this.fetchTmuxListFromUi({ workerId });
+        catch (error) {
+            if (!this.isTmuxKillTransportFailure(error))
+                throw error;
+            throw new Error(`关闭 tmux 窗口传输失败（${transportError}；${errorMessage(error)}）`);
         }
-        catch { }
+        return result;
+    }
+    async performKillTmuxWindow(workerId, target) {
+        if (!target)
+            throw new Error("缺少关闭目标 target（期望 session:index）");
+        const session = this.tmuxKillSessionFromTarget(target);
+        const body = { target, window: target, session, confirm: true };
+        const result = await this.requestKillTmuxWindow(workerId, body);
+        if (result?.ok === false || result?.error) {
+            const text = String(result?.error || result?.message || "agent 拒绝关闭窗口");
+            throw new Error(`Agent 拒绝关闭：${text}`);
+        }
+        if (result?.ok !== true)
+            throw new Error("Agent 未确认关闭窗口");
+        let listed = null;
+        try {
+            listed = await this.readTmuxListAfterKill(workerId);
+        }
+        catch (error) {
+            throw new Error(`关闭请求已返回，但无法复核 tmux 列表：${errorMessage(error)}`);
+        }
+        if (listed?.ok === false)
+            throw new Error(`关闭请求已返回，但 tmux 列表失败：${String(listed?.error || "unknown")}`);
+        if (this.tmuxListStillHasTarget(listed, target))
+            throw new Error(`关闭未生效：target 仍在 tmux 列表 ${target}`);
     }
     async openTensorBoardUrlFromUi(message) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";

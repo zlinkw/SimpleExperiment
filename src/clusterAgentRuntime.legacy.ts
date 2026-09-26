@@ -12364,6 +12364,72 @@ def require_op_id(handler, payload):
         return None
     return op_id
 
+def kill_tmux_window_response(payload, mode, mgmt_env=""):
+    target = str((payload or {}).get("target") or (payload or {}).get("window") or "").strip()
+    if not target:
+        return {"error": "target required"}, 400
+    window_match = re.fullmatch(r"([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)", target)
+    if not window_match:
+        return {"error": "invalid target name", "detail": "kill-window requires session:index"}, 400
+    sess_name = window_match.group(1)
+    window_index = window_match.group(2)
+    declared_session = str((payload or {}).get("session") or "").strip()
+    if declared_session and declared_session != sess_name:
+        return {"error": "session does not match target"}, 400
+    confirmed = (payload or {}).get("confirm") is True or str((payload or {}).get("confirm") or "").strip().lower() in ("true", "1", "yes")
+    if sess_name.endswith("-agent") and not confirmed:
+        return {"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "needConfirm": True, "error": "agent window requires confirm"}, 403
+    mgmt_target = str(mgmt_env or os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION") or "").strip()
+    if not mgmt_target:
+        try:
+            _pfx = ""
+            try:
+                _pfx = str(_resolve_tmux_prefix() or "").strip()
+            except Exception:
+                _pfx = ""
+            if not _pfx:
+                _pfx = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower() or "simple"
+            _pfx = re.sub(r"[^a-z0-9._-]+", "-", _pfx.lower()).strip("-")[:32] or "simple"
+            if mode == "hub_control":
+                mgmt_target = _pfx + "-hub-agent"
+            else:
+                try:
+                    _wid = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip().lower() or "worker"
+                except Exception:
+                    _wid = "worker"
+                _wid = re.sub(r"[^a-z0-9._-]+", "-", _wid).strip("-") or "worker"
+                mgmt_target = _pfx + "-worker-" + _wid + "-agent"
+        except Exception:
+            mgmt_target = ""
+    if not mgmt_target:
+        return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "agent mgmt session unknown"}, 500
+    if sess_name == mgmt_target:
+        if not confirmed:
+            return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "current Agent window requires confirmation"}, 403
+        threading.Timer(0.3, lambda: subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)).start()
+        return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True, "scheduled": True}, 200
+    try:
+        before = subprocess.run(["tmux", "list-windows", "-t", sess_name, "-F", "#{window_index}"], capture_output=True, text=True, timeout=5)
+        before_indexes = {line.strip() for line in (before.stdout or "").splitlines() if line.strip()}
+        if before.returncode != 0 or window_index not in before_indexes:
+            err = (before.stderr or "").strip()[-500:]
+            return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or "target window not found"}, 200
+        r = subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)
+        err = (r.stderr or "").strip()[-500:]
+        if r.returncode != 0:
+            return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or f"rc={r.returncode}"}, 200
+        after = subprocess.run(["tmux", "list-windows", "-t", sess_name, "-F", "#{window_index}"], capture_output=True, text=True, timeout=5)
+        after_err = (after.stderr or "").strip().lower()
+        after_indexes = {line.strip() for line in (after.stdout or "").splitlines() if line.strip()}
+        gone = after.returncode != 0 and ("no server" in after_err or "no sessions" in after_err or "can't find session" in after_err or "no such session" in after_err)
+        if after.returncode == 0:
+            gone = window_index not in after_indexes
+        if not gone:
+            return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "target still present after kill-window"}, 200
+        return {"schemaVersion": SCHEMA_VERSION, "target": target, "session": sess_name, "index": window_index, "ok": True, "verified": True}, 200
+    except Exception as exc:
+        return {"error": str(exc)}, 500
+
 def serve_http(args):
     if args.host != "127.0.0.1":
         raise RuntimeError("Hub Agent serve only accepts --host 127.0.0.1")
@@ -12934,57 +13000,8 @@ def serve_http(args):
             if route == "/api/tmux/kill-window":
                 if not self.localhost_only():
                     return self.send_json({"error": "localhost only"}, status=403)
-                target = str(payload.get("target") or payload.get("window") or payload.get("session") or "").strip()
-                if not target:
-                    return self.send_json({"error": "target required"}, status=400)
-                if not re.match(r"^[A-Za-z0-9._\-:]+$", target):
-                    return self.send_json({"error": "invalid target name"}, status=400)
-                sess_name = target.split(":")[0].strip() if ":" in target else target
-                if not sess_name:
-                    return self.send_json({"error": "invalid target name"}, status=400)
-                confirmed = payload.get("confirm") is True or str(payload.get("confirm") or "").strip().lower() in ("true", "1", "yes")
-                if sess_name.endswith("-agent") and not confirmed:
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "target": target, "needConfirm": True, "error": "agent window requires confirm"}, status=403)
-                try:
-                    mgmt_target = str(os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION") or "").strip()
-                except Exception:
-                    mgmt_target = ""
-                if not mgmt_target:
-                    try:
-                        _pfx = ""
-                        try:
-                            _pfx = str(_resolve_tmux_prefix() or "").strip()
-                        except Exception:
-                            _pfx = ""
-                        if not _pfx:
-                            _pfx = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower() or "simple"
-                        _pfx = re.sub(r"[^a-z0-9._-]+", "-", _pfx.lower()).strip("-")[:32] or "simple"
-                        if mode == "hub_control":
-                            mgmt_target = _pfx + "-hub-agent"
-                        else:
-                            try:
-                                _wid = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip().lower() or "worker"
-                            except Exception:
-                                _wid = "worker"
-                            _wid = re.sub(r"[^a-z0-9._-]+", "-", _wid).strip("-") or "worker"
-                            mgmt_target = _pfx + "-worker-" + _wid + "-agent"
-                    except Exception:
-                        mgmt_target = ""
-                if not mgmt_target:
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "agent mgmt session unknown"}, status=500)
-                if sess_name == mgmt_target:
-                    if not confirmed:
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "current Agent window requires confirmation"}, status=403)
-                    threading.Timer(0.3, lambda: subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)).start()
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True, "scheduled": True})
-                try:
-                    r = subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)
-                    err = (r.stderr or "").strip()[-500:]
-                    if r.returncode != 0:
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or f"rc={r.returncode}"}, status=200)
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True})
-                except Exception as exc:
-                    return self.send_json({"error": str(exc)}, status=500)
+                body, status = kill_tmux_window_response(payload, mode)
+                return self.send_json(body, status=status)
             # Admin kill-stale-runtime: used by extension killRemoteAgentAndTmux to clean old tmux/pids via tunnel
             if route in ("/api/admin/kill-stale-runtime", "/api/admin/exec"):
                 if not self.localhost_only():
