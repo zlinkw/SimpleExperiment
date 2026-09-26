@@ -2,9 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.mirrorChosenWorkerVersionToLocal = mirrorChosenWorkerVersionToLocal;
 const SyncResolution_1 = require("./SyncResolution");
-async function mirrorChosenWorkerVersionToLocal(relative, directory, source, transfer, inventory, remove, report = () => { }) {
+async function mirrorChosenWorkerVersionToLocal(relative, directory, source, transfer, inventory, remove, report = () => { }, expectedFiles) {
     (0, SyncResolution_1.safeSyncPath)(relative);
-    const expected = directory ? source : { [relative]: source[relative] };
+    const expected = directory ? source : expectedFiles?.length
+        ? Object.fromEntries(expectedFiles.map((file) => [file, source[file]]))
+        : { [relative]: source[relative] };
     if (!directory && !source[relative]?.sha256)
         throw new Error("来源文件缺少 SHA256。");
     for (const [file, info] of Object.entries(expected)) {

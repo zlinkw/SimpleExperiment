@@ -10,9 +10,12 @@ export async function mirrorChosenWorkerVersionToLocal(
   inventory: () => Promise<Record<string, FileHash>>,
   remove: (relative: string) => Promise<void>,
   report: (stage: string) => void = () => {},
+  expectedFiles?: string[],
 ): Promise<void> {
   safeSyncPath(relative);
-  const expected = directory ? source : { [relative]: source[relative] };
+  const expected = directory ? source : expectedFiles?.length
+    ? Object.fromEntries(expectedFiles.map((file) => [file, source[file]]))
+    : { [relative]: source[relative] };
   if (!directory && !source[relative]?.sha256) throw new Error("来源文件缺少 SHA256。");
   for (const [file, info] of Object.entries(expected)) {
     safeSyncPath(file);

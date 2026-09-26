@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireCompleteScopeInventory = requireCompleteScopeInventory;
 exports.scopeInventoryPathAllowed = scopeInventoryPathAllowed;
 exports.collectLocalScopeInventory = collectLocalScopeInventory;
+exports.collectSelectedLocalScopeFiles = collectSelectedLocalScopeFiles;
+exports.hashLocalScopeNames = hashLocalScopeNames;
 exports.buildScopeStatuses = buildScopeStatuses;
 const PlanArtifactSync_1 = require("./PlanArtifactSync");
 const fs = __importStar(require("node:fs/promises"));
@@ -109,6 +111,51 @@ async function collectLocalScopeInventory(root, relative = ".", recursive = true
         }
     }
     await walk(relative === "." ? "" : relative);
+    return hashLocalScopeNames(root, names, onUnverified);
+}
+/** One hash pool for every confirmed file and directory. Directory walks only list names. */
+async function collectSelectedLocalScopeFiles(root, items) {
+    const names = [];
+    for (const item of items) {
+        if (item.directory) {
+            const found = await listLocalScopeFileNames(root, item.path);
+            if (!found.length)
+                throw new Error(`来源目录没有可同步文件：${item.path}`);
+            names.push(...found);
+        }
+        else
+            names.push(item.path);
+    }
+    return hashLocalScopeNames(root, [...new Set(names)]);
+}
+async function listLocalScopeFileNames(root, relative) {
+    const names = [];
+    async function walk(current) {
+        const base = current ? path.join(root, ...current.split("/")) : root;
+        const stat = await fs.lstat(base);
+        if (stat.isSymbolicLink())
+            throw new Error(`本机清单路径不安全：${current || relative}`);
+        if (stat.isFile()) {
+            if (current && scopeInventoryPathAllowed(current, false))
+                names.push(current);
+            return;
+        }
+        if (!stat.isDirectory())
+            throw new Error(`本机来源目录不存在或是符号链接。`);
+        for (const entry of await fs.readdir(base, { withFileTypes: true })) {
+            const child = current ? `${current}/${entry.name}` : entry.name;
+            if (entry.isSymbolicLink() || !scopeInventoryPathAllowed(child, entry.isDirectory()))
+                continue;
+            if (entry.isDirectory())
+                await walk(child);
+            else if (entry.isFile())
+                names.push(child);
+        }
+    }
+    await walk(relative);
+    return names;
+}
+async function hashLocalScopeNames(root, names, onUnverified) {
     const files = {};
     let next = 0;
     await Promise.all(Array.from({ length: Math.min(8, Math.max(1, names.length)) }, async () => {
