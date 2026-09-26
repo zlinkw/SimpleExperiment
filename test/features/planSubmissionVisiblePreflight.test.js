@@ -45,20 +45,6 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "workspace
   function operationStatusToken(value) { return String(value || "").toLowerCase(); }
   function resultStatus(result) { return result && (result.status || result.state) || ""; }
   function remoteActionSucceeded(value) { return ["completed", "succeeded", "done"].includes(operationStatusToken(value)); }
-  function samePlanFile(left, right) {
-    const normalize = (value) => String(value || "").replace(/\\\\/g, "/").replace(/^\\.\\//, "").toLowerCase();
-    return normalize(left) && normalize(left) === normalize(right);
-  }
-  function matchingActiveDeferred(queue, identity) {
-    const rows = queue.deferred || [];
-    const matches = (row) => samePlanFile(row.planFile, identity.planFile) && row.revision === identity.revision && row.codeFingerprint === identity.codeFingerprint && row.confirmedOutputChoice !== true && (row.status === "pending" || row.status === "blocked");
-    if (identity.id) {
-      const row = rows.find((item) => item.id === identity.id);
-      if (!row) return null;
-      return matches(row) ? row : null;
-    }
-    return rows.find(matches);
-  }
   ${functionSource("planCheckAccepted")}
   return {
     beginPlanSubmissionProgress: ${method("beginPlanSubmissionProgress").replace("beginPlanSubmissionProgress", "function")},
@@ -311,6 +297,124 @@ async function submit(host, item) {
   host.beginPlanSubmissionProgress(item, { planFile: item.planFile, planRevision: "rev-drf" });
   await host.finishDistributedPlanSubmission("runPlan", item, { planFile: item.planFile }, host.actionBody(item));
 }
+
+function deferredRow(overrides = {}) {
+  return {
+    id: "deferred-drf",
+    planFile: drf,
+    revision: "rev-drf",
+    codeFingerprint: "new-code",
+    status: "pending",
+    confirmedOutputChoice: false,
+    ...overrides,
+  };
+}
+
+test("activeDeferredForSubmission uses the real exported helper without a sandbox binding", async () => {
+  assert.equal(typeof DistributedPlanQueue.matchingActiveDeferred, "function");
+  assert.doesNotMatch(extension.slice(extension.indexOf("async activeDeferredForSubmission"), extension.indexOf("async supersedeDeferredPlan")), /(?<!DistributedPlanQueue\.)matchingActiveDeferred\(/);
+  const host = provider();
+  host.distributedQueueCache.deferred = [deferredRow()];
+  const body = { planFile: drf, planRevision: "rev-drf", options: {} };
+  const none = await host.activeDeferredForSubmission(root, body, "new-code", "");
+  assert.equal(none.id, "deferred-drf");
+  const pending = await host.activeDeferredForSubmission(root, body, "new-code", "deferred-drf");
+  assert.equal(pending.status, "pending");
+  host.distributedQueueCache.deferred = [deferredRow({ status: "blocked" })];
+  const blocked = await host.activeDeferredForSubmission(root, body, "new-code", "deferred-drf");
+  assert.equal(blocked.status, "blocked");
+  assert.equal(await host.activeDeferredForSubmission(root, body, "new-code", "other-id"), null);
+  assert.equal(await host.activeDeferredForSubmission(root, { ...body, planRevision: "rev-other" }, "new-code", "deferred-drf"), null);
+  assert.equal(await host.activeDeferredForSubmission(root, body, "other-code", "deferred-drf"), null);
+  assert.equal(await host.activeDeferredForSubmission(root, { planFile: "experiments/plans/comparison/other.yaml", planRevision: "rev-drf" }, "new-code", "deferred-drf"), null);
+  host.distributedQueueCache.deferred = [deferredRow({ confirmedOutputChoice: true })];
+  assert.equal(await host.activeDeferredForSubmission(root, body, "new-code", "deferred-drf"), null);
+  host.distributedQueueCache.deferred = [];
+  assert.equal(await host.activeDeferredForSubmission(root, body, "new-code", ""), undefined);
+});
+
+test("runPlan command reaches the real deferred lookup before preflight", async () => {
+  const signature = extension.indexOf("    async runActionCommandCore(command, message) {");
+  const start = extension.indexOf("        const action = actionCommandMap[command];", signature);
+  const end = extension.indexOf("        const danger = command === \"deleteArtifacts\";", start);
+  const body = extension.slice(start, end)
+    .replace(/: any\[\]/g, "")
+    .replace(/: any/g, "")
+    .replace(/ as any/g, "")
+    .replace(/\(this as any\)/g, "this");
+  const run = new Function("PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "LENIENT_RUN", "DistributedPlanQueue", "operationResultPlanFile", "projectOutputGateReason", "makeOpId", "actionCommandMap", "assertSingleProjectWorkspace", "pluginProjectAdapterRules", "workspaceRoot", "stringField", "stringArrayField", "uniqueStrings", "usableSelectionKey", "directWorkerActionMap", `
+    return async function(command, message) {
+      ${body}
+    };
+  `)(new Set(["runPlan", "reproducePlan"]), new Set(), false, DistributedPlanQueue,
+    (record) => String((record && (record.planFile || record.selectedPlanId || (record.options && record.options.planFile))) || ""),
+    () => "",
+    (action) => action + "-op",
+    { runPlan: "run-plan" },
+    () => {},
+    () => ({}),
+    () => root,
+    (message, key) => String((message && message[key]) || ""),
+    () => [],
+    (values) => [...new Set(values || [])],
+    (value) => String(value || ""),
+    {});
+  const host = commandHost();
+  host.calls = [];
+  host.localPlanMetadata = { detectedProject: {} };
+  host.reportPlanStage = (_message, text) => host.calls.push("stage:" + text);
+  host.workerActionTargets = () => [];
+  host.syncProjectAdapterRulesToAgents = async () => [];
+  host.assertRetryPlanContext = () => {};
+  host.ensureManualStopReason = async () => {};
+  host.resolveWorkerEndpointId = () => "";
+  host.assertPlanSchedulerAgentReady = () => {};
+  host.ensureHubCodeReadyForPlanCheck = async () => {};
+  host.ensureWorkerPoolPlanTarget = async () => {};
+  await run.call(host, "runPlan", message());
+  assert.equal(host.calls.includes("preflight"), true);
+  assert.equal(host.calls.at(-1), "enqueue:[0]");
+});
+
+test("runPlan submission reuses only a matching active deferred row and still reaches preflight", async () => {
+  const host = commandHost();
+  const body = { planFile: drf, planRevision: "rev-drf", options: {} };
+  host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-drf" });
+  host.distributedQueueCache.deferred = [];
+  await host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, body);
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "succeeded");
+
+  host.calls = [];
+  host.distributedQueueCache.deferred = [deferredRow()];
+  await host.finishDistributedPlanSubmission("runPlan", { ...message(), deferredPlanId: "deferred-drf" }, { planFile: drf }, { ...body, deferredPlanId: "deferred-drf" });
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+  assert.equal(host.distributedQueueCache.deferred[0].status, "superseded");
+
+  const blockedHost = commandHost();
+  blockedHost.distributedQueueCache.deferred = [deferredRow({ id: "blocked-drf", status: "blocked" })];
+  blockedHost.beginPlanSubmissionProgress({ ...message(), clientActionId: "click-blocked" }, { planFile: drf, planRevision: "rev-drf" });
+  await blockedHost.finishDistributedPlanSubmission("runPlan", { ...message(), clientActionId: "click-blocked", deferredPlanId: "blocked-drf" }, { planFile: drf }, { ...body, deferredPlanId: "blocked-drf" });
+  assert.equal(blockedHost.calls[0], "sync");
+  assert.equal(blockedHost.calls.includes("preflight"), true);
+  assert.equal(blockedHost.distributedQueueCache.deferred[0].status, "superseded");
+
+  const mismatched = commandHost();
+  mismatched.distributedQueueCache.deferred = [deferredRow()];
+  await assert.rejects(
+    () => mismatched.finishDistributedPlanSubmission("runPlan", { ...message(), deferredPlanId: "deferred-drf" }, { planFile: drf }, { ...body, planRevision: "rev-other", deferredPlanId: "deferred-drf" }),
+    /不一致/,
+  );
+  assert.deepEqual(mismatched.calls, []);
+  assert.equal(mismatched.distributedQueueCache.deferred[0].status, "pending");
+
+  const confirmed = commandHost();
+  confirmed.distributedQueueCache.deferred = [deferredRow({ confirmedOutputChoice: true })];
+  await confirmed.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, body);
+  assert.equal(confirmed.calls.includes("preflight"), true);
+  assert.equal(confirmed.distributedQueueCache.deferred[0].confirmedOutputChoice, true);
+  assert.equal(confirmed.distributedQueueCache.deferred[0].status, "pending");
+});
 
 test("direct distributed submission confirms once and enqueues once", async () => {
   const host = commandHost();

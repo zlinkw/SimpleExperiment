@@ -8566,7 +8566,7 @@ class RealtimeTunnelPanelProvider {
             revision: String(body.planRevision || body.options?.planRevision || ""),
             codeFingerprint: fingerprint,
         };
-        return matchingActiveDeferred(queue, identity);
+        return DistributedPlanQueue.matchingActiveDeferred(queue, identity);
     }
     async supersedeDeferredPlan(root, deferredPlanId, supersededBy = "resume") {
         const id = String(deferredPlanId || "").trim();
