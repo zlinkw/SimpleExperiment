@@ -626,6 +626,20 @@ function setupGuideNextStep(options) {
     };
 }
 const SETUP_GUIDE_MAX_STEPS = 4;
+const planSubmitProgress = {
+    isLocal(record) {
+        if (!record || typeof record !== "object")
+            return false;
+        if (record.localSubmissionProgress === true)
+            return true;
+        const operationId = String(record.operationId || record.opId || record.id || "");
+        const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
+        const latestEvent = record.latestEvent && typeof record.latestEvent === "object" ? record.latestEvent : {};
+        const latestPayload = latestEvent.payload && typeof latestEvent.payload === "object" ? latestEvent.payload : {};
+        const accepted = [record, payload, latestPayload].some((row) => row.submissionAccepted === true || row.schedulerStarted === true);
+        return operationId.startsWith("plan-submit-") && !accepted;
+    },
+};
 class RealtimeTunnelPanelProvider {
     sessionStartedAt = new Date().toISOString();
     context;
@@ -5345,6 +5359,7 @@ class RealtimeTunnelPanelProvider {
             operationId,
             type: "run-plan",
             status: "running",
+            localSubmissionProgress: true,
             planFile,
             planRevision: String(body?.planRevision || body?.options?.planRevision || ""),
             message: `准备提交 ${planFile || "当前计划"}`,
@@ -10465,6 +10480,7 @@ class RealtimeTunnelPanelProvider {
     longRunningPlanRunOperations() {
         return Object.values(this.localOperations || {}).filter((item) => (item && typeof item === "object"
             && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
+            && !planSubmitProgress.isLocal(item)
             && !operationTerminal(item)));
     }
     async recoverPlanOperationsForStopClear(planFile) {
@@ -10655,7 +10671,14 @@ class RealtimeTunnelPanelProvider {
                 const operationId = String(record.operationId || "").trim();
                 if (!operationId)
                     continue;
-                const result = await this.collectRunOperationEvidence(record);
+                let result;
+                try {
+                    result = await this.collectRunOperationEvidence(record);
+                }
+                catch (error) {
+                    this.localOperations[operationId] = { ...record, lastReconcileError: errorMessage(error), lastReconciledAt: new Date().toISOString() };
+                    continue;
+                }
                 if (!result.ok) {
                     this.localOperations[operationId] = { ...record, lastReconcileError: result.error, lastReconciledAt: new Date().toISOString() };
                     continue;
@@ -10837,6 +10860,7 @@ class RealtimeTunnelPanelProvider {
         let candidates = Object.values(this.localOperations || {}).filter((item) => (item && typeof item === "object"
             && (!operationTerminal(item) || String(item.status || "").trim().toLowerCase() === "stale")
             && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
+            && !planSubmitProgress.isLocal(item)
             && this.stopExperimentMatchesTarget(item, target)));
         if (!target.operationId || !target.planFile)
             throw new Error("缺少明确的运行记录和 Plan，已阻止中止操作。");
@@ -22608,6 +22632,7 @@ function activePlanRunEvidence(state, planFile, plan) {
         const rowPlan = payloads.map((item) => operationResultPlanFile(item)).find(Boolean);
         const schedulerFinished = payloads.some((item) => item.schedulerFinished === true || item.scheduler_finished === true);
         const active = !schedulerFinished
+            && !planSubmitProgress.isLocal(row)
             && row.reconcileEvidenceActive !== false
             && /(?:^|\s)(?:run-plan|reproduce-plan)(?:\s|$)/.test(action)
             && samePlanSelection(rowPlan, selectedPlan)

@@ -76,6 +76,10 @@ function createContext(extra = {}) {
     ...extra,
   };
   vm.createContext(context);
+  const progressStart = extensionSource.indexOf("const planSubmitProgress = {");
+  const progressEnd = extensionSource.indexOf("export class RealtimeTunnelPanelProvider", progressStart);
+  assert.ok(progressStart >= 0 && progressEnd > progressStart);
+  vm.runInContext(`${extensionSource.slice(progressStart, progressEnd)}\nthis.planSubmitProgress = planSubmitProgress;`, context);
   return context;
 }
 
@@ -258,6 +262,7 @@ test("concurrent result parses merge into one active operation", async () => {
   assert.match(extensionSource, /resultParseInFlight = new Map\(\)/);
   const context = createContext({
     RESULT_PARSE_COMMANDS: new Set(["parseResults", "refreshResults"]),
+    PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "reproducePlan"]),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     HostOperationLeaseConflictError: class HostOperationLeaseConflictError extends Error {},
     HostOperationLease_1: { HostOperationLeaseConflictError: class HostOperationLeaseConflictError extends Error {} },
@@ -295,7 +300,10 @@ test("concurrent result parses merge into one active operation", async () => {
 });
 
 test("runActionCommand executes the default action branch and returns its result", async () => {
-  const context = createContext({ RESULT_PARSE_COMMANDS: new Set(["parseResults"]) });
+  const context = createContext({
+    RESULT_PARSE_COMMANDS: new Set(["parseResults"]),
+    PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "reproducePlan"]),
+  });
   const method = extractMethod(extensionSource, "async runActionCommand(command, message)");
   vm.runInContext(`const methods = { ${method} };\nthis.runActionCommand = methods.runActionCommand;`, context);
   let leased = 0;

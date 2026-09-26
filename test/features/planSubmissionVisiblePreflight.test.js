@@ -168,13 +168,15 @@ test("click creates a named running-progress row before preflight", async () => 
   const row = host.localOperations["plan-submit-click-drf"];
   assert.equal(row.planFile, drf);
   assert.equal(row.type, "run-plan");
+  assert.equal(row.localSubmissionProgress, true);
   assert.equal(row.status, "running");
   host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-reset" });
   assert.equal(host.localOperations["plan-submit-click-drf"].planRevision, "rev-drf");
   const html = renderExecution(progressState(host));
   assert.match(html.executionPlanList, /drf\.yaml/);
   assert.match(html.executionPlanList, /running/);
-  assert.match(html.executionPlanList, /drf\.yaml/);
+  assert.match(html.executionPlanList, /运行计划/);
+  assert.doesNotMatch(html.executionPlanList, /强制中止调度器|abortScheduler/);
 });
 
 test("old fingerprint holds before sync and does not claim output confirmation", async () => {
@@ -489,7 +491,12 @@ function renderPanel(names, state, ids) {
     planBaseName: (value) => String(value).split("/").pop(),
     detailsOpenAttr: () => "",
     selectedExecutionPlanFile: state.planFileInput,
-    renderOperationItem: (row) => `<div class="operationItem">${row.planFile} ${row.status} ${row.message || ""}</div>`,
+    renderOperationItem: (row) => {
+      const rawType = String(row.type || "");
+      const label = rawType === "run-plan" ? "运行计划" : rawType;
+      const abortable = ["running", "queued", "pending"].includes(String(row.status)) && row.reconcileEvidenceActive !== false && rawType === "run-plan";
+      return `<div class="operationItem">${label} ${row.planFile} ${row.status} ${row.message || ""}${abortable ? " abortScheduler" : ""}</div>`;
+    },
   };
   vm.createContext(sandbox);
   const script = names.map((name) => extract(name)).join("\n");

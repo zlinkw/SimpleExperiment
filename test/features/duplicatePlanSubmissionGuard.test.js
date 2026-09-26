@@ -56,6 +56,10 @@ function loadExtensionGuard() {
     planArchiveSchedulerRowsForState: (state) => sandbox.flattenPlanArchiveSchedulerRows((state || {}).schedulerStates || []),
   };
   vm.createContext(sandbox);
+  const progressStart = extension.indexOf("const planSubmitProgress = {");
+  const progressEnd = extension.indexOf("export class RealtimeTunnelPanelProvider", progressStart);
+  assert.ok(progressStart >= 0 && progressEnd > progressStart);
+  vm.runInContext(`${extension.slice(progressStart, progressEnd)}\nthis.planSubmitProgress = planSubmitProgress;`, sandbox);
   vm.runInContext(`${extractFunction(extension, "activePlanRunEvidence")}\nthis.guard = activePlanRunEvidence;`, sandbox);
   sandbox.guard.cache = sandbox.activePlanRunEvidenceCache;
   sandbox.guard.sandbox = sandbox;
@@ -153,6 +157,9 @@ test("backend blocks duplicate run operations and active scheduler tasks for the
 
 test("confirmed inactive operation does not block the selected Plan", () => {
   const planFile = "experiments/plans/comparison/concatenation.yaml";
+  const guard = loadExtensionGuard();
+  const localSubmit = { operationId: "plan-submit-click", type: "run-plan", status: "running", planFile, localSubmissionProgress: true, reconcileEvidenceActive: false };
+  assert.equal(guard({ operations: { local: localSubmit } }, planFile).active, false);
   const stale = { type: "run-plan", status: "running", planFile, reconcileEvidenceActive: false };
   assert.equal(loadExtensionGuard()({ operations: { stale }, schedulerStates: [] }, planFile).active, false);
   assert.equal(loadPanelGuard()({ operations: [stale], schedulerStates: [] }, planFile).active, false);
