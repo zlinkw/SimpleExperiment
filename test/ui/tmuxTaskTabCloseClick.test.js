@@ -83,6 +83,7 @@ test("GPU task close survives capture and still selects a Worker button", () => 
     tmuxSelectedPaneTarget: "",
     tmuxListCache: null,
     tmuxLastCaptureTarget: "",
+    tmuxClearTaskTabsBusy: false,
     pendingActionsById: {},
     pendingActionTimeouts: {},
     el: (id) => elements[id] || (elements[id] = { id, innerHTML: "", textContent: "", value: "", dataset: {}, selectedIndex: 0, options: [] }),
@@ -97,7 +98,7 @@ test("GPU task close survives capture and still selects a Worker button", () => 
   const captureEnd = html.indexOf("}, true);", captureStart);
   assert.ok(captureStart >= 0 && captureEnd > captureStart);
   const currentCapture = html.slice(captureStart, captureEnd + "}, true);".length);
-  const guard = 'if (!button || button.hasAttribute("data-tmux-close") || button.classList.contains("tmuxTaskTabClose")) return;';
+  const guard = 'if (!button || button.hasAttribute("data-tmux-close") || button.classList.contains("tmuxTaskTabClose") || button.hasAttribute("data-tmux-clear-task-tabs") || button.classList.contains("tmuxClearTaskTabs")) return;';
   assert.match(currentCapture, /button\[data-tmux-worker\]/);
   assert.ok(currentCapture.includes(guard));
   const oldCapture = currentCapture.replace(guard, "if (!button) return;");

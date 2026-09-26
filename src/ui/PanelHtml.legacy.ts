@@ -500,6 +500,7 @@ export function renderPanelHtml(): string {
     .tmuxOverviewItem.is-active { border-color: var(--vscode-focusBorder); background: #EEF2FF; }
     .tmuxOverviewItem.missing { border-style: dashed; background: #F8FAFC; color: var(--muted); }
     .tmuxTaskTabs { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 4px; }
+    .tmuxClearTaskTabs { margin-left: auto; border-radius: 8px; }
     .tmuxTaskTabWrap { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; overflow: hidden; background: var(--vscode-input-background); }
     .tmuxTaskTabWrap.running { border-left-color: #2563EB; }
     .tmuxTaskTabWrap.failed { border-left-color: #EF4444; }
@@ -1659,6 +1660,7 @@ export function renderPanelHtml(): string {
     let tmuxSelectedPaneTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedPaneTarget) || "");
     let tmuxSelectedTaskTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedTaskTarget) || "");
     let tmuxLastCaptureTarget = "";
+    let tmuxClearTaskTabsBusy = false;
     function normalizeTmuxWindowFilter(value) {
       const v = String(value || "all").trim();
       if (!v) return "all";
@@ -1875,7 +1877,18 @@ export function renderPanelHtml(): string {
           const gpuId = tmuxGpuIdFromSession(foundSess.name || "");
           const workerLabel = String(tmuxListCache.workerId || "Worker");
           const taskWins = (foundSess.windows || []).filter(function(win){ return !!win.task; });
-          grid += '<div class="tmuxOverviewItem is-active"><span class="pill status-running">GPU ' + esc(gpuId || "-") + '</span><b>' + esc(workerLabel + " · GPU " + (gpuId || "-")) + '</b><span class="muted">' + String(taskWins.length) + ' 个任务标签</span><div class="tmuxTaskTabs">';
+          const clearWorkerId = String(tmuxListCache.workerId || tmuxSelectedWorkerId || "");
+          const clearTargets = [];
+          for (let ti = 0; ti < taskWins.length; ti++) {
+            const taskWin = taskWins[ti] || {};
+            const taskTarget = String(taskWin.target || ((foundSess.name || "") + ":" + (taskWin.index || "0")));
+            const taskName = String(taskWin.name || "").toLowerCase();
+            if (!taskTarget || taskTarget === String(foundSess.name || "") || taskTarget.indexOf(String(foundSess.name || "") + ":") !== 0) continue;
+            if (taskTarget.indexOf("agent") !== -1 || taskName === "bash" || taskName === "agent") continue;
+            if (clearTargets.indexOf(taskTarget) < 0) clearTargets.push(taskTarget);
+          }
+          const clearHtml = taskWins.length ? '<button type="button" class="secondary tmuxClearTaskTabs" data-tmux-clear-task-tabs="1" data-tmux-clear-worker="' + escAttr(clearWorkerId) + '" data-tmux-clear-session="' + escAttr(foundSess.name || "") + '" data-tmux-clear-targets="' + escAttr(clearTargets.join(",")) + '"' + (tmuxClearTaskTabsBusy ? ' disabled' : '') + ' title="关闭当前 GPU 会话里的全部任务标签">' + (tmuxClearTaskTabsBusy ? "正在清理..." : "清理全部任务标签") + '</button>' : "";
+          grid += '<div class="tmuxOverviewItem is-active"><span class="pill status-running">GPU ' + esc(gpuId || "-") + '</span><b>' + esc(workerLabel + " · GPU " + (gpuId || "-")) + '</b><span class="muted">' + String(taskWins.length) + ' 个任务标签</span>' + clearHtml + '<div class="tmuxTaskTabs">';
           if (!taskWins.length) grid += '<span class="muted">当前没有运行中或失败保留的任务</span>';
           for (let wi = 0; wi < taskWins.length; wi++) {
             const win = taskWins[wi] || {};
@@ -2683,7 +2696,7 @@ export function renderPanelHtml(): string {
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
       "selectPlan", "selectExperiment",
-      "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow",
+      "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow", "clearTmuxTaskTabs",
       ...Object.keys(uiCapabilityMap)
     ]);
     document.addEventListener("click", (event) => {
@@ -2729,6 +2742,33 @@ export function renderPanelHtml(): string {
           operationSectionSignatureCacheRows = null;
           operationSectionSignatureCacheValue = null;
           renderOperationSection(lastState || {});
+        }
+        return;
+      }
+      const tmuxClearTaskTabs = event.target.closest("[data-tmux-clear-task-tabs]");
+      if (tmuxClearTaskTabs) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (tmuxClearTaskTabs.disabled || tmuxClearTaskTabsBusy) return;
+        const clearWorkerId = String((tmuxClearTaskTabs.getAttribute && tmuxClearTaskTabs.getAttribute("data-tmux-clear-worker")) || "").trim();
+        const clearSession = String((tmuxClearTaskTabs.getAttribute && tmuxClearTaskTabs.getAttribute("data-tmux-clear-session")) || "").trim();
+        const rawTargets = String((tmuxClearTaskTabs.getAttribute && tmuxClearTaskTabs.getAttribute("data-tmux-clear-targets")) || "");
+        const clearTargets = rawTargets.split(",").map(function(item){ return String(item || "").trim(); }).filter(function(item, index, list){ return !!item && list.indexOf(item) === index; });
+        if (!clearWorkerId || !clearSession || !clearTargets.length || clearWorkerId !== String(tmuxSelectedWorkerId || "") || clearSession !== normalizeTmuxWindowFilter(tmuxWindowFilter)) {
+          try { if (typeof showToast === "function") showToast("清理任务标签的 Worker 或 GPU 会话已变化，已拒绝", "warning"); } catch (e) {}
+          return;
+        }
+        tmuxClearTaskTabsBusy = true;
+        try { renderTmuxOverview(tmuxListCache.sessions || []); } catch (e) {}
+        try {
+          const clearClientActionId = createClientActionId("clearTmuxTaskTabs", clearSession);
+          const clearPendingKey = "clearTmuxTaskTabs|session=" + clearSession;
+          pendingActionsById[clearClientActionId] = { command: "clearTmuxTaskTabs", pendingKey: clearPendingKey, clientActionId: clearClientActionId, startedAt: Date.now(), label: "clearTmuxTaskTabs " + clearSession, status: "running" };
+          vscode.postMessage({ command: "clearTmuxTaskTabs", workerId: clearWorkerId, session: clearSession, targets: clearTargets, clientActionId: clearClientActionId });
+        } catch (e) {
+          tmuxClearTaskTabsBusy = false;
+          try { renderTmuxOverview(tmuxListCache.sessions || []); } catch (err) {}
+          try { if (typeof showToast === "function") showToast("清理任务标签未能发出：" + String(e && e.message || e), "warning"); } catch (err) {}
         }
         return;
       }
@@ -3354,7 +3394,7 @@ export function renderPanelHtml(): string {
       }, true);
       document.addEventListener("click", function(event) {
         const button = event.target && event.target.closest && event.target.closest("button[data-tmux-worker]");
-        if (!button || button.hasAttribute("data-tmux-close") || button.classList.contains("tmuxTaskTabClose")) return;
+        if (!button || button.hasAttribute("data-tmux-close") || button.classList.contains("tmuxTaskTabClose") || button.hasAttribute("data-tmux-clear-task-tabs") || button.classList.contains("tmuxClearTaskTabs")) return;
         event.preventDefault();
         event.stopPropagation();
         selectTmuxWorker(button.getAttribute("data-tmux-worker"));
@@ -4817,7 +4857,14 @@ export function renderPanelHtml(): string {
         clearButtonsForPending(clientActionId, pendingKey, data.command);
         renderCommandPhaseLine();
         try {
-          if (String(data.command || "") === "killTmuxWindow") {
+          if (String(data.command || "") === "killTmuxWindow" || String(data.command || "") === "clearTmuxTaskTabs") {
+            if (String(data.command || "") === "clearTmuxTaskTabs") {
+              tmuxClearTaskTabsBusy = false;
+              const clearText = String(data.message || "");
+              if (clearText && clearText !== "completed") {
+                try { if (typeof showToast === "function") showToast(clearText.slice(0, 240), String(data.status || "").toLowerCase() === "completed" ? "info" : "warning"); } catch (e) {}
+              }
+            }
             refreshTmuxList();
             refreshTmuxCapture();
           }

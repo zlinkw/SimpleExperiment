@@ -426,7 +426,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
-    "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow",
+    "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
@@ -762,6 +762,7 @@ export class RealtimeTunnelPanelProvider {
     lastResultsSummaryCapabilitySkippedDirtyKey = "";
     resultsSummaryRefreshRetryCount = 0;
     resultsSummaryRefreshInFlight = false;
+    tmuxClearTaskTabsInFlight = false;
     private statePostTimer?: ReturnType<typeof setTimeout>;
     private statePostRetryTimer?: ReturnType<typeof setTimeout>;
     private statePostPending = false;
@@ -4932,6 +4933,8 @@ export class RealtimeTunnelPanelProvider {
             case "killTmuxWindow":
                 await this.killTmuxWindowFromUi(message);
                 break;
+            case "clearTmuxTaskTabs":
+                return await this.clearTmuxTaskTabsFromUi(message);
             default:
                 if (uiActionCommands.has(command))
                     await this.runActionCommand(command, message);
@@ -4946,10 +4949,13 @@ export class RealtimeTunnelPanelProvider {
         const watchdogMs = this.uiCommandWatchdogMs(command);
         const isLocalTrigger = localCommandReleasesAfterTrigger(command);
         const guardedWork = work()
-            .then(async () => {
+            .then(async (value) => {
+            const completedMessage = command === "clearTmuxTaskTabs" && typeof value === "string" && value.trim()
+                ? value.trim()
+                : (isLocalTrigger ? "已触发本地 VS Code 操作" : "completed");
             return {
                 status: "completed",
-                message: isLocalTrigger ? "已触发本地 VS Code 操作" : "completed",
+                message: completedMessage,
             };
         })
             .catch((error) => {
@@ -5021,7 +5027,7 @@ export class RealtimeTunnelPanelProvider {
     uiCommandWatchdogMs(command) {
         // Agent 准备含 SFTP 部署、Xshell 启动和就绪检测，进度通知及各阶段自身超时负责终态。
         if (command === "prepareAgents") return 0;
-        if (command === "killTmuxWindow") return 0;
+        if (command === "killTmuxWindow" || command === "clearTmuxTaskTabs") return 0;
         if (command === "fetchTmuxList" || command === "fetchTmuxCapture") return 8000;
         if (command === "runAllPlans") {
             const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));
@@ -14619,6 +14625,107 @@ export class RealtimeTunnelPanelProvider {
             this.view?.webview.postMessage(payload);
             return payload;
         }
+    }
+    async clearTmuxTaskTabsFromUi(message: any) {
+        if (this.tmuxClearTaskTabsInFlight)
+            throw new Error("正在清理当前 GPU 任务标签，请等待本次结束。");
+        this.tmuxClearTaskTabsInFlight = true;
+        try {
+            return await this.clearTmuxTaskTabsOnce(message);
+        } finally {
+            this.tmuxClearTaskTabsInFlight = false;
+        }
+    }
+    async clearTmuxTaskTabsOnce(message: any) {
+        const workerId = this.tmuxWorkerId(message);
+        const session = String(message?.session || "").trim();
+        if (!session || !/-gpu-\d+$/i.test(session))
+            throw new Error("清理任务标签必须指定当前 GPU 会话，拒绝关闭整个会话或非 GPU 窗口。");
+        const requested = Array.isArray(message?.targets) ? message.targets.map((item: any) => String(item || "").trim()).filter(Boolean) : [];
+        const unique = [...new Set(requested)];
+        if (!unique.length)
+            throw new Error("当前 GPU 会话没有可清理的任务标签。");
+        let listed: any;
+        try {
+            listed = await this.readTmuxListAfterKill(workerId);
+        } catch (error) {
+            throw new Error(`清理前无法读取 tmux 列表：${errorMessage(error)}`);
+        }
+        if (listed?.ok === false)
+            throw new Error(`清理前 tmux 列表失败：${String(listed?.error || "unknown")}`);
+        const verified = this.verifiedTmuxTaskTargets(listed, workerId, session, unique);
+        if (verified.rejected.length)
+            throw new Error(`清理目标与当前 Worker/GPU 任务标签不一致：${verified.rejected.slice(0, 6).join(", ")}`);
+        if (!verified.targets.length)
+            throw new Error("当前 GPU 会话没有可清理的任务标签。");
+        const answer = await vscode.window.showWarningMessage(
+            `确定关闭 ${workerId} 的 GPU 会话 ${session} 中 ${verified.targets.length} 个任务标签？只关闭这些任务窗口，不会关闭 GPU 会话本身。`,
+            { modal: true }, "关闭任务标签",
+        );
+        if (answer !== "关闭任务标签")
+            throw new UiCommandCancelled("已取消清理任务标签。");
+        const closed = [];
+        const failed = [];
+        try {
+            await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `清理 ${workerId} · ${session} 的任务标签`, cancellable: false }, async (progress) => {
+                for (let index = 0; index < verified.targets.length; index++) {
+                    const target = verified.targets[index];
+                    progress.report({ increment: Math.round(100 / verified.targets.length), message: `正在关闭 ${index + 1}/${verified.targets.length} ${target}` });
+                    try {
+                        const current = await this.readTmuxListAfterKill(workerId);
+                        const again = this.verifiedTmuxTaskTargets(current, workerId, session, [target]);
+                        if (!again.targets.length) {
+                            failed.push(`${target}（列表已变化，未关闭）`);
+                            continue;
+                        }
+                        await this.performKillTmuxWindow(workerId, target);
+                        closed.push(target);
+                    } catch (error) {
+                        failed.push(`${target}（${errorMessage(error)}）`);
+                    }
+                }
+            });
+        } catch (error) {
+            if (!closed.length && !failed.length) throw error;
+            failed.push(`进度中断（${errorMessage(error)}）`);
+        }
+        const summary = `已关闭 ${closed.length}/${verified.targets.length} 个任务标签。` + (failed.length ? `失败 ${failed.length} 个：${failed.join("；")}` : "");
+        if (failed.length)
+            throw new Error(summary);
+        return summary;
+    }
+    verifiedTmuxTaskTargets(listResult: any, workerId: string, session: string, requested) {
+        const listedWorker = String(listResult?.workerId || "");
+        const sessions = Array.isArray(listResult?.sessions) ? listResult.sessions : [];
+        const found = sessions.find((item: any) => String(item?.name || "") === session);
+        const windows = Array.isArray(found?.windows) ? found.windows : [];
+        const allowed = new Map();
+        for (const win of windows) {
+            if (!win?.task || typeof win.task !== "object")
+                continue;
+            const explicit = String(win?.target || "").trim();
+            const derived = win?.index !== undefined && win?.index !== null ? `${session}:${win.index}` : "";
+            const target = explicit || derived;
+            const windowName = String(win?.name || "").toLowerCase();
+            if (!target || target === session || !target.startsWith(`${session}:`) || /(?:^|:)[^:]*agent/.test(target) || windowName === "bash" || windowName === "agent")
+                continue;
+            allowed.set(target, true);
+        }
+        const targets = [];
+        const rejected = [];
+        const seen = new Set();
+        for (const raw of requested) {
+            const target = String(raw || "").trim();
+            if (!target || seen.has(target))
+                continue;
+            seen.add(target);
+            const sessionName = this.tmuxKillSessionFromTarget(target);
+            if (listedWorker !== workerId || sessionName !== session || !allowed.has(target))
+                rejected.push(target);
+            else
+                targets.push(target);
+        }
+        return { targets, rejected };
     }
     async killTmuxWindowFromUi(message: any) {
         const workerId = this.tmuxWorkerId(message);
