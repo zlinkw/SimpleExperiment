@@ -385,7 +385,8 @@ export function renderPanelHtml(): string {
     .taskProgressCard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--subtle-bg); display: grid; gap: 6px; }
     .operationTimeline { display: grid; gap: 6px; }
     .executionControls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 7px 0; }
-    .commandPhaseLine { margin: 4px 0 8px; min-height: 18px; }
+    .commandPhaseLine { margin: 4px 0 8px; min-height: 18px; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .commandPhaseLine:empty { display: none; min-height: 0; margin: 0; }
     .commandPhaseLine.busy::before { content: '◌'; display: inline-block; margin-right: 6px; animation: commandPhaseSpin 1s linear infinite; }
     @keyframes commandPhaseSpin { to { transform: rotate(360deg); } }
     .executionPlanList { display: grid; gap: 7px; margin: 8px 0; }
@@ -516,6 +517,7 @@ export function renderPanelHtml(): string {
     .tree-inspector-fact b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
     .tree-inspector-action { display: none; margin-top: 4px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--vscode-focusBorder) 8%, var(--vscode-input-background) 92%); color: var(--muted); font-size: 11px; line-height: 1.4; }
     .planQuickGrid { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: end; }
+    #planCommandPhaseLine { width: 100%; max-width: 100%; min-width: 0; }
     .planQuickActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
     .planQuickActions > button { justify-self: start; width: auto; flex: 0 0 auto; }
     .runModeBar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -1338,6 +1340,7 @@ export function renderPanelHtml(): string {
           <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
           <button data-command="runPlan" data-confirm="true" title="校验并提交运行&#10;先同步代码到参与服务器，再校验与预演，通过后提交后台调度&#10;提交前会弹出确认窗口核对远端路径、任务数、模式与 Worker">校验并提交运行</button>
           <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前实验计划目录下的全部计划&#10;每个计划仍会走完整的校验与预演门禁">运行全部计划</button>
+          </div>
         </div>
         <div id="planCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
         <div id="recentPlans" data-anchor="plans-list"></div>
@@ -4742,14 +4745,28 @@ export function renderPanelHtml(): string {
     }
 
     function renderCommandPhaseLine() {
+      const phaseLineText = (item) => {
+        if (!item || !item.message) return { shown: "", full: "" };
+        const full = String(item.label || item.command || "命令") + "：" + String(item.message);
+        const shown = full.length > 160 ? full.slice(0, 157) + "..." : full;
+        return { shown, full };
+      };
       const pending = Object.values(pendingActionsById || {});
-      const item = pending.find((row) => row && row.command === "runPlan" && row.message) || pending.find((row) => row && row.message);
-      const text = item ? String(item.label || item.command || "命令") + "：" + String(item.message) : "";
-      for (const id of ["commandPhaseLine", "planCommandPhaseLine"]) {
-        const host = el(id);
+      const planItem = pending.find((row) => row && planPhaseCommand(row.command) && row.message);
+      const globalItem = pending.find((row) => row && row.message);
+      const planText = phaseLineText(planItem);
+      const globalText = phaseLineText(globalItem);
+      const hosts = [
+        ["commandPhaseLine", globalText],
+        ["planCommandPhaseLine", planText]
+      ];
+      for (const pair of hosts) {
+        const host = el(pair[0]);
+        const text = pair[1];
         if (host) {
-          host.textContent = text;
-          host.classList.toggle("busy", Boolean(text));
+          host.textContent = text.shown;
+          host.title = text.full;
+          host.classList.toggle("busy", Boolean(text.shown));
         }
       }
     }
