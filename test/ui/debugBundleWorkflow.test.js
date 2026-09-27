@@ -16,6 +16,6 @@ test("debug bundle workflow creates through action and downloads through its bou
   assert.match(download, /const client = this\.client/);
   assert.ok([...download.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\) \|\| client !== this\.client/g)].length >= 3);
   assert.match(source, /findDebugBundlePath/);
-  assert.match(source, /client\.downloadFile\(pathFromOps, picked\.fsPath\)/);
+  assert.match(source, /sync\.downloadMappedPaths/);
   assert.doesNotMatch(source, /downloadSelectedRemoteFile|listRemoteFiles|uploadFileToCurrentRemoteDir/);
 });

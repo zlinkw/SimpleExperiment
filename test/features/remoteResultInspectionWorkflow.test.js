@@ -212,13 +212,13 @@ test("extension and workbench expose a confirmed download-and-open path", () => 
   assert.match(download, /const generation = this\.projectContextGeneration/);
   assert.match(download, /const client = this\.client/);
   assert.ok([...download.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\) \|\| client !== this\.client/g)].length >= 4);
-  assert.ok(download.indexOf("await client.downloadFile") < download.indexOf("await this.openWorkspaceFileForProjectContext(localRelative"));
+  assert.ok(download.indexOf("sync.downloadMappedPaths") < download.indexOf("await this.openWorkspaceFileForProjectContext(localRelative"));
   assert.match(extension, /remoteResultInspectionCandidates\(\[this\.localOperations, this\.lastRealtimeState\?\.operations\], planFile, version\.revision, version\.updatedAt\)/);
   assert.match(extension, /showWarningMessage\(\[\s*"【远端结果查看确认】"[\s\S]*`远端来源：\$\{remotePath\}`[\s\S]*`本地副本：\$\{localPath\}`[\s\S]*\{ modal: true \}, "下载并打开"\)/);
-  assert.match(extension, /client\.downloadFile\(remotePath, localPath, \{ maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES \}\)/);
+  assert.match(extension, /maxFileBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES/);
   assert.match(extension, /await this\.openWorkspaceFileForProjectContext\(localRelative, \{ generation, root \}, client\)/);
   assert.doesNotMatch(extension.slice(extension.indexOf("async downloadRemoteResultFromUi"), extension.indexOf("async openAuditTail")), /openWorkspaceFile\(remotePath\)/);
-  assert.match(panel, /downloadRemoteResult: \["endpoints\.fileDownload"\]/);
+  assert.match(panel, /downloadRemoteResult: \[\]/);
   assert.match(panel, /data-command="downloadRemoteResult" data-remote-path=/);
   assert.match(panel, /outputContractUnparseableFileList: item\.unparseableFileList/);
   assert.match(panel, /renderRemoteResultInspectionActions\(row\.unparseableFileList, row\.planFile, 3, row\.unparseableDetails\)/);
@@ -242,7 +242,7 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.match(handler, /methodResultArtifactLocalRelativePath\(artifactPath, planFile, summary, DEFAULT_RESULT_CSV_DIR/);
   assert.match(handler, /owned\.finalCsvPath, owned\.finalMarkdownPath/);
   assert.doesNotMatch(handler, /experiments\/simple_project\.yaml/);
-  assert.match(handler, /client\.downloadFile\(artifactPath, localCopyPath, \{ maxBytes: RESULT_ARTIFACT_MAX_BYTES \}\)/);
+  assert.match(handler, /maxFileBytes: RESULT_ARTIFACT_MAX_BYTES/);
   assert.match(handler, /await this\.openWorkspaceFileForProjectContext\(localRelative, projectContext, client\)/);
   const opener = extension.slice(extension.indexOf("async openWorkspaceFileForProjectContext"), extension.indexOf("async openWorkspaceFolderForContinuation"));
   assert.match(opener, /const editorUri = workspaceEditorUriForFile\(file\)/);
@@ -268,15 +268,15 @@ test("Plan concise table is the primary result entry with scoped explanations", 
   assert.match(panel, /重建当前 Plan 汇总/);
 });
 
-test("bulk sync uses one action, one overwrite decision and the Agent tunnel for each file", () => {
+test("bulk sync uses one action, one overwrite decision and one mapped transfer per source", () => {
   const handler = extension.slice(extension.indexOf("async syncAllResultArtifactsFromUi"), extension.indexOf("async editResultColumnMappingFromUi"));
   assert.match(extension, /case "syncAllResultArtifacts":\s*await this\.syncAllResultArtifactsFromUi\(message\)/);
   assert.match(panel, /data-command="syncAllResultArtifacts" data-plan-file=/);
   assert.match(handler, /resultSummarySyncCandidates\(summary, planFile\)/);
-  assert.match(handler, /methodResultArtifactLocalRelativePath\(candidate\.remotePath, planFile, summary/);
+  assert.match(handler, /methodResultArtifactLocalRelativePath\(remotePath, planFile, summary/);
   assert.match(handler, /if \(existingCount\) \{/);
-  assert.match(handler, /client\.downloadWorkerFile\(entry\.workerId, entry\.remotePath, entry\.localPath/);
-  assert.match(handler, /client\.downloadFile\(entry\.remotePath, entry\.localPath/);
+  assert.match(handler, /sync\.downloadMappedPaths/);
+  assert.doesNotMatch(handler, /client\.downloadWorkerFile\(|client\.downloadFile\(/);
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
 });
 

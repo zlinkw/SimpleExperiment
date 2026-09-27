@@ -55,7 +55,7 @@ function loadCapabilityReadiness() {
     EMPTY_CAPABILITY_SOURCE: Object.freeze({}),
     uiCapabilityMap: {
       runPlan: ["actions.run-plan"],
-      downloadDebugBundle: ["endpoints.fileDownload"],
+      downloadDebugBundle: [],
     },
     uiCapabilityReadinessCacheKey: "",
     uiCapabilityReadinessCache: new Map(),
@@ -188,9 +188,6 @@ test("command capability gaps cache per source identity and invalidate on nested
   assert.deepEqual(Array.from(replacedNestedSources.missing), ["actions.run-plan"]);
   assert.equal(sandbox.capabilityChecks, 2);
 
-  const blockedDownload = sandbox.readiness(state, "downloadDebugBundle");
-  assert.deepEqual(Array.from(blockedDownload.missing), ["endpoints.fileDownload"]);
-  state.fileCapabilities = { supportsDownload: true };
   const readyDownload = sandbox.readiness(state, "downloadDebugBundle");
   assert.deepEqual(Array.from(readyDownload.missing), []);
 });

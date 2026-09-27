@@ -2420,7 +2420,7 @@ function renderPanelHtml() {
       configScope: "data-config-scope", savePlan: "data-save-plan", batchSelected: "data-batch-selected"
     });
     const PINNED_COMMAND_VALUES = new Set(["startAllConnections", "prepareAgents", "testAll", "snapshot", "runPlan", "runAllPlans", "archivePlan", "validatePlan", "dryRunPlan", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "selfCheck", "createDebugBundle", "pauseAll", "resumeNetwork"]);
-    const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureDownloadScope", "configureServerSyncScope", "runPlan", "reproducePlan", "runAllPlans"]);
+    const SIMPLE_SFTP_GATED_COMMANDS = new Set(["prepareAgents", "deployLatestAgent", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "configureDownloadScope", "configureServerSyncScope", "runPlan", "reproducePlan", "runAllPlans", "downloadDebugBundle", "downloadRemoteResult"]);
     const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set(["runAllPlans", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay", "deleteArtifacts", "reconcileDeletions", "parseResults", "refreshResults", "runQualityGate", "runStatistics", "checkClaimEvidence", "exportPaperTable", "checkOutputContract", "parseCaseLevel", "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset", "createOfflineBundle", "exportPlottingContract", "plotResultsToPpt", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig"]);
     const COMMAND_ACTION_NAMES = Object.freeze({
       validatePlan: "validate-plan", dryRunPlan: "dry-run-plan", runPlan: "run-plan", stopExperiment: "stop-experiment", retryExperiment: "retry-experiment", reproducePlan: "reproduce-plan",
@@ -2677,8 +2677,8 @@ function renderPanelHtml() {
       reconcileDeletions: ["actions.reconcile-deletions"],
       selfCheck: ["actions.self-check"],
       createDebugBundle: ["actions.create-debug-bundle"],
-      downloadDebugBundle: ["endpoints.fileDownload"],
-      downloadRemoteResult: ["endpoints.fileDownload"],
+      downloadDebugBundle: [],
+      downloadRemoteResult: [],
       openAuditTail: ["endpoints.auditTail"]
     };
     const noHubWorkerResultCommands = new Set([

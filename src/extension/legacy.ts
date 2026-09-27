@@ -11313,12 +11313,30 @@ export class RealtimeTunnelPanelProvider {
             const manifestPath = path.posix.join(archiveRelative, "manifest.json");
             if (!listed.includes(manifestPath) || listed.length > 801 || listed.some((file) => !file.startsWith(archiveRelative + "/")))
                 throw new Error(`${workerId} 返回的归档文件清单无效。`);
-            const workerLocal = safeWorkspaceChildPath(root, path.posix.join(archiveRelative, safePlanToken(workerId)));
-            for (const remoteFile of listed) {
+            const workerLocalRelative = path.posix.join(archiveRelative, safePlanToken(workerId));
+            const workerLocal = safeWorkspaceChildPath(root, workerLocalRelative);
+            const mapped = listed.map((remoteFile) => {
                 const inside = path.posix.relative(archiveRelative, remoteFile);
-                const localFile = safeArchiveBundleChildPath(workerLocal, inside);
-                await fs.mkdir(path.dirname(localFile), { recursive: true });
-                await client.downloadWorkerFile(workerId, remoteFile, localFile, { maxBytes: 4 * 1024 * 1024 });
+                if (!inside || inside.startsWith("..") || inside.split("/").some((part) => !part || part === "." || part === ".."))
+                    throw new Error(`${workerId} 归档清单包含越界路径。`);
+                return { remotePath: remoteFile, localRelativePath: path.posix.join(workerLocalRelative, inside) };
+            });
+            const server = this.mappedDownloadServerForSource(workerId);
+            if (!server)
+                throw new Error(`${workerId} 没有可打包的 SFTP 目标，已停止轻量归档下载。请恢复该 Worker 的 SSH 配置后重试，不要逐文件下载。`);
+            for (let offset = 0; offset < mapped.length; offset += MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES) {
+                const chunk = mapped.slice(offset, offset + MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES);
+                const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
+                    localPath: root,
+                    server,
+                    entries: chunk,
+                    maxFileBytes: 4 * 1024 * 1024,
+                    overwrite: true,
+                    confirm: true,
+                    pathConfirmed: true,
+                });
+                if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== chunk.length)
+                    throw new Error(`${workerId} 归档映射下载数量与清单不一致。`);
                 if (!this.projectContextIsCurrent(context) || client !== this.client)
                     throw new UiCommandCancelled("连接已切换；远端副本已保留，本地下载未完成。");
             }
@@ -11383,13 +11401,22 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(`暂不可归档 Plan：结果摘要缺少 ${evidencePlan.missingRequired.join("、")}。请先重新解析当前 Plan 结果。`);
         if (evidencePlan.invalid.length)
             throw new Error(`暂不可归档 Plan：结果证据路径无效或不是受支持的轻量文件：${evidencePlan.invalid.join("、")}`);
-        const canDownloadEvidence = this.effectiveConnectionMode() !== "offline_import" && this.missingCapabilities(["endpoints.fileDownload"]).length === 0;
-        const evidenceMode = canDownloadEvidence ? "hub_download" : "local";
+        let hubSftpReady = false;
+        if (this.effectiveConnectionMode() !== "offline_import" && this.projectTopologyAssessment?.().hubAllowed && typeof this.hubCodeSyncTarget === "function") {
+            try {
+                this.hubMappedDownloadServer();
+                hubSftpReady = true;
+            }
+            catch {
+                hubSftpReady = false;
+            }
+        }
+        const evidenceMode = hubSftpReady ? "hub_download" : "local";
         if (evidenceMode === "local") {
             const localEvidence = await inspectLocalPlanArchiveEvidence(root, evidencePlan.files);
             assertCurrent();
             if (localEvidence.missing.length)
-                throw new Error(`暂不可归档 Plan：Hub 轻量文件下载不可用，且本地缺少结果证据：${localEvidence.missing.join("、")}。请恢复 Hub 连接或先同步这些文件。`);
+                throw new Error(`暂不可归档 Plan：Hub SFTP 目标不可用，且本地缺少结果证据：${localEvidence.missing.join("、")}。下一步：填写 Hub SSH 主机和项目目录，或先同步这些文件。`);
             if (localEvidence.oversized.length)
                 throw new Error(`暂不可归档 Plan：本地结果证据超过单文件 ${Math.round(PLAN_ARCHIVE_EVIDENCE_MAX_BYTES / 1024 / 1024)} MB 上限：${localEvidence.oversized.join("、")}`);
         }
@@ -13299,14 +13326,40 @@ export class RealtimeTunnelPanelProvider {
         }
         const picked = await vscode.window.showSaveDialog({
             title: "保存调试包",
-            defaultUri: vscode.Uri.file(path.join(workspaceRoot() || process.cwd(), path.basename(pathFromOps))),
+            defaultUri: vscode.Uri.file(path.join(root || process.cwd(), path.basename(pathFromOps))),
         });
         if (!picked)
             return;
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
         try {
-            await client.downloadFile(pathFromOps, picked.fsPath);
+            if (!root)
+                throw new Error("请先打开当前实验项目，才能把调试包暂存到项目内再复制到所选位置。");
+            const bundleName = path.posix.basename(String(pathFromOps).replace(/\\/g, "/"));
+            if (!bundleName || bundleName === "." || bundleName === "..")
+                throw new Error("调试包文件名不安全，已停止下载。");
+            const server = this.hubMappedDownloadServer();
+            const stagingRelative = path.posix.join("simple_cluster", "downloads", "debug_bundle", bundleName);
+            const stagingPath = safeWorkspaceChildPath(root, stagingRelative);
+            const existing = await fs.stat(stagingPath).catch(() => undefined);
+            if (existing && !existing.isFile())
+                throw new Error(`调试包暂存位置不是文件：${stagingRelative}`);
+            const remoteBundle = String(pathFromOps).replace(/\\/g, "/").replace(/^\.\//, "");
+            if (!remoteBundle || remoteBundle.split("/").some((part) => !part || part === "." || part === ".."))
+                throw new Error("调试包远端路径不安全，已停止下载。");
+            const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
+                localPath: root,
+                server,
+                entries: [{ remotePath: remoteBundle, localRelativePath: stagingRelative }],
+                maxFileBytes: RESULT_ARTIFACT_MAX_BYTES,
+                overwrite: true,
+                confirm: true,
+                pathConfirmed: true,
+            });
+            if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== 1)
+                throw new Error("调试包映射下载未写入预期文件。下一步：核对 Hub SSH 配置后重试这一次打包下载。");
+            await fs.mkdir(path.dirname(picked.fsPath), { recursive: true });
+            await fs.copyFile(stagingPath, picked.fsPath);
             if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
                 return;
             this.lastError = undefined;
@@ -13349,7 +13402,7 @@ export class RealtimeTunnelPanelProvider {
             `本地副本：${localPath}`,
             `大小上限：${Math.round(REMOTE_RESULT_INSPECTION_MAX_BYTES / 1024 / 1024)} MB`,
             "",
-            "只会通过当前 Hub 的 Xshell 本地隧道下载只读副本，不会修改远端文件。",
+            "只会通过当前 Hub 的 SFTP SSH 一次打包下载只读副本，不会修改远端文件。",
         ].join("\n"), { modal: true }, "下载并打开");
         if (answer !== "下载并打开")
             throw new UiCommandCancelled("远端结果查看已取消，未下载文件。");
@@ -13358,7 +13411,18 @@ export class RealtimeTunnelPanelProvider {
         await fs.mkdir(path.dirname(localPath), { recursive: true });
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
-        await client.downloadFile(remotePath, localPath, { maxBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES });
+        const inspectionServer = this.hubMappedDownloadServer();
+        const inspectionResult = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
+            localPath: root,
+            server: inspectionServer,
+            entries: [{ remotePath, localRelativePath: localRelative }],
+            maxFileBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES,
+            overwrite: true,
+            confirm: true,
+            pathConfirmed: true,
+        });
+        if (Number(inspectionResult?.fileCount ?? inspectionResult?.completedFiles ?? 0) !== 1)
+            throw new Error("远端结果映射下载未写入预期文件。下一步：核对 Hub SSH 配置后重试这一次打包下载。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
             return;
         const opened = await this.openWorkspaceFileForProjectContext(localRelative, { generation, root }, client);
@@ -13410,13 +13474,12 @@ export class RealtimeTunnelPanelProvider {
             await this.openWorkspaceFileForProjectContext(localRelative, projectContext, client);
             return;
         }
-        const missing = useWorker ? [] : this.missingCapabilities(["endpoints.fileDownload"]);
-        if (missing.length) {
+        if (!useWorker && !(this.projectTopologyAssessment?.().hubAllowed)) {
             if (hasLocalFile) {
                 await this.openWorkspaceFileForProjectContext(localRelative, projectContext, client);
                 return;
             }
-            throw new Error(`Hub Agent 缺少结果文件下载能力：${missing.join(", ")}。请部署最新版 Agent；未修改当前 Plan 选择。`);
+            throw new Error("Hub 来源没有可打包的 SFTP 目标。下一步：在服务器设置中填写 Hub 主机和项目目录后重试；未修改当前 Plan 选择。");
         }
         const localCopyPath = safeWorkspaceChildPath(root, localRelative);
         const downloadLabel = hasLocalFile ? "覆盖本地副本并打开" : "同步到本机并打开";
@@ -13430,7 +13493,7 @@ export class RealtimeTunnelPanelProvider {
             `该位置当前文件：${hasLocalFile ? "存在，下载会覆盖" : "不存在"}`,
             `大小上限：${Math.round(RESULT_ARTIFACT_MAX_BYTES / 1024 / 1024)} MB`,
             "",
-            `下载只通过 ${useWorker ? workerId + " Worker" : "Hub"} 的现有 Agent 隧道读取文件，不会修改远端结果，也不会切换当前 Plan。`,
+            `下载只通过 ${useWorker ? workerId + " Worker" : "Hub"} 的 SFTP SSH 一次打包读取文件，不会修改远端结果，也不会切换当前 Plan。`,
         ].join("\n"), { modal: true }, ...choices);
         if (!isCurrent())
             return;
@@ -13443,10 +13506,18 @@ export class RealtimeTunnelPanelProvider {
         await fs.mkdir(path.dirname(localCopyPath), { recursive: true });
         if (!isCurrent())
             return;
-        if (useWorker)
-            await client.downloadWorkerFile(workerId, artifactPath, localCopyPath, { maxBytes: RESULT_ARTIFACT_MAX_BYTES });
-        else
-            await client.downloadFile(artifactPath, localCopyPath, { maxBytes: RESULT_ARTIFACT_MAX_BYTES });
+        const mappedServer = useWorker ? this.mappedDownloadServerForSource(workerId) : this.hubMappedDownloadServer();
+        const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
+            localPath: root,
+            server: mappedServer,
+            entries: [{ remotePath: artifactPath, localRelativePath: localRelative }],
+            maxFileBytes: RESULT_ARTIFACT_MAX_BYTES,
+            overwrite: true,
+            confirm: true,
+            pathConfirmed: true,
+        });
+        if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== 1)
+            throw new Error("结果文件映射下载未写入预期的单个文件。下一步：核对来源 SSH 配置后重试这一次打包下载。");
         if (!isCurrent())
             return;
         const opened = await this.openWorkspaceFileForProjectContext(localRelative, projectContext, client);
@@ -13478,6 +13549,8 @@ export class RealtimeTunnelPanelProvider {
         const download = await this.downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, "同步当前 Plan 全部结果", { metricsOnly: false });
         if (!isCurrent() || !download) return;
         if (download.cancelled && !download.completed && !download.failures?.length) return;
+        if (download.completed > 0 && !download.failures?.length && !download.cancelled)
+            await this.publishDownloadedResultMetrics(projectContext, client, [{ planFile, summary, candidates }], [download]);
         return download;
     }
     async syncPendingResultMetricsFromUi() {
@@ -13536,14 +13609,30 @@ export class RealtimeTunnelPanelProvider {
             ready.push({ ...item, summary, candidates: resultMetricDownloadCandidates(summary, item.planFile) });
         }
         const downloads = [];
-        for (const item of ready) {
-            if (!item.candidates.length) continue;
-            const download = await this.downloadResultArtifactCandidates(projectContext, client, item.planFile, item.summary, item.candidates, "同步结果指标文件", { metricsOnly: true });
+        const batches = this.collectMappedResultDownloadBatches(projectContext, ready, { metricsOnly: true });
+        if (!isCurrent())
+            return { merged: true, downloaded: false, reason: "revision-changed", plans };
+        const confirmed = await this.confirmMappedResultDownloads(projectContext, client, batches, "同步结果指标文件", { metricsOnly: true });
+        if (!confirmed || confirmed.cancelled) {
+            if (confirmed?.cancelled && !confirmed.rejected)
+                return { merged: true, downloaded: false, reason: "cancelled", plans, downloads: [confirmed] };
+            return { merged: true, downloaded: false, plans, downloads: confirmed ? [confirmed] : [] };
+        }
+        for (const batch of confirmed.batches) {
+            if (!isCurrent())
+                return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads };
+            const download = await this.downloadMappedResultBatch(projectContext, client, batch, "同步结果指标文件", { metricsOnly: true, overwrite: confirmed.overwrite });
             downloads.push(download);
+            if (!isCurrent())
+                return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads };
+            if (download?.failures?.length)
+                throw new Error(`指标文件下载失败，已停止后续来源：${download.failures.slice(0, 3).join("；")}`);
             if (download?.cancelled)
                 break;
         }
         const downloaded = downloads.some((item) => item && !item.cancelled && !item.failures?.length && item.completed > 0);
+        if (downloaded && isCurrent())
+            await this.publishDownloadedResultMetrics(projectContext, client, ready, downloads);
         return { merged: true, downloaded, plans, downloads };
     }
     async summaryForMetricDownload(client, planFile) {
@@ -13554,110 +13643,297 @@ export class RealtimeTunnelPanelProvider {
         await this.refreshResultsSummary(planFile);
         return this.filterResultsSummaryForPlan(this.resultsSummary, planFile);
     }
-    async downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, title, options = {}) {
+    collectMappedResultDownloadBatches(projectContext, planItems, options: { metricsOnly?: boolean } = {}) {
+        const root = projectContext.root;
+        const metricsOnly = options.metricsOnly === true;
+        const destinations = new Map();
+        const grouped = new Map();
+        for (const item of planItems) {
+            const planFile = String(item.planFile || "");
+            const summary = item.summary;
+            const candidates = Array.isArray(item.candidates) ? item.candidates : [];
+            if (candidates.length > 64)
+                throw new Error(`当前 Plan 有 ${candidates.length} 个${metricsOnly ? "指标" : "结果"}文件，超过单次同步上限 64；请分别打开需要的文件。`);
+            const workerTables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+            const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
+            for (const candidate of candidates) {
+                const remotePath = String(candidate.remotePath || "").replace(/\\/g, "/");
+                if (!remotePath || remotePath.startsWith("/") || /^[A-Za-z]:/.test(remotePath) || remotePath.split("/").some((part) => !part || part === "." || part === ".."))
+                    throw new Error(`远端结果路径不安全：${remotePath}`);
+                if (metricsOnly && !isResultMetricFile(remotePath))
+                    throw new Error(`拒绝下载非指标文件：${remotePath}`);
+                const owner = String(candidate.workerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
+                const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (!owner && availableWorkers.length === 1 ? availableWorkers[0] : "");
+                if (workerTables.length > 1 && !workerId)
+                    throw new Error(`无法确定 ${remotePath} 所属 Worker，已阻止批量同步。`);
+                if (owner && availableWorkers.length && !workerId)
+                    throw new Error(`结果所属 Worker ${owner} 未启用，已阻止批量同步。`);
+                if (!workerId && !(this.projectTopologyAssessment?.().hubAllowed && typeof this.hubCodeSyncTarget === "function"))
+                    throw new Error("Hub 来源没有可打包的 SFTP 目标。下一步：在服务器设置中填写 Hub 主机和项目目录后重试。");
+                const sourceId = workerId || "hub";
+                const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
+                const localPath = safeWorkspaceChildPath(root, localRelative);
+                const destinationKey = localRelative.toLowerCase();
+                const previous = destinations.get(destinationKey);
+                if (previous && (previous.remotePath !== remotePath || previous.sourceId !== sourceId))
+                    throw new Error(`多个指标文件对应同一本地路径：${localRelative}，已阻止覆盖。`);
+                if (previous)
+                    continue;
+                destinations.set(destinationKey, { remotePath, sourceId });
+                if (!grouped.has(sourceId))
+                    grouped.set(sourceId, { sourceId, workerId, transfers: new Map(), entries: [] });
+                const batch = grouped.get(sourceId);
+                const remoteKey = remotePath.toLowerCase();
+                if (!batch.transfers.has(remoteKey)) {
+                    batch.transfers.set(remoteKey, { remotePath, localRelativePath: mappedDownloadStageRelative(sourceId, remotePath) });
+                }
+                batch.entries.push({ planFile, remotePath, workerId, localRelative, localPath, stageRelative: batch.transfers.get(remoteKey).localRelativePath });
+            }
+        }
+        return [...grouped.values()];
+    }
+    async confirmMappedResultDownloads(projectContext, client, batches, _title, options: { metricsOnly?: boolean } = {}) {
         const root = projectContext.root;
         const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
         const metricsOnly = options.metricsOnly === true;
-        if (!candidates.length)
-            throw new Error(metricsOnly ? "没有可下载的指标文件。" : "当前 Plan 没有可同步的结果文件；请先刷新或重建汇总。");
-        if (candidates.length > 64)
-            throw new Error(`当前 Plan 有 ${candidates.length} 个${metricsOnly ? "指标" : "结果"}文件，超过单次同步上限 64；请分别打开需要的文件。`);
-        const workerTables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
-        const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
-        const entries = [];
-        const destinations = new Set();
-        for (const candidate of candidates) {
-            const remotePath = String(candidate.remotePath || "");
-            if (metricsOnly && !isResultMetricFile(remotePath))
-                throw new Error(`拒绝下载非指标文件：${remotePath}`);
-            const owner = String(candidate.workerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
-            const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (!owner && availableWorkers.length === 1 ? availableWorkers[0] : "");
-            if (workerTables.length > 1 && !workerId)
-                throw new Error(`无法确定 ${remotePath} 所属 Worker，已阻止批量同步。`);
-            if (owner && availableWorkers.length && !workerId)
-                throw new Error(`结果所属 Worker ${owner} 未启用，已阻止批量同步。`);
-            if (!workerId && this.missingCapabilities(["endpoints.fileDownload"]).length)
-                throw new Error("当前 Hub Agent 缺少结果文件下载能力。");
-            const localRelative = methodResultArtifactLocalRelativePath(candidate.remotePath, planFile, summary, DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
-            const localPath = safeWorkspaceChildPath(root, localRelative);
-            const destinationKey = localPath.toLowerCase();
-            if (destinations.has(destinationKey))
-                throw new Error(`多个指标文件对应同一本地路径：${localRelative}，已阻止覆盖。`);
-            destinations.add(destinationKey);
-            const existing = await fs.stat(localPath).catch(() => undefined);
+        const entries = batches.flatMap((batch) => batch.entries);
+        if (!entries.length)
+            return { cancelled: false, overwrite: false, batches: [], skippedExisting: 0 };
+        for (const entry of entries) {
+            const existing = await fs.stat(entry.localPath).catch(() => undefined);
             if (existing && !existing.isFile())
-                throw new Error(`本地结果位置不是文件：${localRelative}`);
-            entries.push({ remotePath, workerId, localRelative, localPath, exists: Boolean(existing) });
+                throw new Error(`本地结果位置不是文件：${entry.localRelative}`);
+            entry.exists = Boolean(existing);
         }
         if (!isCurrent())
-            return { completed: 0, selected: 0, failures: [], cancelled: true };
+            return { cancelled: true, rejected: false, overwrite: false, batches: [], skippedExisting: 0 };
         const existingCount = entries.filter((entry) => entry.exists).length;
         let overwrite = true;
         if (existingCount) {
+            const plans = [...new Set(entries.map((entry) => entry.planFile))];
             const answer = await vscode.window.showWarningMessage([
                 metricsOnly ? "【同步结果指标确认】" : "【批量同步结果确认】",
-                `当前 Plan：${planFile}`,
+                `Plan：${plans.join("、")}`,
+                `来源：${batches.map((batch) => `${batch.sourceId} ${batch.entries.length} 个`).join("；")}`,
                 `${metricsOnly ? "指标" : "结果"}文件：${entries.length} 个，已有本地副本：${existingCount} 个`,
                 `本机目录：${safeWorkspaceChildPath(root, DEFAULT_RESULT_CSV_DIR)}`,
-                metricsOnly
-                    ? "每个文件最多 128 MB；只下载当前 Plan 摘要列出的 CSV/JSON 指标，不下载权重或日志。"
-                    : "每个文件最多 128 MB；仅下载当前 Plan 摘要列出的文件，远端文件不变。",
+                "每个文件最多 128 MB。同一来源的文件会先聚合，再一次打包传输并按映射写入各 Plan 路径。",
             ].join("\n"), { modal: true }, "覆盖已有文件并同步", "只同步缺失文件");
             if (!isCurrent())
-                return { completed: 0, selected: entries.length, failures: [], cancelled: true };
+                return { cancelled: true, rejected: false, overwrite: false, batches: [], skippedExisting: 0 };
             if (answer !== "覆盖已有文件并同步" && answer !== "只同步缺失文件")
                 throw new UiCommandCancelled(metricsOnly ? "指标文件下载已取消。" : "批量同步已取消。");
             overwrite = answer === "覆盖已有文件并同步";
         }
-        const selected = entries.filter((entry) => overwrite || !entry.exists);
-        if (!selected.length) {
-            void vscode.window.showInformationMessage(`当前 Plan 的 ${entries.length} 个${metricsOnly ? "指标" : "结果"}文件已有本地副本。`);
-            return { completed: 0, selected: 0, failures: [], cancelled: false, skippedExisting: entries.length };
+        const selectedBatches = batches.map((batch) => {
+            const entries = batch.entries.filter((entry) => overwrite || !entry.exists);
+            const selectedRemotes = new Set(entries.map((entry) => String(entry.remotePath || "").toLowerCase()));
+            const transfers = batch.transfers instanceof Map
+                ? new Map([...batch.transfers].filter(([key]) => selectedRemotes.has(key)))
+                : uniqueMappedTransfers(entries);
+            return { ...batch, entries, transfers };
+        }).filter((batch) => batch.entries.length);
+        const selectedCount = selectedBatches.reduce((total, batch) => total + batch.entries.length, 0);
+        if (!selectedCount) {
+            void vscode.window.showInformationMessage(`${entries.length} 个${metricsOnly ? "指标" : "结果"}文件已有本地副本。`);
+            return { cancelled: false, rejected: false, overwrite, batches: [], skippedExisting: entries.length };
         }
+        return { cancelled: false, rejected: false, overwrite, batches: selectedBatches, skippedExisting: entries.length - selectedCount };
+    }
+    hubMappedDownloadServer() {
+        if (typeof this.hubCodeSyncTarget !== "function" || (typeof this.projectTopologyAssessment === "function" && !this.projectTopologyAssessment().hubAllowed))
+            throw new Error("Hub 来源没有可打包的 SFTP 目标。下一步：在服务器设置中填写 Hub 主机和项目目录后重试。");
+        const target = this.hubCodeSyncTarget();
+        const server = this.sftpServerOptions(target);
+        if (!server?.host || !server?.remotePath || String(server.remotePath).includes("\\") || !String(server.remotePath).startsWith("/"))
+            throw new Error("Hub 远端项目目录不安全。下一步：核对 Hub SSH 主机和以 / 开头的项目目录后重试。");
+        return server;
+    }
+    mappedDownloadServerForSource(sourceId) {
+        if (!sourceId || sourceId === "hub")
+            return null;
+        const targets = typeof this.workerCodeSyncTargets === "function" ? this.workerCodeSyncTargets() : [];
+        const target = targets.find((item) => String(item?.id || "").toLowerCase() === String(sourceId).toLowerCase());
+        if (!target)
+            throw new Error(`来源 Worker ${sourceId} 没有可用的 SFTP 目标，已阻止下载。`);
+        const server = this.sftpServerOptions(target);
+        if (!server?.host || !server?.remotePath || String(server.remotePath).includes("\\") || !String(server.remotePath).startsWith("/"))
+            throw new Error(`来源 Worker ${sourceId} 的远端项目目录不安全，已阻止下载。`);
+        return server;
+    }
+    async downloadMappedResultBatch(projectContext, client, batch, title, options: { metricsOnly?: boolean, overwrite?: boolean } = {}) {
+        const root = projectContext.root;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        const metricsOnly = options.metricsOnly === true;
+        const overwrite = options.overwrite !== false;
+        const entries = batch.entries || [];
+        const transfers = batch.transfers instanceof Map ? [...batch.transfers.values()] : uniqueMappedTransfers(entries);
         const failures = [];
         let completed = 0;
         let cancelled = false;
+        const chunks = [];
+        for (let offset = 0; offset < transfers.length; offset += MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES)
+            chunks.push(transfers.slice(offset, offset + MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES));
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
-            for (let index = 0; index < selected.length; index++) {
+            for (let index = 0; index < chunks.length; index++) {
                 if (token.isCancellationRequested || !isCurrent()) { cancelled = true; break; }
-                const entry = selected[index];
-                progress.report({ message: `${index + 1}/${selected.length} ${entry.workerId || "Hub"}: ${entry.remotePath}` });
+                const chunk = chunks[index];
+                progress.report({ message: `${batch.sourceId}：打包 ${chunk.length} 个文件（${index + 1}/${chunks.length}）` });
                 try {
-                    await fs.mkdir(path.dirname(entry.localPath), { recursive: true });
-                    for (let attempt = 0; attempt < 4; attempt++) {
-                        try {
-                            if (entry.workerId)
-                                await client.downloadWorkerFile(entry.workerId, entry.remotePath, entry.localPath, { maxBytes: RESULT_ARTIFACT_MAX_BYTES });
-                            else
-                                await client.downloadFile(entry.remotePath, entry.localPath, { maxBytes: RESULT_ARTIFACT_MAX_BYTES });
-                            completed++;
-                            break;
-                        }
-                        catch (error) {
-                            const decision = (error as any)?.decision;
-                            if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || ""))) throw error;
-                            const deadline = Date.now() + Math.min(61000, Math.max(500, Number(decision.retryAfterMs || 1000) + 100));
-                            progress.report({ message: `请求预算等待中：${entry.remotePath}` });
-                            while (Date.now() < deadline) {
-                                if (token.isCancellationRequested || !isCurrent()) { cancelled = true; return; }
-                                await sleep(Math.min(1000, deadline - Date.now()));
-                            }
-                        }
-                    }
+                    const server = batch.sourceId === "hub"
+                        ? this.hubMappedDownloadServer()
+                        : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
+                    const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
+                        localPath: root,
+                        server,
+                        entries: chunk.map((entry) => ({ remotePath: entry.remotePath, localRelativePath: entry.localRelativePath })),
+                        maxFileBytes: RESULT_ARTIFACT_MAX_BYTES,
+                        overwrite: true,
+                        confirm: true,
+                        pathConfirmed: true,
+                        ...(metricsOnly ? { metricsOnly: true } : {}),
+                    });
+                    const written = Number(result?.fileCount ?? result?.completedFiles ?? 0);
+                    if (written !== chunk.length)
+                        throw new Error(`映射下载返回 ${written} 个文件，期望 ${chunk.length} 个。`);
+                    if (!isCurrent()) { cancelled = true; break; }
+                    const delivered = await distributeMappedDownloads(root, entries, chunk, overwrite);
+                    completed += delivered;
                 }
                 catch (error) {
-                    failures.push(`${entry.workerId || "Hub"}:${entry.remotePath}：${errorMessage(error)}`);
+                    failures.push(`${batch.sourceId}：${errorMessage(error)}`);
+                    if (token.isCancellationRequested || !isCurrent()) { cancelled = true; break; }
                 }
             }
         });
         if (!isCurrent())
-            return { completed, selected: selected.length, failures, cancelled: true };
-        const summaryText = `${metricsOnly ? "指标文件下载" : "当前 Plan 结果同步"}：成功 ${completed}/${selected.length}，跳过已有 ${entries.length - selected.length}，失败 ${failures.length}${cancelled ? "，已取消后续文件" : ""}。本机目录：${DEFAULT_RESULT_CSV_DIR}`;
-        if ((metricsOnly && (failures.length || cancelled)) || (!metricsOnly && failures.length))
+            return { completed, selected: entries.length, failures, cancelled: true, sourceId: batch.sourceId };
+        const summaryText = `${metricsOnly ? "指标文件下载" : "结果同步"} ${batch.sourceId}：成功 ${completed}/${entries.length}，失败 ${failures.length}${cancelled ? "，已取消后续批次" : ""}。本机目录：${DEFAULT_RESULT_CSV_DIR}`;
+        if (failures.length || cancelled)
             void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
         else
             void vscode.window.showInformationMessage(summaryText);
-        return { completed, selected: selected.length, failures, cancelled };
+        return { completed, selected: entries.length, failures, cancelled, sourceId: batch.sourceId };
+    }
+    async downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, title, options = {}) {
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        const metricsOnly = options.metricsOnly === true;
+        if (!candidates.length)
+            throw new Error(metricsOnly ? "没有可下载的指标文件。" : "当前 Plan 没有可同步的结果文件；请先刷新或重建汇总。");
+        const batches = this.collectMappedResultDownloadBatches(projectContext, [{ planFile, summary, candidates }], { metricsOnly });
+        if (!isCurrent())
+            return { completed: 0, selected: 0, failures: [], cancelled: true };
+        const confirmed = await this.confirmMappedResultDownloads(projectContext, client, batches, title, { metricsOnly });
+        if (!confirmed || confirmed.cancelled)
+            return { completed: 0, selected: 0, failures: [], cancelled: true, skippedExisting: confirmed?.skippedExisting || 0 };
+        if (!confirmed.batches.length)
+            return { completed: 0, selected: 0, failures: [], cancelled: false, skippedExisting: confirmed.skippedExisting || 0 };
+        const downloads = [];
+        for (const batch of confirmed.batches) {
+            if (!isCurrent())
+                return { completed: downloads.reduce((total, item) => total + item.completed, 0), selected: confirmed.batches.reduce((total, item) => total + item.entries.length, 0), failures: [], cancelled: true };
+            const download = await this.downloadMappedResultBatch(projectContext, client, batch, title, { metricsOnly, overwrite: confirmed.overwrite });
+            downloads.push(download);
+            if (download.cancelled)
+                break;
+        }
+        return {
+            completed: downloads.reduce((total, item) => total + item.completed, 0),
+            selected: downloads.reduce((total, item) => total + item.selected, 0),
+            failures: downloads.flatMap((item) => item.failures),
+            cancelled: downloads.some((item) => item.cancelled),
+            skippedExisting: confirmed.skippedExisting || 0,
+            downloads,
+        };
+    }
+    async publishDownloadedResultMetrics(projectContext, client, ready, downloads) {
+        if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
+            return;
+        const failed = new Set((downloads || []).filter((item) => item?.failures?.length || item?.cancelled).map((item) => String(item.sourceId || "")));
+        if ((downloads || []).some((item) => item?.failures?.length || item?.cancelled) && !failed.size)
+            return;
+        const root = projectContext.root;
+        let registry = await this.loadProjectTableRegistry(root);
+        const ledger = await this.loadPlanSyncLedger(root);
+        let changed = false;
+        const summaries = [];
+        for (const item of ready) {
+            if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
+                return;
+            const localSummary = await this.summaryFromLocalMetricFiles(root, item.planFile, item.summary, { authoritativeLocal: true });
+            if (!localSummary)
+                continue;
+            const owners = new Set((item.candidates || []).map((candidate) => String(candidate.workerId || item.summary?.resultOwnerWorkerId || "hub")));
+            if ([...owners].some((owner) => failed.has(owner) || failed.has("hub") && !owner))
+                continue;
+            if (!ProjectResultTables.summaryMatchesPlanRevision(localSummary, { revision: item.authority?.revision || item.metadata?.revision || "" }))
+                continue;
+            summaries.push(localSummary);
+            const latest = PlanArtifactSync.latestPlanSyncEntry(ledger, item.planFile);
+            const chosen = latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(localSummary, latest.sourceWorkerId) : undefined;
+            const expected = Array.isArray(item.metadata?.seeds) ? item.metadata.seeds.length : 0;
+            const next = latest?.runId && latest.runId !== "historic"
+                ? (chosen ? ProjectResultTables.updateRegistry(registry, chosen, item.planFile, expected) : registry)
+                : ProjectResultTables.mergeAvailableWorkerResults(registry, localSummary, item.planFile, expected);
+            if (next !== registry) {
+                registry = next;
+                changed = true;
+            }
+        }
+        if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
+            return;
+        if (changed) {
+            registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
+            await this.writeProjectTableRegistry(root, registry);
+        }
+        const currentPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
+        const visible = summaries.find((summary) => !currentPlan || samePlanSelection(summary.planFile, currentPlan)) || summaries[0];
+        if (visible)
+            this.resultsSummary = visible;
+        this.postState();
+    }
+    async summaryFromLocalMetricFiles(root, planFile, summary, options: { authoritativeLocal?: boolean } = {}) {
+        const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
+        const results = [];
+        const nextTables = [];
+        for (const table of tables.length ? tables : [{ ...summary, workerId: summary?.resultOwnerWorkerId || summary?.workerId || "" }]) {
+            const remotePath = String(table.rawResultCsvPath || "");
+            if (!isResultMetricFile(remotePath) || !remotePath.toLowerCase().endsWith(".csv"))
+                continue;
+            const workerId = String(table.workerId || "");
+            const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, DEFAULT_RESULT_CSV_DIR, tables.length > 1 ? workerId : "");
+            const localPath = safeWorkspaceChildPath(root, localRelative);
+            const localStat = await fs.lstat(localPath).catch(() => undefined);
+            const text = localStat?.isFile() ? await fs.readFile(localPath, "utf8").catch(() => "") : "";
+            if (!text)
+                continue;
+            const onlineParsedAt = Date.parse(String(summary?.lastParsedAt || ""));
+            const downloadedNow = options.authoritativeLocal === true;
+            const onlineHasRows = Array.isArray(summary?.results) && summary.results.length > 0;
+            if (!downloadedNow && onlineHasRows && (!Number.isFinite(onlineParsedAt) || localStat.mtimeMs + 1000 < onlineParsedAt))
+                continue;
+            const parsed = parseDownloadedMetricCsv(text, pluginProjectAdapterRules(root).csvColumnMapping || {});
+            for (const row of parsed) {
+                results.push({
+                    workerId: workerId || summary?.resultOwnerWorkerId || "",
+                    resultOwnerWorkerId: workerId || summary?.resultOwnerWorkerId || "",
+                    dimensions: row.dimensions,
+                    metrics: row.metrics,
+                    sourceFiles: [{ path: remotePath }],
+                });
+            }
+            nextTables.push({ ...table, aggregateStatus: parsed.length ? "ready" : table.aggregateStatus, rawResultCsvPath: remotePath });
+        }
+        if (!results.length)
+            return undefined;
+        return {
+            ...summary,
+            planFile,
+            results,
+            workerResultTables: nextTables.length ? nextTables : summary.workerResultTables,
+            incompleteAggregate: false,
+            unavailableWorkerIds: [],
+        };
     }
     async loadProjectTableRegistry(root) {
         const file = safeWorkspaceChildPath(root, "simple_cluster/results/project_table_registry.json");
@@ -14032,6 +14308,7 @@ export class RealtimeTunnelPanelProvider {
         const syncLedger = await this.loadPlanSyncLedger(root);
         let included = 0;
         const issues = [];
+        const refreshedSummaries = [];
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重建全项目最终结果表", cancellable: true }, async (progress, token) => {
             for (const [index, plan] of plans.entries()) {
                 if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client) throw new UiCommandCancelled("全项目结果重建已取消，未覆盖现有表格。");
@@ -14054,10 +14331,14 @@ export class RealtimeTunnelPanelProvider {
                         }
                     }
                 } catch (error) { issues.push(planFile + "：" + errorMessage(error)); continue; }
+                const localSummary = await this.summaryFromLocalMetricFiles(root, planFile, summary);
+                if (localSummary)
+                    summary = localSummary;
                 if (summary?.mixedPlanRevision || !ProjectResultTables.summaryMatchesPlanRevision(summary, plan)) {
                     issues.push(planFile + "：Agent 返回旧 Plan revision，请先重新运行或刷新该 Plan 的结果。");
                     continue;
                 }
+                refreshedSummaries.push(summary);
                 try {
                     const latest = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
                     const chosen = latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId) : undefined;
@@ -14073,6 +14354,10 @@ export class RealtimeTunnelPanelProvider {
             }
         });
         if (!this.projectContextIsCurrent(context) || client !== this.client) return;
+        const currentPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
+        const visible = refreshedSummaries.find((summary) => !currentPlan || samePlanSelection(summary.planFile, currentPlan)) || refreshedSummaries[0];
+        if (visible)
+            this.resultsSummary = visible;
         const retained = Object.keys(registry.plans || {}).length;
         if (!retained) throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
         registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
@@ -22461,19 +22746,46 @@ async function inspectLocalPlanArchiveEvidence(root, files) {
 async function materializePlanArchiveEvidenceFiles(client, root, bundleDir, files, mode) {
     const copied = [];
     const evidenceRoot = path.join(bundleDir, "evidence");
+    if (mode === "hub_download") {
+        const server = client?.hubMappedDownloadServer ? client.hubMappedDownloadServer() : null;
+        if (!server || typeof client.simpleSftpApiCall !== "function")
+            throw new Error("Hub 归档证据没有可打包的 SFTP 目标。下一步：恢复 Hub SSH 配置后重试一次映射下载，不要逐文件拉取。");
+        const stagingRoot = path.posix.join("simple_cluster", "downloads", "plan_archive_evidence");
+        for (let offset = 0; offset < files.length; offset += MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES) {
+            const chunk = files.slice(offset, offset + MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES);
+            const entries = chunk.map((relative) => ({ remotePath: relative, localRelativePath: path.posix.join(stagingRoot, relative) }));
+            const result = await client.simpleSftpApiCall("sync.downloadMappedPaths", {
+                localPath: root,
+                server,
+                entries,
+                maxFileBytes: PLAN_ARCHIVE_EVIDENCE_MAX_BYTES,
+                overwrite: true,
+                confirm: true,
+                pathConfirmed: true,
+            });
+            if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== chunk.length)
+                throw new Error("Plan 归档证据映射下载数量与清单不一致。");
+            for (const relative of chunk) {
+                const staged = safeWorkspaceChildPath(root, path.posix.join(stagingRoot, relative));
+                const stat = await fs.stat(staged);
+                if (!stat.isFile() || stat.size > PLAN_ARCHIVE_EVIDENCE_MAX_BYTES)
+                    throw new Error(`Plan 归档证据不可用：${relative}`);
+                const target = safeArchiveBundleChildPath(evidenceRoot, relative);
+                await fs.mkdir(path.dirname(target), { recursive: true });
+                await fs.copyFile(staged, target);
+                copied.push(relative);
+            }
+        }
+        return copied;
+    }
     for (const relative of files) {
         const target = safeArchiveBundleChildPath(evidenceRoot, relative);
         await fs.mkdir(path.dirname(target), { recursive: true });
-        if (mode === "hub_download") {
-            await client.downloadFile(relative, target, { maxBytes: PLAN_ARCHIVE_EVIDENCE_MAX_BYTES });
-        }
-        else {
-            const source = safeWorkspaceChildPath(root, relative);
-            const stat = await fs.stat(source);
-            if (!stat.isFile() || stat.size > PLAN_ARCHIVE_EVIDENCE_MAX_BYTES)
-                throw new Error(`Plan 归档证据不可用：${relative}`);
-            await fs.copyFile(source, target);
-        }
+        const source = safeWorkspaceChildPath(root, relative);
+        const stat = await fs.stat(source);
+        if (!stat.isFile() || stat.size > PLAN_ARCHIVE_EVIDENCE_MAX_BYTES)
+            throw new Error(`Plan 归档证据不可用：${relative}`);
+        await fs.copyFile(source, target);
         copied.push(relative);
     }
     return copied;
@@ -25295,6 +25607,7 @@ function userFacingFileError(error) {
 }
 const REMOTE_RESULT_INSPECTION_MAX_BYTES = 5 * 1024 * 1024;
 const RESULT_ARTIFACT_MAX_BYTES = 128 * 1024 * 1024;
+const MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES = 256;
 function normalizeRemoteResultInspectionPath(value) {
     const normalized = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
     if (!(0, FileTransferTypes_1.isSafeRemotePath)(normalized))
@@ -25425,6 +25738,183 @@ function resultSummaryInspectionCandidates(summary, planFile) {
 function isBlockedResultScope(value) {
     const normalized = String(value || "").replace(/\\/g, "/").toLowerCase();
     return /(?:^|\/)(?:work_dirs|checkpoints?|weights?)(?:\/|$)/.test(normalized);
+}
+function mappedDownloadStageRelative(sourceId, remotePath) {
+    const extension = path.posix.extname(String(remotePath || "")).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 8);
+    const digest = crypto.createHash("sha256").update(`${sourceId}\n${remotePath}`).digest("hex").slice(0, 24);
+    return path.posix.join("simple_cluster", "downloads", "mapped_stage", `${digest}${extension}`);
+}
+function uniqueMappedTransfers(entries) {
+    const seen = new Map();
+    for (const entry of entries) {
+        const key = String(entry.remotePath || "").toLowerCase();
+        if (!seen.has(key))
+            seen.set(key, { remotePath: entry.remotePath, localRelativePath: entry.stageRelative || entry.localRelative });
+    }
+    return [...seen.values()];
+}
+async function assertRealChildFile(root, relative, leafMode) {
+    const rootReal = await fs.realpath(root);
+    const parts = String(relative || "").split("/").filter(Boolean);
+    let cursor = rootReal;
+    for (const [index, part] of parts.entries()) {
+        cursor = path.join(cursor, part);
+        const stat = await fs.lstat(cursor).catch((error) => {
+            if (error?.code === "ENOENT") return undefined;
+            throw error;
+        });
+        const last = index === parts.length - 1;
+        if (!stat) {
+            if (leafMode === "file" || leafMode === "directory")
+                throw new Error(`本机映射路径不存在：${relative}`);
+            return { full: path.join(rootReal, ...parts), exists: false, identity: path.join(rootReal, ...parts) };
+        }
+        if (stat.isSymbolicLink())
+            throw new Error(`本机映射路径包含符号链接：${relative}`);
+        const real = await fs.realpath(cursor);
+        const within = path.relative(rootReal, real);
+        if (within.startsWith("..") || path.isAbsolute(within))
+            throw new Error(`本机映射路径解析后超出项目根目录：${relative}`);
+        if (!last && !stat.isDirectory())
+            throw new Error(`本机映射路径的父级不是目录：${relative}`);
+        if (last && leafMode === "file" && !stat.isFile())
+            throw new Error(`本机映射目标不是普通文件：${relative}`);
+        if (last && leafMode === "directory" && !stat.isDirectory())
+            throw new Error(`本机映射父级不是目录：${relative}`);
+        cursor = real;
+    }
+    return { full: cursor, exists: true, identity: cursor };
+}
+async function streamCopyFile(source, destination, maxBytes) {
+    const input = await fs.open(source, "r");
+    const output = await fs.open(destination, "r+");
+    let copied = 0;
+    const buffer = Buffer.alloc(64 * 1024);
+    try {
+        for (;;) {
+            const read = await input.read(buffer, 0, buffer.length, copied);
+            if (!read.bytesRead)
+                break;
+            copied += read.bytesRead;
+            if (copied > maxBytes)
+                throw new Error(`本机映射文件超过 ${maxBytes} 字节。`);
+            await output.write(buffer, 0, read.bytesRead, copied - read.bytesRead);
+        }
+        await output.truncate(copied);
+    }
+    finally {
+        await input.close();
+        await output.close();
+    }
+}
+async function distributeMappedDownloads(root, entries, transfers, overwrite, hooks = {}) {
+    let delivered = 0;
+    const residues = [];
+    const transferred = new Set(transfers.map((item) => String(item.remotePath || "").toLowerCase()));
+    for (const entry of entries) {
+        if (!transferred.has(String(entry.remotePath || "").toLowerCase()))
+            continue;
+        const stageRelative = entry.stageRelative || entry.localRelative;
+        const staged = (await assertRealChildFile(root, stageRelative, "file")).full;
+        const destinationInfo = await assertRealChildFile(root, entry.localRelative, "optional");
+        const destination = destinationInfo.full;
+        const parentIdentity = path.dirname(destination);
+        if (path.resolve(staged) === path.resolve(destination)) {
+            delivered++;
+            continue;
+        }
+        if (destinationInfo.exists && !overwrite)
+            continue;
+        const parent = path.dirname(destination);
+        await fs.mkdir(parent, { recursive: true });
+        const checkedParent = await fs.realpath(parent);
+        const rootReal = await fs.realpath(root);
+        const parentWithin = path.relative(rootReal, checkedParent);
+        if (parentWithin.startsWith("..") || path.isAbsolute(parentWithin))
+            throw new Error(`本机映射父目录解析后超出项目根目录：${entry.localRelative}`);
+        const temporary = path.join(checkedParent, `.mapped-${process.pid}-${crypto.randomBytes(4).toString("hex")}.tmp`);
+        const handle = await fs.open(temporary, "wx");
+        await handle.close();
+        try {
+            await streamCopyFile(staged, temporary, RESULT_ARTIFACT_MAX_BYTES);
+        }
+        catch (error) {
+            residues.push(temporary);
+            throw new Error(`本机分发写入失败，暂存残留：${temporary}。${errorMessage(error)}`);
+        }
+        if (typeof hooks.beforeRename === "function")
+            await hooks.beforeRename({ root, destination, temporary, parentIdentity });
+        const currentParent = await assertRealChildFile(root, path.posix.dirname(entry.localRelative), "directory");
+        if (!currentParent.identity || path.resolve(currentParent.identity) !== path.resolve(parentIdentity)) {
+            residues.push(temporary);
+            throw new Error(`本机映射父目录在写入后发生变化，暂存残留：${temporary}`);
+        }
+        const latest = await fs.lstat(destination).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+        if (latest?.isSymbolicLink()) {
+            residues.push(temporary);
+            throw new Error(`本机映射目标在写入前变为符号链接，暂存残留：${temporary}`);
+        }
+        if (latest && !overwrite) {
+            residues.push(temporary);
+            throw new Error(`本机文件已存在且未确认覆盖，暂存残留：${temporary}`);
+        }
+        try {
+            await fs.rename(temporary, destination);
+        }
+        catch (error) {
+            residues.push(temporary);
+            throw new Error(`本机分发替换失败，暂存残留：${temporary}。${errorMessage(error)}`);
+        }
+        delivered++;
+    }
+    if (residues.length)
+        throw new Error(`映射下载已接收，但本机分发留下暂存文件：${residues.join("、")}`);
+    return delivered;
+}
+function parseDownloadedMetricCsv(text, columnMapping = {}) {
+    const parsed = ProjectResultTables.readCsv(String(text || "").replace(/^\uFEFF/, ""));
+    const mappedName = (field, fallback) => {
+        const configured = String(columnMapping?.[field] || "").trim();
+        return configured || fallback;
+    };
+    const find = (names) => parsed.header.findIndex((cell) => names.some((name) => cell.toLowerCase() === String(name).toLowerCase()));
+    const caseIndex = find([mappedName("case", "case")]);
+    const seedIndex = find([mappedName("seed", "seed")]);
+    const methodIndex = find([mappedName("method", "method")]);
+    const datasetIndex = find([mappedName("dataset", "dataset")]);
+    const ratePercentIndex = find([mappedName("rate_percent", "rate_percent")]);
+    const trainRateIndex = find([mappedName("train_rate", "train_rate")]);
+    const protocolIndex = find([mappedName("eval_protocol", "eval_protocol")]);
+    const splitIndex = find([mappedName("split", "split")]);
+    const metricIndex = find([mappedName("metric", "metric")]);
+    const valueIndex = find([mappedName("value", "value")]);
+    const reserved = new Set([caseIndex, seedIndex, methodIndex, datasetIndex, ratePercentIndex, trainRateIndex, protocolIndex, splitIndex, metricIndex, valueIndex]);
+    return parsed.rows.flatMap((cells) => {
+        const dimensions = {
+            case: caseIndex >= 0 ? cells[caseIndex] : "",
+            seed: seedIndex >= 0 ? cells[seedIndex] : "",
+            method: methodIndex >= 0 ? cells[methodIndex] : "",
+            dataset: datasetIndex >= 0 ? cells[datasetIndex] : "",
+            rate_percent: ratePercentIndex >= 0 ? cells[ratePercentIndex] : "",
+            train_rate: trainRateIndex >= 0 ? cells[trainRateIndex] : "",
+            eval_protocol: protocolIndex >= 0 ? cells[protocolIndex] : "",
+            split: splitIndex >= 0 ? cells[splitIndex] : "",
+        };
+        const metrics = {};
+        if (metricIndex >= 0 && valueIndex >= 0 && cells[metricIndex]) {
+            const value = Number(cells[valueIndex]);
+            if (Number.isFinite(value))
+                metrics[cells[metricIndex]] = { value };
+        }
+        for (const [column, name] of parsed.header.entries()) {
+            if (reserved.has(column))
+                continue;
+            const value = Number(cells[column]);
+            if (name && Number.isFinite(value))
+                metrics[name] = { value };
+        }
+        return dimensions.case && dimensions.seed && Object.keys(metrics).length ? [{ dimensions, metrics }] : [];
+    });
 }
 function isResultMetricFile(value) {
     const normalized = String(value || "").replace(/\\/g, "/").toLowerCase();
@@ -26744,5 +27234,17 @@ export async function __transferSyncScopeBatchForTest(provider, root, targets, w
 export async function __syncPendingResultMetricsForTest(provider) {
     const prototype = RealtimeTunnelPanelProvider.prototype;
     return prototype.syncPendingResultMetricsFromUi.call(Object.assign(Object.create(prototype), provider));
+}
+export async function __rebuildProjectResultTablesForTest(provider) {
+    const prototype = RealtimeTunnelPanelProvider.prototype;
+    return prototype.rebuildProjectResultTablesFromUi.call(Object.assign(Object.create(prototype), provider));
+}
+export async function __handleResultUiCommandForTest(provider, message) {
+    const prototype = RealtimeTunnelPanelProvider.prototype;
+    const host = Object.assign(Object.create(prototype), provider);
+    return prototype.handleMessageCore.call(host, message, String(message?.command || ""));
+}
+export async function __distributeMappedDownloadsForTest(root, entries, transfers, overwrite, hooks) {
+    return distributeMappedDownloads(root, entries, transfers, overwrite, hooks);
 }
 try { (exports as any).RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider; } catch {}

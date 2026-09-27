@@ -33,9 +33,9 @@ test("live output and audit reads ignore stale clients", () => {
 
 test("remote downloads do not open stale-client results", () => {
   const cases = [
-    ["downloadDebugBundle", "downloadRemoteResultFromUi", /client\.downloadFile\(pathFromOps, picked\.fsPath\)/],
-    ["downloadRemoteResultFromUi", "openResultArtifactFromUi", /client\.downloadFile\(remotePath, localPath/],
-    ["openResultArtifactFromUi", "openAuditTail", /client\.downloadFile\(artifactPath, localCopyPath/],
+    ["downloadDebugBundle", "downloadRemoteResultFromUi", /sync\.downloadMappedPaths/],
+    ["downloadRemoteResultFromUi", "openResultArtifactFromUi", /sync\.downloadMappedPaths/],
+    ["openResultArtifactFromUi", "openAuditTail", /sync\.downloadMappedPaths/],
   ];
   for (const [name, nextName, call] of cases) {
     const body = method(name, nextName);

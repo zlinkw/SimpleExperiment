@@ -59,6 +59,8 @@ test("plan archive creates a reusable bundle from archived-only effective result
   assert.match(source, /"parameters", "cli_parameters\.json"/);
   assert.match(source, /parameters: \{/);
   assert.match(source, /const evidencePlan = planArchiveEvidencePlan\(resultSummary, file\)/);
+  assert.match(source, /this\.hubMappedDownloadServer\(\)/);
+  assert.doesNotMatch(source.slice(source.indexOf("const evidencePlan = planArchiveEvidencePlan"), source.indexOf("const evidenceMode")), /endpoints\.fileDownload/);
   assert.match(source, /showWarningMessage\(\[\s*"【Plan 归档位置确认】"/);
   assert.match(source, /`归档包位置：\$\{bundleRelative\}`/);
   assert.match(source, /`结果证据来源：\$\{evidenceMode === "hub_download"/);
@@ -160,6 +162,7 @@ test("Plan archive materializes local or Hub evidence inside the bundle", async 
       fs: fs.promises,
       path,
       PLAN_ARCHIVE_EVIDENCE_MAX_BYTES: 4 * 1024 * 1024,
+      MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES: 256,
       safeWorkspaceChildPath: (workspace, file) => path.resolve(workspace, file),
       safeArchiveBundleChildPath: (bundle, file) => path.resolve(bundle, file),
     };
@@ -174,15 +177,22 @@ test("Plan archive materializes local or Hub evidence inside the bundle", async 
     const calls = [];
     const remoteBundle = path.join(root, "remote_bundle");
     const client = {
-      async downloadFile(remotePath, localPath, options) {
-        calls.push({ remotePath, localPath, options });
-        await fs.promises.writeFile(localPath, "metric,value\nAUC,0.95\n", "utf8");
+      hubMappedDownloadServer: () => ({ id: "hub", host: "hub.example", remotePath: "/projects/hub" }),
+      async simpleSftpApiCall(method, params) {
+        calls.push({ method, params });
+        for (const entry of params.entries) {
+          const full = path.join(root, ...entry.localRelativePath.split("/"));
+          await fs.promises.mkdir(path.dirname(full), { recursive: true });
+          await fs.promises.writeFile(full, "metric,value\nAUC,0.95\n", "utf8");
+        }
+        return { ok: true, fileCount: params.entries.length };
       },
     };
-    await sandbox.materialize(client, root, remoteBundle, [relative], "hub_download");
+    await sandbox.materialize(client, root, remoteBundle, [relative, "simple_cluster/results/by_plan/smoke/statistics.json"], "hub_download");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].remotePath, relative);
-    assert.equal(calls[0].options.maxBytes, 4 * 1024 * 1024);
+    assert.equal(calls[0].method, "sync.downloadMappedPaths");
+    assert.equal(calls[0].params.entries.length, 2);
+    assert.equal(calls[0].params.maxFileBytes, 4 * 1024 * 1024);
     assert.equal(fs.readFileSync(path.join(remoteBundle, "evidence", ...relative.split("/")), "utf8"), "metric,value\nAUC,0.95\n");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
