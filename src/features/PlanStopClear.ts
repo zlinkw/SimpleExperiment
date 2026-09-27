@@ -222,6 +222,80 @@ export type DistributedCleanupLine = {
   workerId?: string;
 };
 
+const QUEUE_ONLY_CLEAR_STATUSES = new Set(["pending", "blocked", "deferred"]);
+
+/** Queue rows that have never been dispatched can be cleared without a Worker snapshot. */
+export function distributedQueueOnlyClearable(distributed: Array<{ kind?: string; status?: string; active?: boolean; workerId?: string; commandId?: string; gpuId?: string }>): boolean {
+  if (!distributed.length) return false;
+  return distributed.every((row) => {
+    if (row.active) return false;
+    if (row.kind === "deferred") return ["pending", "blocked", "processing"].includes(String(row.status || ""));
+    if (row.workerId || row.commandId || row.gpuId !== undefined) return false;
+    return QUEUE_ONLY_CLEAR_STATUSES.has(String(row.status || ""));
+  });
+}
+
+export type PlanStopClearOutcome = "completed" | "partial" | "failed" | "cancelled";
+
+export type PlanStopClearFeedback = {
+  planFile: string;
+  phase: string;
+  outcome: PlanStopClearOutcome | "running";
+  message: string;
+  nextStep: string;
+  updatedAt: string;
+  clearedOperations?: number;
+  clearedJobs?: number;
+  clearedDeferred?: number;
+  stopped?: number;
+  closedTmux?: number;
+  retained?: number;
+  failures?: string[];
+};
+
+export function planStopClearFeedback(input: {
+  planFile: string;
+  phase: string;
+  outcome: PlanStopClearFeedback["outcome"];
+  message: string;
+  nextStep: string;
+  clearedOperations?: number;
+  clearedJobs?: number;
+  clearedDeferred?: number;
+  stopped?: number;
+  closedTmux?: number;
+  retained?: number;
+  failures?: string[];
+  now?: string;
+}): PlanStopClearFeedback {
+  const failures = (input.failures || []).map((item) => text(item)).filter(Boolean).slice(0, 8);
+  return {
+    planFile: text(input.planFile),
+    phase: text(input.phase) || "stop-clear",
+    outcome: input.outcome,
+    message: text(input.message),
+    nextStep: text(input.nextStep),
+    updatedAt: input.now || new Date().toISOString(),
+    clearedOperations: input.clearedOperations,
+    clearedJobs: input.clearedJobs,
+    clearedDeferred: input.clearedDeferred,
+    stopped: input.stopped,
+    closedTmux: input.closedTmux,
+    retained: input.retained,
+    ...(failures.length ? { failures } : {}),
+  };
+}
+
+export function planStopClearUiResult(feedback: PlanStopClearFeedback): { status: "completed" | "failed" | "cancelled"; message: string; planStopClear: PlanStopClearFeedback } {
+  const status = feedback.outcome === "completed" ? "completed" : feedback.outcome === "cancelled" ? "cancelled" : "failed";
+  const headline = status === "completed" ? "已清除" : status === "cancelled" ? "已取消" : "未完成清除";
+  return {
+    status,
+    message: [`${headline} ${feedback.planFile}`, `阶段：${feedback.phase}`, feedback.message, feedback.nextStep ? `下一步：${feedback.nextStep}` : ""].filter(Boolean).join("\n"),
+    planStopClear: feedback,
+  };
+}
+
 export function planStopClearPreview(planFile: string, targets: PlanCleanupTarget[], distributed: DistributedCleanupLine[] = []): string {
   const label = text(planFile) || "所选 Plan";
   const lines = targets.map((target) => `${target.planFile} · ${target.operationId}${target.active ? " · 仍在运行，将先中止" : " · 已结束"}${target.tmuxTarget ? " · tmux " + target.workerId + ":" + target.tmuxTarget : (target.tmuxSession ? " · tmux 窗口未定位：" + target.tmuxSession : "")}`);

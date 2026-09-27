@@ -3504,6 +3504,11 @@ function renderPanelHtml() {
       for (const item of messages) {
         if (!item) continue;
         if (item.type === "uiCommandStatus") {
+          if (String(item.command || "") === "stopAndClearPlan" && item.planStopClear && item.planStopClear.planFile && lastState) {
+            const stopKey = String(item.planStopClear.planFile).replaceAll(String.fromCharCode(92), "/").replace(/^\\.\\//, "").toLowerCase();
+            lastState.planStopClearByFile = Object.assign({}, lastState.planStopClearByFile || {}, { [stopKey]: item.planStopClear });
+            try { renderSectionIfVisible(lastState, "execution", { force: true }); } catch (e) {}
+          }
           handleUiCommandStatus(item);
           continue;
         }
@@ -3809,7 +3814,7 @@ function renderPanelHtml() {
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
-      if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
+      if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.planStopClearByFile, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
       if (section === "tasks") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary);
       if (section === "operations") return refListKey(data.operations);
       if (section === "diagnostics") return refListKey(data.diagnostics, data.capabilities, data.actionErrors, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.realtimeDiagnostics, data.health);
@@ -4043,6 +4048,7 @@ function renderPanelHtml() {
           scheduler: compactSchedulerForSignature(data),
           selection: data.selection,
           selectedLogRunKey: data.selectedLogRunKey,
+          planStopClearByFile: data.planStopClearByFile || {},
           capabilities: compactCapabilitiesForSignature(data.capabilities),
           workerTelemetry: compactWorkerTelemetryForSignature(data.workerTelemetry),
           operations: compactOperationSectionForSignature(data)
@@ -13127,6 +13133,24 @@ function renderPanelHtml() {
         group.deferredStatus = status;
         group.deferredNote = String(plan.reason || plan.error || "").trim();
       });
+      const stopClearMap = state && state.planStopClearByFile && typeof state.planStopClearByFile === "object" ? state.planStopClearByFile : {};
+      const stopClearForPlan = (planFile) => {
+        const key = String(planFile || "").replaceAll(String.fromCharCode(92), "/").replace(/^\\.\\//, "").toLowerCase();
+        return key && stopClearMap[key] ? stopClearMap[key] : null;
+      };
+      const stopClearNewerThan = (group, feedback) => {
+        const updated = Date.parse(feedback && feedback.updatedAt || "") || 0;
+        if (!updated) return false;
+        return [...(group.operations || []), ...(group.tasks || []), ...(group.distributedJobs || [])].some((row) => (Date.parse(row.updatedAt || row.startedAt || row.finishedAt || row.enqueuedAt || "") || 0) > updated);
+      };
+      Object.keys(stopClearMap).forEach((key) => {
+        const feedback = stopClearMap[key];
+        const outcome = String(feedback && feedback.outcome || "");
+        const planFile = String(feedback && feedback.planFile || key || "").trim();
+        if (!planFile || (outcome !== "failed" && outcome !== "partial")) return;
+        if (groups.has(executionPlanGroupKey(planFile))) return;
+        getGroup(planFile);
+      });
       const selected = taskSelectionSetsForState(state);
       const fingerprintBlocked = (job) => String(job.blockReason || "").indexOf("代码指纹不匹配") === 0 || String(job.blockReason || "").indexOf("等待当前代码版本") === 0;
       const items = Array.from(groups.values()).map((group) => {
@@ -13180,9 +13204,19 @@ function renderPanelHtml() {
         const opRows = currentJobs.length || group.submitting || group.deferredCurrent ? [] : sortedOps.slice(0, 4);
         const taskRows = currentJobs.length || group.submitting || group.deferredCurrent ? [] : sortedTasks.slice(0, 20);
         const distributedRows = currentJobs;
+        const stopClearRaw = stopClearForPlan(group.planFile);
+        const stopClear = stopClearRaw && !stopClearNewerThan(group, stopClearRaw) && String(stopClearRaw.outcome || "") !== "completed" ? stopClearRaw : null;
+        const stopClearOutcome = String(stopClear && stopClear.outcome || "");
+        const stopClearBusy = stopClearOutcome === "running";
+        const stopClearCounts = stopClear && stopClearOutcome === "completed"
+          ? "已清除进度 " + Number(stopClear.clearedOperations || 0) + " · job " + Number(stopClear.clearedJobs || 0) + " · 等待提交 " + Number(stopClear.clearedDeferred || 0)
+          : "";
+        const stopClearTitle = stopClearBusy ? "正在清理" : stopClearOutcome === "completed" ? "清理完成" : stopClearOutcome === "cancelled" ? "清理已取消" : stopClearOutcome === "partial" ? "清理未完成" : "清理失败";
+        const stopClearSummary = stopClear ? '<div class="executionPlanStopClear' + (stopClearBusy ? " is-busy" : stopClearOutcome === "completed" ? " is-done" : stopClearOutcome === "cancelled" ? " is-cancelled" : " is-failed") + '" data-plan-stop-clear="' + escAttr(group.planFile) + '" data-plan-stop-phase="' + escAttr(stopClear.phase || "") + '" data-plan-stop-outcome="' + escAttr(stopClearOutcome) + '"><b>' + (stopClearBusy ? loadingPrefix(true) : "") + esc(stopClearTitle) + '</b><div>' + esc(stopClear.message || "") + '</div>' + (stopClearCounts ? '<div>' + esc(stopClearCounts) + '</div>' : '') + (stopClear.nextStep ? '<div>下一步：' + esc(stopClear.nextStep) + '</div>' : '') + '</div>' : '';
+        const stopClearDetail = stopClear && Array.isArray(stopClear.failures) && stopClear.failures.length ? '<div class="executionDistributedJobError">' + stopClear.failures.map((item) => esc(item)).join("<br>") + '</div>' : '';
         const foldButton = '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="只收起这张卡片，不停止调度、不清除历史">折叠此 Plan</button>';
         const selectButton = group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '';
-        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true" title="终止并清除这一张 Plan：停止它的调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于 ' + escAttr(group.planFile) + '，不影响其他 Plan。停止前会列出目标并要求两次确认。">终止并清理</button><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
+        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true"' + (stopClearBusy ? ' disabled' : '') + ' title="终止并清除这一张 Plan：停止它的调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于 ' + escAttr(group.planFile) + '，不影响其他 Plan。停止前会列出目标并要求两次确认。">终止并清理</button><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
         const statusBadge = '<b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
         const runLogNote = distributedRows.length ? '<div class="muted">训练日志记录每轮验证结果；终端日志记录 Worker 命令输出。校验日志只记录提交前校验，放在高级记录区。</div>' : '';
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + distributedRows.length + '</h3>'
@@ -13221,10 +13255,11 @@ function renderPanelHtml() {
             ? '<div class="muted">' + esc(group.countText) + '。折叠只隐藏卡片，不改变调度。</div>' + (group.deferredNote ? '<div class="muted">' + esc(group.deferredNote) + '</div>' : '')
             : "";
         const actions = '<div class="executionPlanActions">' + foldButton + '</div>';
-        const detailsBody = phaseNote + dangerActions + selectButton + distributedHtml + opHtml + taskHtml + more;
+        const detailsBody = stopClearDetail + phaseNote + dangerActions + selectButton + distributedHtml + opHtml + taskHtml + more;
         return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
           '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix(group.active || group.distributedActive) + esc(group.label) + '</span>' + statusBadge + '</div>' +
           '<div class="executionPlanMeta"><span class="executionPlanCount">' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
+          stopClearSummary +
           actions +
           (detailsBody ? '<details class="executionPlanDetails" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary>详情与日志</summary>' + detailsBody + '</details>' : '') +
           '</article>';
@@ -13235,7 +13270,11 @@ function renderPanelHtml() {
         const totalJobs = (group.currentJobs || []).length;
         const statusText = group.statusText;
         const count = totalJobs ? ("成功 " + group.completed + "/" + totalJobs + (group.failedJobs ? " · 失败 " + group.failedJobs : "")) : group.countText;
-        return '<div class="executionPlanFoldRow ' + group.tone + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b><button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="把这张 Plan 放回主视图。不改变调度。">恢复监控</button></div>';
+        const foldRaw = stopClearForPlan(group.planFile);
+        const foldClear = foldRaw && !stopClearNewerThan(group, foldRaw) && String(foldRaw.outcome || "") !== "completed" ? foldRaw : null;
+        const foldOutcome = String(foldClear && foldClear.outcome || "");
+        const foldClearLabel = foldOutcome === "failed" ? "清理失败" : foldOutcome === "partial" ? "清理未完成" : foldOutcome === "running" ? "正在清理" : foldOutcome === "cancelled" ? "清理已取消" : "";
+        return '<div class="executionPlanFoldRow ' + group.tone + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>' + (foldClearLabel ? '<b class="status-warning" data-plan-stop-fold="' + escAttr(foldOutcome) + '">' + esc(foldClearLabel) + '</b>' : '') + '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="把这张 Plan 放回主视图。不改变调度。">恢复监控</button></div>';
       };
       const foldHtml = folded.length
         ? '<details class="executionPlanFold" data-details-key="execution-plan-fold" open><summary>已折叠 Plan ' + folded.length + '</summary>' + folded.map(foldRow).join("") + '</details>'

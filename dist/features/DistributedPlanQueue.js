@@ -47,6 +47,7 @@ exports.remoteTaskMatchesJob = remoteTaskMatchesJob;
 exports.resetUnsentDispatch = resetUnsentDispatch;
 exports.sameDeferredPlanFile = sameDeferredPlanFile;
 exports.matchingActiveDeferred = matchingActiveDeferred;
+exports.jobClearableWithoutRemoteReceipt = jobClearableWithoutRemoteReceipt;
 exports.distributedStopTargets = distributedStopTargets;
 exports.removeConfirmedDistributedPlan = removeConfirmedDistributedPlan;
 exports.stopIdentityMatchesJob = stopIdentityMatchesJob;
@@ -256,6 +257,14 @@ function samePlanFile(left, right) {
     return absolute(a) !== absolute(b) && (absolute(a) ? a.endsWith("/" + b) : b.endsWith("/" + a));
 }
 const ACTIVE_JOB = ["dispatching", "running", "unknown"];
+const LOCAL_CLEAR_JOB = new Set(["pending", "blocked"]);
+/** A job can leave the queue without a Worker receipt only while it has never been assigned. */
+function jobClearableWithoutRemoteReceipt(job) {
+    return LOCAL_CLEAR_JOB.has(String(job?.status || ""))
+        && !String(job?.workerId || "").trim()
+        && !String(job?.commandId || "").trim()
+        && job?.gpuId === undefined;
+}
 function distributedStopTargets(queue, planFile) {
     const selected = String(planFile || "").trim();
     if (!selected)

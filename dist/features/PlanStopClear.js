@@ -8,6 +8,9 @@ exports.trustedRemotePlanOperations = trustedRemotePlanOperations;
 exports.mergeTrustedPlanOperations = mergeTrustedPlanOperations;
 exports.planStopIdentityConflictMessage = planStopIdentityConflictMessage;
 exports.planStopMissingEvidenceMessage = planStopMissingEvidenceMessage;
+exports.distributedQueueOnlyClearable = distributedQueueOnlyClearable;
+exports.planStopClearFeedback = planStopClearFeedback;
+exports.planStopClearUiResult = planStopClearUiResult;
 exports.planStopClearPreview = planStopClearPreview;
 const PLAN_RUN_TYPES = new Set(["run-plan", "reproduce-plan"]);
 function text(value) {
@@ -209,6 +212,48 @@ function planStopMissingEvidenceMessage(planFile, detail) {
     if (detail.failures.length)
         reasons.splice(2, 0, `查询失败：${detail.failures.join("；")}`);
     return reasons.join("\n");
+}
+const QUEUE_ONLY_CLEAR_STATUSES = new Set(["pending", "blocked", "deferred"]);
+/** Queue rows that have never been dispatched can be cleared without a Worker snapshot. */
+function distributedQueueOnlyClearable(distributed) {
+    if (!distributed.length)
+        return false;
+    return distributed.every((row) => {
+        if (row.active)
+            return false;
+        if (row.kind === "deferred")
+            return ["pending", "blocked", "processing"].includes(String(row.status || ""));
+        if (row.workerId || row.commandId || row.gpuId !== undefined)
+            return false;
+        return QUEUE_ONLY_CLEAR_STATUSES.has(String(row.status || ""));
+    });
+}
+function planStopClearFeedback(input) {
+    const failures = (input.failures || []).map((item) => text(item)).filter(Boolean).slice(0, 8);
+    return {
+        planFile: text(input.planFile),
+        phase: text(input.phase) || "stop-clear",
+        outcome: input.outcome,
+        message: text(input.message),
+        nextStep: text(input.nextStep),
+        updatedAt: input.now || new Date().toISOString(),
+        clearedOperations: input.clearedOperations,
+        clearedJobs: input.clearedJobs,
+        clearedDeferred: input.clearedDeferred,
+        stopped: input.stopped,
+        closedTmux: input.closedTmux,
+        retained: input.retained,
+        ...(failures.length ? { failures } : {}),
+    };
+}
+function planStopClearUiResult(feedback) {
+    const status = feedback.outcome === "completed" ? "completed" : feedback.outcome === "cancelled" ? "cancelled" : "failed";
+    const headline = status === "completed" ? "已清除" : status === "cancelled" ? "已取消" : "未完成清除";
+    return {
+        status,
+        message: [`${headline} ${feedback.planFile}`, `阶段：${feedback.phase}`, feedback.message, feedback.nextStep ? `下一步：${feedback.nextStep}` : ""].filter(Boolean).join("\n"),
+        planStopClear: feedback,
+    };
 }
 function planStopClearPreview(planFile, targets, distributed = []) {
     const label = text(planFile) || "所选 Plan";

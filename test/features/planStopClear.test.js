@@ -117,16 +117,17 @@ test("one-click stop and clear keeps the hide-only control and requires two conf
 
 test("queued-only plan clears without a worker stop and a mixed failure keeps the unconfirmed job", async () => {
   const queue = require("../../dist/features/DistributedPlanQueue.js");
-  const marker = extension.indexOf("clearable = stoppedOrEnded.filter((target)");
-  const start = extension.indexOf("const latest = await this.loadDistributedQueue(root);", marker);
-  const end = extension.indexOf("if (confirmedJobs.size || confirmedDeferred.size)", start);
-  const body = extension.slice(start, end)
+  const dist = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const marker = dist.indexOf("clearable = stoppedOrEnded.filter((target)");
+  const start = dist.indexOf("const latest = await this.loadDistributedQueue(root);", marker);
+  const end = dist.indexOf("if (confirmedJobs.size || confirmedDeferred.size)", start);
+  const body = dist.slice(start, end)
     .replaceAll("this.loadDistributedQueue(root)", "loadDistributedQueue()")
     .replaceAll("this.client.getWorkerTasks", "getWorkerTasks")
+    .replaceAll("this.boundedPromise", "boundedPromise")
     .replaceAll("this.stopDistributedJobForClear", "stopDistributedJobForClear")
     .replaceAll("this.refreshExactPaneStopCapability", "refreshExactPaneStopCapability")
-    .replaceAll("DistributedPlanQueue.", "queueApi.")
-    .replace(/:\s*any/g, "");
+    .replaceAll("DistributedPlanQueue.", "queueApi.");
   let saved = null;
   const calls = [];
   const queued = queue.enqueuePlan(queue.enqueuePlan(queue.emptyDistributedQueue(), {
@@ -155,7 +156,7 @@ test("queued-only plan clears without a worker stop and a mixed failure keeps th
     saveDistributedQueue: async (_root, next) => { saved = next; },
   };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const run = new AsyncFunction("queueApi", "root", `const { failures, confirmedJobs, confirmedDeferred, loadDistributedQueue, getWorkerTasks, stopDistributedJobForClear, saveDistributedQueue, planFile } = this;\nconst errorMessage = (error) => String(error && error.message || error);\n${body}\nif (confirmedJobs.size || confirmedDeferred.size) {\n  const current = await loadDistributedQueue();\n  const next = queueApi.removeConfirmedDistributedPlan(current, planFile, { jobKeys: confirmedJobs, deferredIds: confirmedDeferred });\n  await saveDistributedQueue(root, next);\n}`);
+  const run = new AsyncFunction("queueApi", "root", `const { failures, confirmedJobs, confirmedDeferred, loadDistributedQueue, getWorkerTasks, stopDistributedJobForClear, saveDistributedQueue, planFile } = this;\nconst errorMessage = (error) => String(error && error.message || error);\nconst boundedPromise = async (work, timeoutMs, timeoutError) => {\n  let timer;\n  const timed = new Promise((_, reject) => { timer = setTimeout(() => reject(timeoutError), timeoutMs || 8000); });\n  try { return await Promise.race([Promise.resolve().then(work), timed]); }\n  finally { clearTimeout(timer); }\n};\n${body}\nif (confirmedJobs.size || confirmedDeferred.size) {\n  const current = await loadDistributedQueue();\n  const next = queueApi.removeConfirmedDistributedPlan(current, planFile, { jobKeys: confirmedJobs, deferredIds: confirmedDeferred });\n  await saveDistributedQueue(root, next);\n}`);
   await run.call(sandbox, queue, "root");
   assert.equal(sandbox.failures.length, 0, sandbox.failures.join(";"));
   assert.equal(saved.plans.some((plan) => plan.id === "plan-ebmc"), false);
@@ -295,6 +296,831 @@ test("each execution plan row can stop and clear its own plan file", () => {
   });
   assert.match(controlsHtml, /data-command="stopAndClearPlan" data-plan-file="plans\/ebmc.yaml"/);
   assert.doesNotMatch(controlsHtml, /plans\/editing.yaml/);
+});
+
+function loadExtensionHandler(name, nextName) {
+  const dist = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const start = dist.indexOf(name);
+  const end = dist.indexOf(nextName, start + name.length);
+  assert.ok(start >= 0 && end > start, name);
+  return dist.slice(start, end);
+}
+
+function installStopClearHost(sandbox) {
+  const notices = [];
+  const context = {
+    queueApi: require("../../dist/features/DistributedPlanQueue.js"),
+    planner: require("../../dist/features/PlanStopClear.js"),
+    PlanStopClear_1: require("../../dist/features/PlanStopClear.js"),
+    DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue.js"),
+    vscode: { window: {
+      showWarningMessage: async (text, _options, action) => { notices.push(text); return sandbox.answers.shift() ?? action; },
+      showInformationMessage: (text) => { notices.push(text); },
+    } },
+    workspaceRoot: () => sandbox.root,
+    stringField: (message, key) => String(message?.[key] || ""),
+    normalizePlanSelectionKey: (value) => String(value || "").replaceAll("\\", "/").replace(/^\.\//, ""),
+    operationTerminal: (row) => ["failed", "completed", "cancelled"].includes(String(row?.status || "")),
+    Promise,
+    setTimeout,
+    clearTimeout,
+    errorMessage: (error) => String(error?.message || error),
+    uniqueStrings: (values) => [...new Set((values || []).filter(Boolean))],
+    keys: { executionHistoryHiddenOperationIds: "hidden", executionHistoryCutoffs: "cutoffs" },
+    notices,
+  };
+  vm.createContext(context);
+  const helpers = loadExtensionHandler("planStopClearKey(planFile) {", "async recoverPlanOperationsForStopClear(planFile");
+  const recover = loadExtensionHandler("async recoverPlanOperationsForStopClear(planFile", "async restoreRemotePlanOperations(");
+  const clear = loadExtensionHandler("async stopAndClearPlanFromUi(message) {", "async downloadDebugBundle(");
+  const tickWrapperStart = loadExtensionHandler("async tickDistributedQueue() {", "refreshSelectedDistributedLog(queue");
+  vm.runInContext(`class Host { ${helpers}\n${recover}\n${clear}\n${tickWrapperStart} }\nthis.Host = Host;`, context);
+  const provider = Object.assign(new context.Host(), sandbox);
+  context.provider = provider;
+  return context;
+}
+
+test("production stop-clear removes a queue-only blocked plan without waiting on unrelated workers", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const queued = queueApi.enqueuePlan(queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/stuck.yaml", revision: "rev-stuck", codeFingerprint: "old",
+    jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work/stuck/0" }, { index: 1, case: "pad", seed: 2, outputDir: "work/stuck/1" }],
+  }, "plan-stuck"), {
+    planFile: "plans/keep.yaml", revision: "rev-keep", codeFingerprint: "new",
+    jobs: [{ index: 0, case: "pad", seed: 9, outputDir: "work/keep/0" }],
+  }, "plan-keep");
+  queued.plans[0].jobs[0].status = "blocked";
+  queued.deferred = [{ id: "defer-stuck", planFile: "plans/stuck.yaml", revision: "rev-stuck", codeFingerprint: "old", body: {}, enqueuedAt: "t", status: "blocked" }];
+  let saved = queued;
+  let workerCalls = 0;
+  const sandbox = {
+    root: "D:/project",
+    answers: ["继续中止并清除", "确认中止并清除"],
+    distributedQueueTickPromise: undefined,
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    client: { getWorkerTasks: async () => { workerCalls += 1; await new Promise(() => {}); } },
+    isRealtimeMode: () => true,
+    enabledWorkerConfigs: () => [{ id: "slow-worker" }],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => saved,
+    saveDistributedQueue: async (_root, next) => { saved = next; },
+    postState: () => undefined,
+    context: { workspaceState: { get: () => [], update: async () => undefined } },
+  };
+  const host = installStopClearHost(sandbox);
+  const started = Date.now();
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/stuck.yaml", command: "stopAndClearPlan" });
+  assert.ok(Date.now() - started < 3000);
+  assert.equal(workerCalls, 0);
+  assert.equal(result.status, "completed");
+  assert.match(result.message, /已清除/);
+  assert.equal(saved.plans.some((plan) => plan.id === "plan-stuck"), false);
+  assert.equal(saved.plans.find((plan) => plan.id === "plan-keep").jobs.length, 1);
+  assert.equal(saved.deferred.length, 0);
+  assert.equal(host.provider.planStopClearByFile["plans/stuck.yaml"].outcome, "completed");
+  assert.match(host.provider.planStopClearByFile["plans/stuck.yaml"].message, /分布式 job/);
+});
+
+test("an unconfirmed active job stays queued and the plan card records the reason", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const allocated = queueApi.allocateAvailable(queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/live.yaml", revision: "rev-live", codeFingerprint: "new",
+    jobs: [{ index: 0, case: "bus", seed: 3, outputDir: "work/live/0" }],
+  }, "plan-live"), [{ workerId: "w1", idleGpuIds: ["0"], online: true }]);
+  const running = allocated.queue.plans[0].jobs[0];
+  running.status = "running";
+  let saved = allocated.queue;
+  const sandbox = {
+    root: "D:/project",
+    answers: ["继续中止并清除", "确认中止并清除"],
+    distributedQueueTickPromise: undefined,
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    client: { getWorkerTasks: async () => ({ tasks: [] }) },
+    isRealtimeMode: () => true,
+    enabledWorkerConfigs: () => [{ id: "w1" }],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    runOperationWorkerId: () => "",
+    loadDistributedQueue: async () => saved,
+    saveDistributedQueue: async (_root, next) => { saved = next; },
+    stopDistributedJobForClear: async () => { throw new Error("Worker w1 不可达，未确认该 job 已停止"); },
+    postState: () => undefined,
+    context: { workspaceState: { get: () => [], update: async () => undefined } },
+  };
+  const host = installStopClearHost(sandbox);
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/live.yaml" });
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /未完成清除/);
+  assert.match(result.message, /下一步/);
+  assert.equal(saved.plans[0].jobs.length, 1);
+  assert.equal(saved.plans[0].jobs[0].status, "running");
+  const card = host.provider.planStopClearByFile["plans/live.yaml"];
+  assert.equal(card.outcome, "failed");
+  assert.match(card.failures.join("\n"), /不可达/);
+  assert.match(card.nextStep, /终止并清理/);
+});
+
+test("a hung worker stop returns a bounded plan failure and a late receipt cannot clear the job", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const allocated = queueApi.allocateAvailable(queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/hang.yaml", revision: "rev-hang", codeFingerprint: "new",
+    jobs: [{ index: 0, case: "bus", seed: 6, outputDir: "work/hang/0" }],
+  }, "plan-hang"), [{ workerId: "w-hang", idleGpuIds: ["0"], online: true }]);
+  const running = allocated.queue.plans[0].jobs[0];
+  running.status = "running";
+  let saved = allocated.queue;
+  let late = false;
+  const sandbox = {
+    root: "D:/project",
+    answers: ["继续中止并清除", "确认中止并清除"],
+    distributedQueueTickPromise: undefined,
+    distributedQueueWritePromise: Promise.resolve(),
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    client: { getWorkerTasks: () => new Promise(() => {}) },
+    isRealtimeMode: () => false,
+    enabledWorkerConfigs: () => [{ id: "w-hang" }],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => saved,
+    saveDistributedQueue: async (_root, next) => { saved = next; if (late) throw new Error("late receipt saved"); },
+    stopDistributedJobForClear: () => new Promise((resolve) => setTimeout(() => { late = true; resolve({ status: "completed" }); }, 12000)),
+    postState: () => undefined,
+    context: { workspaceState: { get: () => [], update: async () => undefined } },
+  };
+  const host = installStopClearHost(sandbox);
+  const started = Date.now();
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/hang.yaml" });
+  assert.ok(Date.now() - started < 12000);
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /w-hang/);
+  assert.match(result.message, /8 秒/);
+  assert.match(result.planStopClear.failures.join("\n"), /重试/);
+  assert.equal(saved.plans[0].jobs.length, 1);
+  assert.equal(host.provider.planStopClearByFile["plans/hang.yaml"].outcome, "failed");
+});
+
+test("an error before confirmation is stored on the plan card", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const sandbox = {
+    root: "D:/project",
+    answers: [],
+    distributedQueueTickPromise: undefined,
+    distributedPlanStopEpoch: 0,
+    distributedQueueGeneration: 0,
+    planStopClearByFile: {},
+    isRealtimeMode: () => true,
+    enabledWorkerConfigs: () => [],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => { throw new Error("本机运行进度读取失败"); },
+    loadDistributedQueue: async () => queueApi.emptyDistributedQueue(),
+    saveDistributedQueue: async () => { throw new Error("must not save"); },
+    postState: () => undefined,
+  };
+  const host = installStopClearHost(sandbox);
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/broken.yaml" });
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /准备清理失败/);
+  assert.match(result.message, /本机运行进度读取失败/);
+  const card = host.provider.planStopClearByFile["plans/broken.yaml"];
+  assert.equal(card.phase, "prepare-clear");
+  assert.match(card.nextStep, /终止并清理/);
+});
+
+test("queue-only clear proceeds while a scheduler tick is still querying a worker", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const queued = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/local.yaml", revision: "rev-local", codeFingerprint: "old",
+    jobs: [{ index: 0, case: "bus", seed: 7, outputDir: "work/local/0" }],
+  }, "plan-local");
+  let saved = queued;
+  let releaseTick;
+  const sandbox = {
+    root: "D:/project",
+    answers: ["继续中止并清除", "确认中止并清除"],
+    distributedQueueTickPromise: new Promise((resolve) => { releaseTick = resolve; }),
+    distributedQueueWritePromise: Promise.resolve(),
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    isRealtimeMode: () => false,
+    enabledWorkerConfigs: () => [],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => saved,
+    saveDistributedQueue: async (_root, next) => { saved = next; },
+    postState: () => undefined,
+    context: { workspaceState: { get: () => [], update: async () => undefined } },
+  };
+  const host = installStopClearHost(sandbox);
+  const started = Date.now();
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/local.yaml" });
+  assert.ok(Date.now() - started < 3000);
+  assert.equal(result.status, "completed");
+  assert.match(result.message, /未核查远端|已清除/);
+  assert.equal(saved.plans.length, 0);
+  assert.equal(host.provider.distributedPlanStopEpoch, 0);
+  assert.equal(host.provider.distributedQueueTickPromise, undefined);
+  const oldGeneration = host.provider.distributedQueueGeneration;
+  let blocked = false;
+  host.provider.saveDistributedQueue = async (_root, next, options = {}) => {
+    if (options.queueGeneration !== undefined && options.queueGeneration !== host.provider.distributedQueueGeneration) {
+      blocked = true;
+      return;
+    }
+    saved = next;
+  };
+  await host.provider.saveDistributedQueue("D:/project", queued, { queueGeneration: oldGeneration - 1 });
+  assert.equal(blocked, true);
+  assert.equal(saved.plans.length, 0);
+  releaseTick();
+  host.provider.tickDistributedQueueCore = () => Promise.resolve();
+  const restarted = host.provider.tickDistributedQueue();
+  assert.ok(restarted);
+  await restarted;
+  assert.equal(host.provider.distributedQueueTickPromise, undefined);
+});
+
+test("a stuck scheduler tick returns a bounded failure and does not delete the queue", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const queued = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/tick.yaml", revision: "rev-tick", codeFingerprint: "old",
+    jobs: [{ index: 0, case: "bus", seed: 4, outputDir: "work/tick/0", status: "running", workerId: "w-tick", gpuId: "0", commandId: "cmd-tick", attempt: 1 }],
+  }, "plan-tick");
+  let saved = queued;
+  let writes = 0;
+  const sandbox = {
+    root: "D:/project",
+    answers: ["继续中止并清除", "确认中止并清除"],
+    distributedQueueTickPromise: new Promise(() => {}),
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    client: { getWorkerTasks: async () => ({ tasks: [] }) },
+    isRealtimeMode: () => false,
+    enabledWorkerConfigs: () => [],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => saved,
+    saveDistributedQueue: async () => { writes += 1; },
+    postState: () => undefined,
+    context: { workspaceState: { get: () => [], update: async () => undefined } },
+  };
+  const host = installStopClearHost(sandbox);
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/tick.yaml" });
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /阶段：scheduler-tick/);
+  assert.match(result.planStopClear.nextStep, /重新点/);
+  assert.equal(writes, 0);
+  assert.equal(saved.plans[0].jobs.length, 1);
+  assert.equal(host.provider.distributedPlanStopEpoch, 1);
+  assert.equal(host.provider.planStopClearByFile["plans/tick.yaml"].phase, "scheduler-tick");
+});
+
+test("a tick that resumes after the timeout still cannot save or dispatch, and scheduling resumes after it ends", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const queued = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/late.yaml", revision: "rev-late", codeFingerprint: "old",
+    jobs: [{ index: 0, case: "bus", seed: 8, outputDir: "work/late/0", status: "running", workerId: "w-late", gpuId: "0", commandId: "cmd-late", attempt: 1 }],
+  }, "plan-late");
+  let releaseCore;
+  let failCore = false;
+  const writes = [];
+  const dispatches = [];
+  const sandbox = {
+    distributedQueueTickPromise: undefined,
+    distributedPlanStopEpoch: 0,
+    tickDistributedQueueCore: () => new Promise((resolve, reject) => { releaseCore = failCore ? reject : resolve; }),
+  };
+  const tickSource = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const wrapperStart = tickSource.indexOf("async tickDistributedQueue() {");
+  const wrapperEnd = tickSource.indexOf("refreshSelectedDistributedLog(queue", wrapperStart);
+  assert.ok(wrapperStart >= 0 && wrapperEnd > wrapperStart);
+  const wrapper = tickSource.slice(wrapperStart, wrapperEnd);
+  const host = installStopClearHost({
+    root: "D:/project",
+    answers: ["继续中止并清除", "确认中止并清除"],
+    ...sandbox,
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    isRealtimeMode: () => false,
+    enabledWorkerConfigs: () => [],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => queued,
+    saveDistributedQueue: async (_root, next) => { writes.push(next); },
+    postState: () => undefined,
+    context: { workspaceState: { get: () => [], update: async () => undefined } },
+  });
+  const provider = host.provider;
+  provider.tickDistributedQueue();
+  const trackedTick = provider.distributedQueueTickPromise;
+  assert.ok(trackedTick);
+  provider.tickDistributedQueue();
+  assert.equal(provider.distributedQueueTickPromise, trackedTick);
+  const result = await provider.stopAndClearPlanFromUi({ planFile: "plans/late.yaml" });
+  assert.equal(result.status, "failed");
+  assert.equal(provider.distributedPlanStopEpoch, 1);
+  assert.ok(provider.distributedQueueGeneration > 0);
+  assert.equal(provider.distributedQueueTickPromise, trackedTick);
+  const tickStart = tickSource.indexOf("async tickDistributedQueueCore(generation");
+  const tickEnd = tickSource.indexOf("async syncDistributedJobArtifacts(", tickStart);
+  assert.ok(tickStart >= 0 && tickEnd > tickStart);
+  const tickBody = tickSource.slice(tickStart, tickEnd);
+  let continued = false;
+  const tickHost = {
+    distributedPlanStopEpoch: provider.distributedPlanStopEpoch,
+    distributedQueueGeneration: provider.distributedQueueGeneration,
+    postState: () => undefined,
+    saveDistributedQueue: async () => { writes.push("late-save"); },
+    sendDistributedJob: async () => { dispatches.push("late-dispatch"); },
+    loadDistributedQueue: async () => queued,
+    isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    client: { getGpu: async () => { continued = true; return { rows: [] }; } },
+    workerCodeSyncTargets: () => [],
+    workerActionTargets: () => [],
+    testTunnel: async () => undefined,
+    lastWorkerProbes: { w1: { status: "ok" } },
+    lastCodeSyncState: { workerVersions: {} },
+    readWorkerTaskSnapshot: async () => ({ tasks: [] }),
+    localWorkerAvailabilityRows: () => [{ workerId: "w1", availableGpuIds: ["0"] }],
+    availabilityPushTtlSeconds: () => 30,
+    schedulerSettings: () => ({}),
+    recordActionError: () => undefined,
+    refreshSelectedDistributedLog: () => undefined,
+    scheduleDistributedPostprocess: () => undefined,
+    distributedNextProbeAt: Date.now() + 60_000,
+    distributedNextFailureDetailAt: Date.now() + 60_000,
+    distributedNextPostprocessAt: Date.now() + 60_000,
+  };
+  vm.createContext(Object.assign(tickHost, { DistributedPlanQueue: queueApi, workspaceRoot: () => "D:/project", mapLimited: async (items, _limit, worker) => Promise.all(items.map(worker)) }));
+  vm.runInContext(`this.run = async function (generation) { ${tickBody.replace(/async tickDistributedQueueCore\(generation[^)]*\)/, "async function tickDistributedQueueCore(generation)")} await tickDistributedQueueCore.call(this, generation); };`, tickHost);
+  await tickHost.run(provider.distributedQueueGeneration - 1);
+  assert.equal(continued, false);
+  assert.equal(writes.length, 0);
+  assert.equal(dispatches.length, 0);
+  releaseCore();
+  await trackedTick;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(provider.distributedQueueTickPromise, undefined);
+  assert.equal(provider.distributedPlanStopEpoch, 0);
+  failCore = true;
+  const rejectedTick = provider.tickDistributedQueue();
+  const rejection = new Error("worker snapshot failed");
+  const rejectionSeen = rejectedTick.then(() => { throw new Error("rejected tick resolved"); }, (error) => error);
+  provider.distributedPlanStopEpoch = 1;
+  releaseCore(rejection);
+  assert.equal((await rejectionSeen).message, "worker snapshot failed");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(provider.distributedQueueTickPromise, undefined);
+  provider.distributedPlanStopEpoch = 0;
+  tickHost.distributedPlanStopEpoch = provider.distributedPlanStopEpoch;
+  tickHost.distributedQueueGeneration = provider.distributedQueueGeneration;
+  continued = false;
+  await tickHost.run(provider.distributedQueueGeneration);
+  assert.equal(continued, true);
+});
+
+test("a late old tick cannot revive a queue-only plan after a newer tick saves", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const dist = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const tickStart = dist.indexOf("async tickDistributedQueueCore(generation");
+  const tickEnd = dist.indexOf("async syncDistributedJobArtifacts(", tickStart);
+  assert.ok(tickStart >= 0 && tickEnd > tickStart);
+  const tickBody = dist.slice(tickStart, tickEnd).replace(/async tickDistributedQueueCore\(generation[^)]*\)/, "async function tickDistributedQueueCore(generation)");
+  const stale = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/stale.yaml", revision: "rev-stale", codeFingerprint: "old",
+    jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work/stale/0", status: "running", workerId: "w1", gpuId: "0", commandId: "cmd-stale", attempt: 1 }],
+  }, "plan-stale");
+  const fresh = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/fresh.yaml", revision: "rev-fresh", codeFingerprint: "new",
+    jobs: [{ index: 0, case: "pad", seed: 2, outputDir: "work/fresh/0" }],
+  }, "plan-fresh");
+  const releases = [];
+  const writes = [];
+  const dispatches = [];
+  let saved = stale;
+  const host = {
+    distributedQueueGeneration: 2,
+    distributedPlanStopEpoch: 0,
+    postState: () => undefined,
+    loadDistributedQueue: async () => saved,
+    saveDistributedQueue: async (_root, next, options = {}) => {
+      if (options.queueGeneration !== undefined && options.queueGeneration !== host.distributedQueueGeneration) {
+        writes.push("rejected:" + next.plans.map((plan) => plan.id).join(","));
+        throw new Error("过期调度轮次，已拒绝写入队列");
+      }
+      saved = next;
+      writes.push(next.plans.map((plan) => plan.id).join(","));
+    },
+    sendDistributedJob: async () => { dispatches.push("dispatch"); },
+    isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    workerCodeSyncTargets: () => [],
+    workerActionTargets: () => [{ id: "w1" }],
+    lastWorkerProbes: { w1: { status: "ok" } },
+    lastCodeSyncState: { workerVersions: { w1: { fingerprint: "new" } } },
+    lastRealtimeState: {},
+    readWorkerTaskSnapshot: () => new Promise((resolve) => { releases.push(() => resolve({ tasks: [] })); }),
+    localWorkerAvailabilityRows: () => [{ workerId: "w1", availableGpuIds: ["0"] }],
+    availabilityPushTtlSeconds: () => 30,
+    schedulerSettings: () => ({}),
+    recordActionError: () => undefined,
+    refreshSelectedDistributedLog: () => undefined,
+    scheduleDistributedPostprocess: () => undefined,
+    distributedNextProbeAt: Date.now() + 60_000,
+    distributedNextFailureDetailAt: Date.now() + 60_000,
+    distributedNextPostprocessAt: Date.now() + 60_000,
+    client: { getGpu: async () => ({ rows: [{ workerId: "w1", availableGpuIds: ["0"] }] }) },
+  };
+  vm.createContext(Object.assign(host, { DistributedPlanQueue: queueApi, workspaceRoot: () => "D:/project", errorMessage: (error) => String(error && error.message || error), mapLimited: async (items, _limit, worker) => Promise.all(items.map(worker)), RequestBudget_1: { RequestBudgetDeniedError: class RequestBudgetDeniedError extends Error {} } }));
+  vm.runInContext(`this.run = async function (generation) { ${tickBody}\nawait tickDistributedQueueCore.call(this, generation); };`, host);
+  const oldTick = host.run(1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(releases.length, 1);
+  await host.saveDistributedQueue("D:/project", fresh, { queueGeneration: 2 });
+  releases[0]();
+  await oldTick;
+  assert.deepEqual(writes, ["plan-fresh"]);
+  assert.deepEqual(dispatches, []);
+  assert.equal(saved.plans.map((plan) => plan.id).join(","), "plan-fresh");
+  const never = host.run(1);
+  await new Promise((resolve) => setImmediate(resolve));
+  const current = host.run(host.distributedQueueGeneration);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(releases.length, 3);
+  releases[2]();
+  await current;
+  let neverSettled = false;
+  await Promise.race([never.then(() => { neverSettled = true; }), new Promise((resolve) => setTimeout(resolve, 20))]);
+  assert.equal(neverSettled, false);
+  assert.equal(saved.plans.some((plan) => plan.id === "plan-stale"), false);
+  assert.equal(writes.some((item) => item.includes("plan-stale")), false);
+});
+
+test("cancelling the second confirmation publishes a cancelled card state", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const queued = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+    planFile: "plans/cancel.yaml", revision: "rev-cancel", codeFingerprint: "old",
+    jobs: [{ index: 0, case: "bus", seed: 5, outputDir: "work/cancel/0" }],
+  }, "plan-cancel");
+  const sandbox = {
+    root: "D:/project",
+    answers: ["继续中止并清除", "先不清理"],
+    distributedQueueTickPromise: undefined,
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    isRealtimeMode: () => false,
+    enabledWorkerConfigs: () => [],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => queued,
+    saveDistributedQueue: async () => { throw new Error("cancel must not save"); },
+    postState: () => undefined,
+  };
+  const host = installStopClearHost(sandbox);
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/cancel.yaml" });
+  assert.equal(result.status, "cancelled");
+  assert.equal(host.provider.planStopClearByFile["plans/cancel.yaml"].outcome, "cancelled");
+  assert.match(host.provider.planStopClearByFile["plans/cancel.yaml"].message, /第二次确认已取消/);
+});
+
+test("the plan card renders the persistent stop-clear reason beside the target plan", () => {
+  const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
+  const htmlSource = renderPanelHtml();
+  const scriptStart = htmlSource.indexOf("<script");
+  const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
+  const start = script.indexOf("function executionPlanGroupKey(");
+  const end = script.indexOf("function renderOperationSection(state)", start);
+  const source = script.slice(start, end);
+  let html = "";
+  const sandbox = {
+    Map, Set,
+    operationRowsForState: () => [],
+    taskSectionViewModelForState: () => ({ allRows: [] }),
+    taskPlanFile: (row) => row.planFile,
+    taskSelectionSetsForState: () => ({}),
+    normalizePlanSelectionKey: String,
+    samePlanSelection: (left, right) => left === right,
+    selectedExecutionPlanFile: "",
+    collapsedExecutionPlanKeys: new Set(),
+    persistWebviewState: () => undefined,
+    taskStatusToken: String,
+    TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
+    TASK_QUEUED_STATUSES: new Set(["queued"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed"]),
+    operationIsActive: () => false,
+    operationIsFailureLike: () => false,
+    operationHasDeadEvidence: () => false,
+    taskFailureLikeStatus: () => false,
+    planBaseName: (value) => String(value).split("/").pop(),
+    esc: String,
+    escAttr: String,
+    detailsOpenAttr: () => "",
+    statusClass: String,
+    loadingPrefix: () => "BUSY ",
+    renderOperationItem: () => "",
+    renderTaskCards: () => "",
+    setHtmlIfChanged: (_id, value) => { html = value; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source + "\nthis.render = renderExecutionPlanList;", sandbox);
+  sandbox.render({
+    distributedPlans: [{ planFile: "plans/live.yaml", jobs: [{ status: "running", case: "bus", seed: 3 }] }],
+    planStopClearByFile: {
+      "plans/live.yaml": { planFile: "plans/live.yaml", phase: "partial-clear", outcome: "failed", message: "Worker w1 不可达", nextStep: "重新点“终止并清理”", failures: ["job 0: Worker w1 不可达"] },
+    },
+  });
+  assert.match(html, /data-plan-stop-clear="plans\/live\.yaml"/);
+  assert.match(html, /data-plan-stop-outcome="failed"/);
+  assert.match(html, /清理失败/);
+  assert.match(html, /Worker w1 不可达/);
+  assert.match(html, /下一步：重新点“终止并清理”/);
+  assert.doesNotMatch(html, /清理完成/);
+  const head = html.slice(0, html.indexOf("<details"));
+  assert.match(head, /data-plan-stop-outcome="failed"/);
+  assert.match(head, /清理失败/);
+  assert.match(head, /下一步：重新点“终止并清理”/);
+  const details = html.slice(html.indexOf("<details"));
+  assert.match(details, /job 0: Worker w1 不可达/);
+  sandbox.collapsedExecutionPlanKeys = new Set(["plans/live.yaml"]);
+  sandbox.render({
+    distributedPlans: [{ planFile: "plans/live.yaml", jobs: [{ status: "running", case: "bus", seed: 3 }] }],
+    planStopClearByFile: {
+      "plans/live.yaml": { planFile: "plans/live.yaml", phase: "partial-clear", outcome: "failed", message: "Worker w1 不可达", nextStep: "重新点“终止并清理”", failures: ["job 0"] },
+    },
+  });
+  assert.match(html, /data-plan-stop-fold="failed"/);
+  assert.match(html, /清理失败/);
+  assert.match(html, /恢复监控/);
+  sandbox.collapsedExecutionPlanKeys = new Set();
+  sandbox.render({
+    operations: {},
+    distributedPlans: [],
+    planStopClearByFile: {
+      "plans/only-feedback.yaml": { planFile: "plans/only-feedback.yaml", phase: "scheduler-tick", outcome: "failed", message: "调度轮次未停下", nextStep: "稍后重试", failures: ["tick"] },
+    },
+  });
+  assert.match(html, /data-plan-stop-clear="plans\/only-feedback.yaml"/);
+  assert.match(html, /调度轮次未停下/);
+  assert.match(html.slice(0, html.indexOf("<details")), /下一步：稍后重试/);
+});
+
+test("completed stop-clear feedback does not invent a plan card and a newer run hides stale failure text", () => {
+  const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
+  const htmlSource = renderPanelHtml();
+  const scriptStart = htmlSource.indexOf("<script");
+  const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
+  const start = script.indexOf("function executionPlanGroupKey(");
+  const end = script.indexOf("function renderOperationSection(state)", start);
+  const source = script.slice(start, end);
+  let html = "";
+  const sandbox = {
+    Map, Set,
+    operationRowsForState: () => [],
+    taskSectionViewModelForState: () => ({ allRows: [] }),
+    taskPlanFile: (row) => row.planFile,
+    taskSelectionSetsForState: () => ({}),
+    normalizePlanSelectionKey: (value) => String(value || "").replaceAll("\\", "/").replace(/^\.\//, "").toLowerCase(),
+    samePlanSelection: (left, right) => String(left).toLowerCase() === String(right).toLowerCase(),
+    selectedExecutionPlanFile: "",
+    collapsedExecutionPlanKeys: new Set(),
+    persistWebviewState: () => undefined,
+    taskStatusToken: String,
+    TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
+    TASK_QUEUED_STATUSES: new Set(["queued"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed"]),
+    operationIsActive: () => false,
+    operationIsFailureLike: () => false,
+    operationHasDeadEvidence: () => false,
+    taskFailureLikeStatus: () => false,
+    planBaseName: (value) => String(value).split("/").pop(),
+    esc: String,
+    escAttr: String,
+    detailsOpenAttr: () => "",
+    statusClass: String,
+    loadingPrefix: () => "",
+    renderOperationItem: () => "",
+    renderTaskCards: () => "",
+    setHtmlIfChanged: (_id, value) => { html = value; },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(source + "\nthis.render = renderExecutionPlanList;", sandbox);
+  sandbox.render({
+    distributedPlans: [],
+    operations: {},
+    planStopClearByFile: {
+      "plans/gone.yaml": { planFile: "plans/gone.yaml", outcome: "completed", updatedAt: "2026-09-27T01:00:00Z", message: "已清除", nextStep: "完成" },
+      "plans/kept.yaml": { planFile: "plans/kept.yaml", outcome: "failed", updatedAt: "2026-09-27T01:00:00Z", message: "Worker 查询失败", nextStep: "恢复隧道", failures: ["w1 timeout"] },
+    },
+  });
+  assert.doesNotMatch(html, /plans\/gone\.yaml|清理完成/);
+  assert.match(html, /data-plan-stop-clear="plans\/kept\.yaml"/);
+  assert.match(html, /Worker 查询失败/);
+  sandbox.render({
+    distributedPlans: [{ planFile: "plans/kept.yaml", enqueuedAt: "2026-09-27T02:00:00Z", jobs: [{ status: "running", case: "bus", seed: 1, updatedAt: "2026-09-27T02:00:00Z" }] }],
+    planStopClearByFile: {
+      "plans/kept.yaml": { planFile: "plans/kept.yaml", outcome: "failed", updatedAt: "2026-09-27T01:00:00Z", message: "旧清理失败", nextStep: "不要再显示" },
+    },
+  });
+  assert.match(html, /plans\/kept\.yaml/);
+  assert.doesNotMatch(html, /旧清理失败|不要再显示/);
+});
+
+test("a failed worker query keeps its plan progress while an exact receipt still clears another plan", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const queued = queueApi.emptyDistributedQueue();
+  const sandbox = {
+    root: "D:/project",
+    answers: ["继续中止并清除", "确认中止并清除"],
+    distributedQueueTickPromise: undefined,
+    distributedPlanStopEpoch: 0,
+    planStopClearByFile: {},
+    client: { getWorkerTasks: async (workerId) => { if (workerId === "slow") throw new Error("查询 slow 超过 8 秒"); return { tasks: [] }; } },
+    isRealtimeMode: () => true,
+    enabledWorkerConfigs: () => [{ id: "slow" }, { id: "ok" }],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {
+      "op-slow": { operationId: "op-slow", type: "run-plan", planFile: "plans/query.yaml", status: "failed", schedulerOwnerWorkerId: "slow" },
+      "op-ok": { operationId: "op-ok", type: "run-plan", planFile: "plans/query.yaml", status: "failed", schedulerOwnerWorkerId: "ok" },
+    } }),
+    runOperationWorkerId: (row) => row.schedulerOwnerWorkerId,
+    loadDistributedQueue: async () => queued,
+    saveDistributedQueue: async () => undefined,
+    postState: () => undefined,
+    context: { workspaceState: { get: () => [], update: async (_key, value) => { sandbox.hidden = value; } } },
+  };
+  const host = installStopClearHost(sandbox);
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/query.yaml" });
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /slow/);
+  assert.deepEqual(sandbox.hidden, ["op-ok"]);
+  const card = host.provider.planStopClearByFile["plans/query.yaml"];
+  assert.match(card.failures.join("\n"), /op-slow/);
+  assert.match(card.failures.join("\n"), /刷新状态/);
+});
+
+test("execution section redraws when only the stop-clear feedback changes", () => {
+  const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
+  const htmlSource = renderPanelHtml();
+  const scriptStart = htmlSource.indexOf("<script");
+  const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
+  const start = script.indexOf("function sectionPreRenderKey(");
+  const end = script.indexOf("function sectionLocalPreKey(", start);
+  assert.ok(start >= 0 && end > start);
+  const dependency = script.slice(script.indexOf("function sectionDependencyKey("), script.indexOf("function sectionLocalPreKey("));
+  assert.match(dependency, /planStopClearByFile/);
+  const renders = [];
+  const sandbox = {
+    sectionIsCollapsed: () => false,
+    lastSectionPreRenderKeys: {},
+    lastRenderedSectionSignatures: {},
+    sectionPreRenderKey: (state, section) => section + "::" + JSON.stringify((state || {}).planStopClearByFile || {}),
+    sectionRenderSignature: (state, section) => section + "::" + JSON.stringify((state || {}).planStopClearByFile || {}),
+    renderExecutionSection: (state) => { renders.push(JSON.stringify(state.planStopClearByFile || {})); },
+    applyResourceTreeChildLayout: () => undefined,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(script.slice(script.indexOf("function renderSectionIfVisible("), script.indexOf("function sectionPreRenderKey(", script.indexOf("function renderSectionIfVisible("))) + "\nthis.render = renderSectionIfVisible;", sandbox);
+  const state = { planStopClearByFile: {} };
+  sandbox.render(state, "execution");
+  sandbox.render(state, "execution");
+  state.planStopClearByFile = { "plans/stuck.yaml": { outcome: "failed", message: "调度未停下", nextStep: "稍后重试" } };
+  sandbox.render(state, "execution");
+  assert.deepEqual(renders, ["{}", '{"plans/stuck.yaml":{"outcome":"failed","message":"调度未停下","nextStep":"稍后重试"}}']);
+});
+
+test("handleMessage posts the real stop-clear outcome for failed, cancelled, and completed", async () => {
+  const dist = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const messageStart = dist.indexOf("async handleMessage(message) {");
+  const messageEnd = dist.indexOf("async handleMessageCore(message, command = getSafeCommand(message)) {", messageStart);
+  const coreStart = dist.indexOf("async handleMessageCore(message, command = getSafeCommand(message)) {");
+  const coreEnd = dist.indexOf("async withUiCommandStatus(clientActionId, command, message, work) {", coreStart);
+  const statusStart = dist.indexOf("async withUiCommandStatus(clientActionId, command, message, work) {");
+  const statusEnd = dist.indexOf("postUiCommandStatus(clientActionId, status, command, message, extra = undefined) {", statusStart);
+  const postStart = dist.indexOf("postUiCommandStatus(clientActionId, status, command, message, extra = undefined) {");
+  const postEnd = dist.indexOf("notifyLocalActionStarted(title, detail) {", postStart);
+  const leaseStart = dist.indexOf("async withHostOperationLease(actionType, actionLabel, operation, options = {}) {");
+  const leaseEnd = dist.indexOf("async ensureRealtimeConnected(", leaseStart);
+  assert.ok(messageStart >= 0 && messageEnd > messageStart && coreStart >= 0 && coreEnd > coreStart && statusStart >= 0 && statusEnd > statusStart && postStart >= 0 && postEnd > postStart && leaseStart >= 0 && leaseEnd > leaseStart);
+  const methods = [dist.slice(messageStart, messageEnd), dist.slice(coreStart, coreEnd), dist.slice(statusStart, statusEnd), dist.slice(postStart, postEnd), dist.slice(leaseStart, leaseEnd)].join("\n");
+  const posted = [];
+  const outcomes = {
+    failed: { status: "failed", message: "未完成清除 plans/a.yaml\n阶段：scheduler-tick", planStopClear: { planFile: "plans/a.yaml", outcome: "failed", phase: "scheduler-tick", nextStep: "稍后重试" } },
+    cancelled: { status: "cancelled", message: "第二次确认已取消", planStopClear: { planFile: "plans/a.yaml", outcome: "cancelled", phase: "confirm-cancelled" } },
+    completed: { status: "completed", message: "已清除 1 条运行进度", planStopClear: { planFile: "plans/a.yaml", outcome: "completed", phase: "cleared" } },
+  };
+  const context = {
+    getSafeCommand: (message) => message.command,
+    stringField: (message, key) => String(message[key] || ""),
+    booleanField: () => false,
+    debugModeBlockedUiCommand: () => false,
+    hostOperationLeaseActionForUiCommand: () => "stopAndClearPlan",
+    hostOperationLeaseActionLabel: () => "终止并清理",
+    commandNeedsUiStatus: () => true,
+    localCommandReleasesAfterTrigger: () => false,
+    isUiCommandRemotePending: () => false,
+    isUiCommandCancelled: () => false,
+    errorMessage: (error) => String(error.message || error),
+    uiCommandWatchdogMs: () => 0,
+    finishPlanSubmissionProgress: () => undefined,
+    recordActionError: () => undefined,
+    actionErrorSuggestion: () => "",
+    postState: () => undefined,
+    console,
+    currentHostOperationLeaseContext: () => ({ workspaceUri: "file://project", hostProjectPath: "D:/project" }),
+    hostOperationLease: { run: async (_meta, operation) => operation() },
+    stopAndClearPlanFromUi: async (message) => outcomes[message.outcome],
+    view: { webview: { postMessage: async (payload) => { posted.push(payload); } } },
+    vscode: { window: { showInformationMessage: () => undefined, showErrorMessage: () => undefined } },
+  };
+  vm.createContext(context);
+  vm.runInContext(`class Host { ${methods} }\nthis.provider = Object.assign(new Host(), this);`, context);
+  for (const outcome of ["failed", "cancelled", "completed"]) {
+    await context.provider.handleMessage({ command: "stopAndClearPlan", clientActionId: "act-" + outcome, outcome });
+  }
+  assert.deepEqual(posted.map((item) => item.status), ["running", "failed", "running", "cancelled", "running", "completed"]);
+  assert.equal(posted.filter((item) => item.status !== "running").every((item) => item.command === "stopAndClearPlan" && item.planStopClear.planFile === "plans/a.yaml"), true);
+  assert.equal(posted.some((item) => item.status === "failed" && item.planStopClear.phase === "scheduler-tick"), true);
+  assert.equal(posted.some((item) => item.status === "cancelled" && item.planStopClear.phase === "confirm-cancelled"), true);
+  assert.equal(posted.some((item) => item.status === "completed" && item.planStopClear.phase === "cleared"), true);
+});
+
+test("a preview failure before confirmation stays on the plan card", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const sandbox = {
+    root: "D:/project",
+    answers: [],
+    distributedQueueTickPromise: undefined,
+    distributedPlanStopEpoch: 0,
+    distributedQueueGeneration: 0,
+    planStopClearByFile: {},
+    isRealtimeMode: () => false,
+    enabledWorkerConfigs: () => [],
+    captureProjectContext: () => ({ root: "D:/project" }),
+    projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
+      planFile: "plans/preview.yaml", revision: "rev", codeFingerprint: "old",
+      jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work/preview/0" }],
+    }, "plan-preview"),
+    saveDistributedQueue: async () => { throw new Error("must not save"); },
+    postState: () => undefined,
+  };
+  const realPreview = require("../../dist/features/PlanStopClear.js").planStopClearPreview;
+  require("../../dist/features/PlanStopClear.js").planStopClearPreview = () => { throw new Error("预览拼装失败"); };
+  try {
+    const host = installStopClearHost(sandbox);
+    const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/preview.yaml" });
+    assert.equal(result.status, "failed");
+    assert.match(result.message, /生成清理预览失败/);
+    assert.match(result.message, /预览拼装失败/);
+    assert.equal(host.provider.planStopClearByFile["plans/preview.yaml"].phase, "preview");
+  } finally {
+    require("../../dist/features/PlanStopClear.js").planStopClearPreview = realPreview;
+  }
+});
+
+test("only stopAndClearPlan consumes a structured command result", async () => {
+  const dist = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const start = dist.indexOf("const guardedWork = work()");
+  const end = dist.indexOf("const result = watchdogMs", start);
+  const body = dist.slice(start, end);
+  assert.match(body, /command === "stopAndClearPlan"/);
+  const structured = { status: "failed", message: "未完成清除", planStopClear: { planFile: "plans/a.yaml" } };
+  const run = async (command) => {
+    const context = {
+      command,
+      isLocalTrigger: false,
+      work: async () => structured,
+      localCommandReleasesAfterTrigger: () => false,
+      isUiCommandRemotePending: () => false,
+      isUiCommandCancelled: () => false,
+      errorMessage: (error) => String(error.message || error),
+    };
+    vm.createContext(context);
+    vm.runInContext(`this.guarded = (async () => { ${body}\nreturn guardedWork; })()`, context);
+    return context.guarded;
+  };
+  const other = await run("snapshot");
+  assert.equal(other.status, "completed");
+  assert.equal(other.message, "completed");
+  assert.equal(other.planStopClear, undefined);
+  const clear = await run("stopAndClearPlan");
+  assert.equal(clear.status, "failed");
+  assert.match(clear.message, /未完成清除/);
+  assert.equal(clear.planStopClear.planFile, "plans/a.yaml");
 });
 
 test("plugin refuses exact pane stop unless the live worker probe advertises it", () => {

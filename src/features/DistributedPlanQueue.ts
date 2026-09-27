@@ -257,6 +257,15 @@ export type DistributedStopTarget = {
 };
 
 const ACTIVE_JOB: readonly JobState[] = ["dispatching", "running", "unknown"];
+const LOCAL_CLEAR_JOB: ReadonlySet<string> = new Set(["pending", "blocked"]);
+
+/** A job can leave the queue without a Worker receipt only while it has never been assigned. */
+export function jobClearableWithoutRemoteReceipt(job: { status?: string; workerId?: string; commandId?: string; gpuId?: string }): boolean {
+  return LOCAL_CLEAR_JOB.has(String(job?.status || ""))
+    && !String(job?.workerId || "").trim()
+    && !String(job?.commandId || "").trim()
+    && job?.gpuId === undefined;
+}
 
 export function distributedStopTargets(queue: DistributedQueue, planFile: string): DistributedStopTarget[] {
   const selected = String(planFile || "").trim();
