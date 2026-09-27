@@ -205,7 +205,7 @@ test("each execution plan row can stop and clear its own plan file", () => {
   const htmlSource = renderPanelHtml();
   const scriptStart = htmlSource.indexOf("<script");
   const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
-  const start = script.indexOf("function renderExecutionPlanList(state)");
+  const start = script.indexOf("function executionPlanGroupKey(");
   const end = script.indexOf("function renderOperationSection(state)", start);
   assert.ok(start >= 0 && end > start);
   const source = script.slice(start, end);
@@ -219,6 +219,7 @@ test("each execution plan row can stop and clear its own plan file", () => {
     normalizePlanSelectionKey: String,
     samePlanSelection: (left, right) => left === right,
     selectedExecutionPlanFile: "",
+    collapsedExecutionPlanKeys: new Set(),
     persistWebviewState: () => undefined,
     taskStatusToken: String,
     TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
@@ -250,7 +251,9 @@ test("each execution plan row can stop and clear its own plan file", () => {
   assert.match(html, /data-command="stopAndClearPlan" data-plan-file="plans\/ebmc.yaml"/);
   assert.match(html, /data-command="stopAndClearPlan" data-plan-file="plans\/edrl.yaml"/);
   assert.doesNotMatch(html, /data-plan-file="plans\/editing.yaml"/);
-  assert.equal((html.match(/终止并清除该 Plan/g) || []).length, 2);
+  assert.equal((html.match(/终止并清理/g) || []).length, 2);
+  const head = html.slice(0, html.indexOf("详情与日志"));
+  assert.doesNotMatch(head, /stopAndClearPlan|clearOperations|选中 Plan/);
   const controlsStart = script.indexOf("function renderOperationSection(state)");
   const controlsEnd = script.indexOf("function renderFileTransferProgress(", controlsStart);
   const controls = script.slice(controlsStart, controlsEnd);

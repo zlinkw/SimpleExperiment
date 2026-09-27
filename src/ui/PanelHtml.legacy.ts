@@ -390,11 +390,24 @@ export function renderPanelHtml(): string {
     .commandPhaseLine.busy::before { content: '◌'; display: inline-block; margin-right: 6px; animation: commandPhaseSpin 1s linear infinite; }
     @keyframes commandPhaseSpin { to { transform: rotate(360deg); } }
     .executionPlanList { display: grid; gap: 7px; margin: 8px 0; }
-    .executionPlanRow { min-width: 0; border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 8px; background: var(--vscode-editor-background); }
-    .executionPlanRow.running { border-left-color: var(--info); }
-    .executionPlanRow.failed { border-left-color: var(--danger); }
-    .executionPlanRow.completed { border-left-color: var(--success); }
-    .executionPlanRow.is-selected { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+    .executionPlanCard { min-width: 0; display: grid; gap: 8px; border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 8px; background: var(--vscode-editor-background); padding: 8px 11px; }
+    .executionPlanCard.running { border-left-color: var(--info); background: color-mix(in srgb, var(--info) 8%, var(--vscode-editor-background)); }
+    .executionPlanCard.failed { border-left-color: var(--danger); }
+    .executionPlanCard.completed { border-left-color: var(--success); }
+    .executionPlanCard.queued { border-left-color: var(--warning); }
+    .executionPlanCard.blocked { border-left-color: var(--warning); }
+    .executionPlanCard.is-selected { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+    .executionPlanHead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+    .executionPlanMeta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; min-width: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .executionPlanActions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .executionPlanFold { margin-top: 8px; border: 1px dashed var(--border); border-radius: 8px; background: var(--subtle-bg); }
+    .executionPlanFold > summary { cursor: pointer; padding: 8px 11px; font-weight: 700; }
+    .executionPlanFoldRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--border); }
+    .executionPlanFoldRow .executionPlanName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 640px) {
+      .executionPlanHead, .executionPlanFoldRow { grid-template-columns: minmax(0, 1fr); }
+      .executionPlanActions { justify-content: flex-start; }
+    }
     .executionDistributedJobs { display: grid; gap: 5px; }
     .executionDistributedJob { display: grid; grid-template-columns: minmax(130px, 1fr) auto auto auto; gap: 9px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
     .executionDistributedJob > span:first-child { min-width: 0; overflow-wrap: anywhere; }
@@ -1412,17 +1425,17 @@ export function renderPanelHtml(): string {
       <div class="section-head">
           <div class="section-title">
             <h2>运行进度</h2>
-            <div class="section-desc">按 Plan 查看进度；展开单行查看任务和日志</div>
+            <div class="section-desc">每个 Plan 一张概览卡；详情按需展开，已完成的 Plan 可手动折叠</div>
           </div>
           <div class="section-head-actions">
-            <span class="pill" title="运行中和异常置顶；完成记录折叠">按 Plan</span>
+            <span class="pill" title="运行中、排队和异常置顶；手动折叠的 Plan 收进折叠区">按 Plan</span>
           </div>
       </div>
       <div id="executionControls" class="executionControls"></div>
       <div id="commandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
       <div id="executionPlanList" data-anchor="execution-operations"></div>
       <details class="executionFullRecords" data-details-key="execution-full-records">
-        <summary>完整操作与任务记录</summary>
+        <summary>高级：完整操作与任务记录</summary>
         <div id="operationList"></div>
         <div id="taskSummary" data-anchor="execution-tasks"></div>
         <div id="taskBatchActions" class="actionGrid"></div>
@@ -2340,6 +2353,7 @@ export function renderPanelHtml(): string {
     let configParamFilterGeneration = 0;
     let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
     let selectedExecutionPlanFile = String(restoredWebviewState.selectedExecutionPlanFile || "");
+    let collapsedExecutionPlanKeys = new Set(Array.isArray(restoredWebviewState.collapsedExecutionPlanKeys) ? restoredWebviewState.collapsedExecutionPlanKeys.map((key) => String(key || "")).filter(Boolean) : []);
     const selectedOperationHistoryIds = new Set();
     let tracePlanScope = normalizePlanViewScope(restoredWebviewState.tracePlanScope);
     let webviewDomCommandAuditCache = null;
@@ -2898,6 +2912,19 @@ export function renderPanelHtml(): string {
         persistWebviewState({ selectedExecutionPlanFile });
         renderExecutionPlanList(lastState || {});
         renderOperationSection(lastState || {});
+        return;
+      }
+      const executionPlanFold = event.target.closest("button[data-execution-plan-fold]");
+      if (executionPlanFold) {
+        event.preventDefault();
+        event.stopPropagation();
+        const foldKey = String(executionPlanFold.dataset.executionPlanFold || "");
+        if (foldKey) {
+          if (collapsedExecutionPlanKeys.has(foldKey)) collapsedExecutionPlanKeys.delete(foldKey);
+          else collapsedExecutionPlanKeys.add(foldKey);
+          persistWebviewState({ collapsedExecutionPlanKeys: Array.from(collapsedExecutionPlanKeys) });
+          renderExecutionPlanList(lastState || {});
+        }
         return;
       }
       const tracePlanScopeTarget = event.target.closest("button[data-trace-plan-scope]");
@@ -13014,19 +13041,59 @@ export function renderPanelHtml(): string {
       return [row.id, row.archiveKey].some((value) => selected?.has(String(value || "")));
     }
 
+    function executionPlanGroupKey(path) {
+      return normalizePlanSelectionKey(String(path || "").trim()).toLowerCase() || "unassigned";
+    }
+
+    function executionCurrentDistributedJobs(group) {
+      const jobs = group.distributedJobs || [];
+      if (!jobs.length) return jobs;
+      const newest = jobs.reduce((best, job) => String(job.enqueuedAt || "") >= String(best.enqueuedAt || "") ? job : best, jobs[0]);
+      const newestAttempt = String(newest.enqueuedAt || newest.planId || "");
+      const sameAttempt = jobs.filter((job) => String(job.enqueuedAt || job.planId || "") === newestAttempt);
+      return sameAttempt.length ? sameAttempt : jobs;
+    }
+
+    function executionSubmissionLabel(row) {
+      const action = String((row && (row.type || row.action)) || "").toLowerCase();
+      if (action.indexOf("validate") >= 0 || action.indexOf("dry-run") >= 0 || action.indexOf("dryrun") >= 0) return "校验中";
+      if (action.indexOf("run-plan") >= 0 || action.indexOf("reproduce") >= 0 || action.indexOf("workflow") >= 0) return "提交中";
+      return "处理中";
+    }
+
+    function executionNewerSubmission(group) {
+      const enqueuedAt = Date.parse(group.distributedEnqueuedAt || "") || 0;
+      const live = (group.operations || []).filter((row) => operationIsActive(row.status));
+      const newer = live.filter((row) => {
+        const started = Date.parse(row.startedAt || row.updatedAt || "");
+        return !Number.isFinite(started) || started > enqueuedAt;
+      });
+      return newer.sort((a, b) => String(b.startedAt || b.updatedAt || "").localeCompare(String(a.startedAt || a.updatedAt || "")))[0] || null;
+    }
+
+    function executionDeferredView(status) {
+      const key = String(status || "pending").toLowerCase();
+      if (key === "blocked") return { tone: "blocked", statusText: "阻塞", countText: "阻塞 · 待调度" };
+      if (key === "processing") return { tone: "running", statusText: "处理中", countText: "处理中 · 待生成 job" };
+      return { tone: "queued", statusText: "排队", countText: "排队 · 待调度" };
+    }
+
     function renderExecutionPlanList(state) {
       const groups = new Map();
       const getGroup = (path) => {
         const planFile = String(path || "").trim();
-        const key = normalizePlanSelectionKey(planFile).toLowerCase() || "unassigned";
-        if (!groups.has(key)) groups.set(key, { key, planFile, operations: [], tasks: [], distributedJobs: [], distributedEnqueuedAt: "" });
+        const key = executionPlanGroupKey(planFile);
+        if (!groups.has(key)) groups.set(key, { key, planFile, operations: [], tasks: [], distributedJobs: [], distributedEnqueuedAt: "", deferredStatus: "", deferredNote: "" });
         return groups.get(key);
       };
       operationRowsForState(state).forEach((row) => {
         const planFile = row.planFile || row.plan;
         const action = String(row.type || row.action || "").toLowerCase();
+        const submissionAction = ["validate-plan", "dry-run-plan", "run-plan", "reproduce-plan", "workflow-run"].includes(action);
         if (!operationIsFailureLike(row.status) && !operationHasDeadEvidence(row) && !operationIsActive(row.status)
           && !["run-plan", "reproduce-plan", "workflow-run", "stop-scheduler-operation", "queued"].includes(action)) return;
+        const submissionTerminal = /cancel|fail|interrupt|error/.test(String(row.status || "").toLowerCase());
+        if (submissionAction && !operationIsActive(row.status) && !operationIsFailureLike(row.status) && !operationHasDeadEvidence(row) && !submissionTerminal) return;
         if (planFile) getGroup(planFile).operations.push(row);
       });
       taskSectionViewModelForState(state).allRows.forEach((row) => getGroup(taskPlanFile(row)).tasks.push(row));
@@ -13036,32 +13103,56 @@ export function renderPanelHtml(): string {
         const active = jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
         if (state?.executionHistoryCutoffs && !executionHistoryRowVisible(state, { startedAt: plan.enqueuedAt }, plan.planFile, active)) return;
         const group = getGroup(plan.planFile);
-        if (group.distributedEnqueuedAt && String(plan.enqueuedAt || "") < group.distributedEnqueuedAt) return;
-        group.distributedEnqueuedAt = String(plan.enqueuedAt || "");
-        group.distributedJobs = jobs.map((job) => ({ ...job, enqueuedAt: plan.enqueuedAt }));
+        const incoming = String(plan.enqueuedAt || "");
+        const previous = group.distributedEnqueuedAt;
+        if (previous && incoming < previous) return;
+        if (previous && incoming > previous) group.distributedJobs = [];
+        group.distributedEnqueuedAt = incoming || previous;
+        jobs.forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: plan.enqueuedAt, planId: plan.id }));
+      });
+      (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).forEach((plan) => {
+        if (!plan.planFile) return;
+        const status = String(plan.status || "pending").toLowerCase();
+        if (status === "superseded") return;
+        const group = getGroup(plan.planFile);
+        group.deferredStatus = status;
+        group.deferredNote = String(plan.reason || plan.error || "").trim();
       });
       const selected = taskSelectionSetsForState(state);
       const fingerprintBlocked = (job) => String(job.blockReason || "").indexOf("代码指纹不匹配") === 0 || String(job.blockReason || "").indexOf("等待当前代码版本") === 0;
       const items = Array.from(groups.values()).map((group) => {
+        const submission = executionNewerSubmission(group);
+        const deferredCurrent = !submission && !!group.deferredStatus;
+        const currentJobs = submission || deferredCurrent ? [] : executionCurrentDistributedJobs(group);
         const schedulable = (job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()) && !(String(job.status || "").toLowerCase() === "pending" && fingerprintBlocked(job));
-        const distributedActive = group.distributedJobs.some(schedulable);
-        const active = group.distributedJobs.length ? distributedActive
+        const distributedActive = currentJobs.some(schedulable);
+        const active = submission || deferredCurrent ? true : currentJobs.length ? distributedActive
           : group.tasks.some((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) || TASK_QUEUED_STATUSES?.has(taskStatusToken(row.status))) || group.operations.some((row) => operationIsActive(row.status));
-        const failed = group.distributedJobs.length ? group.distributedJobs.some((job) => job.status === "failed")
-          : group.tasks.some((row) => taskFailureLikeStatus(row.status)) || group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row));
-        const blockedCount = group.distributedJobs.filter((job) => String(job.status || "") === "pending" && fingerprintBlocked(job)).length;
-        const blockedOnly = group.distributedJobs.length > 0 && blockedCount === group.distributedJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !group.distributedJobs.some((job) => ["dispatching", "running", "unknown", "failed"].includes(String(job.status || "")));
-        const tone = active ? "running" : failed ? "failed" : blockedOnly ? "blocked" : "completed";
-        const completed = group.distributedJobs.length ? group.distributedJobs.filter((job) => job.status === "completed").length
-          : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status))).length;
-        const running = group.distributedJobs.length ? group.distributedJobs.filter((job) => ["running", "dispatching"].includes(String(job.status || ""))).length
-          : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
-        const queued = group.distributedJobs.filter((job) => String(job.status || "") === "pending" && !fingerprintBlocked(job)).length;
+        const failed = currentJobs.length ? currentJobs.some((job) => String(job.status || "") === "failed")
+          : group.tasks.some((row) => taskFailureLikeStatus(row.status)) || (!submission && !deferredCurrent && group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row)));
+        const blockedCount = currentJobs.filter((job) => String(job.status || "") === "pending" && fingerprintBlocked(job)).length;
+        const blockedOnly = currentJobs.length > 0 && blockedCount === currentJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !currentJobs.some((job) => ["dispatching", "running", "unknown", "failed"].includes(String(job.status || "")));
+        const queued = currentJobs.filter((job) => String(job.status || "") === "pending" && !fingerprintBlocked(job)).length;
+        const running = currentJobs.length ? currentJobs.filter((job) => ["running", "dispatching"].includes(String(job.status || ""))).length
+          : submission ? 1 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
+        const deferredView = deferredCurrent ? executionDeferredView(group.deferredStatus) : null;
+        const tone = submission ? "running" : deferredView ? deferredView.tone : running ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "running" : "completed";
+        const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed").length
+          : submission || deferredCurrent ? 0
+          : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status)).length;
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
-        const stamp = [...group.operations, ...group.tasks, ...group.distributedJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.enqueuedAt || "") || 0), 0);
-        return { ...group, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, label, stamp };
+        const totalJobs = currentJobs.length || (!submission && !deferredCurrent ? group.tasks.length : 0);
+        const failedJobs = currentJobs.filter((job) => String(job.status || "") === "failed").length;
+        const successRate = totalJobs ? Math.round(completed * 100 / totalJobs) : 0;
+        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : tone === "running" ? "运行中" : tone === "failed" ? "失败" : currentJobs.length ? "已完成" : "已结束";
+        const countText = submission ? (statusText + " · 待生成 job") : deferredView ? deferredView.countText : totalJobs
+          ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : ""))
+          : ("操作 " + group.operations.length);
+        const stamp = [...group.operations, ...group.tasks, ...currentJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.finishedAt || row.enqueuedAt || "") || 0), 0);
+        return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, deferredCurrent, statusText, countText, failedJobs, label, stamp };
       });
-      items.sort((a, b) => ({ running: 0, blocked: 1, failed: 2, completed: 3 }[a.tone] - { running: 0, blocked: 1, failed: 2, completed: 3 }[b.tone]) || b.stamp - a.stamp || a.label.localeCompare(b.label));
+      const toneOrder = { running: 0, queued: 1, blocked: 2, failed: 3, completed: 4 };
+      items.sort((a, b) => (toneOrder[a.tone] ?? 5) - (toneOrder[b.tone] ?? 5) || b.stamp - a.stamp || a.label.localeCompare(b.label));
       if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
         selectedExecutionPlanFile = "";
         persistWebviewState({ selectedExecutionPlanFile });
@@ -13069,21 +13160,25 @@ export function renderPanelHtml(): string {
       const renderPlan = (group) => {
         const detailKey = "execution-plan-" + encodeURIComponent(group.key);
         const isSelected = !!group.planFile && samePlanSelection(group.planFile, selectedExecutionPlanFile);
-        const totalJobs = group.distributedJobs.length || group.tasks.length;
-        const failedJobs = group.distributedJobs.filter((job) => job.status === "failed").length;
-        const count = totalJobs ? ("任务 " + group.completed + "/" + totalJobs + (group.running ? " · 运行 " + group.running : "") + (group.queued ? " · 排队 " + group.queued : "") + (group.blockedCount ? " · 阻塞 " + group.blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "")) : ("操作 " + group.operations.length);
+        const currentJobs = group.currentJobs || [];
+        const statusText = group.statusText;
+        const count = group.countText;
         const sortedOps = group.operations.slice().sort((a, b) => String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || "")));
         const sortedTasks = group.tasks.slice().sort((a, b) => {
           const priority = (row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) ? 0 : taskFailureLikeStatus(row.status) ? 1 : 2;
           return priority(a) - priority(b) || String(b.updatedAt || b.startedAt || "").localeCompare(String(a.updatedAt || a.startedAt || ""));
         });
-        const opRows = group.distributedJobs.length ? [] : sortedOps.slice(0, 4);
-        const taskRows = group.distributedJobs.length ? [] : sortedTasks.slice(0, 20);
-        const distributedRows = group.distributedJobs;
-        const runLogNote = distributedRows.length ? '<div class="muted">训练日志记录每轮验证结果；终端日志记录 Worker 命令输出。下方操作时间线里的校验日志只记录提交前校验。</div>' : '';
-        const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '分布式 job · ' + group.completed + '/' + group.distributedJobs.length + '</h3>'
+        const opRows = currentJobs.length || group.submitting || group.deferredCurrent ? [] : sortedOps.slice(0, 4);
+        const taskRows = currentJobs.length || group.submitting || group.deferredCurrent ? [] : sortedTasks.slice(0, 20);
+        const distributedRows = currentJobs;
+        const foldButton = '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="只收起这张卡片，不停止调度、不清除历史">折叠此 Plan</button>';
+        const selectButton = group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '';
+        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true" title="终止并清除这一张 Plan：停止它的调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于 ' + escAttr(group.planFile) + '，不影响其他 Plan。停止前会列出目标并要求两次确认。">终止并清理</button><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
+        const statusBadge = '<b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
+        const runLogNote = distributedRows.length ? '<div class="muted">训练日志记录每轮验证结果；终端日志记录 Worker 命令输出。校验日志只记录提交前校验，放在高级记录区。</div>' : '';
+        const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + distributedRows.length + '</h3>'
           + runLogNote
-          + (failedJobs ? '<div class="executionDistributedFailure">' + failedJobs + ' 个 job 运行失败；打开对应日志查看原因。</div>' : '')
+          + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
           const blocked = status === "pending" && fingerprintBlocked(job);
@@ -13110,15 +13205,34 @@ export function renderPanelHtml(): string {
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
-        const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录可在下方“完整操作与任务记录”中查看。</div>' : "";
-        return '<details class="executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, group.active) + '>' +
-          '<summary title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix(group.active || group.distributedActive) + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" ? "status-warning" : statusClass(group.tone)) + '">' + esc(group.tone === "blocked" ? "阻塞" : group.tone === "running" ? "运行中" : group.tone === "failed" ? (group.distributedJobs.length ? "失败" : "异常") : group.distributedJobs.length ? "已完成" : "已结束") + '</b>' +
-          (group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '') + '</summary>' +
-          '<div class="executionPlanDetails"><div class="muted" title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</div>' +
-          (group.planFile ? '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true" title="终止并清除这一行 Plan：停止它的调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于 ' + escAttr(group.planFile) + '，不影响其他 Plan。停止前会列出目标并要求两次确认。">终止并清除该 Plan</button><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除该 Plan 历史</button>' : '') + distributedHtml + opHtml + taskHtml + more + '</div></details>';
+        const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录在下方“高级：完整操作与任务记录”。</div>' : "";
+        const phaseNote = group.submitting
+          ? '<div class="muted">' + esc(group.statusText) + '，当前还没有新 job。旧运行的成功数不计入这一阶段。</div>'
+          : group.deferredCurrent
+            ? '<div class="muted">' + esc(group.countText) + '。折叠只隐藏卡片，不改变调度。</div>' + (group.deferredNote ? '<div class="muted">' + esc(group.deferredNote) + '</div>' : '')
+            : "";
+        const actions = '<div class="executionPlanActions">' + foldButton + '</div>';
+        const detailsBody = phaseNote + dangerActions + selectButton + distributedHtml + opHtml + taskHtml + more;
+        return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
+          '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix(group.active || group.distributedActive) + esc(group.label) + '</span>' + statusBadge + '</div>' +
+          '<div class="executionPlanMeta"><span class="executionPlanCount">' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
+          actions +
+          (detailsBody ? '<details class="executionPlanDetails" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary>详情与日志</summary>' + detailsBody + '</details>' : '') +
+          '</article>';
       };
+      const folded = items.filter((item) => collapsedExecutionPlanKeys.has(item.key));
+      const openItems = items.filter((item) => !collapsedExecutionPlanKeys.has(item.key));
+      const foldRow = (group) => {
+        const totalJobs = (group.currentJobs || []).length;
+        const statusText = group.statusText;
+        const count = totalJobs ? ("成功 " + group.completed + "/" + totalJobs + (group.failedJobs ? " · 失败 " + group.failedJobs : "")) : group.countText;
+        return '<div class="executionPlanFoldRow ' + group.tone + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b><button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="把这张 Plan 放回主视图。不改变调度。">恢复监控</button></div>';
+      };
+      const foldHtml = folded.length
+        ? '<details class="executionPlanFold" data-details-key="execution-plan-fold" open><summary>已折叠 Plan ' + folded.length + '</summary>' + folded.map(foldRow).join("") + '</details>'
+        : "";
       setHtmlIfChanged("executionPlanList", items.length
-        ? '<div class="executionPlanList">' + items.map(renderPlan).join("") + '</div>'
+        ? '<div class="executionPlanList">' + openItems.map(renderPlan).join("") + '</div>' + foldHtml
         : '<div class="muted">暂无 Plan 运行记录。</div>');
     }
 

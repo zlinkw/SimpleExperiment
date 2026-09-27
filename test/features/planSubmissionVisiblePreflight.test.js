@@ -165,7 +165,7 @@ test("click creates a named running-progress row before preflight", async () => 
   const html = renderExecution(progressState(host));
   assert.match(html.executionPlanList, /drf\.yaml/);
   assert.match(html.executionPlanList, /running/);
-  assert.match(html.executionPlanList, /运行计划/);
+  assert.match(html.executionPlanList, /提交中/);
   assert.doesNotMatch(html.executionPlanList, /强制中止调度器|abortScheduler/);
 });
 
@@ -207,7 +207,11 @@ test("distributed submission holds an old fingerprint before sync and renders th
   const tasks = renderTask(webviewState(host));
   assert.doesNotMatch(tasks.taskSummary, /继续提交|代码版本排队|data-deferred-plan-id/);
   const hidden = renderExecution({ ...webviewState(host), deferredPlans: [{ id: "old-deferred", planFile: drf, status: "pending", reason: "等待旧代码版本", waitingForPlanFile: "old.yaml" }] });
-  assert.doesNotMatch(hidden.executionPlanList, /old-deferred|等待旧代码版本|继续提交/);
+  assert.doesNotMatch(hidden.executionPlanList, /old-deferred|继续提交/);
+  assert.match(hidden.executionPlanList, /排队 · 待调度/);
+  const detailAt = hidden.executionPlanList.indexOf("详情与日志");
+  assert.equal(hidden.executionPlanList.slice(0, detailAt).includes("等待旧代码版本"), false);
+  assert.equal(hidden.executionPlanList.slice(detailAt).includes("等待旧代码版本"), true);
   assert.equal(host.actionErrors.length, 0);
   assert.match(host.localOperations["plan-submit-click-drf"].message, /手动选中本 Plan/);
 });
@@ -528,7 +532,7 @@ function progressState(host) {
 }
 
 function renderExecution(state) {
-  return renderPanel(["normalizePlanSelectionKey", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderExecutionPlanList"], state, ["executionPlanList"]);
+  return renderPanel(["executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderExecutionPlanList"], state, ["executionPlanList"]);
 }
 
 function renderTask(state) {
@@ -581,6 +585,8 @@ function renderPanel(names, state, ids) {
     planBaseName: (value) => String(value).split("/").pop(),
     detailsOpenAttr: () => "",
     selectedExecutionPlanFile: state.planFileInput,
+    collapsedExecutionPlanKeys: new Set(),
+    persistWebviewState: () => undefined,
     renderOperationItem: (row) => {
       const rawType = String(row.type || "");
       const label = rawType === "run-plan" ? "运行计划" : rawType;

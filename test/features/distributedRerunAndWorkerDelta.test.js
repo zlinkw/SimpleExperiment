@@ -99,13 +99,15 @@ test("rerun code sync also compares hashes before uploading", () => {
 });
 
 test("running distributed job renders Worker log path, content, and loading indicator", () => {
-  const start = panel.indexOf("function renderExecutionPlanList(state)");
+  const start = panel.indexOf("function executionPlanGroupKey(");
   const end = panel.indexOf("function renderOperationSection(state)", start);
   assert.ok(start >= 0 && end > start);
   const source = panel.slice(start, end);
   let html = "";
   const sandbox = {
     selectedExecutionPlanFile: "",
+    collapsedExecutionPlanKeys: new Set(),
+    persistWebviewState: () => undefined,
     operationRowsForState: () => [],
     taskSectionViewModelForState: () => ({ allRows: [] }),
     normalizePlanSelectionKey: (value) => String(value || "").replace(/^\.\//, ""),

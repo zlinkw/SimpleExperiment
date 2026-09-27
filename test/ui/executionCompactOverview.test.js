@@ -12,6 +12,13 @@ function extract(startName, endName) {
   return panel.slice(start, end).replaceAll("\\\\", "\\");
 }
 
+function executionPlanSource() {
+  const helpers = panel.indexOf("function executionPlanGroupKey(");
+  const end = panel.indexOf("function renderOperationSection(", helpers);
+  assert.ok(helpers > 0 && end > helpers);
+  return panel.slice(helpers, end).replaceAll("\\\\", "\\");
+}
+
 test("Plan overview keeps completed and failed Plans visible without routine validation rows", () => {
   let html = "";
   const sandbox = {
@@ -33,6 +40,7 @@ test("Plan overview keeps completed and failed Plans visible without routine val
     normalizePlanSelectionKey: String,
     samePlanSelection: (left, right) => left === right,
     selectedExecutionPlanFile: "plans/live.yaml",
+    collapsedExecutionPlanKeys: new Set(),
     persistWebviewState: () => undefined,
     taskStatusToken: String,
     TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
@@ -45,6 +53,7 @@ test("Plan overview keeps completed and failed Plans visible without routine val
     planBaseName: (value) => value.split("/").pop(),
     esc: String,
     escAttr: String,
+    loadingPrefix: () => "",
     detailsOpenAttr: () => "",
     statusClass: String,
     renderOperationItem: (row) => "<div>" + (row.type || "operation") + "</div>",
@@ -52,12 +61,12 @@ test("Plan overview keeps completed and failed Plans visible without routine val
     setHtmlIfChanged: (_id, value) => { html = value; },
   };
   vm.createContext(sandbox);
-  vm.runInContext(extract("renderExecutionPlanList", "renderOperationSection") + "\nthis.render = renderExecutionPlanList;", sandbox);
+  vm.runInContext(executionPlanSource() + "\nthis.render = renderExecutionPlanList;", sandbox);
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z" });
   assert.match(html, /old-fail.yaml/);
   assert.match(html, /new-fail.yaml/);
   assert.doesNotMatch(html, /历史 Plan|validate-plan/);
-  assert.match(html, /任务与日志/);
+  assert.match(html, /详情与日志/);
   assert.match(html, /data-command="clearOperations" data-plan-file="plans\/live.yaml"/);
   assert.match(html, /data-execution-plan-select="plans\/live.yaml" aria-pressed="true"/);
 });
@@ -73,6 +82,7 @@ test("persisted distributed jobs keep their Plan live after restart despite old 
     normalizePlanSelectionKey: String,
     samePlanSelection: (left, right) => left === right,
     selectedExecutionPlanFile: "plans/corim.yaml",
+    collapsedExecutionPlanKeys: new Set(),
     persistWebviewState: () => undefined,
     taskStatusToken: String,
     TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
@@ -83,7 +93,7 @@ test("persisted distributed jobs keep their Plan live after restart despite old 
     operationHasDeadEvidence: () => false,
     taskFailureLikeStatus: (value) => value === "failed",
     planBaseName: (value) => value.split("/").pop(),
-    esc: String, escAttr: String,
+    esc: String, escAttr: String, loadingPrefix: () => "",
     detailsOpenAttr: () => "",
     statusClass: String,
     renderOperationItem: () => "<div>operation</div>",
@@ -91,7 +101,7 @@ test("persisted distributed jobs keep their Plan live after restart despite old 
     setHtmlIfChanged: (_id, value) => { html = value; },
   };
   vm.createContext(sandbox);
-  vm.runInContext(extract("renderExecutionPlanList", "renderOperationSection") + "\nthis.render = renderExecutionPlanList;", sandbox);
+  vm.runInContext(executionPlanSource() + "\nthis.render = renderExecutionPlanList;", sandbox);
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [{
     id: "distributed-1", planFile: "plans/corim.yaml", enqueuedAt: "2026-09-24T10:00:00Z",
     jobs: [
@@ -100,9 +110,9 @@ test("persisted distributed jobs keep their Plan live after restart despite old 
     ],
   }] });
   assert.match(html, /executionPlanRow running/);
-  assert.match(html, /任务 1\/2 · 运行 1/);
+  assert.match(html, /成功 1\/2 · 50% · 运行 1/);
   assert.match(html, /pad seed 42/);
-  assert.match(html, /data-command="selectLogRunKey" data-run-key="live-job" data-worker-id="worker-b"/);
+  assert.match(html, /worker-b · GPU 1/);
   assert.doesNotMatch(html, /历史 Plan/);
 });
 
@@ -114,34 +124,35 @@ test("latest distributed attempt determines completed or failed Plan display", (
     taskSectionViewModelForState: () => ({ allRows: [] }), taskPlanFile: (row) => row.planFile,
     taskSelectionSetsForState: () => ({}), normalizePlanSelectionKey: String,
     samePlanSelection: (left, right) => left === right,
-    selectedExecutionPlanFile: "", persistWebviewState: () => undefined,
+    selectedExecutionPlanFile: "", collapsedExecutionPlanKeys: new Set(), persistWebviewState: () => undefined,
     taskStatusToken: String, TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
     TASK_QUEUED_STATUSES: new Set(["queued"]), TASK_TERMINAL_STATUSES: new Set(["completed"]),
     operationIsActive: (value) => value === "running",
     operationIsFailureLike: (value) => value === "failed" || value === "interrupted",
     operationHasDeadEvidence: (row) => row.status === "interrupted",
     taskFailureLikeStatus: (value) => value === "failed", planBaseName: (value) => value.split("/").pop(),
-    esc: String, escAttr: String, detailsOpenAttr: () => "", statusClass: String,
+    esc: String, escAttr: String, loadingPrefix: () => "", detailsOpenAttr: () => "", statusClass: String,
     renderOperationItem: () => "<div>old interruption</div>", renderTaskCards: () => "<div>tasks</div>",
     setHtmlIfChanged: (_id, value) => { html = value; },
   };
   vm.createContext(sandbox);
-  vm.runInContext(extract("renderExecutionPlanList", "renderOperationSection") + "\nthis.render = renderExecutionPlanList;", sandbox);
+  vm.runInContext(executionPlanSource() + "\nthis.render = renderExecutionPlanList;", sandbox);
   const failed = { id: "older", planFile: "plans/concatenation.yaml", enqueuedAt: "2026-09-24T10:00:00Z",
     jobs: [{ index: 0, case: "bus", seed: 42, status: "failed", workerId: "nwpu5", commandId: "failed-job" }] };
   const completed = { id: "newer", planFile: "plans/concatenation.yaml", enqueuedAt: "2026-09-25T10:00:00Z",
     jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", workerId: "nwpu2", commandId: "completed-job" }] };
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [failed, completed] });
   assert.match(html, /executionPlanRow completed/);
-  assert.match(html, /任务 1\/1/);
+  assert.match(html, /成功 1\/1 · 100%/);
   assert.doesNotMatch(html, /failed-job|old interruption|>异常</);
-  assert.match(html, /completed-job/);
+  assert.match(html, /nwpu2/);
+  assert.doesNotMatch(html, /nwpu5/);
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [completed, {
     ...failed, id: "newest", enqueuedAt: "2026-09-25T13:00:00Z",
     jobs: [{ ...failed.jobs[0], finishedAt: "2026-09-25T13:10:00Z", artifactError: "missing dataset schema" }],
   }] });
   assert.match(html, /executionPlanRow failed/);
-  assert.match(html, /任务 0\/1 · 失败 1/);
+  assert.match(html, /成功 0\/1 · 0% · 失败 1/);
   assert.match(html, /missing dataset schema/);
   assert.doesNotMatch(html, /old interruption|>异常</);
 });
@@ -154,18 +165,18 @@ test("clearing history hides terminal distributed Plans but keeps active jobs", 
     taskSectionViewModelForState: () => ({ allRows: [] }), taskPlanFile: (row) => row.planFile,
     taskSelectionSetsForState: () => ({}), normalizePlanSelectionKey: String,
     samePlanSelection: (left, right) => left === right,
-    selectedExecutionPlanFile: "", persistWebviewState: () => undefined,
+    selectedExecutionPlanFile: "", collapsedExecutionPlanKeys: new Set(), persistWebviewState: () => undefined,
     taskStatusToken: String, TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
     TASK_QUEUED_STATUSES: new Set(["queued"]), TASK_TERMINAL_STATUSES: new Set(["completed"]),
     operationIsActive: (value) => value === "running", operationIsFailureLike: () => false,
     operationHasDeadEvidence: () => false, taskFailureLikeStatus: () => false,
-    planBaseName: (value) => value.split("/").pop(), esc: String, escAttr: String,
+    planBaseName: (value) => value.split("/").pop(), esc: String, escAttr: String, loadingPrefix: () => "",
     detailsOpenAttr: () => "", statusClass: String,
     renderOperationItem: () => "", renderTaskCards: () => "", setHtmlIfChanged: (_id, value) => { html = value; },
   };
   vm.createContext(sandbox);
   vm.runInContext(extract("executionHistoryRowVisible", "operationRowsForInput")
-    + extract("renderExecutionPlanList", "renderOperationSection")
+    + executionPlanSource()
     + "\nthis.render = renderExecutionPlanList;", sandbox);
   const old = { id: "old", planFile: "plans/old.yaml", enqueuedAt: "2026-09-20T10:00:00Z",
     jobs: [{ status: "failed", case: "a", seed: 1 }] };
@@ -187,6 +198,7 @@ test("diagnostics default to current server health and actionable issues", () =>
     compactText: String,
     esc: String,
     escAttr: String,
+    loadingPrefix: () => "",
     setHtmlIfChanged: (_id, value) => { html = value; },
   };
   vm.createContext(sandbox);
@@ -211,6 +223,187 @@ test("history clearing hides old terminal rows only in the selected Plan", () =>
   assert.equal(sandbox.visible(state, old, "plans/a.yaml", true), true);
   assert.equal(sandbox.visible(state, { ...old, status: "running", reconcileEvidenceActive: false }, "plans/a.yaml", false), false);
   assert.equal(sandbox.visible(state, newer, "plans/a.yaml", false), true);
+});
+
+function clickSandbox(extra) {
+  const persisted = [];
+  const sandbox = {
+    Map, Set,
+    operationRowsForState: () => [],
+    taskSectionViewModelForState: () => ({ allRows: [] }),
+    taskPlanFile: (row) => row.planFile,
+    taskSelectionSetsForState: () => ({}),
+    normalizePlanSelectionKey: (value) => String(value || ""),
+    samePlanSelection: (left, right) => left === right,
+    selectedExecutionPlanFile: "",
+    collapsedExecutionPlanKeys: new Set(),
+    persistWebviewState: (patch) => persisted.push(patch),
+    taskStatusToken: String,
+    TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
+    TASK_QUEUED_STATUSES: new Set(["queued", "pending"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed", "failed"]),
+    operationIsActive: (value) => value === "running",
+    operationIsFailureLike: (value) => value === "failed",
+    operationHasDeadEvidence: () => false,
+    taskFailureLikeStatus: (value) => value === "failed",
+    planBaseName: (value) => String(value || "").split("/").pop(),
+    esc: String, escAttr: String, loadingPrefix: () => "", detailsOpenAttr: () => "", statusClass: String,
+    renderOperationItem: () => "<div>operation</div>",
+    renderTaskCards: () => "<div>tasks</div>",
+    setHtmlIfChanged: (_id, value) => { sandbox.html = value; },
+    html: "",
+    persisted,
+  };
+  Object.assign(sandbox, extra || {});
+  vm.createContext(sandbox);
+  const clickStart = panel.indexOf('const executionPlanFold = event.target.closest("button[data-execution-plan-fold]")');
+  const clickEnd = panel.indexOf('const tracePlanScopeTarget = event.target.closest', clickStart);
+  assert.ok(clickStart > 0 && clickEnd > clickStart);
+  vm.runInContext("var lastState = {};\n" + executionPlanSource()
+    + "\nthis.render = function (state) { lastState = state; return renderExecutionPlanList(state); };\nthis.foldClick = function (event) {\n"
+    + panel.slice(clickStart, clickEnd).replaceAll("\\\\", "\\")
+    + "\n};", sandbox);
+  return sandbox;
+}
+
+test("queue-only deferred Plan, current success counts, and manual fold survive redraw", () => {
+  const sandbox = clickSandbox();
+  const state = {
+    sessionStartedAt: "2026-09-25T12:00:00Z",
+    deferredPlans: [{ id: "wait-1", planFile: "plans/queued.yaml", status: "pending", reason: "等待当前代码版本" }],
+    distributedPlans: [
+      { id: "old-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-24T10:00:00Z", jobs: [
+        { index: 0, case: "old", seed: 1, status: "completed", commandId: "history-ok" },
+        { index: 1, case: "old", seed: 2, status: "failed", commandId: "history-fail" },
+      ] },
+      { id: "current-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T11:00:00Z", jobs: [
+        { index: 0, case: "bus", seed: 7, status: "completed", commandId: "current-ok" },
+        { index: 1, case: "pad", seed: 7, status: "failed", commandId: "current-fail", artifactError: "missing metric" },
+        { index: 2, case: "edge", seed: 7, status: "running", commandId: "current-run" },
+      ] },
+    ],
+  };
+  sandbox.render(state);
+  assert.match(sandbox.html, /queued.yaml/);
+  assert.match(sandbox.html, /executionPlanRow queued/);
+  assert.match(sandbox.html, />排队</);
+  assert.match(sandbox.html, /排队 · 待调度/);
+  assert.match(sandbox.html, /成功 1\/3 · 33% · 运行 1 · 失败 1/);
+  assert.match(sandbox.html, /pad seed 7/);
+  assert.match(sandbox.html, /missing metric/);
+  assert.doesNotMatch(sandbox.html, /history-ok|history-fail/);
+  assert.doesNotMatch(sandbox.html, /<details[^>]*open/);
+  const fold = { dataset: { executionPlanFold: "plans/live.yaml" } };
+  sandbox.foldClick({
+    preventDefault() {}, stopPropagation() {},
+    target: { closest: (selector) => selector.indexOf("data-execution-plan-fold") >= 0 ? fold : null },
+  });
+  assert.equal(JSON.stringify(sandbox.persisted.at(-1).collapsedExecutionPlanKeys), JSON.stringify(["plans/live.yaml"]));
+  assert.match(sandbox.html, /已折叠 Plan 1/);
+  assert.match(sandbox.html, /恢复监控/);
+  assert.match(sandbox.html, /成功 1\/3/);
+  assert.doesNotMatch(sandbox.html, /data-execution-plan-key="plans\/live.yaml"/);
+  assert.match(sandbox.html, /queued.yaml/);
+  sandbox.render(state);
+  assert.match(sandbox.html, /已折叠 Plan 1/);
+  assert.match(sandbox.html, /成功 1\/3/);
+  const restored = clickSandbox({ collapsedExecutionPlanKeys: new Set(["plans/live.yaml"]) });
+  restored.render(state);
+  assert.match(restored.html, /已折叠 Plan 1/);
+  assert.match(restored.html, /恢复监控/);
+  assert.match(restored.html, /queued.yaml/);
+  const cardHead = sandbox.html.slice(sandbox.html.indexOf("executionPlanCard"), sandbox.html.indexOf("详情与日志"));
+  assert.match(cardHead, /折叠此 Plan/);
+  assert.doesNotMatch(cardHead, /stopAndClearPlan|clearOperations|选中 Plan/);
+  assert.match(sandbox.html, /data-command="stopAndClearPlan"/);
+  assert.match(sandbox.html, /data-command="clearOperations"/);
+});
+
+test("newer active preflight replaces an older completed run until the new run exists", () => {
+  const preflight = [{ planFile: "plans/live.yaml", type: "validate-plan", status: "running", startedAt: "2026-09-25T12:00:00Z" }];
+  const sandbox = clickSandbox({
+    operationRowsForState: () => preflight,
+    operationIsActive: (value) => value === "running" || value === "started",
+  });
+  const oldRun = { id: "old-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T10:00:00Z", jobs: [
+    { index: 0, case: "bus", seed: 1, status: "completed" },
+    { index: 1, case: "pad", seed: 1, status: "completed" },
+  ] };
+  sandbox.render({ distributedPlans: [oldRun] });
+  assert.match(sandbox.html, /校验中 · 待生成 job/);
+  assert.match(sandbox.html, />校验中</);
+  assert.doesNotMatch(sandbox.html, /成功 2\/2|bus seed 1/);
+  preflight[0] = { ...preflight[0], status: "completed" };
+  sandbox.render({
+    distributedPlans: [oldRun, { id: "new-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:05:00Z", jobs: [
+      { index: 0, case: "edge", seed: 3, status: "pending" },
+    ] }],
+  });
+  assert.match(sandbox.html, /成功 0\/1 · 0% · 排队 1/);
+  assert.match(sandbox.html, /edge seed 3/);
+  assert.doesNotMatch(sandbox.html, /bus seed 1|校验中/);
+});
+
+test("deferred status stays distinct and is not hidden by an older distributed run", () => {
+  const sandbox = clickSandbox();
+  sandbox.render({
+    distributedPlans: [{ id: "old", planFile: "plans/held.yaml", enqueuedAt: "2026-09-25T09:00:00Z", jobs: [{ status: "completed", case: "old", seed: 1 }] }],
+    deferredPlans: [
+      { id: "hold", planFile: "plans/held.yaml", status: "blocked", reason: "代码指纹不匹配" },
+      { id: "work", planFile: "plans/work.yaml", status: "processing", error: "正在准备输出目录" },
+      { id: "wait", planFile: "plans/wait.yaml", status: "pending", reason: "等待当前代码版本" },
+      { id: "gone", planFile: "plans/gone.yaml", status: "superseded", reason: "已被新提交替代" },
+    ],
+  });
+  assert.match(sandbox.html, /held\.yaml[\s\S]*阻塞 · 待调度/);
+  const held = sandbox.html.slice(sandbox.html.indexOf('data-execution-plan-key="plans/held.yaml"'));
+  const heldDetail = held.slice(held.indexOf("详情与日志"));
+  assert.match(heldDetail, /代码指纹不匹配/);
+  assert.doesNotMatch(held.slice(0, held.indexOf("详情与日志")), /代码指纹不匹配/);
+  assert.doesNotMatch(sandbox.html, /old seed 1/);
+  assert.match(sandbox.html, /work\.yaml[\s\S]*处理中 · 待生成 job/);
+  assert.match(sandbox.html, /正在准备输出目录/);
+  assert.match(sandbox.html, /wait\.yaml[\s\S]*排队 · 待调度/);
+  assert.match(sandbox.html, /等待当前代码版本/);
+  assert.doesNotMatch(sandbox.html, /gone\.yaml|已被新提交替代/);
+  const heldHead = sandbox.html.slice(sandbox.html.indexOf("held.yaml"), sandbox.html.indexOf("详情与日志", sandbox.html.indexOf("held.yaml")));
+  assert.doesNotMatch(heldHead, /代码指纹不匹配/);
+});
+
+test("plan cards sort running, queued, blocked, failed, then completed", () => {
+  const sandbox = clickSandbox();
+  sandbox.render({
+    distributedPlans: [
+      { id: "done", planFile: "plans/done.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", case: "a", seed: 1 }] },
+      { id: "bad", planFile: "plans/bad.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "failed", case: "b", seed: 1 }] },
+      { id: "hold", planFile: "plans/hold.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "pending", case: "c", seed: 1, blockReason: "代码指纹不匹配：旧代码" }] },
+      { id: "wait", planFile: "plans/wait.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "pending", case: "d", seed: 1 }] },
+      { id: "run", planFile: "plans/run.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "running", case: "e", seed: 1 }] },
+    ],
+  });
+  const order = ["run.yaml", "wait.yaml", "hold.yaml", "bad.yaml", "done.yaml"].map((name) => sandbox.html.indexOf(name));
+  assert.deepEqual(order, order.slice().sort((left, right) => left - right));
+  assert.ok(order.every((index) => index >= 0));
+});
+
+test("manual fold survives an empty snapshot and webview restore", () => {
+  const sandbox = clickSandbox({ collapsedExecutionPlanKeys: new Set(["plans/live.yaml"]) });
+  sandbox.render({ distributedPlans: [], deferredPlans: [] });
+  assert.doesNotMatch(sandbox.html, /已折叠 Plan/);
+  assert.equal(sandbox.collapsedExecutionPlanKeys.has("plans/live.yaml"), true);
+  assert.equal(sandbox.persisted.some((patch) => patch.collapsedExecutionPlanKeys), false);
+  sandbox.render({
+    distributedPlans: [{ id: "back", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", case: "bus", seed: 1 }] }],
+  });
+  assert.match(sandbox.html, /已折叠 Plan 1/);
+  assert.match(sandbox.html, /恢复监控/);
+  assert.doesNotMatch(sandbox.html, /data-execution-plan-key="plans\/live.yaml"/);
+  const restored = clickSandbox({ collapsedExecutionPlanKeys: new Set(sandbox.collapsedExecutionPlanKeys) });
+  restored.render({
+    distributedPlans: [{ id: "back", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", case: "bus", seed: 1 }] }],
+  });
+  assert.match(restored.html, /已折叠 Plan 1/);
+  assert.match(restored.html, /成功 1\/1/);
 });
 
 test("exact operation cleanup hides only terminal records", () => {
