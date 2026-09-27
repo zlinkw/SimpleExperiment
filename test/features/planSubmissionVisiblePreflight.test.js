@@ -37,7 +37,7 @@ function functionSource(name) {
   throw new Error(`unclosed ${name}`);
 }
 
-const production = new Function("DistributedPlanQueue", "fs", "path", "workspaceRoot", `
+const production = new Function("DistributedPlanQueue", "fs", "path", "workspaceRoot", "actionErrorSuggestion", "UiCommandCancelled", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   let opSeq = 0;
@@ -58,7 +58,9 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "workspace
     finishDistributedPlanSubmission: ${method("finishDistributedPlanSubmission").replace("async finishDistributedPlanSubmission", "async function")},
     activeDeferredForSubmission: ${method("activeDeferredForSubmission").replace("async activeDeferredForSubmission", "async function")},
   };
-`)(DistributedPlanQueue, fs, path, () => root);
+`)(DistributedPlanQueue, fs, path, () => root, (message) => String(message || ""), class UiCommandCancelled extends Error {
+  constructor(message) { super(message); this.name = "UiCommandCancelled"; }
+});
 
 function provider() {
   const host = Object.create(production);
@@ -84,6 +86,8 @@ function provider() {
     host.distributedQueueCache = queue;
   };
   host.localDistributedCodeFingerprint = async () => "new-code";
+  host.actionErrors = [];
+  host.recordActionError = (error) => host.actionErrors.push(error);
   host.ensureCodeReadyForRun = async () => { host.calls.push("sync"); };
   host.runPlanPreflight = async () => { host.calls.push("preflight"); return validation(); };
   host.confirmDistributedPlanExistingOutputs = async (_plan, body) => {
@@ -172,125 +176,106 @@ test("old fingerprint holds before sync and does not claim output confirmation",
   const body = { planFile: drf, planRevision: "rev-drf", options: {} };
   const hold = await host.distributedCodeVersionHold(body);
   assert.equal(hold.fingerprint, "new-code");
-  await host.deferDistributedPlan(root, body, hold.fingerprint, {
-    waitingForPlanFile: hold.blocker.planFile, waitingForRevision: hold.blocker.revision, waitingForFingerprint: "old-code",
-    confirmedOutputChoice: false,
-  });
-  host.finishPlanSubmissionProgress(message(), "queued", host.planSubmissionQueueDetail(body, hold.blocker, false));
+  const before = JSON.stringify(host.distributedQueueCache);
+  host.finishPlanSubmissionProgress(message(), "cancelled", host.planSubmissionQueueDetail(body, hold.blocker, false));
   assert.deepEqual(host.calls, []);
-  const deferred = host.distributedQueueCache.deferred[0];
-  assert.equal(deferred.confirmedOutputChoice, false);
-  assert.match(deferred.reason, /尚未校验\/尚未确认已有产物/);
-  assert.match(host.localOperations["plan-submit-click-drf"].message, /尚未校验\/尚未确认已有产物/);
-  const html = renderTask({ planFileInput: drf, distributedPlans: [], deferredPlans: [{ ...deferred, confirmedOutputChoice: false }], schedulerStates: [] });
-  assert.match(html.taskSummary, /尚未校验\/尚未确认已有产物/);
-  assert.match(html.taskSummary, /继续提交/);
-  assert.match(html.taskSummary, /当前版本调度 job 数为 0/);
+  assert.equal(JSON.stringify(host.distributedQueueCache), before);
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /校验并提交运行/);
+  assert.doesNotMatch(host.localOperations["plan-submit-click-drf"].message, /继续提交/);
+  const html = renderTask({ planFileInput: drf, distributedPlans: [], deferredPlans: [], schedulerStates: [] });
+  assert.match(html.taskSummary, /未提交/);
+  assert.match(html.taskSummary, /校验并提交运行/);
+  assert.doesNotMatch(html.taskSummary, /继续提交|代码版本排队/);
 });
 
 test("distributed submission holds an old fingerprint before sync and renders that queue row", async () => {
   const host = commandHost();
   mountOldPlan(host);
   host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-drf" });
-  await host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message()));
+  await assert.rejects(() => host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message())), /未提交/);
   assert.deepEqual(host.calls, []);
-  const deferred = host.distributedQueueCache.deferred;
-  assert.equal(deferred.length, 1);
-  assert.equal(deferred[0].confirmedOutputChoice, false);
-  assert.equal(host.localOperations["plan-submit-click-drf"].status, "queued");
+  assert.equal((host.distributedQueueCache.deferred || []).length, 0);
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "cancelled");
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /刷新状态/);
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /终止并清除该 Plan/);
+  assert.doesNotMatch(host.localOperations["plan-submit-click-drf"].message, /继续提交/);
   const progress = renderExecution(webviewState(host));
   assert.match(progress.executionPlanList, /drf/);
+  assert.match(progress.executionPlanList, /未提交|cancelled/);
   const tasks = renderTask(webviewState(host));
-  assert.match(tasks.taskSummary, /尚未校验、尚未确认已有产物/);
-  assert.match(tasks.taskSummary, /data-command="runPlan"/);
-  assert.match(tasks.taskSummary, new RegExp('data-deferred-plan-id="' + deferred[0].id + '"'));
+  assert.doesNotMatch(tasks.taskSummary, /继续提交|代码版本排队|data-deferred-plan-id/);
+  const hidden = renderExecution({ ...webviewState(host), deferredPlans: [{ id: "old-deferred", planFile: drf, status: "pending", reason: "等待旧代码版本", waitingForPlanFile: "old.yaml" }] });
+  assert.doesNotMatch(hidden.executionPlanList, /old-deferred|等待旧代码版本|继续提交/);
+  assert.equal(host.actionErrors.length, 0);
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /手动选中本 Plan/);
 });
 
-test("continue submit maps the rendered deferred id and supersedes that record", async () => {
+test("old persisted deferred is left untouched when a new plan is blocked", async () => {
   const host = commandHost();
   mountOldPlan(host);
+  host.distributedQueueCache.deferred = [deferredRow({ status: "pending", confirmedOutputChoice: true })];
+  const before = JSON.stringify(host.distributedQueueCache.deferred);
   host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-drf" });
-  await host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message()));
-  const firstId = host.distributedQueueCache.deferred[0].id;
-  const tasks = renderTask(webviewState(host));
-  const button = { dataset: datasetFromHtml(tasks.taskSummary, "继续提交") };
-  const payload = buttonDatasetActionPayload(button);
-  assert.equal(payload.deferredPlanId, firstId);
-  assert.equal(payload.planFile, drf);
-  const again = { command: "runPlan", clientActionId: "click-drf-2", ...payload };
-  host.beginPlanSubmissionProgress(again, { planFile: drf, planRevision: "rev-drf" });
-  await host.finishDistributedPlanSubmission("runPlan", again, { planFile: drf }, { planFile: payload.planFile, planRevision: "rev-drf", deferredPlanId: payload.deferredPlanId, options: {} });
-  const rows = host.distributedQueueCache.deferred;
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].id, firstId);
-  assert.equal(rows[0].status, "pending");
-  const resumed = renderTask(webviewState(host));
-  assert.equal((resumed.taskSummary.match(/>继续提交</g) || []).length, 1);
-  assert.match(resumed.taskSummary, new RegExp('data-deferred-plan-id="' + firstId + '"'));
+  await assert.rejects(() => host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message())), /未提交/);
+  assert.equal(JSON.stringify(host.distributedQueueCache.deferred), before);
+  assert.deepEqual(host.calls, []);
 });
 
-test("missing continuation id rejects before sync or queue mutation", async () => {
+test("mismatched deferred id still rejects without sync or queue mutation", async () => {
   const host = commandHost();
-  mountOldPlan(host);
-  await submit(host, message());
-  host.calls = [];
+  host.distributedQueueCache.deferred = [deferredRow()];
   const before = JSON.stringify(host.distributedQueueCache);
   await assert.rejects(() => submit(host, { ...message(), clientActionId: "missing", deferredPlanId: "missing-id" }));
   assert.deepEqual(host.calls, []);
   assert.equal(JSON.stringify(host.distributedQueueCache), before);
 });
 
-test("continuation identity mismatch rejects without changing the original row", async () => {
+test("version hold does not call validate or enqueue", async () => {
   const host = commandHost();
   mountOldPlan(host);
-  await submit(host, message());
-  const original = host.distributedQueueCache.deferred[0];
-  await assert.rejects(() => submit(host, { ...message(), clientActionId: "other", deferredPlanId: original.id, planFile: "experiments/plans/comparison/other.yaml" }));
-  assert.equal(host.distributedQueueCache.deferred.length, 1);
-  assert.equal(host.distributedQueueCache.deferred[0].status, "pending");
-  assert.match(renderTask(webviewState(host)).taskSummary, new RegExp('data-deferred-plan-id="' + original.id + '"'));
+  await assert.rejects(() => submit(host, message()), /未提交/);
+  assert.deepEqual(host.calls, []);
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "cancelled");
 });
 
-test("failed confirmation keeps the original continue button", async () => {
+test("version hold stays cancelled through the UI command wrapper", async () => {
+  const start = extension.indexOf("    private async withUiCommandStatus(");
+  const end = extension.indexOf("    uiCommandWatchdogMs(", start);
+  assert.ok(start >= 0 && end > start);
+  const wrapper = new Function("isUiCommandCancelled", "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "localCommandReleasesAfterTrigger", "vscode", `
+    return ${extension.slice(start, end).replace("private async withUiCommandStatus", "async function").replace(/: any/g, "")};
+  `)(
+    (error) => error && error.name === "UiCommandCancelled",
+    () => false,
+    (error) => String(error && error.message || error),
+    (text) => String(text || ""),
+    () => false,
+    { window: { showInformationMessage() {}, showWarningMessage() { return Promise.resolve(); } } },
+  );
   const host = commandHost();
   mountOldPlan(host);
-  await submit(host, message());
-  const original = host.distributedQueueCache.deferred[0];
-  host.distributedQueueCache.plans = [];
-  host.confirmDistributedPlanExistingOutputs = async () => { throw new Error("已取消"); };
-  await assert.rejects(() => submit(host, { ...message(), clientActionId: "resume", deferredPlanId: original.id }));
-  assert.equal(host.distributedQueueCache.deferred[0].id, original.id);
-  assert.equal(host.distributedQueueCache.deferred[0].status, "pending");
-  assert.match(renderTask(webviewState(host)).taskSummary, />继续提交</);
-});
-
-test("repeated plan clicks reuse one active deferred row", async () => {
-  const host = commandHost();
-  mountOldPlan(host);
-  await submit(host, message());
-  await submit(host, { ...message(), clientActionId: "again" });
-  const active = host.distributedQueueCache.deferred.filter((row) => row.status !== "superseded");
-  assert.equal(active.length, 1);
-  assert.equal((renderTask(webviewState(host)).taskSummary.match(/>继续提交</g) || []).length, 1);
-});
-
-test("queued continuation is not replayed after the same plan is enqueued", () => {
-  const tick = extension.slice(extension.indexOf("const deferred = !activeVersion"), extension.indexOf("if (deferred) {"));
-  assert.match(tick, /sameDeferredPlanFile\(plan\.planFile, row\.planFile\)/);
-  assert.match(tick, /plan\.revision === row\.revision/);
-  assert.match(tick, /plan\.codeFingerprint === row\.codeFingerprint/);
-});
-
-test("successful continuation supersedes only after enqueue", async () => {
-  const host = commandHost();
-  mountOldPlan(host);
-  await submit(host, message());
-  const original = host.distributedQueueCache.deferred[0].id;
-  host.distributedQueueCache.plans = [];
-  await submit(host, { ...message(), clientActionId: "done", deferredPlanId: original });
-  assert.equal(host.calls.at(-1).startsWith("enqueue"), true);
-  assert.equal(host.distributedQueueCache.deferred.find((row) => row.id === original).status, "superseded");
-  assert.equal(host.distributedQueueCache.deferred.filter((row) => row.status !== "superseded").length, 0);
+  const statuses = [];
+  host.view = { webview: { postMessage: async (payload) => statuses.push(payload) } };
+  host.postUiCommandStatus = function postUiCommandStatus(clientActionId, status, command, text) {
+    statuses.push({ clientActionId, status, command, message: text });
+  };
+  host.uiCommandWatchdogMs = () => 0;
+  const item = message();
+  await wrapper.call(host, "click-drf", "runPlan", item, async () => {
+    host.beginPlanSubmissionProgress(item, { planFile: drf, planRevision: "rev-drf" });
+    await host.finishDistributedPlanSubmission("runPlan", item, { planFile: drf }, host.actionBody(item));
+  });
+  assert.deepEqual(host.calls, []);
+  assert.equal((host.distributedQueueCache.deferred || []).length, 0);
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "cancelled");
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
+  assert.match(host.localOperations["plan-submit-click-drf"].message, /校验并提交运行/);
+  assert.equal(statuses.at(-1).status, "cancelled");
+  assert.match(statuses.at(-1).message, /未提交/);
+  assert.equal(statuses.some((row) => row.status === "completed"), false);
+  assert.equal(host.actionErrors.length, 0);
 });
 
 async function submit(host, item) {
@@ -389,15 +374,15 @@ test("runPlan submission reuses only a matching active deferred row and still re
   host.distributedQueueCache.deferred = [deferredRow()];
   await host.finishDistributedPlanSubmission("runPlan", { ...message(), deferredPlanId: "deferred-drf" }, { planFile: drf }, { ...body, deferredPlanId: "deferred-drf" });
   assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
-  assert.equal(host.distributedQueueCache.deferred[0].status, "superseded");
+  assert.equal(host.distributedQueueCache.deferred[0].status, "pending");
 
   const blockedHost = commandHost();
   blockedHost.distributedQueueCache.deferred = [deferredRow({ id: "blocked-drf", status: "blocked" })];
   blockedHost.beginPlanSubmissionProgress({ ...message(), clientActionId: "click-blocked" }, { planFile: drf, planRevision: "rev-drf" });
-  await blockedHost.finishDistributedPlanSubmission("runPlan", { ...message(), clientActionId: "click-blocked", deferredPlanId: "blocked-drf" }, { planFile: drf }, { ...body, deferredPlanId: "blocked-drf" });
+  await blockedHost.finishDistributedPlanSubmission("runPlan", { ...message(), clientActionId: "click-blocked" }, { planFile: drf }, body);
   assert.equal(blockedHost.calls[0], "sync");
   assert.equal(blockedHost.calls.includes("preflight"), true);
-  assert.equal(blockedHost.distributedQueueCache.deferred[0].status, "superseded");
+  assert.equal(blockedHost.distributedQueueCache.deferred[0].status, "blocked");
 
   const mismatched = commandHost();
   mismatched.distributedQueueCache.deferred = [deferredRow()];
@@ -465,10 +450,10 @@ test("deferred replay keeps the saved skip choice and blocks a changed fingerpri
   host.localDistributedCodeFingerprint = async () => "changed-code";
   const changed = await host.localDistributedCodeFingerprint(root);
   assert.notEqual(changed, deferred.codeFingerprint);
-  host.distributedQueueCache.deferred = [{ ...deferred, status: "blocked", error: "排队期间本机代码已变更，请重新提交该 Plan 以固定新版本" }];
+  host.distributedQueueCache.deferred = [{ ...deferred, status: "superseded", supersededBy: "manual-rerun-policy", error: "跨代码版本自动接续已废止" }];
   const html = renderTask({ planFileInput: drf, distributedPlans: [{ id: "old", planFile: "experiments/plans/old.yaml", revision: "r0", jobs: [{ index: 1, case: "pad", seed: 7, status: "failed" }] }],
     deferredPlans: host.distributedQueueCache.deferred, schedulerStates: [] });
-  assert.match(html.taskSummary, /已阻塞，需要继续提交/);
+  assert.doesNotMatch(html.taskSummary, /继续提交|代码版本排队/);
   assert.match(html.taskSummary, /其他 Plan 的历史与待处理记录/);
   assert.match(html.taskSummary, /恢复 pad seed 7/);
   assert.doesNotMatch(html.taskSummary.split("其他 Plan 的历史与待处理记录")[0], /恢复 pad seed 7/);
@@ -488,14 +473,15 @@ test("plan check acceptance follows the real validate payload", () => {
   assert.equal(accepted({ ok: true, validation: { jobs: [] } }), false);
 });
 
-test("unconfirmed deferred rows are blocked instead of auto dispatched", () => {
-  const tickStart = extension.indexOf("if (deferred.confirmedOutputChoice !== true)");
+test("persisted deferred rows are superseded for audit instead of auto dispatched", () => {
+  const tickStart = extension.indexOf("const retiredDeferred = ");
   assert.ok(tickStart > 0);
-  const tick = extension.slice(tickStart, tickStart + 700);
-  assert.match(tick, /confirmedOutputChoice !== true/);
-  assert.match(tick, /尚未校验\/尚未确认已有产物/);
-  assert.doesNotMatch(tick.slice(0, tick.indexOf("} else {")), /confirmDistributedPlanExistingOutputs|enqueueDistributedPlan|ensureCodeReadyForRun/);
-  assert.doesNotMatch(extension, /runLocalDistributedPlanCheck|localPlanCheck/);
+  const tick = extension.slice(tickStart, tickStart + 1100);
+  assert.match(tick, /status === "blocked"/);
+  assert.match(tick, /status: "superseded"/);
+  assert.match(tick, /supersededBy: "manual-rerun-policy"/);
+  assert.match(tick, /不会校验、确认产物或派发/);
+  assert.doesNotMatch(tick, /status: "retired"|selectDistributedPlanPrimary|runPlanPreflight|enqueueDistributedPlan|ensureCodeReadyForRun|confirmedOutputChoice !== true/);
 });
 
 test("skipping every existing job closes the continued row without a new run", async () => {

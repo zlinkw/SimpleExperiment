@@ -2424,7 +2424,7 @@ export function renderPanelHtml(): string {
       runPlan: "运行中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
     });
     const OPERATION_TYPE_LABELS = Object.freeze({
-      "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划", "queued": "代码版本排队",
+      "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划", "queued": "历史记录",
       "parse-results": "解析结果", "refresh-results": "刷新结果", "check-output-contract": "检查输出契约", "archive-plan": "归档计划", "restore-archived-plan": "恢复归档 Plan",
       "archive-artifacts": "归档实验产物", "delete-artifacts": "删除实验产物", "sync-artifacts": "检查同步清单", "complete-three-way": "三方一致校验",
       "run-quality-gate": "质量门禁", "run-statistics": "统计分析", "check-claim-evidence": "检查论文证据", "export-paper-table": "导出论文表格", "export-plotting-contract": "导出 PPT 绘图契约", "plot-results-to-ppt": "绘图到 PPT",
@@ -13013,12 +13013,6 @@ export function renderPanelHtml(): string {
         if (planFile) getGroup(planFile).operations.push(row);
       });
       taskSectionViewModelForState(state).allRows.forEach((row) => getGroup(taskPlanFile(row)).tasks.push(row));
-      (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).forEach((plan) => {
-        if (!plan.planFile) return;
-        const group = getGroup(plan.planFile);
-        group.operations.push({ operationId: plan.id || "deferred-" + plan.planFile, type: "queued", status: plan.status === "blocked" ? "failed" : "queued",
-          planFile: plan.planFile, planRevision: plan.revision || "", message: plan.reason || plan.error || "等待前序代码版本结束后继续", updatedAt: plan.enqueuedAt || "" });
-      });
       (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).forEach((plan) => {
         if (!plan.planFile) return;
         const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
@@ -13089,10 +13083,13 @@ export function renderPanelHtml(): string {
           const logPreview = logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
           const errorText = String(job.artifactError || job.error || "").trim();
           const blockText = blocked ? String(job.blockReason || "") : "";
-          const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "空闲 GPU 不会派发这个版本。等当前代码版本的任务结束后会自动继续。" : "空闲 GPU 不能运行这份旧代码。请用当前代码重新提交该 Plan，或恢复提交前的代码并重新同步 Worker。") : "";
+          const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "下一步：这个已提交 job 仍在排队，等当前代码版本结束后才会派发。先点上方“刷新状态”核实，不要把它当成未提交的 Plan。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
+          const jobNext = errorText
+            ? '<div class="muted">下一步：先点本行“终端日志”或“训练日志”看原因。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
+            : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + trainLogButton + logButton
-            + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>' + esc(blockAdvice) + '</div>' : '') + '</div>' : '')
-            + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + '</div>' : '') + logPreview + '</div>';
+            + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
+            + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + logPreview + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
@@ -13235,32 +13232,11 @@ export function renderPanelHtml(): string {
           }).join('') + '</div></section>' : '';
       const currentDistributedHtml = renderDistributedGroup(currentDistributed, "当前 Plan 的调度记录", "这些 job 属于正在查看的 Plan。数量为 0 只表示还没有调度回传，不代表没有提交。");
       const historyDistributedHtml = renderDistributedGroup(otherDistributed, "其他 Plan 的历史与待处理记录", "这些行来自其他 Plan 或旧运行，不是当前 Plan 的 job。失败行上的“恢复”只重试那一个历史 job。");
-      const deferredPlans = Array.isArray(state.deferredPlans) ? state.deferredPlans : [];
-      const deferredStatusLabel = (status) => ({ pending: "排队等待前序版本", processing: "正在转入调度", blocked: "已阻塞，需要继续提交", superseded: "已被继续提交接续" }[String(status || "")] || String(status || "未知"));
-      const deferredConfirmed = deferredPlans.filter((plan) => plan.confirmedOutputChoice === true).length;
-      const deferredPendingConfirm = deferredPlans.filter((plan) => plan.confirmedOutputChoice !== true && plan.status !== "superseded").length;
-      const deferredHtml = '<section class="taskRecordGroup"><h3>代码版本排队</h3><p class="muted">'
-        + (deferredConfirmed && deferredPendingConfirm
-          ? "已确认产物的提交会在旧代码版本结束后继续。尚未确认的提交只保留排队，必须点击同一条记录上的“继续提交”完成校验和产物确认，不会自动派发。"
-          : deferredPendingConfirm
-            ? "这些提交尚未校验、尚未确认已有产物。旧代码版本结束后，点击对应记录的“继续提交”；不会自动派发，也不会另开一条排队。"
-            : "这些提交已完成校验和产物确认，因旧代码版本仍在运行而尚未派发。记录会保留。")
-        + '</p>'
-        + (deferredPlans.length ? deferredPlans.map((plan) => {
-            const choice = plan.status === "superseded" ? "已被继续提交接续，不再自动派发"
-              : plan.confirmedOutputChoice === true
-              ? (plan.overwriteExisting === true ? "重跑全部并保留历史" : (Array.isArray(plan.distributedSkipJobIndices) && plan.distributedSkipJobIndices.length ? "跳过已有 job " + plan.distributedSkipJobIndices.join(",") : "产物选择已保存"))
-              : "尚未校验/尚未确认已有产物";
-            const ahead = plan.waitingForPlanFile ? "前序 " + compactPath(plan.waitingForPlanFile) + " · 版本 " + (plan.waitingForRevision || "-") : "等待当前代码版本释放";
-            const continueButton = plan.confirmedOutputChoice === true || plan.status === "superseded" ? '' : '<button type="button" data-command="runPlan" data-plan-file="' + escAttr(plan.planFile) + '" data-deferred-plan-id="' + escAttr(plan.id || "") + '" data-confirm="true" title="继续这一条排队记录：校验并确认已有产物。不会另开一条排队，也不会在后台自动派发。">继续提交</button>';
-            return '<div class="taskRecordRow"><span class="pill">' + esc(compactPath(plan.planFile)) + ' · ' + esc(deferredStatusLabel(plan.status)) + '</span><span class="muted">'
-              + esc(ahead) + ' · ' + esc(choice) + ' · ' + esc(plan.reason || plan.error || "前序版本结束后需继续提交。") + '</span>' + continueButton + '</div>';
-          }).join('') : '<div class="muted">当前没有等待代码版本的提交。</div>') + '</section>';
-      const currentEmptyNote = !rows.length && (currentDistributed.length || deferredPlans.some((plan) => currentPlanKey && samePlanSelection(plan.planFile || "", scope.selectedPlanFile)))
-        ? '<div class="notice">当前版本调度 job 数为 0。上面的代码版本排队或历史记录才是这次提交的状态，它们不是当前 Plan 的运行 job。</div>' : '';
-      let taskSummaryHtml = scopeBar + currentDistributedHtml + deferredHtml + historyDistributedHtml + currentEmptyNote + renderTaskPlanCompletionNext(state, scope) + (rows.length
+      const currentEmptyNote = !rows.length && currentDistributed.length
+        ? '<div class="notice">当前版本调度 job 数为 0。请到运行进度查看这次是否未提交，或查看其他 Plan 的历史记录。这些记录不是当前 Plan 的运行 job。</div>' : '';
+      let taskSummaryHtml = scopeBar + currentDistributedHtml + historyDistributedHtml + currentEmptyNote + renderTaskPlanCompletionNext(state, scope) + (rows.length
         ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
-        : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无调度回传的 job。若刚刚提交，请查看上方“代码版本排队”或运行进度。" : "暂无任务数据。") + '</div>');
+        : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无调度回传的 job。若刚才被旧版本挡住，运行进度会显示“未提交”。到实验准备的 Plan 列表手动选中后，再点“校验并提交运行”。" : "暂无任务数据。") + '</div>');
       setHtmlIfChanged("taskSummary", taskSummaryHtml);
       const selectedRows = taskView.selectedRows;
       renderTaskBatchActions(state, rows, selectedRows);
@@ -13529,14 +13505,14 @@ export function renderPanelHtml(): string {
         if (!redacted || redacted === "-" || redacted === "[REDACTED]") return "";
         const clipped = redacted.length > 200 ? redacted.slice(0, 200) : redacted;
         if (shown && (shown === clipped || shown.includes(clipped))) return "";
-        return '<div class="operationError" style="border-left-color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,var(--vscode-editor-background));color:#8A6D00;" title="' + escAttr(clipped) + '"><b>调度器报错</b><pre style="margin:4px 0 0;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(compactText(clipped, 200)) + '</pre></div>';
+        return '<div class="operationError" style="border-left-color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,var(--vscode-editor-background));color:#8A6D00;" title="' + escAttr(clipped) + '"><b>调度器报错</b><div>下一步：先点本条“历史记录”或“打开完整日志”核对调度器原文，再点“刷新状态”。这不能说明旁边未提交的 Plan 已失败。确认本 Plan 已停且没有可恢复任务后，才点它的“终止并清除该 Plan”。</div>' + operationEvidenceNextActions(row) + '<pre style="margin:4px 0 0;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(compactText(clipped, 200)) + '</pre></div>';
       };
       const renderProgramBlock = (progText) => {
         if (!progText) return "";
         const redacted = redact(progText);
         if (!redacted || redacted === "-") return "";
         const traceback = redacted.length > 4000 ? redacted.slice(-4000) : redacted;
-        return '<div class="operationError" style="border-left-color:var(--danger);background:color-mix(in srgb,var(--danger) 8%,var(--vscode-editor-background));color:#7F1D1D;" title="' + escAttr(traceback.slice(-500)) + '"><b>程序报错</b><pre style="margin:4px 0 0;max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(traceback) + '</pre></div>';
+        return '<div class="operationError" style="border-left-color:var(--danger);background:color-mix(in srgb,var(--danger) 8%,var(--vscode-editor-background));color:#7F1D1D;" title="' + escAttr(traceback.slice(-500)) + '"><b>程序报错</b><div>下一步：先点本条“历史记录”或“打开完整日志”看程序原文，再点“刷新状态”。不要把这条错误当成其他排队 Plan 的失败，也不要直接清理。</div>' + operationEvidenceNextActions(row) + '<pre style="margin:4px 0 0;max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(traceback) + '</pre></div>';
       };
       if (failureKind === "scheduler") {
         const block = renderSchedulerBlock(schedulerZh || errorRaw || "调度器异常");
@@ -13594,7 +13570,7 @@ export function renderPanelHtml(): string {
       } else {
         const error = redact(errorRaw);
         if (error && error !== "-" && (!shown || (shown !== error && !shown.includes(error)))) {
-          parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span><button class="mini secondary" data-section-target="diagnostics" data-anchor-target="diagnostics-errors" title="跳转到诊断错误查看持久化错误行">诊断错误</button></div>');
+          parts.push('<div class="operationError" title="' + escAttr(error) + '"><b>错误</b><span>' + esc(compactText(error, 320)) + '</span><div>下一步：先点“刷新状态”和本条日志收集证据。原因还不明时不要判定失败，也不要点“终止并清除该 Plan”。</div>' + operationEvidenceNextActions(row) + '</div>');
         }
       }
       if (!parts.length) {
@@ -13732,13 +13708,37 @@ export function renderPanelHtml(): string {
         : "border-left-color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,var(--vscode-editor-background));color:#8A6D00;";
       const icon = isErrorTone ? "✖ 远端错误" : "⚠ 运行期异常";
       const detail = isErrorTone
-        ? "操作状态为 running，但远端证据/日志已含错误（dead/error/timedOut），可能已失败；展示前500字。"
-        : "操作状态为 running，但远端证据显示已死/超时或日志含异常，可能为假执行中；展示前500字。";
+        ? "操作状态为 running，但远端证据/日志已含 dead/error/timedOut。这还不能证明该操作已经失败；展示前500字。"
+        : "操作状态为 running，但远端证据含异常关键字。这还不能证明该操作已经失败；展示前500字。";
       const preview = evTail
         ? '<details class="operationLogTail"><summary>远端证据日志前500字预览（总' + esc(String(evTail.length)) + '字符）</summary><pre>' + esc(evTail.slice(0, 500)) + '</pre></details>'
         : (snippet ? '<div style="margin-top:4px;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:6px;border-radius:4px;font-size:11px;">' + esc(snippet) + '</div>' : "");
-      return '<div class="operationError" style="' + toneStyle + '" title="该操作状态为 running，但远端证据含异常，可能已失败或挂死。">' +
-        '<b>' + icon + '</b><span>' + detail + ' 请点“刷新运行状态”或“中止清理”并查看 tmux 日志。</span></div>' + preview;
+      const planFile = String((row || {}).planFile || (row || {}).plan || "");
+      const heldBack = String((row || {}).message || "").indexOf("未提交") >= 0;
+      const clearButton = planFile && !heldBack
+        ? '<button type="button" class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(planFile) + '" data-confirm="true" title="先点“刷新状态”并查看本条日志。只有确认就是这一条前序 Plan 已经停止、且没有可恢复任务之后才使用。会列出目标并要求两次确认，不会自动执行。不要用它清理未提交的新 Plan。">终止并清除该 Plan</button>'
+        : "";
+      return '<div class="operationError" style="' + toneStyle + '" title="这条 running 操作和远端证据不一致。当前证据不能证明它已经失败。">' +
+        '<b>' + icon + '</b><span>' + detail + ' 下一步：先点“刷新状态”，再点本条“历史记录”或“打开完整日志”。只有确认就是这一条前序 Plan 已经停止、且没有可恢复任务之后，才可点“终止并清除该 Plan”。该按钮沿用两次确认，不要把它用在未提交的新 Plan 上。</span>' +
+        '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">' +
+          '<button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>' +
+          '<button type="button" class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr((row || {}).operationId || (row || {}).id || "") + '" data-plan-file="' + escAttr(planFile) + '" title="查看该任务的完整日志（已脱敏）">历史记录</button>' +
+          '<button type="button" class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr((row || {}).operationId || (row || {}).id || "") + '" data-plan-file="' + escAttr(planFile) + '" title="打开该任务的完整日志文件">打开完整日志</button>' +
+          '<button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度里的 Plan 列表">运行进度</button>' +
+          clearButton +
+        '</span></div>' + preview;
+    }
+    function operationEvidenceNextActions(row) {
+      const planFile = String((row || {}).planFile || (row || {}).plan || "");
+      const clearButton = planFile
+        ? '<button type="button" class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(planFile) + '" data-confirm="true" title="只在确认该 Plan 已停止且没有可恢复任务后使用。会两次确认。">终止并清除该 Plan</button>'
+        : "";
+      return '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">' +
+        '<button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>' +
+        '<button type="button" class="mini secondary" data-command="showLogHistory" data-operation-id="' + escAttr((row || {}).operationId || (row || {}).id || "") + '" data-plan-file="' + escAttr(planFile) + '" title="查看该任务的完整日志（已脱敏）">历史记录</button>' +
+        '<button type="button" class="mini secondary" data-command="openFullLog" data-operation-id="' + escAttr((row || {}).operationId || (row || {}).id || "") + '" data-plan-file="' + escAttr(planFile) + '" title="打开该任务的完整日志文件">打开完整日志</button>' +
+        '<button type="button" class="mini secondary" data-section-target="diagnostics" data-anchor-target="diagnostics-errors" title="跳转到诊断错误查看持久化错误行">诊断错误</button>' +
+        clearButton + '</span>';
     }
 
     function operationTimestampView(row) {
@@ -14981,16 +14981,61 @@ export function renderPanelHtml(): string {
       setHtmlIfChanged("actionErrors", rows.length ? '<div class="errorList">' + rows.map(renderActionErrorRow).join("") + '</div>' : '<div class="muted">暂无错误。</div>');
     }
 
+    function actionErrorGuide(row) {
+      const message = String((row && row.message) || "");
+      const suggestion = String((row && row.suggestion) || "");
+      const capability = row && Array.isArray(row.capabilityMissing) && row.capabilityMissing.length ? row.capabilityMissing.join(", ") : "";
+      const source = message || suggestion;
+      if (capability || /capability|endpoint|404|缺少能力/i.test(source)) {
+        const text = suggestion || ("需要升级 Hub Agent: " + (capability || "缺少能力") + "。打开诊断与自检核对能力项，或先点“检测全部”。");
+        return { text: text, links: actionErrorLinksFor("capability", capability) };
+      }
+      if (/指纹|代码同步|fingerprint|code sync/i.test(source)) {
+        const text = suggestion || "打开代码同步核对指纹，再到 Plan 列表手动选中并点“校验并提交运行”。";
+        return { text: text, links: actionErrorLinksFor("fingerprint", "") };
+      }
+      if (/未提交|旧代码版本|version hold/i.test(source)) {
+        const text = suggestion || "本次没有提交。先点“刷新状态”核实前序，确认已停后再从 Plan 列表手动重跑。";
+        return { text: text, links: actionErrorLinksFor("version-hold", "") };
+      }
+      if (/ECONNREFUSED|fetch failed|tunnel|AbortError|timedOut|timed_out|closed|网络/i.test(source)) {
+        const text = suggestion || "打开设置里的服务器，确认隧道已启动，再回运行进度点“刷新状态”。";
+        return { text: text, links: actionErrorLinksFor("tunnel", "") };
+      }
+      if (/401|403|token|unauthorized/i.test(source)) {
+        const text = suggestion || "打开设置里的服务器，核对 Hub Agent token 后再点“检测全部”。";
+        return { text: text, links: actionErrorLinksFor("token", "") };
+      }
+      if (/path|safe|允许|traversal/i.test(source)) {
+        const text = suggestion || "回到实验准备，只选择允许根目录内的路径后重试。";
+        return { text: text, links: actionErrorLinksFor("path", "") };
+      }
+      const text = suggestion || "原因还不明确。先点“刷新状态”，再打开该条日志收集证据。证据不足时不要判定失败，也不要清理 Plan。";
+      return { text: text, links: actionErrorLinksFor("unknown", "") };
+    }
+    function actionErrorLinksFor(kind, capability) {
+      const links = [
+        '<button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳转到运行进度">运行进度</button>',
+        '<button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>'
+      ];
+      if (kind === "capability" || capability) links.push('<button type="button" class="mini secondary" data-section-target="diagnostics" data-anchor-target="diagnostics-capabilities" title="打开诊断里的能力项">能力项</button>', '<button type="button" class="mini secondary" data-command="testAll" title="检测全部连接">检测全部</button>');
+      else if (kind === "tunnel" || kind === "token") links.push('<button type="button" class="mini secondary" data-section-target="settings" data-anchor-target="settings-servers" title="打开设置里的服务器">服务器设置</button>', '<button type="button" class="mini secondary" data-command="testAll" title="检测全部连接">检测全部</button>');
+      else if (kind === "fingerprint") links.push('<button type="button" class="mini secondary" data-section-target="sync" data-anchor-target="sync" title="打开代码同步">代码同步</button>', '<button type="button" class="mini secondary" data-section-target="plans" data-anchor-target="plans-list" title="打开实验准备的 Plan 列表">Plan 列表</button>');
+      else if (kind === "version-hold" || kind === "path") links.push('<button type="button" class="mini secondary" data-section-target="plans" data-anchor-target="plans-list" title="打开实验准备的 Plan 列表">Plan 列表</button>');
+      else links.push('<button type="button" class="mini secondary" data-section-target="diagnostics" data-anchor-target="diagnostics-errors" title="打开诊断错误">诊断错误</button>');
+      return links.join("");
+    }
     function renderActionErrorRow(row) {
       const rawCommand = row.command || "unknown";
       const commandLabel = featureCommandLabel(rawCommand);
-      const suggestion = row.suggestion || (row.capabilityMissing ? "需要升级 Hub Agent: " + row.capabilityMissing.join(", ") : "请查看操作进度和高级诊断。");
+      const guide = actionErrorGuide(row);
+      const suggestion = guide.text;
       return '<div class="errorRow" title="' + escAttr(suggestion) + '">' +
         '<span class="errorRowCommand" title="原始命令：' + escAttr(rawCommand) + '">' + esc(commandLabel) + '</span>' +
         '<span class="errorRowTime status-failed">' + esc(row.timestamp || "-") + '</span>' +
         '<span class="errorRowMessage status-failed">' + esc(row.message || "未知错误") + '</span>' +
-        '<span class="errorRowSuggestion" title="' + escAttr(suggestion) + '">下一步：' + esc(compactText(suggestion, 160)) + '</span>' +
-        '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳转到操作进度查看后台真实终态">操作进度</button><button class="mini secondary" data-section-target="execution" data-anchor-target="execution-failed" title="跳转到异常操作查看失败与卡住的操作">异常操作</button></span>' +
+        '<span class="errorRowSuggestion" title="' + escAttr(suggestion) + '">下一步：' + esc(compactText(suggestion, 220)) + '</span>' +
+        '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;">' + guide.links + '</span>' +
       '</div>';
     }
 

@@ -4991,7 +4991,12 @@ export class RealtimeTunnelPanelProvider {
         if (result.status === "cancelled") {
             this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
             try { vscode.window.showInformationMessage(result.message || "已取消"); } catch {}
-            try { this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) }); this.postState(); } catch {}
+            const alreadyExplained = String(result.message || "").includes("未提交");
+            if (!alreadyExplained) {
+                try { this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) }); this.postState(); } catch {}
+            } else {
+                try { this.postState(); } catch {}
+            }
         } else if (result.status === "failed") {
             this.finishPlanSubmissionProgress(message, "failed", result.message || "提交失败。");
             this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) });
@@ -5446,8 +5451,8 @@ export class RealtimeTunnelPanelProvider {
     }
     planSubmissionQueueDetail(body, blocker, confirmed = true) {
         const planFile = String(operationResultPlanFile(body) || body?.planFile || "当前计划");
-        const ahead = blocker?.planFile ? `${blocker.planFile}（版本 ${blocker.revision || "-"}，代码 ${String(blocker.codeFingerprint || "").slice(0, 12) || "-"}）` : "当前代码版本的结果同步";
-        if (!confirmed) return `${planFile} 等待旧代码版本结束，尚未校验/尚未确认已有产物。前序：${ahead}。版本释放后需在任务里点击“继续提交”完成校验和产物确认，不会自动派发。`;
+        const ahead = blocker?.planFile ? `${blocker.planFile}（版本 ${blocker.revision || "-"}）` : "当前代码版本的结果同步";
+        if (!confirmed) return `${planFile} 未提交。旧代码版本仍占用 Worker（前序：${ahead}），本次没有校验、没有确认产物，也不会自动接续。下一步：打开运行进度，点“刷新状态”和该条操作的日志，先核实前序是否仍在运行。确认前序已停且没有可恢复任务后，再点前序 Plan 上的“终止并清除该 Plan”（会两次确认）。然后到实验准备的 Plan 列表手动选中本 Plan，点“校验并提交运行”。不要清理本 Plan。`;
         const choice = body?.overwriteExisting === true ? "重跑全部并保留历史" : (Array.isArray(body?.distributedSkipJobIndices) && body.distributedSkipJobIndices.length ? `跳过已有 job ${body.distributedSkipJobIndices.join(",")}` : "无历史产物需确认");
         return `${planFile} 已完成校验和历史产物确认（${choice}）。前序：${ahead}。`;
     }
@@ -8253,48 +8258,23 @@ export class RealtimeTunnelPanelProvider {
             { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
         return fingerprintFromManifest(manifest);
     }
-    async resumePersistedDistributedQueue() {
-        const root = workspaceRoot();
-        if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool") return;
-        const queue = await this.loadDistributedQueue(root);
-        const hasOutstandingJobs = queue.plans.some((plan) => plan.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)))
-            || (queue.deferred || []).some((plan) => ["pending", "processing"].includes(plan.status));
-        if (!hasOutstandingJobs) {
-            const targetIds = this.workerCodeSyncTargets().map((target) => target.id);
-            if (queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed"
-                && (job.artifactError || targetIds.some((id) => !job.mirroredWorkerIds?.includes(id))))))
-                await this.tickDistributedQueue();
-            return;
-        }
-        await this.tickDistributedQueue();
-        if (Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok")) {
-            this.startAvailabilityPushLoop();
-            await this.ensureRealtimeConnected("distributed queue continuation");
-        }
-    }
     async finishDistributedPlanSubmission(command, message, plan, body) {
         const versionHold = await this.distributedCodeVersionHold(body);
         const root = versionHold?.root || workspaceRoot();
         const continueDeferredId = stringField(message, "deferredPlanId") || stringField(body, "deferredPlanId");
         const submissionFingerprint = versionHold?.fingerprint || await this.localDistributedCodeFingerprint(root);
-        const existing = await this.activeDeferredForSubmission(root, body, submissionFingerprint, continueDeferredId);
-        if (existing === null) {
-            throw new Error("继续提交的排队记录与当前 Plan、版本或代码指纹不一致，未修改队列。");
+        if (continueDeferredId) {
+            const existing = await this.activeDeferredForSubmission(root, body, submissionFingerprint, continueDeferredId);
+            if (existing === null) {
+                throw new Error("这条旧排队记录与当前 Plan、版本或代码指纹不一致，未修改队列，也未校验或提交。请到实验准备的 Plan 列表手动选中该 Plan，再点“校验并提交运行”。");
+            }
         }
-        const reusable = existing || await this.activeDeferredForSubmission(root, body, submissionFingerprint, "");
         if (versionHold) {
-            this.reportPlanStage(message, "等待旧代码版本结束，尚未校验/尚未确认产物。");
-            await this.deferDistributedPlan(versionHold.root, body, versionHold.fingerprint, {
-                waitingForPlanId: versionHold.blocker?.id || "",
-                waitingForPlanFile: versionHold.blocker?.planFile || "",
-                waitingForRevision: versionHold.blocker?.revision || "",
-                waitingForFingerprint: versionHold.blocker?.codeFingerprint || "",
-                confirmedOutputChoice: false,
-                reuseDeferredId: reusable?.id || "",
-            });
-            this.finishPlanSubmissionProgress(message, "queued", this.planSubmissionQueueDetail(body, versionHold.blocker, false));
-            await this.openPanelAt("tasks", "tasks-list");
-            return;
+            const detail = this.planSubmissionQueueDetail(body, versionHold.blocker, false);
+            this.reportPlanStage(message, "未提交：旧代码版本仍占用 Worker。");
+            this.finishPlanSubmissionProgress(message, "cancelled", detail);
+            await this.openPanelAt("execution", "execution-operations");
+            throw new UiCommandCancelled(detail);
         }
         try {
             await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
@@ -8307,7 +8287,7 @@ export class RealtimeTunnelPanelProvider {
             await this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk);
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
             this.reportPlanStage(message, "预演通过，正在开启调度…");
-            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, reusable?.id || "");
+            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "");
             if (submission?.enqueued === false) {
                 this.finishPlanSubmissionProgress(message, "succeeded", "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。");
                 await this.openPanelAt("tasks", "tasks-list");
@@ -8344,6 +8324,29 @@ export class RealtimeTunnelPanelProvider {
             ? { ...row, status: "superseded" as const, error: "已被继续提交接续，不再自动派发。", supersededBy } : row) };
         await this.saveDistributedQueue(root, next);
     }
+    async resumePersistedDistributedQueue() {
+        const root = workspaceRoot();
+        if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool") return;
+        const queue = await this.loadDistributedQueue(root);
+        const hasOutstandingJobs = queue.plans.some((plan) => plan.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)));
+        const hasLegacyDeferred = (queue.deferred || []).some((row) => ["pending", "processing", "blocked"].includes(String(row.status || "")));
+        if (!hasOutstandingJobs) {
+            if (hasLegacyDeferred) {
+                await this.tickDistributedQueue();
+                return;
+            }
+            const targetIds = this.workerCodeSyncTargets().map((target) => target.id);
+            if (queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed"
+                && (job.artifactError || targetIds.some((id) => !job.mirroredWorkerIds?.includes(id))))))
+                await this.tickDistributedQueue();
+            return;
+        }
+        await this.tickDistributedQueue();
+        if (Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok")) {
+            this.startAvailabilityPushLoop();
+            await this.ensureRealtimeConnected("distributed queue continuation");
+        }
+    }
     async deferDistributedPlan(root, body, fingerprint, waiting = {}) {
         const queue = await this.loadDistributedQueue(root);
         const reuseId = String(waiting.reuseDeferredId || "");
@@ -8360,7 +8363,7 @@ export class RealtimeTunnelPanelProvider {
             waitingForFingerprint: waiting.waitingForFingerprint || "",
             reason: waiting.confirmedOutputChoice === true
                 ? `等待前序 Plan ${waiting.waitingForPlanFile || "当前代码版本"} 结束；产物选择已保存。`
-                : `等待旧代码版本结束，尚未校验/尚未确认已有产物。前序 ${waiting.waitingForPlanFile || "当前代码版本"}（版本 ${waiting.waitingForRevision || "-"}）。版本释放后点击“继续提交”。` };
+                : `未提交。旧代码版本仍占用 Worker。前序 ${waiting.waitingForPlanFile || "当前代码版本"}（版本 ${waiting.waitingForRevision || "-"}）。不会自动接续。请到实验准备的 Plan 列表手动选中并点“校验并提交运行”。` };
         const retained = (queue.deferred || []).filter((row) => row.id !== deferred.id);
         await this.saveDistributedQueue(root, { ...queue, deferred: [...retained, deferred] });
         this.postState();
@@ -8663,52 +8666,20 @@ export class RealtimeTunnelPanelProvider {
         this.refreshSelectedDistributedLog(queue, newTerminal);
         const verifiedFingerprints = new Map([...verifiedWorkerIds].filter((workerId) => this.lastWorkerProbes[workerId]?.status === "ok")
             .map((workerId) => [workerId, String(this.lastCodeSyncState?.workerVersions?.[workerId]?.fingerprint || "")]));
-        const activeVersion = DistributedPlanQueue.queueOccupiesCodeVersion(queue, verifiedFingerprints);
-        const deferred = !activeVersion && !this.distributedPostprocessPromise
-            ? (queue.deferred || []).find((row) => row.status === "pending" && (!row.retryAfter || Date.parse(row.retryAfter) <= Date.now())
-                && !queue.plans.some((plan) => DistributedPlanQueue.sameDeferredPlanFile(plan.planFile, row.planFile) && plan.revision === row.revision && plan.codeFingerprint === row.codeFingerprint)) : undefined;
-        if (deferred) {
-            if (deferred.confirmedOutputChoice !== true) {
-                queue = { ...queue, deferred: (queue.deferred || []).map((row) => row.id === deferred.id
-                    ? { ...row, status: "blocked" as const, error: "等待旧代码版本结束，尚未校验/尚未确认已有产物。请点击“继续提交”后再校验和确认，不会自动派发。" } : row) };
-                await this.saveDistributedQueue(root, queue);
-                this.recordActionError({ command: "distributedDeferredPlan", message: `${deferred.planFile}：尚未校验/尚未确认已有产物，已停止自动派发。` });
-            } else {
-            deferred.status = "processing";
+        void verifiedFingerprints;
+        const retiredDeferred = (queue.deferred || []).filter((row) => row.status === "pending" || row.status === "processing" || row.status === "blocked");
+        if (retiredDeferred.length) {
+            const retiredIds = new Set(retiredDeferred.map((row) => row.id));
+            const audit = "跨代码版本自动接续已废止。本记录只保留审计，不会校验、确认产物或派发。请到实验准备的 Plan 列表手动选中该 Plan，再点“校验并提交运行”。";
+            queue = { ...queue, deferred: (queue.deferred || []).map((row) => retiredIds.has(row.id)
+                ? { ...row, status: "superseded" as const, supersededBy: "manual-rerun-policy", reason: audit, error: audit } : row) };
             await this.saveDistributedQueue(root, queue);
-            try {
-                if (await this.localDistributedCodeFingerprint(root) !== deferred.codeFingerprint)
-                    throw new Error("排队期间本机代码已变更，请重新提交该 Plan 以固定新版本");
-                const body = JSON.parse(JSON.stringify(deferred.body));
-                const savedSkip = Array.isArray(deferred.distributedSkipJobIndices) ? deferred.distributedSkipJobIndices.map(Number) : [];
-                const savedOverwrite = deferred.overwriteExisting === true;
-                body.overwriteExisting = savedOverwrite;
-                body.overwrite = savedOverwrite;
-                body.distributedSkipJobIndices = savedOverwrite ? [] : savedSkip.slice();
-                body.options = { ...(body.options || {}), overwriteExisting: savedOverwrite, overwrite: savedOverwrite };
-                await this.selectDistributedPlanPrimary(body);
-                await this.ensureCodeReadyForRun(undefined, [body]);
-                const validated = await this.runPlanPreflight(body, `排队计划 ${deferred.planFile}`);
-                if (!validated) throw new Error("排队计划校验未通过");
-                body.overwriteExisting = savedOverwrite;
-                body.overwrite = savedOverwrite;
-                body.distributedSkipJobIndices = savedOverwrite ? [] : savedSkip.slice();
-                body.options = { ...(body.options || {}), overwriteExisting: savedOverwrite, overwrite: savedOverwrite };
-                this.assertExecutionCondaEnvReady(this.workerActionTargets());
-                await this.enqueueDistributedPlan(body, validated, true);
-                queue = await this.loadDistributedQueue(root);
-                queue = { ...queue, deferred: (queue.deferred || []).filter((row) => row.id !== deferred.id) };
-                await this.saveDistributedQueue(root, queue);
-            } catch (error) {
-                queue = await this.loadDistributedQueue(root);
-                const message = errorMessage(error);
-                const blocked = message.includes("本机代码已变更") || isUiCommandCancelled(error);
-                queue = { ...queue, deferred: (queue.deferred || []).map((row) => row.id === deferred.id
-                    ? { ...row, status: blocked ? "blocked" : "pending", error: message,
-                        retryAfter: blocked ? undefined : new Date(Date.now() + 60_000).toISOString() } : row) };
-                await this.saveDistributedQueue(root, queue);
-                this.recordActionError({ command: "distributedDeferredPlan", message: `${deferred.planFile}：${message}` });
-            }
+            for (const row of retiredDeferred) {
+                this.recordActionError({
+                    command: "distributedDeferredPlan",
+                    message: `${row.planFile || "旧排队记录"}：未提交，不会自动接续。`,
+                    suggestion: actionErrorSuggestion("未提交。旧代码版本占用后不再自动接续，请手动选择 Plan 后点“校验并提交运行”。"),
+                });
             }
         }
         let snapshot;
@@ -25254,23 +25225,39 @@ function escapeRegex(value) {
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function actionErrorSuggestion(message) {
-    if (/capability|endpoint|404|not found/i.test(message))
-        return "需要升级 Hub Agent 或运行真实对接检测。";
-    if (/ECONNREFUSED|fetch failed|tunnel|AbortError|closed/i.test(message))
-        return "请确认 Xshell 隧道已启动并通过检测。";
-    if (/401|403|token/i.test(message))
-        return "请检查 Hub Agent token。";
-    if (/path|safe|允许|traversal/i.test(message))
-        return "请选择允许根目录内的路径。";
-    return "查看诊断 JSON 和操作进度。";
+    const text = String(message || "");
+    if (/未提交|旧代码版本|代码版本|version hold|deferred|排队记录/i.test(text))
+        return "本次没有提交，也不会自动接续。打开运行进度，点“刷新状态”和日志核实前序；确认前序已停后，才点前序 Plan 的“终止并清除该 Plan”。再到实验准备的 Plan 列表手动选中，点“校验并提交运行”。";
+    if (/capability|endpoint|404|not found|缺少能力/i.test(text))
+        return "打开诊断与自检，查看能力项。需要升级 Hub Agent，或先点“检测全部”做真实对接检测，再重试原操作。";
+    if (/ECONNREFUSED|fetch failed|tunnel|AbortError|timedOut|timed_out|closed|网络/i.test(text))
+        return "打开设置里的服务器，确认这条隧道已启动。回到运行进度点“刷新状态”；仍失败时点“检测全部”，不要据此清理 Plan。";
+    if (/401|403|token|unauthorized|forbidden/i.test(text))
+        return "打开设置里的服务器，核对 Hub Agent token 后保存，再点“检测全部”。不要把 token 贴到错误说明里。";
+    if (/path|safe|允许|traversal|符号链接/i.test(text))
+        return "回到实验准备，只选择当前项目允许根目录内的 Plan 或结果路径，然后重试。不要改用绝对路径或上级目录。";
+    if (/代码同步|fingerprint|指纹|code sync/i.test(text))
+        return "打开代码同步，核对本机与 Worker 指纹是否一致。一致后再到实验准备的 Plan 列表手动选中，点“校验并提交运行”。";
+    if (!text.trim())
+        return "原因还不明确。先打开运行进度，点“刷新状态”，再打开该条操作的日志收集证据。证据不足时不要判定失败，也不要清理 Plan。";
+    return "原因还不明确。先打开运行进度，点“刷新状态”，再打开该条操作的日志收集证据。证据不足时不要判定失败，也不要清理 Plan。收集到明确错误后，再按对应入口重试。";
+}
+function normalizeUiActionError(error) {
+    if (typeof error === "string") return { command: "action", message: error };
+    if (error instanceof Error) return { command: "action", message: error.message || String(error) };
+    const record = error && typeof error === "object" ? error : {};
+    const message = String(record.message || record.error || "");
+    return { ...record, command: String(record.command || "action"), message };
 }
 function compactUiActionError(error) {
+    const normalized = normalizeUiActionError(error);
+    const suggestion = String(normalized.suggestion || actionErrorSuggestion(normalized.message) || "");
     return {
-        command: compactSensitiveText(error.command, 160),
-        ...(error.action ? { action: error.action } : {}),
-        message: compactSensitiveText(error.message, UI_ACTION_ERROR_MESSAGE_LIMIT),
-        ...(error.suggestion ? { suggestion: compactSensitiveText(error.suggestion, UI_ACTION_ERROR_SUGGESTION_LIMIT) } : {}),
-        ...(error.capabilityMissing?.length ? { capabilityMissing: error.capabilityMissing.slice(0, UI_ACTION_ERROR_CAPABILITY_LIMIT).map((item) => compactSensitiveText(item, 96)) } : {}),
+        command: compactSensitiveText(normalized.command, 160),
+        ...(normalized.action ? { action: normalized.action } : {}),
+        message: compactSensitiveText(normalized.message, UI_ACTION_ERROR_MESSAGE_LIMIT),
+        ...(suggestion ? { suggestion: compactSensitiveText(suggestion, UI_ACTION_ERROR_SUGGESTION_LIMIT) } : {}),
+        ...(normalized.capabilityMissing?.length ? { capabilityMissing: normalized.capabilityMissing.slice(0, UI_ACTION_ERROR_CAPABILITY_LIMIT).map((item) => compactSensitiveText(item, 96)) } : {}),
         timestamp: new Date().toISOString(),
     };
 }

@@ -32,6 +32,25 @@ test("activation reconnects and ticks a persisted Plan queue without opening the
   assert.match(activation, /distributedQueueContinuation.*resumePersistedDistributedQueue/);
 });
 
+test("activation retires a queue that only has legacy deferred rows", async () => {
+  const events = [];
+  const provider = {
+    lastWorkerProbes: {},
+    isRealtimeMode: () => true,
+    projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    workerCodeSyncTargets: () => [{ id: "worker-a" }],
+    loadDistributedQueue: async () => ({ plans: [], deferred: [
+      { id: "old", status: "pending", confirmedOutputChoice: true },
+      { id: "held", status: "blocked" },
+    ] }),
+    tickDistributedQueue: async () => events.push("tick"),
+    startAvailabilityPushLoop: () => events.push("availability"),
+    ensureRealtimeConnected: async () => events.push("connected"),
+  };
+  await sandbox.resume.call(provider);
+  assert.deepEqual(events, ["tick"]);
+});
+
 test("activation does not start Worker communication for a fully mirrored completed queue", async () => {
   const provider = {
     lastWorkerProbes: {},
@@ -398,6 +417,7 @@ function loadTickQueue() {
     workspaceRoot: () => "C:/project", DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
     Object, Set, Map, Date, JSON, errorMessage: String,
+    actionErrorSuggestion: (message) => String(message || ""),
   };
   vm.createContext(context);
   vm.runInContext(compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()")
@@ -448,15 +468,16 @@ test("verified idle Workers on the new fingerprint dispatch edrl and block stale
   assert.match(stale.blockReason, /重新提交/);
 });
 
-test("a deferred newer Plan activates when the older pending fingerprint is absent from verified Workers", async () => {
+test("a persisted deferred Plan is retired while an already submitted job still dispatches", async () => {
   const context = loadTickQueue();
   const body = { planFile: "experiments/plans/comparison/edrl.yaml", planRevision: "rev-edrl", options: {} };
   let queue = { schemaVersion: 1, plans: [
-    { id: "ebmc", planFile: "experiments/plans/comparison/ebmc.yaml", revision: "rev-ebmc", codeFingerprint: "a84a822d",
+    { id: "ebmc", planFile: "experiments/plans/comparison/ebmc.yaml", revision: "rev-ebmc", codeFingerprint: "ec594411",
       jobs: [{ index: 0, case: "bus", seed: 1, attempt: 1, outputDir: "work_dirs/ebmc/bus_1", status: "pending" }] },
   ], deferred: [{ id: "deferred-edrl", planFile: body.planFile, revision: "rev-edrl", codeFingerprint: "ec594411",
-    body, enqueuedAt: "2026-09-26T00:00:00Z", status: "pending" }] };
-  let activated = false;
+    body, enqueuedAt: "2026-09-26T00:00:00Z", status: "pending", confirmedOutputChoice: true }] };
+  const sent = [];
+  const errors = [];
   const provider = {
     lastWorkerProbes: { nwpu3: { status: "ok" } },
     lastCodeSyncState: { fingerprint: "ec594411", workerVersions: { nwpu3: { fingerprint: "ec594411" } } },
@@ -465,26 +486,26 @@ test("a deferred newer Plan activates when the older pending fingerprint is abse
     distributedPostprocessPromise: undefined,
     loadDistributedQueue: async () => queue,
     saveDistributedQueue: async (_root, next) => { queue = next; },
-    localDistributedCodeFingerprint: async () => "ec594411",
-    selectDistributedPlanPrimary: async () => "nwpu3",
-    ensureCodeReadyForRun: async () => undefined,
-    runPlanPreflight: async () => ({ validation: { jobs: [{ index: 0, case: "pad", seed: 2, output_dir: "work_dirs/edrl/pad_2" }], existing: [] } }),
-    confirmDistributedPlanExistingOutputs: async () => undefined,
-    assertExecutionCondaEnvReady: () => undefined,
-    enqueueDistributedPlan: async () => { activated = true; },
+    localDistributedCodeFingerprint: async () => { throw new Error("deferred must not read a new fingerprint"); },
+    selectDistributedPlanPrimary: async () => { throw new Error("deferred must not select a worker"); },
+    ensureCodeReadyForRun: async () => { throw new Error("deferred must not sync"); },
+    runPlanPreflight: async () => { throw new Error("deferred must not validate"); },
+    enqueueDistributedPlan: async () => { throw new Error("deferred must not enqueue"); },
     workerActionTargets: () => [{ id: "nwpu3" }],
     readWorkerTaskSnapshot: async () => ({ tasks: [] }),
-    sendDistributedJob: async () => { throw new Error("stale ebmc must not dispatch"); },
+    sendDistributedJob: async (plan) => { sent.push(plan.id); return { status: "completed" }; },
     client: { getGpu: async () => ({}) },
     localWorkerAvailabilityRows: () => [{ workerId: "nwpu3", availableGpuIds: ["0"] }],
     availabilityPushTtlSeconds: () => 45, schedulerSettings: () => ({}),
     scheduleDistributedPostprocess: () => undefined, postState: () => undefined,
-    refreshSelectedDistributedLog: () => undefined, recordActionError: (error) => { throw new Error(error.message); },
+    refreshSelectedDistributedLog: () => undefined, recordActionError: (error) => errors.push(error.message),
   };
   await context.tickQueue.call(provider);
-  assert.equal(activated, true);
-  assert.equal(queue.deferred.some((row) => row.id === "deferred-edrl"), false);
-  assert.equal(queue.plans.find((plan) => plan.id === "ebmc").jobs[0].status, "pending");
+  assert.deepEqual(sent, ["ebmc"]);
+  assert.equal(queue.deferred.find((row) => row.id === "deferred-edrl").status, "superseded");
+  assert.equal(queue.deferred.find((row) => row.id === "deferred-edrl").supersededBy, "manual-rerun-policy");
+  assert.match(errors.join("\n"), /不会自动接续/);
+  assert.equal(queue.plans.find((plan) => plan.id === "ebmc").jobs[0].status, "running");
 });
 
 test("running work and missing Worker version evidence still hold a deferred Plan", async () => {
@@ -504,6 +525,10 @@ test("running work and missing Worker version evidence still hold a deferred Pla
     loadDistributedQueue: async () => queue,
     saveDistributedQueue: async (_root, next) => { queue = next; },
     enqueueDistributedPlan: async () => { throw new Error("deferred must stay queued"); },
+    localDistributedCodeFingerprint: async () => { throw new Error("deferred must not fingerprint"); },
+    selectDistributedPlanPrimary: async () => { throw new Error("deferred must not select"); },
+    ensureCodeReadyForRun: async () => { throw new Error("deferred must not sync"); },
+    runPlanPreflight: async () => { throw new Error("deferred must not validate"); },
     workerActionTargets: () => [{ id: "nwpu3" }],
     readWorkerTaskSnapshot: async () => ({ tasks: [{ commandId: "command-live", workflowId: "live",
       planRevision: "rev-live", case: "bus", seed: 1, attempt: 1, outputDir: "runs/live",
@@ -512,9 +537,12 @@ test("running work and missing Worker version evidence still hold a deferred Pla
     localWorkerAvailabilityRows: () => [], availabilityPushTtlSeconds: () => 45,
     schedulerSettings: () => ({}), scheduleDistributedPostprocess: () => undefined,
     postState: () => undefined, refreshSelectedDistributedLog: () => undefined,
+    recordActionError: () => undefined,
   };
   await context.tickQueue.call(provider);
-  assert.equal(queue.deferred[0].status, "pending");
+  assert.equal(queue.deferred[0].status, "superseded");
+  assert.equal(queue.deferred[0].supersededBy, "manual-rerun-policy");
+  assert.equal(queue.plans[0].jobs[0].status, "running");
   queue = { schemaVersion: 1, plans: [
     { id: "unknown-code", planFile: "plans/old.yaml", revision: "rev-old", codeFingerprint: "code-old",
       jobs: [{ index: 0, case: "bus", seed: 1, attempt: 1, outputDir: "runs/old", status: "pending" }] },
@@ -522,5 +550,6 @@ test("running work and missing Worker version evidence still hold a deferred Pla
   provider.lastCodeSyncState = { workerVersions: {} };
   provider.readWorkerTaskSnapshot = async () => ({ tasks: [] });
   await context.tickQueue.call(provider);
-  assert.equal(queue.deferred[0].status, "pending");
+  assert.equal(queue.deferred[0].status, "superseded");
+  assert.equal(queue.plans.find((plan) => plan.id === "unknown-code").jobs[0].status, "pending");
 });

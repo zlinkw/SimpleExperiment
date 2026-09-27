@@ -36,13 +36,13 @@ function sandboxWithHelpers(extra) {
 
 function loadErrorLine() {
   const sandbox = sandboxWithHelpers();
-  vm.runInContext(`${extractFunction("operationErrorLine")}\nthis.errorLine = operationErrorLine;`, sandbox);
+  vm.runInContext(`${extractFunction("operationEvidenceNextActions")}\n${extractFunction("operationErrorLine")}\nthis.errorLine = operationErrorLine;`, sandbox);
   return sandbox.errorLine;
 }
 
 function loadActionErrorRow() {
   const sandbox = sandboxWithHelpers({ featureCommandLabel: (command) => "命令:" + command });
-  vm.runInContext(`${extractFunction("renderActionErrorRow")}\nthis.row = renderActionErrorRow;`, sandbox);
+  vm.runInContext(`${extractFunction("actionErrorLinksFor")}\n${extractFunction("actionErrorGuide")}\n${extractFunction("renderActionErrorRow")}\nthis.row = renderActionErrorRow;`, sandbox);
   return sandbox.row;
 }
 
@@ -122,6 +122,9 @@ test("diagnostic action errors show the recovery hint inline", () => {
   assert.match(capabilityGap, /下一步：需要升级 Hub Agent: actions\.parse/);
 
   const fallback = renderRow({ command: "selfCheck", message: "未知错误" });
-  assert.match(fallback, /下一步：请查看操作进度和高级诊断。/);
+  assert.match(fallback, /下一步：原因还不明确/);
+  assert.match(fallback, /刷新状态/);
+  assert.match(fallback, /data-command="snapshot"/);
+  assert.doesNotMatch(fallback, /终止并清除该 Plan/);
   assert.match(panelSource, /\.errorRowSuggestion \{ grid-column: 1 \/ -1;/);
 });
