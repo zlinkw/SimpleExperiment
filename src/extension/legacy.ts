@@ -4551,7 +4551,12 @@ export class RealtimeTunnelPanelProvider {
             await this.withUiCommandStatus(clientActionId, command, message, work);
             return;
         }
-        await work();
+        const leaseAction = hostOperationLeaseActionForUiCommand(command);
+        if (leaseAction) {
+            await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command));
+            return;
+        }
+        await this.handleMessageCore(message, command);
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
         if (booleanField(message, "debugMode") && debugModeBlockedUiCommand(command))

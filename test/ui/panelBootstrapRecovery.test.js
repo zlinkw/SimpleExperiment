@@ -41,6 +41,19 @@ test("panel ready watchdog is cleared on ready, recovery, reload, and dispose", 
   assert.match(disposeFlow, /this\.clearPanelReadyWatchdog\(\)/);
 });
 
+test("webviewReady without a client action id reaches the real ready handler", () => {
+  const start = extension.indexOf("async handleMessage(message)");
+  const end = extension.indexOf("async handleMessageCore(", start);
+  const dispatch = extension.slice(start, end);
+  assert.match(dispatch, /await this\.handleMessageCore\(message, command\)/);
+  assert.doesNotMatch(dispatch, /await work\(\)/);
+  const ready = extension.slice(extension.indexOf('case "webviewReady"'), extension.indexOf('case "webviewBootstrapError"'));
+  assert.match(ready, /this\.webviewReady = true/);
+  assert.match(ready, /this\.clearPanelReadyWatchdog\(\)/);
+  assert.match(ready, /this\.postState\(true\)/);
+  assert.match(ready, /this\.flushPendingPanelNavigation\(\)/);
+});
+
 test("panel registers the message listener before HTML can emit the ready handshake", () => {
   const start = extension.indexOf("resolveWebviewView(webviewView)");
   const end = extension.indexOf("async dispose()", start);
