@@ -735,6 +735,7 @@ export class RealtimeTunnelPanelProvider {
     distributedQueueTickPromise;
     distributedPlanStopEpoch = 0;
     distributedQueueGeneration = 0;
+    private distributedTickAbort?: AbortController;
     planStopClearByFile: Record<string, any> = {};
     distributedNextProbeAt = 0;
     distributedNextFailureDetailAt = 0;
@@ -834,6 +835,9 @@ export class RealtimeTunnelPanelProvider {
     lastCodeSyncState = {};
     lastCodeSyncStats = { hashed: 0, hashReused: 0, cacheWriteSkipped: 0, inventoryCalls: 0, uploads: 0 };
     distributedTerminalSeen = new Set<string>();
+    distributedLaunchInFlight = new Set<string>();
+    private distributedSubmissionEpochs = new Map<string, number>();
+    private distributedSubmissionAborts = new Map<string, AbortController>();
     distributedQueueWritePromise = Promise.resolve();
     distributedPostprocessPromise;
     private readonly planSyncSummaryRetries = new Map<string, { timer: ReturnType<typeof setTimeout>; attempt: number }>();
@@ -1124,21 +1128,23 @@ export class RealtimeTunnelPanelProvider {
             summary: filtered || null,
         };
     }
-    async readWorkerTaskSnapshot(workerId) {
+    async readWorkerTaskSnapshot(workerId, options: { signal?: AbortSignal; fresh?: boolean } = {}) {
         const root = workspaceRoot();
         const cacheKey = `${root || ""}\u0000${workerId}`;
-        const pending = this.workerTaskRequests.get(cacheKey);
-        if (pending) return pending;
-        const request = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey).finally(() => {
+        if (!options.fresh) {
+            const pending = this.workerTaskRequests.get(cacheKey);
+            if (pending) return pending;
+        }
+        const request = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, options).finally(() => {
             if (this.workerTaskRequests.get(cacheKey) === request) this.workerTaskRequests.delete(cacheKey);
         });
-        this.workerTaskRequests.set(cacheKey, request);
+        if (!options.fresh) this.workerTaskRequests.set(cacheKey, request);
         return request;
     }
-    async refreshWorkerTaskSnapshot(workerId, root, cacheKey) {
+    async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal } = {}) {
         const cached = this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
         try {
-            const value = await this.client.getWorkerTasks(workerId);
+            const value = await this.client.getWorkerTasks(workerId, { signal: options.signal });
             if (workspaceRoot() !== root) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
             const record = value && typeof value === "object" ? value : {};
             const snapshot = {
@@ -5411,6 +5417,9 @@ export class RealtimeTunnelPanelProvider {
     beginPlanSubmissionProgress(message, body) {
         const operationId = this.planSubmissionOperationId(message);
         if (!operationId || this.localOperations[operationId]) return;
+        this.distributedSubmissionEpochs.set(operationId, (this.distributedSubmissionEpochs.get(operationId) || 0) + 1);
+        if (!this.distributedSubmissionAborts) this.distributedSubmissionAborts = new Map();
+        this.distributedSubmissionAborts.set(operationId, new AbortController());
         const planFile = this.planSubmissionPlanFile(message, body);
         const now = new Date().toISOString();
         this.localOperations[operationId] = {
@@ -5428,6 +5437,55 @@ export class RealtimeTunnelPanelProvider {
         };
         this.markLocalOperationsDirty();
         this.postState();
+    }
+    submissionStillCurrent(message, epoch, root) {
+        const operationId = this.planSubmissionOperationId(message);
+        if (!operationId) return workspaceRoot() === root;
+        const record = this.localOperations?.[operationId];
+        if (record && String(record.status || "") === "cancelled") return false;
+        return (this.distributedSubmissionEpochs?.get(operationId) || 0) === epoch && workspaceRoot() === root;
+    }
+    waitForPlanSubmission(message, work) {
+        const signal = this.distributedSubmissionAborts?.get(this.planSubmissionOperationId(message))?.signal;
+        if (signal?.aborted) return Promise.resolve(undefined);
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const finish = (value, error?) => {
+                if (settled) return;
+                settled = true;
+                signal?.removeEventListener("abort", onAbort);
+                if (error) reject(error); else resolve(value);
+            };
+            const onAbort = () => finish(undefined);
+            signal?.addEventListener("abort", onAbort, { once: true });
+            Promise.resolve().then(work).then((value) => finish(value), (error) => finish(undefined, error));
+        });
+    }
+    revokePlanSubmissions(planFile) {
+        const selected = normalizePlanSelectionKey(planFile).toLowerCase();
+        if (!selected) return;
+        if (!this.distributedSubmissionEpochs) this.distributedSubmissionEpochs = new Map();
+        for (const [operationId, record] of Object.entries(this.localOperations || {})) {
+            if (!record || typeof record !== "object") continue;
+            const operationIdText = String(record.operationId || record.opId || record.id || operationId || "");
+            const localSubmission = record.localSubmissionProgress === true || operationIdText.startsWith("plan-submit-");
+            if (!localSubmission) continue;
+            if (["succeeded", "failed", "cancelled", "queued"].includes(String(record.status || ""))) continue;
+            if (normalizePlanSelectionKey(String(record.planFile || "")).toLowerCase() !== selected) continue;
+            this.distributedSubmissionEpochs.set(operationId, (this.distributedSubmissionEpochs.get(operationId) || 0) + 1);
+            this.distributedSubmissionAborts?.get(operationId)?.abort();
+            this.localOperations[operationId] = {
+                ...record,
+                status: "cancelled",
+                message: "本次提交已取消；已有远端 job 继续按停止回执核对。",
+                error: "",
+                stage: "cleared",
+                updatedAt: new Date().toISOString(),
+                finishedAt: new Date().toISOString(),
+                reconcileEvidenceActive: false,
+            };
+        }
+        this.markLocalOperationsDirty();
     }
     patchPlanSubmissionProgress(message, status, text) {
         const operationId = this.planSubmissionOperationId(message);
@@ -5447,6 +5505,7 @@ export class RealtimeTunnelPanelProvider {
         const operationId = this.planSubmissionOperationId(message);
         const current = operationId ? this.localOperations[operationId] : undefined;
         if (!current) return;
+        if (String(current.status || "") === "cancelled" && status !== "cancelled") return;
         const now = new Date().toISOString();
         this.localOperations[operationId] = {
             ...current,
@@ -8271,10 +8330,16 @@ export class RealtimeTunnelPanelProvider {
         return fingerprintFromManifest(manifest);
     }
     async finishDistributedPlanSubmission(command, message, plan, body) {
-        const versionHold = await this.distributedCodeVersionHold(body);
-        const root = versionHold?.root || workspaceRoot();
+        const operationId = this.planSubmissionOperationId(message);
+        const submissionEpoch = operationId ? (this.distributedSubmissionEpochs?.get(operationId) || 0) : 0;
+        const submissionRoot = workspaceRoot();
+        if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
+        const versionHold: any = await this.waitForPlanSubmission(message, () => this.distributedCodeVersionHold(body));
+        if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
+        const root = versionHold?.root || submissionRoot;
         const continueDeferredId = stringField(message, "deferredPlanId") || stringField(body, "deferredPlanId");
-        const submissionFingerprint = versionHold?.fingerprint || await this.localDistributedCodeFingerprint(root);
+        const submissionFingerprint = versionHold?.fingerprint || await this.waitForPlanSubmission(message, () => this.localDistributedCodeFingerprint(root));
+        if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
         if (continueDeferredId) {
             const existing = await this.activeDeferredForSubmission(root, body, submissionFingerprint, continueDeferredId);
             if (existing === null) {
@@ -8289,17 +8354,21 @@ export class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled(detail);
         }
         try {
-            await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
-            const preflightOk = await this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) });
+            await this.waitForPlanSubmission(message, () => this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text)));
+            if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
+            const preflightOk = await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) }));
+            if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
             if (!preflightOk) {
                 this.finishPlanSubmissionProgress(message, "failed", "校验或预演未通过，未提交运行。");
                 return;
             }
             this.reportPlanStage(message, "正在确认历史产物处理方式…");
-            await this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk);
+            await this.waitForPlanSubmission(message, () => this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk));
+            if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
             this.reportPlanStage(message, "预演通过，正在开启调度…");
-            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "");
+            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId);
+            if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot) || submission?.cancelled) return;
             if (submission?.enqueued === false) {
                 this.finishPlanSubmissionProgress(message, "succeeded", "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。");
                 await this.openPanelAt("tasks", "tasks-list");
@@ -8311,9 +8380,11 @@ export class RealtimeTunnelPanelProvider {
                 return;
             }
         } catch (error) {
+            if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
             this.finishPlanSubmissionProgress(message, isUiCommandCancelled(error) ? "cancelled" : "failed", errorMessage(error));
             throw error;
         }
+        if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
         this.finishPlanSubmissionProgress(message, "succeeded", "调度队列已接收；面板继续显示 Worker 回传的任务状态。");
         await this.openPanelAt("tasks", "tasks-list");
     }
@@ -8411,10 +8482,20 @@ export class RealtimeTunnelPanelProvider {
     }
     async saveDistributedQueue(root, queue, options = {}) {
         const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => {
-            if (options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
+            if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
                 throw new Error("过期调度轮次，已拒绝写入队列");
             }
+            if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root)) {
+                throw new Error("提交已取消，已拒绝写入队列");
+            }
             const current = this.distributedQueueRoot === root ? this.distributedQueueCache : undefined;
+            if (options.appendPlanId && current) {
+                const appended = queue.plans.find((plan) => plan.id === options.appendPlanId);
+                if (!appended) throw new Error("提交缺少待入队 Plan，未写入队列");
+                queue = { ...current, plans: [...current.plans.filter((plan) => plan.id !== appended.id), appended],
+                    deferred: (current.deferred || []).map((row) => row.id === options.supersededDeferredId
+                        ? { ...row, status: "superseded", error: "已被继续提交接续，不再自动派发。", supersededBy: appended.id } : row) };
+            }
             if (current) {
                 if (!options.artifactMutation) {
                     const oldPlans = new Map(current.plans.map((plan) => [plan.id, plan]));
@@ -8444,6 +8525,11 @@ export class RealtimeTunnelPanelProvider {
             await fs.rename(temporary, file);
             this.distributedQueueRoot = root;
             this.distributedQueueCache = queue;
+            if (options.appendPlanId) {
+                this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
+                this.distributedTickAbort?.abort();
+                this.detachStaleDistributedTick(this.distributedQueueTickPromise);
+            }
         });
         this.distributedQueueWritePromise = work;
         await work;
@@ -8498,10 +8584,16 @@ export class RealtimeTunnelPanelProvider {
                 }
             });
     }
-    async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "") {
+    async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "") {
         const root = workspaceRoot();
         if (!root) throw new Error("没有当前项目目录。");
-        if (this.distributedQueueTickPromise && !skipTick) await this.distributedQueueTickPromise;
+        const submissionCurrent = () => {
+            if (!submissionOperationId) return workspaceRoot() === root;
+            const record = this.localOperations?.[submissionOperationId];
+            if (record && String(record.status || "") === "cancelled") return false;
+            return (this.distributedSubmissionEpochs?.get(submissionOperationId) || 0) === submissionEpoch && workspaceRoot() === root;
+        };
+        if (!submissionCurrent()) return { enqueued: false, cancelled: true };
         const validation = validated?.validation || validated?.result?.validation;
         if (!Array.isArray(validation?.jobs) || !validation.jobs.length) throw new Error("Agent 校验未返回逐 job 清单，无法分布式派发。");
         const planFile = operationResultPlanFile(body);
@@ -8509,6 +8601,7 @@ export class RealtimeTunnelPanelProvider {
         const codeFingerprint = String(this.lastCodeSyncState?.fingerprint || "");
         const id = makeOpId("distributed-plan");
         const current = await this.loadDistributedQueue(root);
+        if (!submissionCurrent()) return { enqueued: false, cancelled: true };
         const overwriteExisting = body.overwriteExisting === true;
         const skipped = new Set(overwriteExisting ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
         const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
@@ -8530,27 +8623,40 @@ export class RealtimeTunnelPanelProvider {
         const supersededId = String(supersededDeferredId || "");
         const next = supersededId ? { ...enqueued, deferred: (enqueued.deferred || []).map((row) => row.id === supersededId
             ? { ...row, status: "superseded" as const, error: "已被继续提交接续，不再自动派发。", supersededBy: id } : row) } : enqueued;
-        await this.saveDistributedQueue(root, next);
+        if (!submissionCurrent()) return { enqueued: false, cancelled: true };
+        const queueGeneration = this.distributedQueueGeneration;
+        await this.saveDistributedQueue(root, next, { queueGeneration, submissionOperationId, submissionEpoch,
+            appendPlanId: id, supersededDeferredId: supersededId });
+        if (!submissionCurrent()) return { enqueued: true, cancelled: true };
         this.postState();
         if (!skipTick) {
-            try {
-                await this.tickDistributedQueue();
-            } catch (error) {
+            void this.tickDistributedQueue().catch((error) => {
+                if (!submissionCurrent()) return;
                 const dispatchError = errorMessage(error);
                 this.recordActionError({ command: "distributedPlanDispatch", message: `${planFile}：${dispatchError}` });
-                return { enqueued: true, dispatchError };
-            }
+                this.postState();
+            });
         }
         return { enqueued: true };
+    }
+    detachStaleDistributedTick(task) {
+        if (!task || this.distributedQueueTickPromise !== task) return;
+        this.distributedQueueTickPromise = undefined;
+        void Promise.resolve(task).then(() => undefined, () => undefined);
     }
     async tickDistributedQueue() {
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch) return;
         const generation = this.distributedQueueGeneration;
-        const task = this.tickDistributedQueueCore(generation);
+        const abort = new AbortController();
+        this.distributedTickAbort = abort;
+        const task = this.tickDistributedQueueCore(generation, abort.signal);
         this.distributedQueueTickPromise = task;
         try { await task; }
-        finally { if (this.distributedQueueTickPromise === task) this.distributedQueueTickPromise = undefined; }
+        finally {
+            if (this.distributedTickAbort === abort) this.distributedTickAbort = undefined;
+            if (this.distributedQueueTickPromise === task) this.distributedQueueTickPromise = undefined;
+        }
     }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
         if (this.selectedDistributedLogRefreshPromise || !this.selectedLogRunKey) return;
@@ -8580,9 +8686,14 @@ export class RealtimeTunnelPanelProvider {
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
         });
     }
-    async tickDistributedQueueCore(generation = this.distributedQueueGeneration) {
-        const queueWriteCurrent = () => generation === this.distributedQueueGeneration && !this.distributedPlanStopEpoch;
+    async tickDistributedQueueCore(generation = this.distributedQueueGeneration, signal?: AbortSignal) {
         const root = workspaceRoot();
+        const queueWriteCurrent = () => generation === this.distributedQueueGeneration && !this.distributedPlanStopEpoch && !signal?.aborted && workspaceRoot() === root;
+        const abandonHungProbe = () => {
+            if (queueWriteCurrent()) return false;
+            this.postState();
+            return true;
+        };
         if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool") return;
         let queue = await this.loadDistributedQueue(root);
         let newTerminal = false;
@@ -8609,8 +8720,25 @@ export class RealtimeTunnelPanelProvider {
         const snapshotWorkerIds = [...new Set([...probeAssigned.map(({ job }) => job.workerId),
             ...probeFailed.map(({ job }) => job.workerId), ...candidateWorkerIds])];
         const verifiedWorkerIds = new Set();
-        const taskSnapshots = await mapLimited(snapshotWorkerIds, 3,
-            async (workerId) => this.readWorkerTaskSnapshot(workerId));
+        if (!queueWriteCurrent()) {
+            this.postState();
+            return;
+        }
+        const probeTask = this.distributedQueueTickPromise;
+        let probeWatch;
+        const probes = mapLimited(snapshotWorkerIds, 3,
+            async (workerId) => this.readWorkerTaskSnapshot(workerId, { signal, fresh: true }));
+        const taskSnapshots = await new Promise((resolve) => {
+            const finish = (value) => { if (probeWatch) clearInterval(probeWatch); resolve(value); };
+            probeWatch = setInterval(() => {
+                if (queueWriteCurrent()) return;
+                this.detachStaleDistributedTick(probeTask);
+                finish(undefined);
+            }, 50);
+            probeWatch.unref?.();
+            probes.then((value) => finish(value), () => finish(undefined));
+        }) as any[] | undefined;
+        if (!taskSnapshots || abandonHungProbe()) return;
         if (!queueWriteCurrent()) {
             this.postState();
             return;
@@ -8658,13 +8786,19 @@ export class RealtimeTunnelPanelProvider {
                             this.postState();
                             return;
                         }
+                        const launchKey = `${plan.id}\0${currentJob.index}\0${currentJob.attempt}`;
+                        this.distributedLaunchInFlight.add(launchKey);
                         try {
                             const retried: any = await this.sendDistributedJob(plan, currentJob, workerId, currentJob.gpuId, currentJob.commandId);
+                            if (!queueWriteCurrent()) continue;
                             if (retried?.status === "completed") queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "running", job.commandId);
                             else currentJob.reconciliationAttempts = (currentJob.reconciliationAttempts || 0) + 1;
                         } catch (error) {
+                            if (!queueWriteCurrent()) continue;
                             if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError))
                                 currentJob.reconciliationAttempts = (currentJob.reconciliationAttempts || 0) + 1;
+                        } finally {
+                            this.distributedLaunchInFlight.delete(launchKey);
                         }
                     }
                     continue;
@@ -8720,6 +8854,10 @@ export class RealtimeTunnelPanelProvider {
         let snapshot;
         try { snapshot = await this.client.getGpu({ dispatch: true }); }
         catch {
+            if (!queueWriteCurrent()) {
+                this.postState();
+                return;
+            }
             if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
                 this.distributedNextPostprocessAt = Date.now() + 60_000;
                 this.scheduleDistributedPostprocess(root, newTerminal);
@@ -8758,17 +8896,24 @@ export class RealtimeTunnelPanelProvider {
             const plan = queue.plans.find((item) => item.id === dispatch.planId);
             const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
             if (!plan || !job || !queueWriteCurrent()) continue;
+            const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
+            this.distributedLaunchInFlight.add(launchKey);
             try {
                 const started: any = await this.sendDistributedJob(plan, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
+                if (!queueWriteCurrent()) continue;
                 if (started?.status !== "completed") throw new Error(String(started?.message || "Worker 未确认启动"));
                 queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "running", dispatch.commandId);
             } catch (error) {
+                if (!queueWriteCurrent()) continue;
                 if (error instanceof RequestBudget_1.RequestBudgetDeniedError) {
                     queue = DistributedPlanQueue.resetUnsentDispatch(queue, plan.id, job.index, dispatch.commandId);
                 } else {
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", dispatch.commandId);
                     this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${errorMessage(error)}；状态待核实，禁止自动重派。` });
                 }
+            }
+            finally {
+                this.distributedLaunchInFlight.delete(launchKey);
             }
             if (!queueWriteCurrent()) {
                 this.postState();
@@ -10184,6 +10329,10 @@ export class RealtimeTunnelPanelProvider {
         const feedback = this.publishPlanStopClear(planFile, input);
         return planStopClearUiResult(feedback);
     }
+    planStopClearWaitMs(fallback = 8000) {
+        const override = Number(this.planStopClearTimeoutMs);
+        return Number.isFinite(override) && override > 0 ? override : fallback;
+    }
     async boundedPromise(work, timeoutMs, timeoutError) {
         let timer;
         const timed = new Promise((_, reject) => {
@@ -10208,7 +10357,7 @@ export class RealtimeTunnelPanelProvider {
         const requested = (options.workerIds || []).map((workerId) => String(workerId || "").trim()).filter(Boolean);
         const workers = requested.length ? enabled.filter((workerId) => requested.some((item) => item.toLowerCase() === workerId.toLowerCase())) : enabled;
         detail.workersChecked = workers.length;
-        const timeoutMs = Math.max(1000, Number(options.timeoutMs || 8000));
+        const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : this.planStopClearWaitMs();
         const snapshots = await Promise.allSettled(workers.map((workerId) => this.boundedPromise(
             () => client.getWorkerTasks(workerId),
             timeoutMs,
@@ -13250,8 +13399,14 @@ export class RealtimeTunnelPanelProvider {
             localOperations = this.buildPlanRuntimeEvidenceState().operations || {};
             distributed = DistributedPlanQueue.distributedStopTargets(queue, planFile);
         const localTargets = planCleanupTargets(localOperations, planFile, (row) => operationTerminal(row));
-        queueOnly = !localTargets.length && distributedQueueOnlyClearable(distributed);
-        const activeLocal = localTargets.filter((target) => target.active);
+        const localSubmissionTarget = (target) => {
+            const row = localOperations[target.operationId] || {};
+            const operationIdText = String(row.operationId || row.id || target.operationId || "");
+            return row.localSubmissionProgress === true || operationIdText.startsWith("plan-submit-");
+        };
+        const remoteLocalTargets = localTargets.filter((target) => !localSubmissionTarget(target));
+        queueOnly = !remoteLocalTargets.length && (distributedQueueOnlyClearable(distributed) || (!distributed.length && localTargets.some(localSubmissionTarget)));
+        const activeLocal = remoteLocalTargets.filter((target) => target.active);
         const recoverWorkers = queueOnly ? [] : [...new Set([
             ...activeLocal.map((target) => target.workerId).filter(Boolean),
             ...distributed.filter((row) => row.active || row.workerId).map((row) => row.workerId).filter(Boolean),
@@ -13266,7 +13421,7 @@ export class RealtimeTunnelPanelProvider {
         });
             recovered = queueOnly
                 ? { recovered: [], conflicts: [], realtime: this.isRealtimeMode(), workersChecked: 0, failures: [] }
-                : await this.recoverPlanOperationsForStopClear(planFile, { workerIds: recoverWorkers, timeoutMs: 8000 });
+                : await this.recoverPlanOperationsForStopClear(planFile, { workerIds: recoverWorkers, timeoutMs: this.planStopClearWaitMs() });
         }
         catch (error) {
             return this.finishPlanStopClear(planFile, {
@@ -13300,8 +13455,10 @@ export class RealtimeTunnelPanelProvider {
         try {
             operations = mergeTrustedPlanOperations(this.buildPlanRuntimeEvidenceState().operations, recovered.recovered);
             targets = planCleanupTargets(operations, planFile, (row) => operationTerminal(row)).map((target) => {
-                const row = operations[target.operationId] || Object.values(operations).find((item: any) => String(item?.operationId || item?.id || "") === target.operationId);
-                return { ...target, workerId: this.runOperationWorkerId(row) || target.workerId };
+                const row = operations[target.operationId] || Object.values(operations).find((item: any) => String(item?.operationId || item?.id || "") === target.operationId) || {};
+                const operationIdText = String(row.operationId || row.id || target.operationId || "");
+                const localSubmission = row.localSubmissionProgress === true || operationIdText.startsWith("plan-submit-");
+                return { ...target, workerId: localSubmission ? "" : (this.runOperationWorkerId(row) || target.workerId), active: localSubmission ? false : target.active, localSubmission };
             });
             if (!targets.length && !distributed.length) {
                 const text = planStopMissingEvidenceMessage(planFile, recovered);
@@ -13352,8 +13509,10 @@ export class RealtimeTunnelPanelProvider {
             });
         }
         const stopEpoch = this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1;
+        this.revokePlanSubmissions(planFile);
         this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
         const clearGeneration = this.distributedQueueGeneration;
+        this.distributedTickAbort?.abort();
         const recoverFailures = queueOnly ? [] : (recovered.failures || []).map((item) => String(item || "").trim()).filter(Boolean);
         const failedRecoverWorkers = new Set(recoverFailures.map((item) => item.split(":")[0].trim().toLowerCase()).filter((item) => item && !item.includes(" ")));
         const failures = [];
@@ -13367,24 +13526,13 @@ export class RealtimeTunnelPanelProvider {
             phase: "pause-scheduler", outcome: "running",
             message: queueOnly
                 ? "已暂停新派发。未派发队列不依赖卡住的 Worker 查询，正在等待已有队列写入结束。"
-                : "已暂停新派发，正在等待当前调度轮次停下后再改队列。",
+                : "已暂停新派发。卡住的 Worker 查询已与本轮隔离；未派发记录在队列写入结束后清除，有远端身份的记录仍要精确停止。",
             nextStep: "队列写入最长等 8 秒。未派发记录可在旧调度查询仍挂起时清除；有远端身份的记录超时后保留。",
         });
         const pendingTick = this.distributedQueueTickPromise;
-        if (pendingTick && !queueOnly) {
-            const tickStopped = await this.boundedPromise(() => pendingTick.then(() => true).catch(() => true), 8000, new Error("调度轮次等待超时")).catch(() => false);
-            if (!tickStopped || this.distributedQueueTickPromise) {
-                failures.push("调度轮次在 8 秒内没有停下，已阻止本次写队列和新派发");
-                return this.finishPlanStopClear(planFile, {
-                    phase: "scheduler-tick", outcome: "failed",
-                    message: `${planFile} 的调度轮次仍在访问 Worker 或写队列，本次没有删除任何条目。`,
-                    nextStep: "新派发保持暂停，直到这一轮调度自行结束并清空。结束后重新点“终止并清理”；不要靠停隧道来结束已经挂起的查询。",
-                    failures, retained: distributed.length,
-                });
-            }
-        }
+        if (pendingTick) this.detachStaleDistributedTick(pendingTick);
         if (this.distributedQueueWritePromise) {
-            const writeSettled = await this.boundedPromise(() => Promise.resolve(this.distributedQueueWritePromise).then(() => true, () => true), 8000, new Error("队列写入等待超时")).catch(() => false);
+            const writeSettled = await this.boundedPromise(() => Promise.resolve(this.distributedQueueWritePromise).then(() => true, () => true), this.planStopClearWaitMs(), new Error("队列写入等待超时")).catch(() => false);
             if (!writeSettled) {
                 failures.push("已有队列写入在 8 秒内没有结束，未派发记录未删除");
                 return this.finishPlanStopClear(planFile, {
@@ -13395,7 +13543,8 @@ export class RealtimeTunnelPanelProvider {
                 });
             }
         }
-        if (root !== workspaceRoot() || this.distributedPlanStopEpoch !== stopEpoch) {
+        const clearStillHere = () => root === workspaceRoot() && this.distributedPlanStopEpoch === stopEpoch;
+        if (!clearStillHere()) {
             return this.finishPlanStopClear(planFile, {
                 phase: "project-switch", outcome: "failed",
                 message: "确认后项目或清理批次已变化，已停止写队列。",
@@ -13408,24 +13557,38 @@ export class RealtimeTunnelPanelProvider {
             nextStep: "未确认停止或 tmux 未关闭的条目会保留在队列里。",
         });
         for (const target of active) {
+            if (!clearStillHere()) break;
+            if (target.localSubmission) continue;
             try {
                 const row = operations[target.operationId] || Object.values(operations).find((item: any) => String(item?.operationId || item?.id || "") === target.operationId) || {};
                 const workerId = this.runOperationWorkerId(row) || target.workerId;
+                if (!clearStillHere()) break;
                 await this.boundedPromise(() => this.stopExperimentRouted({
                     operationId: target.operationId,
                     planFile: target.planFile,
                     workerId,
                     manualStopType: "scheduler_aborted",
-                }), 8000, new Error(`停止 ${target.operationId} 超过 8 秒，晚到回执不会当作已清除。下一步：核对 Worker ${workerId || "未知"} 隧道后重试这一条。`));
+                }), this.planStopClearWaitMs(), new Error(`停止 ${target.operationId} 超过 8 秒，晚到回执不会当作已清除。下一步：核对 Worker ${workerId || "未知"} 隧道后重试这一条。`));
+                if (!clearStillHere()) break;
                 stopped.add(target.operationId);
             }
             catch (error) {
+                if (!clearStillHere()) break;
                 failures.push(`${target.planFile} ${target.operationId}: ${errorMessage(error)}`);
             }
+        }
+        if (!clearStillHere()) {
+            return this.finishPlanStopClear(planFile, {
+                phase: "project-switch", outcome: "failed",
+                message: "停止活动进度期间项目或清理批次已变化，已停止关闭 tmux 和写队列。",
+                nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
+                failures,
+            });
         }
         const stoppedOrEnded = targets.filter((target) => !target.active || stopped.has(target.operationId));
         closedTmux = new Set<string>();
         const closeWindow = async (workerId, tmuxTarget, tmuxSession, label) => {
+            if (!clearStillHere()) return false;
             if (!tmuxTarget) {
                 if (tmuxSession) failures.push(`${label}: tmux 仅有会话名 ${tmuxSession}，无法确认对应窗口，进度保留`);
                 return false;
@@ -13435,15 +13598,16 @@ export class RealtimeTunnelPanelProvider {
                 return false;
             }
             try {
-                await this.boundedPromise(() => this.performKillTmuxWindow(workerId, tmuxTarget), 8000, new Error(`关闭 tmux ${tmuxTarget} 超过 8 秒，未确认关闭，进度保留。下一步：到 Worker ${workerId} 核对这个标签后再重试。`));
-                return true;
+                await this.boundedPromise(() => this.performKillTmuxWindow(workerId, tmuxTarget), this.planStopClearWaitMs(), new Error(`关闭 tmux ${tmuxTarget} 超过 8 秒，未确认关闭，进度保留。下一步：到 Worker ${workerId} 核对这个标签后再重试。`));
+                return clearStillHere();
             }
             catch (error) {
-                failures.push(`${label} ${tmuxTarget}: ${errorMessage(error)}`);
+                if (clearStillHere()) failures.push(`${label} ${tmuxTarget}: ${errorMessage(error)}`);
                 return false;
             }
         };
         for (const target of stoppedOrEnded) {
+            if (!clearStillHere()) break;
             if (!target.tmuxSession && !target.tmuxTarget) continue;
             if (await closeWindow(target.workerId, target.tmuxTarget, target.tmuxSession, target.operationId)) closedTmux.add(target.operationId);
         }
@@ -13459,7 +13623,16 @@ export class RealtimeTunnelPanelProvider {
         confirmedJobs = new Set<string>();
         confirmedDeferred = new Set<string>();
         const latest = await this.loadDistributedQueue(root);
+        if (!clearStillHere()) {
+            return this.finishPlanStopClear(planFile, {
+                phase: "project-switch", outcome: "failed",
+                message: "读取队列时项目或清理批次已变化，已停止后续远端停止。",
+                nextStep: "回到原项目后重新确认这一张 Plan。",
+                failures,
+            });
+        }
         for (const row of DistributedPlanQueue.distributedStopTargets(latest, planFile)) {
+            if (!clearStillHere()) break;
             const plan = latest.plans.find((item) => item.id === row.planId);
             const job = plan?.jobs.find((item) => item.index === row.jobIndex && item.attempt === row.attempt);
             if (row.kind === "deferred") {
@@ -13467,6 +13640,11 @@ export class RealtimeTunnelPanelProvider {
                 continue;
             }
             if (!plan || !job) continue;
+            const launchKey = `${row.planId}\0${row.jobIndex}\0${row.attempt}`;
+            if (this.distributedLaunchInFlight?.has(launchKey)) {
+                failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 正在向 Worker 发起启动，远端身份尚未回写，不能按未派发清除。下一步：等这一次启动回执落地后再点“终止并清理”。`);
+                continue;
+            }
             const remoteIdentity = Boolean(job.workerId && job.commandId && job.gpuId !== undefined);
             const needsRemoteStop = ["dispatching", "running", "unknown"].includes(job.status) || remoteIdentity;
             if (!needsRemoteStop) {
@@ -13477,14 +13655,17 @@ export class RealtimeTunnelPanelProvider {
                 failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 终态 job 没有 Worker 身份，无法确认没有残留 tmux 标签，队列保留`);
                 continue;
             }
+            if (!clearStillHere()) break;
             let snapshot;
             try {
-                snapshot = remoteIdentity ? await this.boundedPromise(() => this.client.getWorkerTasks(job.workerId), 8000, new Error(`查询 Worker ${job.workerId} 超过 8 秒，job ${row.jobIndex} 保留。下一步：恢复该 Worker 后重试；晚到快照不会当作已清除。`)) : { tasks: [] };
+                snapshot = remoteIdentity ? await this.boundedPromise(() => this.client.getWorkerTasks(job.workerId), this.planStopClearWaitMs(), new Error(`查询 Worker ${job.workerId} 超过 8 秒，job ${row.jobIndex} 保留。下一步：恢复该 Worker 后重试；晚到快照不会当作已清除。`)) : { tasks: [] };
             }
             catch (error) {
+                if (!clearStillHere()) break;
                 failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: ${errorMessage(error)}`);
                 continue;
             }
+            if (!clearStillHere()) break;
             const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : null;
             const task = tasks?.find((item) => DistributedPlanQueue.remoteTaskMatchesJob(plan, job, item) || DistributedPlanQueue.stopIdentityMatchesJob(plan, job, item));
             const pane = String(task?.tmuxPane || "").trim();
@@ -13504,31 +13685,78 @@ export class RealtimeTunnelPanelProvider {
                 confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
                 continue;
             }
+            if (!clearStillHere()) break;
             try {
-                await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job), 8000, new Error(`停止 Worker ${job.workerId} job ${row.jobIndex} 超过 8 秒，队列保留。下一步：核对精确 pane 回执后再重试；晚到回执不会当作已清除。`));
+                await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job), this.planStopClearWaitMs(), new Error(`停止 Worker ${job.workerId} job ${row.jobIndex} 超过 8 秒，队列保留。下一步：核对精确 pane 回执后再重试；晚到回执不会当作已清除。`));
             }
             catch (error) {
+                if (!clearStillHere()) break;
                 failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: ${errorMessage(error)}`);
                 continue;
             }
+            if (!clearStillHere()) break;
             confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
+        }
+        if (!clearStillHere()) {
+            return this.finishPlanStopClear(planFile, {
+                phase: "project-switch", outcome: "failed",
+                message: "停止期间项目或清理批次已变化，已停止写队列和后续远端操作。",
+                nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
+                failures,
+            });
         }
         if (confirmedJobs.size || confirmedDeferred.size) {
             const current = await this.loadDistributedQueue(root);
+            if (!clearStillHere()) {
+                return this.finishPlanStopClear(planFile, {
+                    phase: "project-switch", outcome: "failed",
+                    message: "重读队列后项目或清理批次已变化，已停止写队列。",
+                    nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
+                    failures,
+                });
+            }
             const next = DistributedPlanQueue.removeConfirmedDistributedPlan(current, planFile, { jobKeys: confirmedJobs, deferredIds: confirmedDeferred });
             await this.saveDistributedQueue(root, next, { queueGeneration: clearGeneration });
+        }
+        if (!clearStillHere()) {
+            return this.finishPlanStopClear(planFile, {
+                phase: "project-switch", outcome: "failed",
+                message: "写队列期间项目或清理批次已变化，已停止隐藏进度和提交状态。",
+                nextStep: "回到原项目后核对这一张 Plan，再重新确认。",
+                failures,
+            });
         }
         const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
         const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...clearable.map((target) => target.operationId)]);
         await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);
         const queueCleared = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length === 0;
-        if (clearable.length === targets.length && queueCleared && root === workspaceRoot()) {
+        if (clearable.length === targets.length && queueCleared && clearStillHere()) {
             const savedCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
             const cutoffs = savedCutoffs && typeof savedCutoffs === "object" && !Array.isArray(savedCutoffs) ? { ...savedCutoffs as Record<string, string> } : {};
             cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();
             await this.context.workspaceState.update(keys.executionHistoryCutoffs, cutoffs);
         }
-        if (root === workspaceRoot()) this.postState();
+        const clearedSomething = clearable.length || confirmedJobs.size || confirmedDeferred.size;
+        if (!failures.length && clearedSomething && clearStillHere()) {
+            for (const [operationId, record] of Object.entries(this.localOperations || {})) {
+                if (!record || typeof record !== "object") continue;
+                const operationIdText = String(record.operationId || record.opId || record.id || "");
+                if (record.localSubmissionProgress !== true && !operationIdText.startsWith("plan-submit-")) continue;
+                if (normalizePlanSelectionKey(String(record.planFile || "")).toLowerCase() !== normalizePlanSelectionKey(planFile).toLowerCase()) continue;
+                this.localOperations[operationId] = {
+                    ...record,
+                    status: "cancelled",
+                    message: "已终止并清理，提交进度已清除。",
+                    error: "",
+                    stage: "cleared",
+                    updatedAt: new Date().toISOString(),
+                    finishedAt: new Date().toISOString(),
+                    reconcileEvidenceActive: false,
+                };
+            }
+            this.markLocalOperationsDirty();
+        }
+        if (clearStillHere()) this.postState();
         const retained = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length + (targets.length - clearable.length);
         const summary = [`已清除 ${clearable.length} 条运行进度、${confirmedJobs.size} 个分布式 job、${confirmedDeferred.size} 条等待提交，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`, ...failures].join("\n");
         const outcome = failures.length ? (clearable.length || confirmedJobs.size || confirmedDeferred.size ? "partial" : "failed") : "completed";
@@ -13553,17 +13781,8 @@ export class RealtimeTunnelPanelProvider {
             });
         }
         finally {
-            const lingeringTick = this.distributedQueueTickPromise;
-            if (this.distributedPlanStopEpoch === stopEpoch && queueOnly) {
-                this.distributedQueueTickPromise = undefined;
-                this.distributedPlanStopEpoch = 0;
-            } else if (this.distributedPlanStopEpoch === stopEpoch && lingeringTick) {
-                void Promise.resolve(lingeringTick).then(() => undefined, () => undefined).finally(() => {
-                    if (this.distributedPlanStopEpoch !== stopEpoch) return;
-                    if (this.distributedQueueTickPromise === lingeringTick) this.distributedQueueTickPromise = undefined;
-                    if (!this.distributedQueueTickPromise) this.distributedPlanStopEpoch = 0;
-                });
-            } else if (this.distributedPlanStopEpoch === stopEpoch) {
+            if (this.distributedPlanStopEpoch === stopEpoch) {
+                if (this.distributedQueueTickPromise) this.detachStaleDistributedTick(this.distributedQueueTickPromise);
                 this.distributedPlanStopEpoch = 0;
             }
         }

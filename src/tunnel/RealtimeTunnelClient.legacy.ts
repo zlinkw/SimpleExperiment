@@ -198,8 +198,8 @@ export class RealtimeTunnelClient {
     return this.http.getOperation(operationId);
   }
 
-  getWorkerTasks(): Promise<unknown> {
-    return this.http.getWorkerTasks();
+  getWorkerTasks(options: { signal?: AbortSignal } = {}): Promise<unknown> {
+    return this.http.getWorkerTasks(options);
   }
 
   getRunEvidence(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {

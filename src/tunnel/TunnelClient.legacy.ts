@@ -93,7 +93,7 @@ export interface TunnelClient {
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
   getOperation(operationId: string): Promise<unknown>;
-  getWorkerTasks?(): Promise<unknown>;
+  getWorkerTasks?(options?: { signal?: AbortSignal }): Promise<unknown>;
   getRunEvidence?(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown>;
   postAction<T>(action: TunnelAction, body: unknown): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
@@ -240,10 +240,11 @@ export class HttpTunnelClient implements TunnelClient {
     });
   }
 
-  getWorkerTasks(): Promise<unknown> {
+  getWorkerTasks(options: { signal?: AbortSignal } = {}): Promise<unknown> {
     return this.requestJson("/api/worker/tasks", "job_reconcile", undefined, {
       method: "GET",
       userInitiated: true,
+      signal: options.signal,
     });
   }
 
@@ -291,7 +292,7 @@ export class HttpTunnelClient implements TunnelClient {
     apiPath: string,
     purpose: TunnelRequestPurpose,
     body: unknown,
-    options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number },
+    options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number; signal?: AbortSignal },
   ): Promise<T> {
     if (!apiPath.startsWith("/api/")) throw new Error("Only Hub Agent API paths are allowed.");
     const base = localBaseUrl(this.endpoint);
@@ -301,6 +302,11 @@ export class HttpTunnelClient implements TunnelClient {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.endpoint.timeoutMs ?? 8_000);
           timeout.unref?.();
+          const onCallerAbort = () => controller.abort();
+          if (options.signal) {
+            if (options.signal.aborted) controller.abort();
+            else options.signal.addEventListener("abort", onCallerAbort, { once: true });
+          }
           try {
             const response = await fetch(`${base}${apiPath}`, {
               method: options.method,
@@ -312,7 +318,10 @@ export class HttpTunnelClient implements TunnelClient {
             if (!response.ok) throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
             if (!text.trim()) return {} as T;
             return JSON.parse(text) as T;
-          } finally { clearTimeout(timeout); }
+          } finally {
+            clearTimeout(timeout);
+            options.signal?.removeEventListener("abort", onCallerAbort);
+          }
         },
         { userInitiated: options.userInitiated },
       );

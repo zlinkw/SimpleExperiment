@@ -151,10 +151,11 @@ class HttpTunnelClient {
             userInitiated: true,
         });
     }
-    getWorkerTasks() {
+    getWorkerTasks(options = {}) {
         return this.requestJson("/api/worker/tasks", "job_reconcile", undefined, {
             method: "GET",
             userInitiated: true,
+            signal: options.signal,
         });
     }
     getRunEvidence(params = {}) {
@@ -202,6 +203,13 @@ class HttpTunnelClient {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.endpoint.timeoutMs ?? 8_000);
             timeout.unref?.();
+            const onCallerAbort = () => controller.abort();
+            if (options.signal) {
+                if (options.signal.aborted)
+                    controller.abort();
+                else
+                    options.signal.addEventListener("abort", onCallerAbort, { once: true });
+            }
             try {
                 const response = await fetch(`${base}${apiPath}`, {
                     method: options.method,
@@ -218,6 +226,7 @@ class HttpTunnelClient {
             }
             finally {
                 clearTimeout(timeout);
+                options.signal?.removeEventListener("abort", onCallerAbort);
             }
         }, { userInitiated: options.userInitiated });
     }

@@ -157,8 +157,8 @@ class RealtimeTunnelClient {
     getOperation(operationId) {
         return this.http.getOperation(operationId);
     }
-    getWorkerTasks() {
-        return this.http.getWorkerTasks();
+    getWorkerTasks(options = {}) {
+        return this.http.getWorkerTasks(options);
     }
     getRunEvidence(params) {
         return this.http.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));

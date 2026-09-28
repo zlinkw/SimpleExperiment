@@ -299,11 +299,11 @@ export class MultiEndpointRealtimeClient {
     return client.getOperation(operationId);
   }
 
-  async getWorkerTasks(workerId: string): Promise<unknown> {
+  async getWorkerTasks(workerId: string, options: { signal?: AbortSignal } = {}): Promise<unknown> {
     const client = this.clients.get(workerId);
     const endpoint = this.endpointById.get(workerId);
     if (!client || endpoint?.role !== "worker") throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
-    return client.getWorkerTasks();
+    return client.getWorkerTasks(options);
   }
 
   async getRunEvidence(workerId: string | undefined, params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {
