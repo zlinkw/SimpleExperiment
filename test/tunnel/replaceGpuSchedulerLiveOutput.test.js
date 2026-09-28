@@ -59,7 +59,7 @@ test("live output uses its own request budget and explicit user reads work while
   }
 });
 
-test("live output and manual refresh keep independent cooldowns", async () => {
+test("live output and manual refresh remain available with legacy cooldown settings", async () => {
   const calls = [];
   const server = http.createServer((req, res) => {
     calls.push(req.url);

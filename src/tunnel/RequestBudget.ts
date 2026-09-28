@@ -22,6 +22,7 @@ export type RequestBudgetBlockReason =
   | "offline";
 
 export interface RequestBudgetConfig {
+  // Legacy settings are accepted for stored-config compatibility, but no longer gate requests.
   maxRequestsPerMinute: number;
   maxConcurrentRequests: number;
   minIntervalByPurpose: Partial<Record<TunnelRequestPurpose, number>>;
@@ -60,22 +61,12 @@ type BudgetEvent = {
 };
 
 export const defaultRequestBudgetConfig: RequestBudgetConfig = {
-  maxRequestsPerMinute: 10,
-  maxConcurrentRequests: 1,
+  maxRequestsPerMinute: 0,
+  maxConcurrentRequests: 0,
   pauseWhenHidden: true,
   allowManualOverride: true,
   disabledPurposes: [],
-  minIntervalByPurpose: {
-    health: 60_000,
-    snapshot: 60_000,
-    gpu_history: 1_000,
-    live_output: 1_000,
-    manual_refresh: 1_000,
-    diagnostics: 60_000,
-    events: 0,
-    file_transfer: 0,
-    tensorboard_scalar: 1_000,
-  },
+  minIntervalByPurpose: {},
 };
 
 export class RequestBudgetDeniedError extends Error {
@@ -96,9 +87,7 @@ export class RequestBudget {
   private allowedEventCount = 0;
   private deniedEventCount = 0;
   private lastAllowedAt?: number;
-  private readonly lastByPurpose = new Map<TunnelRequestPurpose, number>();
   private lastDeniedReason?: RequestBudgetBlockReason;
-  private dispatchTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly config: RequestBudgetConfig = defaultRequestBudgetConfig) {}
 
@@ -128,16 +117,6 @@ export class RequestBudget {
     if (this.config.pauseWhenHidden && this.hidden && !options.userInitiated && !options.visibleBypass && purpose !== "health" && purpose !== "job_dispatch" && purpose !== "job_reconcile") {
       return this.deny(now, purpose, "hidden");
     }
-    if (purpose === "job_dispatch" || purpose === "job_reconcile") return { allowed: true };
-    if (this.inFlight >= this.config.maxConcurrentRequests) return this.deny(now, purpose, "rate_limited", 500);
-    if (this.allowedLastMinute(now) >= this.config.maxRequestsPerMinute) return this.deny(now, purpose, "rate_limited", 60_000);
-
-    const minInterval = this.config.minIntervalByPurpose[purpose] ?? 0;
-    const last = this.lastByPurpose.get(purpose) || 0;
-    if (Number.isFinite(minInterval) && minInterval > 0 && now - last < minInterval) {
-      return this.deny(now, purpose, "cooldown", minInterval - (now - last));
-    }
-
     return { allowed: true };
   }
 
@@ -146,29 +125,11 @@ export class RequestBudget {
     fn: () => Promise<T>,
     options: RequestBudgetRunOptions = {},
   ): Promise<T> {
-    if (purpose === "job_dispatch" || purpose === "job_reconcile") {
-      const previous = this.dispatchTail;
-      let release!: () => void;
-      this.dispatchTail = new Promise<void>((resolve) => { release = resolve; });
-      await previous;
-      try {
-        while (this.inFlight >= this.config.maxConcurrentRequests) {
-          const decision = this.decide(purpose, options);
-          if (!decision.allowed) throw new RequestBudgetDeniedError(purpose, decision);
-          await new Promise<void>((resolve) => setTimeout(resolve, 25));
-        }
-        const decision = this.decide(purpose, options);
-        if (!decision.allowed) throw new RequestBudgetDeniedError(purpose, decision);
-        this.inFlight += 1;
-        try { return await fn(); }
-        finally { this.inFlight = Math.max(0, this.inFlight - 1); }
-      } finally { release(); }
-    }
     const decision = this.decide(purpose, options);
     if (!decision.allowed) throw new RequestBudgetDeniedError(purpose, decision);
     const now = Date.now();
     this.recordEvent({ at: now, purpose, allowed: true });
-    this.lastByPurpose.set(purpose, now);
+    this.lastDeniedReason = undefined;
     this.inFlight += 1;
     try {
       return await fn();
@@ -184,7 +145,7 @@ export class RequestBudget {
       paused: this.paused,
       hidden: this.hidden,
       inFlight: this.inFlight,
-      maxRequestsPerMinute: this.config.maxRequestsPerMinute,
+      maxRequestsPerMinute: 0,
       requestsLastMinute: this.allowedEventCount,
       deniedLastMinute: this.deniedEventCount,
       lastAllowedAt: this.lastAllowedAt === undefined ? undefined : new Date(this.lastAllowedAt).toISOString(),
@@ -201,11 +162,6 @@ export class RequestBudget {
     this.recordEvent({ at: now, purpose, allowed: false, reason });
     this.lastDeniedReason = reason;
     return { allowed: false, reason, retryAfterMs };
-  }
-
-  private allowedLastMinute(now: number): number {
-    this.prune(now);
-    return this.allowedEventCount;
   }
 
   private recordEvent(event: BudgetEvent): void {

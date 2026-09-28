@@ -6835,7 +6835,7 @@ export function renderPanelHtml(): string {
         treeObjectItem("settings", "结果 CSV 目录", "设置", "", "配置新 Plan 和默认结果 CSV 的工作区相对目录。", "settings-result-csv", "", "结果 CSV 文件夹 路径 浏览 result_csv"),
         treeObjectItem("settings", "结果列映射", "设置", "", "交互式关联标准字段和结果 CSV 列，保存到插件设置。", "settings-result-mapping", "", "列映射 case seed metric value"),
         treeObjectItem("settings", "输出接入规则", "设置", "", "按需配置结果文件、日志和指标别名。", "settings-result-rules", "", "结果接入 指标 别名"),
-        treeObjectItem("settings", "调度与上报", "设置", "", "配置 scheduler poll、jitter、TTL、可用性上报和 Worker 控制节流。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds workerActionMinIntervalMs workerActionMaxConcurrent"),
+        treeObjectItem("settings", "调度与上报", "设置", "", "配置 scheduler poll、jitter、TTL 和可用性上报；请求限流已关闭。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds"),
         treeObjectItem("settings", "Hub 设置", "设置", "", "配置 Hub 控制面、隧道、Agent 和项目父目录。", "servers-hub", "", "Hub 隧道 Agent 端口 项目父目录"),
         treeObjectItem("settings", "Worker 设置", "设置", "", "配置 Worker、GPU 上限、会话和端口。", "settings-servers", "", "Worker GPU 上限 maxConcurrentGpus localForwardPort")
       ];
@@ -7722,7 +7722,7 @@ export function renderPanelHtml(): string {
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>',
         '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>',
         '<span class="pill" title="事件延迟">实时事件 <= ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>',
-        '<span class="pill" title="' + escAttr("控制：" + configDefault(scheduler.workerActionMaxConcurrent, 1) + "/" + configDefault(scheduler.workerActionMinIntervalMs, 1500) + "ms") + '">控制 ' + esc(configDefault(scheduler.workerActionMaxConcurrent, 1)) + ' 并发 / ' + esc(configDefault(scheduler.workerActionMinIntervalMs, 1500)) + 'ms</span>'
+        '<span class="pill" title="不再按请求次数、间隔或请求并发限制操作">请求限流已关闭</span>'
       ];
       if (conflicts.length) riskBand.push('<span class="pill status-failed" title="端口冲突">端口冲突 ' + esc(conflicts.length) + '</span>');
       else riskBand.push('<span class="pill status-completed" title="端口无冲突">端口无冲突</span>');
@@ -8008,8 +8008,7 @@ export function renderPanelHtml(): string {
             configInput("scheduler", "localAvailabilityPushSeconds", "本机汇总上报间隔(秒)", configDefault(scheduler.localAvailabilityPushSeconds, 60), "number") +
             configInput("scheduler", "workerAvailabilityPushSeconds", "Worker 上报间隔(秒)", configDefault(scheduler.workerAvailabilityPushSeconds, 60), "number") +
             configInput("scheduler", "operationEventMaxDelayMs", "实时事件最多等待(毫秒)", configDefault(scheduler.operationEventMaxDelayMs, 1000), "number") +
-            configInput("scheduler", "workerActionMinIntervalMs", "Worker 操作防连点间隔(毫秒)", configDefault(scheduler.workerActionMinIntervalMs, 1500), "number") +
-            configInput("scheduler", "workerActionMaxConcurrent", "Worker 操作同时执行数", configDefault(scheduler.workerActionMaxConcurrent, 1), "number") +
+            '<div class="muted">请求限流已关闭。旧版操作间隔和请求并发设置不再限制操作；GPU 任务并发仍按调度策略执行。</div>' +
           '</div>' +
           renderSchedulerGlossary() +
           '<div class="toolbar">' +
@@ -8209,7 +8208,7 @@ export function renderPanelHtml(): string {
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>' +
         '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>' +
         '<span class="pill" title="事件延迟">实时 ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>' +
-        '<span class="pill" title="' + escAttr("控制：" + configDefault(scheduler.workerActionMaxConcurrent, 1) + "/" + configDefault(scheduler.workerActionMinIntervalMs, 1500) + "ms") + '">并发 ' + esc(configDefault(scheduler.workerActionMaxConcurrent, 1)) + '/' + esc(configDefault(scheduler.workerActionMinIntervalMs, 1500)) + 'ms</span>' +
+        '<span class="pill" title="旧版请求间隔与并发限制不再生效">请求限流已关闭</span>' +
         '<span class="pill" title="状态与结果位置">' + esc(topology.stateOwner || "保存位置待确认") + '</span>' +
       '</div>';
       return '<section class="workerDense" data-anchor="servers-sessions" title="单 Worker 紧凑总览">' + head + links + rows + foot + '</section>';
@@ -8697,8 +8696,8 @@ export function renderPanelHtml(): string {
     function renderSchedulerGlossary() {
       const items = [
         ["实时事件最多等待", "停止、删除、归档、任务状态变化发生后，Worker 最多攒多久再推送；它不是轮询周期。", "数值越小越实时，但事件更多；默认 1000 毫秒。"],
-        ["Worker 操作防连点间隔", "同一台 Worker 上两次手动控制动作的最小间隔，用来挡住重复点击。", "只影响停止、删除、归档、重试等手动操作。"],
-        ["Worker 操作同时执行数", "允许多少个 Worker 控制动作同时在路上，不等于 GPU 任务并发。", "通常保持 1，避免同一时间堆积多个控制请求。"],
+        ["Worker 操作防连点间隔", "旧版兼容设置，当前版本不再限制请求间隔。", "停止、重试和校验等操作无需等待此间隔。"],
+        ["Worker 操作同时执行数", "旧版兼容设置，当前版本不再限制控制请求并发。", "GPU 任务并发仍由调度策略控制。"],
         ["可用性缓存 TTL", "Hub 认为 Worker 可用性快照还可信的时间窗口。", "TTL 过期后不再新派任务，但它不是刷新频率。"]
       ];
       return '<div class="schedulerGlossary" title="调度参数">' +
@@ -8717,8 +8716,8 @@ export function renderPanelHtml(): string {
         localAvailabilityPushSeconds: "本机汇总 GPU 与任务可用性并上报的基准间隔，单位秒。",
         workerAvailabilityPushSeconds: "Worker 向 Hub 上报 GPU 与任务可用性的基准间隔，单位秒。",
         operationEventMaxDelayMs: "停止、删除、归档和任务状态事件允许合并的最长时间，单位毫秒；不影响常规轮询。",
-        workerActionMinIntervalMs: "同一 Worker 两次手动控制操作之间的最短间隔，单位毫秒；防止重复点击。",
-        workerActionMaxConcurrent: "同时执行的 Worker 手动控制操作数；不等于 GPU 任务并发数。",
+        workerActionMinIntervalMs: "旧版兼容设置，当前版本不再按操作间隔限制请求。",
+        workerActionMaxConcurrent: "旧版兼容设置，当前版本不再限制控制请求并发；GPU 任务并发仍由调度策略控制。",
         gpuIdleUtilThreshold: "全局空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存且关系，默认 5%）",
         gpuIdleMemThresholdMb: "全局空卡显存阈值：显存 < 阈值 才视为空闲（与利用率且关系，默认 200MB）",
         sessionCheckMinSeconds: "全局会话检测最小间隔（秒，默认 5）"

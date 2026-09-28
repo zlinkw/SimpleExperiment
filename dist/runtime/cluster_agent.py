@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.172"
-RUNTIME_VERSION = "0.5.172"
-PLUGIN_VERSION = "0.5.172"
+AGENT_VERSION = "0.5.173"
+RUNTIME_VERSION = "0.5.173"
+PLUGIN_VERSION = "0.5.173"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -108,7 +108,6 @@ LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
 AUDIT_TAIL_MAX_BYTES = 1024 * 1024
 ATOMIC_REPLACE_ATTEMPTS = 6
 TRANSFER_STALL_SECONDS = 120
-WORKER_ACTION_WAIT_TIMEOUT_SECONDS = 30
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
@@ -9371,33 +9370,21 @@ def selected_worker_id(payload):
     return worker_id
 
 def acquire_worker_action_slot(root, worker_id, payload):
-    options = action_options(payload)
-    min_interval_ms = max(500, int(options.get("workerActionMinIntervalMs") or options.get("worker_action_min_interval_ms") or 1500))
-    max_concurrent = max(1, int(options.get("workerActionMaxConcurrent") or options.get("worker_action_max_concurrent") or 1))
     worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     key = worker_id
-    # release() refreshes the last-action stamp, so a steady stream of actions on one worker can
-    # starve a waiter forever; without a deadline that waiter is a permanently blocked HTTP thread.
-    deadline = time.time() + WORKER_ACTION_WAIT_TIMEOUT_SECONDS
-    while True:
-        with WORKER_ACTION_LOCK:
-            in_flight = int(WORKER_ACTION_INFLIGHT.get(key) or 0)
-            if in_flight >= max_concurrent:
-                raise RuntimeError(f"Worker {worker_id} 控制动作已达到并发上限 {max_concurrent}")
-            now_ms = int(time.time() * 1000)
-            last_ms = int(WORKER_ACTION_LAST_AT.get(key) or 0)
-            wait_ms = max(0, min_interval_ms - (now_ms - last_ms))
-            if wait_ms <= 0:
-                WORKER_ACTION_INFLIGHT[key] = in_flight + 1
-                WORKER_ACTION_LAST_AT[key] = now_ms
-                prune_runtime_memory_state()
-                break
-        remaining_ms = int((deadline - time.time()) * 1000)
-        if remaining_ms <= 0:
-            raise RuntimeError(f"Worker {worker_id} 控制动作等待防连点间隔超过 {WORKER_ACTION_WAIT_TIMEOUT_SECONDS} 秒，请稍后重试")
-        time.sleep(max(1, min(wait_ms, remaining_ms)) / 1000.0)
+    # Retain accounting, but never sleep or reject unrelated control requests.
+    # Action identity and exact-target validation remain in the action handlers.
+    with WORKER_ACTION_LOCK:
+        WORKER_ACTION_INFLIGHT[key] = int(WORKER_ACTION_INFLIGHT.get(key) or 0) + 1
+        WORKER_ACTION_LAST_AT[key] = int(time.time() * 1000)
+        prune_runtime_memory_state()
+    released = False
     def release():
+        nonlocal released
         with WORKER_ACTION_LOCK:
+            if released:
+                return
+            released = True
             current = int(WORKER_ACTION_INFLIGHT.get(key) or 0)
             if current <= 1:
                 WORKER_ACTION_INFLIGHT.pop(key, None)

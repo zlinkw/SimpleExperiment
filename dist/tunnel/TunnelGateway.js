@@ -27,7 +27,7 @@ exports.defaultTunnelGatewayConfig = {
     tunnelStartMode: "manual",
     healthCheckIntervalSeconds: 30,
     snapshotPollIntervalSeconds: 30,
-    maxRequestsPerMinute: 120,
+    maxRequestsPerMinute: 0,
     allowStreaming: true,
     streamingRequiresExplicitConfirm: false,
     pauseWhenWebviewHidden: true,
@@ -69,7 +69,7 @@ function normalizeProvider(provider) {
 function requestBudgetConfigFromTunnel(config) {
     return {
         ...RequestBudget_1.defaultRequestBudgetConfig,
-        maxRequestsPerMinute: config.maxRequestsPerMinute,
+        maxRequestsPerMinute: 0,
         pauseWhenHidden: config.pauseWhenWebviewHidden,
     };
 }

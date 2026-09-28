@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.172",
+  "version": "0.5.173",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -690,14 +690,16 @@
           "default": 1500,
           "minimum": 500,
           "scope": "application",
-          "description": "操作防连点：同一Worker连续控制操作的最小间隔1500毫秒，用于防重复点击。"
+          "description": "旧版兼容设置：请求限流已关闭，此间隔不再限制操作。",
+          "deprecationMessage": "请求限流已关闭，此设置不再生效。"
         },
         "simpleExperiment.scheduler.workerActionMaxConcurrent": {
           "type": "number",
           "default": 1,
           "minimum": 1,
           "scope": "application",
-          "description": "操作并发：同时执行的Worker控制操作数量，默认1，避免堆积请求。"
+          "description": "旧版兼容设置：请求限流已关闭，此值不再限制控制请求；GPU任务并发由调度策略控制。",
+          "deprecationMessage": "请求限流已关闭，此设置不再生效。"
         },
         "simpleExperiment.gpu.currentUser": {
           "type": "string",

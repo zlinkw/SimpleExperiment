@@ -28,6 +28,34 @@ test("run stop retry reproduce validate dry-run use action API", async () => {
   }
 });
 
+test("stop reaches HTTP while validation is pending despite legacy concurrency settings", async () => {
+  let releaseValidation;
+  let validationReceived;
+  const received = new Promise((resolve) => { validationReceived = resolve; });
+  const server = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url === "/api/actions/validate-plan") {
+      releaseValidation = () => res.end(JSON.stringify({ schemaVersion: 1, accepted: true }));
+      validationReceived();
+    } else {
+      res.end(JSON.stringify({ schemaVersion: 1, accepted: true }));
+    }
+  });
+  await listen(server);
+  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 },
+    new RequestBudget({ ...defaultRequestBudgetConfig, maxRequestsPerMinute: 1, maxConcurrentRequests: 1,
+      minIntervalByPurpose: { run_plan: 60_000, stop: 60_000 } }));
+  const validation = client.postAction("validate-plan", { opId: "validation" });
+  try {
+    await received;
+    assert.equal((await client.postAction("stop-experiment", { opId: "stop" })).accepted, true);
+  } finally {
+    releaseValidation?.();
+    await validation;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 function actionServer(calls) {
   return http.createServer((req, res) => {
     calls.push(req.url);

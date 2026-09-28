@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { RequestBudget, RequestBudgetDeniedError, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
 const { defaultTunnelGatewayConfig, normalizeTunnelGatewayConfig, refreshProfiles, requestBudgetConfigFromTunnel } = require("../../dist/tunnel/TunnelGateway.js");
 
-test("request budget enforces cooldown, pause, hidden, and per-minute limits", async () => {
+test("legacy quotas and cooldowns no longer reject requests; explicit pause and hidden remain", async () => {
   const budget = new RequestBudget({
     ...defaultRequestBudgetConfig,
     maxRequestsPerMinute: 2,
@@ -13,11 +13,9 @@ test("request budget enforces cooldown, pause, hidden, and per-minute limits", a
 
   await budget.run("health", async () => "ok");
   budget.config.minIntervalByPurpose.health = 50;
-  await assert.rejects(() => budget.run("health", async () => "blocked"), (error) => {
-    assert.equal(error instanceof RequestBudgetDeniedError, true);
-    assert.equal(error.decision.reason, "cooldown");
-    return true;
-  });
+  for (let index = 0; index < 150; index++) {
+    assert.equal(await budget.run("health", async () => "ok"), "ok");
+  }
   budget.config.minIntervalByPurpose.health = 0;
 
   budget.setHidden(true);
@@ -37,22 +35,30 @@ test("events are enabled by default for realtime tunnel", async () => {
   assert.equal(await budget.run("events", async () => "ok"), "ok");
 });
 
-test("job dispatch queues behind transport use without consuming the polling quota", async () => {
+test("offline purposes remain disabled and resume restores allowed requests", async () => {
+  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, disabledPurposes: ["file_transfer"] });
+  await assert.rejects(() => budget.run("file_transfer", async () => "blocked", { userInitiated: true }),
+    (error) => error instanceof RequestBudgetDeniedError && error.decision.reason === "offline");
+  budget.pauseAll();
+  await assert.rejects(() => budget.run("stop", async () => "blocked", { userInitiated: true }), /paused/);
+  budget.resume();
+  assert.equal(await budget.run("stop", async () => "ok", { userInitiated: true }), "ok");
+  assert.equal(budget.snapshot().lastDeniedReason, undefined);
+});
+
+test("dispatch, reconciliation and stop do not wait behind an unfinished request", async () => {
   const budget = new RequestBudget({ ...defaultRequestBudgetConfig, maxRequestsPerMinute: 1,
     maxConcurrentRequests: 1, minIntervalByPurpose: { run_plan: 60_000 } });
   await budget.run("run_plan", async () => "validated");
   budget.setHidden(true);
   let release;
   const first = budget.run("job_dispatch", () => new Promise((resolve) => { release = resolve; }));
-  const order = [];
-  const second = budget.run("job_dispatch", async () => { order.push("second"); return "ok"; });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(order, []);
-  release("first");
-  assert.equal(await first, "first");
-  assert.equal(await second, "ok");
-  assert.deepEqual(order, ["second"]);
-  assert.equal(budget.snapshot().requestsLastMinute, 1);
+  try {
+    const calls = ["job_dispatch", "job_reconcile", "stop"].map((purpose) => budget.run(purpose, async () => purpose, { userInitiated: true }));
+    const completed = await Promise.race([Promise.all(calls), new Promise((resolve) => setTimeout(() => resolve("blocked"), 100))]);
+    assert.deepEqual(completed, ["job_dispatch", "job_reconcile", "stop"]);
+  } finally { release("first"); await first; }
+  assert.equal(budget.snapshot().requestsLastMinute, 5);
   budget.pauseAll();
   await assert.rejects(() => budget.run("job_dispatch", async () => "blocked"), /paused/);
 });
@@ -74,7 +80,7 @@ test("worker task reconciliation still reads Agent tasks when the polling quota 
     const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port }, budget);
     const snapshot = await client.getWorkerTasks();
     assert.deepEqual(snapshot.tasks.map((task) => task.commandId), ["existing-job"]);
-    assert.equal(budget.snapshot().requestsLastMinute, 1);
+    assert.equal(budget.snapshot().requestsLastMinute, 2);
     budget.pauseAll();
     await assert.rejects(() => client.getWorkerTasks(), /paused/);
   } finally {
@@ -121,13 +127,11 @@ test("request budget avoids rescanning or shifting the rolling event window", ()
 });
 
 test("tunnel gateway defaults and realtime refresh policy match the current contract", () => {
-  assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.health, 60_000);
-  assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.snapshot, 60_000);
-  assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.diagnostics, 60_000);
-  assert.equal(defaultRequestBudgetConfig.minIntervalByPurpose.gpu_history, 1_000);
+  assert.deepEqual(defaultRequestBudgetConfig.minIntervalByPurpose, {});
+  assert.equal(defaultRequestBudgetConfig.maxRequestsPerMinute, 0);
   assert.equal(defaultTunnelGatewayConfig.healthCheckIntervalSeconds, 30);
   assert.equal(defaultTunnelGatewayConfig.snapshotPollIntervalSeconds, 30);
-  assert.equal(defaultTunnelGatewayConfig.maxRequestsPerMinute, 120);
+  assert.equal(defaultTunnelGatewayConfig.maxRequestsPerMinute, 0);
   assert.equal(refreshProfiles.realtime.health, 5);
   assert.equal(refreshProfiles.realtime.snapshot, 30);
   assert.equal(refreshProfiles.balanced.health, 10);
@@ -138,6 +142,5 @@ test("tunnel gateway defaults and realtime refresh policy match the current cont
   assert.equal(normalized.snapshotPollIntervalSeconds, 30);
 
   const budgetConfig = requestBudgetConfigFromTunnel(normalized);
-  assert.equal(budgetConfig.minIntervalByPurpose.health, 60_000);
-  assert.equal(budgetConfig.minIntervalByPurpose.snapshot, 60_000);
+  assert.deepEqual(budgetConfig.minIntervalByPurpose, {});
 });

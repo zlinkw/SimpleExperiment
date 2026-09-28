@@ -40,7 +40,7 @@ test("results quality statistics paper and case analysis use Hub Agent API", asy
   }
 });
 
-test("manual all-Plan result rebuild bypasses the background snapshot cooldown", async () => {
+test("multiple Plan result reads ignore legacy snapshot cooldown", async () => {
   let requests = 0;
   const server = http.createServer((_req, res) => {
     requests += 1;
@@ -54,9 +54,9 @@ test("manual all-Plan result rebuild bypasses the background snapshot cooldown",
   );
   try {
     await client.getResultsSummary("experiments/plans/a.yaml");
-    await assert.rejects(client.getResultsSummary("experiments/plans/b.yaml"), /cooldown/);
+    await client.getResultsSummary("experiments/plans/b.yaml");
     await client.getResultsSummary("experiments/plans/b.yaml", { userInitiated: true });
-    assert.equal(requests, 2);
+    assert.equal(requests, 3);
   } finally {
     server.close();
   }

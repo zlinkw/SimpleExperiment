@@ -10443,29 +10443,9 @@ class RealtimeTunnelPanelProvider {
         return actions?.[action] === true ? [] : [`actions.${action}`];
     }
     async enterWorkerActionSlot(workerId) {
-        const previousAdmission = this.workerActionAdmissionLocks.get(workerId) || Promise.resolve();
-        let releaseAdmission = () => undefined;
-        const currentAdmission = previousAdmission.catch(() => undefined).then(() => new Promise((resolve) => { releaseAdmission = resolve; }));
-        this.workerActionAdmissionLocks.set(workerId, currentAdmission);
-        await previousAdmission.catch(() => undefined);
-        try {
-            const settings = this.schedulerSettings();
-            while ((this.workerActionInFlight.get(workerId) || 0) >= settings.workerActionMaxConcurrent) {
-                await this.waitForWorkerActionRelease(workerId);
-            }
-            // Fix: remove rate-limit throw for internal consecutive steps (validatePlan/dryRunPlan/runPlan).
-            // Single "validate and submit" triggers 3 worker actions in sequence; prior 500ms throw
-            // incorrectly flagged internal steps as "too frequent". Keep only maxConcurrent queuing.
-            // Very short double-clicks are serialized by admission lock. prepareAgents does not use workerActionSlot.
-            const currentInFlight = this.workerActionInFlight.get(workerId) || 0;
-            this.workerActionInFlight.set(workerId, currentInFlight + 1);
-            this.recordWorkerActionAt(workerId, Date.now(), settings.workerActionMinIntervalMs);
-        }
-        finally {
-            releaseAdmission();
-            if (this.workerActionAdmissionLocks.get(workerId) === currentAdmission)
-                this.workerActionAdmissionLocks.delete(workerId);
-        }
+        // Transport admission must not hold a stop/clear behind a slow preflight.
+        // Operation identity, Plan submission and queue-write guards own mutation ordering.
+        this.workerActionInFlight.set(workerId, (this.workerActionInFlight.get(workerId) || 0) + 1);
         let released = false;
         return () => {
             if (released)

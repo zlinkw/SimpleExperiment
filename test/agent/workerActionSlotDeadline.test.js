@@ -1,104 +1,61 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
-const { readSource } = require("../_helpers/sourceReader");
+const vm = require("node:vm");
 
-const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
-
-function runAgentScript(body) {
-  const script = `
-import importlib.util, json, threading, time
-
-spec = importlib.util.spec_from_file_location("cluster_agent", ${JSON.stringify(agentPath)})
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
-
-${body}
-`;
-  const run = spawnSync("python", ["-c", script], { encoding: "utf8", timeout: 120000 });
+function runSlotScript(body) {
+  const source = fs.readFileSync(path.join(__dirname, "../../dist/runtime/cluster_agent.py"), "utf8");
+  const start = source.indexOf("def acquire_worker_action_slot(");
+  const end = source.indexOf("\ndef action_target_keys(", start);
+  assert.ok(start >= 0 && end > start);
+  const script = [
+    "import json, threading, time, os",
+    "WORKER_ACTION_LOCK = threading.Lock()",
+    "WORKER_ACTION_INFLIGHT = {}",
+    "WORKER_ACTION_LAST_AT = {}",
+    "def prune_runtime_memory_state(): pass",
+    source.slice(start, end), body,
+  ].join("\n");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "simpleex-action-slot-"));
+  const scriptPath = path.join(directory, "slot.py");
+  fs.writeFileSync(scriptPath, script, "utf8");
+  const run = spawnSync("python", ["-X", "utf8", scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(run.status, 0, run.stderr);
   return JSON.parse(run.stdout.trim());
 }
 
-test("a starved waiter gives up instead of blocking its request thread forever", () => {
-  const result = runAgentScript(`
-agent.WORKER_ACTION_WAIT_TIMEOUT_SECONDS = 1
-payload = {"options": {"workerActionMinIntervalMs": 100000, "workerActionMaxConcurrent": 4}}
-
-release = agent.acquire_worker_action_slot(".", "worker-a", payload)
-started = time.time()
-error = ""
-try:
-    agent.acquire_worker_action_slot(".", "worker-a", payload)
-except RuntimeError as exc:
-    error = str(exc)
-elapsed = time.time() - started
-release()
-
-print(json.dumps({
-    "error": error,
-    "elapsed": elapsed,
-    "inflightCleared": agent.WORKER_ACTION_INFLIGHT.get("worker-a", 0),
-}))
-`);
-
-  assert.match(result.error, /等待防连点间隔超过 1 秒/);
-  assert.ok(result.elapsed >= 0.9, `gave up after ${result.elapsed}s, expected to wait out the deadline`);
-  assert.ok(result.elapsed < 10, `waited ${result.elapsed}s, deadline was not honoured`);
-  assert.equal(result.inflightCleared, 0, "the released slot must not leak");
+test("Worker actions ignore stored intervals and ceilings without sleeping", () => {
+  const result = runSlotScript([
+    'def forbidden_sleep(_): raise AssertionError("must not wait")',
+    'time.sleep = forbidden_sleep',
+    'payload = {"options": {"workerActionMinIntervalMs": 100000, "workerActionMaxConcurrent": 1}}',
+    'WORKER_ACTION_LAST_AT["w"] = int(time.time() * 1000)',
+    'slots = [acquire_worker_action_slot(".", "w", payload) for _ in range(150)]',
+    'active = WORKER_ACTION_INFLIGHT["w"]',
+    'for release in slots: release(); release()',
+    'print(json.dumps({"active": active, "remaining": WORKER_ACTION_INFLIGHT.get("w", 0)}))',
+  ].join("\n"));
+  assert.equal(result.active, 150);
+  assert.equal(result.remaining, 0);
 });
 
-test("the concurrency ceiling still rejects immediately", () => {
-  const result = runAgentScript(`
-payload = {"options": {"workerActionMinIntervalMs": 500, "workerActionMaxConcurrent": 1}}
-first = agent.acquire_worker_action_slot(".", "worker-b", payload)
-started = time.time()
-error = ""
-try:
-    agent.acquire_worker_action_slot(".", "worker-b", payload)
-except RuntimeError as exc:
-    error = str(exc)
-elapsed = time.time() - started
-first()
-
-print(json.dumps({"error": error, "elapsed": elapsed, "inflight": agent.WORKER_ACTION_INFLIGHT.get("worker-b", 0)}))
-`);
-
-  assert.match(result.error, /已达到并发上限 1/);
-  assert.ok(result.elapsed < 1, "the ceiling check must not wait");
-  assert.equal(result.inflight, 0);
-});
-
-test("a waiter that gets its turn still acquires the slot", () => {
-  const result = runAgentScript(`
-payload = {"options": {"workerActionMinIntervalMs": 600, "workerActionMaxConcurrent": 4}}
-first = agent.acquire_worker_action_slot(".", "worker-c", payload)
-first()
-
-started = time.time()
-second = agent.acquire_worker_action_slot(".", "worker-c", payload)
-elapsed = time.time() - started
-inflight_during = agent.WORKER_ACTION_INFLIGHT.get("worker-c", 0)
-second()
-
-print(json.dumps({
-    "elapsed": elapsed,
-    "inflightDuring": inflight_during,
-    "inflightAfter": agent.WORKER_ACTION_INFLIGHT.get("worker-c", 0),
-}))
-`);
-
-  assert.ok(result.elapsed >= 0.4, `acquired after ${result.elapsed}s, the debounce interval was skipped`);
-  assert.equal(result.inflightDuring, 1);
-  assert.equal(result.inflightAfter, 0);
-});
-
-test("the wait deadline is a named runtime constant", () => {
-  const source = readSource("src/clusterAgentRuntime.ts");
-  assert.match(source, /WORKER_ACTION_WAIT_TIMEOUT_SECONDS = 30/);
-  assert.match(source, /deadline = time\.time\(\) \+ WORKER_ACTION_WAIT_TIMEOUT_SECONDS/);
-  assert.match(source, /remaining_ms = int\(\(deadline - time\.time\(\)\) \* 1000\)/);
-  assert.match(source, /time\.sleep\(max\(1, min\(wait_ms, remaining_ms\)\) \/ 1000\.0\)/);
+test("local Worker admission allows stop while another action remains active", async () => {
+  const source = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const start = source.indexOf("    async enterWorkerActionSlot(");
+  const end = source.indexOf("    recordWorkerActionAt(", start);
+  assert.ok(start >= 0 && end > start);
+  const harness = vm.runInNewContext("({" + source.slice(start, end) + "})");
+  harness.workerActionInFlight = new Map();
+  harness.recordWorkerActionAt = () => {};
+  harness.notifyWorkerActionRelease = () => {};
+  harness.schedulerSettings = () => ({ workerActionMaxConcurrent: 1 });
+  harness.waitForWorkerActionRelease = () => { throw new Error("must not wait"); };
+  const releaseFirst = await harness.enterWorkerActionSlot("w");
+  const releaseStop = await harness.enterWorkerActionSlot("w");
+  assert.equal(harness.workerActionInFlight.get("w"), 2);
+  releaseFirst(); releaseFirst(); releaseStop();
+  assert.equal(harness.workerActionInFlight.has("w"), false);
 });
