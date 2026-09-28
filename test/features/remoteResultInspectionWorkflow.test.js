@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
@@ -48,7 +49,8 @@ function loadHelpers() {
     Date,
   };
   vm.createContext(sandbox);
-  vm.runInContext(extension.slice(start, end) + "\nthis.api = { REMOTE_RESULT_INSPECTION_MAX_BYTES, normalizeRemoteResultInspectionPath, remoteResultInspectionLocalRelativePath, methodResultArtifactLocalRelativePath, remoteResultInspectionCandidates, resultSummaryInspectionCandidates, resultSummarySyncCandidates };", sandbox);
+  const helpers = ts.transpileModule(extension.slice(start, end), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
+  vm.runInContext(helpers + "\nthis.api = { REMOTE_RESULT_INSPECTION_MAX_BYTES, normalizeRemoteResultInspectionPath, remoteResultInspectionLocalRelativePath, methodResultArtifactLocalRelativePath, remoteResultInspectionCandidates, resultSummaryInspectionCandidates, resultSummarySyncCandidates };", sandbox);
   return sandbox.api;
 }
 
@@ -131,6 +133,8 @@ test("bulk sync keeps current Plan scope and separates identical paths from diff
     { remotePath: raw, workerId: "nwpu5" },
     { remotePath: aggregate, workerId: "nwpu3" },
     { remotePath: aggregate, workerId: "nwpu5" },
+    { remotePath: finalCsv, workerId: "nwpu3" },
+    { remotePath: finalCsv, workerId: "nwpu5" },
   ]);
   assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, "experiments/plans/comparison/other.yaml")), []);
 });
@@ -264,7 +268,7 @@ test("Plan concise table is the primary result entry with scoped explanations", 
   assert.match(panel, /同步当前 Plan 原始与详细表/);
   assert.match(panel, /data-details-key="result-trace-files"/);
   assert.match(panel, /data-details-key="result-split-tables"/);
-  assert.match(panel, /尚无总表。点击“刷新所有结果”/);
+  assert.match(panel, /尚无总表。点击“同步服务器结果并更新总表”/);
   assert.match(panel, /重建当前 Plan 汇总/);
 });
 

@@ -14664,11 +14664,24 @@ class RealtimeTunnelPanelProvider {
                     issues.push(item.planFile + "：" + conflict);
                     continue;
                 }
-                if (!trustedCompletedResultSummary(summary) && !candidates.length) {
-                    issues.push(item.planFile + "：服务器摘要没有可信完成指标。下一步：确认该 Plan 是否已在 Worker 上跑完并写出 CSV。");
+                ready.push({ ...item, summary, candidates });
+            }
+            await this.recoverCompletedJobMetricFiles(projectContext, ready, isCurrent, token);
+            for (const item of ready) {
+                item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
+                const acceptance = acceptedCompletedRevision(item, item.summary);
+                if (!acceptance.ok) {
+                    item.downloadFailed = true;
+                    issues.push(item.planFile + "：" + acceptance.reason);
                     continue;
                 }
-                ready.push({ ...item, summary, candidates });
+                item.acceptedRunId = acceptance.runId;
+                item.acceptedRevision = acceptance.revision;
+                item.unavailableWorkerIds = item.summary?.unavailableWorkerIds || [];
+                if (item.metricDiscoveryError)
+                    issues.push(item.planFile + "：" + item.metricDiscoveryError);
+                if (!trustedCompletedResultSummary(item.summary) && !item.candidates.length)
+                    issues.push(item.planFile + "：服务器摘要尚未收录可解析的 CSV。" + (item.completedMetricFilesMissing?.length ? "已完成 job 的指标文件不存在或校验失败：" + item.completedMetricFilesMissing.slice(0, 3).join("；") : "请核对已完成 job 的结果文件。"));
             }
         });
         if (summaryCancelled || !isCurrent())
@@ -14677,7 +14690,7 @@ class RealtimeTunnelPanelProvider {
         let confirmed = { cancelled: false, overwrite: true, batches: [], skippedExisting: 0 };
         if (ready.some((item) => item.candidates.length)) {
             const batches = [];
-            for (const item of ready.filter((entry) => entry.candidates.length)) {
+            for (const item of ready.filter((entry) => !entry.downloadFailed && entry.candidates.length)) {
                 try {
                     batches.push(...this.collectMappedResultDownloadBatches(projectContext, [item], { metricsOnly: true }));
                 }
@@ -14752,6 +14765,135 @@ class RealtimeTunnelPanelProvider {
             ? await client.getResultsSummary(planFile, { userInitiated: true })
             : await this.refreshResultsSummary(planFile).then(() => this.resultsSummary);
         return filterCompletedResultSummaryForPlan(summary, planFile);
+    }
+    async recoverCompletedJobMetricFiles(context, items, isCurrent, token) {
+        const queue = await this.loadDistributedQueue(context.root);
+        const contract = this.distributedProjectContract();
+        const recoveries = [];
+        const sources = new Map();
+        for (const item of items) {
+            if (item.summary?.results?.length && resultMetricDownloadCandidates(item.summary, item.planFile).length)
+                continue;
+            const revision = String(item.authority?.revision || item.metadata?.revision || item.summary?.planRevision || "");
+            const plan = (queue.plans || []).filter((row) => samePlanSelection(row.planFile, item.planFile)
+                && row.revision === revision && row.jobs?.length && row.jobs.every((job) => job.status === "completed"))
+                .sort((a, b) => String(b.enqueuedAt || "").localeCompare(String(a.enqueuedAt || "")))[0];
+            if (!plan)
+                continue;
+            item.completedJobRunId = plan.id;
+            const acceptance = acceptedCompletedRevision({ metadata: item.metadata, authority: item.authority }, item.summary);
+            if (!acceptance.ok || reportedCompletedRunIds(item.summary).some((id) => id !== plan.id))
+                continue;
+            const files = [];
+            for (const job of plan.jobs) {
+                const output = String(job.outputDir || "").replace(/\\/g, "/");
+                if (!output || output.startsWith("/") || /^[A-Za-z]:/.test(output) || output.split("/").some((part) => !part || part === "." || part === "..")
+                    || !job.workerId || !job.case || !Number.isInteger(job.seed))
+                    throw new Error("已完成 job 的结果路径或身份无效：" + item.planFile);
+                const raw = output + "/" + contract.resultRowsPath;
+                const metrics = uniqueStrings([raw, output + "/" + contract.fourStatePath]).filter(isResultMetricFile);
+                if (!raw.toLowerCase().endsWith(".csv") || !metrics.includes(raw))
+                    throw new Error("分布式逐 seed 结果契约必须指向指标 CSV：" + item.planFile);
+                if (!sources.has(job.workerId))
+                    sources.set(job.workerId, new Set());
+                for (const file of metrics)
+                    sources.get(job.workerId).add(file);
+                files.push({ job, raw, metrics });
+            }
+            recoveries.push({ item, plan, files });
+        }
+        const inventories = new Map();
+        const unavailable = new Set();
+        for (const [workerId, scopePaths] of sources) {
+            if (!isCurrent() || token?.isCancellationRequested)
+                throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+            try {
+                const source = this.mappedDownloadServerForSource(workerId);
+                const inventory = await this.simpleSftpApiCall("sync.projectInventory", { source, relativePath: ".", scopePaths: [...scopePaths] });
+                if (inventory?.ok === false || !inventory?.files)
+                    throw new Error("指标文件清单无效");
+                inventories.set(workerId, inventory);
+            }
+            catch (error) {
+                unavailable.add(workerId);
+                for (const recovery of recoveries.filter((row) => row.files.some((file) => file.job.workerId === workerId)))
+                    recovery.item.metricDiscoveryError = workerId + " 指标文件清单失败：" + errorMessage(error);
+            }
+        }
+        for (const { item, plan, files } of recoveries) {
+            const tables = [];
+            const missing = [];
+            for (const { job, raw, metrics } of files) {
+                const inventory = inventories.get(job.workerId);
+                const verified = metrics.filter((file) => {
+                    const entry = inventory?.files?.[file];
+                    const expected = job.artifacts?.[file];
+                    return entry && !inventory.unverifiedFiles?.[file] && entry.size > 0 && entry.size <= RESULT_ARTIFACT_MAX_BYTES
+                        && /^[a-f0-9]{64}$/i.test(String(entry.sha256 || "")) && (!expected || expected === entry.sha256);
+                });
+                if (!verified.includes(raw)) {
+                    missing.push(job.workerId + ":" + raw);
+                    continue;
+                }
+                tables.push({ workerId: job.workerId, rawResultCsvPath: raw, aggregateStatus: "pending",
+                    metricPaths: verified, metricHashes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].sha256])),
+                    completedJob: { index: job.index, case: job.case, seed: job.seed, runId: plan.id, outputDir: job.outputDir } });
+            }
+            if (!tables.length) {
+                item.completedMetricFilesMissing = missing;
+                continue;
+            }
+            const recoveredWorkers = new Set(tables.map((table) => table.workerId));
+            item.summary = { ...item.summary, planFile: item.planFile, planRevision: plan.revision, completedRunId: plan.id,
+                workerResultTables: tables, results: [], recoveredCompletedJobs: true, completedMetricFilesMissing: missing,
+                unavailableWorkerIds: [...new Set([...(item.summary?.unavailableWorkerIds || []), ...files.map((file) => file.job.workerId).filter((id) => unavailable.has(id))])].filter((id) => !recoveredWorkers.has(id)),
+                incompleteAggregate: missing.length > 0, verifiedPartial: true };
+        }
+    }
+    async downloadMetricPlanItems(context, client, items, isCurrent, token, title, issues) {
+        const batches = [];
+        for (const item of items) {
+            try {
+                batches.push(...this.collectMappedResultDownloadBatches(context, [item], { metricsOnly: true }));
+            }
+            catch (error) {
+                item.downloadFailed = true;
+                issues.push(item.planFile + "：" + errorMessage(error) + "，保留旧表。");
+            }
+        }
+        let merged;
+        try {
+            merged = collapseMappedDownloadBatches(batches);
+        }
+        catch (error) {
+            const detail = errorMessage(error);
+            const blocked = items.filter((item) => detail.includes(item.planFile));
+            if (!blocked.length)
+                throw error;
+            for (const item of blocked) {
+                item.downloadFailed = true;
+                issues.push(item.planFile + "：" + detail);
+            }
+            merged = collapseMappedDownloadBatches(batches.map((batch) => {
+                const entries = batch.entries.filter((entry) => !blocked.some((item) => item.planFile === entry.planFile));
+                return { ...batch, entries, transfers: uniqueMappedTransfers(entries) };
+            }).filter((batch) => batch.entries.length));
+        }
+        const confirmed = await this.confirmMappedResultDownloads(context, client, merged, title, { metricsOnly: true });
+        if (confirmed.cancelled || !isCurrent() || token?.isCancellationRequested)
+            throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+        const downloads = [];
+        for (const batch of confirmed.batches) {
+            if (!isCurrent() || token?.isCancellationRequested)
+                throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+            const download = await this.downloadMappedResultBatch(context, client, batch, title, { metricsOnly: true, overwrite: confirmed.overwrite });
+            if (download?.cancelled)
+                throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+            downloads.push(download);
+            if (download?.failures?.length)
+                issues.push("来源 " + batch.sourceId + " 指标下载失败：" + download.failures.slice(0, 3).join("；") + "，保留旧表。");
+        }
+        return downloads;
     }
     async summaryForMetricDownloadWithBudget(client, planFile, index, total, isCurrent, token, progress) {
         let summary;
@@ -15034,7 +15176,8 @@ class RealtimeTunnelPanelProvider {
             }
             let localSummary;
             try {
-                localSummary = await this.summaryFromLocalMetricFiles(root, item.planFile, item.summary, { downloadedSources: verifiedDownloads, completedRunId: item.acceptedRunId || "" });
+                localSummary = await this.summaryFromLocalMetricFiles(root, item.planFile, item.summary, { downloadedSources: verifiedDownloads,
+                    completedRunId: reportedCompletedRunIds(item.summary).includes(item.acceptedRunId) ? item.acceptedRunId : "" });
             }
             catch (error) {
                 skipped.push(item.planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。下一步：修复该 CSV 后重新同步。");
@@ -15109,6 +15252,9 @@ class RealtimeTunnelPanelProvider {
             const text = localStat?.isFile() ? await fs.readFile(localPath, "utf8").catch(() => "") : "";
             if (!text)
                 continue;
+            const expectedHash = table.metricHashes?.[remotePath];
+            if (expectedHash && crypto.createHash("sha256").update(text, "utf8").digest("hex") !== expectedHash)
+                throw new Error("已下载指标与服务器文件指纹不一致：" + remotePath);
             const onlineParsedAt = Date.parse(String(table.lastParsedAt || summary?.lastParsedAt || ""));
             const sourceKey = workerId || "hub";
             const downloadedNow = options.authoritativeLocal === true || options.downloadedSources?.has(sourceKey);
@@ -15119,11 +15265,13 @@ class RealtimeTunnelPanelProvider {
             if (!downloadedNow && workerOnlineRows.length && Number.isFinite(onlineParsedAt) && localStat.mtimeMs + 1000 < onlineParsedAt)
                 continue;
             const parsed = parseDownloadedMetricCsv(text, pluginProjectAdapterRules(root).csvColumnMapping || {});
+            if (table.completedJob && (!parsed.length || parsed.some((row) => row.dimensions.case !== table.completedJob.case || String(row.dimensions.seed) !== String(table.completedJob.seed))))
+                throw new Error("已完成 job 的指标 CSV 缺失或 Case/seed 身份不匹配：" + remotePath);
             for (const row of parsed) {
                 results.push({
                     workerId: workerId || summary?.resultOwnerWorkerId || "",
                     resultOwnerWorkerId: workerId || summary?.resultOwnerWorkerId || "",
-                    ...(downloadedNow && options.completedRunId ? { runId: options.completedRunId, planRevision: summary?.planRevision || "" } : {}),
+                    ...((downloadedNow || expectedHash) && (table.completedJob?.runId || options.completedRunId) ? { runId: table.completedJob?.runId || options.completedRunId, planRevision: summary?.planRevision || "" } : {}),
                     dimensions: row.dimensions,
                     metrics: row.metrics,
                     sourceFiles: [{ path: remotePath }],
@@ -15539,7 +15687,9 @@ class RealtimeTunnelPanelProvider {
         const missing = [];
         const registeredPlans = new Set();
         const refreshedSummaries = [];
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重新汇总指标（不下载文件）", cancellable: true }, async (progress, token) => {
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "下载指标并重新汇总", cancellable: true }, async (progress, token) => {
+            const isCurrent = () => this.projectContextIsCurrent(context) && client === this.client;
+            const ready = [];
             for (const [index, plan] of plans.entries()) {
                 if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client)
                     throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
@@ -15547,40 +15697,51 @@ class RealtimeTunnelPanelProvider {
                 progress.report({ message: (index + 1) + "/" + plans.length + " " + planFile });
                 let summary;
                 try {
-                    for (let attempt = 0; attempt < 4; attempt++) {
-                        try {
-                            summary = await client.getResultsSummary(planFile, { userInitiated: true });
-                            break;
-                        }
-                        catch (error) {
-                            const decision = error?.decision;
-                            if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || "")))
-                                throw error;
-                            const delay = Math.min(61000, Math.max(500, Number(decision.retryAfterMs || 1000) + 100));
-                            progress.report({ message: (decision.reason === "cooldown" ? "本地请求间隔" : "本地请求预算繁忙") + "，等待 " + Math.ceil(delay / 1000) + " 秒：" + planFile });
-                            const deadline = Date.now() + delay;
-                            while (Date.now() < deadline) {
-                                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client)
-                                    throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
-                                await sleep(Math.min(1000, deadline - Date.now()));
-                            }
-                        }
-                    }
+                    summary = await this.summaryForMetricDownloadWithBudget(client, planFile, index, plans.length, isCurrent, token, progress);
                 }
                 catch (error) {
+                    if (error instanceof UiCommandCancelled)
+                        throw error;
                     issues.push(planFile + "：服务器摘要失败（" + errorMessage(error) + "），保留旧表。下一步：恢复该 Worker 后重试。");
                     continue;
                 }
-                const serverSummary = summaryWithoutSources(summary, new Set(summary?.unavailableWorkerIds || []));
+                ready.push({ planFile, metadata: plan, authority: PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile), summary: filterCompletedResultSummaryForPlan(summary, planFile) });
+            }
+            await this.recoverCompletedJobMetricFiles(context, ready, isCurrent, token);
+            for (const item of ready) {
+                const acceptance = acceptedCompletedRevision(item, item.summary);
+                if (!acceptance.ok) {
+                    item.downloadFailed = true;
+                    issues.push(item.planFile + "：" + acceptance.reason);
+                    continue;
+                }
+                item.acceptedRunId = acceptance.runId;
+                item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
+                if (item.metricDiscoveryError)
+                    issues.push(item.planFile + "：" + item.metricDiscoveryError);
+            }
+            const downloads = await this.downloadMetricPlanItems(context, client, ready.filter((item) => !item.downloadFailed), isCurrent, token, "下载指标并重新汇总", issues);
+            const downloadedSources = new Set(downloads.filter(verifiedDownload).map((item) => String(item.sourceId || "hub")));
+            const failedSources = new Set(downloads.filter((item) => !verifiedDownload(item)).map((item) => String(item.sourceId || "hub")));
+            for (const item of ready) {
+                if (!isCurrent() || token.isCancellationRequested)
+                    throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
+                if (item.downloadFailed)
+                    continue;
+                const plan = item.metadata;
+                const planFile = item.planFile;
+                let summary;
+                const serverSummary = summaryWithoutSources(item.summary, failedSources);
                 let localSummary;
                 try {
-                    localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary);
+                    localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary, { downloadedSources,
+                        completedRunId: reportedCompletedRunIds(serverSummary).includes(item.acceptedRunId) ? item.acceptedRunId : "" });
                 }
                 catch (error) {
                     issues.push(planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。");
                     continue;
                 }
-                summary = summaryWithoutSources(preferServerMetricSummary(serverSummary, localSummary, { downloadedSources: new Set() }) || serverSummary, new Set());
+                summary = summaryWithoutSources(preferServerMetricSummary(serverSummary, localSummary, { downloadedSources }) || serverSummary, failedSources);
                 const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
                 let useRegistered = false;
                 if (!trustedCompletedResultSummary(summary) && !(serverSummary?.results?.length)) {
@@ -15611,14 +15772,16 @@ class RealtimeTunnelPanelProvider {
                     issues.push(planFile + "：同步记录有完成运行 " + acceptance.runId + "，服务器摘要没有 run 身份，按 revision " + acceptance.revision + " 收录，不标记为该次运行。");
                 if (acceptance.note)
                     issues.push(planFile + "：" + acceptance.note);
-                if (!trustedCompletedResultSummary(summary)) {
-                    const detail = planFile + "：尚无可收录的逐 seed 指标。" + (serverSummary?.workerResultTables?.some((table) => table.aggregateStatus === "no_declared_csv") ? "服务器 Plan 未声明原始 CSV，请核对结果路径配置。" : "确认运行完成并同步结果后再重算。");
-                    if (authority?.runId && authority.runId !== "historic")
+                if (!trustedCompletedResultSummary(summary) || !(summary?.results || []).some((row) => Object.values(row?.metrics || {}).some((metric) => Number.isFinite(Number(metric?.value ?? metric))))) {
+                    const detail = planFile + "：尚无可收录的逐 seed 指标。" + (item.completedMetricFilesMissing?.length ? "已完成 job 的指标文件不存在或校验失败：" + item.completedMetricFilesMissing.slice(0, 3).join("；") : "服务器摘要尚未收录可解析的 CSV，请核对已完成 job 的结果文件。");
+                    if (item.completedJobRunId || authority?.runId && authority.runId !== "historic")
                         missing.push(detail);
                     else
                         pending.push(detail);
                     continue;
                 }
+                if (serverSummary.completedMetricFilesMissing?.length)
+                    missing.push(planFile + "：部分已完成 job 缺少可验证的指标文件：" + serverSummary.completedMetricFilesMissing.slice(0, 3).join("；"));
                 try {
                     const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
                     ProjectResultTables.buildTables(next);
@@ -15661,7 +15824,7 @@ class RealtimeTunnelPanelProvider {
             report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
         this.resultSyncReport = report;
         this.postState();
-        const message = formatResultSyncReport(report, "重新汇总指标（不下载文件）");
+        const message = formatResultSyncReport(report, "下载指标并重新汇总");
         if (issues.length || missing.length)
             void vscode.window.showWarningMessage(message);
         else
@@ -27176,10 +27339,14 @@ function methodResultArtifactLocalRelativePath(remotePath, planFile, summary, re
     const folder = path.posix.join(base, method);
     const target = (kind, file) => path.posix.join(folder, kind, ...(worker ? [worker] : []), file);
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
-    const owned = tables.find((row) => String(row?.workerId || "").toLowerCase() === String(workerId || "").toLowerCase()) || {};
+    const ownedTables = !workerId && tables.length === 1 ? tables : tables.filter((row) => String(row?.workerId || "").toLowerCase() === String(workerId || "").toLowerCase());
+    const owned = ownedTables.find((row) => [row.rawResultCsvPath, row.aggregateCsvPath, ...(row.metricPaths || [])].includes(normalized)) || ownedTables[0] || {};
     const matches = (key) => normalized === owned[key] || normalized === summary?.[key];
-    if (matches("rawResultCsvPath"))
-        return target("raw", plan + "_seed" + path.posix.extname(normalized));
+    if (matches("rawResultCsvPath")) {
+        const job = owned.completedJob;
+        const suffix = job ? "_" + safePlanToken(job.index + "_" + job.case + "_seed" + job.seed) + "_" + crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 8) : "_seed";
+        return target("raw", plan + suffix + path.posix.extname(normalized));
+    }
     if (matches("aggregateCsvPath"))
         return target("detail", plan + "_seed_mean_std.csv");
     if (matches("finalCsvPath"))
@@ -27267,7 +27434,7 @@ function resultSummaryInspectionCandidates(summary, planFile) {
         item.finalMarkdownPath,
         item.projectFinalCsvPath,
         item.projectFinalMarkdownPath,
-        ...(Array.isArray(item.workerResultTables) ? item.workerResultTables.flatMap((row) => [row.rawResultCsvPath, row.aggregateCsvPath, row.projectAggregateCsvPath, row.finalCsvPath, row.finalMarkdownPath, row.projectFinalCsvPath, row.projectFinalMarkdownPath]) : []),
+        ...(Array.isArray(item.workerResultTables) ? item.workerResultTables.flatMap((row) => [row.rawResultCsvPath, row.aggregateCsvPath, row.projectAggregateCsvPath, row.finalCsvPath, row.finalMarkdownPath, row.projectFinalCsvPath, row.projectFinalMarkdownPath, ...(row.metricPaths || [])]) : []),
         item.preview_csv_path,
         item.effectiveResultsCsvPath,
         item.effective_results_csv_path,
@@ -27452,14 +27619,14 @@ function parseDownloadedMetricCsv(text, columnMapping = {}) {
         };
         const metrics = {};
         if (metricIndex >= 0 && valueIndex >= 0 && cells[metricIndex]) {
-            const value = Number(cells[valueIndex]);
+            const value = String(cells[valueIndex] || "").trim() ? Number(cells[valueIndex]) : NaN;
             if (Number.isFinite(value))
                 metrics[cells[metricIndex]] = { value };
         }
-        for (const [column, name] of parsed.header.entries()) {
+        for (const [column, name] of metricIndex >= 0 && valueIndex >= 0 ? [] : parsed.header.entries()) {
             if (reserved.has(column))
                 continue;
-            const value = Number(cells[column]);
+            const value = String(cells[column] || "").trim() ? Number(cells[column]) : NaN;
             if (name && Number.isFinite(value))
                 metrics[name] = { value };
         }
@@ -27468,7 +27635,7 @@ function parseDownloadedMetricCsv(text, columnMapping = {}) {
 }
 function isResultMetricFile(value) {
     const normalized = String(value || "").replace(/\\/g, "/").toLowerCase();
-    if (!normalized || isBlockedResultScope(normalized))
+    if (!normalized || /(?:^|\/)(?:checkpoints?|weights?)(?:\/|$)/.test(normalized))
         return false;
     if (/\.(pt|pth|ckpt|bin|safetensors|onnx|log|out|txt)$/i.test(normalized))
         return false;
@@ -27675,13 +27842,15 @@ function preferServerMetricSummary(serverSummary, localSummary, options = {}) {
         const serverTable = (serverSummary.workerResultTables || []).find((row) => String(row.workerId || "") === owner);
         const useLocal = downloaded.has(owner) ? localRows.length >= serverRows.length : serverRows.length === 0 && localRows.length > 0;
         rows.push(...(useLocal ? localRows : serverRows));
-        const table = useLocal ? localTable || serverTable : serverTable || localTable;
-        if (table)
-            tables.push(table);
+        const chosenTables = ((useLocal ? localSummary.workerResultTables : serverSummary.workerResultTables) || []).filter((row) => ownerKey(row) === owner);
+        if (chosenTables.length)
+            tables.push(...chosenTables);
+        else if (localTable || serverTable)
+            tables.push(localTable || serverTable);
     }
     if (!rows.length)
         return serverSummary;
-    return { ...serverSummary, results: rows, workerResultTables: tables.length ? tables : serverSummary.workerResultTables, verifiedPartial: Boolean(serverSummary.unavailableWorkerIds?.length), aggregateCoverage: serverSummary.aggregateCoverage };
+    return { ...serverSummary, results: rows, workerResultTables: tables.length ? tables : serverSummary.workerResultTables, verifiedPartial: serverSummary.verifiedPartial === true || Boolean(serverSummary.unavailableWorkerIds?.length), aggregateCoverage: serverSummary.aggregateCoverage };
 }
 function formatResultSyncReport(report, title) {
     const discovered = Number(report?.discovered || (report?.plans || []).length || 0);
@@ -27720,10 +27889,10 @@ function resultMetricDownloadCandidates(summary, planFile) {
 function resultSummarySyncCandidates(summary, planFile) {
     const inspected = new Set(resultSummaryInspectionCandidates(summary, planFile));
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
-    const fields = ["rawResultCsvPath", "aggregateCsvPath"];
+    const fields = ["rawResultCsvPath", "aggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "projectFinalCsvPath", "projectFinalMarkdownPath"];
     const paths = uniqueStrings([
         ...fields.map((field) => summary?.[field]),
-        ...tables.flatMap((table) => fields.map((field) => table?.[field])),
+        ...tables.flatMap((table) => [...fields.map((field) => table?.[field]), ...(table.metricPaths || [])]),
     ].filter((item) => inspected.has(item)));
     const owner = String(summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
     const entries = [];
@@ -27736,7 +27905,7 @@ function resultSummarySyncCandidates(summary, planFile) {
         }
     };
     for (const remotePath of paths) {
-        const matchingTables = tables.filter((table) => [table.rawResultCsvPath, table.aggregateCsvPath].includes(remotePath));
+        const matchingTables = tables.filter((table) => [...fields.map((field) => table?.[field]), ...(table.metricPaths || [])].includes(remotePath));
         if (matchingTables.length) {
             for (const table of matchingTables)
                 add(remotePath, table.workerId);

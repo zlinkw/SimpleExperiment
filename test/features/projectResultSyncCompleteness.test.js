@@ -179,7 +179,7 @@ test("sync includes every completed plan and both workers before one mapped down
   assert.equal(fs.existsSync(path.join(workspace, "experiments", "results", "final", "final.csv")), true);
 });
 
-test("rebuild recomputes both workers from the server summary and does not download", async () => {
+test("rebuild downloads metrics from both workers before recomputing and does not merge directories", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-rebuild-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   const provider = providerFor(workspace);
@@ -190,7 +190,8 @@ test("rebuild recomputes both workers from the server summary and does not downl
   } });
   const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
   await __handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
-  assert.equal(provider.calls.some((call) => call[0] === "sync.downloadMappedPaths" || call[0] === "merge"), false);
+  assert.equal(provider.calls.some((call) => call[0] === "merge"), false);
+  assert.deepEqual(provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths").map((call) => call[1]).sort(), ["w1", "w2"]);
   const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
   assert.equal(registry.plans["experiments/plans/a.yaml"].records.length, 3);
   assert.equal(provider.calls.filter((call) => call[0] === "summary").length, 4);
@@ -387,7 +388,7 @@ test("a missing owner does not publish server rows and a partial worker aggregat
   const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
   await RealtimeTunnelPanelProvider.prototype.handleMessageCore.call(host, { command: "rebuildProjectResultTables" }, "rebuildProjectResultTables");
   const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
-  assert.deepEqual(registry.plans["experiments/plans/a.yaml"].records.map((item) => item.workerId), ["w1"]);
+  assert.deepEqual(registry.plans["experiments/plans/a.yaml"].records.map((item) => [item.workerId, item.seed]), [["w1", "1"], ["w1", "2"]]);
   assert.match(JSON.stringify(host.resultSyncReport || {}), /w2|unavailable|缺/);
 });
 

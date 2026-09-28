@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const Module = require("node:module");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const test = require("node:test");
 
 const root = path.join(__dirname, "..", "..");
@@ -16,7 +17,7 @@ const vscodeStub = {
   },
   window: {
     showSaveDialog: async () => undefined,
-    showWarningMessage: async (_text, _options, first) => first,
+    showWarningMessage: async (_text, _options, first) => vscodeStub.window.downloadChoice || first,
     showInformationMessage: async () => {},
     setStatusBarMessage: () => {},
     withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
@@ -40,7 +41,7 @@ function sliceBetween(source, start, end) {
 test("the result table button merges every known result scope before any metric download", () => {
   assert.match(panel, /data-command="syncPendingPlanArtifacts"/);
   assert.match(panel, /同步服务器结果并更新总表/);
-  assert.match(panel, /重新汇总指标（不下载文件）/);
+  assert.match(panel, /下载指标并重新汇总/);
   assert.doesNotMatch(panel, /刷新所有结果|合并最新结果并拉取指标/);
   assert.match(panel, /尚无总表。点击“同步服务器结果并更新总表”/);
   assert.doesNotMatch(panel, /同步待处理产物 \(/);
@@ -369,6 +370,7 @@ test("overwrite refusal, transfer failure and project switch do not publish a ne
 });
 
 test("refresh all results redraws tables from local metric files for empty and stale catalogs", async () => {
+  vscodeStub.window.downloadChoice = "只同步缺失文件";
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-refresh-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
@@ -442,6 +444,7 @@ test("two plans sharing one remote CSV use one mapped RPC and land in both plan 
 });
 
 test("quoted mapped columns refresh the visible table and a stale local file does not replace a newer summary", async () => {
+  vscodeStub.window.downloadChoice = "只同步缺失文件";
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-quoted-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   adapterRulesByRoot.set(workspace, { csvColumnMapping: { case: "specimen", seed: "rng", rate_percent: "rate", eval_protocol: "protocol" } });
@@ -620,6 +623,7 @@ test("distribution rejects symlink destinations and preserves content when repla
 });
 
 test("local train_rate 0.5 becomes 50 in the project table while rate_percent stays 50", async () => {
+  vscodeStub.window.downloadChoice = "只同步缺失文件";
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-rate-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
@@ -650,10 +654,11 @@ test("local train_rate 0.5 becomes 50 in the project table while rate_percent st
 });
 
 test("refresh keeps a newer online summary when the local file has no trustworthy parsed timestamp", async () => {
+  vscodeStub.window.downloadChoice = "只同步缺失文件";
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-online-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
-    const csvDir = path.join(workspace, "experiments", "results", "a", "raw");
+    const csvDir = path.join(workspace, "experiments", "results", "w1", "raw");
     fs.mkdirSync(csvDir, { recursive: true });
     fs.writeFileSync(path.join(csvDir, "a_seed.csv"), "case,seed,method,dataset,metric,value\nalpha,1,w1,set,AUC,0.1\n");
     const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")] });
@@ -677,6 +682,7 @@ test("refresh keeps a newer online summary when the local file has no trustworth
 });
 
 test("rebuild reuses accepted seed records and reports unparsed Plans as awaiting metrics", async () => {
+  vscodeStub.window.downloadChoice = undefined;
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-rebuild-registered-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
@@ -723,3 +729,70 @@ test("rebuild never replaces a contradictory server revision with old registered
     assert.equal(fs.existsSync(path.join(workspace, "experiments/results/final/final.csv")), false);
   } finally { vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }]; }
 });
+
+test("rebuild downloads raw and final metric files before recomputing without merging directories", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-rebuild-download-"));
+  const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }] });
+  provider.client.getResultsSummary = async (planFile) => ({ ...summaryFor(planFile, "w1"),
+    finalCsvPath: "simple_cluster/results/w1/final.csv", finalMarkdownPath: "simple_cluster/results/w1/final.md" });
+  const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
+  await __handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
+  const transfers = provider.calls.filter(([name]) => name === "sync.downloadMappedPaths");
+  assert.equal(transfers.length, 1);
+  assert.deepEqual(transfers[0][1].entries.map((row) => row.remotePath).sort(), [
+    "simple_cluster/results/w1/detail.csv", "simple_cluster/results/w1/final.csv",
+    "simple_cluster/results/w1/final.md", "simple_cluster/results/w1/raw.csv",
+  ]);
+  assert.equal(transfers[0][1].metricsOnly, true);
+  assert.equal(provider.calls.some(([name]) => name === "merge" || name === "download"), false);
+  assert.match(fs.readFileSync(path.join(workspace, "experiments/results/final/final.csv"), "utf8"), /0\.91/);
+});
+
+for (const fault of ["", "wrong-seed", "wrong-hash"]) {
+test("rebuild verifies completed job CSVs when the server summary has no indexed CSV: " + (fault || "valid"), async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-rebuild-job-files-"));
+  const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }] });
+  const planFile = "experiments/plans/a.yaml";
+  const jobs = [1, 2].map((seed, index) => ({ index, case: "alpha", seed, attempt: 1, workerId: "w1",
+    status: "completed", outputDir: "work_dirs/a/" + index + "/attempts/run-a" }));
+  provider.loadDistributedQueue = async () => ({ schemaVersion: 1, plans: [{ id: "run-a", planFile,
+    revision: "r1", enqueuedAt: "2026-09-27T00:00:00Z", jobs }] });
+  provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
+  provider.client.getResultsSummary = async () => ({ planFile, planRevision: "r1", results: [],
+    workerResultTables: [{ workerId: "w1", aggregateStatus: "no_declared_csv", rawResultCsvPath: "" }] });
+  const files = Object.fromEntries(jobs.flatMap((job) => {
+    const csv = "case,seed,method,dataset,eval_protocol,metric,value,epoch\nalpha," + (fault === "wrong-seed" ? 99 : job.seed) + ",a,set,clean,AUC," + (0.7 + job.seed / 10) + ",99\n";
+    return [[job.outputDir + "/test_results/formal_result_rows.csv", csv], [job.outputDir + "/test_results/four_state_metrics.csv", csv]];
+  }));
+  provider.simpleSftpApiCall = async (method, params) => {
+    provider.calls.push([method, params]);
+    if (method === "sync.projectInventory") {
+      assert.equal(params.scopePaths.every((file) => file.endsWith(".csv") && !file.includes("best_model")), true);
+      return { ok: true, files: Object.fromEntries(Object.entries(files).map(([file, text]) => [file,
+        { size: Buffer.byteLength(text), sha256: crypto.createHash("sha256").update(text).digest("hex") }])) };
+    }
+    assert.equal(method, "sync.downloadMappedPaths");
+    for (const entry of params.entries) {
+      const full = path.join(workspace, ...entry.localRelativePath.split("/"));
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, files[entry.remotePath] + (fault === "wrong-hash" ? "\n" : ""), "utf8");
+    }
+    return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+  };
+  const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
+  if (fault) {
+    await assert.rejects(__handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" }), /Case\/seed|指纹不一致/);
+    assert.equal(fs.existsSync(path.join(workspace, "simple_cluster/results/project_table_registry.json")), false);
+    return;
+  }
+  await __handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
+  const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster/results/project_table_registry.json"), "utf8"));
+  assert.equal(registry.plans[planFile].records.length, 2);
+  assert.deepEqual(registry.plans[planFile].records.map((row) => row.seed).sort(), ["1", "2"]);
+  assert.equal(registry.plans[planFile].records.every((row) => row.runId === "run-a"), true);
+  assert.equal(registry.plans[planFile].records.every((row) => Object.keys(row.metrics).join() === "AUC"), true);
+  assert.equal(provider.calls.filter(([name]) => name === "sync.projectInventory").length, 1);
+  assert.equal(provider.calls.filter(([name]) => name === "sync.downloadMappedPaths").length, 1);
+  assert.equal(provider.calls.some(([name]) => name === "merge"), false);
+});
+}

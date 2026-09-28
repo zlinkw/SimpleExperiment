@@ -133,13 +133,18 @@ export function recordsForSummary(summary: any, planFile: string): SeedRecord[] 
   if ((summary.incompleteAggregate && summary.verifiedPartial !== true) || (Array.isArray(summary.unavailableWorkerIds) && summary.unavailableWorkerIds.length && summary.verifiedPartial !== true)) throw new Error("部分 Worker 离线，暂不覆盖总表。");
   const tables = Array.isArray(summary.workerResultTables) ? summary.workerResultTables : [];
   if (tables.some((row: any) => row.aggregateStatus && row.aggregateStatus !== "ready")) throw new Error("部分 Worker 的当前 Plan 汇总未就绪。");
-  const sources = new Map<string, string>();
-  for (const row of tables) sources.set(String(row.workerId || "").toLowerCase(), String(row.rawResultCsvPath || ""));
+  const sources = new Map<string, Set<string>>();
+  for (const row of tables) {
+    const worker = String(row.workerId || "").toLowerCase();
+    if (!sources.has(worker)) sources.set(worker, new Set());
+    sources.get(worker)!.add(String(row.rawResultCsvPath || ""));
+  }
   const records: SeedRecord[] = [];
   for (const row of Array.isArray(summary.results) ? summary.results : []) {
     const workerId = String(row?.workerId || row?.resultOwnerWorkerId || summary.resultOwnerWorkerId || "").trim();
-    const declared = sources.get(workerId.toLowerCase()) || String(summary.rawResultCsvPath || "");
-    if (!declared || String(row?.sourceFiles?.[0]?.path || "") !== declared) continue;
+    const declared = sources.get(workerId.toLowerCase()) || new Set([String(summary.rawResultCsvPath || "")]);
+    const source = String(row?.sourceFiles?.[0]?.path || "");
+    if (!source || !declared.has(source)) continue;
     const dims = row?.dimensions || {};
     const caseName = String(dims.case || "").trim();
     const seed = String(dims.seed ?? "").trim();

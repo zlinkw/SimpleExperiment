@@ -14364,7 +14364,7 @@ export function renderPanelHtml(): string {
       }).join("");
       return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>全项目 final 与各方法结果分开保存。表格已在本机项目目录。</p></div>' +
         '<div><button type="button" data-command="syncPendingPlanArtifacts" title="先按最新版合并各 Worker 上当前项目的结果范围，再按每个来源一次打包下载 CSV/JSON/MD 指标，并更新全项目总表与方法表。会查询服务器。不重新训练，不下载权重。待处理产物计数属于自动的权重和日志同步，此按钮不会把它标成已完成。">同步服务器结果并更新总表</button>' +
-        '<button type="button" class="secondary" data-command="rebuildProjectResultTables" title="读取服务器结果摘要和本机已有指标文件，只重算均值、样本标准差和总表。不下载文件，不合并 Worker 目录，也不重新训练。">重新汇总指标（不下载文件）</button></div></div>' +
+        '<button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的逐 seed CSV 和最终指标 CSV、Markdown，重算均值、样本标准差和总表。权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
         (reportHtml ? '<div class="muted">' + reportHtml + '</div>' : '') +
         (tables.length ? '<div class="resultTableCards">' + tableCards + '</div>' : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') +
         '<details class="resultArtifactGroup" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
